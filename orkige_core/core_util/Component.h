@@ -1,0 +1,88 @@
+/**************************************************************
+	created:	2010/08/19 at 22:54
+	filename: 	Component.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+#ifndef __Component_h__19_8_2010__22_54_36__
+#define __Component_h__19_8_2010__22_54_36__
+
+#include "core_util/ObjectFactory.h"
+#include "core_base/Object.h"
+#include <boost/utility/enable_if.hpp>
+#include <boost/type_traits/is_base_of.hpp>
+
+namespace Orkige
+{
+	//! Generic Component
+	template<typename OwnerType>
+	class ORKIGE_DLL Component : public Object
+	{
+		OOBJECT(Component<OwnerType>,Object)
+		//--- Types -------------------------------------------
+	public:
+		typedef OwnerType ComponentOwnerType;								//!< definition of the ComponentOwner
+		typedef ObjectFactory<Component<OwnerType> * (), String> Factory;	//!< Factory definitions for this Component
+	protected:
+	private:
+		//--- Variables ---------------------------------------
+	public:
+	protected:
+		StringList componentDependencies;	//!< list of Component names this component depends on
+	private:
+		OwnerType* owner;					//!< pointer to the owner of this component
+		//--- Methods -----------------------------------------
+	public:
+		//! constructor
+		explicit Component()								{	this->owner = NULL;		}
+		//! destructor
+		virtual ~Component(){};
+		//! only for internal use! called by the owner on attachment
+		inline void setComponentOwner(OwnerType* _owner)	{	this->owner = _owner;	}
+		//! get the owner of this component
+		inline OwnerType* getComponentOwner()				{	return this->owner;		}
+		//! get list of component names this component depends on
+		inline StringList const & getDependencies();
+
+		//! called when another component is added to the owner
+		virtual void onComponentAdded(String const & componentTypeName){};
+		//! called when another component is removed from the owner
+		virtual void onComponentRemoved(String const & componentTypeName){};
+		//! called when this component is added
+		virtual void onAdd(){};
+		//! called when this component is removed
+		virtual void onRemove(){};
+	protected:
+		//! add a dependency to the dependency list
+		inline void addDependency(String const & componentTypeName);
+		//! add a dependency to the dependency list
+		template<typename ComponentType> 
+		inline void addDependency(String const & componentTypeName = ComponentType::getClassTypeInfo().getName(),
+			typename boost::enable_if<boost::is_base_of<Component<OwnerType>, ComponentType> >::type * = 0)
+		{
+			this->addDependency(componentTypeName);	
+		}
+	private:
+	};
+	//---------------------------------------------------------
+	template<typename OwnerType>
+	inline StringList const & Component<OwnerType>::getDependencies()
+	{
+		return this->componentDependencies;
+	}
+	//---------------------------------------------------------
+	template<typename OwnerType>
+	inline void Component<OwnerType>::addDependency(String const & componentTypeName)
+	{
+		this->componentDependencies.push_back(componentTypeName);
+	}
+
+	//! has to be called before exporting your own module
+	//! you need also to OEXPORT(Component<OwnerType>)
+#define IMPLEMENT_COMPONENT(OwnerType)			\
+	OOBJECT_TEMPLATE_IMPL(Component,OwnerType)	\
+	OOBJECT_END
+}
+#endif //__Component_h__19_8_2010__22_54_36__

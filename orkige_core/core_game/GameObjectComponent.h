@@ -1,0 +1,59 @@
+/**************************************************************
+	created:	2010/08/15 at 15:16
+	filename: 	GameObjectComponent.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec	
+***************************************************************/
+#ifndef __GameObjectComponent_h__15_8_2010__15_16_42__
+#define __GameObjectComponent_h__15_8_2010__15_16_42__
+
+#include "core_util/ComponentHolder.h"
+#include "core_event/EventType.h"
+#include "core_event/EventListener.h"
+#include "core_event/EventHandler.h"
+
+class TiXmlDocument;
+class TiXmlElement;
+
+namespace Orkige
+{
+	class GameObject;
+
+	//! Base Component for GameObject's
+	class ORKIGE_DLL GameObjectComponent : public Component<GameObject>, public EventHandler
+	{
+		OOBJECT(GameObjectComponent,Component<GameObject>)
+		//--- Types -------------------------------------------
+	public:
+	protected:
+	private:
+		//--- Variables ---------------------------------------
+	public:
+	protected:
+	private:
+		//--- Methods -----------------------------------------
+	public:
+		//! constructor
+		GameObjectComponent();
+		//! destructor
+		virtual ~GameObjectComponent();
+		//! overridable to load special attributes when GameObject is loaded from template
+		virtual bool onLoadTemplate(TiXmlElement* element) { return true;};
+		//! overridable to save special attributes when GameObject is saved to template
+		virtual bool onSaveTemplate(TiXmlElement* element) { return true;};
+		//! @brief return EventManager
+		//!	calls GameObject::getEventManager
+		//! @see EventHandler::getEventManager
+		virtual EventManager* getEventManager();
+	protected:
+	private:
+	};
+	//---------------------------------------------------------
+#define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder<::Orkige::GameObjectComponent>::registerComponent<Class>();
+	//put this in the OOBJECT_IMPL block of each component
+#define GAMEOBJECTCOMPONENT() REGISTERGOCOMPONENT(OSelf)
+}
+
+#endif //__GameObjectComponent_h__15_8_2010__15_16_42__

@@ -1,0 +1,204 @@
+/********************************************************************
+	created:	Monday 2010/08/30 at 15:58
+	filename: 	AnimationComponent.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+*********************************************************************/
+#ifndef __AnimationComponent_h__30_8_2010__15_58_30__
+#define __AnimationComponent_h__30_8_2010__15_58_30__
+
+#include <core_game/GameObjectComponent.h>
+#include "engine_module/EnginePrerequisites.h"
+
+namespace Orkige
+{
+	//! component which can manage Animation Playback on GameObject's
+	class ORKIGE_DLL AnimationComponent : public GameObjectComponent
+	{
+		OOBJECT(AnimationComponent, GameObjectComponent)
+		//--- Types -------------------------------------------------
+	public:
+	protected:
+	private:
+		struct SimpleTransform
+		{
+			inline SimpleTransform();
+			inline SimpleTransform(SimpleTransform const & other);
+			inline SimpleTransform(Ogre::Vector3 const & _translate, Ogre::Quaternion const & _rotation, Ogre::Vector3 const & _scale);
+			Ogre::Vector3 translate;
+			Ogre::Quaternion rotation;
+			Ogre::Vector3 scale;
+		};
+		struct KeyFrameBackup : public SimpleTransform
+		{
+			inline KeyFrameBackup(unsigned short _index, Ogre::TransformKeyFrame * kf);
+			unsigned short index;
+		};
+		typedef std::vector<KeyFrameBackup> KeyFrameBackupVector;
+		typedef std::map<String, SimpleTransform> TransformRegistry;
+		typedef std::map<String, std::map<unsigned short, KeyFrameBackupVector> > KeyFrameBackupRegistry;
+		//--- Variables ---------------------------------------------
+	public:
+	protected:
+	private:
+		StringList					availableAnimations;
+		StringList					boneNames;
+		String						defaultAnimation;
+		String						motionBone;
+		Ogre::AnimationStateSet*	animationStates;
+		bool						handleMotion;
+		bool						handleRotation;
+		bool						extractMotion;
+		bool						extractRotation;
+		TransformRegistry			initialStateTransforms;
+		KeyFrameBackupRegistry		backuppedKeyframes;
+		//--- Methods -----------------------------------------------
+	public:
+		//! constructor
+		AnimationComponent();
+		//! destructor
+		virtual ~AnimationComponent();
+
+		//! get list of available animation names
+		inline StringList const & getAvailableAnimations();
+		//! get list of bone names
+		inline StringList const & getBoneNames();
+		//! get default anim name
+		inline String const & getDefaultAnimation();
+		//! set default anim name
+		void setDefaultAnimation(String const & anim);
+		//! are anims available
+		bool hasAnimations();
+		//! are anims playing?
+		bool hasPlayingAnimations();
+		//! play a anim
+		bool playAnimation(String const & anim, bool loop);
+		//! update playing anims
+		void updateAnimations(float timeDelta);
+		//! should component handle motions in anims?
+		inline bool getHandleMotion();
+		//! should component handle rotations in anims?
+		inline bool getHandleRotation();
+		//! should motions be extracted from anim
+		inline bool getExtractMotion();
+		//! should rotations should be xtracted from anim
+		inline bool getExtractRotation();
+
+		//! set motion handling
+		inline void setHandleMotion(bool handleMotion);
+		//! set rotation handling
+		inline void setHandleRotation(bool handleRotation);
+		//! set motion extraction
+		inline void setExtractMotion(bool extractMotion);
+		//! set rotation extraction
+		inline void setExtractRotation(bool extractRotation);
+
+		//! get bon for wich motions should be handled/extracted
+		inline String const & getMotionBone();
+		//! set bone for wich motions should be handled/extracted
+		inline void setMotionBone(String const & boneName);
+	protected:
+		//! component override gets called after the component is attached to a GameObject
+		virtual void onAdd();
+		//! component override gets called before the component is removed from a GameObject
+		virtual void onRemove();
+	private:
+		bool onFrameStarted(Event const & event);
+
+		bool onModelRemoved(Event const & event);
+		bool onModelSet(Event const & event);
+
+		void getAnimationsFromModel();
+		Ogre::Entity* getAnimableModel();
+		void handleMotionRotation(Ogre::AnimationState * state, float timeDelta);
+	};
+	//---------------------------------------------------------------
+	inline AnimationComponent::SimpleTransform::SimpleTransform()
+	{
+	}
+	//---------------------------------------------------------------
+	inline AnimationComponent::SimpleTransform::SimpleTransform(SimpleTransform const & other)
+		: translate(other.translate), rotation(other.rotation), scale(other.scale)
+	{
+	}
+	//---------------------------------------------------------------
+	inline AnimationComponent::SimpleTransform::SimpleTransform(Ogre::Vector3 const & _translate, Ogre::Quaternion const & _rotation, Ogre::Vector3 const & _scale)
+		: translate(_translate), rotation(_rotation), scale(_scale)
+	{
+	}
+	//---------------------------------------------------------------
+	inline AnimationComponent::KeyFrameBackup::KeyFrameBackup(unsigned short _index, Ogre::TransformKeyFrame * kf)
+		: AnimationComponent::SimpleTransform(kf->getTranslate(), kf->getRotation(), kf->getScale()), index(_index)
+	{
+	}
+	//---------------------------------------------------------------
+	inline StringList const & AnimationComponent::getAvailableAnimations()
+	{
+		return this->availableAnimations;
+	}
+	//---------------------------------------------------------------
+	inline StringList const & AnimationComponent::getBoneNames()
+	{
+		return this->boneNames;
+	}
+	//---------------------------------------------------------------
+	inline String const & AnimationComponent::getDefaultAnimation()
+	{
+		return this->defaultAnimation;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getHandleMotion()
+	{
+		return this->handleMotion;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getHandleRotation()
+	{
+		return this->handleRotation;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getExtractMotion()
+	{
+		return this->extractMotion;
+	}
+	//---------------------------------------------------------------
+	inline bool AnimationComponent::getExtractRotation()
+	{
+		return this->extractRotation;
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setHandleMotion(bool handleMotion)
+	{
+		this->handleMotion = handleMotion;
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setHandleRotation(bool handleRotation)
+	{
+		this->handleRotation = handleRotation;
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setExtractMotion(bool extractMotion)
+	{
+		this->extractMotion = extractMotion;
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setExtractRotation(bool extractRotation)
+	{
+		this->extractRotation = extractRotation;
+	}
+	//---------------------------------------------------------------
+	inline String const & AnimationComponent::getMotionBone()
+	{
+		return this->motionBone;
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setMotionBone(String const & boneName)
+	{
+		this->motionBone = boneName;
+	}
+	//---------------------------------------------------------------
+}
+
+#endif //__AnimationComponent_h__30_8_2010__15_58_30__
