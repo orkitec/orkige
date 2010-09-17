@@ -29,7 +29,7 @@ distribution.
 #include <sstream>
 #include <iostream>
 #endif
-#include "core_util/IphoneUtil.h"
+#include "core_util/PlatformUtil.h"
 
 bool TiXmlBase::condenseWhiteSpace = true;
 
@@ -1015,11 +1015,16 @@ bool TiXmlDocument::LoadFile( const char* filename, TiXmlEncoding encoding, Ipho
 	// Fixed with the StringToBuffer class.
 #ifdef ORKIGE_IPHONE
 	if(iphoneDir == MainBundle)
-		value = (Orkige::IPhoneUtil::GetIPhoneDataPath() + filename).c_str();
+		value = (Orkige::PlatformUtil::getResourceDirectory() + filename).c_str();
 	else
-		value = (Orkige::IPhoneUtil::GetIPhoneDocumentsDirectory() + filename).c_str();
+		value = (Orkige::PlatformUtil::getDocumentsDirectory() + filename).c_str();
+#else
+#ifdef __APPLE__
+	value = (Orkige::PlatformUtil::getResourceDirectory() + filename).c_str();
 #else
 	value = filename;
+#endif
+	
 #endif
 
 	// reading in binary mode so that tinyxml can normalize the EOL

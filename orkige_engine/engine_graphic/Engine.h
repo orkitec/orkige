@@ -14,6 +14,7 @@
 #include "engine_graphic/FrameEventData.h"
 #include "engine_module/EnginePrerequisites.h"
 #include <core_util/StringUtil.h>
+#include <core_util/PlatformUtil.h>
 
 namespace Orkige
 {
@@ -57,14 +58,14 @@ namespace Orkige
 	public:
 		//! construct Engine and set basic parameters
 		Engine(Ogre::SceneType st = Ogre::ST_GENERIC, 
-			String const & resourceCfgFileName = "data/Config/resources.cfg",
+			String const & resourceCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources.cfg",
 #ifdef _DEBUG
-			String const & pluginCfgFileName = "data/Config/plugins_d.cfg",
+			String const & pluginCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/plugins_d.cfg",
 #else
-			String const & pluginCfgFileName = "data/Config/plugins.cfg",
+			String const & pluginCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/plugins.cfg",
 #endif
-			String const & renderCfgFileName = "data/Config/orkitec.cfg", 
-			String const & engineLogFileName = "orkitec.log");
+			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
+			String const & engineLogFileName = Orkige::PlatformUtil::getResourceDirectory() + "orkitec.log");
 		//! destructor
 		virtual ~Engine();
 

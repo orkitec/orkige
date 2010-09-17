@@ -117,7 +117,7 @@ namespace Orkige
 			{
 				typeName = i->first;
 				archName = i->second;
-				Ogre::ResourceGroupManager::getSingleton().addResourceLocation(archName, typeName, secName);
+				Ogre::ResourceGroupManager::getSingleton().addResourceLocation(PlatformUtil::getResourceDirectory() + archName, typeName, secName);
 			}
 		}
 	}

@@ -6,10 +6,10 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec	
 *********************************************************************/
-#include <core_debug/DisableMemoryManager.h>
+//#include <core_debug/DisableMemoryManager.h>
 #define cimg_OS 0
 #include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
-#include <core_debug/EnableMemoryManager.h>
+//#include <core_debug/EnableMemoryManager.h>
 #include "engine_graphic/LightMap.h"
 #include "engine_physic/CollisionTools.h"
 

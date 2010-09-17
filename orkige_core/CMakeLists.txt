@@ -182,7 +182,8 @@ set(core_util_SOURCE
     core_util/SimpleStateMachine.cpp
     core_util/StringUtil.cpp
     core_util/Timer.cpp
-    core_util/IphoneUtil.mm
+    core_util/PlatformUtil.mm
+    core_util/PlatformUtil.cpp
 )
 
 set(core_util_HEADER
@@ -193,7 +194,7 @@ set(core_util_HEADER
     core_util/FastDelegate.h
     core_util/foreach.h
     core_util/Hash.h
-    core_util/IphoneUtil.h
+    core_util/PlatformUtil.h
     core_util/MacroRepeat.h
     core_util/ModuleManagerFactory.h
     core_util/ObjectFactory.h
