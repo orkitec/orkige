@@ -32,6 +32,10 @@
 #define MACRO_FUNCTION_PARAMETER(num) A##num a##num
 #define MACRO_FUNCTION_ARGUMENT(num) a##num
 
+#define MACRO_TEMPLATE_PARAMETER_B(num) typename B##num
+#define MACRO_TEMPLATE_ARGUMENT_B(num) B##num
+#define MACRO_FUNCTION_PARAMETER_B(num) B##num b##num
+#define MACRO_FUNCTION_ARGUMENT_B(num) b##num
 
 #define MACRO_REPEAT_0(begin_seperator, seperator, macro, end_seperator) 
 #define MACRO_REPEAT_1(begin_seperator, seperator, macro, end_seperator) begin_seperator##_DISPLAY macro(0) end_seperator##_DISPLAY

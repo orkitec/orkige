@@ -37,10 +37,10 @@ template <typename CtorSignature, typename UniqueIdType> class ObjectFactory;
    template<typename BaseClassType MACRO_LIST_APPEND(num, MACRO_TEMPLATE_PARAMETER), typename UniqueIdType> 											\
    class ObjectFactory<BaseClassType (MACRO_LIST(num, MACRO_TEMPLATE_ARGUMENT)), UniqueIdType>            												\
    {                                                                                                        											\
-		template<typename InternalBaseClassType MACRO_LIST_APPEND(num, MACRO_TEMPLATE_PARAMETER), typename ClassType>    									\
-		static InternalBaseClassType CreateObject(MACRO_LIST(num, MACRO_FUNCTION_PARAMETER))                                    							\
+		template<typename InternalBaseClassType MACRO_LIST_APPEND(num, MACRO_TEMPLATE_PARAMETER_B), typename ClassType>    									\
+		static InternalBaseClassType CreateObject(MACRO_LIST(num, MACRO_FUNCTION_PARAMETER_B))                                    							\
 		{                                                                                                        											\
-			return new ClassType MACRO_BEGIN_PAREN(num, MACRO_EMPTY_MACRO) MACRO_LIST(num, MACRO_FUNCTION_ARGUMENT) MACRO_END_PAREN(num, MACRO_EMPTY_MACRO);\
+			return new ClassType MACRO_BEGIN_PAREN(num, MACRO_EMPTY_MACRO) MACRO_LIST(num, MACRO_FUNCTION_ARGUMENT_B) MACRO_END_PAREN(num, MACRO_EMPTY_MACRO);\
 		}																																					\
    private:                                                                                                 											\
       typedef BaseClassType (*CreateObjectFunc)(MACRO_LIST(num, MACRO_FUNCTION_PARAMETER));                 											\
