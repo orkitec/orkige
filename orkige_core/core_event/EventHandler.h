@@ -22,7 +22,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 	protected:
-		typedef std::map<EventType, optr<EventListener>> EventListenerMap;	//!< map a EventType to a EventListener
+		typedef std::map<EventType, optr<EventListener> > EventListenerMap;	//!< map a EventType to a EventListener
 	private:
 		//--- Variables ---------------------------------------------
 	public:

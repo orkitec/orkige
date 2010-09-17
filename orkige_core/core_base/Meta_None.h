@@ -24,7 +24,7 @@
 //used for all objects and derived objects
 #define OOBJECT(ClassName, BaseClassName)																	\
 	friend class Orkige::TypeManager;																		\
-	friend Orkige::InterfaceTypeFactory;																		\
+	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;														\
 	ORKIGETTI(ClassName,BaseClassName)																		\
 	OINTERFACE(ClassName)
 
@@ -37,14 +37,14 @@
 
 #define OOBJECT2(ClassName,BaseClassName,BaseClassName2)													\
 	friend class Orkige::TypeManager;																		\
-	friend Orkige::InterfaceTypeFactory;																		\
+	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;														\
 	ORKIGETTI2(ClassName,BaseClassName,BaseClassName2)														\
 	OINTERFACE(ClassName)
 
 
 #define OOBJECT_TEMPLATE(ClassName,TemplateArgument,BaseClassName)											\
 	friend class Orkige::TypeManager;																		\
-	friend Orkige::InterfaceTypeFactory;																		\
+	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;														\
 	ORKIGETTI(ClassName,BaseClassName)																		\
 	OINTERFACE(ClassName)
 

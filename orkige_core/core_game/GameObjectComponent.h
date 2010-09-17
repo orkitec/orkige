@@ -51,7 +51,7 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------
-#define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder<::Orkige::GameObjectComponent>::registerComponent<Class>();
+#define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder< ::Orkige::GameObjectComponent >::registerComponent<Class>();
 	//put this in the OOBJECT_IMPL block of each component
 #define GAMEOBJECTCOMPONENT() REGISTERGOCOMPONENT(OSelf)
 }

@@ -44,7 +44,7 @@ VLDDisable ();
 	OEXPORT(Object)
 	OEXPORT(ObjectAttributeHolder::AttributeWrapper<int>)
 	OEXPORT(ObjectAttributeHolder::AttributeWrapper<long>)
-	OEXPORT(ObjectAttributeHolder::AttributeWrapper<uint>)
+OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORT(ObjectAttributeHolder::AttributeWrapper<float>)
 	OEXPORT(ObjectAttributeHolder::AttributeWrapper<double>)
 	OEXPORT(ObjectAttributeHolder::AttributeWrapper<bool>)

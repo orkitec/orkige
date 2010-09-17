@@ -6,12 +6,13 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec	
 *********************************************************************/
-
-#include "engine_graphic/LightMap.h"
-#include "engine_physic/CollisionTools.h"
 #include <core_debug/DisableMemoryManager.h>
+#define cimg_OS 0
 #include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
 #include <core_debug/EnableMemoryManager.h>
+#include "engine_graphic/LightMap.h"
+#include "engine_physic/CollisionTools.h"
+
 namespace Orkige
 {
 	int LightMap::StaticLightMapCounter = 0;
@@ -55,12 +56,12 @@ namespace Orkige
 		// PROBLEM: THIS CAUSES CRASHES, FIND OUT WHY AND PUT IT BACK
 		if (!this->material.isNull())
 		{
-			Ogre::MaterialManager::getSingleton().remove((Ogre::ResourcePtr)this->material);
+			Ogre::MaterialManager::getSingleton().remove((Ogre::ResourcePtr&)this->material);
 			this->material.setNull();
 		}
 		if (!this->texture.isNull())
 		{
-			Ogre::TextureManager::getSingleton().remove((Ogre::ResourcePtr)this->texture);
+			Ogre::TextureManager::getSingleton().remove((Ogre::ResourcePtr&)this->texture);
 			this->texture.setNull();
 		}
 	}

@@ -75,7 +75,9 @@ namespace Orkige
 			}
 		}
 #else
+#ifdef WIN32
 		OpenAL_LoadLibrary();
+#endif
 #endif
 		
 		return this->initOpenAl();		
@@ -134,7 +136,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundManager::destroySound(String const & id)
 	{
-		SoundRegistry::const_iterator it = this->sounds.find(id);
+		SoundRegistry::iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
 		{
 			return false;

@@ -27,7 +27,7 @@ namespace Orkige
 		struct SortCoordsByDistance
 		{
 			//! sorting op
-			bool operator()(std::pair<int, int> &left, std::pair<int, int> &right)
+			bool operator()(std::pair<int, int> const & left, std::pair<int, int> const & right)
 			{
 				return (left.first*left.first + left.second*left.second) < (right.first*right.first + right.second*right.second);
 			}
@@ -111,8 +111,8 @@ namespace Orkige
 			LightMap::resetLightMapCounter();
 			for (i=0; i<numSubEntities; ++i)
 			{
-				optr<LightMap> LightMap(new LightMap(entity->getSubEntity(i), pixelsPerUnit, texSize, debugLightmaps));
-				this->lightMaps.push_back(LightMap);
+				optr<LightMap> lightMap(new LightMap(entity->getSubEntity(i), pixelsPerUnit, texSize, debugLightmaps));
+				this->lightMaps.push_back(lightMap);
 			}
 		}
 

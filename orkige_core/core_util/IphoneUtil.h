@@ -15,7 +15,7 @@ namespace Orkige
 	//! iPhone utilities
 	namespace IPhoneUtil
 	{
-#ifdef ORKIGE_IPHONE
+#ifdef __APPLE__
 		//! retrieve iPhone data path of current running app
 		String GetIPhoneDataPath();
 		//! retrieve iPhone Documents path

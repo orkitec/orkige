@@ -10,8 +10,8 @@
 #define __SerializationUtil_h__31_8_2010__0_43_47__
 
 #include "engine_module/EnginePrerequisites.h"
-#include <core_util\optr.h>
-#include <core_serialization\IArchive.h>
+#include <core_util/optr.h>
+#include <core_serialization/IArchive.h>
 
 namespace Orkige
 {

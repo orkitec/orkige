@@ -23,7 +23,7 @@ namespace Orkige
 	public:
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
 	protected:
-		typedef std::map<EventType::TypeId, optr<EventListener>> EventListenerMap;	//!< maps TypeId to EventListener
+		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
 	private:
 		//--- Variables ---------------------------------------
 	public:

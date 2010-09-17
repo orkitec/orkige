@@ -7,11 +7,17 @@
 	copyright:	(c) 2009-2010 orkitec
 ***************************************************************/
 #include "core_util/IphoneUtil.h"
+#ifdef __APPLE__
+#import <Foundation/NSString.h>
+#import <Foundation/NSPathUtilities.h>
+#import <Foundation/NSBundle.h>
+#endif
+
 namespace Orkige
 {
 	namespace IPhoneUtil
 	{
-#ifdef ORKIGE_IPHONE
+#ifdef __APPLE__
 		String GetIPhoneDataPath()
 		{
 			NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
