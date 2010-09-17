@@ -119,7 +119,7 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	  # CMake 2.8.1 added the ability to specify per-target architectures.
 	  # As a side effect, it creates corrupt Xcode projects if you try do it for the whole project.
-	  if(VERSION STRLESS "2.8.1" or VERSION STRLESS "2.8.2")
+	  if(VERSION STRLESS "2.8.1")
 		set(CMAKE_OSX_ARCHITECTURES $(ARCHS_STANDARD_32_BIT))
 	  else()
 		set(CMAKE_OSX_ARCHITECTURES "armv6;armv7;")
