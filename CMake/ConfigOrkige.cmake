@@ -108,7 +108,7 @@ macro (configure_orkige ROOT OGREPATH)
 	  include_directories("${OGREPATH}/OgreMain/include/iPhone")
 	
 	  # Set build variables
-	  set(CMAKE_OSX_SYSROOT iphoneos3.2)
+	  set(CMAKE_OSX_SYSROOT iphoneos3.0)
 	  set(CMAKE_OSX_DEPLOYMENT_TARGET "")
 	  set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit")
 	  set(XCODE_ATTRIBUTE_SDKROOT iphoneos3.2)
@@ -119,7 +119,7 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	  # CMake 2.8.1 added the ability to specify per-target architectures.
 	  # As a side effect, it creates corrupt Xcode projects if you try do it for the whole project.
-	  if(VERSION STRLESS "2.8.1")
+	  if(VERSION STRLESS "2.8.1" or VERSION STRLESS "2.8.2")
 		set(CMAKE_OSX_ARCHITECTURES $(ARCHS_STANDARD_32_BIT))
 	  else()
 		set(CMAKE_OSX_ARCHITECTURES "armv6;armv7;")
