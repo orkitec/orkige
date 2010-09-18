@@ -196,20 +196,16 @@ source_group(engine_util FILES ${engine_util_HEADER} ${engine_util_SOURCE})
 # ---------------------------------------------------------
 
 if (APPLE)
-  include_directories( ${ORKIGE_SOURCE_DIR}/OgreMain/include/OSX )
+  include_directories( ${OGRE_INCLUDE_DIR}/OgreMain/include/OSX )
 endif ()
 
-if(ORKIGE_USE_COCOA)
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Thread/gkSyncObj.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-endif()
 
 if (ORKIGE_OPENAL_SOUND AND OPENAL_FOUND)
     add_definitions(-DORKIGE_OPENAL_SOUND)
 endif()
 
 if (ORKIGE_BUILD_IPHONE)
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/gkWindowSystem.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Thread/gkSyncObj.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
 include_directories()
@@ -217,7 +213,7 @@ include_directories()
 include_directories(
     ${ORKIGE_INCLUDE}
     ${ORKIGE_OGRE_INCLUDE}
-    ${OGRE_SOURCE_DIR}/PlugIns/ParticleFX/include
+    ${OGRE_INCLUDE_DIR}/PlugIns/ParticleFX/include
     ${ORKIGE_OIS_INCLUDE}
     ${ORKIGE_ZLIB_INCLUDE}
     ${ORKIGE_LUA_INCLUDE}
