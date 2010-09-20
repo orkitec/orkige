@@ -260,9 +260,10 @@ namespace Orkige
 		return;
 #endif
 #if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
-		std::vector<OIS::MultiTouchState> states = InputManager::getSingleton().getMouse()->getMultiTouchStates();
+/*		std::vector<OIS::MultiTouchState> states = InputManager::getSingleton().getMouse()->getMultiTouchStates();
 		if(states.size() > 0)
 			this->cursor->setPosition(states[0].X.abs, states[0].Y.abs);
+ */
 #else
 		this->cursor->setPosition((Ogre::Real)InputManager::getSingleton().getMouseData()->absX, (Ogre::Real)InputManager::getSingleton().getMouseData()->absY);
 #endif

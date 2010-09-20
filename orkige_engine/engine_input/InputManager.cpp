@@ -29,7 +29,8 @@ namespace Orkige
 		friend class InputManager;
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
-		typedef OIS::MultiTouch		Mouse;			// multitouch device
+		//typedef OIS::MultiTouch		Mouse;			// multitouch device
+		typedef OIS::Mouse			Mouse;			// mouse device
 #else
 		typedef OIS::Mouse			Mouse;			// mouse device
 #endif

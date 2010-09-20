@@ -37,7 +37,7 @@ namespace Orkige
 #else
 			static String path = getBaseDirectory() + "Contents/Resources/";
 #endif
-			return path
+			return path;
 		}
 		//---------------------------------------------------------
 #endif

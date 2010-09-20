@@ -12,6 +12,7 @@ namespace Orkige
 {
 	namespace PlatformUtil
 	{
+#ifdef WIN32
 		String const & getBaseDirectory()
 		{
 			static String path = "./";
@@ -30,5 +31,6 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+#endif
 	}
 }
