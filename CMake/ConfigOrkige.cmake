@@ -114,7 +114,7 @@ macro (configure_orkige ROOT OGREPATH)
 	  set(XCODE_ATTRIBUTE_SDKROOT iphoneos3.2)
 	  set(OGRE_BUILD_RENDERSYSTEM_GLES TRUE CACHE BOOL "Forcing OpenGL ES RenderSystem for iPhone" FORCE)
 	  set(OGRE_STATIC TRUE CACHE BOOL "Forcing static build for iPhone" FORCE)
-	  set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.yourcompany.\${PRODUCT_NAME:rfc1034identifier}")
+	  set(MACOSX_BUNDLE_GUI_IDENTIFIER "com.orkitec.\${PRODUCT_NAME:rfc1034identifier}")
 	  set(OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE TRUE CACHE BOOL "Forcing viewport orientation support for iPhone" FORCE)
 	
 	  # CMake 2.8.1 added the ability to specify per-target architectures.
