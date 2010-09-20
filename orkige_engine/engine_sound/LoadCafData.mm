@@ -11,6 +11,8 @@
 #include "engine_util/ResourceUtil.h"
 #import <AudioToolbox/AudioToolbox.h>
 #import <AudioToolbox/ExtendedAudioFile.h>
+#import <Foundation/NSString.h>
+
 namespace Orkige
 {
 	namespace SoundUtil
@@ -20,7 +22,7 @@ namespace Orkige
 		//---------------------------------------------------------
 		void* LoadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
 		{
-			NSString *tempString = [NSString stringWithCString:(/*GetIPhoneDataPath() + */ ResurceUtil::findPath(fileName) + fileName).c_str() encoding:NSASCIIStringEncoding];
+			NSString *tempString = [NSString stringWithCString:(/*GetIPhoneDataPath() + */ ResourceUtil::findPath(fileName) + fileName).c_str() encoding:NSASCIIStringEncoding];
 			CFURLRef fileURL = (CFURLRef)[[NSURL fileURLWithPath:tempString] retain];
 			void* data = loadCafDataInternal(fileURL, dataSize, dataFormat, sampleRate);
 			CFRelease(fileURL);
@@ -88,13 +90,13 @@ namespace Orkige
 			}
 			{
 				// Read all the data into memory
-				UInt32		dataSize = fileLengthInFrames * outputFormat.mBytesPerFrame;;
-				data = malloc(dataSize);
+				UInt32		_dataSize = fileLengthInFrames * outputFormat.mBytesPerFrame;;
+				data = malloc(_dataSize);
 				if (data)
 				{
 					AudioBufferList		dataBuffer;
 					dataBuffer.mNumberBuffers = 1;
-					dataBuffer.mBuffers[0].mDataByteSize = dataSize;
+					dataBuffer.mBuffers[0].mDataByteSize = _dataSize;
 					dataBuffer.mBuffers[0].mNumberChannels = outputFormat.mChannelsPerFrame;
 					dataBuffer.mBuffers[0].mData = data;
 		
@@ -103,7 +105,7 @@ namespace Orkige
 					if(err == noErr)
 					{
 						// success
-						*dataSize = (ALsizei)dataSize;
+						*dataSize = (ALsizei)_dataSize;
 						*dataFormat = (outputFormat.mChannelsPerFrame > 1) ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16;
 						*sampleRate = (ALsizei)outputFormat.mSampleRate;
 					}
