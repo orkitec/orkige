@@ -119,6 +119,8 @@ macro (configure_orkige ROOT OGREPATH)
 	  set(CMAKE_OSX_SYSROOT iphoneos3.0)
 	  set(CMAKE_OSX_DEPLOYMENT_TARGET "")
 	  set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit -framework AudioToolbox")
+		set(XCODE_ATTRIBUTE_GCC_THUMB_SUPPORT "NO")
+		set(XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer: Steffen Roemer")
 	  set(XCODE_ATTRIBUTE_SDKROOT iphoneos3.0)
 	  set(OGRE_BUILD_RENDERSYSTEM_GLES TRUE CACHE BOOL "Forcing OpenGL ES RenderSystem for iPhone" FORCE)
 	  set(OGRE_STATIC TRUE CACHE BOOL "Forcing static build for iPhone" FORCE)
@@ -169,7 +171,7 @@ macro (configure_orkige ROOT OGREPATH)
 	  
 	endif ()
 
-	option(ORKIGE_UPDATE_DOCS "Update Lua API documentation(Requires doxygen)." OFF)
+	option(ORKIGE_UPDATE_DOCS "Update Orkige API documentation(Requires doxygen)." OFF)
 
 
 	if (ORKIGE_COMPLIE_SWIG)

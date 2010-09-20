@@ -11,8 +11,10 @@
 #include <OISInputManager.h>
 #include <OISKeyboard.h>
 #include <OISMouse.h>
+#include <OISMultiTouch.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
+#include "engine_util/StringUtil.h"
 
 namespace Orkige
 {
@@ -24,19 +26,18 @@ namespace Orkige
 
 	IMPL_OSINGLETON(InputManager);
 	//! hidden inputmanager translates OIS Input to Orkige input
-	class InputManagerImpl : public OIS::KeyListener, public OIS::MouseListener
+	class InputManagerImpl 
+		: public OIS::KeyListener, public OIS::MouseListener, public OIS::MultiTouchListener
 	{
 		friend class InputManager;
 
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
-		//typedef OIS::MultiTouch		Mouse;			// multitouch device
+
+		typedef OIS::MultiTouch		MultiTouch;			// multitouch device
 		typedef OIS::Mouse			Mouse;			// mouse device
-#else
-		typedef OIS::Mouse			Mouse;			// mouse device
-#endif
 		typedef OIS::Keyboard		Keyboard;
 
 		OIS::InputManager	*inputSystem;
+		MultiTouch			*touch;
 		Keyboard			*keyboard;
 		Mouse				*mouse;					// mouse device
 
@@ -77,6 +78,15 @@ namespace Orkige
 			this->mouseData->absY = state.Y.abs;
 			this->mouseData->absZ = state.Z.abs;
 		}
+		inline void oisMultiTouchToOrkige(const OIS::MultiTouchState &state)
+		{
+			this->mouseData->relX = state.X.rel;
+			this->mouseData->relY = state.Y.rel;
+			this->mouseData->relZ = state.Z.rel;
+			this->mouseData->absX = state.X.abs;
+			this->mouseData->absY = state.Y.abs;
+			this->mouseData->absZ = state.Z.abs;
+		}
 		virtual bool keyPressed( const OIS::KeyEvent &e )
 		{
 			this->keyData->key = static_cast<KeyEventData::KeyCode>(e.key);
@@ -109,6 +119,28 @@ namespace Orkige
 			this->oisMouseToOrkige(e.state);
 			this->mouseData->button = static_cast<MouseEventData::MouseButtonID>(id);
 			GlobalEventManager::getSingleton().trigger(this->mouseReleasedEvent);
+			return true;
+		}
+		virtual bool touchMoved( const OIS::MultiTouchEvent &e )
+		{
+			this->oisMultiTouchToOrkige(e.state);
+			GlobalEventManager::getSingleton().trigger(this->mouseMovedEvent);
+			return true;
+		}
+		virtual bool touchPressed( const OIS::MultiTouchEvent &e )
+		{
+			this->oisMultiTouchToOrkige(e.state);
+			GlobalEventManager::getSingleton().trigger(this->mousePressedEvent);
+			return true;
+		}
+		virtual bool touchReleased( const OIS::MultiTouchEvent &e )
+		{
+			this->oisMultiTouchToOrkige(e.state);
+			GlobalEventManager::getSingleton().trigger(this->mouseReleasedEvent);
+			return true;
+		}
+		virtual bool touchCancelled( const OIS::MultiTouchEvent &e )
+		{
 			return true;
 		}
 	};
@@ -201,20 +233,20 @@ namespace Orkige
 			// Setup basic variables
 			OIS::ParamList paramList;    
 			size_t windowHnd = 0;
-			std::ostringstream windowHndStr;
 
-			// Get window handle
-#if defined OIS_WIN32_PLATFORM
-			Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
-#elif defined OIS_LINUX_PLATFORM
+			// Get window handle	
+#if defined OIS_LINUX_PLATFORM
 			Engine::getSingleton().getRenderWindow()->getCustomAttribute( "GLXWINDOW", &windowHnd );
+#else
+			Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
 #endif
 
-			// Fill parameter list
-			windowHndStr << (unsigned int) windowHnd;
 
+			paramList.insert(std::make_pair("WINDOW", StringUtil::Converter::toString(windowHnd)));
+
+#ifndef ORKIGE_IPHONE
 			// Create inputsystem
-			this->impl->inputSystem = OIS::InputManager::createInputSystem( windowHnd);
+			this->impl->inputSystem = OIS::InputManager::createInputSystem( paramList );
 
 			// If possible create a buffered keyboard
 			this->impl->keyboard = static_cast<OIS::Keyboard*>( this->impl->inputSystem->createInputObject( OIS::OISKeyboard, true ) );
@@ -223,7 +255,9 @@ namespace Orkige
 			// If possible create a buffered mouse
 			this->impl->mouse = static_cast<OIS::Mouse*>( this->impl->inputSystem->createInputObject( OIS::OISMouse, true ) );
 			this->impl->mouse->setEventCallback( this->impl );
+#else
 
+#endif
 			// Get window size
 			unsigned int width, height, depth;
 			int left, top;
