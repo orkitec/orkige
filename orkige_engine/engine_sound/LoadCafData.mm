@@ -20,7 +20,7 @@ namespace Orkige
 #ifdef ORKIGE_IPHONE
 		void* loadCafDataInternal(CFURLRef fileURL, ALsizei *dataSize, ALenum *dataFormat, ALsizei*	sampleRate);
 		//---------------------------------------------------------
-		void* LoadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
+		void* loadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
 		{
 			NSString *tempString = [NSString stringWithCString:(/*GetIPhoneDataPath() + */ ResourceUtil::findPath(fileName) + fileName).c_str() encoding:NSASCIIStringEncoding];
 			CFURLRef fileURL = (CFURLRef)[[NSURL fileURLWithPath:tempString] retain];
