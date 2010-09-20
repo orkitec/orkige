@@ -9,7 +9,8 @@
 
 #include "engine_sound/SoundPlatform.h"
 #include "engine_util/ResourceUtil.h"
-
+#import <AudioToolbox/AudioToolbox.h>
+#import <AudioToolbox/ExtendedAudioFile.h>
 namespace Orkige
 {
 	namespace SoundUtil

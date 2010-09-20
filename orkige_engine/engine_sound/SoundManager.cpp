@@ -10,6 +10,11 @@
 #include "engine_sound/SoundManager.h"
 #include <core_util/foreach.h>
 
+#ifdef ORKIGE_IPHONE
+#import <AudioToolbox/AudioToolbox.h>
+#import <AudioToolbox/ExtendedAudioFile.h>
+#endif
+
 extern "C" int OpenAL_LoadLibrary( void );
 
 namespace Orkige

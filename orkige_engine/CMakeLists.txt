@@ -206,6 +206,7 @@ endif()
 
 if (ORKIGE_BUILD_IPHONE)
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
 include_directories()
