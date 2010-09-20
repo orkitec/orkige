@@ -68,5 +68,5 @@ subdirs(orkige_engine)
 subdirs(../game)
 
 if (ORKIGE_UPDATE_DOCS)
-	subdirs(Docs/LuaAPI)
+	subdirs(Docs/OrkigeAPI)
 endif()
