@@ -32,7 +32,7 @@ namespace Orkige
 		//---------------------------------------------------------
 		String const & getResourceDirectory()
 		{
-#ifdef ORKGE_IPHONE
+#ifdef ORKIGE_IPHONE
 			static String path = getBaseDirectory();
 #else
 			static String path = getBaseDirectory() + "Contents/Resources/";

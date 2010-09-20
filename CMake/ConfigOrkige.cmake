@@ -92,13 +92,21 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	
 	if (APPLE)
-		option(ORKIGE_BUILD_IPHONE	"Build GameKit on IPhone SDK"	OFF)
+		option(ORKIGE_BUILD_IPHONE	"Build Orkige on IPhone SDK"	OFF)
 	endif()
 
 	if (ORKIGE_BUILD_IPHONE)
 		set(OGRE_BUILD_PLATFORM_IPHONE TRUE)
 		add_definitions("-DORKIGE_BUILD_IPHONE")		
 	endif()
+
+		if (OGRE_BUILD_PLATFORM_IPHONE)
+			add_definitions(-DORKIGE_IPHONE)
+			option(ORKIGE_USE_COCOA "Use Cocoa" ON)
+			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/IPhone )
+		else()
+			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/OSX )
+		endif()
 
 	option(ORKIGE_COMPLIE_SWIG "Enable compile time SWIG generation."  OFF)
 	

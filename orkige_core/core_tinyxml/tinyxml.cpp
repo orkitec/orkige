@@ -1190,7 +1190,7 @@ bool TiXmlDocument::SaveFile( const char * filename ) const
 #ifndef ORKIGE_NDS
 	// The old c stuff lives on...
 #ifdef ORKIGE_IPHONE
-	FILE* fp = fopen(  (GetIPhoneDocumentsDirectory() + filename).c_str(), "w" );
+	FILE* fp = fopen(  (Orkige::PlatformUtil::getDocumentsDirectory() + filename).c_str(), "w" );
 #else
 	FILE* fp = fopen( filename, "w" );
 #endif
