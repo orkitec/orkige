@@ -16,6 +16,8 @@
 #include "engine_graphic/Engine.h"
 #include "engine_util/StringUtil.h"
 
+#define ORKIGE_MULTITOUCH_TO_MOUSE
+
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(InputManager, KeyPressedEvent);
@@ -23,6 +25,10 @@ namespace Orkige
 	IMPL_OWNED_EVENTTYPE(InputManager, MousePressedEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, MouseReleasedEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, MouseMovedEvent);
+	IMPL_OWNED_EVENTTYPE(InputManager, TouchPressedEvent);
+	IMPL_OWNED_EVENTTYPE(InputManager, TouchReleasedEvent);
+	IMPL_OWNED_EVENTTYPE(InputManager, TouchMovedEvent);
+	IMPL_OWNED_EVENTTYPE(InputManager, TouchCancelledEvent);
 
 	IMPL_OSINGLETON(InputManager);
 	//! hidden inputmanager translates OIS Input to Orkige input
@@ -46,9 +52,14 @@ namespace Orkige
 		Event mousePressedEvent;
 		Event mouseReleasedEvent;
 		Event mouseMovedEvent;
+		Event touchPressedEvent;
+		Event touchReleasedEvent;
+		Event touchMovedEvent;
+		Event touchCancelledEvent;
 
 		optr<KeyEventData> keyData;
 		optr<MouseEventData> mouseData;
+		optr<TouchEventData> touchData;
 
 		InputManagerImpl() 
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -56,10 +67,15 @@ namespace Orkige
 			mousePressedEvent(InputManager::MousePressedEvent),
 			mouseReleasedEvent(InputManager::MouseReleasedEvent),
 			mouseMovedEvent(InputManager::MouseMovedEvent),
-			inputSystem(NULL), keyboard(NULL), mouse(NULL)
+			touchPressedEvent(InputManager::TouchPressedEvent),
+			touchReleasedEvent(InputManager::TouchReleasedEvent),
+			touchMovedEvent(InputManager::TouchMovedEvent),
+			touchCancelledEvent(InputManager::TouchCancelledEvent),
+			inputSystem(NULL), keyboard(NULL), mouse(NULL), touch(NULL)
 		{
 			this->keyData = onew(new KeyEventData());
 			this->mouseData = onew(new MouseEventData());
+			this->touchData = onew(new TouchEventData());
 
 			this->keyPressedEvent.setData(this->keyData);
 			this->keyReleasedEvent.setData(this->keyData);
@@ -67,6 +83,11 @@ namespace Orkige
 			this->mousePressedEvent.setData(this->mouseData);
 			this->mouseReleasedEvent.setData(this->mouseData);
 			this->mouseMovedEvent.setData(this->mouseData);
+
+			this->touchPressedEvent.setData(this->touchData);
+			this->touchReleasedEvent.setData(this->touchData);
+			this->touchMovedEvent.setData(this->touchData);
+			this->touchCancelledEvent.setData(this->touchData);
 		}
 		inline void oisMouseToOrkige(const OIS::MouseState &state)
 		{
@@ -78,7 +99,7 @@ namespace Orkige
 			this->mouseData->absY = state.Y.abs;
 			this->mouseData->absZ = state.Z.abs;
 		}
-		inline void oisMultiTouchToOrkige(const OIS::MultiTouchState &state)
+		inline void oisMouseToOrkige(const OIS::MultiTouchState &state)
 		{
 			this->mouseData->relX = state.X.rel;
 			this->mouseData->relY = state.Y.rel;
@@ -86,6 +107,15 @@ namespace Orkige
 			this->mouseData->absX = state.X.abs;
 			this->mouseData->absY = state.Y.abs;
 			this->mouseData->absZ = state.Z.abs;
+		}
+		inline void oisMultiTouchToOrkige(const OIS::MultiTouchState &state)
+		{
+			this->touchData->relX = state.X.rel;
+			this->touchData->relY = state.Y.rel;
+			this->touchData->relZ = state.Z.rel;
+			this->touchData->absX = state.X.abs;
+			this->touchData->absY = state.Y.abs;
+			this->touchData->absZ = state.Z.abs;
 		}
 		virtual bool keyPressed( const OIS::KeyEvent &e )
 		{
@@ -123,24 +153,51 @@ namespace Orkige
 		}
 		virtual bool touchMoved( const OIS::MultiTouchEvent &e )
 		{
+#ifdef ORKIGE_MULTITOUCH_TO_MOUSE
+			if(this->mouseData->buttonDown(MouseEventData::MB_Left))
+			{
+				this->oisMouseToOrkige(e.state);
+				GlobalEventManager::getSingleton().trigger(this->mouseMovedEvent);
+			}		
+#endif
 			this->oisMultiTouchToOrkige(e.state);
-			GlobalEventManager::getSingleton().trigger(this->mouseMovedEvent);
+			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
 			return true;
 		}
 		virtual bool touchPressed( const OIS::MultiTouchEvent &e )
 		{
+#ifdef ORKIGE_MULTITOUCH_TO_MOUSE
+			if(!this->mouseData->buttonDown(MouseEventData::MB_Left))
+			{
+				this->oisMouseToOrkige(e.state);
+				this->mouseData->button = MouseEventData::MB_Left;
+				this->mouseData->buttons |= 1 << MouseEventData::MB_Left; //turn the bit flag on
+				GlobalEventManager::getSingleton().trigger(this->mousePressedEvent);
+			}
+#endif
 			this->oisMultiTouchToOrkige(e.state);
-			GlobalEventManager::getSingleton().trigger(this->mousePressedEvent);
+			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
 			return true;
 		}
 		virtual bool touchReleased( const OIS::MultiTouchEvent &e )
 		{
+#ifdef ORKIGE_MULTITOUCH_TO_MOUSE
+			if(this->mouseData->buttonDown(MouseEventData::MB_Left))
+			{
+				this->oisMouseToOrkige(e.state);
+				this->mouseData->button = MouseEventData::MB_Left;
+				this->mouseData->buttons &= ~(1 << MouseEventData::MB_Left); //turn the bit flag off
+				GlobalEventManager::getSingleton().trigger(this->mouseReleasedEvent);
+			}
+#endif
 			this->oisMultiTouchToOrkige(e.state);
-			GlobalEventManager::getSingleton().trigger(this->mouseReleasedEvent);
+			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
 			return true;
 		}
 		virtual bool touchCancelled( const OIS::MultiTouchEvent &e )
 		{
+			this->oisMultiTouchToOrkige(e.state);
+			GlobalEventManager::getSingleton().trigger(this->touchCancelledEvent);
 			return true;
 		}
 	};
@@ -169,6 +226,11 @@ namespace Orkige
 				this->impl->inputSystem->destroyInputObject( this->impl->mouse );
 				this->impl->mouse = 0;
 			}
+			if( this->impl->touch ) 
+			{
+				this->impl->inputSystem->destroyInputObject( this->impl->touch );
+				this->impl->touch = 0;
+			}
 			this->impl->inputSystem->destroyInputSystem(this->impl->inputSystem);
 			this->impl->inputSystem = 0;
 		}
@@ -189,29 +251,46 @@ namespace Orkige
 	//---------------------------------------------------------
 	String const & InputManager::getAsString(KeyEventData::KeyCode kc)
 	{
-		oAssert(this->impl->keyboard);
-		return this->impl->keyboard->getAsString(static_cast<OIS::KeyCode>(kc));
+		if(this->impl->keyboard)
+		{
+			return this->impl->keyboard->getAsString(static_cast<OIS::KeyCode>(kc));
+		}
+		return StringUtil::BLANK;
 	}
 	//---------------------------------------------------------
 	bool InputManager::isKeyDown(KeyEventData::KeyCode kc)
 	{
-		oAssert(this->impl->keyboard);
-		return this->impl->keyboard->isKeyDown(static_cast<OIS::KeyCode>(kc));
+		if(this->impl->keyboard)
+		{
+			return this->impl->keyboard->isKeyDown(static_cast<OIS::KeyCode>(kc));
+		}
+		return false;
 	}
 	//---------------------------------------------------------
 	void InputManager::setWindowExtents( int width, int height ) 
 	{
-		const OIS::MouseState &mouseState = this->impl->mouse->getMouseState();
-		mouseState.width  = width;
-		mouseState.height = height;
+		if(this->impl->mouse)
+		{
+			const OIS::MouseState &mouseState = this->impl->mouse->getMouseState();
+			mouseState.width  = width;
+			mouseState.height = height;
+		}
 	}
 	//---------------------------------------------------------
 	optr<MouseEventData> const & InputManager::getMouseData() const
 	{
-		// Set mouse region (if window resizes, we should alter this to reflect as well)
-		const OIS::MouseState &mouseState = this->impl->mouse->getMouseState();
-		this->impl->oisMouseToOrkige(mouseState);
+		if(this->impl->mouse)
+		{
+			// Set mouse region (if window resizes, we should alter this to reflect as well)
+			const OIS::MouseState &mouseState = this->impl->mouse->getMouseState();
+			this->impl->oisMouseToOrkige(mouseState);
+		}
 		return impl->mouseData;
+	}
+	//---------------------------------------------------------
+	optr<TouchEventData> const & InputManager::getLastTouchData() const
+	{
+		return impl->touchData;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -244,10 +323,10 @@ namespace Orkige
 
 			paramList.insert(std::make_pair("WINDOW", StringUtil::Converter::toString(windowHnd)));
 
-#ifndef ORKIGE_IPHONE
 			// Create inputsystem
 			this->impl->inputSystem = OIS::InputManager::createInputSystem( paramList );
 
+#ifndef ORKIGE_IPHONE
 			// If possible create a buffered keyboard
 			this->impl->keyboard = static_cast<OIS::Keyboard*>( this->impl->inputSystem->createInputObject( OIS::OISKeyboard, true ) );
 			this->impl->keyboard->setEventCallback( this->impl );
@@ -256,7 +335,9 @@ namespace Orkige
 			this->impl->mouse = static_cast<OIS::Mouse*>( this->impl->inputSystem->createInputObject( OIS::OISMouse, true ) );
 			this->impl->mouse->setEventCallback( this->impl );
 #else
-
+			// If possible create a buffered mouse
+			this->impl->touch = static_cast<OIS::MultiTouch*>( this->impl->inputSystem->createInputObject( OIS::OISMultiTouch, true ) );
+			this->impl->touch->setEventCallback( this->impl );
 #endif
 			// Get window size
 			unsigned int width, height, depth;
@@ -277,6 +358,10 @@ namespace Orkige
 		if( this->impl->mouse )
 		{
 			this->impl->mouse->capture();
+		}
+		if( this->impl->touch )
+		{
+			this->impl->touch->capture();
 		}
 	}
 	//---------------------------------------------------------

@@ -1,13 +1,13 @@
 /********************************************************************
 	created:	Monday 2010/08/30 at 14:04
-	filename: 	MouseEventData.cpp
+	filename: 	TouchEventData.cpp
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
 
-#include "engine_input/MouseEventData.h"
+#include "engine_input/TouchEventData.h"
 
 namespace Orkige
 {
@@ -22,7 +22,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	OABSTRACT_IMPL(MouseEventData)
-		OVAR(button)
+	OABSTRACT_IMPL(TouchEventData)
 	OOBJECT_END
 }

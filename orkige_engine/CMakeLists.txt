@@ -105,15 +105,19 @@ source_group(engine_gui FILES ${engine_gui_HEADER} ${engine_gui_SOURCE})
 set(engine_input_SOURCE
     # ----- Source -----
     engine_input/InputManager.cpp
+    engine_input/AccelerationEventData.cpp
     engine_input/KeyEventData.cpp
     engine_input/MouseEventData.cpp
+    engine_input/TouchEventData.cpp
 )
 
 set(engine_input_HEADER
     # ----- Headers -----
     engine_input/InputManager.h
+    engine_input/AccelerationEventData.h
     engine_input/KeyEventData.h
     engine_input/MouseEventData.h
+    engine_input/TouchEventData.h
 )
 
 source_group(engine_input FILES ${engine_input_HEADER} ${engine_input_SOURCE})

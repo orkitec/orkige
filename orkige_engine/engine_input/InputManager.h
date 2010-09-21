@@ -13,6 +13,8 @@
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_input/MouseEventData.h"
 #include "engine_input/KeyEventData.h"
+#include "engine_input/TouchEventData.h"
+#include "engine_input/AccelerationEventData.h"
 
 namespace Orkige
 {
@@ -35,6 +37,14 @@ namespace Orkige
 		DECL_EVENTTYPE(MouseReleasedEvent);
 		//! triggered when mouse is moved
 		DECL_EVENTTYPE(MouseMovedEvent);
+		//! triggered when a finger touches the screen
+		DECL_EVENTTYPE(TouchPressedEvent);
+		//! triggered when a finger stops touching the screen
+		DECL_EVENTTYPE(TouchReleasedEvent);
+		//! triggered when finger is moved
+		DECL_EVENTTYPE(TouchMovedEvent);
+		//! The system cancelled tracking for the touch, as when (for example) the user puts the device to his or her face.
+		DECL_EVENTTYPE(TouchCancelledEvent);
 		/** @} End of "addtogroup EngineEvents"*/
 	protected:
 	private:
@@ -63,6 +73,8 @@ namespace Orkige
 		bool isKeyDown(KeyEventData::KeyCode kc);
 		//! get current mouse data
 		optr<MouseEventData> const & getMouseData() const;
+		//! get last touch event data
+		optr<TouchEventData> const & getLastTouchData() const;
 		//! Set mouse region (if window resizes, we should alter this to reflect as well)
 		void setWindowExtents( int width, int height );
 	protected:
