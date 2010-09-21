@@ -24,7 +24,7 @@
 @end
 
 
-@implementation SampleBrowserGestureView
+@implementation OrkigeGestureView
 
 - (BOOL)canBecomeFirstResponder
 {

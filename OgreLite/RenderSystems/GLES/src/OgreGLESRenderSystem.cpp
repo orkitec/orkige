@@ -857,9 +857,11 @@ namespace Ogre {
             glEnable(GL_TEXTURE_2D);
             GL_CHECK_ERROR;
 
-            // Store the number of mipmaps
-            mTextureMipmapCount = tex->getNumMipmaps();
-            
+			if (!tex.isNull())
+            {
+				// Store the number of mipmaps
+				mTextureMipmapCount = tex->getNumMipmaps();
+            }
             if (!tex.isNull())
             {
                 glBindTexture(GL_TEXTURE_2D, tex->getGLID());
