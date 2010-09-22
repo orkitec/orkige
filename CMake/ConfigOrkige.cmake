@@ -71,9 +71,15 @@ macro (configure_orkige ROOT OGREPATH)
 	include(MacroLogFeature)
 
 	if (APPLE)
-		if (OGRE_BUILD_PLATFORM_IPHONE)
-			add_definitions(-DORKIGE_IPHONE)
+		option(ORKIGE_BUILD_IPHONE	"Build Orkige on IPhone SDK"	OFF)
+		if (ORKIGE_BUILD_IPHONE)
 			option(ORKIGE_USE_COCOA "Use Cocoa" ON)
+			option(ORKIGE_MULTITOUCH_TO_MOUSE	"Convert Multitouch events to mouse events"	ON)
+			if(ORKIGE_MULTITOUCH_TO_MOUSE)
+				add_definitions(-DORKIGE_MULTITOUCH_TO_MOUSE)
+			endif()
+			set(OGRE_BUILD_PLATFORM_IPHONE TRUE)
+			add_definitions(-DORKIGE_IPHONE)
 			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/IPhone )
 		else()
 			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/OSX )
@@ -88,28 +94,8 @@ macro (configure_orkige ROOT OGREPATH)
 		endif (UNIX)
 	endif (APPLE)
 	
-	option(BUILD_GAME        "Build Game"     OFF)
-	
-	
-	if (APPLE)
-		option(ORKIGE_BUILD_IPHONE	"Build Orkige on IPhone SDK"	OFF)
-	endif()
+	option(BUILD_GAME        "Build Game"     ON)
 
-	if (ORKIGE_BUILD_IPHONE)
-		set(OGRE_BUILD_PLATFORM_IPHONE TRUE)
-		add_definitions("-DORKIGE_BUILD_IPHONE")		
-	endif()
-
-		if (OGRE_BUILD_PLATFORM_IPHONE)
-			add_definitions(-DORKIGE_IPHONE)
-			option(ORKIGE_USE_COCOA "Use Cocoa" ON)
-			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/IPhone )
-		else()
-			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/OSX )
-		endif()
-
-	option(ORKIGE_COMPLIE_SWIG "Enable compile time SWIG generation."  OFF)
-	
 	#copy from ogre3d build
 	# Set up iPhone overrides.
 	if (OGRE_BUILD_PLATFORM_IPHONE)
@@ -130,9 +116,9 @@ macro (configure_orkige ROOT OGREPATH)
 	  # CMake 2.8.1 added the ability to specify per-target architectures.
 	  # As a side effect, it creates corrupt Xcode projects if you try do it for the whole project.
 	  if(VERSION STRLESS "2.8.1")
-		set(CMAKE_OSX_ARCHITECTURES $(ARCHS_STANDARD_32_BIT))
+			set(CMAKE_OSX_ARCHITECTURES $(ARCHS_STANDARD_32_BIT))
 	  else()
-		set(CMAKE_OSX_ARCHITECTURES "armv6;armv7;")
+			set(CMAKE_OSX_ARCHITECTURES "armv6;armv7;")
 	  endif()
 	
 	  add_definitions(-fno-regmove)
@@ -173,13 +159,6 @@ macro (configure_orkige ROOT OGREPATH)
 
 	option(ORKIGE_UPDATE_DOCS "Update Orkige API documentation(Requires doxygen)." OFF)
 
-
-	if (ORKIGE_COMPLIE_SWIG)
-		
-		include(RunSwig)
-		include(TemplateCompiler)
-
-	endif()
 
 
 	set(ORKIGE_DEP_DIR ${ROOT}/Dependencies/Source)

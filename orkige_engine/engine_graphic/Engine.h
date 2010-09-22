@@ -116,8 +116,6 @@ namespace Orkige
 		//! @see Ogre::FrameListener::frameEnded
 		virtual bool frameEnded(const Ogre::FrameEvent& evt);
 	private:
-		//! hidden platformspecific implementation
-		class EnginePlatformImpl* impl;
 	};
 	//---------------------------------------------------------------
 	inline Ogre::SceneManager* Engine::getSceneManager() 

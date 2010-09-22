@@ -54,6 +54,9 @@ ORKIGE_MODULE(orkige_engine)
 	
 	OEXPORT(KeyEventData)
 	OEXPORT(MouseEventData)
+	OEXPORT(AccelerationEventData)
+	OEXPORT(TouchEventData)
+	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
 
 	OEXPORT(GuiManager)

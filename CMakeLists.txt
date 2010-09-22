@@ -65,7 +65,10 @@ subdirs(Dependencies)
 subdirs(OgreLite)
 subdirs(orkige_core)
 subdirs(orkige_engine)
-subdirs(../game)
+
+if (BUILD_GAME)
+	subdirs(../game)
+endif()
 
 if (ORKIGE_UPDATE_DOCS)
 	subdirs(Docs/OrkigeAPI)

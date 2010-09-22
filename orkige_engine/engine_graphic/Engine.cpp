@@ -12,100 +12,10 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
 
-#ifdef ORKIGE_IPHONE
-#   ifdef __OBJC__
-#       import <UIKit/UIKit.h>
-#   endif
-
-@interface OrkigeGestureView : UIView
-{
-}
-
-@end
-
-
-@implementation OrkigeGestureView
-
-- (BOOL)canBecomeFirstResponder
-{
-	return YES;
-}
-
-- (void)dealloc {
-	[super dealloc];
-}
-
-- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event {
-//	if(mBrowser && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-//		mBrowser->motionBegan();
-
-	if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) {
-		[super motionBegan:motion withEvent:event];
-	}
-}
-
-- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
-//	if(mBrowser && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-//		mBrowser->motionEnded();
-
-	if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) {
-		[super motionEnded:motion withEvent:event];
-	}
-}
-
-- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event {
-//	if(mBrowser && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-//		mBrowser->motionCancelled();
-
-	if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) {
-		[super motionCancelled:motion withEvent:event];
-	}
-}
-@end
-#endif
 
 namespace Orkige
 {
-#ifdef ORKIGE_IPHONE
-	class EnginePlatformImpl
-	{
-	public:
-		inline EnginePlatformImpl()
-		{
-			gestureView = 0;
-		}
-		~EnginePlatformImpl()
-		{
-			[gestureView release];
-		}
-		inline void createWindow()
-		{
-			gestureView = [[OrkigeGestureView alloc] init];
-			[[[UIApplication sharedApplication] keyWindow] addSubview:gestureView];
-		}
-		inline void renderOneFrame()
-		{
-			[gestureView becomeFirstResponder];
-		}
 
-		OrkigeGestureView *gestureView;
-	};
-#else
-	class EnginePlatformImpl
-	{
-	public:
-		inline EnginePlatformImpl()
-		{
-
-		}
-		~EnginePlatformImpl()
-		{
-
-		}
-		inline void createWindow(){}
-		inline void renderOneFrame(){}
-	};
-#endif
 	IMPL_OWNED_EVENTTYPE(Engine, FrameStartedEvent);
 	IMPL_OWNED_EVENTTYPE(Engine, FrameRenderingQueuedEvent);
 	IMPL_OWNED_EVENTTYPE(Engine, FrameEndedEvent);
@@ -124,7 +34,6 @@ namespace Orkige
 		camera(NULL),
 		viewport(NULL)
 	{
-		this->impl = new EnginePlatformImpl();
 		this->data = onew(new FrameEventData());
 
 		this->frameStartedEvent.setData(this->data);
@@ -138,8 +47,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
-		delete this->impl;
-		this->impl = 0;
 	}
 	//---------------------------------------------------------
 	bool Engine::setup(bool alwaysShowConfigDialog, String const & windowTitle, String const & externalHandle)
@@ -165,7 +72,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::renderOneFrame()
 	{
-		this->impl->renderOneFrame();
 		Ogre::WindowEventUtilities::messagePump();
 		return this->root->renderOneFrame();
 	}
@@ -220,7 +126,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::configure(bool alwaysShowConfigDialog, String const & windowTitle)
 	{
-		this->impl->createWindow();
 		// Show the configuration dialog and initialise the system
 		if( (!alwaysShowConfigDialog && this->root->restoreConfig()) || this->root->showConfigDialog())
 		{

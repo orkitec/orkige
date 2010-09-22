@@ -15,6 +15,7 @@
 #include "engine_input/KeyEventData.h"
 #include "engine_input/TouchEventData.h"
 #include "engine_input/AccelerationEventData.h"
+#include "engine_input/GestureEventData.h"
 
 namespace Orkige
 {
@@ -45,6 +46,14 @@ namespace Orkige
 		DECL_EVENTTYPE(TouchMovedEvent);
 		//! The system cancelled tracking for the touch, as when (for example) the user puts the device to his or her face.
 		DECL_EVENTTYPE(TouchCancelledEvent);
+		//! triggered when a gesture starts
+		DECL_EVENTTYPE(GestureBeganEvent);
+		//! triggered when a gesture ends
+		DECL_EVENTTYPE(GestureEndedEvent);
+		//! triggered when a gesture is cancelled
+		DECL_EVENTTYPE(GestureCancelledEvent);
+		//! triggered when Accelerometer changes
+		DECL_EVENTTYPE(AccelerationEvent);
 		/** @} End of "addtogroup EngineEvents"*/
 	protected:
 	private:

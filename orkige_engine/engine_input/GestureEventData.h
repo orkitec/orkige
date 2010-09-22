@@ -1,13 +1,13 @@
 /********************************************************************
 	created:	Monday 2010/08/30 at 14:01
-	filename: 	AccelerationEventData.h
+	filename: 	GestureEventData.h
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
-#ifndef __AccelerationEventData_h__30_8_2010__14_01_58__
-#define __AccelerationEventData_h__30_8_2010__14_01_58__
+#ifndef __GestureEventData_h__30_8_2010__14_01_58__
+#define __GestureEventData_h__30_8_2010__14_01_58__
 
 #include <core_event/Event.h>
 
@@ -15,33 +15,27 @@ namespace Orkige
 {
 	/** \addtogroup EngineEvents
 	*  @{ */
-	//! Data that gets sent on InputManager::AcceleartionEvent
-	class ORKIGE_DLL AccelerationEventData : public Object
+	//! Data that gets sent on InputManager::GestureBeganEvent, InputManager::GestureEndedEvent and InputManager::GestureCancelledEvent
+	class ORKIGE_DLL GestureEventData : public Object
 	{
-		OOBJECT(AccelerationEventData,Object)
+		OOBJECT(GestureEventData,Object)
 		//--- Types -------------------------------------------------
 	public:
+		enum GestureType
+		{
+			GT_Shake = 0,
+			GT_None
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
 	public:
-		//! relative x axis position
-		float relX;
-		//! relative y axis position
-		float relY;
-		//! relative z axis position
-		float relZ;
-		//! absolute x axis position
-		float absX;
-		//! absolute y axis position
-		float absY;
-		//! absolute z axis position
-		float absZ;
+		GestureType type;
 	protected:
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		inline AccelerationEventData() : relX(0.f), relY(0.f), relZ(0.f), absX(0.f), absY(0.f), absZ(0.f) {}
+		inline GestureEventData() : type(GT_None) {}
 	protected:
 	private:
 	};
@@ -49,4 +43,4 @@ namespace Orkige
 	//---------------------------------------------------------------
 }
 
-#endif //__AccelerationEventData_h__30_8_2010__14_01_58__
+#endif //__GestureEventData_h__30_8_2010__14_01_58__
