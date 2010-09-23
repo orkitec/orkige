@@ -461,6 +461,8 @@ namespace Orkige
 
 			this->impl->gestureView = [[OrkigeGestureView alloc] init];
 			[[[UIApplication sharedApplication] keyWindow] addSubview:this->impl->gestureView];
+			[[UIAccelerometer sharedAccelerometer] setUpdateInterval:(1.0 / 30)];
+			[[UIAccelerometer sharedAccelerometer] setDelegate:this->impl->gestureView];
 			//this->impl->gestureView.inputManager = impl;
 			//this->impl->gestureView.acc = Ogre::Vector3::ZERO;
 #endif
