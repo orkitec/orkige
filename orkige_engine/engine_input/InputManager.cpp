@@ -173,7 +173,7 @@ namespace Orkige
 				break;
 			case Ogre::OR_DEGREE_270: //OR_LANDSCAPELEFT
 				data->absX = absY;
-				data->absY = absX;
+				data->absY = w - absX;
 				data->relX = relY;
 				data->relY = -relX;
 				break;
@@ -254,7 +254,7 @@ namespace Orkige
 			}		
 #endif
 			this->oisMultiTouchToOrkige(e.state);
-			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
+			GlobalEventManager::getSingleton().trigger(this->touchMovedEvent);
 			return true;
 		}
 		virtual bool touchPressed( const OIS::MultiTouchEvent &e )
@@ -269,7 +269,7 @@ namespace Orkige
 			}
 #endif
 			this->oisMultiTouchToOrkige(e.state);
-			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
+			GlobalEventManager::getSingleton().trigger(this->touchPressedEvent);
 			return true;
 		}
 		virtual bool touchReleased( const OIS::MultiTouchEvent &e )
@@ -316,7 +316,7 @@ namespace Orkige
 			this->accelerationData->absX = acceleration.x;
 			this->accelerationData->absY = acceleration.y;
 			this->accelerationData->absZ = acceleration.z;
-			GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
+			//GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
 		}
 	};
 	IMPL_OSINGLETON(InputManagerImpl);
