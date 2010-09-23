@@ -70,8 +70,8 @@ namespace Orkige
 	};
 	//---------------------------------------------------------------
 	inline TypeInfo::TypeInfo(String const & cname) 
-		: name(cname)
-		, id(BoostHashFromString(cname))
+		: id(BoostHashFromString(cname))
+		, name(cname)
 	{
 	}
 	//---------------------------------------------------------------
@@ -106,8 +106,9 @@ namespace Orkige
 	}
 	//---------------------------------------------------------------
 	inline TypeInfo::TypeInfo(TypeInfo const & other) 
-		: name(other.name),
-		id(other.id)
+		: id(other.id) 
+		, name(other.name)
+		
 	{
 	}
 	//---------------------------------------------------------------

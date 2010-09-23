@@ -51,7 +51,7 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		inline MouseEventData() : buttons(0), relX(0), relY(0), relZ(0), absX(0), absY(0), absZ(0) {}
+		inline MouseEventData() : relX(0), relY(0), relZ(0), absX(0), absY(0), absZ(0), buttons(0) {}
 		//! Button down test
 		inline bool buttonDown( MouseButtonID button ) const
 		{

@@ -21,21 +21,17 @@
 #   endif
 #endif
 
+
+#ifdef ORKIGE_IPHONE
+@interface OrkigeGestureView : UIView <UIAccelerometerDelegate>
+{
+	Ogre::Vector3 acc;
+}
+@end
+#endif
+	
 namespace Orkige
 {
-	class InputManagerImpl;
-#ifdef ORKIGE_IPHONE
-	@interface OrkigeGestureView : UIView <UIAccelerometerDelegate>
-	{
-		InputManagerImpl* inputManager;
-		Ogre::Vector3 acc;
-	}
-
-	@property (assign) InputManagerImpl *inputManager;
-	@property (assign) Ogre::Vector3 acc;
-
-	@end
-#endif
 	IMPL_OWNED_EVENTTYPE(InputManager, KeyPressedEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, KeyReleasedEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, MousePressedEvent);
@@ -53,22 +49,16 @@ namespace Orkige
 	IMPL_OSINGLETON(InputManager);
 	//! hidden inputmanager translates OIS Input to Orkige input
 	class InputManagerImpl 
-		: public OIS::KeyListener, public OIS::MouseListener, public OIS::MultiTouchListener
+		: public Singleton<InputManagerImpl>, public OIS::KeyListener, public OIS::MouseListener, public OIS::MultiTouchListener
 	{
+		DECL_OSINGLETON(InputManagerImpl)
+	public:
 		friend class InputManager;
 
 
 		typedef OIS::MultiTouch		MultiTouch;			// multitouch device
 		typedef OIS::Mouse			Mouse;			// mouse device
 		typedef OIS::Keyboard		Keyboard;
-
-		OIS::InputManager	*inputSystem;
-		MultiTouch			*touch;
-		Keyboard			*keyboard;
-		Mouse				*mouse;					// mouse device
-#ifdef ORKIGE_IPHONE
-		OrkigeGestureView *gestureView;
-#endif
 
 		Event keyPressedEvent;
 		Event keyReleasedEvent;
@@ -83,6 +73,18 @@ namespace Orkige
 		Event gestureEndedEvent;
 		Event gestureCancelledEvent;
 		Event accelerationEvent;
+		
+		
+		OIS::InputManager	*inputSystem;
+		
+		Keyboard			*keyboard;
+		Mouse				*mouse;					// mouse device
+		MultiTouch			*touch;
+#ifdef ORKIGE_IPHONE
+		OrkigeGestureView *gestureView;
+#endif
+
+
 
 		optr<KeyEventData> keyData;
 		optr<MouseEventData> mouseData;
@@ -171,7 +173,7 @@ namespace Orkige
 				break;
 			case Ogre::OR_DEGREE_270: //OR_LANDSCAPELEFT
 				data->absX = absY;
-				data->absY = h - absX;
+				data->absY = absX;
 				data->relX = relY;
 				data->relY = -relX;
 				break;
@@ -317,6 +319,68 @@ namespace Orkige
 			GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
 		}
 	};
+	IMPL_OSINGLETON(InputManagerImpl);
+}
+
+#ifdef ORKIGE_IPHONE
+@implementation OrkigeGestureView
+
+- (BOOL)canBecomeFirstResponder
+{
+	return YES;
+}
+
+- (void)dealloc 
+{
+	[super dealloc];
+}
+
+- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionBegan(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) 
+		{
+			[super motionBegan:motion withEvent:event];
+		}
+}
+
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionEnded(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) 
+		{
+			[super motionEnded:motion withEvent:event];
+		}
+}
+
+- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionCancelled(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) 
+		{
+			[super motionCancelled:motion withEvent:event];
+		}
+}
+
+#pragma mark Accelerator Event Handling
+- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration 
+{
+		acc.x = acceleration.x;
+		acc.y = acceleration.y;
+		acc.z = acceleration.z;
+		Orkige::InputManagerImpl::getSingleton().didAccelerate(acc);
+}
+
+@end
+#endif
+namespace Orkige
+{
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -457,8 +521,8 @@ namespace Orkige
 
 			this->impl->gestureView = [[OrkigeGestureView alloc] init];
 			[[[UIApplication sharedApplication] keyWindow] addSubview:this->impl->gestureView];
-			this->impl->gestureView.inputManager = impl;
-			this->impl->gestureView.acc = Ogre::Vector3::ZERO;
+			//this->impl->gestureView.inputManager = impl;
+			//this->impl->gestureView.acc = Ogre::Vector3::ZERO;
 #endif
 			// Get window size
 			unsigned int width, height, depth;
@@ -495,65 +559,4 @@ namespace Orkige
 		OFUNC(enable)
 		OFUNC(disable)
 	OOBJECT_END
-
-#ifdef ORKIGE_IPHONE
-	@implementation OrkigeGestureView
-
-	@synthesize inputManager;
-	@synthesize acc;
-
-	- (BOOL)canBecomeFirstResponder
-	{
-		return YES;
-	}
-
-	- (void)dealloc 
-	{
-		[super dealloc];
-	}
-
-	- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-	{
-		if(inputManager && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-			inputManager->motionBegan(GestureEventData::GT_Shake);
-
-		if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) 
-		{
-			[super motionBegan:motion withEvent:event];
-		}
-	}
-
-	- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-	{
-		if(inputManager && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-			inputManager->motionEnded(GestureEventData::GT_Shake);
-
-		if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) 
-		{
-			[super motionEnded:motion withEvent:event];
-		}
-	}
-
-	- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-	{
-		if(inputManager && event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-			inputManager->motionCancelled(GestureEventData::GT_Shake);
-
-		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) 
-		{
-			[super motionCancelled:motion withEvent:event];
-		}
-	}
-
-#pragma mark Accelerator Event Handling
-	- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration 
-	{
-		acc.x = acceleration.x;
-		acc.y = acceleration.y;
-		acc.z = acceleration.z;
-		inputManager->didAccelerate(acc);
-	}
-
-	@end
-#endif
 }

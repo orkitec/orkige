@@ -27,8 +27,8 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		optr<Object> data;	//!< optional event data
 		EventType type;     //!< the identified type of the event
+		optr<Object> data;	//!< optional event data
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor creates event with given name as EventType and no assigned data
@@ -79,7 +79,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	inline Event::Event( Event const & o )
-		: Object(o) , data(o.data),	type(o.type)		
+		: Object(o) , type(o.type)	, data(o.data)	
 	{
 	}
 	//---------------------------------------------------------
