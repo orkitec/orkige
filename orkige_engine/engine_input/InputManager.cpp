@@ -320,67 +320,7 @@ namespace Orkige
 		}
 	};
 	IMPL_OSINGLETON(InputManagerImpl);
-}
 
-#ifdef ORKIGE_IPHONE
-@implementation OrkigeGestureView
-
-- (BOOL)canBecomeFirstResponder
-{
-	return YES;
-}
-
-- (void)dealloc 
-{
-	[super dealloc];
-}
-
-- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-{
-	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-		Orkige::InputManagerImpl::getSingleton().motionBegan(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) 
-		{
-			[super motionBegan:motion withEvent:event];
-		}
-}
-
-- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-{
-	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-		Orkige::InputManagerImpl::getSingleton().motionEnded(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) 
-		{
-			[super motionEnded:motion withEvent:event];
-		}
-}
-
-- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event 
-{
-	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
-		Orkige::InputManagerImpl::getSingleton().motionCancelled(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) 
-		{
-			[super motionCancelled:motion withEvent:event];
-		}
-}
-
-#pragma mark Accelerator Event Handling
-- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration 
-{
-		acc.x = acceleration.x;
-		acc.y = acceleration.y;
-		acc.z = acceleration.z;
-		Orkige::InputManagerImpl::getSingleton().didAccelerate(acc);
-}
-
-@end
-#endif
-namespace Orkige
-{
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -560,3 +500,63 @@ namespace Orkige
 		OFUNC(disable)
 	OOBJECT_END
 }
+
+
+#ifdef ORKIGE_IPHONE
+@implementation OrkigeGestureView
+
+- (BOOL)canBecomeFirstResponder
+{
+	return YES;
+}
+
+- (void)dealloc 
+{
+	[super dealloc];
+}
+
+- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionBegan(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) 
+		{
+			[super motionBegan:motion withEvent:event];
+		}
+}
+
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionEnded(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) 
+		{
+			[super motionEnded:motion withEvent:event];
+		}
+}
+
+- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+{
+	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
+		Orkige::InputManagerImpl::getSingleton().motionCancelled(Orkige::GestureEventData::GT_Shake);
+		
+		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) 
+		{
+			[super motionCancelled:motion withEvent:event];
+		}
+}
+
+#pragma mark Accelerator Event Handling
+- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration 
+{
+	acc.x = acceleration.x;
+	acc.y = acceleration.y;
+	acc.z = acceleration.z;
+	Orkige::InputManagerImpl::getSingleton().didAccelerate(acc);
+}
+
+@end
+#endif
+
