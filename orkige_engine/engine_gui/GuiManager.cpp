@@ -999,7 +999,8 @@ namespace Orkige
 		// only process touches when stuff is visible
 		if (!this->cursorLayer->isVisible()) return false;
 #endif
-		Ogre::Vector2 cursorPos(this->cursor->getLeft(), this->cursor->getTop());
+		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		this->cursor->setPosition(cursorPos.x, cursorPos.y);
 
 		this->trayDrag = false;
 
@@ -1078,7 +1079,9 @@ namespace Orkige
 		// only process touches when stuff is visible
 		if (!this->cursorLayer->isVisible()) return false;
 #endif
-		Ogre::Vector2 cursorPos(this->cursor->getLeft(), this->cursor->getTop());
+
+		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		this->cursor->setPosition(cursorPos.x, cursorPos.y);
 
 		if (this->expandedMenu)   // only check top priority widget until it passes on
 		{
