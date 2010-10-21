@@ -30,6 +30,7 @@ set(INST_FILES
 ) 
 set(STATIC_INST_FILES
   Packages/FindCg.cmake
+  Packages/FindMax.cmake
   Packages/FindDirectX.cmake
   Packages/FindFreeImage.cmake
   Packages/FindFreetype.cmake
