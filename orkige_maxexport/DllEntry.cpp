@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterData.h
+// OrkigeMaxExporterData.h
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 ////////////////////////////////////////////////////////////////////////////////
@@ -15,8 +15,8 @@
 #include "max.h"
 #include "iparamb2.h"
 
-extern ClassDesc2* GetFxOgreMaxExporterDesc( void );
-extern ClassDesc2* GetFxOgreMaxScriptInterfaceClassDesc( void );
+extern ClassDesc2* GetOrkigeMaxExporterDesc( void );
+extern ClassDesc2* GetOrkigeMaxScriptInterfaceClassDesc( void );
 extern HINSTANCE hInstance;
 
 HINSTANCE hInstance;
@@ -34,7 +34,7 @@ BOOL WINAPI DllMain( HINSTANCE hinstDLL, ULONG fdwReason, LPVOID lpvReserved )
 
 __declspec( dllexport ) const TCHAR* LibDescription( void )
 {
-	return _T("FxOgreMaxExporter");
+	return _T("OrkigeMaxExporter");
 }
 
 __declspec( dllexport ) int LibNumberClasses( void )
@@ -46,8 +46,8 @@ __declspec( dllexport ) ClassDesc* LibClassDesc( int i )
 {
 	switch( i ) 
 	{
-		case 0: return GetFxOgreMaxExporterDesc();
-		case 1 : return GetFxOgreMaxScriptInterfaceClassDesc();
+		case 0: return GetOrkigeMaxExporterDesc();
+		case 1 : return GetOrkigeMaxScriptInterfaceClassDesc();
 		default: return 0;
 	}
 }

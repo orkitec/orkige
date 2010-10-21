@@ -22,7 +22,7 @@
 #include "scene.h"
 #include "maxExportLayer.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
 class OgreSceneExporter : public SceneExport 
@@ -64,7 +64,7 @@ public:
 	ParamList m_params;
 private:
 	// private members
-	FxOgreNode getFxOgreNode( IGameNode* pGameNode );
+	OrkigeNode getOrkigeNode( IGameNode* pGameNode );
 	void addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight );
 	void addCameraToScene( IGameNode* pGameNode, IGameCamera* pGameCamera );
 
@@ -74,7 +74,7 @@ private:
 	TimeValue m_curTime;
 	IGameScene* pIGame;
 	
-	FxOgreScene m_FxOgreScene;
+	OrkigeScene m_OrkigeScene;
 
 };
 

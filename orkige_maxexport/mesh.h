@@ -28,7 +28,7 @@
 #include "paramList.h"
 
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	
 	/***** structures to store shared geometry *****/
@@ -84,7 +84,7 @@ namespace FxOgreMaxExporter
 		//get vertex data
 		bool getVertices(IGameMesh* pGameMesh,ParamList& params);
 		//get vertex bone assignements
-		bool getVertexBoneWeights(IGameMesh* pGameMesh,FxOgreMaxExporter::ParamList &params);
+		bool getVertexBoneWeights(IGameMesh* pGameMesh,OrkigeMaxExporter::ParamList &params);
 		//get faces data
 		bool getFaces(IGameMesh* pGameMesh,ParamList& params);
 		// Set default values for data (rigidly skinned meshes, bone weights, position indices)

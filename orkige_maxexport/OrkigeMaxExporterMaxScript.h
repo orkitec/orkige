@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterMaxScript.h
+// OrkigeMaxExporterMaxScript.h
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 ////////////////////////////////////////////////////////////////////////////////
@@ -12,14 +12,14 @@
 *                                                                                *
 **********************************************************************************/
 
-#ifndef FxOgreMaxExporterMaxScript_H__
-#define FxOgreMaxExporterMaxScript_H__
+#ifndef OrkigeMaxExporterMaxScript_H__
+#define OrkigeMaxExporterMaxScript_H__
 
 #include "maxExportLayer.h"
-#include "FxOgreMaxExporterData.h"
+#include "OrkigeMaxExporterData.h"
 
 
-class FxOgreMaxScriptInterfaceClassDesc : public ClassDesc2 
+class OrkigeMaxScriptInterfaceClassDesc : public ClassDesc2 
 {
 public:
 	// Controls if the plug-in shows up in lists from the user to choose from.

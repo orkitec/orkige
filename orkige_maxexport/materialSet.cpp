@@ -17,7 +17,7 @@
 
 #include "materialSet.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	template<> MaterialSet* Singleton<MaterialSet>::ms_Singleton = 0;
 };	//end namespace

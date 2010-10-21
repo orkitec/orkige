@@ -20,10 +20,10 @@
 **********************************************************************************/
 
 #include "paramlist.h"
-#include "FxOgreMaxExporterLog.h"
+#include "OrkigeMaxExporterLog.h"
 /***** Class ParamList *****/
 // method to parse arguments from command line
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	// Helper function for getting the filename from a full path.
 	std::string StripToTopParent(const std::string& filepath)
@@ -46,7 +46,7 @@ namespace FxOgreMaxExporter
 			outMaterial.open(materialFilename.c_str());
 			if (!outMaterial)
 			{
-				FxOgreMaxExporterLog( "Error opening file: %s\n", materialFilename.c_str());
+				OrkigeMaxExporterLog( "Error opening file: %s\n", materialFilename.c_str());
 				return false;
 			}
 		}
@@ -55,7 +55,7 @@ namespace FxOgreMaxExporter
 			outAnim.open(animFilename.c_str());
 			if (!outAnim)
 			{
-				FxOgreMaxExporterLog( "Error opening file: %s\n", animFilename.c_str());
+				OrkigeMaxExporterLog( "Error opening file: %s\n", animFilename.c_str());
 				return false;
 			}
 		}
@@ -64,7 +64,7 @@ namespace FxOgreMaxExporter
 			outCameras.open(camerasFilename.c_str());
 			if (!outCameras)
 			{
-				FxOgreMaxExporterLog( "Error opening file: %s\n", camerasFilename.c_str());
+				OrkigeMaxExporterLog( "Error opening file: %s\n", camerasFilename.c_str());
 				return false;
 			}
 		}
@@ -73,7 +73,7 @@ namespace FxOgreMaxExporter
 			outParticles.open(particlesFilename.c_str());
 			if (!outParticles)
 			{
-				FxOgreMaxExporterLog( "Error opening file: %s\n", particlesFilename.c_str());
+				OrkigeMaxExporterLog( "Error opening file: %s\n", particlesFilename.c_str());
 				return false;
 			}
 		}

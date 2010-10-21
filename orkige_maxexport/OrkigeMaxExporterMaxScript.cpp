@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterMaxScript.cpp
+// OrkigeMaxExporterMaxScript.cpp
 // Author	  : Doug Perkowski - OC3 Entertainment, Inc.
 // Start Date : December 10th, 2007
 ////////////////////////////////////////////////////////////////////////////////
@@ -13,7 +13,7 @@
 **********************************************************************************/
 
 
-#include "FxOgreMaxExporterMaxScript.h"
+#include "OrkigeMaxExporterMaxScript.h"
 #include "maxscrpt/maxscrpt.h"
 
 
@@ -23,7 +23,7 @@
 // The use of Macros here is nasty, but helpful for reducing massively duplicate code.
 // Maxscript only lets a single function have up to 11 parameters, so we need to have
 // individual function access for getting and setting all booleans and strings in 
-// the static paramaters found in FxOgreMaxExporterData.
+// the static paramaters found in OrkigeMaxExporterData.
 #define BOOLEAN_VALUES exportMesh, \
 	exportMaterial, \
 	exportAnimCurves, \
@@ -100,11 +100,11 @@
 #define	MAKE_BOOLEAN_FUNCTIONS( boolVar ) \
 	void set_##boolVar(TSTR value) \
 	{		\
-		FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##boolVar = stricmp(value.data(), "on") == 0;  \
+		OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##boolVar = stricmp(value.data(), "on") == 0;  \
 	} \
 	bool get_##boolVar( ) \
 	{ \
-		return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##boolVar; \
+		return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##boolVar; \
 	}
 #define	MAKE_BOOLEAN_MIXININTERFACE( boolVar ) \
 	fn_set_##boolVar, _T( STRINGIZE(set_##boolVar) ), 0, TYPE_VOID, 0, 1, _T(#boolVar), NULL, TYPE_STRING, \
@@ -138,12 +138,12 @@
 #define	MAKE_STRING_FUNCTIONS( stringVar ) \
 	void set_##stringVar(TSTR value) \
 	{		\
-		FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##stringVar = value;  \
+		OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##stringVar = value;  \
 	} \
 	TSTR* get_##stringVar( ) \
 	{ \
 		TSTR* returnValue = new TSTR; \
-		*returnValue = FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##stringVar.c_str(); \
+		*returnValue = OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##stringVar.c_str(); \
 		return returnValue; \
 	}
 #define	MAKE_STRING_MIXININTERFACE( stringVar ) \
@@ -177,63 +177,63 @@
 #define	MAKE_CLIPLIST_FUNCTIONS( cliplistVar ) \
 	void add_##cliplistVar( TSTR name, float start, float stop, float rate )\
 	{		\
-		FxOgreMaxExporter::clipInfo clip; \
+		OrkigeMaxExporter::clipInfo clip; \
 		clip.name = name; \
 		clip.rate = rate; \
 		clip.start = start; \
 		clip.stop = stop; \
-		for(int i = 0; i < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size(); ++i)\
+		for(int i = 0; i < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size(); ++i)\
 		{\
-			if(clip.name == FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar[i].name)\
-				FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.erase(FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.begin()+i);\
+			if(clip.name == OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar[i].name)\
+				OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.erase(OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.begin()+i);\
 		}\
-		FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.push_back(clip);  \
+		OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.push_back(clip);  \
 	} \
 	bool remove_##cliplistVar( int index )\
 	{ \
-		if(index >= 0 && index < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
+		if(index >= 0 && index < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
 		{ \
-			FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.erase(FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.begin()+index);\
+			OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.erase(OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.begin()+index);\
 			return true; \
 		} \
 		return false; \
 	} \
 	float get_start_##cliplistVar( int index )\
 	{\
-		if(index >= 0 && index < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
+		if(index >= 0 && index < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
 		{ \
-			return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar[index].start;\
+			return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar[index].start;\
 		}\
 		return 0.0f;\
 	}\
 	float get_stop_##cliplistVar( int index )\
 	{\
-		if(index >= 0 && index < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
+		if(index >= 0 && index < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
 		{ \
-			return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar[index].stop;\
+			return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar[index].stop;\
 		}\
 		return 0.0f;\
 	}\
 	float get_rate_##cliplistVar( int index )\
 	{\
-		if(index >= 0 && index < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
+		if(index >= 0 && index < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
 		{ \
-			return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar[index].rate;\
+			return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar[index].rate;\
 		}\
 		return 0.0f;\
 	}\
 	TSTR* get_name_##cliplistVar( int index )\
 	{\
 		TSTR* returnValue = new TSTR;\
-		if(index >= 0 && index < FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
+		if(index >= 0 && index < OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size()) \
 		{ \
-			*returnValue = FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar[index].name.c_str();\
+			*returnValue = OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar[index].name.c_str();\
 		}\
 		return returnValue;\
 	}\
 	int get_numClips_##cliplistVar()\
 	{\
-		return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.##cliplistVar.size();\
+		return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.##cliplistVar.size();\
 	}
 
 #define	MAKE_CLIPLIST_MIXININTERFACE( cliplistVar ) \
@@ -253,14 +253,14 @@
 
 #define FXOGRE_INTERFACE_CLASS_ID Class_ID(0x8960f8ba, 0x60b5f8d0)
 #define FXOGRE_MAXSCRIPT_INTERFACE Interface_ID(0x8ff94f28, 0x6216f0de)
-#define GetFxOgreMaxScriptInterface(obj) ((FxOgreMaxScriptInterface*)obj->GetInterface(FXOGRE_MAXSCRIPT_INTERFACE))
+#define GetOrkigeMaxScriptInterface(obj) ((OrkigeMaxScriptInterface*)obj->GetInterface(FXOGRE_MAXSCRIPT_INTERFACE))
 
-static FxOgreMaxScriptInterfaceClassDesc fxOgreMaxScriptInterfaceClassDesc;
+static OrkigeMaxScriptInterfaceClassDesc fxOgreMaxScriptInterfaceClassDesc;
 
-extern FPInterfaceDesc FxOgreMaxScript_mixininterface;
+extern FPInterfaceDesc OrkigeMaxScript_mixininterface;
 
-// Returns the class description for the FxOgre plug-in function publishing.
-ClassDesc2* GetFxOgreMaxScriptInterfaceClassDesc( void )
+// Returns the class description for the Orkige plug-in function publishing.
+ClassDesc2* GetOrkigeMaxScriptInterfaceClassDesc( void )
 {
 	return &fxOgreMaxScriptInterfaceClassDesc;
 }
@@ -284,7 +284,7 @@ interface IFxMaxScript : public FPMixinInterface
 		RUN_MACRO_ON_ALL_CLIPLISTS( MAKE_CLIPLIST_FUNCTION_MAP, CLIPLIST_VALUES )
     END_FUNCTION_MAP 
 
-    FPInterfaceDesc* GetDesc() { return &FxOgreMaxScript_mixininterface; }
+    FPInterfaceDesc* GetDesc() { return &OrkigeMaxScript_mixininterface; }
 	virtual void		fxogremaxexport() = 0;
 	virtual void		set_lum( float value ) = 0;
 	virtual float		get_lum( ) = 0;
@@ -295,14 +295,14 @@ interface IFxMaxScript : public FPMixinInterface
 };
 
 
-class FxOgre : public ReferenceTarget, public IFxMaxScript
+class Orkige : public ReferenceTarget, public IFxMaxScript
 {
 	public:
-		FxOgre(){ }
+		Orkige(){ }
 		void DeleteThis(){ delete this; }
 		Class_ID ClassID(){ return FXOGRE_INTERFACE_CLASS_ID; }
 		SClass_ID SuperClassID(){ return REF_TARGET_CLASS_ID; }
-		void GetClassName(TSTR& s){ s = "FxOgre"; }
+		void GetClassName(TSTR& s){ s = "Orkige"; }
 		int IsKeyable(){ return 0;}
 		RefResult NotifyRefChanged( Interval i, RefTargetHandle rth, PartID& pi,RefMessage rm )
 		{
@@ -317,29 +317,29 @@ class FxOgre : public ReferenceTarget, public IFxMaxScript
 		}
 		void fxogremaxexport() 
 		{
-			FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.exportScene();
+			OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.exportScene();
 		}
 		void set_lum(float value) 
 		{
-			FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.lum = value;
+			OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.lum = value;
 		}
 		float get_lum() 
 		{
-			return FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params.lum;
+			return OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params.lum;
 		}
 		void reset_params() 
 		{
-			FxOgreMaxExporter::ParamList defaultParams;
-			FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params = defaultParams;
+			OrkigeMaxExporter::ParamList defaultParams;
+			OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params = defaultParams;
 		}
 		RUN_MACRO_ON_ALL_BOOLEANS( 	MAKE_BOOLEAN_FUNCTIONS, BOOLEAN_VALUES )
 		RUN_MACRO_ON_ALL_STRINGS( 	MAKE_STRING_FUNCTIONS, STRING_VALUES )
 		RUN_MACRO_ON_ALL_CLIPLISTS( MAKE_CLIPLIST_FUNCTIONS, CLIPLISTVALUES )
 };
 
-static FPInterfaceDesc FxOgreMaxScript_mixininterface(
+static FPInterfaceDesc OrkigeMaxScript_mixininterface(
 
-    FXOGRE_MAXSCRIPT_INTERFACE, _T("FxOgre_Maxscript"), 0, &fxOgreMaxScriptInterfaceClassDesc, FP_MIXIN, 
+    FXOGRE_MAXSCRIPT_INTERFACE, _T("Orkige_Maxscript"), 0, &fxOgreMaxScriptInterfaceClassDesc, FP_MIXIN, 
 	fn_fxogremaxexport, _T("fxogremaxexport"), 0, TYPE_VOID, 0, 0,
 	fn_set_lum, _T("set_lum"), 0, TYPE_VOID, 0, 1, _T("lum"), NULL, TYPE_FLOAT,
 	fn_get_lum, _T("get_lum"), 0, TYPE_FLOAT, 0, 0,
@@ -350,52 +350,52 @@ static FPInterfaceDesc FxOgreMaxScript_mixininterface(
     end 
 );
 // Controls if the plug-in shows up in lists from the user to choose from.
-int FxOgreMaxScriptInterfaceClassDesc::IsPublic( void ) 
+int OrkigeMaxScriptInterfaceClassDesc::IsPublic( void ) 
 { 
 	return TRUE; 
 }
 
 // Max calls this method when it needs a pointer to a new instance of the 
 // plug-in class.
-void* FxOgreMaxScriptInterfaceClassDesc::Create( BOOL loading )
+void* OrkigeMaxScriptInterfaceClassDesc::Create( BOOL loading )
 { 
-	return new FxOgre();
+	return new Orkige();
 }
 
 // Returns the name of the class.
-const TCHAR* FxOgreMaxScriptInterfaceClassDesc::ClassName( void ) 
+const TCHAR* OrkigeMaxScriptInterfaceClassDesc::ClassName( void ) 
 { 
-	return "FxOgre"; 
+	return "Orkige"; 
 }
 
 // Returns a system defined constant describing the class this plug-in 
 // class was derived from.
-SClass_ID FxOgreMaxScriptInterfaceClassDesc::SuperClassID( void ) 
+SClass_ID OrkigeMaxScriptInterfaceClassDesc::SuperClassID( void ) 
 { 
 	return REF_TARGET_CLASS_ID; 
 }
 
 // Returns the unique ID for the object.
-Class_ID FxOgreMaxScriptInterfaceClassDesc::ClassID( void ) 
+Class_ID OrkigeMaxScriptInterfaceClassDesc::ClassID( void ) 
 {
 	return FXOGRE_INTERFACE_CLASS_ID; 
 }
 
 // Returns a string describing the category the plug-in fits into.
-const TCHAR* FxOgreMaxScriptInterfaceClassDesc::Category( void ) 
+const TCHAR* OrkigeMaxScriptInterfaceClassDesc::Category( void ) 
 { 
 	return _T("");
 }
 
 // Returns a string which provides a fixed, machine parsable internal name 
 // for the plug-in.  This name is used by MAXScript.
-const TCHAR* FxOgreMaxScriptInterfaceClassDesc::InternalName( void ) 
+const TCHAR* OrkigeMaxScriptInterfaceClassDesc::InternalName( void ) 
 { 
-	return _T("FxOgre"); 
+	return _T("Orkige"); 
 }
 
 // Returns the DLL instance handle of the plug-in.
-HINSTANCE FxOgreMaxScriptInterfaceClassDesc::HInstance( void ) 
+HINSTANCE OrkigeMaxScriptInterfaceClassDesc::HInstance( void ) 
 { 
 	return hInstance;
 }

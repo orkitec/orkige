@@ -24,7 +24,7 @@
 #include "maxExportLayer.h"
 #include "paramList.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
 	typedef enum {MT_SURFACE_SHADER,MT_LAMBERT,MT_PHONG,MT_BLINN,MT_CGFX} MaterialType;

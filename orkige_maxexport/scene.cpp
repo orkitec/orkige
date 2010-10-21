@@ -13,48 +13,48 @@
 *                                                                                *
 **********************************************************************************/
 #include "scene.h"
-#include "FxOgreMaxExporterLog.h"
+#include "OrkigeMaxExporterLog.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
-	/***** Class FxOgreScene *****/
+	/***** Class OrkigeScene *****/
 	// constructor
-	FxOgreScene::FxOgreScene()
+	OrkigeScene::OrkigeScene()
 	{
 		id_counter = 0;
 	}
 
 	// destructor
-	FxOgreScene::~FxOgreScene()
+	OrkigeScene::~OrkigeScene()
 	{
 	}
-	void FxOgreScene::clear()
+	void OrkigeScene::clear()
 	{
 		m_lights.clear();
 		m_meshes.clear();
 		m_cameras.clear();
 		id_counter = 0;
 	}
-	void FxOgreScene::addLight(FxOgreLight& light)
+	void OrkigeScene::addLight(OrkigeLight& light)
 	{
 		id_counter++;
 		light.node.id = id_counter;
 		m_lights.push_back(light);
 	}
-	void FxOgreScene::addCamera(FxOgreCamera& camera)
+	void OrkigeScene::addCamera(OrkigeCamera& camera)
 	{
 		id_counter++;
 		camera.node.id = id_counter;
 		m_cameras.push_back(camera);
 	}
-	void FxOgreScene::addMesh(FxOgreMesh& mesh)
+	void OrkigeScene::addMesh(OrkigeMesh& mesh)
 	{
 		id_counter++;
 		mesh.node.id = id_counter;
 		m_meshes.push_back(mesh);
 	}
 
-	std::string FxOgreScene::getLightTypeString(FxOgreLightType type)
+	std::string OrkigeScene::getLightTypeString(OrkigeLightType type)
 	{
 		switch( type )
 		{
@@ -67,10 +67,10 @@ namespace FxOgreMaxExporter
 		case OGRE_LIGHT_RADPOINT:
 			return std::string("radpoint");
 		}
-		FxOgreMaxExporterLog( "Invalid light type detected. Using point light as default.\n");
+		OrkigeMaxExporterLog( "Invalid light type detected. Using point light as default.\n");
 		return("point");
 	}
-	TiXmlElement* FxOgreScene::writeNodeData(TiXmlElement* parent, const FxOgreNode &node)
+	TiXmlElement* OrkigeScene::writeNodeData(TiXmlElement* parent, const OrkigeNode &node)
 	{
 		if(!parent)
 		{
@@ -104,7 +104,7 @@ namespace FxOgreMaxExporter
 		return pNodeElement;
 	}
 
-	bool FxOgreScene::writeSceneFile(ParamList &params)
+	bool OrkigeScene::writeSceneFile(ParamList &params)
 	{
 		TiXmlDocument xmlDoc;
 		TiXmlElement *pSceneElement = new TiXmlElement( "scene" );
@@ -112,7 +112,7 @@ namespace FxOgreMaxExporter
 
 		pSceneElement->SetAttribute( "formatVersion", "1.0" );
 		pSceneElement->SetAttribute( "minOgreVersion", "1.4" );
-		pSceneElement->SetAttribute( "author", "FxOgreMaxExporter");
+		pSceneElement->SetAttribute( "author", "OrkigeMaxExporter");
 
 		TiXmlElement *pNodesElement = new TiXmlElement( "nodes" );
 		pSceneElement->LinkEndChild(pNodesElement);
@@ -150,7 +150,7 @@ namespace FxOgreMaxExporter
 		}
 
 		// A light to compare to to see if we've modified anything from default values.
-		FxOgreLight compObj;
+		OrkigeLight compObj;
 		for( int i = 0; i < m_lights.size(); ++i )
 		{
 			TiXmlElement *pNodeElement = writeNodeData(pNodesElement, m_lights[i].node);

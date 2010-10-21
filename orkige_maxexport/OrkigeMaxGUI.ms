@@ -12,9 +12,9 @@
 --                                                                               *
 --********************************************************************************
 
-FxOgreMaxExporterDialog = newRolloutFloater "FxOgre" 400 800
+OrkigeMaxExporterDialog = newRolloutFloater "Orkige" 400 800
 
-FxOgreObject = FxOgre();
+OrkigeObject = Orkige();
 
 
 -- We have 3 identical animation GUIs, so abstract this functionality into functions
@@ -139,10 +139,10 @@ function sampleByChange roll =
 function getSkelAnims =
 (
 	animNames = #()
-	numClips = FxOgreObject.get_numClips_skelClipList()
+	numClips = OrkigeObject.get_numClips_skelClipList()
 	for i = 0 to (numClips - 1) do
 	(
-		name = FxOgreObject.get_name_skelClipList(i)
+		name = OrkigeObject.get_name_skelClipList(i)
 		append animNames name
 	)
 	return animNames
@@ -150,10 +150,10 @@ function getSkelAnims =
 function getBSAnims =
 (
 	animNames = #()
-	numClips = FxOgreObject.get_numClips_BSClipList()
+	numClips = OrkigeObject.get_numClips_BSClipList()
 	for i = 0 to (numClips - 1) do
 	(
-		name = FxOgreObject.get_name_BSClipList(i)
+		name = OrkigeObject.get_name_BSClipList(i)
 		append animNames name
 	)
 	return animNames
@@ -161,10 +161,10 @@ function getBSAnims =
 function getVertAnims =
 (
 	animNames = #()
-	numClips = FxOgreObject.get_numClips_vertClipList()
+	numClips = OrkigeObject.get_numClips_vertClipList()
 	for i = 0 to (numClips - 1) do
 	(
-		name = FxOgreObject.get_name_vertClipList(i)
+		name = OrkigeObject.get_name_vertClipList(i)
 		append animNames name
 	)
 	return animNames
@@ -183,14 +183,14 @@ rollout MeshRollout "Mesh" width:350 height:215
 	checkbox buildTangents "Build tangent vectors" pos:[10,180] width:221 height:18
 	fn refresh = 
 	(
-		exportMesh.checked = FxOgreObject.get_exportMesh()
-		useSharedGeom.checked = FxOgreObject.get_useSharedGeom();
-		exportVBA.checked = FxOgreObject.get_exportVBA();
-		exportVertNorm.checked = FxOgreObject.get_exportVertNorm();
-		exportVertCol.checked = FxOgreObject.get_exportVertCol();
-		buildEdges.checked = FxOgreObject.get_buildEdges();
-		buildTangents.checked = FxOgreObject.get_buildTangents();
-		MeshFilename.text = FxOgreObject.get_meshFilename()
+		exportMesh.checked = OrkigeObject.get_exportMesh()
+		useSharedGeom.checked = OrkigeObject.get_useSharedGeom();
+		exportVBA.checked = OrkigeObject.get_exportVBA();
+		exportVertNorm.checked = OrkigeObject.get_exportVertNorm();
+		exportVertCol.checked = OrkigeObject.get_exportVertCol();
+		buildEdges.checked = OrkigeObject.get_buildEdges();
+		buildTangents.checked = OrkigeObject.get_buildTangents();
+		MeshFilename.text = OrkigeObject.get_meshFilename()
 		if exportMesh.checked then
 		(
 			useSharedGeom.enabled = true
@@ -223,15 +223,15 @@ rollout MeshRollout "Mesh" width:350 height:215
 	on exportVBA changed state do
 	(
 		if exportVBA.checked then
-			FxOgreObject.set_exportVBA("on");
+			OrkigeObject.set_exportVBA("on");
 		else
-			FxOgreObject.set_exportVBA("off");		
+			OrkigeObject.set_exportVBA("off");		
 	)
 	on exportMesh changed state do
 	(
 		if exportMesh.checked then
 		(
-			FxOgreObject.set_exportMesh("on");
+			OrkigeObject.set_exportMesh("on");
 			useSharedGeom.enabled = true
 			exportVBA.enabled = true
 			exportVertNorm.enabled = true
@@ -244,7 +244,7 @@ rollout MeshRollout "Mesh" width:350 height:215
 		)
 		else
 		(
-			FxOgreObject.set_exportMesh("off");
+			OrkigeObject.set_exportMesh("off");
 			useSharedGeom.enabled = false
 			exportVBA.enabled = false
 			exportVertNorm.enabled = false
@@ -259,45 +259,45 @@ rollout MeshRollout "Mesh" width:350 height:215
 	on useSharedGeom changed state do
 	(
 		if useSharedGeom.checked then
-			FxOgreObject.set_useSharedGeom("on");
+			OrkigeObject.set_useSharedGeom("on");
 		else
-			FxOgreObject.set_useSharedGeom("off");
+			OrkigeObject.set_useSharedGeom("off");
 	)
 	on exportVertNorm changed state do
 	(
 		if exportVertNorm.checked then
-			FxOgreObject.set_exportVertNorm("on");
+			OrkigeObject.set_exportVertNorm("on");
 		else
-			FxOgreObject.set_exportVertNorm("off");
+			OrkigeObject.set_exportVertNorm("off");
 	)
 	on exportVertCol changed state do
 	(
 		if exportVertCol.checked then
-			FxOgreObject.set_exportVertCol("on");
+			OrkigeObject.set_exportVertCol("on");
 		else
-			FxOgreObject.set_exportVertCol("off");
+			OrkigeObject.set_exportVertCol("off");
 	)
 	on exportTexCoord changed state do
 	(
 		if exportTexCoord.checked then
-			FxOgreObject.set_exportTexCoord("on");
+			OrkigeObject.set_exportTexCoord("on");
 
 		else
-			FxOgreObject.set_exportTexCoord("off");
+			OrkigeObject.set_exportTexCoord("off");
 	)
 	on buildEdges changed state do
 	(
 		if buildEdges.checked then
-			FxOgreObject.set_buildEdges("on");
+			OrkigeObject.set_buildEdges("on");
 		else
-			FxOgreObject.set_buildEdges("off");
+			OrkigeObject.set_buildEdges("off");
 	)
 	on buildTangents changed state do
 	(
 		if buildTangents.checked then
-			FxOgreObject.set_buildTangents("on");
+			OrkigeObject.set_buildTangents("on");
 		else
-			FxOgreObject.set_buildTangents("off");
+			OrkigeObject.set_buildTangents("off");
 	)
 )
 rollout MaterialsRollout "Materials" width:350 height:168
@@ -310,10 +310,10 @@ rollout MaterialsRollout "Materials" width:350 height:168
 	checkbox copyTextures "Copy texture files to output dir" pos:[11,146] width:271 height:21
 	fn refresh = 
 	(
-		exportMaterial.checked = FxOgreObject.get_exportMaterial()
-		copyTextures.checked = FxOgreObject.get_copyTextures()
-		MaterialFilename.text = FxOgreObject.get_materialFilename()
-		matPrefix.text = FxOgreObject.get_matPrefix()
+		exportMaterial.checked = OrkigeObject.get_exportMaterial()
+		copyTextures.checked = OrkigeObject.get_copyTextures()
+		MaterialFilename.text = OrkigeObject.get_materialFilename()
+		matPrefix.text = OrkigeObject.get_matPrefix()
 		if exportMaterial.checked then
 		(
 			MaterialFilename.enabled = true
@@ -340,7 +340,7 @@ rollout MaterialsRollout "Materials" width:350 height:168
 	(
 		if exportMaterial.checked then
 		(
-			FxOgreObject.set_exportMaterial("on");
+			OrkigeObject.set_exportMaterial("on");
 			materialFilename.enabled = true;
 			materialFilenameLabel.enabled = true;
 			matPrefix.enabled = true;
@@ -349,7 +349,7 @@ rollout MaterialsRollout "Materials" width:350 height:168
 		)
 		else
 		(
-			FxOgreObject.set_exportMaterial("off");
+			OrkigeObject.set_exportMaterial("off");
 			materialFilename.enabled = false;
 			materialFilenameLabel.enabled = false;
 			matPrefix.enabled = false;
@@ -360,9 +360,9 @@ rollout MaterialsRollout "Materials" width:350 height:168
 	on copyTextures changed state do
 	(
 		if copyTextures.checked then
-		 FxOgreObject.set_copyTextures("on");
+		 OrkigeObject.set_copyTextures("on");
 		else
-		 FxOgreObject.set_copyTextures("off");
+		 OrkigeObject.set_copyTextures("off");
 	)
 )
 rollout ScenesRollout "Scene" width:350 height:168
@@ -372,8 +372,8 @@ rollout ScenesRollout "Scene" width:350 height:168
 	checkbox exportScene "Export mesh, cameras and lights to .scene file" pos:[11,10] width:300 height:18
 	fn refresh = 
 	(
-		exportScene.checked = FxOgreObject.get_exportScene()
-		SceneFilename.text = FxOgreObject.get_sceneFilename()
+		exportScene.checked = OrkigeObject.get_exportScene()
+		SceneFilename.text = OrkigeObject.get_sceneFilename()
 		if exportScene.checked then
 		(
 			SceneFilename.enabled = true
@@ -394,13 +394,13 @@ rollout ScenesRollout "Scene" width:350 height:168
 	(
 		if exportScene.checked then
 		(
-			FxOgreObject.set_exportScene("on");
+			OrkigeObject.set_exportScene("on");
 			sceneFilename.enabled = true;
 			sceneFilenameLabel.enabled = true;
 		)
 		else
 		(
-			FxOgreObject.set_exportScene("off");
+			OrkigeObject.set_exportScene("off");
 			sceneFilename.enabled = false;
 			sceneFilenameLabel.enabled = false;
 		)
@@ -428,11 +428,11 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 	editText animName "" pos:[93,312] width:88 height:25
 	fn refresh =
 	(
-		exportSkeleton.checked = FxOgreObject.get_exportSkeleton()
-		exportSkelAnims.checked = FxOgreObject.get_exportSkelAnims()
-		normalizeScale.checked = FxOgreObject.get_normalizeScale()
-		skeletonFilename.text = FxOgreObject.get_skeletonFilename()
-		skelBB.checked = FxOgreObject.get_skelBB()	
+		exportSkeleton.checked = OrkigeObject.get_exportSkeleton()
+		exportSkelAnims.checked = OrkigeObject.get_exportSkelAnims()
+		normalizeScale.checked = OrkigeObject.get_normalizeScale()
+		skeletonFilename.text = OrkigeObject.get_skeletonFilename()
+		skelBB.checked = OrkigeObject.get_skelBB()	
 		shouldEnableAnimations = false
 		if exportSkeleton.checked then
 		(
@@ -466,7 +466,7 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 		shouldEnableAnimations = false
 		if exportSkeleton.checked then
 		(
-			FxOgreObject.set_exportSkeleton("on");
+			OrkigeObject.set_exportSkeleton("on");
 			skeletonFilename.enabled = true
 			skeletonFilenameLabel.enabled = true
 			exportSkelAnims.enabled = true
@@ -479,7 +479,7 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 		)
 		else
 		(
-			FxOgreObject.set_exportSkeleton("off");
+			OrkigeObject.set_exportSkeleton("off");
 			skeletonFilename.enabled = false
 			skeletonFilenameLabel.enabled = false
 			exportSkelAnims.enabled = false
@@ -492,30 +492,30 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 	(
 		if exportSkelAnims.checked then
 		(
-			FxOgreObject.set_exportSkelAnims("on");
+			OrkigeObject.set_exportSkelAnims("on");
 			skelBB.enabled = true
 			animRefresh SkeletonRollout true
 		)
 		else
 		(
 			skelBB.enabled = false
-			FxOgreObject.set_exportSkelAnims("off");
+			OrkigeObject.set_exportSkelAnims("off");
 			animRefresh SkeletonRollout false
 		)
 	)
 	on skelBB changed state do
 	(
 		if skelBB.checked then
-			FxOgreObject.set_skelBB("on");
+			OrkigeObject.set_skelBB("on");
 		else
-			FxOgreObject.set_skelBB("off");
+			OrkigeObject.set_skelBB("off");
 	)
 	on normalizeScale changed state do
 	(
 		if normalizeScale.checked then
-			FxOgreObject.set_normalizeScale("on");
+			OrkigeObject.set_normalizeScale("on");
 		else
-			FxOgreObject.set_normalizeScale("off");
+			OrkigeObject.set_normalizeScale("off");
 	)
 	on add pressed  do
 	(
@@ -531,7 +531,7 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 		(
 			rateTemp = (sampleFrames.text as float) / frameRate
 		)
-		FxOgreObject.add_skelClipList animName.text startTemp stopTemp rateTemp
+		OrkigeObject.add_skelClipList animName.text startTemp stopTemp rateTemp
 		anims.items = getSkelAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -539,10 +539,10 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 	on delete pressed  do
 	(
 		newIndex = anims.selection;
-		if newIndex  == FxOgreObject.get_numClips_skelClipList() then 
+		if newIndex  == OrkigeObject.get_numClips_skelClipList() then 
 			if newIndex > 0 then
 				newIndex = newIndex  - 1
-		FxOgreObject.remove_skelClipList (anims.selection - 1)
+		OrkigeObject.remove_skelClipList (anims.selection - 1)
 		anims.items = getSkelAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -566,10 +566,10 @@ rollout SkeletonRollout "Skeleton" width:400 height:367
 		rangeType.state = 2
 		start.enabled = true
 		stop.enabled = true	
-		start.text = (FxOgreObject.get_start_skelClipList (anims.selection - 1) ) as String
-		stop.text = (FxOgreObject.get_stop_skelClipList (anims.selection - 1) ) as String
-		sampleSeconds.text = (FxOgreObject.get_rate_skelClipList (anims.selection - 1) ) as String
-		sampleFrames.text = ((FxOgreObject.get_rate_skelClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
+		start.text = (OrkigeObject.get_start_skelClipList (anims.selection - 1) ) as String
+		stop.text = (OrkigeObject.get_stop_skelClipList (anims.selection - 1) ) as String
+		sampleSeconds.text = (OrkigeObject.get_rate_skelClipList (anims.selection - 1) ) as String
+		sampleFrames.text = ((OrkigeObject.get_rate_skelClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
 		animName.text = anims.selected
 	)
 )
@@ -592,9 +592,9 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 	editText animName "" pos:[93,250] width:88 height:25
 	fn refresh = 
 	(
-		exportBlendShapes.checked = FxOgreObject.get_exportBlendShapes()
-		exportBSAnims.checked = FxOgreObject.get_exportBSAnims()
-		bsBB.checked = FxOgreObject.get_bsBB()	
+		exportBlendShapes.checked = OrkigeObject.get_exportBlendShapes()
+		exportBSAnims.checked = OrkigeObject.get_exportBSAnims()
+		bsBB.checked = OrkigeObject.get_bsBB()	
 		shouldEnableAnimations = false
 		if exportBlendShapes.checked then
 		(
@@ -620,7 +620,7 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 		shouldEnableAnimations = false
 		if exportBlendShapes.checked then
 		(
-			FxOgreObject.set_exportBlendShapes("on");
+			OrkigeObject.set_exportBlendShapes("on");
 			exportBSAnims.enabled = true	
 			bsBB.enabled = true	
 			if exportBSAnims.checked then 
@@ -628,7 +628,7 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 		)
 		else
 		(
-			FxOgreObject.set_exportBlendShapes("off");
+			OrkigeObject.set_exportBlendShapes("off");
 			exportBSAnims.enabled = false
 			bsBB.enabled = false		
 		)
@@ -638,21 +638,21 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 	(
 		if exportBSAnims.checked then
 		(
-			FxOgreObject.set_exportBSAnims("on");
+			OrkigeObject.set_exportBSAnims("on");
 			animRefresh BlendShapesRollout true
 		)
 		else
 		(
-			FxOgreObject.set_exportBSAnims("off");
+			OrkigeObject.set_exportBSAnims("off");
 			animRefresh BlendShapesRollout false
 		)
 	)
 	on bsBB changed state do
 	(
 		if bsBB.checked then
-			FxOgreObject.set_bsBB("on");
+			OrkigeObject.set_bsBB("on");
 		else
-			FxOgreObject.set_bsBB("off");
+			OrkigeObject.set_bsBB("off");
 	)
 	on add pressed  do
 	(
@@ -668,7 +668,7 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 		(
 			rateTemp = (sampleFrames.text as float) / frameRate
 		)
-		FxOgreObject.add_BSClipList animName.text startTemp stopTemp rateTemp
+		OrkigeObject.add_BSClipList animName.text startTemp stopTemp rateTemp
 		anims.items = getBSAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -676,10 +676,10 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 	on delete pressed  do
 	(
 		newIndex = anims.selection;
-		if newIndex  == FxOgreObject.get_numClips_BSClipList() then 
+		if newIndex  == OrkigeObject.get_numClips_BSClipList() then 
 			if newIndex > 0 then
 				newIndex = newIndex  - 1
-		FxOgreObject.remove_BSClipList (anims.selection - 1)
+		OrkigeObject.remove_BSClipList (anims.selection - 1)
 		anims.items = getBSAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -703,10 +703,10 @@ rollout BlendShapesRollout "Blend Shapes" width:350 height:130
 		rangeType.state = 2
 		start.enabled = true
 		stop.enabled = true	
-		start.text = (FxOgreObject.get_start_BSClipList (anims.selection - 1) ) as String
-		stop.text = (FxOgreObject.get_stop_BSClipList (anims.selection - 1) ) as String
-		sampleSeconds.text = (FxOgreObject.get_rate_BSClipList (anims.selection - 1) ) as String
-		sampleFrames.text = ((FxOgreObject.get_rate_BSClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
+		start.text = (OrkigeObject.get_start_BSClipList (anims.selection - 1) ) as String
+		stop.text = (OrkigeObject.get_stop_BSClipList (anims.selection - 1) ) as String
+		sampleSeconds.text = (OrkigeObject.get_rate_BSClipList (anims.selection - 1) ) as String
+		sampleFrames.text = ((OrkigeObject.get_rate_BSClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
 		animName.text = anims.selected
 	)	
 )
@@ -728,8 +728,8 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 	editText animName "" pos:[93,230] width:88 height:25
 	fn refresh = 
 	(
-		exportVertAnims.checked = FxOgreObject.get_exportVertAnims()
-		vertBB.checked = FxOgreObject.get_vertBB()	
+		exportVertAnims.checked = OrkigeObject.get_exportVertAnims()
+		vertBB.checked = OrkigeObject.get_vertBB()	
 		shouldEnableAnimations = false
 		if exportVertAnims.checked then 
 		(
@@ -751,23 +751,23 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 	(
 		if exportVertAnims.checked then
 		(
-			FxOgreObject.set_exportVertAnims("on");
+			OrkigeObject.set_exportVertAnims("on");
 			vertBB.enabled = true
 			animRefresh VertAnimsRollout true
 		)
 		else
 		(
 			vertBB.enabled = false
-			FxOgreObject.set_exportVertAnims("off");
+			OrkigeObject.set_exportVertAnims("off");
 			animRefresh VertAnimsRollout false
 		)
 	)
 	on vertBB changed state do
 	(
 		if vertBB.checked then
-			FxOgreObject.set_vertBB("on");
+			OrkigeObject.set_vertBB("on");
 		else
-			FxOgreObject.set_vertBB("off");
+			OrkigeObject.set_vertBB("off");
 	)
 	on add pressed  do
 	(
@@ -783,7 +783,7 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 		(
 			rateTemp = (sampleFrames.text as float) / frameRate
 		)
-		FxOgreObject.add_vertClipList animName.text startTemp stopTemp rateTemp
+		OrkigeObject.add_vertClipList animName.text startTemp stopTemp rateTemp
 		anims.items = getVertAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -791,10 +791,10 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 	on delete pressed  do
 	(
 		newIndex = anims.selection;
-		if newIndex  == FxOgreObject.get_numClips_vertClipList() then 
+		if newIndex  == OrkigeObject.get_numClips_vertClipList() then 
 			if newIndex > 0 then
 				newIndex = newIndex  - 1
-		FxOgreObject.remove_vertClipList (anims.selection - 1)
+		OrkigeObject.remove_vertClipList (anims.selection - 1)
 		anims.items = getVertAnims()
 		anims.selection = 0
 		animName.text = ""
@@ -818,10 +818,10 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 		rangeType.state = 2
 		start.enabled = true
 		stop.enabled = true	
-		start.text = (FxOgreObject.get_start_vertClipList (anims.selection - 1) ) as String
-		stop.text = (FxOgreObject.get_stop_vertClipList (anims.selection - 1) ) as String
-		sampleSeconds.text = (FxOgreObject.get_rate_vertClipList (anims.selection - 1) ) as String
-		sampleFrames.text = ((FxOgreObject.get_rate_vertClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
+		start.text = (OrkigeObject.get_start_vertClipList (anims.selection - 1) ) as String
+		stop.text = (OrkigeObject.get_stop_vertClipList (anims.selection - 1) ) as String
+		sampleSeconds.text = (OrkigeObject.get_rate_vertClipList (anims.selection - 1) ) as String
+		sampleFrames.text = ((OrkigeObject.get_rate_vertClipList (anims.selection - 1) * frameRate  ) as Integer ) as String
 	)	
 )
 rollout CommonParametersRollout "Common Parameters" width:350 height:145
@@ -834,30 +834,30 @@ rollout CommonParametersRollout "Common Parameters" width:350 height:145
 	label animTypeLabel "Animation Type:" pos:[16,90] width:101 height:20
 	fn refresh =
 	(
-		if FxOgreObject.get_exportWorldCoords() then
+		if OrkigeObject.get_exportWorldCoords() then
 			exportWorldCoords.state = 1
 		else
 			exportWorldCoords.state = 2
-		if FxOgreObject.get_yUpAxis() then
+		if OrkigeObject.get_yUpAxis() then
 			yUpAxis.state = 1
 		else
 			yUpAxis.state = 2
-		if FxOgreObject.get_exportAll() then
+		if OrkigeObject.get_exportAll() then
 			exportAll.state = 1
 		else
 			exportAll.state = 2
-		lum.text = FxOgreObject.get_lum() as string	
+		lum.text = OrkigeObject.get_lum() as string	
 		if animType.text == "Vertex" then
 		(	
-			FxOgreObject.set_exportSkeleton "off"
-			FxOgreObject.set_exportBlendShapes "off"
+			OrkigeObject.set_exportSkeleton "off"
+			OrkigeObject.set_exportBlendShapes "off"
 			VertAnimsRollout.exportVertAnims.enabled = true
 			SkeletonRollout.exportSkeleton.enabled = false
 			BlendShapesRollout.exportBlendShapes.enabled = false
 		)
 		else
 		(
-			FxOgreObject.set_exportVertAnims "off"
+			OrkigeObject.set_exportVertAnims "off"
 			VertAnimsRollout.exportVertAnims.enabled = false
 			SkeletonRollout.exportSkeleton.enabled = true
 			BlendShapesRollout.exportBlendShapes.enabled = true		
@@ -873,30 +873,30 @@ rollout CommonParametersRollout "Common Parameters" width:350 height:145
 	on exportAll changed stat do
 	(
 		if exportAll.state == 1 then
-			FxOgreObject.set_exportAll("on")
+			OrkigeObject.set_exportAll("on")
 		else
-			FxOgreObject.set_exportAll("off")
+			OrkigeObject.set_exportAll("off")
 	)
 	on exportWorldCoords changed stat do
 	(
 		if exportWorldCoords.state == 1 then
-			FxOgreObject.set_exportWorldCoords("on")
+			OrkigeObject.set_exportWorldCoords("on")
 		else
-			FxOgreObject.set_exportWorldCoords("off")
+			OrkigeObject.set_exportWorldCoords("off")
 	)
 	on yUpAxis changed stat do
 	(
 		if yUpAxis.state == 1 then
-			FxOgreObject.set_yUpAxis("on")
+			OrkigeObject.set_yUpAxis("on")
 		else
-			FxOgreObject.set_yUpAxis("off")
+			OrkigeObject.set_yUpAxis("off")
 	)	
 	on animType selected stat do
 	(
 		refresh()
 	)
 	on lum entered text do
-		FxOgreObject.set_lum(lum.text as float);
+		OrkigeObject.set_lum(lum.text as float);
 )
 function refreshControls =
 (
@@ -922,45 +922,45 @@ rollout MainRollout "Main"
 		if exportString == "" then
 			bIsLegal = false
 		if bIsLegal then
-			FxOgreObject.fxogremaxexport()
+			OrkigeObject.fxogremaxexport()
 		else
 		(
 			exportString = getSaveFileName caption:"Save Ogre .MESH File" types:"Mesh(*.MESH)|*.MESH|"
 			if exportString != undefined then
 			(
-				FxOgreObject.set_meshFilename exportString
-				FxOgreObject.fxogremaxexport()
+				OrkigeObject.set_meshFilename exportString
+				OrkigeObject.fxogremaxexport()
 			)
 		)
 		refreshControls()
 	)
 	on clearPathButton pressed do
 	(
-		FxOgreObject.set_meshFilename ""
-		FxOgreObject.set_skeletonFilename ""
-		FxOgreObject.set_materialFilename ""
-		FxOgreObject.set_animFilename ""
-		FxOgreObject.set_camerasFilename ""
-		FxOgreObject.set_particlesFilename ""
-		FxOgreObject.set_matPrefix ""
-		FxOgreObject.set_texOutputDir ""
-		FxOgreObject.set_sceneFilename ""
+		OrkigeObject.set_meshFilename ""
+		OrkigeObject.set_skeletonFilename ""
+		OrkigeObject.set_materialFilename ""
+		OrkigeObject.set_animFilename ""
+		OrkigeObject.set_camerasFilename ""
+		OrkigeObject.set_particlesFilename ""
+		OrkigeObject.set_matPrefix ""
+		OrkigeObject.set_texOutputDir ""
+		OrkigeObject.set_sceneFilename ""
 		refreshControls()
 	)
 	on refreshButton pressed do
 		refreshControls()
 	on defaultButton pressed do
 	(
-		FxOgreObject.reset_params()
+		OrkigeObject.reset_params()
 		refreshControls()
 	)
 		
 )
-addrollout MainRollout FxOgreMaxExporterDialog
-addrollout CommonParametersRollout FxOgreMaxExporterDialog
-addrollout MeshRollout FxOgreMaxExporterDialog
-addrollout MaterialsRollout FxOgreMaxExporterDialog
-addrollout ScenesRollout FxOgreMaxExporterDialog
-addrollout SkeletonRollout FxOgreMaxExporterDialog
-addrollout BlendShapesRollout FxOgreMaxExporterDialog
-addrollout VertAnimsRollout FxOgreMaxExporterDialog
+addrollout MainRollout OrkigeMaxExporterDialog
+addrollout CommonParametersRollout OrkigeMaxExporterDialog
+addrollout MeshRollout OrkigeMaxExporterDialog
+addrollout MaterialsRollout OrkigeMaxExporterDialog
+addrollout ScenesRollout OrkigeMaxExporterDialog
+addrollout SkeletonRollout OrkigeMaxExporterDialog
+addrollout BlendShapesRollout OrkigeMaxExporterDialog
+addrollout VertAnimsRollout OrkigeMaxExporterDialog

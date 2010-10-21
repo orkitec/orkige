@@ -25,7 +25,7 @@
 #include "material.h"
 #include "maxExportLayer.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	class MaterialSet : public Singleton<MaterialSet>
 	{

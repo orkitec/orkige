@@ -28,7 +28,7 @@
 #include "vertex.h"
 #include "blendshape.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	/***** Class Submesh *****/
 	class Submesh

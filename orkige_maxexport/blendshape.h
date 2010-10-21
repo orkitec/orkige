@@ -26,7 +26,7 @@
 #include "animation.h"
 #include "vertex.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	typedef struct
 	{

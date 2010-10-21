@@ -28,7 +28,7 @@
 
 // Copied frome Ogre::Singleton, created by Steve Streeting for Ogre
 
-namespace FxOgreMaxExporter 
+namespace OrkigeMaxExporter 
 {
     /** Template class for creating single-instance global classes.
     */

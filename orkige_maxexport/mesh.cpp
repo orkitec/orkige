@@ -19,8 +19,8 @@
 **********************************************************************************/
 
 #include "mesh.h"
-#include "FxOgreMaxExporterLog.h"
-namespace FxOgreMaxExporter
+#include "OrkigeMaxExporterLog.h"
+namespace OrkigeMaxExporter
 {
 	/***** Class Mesh *****/
 	// constructor
@@ -116,25 +116,25 @@ namespace FxOgreMaxExporter
 		stat = getUVSets(pGameMesh);		
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog("Error retrieving uvsets for current mesh\n");
+			OrkigeMaxExporterLog("Error retrieving uvsets for current mesh\n");
 		}
 		// Get skin and blendShape modifiers
 		stat = getModifiers(pGameNode,pGameObject,params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error retrieving skin cluster linked to current mesh\n");
+			OrkigeMaxExporterLog( "Error retrieving skin cluster linked to current mesh\n");
 		}
 		// Get connected shaders
 		stat = getShaders(pGameMesh);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error getting shaders connected to current mesh\n");
+			OrkigeMaxExporterLog( "Error getting shaders connected to current mesh\n");
 		}
 		// Get vertex data
 		stat = getVertices(pGameMesh,params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error retrieving vertex data for current mesh\n");
+			OrkigeMaxExporterLog( "Error retrieving vertex data for current mesh\n");
 		}
 		// Get vertex bone weights
 		if (pSkinCluster)
@@ -142,20 +142,20 @@ namespace FxOgreMaxExporter
 			getVertexBoneWeights(pGameMesh, params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error retrieving veretex bone assignements for current mesh\n");
+				OrkigeMaxExporterLog( "Error retrieving veretex bone assignements for current mesh\n");
 			}
 		}
 		// Get faces data
 		stat = getFaces(pGameMesh,params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error retrieving faces data for current mesh\n");
+			OrkigeMaxExporterLog( "Error retrieving faces data for current mesh\n");
 		}
 		// Set default values for data (rigidly skinned meshes, bone weights, position indices)
 		stat = cleanupData(pGameNode, pGameMesh, params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error cleaning up data for current mesh\n");
+			OrkigeMaxExporterLog( "Error cleaning up data for current mesh\n");
 		}
 		// Build shared geometry
 		if (params.useSharedGeom)
@@ -163,14 +163,14 @@ namespace FxOgreMaxExporter
 			stat = buildSharedGeometry(pGameNode,params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error building shared geometry for current mesh\n");				
+				OrkigeMaxExporterLog( "Error building shared geometry for current mesh\n");				
 			}
 		}
 		// Create submeshes (a different submesh for every different shader linked to the mesh)
 		stat = createSubmeshes(pGameNode, pGameMesh,params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error creating submeshes for current mesh\n");	
+			OrkigeMaxExporterLog( "Error creating submeshes for current mesh\n");	
 		}
 		// Free up memory
 		newvertices.clear();
@@ -209,7 +209,7 @@ namespace FxOgreMaxExporter
 								if (pSkinCluster)
 								{
 									// create the skeleton if it hasn't been created.
-									FxOgreMaxExporterLog( "Creating skeleton ...\n");
+									OrkigeMaxExporterLog( "Creating skeleton ...\n");
 									if (!m_pSkeleton)
 										m_pSkeleton = new Skeleton();
 								}
@@ -247,24 +247,24 @@ namespace FxOgreMaxExporter
 		int i;
 		// save current time for later restore
 		TimeValue curTime = GetCOREInterface()->GetTime();
-		FxOgreMaxExporterLog( "Loading vertex animations...\n");
+		OrkigeMaxExporterLog( "Loading vertex animations...\n");
 		
 		// clear animations data
 		m_vertexClips.clear();
 		// load the requested clips
 		for (i=0; i<params.vertClipList.size(); i++)
 		{
-			FxOgreMaxExporterLog( "Loading clip %s.\n", params.vertClipList[i].name.c_str() );
+			OrkigeMaxExporterLog( "Loading clip %s.\n", params.vertClipList[i].name.c_str() );
 			
 			stat = loadClip(params.vertClipList[i].name,params.vertClipList[i].start,
 				params.vertClipList[i].stop,params.vertClipList[i].rate,params);
 			if (stat == true)
 			{
-				FxOgreMaxExporterLog( "Clip successfully loaded\n");
+				OrkigeMaxExporterLog( "Clip successfully loaded\n");
 			}
 			else
 			{
-				FxOgreMaxExporterLog( "Failed loading clip\n");
+				OrkigeMaxExporterLog( "Failed loading clip\n");
 			}
 		}
 		//restore current time
@@ -276,7 +276,7 @@ namespace FxOgreMaxExporter
 	bool Mesh::loadBlendShapes(ParamList &params)
 	{
 		int i;
-		FxOgreMaxExporterLog( "Loading blend shape poses...\n");
+		OrkigeMaxExporterLog( "Loading blend shape poses...\n");
 		
 		// Set envelopes of all blend shape deformers to 0
 		if (params.useSharedGeom)
@@ -348,7 +348,7 @@ namespace FxOgreMaxExporter
 	bool Mesh::loadBlendShapeAnimations(ParamList& params)
 	{
 		int i,j,k;
-		FxOgreMaxExporterLog( "Loading blend shape animations...\n");
+		OrkigeMaxExporterLog( "Loading blend shape animations...\n");
 		
 		// Read the list of blend shape clips to export
 		for (i=0; i<params.BSClipList.size(); i++)
@@ -360,7 +360,7 @@ namespace FxOgreMaxExporter
 			a.m_name = ci.name;
 			a.m_length = ci.stop - ci.start;
 			a.m_tracks.clear();
-			FxOgreMaxExporterLog( "clip %s\n", ci.name.c_str());
+			OrkigeMaxExporterLog( "clip %s\n", ci.name.c_str());
 			// Read animation tracks from the blend shape deformer
 			if (params.useSharedGeom)
 			{
@@ -408,7 +408,7 @@ namespace FxOgreMaxExporter
 					}
 					// Add the joined track to current animation clip
 					a.addTrack(newTrack);
-					FxOgreMaxExporterLog( "num keyframes: %d.\n", a.m_tracks[0].m_vertexKeyframes.size());
+					OrkigeMaxExporterLog( "num keyframes: %d.\n", a.m_tracks[0].m_vertexKeyframes.size());
 				}
 			}
 			else
@@ -426,7 +426,7 @@ namespace FxOgreMaxExporter
 					}
 				}
 			}
-			FxOgreMaxExporterLog( "length: %f.\n", a.m_length);
+			OrkigeMaxExporterLog( "length: %f.\n", a.m_length);
 			
 			m_BSClips.push_back(a);
 		}
@@ -440,7 +440,7 @@ namespace FxOgreMaxExporter
 		for( int i = 0; i < mapChannels.Count(); ++i)
 		{
 			newuvsets.push_back(mapChannels[i]);
-			FxOgreMaxExporterLog( "Adding UV mapChannel index %i with value %i and %i verts.\n", i, mapChannels[i], pGameMesh->GetNumberOfMapVerts(mapChannels[i]));
+			OrkigeMaxExporterLog( "Adding UV mapChannel index %i with value %i and %i verts.\n", i, mapChannels[i], pGameMesh->GetNumberOfMapVerts(mapChannels[i]));
 		}
 		for( int i = m_uvsets.size(); i < mapChannels.Count(); ++i)
 		{
@@ -481,7 +481,7 @@ namespace FxOgreMaxExporter
 
 
 	// Get vertex data
-	bool Mesh::getVertices(IGameMesh* pGameMesh, FxOgreMaxExporter::ParamList &params)
+	bool Mesh::getVertices(IGameMesh* pGameMesh, OrkigeMaxExporter::ParamList &params)
 	{
 		int i;
 		int numVertices = pGameMesh->GetNumberOfVerts();
@@ -490,7 +490,7 @@ namespace FxOgreMaxExporter
 		newweights.resize(numVertices);
 		newjointIds.resize(numVertices);
 		
-		FxOgreMaxExporterLog( "Num verticies: %i\n", numVertices);
+		OrkigeMaxExporterLog( "Num verticies: %i\n", numVertices);
 		for (i=0; i<numVertices; i++)
 		{
 			newvertices[i].pointIdx = -1;
@@ -519,14 +519,14 @@ namespace FxOgreMaxExporter
 	}
 
 	// Get vertex bone assignements
-	bool Mesh::getVertexBoneWeights(IGameMesh* pGameMesh, FxOgreMaxExporter::ParamList &params)
+	bool Mesh::getVertexBoneWeights(IGameMesh* pGameMesh, OrkigeMaxExporter::ParamList &params)
 	{
 		if (!pSkinCluster)
 		{
 			return false;
 		}
 		IGameSkin* pGameSkin = pSkinCluster;
-		FxOgreMaxExporterLog( "Get vbas\n");
+		OrkigeMaxExporterLog( "Get vbas\n");
 		
 		std::vector<IGameNode*> rootbones;
 		for(int i = 0; i < pGameSkin->GetTotalBoneCount(); ++i )
@@ -562,12 +562,12 @@ namespace FxOgreMaxExporter
 		}
 		for(int i = 0; i <rootbones.size(); ++i )
 		{
-			FxOgreMaxExporterLog( "Exporting root bone: %s\n", rootbones[i]->GetName());
+			OrkigeMaxExporterLog( "Exporting root bone: %s\n", rootbones[i]->GetName());
 			m_pSkeleton->loadJoint(rootbones[i],params);
 		}
 
 		int numSkinnedVertices = pSkinCluster->GetNumOfSkinnedVerts();
-		FxOgreMaxExporterLog( "Num. Skinned Vertices: %d\n", numSkinnedVertices);
+		OrkigeMaxExporterLog( "Num. Skinned Vertices: %d\n", numSkinnedVertices);
 		for( int i = 0; i < numSkinnedVertices; ++i )
 		{
 			int type = pGameSkin->GetVertexType(i);
@@ -615,8 +615,8 @@ namespace FxOgreMaxExporter
 		// create an iterator to go through mesh polygons
 		if (numfaces > 0)
 		{
-			FxOgreMaxExporterLog( "Iterate over mesh faces\n");
-			FxOgreMaxExporterLog( "num polygons = %d\n", numfaces);
+			OrkigeMaxExporterLog( "Iterate over mesh faces\n");
+			OrkigeMaxExporterLog( "num polygons = %d\n", numfaces);
 
 			bool different;
 			int vtxIdx, nrmIdx;
@@ -628,7 +628,7 @@ namespace FxOgreMaxExporter
 				faceex = pGameMesh->GetFace(iFCount);
 				if(!faceex)
 				{
-					FxOgreMaxExporterLog( "Warning! Null Face returned from IGameMesh::GetFace at index %i!", iFCount); 
+					OrkigeMaxExporterLog( "Warning! Null Face returned from IGameMesh::GetFace at index %i!", iFCount); 
 				}
 				else
 				{
@@ -745,7 +745,7 @@ namespace FxOgreMaxExporter
 
 										if (newvertices[k].u[j]!=uv.x || newvertices[k].v[j]!=uv.y)
 										{
-											//FxOgreMaxExporterLog( "Different UV.  j: %d (%f,%f) vs. (%f,%f)\n", j, newvertices[k].u[j], newvertices[k].v[j], uv.x, uv.y);
+											//OrkigeMaxExporterLog( "Different UV.  j: %d (%f,%f) vs. (%f,%f)\n", j, newvertices[k].u[j], newvertices[k].v[j], uv.x, uv.y);
 											different = true;
 										}
 									}
@@ -825,7 +825,7 @@ namespace FxOgreMaxExporter
 				} // end iteration of triangles
 			}
 		}
-		FxOgreMaxExporterLog( "done reading mesh triangles\n");
+		OrkigeMaxExporterLog( "done reading mesh triangles\n");
 		return true;
 	}
 
@@ -861,7 +861,7 @@ namespace FxOgreMaxExporter
 			}
 			if(defaultJointIndex != -1 )
 			{
-				FxOgreMaxExporterLog("Rigidly skinning mesh %s to joint %s.\n", pGameNode->GetName(), joints[defaultJointIndex].name.c_str());
+				OrkigeMaxExporterLog("Rigidly skinning mesh %s to joint %s.\n", pGameNode->GetName(), joints[defaultJointIndex].name.c_str());
 			}
 			else 
 			{
@@ -897,7 +897,7 @@ namespace FxOgreMaxExporter
 	bool Mesh::buildSharedGeometry(IGameNode* pGameNode,ParamList& params)
 	{
 		int i,j,k;
-		FxOgreMaxExporterLog( "Create list of shared vertices\n");
+		OrkigeMaxExporterLog( "Create list of shared vertices\n");
 		
 		// save a new entry in the shared geometry map: we associate the index of the first 
 		// vertex we're loading with the dag path from which it has been read
@@ -989,7 +989,7 @@ namespace FxOgreMaxExporter
 		// save number of vertices referring to this mesh dag in the dag path map
 		di.numVertices = m_sharedGeom.vertices.size() - di.offset;
 		m_sharedGeom.dagMap.push_back(di);
-		FxOgreMaxExporterLog( "done creating vertices list\n");
+		OrkigeMaxExporterLog( "done creating vertices list\n");
 		
 		return true;
 	}
@@ -1013,7 +1013,7 @@ namespace FxOgreMaxExporter
 				IGameMaterial *shader = pGameMesh->GetMaterialFromFace(faces[0]);
 				if(!shader)
 				{
-					FxOgreMaxExporterLog( "Warning: Could not load material with ID %i. Pointer is NULL.\n", i);					
+					OrkigeMaxExporterLog( "Warning: Could not load material with ID %i. Pointer is NULL.\n", i);					
 				}
 
 				//create new submesh
@@ -1023,7 +1023,7 @@ namespace FxOgreMaxExporter
 				stat = pSubmesh->loadMaterial(shader,newuvsets,params);
 				if (stat != true)
 				{
-					FxOgreMaxExporterLog( "Error loading submesh linked to shader %s\n", shader->GetMaterialName());					
+					OrkigeMaxExporterLog( "Error loading submesh linked to shader %s\n", shader->GetMaterialName());					
 					return false;
 				}
 				//load vertex and face data
@@ -1062,7 +1062,7 @@ namespace FxOgreMaxExporter
 			length = times[times.size()-1] - times[0];
 		if (length < 0)
 		{
-			FxOgreMaxExporterLog( "invalid time range for the clip, we skip it\n");
+			OrkigeMaxExporterLog( "invalid time range for the clip, we skip it\n");
 			return false;
 		}
 		// create a new animation
@@ -1077,7 +1077,7 @@ namespace FxOgreMaxExporter
 			stat = loadMeshTrack(a,times,params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error loading mesh vertex animation\n");
+				OrkigeMaxExporterLog( "Error loading mesh vertex animation\n");
 			}
 		}
 		// else creae a different animation track for each submesh
@@ -1087,22 +1087,22 @@ namespace FxOgreMaxExporter
 			stat = loadSubmeshTracks(a,times,params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error loading submeshes vertex animation\n");
+				OrkigeMaxExporterLog( "Error loading submeshes vertex animation\n");
 				return false;
 			}
 		}
 		// add newly created animation to animations list
 		m_vertexClips.push_back(a);
 		// display info
-		FxOgreMaxExporterLog( "length: %f.\n",a.m_length );
-		FxOgreMaxExporterLog( "num keyframes: %d.\n", a.m_tracks[0].m_vertexKeyframes.size());
+		OrkigeMaxExporterLog( "length: %f.\n",a.m_length );
+		OrkigeMaxExporterLog( "num keyframes: %d.\n", a.m_tracks[0].m_vertexKeyframes.size());
 		// clip successfully loaded
 		return true;
 	}
 
 
 	//load an animation track for the whole mesh (using shared geometry)
-	bool Mesh::loadMeshTrack(Animation& a,std::vector<float> &times, FxOgreMaxExporter::ParamList &params)
+	bool Mesh::loadMeshTrack(Animation& a,std::vector<float> &times, OrkigeMaxExporter::ParamList &params)
 	{
 		int i;
 		bool stat;
@@ -1121,7 +1121,7 @@ namespace FxOgreMaxExporter
 			stat = loadKeyframe(t,times[i]-times[0],params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error reading animation keyframe at time: %f.\n", times[i] );
+				OrkigeMaxExporterLog( "Error reading animation keyframe at time: %f.\n", times[i] );
 			}
 		}
 		// add track to given animation
@@ -1132,7 +1132,7 @@ namespace FxOgreMaxExporter
 
 
 	//load all submesh animation tracks (one for each submesh)
-	bool Mesh::loadSubmeshTracks(Animation& a,std::vector<float> &times, FxOgreMaxExporter::ParamList &params)
+	bool Mesh::loadSubmeshTracks(Animation& a,std::vector<float> &times, OrkigeMaxExporter::ParamList &params)
 	{
 		int i,j;
 		bool stat;
@@ -1159,7 +1159,7 @@ namespace FxOgreMaxExporter
 				stat = m_submeshes[j]->loadKeyframe(tracks[j],times[i]-times[0],params);
 				if (stat != true)
 				{
-					FxOgreMaxExporterLog( "Error reading animation keyframe at time: %f for submesh: %d.\n", times[i],  j);
+					OrkigeMaxExporterLog( "Error reading animation keyframe at time: %f for submesh: %d.\n", times[i],  j);
 				}
 			}
 		}
@@ -1227,7 +1227,7 @@ namespace FxOgreMaxExporter
 		// If no mesh have been exported, skip mesh creation
 		if (m_submeshes.size() <= 0)
 		{
-			FxOgreMaxExporterLog( "Warning: No meshes selected for export\n");
+			OrkigeMaxExporterLog( "Warning: No meshes selected for export\n");
 			return false;
 		}
 		// Construct mesh

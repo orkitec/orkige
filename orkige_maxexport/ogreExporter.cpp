@@ -15,8 +15,8 @@
 *                                                                                *
 **********************************************************************************/
 #include "OgreExporter.h"
-#include "FxOgreMaxExporterData.h"
-#include "FxOgreMaxExporterLog.h"
+#include "OrkigeMaxExporterData.h"
+#include "OrkigeMaxExporterLog.h"
 #include "decomp.h"
 
 #if defined(WIN32)
@@ -25,7 +25,7 @@
 #include <Shlobj.h>
 #endif // defined(WIN32)
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
 OgreSceneExporter::OgreSceneExporter()
@@ -41,8 +41,8 @@ OgreSceneExporter::OgreSceneExporter()
 		DWORD attributes = GetFileAttributes(logFileName.data());
 		if (attributes != 0xFFFFFFFF)
 		{
-			logFileName.Append("\\FxOgreMaxExporter_Log.txt");
-			FxOgreMaxExporter::FxOgreMaxExporterLogFile::SetPath(logFileName.data());
+			logFileName.Append("\\OrkigeMaxExporter_Log.txt");
+			OrkigeMaxExporter::OrkigeMaxExporterLogFile::SetPath(logFileName.data());
 		}
 	}
 #endif// defined(WIN32)
@@ -117,7 +117,7 @@ int	OgreSceneExporter::DoExport( const TCHAR* name, ExpInterface* pExpInterface,
 {
 	
 	ParamList copyParams, params;
-	copyParams = FxOgreMaxExporterData::maxInterface.m_params;
+	copyParams = OrkigeMaxExporterData::maxInterface.m_params;
 
 	// Using only a mesh filename, construct the other filenames according to the
 	// default behavior: Skeleton and material filenames match mesh, and material prefix
@@ -146,7 +146,7 @@ int	OgreSceneExporter::DoExport( const TCHAR* name, ExpInterface* pExpInterface,
 	}
 	if(meshIndex == std::string::npos || folderIndex == std::string::npos)
 	{
-		FxOgreMaxExporterLog("Invalid mesh filename: %s\n", meshFilename.c_str());
+		OrkigeMaxExporterLog("Invalid mesh filename: %s\n", meshFilename.c_str());
 		return false;
 	}
 
@@ -164,9 +164,9 @@ int	OgreSceneExporter::DoExport( const TCHAR* name, ExpInterface* pExpInterface,
 	params.texOutputDir = filenamePath.c_str();
 	params.sceneFilename = sceneFilename.c_str();
 
-	FxOgreMaxExporterData::maxInterface.m_params = params;
-	bool success = FxOgreMaxExporterData::maxInterface.exportScene();
-	FxOgreMaxExporterData::maxInterface.m_params = copyParams;
+	OrkigeMaxExporterData::maxInterface.m_params = params;
+	bool success = OrkigeMaxExporterData::maxInterface.exportScene();
+	OrkigeMaxExporterData::maxInterface.m_params = copyParams;
 	return success;
 }
 
@@ -193,34 +193,34 @@ bool OgreExporter::exportScene( )
 	MaxSDK::Util::Path meshPath(m_params.meshFilename.c_str());
 	if(!meshPath.IsLegal() || meshIndex == std::string::npos)
 	{	
-		FxOgreMaxExporterLog( "Invalid meshfile path: %s\n", meshPath.GetCStr());
+		OrkigeMaxExporterLog( "Invalid meshfile path: %s\n", meshPath.GetCStr());
 		MessageBox(GetCOREInterface()->GetMAXHWnd(), _T("Invalid meshfile path"), _T("Error"), MB_OK);
 		return false;
 		// Pop up save dialog and update path?
 	}
-	FxOgreMaxExporterLog( "Mesh file: %s\n" , m_params.meshFilename.c_str());
+	OrkigeMaxExporterLog( "Mesh file: %s\n" , m_params.meshFilename.c_str());
 
 	size_t skelIndex = m_params.skeletonFilename.rfind(".SKELETON", m_params.skeletonFilename.length() -1);
 	if(skelIndex == std::string::npos)
 	{
-		FxOgreMaxExporterLog( "Empty or invalid skeleton file detected.  Using mesh filename as base.\n");
+		OrkigeMaxExporterLog( "Empty or invalid skeleton file detected.  Using mesh filename as base.\n");
 		m_params.skeletonFilename = m_params.meshFilename.substr(0,meshIndex).append(".SKELETON");
 	}
 	size_t matIndex = m_params.materialFilename.rfind(".MATERIAL", m_params.materialFilename.length() -1);
 	if(matIndex == std::string::npos)
 	{
-		FxOgreMaxExporterLog( "Empty or invalid material file detected.  Using mesh filename as base.\n");
+		OrkigeMaxExporterLog( "Empty or invalid material file detected.  Using mesh filename as base.\n");
 		m_params.materialFilename = m_params.meshFilename.substr(0,meshIndex).append(".MATERIAL");
 	}
 	size_t sceneIndex = m_params.sceneFilename.rfind(".SCENE", m_params.sceneFilename.length() -1);
 	if(sceneIndex == std::string::npos)
 	{
-		FxOgreMaxExporterLog( "Empty or invalid scene file detected.  Using mesh filename as base.\n");
+		OrkigeMaxExporterLog( "Empty or invalid scene file detected.  Using mesh filename as base.\n");
 		m_params.sceneFilename = m_params.meshFilename.substr(0,meshIndex).append(".SCENE");
 	}
 	if(m_params.texOutputDir == "")
 	{
-		FxOgreMaxExporterLog( "Empty or invalid texture output dir detected.  Using material filename as base.\n");
+		OrkigeMaxExporterLog( "Empty or invalid texture output dir detected.  Using material filename as base.\n");
 		MaxSDK::Util::Path path(m_params.materialFilename.c_str());
 		MaxSDK::Util::Path folderpath = path.RemoveLeaf();
 		m_params.texOutputDir = folderpath.GetCStr();
@@ -293,14 +293,14 @@ bool OgreExporter::exportScene( )
 	// sense because the exporter is designed to export one .MESH file at a time.
 	if(m_params.exportScene && m_params.exportMesh)
 	{
-		FxOgreMesh meshNode;
-		meshNode.node.trans.scale = FxOgrePoint3(1.0f, 1.0f, 1.0f);
-		meshNode.node.trans.rot = FxOgrePoint4(1.0f, 0.0f, 0.0f, 0.0f);
+		OrkigeMesh meshNode;
+		meshNode.node.trans.scale = OrkigePoint3(1.0f, 1.0f, 1.0f);
+		meshNode.node.trans.rot = OrkigePoint4(1.0f, 0.0f, 0.0f, 0.0f);
 		std::string filename = StripToTopParent(m_params.meshFilename);
 		meshNode.meshFile = filename.c_str();
 		int ri = filename.find_last_of(".");
 		meshNode.node.name = filename.substr(0,filename.length()-5);
-		m_FxOgreScene.addMesh(meshNode);
+		m_OrkigeScene.addMesh(meshNode);
 	}
 	stat = writeOgreData();
 
@@ -345,12 +345,12 @@ bool OgreExporter::translateNode(IGameNode* pGameNode)
 						{
 							if( pGameMesh->InitializeData() )
 							{
-								FxOgreMaxExporterLog("Found mesh node: %s\n", pGameNode->GetName());
+								OrkigeMaxExporterLog("Found mesh node: %s\n", pGameNode->GetName());
 				
 								stat = m_pMesh->load(pGameNode,pGameObject,pGameMesh,m_params);
 								if (true != stat)
 								{
-									FxOgreMaxExporterLog("Error, mesh skipped\n");
+									OrkigeMaxExporterLog("Error, mesh skipped\n");
 								}
 							}
 						}
@@ -397,10 +397,10 @@ bool OgreExporter::translateNode(IGameNode* pGameNode)
 	}
 	return true;
 }
-FxOgreNode OgreExporter::getFxOgreNode( IGameNode* pGameNode )
+OrkigeNode OgreExporter::getOrkigeNode( IGameNode* pGameNode )
 {
 	assert(pGameNode != NULL);
-	FxOgreNode node;
+	OrkigeNode node;
 	node.name = pGameNode->GetName();
 	Matrix3 worldTM = pGameNode->GetWorldTM(0).ExtractMatrix3();
 	AffineParts ap;
@@ -421,9 +421,9 @@ void OgreExporter::addCameraToScene( IGameNode* pGameNode, IGameCamera* pGameCam
 {
 	if( pGameNode && pGameCamera && pIGame )
 	{
-		FxOgreMaxExporterLog("Exporting camera %s...\n", pGameNode->GetName());
-		FxOgreCamera camera;
-		camera.node = getFxOgreNode(pGameNode);
+		OrkigeMaxExporterLog("Exporting camera %s...\n", pGameNode->GetName());
+		OrkigeCamera camera;
+		camera.node = getOrkigeNode(pGameNode);
 		IGameProperty* pGameProperty = pGameCamera->GetCameraFOV();
 		if( pGameProperty )
 		{
@@ -439,17 +439,17 @@ void OgreExporter::addCameraToScene( IGameNode* pGameNode, IGameCamera* pGameCam
 		{
 			pGameProperty->GetPropertyValue(camera.clipFar);
 		}
-		m_FxOgreScene.addCamera(camera);
+		m_OrkigeScene.addCamera(camera);
 	}
 }
 void OgreExporter::addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight )
 {
 	if( pGameNode && pGameLight && pIGame )
 	{
-		FxOgreMaxExporterLog("Exporting light %s...\n", pGameNode->GetName());
+		OrkigeMaxExporterLog("Exporting light %s...\n", pGameNode->GetName());
 		
-		FxOgreLight light;
-		light.node = getFxOgreNode(pGameNode);
+		OrkigeLight light;
+		light.node = getOrkigeNode(pGameNode);
 
 		switch(  pGameLight->GetLightType()  )
 		{
@@ -472,7 +472,7 @@ void OgreExporter::addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight
 			break;
 		case IGameLight::IGAME_UNKNOWN:
 		default:
-			FxOgreMaxExporterLog("Unsupported light type.  Failed to export.\n");
+			OrkigeMaxExporterLog("Unsupported light type.  Failed to export.\n");
 			return;
 		}
 
@@ -531,7 +531,7 @@ void OgreExporter::addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight
 			}
 			
 		}
-		m_FxOgreScene.addLight(light);
+		m_OrkigeScene.addLight(light);
 	}	
 }
 
@@ -558,11 +558,11 @@ void OgreExporter::addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight
 		// Write mesh binary
 		if (m_params.exportMesh)
 		{
-			FxOgreMaxExporterLog("Writing mesh binary...\n");		
+			OrkigeMaxExporterLog("Writing mesh binary...\n");		
 			stat = m_pMesh->writeOgreBinary(m_params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog("Error writing mesh binary file\n");
+				OrkigeMaxExporterLog("Error writing mesh binary file\n");
 			}
 		}
 		// Write skeleton binary
@@ -570,48 +570,48 @@ void OgreExporter::addLightToScene( IGameNode* pGameNode, IGameLight* pGameLight
 		{
 			if (m_pMesh->getSkeleton())
 			{
-				FxOgreMaxExporterLog("Writing skeleton binary...\n");
+				OrkigeMaxExporterLog("Writing skeleton binary...\n");
 				stat = m_pMesh->getSkeleton()->writeOgreBinary(m_params);
 				if (stat != true)
 				{
-					FxOgreMaxExporterLog("Error writing mesh binary file\n");
+					OrkigeMaxExporterLog("Error writing mesh binary file\n");
 				}
 			}
 		}
 		// Write materials data
 		if (m_params.exportMaterial)
 		{
-			FxOgreMaxExporterLog("Writing materials data...\n");
+			OrkigeMaxExporterLog("Writing materials data...\n");
 			
 			stat  = m_pMaterialSet->writeOgreScript(m_params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog("Error writing materials file\n");
+				OrkigeMaxExporterLog("Error writing materials file\n");
 			}
 		}
 		// Write Scene
 		if (m_params.exportScene)
 		{
-			FxOgreMaxExporterLog("Writing scene data...\n");
+			OrkigeMaxExporterLog("Writing scene data...\n");
 			
-			stat  = m_FxOgreScene.writeSceneFile(m_params);
+			stat  = m_OrkigeScene.writeSceneFile(m_params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog("Error writing scene file\n");
+				OrkigeMaxExporterLog("Error writing scene file\n");
 			}
 		}
-		m_FxOgreScene.clear();
+		m_OrkigeScene.clear();
 		return true;
 	}
 } // end namespace
 
 
 
-class FxOgreMaxExporterClassDesc:public ClassDesc2 
+class OrkigeMaxExporterClassDesc:public ClassDesc2 
 {
 	public:
 	int 			IsPublic() { return TRUE; }
-	void *			Create(BOOL loading = FALSE) { return new FxOgreMaxExporter::OgreSceneExporter(); }
+	void *			Create(BOOL loading = FALSE) { return new OrkigeMaxExporter::OgreSceneExporter(); }
 	const TCHAR *	ClassName() { return _T("OgreExporter"); }
 	SClass_ID		SuperClassID() { return SCENE_EXPORT_CLASS_ID; }
 	Class_ID		ClassID() { return Class_ID(0x6a042a9d, 0x75b54fc4); }
@@ -619,7 +619,7 @@ class FxOgreMaxExporterClassDesc:public ClassDesc2
 	const TCHAR*	InternalName() { return _T("OgreExporter"); }	
 	HINSTANCE		HInstance() { return hInstance; }				
 };
-static FxOgreMaxExporterClassDesc FxOgreMaxExporterDesc;
-ClassDesc2* GetFxOgreMaxExporterDesc() { return &FxOgreMaxExporterDesc; }
+static OrkigeMaxExporterClassDesc OrkigeMaxExporterDesc;
+ClassDesc2* GetOrkigeMaxExporterDesc() { return &OrkigeMaxExporterDesc; }
 
 

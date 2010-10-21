@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterLog.cpp
+// OrkigeMaxExporterLog.cpp
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 // Start Date : December 10th, 2007
@@ -13,7 +13,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "FxOgreMaxExporterLog.h"
+#include "ModelViewerMaxExporterLog.h"
 
 #include <stdio.h>
 #ifdef WIN32
@@ -25,29 +25,29 @@
 #include <iostream>
 #include <fstream>
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
 // The full path to the log file.
-std::string FxOgreMaxExporterLogFile::_logPath;
+std::string OrkigeMaxExporterLogFile::_logPath;
 
 // Sets the full path to the log file.
-void FxOgreMaxExporterLogFile::SetPath( const std::string& logPath )
+void OrkigeMaxExporterLogFile::SetPath( const std::string& logPath )
 {
 	_logPath = logPath;
 	// Erase the contents of the log file.
 	std::ofstream output(_logPath.c_str());
-	FxOgreMaxExporterLog("Logging to file %s\n", _logPath.c_str());
+	OrkigeMaxExporterLog("Logging to file %s\n", _logPath.c_str());
 }
 
 // Returns the full path to the log file.
-std::string FxOgreMaxExporterLogFile::GetPath( void )
+std::string OrkigeMaxExporterLogFile::GetPath( void )
 {
 	return _logPath;
 }
 
 // Printf-style log output.
-void FxOgreMaxExporterLogFile::Log( const char* format, ... )
+void OrkigeMaxExporterLogFile::Log( const char* format, ... )
 {
 	va_list	argList;
 	char buffer[1024];
@@ -66,7 +66,7 @@ void FxOgreMaxExporterLogFile::Log( const char* format, ... )
 	}
 }
 
-void FxOgreMaxExporterLogFile::operator<<(const char* str)
+void OrkigeMaxExporterLogFile::operator<<(const char* str)
 {
 	Log(str);
 }

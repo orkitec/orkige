@@ -17,8 +17,8 @@
 
 #include "blendshape.h"
 #include "submesh.h"
-#include "FxOgreMaxExporterLog.h"
-namespace FxOgreMaxExporter
+#include "OrkigeMaxExporterLog.h"
+namespace OrkigeMaxExporter
 {
 	// Constructor
 	BlendShape::BlendShape(MorphR3* pMorphR3, IGameNode* pGameNode)
@@ -79,7 +79,7 @@ namespace FxOgreMaxExporter
 			Object *origMeshObj = objectState.obj;
 			if (!origMeshObj->CanConvertToType(Class_ID(TRIOBJ_CLASS_ID, 0)))
 			{
-				FxOgreMaxExporterLog( "Could not access original mesh for morph target comparison.");
+				OrkigeMaxExporterLog( "Could not access original mesh for morph target comparison.");
 				return false;
 			}
 
@@ -124,9 +124,9 @@ namespace FxOgreMaxExporter
 						}
 						else
 						{
-							FxOgreMaxExporterLog( "Exporting Morph target: %s with %d vertices.\n", posename.c_str(), numMorphVertices);
-							FxOgreMaxExporterLog( "Mesh has %d vertices.\n", numVertices);
-							FxOgreMaxExporterLog( "%d total vertices.\n", vertices.size());
+							OrkigeMaxExporterLog( "Exporting Morph target: %s with %d vertices.\n", posename.c_str(), numMorphVertices);
+							OrkigeMaxExporterLog( "Mesh has %d vertices.\n", numVertices);
+							OrkigeMaxExporterLog( "%d total vertices.\n", vertices.size());
 							assert(offset+numVertices <= vertices.size());
 							// create a new pose
 							pose p;
@@ -236,7 +236,7 @@ namespace FxOgreMaxExporter
 		times.clear();
 		if (rate <= 0)
 		{
-			FxOgreMaxExporterLog( "invalid sample rate for the clip (must be >0), we skip it\n");
+			OrkigeMaxExporterLog( "invalid sample rate for the clip (must be >0), we skip it\n");
 			return t;
 		}
 		float time;
@@ -249,7 +249,7 @@ namespace FxOgreMaxExporter
 			length = times[times.size()-1] - times[0];
 		if (length < 0)
 		{
-			FxOgreMaxExporterLog( "invalid time range for the clip, we skip it\n");
+			OrkigeMaxExporterLog( "invalid time range for the clip, we skip it\n");
 			return t;
 		}
 		// Evaluate animation curves at selected times

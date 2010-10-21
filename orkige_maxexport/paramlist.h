@@ -33,7 +33,7 @@
 #define CM2YD 0.0109361
 
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	std::string StripToTopParent(const std::string& filepath);
 

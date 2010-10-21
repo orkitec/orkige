@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterLog.h
+// OrkigeMaxExporterLog.h
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 ////////////////////////////////////////////////////////////////////////////////
@@ -12,17 +12,17 @@
 *                                                                                *
 **********************************************************************************/
 
-#ifndef FxOgreMaxExporterLog_H__
-#define FxOgreMaxExporterLog_H__
+#ifndef OrkigeMaxExporterLog_H__
+#define OrkigeMaxExporterLog_H__
 
 #include <string>
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
-#define FxOgreMaxExporterLog ::FxOgreMaxExporter::FxOgreMaxExporterLogFile::Log
+#define OrkigeMaxExporterLog ::OrkigeMaxExporter::OrkigeMaxExporterLogFile::Log
 
-class FxOgreMaxExporterLogFile
+class OrkigeMaxExporterLogFile
 {
 public:
 	// Sets the full path to the log file.

@@ -25,7 +25,7 @@
 #include "paramList.h"
 #include "animation.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	/***** structure to hold joint info *****/
 	typedef struct jointTag

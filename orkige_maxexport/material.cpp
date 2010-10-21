@@ -19,14 +19,14 @@
 **********************************************************************************/
 
 #include "material.h"
-#include "FxOgreMaxExporterLog.h"
+#include "OrkigeMaxExporterLog.h"
 #ifdef PRE_MAX_2010
 #include "IPathConfigMgr.h"
 #else
 #include "IFileResolutionManager.h"
 #endif	//PRE_MAX_2010 
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	// Constructor
 	Material::Material()
@@ -97,12 +97,12 @@ namespace FxOgreMaxExporter
 		
 			if(!pGameMaterial->IsEntitySupported() )
 			{
-				FxOgreMaxExporterLog( "Warning: IsEntitySupported() returned false for IGameMaterial ...\n");
+				OrkigeMaxExporterLog( "Warning: IsEntitySupported() returned false for IGameMaterial ...\n");
 			}
 			else
 			{
 				int texCount = pGameMaterial->GetNumberOfTextureMaps();
-				FxOgreMaxExporterLog( "Exporting %d textures...\n", texCount);
+				OrkigeMaxExporterLog( "Exporting %d textures...\n", texCount);
 				for( int i = 0; i < texCount; ++i )
 				{
 					
@@ -110,8 +110,8 @@ namespace FxOgreMaxExporter
 					if( pGameTexture && pGameTexture->IsEntitySupported())
 					{
 
-						FxOgreMaxExporterLog( "Texture Index: %d\n",i);
-						FxOgreMaxExporterLog( "Texture Name: %s\n", pGameTexture->GetTextureName());
+						OrkigeMaxExporterLog( "Texture Index: %d\n",i);
+						OrkigeMaxExporterLog( "Texture Name: %s\n", pGameTexture->GetTextureName());
 
 						Texture tex;
 									
@@ -140,53 +140,53 @@ namespace FxOgreMaxExporter
 #endif // PRE_MAX_2010
 							if( true == bFoundTexture )
 							{
-								FxOgreMaxExporterLog( "Updated texture location: %s.\n", textureName.GetCStr());
+								OrkigeMaxExporterLog( "Updated texture location: %s.\n", textureName.GetCStr());
 							}
 							else
 							{
-								FxOgreMaxExporterLog( "Warning: Couldn't locate texture: %s.\n", pGameTexture->GetTextureName());
+								OrkigeMaxExporterLog( "Warning: Couldn't locate texture: %s.\n", pGameTexture->GetTextureName());
 							}				
 						}
 						int texSlot = pGameTexture->GetStdMapSlot();
 						switch(texSlot)
 						{
 						case ID_AM:
-							FxOgreMaxExporterLog( "Ambient channel texture.\n");
+							OrkigeMaxExporterLog( "Ambient channel texture.\n");
 							break;
 						case ID_DI:
-							FxOgreMaxExporterLog( "Diffuse channel texture.\n");
+							OrkigeMaxExporterLog( "Diffuse channel texture.\n");
 							tex.bCreateTextureUnit = true;
 							break;
 						case ID_SP:
-							FxOgreMaxExporterLog( "Specular channel texture.\n");
+							OrkigeMaxExporterLog( "Specular channel texture.\n");
 							break;
 						case ID_SH:
-							FxOgreMaxExporterLog( "SH channel texture.\n");
+							OrkigeMaxExporterLog( "SH channel texture.\n");
 							break;
 						case ID_SS:
-							FxOgreMaxExporterLog( "Shininess Strenth channel texture.\n");
+							OrkigeMaxExporterLog( "Shininess Strenth channel texture.\n");
 							break;
 						case ID_SI:
-							FxOgreMaxExporterLog( "Self-illumination channel texture.\n");
+							OrkigeMaxExporterLog( "Self-illumination channel texture.\n");
 							break;
 						case ID_OP:
-							FxOgreMaxExporterLog( "opacity channel texture.\n");
+							OrkigeMaxExporterLog( "opacity channel texture.\n");
 							m_isTransparent = true;
 							break;
 						case ID_FI:
-							FxOgreMaxExporterLog( "Filter Color channel texture.\n");
+							OrkigeMaxExporterLog( "Filter Color channel texture.\n");
 							break;
 						case ID_BU:
-							FxOgreMaxExporterLog( "Bump channel texture.\n");
+							OrkigeMaxExporterLog( "Bump channel texture.\n");
 							break;
 						case ID_RL:
-							FxOgreMaxExporterLog( "Reflection channel texture.\n");
+							OrkigeMaxExporterLog( "Reflection channel texture.\n");
 							break; 
 						case ID_RR:
-							FxOgreMaxExporterLog( "Refraction channel texture.\n");
+							OrkigeMaxExporterLog( "Refraction channel texture.\n");
 							break;
 						case ID_DP:
-							FxOgreMaxExporterLog( "Displacement channel texture.\n");
+							OrkigeMaxExporterLog( "Displacement channel texture.\n");
 							break; 
 						}
 
@@ -243,13 +243,13 @@ namespace FxOgreMaxExporter
 							{
 								prop->GetPropertyValue(rotU);
 								if (fabs(rotU) > PRECISION)
-									FxOgreMaxExporterLog( "Warning: U rotation detected. This is unsupported.\n");
+									OrkigeMaxExporterLog( "Warning: U rotation detected. This is unsupported.\n");
 							}
 							prop = pUVGen->GetVAngleData();
 							{
 								prop->GetPropertyValue(rotV);
 								if (fabs(rotV) > PRECISION)
-									FxOgreMaxExporterLog( "Warning: V rotation detected. This is unsupported.\n");
+									OrkigeMaxExporterLog( "Warning: V rotation detected. This is unsupported.\n");
 							}
 
 							float transU,transV;

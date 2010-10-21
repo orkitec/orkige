@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterData.h
+// OrkigeMaxExporterData.h
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 ////////////////////////////////////////////////////////////////////////////////
@@ -12,15 +12,15 @@
 *                                                                                *
 **********************************************************************************/
 
-#ifndef FxOgreMaxExporterData_H__
-#define FxOgreMaxExporterData_H__
+#ifndef OrkigeMaxExporterData_H__
+#define OrkigeMaxExporterData_H__
 #include "paramlist.h"
 #include "OgreExporter.h"
 
-namespace FxOgreMaxExporter 
+namespace OrkigeMaxExporter 
 {
 
-class FxOgreMaxExporterData
+class OrkigeMaxExporterData
 {
 public:
 	static OgreExporter maxInterface;

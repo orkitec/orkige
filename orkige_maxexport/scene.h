@@ -19,10 +19,10 @@
 #include "paramList.h"
 #include "tinyxml.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	/***** structures to store scene info *****/
-	enum FxOgreLightType
+	enum OrkigeLightType
 	{
 		OGRE_LIGHT_POINT,
 		OGRE_LIGHT_DIRECTIONAL,
@@ -30,68 +30,68 @@ namespace FxOgreMaxExporter
 		OGRE_LIGHT_RADPOINT
 	};
 	
-	typedef struct FxOgrePoint3Tag
+	typedef struct OrkigePoint3Tag
 	{
 		float x, y, z;
-		FxOgrePoint3Tag()
+		OrkigePoint3Tag()
 		{
 			x = 0.0f;
 			y = 0.0f;
 			z = 0.0f;
 		}
-		FxOgrePoint3Tag(float X, float Y, float Z)
+		OrkigePoint3Tag(float X, float Y, float Z)
 		{
 			x = X;
 			y = Y;
 			z = Z;
 		}
-	} FxOgrePoint3;
+	} OrkigePoint3;
 
-	typedef struct FxOgrePoint4Tag
+	typedef struct OrkigePoint4Tag
 	{
 		float w, x, y, z;
-		FxOgrePoint4Tag()
+		OrkigePoint4Tag()
 		{
 			w = 0.0f;
 			x = 0.0f;
 			y = 0.0f;
 			z = 0.0f;
 		}
-		FxOgrePoint4Tag(float W, float X, float Y, float Z)
+		OrkigePoint4Tag(float W, float X, float Y, float Z)
 		{
 			w = W;
 			x = X;
 			y = Y;
 			z = Z;
 		}
-	} FxOgrePoint4;
+	} OrkigePoint4;
 
-	typedef struct FxOgreTransformTag
+	typedef struct OrkigeTransformTag
 	{
-		FxOgrePoint3 pos;
-		FxOgrePoint4 rot;
-		FxOgrePoint3 scale;
-	} FxOgreTransform;
+		OrkigePoint3 pos;
+		OrkigePoint4 rot;
+		OrkigePoint3 scale;
+	} OrkigeTransform;
 
-	typedef struct FxOgreNodeTag
+	typedef struct OrkigeNodeTag
 	{
-		FxOgreTransform trans;
+		OrkigeTransform trans;
 		bool isTarget;
 		std::string name;
 		int id;
-	} FxOgreNode;
+	} OrkigeNode;
 
-	typedef struct FxOgreLightTag
+	typedef struct OrkigeLightTag
 	{
-		FxOgreNode node;
-		FxOgreLightType type;
-		FxOgrePoint3 diffuseColour;
-		FxOgrePoint3 specularColour;
+		OrkigeNode node;
+		OrkigeLightType type;
+		OrkigePoint3 diffuseColour;
+		OrkigePoint3 specularColour;
 		// Point light parameters
 		float attenuation_range, attenuation_constant, attenuation_linear, attenuation_quadratic;
 		// Spotlight parameters
 		float range_inner, range_outer, range_falloff;
-		FxOgreLightTag()
+		OrkigeLightTag()
 		{
 			type = OGRE_LIGHT_POINT;
 			attenuation_range = 0.0f;
@@ -102,44 +102,44 @@ namespace FxOgreMaxExporter
 			range_outer = 0.0f;
 			range_falloff = 0.0f;
 		}
-	} FxOgreLight;
+	} OrkigeLight;
 
-	typedef struct FxOgreCameraTag
+	typedef struct OrkigeCameraTag
 	{
-		FxOgreNode node;
+		OrkigeNode node;
 		float fov, clipNear, clipFar;
 		
-	} FxOgreCamera;
+	} OrkigeCamera;
 
-	typedef struct FxOgreMeshTag
+	typedef struct OrkigeMeshTag
 	{
-		FxOgreNode node;
+		OrkigeNode node;
 		std::string meshFile;
-	} FxOgreMesh;
+	} OrkigeMesh;
 
-	/***** Class FxOgreScene *****/
-	class FxOgreScene
+	/***** Class OrkigeScene *****/
+	class OrkigeScene
 	{
 	public:
 		//constructor
-		FxOgreScene();
+		OrkigeScene();
 		//destructor
-		~FxOgreScene();
+		~OrkigeScene();
 		// Clears structures in between exports
 		void clear();
 		bool writeSceneFile(ParamList &params);
-		void addLight(FxOgreLight& light);
-		void addMesh(FxOgreMesh& node);
-		void addCamera(FxOgreCamera& camera);
+		void addLight(OrkigeLight& light);
+		void addMesh(OrkigeMesh& node);
+		void addCamera(OrkigeCamera& camera);
 		int getNumMeshes() {return m_meshes.size();}
 		void clearMeshes() {m_meshes.clear();}
 	protected:
-		std::vector<FxOgreLight> m_lights;
-		std::vector<FxOgreCamera> m_cameras;
-		std::vector<FxOgreMesh> m_meshes;
+		std::vector<OrkigeLight> m_lights;
+		std::vector<OrkigeCamera> m_cameras;
+		std::vector<OrkigeMesh> m_meshes;
 		int id_counter;
-		TiXmlElement* writeNodeData(TiXmlElement* parent, const FxOgreNode &node);
-		std::string getLightTypeString(FxOgreLightType type);
+		TiXmlElement* writeNodeData(TiXmlElement* parent, const OrkigeNode &node);
+		std::string getLightTypeString(OrkigeLightType type);
 
 	};
 

@@ -21,7 +21,7 @@
 
 #include "skeleton.h"
 #include "submesh.h"
-#include "FxOgreMaxExporterLog.h"
+#include "OrkigeMaxExporterLog.h"
 #include "decomp.h"
 
 
@@ -36,7 +36,7 @@ inline Matrix3 RemoveNonUniformScaling( const Matrix3& originalMatrix )
 	return nodeMatrixNoScale;
 }
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	// Constructor
 	Skeleton::Skeleton()
@@ -82,7 +82,7 @@ namespace FxOgreMaxExporter
 		joint newJoint;
 		if( !pGameNode )
 		{
-			FxOgreMaxExporterLog( "Failed to load joint.\n");
+			OrkigeMaxExporterLog( "Failed to load joint.\n");
 			return false;
 		}
 		int index = getJointIndex(pGameNode);
@@ -94,7 +94,7 @@ namespace FxOgreMaxExporter
 			{
 				if( pGameNode->GetName() == m_joints[i].name )
 				{
-					FxOgreMaxExporterLog( "Found bone with duplicate name %s.  Bone will not be exported!.\n", m_joints[i].name.c_str());
+					OrkigeMaxExporterLog( "Found bone with duplicate name %s.  Bone will not be exported!.\n", m_joints[i].name.c_str());
 					return false;
 				}
 			}
@@ -190,7 +190,7 @@ namespace FxOgreMaxExporter
 
 		if(index == m_joints.size() - 1)
 		{
-			FxOgreMaxExporterLog( "Exporting joint %s. Trans( %f,%f,%f) AngAxis( %f,%f,%f,%f), Scale(%f,%f,%f).\n", pGameNode->GetName(), translation.x, translation.y, translation.z, angAxis.angle, angAxis.axis.x,angAxis.axis.y,angAxis.axis.z,scale.x, scale.y, scale.z);
+			OrkigeMaxExporterLog( "Exporting joint %s. Trans( %f,%f,%f) AngAxis( %f,%f,%f,%f), Scale(%f,%f,%f).\n", pGameNode->GetName(), translation.x, translation.y, translation.z, angAxis.angle, angAxis.axis.x,angAxis.axis.y,angAxis.axis.z,scale.x, scale.y, scale.z);
 		}
 
 
@@ -239,7 +239,7 @@ namespace FxOgreMaxExporter
 
 		// save current time for later restore
 		TimeValue curTime = GetCOREInterface()->GetTime();
-		FxOgreMaxExporterLog( "Loading joint animations...\n");
+		OrkigeMaxExporterLog( "Loading joint animations...\n");
 		
 
 		// clear animations list
@@ -251,12 +251,12 @@ namespace FxOgreMaxExporter
 				params.skelClipList[i].stop,params.skelClipList[i].rate,params);
 			if (stat == true)
 			{
-				FxOgreMaxExporterLog( "Clip successfully loaded\n");
+				OrkigeMaxExporterLog( "Clip successfully loaded\n");
 				
 			}
 			else
 			{
-				FxOgreMaxExporterLog( "Failed loading clip\n");
+				OrkigeMaxExporterLog( "Failed loading clip\n");
 				
 			}
 		}
@@ -275,13 +275,13 @@ namespace FxOgreMaxExporter
 		if (m_joints.size() < 0)
 			return false;
 		// display clip name
-		FxOgreMaxExporterLog( "clip \"%s\"\n", clipName.c_str());
+		OrkigeMaxExporterLog( "clip \"%s\"\n", clipName.c_str());
 		
 		// calculate times from clip sample rate
 		times.clear();
 		if (rate <= 0)
 		{
-			FxOgreMaxExporterLog( "invalid sample rate for the clip (must be >0), we skip it\n");
+			OrkigeMaxExporterLog( "invalid sample rate for the clip (must be >0), we skip it\n");
 			return false;
 		}
 		for (float t=start; t<stop; t+=rate)
@@ -293,7 +293,7 @@ namespace FxOgreMaxExporter
 			length = times[times.size()-1] - times[0];
 		if (length < 0)
 		{
-			FxOgreMaxExporterLog( "invalid time range for the clip, we skip it\n");
+			OrkigeMaxExporterLog( "invalid time range for the clip, we skip it\n");
 			return false;
 		}
 		// create the animation
@@ -358,8 +358,8 @@ namespace FxOgreMaxExporter
 			m_animations[animIdx].addTrack(animTracks[i]);
 		}
 		// display info
-		FxOgreMaxExporterLog( "length: %f\n", m_animations[animIdx].m_length);
-		FxOgreMaxExporterLog( "num keyframes: %d\n", animTracks[0].m_skeletonKeyframes.size());
+		OrkigeMaxExporterLog( "length: %f\n", m_animations[animIdx].m_length);
+		OrkigeMaxExporterLog( "num keyframes: %d\n", animTracks[0].m_skeletonKeyframes.size());
 		
 		// clip successfully loaded
 		return true;
@@ -491,7 +491,7 @@ namespace FxOgreMaxExporter
 		stat = createOgreBones(pSkeleton,params);
 		if (stat != true)
 		{
-			FxOgreMaxExporterLog( "Error writing skeleton binary file\n");
+			OrkigeMaxExporterLog( "Error writing skeleton binary file\n");
 		}
 		// Create skeleton animation
 		if (params.exportSkelAnims)
@@ -499,7 +499,7 @@ namespace FxOgreMaxExporter
 			stat = createOgreSkeletonAnimations(pSkeleton,params);
 			if (stat != true)
 			{
-				FxOgreMaxExporterLog( "Error writing ogre skeleton animations\n");
+				OrkigeMaxExporterLog( "Error writing ogre skeleton animations\n");
 			}
 		}
 		pSkeleton->setBindingPose();
@@ -522,7 +522,7 @@ namespace FxOgreMaxExporter
 		// to make sure there aren't more than OGRE_MAX_NUM_BONES bones.
 		if( m_joints.size() > OGRE_MAX_NUM_BONES )
 		{
-			FxOgreMaxExporterLog( "Failure: Skeleton has more than OGRE_MAX_NUM_BONES.  No bones will be exported.\n");
+			OrkigeMaxExporterLog( "Failure: Skeleton has more than OGRE_MAX_NUM_BONES.  No bones will be exported.\n");
 			return false;
 		}
 		int i;

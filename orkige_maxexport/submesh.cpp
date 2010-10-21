@@ -20,8 +20,8 @@
 **********************************************************************************/
 
 #include "submesh.h"
-#include "FxOgreMaxExporterLog.h"
-namespace FxOgreMaxExporter
+#include "OrkigeMaxExporterLog.h"
+namespace OrkigeMaxExporter
 {
 	/***** Class Submesh *****/
 	// constructor
@@ -117,7 +117,7 @@ namespace FxOgreMaxExporter
 		m_pGameNode = pGameNode;
 
 		size_t i,j,k;
-		FxOgreMaxExporterLog( "Loading submesh associated to material: %s ...\n", m_pMaterial->name().c_str());
+		OrkigeMaxExporterLog( "Loading submesh associated to material: %s ...\n", m_pMaterial->name().c_str());
 		
 		//save uvsets info
 		for (i=m_uvsets.size(); i<texcoordsets.size(); i++)
@@ -247,10 +247,10 @@ namespace FxOgreMaxExporter
 			pGameNode->ReleaseIGameObject();
 		}
 
-		// add submesh pointer to FxOgreMaxExporter::FxOgreMaxExporterData::maxInterface.m_params list
+		// add submesh pointer to OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.m_params list
 		params.loadedSubmeshes.push_back(this);
 
-		FxOgreMaxExporterLog( "DONE\n");
+		OrkigeMaxExporterLog( "DONE\n");
 		
 		return true;
 	}

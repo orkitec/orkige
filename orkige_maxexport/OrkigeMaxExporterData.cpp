@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////////////////
-// FxOgreMaxExporterData.cpp
+// OrkigeMaxExporterData.cpp
 // Author	  : Jamie Redmond - OC3 Entertainment, Inc.
 // Copyright  : (C) 2007 OC3 Entertainment, Inc.
 // Start Date : December 10th, 2007
@@ -13,12 +13,12 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "FxOgreMaxExporterData.h"
+#include "OrkigeMaxExporterData.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 
 // Static initialization of the Max interface.
-OgreExporter FxOgreMaxExporterData::maxInterface;
+OgreExporter OrkigeMaxExporterData::maxInterface;
 
 } 

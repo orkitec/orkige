@@ -24,7 +24,7 @@
 
 #include "maxExportLayer.h"
 
-namespace FxOgreMaxExporter
+namespace OrkigeMaxExporter
 {
 	// Track type
 	typedef enum { TT_SKELETON, TT_MORPH, TT_POSE } trackType;
