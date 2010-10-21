@@ -70,6 +70,10 @@ if (BUILD_GAME)
 	subdirs(../game)
 endif()
 
+if (BUILD_MAXEXPORTER)
+	subdirs(orkige_maxexport)
+endif()
+
 if (ORKIGE_UPDATE_DOCS)
 	subdirs(Docs/OrkigeAPI)
 endif()

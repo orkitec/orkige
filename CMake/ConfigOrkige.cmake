@@ -96,6 +96,8 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	option(BUILD_GAME        "Build Game"     ON)
 
+	option(BUILD_MAXEXPORTER        "Build 3dsmax Exporter"     OFF)
+	
 	#copy from ogre3d build
 	# Set up iPhone overrides.
 	if (OGRE_BUILD_PLATFORM_IPHONE)
