@@ -79,6 +79,8 @@ add_library(orkige_maxexport MODULE
 	${maxexporter_tinyxml_SOURCE}		${maxexporter_tinyxml_HEADER}
 )
 
+set_target_properties(orkige_maxexport PROPERTIES LINK_FLAGS ${CMAKE_LINK_DEF_FILE_FLAG}${PROJECT_SOURCE_DIR}/orkige_maxexport/orkige_maxexport.def)
+
 target_link_libraries(orkige_maxexport 
 	OgreMain  
 	${MAXSDK_core_LIBRARIES}  
