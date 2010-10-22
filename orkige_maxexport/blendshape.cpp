@@ -88,7 +88,7 @@ namespace OrkigeMaxExporter
 			// to calculate the Ogre mesh's verticies.
 			Matrix3 DiffTM = m_pGameNode->GetObjectTM(GetCOREInterface()->GetTime()).ExtractMatrix3();
 
-			// The below code is not well tested as FaceFX needs content in the native coordinates.
+			// The below code is not well tested as Orkige needs content in the native coordinates.
 			// I've seen the direction of the morph movement flipped on some content when in Y-up mode 
 			// which sets the coordinate system to IGAME_OGL.
 			// I can't get this to work on all the morph examples I have however.

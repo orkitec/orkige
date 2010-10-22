@@ -553,7 +553,7 @@ namespace OrkigeMaxExporter
 		}
 		if( rootbones.size() == 0 && params.exportSkeleton )
 		{
-			// FaceFX requires a skeleton, so add a root bone so one will be created.	
+			// Orkige requires a skeleton, so add a root bone so one will be created.	
 			IGameNode* pRandomRootNode = GetIGameInterface()->GetTopLevelNode(0);
 			if( pRandomRootNode )
 			{

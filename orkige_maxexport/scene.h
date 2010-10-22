@@ -17,7 +17,7 @@
 
 
 #include "paramList.h"
-#include "tinyxml.h"
+#include "tinyxml/tinyxml.h"
 
 namespace OrkigeMaxExporter
 {

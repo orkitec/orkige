@@ -117,17 +117,17 @@ namespace OrkigeMaxExporter
 		TiXmlElement *pNodesElement = new TiXmlElement( "nodes" );
 		pSceneElement->LinkEndChild(pNodesElement);
 
-		// Warning! Exporting with the Y-Axis up won't work in FaceFX Studio because the bone 
-		// transforms will not be in Max native coords, but in the FaceFX file they are.
+		// Warning! Exporting with the Y-Axis up won't work in Orkige Studio because the bone 
+		// transforms will not be in Max native coords, but in the Orkige file they are.
 		if( !params.yUpAxis )
 		{
-			// FaceFX FXA exporters export in the coordinate system that is native
+			// Orkige FXA exporters export in the coordinate system that is native
 			// to the animation package they were created in.  When displayed in
 			// OGRE, everything needs to be converted to Y-up.  This is done by 
 			// rotating the entire scene by thge appropriate amount.  In Max, the 
 			// appropriate amount is a -90 degree rotation around the X axis.
 			TiXmlComment * comment = new TiXmlComment();
-			comment->SetValue(" Rotation exists so FaceFX .FXA exporters can use Native Max coordinates. " );  
+			comment->SetValue(" Rotation exists so Orkige .FXA exporters can use Native Max coordinates. " );  
 			pNodesElement->LinkEndChild( comment );
 			TiXmlElement *pRotationElement = new TiXmlElement( "rotation" );
 			pRotationElement->SetAttribute( "axisX", "1" );

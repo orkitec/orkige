@@ -13,7 +13,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "ModelViewerMaxExporterLog.h"
+#include "OrkigeMaxExporterLog.h"
 
 #include <stdio.h>
 #ifdef WIN32

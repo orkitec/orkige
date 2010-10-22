@@ -61,6 +61,14 @@ if(NOT WIN32)
 
 endif()
 
+
+# Find 3ds max sdk
+if (BUILD_MAXEXPORTER)
+	if(WIN32)
+		find_package(Max)
+		macro_log_feature(MAXSDK_FOUND "3DS Max SDK" "Support for 3D Studio Max SDK" FALSE "" "")
+	endif()
+endif()
 #######################################################################
 # Apple-specific
 #######################################################################

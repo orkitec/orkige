@@ -36,7 +36,7 @@ OgreSceneExporter::OgreSceneExporter()
 	if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath))) 
 	{
 		logFileName = szPath;
-		logFileName.Append("\\FaceFX Plugins\\Ogre Exporters");
+		logFileName.Append("\\Orkige Plugins\\Ogre Exporters");
 
 		DWORD attributes = GetFileAttributes(logFileName.data());
 		if (attributes != 0xFFFFFFFF)
@@ -64,7 +64,7 @@ const TCHAR* OgreSceneExporter::Ext( int n )
 
 const TCHAR* OgreSceneExporter::LongDesc( void )
 {
-	return _T("FaceFX Ogre Exporter");
+	return _T("Orkige Ogre Exporter");
 }
 
 const TCHAR* OgreSceneExporter::ShortDesc( void ) 
@@ -79,7 +79,7 @@ const TCHAR* OgreSceneExporter::AuthorName( void )
 
 const TCHAR* OgreSceneExporter::CopyrightMessage( void ) 
 {	
-	return _T("Copyright (c) 2007 OC3 Entertainment, Inc. & (c) 2006 Francesco Giordana");
+	return _T("Copyright (c) 2010 orkitec, Steffen Roemer");
 }
 
 const TCHAR* OgreSceneExporter::OtherMessage1( void ) 
