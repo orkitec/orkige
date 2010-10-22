@@ -251,21 +251,21 @@
 // =============================
 
 
-#define FXOGRE_INTERFACE_CLASS_ID Class_ID(0x8960f8ba, 0x60b5f8d0)
-#define FXOGRE_MAXSCRIPT_INTERFACE Interface_ID(0x8ff94f28, 0x6216f0de)
-#define GetOrkigeMaxScriptInterface(obj) ((OrkigeMaxScriptInterface*)obj->GetInterface(FXOGRE_MAXSCRIPT_INTERFACE))
+#define ORKIGE_INTERFACE_CLASS_ID Class_ID(0x8960f8ba, 0x60b5f8d0)
+#define ORKIGE_MAXSCRIPT_INTERFACE Interface_ID(0x8ff94f28, 0x6216f0de)
+#define GetOrkigeMaxScriptInterface(obj) ((OrkigeMaxScriptInterface*)obj->GetInterface(ORKIGE_MAXSCRIPT_INTERFACE))
 
-static OrkigeMaxScriptInterfaceClassDesc fxOgreMaxScriptInterfaceClassDesc;
+static OrkigeMaxScriptInterfaceClassDesc orkigeMaxScriptInterfaceClassDesc;
 
 extern FPInterfaceDesc OrkigeMaxScript_mixininterface;
 
 // Returns the class description for the Orkige plug-in function publishing.
 ClassDesc2* GetOrkigeMaxScriptInterfaceClassDesc( void )
 {
-	return &fxOgreMaxScriptInterfaceClassDesc;
+	return &orkigeMaxScriptInterfaceClassDesc;
 }
 enum {	
-		fn_fxogremaxexport,
+		fn_orkigemaxexport,
 		fn_get_lum, fn_set_lum,
 		fn_reset_params, 
 		RUN_MACRO_ON_ALL_BOOLEANS( 	MAKE_FUNCTION_ENUM, BOOLEAN_VALUES )
@@ -275,7 +275,7 @@ enum {
 interface IFxMaxScript : public FPMixinInterface
 {
 	BEGIN_FUNCTION_MAP 
-		VFN_0 (fn_fxogremaxexport, fxogremaxexport );
+		VFN_0 (fn_orkigemaxexport, orkigemaxexport );
 		VFN_1 (fn_set_lum, set_lum, TYPE_FLOAT );
 		FN_0 (fn_get_lum, TYPE_FLOAT, get_lum );
 		VFN_0 (fn_reset_params, reset_params );
@@ -285,7 +285,7 @@ interface IFxMaxScript : public FPMixinInterface
     END_FUNCTION_MAP 
 
     FPInterfaceDesc* GetDesc() { return &OrkigeMaxScript_mixininterface; }
-	virtual void		fxogremaxexport() = 0;
+	virtual void		orkigemaxexport() = 0;
 	virtual void		set_lum( float value ) = 0;
 	virtual float		get_lum( ) = 0;
 	virtual void		reset_params( ) = 0;
@@ -300,7 +300,7 @@ class Orkige : public ReferenceTarget, public IFxMaxScript
 	public:
 		Orkige(){ }
 		void DeleteThis(){ delete this; }
-		Class_ID ClassID(){ return FXOGRE_INTERFACE_CLASS_ID; }
+		Class_ID ClassID(){ return ORKIGE_INTERFACE_CLASS_ID; }
 		SClass_ID SuperClassID(){ return REF_TARGET_CLASS_ID; }
 		void GetClassName(TSTR& s){ s = "Orkige"; }
 		int IsKeyable(){ return 0;}
@@ -310,12 +310,12 @@ class Orkige : public ReferenceTarget, public IFxMaxScript
 		}
 		BaseInterface* GetInterface(Interface_ID id) 
 		{ 
-			if (id == FXOGRE_MAXSCRIPT_INTERFACE) 
+			if (id == ORKIGE_MAXSCRIPT_INTERFACE) 
 				return (IFxMaxScript*)this; 
 			else 
 				return ReferenceTarget::GetInterface(id); 
 		}
-		void fxogremaxexport() 
+		void orkigemaxexport() 
 		{
 			OrkigeMaxExporter::OrkigeMaxExporterData::maxInterface.exportScene();
 		}
@@ -339,8 +339,8 @@ class Orkige : public ReferenceTarget, public IFxMaxScript
 
 static FPInterfaceDesc OrkigeMaxScript_mixininterface(
 
-    FXOGRE_MAXSCRIPT_INTERFACE, _T("Orkige_Maxscript"), 0, &fxOgreMaxScriptInterfaceClassDesc, FP_MIXIN, 
-	fn_fxogremaxexport, _T("fxogremaxexport"), 0, TYPE_VOID, 0, 0,
+    ORKIGE_MAXSCRIPT_INTERFACE, _T("Orkige_Maxscript"), 0, &orkigeMaxScriptInterfaceClassDesc, FP_MIXIN, 
+	fn_orkigemaxexport, _T("orkigemaxexport"), 0, TYPE_VOID, 0, 0,
 	fn_set_lum, _T("set_lum"), 0, TYPE_VOID, 0, 1, _T("lum"), NULL, TYPE_FLOAT,
 	fn_get_lum, _T("get_lum"), 0, TYPE_FLOAT, 0, 0,
 	fn_reset_params, _T("reset_params"), 0, TYPE_VOID, 0, 0,
@@ -378,7 +378,7 @@ SClass_ID OrkigeMaxScriptInterfaceClassDesc::SuperClassID( void )
 // Returns the unique ID for the object.
 Class_ID OrkigeMaxScriptInterfaceClassDesc::ClassID( void ) 
 {
-	return FXOGRE_INTERFACE_CLASS_ID; 
+	return ORKIGE_INTERFACE_CLASS_ID; 
 }
 
 // Returns a string describing the category the plug-in fits into.

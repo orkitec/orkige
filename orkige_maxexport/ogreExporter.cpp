@@ -74,7 +74,7 @@ const TCHAR* OgreSceneExporter::ShortDesc( void )
 
 const TCHAR* OgreSceneExporter::AuthorName( void )
 {			
-	return _T("Francesco Giordana and OC3 Entertainment, Inc.");
+	return _T("Steffen Roemer - orkitec");
 }
 
 const TCHAR* OgreSceneExporter::CopyrightMessage( void ) 
@@ -128,7 +128,7 @@ int	OgreSceneExporter::DoExport( const TCHAR* name, ExpInterface* pExpInterface,
 	{
 		temp[i]=toupper(temp[i]);
 	} 
-	size_t meshIndex = temp.rfind(".MESH", temp.length() -1);
+	size_t meshIndex = temp.rfind(".mesh", temp.length() -1);
 	size_t folderIndexForward = temp.rfind("/", temp.length() -1);
 	size_t folderIndexBackward = temp.rfind("\\", temp.length() -1);
 	size_t folderIndex;
@@ -150,9 +150,9 @@ int	OgreSceneExporter::DoExport( const TCHAR* name, ExpInterface* pExpInterface,
 		return false;
 	}
 
-	skeletonFilename = meshFilename.substr(0,meshIndex).append(".SKELETON");
-	materialFilename = meshFilename.substr(0,meshIndex).append(".MATERIAL");
-	sceneFilename = meshFilename.substr(0,meshIndex).append(".SCENE");
+	skeletonFilename = meshFilename.substr(0,meshIndex).append(".skeleton");
+	materialFilename = meshFilename.substr(0,meshIndex).append(".material");
+	sceneFilename = meshFilename.substr(0,meshIndex).append(".scene");
 
 	matPrefix = meshFilename.substr(folderIndex, temp.length() -1);
 	filenamePath =  meshFilename.substr(0, folderIndex);
@@ -189,7 +189,7 @@ bool OgreExporter::exportScene( )
 {
 
 	// Run some cleanup just in case.
-	size_t meshIndex = m_params.meshFilename.rfind(".MESH", m_params.meshFilename.length() -1);
+	size_t meshIndex = m_params.meshFilename.rfind(".mesh", m_params.meshFilename.length() -1);
 	MaxSDK::Util::Path meshPath(m_params.meshFilename.c_str());
 	if(!meshPath.IsLegal() || meshIndex == std::string::npos)
 	{	
@@ -200,23 +200,23 @@ bool OgreExporter::exportScene( )
 	}
 	OrkigeMaxExporterLog( "Mesh file: %s\n" , m_params.meshFilename.c_str());
 
-	size_t skelIndex = m_params.skeletonFilename.rfind(".SKELETON", m_params.skeletonFilename.length() -1);
+	size_t skelIndex = m_params.skeletonFilename.rfind(".skeleton", m_params.skeletonFilename.length() -1);
 	if(skelIndex == std::string::npos)
 	{
 		OrkigeMaxExporterLog( "Empty or invalid skeleton file detected.  Using mesh filename as base.\n");
-		m_params.skeletonFilename = m_params.meshFilename.substr(0,meshIndex).append(".SKELETON");
+		m_params.skeletonFilename = m_params.meshFilename.substr(0,meshIndex).append(".skeleton");
 	}
-	size_t matIndex = m_params.materialFilename.rfind(".MATERIAL", m_params.materialFilename.length() -1);
+	size_t matIndex = m_params.materialFilename.rfind(".material", m_params.materialFilename.length() -1);
 	if(matIndex == std::string::npos)
 	{
 		OrkigeMaxExporterLog( "Empty or invalid material file detected.  Using mesh filename as base.\n");
-		m_params.materialFilename = m_params.meshFilename.substr(0,meshIndex).append(".MATERIAL");
+		m_params.materialFilename = m_params.meshFilename.substr(0,meshIndex).append(".material");
 	}
-	size_t sceneIndex = m_params.sceneFilename.rfind(".SCENE", m_params.sceneFilename.length() -1);
+	size_t sceneIndex = m_params.sceneFilename.rfind(".scene", m_params.sceneFilename.length() -1);
 	if(sceneIndex == std::string::npos)
 	{
 		OrkigeMaxExporterLog( "Empty or invalid scene file detected.  Using mesh filename as base.\n");
-		m_params.sceneFilename = m_params.meshFilename.substr(0,meshIndex).append(".SCENE");
+		m_params.sceneFilename = m_params.meshFilename.substr(0,meshIndex).append(".scene");
 	}
 	if(m_params.texOutputDir == "")
 	{
@@ -290,7 +290,7 @@ bool OgreExporter::exportScene( )
 	// 1) no skeleton and 2) m_params.exportWorldCoords is false (local space)
 	// but even in this case, if there are multiple submeshes, I'm not sure which 
 	// transform to use in the scene.  Exporting more than one mesh doesn't make 
-	// sense because the exporter is designed to export one .MESH file at a time.
+	// sense because the exporter is designed to export one .mesh file at a time.
 	if(m_params.exportScene && m_params.exportMesh)
 	{
 		OrkigeMesh meshNode;

@@ -347,7 +347,8 @@ namespace OrkigeMaxExporter
 	bool Material::writeOgreScript(ParamList &params)
 	{
 		//Start material description
-		params.outMaterial << "material \"" << m_name.c_str() << "\"\n";
+		//params.outMaterial << "material \"" << m_name.c_str() << "\"\n";
+		params.outMaterial << "material " << m_name.c_str() << "\n";
 		params.outMaterial << "{\n";
 
 		//Start technique description

@@ -12,10 +12,16 @@
 --                                                                               *
 --********************************************************************************
 
-OrkigeMaxExporterDialog = newRolloutFloater "Orkige" 400 800
+macroScript showOrkigeTools
+	category:"Orkige Tools"
+	internalCategory:"Orkige Tools"
+	buttonText:"Orkige Tools"
+	tooltip:"Orkige Tools"
+	Icon:#("Maintoolbar",49)
+(
+OrkigeMaxExporterDialog = newRolloutFloater "Orkige Max Exporter" 400 800
 
 OrkigeObject = Orkige();
-
 
 -- We have 3 identical animation GUIs, so abstract this functionality into functions
 -- that can be used by all 3.
@@ -922,14 +928,14 @@ rollout MainRollout "Main"
 		if exportString == "" then
 			bIsLegal = false
 		if bIsLegal then
-			OrkigeObject.fxogremaxexport()
+			OrkigeObject.orkigemaxexport()
 		else
 		(
-			exportString = getSaveFileName caption:"Save Ogre .MESH File" types:"Mesh(*.MESH)|*.MESH|"
+			exportString = getSaveFileName caption:"Save Ogre .mesh File" types:"Mesh(*.mesh)|*.mesh|"
 			if exportString != undefined then
 			(
 				OrkigeObject.set_meshFilename exportString
-				OrkigeObject.fxogremaxexport()
+				OrkigeObject.orkigemaxexport()
 			)
 		)
 		refreshControls()
@@ -964,3 +970,4 @@ addrollout ScenesRollout OrkigeMaxExporterDialog
 addrollout SkeletonRollout OrkigeMaxExporterDialog
 addrollout BlendShapesRollout OrkigeMaxExporterDialog
 addrollout VertAnimsRollout OrkigeMaxExporterDialog
+)

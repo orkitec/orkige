@@ -1,5 +1,0 @@
-1. install max 2009 sdk into the default path
-
-2. goto maxsdk\samples\modifiers\morpher\ and build the morpher.vcproj in Release mode
-
-3. run cmake select BUILD_MAXEXPORTER
