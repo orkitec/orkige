@@ -21,13 +21,12 @@
 #ifndef _MATERIALSET_H
 #define _MATERIALSET_H
 
-#include "_singleton.h"
 #include "material.h"
 #include "maxExportLayer.h"
 
 namespace OrkigeMaxExporter
 {
-	class MaterialSet : public Singleton<MaterialSet>
+	class MaterialSet : public Ogre::Singleton<MaterialSet>
 	{
 	public:
 		//constructor

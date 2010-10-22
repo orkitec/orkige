@@ -15,6 +15,8 @@
 #include "max.h"
 #include "iparamb2.h"
 
+
+
 extern ClassDesc2* GetOrkigeMaxExporterDesc( void );
 extern ClassDesc2* GetOrkigeMaxScriptInterfaceClassDesc( void );
 extern HINSTANCE hInstance;

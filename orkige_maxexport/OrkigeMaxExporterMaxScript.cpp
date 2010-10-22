@@ -294,11 +294,38 @@ interface IFxMaxScript : public FPMixinInterface
 	RUN_MACRO_ON_ALL_CLIPLISTS( MAKE_CLIPLIST_FUNCTION_DECLARATIONS, CLIPLIST_VALUES )	
 };
 
+#include <iostream>
+#include <fstream>
+#if defined(WIN32)
+// For SHGetFolderPath.  Requires Windows XP or greater.
+#include <stdarg.h>
+#include <Shlobj.h>
+#endif // defined(WIN32)
+#include "OrkigeMaxExporterLog.h"
 
 class Orkige : public ReferenceTarget, public IFxMaxScript
 {
 	public:
-		Orkige(){ }
+		Orkige()
+		{
+#ifdef WIN32
+			TCHAR szPath[MAX_PATH];
+			TSTR logFileName;
+			if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath))) 
+			{
+				logFileName = szPath;
+				//logFileName.Append("\\Orkige Plugins\\Ogre Exporters");
+
+				DWORD attributes = GetFileAttributes(logFileName.data());
+				if (attributes != 0xFFFFFFFF)
+				{
+					logFileName.Append("\\OrkigeMaxExporter.log");
+					OrkigeMaxExporter::OrkigeMaxExporterLogFile::SetPath(logFileName.data());
+					
+				}
+			}
+#endif// defined(WIN32)
+		}
 		void DeleteThis(){ delete this; }
 		Class_ID ClassID(){ return ORKIGE_INTERFACE_CLASS_ID; }
 		SClass_ID SuperClassID(){ return REF_TARGET_CLASS_ID; }

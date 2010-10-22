@@ -19,33 +19,14 @@
 #include "OrkigeMaxExporterLog.h"
 #include "decomp.h"
 
-#if defined(WIN32)
-// For SHGetFolderPath.  Requires Windows XP or greater.
-#include <stdarg.h>
-#include <Shlobj.h>
-#endif // defined(WIN32)
+
 
 namespace OrkigeMaxExporter
 {
 
 OgreSceneExporter::OgreSceneExporter()
 {
-#ifdef WIN32
-	TCHAR szPath[MAX_PATH];
-	TSTR logFileName;
-	if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath))) 
-	{
-		logFileName = szPath;
-		logFileName.Append("\\Orkige Plugins\\Ogre Exporters");
 
-		DWORD attributes = GetFileAttributes(logFileName.data());
-		if (attributes != 0xFFFFFFFF)
-		{
-			logFileName.Append("\\OrkigeMaxExporter_Log.txt");
-			OrkigeMaxExporter::OrkigeMaxExporterLogFile::SetPath(logFileName.data());
-		}
-	}
-#endif// defined(WIN32)
 }
 
 OgreSceneExporter::~OgreSceneExporter()
