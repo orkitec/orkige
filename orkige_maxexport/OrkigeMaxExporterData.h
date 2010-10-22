@@ -14,7 +14,7 @@
 
 #ifndef OrkigeMaxExporterData_H__
 #define OrkigeMaxExporterData_H__
-#include "paramlist.h"
+#include "ParamList.h"
 #include "OgreExporter.h"
 
 namespace OrkigeMaxExporter 

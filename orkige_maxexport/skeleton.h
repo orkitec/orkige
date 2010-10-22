@@ -21,9 +21,9 @@
 #ifndef _SKELETON_H
 #define _SKELETON_H
 
-#include "maxExportLayer.h"
-#include "paramList.h"
-#include "animation.h"
+#include "MaxExportLayer.h"
+#include "ParamList.h"
+#include "Animation.h"
 
 namespace OrkigeMaxExporter
 {

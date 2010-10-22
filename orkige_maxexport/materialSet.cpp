@@ -15,6 +15,6 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "materialSet.h"
+#include "MaterialSet.h"
 
 template<> OrkigeMaxExporter::MaterialSet* Ogre::Singleton<OrkigeMaxExporter::MaterialSet>::ms_Singleton = 0;

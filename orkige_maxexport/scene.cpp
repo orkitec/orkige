@@ -12,7 +12,7 @@
 *   (at your option) any later version.                                          *
 *                                                                                *
 **********************************************************************************/
-#include "scene.h"
+#include "Scene.h"
 #include "OrkigeMaxExporterLog.h"
 
 namespace OrkigeMaxExporter

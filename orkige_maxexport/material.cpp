@@ -18,7 +18,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "material.h"
+#include "Material.h"
 #include "OrkigeMaxExporterLog.h"
 #ifdef PRE_MAX_2010
 #include "IPathConfigMgr.h"

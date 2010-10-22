@@ -19,7 +19,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "submesh.h"
+#include "Submesh.h"
 #include "OrkigeMaxExporterLog.h"
 namespace OrkigeMaxExporter
 {

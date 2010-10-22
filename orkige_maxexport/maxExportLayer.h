@@ -35,7 +35,7 @@
 #pragma warning (disable : 4018)
 
 // These come from the resource file included with wm3.h.
-#define IDS_CLASS_NAME                  102
+//#define IDS_CLASS_NAME                  102
 #define IDS_MORPHMTL                    39
 #define IDS_MTL_MAPNAME                 45
 #define IDS_MTL_BASENAME                46

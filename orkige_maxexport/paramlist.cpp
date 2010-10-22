@@ -19,7 +19,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "paramlist.h"
+#include "ParamList.h"
 #include "OrkigeMaxExporterLog.h"
 /***** Class ParamList *****/
 // method to parse arguments from command line

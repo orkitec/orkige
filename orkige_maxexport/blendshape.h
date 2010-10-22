@@ -21,10 +21,10 @@
 #ifndef _BLENDSHAPE_H
 #define _BLENDSHAPE_H
 
-#include "maxExportLayer.h"
-#include "paramList.h"
-#include "animation.h"
-#include "vertex.h"
+#include "MaxExportLayer.h"
+#include "ParamList.h"
+#include "Animation.h"
+#include "Vertex.h"
 
 namespace OrkigeMaxExporter
 {

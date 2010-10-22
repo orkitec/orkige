@@ -21,8 +21,8 @@
 #ifndef _MATERIALSET_H
 #define _MATERIALSET_H
 
-#include "material.h"
-#include "maxExportLayer.h"
+#include "Material.h"
+#include "MaxExportLayer.h"
 
 namespace OrkigeMaxExporter
 {

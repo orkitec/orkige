@@ -18,7 +18,7 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "mesh.h"
+#include "Mesh.h"
 #include "OrkigeMaxExporterLog.h"
 namespace OrkigeMaxExporter
 {

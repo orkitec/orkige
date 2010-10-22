@@ -22,7 +22,7 @@
 #ifndef ANIMATION_H
 #define ANIMATION_H
 
-#include "maxExportLayer.h"
+#include "MaxExportLayer.h"
 
 namespace OrkigeMaxExporter
 {

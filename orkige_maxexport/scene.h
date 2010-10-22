@@ -16,7 +16,7 @@
 #define _SCENE_H
 
 
-#include "paramList.h"
+#include "ParamList.h"
 #include "tinyxml/tinyxml.h"
 
 namespace OrkigeMaxExporter

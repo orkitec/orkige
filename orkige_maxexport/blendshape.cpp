@@ -15,8 +15,8 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "blendshape.h"
-#include "submesh.h"
+#include "Blendshape.h"
+#include "Submesh.h"
 #include "OrkigeMaxExporterLog.h"
 namespace OrkigeMaxExporter
 {

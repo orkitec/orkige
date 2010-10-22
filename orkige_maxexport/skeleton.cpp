@@ -19,8 +19,8 @@
 *                                                                                *
 **********************************************************************************/
 
-#include "skeleton.h"
-#include "submesh.h"
+#include "Skeleton.h"
+#include "Submesh.h"
 #include "OrkigeMaxExporterLog.h"
 #include "decomp.h"
 

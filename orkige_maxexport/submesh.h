@@ -21,12 +21,12 @@
 #ifndef _SUBMESH_H
 #define _SUBMESH_H
 
-#include "maxExportLayer.h"
-#include "paramList.h"
-#include "materialSet.h"
-#include "animation.h"
-#include "vertex.h"
-#include "blendshape.h"
+#include "MaxExportLayer.h"
+#include "ParamList.h"
+#include "MaterialSet.h"
+#include "Animation.h"
+#include "Vertex.h"
+#include "Blendshape.h"
 
 namespace OrkigeMaxExporter
 {

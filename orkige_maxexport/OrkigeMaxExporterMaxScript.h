@@ -15,7 +15,7 @@
 #ifndef OrkigeMaxExporterMaxScript_H__
 #define OrkigeMaxExporterMaxScript_H__
 
-#include "maxExportLayer.h"
+#include "MaxExportLayer.h"
 #include "OrkigeMaxExporterData.h"
 
 

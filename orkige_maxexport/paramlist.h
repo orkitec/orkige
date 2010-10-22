@@ -21,7 +21,7 @@
 #ifndef PARAMLIST_H
 #define PARAMLIST_H
 
-#include "maxExportLayer.h"
+#include "MaxExportLayer.h"
 
 // Length units multipliers from Maya internal unit (cm)
 

@@ -21,11 +21,11 @@
 #ifndef _MESH_H
 #define _MESH_H
 
-#include "submesh.h"
-#include "skeleton.h"
-#include "maxExportLayer.h"
-#include "vertex.h"
-#include "paramList.h"
+#include "Submesh.h"
+#include "Skeleton.h"
+#include "MaxExportLayer.h"
+#include "Vertex.h"
+#include "ParamList.h"
 
 
 namespace OrkigeMaxExporter
