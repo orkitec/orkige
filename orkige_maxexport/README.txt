@@ -18,13 +18,13 @@ Create Max Button:
 
 3. Set as name Orkige and press OK.
 
-4. You should see a floating toolbar under Actions search for Orkige and drag it onto the toolbar you just created
+4. You should see a floating toolbar under Actions search for 'Orkige Tools' and drag it onto the toolbar you just created
 
 5. close Customize User Interface 
 
-6. Place your newly created toolbar where you wan't (you can dock it to the standard max bars
+6. Place your newly created toolbar where you wan't (you can dock it to the standard max bars) (toolbar cand b dragged like a window)
 
-7. by clicking on the button the exporter should pop up
+7. by clicking on the button in the toolbar the Orkige Exporter should pop up
 
 8. restart max
 
