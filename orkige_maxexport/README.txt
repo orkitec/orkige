@@ -30,6 +30,25 @@ Create Max Button:
 
 -----------------------------------------
 
+Update Max Button Script:
+
+if you need to update the button script its not just enaugh to overwrite the script in the  PathWhereMaxIsInstalled\Autodesk\3ds Max 2009\Scripts\ directory.
+
+1. Open OrkigeMaxGUI.ms in a texteditor and select and copy all contents
+
+2. Open max and rightcklick on the Orkige Tools button
+
+3. select "Edit macro script"
+
+4. select all contents and overwrite them with the contents you copied from  OrkigeMaxGUI.ms
+
+5. save scrit (File->Save)
+
+6. restart max
+
+
+-----------------------------------------
+
 
 [Programmers Section:]
 

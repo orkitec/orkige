@@ -23,6 +23,10 @@ OrkigeMaxExporterDialog = newRolloutFloater "Orkige Max Exporter" 400 800
 
 OrkigeObject = Orkige();
 
+OrkigeObject.set_exportScene("off");
+OrkigeObject.set_exportAll("off")
+OrkigeObject.set_exportBlendShapes("off");
+
 -- We have 3 identical animation GUIs, so abstract this functionality into functions
 -- that can be used by all 3.
 function animRefresh roll isEnabled =
@@ -371,47 +375,49 @@ rollout MaterialsRollout "Materials" width:350 height:168
 		 OrkigeObject.set_copyTextures("off");
 	)
 )
-rollout ScenesRollout "Scene" width:350 height:168
-(
-	editText sceneFilename "" pos:[11,49] width:328 height:22 enabled:false
-	label SceneFilenameLabel "Scene Filename" pos:[11,32] width:218 height:17 enabled:false
-	checkbox exportScene "Export mesh, cameras and lights to .scene file" pos:[11,10] width:300 height:18
-	fn refresh = 
-	(
-		exportScene.checked = OrkigeObject.get_exportScene()
-		SceneFilename.text = OrkigeObject.get_sceneFilename()
-		if exportScene.checked then
-		(
-			SceneFilename.enabled = true
-			SceneFilenameLabel.enabled = true
-		)
-		else
-		(
-			SceneFilename.enabled = false
-			SceneFilenameLabel.enabled = false
-		)	
 
-	)
-	on ScenesRollout open  do
-	(
-		refresh()
-	)
-	on exportScene changed state do
-	(
-		if exportScene.checked then
-		(
-			OrkigeObject.set_exportScene("on");
-			sceneFilename.enabled = true;
-			sceneFilenameLabel.enabled = true;
-		)
-		else
-		(
-			OrkigeObject.set_exportScene("off");
-			sceneFilename.enabled = false;
-			sceneFilenameLabel.enabled = false;
-		)
-	)
-)
+--rollout ScenesRollout "Scene" width:350 height:168
+--(
+--	editText sceneFilename "" pos:[11,49] width:328 height:22 enabled:false
+--	label SceneFilenameLabel "Scene Filename" pos:[11,32] width:218 height:17 enabled:false
+--	checkbox exportScene "Export mesh, cameras and lights to .scene file" pos:[11,10] width:300 height:18
+--	fn refresh = 
+--	(
+--		exportScene.checked = OrkigeObject.get_exportScene()
+--		SceneFilename.text = OrkigeObject.get_sceneFilename()
+--		if exportScene.checked then
+--		(
+--			SceneFilename.enabled = true
+--			SceneFilenameLabel.enabled = true
+--		)
+--		else
+--		(
+--			SceneFilename.enabled = false
+--			SceneFilenameLabel.enabled = false
+--		)	
+--
+--	)
+--	on ScenesRollout open  do
+--	(
+--		refresh()
+--	)
+--	on exportScene changed state do
+--	(
+--		if exportScene.checked then
+--		(
+--			OrkigeObject.set_exportScene("on");
+--			sceneFilename.enabled = true;
+--			sceneFilenameLabel.enabled = true;
+--		)
+--		else
+--		(
+--			OrkigeObject.set_exportScene("off");
+--			sceneFilename.enabled = false;
+--			sceneFilenameLabel.enabled = false;
+--		)
+--	)
+--)
+
 rollout SkeletonRollout "Skeleton" width:400 height:367
 (
 	checkbox exportSkeleton "Export skeleton" pos:[11,10] width:335 height:18
@@ -832,7 +838,7 @@ rollout VertAnimsRollout "Vertex Animations" width:350 height:130
 )
 rollout CommonParametersRollout "Common Parameters" width:350 height:145
 (
-	radioButtons exportAll "Export:" pos:[13,10] width:75 height:46 labels:#("all       ", "selected") default:1 columns:1
+	radioButtons exportAll "Export:" pos:[13,10] width:75 height:46 labels:#("all       ", "selected") default:2 columns:1
 	radioButtons exportWorldCoords "Coordinate Space:" pos:[129,10] width:60 height:46 labels:#("world", "object") default:1 columns:1
 	radioButtons yUpAxis "UpAxis:" pos:[255,10] width:60 height:46 labels:#("Y", "Z") default:1 columns:1
 	editText lum "Scale All by:          " pos:[18,64] width:275 height:21
@@ -912,7 +918,7 @@ function refreshControls =
 	SkeletonRollout.refresh()
 	BlendShapesRollout.refresh()
 	VertAnimsRollout.refresh()
-	ScenesRollout.refresh()
+	--ScenesRollout.refresh()
 )
 rollout MainRollout "Main"
 (
@@ -966,7 +972,7 @@ addrollout MainRollout OrkigeMaxExporterDialog
 addrollout CommonParametersRollout OrkigeMaxExporterDialog
 addrollout MeshRollout OrkigeMaxExporterDialog
 addrollout MaterialsRollout OrkigeMaxExporterDialog
-addrollout ScenesRollout OrkigeMaxExporterDialog
+--addrollout ScenesRollout OrkigeMaxExporterDialog
 addrollout SkeletonRollout OrkigeMaxExporterDialog
 addrollout BlendShapesRollout OrkigeMaxExporterDialog
 addrollout VertAnimsRollout OrkigeMaxExporterDialog
