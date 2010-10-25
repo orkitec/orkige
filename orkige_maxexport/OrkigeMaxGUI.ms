@@ -965,6 +965,10 @@ rollout MainRollout "Main"
 	on defaultButton pressed do
 	(
 		OrkigeObject.reset_params()
+		OrkigeObject.set_exportScene("off");
+		OrkigeObject.set_exportAll("off")
+		OrkigeObject.set_exportBlendShapes("off");
+		OrkigeObject.set_useSharedGeom("off");
 		refreshControls()
 	)
 		
