@@ -26,6 +26,7 @@ OrkigeObject = Orkige();
 OrkigeObject.set_exportScene("off");
 OrkigeObject.set_exportAll("off")
 OrkigeObject.set_exportBlendShapes("off");
+OrkigeObject.set_useSharedGeom("off");
 
 -- We have 3 identical animation GUIs, so abstract this functionality into functions
 -- that can be used by all 3.
