@@ -42,7 +42,7 @@ if you need to update the button script its not just enaugh to overwrite the scr
 
 4. select all contents and overwrite them with the contents you copied from  OrkigeMaxGUI.ms
 
-5. save scrit (File->Save)
+5. save script (File->Save)
 
 6. restart max
 
