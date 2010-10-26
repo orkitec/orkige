@@ -213,7 +213,7 @@
 
 #define OOBJECT_END																;};										
 
-#define OEXPORT(ClassName)									Orkige::ClassName::OrkigeMetaExport(CURRENT_ORKIGE_MODULE_NAME);
+#define OEXPORT(ClassName)									ClassName::OrkigeMetaExport(CURRENT_ORKIGE_MODULE_NAME);
 
 #define OEXPORTCONTAINER(ContainerType, STLType)
 #define OEXPORTMAPTYPE(		Type)	

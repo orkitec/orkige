@@ -24,6 +24,8 @@
 
 #include "engine_gui/GuiManager.h"
 
+using namespace Orkige;
+
 ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TransformComponent)
 	OEXPORT(ModelComponent)
