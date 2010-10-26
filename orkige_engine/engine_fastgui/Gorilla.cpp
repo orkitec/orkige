@@ -626,7 +626,7 @@ namespace Gorilla
 
 	void Silverback::loadAtlas(const Ogre::String &name, const Ogre::String &group)
 	{
-		TextureAtlas* atlas = OGRE_NEW TextureAtlas(name + ".gorilla", group);
+		TextureAtlas* atlas = OGRE_NEW TextureAtlas(name + ".ogui", group);
 		mAtlases[name] = atlas;
 	}
 

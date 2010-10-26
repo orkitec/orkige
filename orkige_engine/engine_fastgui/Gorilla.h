@@ -37,6 +37,7 @@ THE SOFTWARE.
 #   define __FUNC__ "No function name info"
 #endif
 
+//! @see http://github.com/betajaen/gorilla
 namespace Gorilla
 {
 
@@ -408,7 +409,7 @@ namespace Gorilla
 
 		/*! function. loadAtlas
 		desc.
-		Create a TextureAtlas from a ".gorilla" file. 
+		Create a TextureAtlas from a ".ogui" file. 
 
 		Name is the name of the TextureAtlas, as well as the first part of the filename
 		of the gorilla file; i.e. name.gorilla, the gorilla file can be loaded from a different
