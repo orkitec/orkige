@@ -60,10 +60,13 @@ namespace Orkige
 	{
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
-		NodeUtil::wipeSceneNode(this->modelNode);
+		
+		NodeUtil::cleanSceneNode(this->modelNode);
+		this->modelNode->removeAndDestroyAllChildren();
+
 		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent));
 		this->model = NULL;
-		this->modelNode = NULL;
+		//this->modelNode = NULL;
 		this->modelFileName = "";
 	}
 	//---------------------------------------------------------
