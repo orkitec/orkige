@@ -1,0 +1,39 @@
+/********************************************************************
+	created:	Wednesday 2010/10/27 at 13:09
+	filename: 	FastGuiFactory.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec	
+*********************************************************************/
+#ifndef __FastGuiFactory_h__27_10_2010__13_09_02__
+#define __FastGuiFactory_h__27_10_2010__13_09_02__
+
+#include "engine_fastgui/FastGuiWidget.h"
+#include "engine_fastgui/FastGuiDecorWidget.h"
+#include <core_util/StringUtil.h>
+
+namespace Orkige
+{
+	class FastGuiFactory
+	{
+		//--- Types -------------------------------------------------
+	public:
+	protected:
+	private:
+		//--- Variables ---------------------------------------------
+	public:
+	protected:
+	private:
+		//--- Methods -----------------------------------------------
+	public:
+		FastGuiFactory();
+		virtual ~FastGuiFactory();
+		woptr<FastGuiDecorWidget> createDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
+	protected:
+	private:
+	};
+	//---------------------------------------------------------------
+}
+
+#endif //__FastGuiFactory_h__27_10_2010__13_09_02__

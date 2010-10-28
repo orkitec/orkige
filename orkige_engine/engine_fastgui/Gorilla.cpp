@@ -680,6 +680,10 @@ namespace Gorilla
 		for (std::vector<Layer*>::iterator it = mLayers.begin(); it != mLayers.end(); it++)
 			OGRE_DELETE (*it);
 
+		//@TODO(Steffen): added this got mmleak warning without it
+		for (std::map<Ogre::uint, IndexData*>::iterator it = mIndexData.begin(); it != mIndexData.end(); it++)
+			OGRE_DELETE (it->second);
+
 		_destroyVertexBuffer();
 	}
 

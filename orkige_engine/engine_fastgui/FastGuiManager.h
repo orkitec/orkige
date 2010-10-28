@@ -10,34 +10,139 @@
 #define __FastGuiManager_h__26_10_2010__18_24_45__
 
 #include "engine_fastgui/Gorilla.h"
-#include <core_util/Singleton.h>
-#include <core_base/Interface.h>
+#include <core_module/OrkigePrerequisites.h>
+#include "engine_fastgui/FastGuiFactory.h"
+#include "engine_input/InputManager.h"
+#include <core_event/EventHandler.h>
 
 namespace Orkige
 {
-	class FastGuiManager : public Singleton<FastGuiManager>, public Interface
+	struct FastGuiView
+	{
+		inline FastGuiView(Gorilla::Screen* _screen) : screen(_screen) {}
+		inline Gorilla::Layer* getLayer(uint z)
+		{
+			std::map<Ogre::uint, Gorilla::Layer*>::iterator it  = this->layers.find(z);
+			if(it != this->layers.end())
+			{
+				return it->second;
+			}
+			Gorilla::Layer* layer = screen->createLayer(z);
+			this->layers[z] = layer;
+			return layer;
+		}
+		Gorilla::Screen* screen;
+		std::map<Ogre::uint, Gorilla::Layer*> layers;
+	};
+
+	class FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
 	{
 		OOBJECT(FastGuiManager, Interface);
 		DECL_OSINGLETON(FastGuiManager);
 		//--- Types -------------------------------------------------
 	public:
+		typedef std::map<String, optr<FastGuiView> > FastGuiViewMap;
+		typedef std::map<String, optr<FastGuiWidget> > FastGuiWidgetMap;
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
 		optr<Gorilla::Silverback> silverback;
-		Gorilla::Screen* defaultScreen;
-		
+		optr<FastGuiFactory> factory;
+		FastGuiViewMap views;
+		FastGuiWidgetMap widgets;
+		optr<FastGuiDecorWidget> cursor;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiManager();
+		FastGuiManager(optr<FastGuiFactory> _factory);
 		virtual ~FastGuiManager();
+		//! enable key and mouse events
+		void enableInputEvents();
+		//! disable key and mouse events
+		void disableInputEvents();
+		//! Displays specified Sprite Cursor
+		void showCursor(String const & atlas, String const & spriteName);
+		//! hide cursor
+		void hideCursor();
+		//! is cursor visible?
+		bool isCursorVisible();
+		//! Updates cursor position based on unbuffered mouse state. This is necessary because if the gui manager has been cut off 
+		//! from mouse events for a time, the cursor position will be out of date.
+		void refreshCursor();
+		//! get widget creation factory
+		inline woptr<FastGuiFactory> getFactory();
+		//! create screen with given atlas asserts if there is already a screen with that atlas
+		woptr<FastGuiView> createView(String const & atlas);
+		//! get screen with given atlas or NULL
+		inline woptr<FastGuiView> getView(String const & atlas);
+		//! get o create view with given atlas
+		inline woptr<FastGuiView> getCreateView(String const & atlas);
+		//! checks if screen with given id exists
+		inline bool hasView(String const & atlas);
+		//! add given widget
+		bool addWidget(optr<FastGuiWidget> widget);
+		//! check if widget with given id already exists
+		inline bool widgetExists(String const & id);
 	protected:
+		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
+		bool onFrameRenderingQueued(Orkige::Event const & event);
+
+		//! process key pressed events
+		bool onKeyPressed(Orkige::Event const & event);
+		//! process key released events
+		bool onKeyReleased(Orkige::Event const & event);
+
+		//! Processes mouse button down events. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onMousePressed(Orkige::Event const & event);
+		//! Processes mouse button up events. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onMouseReleased(Orkige::Event const & event);
+		//! Updates cursor position. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onMouseMoved(Orkige::Event const & event);
 	private:
 	};
 	//---------------------------------------------------------------
+	inline woptr<FastGuiFactory> FastGuiManager::getFactory()
+	{
+		return this->factory;
+	}
+	//---------------------------------------------------------------
+	inline woptr<FastGuiView> FastGuiManager::getView(String const & atlas)
+	{
+		FastGuiViewMap::iterator it = this->views.find(atlas);
+		if(it != this->views.end())
+		{
+			return it->second;
+		}
+		return oNULL(FastGuiView);
+	}
+	//---------------------------------------------------------------
+	inline bool FastGuiManager::hasView(String const & atlas)
+	{
+		bool screenExists = this->getView(atlas).lock() != NULL;
+		return screenExists;
+	}
+	//---------------------------------------------------------------
+	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas)
+	{
+		FastGuiViewMap::iterator it = this->views.find(atlas);
+		if(this->hasView(atlas))
+		{
+			return this->getView(atlas);
+		}
+
+		return this->createView(atlas);
+	}
+	//---------------------------------------------------------------
+	inline bool FastGuiManager::widgetExists(String const & id)
+	{
+		if(this->widgets.find(id) != this->widgets.end())
+		{
+			return true;
+		}
+		return false;
+	}
 }
 
 #endif //__FastGuiManager_h__26_10_2010__18_24_45__
