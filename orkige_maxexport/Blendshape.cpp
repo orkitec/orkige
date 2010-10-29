@@ -74,7 +74,7 @@ namespace OrkigeMaxExporter
 			// the Max meshes and modify the coordinate system manually.  
 			// Obtained method of getting mesh from 3D Studio Max SDK Training session by
 			// David Lanier.
- 			bool DeleteObjectWhenDone;
+ 			bool DeleteObjectWhenDone = false;
 			const ObjectState& objectState = m_pGameNode->GetMaxNode()->EvalWorldState(GetCOREInterface()->GetTime());
 			Object *origMeshObj = objectState.obj;
 			if (!origMeshObj->CanConvertToType(Class_ID(TRIOBJ_CLASS_ID, 0)))
@@ -214,8 +214,11 @@ namespace OrkigeMaxExporter
 			// without shared geometry when I use the object for the second time.  Perhaps it
 			// can only be used/deleted once.  Even without shared geometry, I'll get a strange crash
 			// a few seconds after successful export with this here.
-//			if (DeleteObjectWhenDone)
-//				origMeshTriObj->DeleteMe();
+			//http://dl3d.free.fr/phpBB2/viewtopic.php?t=1028&highlight=deleteme
+			if (DeleteObjectWhenDone)
+			{
+				origMeshTriObj->DeleteMe();
+			}
 		}
 		return true;
 	}

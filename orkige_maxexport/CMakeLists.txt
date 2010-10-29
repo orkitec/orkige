@@ -58,7 +58,7 @@ source_group(scripts FILES ${maxexporter_MAXSCRIPT})
 # ---------------------------------------------------------
 
 # for swig no __declspec(dllexport)
-add_definitions(-DPRE_MAX_2010)
+add_definitions(-DPRE_MAX_2010 -D_SECURE_SCL=0 -D_SCL_SECURE_NO_DEPRECATE -DISOLATION_AWARE_ENABLED=1)
 
 include_directories(
 	${CMAKE_SOURCE_DIR}/Dependencies/Source/boost
