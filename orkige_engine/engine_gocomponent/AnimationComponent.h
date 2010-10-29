@@ -67,6 +67,8 @@ namespace Orkige
 		inline StringList const & getBoneNames();
 		//! get default anim name
 		inline String const & getDefaultAnimation();
+		//! get animation states
+		Ogre::AnimationStateSet* getAnimationStates(){return animationStates;}
 		//! set default anim name
 		void setDefaultAnimation(String const & anim);
 		//! are anims available
@@ -85,6 +87,7 @@ namespace Orkige
 		inline bool getExtractMotion();
 		//! should rotations should be xtracted from anim
 		inline bool getExtractRotation();
+		
 
 		//! set motion handling
 		inline void setHandleMotion(bool handleMotion);
