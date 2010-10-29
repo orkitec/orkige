@@ -833,7 +833,7 @@ namespace Orkige
 		if(label.get() == this->fpsLabel)
 		{
 			eventCatched = true;
-			if (this->statsPanel->getOverlayElement()->isVisible())
+			if (this->statsPanel->isVisible())
 			{
 				this->statsPanel->getOverlayElement()->hide();
 				this->fpsLabel->getOverlayElement()->setWidth(150);
@@ -869,7 +869,7 @@ namespace Orkige
 			for (int i = s.length() - 5; i > 5; i -= 3) { s.insert(i, 1, ','); }
 			this->fpsLabel->setCaption(s);
 
-			if (this->statsPanel->getOverlayElement()->isVisible())
+			if (this->statsPanel->isVisible())
 			{
 				Ogre::StringVector values;
 
@@ -931,7 +931,7 @@ namespace Orkige
 			for (unsigned int j = 0; j < this->widgets[i].size(); j++)
 			{
 				Widget* w = this->widgets[i][j];
-				if (!w->getOverlayElement()->isVisible()) 
+				if (!w->isVisible()) 
 				{
 					continue;
 				}
@@ -973,7 +973,7 @@ namespace Orkige
 			for (unsigned int j = 0; j < this->widgets[i].size(); j++)
 			{
 				Widget* w = this->widgets[i][j];
-				if (!w->getOverlayElement()->isVisible()) 
+				if (!w->isVisible()) 
 				{
 					continue;
 				}
@@ -1031,7 +1031,7 @@ namespace Orkige
 
 		for (unsigned int i = 0; i < this->widgets[Widget::TL_NONE].size(); i++)  // check if mouse is over a non-null tray's widgets
 		{
-			if (this->widgets[Widget::TL_NONE][i]->getOverlayElement()->isVisible() && OverlayUtil::isCursorOver(this->widgets[Widget::TL_NONE][i]->getOverlayElement(), cursorPos))
+			if (this->widgets[Widget::TL_NONE][i]->isVisible() && OverlayUtil::isCursorOver(this->widgets[Widget::TL_NONE][i]->getOverlayElement(), cursorPos))
 			{
 				this->trayDrag = true;   // initiate a drag that originates in a tray
 				break;
@@ -1050,7 +1050,7 @@ namespace Orkige
 			for (unsigned int j = 0; j < this->widgets[i].size(); j++)
 			{
 				Widget* w = this->widgets[i][j];
-				if (!w->getOverlayElement()->isVisible()) 
+				if (!w->isVisible()) 
 				{
 					continue;
 				}
@@ -1109,7 +1109,7 @@ namespace Orkige
 			for (unsigned int j = 0; j < this->widgets[i].size(); j++)
 			{
 				w = this->widgets[i][j];
-				if (!w->getOverlayElement()->isVisible()) 
+				if (!w->isVisible()) 
 				{
 					continue;
 				}
@@ -1154,7 +1154,7 @@ namespace Orkige
 			for (unsigned int j = 0; j < this->widgets[i].size(); j++)
 			{
 				w = this->widgets[i][j];
-				if (!w->getOverlayElement()->isVisible()) 
+				if (!w->isVisible()) 
 				{
 					continue;
 				}
