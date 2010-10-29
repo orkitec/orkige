@@ -14,27 +14,10 @@
 #include "engine_fastgui/FastGuiFactory.h"
 #include "engine_input/InputManager.h"
 #include <core_event/EventHandler.h>
+#include "engine_fastgui/FastGuiView.h"
 
 namespace Orkige
 {
-	struct FastGuiView
-	{
-		inline FastGuiView(Gorilla::Screen* _screen) : screen(_screen) {}
-		inline Gorilla::Layer* getLayer(uint z)
-		{
-			std::map<Ogre::uint, Gorilla::Layer*>::iterator it  = this->layers.find(z);
-			if(it != this->layers.end())
-			{
-				return it->second;
-			}
-			Gorilla::Layer* layer = screen->createLayer(z);
-			this->layers[z] = layer;
-			return layer;
-		}
-		Gorilla::Screen* screen;
-		std::map<Ogre::uint, Gorilla::Layer*> layers;
-	};
-
 	class FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
 	{
 		OOBJECT(FastGuiManager, Interface);
@@ -62,8 +45,8 @@ namespace Orkige
 		void enableInputEvents();
 		//! disable key and mouse events
 		void disableInputEvents();
-		//! Displays specified Sprite Cursor
-		void showCursor(String const & atlas, String const & spriteName);
+		//! Displays Cursor
+		void showCursor(String const & atlas, String const & sprite);
 		//! hide cursor
 		void hideCursor();
 		//! is cursor visible?
@@ -83,6 +66,8 @@ namespace Orkige
 		inline bool hasView(String const & atlas);
 		//! add given widget
 		bool addWidget(optr<FastGuiWidget> widget);
+		//! destroy given widget
+		bool destroyWidget(String const & id);
 		//! check if widget with given id already exists
 		inline bool widgetExists(String const & id);
 	protected:
@@ -126,7 +111,6 @@ namespace Orkige
 	//---------------------------------------------------------------
 	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas)
 	{
-		FastGuiViewMap::iterator it = this->views.find(atlas);
 		if(this->hasView(atlas))
 		{
 			return this->getView(atlas);

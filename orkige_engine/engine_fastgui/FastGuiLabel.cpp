@@ -1,13 +1,13 @@
 /********************************************************************
-	created:	Wednesday 2010/10/27 at 13:19
-	filename: 	FastGuiDecorWidget.cpp
+	created:	Friday 2010/10/29 at 18:16
+	filename: 	FastGuiLabel.cpp
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
 
-#include "engine_fastgui/FastGuiDecorWidget.h"
+#include "engine_fastgui/FastGuiLabel.h"
 #include "engine_fastgui/FastGuiManager.h"
 
 namespace Orkige
@@ -15,39 +15,35 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiDecorWidget::FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
+	FastGuiLabel::FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
 	{
-		oAssert(this->layer);
-		this->rect = this->layer->createRectangle(position, size);
-		oAssert(this->rect);
-		this->rect->background_image(spriteName);
+		this->caption = this->layer->createCaption(defaultGlyphIndex, position.x, position.y, text );
 	}
 	//---------------------------------------------------------
-	FastGuiDecorWidget::~FastGuiDecorWidget()
+	FastGuiLabel::~FastGuiLabel()
 	{
-		this->layer->destroyRectangle(this->rect);
 	}
 	//---------------------------------------------------------
-	void FastGuiDecorWidget::setPosition(Ogre::Real left, Ogre::Real top)
+	void FastGuiLabel::setPosition(Ogre::Real left, Ogre::Real top)
 	{
-		this->rect->left(left);
-		this->rect->top(top);
+		this->caption->left(left);
+		this->caption->top(top);
 	}
 	//---------------------------------------------------------
-	void FastGuiDecorWidget::setSize(Ogre::Real width, Ogre::Real height)
+	void FastGuiLabel::setSize(Ogre::Real width, Ogre::Real height)
 	{
-		this->rect->width(width);
-		this->rect->height(height);
+		this->caption->width(width);
+		this->caption->height(height);
 	}
 	//---------------------------------------------------------
-	Ogre::Vector2 FastGuiDecorWidget::getSize()
+	Ogre::Vector2 FastGuiLabel::getSize()
 	{
-		return Ogre::Vector2(this->rect->width(), this->rect->height());
+		return Ogre::Vector2(this->caption->width(), this->caption->height());
 	}
 	//---------------------------------------------------------
-	Ogre::Vector2 FastGuiDecorWidget::getPosition()
+	Ogre::Vector2 FastGuiLabel::getPosition()
 	{
-		return this->rect->position();
+		return Ogre::Vector2(this->caption->left(), this->caption->top());
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -56,6 +52,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	OABSTRACT_IMPL(FastGuiDecorWidget)
+	OABSTRACT_IMPL(FastGuiLabel)
 	OOBJECT_END
 }

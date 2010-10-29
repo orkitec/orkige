@@ -10,6 +10,8 @@
 #define __FastGuiWidget_h__27_10_2010__13_08_39__
 
 #include "engine_gui/IGuiObject.h"
+#include "engine_fastgui/FastGuiView.h"
+#include "engine_fastgui/Gorilla.h"
 
 namespace Orkige
 {
@@ -23,14 +25,28 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+		Gorilla::Layer* layer;
+		woptr<FastGuiView> view;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiWidget(String const & id);
+		FastGuiWidget(String const & id, String const & atlas, uint z);
 		virtual ~FastGuiWidget();
+
+		virtual void setPosition(Ogre::Real left, Ogre::Real top) = 0;
+		virtual void setSize(Ogre::Real width, Ogre::Real height) = 0;
+		virtual Ogre::Vector2 getSize() = 0;
+		virtual Ogre::Vector2 getPosition() = 0;
+
+		inline Gorilla::Layer* getLayer();
 	protected:
 	private:
 	};
+	//---------------------------------------------------------------
+	inline Gorilla::Layer* FastGuiWidget::getLayer()
+	{
+		return this->layer;
+	}
 	//---------------------------------------------------------------
 }
 

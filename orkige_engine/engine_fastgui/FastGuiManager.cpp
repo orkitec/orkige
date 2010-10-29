@@ -11,6 +11,7 @@
 
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_graphic/Engine.h"
+#include <core_util/foreach.h>
 
 namespace Orkige
 {
@@ -48,6 +49,29 @@ namespace Orkige
 		this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::showCursor(String const & atlas, String const & sprite)
+	{
+		optr<FastGuiView> view = this->getCreateView(atlas).lock();
+		oAssert(view);
+		Gorilla::Sprite* spriteObject = view->getScreen()->getAtlas()->getSprite(sprite);
+		oAssert(spriteObject);
+		this->cursor = onew(new FastGuiDecorWidget("Cursor", sprite, Ogre::Vector2::ZERO, Ogre::Vector2(spriteObject->spriteWidth, spriteObject->spriteHeight), atlas, 16));
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::hideCursor()
+	{
+		this->cursor.reset();
+	}
+	//---------------------------------------------------------
+	bool FastGuiManager::isCursorVisible()
+	{
+		if(this->cursor && this->cursor->getLayer()->isVisible())
+		{
+			return true;
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	void FastGuiManager::refreshCursor()
 	{
 #if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
@@ -61,7 +85,10 @@ namespace Orkige
 		this->cursor->setPosition(states[0].X.abs, states[0].Y.abs);
 		*/
 #else
-		//this->cursor->setPosition((Ogre::Real)InputManager::getSingleton().getMouseData()->absX, (Ogre::Real)InputManager::getSingleton().getMouseData()->absY);
+		if(this->cursor)
+		{
+			this->cursor->setPosition((Ogre::Real)InputManager::getSingleton().getMouseData()->absX, (Ogre::Real)InputManager::getSingleton().getMouseData()->absY);
+		}
 #endif
 	}
 	//---------------------------------------------------------
@@ -86,6 +113,17 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	bool FastGuiManager::destroyWidget(String const & id)
+	{
+		FastGuiWidgetMap::iterator it = this->widgets.find(id);
+		if(it == this->widgets.end())
+		{
+			return false;
+		}
+		this->widgets.erase(it);
+		return true;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
@@ -97,15 +135,20 @@ namespace Orkige
 	bool FastGuiManager::onKeyPressed(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onKeyPressed(*data);
+		}
 		return false;
 	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onKeyReleased(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-
-
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onKeyReleased(*data);
+		}
 		return false;
 	}
 	//---------------------------------------------------------
@@ -113,7 +156,10 @@ namespace Orkige
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorPressed(cursorPos);
+		}
 		return false;
 	}
 	//---------------------------------------------------------
@@ -121,15 +167,25 @@ namespace Orkige
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorReleased(cursorPos);
+		}
 		return false;
 	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onMouseMoved(Orkige::Event const & event)
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
+		if(this->cursor)
+		{
+			this->cursor->setPosition((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		}
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorMoved(cursorPos);
+		}
 		return false;
 	}
 	//---------------------------------------------------------

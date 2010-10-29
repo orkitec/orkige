@@ -1,13 +1,13 @@
 /********************************************************************
-	created:	Wednesday 2010/10/27 at 13:08
-	filename: 	FastGuiWidget.cpp
+	created:	Friday 2010/10/29 at 18:16
+	filename: 	FastGuiView.cpp
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
 
-#include "engine_fastgui/FastGuiWidget.h"
+#include "engine_fastgui/FastGuiView.h"
 #include "engine_fastgui/FastGuiManager.h"
 
 namespace Orkige
@@ -15,15 +15,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiWidget::FastGuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id)
+	//---------------------------------------------------------------
+	FastGuiView::FastGuiView(Gorilla::Screen* _screen) : screen(_screen) 
 	{
-		this->view = FastGuiManager::getSingleton().getCreateView(atlas);
-		oAssert(view.lock());
-		this->layer = view.lock()->getLayer(z);
-		oAssert(this->layer);
+
 	}
 	//---------------------------------------------------------
-	FastGuiWidget::~FastGuiWidget()
+	FastGuiView::~FastGuiView()
 	{
 	}
 	//---------------------------------------------------------
@@ -33,6 +31,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	OABSTRACT_IMPL(FastGuiWidget)
+	OABSTRACT_IMPL(FastGuiView)
 	OOBJECT_END
 }

@@ -1,21 +1,21 @@
 /********************************************************************
-	created:	Wednesday 2010/10/27 at 13:18
-	filename: 	FastGuiDecorWidget.h
+	created:	Friday 2010/10/29 at 18:16
+	filename: 	FastGuiLabel.h
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec	
 *********************************************************************/
-#ifndef __FastGuiDecorWidget_h__27_10_2010__13_18_38__
-#define __FastGuiDecorWidget_h__27_10_2010__13_18_38__
+#ifndef __FastGuiLabel_h__29_10_2010__18_16_51__
+#define __FastGuiLabel_h__29_10_2010__18_16_51__
 
 #include "engine_fastgui/FastGuiWidget.h"
 
 namespace Orkige
 {
-	class FastGuiDecorWidget : public FastGuiWidget
+	class FastGuiLabel : public FastGuiWidget
 	{
-		OOBJECT(FastGuiDecorWidget, FastGuiWidget);
+		OOBJECT(FastGuiLabel, FastGuiWidget);
 		//--- Types -------------------------------------------------
 	public:
 	protected:
@@ -23,28 +23,27 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::Rectangle* rect;
+		Gorilla::Caption* caption;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
-		virtual ~FastGuiDecorWidget();
+		FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		virtual ~FastGuiLabel();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
 		virtual void setSize(Ogre::Real width, Ogre::Real height);
 		virtual Ogre::Vector2 getSize();
 		virtual Ogre::Vector2 getPosition();
 
-		inline Gorilla::Rectangle* getRectangle();
+		inline Gorilla::Caption* getCaption();
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Rectangle* FastGuiDecorWidget::getRectangle()
+	inline Gorilla::Caption* FastGuiLabel::getCaption()
 	{
-		return this->rect;
+		return this->caption;
 	}
-	//---------------------------------------------------------------
 }
 
-#endif //__FastGuiDecorWidget_h__27_10_2010__13_18_38__
+#endif //__FastGuiLabel_h__29_10_2010__18_16_51__
