@@ -33,12 +33,17 @@ namespace Orkige
 		FastGuiWidget(String const & id, String const & atlas, uint z);
 		virtual ~FastGuiWidget();
 
+		//! set position of this widget
 		virtual void setPosition(Ogre::Real left, Ogre::Real top) = 0;
+		//! set size of this widget
 		virtual void setSize(Ogre::Real width, Ogre::Real height) = 0;
+		//! get size of this widget
 		virtual Ogre::Vector2 getSize() = 0;
+		//! get position of this widget
 		virtual Ogre::Vector2 getPosition() = 0;
-
+		//! get layer this widget is in
 		inline Gorilla::Layer* getLayer();
+		//!
 	protected:
 	private:
 	};

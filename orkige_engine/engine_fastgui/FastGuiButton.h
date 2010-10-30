@@ -35,19 +35,29 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		optr<FastGuiLabel> label;
-		optr<FastGuiDecorWidget> decor;
+		optr<FastGuiLabel> label;			//!< current button text
+		optr<FastGuiDecorWidget> decor;		//!< current button image
+		ButtonState state;					//!< current button state
 	private:
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
 		virtual ~FastGuiButton();
 
+		//! get current ButtonState
+		const ButtonState& getState();
+
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
 		virtual void setSize(Ogre::Real width, Ogre::Real height);
 		virtual Ogre::Vector2 getSize();
 		virtual Ogre::Vector2 getPosition();
+
+		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
+		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
+		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
 	protected:
+		//! set current ButtonState 
+		void setState(const ButtonState& bs);
 	private:
 	};
 	//---------------------------------------------------------------
