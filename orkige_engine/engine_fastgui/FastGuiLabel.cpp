@@ -22,6 +22,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiLabel::~FastGuiLabel()
 	{
+		this->layer->destroyCaption(this->caption);
 	}
 	//---------------------------------------------------------
 	void FastGuiLabel::setPosition(Ogre::Real left, Ogre::Real top)
@@ -44,6 +45,58 @@ namespace Orkige
 	Ogre::Vector2 FastGuiLabel::getPosition()
 	{
 		return Ogre::Vector2(this->caption->left(), this->caption->top());
+	}
+	//---------------------------------------------------------
+	void FastGuiLabel::SetAlignment(LabelAlignment alignment)
+	{
+		switch(alignment)
+		{
+		case LA_TOPLEFT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
+				this->caption->align(Gorilla::TextAlign_Left);
+			} break;
+		case LA_TOP:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
+				this->caption->align(Gorilla::TextAlign_Centre);
+			} break;
+		case LA_TOPRIGHT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
+				this->caption->align(Gorilla::TextAlign_Right);
+			} break;
+		case LA_LEFT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
+				this->caption->align(Gorilla::TextAlign_Left);
+			} break;
+		case LA_CENTER:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
+				this->caption->align(Gorilla::TextAlign_Centre);
+			} break;
+		case LA_RIGHT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
+				this->caption->align(Gorilla::TextAlign_Right);
+			} break;
+		case LA_BOTTOMLEFT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
+				this->caption->align(Gorilla::TextAlign_Left);
+			} break;
+		case LA_BOTTOM:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
+				this->caption->align(Gorilla::TextAlign_Centre);
+			} break;
+		case LA_BOTTOMRIGHT:
+			{
+				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
+				this->caption->align(Gorilla::TextAlign_Right);
+			} break;
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

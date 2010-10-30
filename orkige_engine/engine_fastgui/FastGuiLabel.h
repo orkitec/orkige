@@ -18,6 +18,19 @@ namespace Orkige
 		OOBJECT(FastGuiLabel, FastGuiWidget);
 		//--- Types -------------------------------------------------
 	public:
+		//! enumerator values for button text alignment
+		enum LabelAlignment
+		{
+			LA_TOPLEFT = 0,
+			LA_TOP,
+			LA_TOPRIGHT,
+			LA_LEFT,
+			LA_CENTER,
+			LA_RIGHT,
+			LA_BOTTOMLEFT,
+			LA_BOTTOM,
+			LA_BOTTOMRIGHT,
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -34,7 +47,7 @@ namespace Orkige
 		virtual void setSize(Ogre::Real width, Ogre::Real height);
 		virtual Ogre::Vector2 getSize();
 		virtual Ogre::Vector2 getPosition();
-
+		void SetAlignment(LabelAlignment alignment);
 		inline Gorilla::Caption* getCaption();
 	protected:
 	private:

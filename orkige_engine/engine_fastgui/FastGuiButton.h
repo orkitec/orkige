@@ -37,11 +37,10 @@ namespace Orkige
 	protected:
 		optr<FastGuiLabel> label;
 		optr<FastGuiDecorWidget> decor;
-		Ogre::Vector2 textOffset;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, Ogre::Vector2 const & textOffset, Ogre::Vector2 const & size, String const & atlas, uint z);
+		FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
 		virtual ~FastGuiButton();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);

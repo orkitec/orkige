@@ -36,6 +36,19 @@ namespace Orkige
 		return dw;
 	}
 	//---------------------------------------------------------
+	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z)
+	{
+		optr<FastGuiButton> btn;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			return btn;
+		}
+		btn = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		FastGuiManager::getSingleton().addWidget(btn);
+		return btn;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
