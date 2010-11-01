@@ -105,11 +105,11 @@ namespace Orkige
 		}
 		else if (bs == FastGuiButton::BS_UP)
 		{
-			this->decor->setSprite(this->baseSpriteName + "_Up");
+			this->decor->setSprite(this->baseSpriteName);
 		}
 		else
 		{
-			this->decor->setSprite(this->baseSpriteName);
+			this->decor->setSprite(this->baseSpriteName + "_Down");
 		}
 
 		this->state = bs;
