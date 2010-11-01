@@ -37,6 +37,7 @@ namespace Orkige
 		FastGuiViewMap views;
 		FastGuiWidgetMap widgets;
 		optr<FastGuiDecorWidget> cursor;
+		optr<FastGuiTextbox> stats;
 		String defaultAtlas;
 		//--- Methods -----------------------------------------------
 	public:
@@ -75,6 +76,10 @@ namespace Orkige
 		inline woptr<FastGuiWidget> getWidget(String const & id);
 		//! get default texture atlas
 		inline String const & getDefaultAtlas();
+		//! show frame stats
+		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK);
+		//! hide frame stats
+		void hideStats();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);

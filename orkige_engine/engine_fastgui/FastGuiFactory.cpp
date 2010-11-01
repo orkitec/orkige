@@ -51,6 +51,20 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
+	woptr<FastGuiTextbox> FastGuiFactory::createTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z)
+	{
+		optr<FastGuiTextbox> widget;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new FastGuiTextbox(id, defaultGlyphIndex, text, position, atlas, z));
+		FastGuiManager::getSingleton().addWidget(widget);
+		return widget;
+	}
+	//---------------------------------------------------------
 	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z)
 	{
 		optr<FastGuiButton> widget;

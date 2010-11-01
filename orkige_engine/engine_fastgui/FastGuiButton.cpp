@@ -22,7 +22,7 @@ namespace Orkige
 		
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
-		this->label->SetAlignment(textAlignment);
+		this->label->setAlignment(textAlignment);
 
 		this->state = BS_UP;
 		this->baseSpriteName = spriteName;

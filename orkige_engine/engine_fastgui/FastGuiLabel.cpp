@@ -47,7 +47,12 @@ namespace Orkige
 		return Ogre::Vector2(this->caption->left(), this->caption->top());
 	}
 	//---------------------------------------------------------
-	void FastGuiLabel::SetAlignment(LabelAlignment alignment)
+	void FastGuiLabel::setText(String const & text)
+	{
+		this->caption->text(text);
+	}
+	//---------------------------------------------------------
+	void FastGuiLabel::setAlignment(LabelAlignment alignment)
 	{
 		switch(alignment)
 		{

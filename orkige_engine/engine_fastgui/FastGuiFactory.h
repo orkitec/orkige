@@ -12,6 +12,7 @@
 #include "engine_fastgui/FastGuiWidget.h"
 #include "engine_fastgui/FastGuiDecorWidget.h"
 #include "engine_fastgui/FastGuiButton.h"
+#include "engine_fastgui/FastGuiTextbox.h"
 #include <core_util/StringUtil.h>
 
 namespace Orkige
@@ -32,6 +33,7 @@ namespace Orkige
 		virtual ~FastGuiFactory();
 		woptr<FastGuiDecorWidget> createDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
 		woptr<FastGuiLabel> createLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		woptr<FastGuiTextbox> createTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
 		woptr<FastGuiButton> createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 	protected:
 	private:

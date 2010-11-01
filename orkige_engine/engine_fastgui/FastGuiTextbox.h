@@ -1,66 +1,52 @@
 /********************************************************************
-	created:	Friday 2010/10/29 at 18:16
-	filename: 	FastGuiLabel.h
+	created:	Monday 2010/11/01 at 13:44
+	filename: 	FastGuiTextbox.h
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec	
 *********************************************************************/
-#ifndef __FastGuiLabel_h__29_10_2010__18_16_51__
-#define __FastGuiLabel_h__29_10_2010__18_16_51__
+#ifndef __FastGuiTextbox_h__1_11_2010__13_44_54__
+#define __FastGuiTextbox_h__1_11_2010__13_44_54__
 
 #include "engine_fastgui/FastGuiWidget.h"
 
 namespace Orkige
 {
-	class FastGuiLabel : public FastGuiWidget
+	class FastGuiTextbox : public FastGuiWidget
 	{
-		OOBJECT(FastGuiLabel, FastGuiWidget);
+		OOBJECT(FastGuiTextbox, FastGuiWidget);
 		//--- Types -------------------------------------------------
 	public:
-		//! enumerator values for label text alignment
-		enum LabelAlignment
-		{
-			LA_TOPLEFT = 0,
-			LA_TOP,
-			LA_TOPRIGHT,
-			LA_LEFT,
-			LA_CENTER,
-			LA_RIGHT,
-			LA_BOTTOMLEFT,
-			LA_BOTTOM,
-			LA_BOTTOMRIGHT,
-		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::Caption* caption;	//!< holds the text
+		Gorilla::MarkupText* markupText;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
-		virtual ~FastGuiLabel();
+		FastGuiTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		virtual ~FastGuiTextbox();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
 		virtual void setSize(Ogre::Real width, Ogre::Real height);
 		virtual Ogre::Vector2 getSize();
 		virtual Ogre::Vector2 getPosition();
-		//! set label text
+		//! set box text
 		void setText(String const & text);
-		//! set text alignment inside the label
-		void setAlignment(LabelAlignment alignment);
 		//! get gorilla Caption
-		inline Gorilla::Caption* getCaption();
+		inline Gorilla::MarkupText* getMarkupText();
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Caption* FastGuiLabel::getCaption()
+	inline Gorilla::MarkupText* FastGuiTextbox::getMarkupText()
 	{
-		return this->caption;
+		return this->markupText;
 	}
+	//---------------------------------------------------------------
 }
 
-#endif //__FastGuiLabel_h__29_10_2010__18_16_51__
+#endif //__FastGuiTextbox_h__1_11_2010__13_44_54__

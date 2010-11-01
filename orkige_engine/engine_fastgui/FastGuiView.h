@@ -26,8 +26,8 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		Gorilla::Screen* screen;
-		std::map<uint, Gorilla::Layer*> layers;
+		Gorilla::Screen* screen;				//!< actual screen (1atlas)
+		std::map<uint, Gorilla::Layer*> layers;	//!< all z layers of this screen
 		//--- Methods -----------------------------------------------
 	public:
 		//! constrcutor

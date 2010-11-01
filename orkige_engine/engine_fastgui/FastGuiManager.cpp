@@ -125,11 +125,35 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas)
+	{
+		if(this->stats)
+			this->stats.reset();
+
+		this->stats = onew(new FastGuiTextbox("FastGuiManagerFrameStats", glyphIndex, "", pos, atlas, 15));
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::hideStats()
+	{
+		this->stats.reset();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{
-		
+		if(this->stats)
+		{
+			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
+			std::stringstream sstr;
+			sstr << "FPS:\t\t\t"	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
+			sstr << "Average FPS:\t"<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
+			sstr << "Best FPS:\t"	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
+			sstr << "Worst FPS:\t"	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
+			sstr << "Triangles:\t"	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
+			sstr << "Batches:\t"	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			this->stats->setText(sstr.str());
+		}
 		return false;
 	}
 	//---------------------------------------------------------
