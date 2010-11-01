@@ -24,6 +24,7 @@ namespace Orkige
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
 		this->getCreateView(this->defaultAtlas);
+		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,	&FastGuiManager::onFrameRenderingQueued,	this);
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
