@@ -31,15 +31,16 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+	private:
 		optr<Gorilla::Silverback> silverback;
 		optr<FastGuiFactory> factory;
 		FastGuiViewMap views;
 		FastGuiWidgetMap widgets;
 		optr<FastGuiDecorWidget> cursor;
-	private:
+		String defaultAtlas;
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiManager(optr<FastGuiFactory> _factory);
+		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default");
 		virtual ~FastGuiManager();
 		//! enable key and mouse events
 		void enableInputEvents();
@@ -70,6 +71,10 @@ namespace Orkige
 		bool destroyWidget(String const & id);
 		//! check if widget with given id already exists
 		inline bool widgetExists(String const & id);
+		//! get widget with given id
+		inline woptr<FastGuiWidget> getWidget(String const & id);
+		//! get default texture atlas
+		inline String const & getDefaultAtlas();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);
@@ -111,6 +116,11 @@ namespace Orkige
 	//---------------------------------------------------------------
 	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas)
 	{
+		if(atlas == StringUtil::BLANK)
+		{
+			return this->getView(this->defaultAtlas);
+		}
+
 		if(this->hasView(atlas))
 		{
 			return this->getView(atlas);
@@ -126,6 +136,18 @@ namespace Orkige
 			return true;
 		}
 		return false;
+	}
+	//---------------------------------------------------------------
+	inline woptr<FastGuiWidget> FastGuiManager::getWidget(String const & id)
+	{
+		FastGuiWidgetMap::iterator it = this->widgets.find(id);
+		oAssertDesc(it == this->widgets.end(), "Could not find Widget: " << id << "!");
+		return it->second;
+	}
+	//---------------------------------------------------------------
+	inline String const & FastGuiManager::getDefaultAtlas()
+	{
+		return this->defaultAtlas;
 	}
 }
 

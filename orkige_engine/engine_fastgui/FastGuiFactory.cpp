@@ -29,6 +29,7 @@ namespace Orkige
 
 		if(FastGuiManager::getSingleton().widgetExists(id))
 		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
 		widget = onew(new FastGuiDecorWidget(id, spriteName, position, size, atlas, z));
@@ -42,6 +43,7 @@ namespace Orkige
 
 		if(FastGuiManager::getSingleton().widgetExists(id))
 		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
 		widget = onew(new FastGuiLabel(id, defaultGlyphIndex, text, position, atlas, z));
@@ -55,6 +57,7 @@ namespace Orkige
 
 		if(FastGuiManager::getSingleton().widgetExists(id))
 		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
 		widget = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));

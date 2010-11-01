@@ -19,10 +19,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory) : factory(_factory)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas) : factory(_factory), defaultAtlas(_defaultAtlas)
 	{
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
+		this->getCreateView(this->defaultAtlas);
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()

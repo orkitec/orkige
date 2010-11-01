@@ -18,7 +18,17 @@ namespace Orkige
 	FastGuiDecorWidget::FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
 	{
 		oAssert(this->layer);
-		this->rect = this->layer->createRectangle(position, size);
+		if(size == Ogre::Vector2::ZERO)
+		{
+			Gorilla::Sprite* sprite = this->view.lock()->getScreen()->getAtlas()->getSprite(spriteName);
+			oAssert(sprite);
+			this->rect = this->layer->createRectangle(position.x, position.y , sprite->spriteWidth, sprite->spriteHeight);
+		}
+		else
+		{
+			this->rect = this->layer->createRectangle(position, size);
+		}
+		
 		oAssert(this->rect);
 		this->rect->background_image(spriteName);
 	}
@@ -48,6 +58,11 @@ namespace Orkige
 	Ogre::Vector2 FastGuiDecorWidget::getPosition()
 	{
 		return this->rect->position();
+	}
+	//---------------------------------------------------------
+	void FastGuiDecorWidget::setSprite(String const & spriteName)
+	{
+		this->rect->background_image(spriteName);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

@@ -38,6 +38,7 @@ namespace Orkige
 		optr<FastGuiLabel> label;			//!< current button text
 		optr<FastGuiDecorWidget> decor;		//!< current button image
 		ButtonState state;					//!< current button state
+		String baseSpriteName;				//!< base name uf the button state sprite;
 	private:
 		//--- Methods -----------------------------------------------
 	public:

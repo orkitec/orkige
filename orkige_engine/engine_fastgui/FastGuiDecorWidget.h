@@ -35,6 +35,7 @@ namespace Orkige
 		virtual Ogre::Vector2 getSize();
 		virtual Ogre::Vector2 getPosition();
 
+		void setSprite(String const & spriteName);
 		inline Gorilla::Rectangle* getRectangle();
 	protected:
 	private:
