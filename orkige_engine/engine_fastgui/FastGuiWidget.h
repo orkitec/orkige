@@ -43,7 +43,8 @@ namespace Orkige
 		virtual Ogre::Vector2 getPosition() = 0;
 		//! get layer this widget is in
 		inline Gorilla::Layer* getLayer();
-		//!
+		//! get the view of this layer
+		inline woptr<FastGuiView> getView();
 	protected:
 	private:
 	};
@@ -51,6 +52,11 @@ namespace Orkige
 	inline Gorilla::Layer* FastGuiWidget::getLayer()
 	{
 		return this->layer;
+	}
+	//---------------------------------------------------------------
+	inline woptr<FastGuiView> FastGuiWidget::getView()
+	{
+		return this->view;
 	}
 	//---------------------------------------------------------------
 }
