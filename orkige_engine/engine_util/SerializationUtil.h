@@ -66,7 +66,7 @@ namespace Orkige
 		void saveLight(Ogre::Light * light, optr<IArchive> const & ar, const unsigned int file_version);
 
 		//! load a Ogre::SceneNode from IArchive
-		Ogre::SceneNode * loadSceneNode(Ogre::SceneNode * parentSceneNode, optr<IArchive> const & ar, const unsigned int file_version, Ogre::Any * userObject = NULL);
+		Ogre::SceneNode * loadSceneNode(Ogre::SceneNode * parentSceneNode, optr<IArchive> const & ar, const unsigned int file_version, String const & userAnyId = "", Ogre::Any * userObject = NULL);
 		//! load a Ogre::MovableObject from IArchive
 		Ogre::MovableObject* loadMoveAbleObject(Ogre::SceneNode * parentSceneNode, optr<IArchive> const & ar, const unsigned int file_version);
 		//! load a Ogre::Entity from IArchive

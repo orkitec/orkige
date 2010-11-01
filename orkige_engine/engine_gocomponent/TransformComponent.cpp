@@ -11,9 +11,11 @@
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
 
+using namespace Ogre;
 namespace Orkige
 {
 	String TransformComponent::AXES_MESH_FILENAME = "axes.mesh";
+	String TransformComponent::USER_BINDING_ID = "TransformComponent";
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -106,6 +108,12 @@ namespace Orkige
 		String const & componentOwnerObjectId = componentOwner->getObjectID();
 		oAssert(!componentOwnerObjectId.empty());
 		this->sceneNode = Engine::getSingletonPtr()->getSceneManager()->getRootSceneNode()->createChildSceneNode( componentOwnerObjectId );
+		
+		this->sceneNode->getUserObjectBindings().setUserAny(TransformComponent::USER_BINDING_ID ,Ogre::Any(this));
+		
+
+		//oAssert(!this->sceneNode->getUserAny().isEmpty());
+		
 	}
 	//---------------------------------------------------------
 	void TransformComponent::onRemove()

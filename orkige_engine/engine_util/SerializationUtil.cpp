@@ -78,11 +78,11 @@ namespace Orkige
 			ar << entityIsVisible;
 
 			bool hasGameObjectUserObject = false;
-			Ogre::Any const & userObject = entity->getUserAny();
+			Ogre::Any const & userObject = entity->getUserObjectBindings().getUserAny(TransformComponent::USER_BINDING_ID);
 			optr<const TransformComponent> userGameObject;
 			if( !userObject.isEmpty() )
 			{
-				const TransformComponent * tempGo = Ogre::any_cast< TransformComponent >(&userObject);
+				const TransformComponent * tempGo = Ogre::any_cast< TransformComponent* >(userObject);
 				if(tempGo)
 				{
 					hasGameObjectUserObject = true;	
@@ -143,7 +143,7 @@ namespace Orkige
 		//---------------------------------------------------------
 		//- LOAD --------------------------------------------------
 		//---------------------------------------------------------
-		Ogre::SceneNode * loadSceneNode(Ogre::SceneNode * parentSceneNode, optr<IArchive> const & ar, const unsigned int file_version, Ogre::Any * userObject)
+		Ogre::SceneNode * loadSceneNode(Ogre::SceneNode * parentSceneNode, optr<IArchive> const & ar, const unsigned int file_version,String const & userAnyId, Ogre::Any * userObject)
 		{
 			String nodeName;
 			Ogre::Vector3 nodePosition;
@@ -166,7 +166,7 @@ namespace Orkige
 			{
 				Ogre::MovableObject* object = loadMoveAbleObject(childSceneNode,ar,file_version);
 				if(object!=NULL && userObject!=NULL)
-					object->setUserAny(*userObject);
+					object->getUserObjectBindings().setUserAny(userAnyId, *userObject);
 			}
 
 			ar >> numChildren;
@@ -211,7 +211,7 @@ namespace Orkige
 			{
 				optr<TransformComponent> userGameObject;
 				ar >> userGameObject;
-				entity->setUserAny(*userGameObject.get());
+				entity->getUserObjectBindings().setUserAny(TransformComponent::USER_BINDING_ID, Ogre::Any(userGameObject.get()));
 			}
 			entity->setCastShadows(entityCastShadows);
 			entity->setVisible(entityIsVisible);

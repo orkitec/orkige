@@ -140,7 +140,7 @@ namespace Orkige
 			}
 			this->updateAnimations(data->timeSinceLastFrame);
 		}
-		return true;
+		return false;
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::onModelRemoved(Event const & event)

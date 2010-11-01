@@ -21,6 +21,7 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		static String AXES_MESH_FILENAME;	//!< name mesh that should be shown on TransformComponent::showAxes
+		static String USER_BINDING_ID;		//!< @see Ogre::UserObjectBindings
 	protected:
 		Ogre::SceneNode* sceneNode;			//!< transform SceneNode
 	private:
