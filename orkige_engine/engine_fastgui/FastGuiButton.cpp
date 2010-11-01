@@ -94,6 +94,16 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	String FastGuiButton::getCaption()
+	{
+		return this->label->getCaption()->text();	
+	}
+	//---------------------------------------------------------
+	void FastGuiButton::setCaption(String const & text)
+	{
+		this->label->setText(text);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiButton::setState(const FastGuiButton::ButtonState& bs)

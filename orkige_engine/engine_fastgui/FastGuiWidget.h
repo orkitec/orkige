@@ -15,6 +15,14 @@
 
 namespace Orkige
 {
+	namespace Colours
+	{
+		typedef Gorilla::Colours::Colour Colour;
+		using namespace Gorilla::Colours;
+		using Gorilla::webcolour;
+		using Gorilla::rgb;
+	};
+
 	class FastGuiWidget : public IGuiObject
 	{
 		OOBJECT(FastGuiWidget, IGuiObject);

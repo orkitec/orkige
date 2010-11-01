@@ -147,13 +147,14 @@ namespace Orkige
 		{
 			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
 			std::stringstream sstr;
-			sstr << "FPS:\t\t\t"	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
-			sstr << "Average FPS:\t"<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
-			sstr << "Best FPS:\t"	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
-			sstr << "Worst FPS:\t"	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
-			sstr << "Triangles:\t"	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
-			sstr << "Batches:\t"	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			sstr << "FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
+			sstr << "Average FPS: "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
+			sstr << "Best FPS:        "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
+			sstr << "Worst FPS:      "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
+			sstr << "Triangles:       "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
+			sstr << "Batches:         "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
 			this->stats->setText(sstr.str());
+			this->stats->getMarkupText()->background(Gorilla::rgb(123,123,123,123));
 		}
 		return false;
 	}

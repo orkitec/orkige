@@ -56,12 +56,30 @@ namespace Orkige
 		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
+
+		//! get text holding ui element
+		inline woptr<FastGuiLabel> getLabel();
+		//! get image ui element
+		inline woptr<FastGuiDecorWidget> getDecor();
+		//! get button text
+		String getCaption();
+		//! set button text
+		void setCaption(String const & text);
 	protected:
 		//! set current ButtonState 
 		void setState(const ButtonState& bs);
 	private:
 	};
 	//---------------------------------------------------------------
+	inline woptr<FastGuiLabel> FastGuiButton::getLabel()
+	{
+		return this->label;
+	}
+	//---------------------------------------------------------------
+	inline woptr<FastGuiDecorWidget> FastGuiButton::getDecor()
+	{
+		return this->decor;
+	}
 }
 
 #endif //__FastGuiButton_h__29_10_2010__18_16_18__
