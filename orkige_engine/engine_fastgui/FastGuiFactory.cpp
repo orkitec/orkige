@@ -9,7 +9,10 @@
 
 #include "engine_fastgui/FastGuiFactory.h"
 #include "engine_fastgui/FastGuiManager.h"
-
+#include "engine_util/StringUtil.h"
+#include <core_util/PlatformUtil.h>
+#include <core_util/foreach.h>
+#include <boost/algorithm/string.hpp>
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -81,12 +84,261 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiFactory::load(String const filename)
 	{
-		Ogre::ConfigFile::load(filename);
+		Ogre::ConfigFile::load(Orkige::PlatformUtil::getResourceDirectory() + "data/" + filename);
+		FastGuiFactory::SectionIterator it = this->getSectionIterator();
+		while(it.hasMoreElements())
+		{
+			String const & widgetType = it.peekNextKey();
+			SettingsMultiMap* settings = it.peekNextValue();
+			if(widgetType.empty())
+			{
+				this->onLoadGlobalSettings(settings);
+			}
+			else
+			{
+				this->onLoadWidget(widgetType, settings);
+			}
+			it.moveNext();
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
+	void FastGuiFactory::onLoadGlobalSettings(SettingsMultiMap* settings)
+	{
 
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadWidget(String const & widgetType, SettingsMultiMap* settings)
+	{
+		Ogre::vector<String>::type widgetSpecifier = Ogre::StringUtil::split(widgetType);
+		oAssertDesc(widgetSpecifier.size() == 2, "Invalid Widget Specifier: " << widgetType);
+		String widgetTypeName = widgetSpecifier[0];
+		boost::to_lower(widgetTypeName);
+		String widgetId = widgetSpecifier[1];
+		oAssertDesc(!widgetId.empty(), "[" << widgetTypeName << "] Empty id is not allowed!")
+		oAssertDesc(!FastGuiManager::getSingleton().widgetExists(widgetId), "Widget with given id already exists! id: " << widgetId);
+		if(widgetTypeName == "decorwidget")
+		{
+			this->onLoadDecorWidget(widgetId, settings);
+		}
+		else if(widgetTypeName == "label")
+		{
+			this->onLoadLabel(widgetId, settings);
+		}
+		else if(widgetTypeName == "textbox")
+		{
+			this->onLoadTextbox(widgetId, settings);
+		}
+		else if(widgetTypeName == "button")
+		{
+			this->onLoadButton(widgetId, settings);
+		}
+	}
+	//---------------------------------------------------------
+	FastGuiFactory::BasicWidgetSettings FastGuiFactory::getBaseWidgetSettings(SettingsMultiMap* settings)
+	{
+		FastGuiFactory::BasicWidgetSettings baseSettings;
+		baseSettings.atlas = StringUtil::BLANK;
+		baseSettings.sprite = StringUtil::BLANK;
+		baseSettings.defaultGlyphIndex = 9;
+		baseSettings.position = Ogre::Vector2::ZERO;
+		baseSettings.size = Ogre::Vector2::ZERO;
+		baseSettings.alignment = FastGuiView::VA_TOPLEFT;
+		baseSettings.z = 0;
+
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+
+			if(key == "atlas")
+			{
+				baseSettings.atlas = value;
+			}
+			else if(key == "sprite")
+			{
+				baseSettings.sprite = value;
+			}
+			else if(key == "text")
+			{
+				baseSettings.text = value;
+			}
+			else if(key == "font")
+			{
+				baseSettings.defaultGlyphIndex = StringUtil::Converter::fromString<uint>(value);
+			}
+			else if(key == "z")
+			{
+				baseSettings.z = StringUtil::Converter::fromString<uint>(value);
+			}
+			else if(key == "position")
+			{
+				baseSettings.position = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+			}
+			else if(key == "size")
+			{
+				baseSettings.size = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+			}
+			else if(key == "alignment")
+			{
+				baseSettings.alignment = FastGuiView::VA_TOPLEFT;
+				if(value == "topleft")
+				{
+					baseSettings.alignment = FastGuiView::VA_TOPLEFT;
+				}
+				else if(value == "top")
+				{
+					baseSettings.alignment = FastGuiView::VA_TOP;
+				}
+				else if(value == "topright")
+				{
+					baseSettings.alignment = FastGuiView::VA_TOPRIGHT;
+				}
+				else if(value == "left")
+				{
+					baseSettings.alignment = FastGuiView::VA_LEFT;
+				}
+				else if(value == "center")
+				{
+					baseSettings.alignment = FastGuiView::VA_CENTER;
+				}
+				else if(value == "right")
+				{
+					baseSettings.alignment = FastGuiView::VA_RIGHT;
+				}
+				else if(value == "bottomleft")
+				{
+					baseSettings.alignment = FastGuiView::VA_BOTTOMLEFT;
+				}
+				else if(value == "bottom")
+				{
+					baseSettings.alignment = FastGuiView::VA_BOTTOM;
+				}
+				else if(value == "bottomright")
+				{
+					baseSettings.alignment = FastGuiView::VA_BOTTOMRIGHT;
+				}
+				else
+				{
+					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
+				}
+			}
+		}
+		optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(baseSettings.atlas).lock();
+		oAssert(view);
+		baseSettings.position += view->getPosition(baseSettings.alignment);
+		return baseSettings;
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadDecorWidget(String const & id, SettingsMultiMap* settings)
+	{
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+
+		this->createDecorWidget(id, baseSettings.sprite, baseSettings.position, baseSettings.size, baseSettings.atlas, baseSettings.z);
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadLabel(String const & id, SettingsMultiMap* settings)
+	{
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+
+		this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadTextbox(String const & id, SettingsMultiMap* settings)
+	{
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+
+		this->createTextbox(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadButton(String const & id, SettingsMultiMap* settings)
+	{
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+
+		FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
+		Ogre::ColourValue color = Ogre::ColourValue::Black;
+
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+			if(key == "textalignment")
+			{
+				if(value == "topleft")
+				{
+					alignment = FastGuiLabel::LA_TOPLEFT;
+				}
+				else if(value == "top")
+				{
+					alignment = FastGuiLabel::LA_TOP;
+				}
+				else if(value == "topright")
+				{
+					alignment = FastGuiLabel::LA_TOPRIGHT;
+				}
+				else if(value == "left")
+				{
+					alignment = FastGuiLabel::LA_LEFT;
+				}
+				else if(value == "center")
+				{
+					alignment = FastGuiLabel::LA_CENTER;
+				}
+				else if(value == "right")
+				{
+					alignment = FastGuiLabel::LA_RIGHT;
+				}
+				else if(value == "bottomleft")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMLEFT;
+				}
+				else if(value == "bottom")
+				{
+					alignment = FastGuiLabel::LA_BOTTOM;
+				}
+				else if(value == "bottomright")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMRIGHT;
+				}
+				else
+				{
+					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
+				}
+			}
+			else if(key == "textcolor")
+			{
+				if(value == "black")
+				{
+					color = Ogre::ColourValue::Black;
+				}
+				else if(value == "white")
+				{
+					color = Ogre::ColourValue::White;
+				}
+				else if(value == "red")
+				{
+					color = Ogre::ColourValue::Red;
+				}
+				else if(value == "green")
+				{
+					color = Ogre::ColourValue::Green;
+				}
+				else if(value == "blue")
+				{
+					color = Ogre::ColourValue::Blue;
+				}
+				else
+				{
+					color = StringUtil::Converter::parseColourValue(value);
+				}
+			}
+		}
+
+		woptr<FastGuiButton> button = this->createButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
+		oAssert(button.lock());
+		button.lock()->getLabel().lock()->getCaption()->colour(color);
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------

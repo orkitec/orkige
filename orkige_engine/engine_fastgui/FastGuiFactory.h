@@ -22,6 +22,19 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 	protected:
+		//! support struct that holds some values that many widgets have in common
+		//! @see getBaseWidgetSettings
+		struct BasicWidgetSettings
+		{
+			String atlas;
+			String sprite;
+			String text;
+			uint defaultGlyphIndex;
+			Ogre::Vector2 position;
+			Ogre::Vector2 size;
+			uint z;
+			FastGuiView::Alignment alignment;
+		};
 	private:
 		//--- Variables ---------------------------------------------
 	public:
@@ -29,14 +42,35 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
+		//! constructor
 		FastGuiFactory();
+		//! destructor
 		virtual ~FastGuiFactory();
+		//! create a simple decor widget
 		virtual woptr<FastGuiDecorWidget> createDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
+		//! create a simple label
 		virtual woptr<FastGuiLabel> createLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		//! create a simple Textbox
 		virtual woptr<FastGuiTextbox> createTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		//! create a simple Button
 		virtual woptr<FastGuiButton> createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
+		//! create a simple decor widget
 		virtual void load(String const filename);
 	protected:
+		//! overridable mothod for loading global settings
+		virtual void onLoadGlobalSettings(SettingsMultiMap* settings);
+		//! overridable mothod for loading a widget with given typename and settings
+		virtual void onLoadWidget(String const & widgetType, SettingsMultiMap* settings);
+		//! utility to load common ui settings @see BasicWidgetSettings
+		BasicWidgetSettings getBaseWidgetSettings(SettingsMultiMap* settings);
+		//! overridable to load a DecorWidget
+		virtual void onLoadDecorWidget(String const & id, SettingsMultiMap* settings);
+		//! overridable to load a Label
+		virtual void onLoadLabel(String const & id, SettingsMultiMap* settings);
+		//! overridable to load a Textbox
+		virtual void onLoadTextbox(String const & id, SettingsMultiMap* settings);
+		//! overridable to load a Button
+		virtual void onLoadButton(String const & id, SettingsMultiMap* settings);
 	private:
 	};
 	//---------------------------------------------------------------

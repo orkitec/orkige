@@ -98,8 +98,13 @@ namespace Orkige
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
 		this->silverback->loadAtlas(atlas);
-		Gorilla::Screen* screen = this->silverback->createScreen(Engine::getSingleton().getViewort(), atlas);
+		Ogre::Viewport* viewport = Engine::getSingleton().getViewort();
+		oAssert(viewport);
+		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
 		oAssert(screen);
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
+		screen->setOrientation(viewport->getOrientationMode());
+#endif
 		optr<FastGuiView> view = onew(new FastGuiView(screen));
 		this->views[atlas] = view;
 		return view;
@@ -124,6 +129,19 @@ namespace Orkige
 		}
 		this->widgets.erase(it);
 		return true;
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::destroyAllWidgets()
+	{
+		StringVector names;
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			names.push_back(vt.first);
+		}
+		foreach(String const & name, names)
+		{
+			this->destroyWidget(name);
+		}
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas)

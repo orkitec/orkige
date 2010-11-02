@@ -70,6 +70,8 @@ namespace Orkige
 		bool addWidget(optr<FastGuiWidget> widget);
 		//! destroy given widget
 		bool destroyWidget(String const & id);
+		//! destroy given widget
+		void destroyAllWidgets();
 		//! check if widget with given id already exists
 		inline bool widgetExists(String const & id);
 		//! get widget with given id

@@ -20,6 +20,18 @@ namespace Orkige
 		OOBJECT(FastGuiView, Interface);
 		//--- Types -------------------------------------------------
 	public:
+		enum Alignment
+		{
+			VA_TOPLEFT = 0,
+			VA_TOP,
+			VA_TOPRIGHT,
+			VA_LEFT,
+			VA_CENTER,
+			VA_RIGHT,
+			VA_BOTTOMLEFT,
+			VA_BOTTOM,
+			VA_BOTTOMRIGHT,
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -38,6 +50,8 @@ namespace Orkige
 		inline Gorilla::Layer* getLayer(uint z);
 		//! get the gorilla screen for this view
 		inline Gorilla::Screen* getScreen();
+		//! get coordimate for given alignment
+		Ogre::Vector2 getPosition(FastGuiView::Alignment alignment);
 	protected:
 	private:
 	};

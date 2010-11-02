@@ -25,6 +25,51 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
+	Ogre::Vector2 FastGuiView::getPosition(FastGuiView::Alignment alignment)
+	{
+		switch(alignment)
+		{
+		case VA_TOPLEFT:
+			{
+				return Ogre::Vector2::ZERO;
+			} break;
+		case VA_TOP:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, 0.f);
+			} break;
+		case VA_TOPRIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), 0.f);
+			} break;
+		case VA_LEFT:
+			{
+				return Ogre::Vector2(0.f, screen->getHeight()/2.f);
+			} break;
+		case VA_CENTER:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight()/2.f);
+			} break;
+		case VA_RIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), screen->getHeight()/2.f);
+			} break;
+		case VA_BOTTOMLEFT:
+			{
+				return Ogre::Vector2(0, screen->getHeight());
+			} break;
+		case VA_BOTTOM:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight());
+			} break;
+		case VA_BOTTOMRIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), screen->getHeight());
+			} break;
+		}
+
+		return Ogre::Vector2::ZERO;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
