@@ -112,7 +112,11 @@ namespace Orkige
 		{
 			String key = boost::to_lower_copy(vt.first);
 			String value = boost::to_lower_copy(vt.second);
-			optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(key).lock();
+			optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(vt.first).lock();
+			if(!view)
+			{
+				view = FastGuiManager::getSingleton().getCreateView(key).lock();
+			}
 			oAssert(view);
 			uint z = StringUtil::Converter::fromString<uint>(value);
 			view->setZ(z);
