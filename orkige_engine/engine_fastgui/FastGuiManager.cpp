@@ -102,7 +102,7 @@ namespace Orkige
 		oAssert(viewport);
 		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
 		oAssert(screen);
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
 		screen->setOrientation(viewport->getOrientationMode());
 #endif
 		optr<FastGuiView> view = onew(new FastGuiView(screen));

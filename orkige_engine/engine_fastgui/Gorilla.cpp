@@ -951,7 +951,7 @@ namespace Gorilla
 
 		mWidth = mViewport->getActualWidth();
 		mHeight = mViewport->getActualHeight();
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
 		mOrientation = mViewport->getOrientationMode();
 #else
 		mOrientation = Ogre::OR_DEGREE_0;
@@ -993,7 +993,7 @@ namespace Gorilla
 		bool force = false;
 		// force == true if viewport size changed.
 		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight() 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
 			|| mOrientation != mViewport->getOrientationMode()
 #else
 			|| mOrientationChanged
@@ -1006,7 +1006,7 @@ namespace Gorilla
 			mInvWidth = 1.0f / mWidth;
 			mInvHeight = 1.0f / mHeight;
 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
 			mOrientation = mViewport->getOrientationMode();
 #else
 			if (mOrientation == Ogre::OR_DEGREE_90 || mOrientation == Ogre::OR_DEGREE_270)

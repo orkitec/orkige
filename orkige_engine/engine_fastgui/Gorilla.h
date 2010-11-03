@@ -902,7 +902,7 @@ namespace Gorilla
 		*/
 		inline void show() { mIsVisible = true;}
 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
 		inline void setOrientation(Ogre::OrientationMode o)
 		{
 			mOrientation = o; mOrientationChanged = true;
@@ -949,7 +949,7 @@ namespace Gorilla
 		Ogre::Viewport*       mViewport;
 		Ogre::Real            mWidth, mHeight, mInvWidth, mInvHeight;
 		Ogre::OrientationMode mOrientation;
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
+#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
 		bool                  mOrientationChanged;
 #endif
 		Ogre::Vector3         mScale;
