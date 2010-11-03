@@ -25,6 +25,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 		typedef std::map<String, optr<FastGuiView> > FastGuiViewMap;
+		typedef std::list<FastGuiView> FastGuiViewList;
 		typedef std::map<String, optr<FastGuiWidget> > FastGuiWidgetMap;
 	protected:
 	private:
@@ -82,6 +83,8 @@ namespace Orkige
 		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK);
 		//! hide frame stats
 		void hideStats();
+		//! reorder the view rendering by their z value
+		void reorderViews();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);

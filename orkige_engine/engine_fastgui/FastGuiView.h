@@ -40,10 +40,12 @@ namespace Orkige
 	private:
 		Gorilla::Screen* screen;				//!< actual screen (1atlas)
 		std::map<uint, Gorilla::Layer*> layers;	//!< all z layers of this screen
+		uint z;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constrcutor
-		FastGuiView(Gorilla::Screen* _screen);
+		FastGuiView(Gorilla::Screen* _screen, uint _z = 0);
+		FastGuiView(FastGuiView const & other);
 		//! destructor
 		virtual ~FastGuiView();
 		//! get or create layer at given index
@@ -52,6 +54,10 @@ namespace Orkige
 		inline Gorilla::Screen* getScreen();
 		//! get coordimate for given alignment
 		Ogre::Vector2 getPosition(FastGuiView::Alignment alignment);
+		//! set view z value (this doesn't reorder the view rendering immediately you have to call fastGuiManager::getSingleton().reorderViews();)
+		inline void setZ(uint z);
+		//! for priority sorting
+		inline bool operator < (FastGuiView const & other) const;
 	protected:
 	private:
 	};
@@ -73,6 +79,15 @@ namespace Orkige
 		return this->screen;
 	}
 	//---------------------------------------------------------------
+	inline void FastGuiView::setZ(uint z)
+	{
+		this->z = z;
+	}
+	//---------------------------------------------------------------
+	inline bool FastGuiView::operator < (FastGuiView  const & other) const 
+	{
+		return this->z < other.z;
+	}
 }
 
 #endif //__FastGuiView_h__29_10_2010__18_16_35__

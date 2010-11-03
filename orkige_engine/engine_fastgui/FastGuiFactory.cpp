@@ -100,13 +100,23 @@ namespace Orkige
 			}
 			it.moveNext();
 		}
+		FastGuiManager::getSingleton().reorderViews();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadGlobalSettings(SettingsMultiMap* settings)
 	{
-
+		//each global setting is consiederd a view/atlas name with its z order
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+			optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(key).lock();
+			oAssert(view);
+			uint z = StringUtil::Converter::fromString<uint>(value);
+			view->setZ(z);
+		}
 	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadWidget(String const & widgetType, SettingsMultiMap* settings)
@@ -147,6 +157,8 @@ namespace Orkige
 		baseSettings.alignment = FastGuiView::VA_TOPLEFT;
 		baseSettings.z = 0;
 
+		Ogre::Vector2 relSize = Ogre::Vector2::ZERO;
+		Ogre::Vector2 relPosition = Ogre::Vector2::ZERO;
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
 			String key = boost::to_lower_copy(vt.first);
@@ -174,11 +186,36 @@ namespace Orkige
 			}
 			else if(key == "position")
 			{
-				baseSettings.position = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+				if(value.find('%') != String::npos)
+				{
+					// Split on space
+					Ogre::vector<String>::type vec = Ogre::StringUtil::split(value);
+					Ogre::Real w = StringUtil::Converter::parseReal(vec[0]);
+					Ogre::Real h = StringUtil::Converter::parseReal(vec[1]);
+					relPosition.x = w;
+					relPosition.y = h;
+				}
+				else
+				{
+					baseSettings.position = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+				}
 			}
 			else if(key == "size")
 			{
-				baseSettings.size = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+				if(value.find('%') != String::npos)
+				{
+					// Split on space
+					Ogre::vector<String>::type vec = Ogre::StringUtil::split(value);
+					Ogre::Real w = StringUtil::Converter::parseReal(vec[0]);
+					Ogre::Real h = StringUtil::Converter::parseReal(vec[1]);
+					relSize.x = w;
+					relSize.y = h;
+				}
+				else
+				{
+					baseSettings.size = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+				}
+				
 			}
 			else if(key == "alignment")
 			{
@@ -227,7 +264,17 @@ namespace Orkige
 		}
 		optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(baseSettings.atlas).lock();
 		oAssert(view);
+		if(relPosition != Ogre::Vector2::ZERO)
+		{
+			baseSettings.position.x = (relPosition.x * view->getScreen()->getWidth()) / 100.f;
+			baseSettings.position.y = (relPosition.y * view->getScreen()->getHeight()) / 100.f;
+		}
 		baseSettings.position += view->getPosition(baseSettings.alignment);
+		if(relSize != Ogre::Vector2::ZERO)
+		{
+			baseSettings.size.x = (relSize.x * view->getScreen()->getWidth()) / 100.f;
+			baseSettings.size.y = (relSize.y * view->getScreen()->getHeight()) / 100.f;
+		}
 		return baseSettings;
 	}
 	//---------------------------------------------------------

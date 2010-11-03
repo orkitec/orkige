@@ -15,8 +15,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	//---------------------------------------------------------------
-	FastGuiView::FastGuiView(Gorilla::Screen* _screen) : screen(_screen) 
+	FastGuiView::FastGuiView(Gorilla::Screen* _screen, uint _z) : screen(_screen) , z(_z)
+	{
+
+	}
+	//---------------------------------------------------------
+	FastGuiView::FastGuiView(FastGuiView const & other) : screen(other.screen), z(other.z), layers(other.layers)
 	{
 
 	}

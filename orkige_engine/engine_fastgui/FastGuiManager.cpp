@@ -157,6 +157,24 @@ namespace Orkige
 		this->stats.reset();
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::reorderViews()
+	{
+		FastGuiViewList orderedViews;
+		foreach(FastGuiViewMap::value_type const & vt, this->views)
+		{
+			orderedViews.push_back(*vt.second);
+			Engine::getSingleton().getSceneManager()->removeRenderQueueListener(vt.second->getScreen());
+		}
+		orderedViews.sort();
+
+		foreach(FastGuiView & view, orderedViews)
+		{
+			oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
+			Gorilla::Screen* screen = view.getScreen();
+			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
