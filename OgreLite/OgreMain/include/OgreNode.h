@@ -93,11 +93,11 @@ namespace Ogre {
 			*/
 			virtual void nodeUpdated(const Node*) {}
 			/** Node is being destroyed */
-			virtual void nodeDestroyed(const Node*) {};
+			virtual void nodeDestroyed(const Node*) {}
 			/** Node has been attached to a parent */
-			virtual void nodeAttached(const Node*) {};
+			virtual void nodeAttached(const Node*) {}
 			/** Node has been detached from a parent */
-			virtual void nodeDetached(const Node*) {};
+			virtual void nodeDetached(const Node*) {}
 		};
 
 		/** Inner class for displaying debug renderable for Node. */
@@ -706,7 +706,7 @@ namespace Ogre {
         virtual const Vector3& getInitialScale(void) const;
 
         /** Helper function, get the squared view depth.  */
-        Real getSquaredViewDepth(const Camera* cam) const;
+        virtual Real getSquaredViewDepth(const Camera* cam) const;
 
         /** To be called in the event of transform changes to this node that require it's recalculation.
         @remarks

@@ -61,34 +61,56 @@ namespace Ogre {
 	{
 		mFB.swapBuffers();
 	}
-   
-/// Size of probe texture
-#define PROBE_SIZE 16
 
-/// Stencil and depth formats to be tried
-static const GLenum stencilFormats[] =
-{
-    GL_NONE,                    // No stencil
-    GL_STENCIL_INDEX8_OES
-};
-static const size_t stencilBits[] =
-{
-    0, 8
-};
-#define STENCILFORMAT_COUNT (sizeof(stencilFormats)/sizeof(GLenum))
+    //-----------------------------------------------------------------------------
+	bool GLESFBORenderTexture::attachDepthBuffer( DepthBuffer *depthBuffer )
+	{
+		bool result;
+		if( result = GLESRenderTexture::attachDepthBuffer( depthBuffer ) )
+			mFB.attachDepthBuffer( depthBuffer );
 
-static const GLenum depthFormats[] =
-{
-    GL_NONE,
-    GL_DEPTH_COMPONENT16_OES,
-    GL_DEPTH_COMPONENT24_OES,   // Prefer 24 bit depth
-    GL_DEPTH24_STENCIL8_OES     // packed depth / stencil
-};
-static const size_t depthBits[] =
-{
-    0,16,24,24
-};
-#define DEPTHFORMAT_COUNT (sizeof(depthFormats)/sizeof(GLenum))
+		return result;
+	}
+	//-----------------------------------------------------------------------------
+	void GLESFBORenderTexture::detachDepthBuffer()
+	{
+		mFB.detachDepthBuffer();
+		GLESRenderTexture::detachDepthBuffer();
+	}
+	//-----------------------------------------------------------------------------
+	void GLESFBORenderTexture::_detachDepthBuffer()
+	{
+		mFB.detachDepthBuffer();
+		GLESRenderTexture::_detachDepthBuffer();
+	}
+
+    /// Size of probe texture
+    #define PROBE_SIZE 16
+
+    /// Stencil and depth formats to be tried
+    static const GLenum stencilFormats[] =
+    {
+        GL_NONE,                    // No stencil
+        GL_STENCIL_INDEX8_OES
+    };
+    static const size_t stencilBits[] =
+    {
+        0, 8
+    };
+    #define STENCILFORMAT_COUNT (sizeof(stencilFormats)/sizeof(GLenum))
+
+    static const GLenum depthFormats[] =
+    {
+        GL_NONE,
+        GL_DEPTH_COMPONENT16_OES,
+        GL_DEPTH_COMPONENT24_OES,   // Prefer 24 bit depth
+        GL_DEPTH24_STENCIL8_OES     // packed depth / stencil
+    };
+    static const size_t depthBits[] =
+    {
+        0,16,24,24
+    };
+    #define DEPTHFORMAT_COUNT (sizeof(depthFormats)/sizeof(GLenum))
 
 	GLESFBOManager::GLESFBOManager() 
 		: mTempFBO(0)
@@ -103,7 +125,7 @@ static const size_t depthBits[] =
 	{
 		if(!mRenderBufferMap.empty())
 		{
-			LogManager::getSingleton().logMessage("GL: Warning! GLESFBOManager destructor called, but not all renderbuffers were released.");
+			LogManager::getSingleton().logMessage("GL ES: Warning! GLESFBOManager destructor called, but not all renderbuffers were released.");
 		}
         
         glDeleteFramebuffersOES(1, &mTempFBO);      
@@ -230,37 +252,26 @@ static const size_t depthBits[] =
 
             // Create and attach framebuffer
             glGenFramebuffersOES(1, &fb);
-            GL_CHECK_ERROR;
             glBindFramebufferOES(GL_FRAMEBUFFER_OES, fb);
-            GL_CHECK_ERROR;
             if (fmt!=GL_NONE)
             {
 				// Create and attach texture
 				glGenTextures(1, &tid);
-                GL_CHECK_ERROR;
 				glBindTexture(target, tid);
-                GL_CHECK_ERROR;
 				
                 // Set some default parameters
                 glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-                GL_CHECK_ERROR;
                 glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-                GL_CHECK_ERROR;
                 glTexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                GL_CHECK_ERROR;
                 glTexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-                GL_CHECK_ERROR;
                             
 				glTexImage2D(target, 0, fmt, PROBE_SIZE, PROBE_SIZE, 0, fmt, GL_UNSIGNED_BYTE, 0);
-                GL_CHECK_ERROR;
 				glFramebufferTexture2DOES(GL_FRAMEBUFFER_OES, GL_COLOR_ATTACHMENT0_OES,
                                 target, tid, 0);
-                GL_CHECK_ERROR;
             }
 
             // Check status
             GLuint status = glCheckFramebufferStatusOES(GL_FRAMEBUFFER_OES);
-            GL_CHECK_ERROR;
 
 			// Ignore status in case of fmt==GL_NONE, because no implementation will accept
 			// a buffer without *any* attachment. Buffers with only stencil and depth attachment
@@ -316,19 +327,11 @@ static const size_t depthBits[] =
             }
 
             // Delete texture and framebuffer
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
-            // The screen buffer is 1 on iPhone
-            glBindFramebufferOES(GL_FRAMEBUFFER_OES, 1);
-#else
             glBindFramebufferOES(GL_FRAMEBUFFER_OES, 0);
-#endif
-            GL_CHECK_ERROR;
             glDeleteFramebuffersOES(1, &fb);
-            GL_CHECK_ERROR;
 			
             if (fmt!=GL_NONE)
                 glDeleteTextures(1, &tid);
-            GL_CHECK_ERROR;
         }
 
 		String fmtstring;
@@ -337,7 +340,7 @@ static const size_t depthBits[] =
             if(mProps[x].valid)
                 fmtstring += PixelUtil::getFormatName((PixelFormat)x)+" ";
         }
-        LogManager::getSingleton().logMessage("[GL] : Valid FBO targets " + fmtstring);
+        LogManager::getSingleton().logMessage("[GLES] : Valid FBO targets " + fmtstring);
     }
 
     void GLESFBOManager::getBestDepthStencil(GLenum internalFormat, GLenum *depthFormat, GLenum *stencilFormat)

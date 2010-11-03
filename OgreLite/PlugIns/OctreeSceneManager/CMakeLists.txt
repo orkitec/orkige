@@ -10,23 +10,16 @@
 # Configure Octree SceneManager build
 
 set (HEADER_FILES
-  include/OgreHeightmapTerrainPageSource.h
   include/OgreOctree.h
   include/OgreOctreeCamera.h
   include/OgreOctreeNode.h
   include/OgreOctreePlugin.h
+  include/OgreOctreePrerequisites.h
   include/OgreOctreeSceneManager.h
   include/OgreOctreeSceneQuery.h
-  include/OgreTerrainPage.h
-  include/OgreTerrainPageSource.h
-  include/OgreTerrainPrerequisites.h
-  include/OgreTerrainRenderable.h
-  include/OgreTerrainSceneManager.h
-  include/OgreTerrainVertexProgram.h
 )
 
 set (SOURCE_FILES
-  src/OgreHeightmapTerrainPageSource.cpp
   src/OgreOctree.cpp
   src/OgreOctreeCamera.cpp
   src/OgreOctreeNode.cpp
@@ -34,11 +27,6 @@ set (SOURCE_FILES
   src/OgreOctreeSceneManager.cpp
   src/OgreOctreeSceneManagerDll.cpp
   src/OgreOctreeSceneQuery.cpp
-  src/OgreTerrainPage.cpp
-  src/OgreTerrainPageSource.cpp
-  src/OgreTerrainRenderable.cpp
-  src/OgreTerrainSceneManager.cpp
-  src/OgreTerrainVertexProgram.cpp
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -48,7 +36,7 @@ add_library(Plugin_OctreeSceneManager ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_
 target_link_libraries(Plugin_OctreeSceneManager OgreMain)
 if (NOT OGRE_STATIC)
   set_target_properties(Plugin_OctreeSceneManager PROPERTIES
-    COMPILE_DEFINITIONS OGRE_TERRAINPLUGIN_EXPORTS
+    COMPILE_DEFINITIONS OGRE_OCTREEPLUGIN_EXPORTS
   ) 
 endif ()
 
@@ -61,7 +49,7 @@ if (APPLE AND NOT OGRE_BUILD_PLATFORM_IPHONE)
 
 	# Copy headers into the main Ogre framework
 	add_custom_command(TARGET Plugin_OctreeSceneManager POST_BUILD
-	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude CVS -exclude .svn -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
+	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
 	)
 endif()
 

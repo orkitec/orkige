@@ -134,10 +134,6 @@ CompositorChain *CompositorManager::getCompositorChain(Viewport *vp)
     Chains::iterator i=mChains.find(vp);
     if(i != mChains.end())
     {
-		// Make sure we have the right viewport
-		// It's possible that this chain may have outlived a viewport and another
-		// viewport was created at the same physical address, meaning we find it again but the viewport is gone
-		i->second->_notifyViewport(vp);
         return i->second;
     }
     else
@@ -184,7 +180,7 @@ Renderable *CompositorManager::_getTexturedRectangle2D()
 	if(!mRectangle)
 	{
 		/// 2D rectangle, to use for render_quad passes
-		mRectangle = OGRE_NEW Rectangle2D(true);
+		mRectangle = OGRE_NEW Rectangle2D(true, HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE);
 	}
 	RenderSystem* rs = Root::getSingleton().getRenderSystem();
 	Viewport* vp = rs->_getViewport();
@@ -548,24 +544,6 @@ CustomCompositionPass* CompositorManager::getCustomCompositionPass(const String&
 			"CompositorManager::getCustomCompositionPass");
 	}
 	return it->second;
-}
-//---------------------------------------------------------------------
-void CompositorManager::_relocateChain( Viewport* sourceVP, Viewport* destVP )
-{
-	if (sourceVP != destVP)
-	{
-		CompositorChain *chain = getCompositorChain(sourceVP);
-		Ogre::RenderTarget *srcTarget = sourceVP->getTarget();
-		Ogre::RenderTarget *dstTarget = destVP->getTarget();
-		if (srcTarget != dstTarget)
-		{
-			srcTarget->removeListener(chain);
-			dstTarget->addListener(chain);
-		}
-		chain->_notifyViewport(destVP);
-		mChains.erase(sourceVP);
-		mChains[destVP] = chain;
-	}
 }
 //-----------------------------------------------------------------------
 }

@@ -107,8 +107,8 @@ bool CompositorInstance::getEnabled()
 class RSClearOperation: public CompositorInstance::RenderSystemOperation
 {
 public:
-	RSClearOperation(uint32 buffers, ColourValue colour, Real depth, unsigned short stencil):
-		buffers(buffers), colour(colour), depth(depth), stencil(stencil)
+	RSClearOperation(uint32 inBuffers, ColourValue inColour, Real inDepth, unsigned short inStencil):
+		buffers(inBuffers), colour(inColour), depth(inDepth), stencil(inStencil)
 	{}
 	/// Which buffers to clear (FrameBufferType)
 	uint32 buffers;
@@ -130,12 +130,12 @@ public:
 class RSStencilOperation: public CompositorInstance::RenderSystemOperation
 {
 public:
-	RSStencilOperation(bool stencilCheck,CompareFunction func,uint32 refValue,uint32 mask,
-		StencilOperation stencilFailOp,StencilOperation depthFailOp,StencilOperation passOp,
-		bool twoSidedOperation):
-		stencilCheck(stencilCheck),func(func),refValue(refValue),mask(mask),
-		stencilFailOp(stencilFailOp),depthFailOp(depthFailOp),passOp(passOp),
-		twoSidedOperation(twoSidedOperation)
+	RSStencilOperation(bool inStencilCheck, CompareFunction inFunc, uint32 inRefValue, uint32 inMask,
+		StencilOperation inStencilFailOp, StencilOperation inDepthFailOp, StencilOperation inPassOp,
+		bool inTwoSidedOperation):
+		stencilCheck(inStencilCheck), func(inFunc), refValue(inRefValue), mask(inMask),
+		stencilFailOp(inStencilFailOp), depthFailOp(inDepthFailOp), passOp(inPassOp),
+		twoSidedOperation(inTwoSidedOperation)
 	{}
 	bool stencilCheck;
 	CompareFunction func; 
@@ -158,8 +158,8 @@ public:
 class RSQuadOperation: public CompositorInstance::RenderSystemOperation
 {
 public:
-	RSQuadOperation(CompositorInstance *instance, uint32 pass_id, MaterialPtr mat):
-	  mat(mat),instance(instance), pass_id(pass_id),
+	RSQuadOperation(CompositorInstance *inInstance, uint32 inPass_id, MaterialPtr inMat):
+	  mat(inMat), instance(inInstance), pass_id(inPass_id),
       mQuadCornerModified(false),
       mQuadLeft(-1),
       mQuadTop(1),
@@ -369,14 +369,14 @@ void CompositorInstance::collectPasses(TargetOperation &finalState, CompositionT
 			}
 			srctech = srcmat->getBestTechnique(0);
 			/// Create local material
-			MaterialPtr mat = createLocalMaterial(srcmat->getName());
+			MaterialPtr localMat = createLocalMaterial(srcmat->getName());
 			/// Copy and adapt passes from source material
 			Technique::PassIterator i = srctech->getPassIterator();
 			while(i.hasMoreElements())
 			{
 				Pass *srcpass = i.getNext();
 				/// Create new target pass
-				targetpass = mat->getTechnique(0)->createPass();
+				targetpass = localMat->getTechnique(0)->createPass();
 				(*targetpass) = (*srcpass);
 				/// Set up inputs
 				for(size_t x=0; x<pass->getNumInputs(); ++x)
@@ -399,7 +399,7 @@ void CompositorInstance::collectPasses(TargetOperation &finalState, CompositionT
 				}
 			}
 
-            RSQuadOperation * rsQuadOperation = OGRE_NEW RSQuadOperation(this,pass->getIdentifier(),mat);
+            RSQuadOperation * rsQuadOperation = OGRE_NEW RSQuadOperation(this,pass->getIdentifier(),localMat);
             Real left,top,right,bottom;
             if (pass->getQuadCorners(left,top,right,bottom))
                 rsQuadOperation->setQuadCorners(left,top,right,bottom);
@@ -734,7 +734,9 @@ void CompositorInstance::createResources(bool forResizeOnly)
 			rendTarget = tex->getBuffer()->getRenderTarget();
 			mLocalTextures[def->name] = tex;
 		}
-        
+
+		//Set DepthBuffer pool for sharing
+		rendTarget->setDepthBufferPool( def->depthBufferId );
         
         /// Set up viewport over entire texture
         rendTarget->setAutoUpdated( false );
@@ -742,23 +744,31 @@ void CompositorInstance::createResources(bool forResizeOnly)
 		// We may be sharing / reusing this texture, so test before adding viewport
 		if (rendTarget->getNumViewports() == 0)
 		{
+			Viewport* v;
 			Camera* camera = mChain->getViewport()->getCamera();
+			if (!camera)
+			{
+				v = rendTarget->addViewport( camera );
+			}
+			else
+			{
+				// Save last viewport and current aspect ratio
+				Viewport* oldViewport = camera->getViewport();
+				Real aspectRatio = camera->getAspectRatio();
 
-			// Save last viewport and current aspect ratio
-			Viewport* oldViewport = camera->getViewport();
-			Real aspectRatio = camera->getAspectRatio();
+				v = rendTarget->addViewport( camera );
 
-			Viewport* v = rendTarget->addViewport( camera );
+				// Should restore aspect ratio, in case of auto aspect ratio
+				// enabled, it'll changed when add new viewport.
+				camera->setAspectRatio(aspectRatio);
+				// Should restore last viewport, i.e. never disturb user code
+				// which might based on that.
+				camera->_notifyViewport(oldViewport);
+			}
+
 			v->setClearEveryFrame( false );
 			v->setOverlaysEnabled( false );
 			v->setBackgroundColour( ColourValue( 0, 0, 0, 0 ) );
-
-			// Should restore aspect ratio, in case of auto aspect ratio
-			// enabled, it'll changed when add new viewport.
-			camera->setAspectRatio(aspectRatio);
-			// Should restore last viewport, i.e. never disturb user code
-			// which might based on that.
-			camera->_notifyViewport(oldViewport);
 		}
     }
 
@@ -1149,6 +1159,33 @@ void CompositorInstance::_fireNotifyResourcesCreated(bool forResizeOnly)
 	Listeners::iterator i, iend=mListeners.end();
 	for(i=mListeners.begin(); i!=iend; ++i)
 		(*i)->notifyResourcesCreated(forResizeOnly);
+}
+//-----------------------------------------------------------------------
+void CompositorInstance::notifyCameraChanged(Camera* camera)
+{
+	// update local texture's viewports.
+	LocalTextureMap::iterator localTexIter = mLocalTextures.begin();
+	LocalTextureMap::iterator localTexIterEnd = mLocalTextures.end();
+	while (localTexIter != localTexIterEnd)
+	{
+		RenderTexture* target = localTexIter->second->getBuffer()->getRenderTarget();
+		// skip target that has no viewport (this means texture is under MRT)
+		if (target->getNumViewports() == 1)
+		{
+			target->getViewport(0)->setCamera(camera);
+		}
+		++localTexIter;
+	}
+
+	// update MRT's viewports.
+	LocalMRTMap::iterator localMRTIter = mLocalMRTs.begin();
+	LocalMRTMap::iterator localMRTIterEnd = mLocalMRTs.end();
+	while (localMRTIter != localMRTIterEnd)
+	{
+		MultiRenderTarget* target = localMRTIter->second;
+		target->getViewport(0)->setCamera(camera);
+		++localMRTIter;
+	}
 }
 //-----------------------------------------------------------------------
 CompositorInstance::RenderSystemOperation::~RenderSystemOperation()

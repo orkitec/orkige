@@ -41,9 +41,14 @@ set (HEADER_FILES
   include/OgreShaderCGProgramWriter.h
   include/OgreShaderGLSLProgramProcessor.h
   include/OgreShaderGLSLProgramWriter.h
+  include/OgreShaderGLSLESProgramProcessor.h
+  include/OgreShaderGLSLESProgramWriter.h
   include/OgreShaderProgramWriterManager.h
   include/OgreShaderHLSLProgramProcessor.h
   include/OgreShaderHLSLProgramWriter.h
+  include/OgreShaderExLayeredBlending.h
+  include/OgreShaderExHardwareSkinning.h
+  include/OgreShaderExInstancedViewports.h
 )
 
 set (SOURCE_FILES
@@ -73,10 +78,16 @@ set (SOURCE_FILES
   src/OgreShaderCGProgramWriter.cpp
   src/OgreShaderGLSLProgramProcessor.cpp
   src/OgreShaderGLSLProgramWriter.cpp
+  src/OgreShaderGLSLESProgramProcessor.cpp
+  src/OgreShaderGLSLESProgramWriter.cpp
   src/OgreShaderProgramWriterManager.cpp
   src/OgreShaderHLSLProgramProcessor.cpp
   src/OgreShaderHLSLProgramWriter.cpp
+  src/OgreShaderExLayeredBlending.cpp
+  src/OgreShaderExHardwareSkinning.cpp
+  src/OgreShaderExInstancedViewports.cpp
 )
+
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -95,7 +106,7 @@ if (APPLE AND NOT OGRE_BUILD_PLATFORM_IPHONE)
 
 	# Copy headers into the main Ogre framework
 	add_custom_command(TARGET OgreRTShaderSystem POST_BUILD
-	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude CVS -exclude .svn -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
+	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
 	)
 endif()
 

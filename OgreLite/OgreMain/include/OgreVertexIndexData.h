@@ -92,7 +92,7 @@ namespace Ogre {
 		/// Struct used to hold hardware morph / pose vertex data information
 		struct HardwareAnimationData
 		{
-			const VertexElement* targetVertexElement;
+			unsigned short targetBufferIndex;
 			Real parametric;
 		};
 		typedef vector<HardwareAnimationData>::type HardwareAnimationDataList;
@@ -228,8 +228,10 @@ namespace Ogre {
 			expected to bind these new buffers when appropriate. For morph animation
 			the original position buffer will be the 'from' keyframe data, whilst
 			for pose animation it will be the original vertex data.
+			If normals are animated, then twice the number of 3D texture coordinates are required
+		 @return The number of sets that were supported
 		*/
-		void allocateHardwareAnimationElements(ushort count);
+		ushort allocateHardwareAnimationElements(ushort count, bool animateNormals);
 
 
 
@@ -290,7 +292,7 @@ namespace Ogre {
 				: size ( cachesize ), type ( cachetype ), tail (0), buffersize (0), hit (0), miss (0)
 			{
 				cache = OGRE_ALLOC_T(uint32, size, MEMCATEGORY_GEOMETRY);
-			};
+			}
 
 			~VertexCacheProfiler()
 			{
@@ -298,12 +300,12 @@ namespace Ogre {
 			}
 
 			void profile(const HardwareIndexBufferSharedPtr& indexBuffer);
-			void reset() { hit = 0; miss = 0; tail = 0; buffersize = 0; };
-			void flush() { tail = 0; buffersize = 0; };
+			void reset() { hit = 0; miss = 0; tail = 0; buffersize = 0; }
+			void flush() { tail = 0; buffersize = 0; }
 
-			unsigned int getHits() { return hit; };
-			unsigned int getMisses() { return miss; };
-			unsigned int getSize() { return size; };
+			unsigned int getHits() { return hit; }
+			unsigned int getMisses() { return miss; }
+			unsigned int getSize() { return size; }
 		private:
 			unsigned int size;
 			uint32 *cache;

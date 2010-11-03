@@ -100,29 +100,29 @@ namespace Ogre
 		return cls;
 	}
 
-	void ObjectAbstractNode::addVariable(const Ogre::String &name)
+	void ObjectAbstractNode::addVariable(const Ogre::String &inName)
 	{
-		mEnv.insert(std::make_pair(name, ""));
+		mEnv.insert(std::make_pair(inName, ""));
 	}
 
-	void ObjectAbstractNode::setVariable(const Ogre::String &name, const Ogre::String &value)
+	void ObjectAbstractNode::setVariable(const Ogre::String &inName, const Ogre::String &value)
 	{
-		mEnv[name] = value;
+		mEnv[inName] = value;
 	}
 
-	std::pair<bool,String> ObjectAbstractNode::getVariable(const String &name) const
+	std::pair<bool,String> ObjectAbstractNode::getVariable(const String &inName) const
 	{
-		map<String,String>::type::const_iterator i = mEnv.find(name);
+		map<String,String>::type::const_iterator i = mEnv.find(inName);
 		if(i != mEnv.end())
 			return std::make_pair(true, i->second);
 
-		ObjectAbstractNode *parent = (ObjectAbstractNode*)this->parent;
-		while(parent)
+		ObjectAbstractNode *parentNode = (ObjectAbstractNode*)this->parent;
+		while(parentNode)
 		{
-			i = parent->mEnv.find(name);
-			if(i != parent->mEnv.end())
+			i = parentNode->mEnv.find(inName);
+			if(i != parentNode->mEnv.end())
 				return std::make_pair(true, i->second);
-			parent = (ObjectAbstractNode*)parent->parent;
+			parentNode = (ObjectAbstractNode*)parentNode->parent;
 		}
 		return std::make_pair(false, "");
 	}
@@ -341,6 +341,8 @@ namespace Ogre
 
 	bool ScriptCompiler::compile(const ConcreteNodeListPtr &nodes, const String &group)
 	{
+		LogManager::getSingleton().logMessage("ScriptCompiler::compile called");
+		
 		// Set up the compilation context
 		mGroup = group;
 
@@ -365,13 +367,14 @@ namespace Ogre
 		// Allows early bail-out through the listener
 		if(mListener && !mListener->postConversion(this, ast))
 			return mErrors.empty();
-
+		
 		// Translate the nodes
 		for(AbstractNodeList::iterator i = ast->begin(); i != ast->end(); ++i)
 		{
 			//logAST(0, *i);
 			if((*i)->type == ANT_OBJECT && reinterpret_cast<ObjectAbstractNode*>((*i).get())->abstract)
 				continue;
+			//LogManager::getSingleton().logMessage(reinterpret_cast<ObjectAbstractNode*>((*i).get())->name);
 			ScriptTranslator *translator = ScriptCompilerManager::getSingleton().getTranslator(*i);
 			if(translator)
 				translator->translate(this, *i);
@@ -553,16 +556,16 @@ namespace Ogre
 		// All import nodes are removed
 		// We have cached the code blocks from all the imported scripts
 		// We can process all import requests now
-		for(ImportCacheMap::iterator i = mImports.begin(); i != mImports.end(); ++i)
+		for(ImportCacheMap::iterator it = mImports.begin(); it != mImports.end(); ++it)
 		{
-			ImportRequestMap::iterator j = mImportRequests.lower_bound(i->first),
-				end = mImportRequests.upper_bound(i->first);
+			ImportRequestMap::iterator j = mImportRequests.lower_bound(it->first),
+				end = mImportRequests.upper_bound(it->first);
 			if(j != end)
 			{
 				if(j->second == "*")
 				{
 					// Insert the entire AST into the import table
-					mImportTable.insert(mImportTable.begin(), i->second->begin(), i->second->end());
+					mImportTable.insert(mImportTable.begin(), it->second->begin(), it->second->end());
 					continue; // Skip ahead to the next file
 				}
 				else
@@ -570,7 +573,7 @@ namespace Ogre
 					for(; j != end; ++j)
 					{
 						// Locate this target and insert it into the import table
-						AbstractNodeListPtr newNodes = locateTarget(i->second.get(), j->second);
+						AbstractNodeListPtr newNodes = locateTarget(it->second.get(), j->second);
 						if(!newNodes.isNull() && !newNodes->empty())
 							mImportTable.insert(mImportTable.begin(), newNodes->begin(), newNodes->end());
 					}
@@ -999,6 +1002,7 @@ namespace Ogre
 		mIds["geometry_program_ref"] = ID_GEOMETRY_PROGRAM_REF;
 		mIds["fragment_program_ref"] = ID_FRAGMENT_PROGRAM_REF;
 		mIds["shadow_caster_vertex_program_ref"] = ID_SHADOW_CASTER_VERTEX_PROGRAM_REF;
+		mIds["shadow_caster_fragment_program_ref"] = ID_SHADOW_CASTER_FRAGMENT_PROGRAM_REF;
 		mIds["shadow_receiver_vertex_program_ref"] = ID_SHADOW_RECEIVER_VERTEX_PROGRAM_REF;
 		mIds["shadow_receiver_fragment_program_ref"] = ID_SHADOW_RECEIVER_FRAGMENT_PROGRAM_REF;
 
@@ -1104,6 +1108,7 @@ namespace Ogre
 			mIds["point"] = ID_POINT;
 			mIds["spot"] = ID_SPOT;
 			mIds["directional"] = ID_DIRECTIONAL;
+		mIds["light_mask"] = ID_LIGHT_MASK;
 		mIds["point_size"] = ID_POINT_SIZE;
 		mIds["point_sprites"] = ID_POINT_SPRITES;
 		mIds["point_size_min"] = ID_POINT_SIZE_MIN;
@@ -1217,6 +1222,7 @@ namespace Ogre
 			mIds["pooled"] = ID_POOLED;
 			//mIds["gamma"] = ID_GAMMA; - already registered
 			mIds["no_fsaa"] = ID_NO_FSAA;
+			mIds["depth_pool"] = ID_DEPTH_POOL;
 
 		mIds["texture_ref"] = ID_TEXTURE_REF;
 		mIds["local_scope"] = ID_SCOPE_LOCAL;

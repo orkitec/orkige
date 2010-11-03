@@ -47,15 +47,13 @@ namespace Ogre
 
         initialiaseDispatchTables();
     }
+	
+	//-----------------------------------------------------------------------
+	static void write(const RenderSystemCapabilities* caps, String name, std::ostream &file)
+	{
+		using namespace std;
 
-    //-----------------------------------------------------------------------
-    void RenderSystemCapabilitiesSerializer::writeScript(const RenderSystemCapabilities* caps, String name, String filename)
-    {
-        using namespace std;
-
-		ofstream file(filename.c_str());
-
-        file << "render_system_capabilities \"" << name << "\"" << endl;
+		file << "render_system_capabilities \"" << name << "\"" << endl;
         file << "{" << endl;
 
         file << "\t" << "render_system_name " << caps->getRenderSystemName() << endl;
@@ -64,7 +62,7 @@ namespace Ogre
 
 		file << "\t" << "device_name " << caps->getDeviceName() << endl;
 		const DriverVersion& driverVer = caps->getDriverVersion();
-		file << "\t" << "driver_version " << driverVer.toString();
+		file << "\t" << "driver_version " << driverVer.toString() << endl;
 		file << "\t" << "vendor " << caps->vendorToString(caps->getVendor());
 
 		file << endl;
@@ -142,9 +140,31 @@ namespace Ogre
         file << endl;
 
         file << "}" << endl;
+	}
+
+    //-----------------------------------------------------------------------
+    void RenderSystemCapabilitiesSerializer::writeScript(const RenderSystemCapabilities* caps, String name, String filename)
+    {
+        using namespace std;
+
+		ofstream file(filename.c_str());
+
+        write(caps, name, file);
 
         file.close();
     }
+	
+	//-----------------------------------------------------------------------
+	String RenderSystemCapabilitiesSerializer::writeString(const RenderSystemCapabilities* caps, String name)
+	{
+		using namespace std;
+		
+		stringstream stream;
+		
+		write(caps, name, stream);
+		
+		return stream.str();
+	}
 
     //-----------------------------------------------------------------------
     void RenderSystemCapabilitiesSerializer::parseScript(DataStreamPtr& stream)
@@ -319,6 +339,9 @@ namespace Ogre
         addKeywordType("fragment_program_constant_float_count", SET_INT_METHOD);
         addKeywordType("fragment_program_constant_int_count", SET_INT_METHOD);
         addKeywordType("fragment_program_constant_bool_count", SET_INT_METHOD);
+        addKeywordType("geometry_program_constant_float_count", SET_INT_METHOD);
+        addKeywordType("geometry_program_constant_int_count", SET_INT_METHOD);
+        addKeywordType("geometry_program_constant_bool_count", SET_INT_METHOD);
         addKeywordType("num_vertex_texture_units", SET_INT_METHOD);
 
         // initialize int setters
@@ -386,12 +409,12 @@ namespace Ogre
         addKeywordType("texture_compression_dxt", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("texture_compression_vtc", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("texture_compression_pvrtc", SET_CAPABILITY_ENUM_BOOL);
-        addKeywordType("glew1_5_novbo", SET_CAPABILITY_ENUM_BOOL);
+        addKeywordType("gl1_5_novbo", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("fbo", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("fbo_arb", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("fbo_ati", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("pbuffer", SET_CAPABILITY_ENUM_BOOL);
-        addKeywordType("glew1_5_nohwocclusion", SET_CAPABILITY_ENUM_BOOL);
+        addKeywordType("gl1_5_nohwocclusion", SET_CAPABILITY_ENUM_BOOL);
         addKeywordType("perstageconstant", SET_CAPABILITY_ENUM_BOOL);
 
 		addCapabilitiesMapping("fixed_function", RSC_FIXED_FUNCTION);

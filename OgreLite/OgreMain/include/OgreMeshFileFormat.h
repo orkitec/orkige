@@ -174,9 +174,11 @@ namespace Ogre {
 					// char* name (may be blank)
 					// unsigned short target	// 0 for shared geometry, 
 												// 1+ for submesh index + 1
+					// bool includesNormals [1.8+]
 					M_POSE_VERTEX = 0xC111,
 						// unsigned long vertexIndex
 						// float xoffset, yoffset, zoffset
+						// float xnormal, ynormal, znormal (optional, 1.8+)
 			// Optional vertex animation chunk
 			M_ANIMATIONS = 0xD000, 
 				M_ANIMATION = 0xD100,
@@ -188,6 +190,7 @@ namespace Ogre {
 													// 1+ for submesh index + 1
 					M_ANIMATION_MORPH_KEYFRAME = 0xD111,
 						// float time
+						// bool includesNormals [1.8+]
 						// float x,y,z			// repeat by number of vertices in original geometry
 					M_ANIMATION_POSE_KEYFRAME = 0xD112,
 						// float time
@@ -231,7 +234,7 @@ namespace Ogre {
                     // float* pNormals (x, y, z order x numVertices)
                 M_GEOMETRY_COLOURS = 0x5200,    //(Optional)
                     // unsigned long* pColours (RGBA 8888 format x numVertices)
-                M_GEOMETRY_TEXCOORDS = 0x5300,    //(Optional, REPEATABLE, each one adds an extra set)
+                M_GEOMETRY_TEXCOORDS = 0x5300    //(Optional, REPEATABLE, each one adds an extra set)
                     // unsigned short dimensions    (1 for 1D, 2 for 2D, 3 for 3D)
                     // float* pTexCoords  (u [v] [w] order, dimensions x numVertices)
 			/*

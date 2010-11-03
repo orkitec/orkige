@@ -10,30 +10,17 @@
 # Configure OctreeZone SceneManager build
 
 set (HEADER_FILES
-  include/OgreHeightmapTerrainZonePageSource.h
   include/OgreOctreeZone.h
   include/OgreOctreeZoneOctree.h
   include/OgreOctreeZonePlugin.h
   include/OgreOctreeZonePrerequisites.h
-  include/OgreTerrainVertexProgram.h
-  include/OgreTerrainZone.h
-  include/OgreTerrainZonePage.h
-  include/OgreTerrainZonePageSource.h
-  include/OgreTerrainZonePrerequisites.h
-  include/OgreTerrainZoneRenderable.h
 )
 
 set (SOURCE_FILES
-  src/OgreHeightmapTerrainZonePageSource.cpp
   src/OgreOctreeZone.cpp
   src/OgreOctreeZoneDll.cpp
   src/OgreOctreeZoneOctree.cpp
   src/OgreOctreeZonePlugin.cpp
-  src/OgreTerrainVertexProgram.cpp
-  src/OgreTerrainZone.cpp
-  src/OgreTerrainZonePage.cpp
-  src/OgreTerrainZonePageSource.cpp
-  src/OgreTerrainZoneRenderable.cpp
 )
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -64,7 +51,7 @@ if (APPLE AND NOT OGRE_BUILD_PLATFORM_IPHONE)
 
 	# Copy headers into the main Ogre framework
 	add_custom_command(TARGET Plugin_OctreeZone POST_BUILD
-	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude CVS -exclude .svn -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
+	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
 	)
 endif()
 

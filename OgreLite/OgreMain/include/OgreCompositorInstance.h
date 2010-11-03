@@ -108,8 +108,8 @@ namespace Ogre {
             TargetOperation()
             { 
             }
-            TargetOperation(RenderTarget *target):
-                target(target), currentQueueGroupID(0), visibilityMask(0xFFFFFFFF),
+            TargetOperation(RenderTarget *inTarget):
+                target(inTarget), currentQueueGroupID(0), visibilityMask(0xFFFFFFFF),
                 lodBias(1.0f),
                 onlyInitial(false), hasBeenRendered(false), findVisibleObjects(false), 
 				materialScheme(MaterialManager::DEFAULT_SCHEME_NAME), shadowsEnabled(true)
@@ -247,7 +247,6 @@ namespace Ogre {
 		*/
 		void notifyResized();
 
-
 		/** Get Chain that this instance is part of
         */
         CompositorChain *getChain();
@@ -349,7 +348,10 @@ namespace Ogre {
 		*/
 		void deriveTextureRenderTargetOptions(const String& texname, 
 			bool *hwGammaWrite, uint *fsaa, String* fsaaHint);
-        
+
+		/// Notify this instance that the primary viewport's camera has changed.
+		void notifyCameraChanged(Camera* camera);
+
         friend class CompositorChain;
     };
 	/** @} */

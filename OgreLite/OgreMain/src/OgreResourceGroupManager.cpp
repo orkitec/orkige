@@ -119,9 +119,10 @@ namespace Ogre {
 			// Set current group
 			parseResourceGroupScripts(grp);
 			mCurrentGroup = grp;
+			LogManager::getSingleton().logMessage("Creating resources for group " + name);
 			createDeclaredResources(grp);
 			grp->groupStatus = ResourceGroup::INITIALISED;
-
+			LogManager::getSingleton().logMessage("All done");
 			// Reset current group
 			mCurrentGroup = 0;
 		}
@@ -145,8 +146,10 @@ namespace Ogre {
 				// Set current group
 				mCurrentGroup = grp;
 				parseResourceGroupScripts(grp);
+				LogManager::getSingleton().logMessage("Creating resources for group " + i->first);
 				createDeclaredResources(grp);
 				grp->groupStatus = ResourceGroup::INITIALISED;
+				LogManager::getSingleton().logMessage("All done");
 				// Reset current group
 				mCurrentGroup = 0;
 			}
@@ -736,14 +739,14 @@ namespace Ogre {
 		// Not found
 		if (searchGroupsIfNotFound)
 		{
-			ResourceGroup* grp = findGroupContainingResourceImpl(resourceName); 
-			if (grp)
+			ResourceGroup* foundGrp = findGroupContainingResourceImpl(resourceName); 
+			if (foundGrp)
 			{
 				if (resourceBeingLoaded)
 				{
-					resourceBeingLoaded->changeGroupOwnership(grp->name);
+					resourceBeingLoaded->changeGroupOwnership(foundGrp->name);
 				}
-				return openResource(resourceName, grp->name, false);
+				return openResource(resourceName, foundGrp->name, false);
 			}
 			else
 			{

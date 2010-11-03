@@ -319,10 +319,9 @@ namespace Ogre {
 			// Allocate memory
 			convBox.data = OGRE_ALLOC_T(uchar, convBox.getConsecutiveSize(), MEMCATEGORY_GENERAL);
 			// perform conversion and reassign source
-			PixelBox src(pImgData->width, pImgData->height, 1, pImgData->format, input->getPtr());
-			PixelUtil::bulkPixelConversion(src, convBox);
+			PixelBox newSrc(pImgData->width, pImgData->height, 1, pImgData->format, input->getPtr());
+			PixelUtil::bulkPixelConversion(newSrc, convBox);
 			srcData = static_cast<unsigned char*>(convBox.data);
-
 		}
 
 
@@ -485,7 +484,19 @@ namespace Ogre {
 			// Perform any colour conversions for RGB
 			else if (bpp < 8 || colourType == FIC_PALETTE || colourType == FIC_CMYK)
 			{
-				FIBITMAP* newBitmap = FreeImage_ConvertTo24Bits(fiBitmap);
+				FIBITMAP* newBitmap =  NULL;	
+				if (FreeImage_IsTransparent(fiBitmap))
+				{
+					// convert to 32 bit to preserve the transparency 
+					// (the alpha byte will be 0 if pixel is transparent)
+					newBitmap = FreeImage_ConvertTo32Bits(fiBitmap);
+				}
+				else
+				{
+					// no transparency - only 3 bytes are needed
+					newBitmap = FreeImage_ConvertTo24Bits(fiBitmap);
+				}
+
 				// free old bitmap and replace
 				FreeImage_Unload(fiBitmap);
 				fiBitmap = newBitmap;

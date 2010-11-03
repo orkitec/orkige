@@ -36,6 +36,7 @@ THE SOFTWARE.
 #include "OgreTextureUnitState.h"
 #include "OgreCommon.h"
 
+#include "OgreMaterialManager.h"
 #include "OgreRenderOperation.h"
 #include "OgreRenderSystemCapabilities.h"
 #include "OgreRenderTarget.h"
@@ -55,6 +56,8 @@ namespace Ogre
 	*  @{
 	*/
 
+	typedef vector<DepthBuffer*>::type DepthBufferVec;
+	typedef map< uint16, DepthBufferVec >::type DepthBufferMap;
 	typedef map< String, RenderTarget * >::type RenderTargetMap;
 	typedef multimap<uchar, RenderTarget * >::type RenderTargetPriorityMap;
 
@@ -383,7 +386,18 @@ namespace Ogre
 			</td>
 			<td>&nbsp;</td>
 		 </tr>
-		<tr>
+         <tr>
+             <td>contentScalingFactor</td>
+             <td>Positive Float greater than 1.0</td>
+             <td>The default content scaling factor of the screen</td>
+             <td>Specifies the CAEAGLLayer content scaling factor.  Only supported on iOS 4 or greater.
+                 This can be useful to limit the resolution of the OpenGL ES backing store.  For example, the iPhone 4's
+                 native resolution is 960 x 640.  Windows are always 320 x 480, if you would like to limit the display
+                 to 720 x 480, specify 1.5 as the scaling factor.
+             </td>
+             <td>&nbsp;</td>
+		 </tr>
+         <tr>
 			<td>FSAA</td>
 			<td>Positive integer (usually 0, 2, 4, 8, 16)</td>
 			<td>0</td>
@@ -530,6 +544,42 @@ namespace Ogre
 		/** Returns true if the system is synchronising frames with the monitor vertical blank.
 		*/
 		bool getWaitForVerticalBlank(void) const;
+
+		/** Returns the global instance vertex buffer.
+		*/
+        HardwareVertexBufferSharedPtr getGlobalInstanceVertexBuffer() const;
+		/** Sets the global instance vertex buffer.
+		*/
+        void setGlobalInstanceVertexBuffer(const HardwareVertexBufferSharedPtr val);
+		/** gets vertex declaration for the global vertex buffer for the global instancing
+		*/
+        VertexDeclaration* getGlobalInstanceVertexBufferVertexDeclaration() const;
+		/** sets vertex declaration for the global vertex buffer for the global instancing
+		*/
+        void setGlobalInstanceVertexBufferVertexDeclaration( VertexDeclaration* val);
+		/** gets the global number of instances.
+		*/
+        size_t getGlobalNumberOfInstances() const;
+		/** sets the global number of instances.
+		*/
+        void setGlobalNumberOfInstances(const size_t val);
+
+#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
+		/** Sets if fixed pipeline rendering is enabled on the system.
+		*/
+		void setFixedPipelineEnabled(bool enabled);
+
+		/** Returns true if fixed pipeline rendering is enabled on the system.
+		*/
+		bool getFixedPipelineEnabled(void) const;
+#endif
+
+		/** Retrieves an existing DepthBuffer or creates a new one suited for the given RenderTarget
+			and sets it.
+			@remarks
+				RenderTarget's pool ID is respected. @see RenderTarget::setDepthBufferPool()
+		*/
+		virtual void setDepthBufferFor( RenderTarget *renderTarget );
 
 		// ------------------------------------------------------------------------
 		//                     Internal Rendering Access
@@ -771,6 +821,25 @@ namespace Ogre
 			relative to a different origin.
 		*/
 		virtual void _setTextureProjectionRelativeTo(bool enabled, const Vector3& pos);
+
+		/** Creates a DepthBuffer that can be attached to the specified RenderTarget
+			@remarks
+				It doesn't attach anything, it just returns a pointer to a new DepthBuffer
+				Caller is responsible for putting this buffer into the right pool, for
+				attaching, and deleting it. Here's where API-specific magic happens.
+				Don't call this directly unless you know what you're doing.
+		*/
+		virtual DepthBuffer* _createDepthBufferFor( RenderTarget *renderTarget ) = 0;
+
+		/** Removes all depth buffers. Should be called on device lost and shutdown
+			@remarks
+				Advanced users can call this directly with bCleanManualBuffers=false to
+				remove all depth buffers created for RTTs; when they think the pool has
+				grown too big or they've used lots of depth buffers they don't need anymore,
+				freeing GPU RAM.
+		*/
+		void _cleanupDepthBuffers( bool bCleanManualBuffers=true );
+
 		/**
 		* Signifies the beginning of a frame, i.e. the start of rendering on a single viewport. Will occur
 		* several times per complete frame if multiple viewports exist.
@@ -1089,6 +1158,17 @@ namespace Ogre
 		*/
 		virtual const DriverVersion& getDriverVersion(void) const { return mDriverVersion; }
 
+        /** Returns the default material scheme used by the render system.
+            Systems that use the RTSS to emulate a fixed function pipeline 
+            (e.g. OpenGL ES 2, DX11) need to override this function to return
+            the default material scheme of the RTSS ShaderGenerator.
+         
+            This is currently only used to set the default material scheme for
+            viewports.  It is a necessary step on these render systems for
+            render textures to be rendered into properly.
+		*/
+		virtual const String& _getDefaultViewportMaterialScheme(void) const;
+
 		/** Binds a given GpuProgram (but not the parameters). 
 		@remarks Only one GpuProgram of each type can be bound at once, binding another
 		one will simply replace the existing one.
@@ -1340,6 +1420,8 @@ namespace Ogre
 		virtual unsigned int getDisplayMonitorCount() const = 0;
 	protected:
 
+		/** DepthBuffers to be attached to render targets */
+		DepthBufferMap	mDepthBufferPool;
 
 		/** The render targets. */
 		RenderTargetMap mRenderTargets;
@@ -1347,6 +1429,7 @@ namespace Ogre
 		RenderTargetPriorityMap mPrioritisedRenderTargets;
 		/** The Active render target. */
 		RenderTarget * mActiveRenderTarget;
+
 		/** The Active GPU programs and gpu program parameters*/
 		GpuProgramParametersSharedPtr mActiveVertexGpuProgramParameters;
 		GpuProgramParametersSharedPtr mActiveGeometryGpuProgramParameters;
@@ -1387,6 +1470,18 @@ namespace Ogre
 		float mDerivedDepthBiasBase;
 		float mDerivedDepthBiasMultiplier;
 		float mDerivedDepthBiasSlopeScale;
+
+        /// a global vertex buffer for global instancing
+        HardwareVertexBufferSharedPtr mGlobalInstanceVertexBuffer;
+        /// a vertex declaration for the global vertex buffer for the global instancing
+        VertexDeclaration* mGlobalInstanceVertexBufferVertexDeclaration;
+        /// the number of global instances (this number will be multiply by the render op instance number) 
+        size_t mGlobalNumberOfInstances;
+
+#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
+		/// is fixed pipeline enabled
+		bool mEnableFixedPipeline;
+#endif
 
 		/** updates pass iteration rendering state including bound gpu program parameter
 		pass iteration auto constant entry

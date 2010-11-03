@@ -2,7 +2,7 @@
 -----------------------------------------------------------------------------
 This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
-For the latest info, see http://www.ogre3d.org/
+For the latest info, see http://www.ogre3d.org
 
 Copyright (c) 2000-2009 Torus Knot Software Ltd
 
@@ -52,6 +52,8 @@ namespace Ogre
         virtual bool isActive( void ) const = 0;
         /** Overridden - see RenderWindow */
         virtual bool isClosed( void ) const = 0;
+        virtual bool isHidden() const = 0;
+        virtual void setHidden(bool hidden) = 0;
         /** Overridden - see RenderWindow */
         virtual void reposition( int left, int top ) = 0;
         /** Overridden - see RenderWindow */
@@ -65,7 +67,13 @@ namespace Ogre
 
 	protected:
 		OSXContext* mContext;
-		CGLContextObj mCGLContext;
+		CGLContextObj mCGLContextObj;
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+        CGDisplayModeRef mOriginalDisplayMode;
+#else
+        CFDictionaryRef mOriginalDisplayMode;
+#endif
+
 		/** Switch to full screen mode using CGL */
 		void createCGLFullscreen(unsigned int width, unsigned int height, unsigned int depth, unsigned int fsaa, CGLContextObj sharedContext);
 		/** Kill full screen mode, and return to default windowed mode */
@@ -76,6 +84,35 @@ namespace Ogre
         uint32 bitDepthFromDisplayMode(CGDisplayModeRef mode);
 #endif
 	};
+    
+    #define ENABLE_CG_CHECK 1
+    #if ENABLE_CG_CHECK
+    #define CG_CHECK_ERROR(e) \
+    { \
+        if((CGError)e != kCGErrorSuccess) \
+        { \
+            CGReleaseAllDisplays(); \
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, String("CG Error: " + StringConverter::toString(e) +  + \
+                                        " Line # " + StringConverter::toString(__LINE__)), __PRETTY_FUNCTION__); \
+        } \
+    }
+    #else
+        #define CG_CHECK_ERROR(e) {}
+    #endif
+        
+    #if ENABLE_CG_CHECK
+    #define CGL_CHECK_ERROR(e) \
+    { \
+        if((CGLError)e != kCGLNoError) \
+        { \
+            CGReleaseAllDisplays(); \
+            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, String("CGL Error: " + String(CGLErrorString(e)) + \
+                                      " Line # " + StringConverter::toString(__LINE__)), __PRETTY_FUNCTION__); \
+        } \
+    }
+    #else
+        #define CGL_CHECK_ERROR(e) {}
+    #endif
 }
 
 #endif
