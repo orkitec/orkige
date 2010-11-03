@@ -82,6 +82,21 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
+ 	woptr<FastGuiCheckBox> FastGuiFactory::createCheckBox( String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
+ 	{
+ 		optr<FastGuiCheckBox> widget;
+ 
+ 		if(FastGuiManager::getSingleton().widgetExists(id))
+ 		{
+ 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+ 			return widget;
+ 		}
+ 		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+ 		FastGuiManager::getSingleton().addWidget(widget);
+ 		return widget;
+ 
+ 	}
+	//---------------------------------------------------------
 	void FastGuiFactory::load(String const filename)
 	{
 		Ogre::ConfigFile::load(Orkige::PlatformUtil::getResourceDirectory() + "data/" + filename);
@@ -390,6 +405,15 @@ namespace Orkige
 		oAssert(button.lock());
 		button.lock()->getLabel().lock()->getCaption()->colour(color);
 	}
+	//---------------------------------------------------------
+ 	void FastGuiFactory::onLoadCheckBox( String const & id, SettingsMultiMap* settings )
+ 	{
+ 		/*BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+ 
+ 		this->createCheckBox(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);*/
+ 	}
+
+
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
