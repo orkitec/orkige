@@ -45,8 +45,6 @@ THE SOFTWARE.s
 #include "OgreException.h"
 #include "OgreGLSLExtSupport.h"
 #include "OgreGLHardwareOcclusionQuery.h"
-#include "OgreGLDepthBuffer.h"
-#include "OgreGLHardwarePixelBuffer.h"
 #include "OgreGLContext.h"
 
 #include "OgreGLFBORenderTexture.h"
@@ -229,13 +227,8 @@ namespace Ogre {
 		else
 			rsc->setVendor(GPU_UNKNOWN);
 
-#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
-		if(mEnableFixedPipeline)
-#endif
-		{
-			// Supports fixed-function
-			rsc->setCapability(RSC_FIXED_FUNCTION);
-		}	
+		// Supports fixed-function
+		rsc->setCapability(RSC_FIXED_FUNCTION);
 
         // Check for hardware mipmapping support.
         if(GLEW_VERSION_1_4 || GLEW_SGIS_generate_mipmap)
@@ -466,20 +459,6 @@ namespace Ogre {
 			rsc->setGeometryProgramNumOutputVertices(maxOutputVertices);
 		}
 		
-		if (mGLSupport->checkExtension("GL_ARB_get_program_binary"))
-		{
-			// states 3.0 here: http://developer.download.nvidia.com/opengl/specs/GL_ARB_get_program_binary.txt
-			// but not here: http://www.opengl.org/sdk/docs/man4/xhtml/glGetProgramBinary.xml
-			// and here states 4.1: http://www.geeks3d.com/20100727/opengl-4-1-allows-the-use-of-binary-shaders/
-			rsc->setCapability(RSC_CAN_GET_COMPILED_SHADER_BUFFER);
-		}
-
-		if (GLEW_VERSION_3_3)
-		{
-			// states 3.3 here: http://www.opengl.org/sdk/docs/man3/xhtml/glVertexAttribDivisor.xml
-			rsc->setCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA);
-		}
-
 		//Check if render to vertex buffer (transform feedback in OpenGL)
 		if (GLEW_VERSION_2_0 && 
 			GLEW_NV_transform_feedback)
@@ -590,15 +569,13 @@ namespace Ogre {
 			}
 			rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
 		}
-		else
+
+		// Check GLSupport for PBuffer support
+		if(mGLSupport->supportsPBuffers())
 		{
-			// Check GLSupport for PBuffer support
-			if(mGLSupport->supportsPBuffers())
-			{
-				// Use PBuffers
-				rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
-				rsc->setCapability(RSC_PBUFFER);
-			}
+			// Use PBuffers
+			rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
+			rsc->setCapability(RSC_PBUFFER);
 		}
 
 		// Point size
@@ -858,9 +835,6 @@ namespace Ogre {
 				// Create FBO manager
 				LogManager::getSingleton().logMessage("GL: Using GL_EXT_framebuffer_object for rendering to textures (best)");
 				mRTTManager = new GLFBOManager(false);
-				caps->setCapability(RSC_RTT_SEPARATE_DEPTHBUFFER);
-
-				//TODO: Check if we're using OpenGL 3.0 and add RSC_RTT_DEPTHBUFFER_RESOLUTION_LESSEQUAL flag
 			}
 
 		}
@@ -874,8 +848,6 @@ namespace Ogre {
 					// Use PBuffers
 					mRTTManager = new GLPBRTTManager(mGLSupport, primary);
 					LogManager::getSingleton().logMessage("GL: Using PBuffers for rendering to textures");
-
-					//TODO: Depth buffer sharing in pbuffer is left unsupported
 				}
 			}
 			else
@@ -884,10 +856,6 @@ namespace Ogre {
 				mRTTManager = new GLCopyingRTTManager();
 				LogManager::getSingleton().logMessage("GL: Using framebuffer copy for rendering to textures (worst)");
 				LogManager::getSingleton().logMessage("GL: Warning: RenderTexture size is restricted to size of framebuffer. If you are on Linux, consider using GLX instead of SDL.");
-
-				//Copy method uses the main depth buffer but no other depth buffer
-				caps->setCapability(RSC_RTT_MAIN_DEPTHBUFFER_ATTACHABLE);
-				caps->setCapability(RSC_RTT_DEPTHBUFFER_RESOLUTION_LESSEQUAL);
 			}
 
 			// Downgrade number of simultaneous targets
@@ -1075,66 +1043,7 @@ namespace Ogre {
 				mCurrentContext->setInitialized();
 		}
 
-		if( win->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH )
-		{
-			//Unlike D3D9, OGL doesn't allow sharing the main depth buffer, so keep them separate.
-			//Only Copy does, but Copy means only one depth buffer...
-			GLContext *windowContext;
-			win->getCustomAttribute( "GLCONTEXT", &windowContext );
-
- 			GLDepthBuffer *depthBuffer = new GLDepthBuffer( DepthBuffer::POOL_DEFAULT, this,
-															windowContext, 0, 0,
- 															win->getWidth(), win->getHeight(),
- 															win->getFSAA(), 0, true );
-
-			mDepthBufferPool[depthBuffer->getPoolId()].push_back( depthBuffer );
-
-			win->attachDepthBuffer( depthBuffer );
-		}
-
 		return win;
-	}
-	//---------------------------------------------------------------------
-	DepthBuffer* GLRenderSystem::_createDepthBufferFor( RenderTarget *renderTarget )
-	{
-		GLDepthBuffer *retVal = 0;
-
-		//Only FBO & pbuffer support different depth buffers, so everything
-		//else creates dummy (empty) containers
-		//retVal = mRTTManager->_createDepthBufferFor( renderTarget );
-		GLFrameBufferObject *fbo = 0;
-        renderTarget->getCustomAttribute("FBO", &fbo);
-
-		if( fbo )
-		{
-			//Presence of an FBO means the manager is an FBO Manager, that's why it's safe to downcast
-			//Find best depth & stencil format suited for the RT's format
-			GLuint depthFormat, stencilFormat;
-			static_cast<GLFBOManager*>(mRTTManager)->getBestDepthStencil( fbo->getFormat(),
-																		&depthFormat, &stencilFormat );
-
-			GLRenderBuffer *depthBuffer = new GLRenderBuffer( depthFormat, fbo->getWidth(),
-																fbo->getHeight(), fbo->getFSAA() );
-
-			GLRenderBuffer *stencilBuffer = depthBuffer;
-			if( depthFormat != GL_DEPTH24_STENCIL8_EXT && stencilBuffer != GL_NONE )
-			{
-				stencilBuffer = new GLRenderBuffer( stencilFormat, fbo->getWidth(),
-													fbo->getHeight(), fbo->getFSAA() );
-			}
-
-			//No "custom-quality" multisample for now in GL
-			retVal = new GLDepthBuffer( 0, this, mCurrentContext, depthBuffer, stencilBuffer,
-										fbo->getWidth(), fbo->getHeight(), fbo->getFSAA(), 0, false );
-		}
-
-		return retVal;
-	}
-	//---------------------------------------------------------------------
-	void GLRenderSystem::_getDepthStencilFormatFor( GLenum internalColourFormat, GLenum *depthFormat,
-													GLenum *stencilFormat )
-	{
-		mRTTManager->getBestDepthStencil( internalColourFormat, depthFormat, stencilFormat );
 	}
 
 	void GLRenderSystem::initialiseContext(RenderWindow* primary)
@@ -1181,44 +1090,6 @@ namespace Ogre {
 		{
 			if (i->second == pWin)
 			{
-				GLContext *windowContext;
-				pWin->getCustomAttribute("GLCONTEXT", &windowContext);
-
-				//1 Window <-> 1 Context, should be always true
-				assert( windowContext );
-
-				bool bFound = false;
-				//Find the depth buffer from this window and remove it.
-				DepthBufferMap::iterator itMap = mDepthBufferPool.begin();
-				DepthBufferMap::iterator enMap = mDepthBufferPool.end();
-
-				while( itMap != enMap && !bFound )
-				{
-					DepthBufferVec::iterator itor = itMap->second.begin();
-					DepthBufferVec::iterator end  = itMap->second.end();
-
-					while( itor != end )
-					{
-						//A DepthBuffer with no depth & stencil pointers is a dummy one,
-						//look for the one that matches the same GL context
-						GLDepthBuffer *depthBuffer = static_cast<GLDepthBuffer*>(*itor);
-						GLContext *glContext = depthBuffer->getGLContext();
-
-						if( glContext == windowContext &&
-							(depthBuffer->getDepthBuffer() || depthBuffer->getStencilBuffer()) )
-						{
-							bFound = true;
-
-							delete *itor;
-							itMap->second.erase( itor );
-							break;
-						}
-						++itor;
-					}
-
-					++itMap;
-				}
-
 				mRenderTargets.erase(i);
 				delete pWin;
 				break;
@@ -2841,21 +2712,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		// Call super class
 		RenderSystem::_render(op);
 
-#ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
-	 	if ( ! mEnableFixedPipeline && !mRealCapabilities->hasCapability(RSC_FIXED_FUNCTION)
-			 && 
-			 (
-				( mCurrentVertexProgram == NULL ) ||
-				( mCurrentFragmentProgram == NULL && op.operationType != RenderOperation::OT_POINT_LIST) 		  
-			  )
-		   ) 
-		{
-			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
-				"Attempted to render using the fixed pipeline when it is diabled.",
-				"D3D11RenderSystem::_render");
-		}
-#endif
-
 		void* pBufferData = 0;
 		bool multitexturing = (getCapabilities()->getNumTextureUnits() > 1);
 
@@ -2865,7 +2721,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
         VertexDeclaration::VertexElementList::const_iterator elem, elemEnd;
         elemEnd = decl.end();
 		vector<GLuint>::type attribsBound;
-		vector<GLuint>::type instanceAttribsBound;
 
 		for (elem = decl.begin(); elem != elemEnd; ++elem)
 		{
@@ -2874,12 +2729,10 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 
 			HardwareVertexBufferSharedPtr vertexBuffer = 
 				op.vertexData->vertexBufferBinding->getBuffer(elem->getSource());
-
-			const GLHardwareVertexBuffer* hwGlBuffer = static_cast<const GLHardwareVertexBuffer*>(vertexBuffer.get()); 
 			if(mCurrentCapabilities->hasCapability(RSC_VBO))
 			{
 				glBindBufferARB(GL_ARRAY_BUFFER_ARB, 
-					hwGlBuffer->getGLBufferId());
+					static_cast<const GLHardwareVertexBuffer*>(vertexBuffer.get())->getGLBufferId());
 				pBufferData = VBO_BUFFER_OFFSET(elem->getOffset());
 			}
 			else
@@ -2896,18 +2749,8 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
  
  			bool isCustomAttrib = false;
  			if (mCurrentVertexProgram)
-			{
  				isCustomAttrib = mCurrentVertexProgram->isAttributeValid(sem, elem->getIndex());
-
-				if (hwGlBuffer->getIsInstanceData())
-				{
-					GLint attrib = mCurrentVertexProgram->getAttributeIndex(sem, elem->getIndex());
-					glVertexAttribDivisor(attrib, hwGlBuffer->getInstanceDataStepRate() );
-					instanceAttribsBound.push_back(attrib);
-				}
-			}
  
-
  			// Custom attribute support
  			// tangents, binormals, blendweights etc always via this route
  			// builtins may be done this way too
@@ -3026,7 +2869,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		// Find the correct type to render
 		GLint primType;
 		//Use adjacency if there is a geometry program and it requested adjacency info
-		bool useAdjacency = (mGeometryProgramBound && mCurrentGeometryProgram && mCurrentGeometryProgram->isAdjacencyInfoRequired());
+		bool useAdjacency = (mGeometryProgramBound && mCurrentGeometryProgram->isAdjacencyInfoRequired());
 		switch (op.operationType)
 		{
 		case RenderOperation::OT_POINT_LIST:
@@ -3079,14 +2922,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 						mDerivedDepthBiasMultiplier * mCurrentPassIterationNum, 
 						mDerivedDepthBiasSlopeScale);
 				}
-				if(op.numberOfInstances == 1)
-				{
-					glDrawElements(primType, op.indexData->indexCount, indexType, pBufferData);
-				}
-				else
-				{
-					glDrawElementsInstancedEXT(primType, op.indexData->indexCount, indexType, pBufferData, op.numberOfInstances);
-				}
+				glDrawElements(primType, op.indexData->indexCount, indexType, pBufferData);
 			} while (updatePassIterationRenderState());
 
 		}
@@ -3101,15 +2937,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 						mDerivedDepthBiasMultiplier * mCurrentPassIterationNum, 
 						mDerivedDepthBiasSlopeScale);
 				}
-
-				if(op.numberOfInstances == 1)
-				{
-					glDrawArrays(primType, 0, op.vertexData->vertexCount);
-				}
-				else
-				{
-					glDrawArraysInstancedEXT(primType, 0, op.vertexData->vertexCount, op.numberOfInstances);
-				}
+				glDrawArrays(primType, 0, op.vertexData->vertexCount);
 			} while (updatePassIterationRenderState());
 		}
 
@@ -3140,13 +2968,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
  			glDisableVertexAttribArrayARB(*ai); 
  
   		}
-		
-		// unbind any instance attributes
-		for (vector<GLuint>::type::iterator ai = instanceAttribsBound.begin(); ai != instanceAttribsBound.end(); ++ai)
-		{
-			glVertexAttribDivisor(*ai, 0); 
-
-		}
 		
 		glColor4f(1,1,1,1);
 		if (GLEW_EXT_secondary_color)
@@ -3636,17 +3457,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		if(newContext && mCurrentContext != newContext) 
 		{
 			_switchContext(newContext);
-		}
-
-		//Check the FBO's depth buffer status
-		GLDepthBuffer *depthBuffer = static_cast<GLDepthBuffer*>(target->getDepthBuffer());
-
-		if( target->getDepthBufferPool() != DepthBuffer::POOL_NO_DEPTH &&
-			(!depthBuffer || depthBuffer->getGLContext() != mCurrentContext ) )
-		{
-			//Depth is automatically managed and there is no depth buffer attached to this RT
-			//or the Current context doesn't match the one this Depth buffer was created with
-			setDepthBufferFor( target );
 		}
 
 		// Bind frame buffer object

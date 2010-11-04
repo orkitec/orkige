@@ -27,7 +27,6 @@ THE SOFTWARE.
 */
 #include "OgreStableHeaders.h"
 #include "OgreString.h"
-
 #include "OgreStringVector.h"
 
 namespace Ogre {
@@ -68,9 +67,9 @@ namespace Ogre {
     }
 
     //-----------------------------------------------------------------------
-    vector<String>::type StringUtil::split( const String& str, const String& delims, unsigned int maxSplits, bool preserveDelims)
+    StringVector StringUtil::split( const String& str, const String& delims, unsigned int maxSplits)
     {
-        vector<String>::type ret;
+        StringVector ret;
         // Pre-allocate some space for performance
         ret.reserve(maxSplits ? maxSplits+1 : 10);    // 10 is guessed capacity for most case
 
@@ -97,24 +96,6 @@ namespace Ogre {
             {
                 // Copy up to delimiter
                 ret.push_back( str.substr(start, pos - start) );
-
-                if(preserveDelims)
-                {
-                    // Sometimes there could be more than one delimiter in a row.
-                    // Loop until we don't find any more delims
-                    size_t delimStart = pos, delimPos;
-                    delimPos = str.find_first_not_of(delims, delimStart);
-                    if (delimPos == String::npos)
-                    {
-                        // Copy the rest of the string
-                        ret.push_back( str.substr(delimStart) );
-                    }
-                    else
-                    {
-                        ret.push_back( str.substr(delimStart, delimPos - delimStart) );
-                    }
-                }
-
                 start = pos + 1;
             }
             // parse up to next real data
@@ -128,9 +109,9 @@ namespace Ogre {
         return ret;
     }
 	//-----------------------------------------------------------------------
-	vector< String >::type StringUtil::tokenise( const String& str, const String& singleDelims, const String& doubleDelims, unsigned int maxSplits)
+	StringVector StringUtil::tokenise( const String& str, const String& singleDelims, const String& doubleDelims, unsigned int maxSplits)
 	{
-        vector<String>::type ret;
+        StringVector ret;
         // Pre-allocate some space for performance
         ret.reserve(maxSplits ? maxSplits+1 : 10);    // 10 is guessed capacity for most case
 
