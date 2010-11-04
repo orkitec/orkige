@@ -14,6 +14,7 @@
 #include "engine_fastgui/FastGuiButton.h"
 #include "engine_fastgui/FastGuiTextbox.h"
 #include "engine_fastgui/FastGuiCheckBox.h"
+#include "engine_fastgui/FastGuiSelectMenu.h"
 #include "engine_fastgui/FastGuiDragDropButton.h"
 #include <core_util/StringUtil.h>
 
@@ -58,6 +59,8 @@ namespace Orkige
 		virtual woptr<FastGuiButton> createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 		//! create a simple CheckBox
 		virtual woptr<FastGuiCheckBox> createCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
+		//! create a simple decor widget
+		virtual woptr<FastGuiSelectMenu> createSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,unsigned int maxItemsShown = 6 ,FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_TOP, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 		//! create a simple decor widget
 		virtual woptr<FastGuiDragDropButton> createDragDropButton(String const & id, String const & spriteName, unsigned char defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned char z = 0);
 		//! create a Drag and Drop Button

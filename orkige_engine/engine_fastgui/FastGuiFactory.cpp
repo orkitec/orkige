@@ -97,6 +97,21 @@ namespace Orkige
  
  	}
 	//---------------------------------------------------------
+	woptr<FastGuiSelectMenu> FastGuiFactory::createSelectMenu( String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,unsigned int maxItemsShown, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
+	{
+		optr<FastGuiSelectMenu> widget;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new FastGuiSelectMenu(id,buttonId, spriteName, defaultGlyphIndex, text, position,maxItemsShown, textAlignment, size, atlas, z));
+		FastGuiManager::getSingleton().addWidget(widget);
+		return widget;
+
+	}
+	//---------------------------------------------------------
 	woptr<FastGuiDragDropButton> FastGuiFactory::createDragDropButton(String const & id, String const & spriteName, unsigned char defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, unsigned char z)
 	{
 		optr<FastGuiDragDropButton> widget;
