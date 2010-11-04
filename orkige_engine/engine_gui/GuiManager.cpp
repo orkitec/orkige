@@ -1192,19 +1192,25 @@ namespace Orkige
 	{
 		this->loadingIncrement = this->groupInitProportion / scriptCount;
 		this->loadingBar->setCaption("Parsing...");
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::scriptParseStarted(String const & scriptName, bool& skipThisScript)
 	{
 		this->loadingBar->setComment(scriptName);
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::scriptParseEnded(String const & scriptName, bool skipped)
 	{
 		this->loadingBar->setProgress(this->loadingBar->getProgress() + this->loadingIncrement);
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::resourceGroupScriptingEnded(String const & groupName) 
@@ -1215,31 +1221,41 @@ namespace Orkige
 	{
 		this->loadingIncrement = this->groupLoadProportion / resourceCount;
 		this->loadingBar->setCaption("Loading...");
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::resourceLoadStarted(const Ogre::ResourcePtr& resource)
 	{
 		this->loadingBar->setComment(resource->getName());
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::resourceLoadEnded()
 	{
 		this->loadingBar->setProgress(this->loadingBar->getProgress() + this->loadingIncrement);
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::worldGeometryStageStarted(String const & description)
 	{
 		this->loadingBar->setComment(description);
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::worldGeometryStageEnded()
 	{
 		this->loadingBar->setProgress(this->loadingBar->getProgress() + this->loadingIncrement);
+#ifndef ORKIGE_IPHONE
 		Engine::getSingleton().getRenderWindow()->update();
+#endif
 	}
 	//---------------------------------------------------------
 	void GuiManager::resourceGroupLoadEnded(String const & groupName) 

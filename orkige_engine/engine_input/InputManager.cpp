@@ -148,13 +148,14 @@ namespace Orkige
 			oAssert(viewport);
 
 
-			int w = viewport->getActualWidth();
-			int h = viewport->getActualHeight();
-			int absX = data->absX;
-			int absY = data->absY;
-			int relX = data->relX;
-			int relY = data->relY;
+			int h = viewport->getActualWidth();
+			int w = viewport->getActualHeight();
+			int absX = data->absX*2.f;
+			int absY = data->absY*2.f;
+			int relX = data->relX*2.f;
+			int relY = data->relY*2.f;
 
+			//oDebugMsg("core", 0, "Input: x:" << absX <<  " y:" << absY);
 			switch (viewport->getOrientationMode())
 			{
 			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
@@ -427,6 +428,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void InputManager::initialise() 
 	{
+		
 		if( ! this->impl->inputSystem )
 		{
 			// Setup basic variables
