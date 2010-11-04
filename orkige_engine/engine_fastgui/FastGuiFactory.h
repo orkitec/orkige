@@ -14,6 +14,7 @@
 #include "engine_fastgui/FastGuiButton.h"
 #include "engine_fastgui/FastGuiTextbox.h"
 #include "engine_fastgui/FastGuiCheckBox.h"
+#include "engine_fastgui/FastGuiDragDropButton.h"
 #include <core_util/StringUtil.h>
 
 namespace Orkige
@@ -58,6 +59,8 @@ namespace Orkige
 		//! create a simple CheckBox
 		virtual woptr<FastGuiCheckBox> createCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 		//! create a simple decor widget
+		virtual woptr<FastGuiDragDropButton> createDragDropButton(String const & id, String const & spriteName, unsigned char defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned char z = 0);
+		//! create a Drag and Drop Button
 		virtual void load(String const filename);
 	protected:
 		//! overridable mothod for loading global settings
@@ -76,6 +79,8 @@ namespace Orkige
 		virtual void onLoadButton(String const & id, SettingsMultiMap* settings);
 		//! overridable to load a CheckBox
 		virtual void onLoadCheckBox(String const & id, SettingsMultiMap* settings);
+		//! overridable to load a Button
+		virtual void onLoadDragDropButton(String const & id, SettingsMultiMap* settings);
 	private:
 	};
 	//---------------------------------------------------------------
