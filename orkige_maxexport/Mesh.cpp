@@ -1342,7 +1342,7 @@ namespace OrkigeMaxExporter
 			offset += Ogre::VertexElement::getTypeSize(uvType);
 		}
 		// Get optimal vertex declaration
-		Ogre::VertexDeclaration* pOptimalDecl = pDecl->getAutoOrganisedDeclaration(params.exportVBA,params.exportBlendShapes || params.exportVertAnims, false);
+		Ogre::VertexDeclaration* pOptimalDecl = pDecl->getAutoOrganisedDeclaration(params.exportVBA,params.exportBlendShapes || params.exportVertAnims/*, false*/);
 		// Create the vertex buffer using the newly created vertex declaration
 		stat = createOgreVertexBuffer(pMesh,pDecl,m_sharedGeom.vertices);
 		// Write vertex bone assignements list
