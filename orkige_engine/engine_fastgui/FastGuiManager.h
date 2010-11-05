@@ -151,7 +151,7 @@ namespace Orkige
 	inline woptr<FastGuiWidget> FastGuiManager::getWidget(String const & id)
 	{
 		FastGuiWidgetMap::iterator it = this->widgets.find(id);
-		oAssertDesc(it == this->widgets.end(), "Could not find Widget: " << id << "!");
+		oAssertDesc(it != this->widgets.end(), "Could not find Widget: " << id << "!");
 		return it->second;
 	}
 	//---------------------------------------------------------------

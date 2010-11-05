@@ -26,7 +26,7 @@ namespace Orkige
         //-Variables----------------------------------------
 
 		Ogre::StringVector items;		//!< item names
-		int selectedIndex;
+		std::size_t selectedIndex;
 
     public:
     protected:
@@ -38,7 +38,7 @@ namespace Orkige
     private:
         //-Methods------------------------------------------
     public:
-        FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,unsigned int maxItemsShown, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
+        FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
         virtual ~FastGuiSelectMenu();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
@@ -55,6 +55,7 @@ namespace Orkige
 		void setItems(const Ogre::StringVector& items);
 		void showItem();
 		String getSelectedItem();
+		void selectItem(String itemm);
 
 
 		//! get text holding ui element
