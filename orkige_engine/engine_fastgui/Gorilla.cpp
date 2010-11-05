@@ -949,8 +949,13 @@ namespace Gorilla
 
 		mRenderSystem = Ogre::Root::getSingletonPtr()->getRenderSystem();
 
+#ifdef ORKIGE_IPHONE
+		mHeight = mViewport->getActualWidth();
+		mWidth = mViewport->getActualHeight();
+#else
 		mWidth = mViewport->getActualWidth();
 		mHeight = mViewport->getActualHeight();
+#endif
 #if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
 		mOrientation = mViewport->getOrientationMode();
 #else
@@ -992,7 +997,11 @@ namespace Gorilla
 	{
 		bool force = false;
 		// force == true if viewport size changed.
+#ifdef ORKIGE_IPHONE
+		if (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight() 
+#else
 		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight() 
+#endif
 #if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
 			|| mOrientation != mViewport->getOrientationMode()
 #else
@@ -1000,9 +1009,13 @@ namespace Gorilla
 #endif
 			)
 		{
+#ifdef ORKIGE_IPHONE
+			mHeight = mViewport->getActualWidth();
+			mWidth = mViewport->getActualHeight();
+#else
 			mWidth = mViewport->getActualWidth();
 			mHeight = mViewport->getActualHeight();
-
+#endif
 			mInvWidth = 1.0f / mWidth;
 			mInvHeight = 1.0f / mHeight;
 
