@@ -150,10 +150,10 @@ namespace Orkige
 
 			int h = viewport->getActualWidth();
 			int w = viewport->getActualHeight();
-			int absX = data->absX*2.f;
-			int absY = data->absY*2.f;
-			int relX = data->relX*2.f;
-			int relY = data->relY*2.f;
+			int absX = data->absX*2;
+			int absY = data->absY*2;
+			int relX = data->relX*2;
+			int relY = data->relY*2;
 
 			//oDebugMsg("core", 0, "Input: x:" << absX <<  " y:" << absY);
 			switch (viewport->getOrientationMode())
