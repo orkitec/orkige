@@ -47,14 +47,14 @@ namespace Orkige
 	bool CollisionTools::raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask)
 	{
 		// Create the ray to test
-#ifdef ORKIGE_IPHONE
-		//@TODO: check actual viewport orientation
-		Ogre::Real tx = mousecoords.x / (Ogre::Real) rw->getHeight();
-		Ogre::Real ty = mousecoords.y / (Ogre::Real) rw->getWidth();
-#else
+//#ifdef ORKIGE_IPHONE
+//		//@TODO: check actual viewport orientation
+//		Ogre::Real tx = mousecoords.x / (Ogre::Real) rw->getHeight();
+//		Ogre::Real ty = mousecoords.y / (Ogre::Real) rw->getWidth();
+//#else
 		Ogre::Real tx = mousecoords.x / (Ogre::Real) rw->getWidth();
 		Ogre::Real ty = mousecoords.y / (Ogre::Real) rw->getHeight();
-#endif
+//#endif
 
 		Ogre::Ray ray = camera->getCameraToViewportRay(tx, ty);
 
