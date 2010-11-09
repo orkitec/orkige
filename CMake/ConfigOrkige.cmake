@@ -54,6 +54,8 @@ macro (configure_orkige ROOT OGREPATH)
 	endif()
 	
 
+	
+
 	set(ORKIGE_ZLIB_TARGET	ZLib)
 	set(ORKIGE_ZZIP_TARGET ZZipLib)
 	set(ORKIGE_FREEIMAGE_TARGET FreeImage)
@@ -74,6 +76,12 @@ macro (configure_orkige ROOT OGREPATH)
 		option(ORKIGE_BUILD_IPHONE	"Build Orkige on IPhone SDK"	OFF)
 		if (ORKIGE_BUILD_IPHONE)
 			option(ORKIGE_USE_COCOA "Use Cocoa" ON)
+			option(ORKIGE_COMPILE_FOR_THUMB "Thumb Mode" OFF)
+			if(ORKIGE_COMPILE_FOR_THUMB)
+				add_definitions(-mthumb)
+			else()
+				add_definitions(-mno-thumb)	
+			endif()
 			option(ORKIGE_MULTITOUCH_TO_MOUSE	"Convert Multitouch events to mouse events"	ON)
 			if(ORKIGE_MULTITOUCH_TO_MOUSE)
 				add_definitions(-DORKIGE_MULTITOUCH_TO_MOUSE)
