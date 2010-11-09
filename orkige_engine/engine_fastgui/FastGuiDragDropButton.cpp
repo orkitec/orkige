@@ -81,6 +81,23 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
+		//oDebugMsg("philipp", 0, "onCursorPressed");
+		if ( this->state == FastGuiDragDropButton::DDBS_DRAGGING )
+		{
+			// this can only be another mouse button than the one
+			// we started dragging with, so --> abort dragging
+
+			oDebugMsg("philipp", 0, "Abort Dragging at: " << cursorPos);
+			this->setState(FastGuiDragDropButton::DDBS_OVER);
+	
+			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
+	
+			this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+			this->dragEventData->position = cursorPos;
+		
+			GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+
+		}
 		if (this->decor->getRectangle()->intersects(cursorPos)) 
 		{
 			this->setState(FastGuiDragDropButton::DDBS_DOWN);

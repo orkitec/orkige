@@ -30,6 +30,7 @@ namespace Orkige
 			DS_DRAG_START,
 			DS_DRAGGING,
 			DS_DRAG_END,
+			DS_DRAG_ABORT,
 		};
 	protected:
 	private:
