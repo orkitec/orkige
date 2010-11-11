@@ -13,6 +13,8 @@
 #include <core_util/PlatformUtil.h>
 #include <core_util/foreach.h>
 #include <boost/algorithm/string.hpp>
+#include "engine_base/Localisation.h"
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -234,7 +236,7 @@ namespace Orkige
 			}
 			else if(key == "text")
 			{
-				baseSettings.text = value;
+				baseSettings.text = Localisation::getSingleton().getLocalized(vt.second);
 			}
 			else if(key == "font")
 			{
