@@ -240,7 +240,7 @@ namespace Orkige
 			}
 
 			// only check this result if its a hit against an entity
-			if ((res.movable != NULL)  && (res.movable->getMovableType().compare("Entity") == 0))
+			if ((res.movable != NULL)  && (res.movable->getQueryFlags() == queryMask) &&(res.movable->getMovableType().compare("Entity") == 0) )
 			{
 				// get the entity to check
 				Ogre::Entity *pentity = static_cast<Ogre::Entity*>(res.movable);
