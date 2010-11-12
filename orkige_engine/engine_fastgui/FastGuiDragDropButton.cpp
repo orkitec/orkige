@@ -99,7 +99,9 @@ namespace Orkige
 		}
 		if (this->decor->getRectangle()->intersects(cursorPos)) 
 		{
-			this->setState(FastGuiDragDropButton::DDBS_DOWN);
+			// I'm unsure about this, which way it should be done (pe)
+			//this->setState(FastGuiDragDropButton::DDBS_DOWN);
+			this->startDragging(cursorPos);
 		}
 	}
 	//---------------------------------------------------------
