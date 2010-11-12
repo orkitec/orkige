@@ -69,6 +69,14 @@ if (BUILD_MAXEXPORTER)
 		macro_log_feature(MAXSDK_FOUND "3DS Max SDK" "Support for 3D Studio Max SDK" FALSE "" "")
 	endif()
 endif()
+
+# Find 3ds max sdk
+if (ORKIGE_BROWSERPLUGIN)
+	if(WIN32)
+		find_package(Java)
+		macro_log_feature(JAVA_FOUND "Java Jre" "Support for Java" FALSE "" "")
+	endif()
+endif()
 #######################################################################
 # Apple-specific
 #######################################################################

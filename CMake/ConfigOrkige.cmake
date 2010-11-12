@@ -31,6 +31,7 @@ macro (configure_orkige ROOT OGREPATH)
 	option(OGRE_BUILD_COMPONENT_PAGING "Build Paging component" TRUE)
 	option(OGRE_BUILD_COMPONENT_TERRAIN "Build Terrain component" TRUE)
 	#end of ogre options
+	option(ORKIGE_BROWSERPLUGIN      "Build for Browser" OFF)
 	option(ORKIGE_NOSCRIPT              "Use Scripting Language" ON)
 	option(ORKIGE_ENABLE_MEMORYMANAGER  "Enable meory leak check (in debug builds)" ON)
 	option(ORKIGE_DEBUG                 "Enable debugging information in release builds" ON)
