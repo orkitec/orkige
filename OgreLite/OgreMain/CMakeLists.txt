@@ -374,6 +374,7 @@ set (SOURCE_FILES
   src/OgrePrefabFactory.cpp
   src/OgreProfiler.cpp
   src/OgreProgressiveMesh.cpp
+  src/OgrePVRTCCodec.cpp
   src/OgreQuaternion.cpp
   src/OgreRectangle2D.cpp
   src/OgreRenderQueue.cpp
