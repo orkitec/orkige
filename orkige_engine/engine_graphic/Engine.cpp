@@ -171,13 +171,12 @@ namespace Orkige
 					this->root->showConfigDialog();
 					this->renderWindow = root->initialise(true, windowTitle);
 				}
-
+				oAssert(this->renderWindow);
 			}
 			else
 			{
 				this->renderWindow = this->root->initialise(false, windowTitle);
-				oAssert(this->renderWindow);
-
+				
 				unsigned int width;
 				unsigned int height;
 				unsigned int colourDepth; 
