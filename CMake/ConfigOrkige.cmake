@@ -35,6 +35,7 @@ macro (configure_orkige ROOT OGREPATH)
 	option(ORKIGE_NOSCRIPT              "Use Scripting Language" ON)
 	option(ORKIGE_ENABLE_MEMORYMANAGER  "Enable meory leak check (in debug builds)" ON)
 	option(ORKIGE_DEBUG                 "Enable debugging information in release builds" ON)
+	option(ORKIGE_EXTERN_LOG            "Enable specifiying an external logfile" OFF)
 	option(ORKIGE_USE_LUA               "Use Lua script bindings" OFF)
 
 	if (ORKIGE_USE_LUA)
@@ -54,8 +55,9 @@ macro (configure_orkige ROOT OGREPATH)
 		add_definitions(-DORKIGE_DEBUG)	
 	endif()
 	
-
-	
+	if (ORKIGE_EXTERN_LOG)
+		add_definitions(-DORKIGE_EXTERN_LOG)	
+	endif()
 
 	set(ORKIGE_ZLIB_TARGET	ZLib)
 	set(ORKIGE_ZZIP_TARGET ZZipLib)
