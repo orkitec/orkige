@@ -32,7 +32,8 @@ namespace Orkige
 		sceneManager(NULL),
 		renderWindow(NULL),
 		camera(NULL),
-		viewport(NULL)
+		viewport(NULL),
+		lastFrameTime(0)
 	{
 		this->data = onew(new FrameEventData());
 
@@ -67,13 +68,41 @@ namespace Orkige
 		oAssert(this->eventManager);
 		this->root->addFrameListener(this);
 
+		this->lastFrameTime = Timer::getMilliseconds();
 		return true;
 	}
 	//---------------------------------------------------------
 	bool Engine::renderOneFrame()
 	{
 		Ogre::WindowEventUtilities::messagePump();
+
+		/*
+		this->viewport->update();
+				this->renderWindow->update();*/
+		
 		return this->root->renderOneFrame();
+	}
+	//---------------------------------------------------------
+	bool Engine::renderOneFrameFast()
+	{
+		Ogre::WindowEventUtilities::messagePump();
+		unsigned long currentFrameTime = Timer::getMilliseconds();
+		unsigned long timeDiff = currentFrameTime - this->lastFrameTime;
+		if(timeDiff < 0)
+			timeDiff = 0;
+		this->lastFrameTime = currentFrameTime;
+		Ogre::Real delta = Ogre::Real(timeDiff) / 1000.f;
+		this->data->timeSinceLastFrame = delta;
+		this->data->timeSinceLastEvent = delta;
+		this->eventManager->trigger(this->frameStartedEvent);
+		//this->viewport->update();
+		this->renderWindow->_updateViewport(this->viewport, true);
+		this->eventManager->trigger(this->frameRenderingQueuedEvent);
+		this->renderWindow->_beginUpdate();
+		this->renderWindow->swapBuffers();
+		this->renderWindow->_endUpdate();
+		this->eventManager->trigger(this->frameEndedEvent);
+		return true;
 	}
 	//---------------------------------------------------------
 	void Engine::createDefaultCameraAndViewport()

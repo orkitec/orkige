@@ -54,6 +54,7 @@ namespace Orkige
 		optr<FrameEventData>		data;
 		String						externalWindowHandle;
 		String						topLevelWindowHandle;
+		unsigned long				lastFrameTime;
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
@@ -85,6 +86,8 @@ namespace Orkige
 
 		//! as the name says Render one Frame
 		bool renderOneFrame();
+		//! faster frame rendering skips Framelisteners and some other ogre related stuff
+		bool renderOneFrameFast();
 
 		//! get Engine SceneManager
 		inline Ogre::SceneManager* getSceneManager();

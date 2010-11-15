@@ -102,11 +102,14 @@
 	#define	oAssert	_ASSERTE
 
 	#ifndef NOTRACE
+#ifndef ORKIGE_EXTERN_LOG
 		static inline void __orkige_debug_msg(std::string const & msg)
 		{
 			OutputDebugStringA(msg.c_str());
 		}
-
+#else
+		extern void __orkige_debug_msg(std::string const & msg);
+#endif
 		static inline void _orkige_trace_msg(std::string const & msg, const char * file, int line)
 		{
 			std::stringstream out;
