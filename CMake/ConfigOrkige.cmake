@@ -318,7 +318,7 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	#if (0)
 		# disable until support is added  
-		option(ORKIGE_BUILD_CG	 "Enable the CG plugin" ON)
+		option(ORKIGE_BUILD_CG	 "Enable the CG plugin" OFF)
 
 		if (ORKIGE_BUILD_CG)
 			set(OGRE_BUILD_PLUGIN_CG       TRUE)
