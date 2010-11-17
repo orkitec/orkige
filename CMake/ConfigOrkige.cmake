@@ -60,6 +60,7 @@ macro (configure_orkige ROOT OGREPATH)
 	endif()
 
 	set(ORKIGE_ZLIB_TARGET	ZLib)
+	set(ORKIGE_SQLITE_TARGET	SQLite)
 	set(ORKIGE_ZZIP_TARGET ZZipLib)
 	set(ORKIGE_FREEIMAGE_TARGET FreeImage)
 	set(ORKIGE_FREETYPE_TARGET freetype)
