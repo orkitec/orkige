@@ -36,7 +36,7 @@ namespace Orkige
 		//! destructor
 		virtual ~TransformComponent();
 		//! get the Transform SceneNode
-		inline Ogre::SceneNode* getSceneNode();
+		inline Ogre::SceneNode* getSceneNode() const;
 		//! get position relative to the rootSceneNode
 		inline Ogre::Vector3 const & getPosition() const;
 		//! get position in the world
@@ -66,7 +66,7 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------
-	inline Ogre::SceneNode* TransformComponent::getSceneNode()
+	inline Ogre::SceneNode* TransformComponent::getSceneNode() const
 	{
 		return this->sceneNode;
 	}

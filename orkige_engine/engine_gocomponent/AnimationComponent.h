@@ -68,7 +68,7 @@ namespace Orkige
 		//! get default anim name
 		inline String const & getDefaultAnimation();
 		//! get animation states
-		Ogre::AnimationStateSet* getAnimationStates(){return animationStates;}
+		inline Ogre::AnimationStateSet const * getAnimationStates() const;
 		//! set default anim name
 		void setDefaultAnimation(String const & anim);
 		//! are anims available
@@ -150,6 +150,11 @@ namespace Orkige
 	inline String const & AnimationComponent::getDefaultAnimation()
 	{
 		return this->defaultAnimation;
+	}
+	//---------------------------------------------------------------
+	inline Ogre::AnimationStateSet const * AnimationComponent::getAnimationStates() const 
+	{
+		return this->animationStates;
 	}
 	//---------------------------------------------------------------
 	inline bool AnimationComponent::getHandleMotion()
