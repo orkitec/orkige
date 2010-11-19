@@ -52,7 +52,7 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
-	TransformComponent* TransformComponent::getComponentFromNode(Ogre::Node* node, bool traverseParents)
+	TransformComponent* TransformComponent::getComponentFromNode(Ogre::Node const * node, bool traverseParents)
 	{
 		oAssert(node);
 		TransformComponent *tc = NULL;
