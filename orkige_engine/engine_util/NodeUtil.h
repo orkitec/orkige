@@ -60,6 +60,7 @@ namespace Orkige
 		//---------------------------------------------------------
 		//! get game object from given scene node
 		//! only works for GameObjects with a TransformComponent
+		//! @see TransformComponent::getComponentFromNode
 		static inline GameObject* getGameObjectFromNode(Ogre::Node const * node,  bool traverseParents = true)
 		{
 			oAssert(node);
