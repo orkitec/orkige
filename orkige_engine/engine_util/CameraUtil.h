@@ -52,16 +52,16 @@ namespace Orkige
 				break;
 			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
 
-				screenPos.y = nCWidth + (nCWidth * hcsPosition.x);
-				screenPos.x = nCHeight + (nCHeight * -hcsPosition.y);
+				screenPos.y = nCWidth + (nCWidth * -hcsPosition.y);
+				screenPos.x = nCHeight + (nCHeight * -hcsPosition.x);
 				break;
 			case Ogre::OR_DEGREE_180:
 				screenPos.x = nCWidth + (nCWidth * hcsPosition.x);
 				screenPos.y = nCHeight + (nCHeight * -hcsPosition.y);
 				break;
 			case Ogre::OR_DEGREE_270: //OR_LANDSCAPELEFT
-				screenPos.y = nCWidth + (nCWidth * hcsPosition.x);
-				screenPos.x = nCHeight + (nCHeight * -hcsPosition.y);
+				screenPos.y = nCWidth + (nCWidth * -hcsPosition.y);
+				screenPos.x = nCHeight + (nCHeight * -hcsPosition.x);
 				break;
 			}
 
