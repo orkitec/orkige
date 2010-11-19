@@ -149,7 +149,7 @@ namespace Orkige
 		//! @copydoc Ogre::Node::getParent
 		inline Ogre::Node* getParent() const;
 		//! @copydoc Ogre::SceneNode::getParentSceneNode
-		Ogre::SceneNode* getParentSceneNode(void) const;
+		inline Ogre::SceneNode* getParentSceneNode(void) const;
 		//! @copydoc Ogre::SceneNode::attachObject
 		inline void attachObject(Ogre::MovableObject* obj);
 		//! @copydoc Ogre::SceneNode::numAttachedObjects
@@ -588,12 +588,12 @@ namespace Orkige
 		node->addChild(this->sceneNode);
 	}
 	//---------------------------------------------------------
-	void SceneNodeGuard::setEnableNodeUpdateEvent(bool enable)
+	inline void SceneNodeGuard::setEnableNodeUpdateEvent(bool enable)
 	{
 		this->nodeListener->enableNodeUpdatedEvent = enable;
 	}
 	//---------------------------------------------------------
-	bool SceneNodeGuard::isNodeUpdateEventEnabled()
+	inline bool SceneNodeGuard::isNodeUpdateEventEnabled()
 	{
 		return this->nodeListener->enableNodeUpdatedEvent;
 	}

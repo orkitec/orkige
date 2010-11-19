@@ -95,6 +95,20 @@ namespace Orkige
 			return component;
 		}
 
+				//! get attached component by name
+		inline BaseComponentType* getComponentPtr(String const & componentTypeName);
+
+		//! get attached component by type
+		template<typename ComponentType> 
+		inline ComponentType* getComponentPtr(String const & componentTypeName = ComponentType::getClassTypeInfo().getName(),
+			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		{
+			BaseComponentType* baseComponent = this->getComponentPtr(componentTypeName);
+			oAssert(baseComponent);
+			ComponentType* component = dynamic_cast<ComponentType*>(baseComponent);
+			oAssert(component);
+			return component;
+		}
 		//! get all attached components
 		inline ComponentMap const & getComponents();
 
@@ -200,6 +214,18 @@ namespace Orkige
 			return oNull<BaseComponentType>();
 		}
 		return foundComponent->second;
+	}
+	//---------------------------------------------------------
+	template<class BaseComponentType>
+	inline BaseComponentType* ComponentHolder<BaseComponentType>::getComponentPtr(String const & componentTypeName)
+	{
+		typename ComponentMap::iterator foundComponent = this->components.find(componentTypeName);
+		if(foundComponent == this->components.end())
+		{
+			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentTypeName << " Component!");
+			return NULL;
+		}
+		return foundComponent->second.get();
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>

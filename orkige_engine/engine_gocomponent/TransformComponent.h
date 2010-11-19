@@ -21,8 +21,7 @@ namespace Orkige
 		OOBJECT(TransformComponent,GameObjectComponent)
 		//--- Types -------------------------------------------
 	public:
-	protected:
-		
+	protected:	
 	private:
 		//--- Variables ---------------------------------------
 	public:
