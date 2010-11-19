@@ -26,7 +26,29 @@ namespace Orkige
 		inline  Ogre::Vector2 sceneToScreen(Ogre::Camera* cam, const Ogre::Vector3& pt)
 		{
 			Ogre::Vector3 result = cam->getProjectionMatrix() * cam->getViewMatrix() * pt;
-			return Ogre::Vector2((result.x + 1) / 2, -(result.y + 1) / 2);
+					return Ogre::Vector2((result.x + 1) / 2, -(result.y + 1) / 2);
+		}
+		//! Converts a 3D scene position to a 2D screen relative coordinate (in pixels).
+		inline  Ogre::Vector2 sceneToScreenRelative(Ogre::Camera* cam, const Ogre::Vector3& pt)
+		{
+			Ogre::Vector3 hcsPosition = cam->getProjectionMatrix() * (cam->getViewMatrix() * pt);
+			if ((hcsPosition.x < -1.0f) || 
+				(hcsPosition.x > 1.0f) ||
+				(hcsPosition.y < -1.0f) || 
+				(hcsPosition.y > 1.0f))
+				return Ogre::Vector2::ZERO;
+
+			int nCWidth = (cam->getViewport()->getActualWidth()/2);
+			int nCHeight = (cam->getViewport()->getActualHeight()/2);
+
+			Ogre::Vector2 screenPos;
+
+			screenPos.x = nCWidth + (nCWidth * hcsPosition.x);
+			screenPos.y = nCHeight + (nCHeight * -hcsPosition.y);
+
+
+			return screenPos;
+
 		}
 		//---------------------------------------------------------------
 		//! create high resolution screenshots res = current window resolution * gridSize

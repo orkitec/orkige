@@ -61,11 +61,16 @@ namespace Orkige
 	{
 		this->decor->setPosition(left, top);
 		this->label->setPosition(left, top);
+		this->barDecore->setPosition(this->decor->getPosition().x + this->decor->getSize().x *0.03 ,this->decor->getPosition().y + this->decor->getSize().y *0.1 );
 	}
 //----------------------------------------------------
 	void FastGuiProgressBar::setSize( Ogre::Real width, Ogre::Real height )
 	{
 		this->decor->setSize(width, height);
+		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x *0.06 ,this->decor->getSize().y - this->decor->getSize().y *0.2 );
+		this->label->setSize(barMaxSize.x,barMaxSize.y);
+		this->addProgress(0.0f);
+
 	}
 	void FastGuiProgressBar::setProgress(float _progress)
 	{
