@@ -35,8 +35,8 @@ namespace Orkige
 		TransformComponent();
 		//! destructor
 		virtual ~TransformComponent();
-		//! get TransFormComponent from given Node* or NULL if this Node isn't associated with a TransFormComponent
-		//! if traverseParents is true also parents and parentparents... will be checked until a TransFormComponent is found or the RootNode is reached
+		//! get TransFormComponent from given Node* or NULL if this Node isn't associated with a TransformComponent
+		//! if traverseParents is true also parents will be checked until a TransformComponent is found or the RootNode is reached
 		static TransformComponent* getComponentFromNode(Ogre::Node const * node, bool traverseParents = true);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
