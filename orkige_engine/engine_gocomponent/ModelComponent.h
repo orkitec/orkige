@@ -12,6 +12,7 @@
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_util/SceneNodeGuard.h"
+#include "core_util/StringUtil.h"
 
 namespace Orkige
 {
@@ -32,8 +33,9 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Ogre::Entity*		model;				//!< the current model entity instance or NULL
-		String				modelFileName;		//!< filename of the current model or empty String
+		Ogre::Entity*		model;					//!< the current model entity instance or NULL
+		String				modelFileName;			//!< filename of the current model or empty String
+		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
 		//--- Methods -----------------------------------------------
 	public:

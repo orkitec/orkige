@@ -11,12 +11,15 @@
 
 #include "core_debug/MemoryManager.h"
 #include "core_util/String.h"
+#include "core_base/Value.h"
 
 namespace Orkige
 {
 	//! String Utilities
 	namespace StringUtil
 	{
+		//! wrapper around String to make it a Orkige::Object
+		typedef Value<String> StringObject;
 		//! blank String definition
 		static String BLANK = "";
 		//! @return true if strings match :)

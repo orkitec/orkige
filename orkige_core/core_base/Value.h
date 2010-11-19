@@ -41,6 +41,9 @@ namespace Orkige
 		virtual ~Value()								{					};
 
 		//! get wrapped Value
+		inline void setValue(Type const & v)			{	this->value = v;};
+
+		//! get wrapped Value
 		inline Type const & getValue()					{	return value;	};
 
 		//! save wrapped value to Archive

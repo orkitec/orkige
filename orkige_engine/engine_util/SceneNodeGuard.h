@@ -22,10 +22,13 @@ namespace Orkige
 		//! @brief Note that this happens when the node's derived update happens, not every time a method altering it's state occurs. 
 		//! There may be several state-changing calls but only one of these calls, when the node graph is fully updated.
 		//! @see Ogre::Node::Listener::nodeUpdated
+		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeUpdatedEvent);
 		//! triggered when sceneNode is attached to another SceneNode
+		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeAttachedEvent);
 		//! triggered when sceneNode is detached from its parent SceneNode
+		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeDetachedEvent);
 	protected:
 		//! listener for Ogre::Node Events 

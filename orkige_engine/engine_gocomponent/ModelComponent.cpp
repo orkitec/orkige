@@ -24,6 +24,7 @@ namespace Orkige
 		this->sceneNode = NULL;
 		this->modelFileName = "";
 		this->addDependency<TransformComponent>();
+		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
 	//---------------------------------------------------------
 	ModelComponent::~ModelComponent()
@@ -53,7 +54,8 @@ namespace Orkige
 		this->model = parentSceneNode->getCreator()->createEntity(componentOwner->getObjectID() + ".ModelComponent." + modelFileName, modelFileName);
 		oAssert(this->model);
 		this->sceneNode->attachObject(model);
-		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent));
+		this->eventData->setValue(modelFileName);
+		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
 	//---------------------------------------------------------
 	void ModelComponent::removeModel()
@@ -64,7 +66,8 @@ namespace Orkige
 		NodeUtil::cleanSceneNode(this->sceneNode);
 		this->sceneNode->removeAndDestroyAllChildren();
 
-		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent));
+		this->eventData->setValue(this->modelFileName);
+		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent, this->eventData));
 		this->model = NULL;
 		//this->sceneNode = NULL;
 		this->modelFileName = "";

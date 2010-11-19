@@ -11,6 +11,7 @@
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_util/StringUtil.h"
 
 namespace Orkige
 {
@@ -20,6 +21,9 @@ namespace Orkige
 		OOBJECT(AnimationComponent, GameObjectComponent)
 		//--- Types -------------------------------------------------
 	public:
+		//! @brief triggered when a playing animation has reached the end and is not looping
+		//! @ingroup EngineEvents
+		DECL_EVENTTYPE(AnimationEndedEvent);
 	protected:
 	private:
 		struct SimpleTransform
@@ -54,6 +58,7 @@ namespace Orkige
 		bool						extractRotation;
 		TransformRegistry			initialStateTransforms;
 		KeyFrameBackupRegistry		backuppedKeyframes;
+		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor

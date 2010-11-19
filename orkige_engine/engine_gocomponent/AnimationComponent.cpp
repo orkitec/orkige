@@ -15,12 +15,14 @@
 
 namespace Orkige
 {
+	IMPL_OWNED_EVENTTYPE(AnimationComponent, AnimationEndedEvent);
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	AnimationComponent::AnimationComponent()
 	{
 		this->addDependency<ModelComponent>();
+		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
 	//---------------------------------------------------------
 	AnimationComponent::~AnimationComponent()
@@ -85,8 +87,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::updateAnimations(float timeDelta)
 	{
+#define ANIMATIONEVENT_ENABLED 0
 		oAssert(this->animationStates);
 		Ogre::ConstEnabledAnimationStateIterator it = this->animationStates->getEnabledAnimationStateIterator();
+		std::vector<Ogre::AnimationState*> endedAnimations;
 		while(it.hasMoreElements())
 		{
 			Ogre::AnimationState * state = it.peekNext();
@@ -97,8 +101,19 @@ namespace Orkige
 			}
 
 			state->addTime(timeDelta);
-
+#if ANIMATIONEVENT_ENABLED
+			if(state->hasEnded())
+			{
+				endedAnimations.push_back(state);
+				this->eventData->setValue(state->getAnimationName());
+				this->getComponentOwner()->triggerEvent(Event(AnimationEndedEvent, this->eventData));
+			}
+#endif
 			it.moveNext();
+		}
+		foreach(Ogre::AnimationState* state, endedAnimations)
+		{
+			state->setEnabled(false);
 		}
 	}
 	//---------------------------------------------------------
