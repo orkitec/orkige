@@ -60,6 +60,15 @@ namespace Orkige
 		return false;	
 	}
 	//---------------------------------------------------------
+	void GameObjectManager::processDeleteQueue()
+	{
+		foreach(String const & id,  this->deleteQueue)
+		{
+			this->delGameObject(id);
+		}
+		this->deleteQueue.clear();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool GameObjectManager::createBeforeLoad()	

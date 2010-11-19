@@ -30,6 +30,7 @@ namespace Orkige
 	protected:
 		GameObjectMap objects;			//!< managed GameObject's
 		EventListenerMap globalEvents;	//!< enabled Global Event's
+		StringVector deleteQueue;		//!< queue of GameObjects that should be delted on next update
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -45,6 +46,8 @@ namespace Orkige
 		inline bool addGameObject(optr<GameObject> obj);
 		//! remove GameObject
 		inline bool delGameObject(String const & id);
+		//! add objects to queu and delte then ob next Application update
+		inline bool queueDelGameObject(String const & id);
 		//! create a gameObject with given id and add it to the list of managed GameObject's
 		inline woptr<GameObject> createGameObject(String const & id); 
 		//! get map with all GameObject's
@@ -64,6 +67,9 @@ namespace Orkige
 		virtual void load(optr<IArchive> const & ar);
 		//! @see ISerializable::createBeforeLoad
 		virtual bool createBeforeLoad();
+
+		//! delete GameObjects that are queu for deletion
+		void processDeleteQueue();
 	protected:
 		//! handle Global Event forwarding
 		inline bool onGlobalEvent(Event const & event);
@@ -109,6 +115,23 @@ namespace Orkige
 			return false;
 		}
 		this->objects.erase(it);
+		return true;
+	}
+	//---------------------------------------------------------
+	inline bool GameObjectManager::queueDelGameObject(String const & id)
+	{
+		GameObjectMap::iterator it = this->objects.find(id);
+		if(it == this->objects.end())
+		{
+			oDebugMsg("world",0,"GameObject: " << id << " doesn't exist!");
+			return false;
+		}
+		if(std::find(this->deleteQueue.begin(), this->deleteQueue.end(), id) != this->deleteQueue.end())
+		{
+			oDebugMsg("world",0,"GameObject: " << id << " already queued for deletion!");
+			return false;
+		}
+		this->deleteQueue.push_back(id);
 		return true;
 	}
 	//---------------------------------------------------------
