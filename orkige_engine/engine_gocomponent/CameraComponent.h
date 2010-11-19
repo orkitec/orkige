@@ -29,14 +29,14 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		Ogre::SceneNode		*actorNode;		//!< our actor :)
-		Ogre::SceneNode		*controlNode;	//!< node wich controls the whole thing
-		Ogre::SceneNode		*sightNode;		//!< "Sight" node - The actor is supposed to be looking here
-		Ogre::SceneNode		*cameraNode;	//!< Node for the chase camera
-		Ogre::SceneNode		*targetNode;	//!< The camera target
-		Ogre::SceneNode		*attachNode;	//!< the node the camera gets attached to
-		Ogre::Camera*		camera;			//!< Ogre camera
-		CameraModeFunction	cameraFunction;	//!< function that handles camera control (called once per frame)
+		Ogre::SceneNode	const *	actorNode;		//!< our actor :)
+		Ogre::SceneNode*		controlNode;	//!< node wich controls the whole thing
+		Ogre::SceneNode*		sightNode;		//!< "Sight" node - The actor is supposed to be looking here
+		Ogre::SceneNode*		cameraNode;	//!< Node for the chase camera
+		Ogre::SceneNode*		targetNode;	//!< The camera target
+		Ogre::SceneNode*		attachNode;	//!< the node the camera gets attached to
+		Ogre::Camera*			camera;			//!< Ogre camera
+		CameraModeFunction		cameraFunction;	//!< function that handles camera control (called once per frame)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -51,7 +51,7 @@ namespace Orkige
 		//! @see CameraComponent::cameraNode
 		inline Ogre::SceneNode *getCameraNode();
 		//! @see CameraComponent::actorNode
-		inline Ogre::SceneNode *getActorNode();
+		inline Ogre::SceneNode const * getActorNode();
 		//! @see CameraComponent::targetNode
 		inline Ogre::SceneNode *getTargetNode();
 		//! set CameraModeFunction 
@@ -89,7 +89,7 @@ namespace Orkige
 		return this->cameraNode;
 	}
 	//---------------------------------------------------------
-	inline Ogre::SceneNode* CameraComponent::getActorNode() 
+	inline Ogre::SceneNode const * CameraComponent::getActorNode() 
 	{
 		return this->actorNode;
 	}

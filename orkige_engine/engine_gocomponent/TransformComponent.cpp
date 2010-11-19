@@ -10,93 +10,24 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
+#include "engine_util/NodeUtil.h"
 
 using namespace Ogre;
 namespace Orkige
 {
-	String TransformComponent::AXES_MESH_FILENAME = "axes.mesh";
-	String TransformComponent::USER_BINDING_ID = "TransformComponent";
+	const String TransformComponent::USEROBJECT_BINDING_KEY = "TransformComponent";
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	TransformComponent::TransformComponent()
 	{
-		this->sceneNode = NULL;
 	}
 	//---------------------------------------------------------
 	TransformComponent::~TransformComponent()
 	{
-		this->sceneNode = NULL;
 	}
 	//---------------------------------------------------------
-	bool TransformComponent::axesVisible()
-	{
-		if(!this->sceneNode)
-			return false;
 
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		String const & componentOwnerObjectId = componentOwner->getObjectID();
-		oAssert(!componentOwnerObjectId.empty());
-		String axesEntityName = componentOwnerObjectId + "_Axes";
-		try
-		{
-			this->sceneNode->getChild(axesEntityName);
-			return true;
-		}
-		catch (Ogre::ItemIdentityException)
-		{
-			return false;
-		}
-	}
-	//---------------------------------------------------------
-	bool TransformComponent::showAxes(bool show)
-	{
-		oAssert(this->sceneNode);
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		String const & componentOwnerObjectId = componentOwner->getObjectID();
-		oAssert(!componentOwnerObjectId.empty());
-		String axesEntityName = componentOwnerObjectId + "_Axes";
-
-		if(show)
-		{
-			try
-			{
-				this->sceneNode->getChild(axesEntityName);
-
-				//node already exists
-				return false;
-			}
-			catch (Ogre::ItemIdentityException)
-			{
-			}
-
-			Ogre::Entity* entity = Engine::getSingleton().getSceneManager()->createEntity( axesEntityName, AXES_MESH_FILENAME );
-			oAssert(entity);
-			entity->setUserAny(*this);
-			Ogre::SceneNode* meshNode = this->sceneNode->createChildSceneNode(axesEntityName);
-			oAssert(meshNode);
-			meshNode->attachObject( entity );
-		}
-		else
-		{
-			try
-			{
-				Ogre::SceneNode* meshNode = static_cast<Ogre::SceneNode*>(this->sceneNode->getChild(axesEntityName));
-				oAssert(meshNode);
-				Ogre::Entity* entity = static_cast<Ogre::Entity*>(meshNode->getAttachedObject(axesEntityName));
-				oAssert(entity);
-				Engine::getSingletonPtr()->getSceneManager()->destroyEntity(entity);
-				this->sceneNode->removeAndDestroyChild(axesEntityName);
-			}
-			catch (Ogre::ItemIdentityException)
-			{
-				return false;
-			}
-		}
-		return true;
-	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
@@ -107,24 +38,37 @@ namespace Orkige
 		oAssert(componentOwner);
 		String const & componentOwnerObjectId = componentOwner->getObjectID();
 		oAssert(!componentOwnerObjectId.empty());
-		this->sceneNode = Engine::getSingletonPtr()->getSceneManager()->getRootSceneNode()->createChildSceneNode( componentOwnerObjectId );
-		
-		this->sceneNode->getUserObjectBindings().setUserAny(TransformComponent::USER_BINDING_ID ,Ogre::Any(this));
-		
-
-		//oAssert(!this->sceneNode->getUserAny().isEmpty());
-		
+		Ogre::SceneNode* node = Engine::getSingleton().getSceneManager()->getRootSceneNode()->createChildSceneNode( componentOwnerObjectId +".TransformComponent");
+		node->getUserObjectBindings().setUserAny(TransformComponent::USEROBJECT_BINDING_KEY ,Ogre::Any(this));
+		this->initSceneNodeGuard(node, componentOwner->getEventManager(), this);
 	}
 	//---------------------------------------------------------
 	void TransformComponent::onRemove()
 	{
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		String const & componentOwnerObjectId = componentOwner->getObjectID();
-		oAssert(!componentOwnerObjectId.empty());
-		this->sceneNode->removeAndDestroyAllChildren();
-		Engine::getSingletonPtr()->getSceneManager()->destroySceneNode(componentOwnerObjectId);
-		this->sceneNode = NULL;
+		oAssert(this->sceneNode);
+		oAssert(this->nodeListener);
+		this->nodeListener->nodeCanBeDestroyed = true;
+		NodeUtil::wipeSceneNode(this->sceneNode);
+		this->deinitSceneNodeGuard();
+	}
+	//---------------------------------------------------------
+	TransformComponent* TransformComponent::getComponentFromNode(Ogre::Node* node, bool traverseParents)
+	{
+		oAssert(node);
+		TransformComponent *tc = NULL;
+
+		Ogre::Any const & any = node->getUserObjectBindings().getUserAny(TransformComponent::USEROBJECT_BINDING_KEY);
+		if(!any.isEmpty())
+		{
+			tc = Ogre::any_cast<TransformComponent*>(any);
+		}
+		
+		
+		if(traverseParents && (tc == NULL) && (node->getParent() != NULL))
+		{
+			tc = TransformComponent::getComponentFromNode(node->getParent(), traverseParents);
+		}
+		return tc;
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
@@ -137,7 +81,5 @@ namespace Orkige
 		OFUNC(setPosition)
 		OFUNC(setScale)
 		OFUNC(setOrientation)
-		OFUNC(showAxes)
-		OFUNC(axesVisible)
 	OOBJECT_END
 }

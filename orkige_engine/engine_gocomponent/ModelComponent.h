@@ -11,11 +11,12 @@
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_util/SceneNodeGuard.h"
 
 namespace Orkige
 {
 	//! handles 1 Model attached to a GameObject
-	class ORKIGE_DLL ModelComponent : public GameObjectComponent
+	class ORKIGE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
 		//--- Types -------------------------------------------------
@@ -32,7 +33,6 @@ namespace Orkige
 	public:
 	protected:
 		Ogre::Entity*		model;				//!< the current model entity instance or NULL
-		Ogre::SceneNode*	modelNode;			//!< SceneNode our Model gets attached to or NULL
 		String				modelFileName;		//!< filename of the current model or empty String
 	private:
 		//--- Methods -----------------------------------------------
@@ -49,22 +49,8 @@ namespace Orkige
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName();
 		//! @see ModelComponent::model
-		inline Ogre::Entity* getModel();
-		//! @see ModelComponent::modelNode
-		inline Ogre::SceneNode* getModelNode();
+		inline Ogre::Entity * getModel() const;
 
-		//! get local position of ModelComponent::modelNode
-		inline Ogre::Vector3 const & getLocalPosition() const;
-		//! get local orientation of ModelComponent::modelNode
-		inline Ogre::Quaternion const & getLocalOrientation() const;
-		//! get local scale of ModelComponent::modelNode
-		inline Ogre::Vector3 const & getLocalScale() const;
-		//! set local position of ModelComponent::modelNode
-		inline void setLocalPosition(Ogre::Vector3 const & position);
-		//! set local scale of ModelComponent::modelNode
-		inline void setLocalScale(Ogre::Vector3 const & scale);
-		//! set local orientation of ModelComponent::modelNode
-		inline void setLocalOrientation(Ogre::Quaternion const & orientation);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -78,50 +64,9 @@ namespace Orkige
 		return this->modelFileName;
 	}
 	//---------------------------------------------------------------
-	inline Ogre::Entity* ModelComponent::getModel()
+	inline Ogre::Entity * ModelComponent::getModel() const 
 	{
 		return this->model;
-	}
-	//---------------------------------------------------------------
-	inline Ogre::SceneNode* ModelComponent::getModelNode()
-	{
-		return this->modelNode;
-	}
-	//---------------------------------------------------------------
-	inline Ogre::Vector3 const & ModelComponent::getLocalPosition() const
-	{
-		oAssert(this->modelNode);
-		return this->modelNode->getPosition();
-	}
-	//---------------------------------------------------------------
-	inline Ogre::Quaternion const & ModelComponent::getLocalOrientation() const
-	{
-		oAssert(this->modelNode);
-		return this->modelNode->getOrientation();
-	}
-	//---------------------------------------------------------------
-	inline Ogre::Vector3 const & ModelComponent::getLocalScale() const
-	{
-		oAssert(this->modelNode);
-		return this->modelNode->getScale();
-	}
-	//---------------------------------------------------------------
-	inline void ModelComponent::setLocalPosition(Ogre::Vector3 const & position)
-	{
-		oAssert(this->modelNode);
-		this->modelNode->setPosition(position);
-	}
-	//---------------------------------------------------------------
-	inline void ModelComponent::setLocalScale(Ogre::Vector3 const & scale)
-	{
-		oAssert(this->modelNode);
-		this->modelNode->setScale(scale);
-	}
-	//---------------------------------------------------------------
-	inline void ModelComponent::setLocalOrientation(Ogre::Quaternion const & orientation)
-	{
-		oAssert(this->modelNode);
-		this->modelNode->setOrientation(orientation);
 	}
 	//---------------------------------------------------------------
 }

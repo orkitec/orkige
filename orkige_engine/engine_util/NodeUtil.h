@@ -10,6 +10,7 @@
 #define __NodeUtil_h__31_8_2010__0_23_43__
 
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_gocomponent/TransformComponent.h"
 
 namespace Orkige
 {
@@ -55,6 +56,20 @@ namespace Orkige
 			oAssert(sceneManager);
 			sceneManager->destroySceneNode(sceneNode);
 			sceneNode = NULL;
+		}
+		//---------------------------------------------------------
+		//! get game object from given scene node
+		//! only works for gameobjest with a TransFormComponent
+		static inline GameObject* getGameObjectFromNode(Ogre::Node * node,  bool traverseParents = true)
+		{
+			oAssert(node);
+			GameObject* go = NULL;
+			TransformComponent *tc = TransformComponent::getComponentFromNode(node, traverseParents);
+			if(tc)
+			{
+				go = tc->getComponentOwner();
+			}
+			return go;
 		}
 	}
 }

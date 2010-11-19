@@ -21,7 +21,7 @@ namespace Orkige
 	ModelComponent::ModelComponent()
 	{
 		this->model = NULL;
-		this->modelNode = NULL;
+		this->sceneNode = NULL;
 		this->modelFileName = "";
 		this->addDependency<TransformComponent>();
 	}
@@ -39,10 +39,10 @@ namespace Orkige
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode* parentSceneNode = transformComponent->getSceneNode();
+		Ogre::SceneNode const * parentSceneNode = transformComponent->getSceneNode();
 		oAssert(parentSceneNode);
 
-		if(this->modelNode)
+		if(this->sceneNode)
 		{
 			this->removeModel();
 		}
@@ -52,7 +52,7 @@ namespace Orkige
 
 		this->model = parentSceneNode->getCreator()->createEntity(componentOwner->getObjectID() + ".ModelComponent." + modelFileName, modelFileName);
 		oAssert(this->model);
-		this->modelNode->attachObject(model);
+		this->sceneNode->attachObject(model);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent));
 	}
 	//---------------------------------------------------------
@@ -61,12 +61,12 @@ namespace Orkige
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
 		
-		NodeUtil::cleanSceneNode(this->modelNode);
-		this->modelNode->removeAndDestroyAllChildren();
+		NodeUtil::cleanSceneNode(this->sceneNode);
+		this->sceneNode->removeAndDestroyAllChildren();
 
 		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent));
 		this->model = NULL;
-		//this->modelNode = NULL;
+		//this->sceneNode = NULL;
 		this->modelFileName = "";
 	}
 	//---------------------------------------------------------
@@ -76,15 +76,14 @@ namespace Orkige
 	{
 		oAssert(this->modelFileName.empty());
 		oAssert(!this->model);
-		oAssert(!this->modelNode);
+		oAssert(!this->sceneNode);
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode* parentSceneNode = transformComponent->getSceneNode();
-		oAssert(parentSceneNode);
-		this->modelNode = parentSceneNode->createChildSceneNode(componentOwner->getObjectID() + ".ModelComponent.modelNode");
-		oAssert(this->modelNode);
+		Ogre::SceneNode* node = transformComponent->createChildSceneNode(componentOwner->getObjectID() + ".ModelComponent.sceneNode");
+		oAssert(node);
+		this->initSceneNodeGuard(node, componentOwner->getEventManager(), this);
 	}
 	//---------------------------------------------------------
 	void ModelComponent::onRemove()
@@ -93,19 +92,20 @@ namespace Orkige
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode* parentSceneNode = transformComponent->getSceneNode();
-		oAssert(parentSceneNode);
 
-		if(this->modelNode)
+		this->nodeListener->nodeCanBeDestroyed = true;
+		
+		if(this->sceneNode)
 		{
-			NodeUtil::cleanSceneNode(this->modelNode);
-			this->modelNode->removeAndDestroyAllChildren();
-			parentSceneNode->removeAndDestroyChild(this->modelNode->getName());		
+			NodeUtil::cleanSceneNode(this->sceneNode);
+			this->sceneNode->removeAndDestroyAllChildren();
+			transformComponent->removeAndDestroyChild(this->sceneNode->getName());		
 		}
 
 		this->model = NULL;
-		this->modelNode = NULL;
+		this->sceneNode = NULL;
 		this->modelFileName = "";
+		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

@@ -114,7 +114,7 @@ namespace Orkige
 		bool onModelSet(Event const & event);
 
 		void getAnimationsFromModel();
-		Ogre::Entity* getAnimableModel();
+		Ogre::Entity const * getAnimableModel();
 		void handleMotionRotation(Ogre::AnimationState * state, float timeDelta);
 	};
 	//---------------------------------------------------------------

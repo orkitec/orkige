@@ -78,7 +78,7 @@ namespace Orkige
 			ar << entityIsVisible;
 
 			bool hasGameObjectUserObject = false;
-			Ogre::Any const & userObject = entity->getUserObjectBindings().getUserAny(TransformComponent::USER_BINDING_ID);
+			Ogre::Any const & userObject = entity->getUserObjectBindings().getUserAny(TransformComponent::USEROBJECT_BINDING_KEY);
 			optr<const TransformComponent> userGameObject;
 			if( !userObject.isEmpty() )
 			{
@@ -211,7 +211,7 @@ namespace Orkige
 			{
 				optr<TransformComponent> userGameObject;
 				ar >> userGameObject;
-				entity->getUserObjectBindings().setUserAny(TransformComponent::USER_BINDING_ID, Ogre::Any(userGameObject.get()));
+				entity->getUserObjectBindings().setUserAny(TransformComponent::USEROBJECT_BINDING_KEY, Ogre::Any(userGameObject.get()));
 			}
 			entity->setCastShadows(entityCastShadows);
 			entity->setVisible(entityIsVisible);

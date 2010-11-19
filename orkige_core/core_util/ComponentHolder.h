@@ -252,9 +252,10 @@ namespace Orkige
 	inline void ComponentHolder<BaseComponentType>::removeAllComponents()
 	{
 		StringList componentNames = this->getAttachedComponentNames();
-		foreach(String const & componentName, componentNames)
+		while(!componentNames.empty())
 		{
-			this->removeComponent(componentName);
+			this->removeComponent(componentNames.front());
+			componentNames = this->getAttachedComponentNames();
 		}
 		this->components.clear();
 	}

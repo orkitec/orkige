@@ -164,13 +164,13 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	Ogre::Entity* AnimationComponent::getAnimableModel()
+	Ogre::Entity const * AnimationComponent::getAnimableModel()
 	{
 		GameObject* owner = this->getComponentOwner();
 		oAssert(owner);
 		optr<ModelComponent> modelComponent = owner->getComponent<ModelComponent>().lock();
 		oAssert(modelComponent);
-		Ogre::Entity* model = modelComponent->getModel();
+		Ogre::Entity const * model = modelComponent->getModel();
 
 		if(model && model->hasSkeleton())
 		{
@@ -185,9 +185,9 @@ namespace Orkige
 		this->availableAnimations.clear();
 		this->boneNames.clear();
 		this->animationStates = NULL;
-		if(Ogre::Entity* model = this->getAnimableModel())
+		if(Ogre::Entity const * model = this->getAnimableModel())
 		{
-			model->setDisplaySkeleton(true);
+			//model->setDisplaySkeleton(true);
 			this->animationStates = model->getAllAnimationStates();
 			if(this->animationStates)
 			{
@@ -219,7 +219,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::handleMotionRotation(Ogre::AnimationState * state, float timeDelta)
 	{
-		if(Ogre::Entity* model = this->getAnimableModel())
+		if(Ogre::Entity const * model = this->getAnimableModel())
 		{
 			Ogre::Bone * bone = model->getSkeleton()->getBone(this->motionBone/*"Spineroot"*/);
 

@@ -48,7 +48,7 @@ namespace Orkige
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode* sceneNode = transformComponent->getSceneNode();
+		Ogre::SceneNode const * sceneNode = transformComponent->getSceneNode();
 		oAssert(sceneNode);
 
 		this->actorNode = sceneNode;
@@ -57,7 +57,7 @@ namespace Orkige
 		String const & componentOwnerObjectId = componentOwner->getObjectID();
 		oAssert(!componentOwnerObjectId.empty());
 
-		this->controlNode = this->actorNode->createChildSceneNode (componentOwnerObjectId + "_control", Ogre::Vector3 (0, 1, 0)); //probably somewhe in the head
+		this->controlNode = transformComponent->createChildSceneNode (componentOwnerObjectId + "_control", Ogre::Vector3 (0, 1, 0)); //probably somewhe in the head
 		this->sightNode = this->controlNode->createChildSceneNode (componentOwnerObjectId + "_sight", Ogre::Vector3 (0, 0, 1));
 		this->cameraNode = this->controlNode->createChildSceneNode (componentOwnerObjectId + "_camera", Ogre::Vector3 (0, 0, -85));
 		this->attachNode = this->actorNode->getCreator()->getRootSceneNode()->createChildSceneNode(componentOwnerObjectId + "_attach");
@@ -76,9 +76,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void CameraComponent::onRemove()
 	{
+		GameObject* componentOwner = this->getComponentOwner();
+		oAssert(componentOwner);
+		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
+		oAssert(transformComponent);
 		this->unregisterEvent(Engine::FrameStartedEvent);
 		this->controlNode->removeAndDestroyAllChildren();
-		this->actorNode->removeChild(this->controlNode->getName());
+		transformComponent->removeChild(this->controlNode->getName());
 		this->actorNode->getCreator()->destroySceneNode(this->controlNode->getName());
 		this->attachNode->detachAllObjects();
 		this->actorNode->getCreator()->destroySceneNode(this->attachNode->getName());
