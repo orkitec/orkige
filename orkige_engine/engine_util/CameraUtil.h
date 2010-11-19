@@ -32,19 +32,38 @@ namespace Orkige
 		inline  Ogre::Vector2 sceneToScreenRelative(Ogre::Camera* cam, const Ogre::Vector3& pt)
 		{
 			Ogre::Vector3 hcsPosition = cam->getProjectionMatrix() * (cam->getViewMatrix() * pt);
-			/*if ((hcsPosition.x < -1.0f) || 
-				(hcsPosition.x > 1.0f) ||
-				(hcsPosition.y < -1.0f) || 
-				(hcsPosition.y > 1.0f))
-				return Ogre::Vector2::ZERO;*/
+
 
 			int nCWidth = (cam->getViewport()->getActualWidth()/2);
 			int nCHeight = (cam->getViewport()->getActualHeight()/2);
 
 			Ogre::Vector2 screenPos;
 
+
+
 			screenPos.x = nCWidth + (nCWidth * hcsPosition.x);
 			screenPos.y = nCHeight + (nCHeight * -hcsPosition.y);
+
+			switch (cam->getViewport()->getOrientationMode())
+			{
+			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+				screenPos.x = nCWidth + (nCWidth * hcsPosition.x);
+				screenPos.y = nCHeight + (nCHeight * -hcsPosition.y);
+				break;
+			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+
+				screenPos.y = nCWidth + (nCWidth * hcsPosition.x);
+				screenPos.x = nCHeight + (nCHeight * -hcsPosition.y);
+				break;
+			case Ogre::OR_DEGREE_180:
+				screenPos.x = nCWidth + (nCWidth * hcsPosition.x);
+				screenPos.y = nCHeight + (nCHeight * -hcsPosition.y);
+				break;
+			case Ogre::OR_DEGREE_270: //OR_LANDSCAPELEFT
+				screenPos.y = nCWidth + (nCWidth * hcsPosition.x);
+				screenPos.x = nCHeight + (nCHeight * -hcsPosition.y);
+				break;
+			}
 
 
 			return screenPos;
