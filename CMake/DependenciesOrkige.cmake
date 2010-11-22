@@ -29,11 +29,11 @@ endif ()
 find_package(OpenGL)
 macro_log_feature(OPENGL_FOUND "OpenGL" "Support for the OpenGL render system" "http://www.opengl.org/" FALSE "" "")
 
-if (APPLE)
+#if (APPLE)
 	# Find OpenGLES
 	find_package(OpenGLES)
 	macro_log_feature(OPENGLES_FOUND "OpenGLES" "Support for the OpenGLES render system" "" FALSE "" "")
-endif()
+#endif()
 # else Disabled, untill further testing
 
 # Find DirectX

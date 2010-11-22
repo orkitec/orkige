@@ -260,6 +260,9 @@ macro (configure_orkige ROOT OGREPATH)
 	
 	if (OPENGLES_FOUND)
 		option(ORKIGE_BUILD_GLESRS "Enable the OpenGLES system" ON)
+		if (ORKIGE_BUILD_GLESRS)
+			add_definitions(-DORKIGE_GLESRS)
+		endif()
 	endif()
 
 	if (OPENGL_FOUND AND ORKIGE_BUILD_GLRS)
