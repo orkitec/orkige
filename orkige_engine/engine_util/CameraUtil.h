@@ -33,6 +33,9 @@ namespace Orkige
 		{
 			Ogre::Vector3 hcsPosition = cam->getProjectionMatrix() * (cam->getViewMatrix() * pt);
 
+			Ogre::Vector3 directionCam =  cam->getRealDirection();
+			Ogre::Vector3 directionObj =  pt - cam->getRealPosition();
+			float anglee =	directionCam.angleBetween(directionObj).valueDegrees();
 
 			int nCWidth = (cam->getViewport()->getActualWidth()/2);
 			int nCHeight = (cam->getViewport()->getActualHeight()/2);
@@ -65,8 +68,16 @@ namespace Orkige
 				break;
 			}
 
+ 			if (anglee > 90.0)
+ 			{
+ 				return Ogre::Vector2(cam->getViewport()->getActualWidth()-screenPos.x ,Ogre::Math::Abs(screenPos.y) + cam->getViewport()->getActualHeight());
+ 			}
+ 			else
+			{
+				return screenPos;
+			}
 
-			return screenPos;
+			
 
 		}
 		//---------------------------------------------------------------
