@@ -51,7 +51,7 @@ namespace Orkige
 		//! create a gameObject with given id and add it to the list of managed GameObject's
 		inline woptr<GameObject> createGameObject(String const & id); 
 		//! get map with all GameObject's
-		inline GameObjectMap getGameObjects();
+		inline GameObjectMap const & getGameObjects();
 		//! remove alle managed GameObject's
 		inline void clear();
 		//! triggers an event on all gameobjects
@@ -68,7 +68,7 @@ namespace Orkige
 		//! @see ISerializable::createBeforeLoad
 		virtual bool createBeforeLoad();
 
-		//! delete GameObjects that are queu for deletion
+		//! delete GameObjects that are queued for deletion
 		void processDeleteQueue();
 	protected:
 		//! handle Global Event forwarding
@@ -148,7 +148,7 @@ namespace Orkige
 		return go;
 	}
 	//---------------------------------------------------------
-	inline GameObjectManager::GameObjectMap GameObjectManager::getGameObjects()						
+	inline GameObjectManager::GameObjectMap  const & GameObjectManager::getGameObjects()						
 	{	
 		return this->objects;									
 	}
