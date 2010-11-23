@@ -36,7 +36,7 @@ namespace Orkige
 		{
 			//--- Variables ---------------------------------------
 		public:
-			bool enableNodeUpdatedEvent;			//!< enable triggering of the TransformUpdatedEvent
+			bool enableNodeUpdatedEvent;			//!< enable triggering of the NodeUpdatedEvent
 			bool nodeCanBeDestroyed;				//!< flag to mark if its valid to destroy the sceneNode
 		protected:
 			const Event nodeUpdatedEvent;
@@ -219,9 +219,9 @@ namespace Orkige
 		inline Ogre::Node::DebugRenderable* getDebugRenderable();
 		//! attach to given node and tetach from current parent node
 		inline void attachToNode(Ogre::Node* node);
-		//! enable triggering of TransformUpdateEvent
+		//! enable triggering of NodeUpdateEvent
 		inline void setEnableNodeUpdateEvent(bool enable);
-		//! is TransformUpdateEvent triggering enabled
+		//! is NodeUpdateEvent triggering enabled
 		inline bool isNodeUpdateEventEnabled();
 	protected:
 		//! init wrapper from a SceneNode and optional EventManager and eventData
