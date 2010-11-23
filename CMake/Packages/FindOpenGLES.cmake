@@ -14,6 +14,8 @@
 #  OPENGLES_INCLUDE_DIR  - the GL include directory
 #  OPENGLES_LIBRARIES    - Link these to use OpenGLES
 
+include(FindPkgMacros)
+
 IF (WIN32)
   IF (CYGWIN)
 
@@ -52,7 +54,7 @@ ELSE (WIN32)
   ELSE(APPLE)
 
 
-
+IF(0)
     FIND_PATH(OPENGLES_INCLUDE_DIR GLES/gl.h
       /usr/openwin/share/include
       /opt/graphics/OpenGL/include /usr/X11R6/include
@@ -83,7 +85,7 @@ ELSE (WIN32)
         ENDIF (NOT APPLE)
       ENDIF (X11_FOUND)
     ENDIF (OPENGLES_gl_LIBRARY)
-
+   ENDIF()
   ENDIF(APPLE)
 ENDIF (WIN32)
 
