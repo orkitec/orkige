@@ -78,8 +78,9 @@ namespace Orkige
 		//! @copydoc Engine::configure
 		//! @param alwaysShowConfigDialog show config dialog on every startup or just on the first start?
 		//! @param windowTitle for tray and windowed mode
-		//! @param externalHandle can be used for embedding Engine int another application editor, browser etc
-		bool setup(bool alwaysShowConfigDialog = false, String const & windowTitle = StringUtil::BLANK, String const & externalHandle = StringUtil::BLANK);
+		//! @param externalHandle can be used for embedding Engine into custom created window
+		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
+		bool setup(bool alwaysShowConfigDialog = false, String const & windowTitle = StringUtil::BLANK, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
 
 		//! optional: you can have as many Cameras and Viewports as you wish but in most cases 1 is enough for a game
 		void createDefaultCameraAndViewport();
@@ -101,8 +102,6 @@ namespace Orkige
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
 		inline String const & getTopLevelWindowHandle(); 
-		//! set the top level window handle if Engine is embedded into multi window app
-		inline void setTopLevelWindowHandle(String const & handle); 
 		
 		/** \addtogroup Debug
 		*  @{ */
@@ -148,11 +147,6 @@ namespace Orkige
 	inline String const & Engine::getExternalWindowHandle()
 	{
 		return this->externalWindowHandle;
-	}
-	//---------------------------------------------------------------
-	inline void Engine::setTopLevelWindowHandle(String const & handle)
-	{
-		this->topLevelWindowHandle = handle;
 	}
 	//---------------------------------------------------------------
 	inline String const & Engine::getTopLevelWindowHandle()

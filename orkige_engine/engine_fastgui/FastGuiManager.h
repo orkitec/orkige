@@ -81,6 +81,8 @@ namespace Orkige
 		inline String const & getDefaultAtlas();
 		//! show frame stats
 		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK);
+		//! update statistic
+		void updateStats();
 		//! hide frame stats
 		void hideStats();
 		//! reorder the view rendering by their z value

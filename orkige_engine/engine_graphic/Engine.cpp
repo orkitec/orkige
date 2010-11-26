@@ -50,10 +50,18 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
-	bool Engine::setup(bool alwaysShowConfigDialog, String const & windowTitle, String const & externalHandle)
+	bool Engine::setup(bool alwaysShowConfigDialog, String const & windowTitle, String const & externalHandle, String const & topLevelHandle)
 	{
 		this->externalWindowHandle = externalHandle;
-		this->topLevelWindowHandle = externalHandle;
+		
+		if(topLevelHandle.empty() && !externalHandle.empty())
+		{
+			this->topLevelWindowHandle = externalHandle;
+		}
+		else
+		{
+			this->topLevelWindowHandle = topLevelHandle;
+		}
 		if(!this->configure(alwaysShowConfigDialog, windowTitle))
 			return false;
 
@@ -75,10 +83,6 @@ namespace Orkige
 	bool Engine::renderOneFrame()
 	{
 		Ogre::WindowEventUtilities::messagePump();
-
-		/*
-		this->viewport->update();
-				this->renderWindow->update();*/
 		
 		return this->root->renderOneFrame();
 	}
@@ -94,14 +98,14 @@ namespace Orkige
 		Ogre::Real delta = Ogre::Real(timeDiff) / 1000.f;
 		this->data->timeSinceLastFrame = delta;
 		this->data->timeSinceLastEvent = delta;
-		this->eventManager->trigger(this->frameStartedEvent);
+		//this->eventManager->trigger(this->frameStartedEvent);
 		//this->viewport->update();
 		this->renderWindow->_updateViewport(this->viewport, true);
-		this->eventManager->trigger(this->frameRenderingQueuedEvent);
+		//this->eventManager->trigger(this->frameRenderingQueuedEvent);
 		this->renderWindow->_beginUpdate();
 		this->renderWindow->swapBuffers();
 		this->renderWindow->_endUpdate();
-		this->eventManager->trigger(this->frameEndedEvent);
+		//this->eventManager->trigger(this->frameEndedEvent);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -175,28 +179,44 @@ namespace Orkige
 			}
 			else
 			{
-				this->renderWindow = this->root->initialise(false, windowTitle);
+				this->renderWindow = this->root->initialise(false/*, windowTitle*/);
 				
-				unsigned int width;
-				unsigned int height;
-				unsigned int colourDepth; 
-				int left;
-				int top;
-				this->renderWindow->getMetrics(width, height, colourDepth, left, top);
+				unsigned int width = 640;
+				unsigned int height = 480;
+				unsigned int depth; 
+				int left = 0;
+				int top = 0;
+				if(this->renderWindow)
+				{
+					this->renderWindow->getMetrics(width, height, depth, left, top);
+				}
 
 				Ogre::NameValuePairList params;
+				params["parentWindowHandle"] = this->topLevelWindowHandle;
 				params["externalWindowHandle"] = this->externalWindowHandle;
 
 				try
 				{
+					oDebugMsg("core", 0, "Trying to create external RenderWindow with handle: " << this->externalWindowHandle << " and size: " << width << "x" << height);
 					this->renderWindow = this->root->createRenderWindow(windowTitle, width, height, false, &params);
+
+					this->renderWindow->setDeactivateOnFocusChange(false);
+					this->renderWindow->setActive(true);
+					this->renderWindow->reposition(left,top);
+					this->renderWindow->resize(width, height);
+
+					this->renderWindow->windowMovedOrResized();
 				}
 				catch (...)
 				{
+					oDebugMsg("core", 0, "Error while creating external RenderWindow showing config");
 					this->root->showConfigDialog();
+					oDebugMsg("core", 0, "Trying to create external window with handle: " << this->externalWindowHandle);
 					this->renderWindow = this->root->createRenderWindow(windowTitle, width, height, false, &params);
 				}
-
+				oAssert(this->renderWindow);
+				this->renderWindow->getMetrics( width, height, depth, left, top );
+				oDebugMsg("core", 0, "external RenderWindow initialized! width, height, depth, left, top: " << width <<", "<< height<<", "<< depth<<", "<< left<<", "<< top);
 			}
 			return true;
 		}
@@ -208,7 +228,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameStarted(const Ogre::FrameEvent& evt)
 	{
-		if(this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;
@@ -218,7 +238,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameRenderingQueued(const Ogre::FrameEvent& evt)
 	{
-		if(this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;
@@ -228,7 +248,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameEnded(const Ogre::FrameEvent& evt)
 	{
-		if(this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;

@@ -157,6 +157,23 @@ namespace Orkige
 		this->stats.reset();
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::updateStats()
+	{
+		if(this->stats)
+		{
+			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
+			std::stringstream sstr;
+			sstr << "FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
+			sstr << "Average FPS: "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
+			sstr << "Best FPS:        "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
+			sstr << "Worst FPS:      "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
+			sstr << "Triangles:       "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
+			sstr << "Batches:         "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			this->stats->setText(sstr.str());
+			this->stats->getMarkupText()->background(Gorilla::rgb(123,123,123,123));
+		}
+	}
+	//---------------------------------------------------------
 	void FastGuiManager::reorderViews()
 	{
 		FastGuiViewList orderedViews;
@@ -179,19 +196,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{
-		if(this->stats)
-		{
-			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
-			std::stringstream sstr;
-			sstr << "FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
-			sstr << "Average FPS: "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
-			sstr << "Best FPS:        "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
-			sstr << "Worst FPS:      "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
-			sstr << "Triangles:       "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
-			sstr << "Batches:         "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
-			this->stats->setText(sstr.str());
-			this->stats->getMarkupText()->background(Gorilla::rgb(123,123,123,123));
-		}
+		this->updateStats();
 		return false;
 	}
 	//---------------------------------------------------------

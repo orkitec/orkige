@@ -12,6 +12,7 @@
 #include <OISKeyboard.h>
 #include <OISMouse.h>
 #include <OISMultiTouch.h>
+#include <OISException.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
 #include "engine_util/StringUtil.h"
@@ -433,29 +434,86 @@ namespace Orkige
 		{
 			// Setup basic variables
 			OIS::ParamList paramList;    
-			size_t windowHnd = 0;
 
-			// Get window handle	
+			String const & externalTopLevelWindowHandle = Engine::getSingleton().getTopLevelWindowHandle();
+
+			if(externalTopLevelWindowHandle.empty())//Default Window
+			{
+				size_t windowHnd = 0;
+
+				// Get window handle	
 #if defined OIS_LINUX_PLATFORM
-			Engine::getSingleton().getRenderWindow()->getCustomAttribute( "GLXWINDOW", &windowHnd );
+				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "GLXWINDOW", &windowHnd );
 #else
-			Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
+				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
 #endif
 
+				paramList.insert( std::make_pair( "WINDOW" , StringUtil::Converter::toString(windowHnd) ) );
+			}
+			else//wxWindow or something else
+			{
+				paramList.insert(std::make_pair("WINDOW",		externalTopLevelWindowHandle ) );
+				paramList.insert(std::make_pair("w32_keyboard", "DISCL_BACKGROUND"));
+				paramList.insert(std::make_pair("w32_keyboard", "DISCL_NONEXCLUSIVE"));
+				paramList.insert(std::make_pair("w32_mouse",	"DISCL_BACKGROUND"));
+				paramList.insert(std::make_pair("w32_mouse",	"DISCL_NONEXCLUSIVE"));
 
-			paramList.insert(std::make_pair("WINDOW", StringUtil::Converter::toString(windowHnd)));
+			}
 
+			oDebugMsg("core", 0, "creating InputSystem");
 			// Create inputsystem
-			this->impl->inputSystem = OIS::InputManager::createInputSystem( paramList );
+			try
+			{
+				this->impl->inputSystem = OIS::InputManager::createInputSystem( paramList );
+			}
+			catch (OIS::Exception const & e)
+			{
+				oDebugMsg("core", 0, "Error creating InputSystem: " << e.eText);
+				return;
+			}
+			catch (...)
+			{
+				oDebugMsg("core", 0, "Error creating InputSystem: " << "UNKNOWN_EXCEPTION");
+				return;
+			}
 
+			
 #ifndef ORKIGE_IPHONE
-			// If possible create a buffered keyboard
-			this->impl->keyboard = static_cast<OIS::Keyboard*>( this->impl->inputSystem->createInputObject( OIS::OISKeyboard, true ) );
-			this->impl->keyboard->setEventCallback( this->impl );
+			oDebugMsg("core", 0, "creating Keyboard");
+			try
+			{
+				// If possible create a buffered keyboard
+				this->impl->keyboard = static_cast<OIS::Keyboard*>( this->impl->inputSystem->createInputObject( OIS::OISKeyboard, true ) );
+				if(this->impl->keyboard)
+					this->impl->keyboard->setEventCallback( this->impl );
+			}
+			catch (OIS::Exception const & e)
+			{
+				oDebugMsg("core", 0, "Error creating OISKeyboard: " << e.eText);
+			}
+			catch (...)
+			{
+				oDebugMsg("core", 0, "Error creating OISKeyboard: " << "UNKNOWN_EXCEPTION");
+				return;
+			}
 
-			// If possible create a buffered mouse
-			this->impl->mouse = static_cast<OIS::Mouse*>( this->impl->inputSystem->createInputObject( OIS::OISMouse, true ) );
-			this->impl->mouse->setEventCallback( this->impl );
+			oDebugMsg("core", 0, "creating Mouse");
+			try
+			{
+				// If possible create a buffered mouse
+				this->impl->mouse = static_cast<OIS::Mouse*>( this->impl->inputSystem->createInputObject( OIS::OISMouse, true ) );
+				if(this->impl->mouse)
+					this->impl->mouse->setEventCallback( this->impl );
+			}
+			catch (OIS::Exception const & e)
+			{
+				oDebugMsg("core", 0, "Error creating OISMouse: " << e.eText);
+			}
+			catch (...)
+			{
+				oDebugMsg("core", 0, "Error creating OISMouse: " << "UNKNOWN_EXCEPTION");
+				return;
+			}
 #else
 			// If possible create a buffered mouse
 			this->impl->touch = static_cast<OIS::MultiTouch*>( this->impl->inputSystem->createInputObject( OIS::OISMultiTouch, true ) );
@@ -475,23 +533,38 @@ namespace Orkige
 
 			// Set mouse region
 			this->setWindowExtents( width, height );
+			oDebugMsg("core", 0, "Input initialized! width, height, depth, left, top: " << width <<", "<< height<<", "<< depth<<", "<< left<<", "<< top);
 		}
 	}
 	//---------------------------------------------------------
 	void InputManager::capture( void ) 
 	{
-		if( this->impl->keyboard )
+		try
 		{
-			this->impl->keyboard->capture();
+			if( this->impl->keyboard )
+			{
+				this->impl->keyboard->capture();
+			}
+			if( this->impl->mouse )
+			{
+				this->impl->mouse->capture();
+			}
+			if( this->impl->touch )
+			{
+				this->impl->touch->capture();
+			}
 		}
-		if( this->impl->mouse )
+		catch (OIS::Exception const & e)
 		{
-			this->impl->mouse->capture();
+			oDebugMsg("core", 0, "Error capturing Input: " << e.eText);
 		}
-		if( this->impl->touch )
+		catch (...)
 		{
-			this->impl->touch->capture();
+			oDebugMsg("core", 0, "Error capturing Input: " << "UNKNOWN_EXCEPTION");
+			return;
 		}
+
+
 #ifdef ORKIGE_IPHONE
 		[this->impl->gestureView becomeFirstResponder];
 #endif
