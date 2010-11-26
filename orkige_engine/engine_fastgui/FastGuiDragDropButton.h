@@ -45,6 +45,7 @@ namespace Orkige
 		optr<DragEventData>					dragEventData;	//!< event data
 		Ogre::Vector2						initialDecorPosition; //!< initial position of the decor to snap it back after it gets moved around
 		Ogre::Vector2						imageToCursorOffset; //!< offset between the image and the cursor position
+		bool								isEnabled;
 	private:
 		//--- Methods -----------------------------------------------
 	public:

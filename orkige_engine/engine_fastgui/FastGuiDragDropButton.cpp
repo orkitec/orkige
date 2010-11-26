@@ -46,6 +46,8 @@ namespace Orkige
 		this->dragEventData = onew(new DragEventData());
 		this->dragEventData->button = oBadPointer(this);
 		this->dragEvent.setData(this->dragEventData);
+
+		this->isEnabled = true;
 	}
 	//---------------------------------------------------------
 	FastGuiDragDropButton::~FastGuiDragDropButton()
@@ -113,9 +115,16 @@ namespace Orkige
 	
 			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
 	
-			this->dragEventData->state = DragEventData::DS_DRAG_END;
+			
 			this->dragEventData->position = cursorPos;
-		
+			if (this->isEnabled)
+			{
+				this->dragEventData->state = DragEventData::DS_DRAG_END;
+			}
+			else
+			{
+				this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+			}
 			GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
 		}
 		else if (this->state == FastGuiDragDropButton::DDBS_DOWN)
@@ -169,11 +178,13 @@ namespace Orkige
 		this->dragEventData->state = DragEventData::DS_DRAGGING;
 		this->dragEventData->position = cursorPos;
 		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+		
 	}
 	//---------------------------------------------------------
 	void	FastGuiDragDropButton::startDragging	(const Ogre::Vector2& cursorPos)
 	
 	{
+
 		this->setState(FastGuiDragDropButton::DDBS_DRAGGING);
 	
 		this->initialDecorPosition = this->decor->getPosition();
@@ -184,8 +195,8 @@ namespace Orkige
 	
 		this->dragEventData->state = DragEventData::DS_DRAG_START;
 		this->dragEventData->position = cursorPos;
-		
 		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+		
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
