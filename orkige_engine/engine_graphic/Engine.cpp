@@ -82,6 +82,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::renderOneFrame()
 	{
+		OPROFILEFUNC();
 		Ogre::WindowEventUtilities::messagePump();
 		
 		return this->root->renderOneFrame();
@@ -228,6 +229,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameStarted(const Ogre::FrameEvent& evt)
 	{
+		OPROFILEFUNC();
 		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
@@ -238,6 +240,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameRenderingQueued(const Ogre::FrameEvent& evt)
 	{
+		OPROFILEFUNC();
 		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
@@ -248,6 +251,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::frameEnded(const Ogre::FrameEvent& evt)
 	{
+		OPROFILEFUNC();
 		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
@@ -261,7 +265,6 @@ namespace Orkige
 		OSINGLETON()
 		OFUNC(getSceneManager)
 		OFUNC(setup)
-		OFUNC(setTopLevelWindowHandle)
 		OFUNC(getTopLevelWindowHandle)
 		OFUNC(createDefaultCameraAndViewport)
 		OFUNC(renderOneFrame)

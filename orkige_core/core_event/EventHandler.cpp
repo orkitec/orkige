@@ -75,6 +75,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EventHandler::unRegisterAllEvents()
 	{
+		if(this->registeredEvents.empty())
+			return true;//nothing todo
+
 		EventManager* eventManager = this->getEventManager();
 		oDebugWarning(eventManager, "You have to set a EventManager before unregistering Events.");
 

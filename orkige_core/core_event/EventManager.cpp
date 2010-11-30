@@ -9,6 +9,7 @@
 
 #include "core_event/EventManager.h"
 #include "core_util/Timer.h"
+#include "core_debug/Profile.h"
 
 #ifdef ORKIGE_NDS
 #include <extras.h>
@@ -121,7 +122,7 @@ namespace Orkige
 		evlTable.push_back( inListener );
 
 		//sort the listeners by their priority
-		evlTable.sort();
+		evlTable.sort(EventListenerOptrCmp());
 		return true;
 	}
 	//---------------------------------------------------------
@@ -161,33 +162,13 @@ namespace Orkige
 		return rc;
 	}
 	//---------------------------------------------------------
-	bool EventManager::trigger (
-		Event const & inEvent ) const
+	bool EventManager::trigger (Event const & inEvent) const
 	{
+		OPROFILE(String(__FUNCTION__) + "( " + inEvent.getObjectID() + " )");
 		if ( ! this->validateType( inEvent.getType() ) )
 			return false;
 
-
-		/*
-		EventListenerMap::const_iterator itWC = this->registry.find( 0 );
-		
-				if ( itWC != this->registry.end() )
-				{
-					EventListenerTable const & table = itWC->second;
-		
-					bool processed = false;
-		
-					for ( EventListenerTable::const_iterator it2 = table.begin(),
-						it2End = table.end(); it2 != it2End; it2++ )
-					{
-						return (*it2)->call( inEvent );
-					}
-				}*/
-		
-
-
-		const EventListenerMap::const_iterator it =
-			this->registry.find( inEvent.getType().getId() );
+		const EventListenerMap::const_iterator it = this->registry.find( inEvent.getType().getId() );
 
 		if ( it == this->registry.end() )
 			return false;
@@ -198,13 +179,10 @@ namespace Orkige
 		for ( EventListenerTable::const_iterator it2 = table.begin(), it2End = table.end(); it2 != it2End; ++it2 )
 		{
 			// only set to true, if processing eats the messages
-			//if( (*it2)( inEvent ) )
-			optr<EventListener> const & listener = *it2;
-			if(listener->call(inEvent))
+			if((*it2)->eventHandlerFunction(inEvent))
 			{
 				return true;
 			}
-		
 		}
 
 		return false;
@@ -243,7 +221,7 @@ namespace Orkige
 		oAssert ( this->activeQueue >= 0 );
 		oAssert ( this->activeQueue < NumEventQueues );
 
-		if ( ! validateType( inType ) )
+		if ( ! this->validateType( inType ) )
 			return false;
 
 		EventListenerMap::iterator it = this->registry.find( inType.getId() );
@@ -269,6 +247,7 @@ namespace Orkige
 	//---------------------------------------------------------	
 	bool EventManager::tick ( unsigned long maxMillis )
 	{
+		OPROFILEFUNC();
 		unsigned long curMs = Timer::getMilliseconds();
 		unsigned long maxMs = maxMillis == EventManager::InfiniteProcessTime ? EventManager::InfiniteProcessTime : (curMs + maxMillis );
 
@@ -306,7 +285,7 @@ namespace Orkige
 
 				for ( EventListenerTable::const_iterator it2 = table.begin(), it2End = table.end(); it2 != it2End; ++it2 )
 				{
-					(*it2)->call( *event );
+					(*it2)->eventHandlerFunction( *event );
 				}
 			}
 
@@ -319,7 +298,7 @@ namespace Orkige
 
 			for ( EventListenerTable::const_iterator it = table.begin(), end = table.end(); it != end ; ++it)
 			{
-				if ( (*it)->call( *event ) )
+				if ( (*it)->eventHandlerFunction( *event ) )
 				{
 					break;
 				}
@@ -366,14 +345,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EventManager::validateType( EventType const & inType ) const
 	{
+		OPROFILEFUNC();
 		if ( inType.getName().empty() )
 			return false;
 
 		if ( ( inType.getId() == 0 ) && (inType.getName().compare(WildcardEventType) != 0) )
 			return false;
 
-		EventTypeSet::const_iterator evIt =
-			this->typeList.find( inType );
+		EventTypeSet::const_iterator evIt =	this->typeList.find( inType );
 
 		if ( evIt != this->typeList.end() )
 		{
@@ -383,7 +362,7 @@ namespace Orkige
 			EventType const & known = *evIt;
 
 			// tag mismatch for ident value, not accepted
-			if( known.getId() != inType.getId() /*known.getObjectID().compare(inType.getObjectID()) != 0*/)
+			if( known.getId() != inType.getId())
 				return false;
 
 		}
@@ -395,7 +374,7 @@ namespace Orkige
 		EventType const & eventType ) const
 	{
 		// invalid event type, so sad
-		if ( ! validateType( eventType ) )
+		if ( ! this->validateType( eventType ) )
 			return EventListenerList();
 
 		EventListenerMap::const_iterator itListeners = this->registry.find( eventType.getId() );

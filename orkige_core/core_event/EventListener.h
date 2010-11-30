@@ -11,6 +11,7 @@
 
 #include "core_event/Event.h"
 #include "core_util/FastDelegate.h"
+#include "core_debug/Profile.h"
 
 namespace Orkige
 {
@@ -36,8 +37,8 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		const EventHandlerFunction eventHandler;	//!< assigned EventHandlerFunction
-		signed short priority;						//!< priority (Default 0)
+		const EventHandlerFunction eventHandlerFunction;	//!< assigned EventHandlerFunction
+		signed short priority;								//!< priority (Default 0)
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor takes a EventHandlerFunction
@@ -46,15 +47,10 @@ namespace Orkige
 		EventListener(EventHandlerFunction const & handler, signed short priority);
 		//! destructor
 		~EventListener();
+		//! for priority sorting
+		inline bool operator < (EventListener const & other) const;
 	protected:
 	private:
-		//! call EventHandlerFunction
-		inline const bool call(Event const & event) const;
-		//! for priority sorting
-		inline bool operator < (const EventListener & other) const 
-		{
-			return this->priority < other.priority;
-		}
 	};
 	//---------------------------------------------------------
 	static inline optr<EventListener> createEventListenerPtr(EventHandlerFunction const & handlerFunction, signed short priority = 0)
@@ -68,11 +64,19 @@ namespace Orkige
 		return createEventListenerPtr(MakeEventHandlerFunction(handlerClass, handlerFunction), priority);
 	}
 	//---------------------------------------------------------
-	inline const bool EventListener::call(Event const & event) const
+	inline bool EventListener::operator < (EventListener const & other) const 
 	{
-		return this->eventHandler(event);
+		OPROFILEFUNC();
+		return this->priority < other.priority;
 	}
 	//---------------------------------------------------------
+	struct EventListenerOptrCmp
+	{
+		inline bool operator()( optr<EventListener> const & lhs, optr<EventListener> const & rhs)
+		{
+			return *lhs < *rhs;
+		}
+	};
 }
 
 #endif //__EventListener_h__26_7_2010__13_32_42__

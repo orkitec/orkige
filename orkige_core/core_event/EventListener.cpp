@@ -16,11 +16,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	EventListener::EventListener(EventHandlerFunction const & handler) : eventHandler(handler), priority(0)
+	EventListener::EventListener(EventHandlerFunction const & handler) : eventHandlerFunction(handler), priority(0)
 	{
 	}
 	//---------------------------------------------------------
-	EventListener::EventListener(EventHandlerFunction const & handler,signed short prio) : eventHandler(handler), priority(prio)
+	EventListener::EventListener(EventHandlerFunction const & handler,signed short prio) : eventHandlerFunction(handler), priority(prio)
 	{
 	}
 	//---------------------------------------------------------

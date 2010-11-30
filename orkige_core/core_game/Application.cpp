@@ -30,6 +30,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Application::run()
 	{
+		OPROFILEFUNC();
 		this->gom->processDeleteQueue();
 		this->gem->tick();
 		this->gem->trigger(Event(Application::UpdateEvent));
