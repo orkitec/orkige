@@ -48,9 +48,7 @@ namespace Orkige
 		return listener;
 	}
 	//---------------------------------------------------------
-	bool EventManager::addListener (
-		optr<EventListener> & inListener,
-		EventType const & inType )
+	bool EventManager::addListener (optr<EventListener> & inListener, EventType const & inType )
 	{
 		if ( ! this->validateType( inType ) )
 			return false;
@@ -102,7 +100,7 @@ namespace Orkige
 		// list (if any entries) to prevent duplicate addition of
 		// listeners. This is a bit more costly at registration time
 		// but will prevent the hard-to-notice duplicate event
-		// propogation sequences that would happen if double-entries
+		// propagation sequences that would happen if double-entries
 		// were allowed.
 
 		// note: use reference to make following code more simple
@@ -126,8 +124,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	bool EventManager::delListener (
-		optr<EventListener> const & inListener, EventType const & inType )
+	bool EventManager::delListener (optr<EventListener> const & inListener, EventType const & inType )
 	{
 		if ( ! this->validateType( inType ) )
 			return false;
@@ -215,8 +212,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	bool EventManager::abortEvent ( EventType const & inType,
-		bool allOfType )
+	bool EventManager::abortEvent ( EventType const & inType, bool allOfType )
 	{
 		oAssert ( this->activeQueue >= 0 );
 		oAssert ( this->activeQueue < NumEventQueues );
@@ -370,8 +366,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	EventListenerList EventManager::getListenerList (
-		EventType const & eventType ) const
+	EventListenerList EventManager::getListenerList ( EventType const & eventType ) const
 	{
 		// invalid event type, so sad
 		if ( ! this->validateType( eventType ) )

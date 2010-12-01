@@ -51,8 +51,8 @@ namespace Ogre {
 		//GetClientRect(mNativeDisplay, &windowRect);
 		mNativeDisplay = getNativeDisplay();
 		mGLDisplay = getGLDisplay();
-		mCurrentMode.first.first = 555; // todo
-		mCurrentMode.first.second = 555; // todo
+		mCurrentMode.first.first = 960; // todo
+		mCurrentMode.first.second = 640; // todo
 		mCurrentMode.second = 0;
 		mOriginalMode = mCurrentMode;
 		mVideoModes.push_back(mCurrentMode);

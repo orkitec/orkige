@@ -558,10 +558,10 @@ namespace Orkige
 		{
 			oDebugMsg("core", 0, "Error capturing Input: " << e.eText);
 		}
-		catch (...)
+		catch (Ogre::Exception const & e)
 		{
-			oDebugMsg("core", 0, "Error capturing Input: " << "UNKNOWN_EXCEPTION");
-			return;
+			oDebugMsg("core", 0, "Error capturing Input: " << e.getDescription());
+			throw e;
 		}
 
 
