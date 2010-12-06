@@ -28,9 +28,9 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		GameObjectMap objects;			//!< managed GameObject's
-		EventListenerMap globalEvents;	//!< enabled Global Event's
-		StringVector deleteQueue;		//!< queue of GameObjects that should be delted on next update
+		GameObjectMap objects;			//!< managed GameObjects
+		EventListenerMap globalEvents;	//!< enabled Global Events
+		StringVector deleteQueue;		//!< queue of GameObjects that should be deleted on next update
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -40,23 +40,23 @@ namespace Orkige
 		virtual ~GameObjectManager();
 		//! check if GameObject with given id exists
 		inline bool objectExists(String const & id);
-		//! get gameObject with given id
+		//! get GameObject with given id
 		inline woptr<GameObject> getGameObject(String const & id);
-		//! add a gameObject to the list of managed Objects
+		//! add a GameObject to the list of managed GameObjects
 		inline bool addGameObject(optr<GameObject> obj);
 		//! remove GameObject
 		inline bool delGameObject(String const & id);
-		//! add objects to queu and delte then ob next Application update
+		//! add objects to queue and delete them on next Application update
 		inline bool queueDelGameObject(String const & id);
-		//! create a gameObject with given id and add it to the list of managed GameObject's
+		//! create a GameObject with given id and add it to the list of managed GameObjects
 		inline woptr<GameObject> createGameObject(String const & id); 
-		//! get map with all GameObject's
+		//! get map with all GameObjects
 		inline GameObjectMap const & getGameObjects();
-		//! remove alle managed GameObject's
+		//! remove all managed GameObjects
 		inline void clear();
-		//! triggers an event on all gameobjects
+		//! triggers an event on all GameObjects
 		inline bool triggerEvent(Event const & event) const;
-		//! forward given Event to all GameObject's
+		//! forward given Event to all GameObjects
 		bool enableEvent(EventType const & eventType);
 		//! stop forwarding given Event
 		bool disableEvent(EventType const & eventType);
