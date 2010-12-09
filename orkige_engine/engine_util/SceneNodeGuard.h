@@ -217,7 +217,7 @@ namespace Orkige
 		inline void setDebugDisplayEnabled(bool enabled, bool cascade = true);
 		//! @copydoc Ogre::SceneNode::getDebugRenderable
 		inline Ogre::Node::DebugRenderable* getDebugRenderable();
-		//! attach to given node and tetach from current parent node
+		//! attach to given node and detach from current parent node
 		inline void attachToNode(Ogre::Node* node);
 		//! enable triggering of NodeUpdateEvent
 		inline void setEnableNodeUpdateEvent(bool enable);
@@ -588,6 +588,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	inline void SceneNodeGuard::attachToNode(Ogre::Node* node)
 	{
+		//if node already has a parent detach it first
+		Ogre::Node* parent = this->sceneNode->getParent();
+		if(parent)
+		{
+			parent->removeChild(this->sceneNode);
+		}
+		//set the new parent
 		node->addChild(this->sceneNode);
 	}
 	//---------------------------------------------------------
