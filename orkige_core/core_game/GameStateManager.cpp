@@ -96,13 +96,24 @@ namespace Orkige
 		this->pushState(id);
 	}
 	//---------------------------------------------------------
-	optr<GameState> GameStateManager::getCurrent()
+	woptr<GameState> GameStateManager::getCurrent()
 	{
 		if(this->statePath.empty())
 		{
 			throw GameStateError("State Path empty! No State to Get!");
 		}
 		return this->statePath.back();
+	}
+	//---------------------------------------------------------
+	woptr<GameState> GameStateManager::getState(String const & id)
+	{
+		StateRegistryMap::iterator it = this->stateRegistry.find(id);
+		if(it != this->stateRegistry.end())
+		{
+			return it->second;
+		}
+
+		return oNULL(GameState);
 	}
 	//---------------------------------------------------------
 	String GameStateManager::getStatePathString()

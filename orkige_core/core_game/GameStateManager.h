@@ -60,7 +60,9 @@ namespace Orkige
 		//! set a state immediate pop current state and push the new on
 		void setState(String const & id);
 		//! get current active GameState
-		optr<GameState> getCurrent();
+		woptr<GameState> getCurrent();
+		//! get state with given id
+		woptr<GameState> getState(String const & id);
 		//! get id of current GameState
 		inline String getCurrentStateID();
 		//! get id of previous GameState
@@ -79,7 +81,7 @@ namespace Orkige
 	{
 		try
 		{
-			return this->getCurrent()->getObjectID();
+			return this->getCurrent().lock()->getObjectID();
 		}
 		catch (GameStateManager::GameStateError const &)
 		{

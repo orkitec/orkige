@@ -465,7 +465,8 @@ namespace Orkige
 
 		woptr<FastGuiButton> button = this->createButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
 		oAssert(button.lock());
-		button.lock()->getLabel().lock()->getCaption()->colour(color);
+		if(button.lock()->getLabel().lock())
+			button.lock()->getLabel().lock()->getCaption()->colour(color);
 	}
 	//---------------------------------------------------------
  	void FastGuiFactory::onLoadCheckBox( String const & id, SettingsMultiMap* settings )

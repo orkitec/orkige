@@ -20,9 +20,13 @@ namespace Orkige
 	{
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		
-		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
-		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
-		this->label->setAlignment(textAlignment);
+		if(!text.empty())
+		{
+			this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
+			this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
+			this->label->setAlignment(textAlignment);
+		}
+
 
 		this->state = BS_UP;
 		this->baseSpriteName = spriteName;
@@ -40,13 +44,15 @@ namespace Orkige
 	void FastGuiButton::setPosition(Ogre::Real left, Ogre::Real top)
 	{
 		this->decor->setPosition(left, top);
-		this->label->setPosition(left, top);
+		if(label) 
+			this->label->setPosition(left, top);
 	}
 	//---------------------------------------------------------
 	void FastGuiButton::setSize(Ogre::Real width, Ogre::Real height)
 	{
 		this->decor->setSize(width, height);
-		this->label->setSize(width, height);
+		if(label) 
+			this->label->setSize(width, height);
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiButton::getSize()
@@ -96,12 +102,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	String FastGuiButton::getCaption()
 	{
-		return this->label->getCaption()->text();	
+		if(label)
+			return this->label->getCaption()->text();	
+		else
+			return StringUtil::BLANK;
 	}
 	//---------------------------------------------------------
 	void FastGuiButton::setCaption(String const & text)
 	{
-		this->label->setText(text);
+		if(label)
+			this->label->setText(text);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

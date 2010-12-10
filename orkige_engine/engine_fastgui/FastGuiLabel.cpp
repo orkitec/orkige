@@ -18,6 +18,7 @@ namespace Orkige
 	FastGuiLabel::FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
 	{
 		this->caption = this->layer->createCaption(defaultGlyphIndex, position.x, position.y, text );
+
 	}
 	//---------------------------------------------------------
 	FastGuiLabel::~FastGuiLabel()
