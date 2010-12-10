@@ -83,6 +83,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
+		
 
 		if ( this->state == FastGuiDragDropButton::DDBS_DRAGGING )
 		{
@@ -91,7 +92,10 @@ namespace Orkige
 
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
-			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
+			if (this->isEnabled)
+			{
+				this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
+			}
 	
 			this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
 			this->dragEventData->position = cursorPos;
@@ -171,9 +175,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	FastGuiDragDropButton::dragging	(const Ogre::Vector2& cursorPos)
 	{
+		if (this->isEnabled)
+		{
+			this->decor->setPosition(cursorPos.x - this->imageToCursorOffset.x,
+				cursorPos.y - this->imageToCursorOffset.y);
+		}
 		
-		this->decor->setPosition(cursorPos.x - this->imageToCursorOffset.x,
-								 cursorPos.y - this->imageToCursorOffset.y);
 	
 		this->dragEventData->state = DragEventData::DS_DRAGGING;
 		this->dragEventData->position = cursorPos;
@@ -189,9 +196,16 @@ namespace Orkige
 	
 		this->initialDecorPosition = this->decor->getPosition();
 	
-		this->imageToCursorOffset = Ogre::Vector2(
-			cursorPos.x - this->decor->getPosition().x,
-			cursorPos.y - this->decor->getPosition().y );
+// 		this->imageToCursorOffset = Ogre::Vector2(
+// 			cursorPos.x - this->decor->getPosition().x,
+// 			cursorPos.y - this->decor->getPosition().y );
+
+		this->imageToCursorOffset =  Ogre::Vector2(
+			 this->decor->getSize().x/2.0f,
+			this->decor->getSize().x*0.5f + this->decor->getSize().y/2.0f );
+
+
+
 	
 		this->dragEventData->state = DragEventData::DS_DRAG_START;
 		this->dragEventData->position = cursorPos;
