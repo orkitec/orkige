@@ -26,13 +26,14 @@ namespace Orkige
 		typedef BaseComponentType OwnedComponentType;						//!< definition of the owned Component Type
 		typedef std::map<TypeInfo, optr<BaseComponentType> > ComponentMap;	//!< map of Component's and their Types
 		typedef typename BaseComponentType::Factory OwnedComponentFactory;	//!< factory to create Components
+		typedef std::map<TypeInfo, TypeInfoList> TypeInfoListMap;			//!< maps list of TypeInfos to a TypeInfo for registering dependecies
 	protected:
 	private:
 		//--- Variables ---------------------------------------
 	public:
 	protected:
 	private:
-		ComponentMap components;											//!< created Component's
+		ComponentMap components;											//!< created Components
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
@@ -154,14 +155,18 @@ namespace Orkige
 		//! get list of all registered components
 		static inline TypeInfoList getRegisteredComponentTypes();
 
+		//! get depencies for this component type
+		static inline TypeInfoList & getDependencies(TypeInfo const & componentType);
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar);
 		virtual void load(optr<IArchive> const & ar);
 	protected:
 		//! prevent construction
 		ComponentHolder(){};
-		//! get static componentfactory for this ComponentHolder
+		//! get static ComponentFactory for this ComponentHolder
 		static optr<OwnedComponentFactory> getComponentFactory();
+		//! get static dependencies map for this ComponentHolder
+		static optr<TypeInfoListMap> getDependencies();
 	private:
 	};
 	//---------------------------------------------------------
@@ -355,6 +360,19 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
+	inline TypeInfoList & ComponentHolder<BaseComponentType>::getDependencies(TypeInfo const & componentType)
+	{
+		optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> allDependencies = OSelf::getDependencies();
+		ComponentHolder<BaseComponentType>::TypeInfoListMap::iterator it = allDependencies->find(componentType);
+		if(it == allDependencies->end())
+		{
+			allDependencies->insert(std::make_pair(componentType, TypeInfoList()));
+		}
+		it = allDependencies->find(componentType);
+		return it->second;
+	}
+	//---------------------------------------------------------
+	template<class BaseComponentType>
 	inline void ComponentHolder<BaseComponentType>::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
@@ -373,55 +391,38 @@ namespace Orkige
 	//has to be called before exporting your own module
 	//you need also to OEXPORT(ComponentHolder<BaseComponentType>)
 
-#ifndef __WIN32__
-#define IMPLEMENT_COMPONENTHOLDER(BaseComponentType)											\
-	template <> optr<BaseComponentType::Factory> ComponentHolder<BaseComponentType>::getComponentFactory()	\
-	{																							\
-	static optr<BaseComponentType::Factory> staticComponentFactory##BaseComponentType;		\
-	if(!staticComponentFactory##BaseComponentType)											\
-	{																						\
-	staticComponentFactory##BaseComponentType = onew(new BaseComponentType::Factory());	\
-	oDebugMsg("core",0,#BaseComponentType <<"::Factory created!");						\
-	}																						\
-	return staticComponentFactory##BaseComponentType;										\
-	}																							\
-	OOBJECT_TEMPLATE_IMPL(ComponentHolder,BaseComponentType)									\
-	OCONSTRUCTOR1(String)																	\
-	/*OFUNC_OVERL1(bool, addComponent, String &)*/																		\
-	OFUNC(addComponents)																	\
-	/*OFUNC_OVERL1(optr<BaseComponentType>, getComponent, String &)*/																	\
-	OFUNCCR(getComponents)																	\
-	OFUNC(removeComponent)																	\
-	OFUNC(hasComponent)																		\
-	OFUNC(getAttachedComponentTypes)														\
-	OSTATICFUNC(isComponentRegistered)														\
-	OSTATICFUNC(getRegisteredComponentTypes)												\
+
+#define IMPLEMENT_COMPONENTHOLDER(BaseComponentType)																			\
+	template <> optr<BaseComponentType::Factory> ComponentHolder<BaseComponentType>::getComponentFactory()						\
+	{																															\
+	static optr<BaseComponentType::Factory> staticComponentFactory##BaseComponentType;											\
+	if(!staticComponentFactory##BaseComponentType)																				\
+	{																															\
+	staticComponentFactory##BaseComponentType = onew(new BaseComponentType::Factory());											\
+	oDebugMsg("core",0,#BaseComponentType <<"::Factory created!");																\
+	}																															\
+	return staticComponentFactory##BaseComponentType;																			\
+	}																															\
+	template <> optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> ComponentHolder<BaseComponentType>::getDependencies()	\
+	{																															\
+	static optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> staticDependencies##BaseComponentType;						\
+	if(!staticDependencies##BaseComponentType)																					\
+	{																															\
+	staticDependencies##BaseComponentType = onew(new ComponentHolder<BaseComponentType>::TypeInfoListMap());						\
+	}																															\
+	return staticDependencies##BaseComponentType;																				\
+	}																															\
+	OOBJECT_TEMPLATE_IMPL(ComponentHolder,BaseComponentType)																	\
+	OCONSTRUCTOR1(String)																										\
+	OFUNC(addComponents)																										\
+	OFUNCCR(getComponents)																										\
+	OFUNC(removeComponent)																										\
+	OFUNC(hasComponent)																											\
+	OFUNC(getAttachedComponentTypes)																							\
+	OSTATICFUNC(isComponentRegistered)																							\
+	OSTATICFUNC(getRegisteredComponentTypes)																					\
 	OOBJECT_END
-#else
-#define IMPLEMENT_COMPONENTHOLDER(BaseComponentType)											\
-	optr<BaseComponentType::Factory> ComponentHolder<BaseComponentType>::getComponentFactory()	\
-	{																							\
-	static optr<BaseComponentType::Factory> staticComponentFactory##BaseComponentType;		\
-	if(!staticComponentFactory##BaseComponentType)											\
-	{																						\
-	staticComponentFactory##BaseComponentType = onew(new BaseComponentType::Factory());	\
-	oDebugMsg("core",0,#BaseComponentType <<"::Factory created!");						\
-	}																						\
-	return staticComponentFactory##BaseComponentType;										\
-	}																							\
-	OOBJECT_TEMPLATE_IMPL(ComponentHolder,BaseComponentType)									\
-	OCONSTRUCTOR1(String)																	\
-	/*OFUNC(addComponent)*/																		\
-	OFUNC(addComponents)																	\
-	/*OFUNC(getComponent)	*/																	\
-	OFUNCCR(getComponents)																	\
-	OFUNC(removeComponent)																	\
-	OFUNC(hasComponent)																		\
-	OFUNC(getAttachedComponentTypes)														\
-	OSTATICFUNC(isComponentRegistered)														\
-	OSTATICFUNC(getRegisteredComponentTypes)												\
-	OOBJECT_END
-#endif
+
 }
 
 #endif //__ComponentHolder_h__19_8_2010__23_00_22__

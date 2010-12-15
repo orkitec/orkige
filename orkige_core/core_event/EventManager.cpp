@@ -165,7 +165,7 @@ namespace Orkige
 		//if ( ! this->validateType( inEvent.getType() ) )
 		//	return false;
 
-		if(registry.empty())
+		if(this->registry.empty())
 			return false;
 
 		const EventListenerMap::const_iterator it = this->registry.find( inEvent.getType().getId() );

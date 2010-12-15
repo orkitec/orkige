@@ -30,7 +30,6 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		TypeInfoList componentDependencies;	//!< list of Component names this component depends on
 	private:
 		OwnerType* owner;					//!< pointer to the owner of this component
 		//--- Methods -----------------------------------------
@@ -70,13 +69,17 @@ namespace Orkige
 	template<typename OwnerType>
 	inline TypeInfoList const & Component<OwnerType>::getDependencies()
 	{
-		return this->componentDependencies;
+		return OwnerType::getDependencies(this->getTypeInfo());
 	}
 	//---------------------------------------------------------
 	template<typename OwnerType>
 	inline void Component<OwnerType>::addDependency(TypeInfo const & componentType)
 	{
-		this->componentDependencies.push_back(componentType);
+		TypeInfoList & componentDependencies = OwnerType::getDependencies(this->getTypeInfo());
+		if(std::find(componentDependencies.begin(), componentDependencies.end(), componentType) == componentDependencies.end())
+		{
+			componentDependencies.push_back(componentType);
+		}
 	}
 
 	//! has to be called before exporting your own module
