@@ -84,16 +84,16 @@ namespace Orkige
 		if(eventManager == NULL)
 			return false;
 
-		typedef std::vector<EventType> EventTypeVector;
+		typedef std::vector<EventType const *> EventTypeVector;
 		EventTypeVector tempEventTypes;
 		foreach(EventListenerMap::value_type const & vt, registeredEvents)
 		{
-			tempEventTypes.push_back(vt.first);
+			tempEventTypes.push_back(&(vt.first));
 		}
 
-		foreach(EventType const & et, tempEventTypes)
+		foreach(EventType const * et, tempEventTypes)
 		{
-			this->unregisterEvent(et);
+			this->unregisterEvent(*et);
 		}
 
 		return true;

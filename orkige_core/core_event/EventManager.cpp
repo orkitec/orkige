@@ -400,24 +400,6 @@ namespace Orkige
 		return result;
 	}
 	//---------------------------------------------------------
-	const EventTypeList EventManager::getTypeList ( void ) const
-	{
-		// no entries, so sad
-		if ( this->typeList.size() == 0 )
-			return EventTypeList();
-
-		EventTypeList result;
-
-		result.reserve( this->typeList.size() );
-
-		for ( EventTypeSet::const_iterator it = this->typeList.begin(),	itEnd = this->typeList.end(); it != itEnd; ++it )
-		{
-			result.push_back( *it );
-		}
-
-		return result;
-	}
-	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 

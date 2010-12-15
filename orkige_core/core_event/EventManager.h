@@ -140,9 +140,6 @@ namespace Orkige
 
 		//! Get the list of listeners associated with a specific event type
 		EventListenerList getListenerList ( EventType const & eventType ) const;
-
-		//! Get the list of known event types
-		const EventTypeList getTypeList ( void ) const;
 	protected:
 	private:
 	};

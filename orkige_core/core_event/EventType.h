@@ -37,8 +37,6 @@ namespace Orkige
 		inline bool operator< ( EventType const & o ) const;
 		//! @see TypeInfo::isEqual
 		inline bool operator == ( EventType const & o ) const;
-		//! assignment operator
-		inline EventType& operator = (const EventType &o);
 	protected:
 	private:
 		//! private default constructor
@@ -61,13 +59,6 @@ namespace Orkige
 	inline bool EventType::operator == ( EventType const & o ) const		
 	{	
 		return (this->isEqual(o));			
-	}
-	//---------------------------------------------------------
-	inline EventType& EventType::operator = (const EventType &o)
-	{
-		this->id = o.id;
-		this->name = o.name;
-		return *this;
 	}
 	//---------------------------------------------------------
 	inline EventType::EventType( ) 	: TypeInfo("")
