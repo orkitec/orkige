@@ -90,6 +90,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::renderOneFrameFast()
 	{
+		OPROFILEFUNC();
 		Ogre::WindowEventUtilities::messagePump();
 		unsigned long currentFrameTime = Timer::getMilliseconds();
 		unsigned long timeDiff = currentFrameTime - this->lastFrameTime;
@@ -99,14 +100,14 @@ namespace Orkige
 		Ogre::Real delta = Ogre::Real(timeDiff) / 1000.f;
 		this->data->timeSinceLastFrame = delta;
 		this->data->timeSinceLastEvent = delta;
-		//this->eventManager->trigger(this->frameStartedEvent);
+		this->eventManager->trigger(this->frameStartedEvent);
 		//this->viewport->update();
 		this->renderWindow->_updateViewport(this->viewport, true);
-		//this->eventManager->trigger(this->frameRenderingQueuedEvent);
+		this->eventManager->trigger(this->frameRenderingQueuedEvent);
 		this->renderWindow->_beginUpdate();
 		this->renderWindow->swapBuffers();
 		this->renderWindow->_endUpdate();
-		//this->eventManager->trigger(this->frameEndedEvent);
+		this->eventManager->trigger(this->frameEndedEvent);
 		return true;
 	}
 	//---------------------------------------------------------

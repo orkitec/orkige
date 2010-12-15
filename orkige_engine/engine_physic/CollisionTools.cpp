@@ -199,6 +199,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool CollisionTools::raycast(const Ogre::Ray &ray, Ogre::Vector3 &result,Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask)
 	{
+		OPROFILEFUNC();
 		target = NULL;
 
 		// check we are initialised

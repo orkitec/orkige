@@ -46,6 +46,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SceneNodeGuard::SceneNodeListener::nodeUpdated(const Ogre::Node*)
 	{
+		OPROFILEFUNC();
 		if(this->enableNodeUpdatedEvent && this->eventManager)
 		{
 			this->eventManager->trigger(this->nodeUpdatedEvent);
@@ -59,6 +60,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SceneNodeGuard::SceneNodeListener::nodeAttached(const Ogre::Node* node)
 	{
+		OPROFILEFUNC();
 		if(this->eventManager)
 		{
 			this->eventManager->trigger(nodeAttachedEvent);
@@ -67,6 +69,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SceneNodeGuard::SceneNodeListener::nodeDetached(const Ogre::Node* node)
 	{
+		OPROFILEFUNC();
 		if(this->eventManager)
 		{
 			this->eventManager->trigger(nodeDetachedEvent);

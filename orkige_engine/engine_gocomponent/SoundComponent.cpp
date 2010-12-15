@@ -81,7 +81,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundComponent::onAdd()
 	{
-		this->registerEvent(Engine::FrameRenderingQueuedEvent, &SoundComponent::onFrameRenderingQueued, this);
+		this->registerEvent(Engine::FrameStartedEvent, &SoundComponent::onFrameStarted, this);
 	}
 	//---------------------------------------------------------
 	void SoundComponent::onRemove()
@@ -94,7 +94,7 @@ namespace Orkige
 		this->attachedSoundObjects.clear();
 	}
 	//---------------------------------------------------------
-	bool SoundComponent::onFrameRenderingQueued(Event const & event)
+	bool SoundComponent::onFrameStarted(Event const & event)
 	{
 		if(!this->attachedSoundObjects.empty())
 		{

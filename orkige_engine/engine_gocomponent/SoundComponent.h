@@ -46,7 +46,7 @@ namespace Orkige
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
 		//! updates sound positions
-		bool onFrameRenderingQueued(Event const & event);
+		bool onFrameStarted(Event const & event);
 	private:
 	};
 	//---------------------------------------------------------------
