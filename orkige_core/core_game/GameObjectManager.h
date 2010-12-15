@@ -55,7 +55,7 @@ namespace Orkige
 		//! remove all managed GameObjects
 		inline void clear();
 		//! triggers an event on all GameObjects
-		inline bool triggerEvent(Event const & event) const;
+		bool triggerEvent(Event const & event) const;
 		//! forward given Event to all GameObjects
 		bool enableEvent(EventType const & eventType);
 		//! stop forwarding given Event
@@ -156,17 +156,6 @@ namespace Orkige
 	inline void GameObjectManager::clear()										
 	{	
 		this->objects.clear();								
-	}
-	//---------------------------------------------------------
-	inline bool GameObjectManager::triggerEvent(Event const & event) const										
-	{
-		bool retval = false;
-		for(GameObjectMap::const_iterator it=this->objects.begin(),itend = this->objects.end(); it != itend; ++it)
-		{
-			if(it->second->triggerEvent(event))
-				retval = true;
-		}
-		return retval;
 	}
 	//---------------------------------------------------------
 	inline bool GameObjectManager::onGlobalEvent(Event const & event)

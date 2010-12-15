@@ -60,8 +60,22 @@ namespace Orkige
 		return false;	
 	}
 	//---------------------------------------------------------
+	bool GameObjectManager::triggerEvent(Event const & event) const										
+	{
+		OPROFILE(String(__FUNCTION__) + "( " + event.getObjectID() + " )");
+		bool retval = false;
+		for(GameObjectMap::const_iterator it=this->objects.begin(),itend = this->objects.end(); it != itend; ++it)
+		{
+			//OPROFILE(it->second->getObjectID() + "->triggerEvent( " + event.getObjectID() + " )");
+			if(it->second->triggerEvent(event))
+				retval = true;
+		}
+		return retval;
+	}
+	//---------------------------------------------------------
 	void GameObjectManager::processDeleteQueue()
 	{
+		OPROFILEFUNC();
 		foreach(String const & id,  this->deleteQueue)
 		{
 			this->delGameObject(id);

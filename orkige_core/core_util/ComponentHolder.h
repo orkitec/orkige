@@ -24,7 +24,7 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		typedef BaseComponentType OwnedComponentType;						//!< definition of the owned Component Type
-		typedef std::map<String, optr<BaseComponentType> > ComponentMap;	//!< map of Component's and their names
+		typedef std::map<TypeInfo, optr<BaseComponentType> > ComponentMap;	//!< map of Component's and their Types
 		typedef typename BaseComponentType::Factory OwnedComponentFactory;	//!< factory to create Components
 	protected:
 	private:
@@ -49,8 +49,8 @@ namespace Orkige
 		{
 			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 			oAssert(componentFactory);
-			String const & componentTypeName = ComponentType::getClassTypeInfo().getName();
-			bool success = componentFactory->template registerType < ComponentType > (componentTypeName);
+			TypeInfo const & componentType = ComponentType::getClassTypeInfo();
+			bool success = componentFactory->template registerType < ComponentType > (componentType);
 			return success;
 		}
 
@@ -61,34 +61,34 @@ namespace Orkige
 		{
 			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 			oAssert(componentFactory);
-			String const & componentTypeName = ComponentType::getClassTypeInfo().getName();
-			bool success = componentFactory->template unRegister < ComponentType > (componentTypeName);
+			TypeInfo const & componentType = ComponentType::getClassTypeInfo();
+			bool success = componentFactory->template unRegister < ComponentType > (componentType);
 			return success;
 		}
 
 		//! add a registered component by name
-		inline bool addComponent(String const & componentTypeName);
+		inline bool addComponent(TypeInfo const & componentType);
 
 		//! add a registered component by type
 		template<typename ComponentType> 
 		inline bool addComponent(typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
 		{
-			String const & componentTypeName = ComponentType::getClassTypeInfo().getName();
-			return this->addComponent(componentTypeName);
+			TypeInfo const & componentType = ComponentType::getClassTypeInfo();
+			return this->addComponent(componentType);
 		}
 
-		//! add a list of components by names
-		inline bool addComponents(StringList const & componentTypeNames);
+		//! add a list of components by Types
+		inline bool addComponents(TypeInfoList const & componentTypes);
 
 		//! get attached component by name
-		inline woptr<BaseComponentType> getComponent(String const & componentTypeName);
+		inline woptr<BaseComponentType> getComponent(TypeInfo const & componentType);
 
 		//! get attached component by type
 		template<typename ComponentType> 
-		inline woptr<ComponentType> getComponent(String const & componentTypeName = ComponentType::getClassTypeInfo().getName(),
+		inline woptr<ComponentType> getComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
 			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
 		{
-			optr<BaseComponentType> baseComponent = this->getComponent(componentTypeName).lock();
+			optr<BaseComponentType> baseComponent = this->getComponent(componentType).lock();
 			oAssert(baseComponent);
 			optr<ComponentType> component = boost::dynamic_pointer_cast<ComponentType>(baseComponent);
 			oAssert(component);
@@ -96,14 +96,14 @@ namespace Orkige
 		}
 
 				//! get attached component by name
-		inline BaseComponentType* getComponentPtr(String const & componentTypeName);
+		inline BaseComponentType* getComponentPtr(TypeInfo const & componentType);
 
 		//! get attached component by type
 		template<typename ComponentType> 
-		inline ComponentType* getComponentPtr(String const & componentTypeName = ComponentType::getClassTypeInfo().getName(),
+		inline ComponentType* getComponentPtr(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
 			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
 		{
-			BaseComponentType* baseComponent = this->getComponentPtr(componentTypeName);
+			BaseComponentType* baseComponent = this->getComponentPtr(componentType);
 			oAssert(baseComponent);
 			ComponentType* component = dynamic_cast<ComponentType*>(baseComponent);
 			oAssert(component);
@@ -113,22 +113,46 @@ namespace Orkige
 		inline ComponentMap const & getComponents();
 
 		//! remove a component
-		inline bool removeComponent(String const & componentTypeName);
+		inline bool removeComponent(TypeInfo const & componentType);
+
+		//! remove a component
+		template<typename ComponentType> 
+		inline bool removeComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
+			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		{
+			return this->removeComponent(componentType);
+		}
 
 		//! remove all attached components
 		inline void removeAllComponents();
 
 		//! is given component attached?
-		inline bool hasComponent(String const & componentTypeNames);
+		inline bool hasComponent(TypeInfo const & componentTypes);
 
-		//! get names of all attached components
-		inline StringList getAttachedComponentNames();
+		//! is given component attached?
+		template<typename ComponentType> 
+		inline bool hasComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
+			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		{
+			return this->hasComponent(componentType);
+		}
+
+		//! get Types of all attached components
+		inline TypeInfoList getAttachedComponentTypes();
 
 		//! is given component registered?
-		static inline bool isComponentRegistered(String const & componentTypeName);
+		static inline bool isComponentRegistered(TypeInfo const & componentType);
+
+		//! is given component registered?
+		template<typename ComponentType> 
+		static inline bool isComponentRegistered(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
+			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		{
+			return isComponentRegistered(componentType);
+		}
 
 		//! get list of all registered components
-		static inline StringList getRegisteredComponentNames();
+		static inline TypeInfoList getRegisteredComponentTypes();
 
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar);
@@ -142,37 +166,37 @@ namespace Orkige
 	};
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline bool ComponentHolder<BaseComponentType>::addComponent(String const & componentTypeName)
+	inline bool ComponentHolder<BaseComponentType>::addComponent(TypeInfo const & componentType)
 	{
-		if(this->components.find(componentTypeName) != this->components.end())
+		if(this->components.find(componentType) != this->components.end())
 		{
-			oDebugMsg("core",0,this->getTypeInfo().getName() << ": " <<this->getObjectID() << " has already a attached "<< componentTypeName << " Component!");
+			oDebugMsg("core",0,this->getTypeInfo().getName() << ": " <<this->getObjectID() << " has already a attached "<< componentType.getName() << " Component!");
 			return false;
 		}
 
 		optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 		oAssert(componentFactory);
 
-		if(!componentFactory->isRegistered(componentTypeName))
+		if(!componentFactory->isRegistered(componentType))
 		{
-			oDebugMsg("core",0,componentTypeName << " is not registered in Component::Factory!");
+			oDebugMsg("core",0,componentType.getName() << " is not registered in Component::Factory!");
 			return false;
 		}
 
-		Component<typename BaseComponentType::ComponentOwnerType> * componentBase = componentFactory->create(componentTypeName);
+		Component<typename BaseComponentType::ComponentOwnerType> * componentBase = componentFactory->create(componentType);
 		oAssert(componentBase);
 		BaseComponentType* component = static_cast<BaseComponentType*>(componentBase);
 		oAssert(component);
-		StringList const & dependencies = component->getDependencies();
+		TypeInfoList const & dependencies = component->getDependencies();
 		bool dependencyAdded = true;
-		foreach(String const & dependency, dependencies)
+		foreach(TypeInfo const & dependency, dependencies)
 		{
 			if(!this->hasComponent(dependency))
 				dependencyAdded = this->addComponent(dependency);
 
 			if(!dependencyAdded)
 			{
-				oDebugMsg("core",0,this->getTypeInfo().getName() << ": " <<this->getObjectID() << " Error while adding Dependency: "<< dependency << " !");
+				oDebugMsg("core",0,this->getTypeInfo().getName() << ": " <<this->getObjectID() << " Error while adding Dependency: "<< dependency.getName() << " !");
 				return false;
 			}
 		}
@@ -180,24 +204,24 @@ namespace Orkige
 		oAssert(componentOwner);
 		component->setComponentOwner(componentOwner);
 		optr<BaseComponentType> componentOptr = optr<BaseComponentType>(component);
-		this->components[componentTypeName] = componentOptr;
+		this->components[componentType] = componentOptr;
 		component->onAdd();
 		foreach(typename ComponentMap::value_type const & current, components)
 		{
 			optr<BaseComponentType> currentComponent = current.second;
 			if(currentComponent != componentOptr)
-				currentComponent->onComponentAdded(component->getTypeInfo().getName());
+				currentComponent->onComponentAdded(component->getTypeInfo());
 		}
 		return true;	
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline bool ComponentHolder<BaseComponentType>::addComponents(StringList const & componentTypeNames)
+	inline bool ComponentHolder<BaseComponentType>::addComponents(TypeInfoList const & componentTypes)
 	{
 		bool success = true;
-		foreach(String const & componentTypeName, componentTypeNames)
+		foreach(TypeInfo const & componentType, componentTypes)
 		{
-			bool componentAdded = this->addComponent(componentTypeName);
+			bool componentAdded = this->addComponent(componentType);
 			if(success)
 				success = componentAdded;
 		}
@@ -205,24 +229,24 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline woptr<BaseComponentType> ComponentHolder<BaseComponentType>::getComponent(String const & componentTypeName)
+	inline woptr<BaseComponentType> ComponentHolder<BaseComponentType>::getComponent(TypeInfo const & componentType)
 	{
-		typename ComponentMap::iterator foundComponent = this->components.find(componentTypeName);
+		typename ComponentMap::iterator foundComponent = this->components.find(componentType);
 		if(foundComponent == this->components.end())
 		{
-			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentTypeName << " Component!");
+			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentType.getName() << " Component!");
 			return oNull<BaseComponentType>();
 		}
 		return foundComponent->second;
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline BaseComponentType* ComponentHolder<BaseComponentType>::getComponentPtr(String const & componentTypeName)
+	inline BaseComponentType* ComponentHolder<BaseComponentType>::getComponentPtr(TypeInfo const & componentType)
 	{
-		typename ComponentMap::iterator foundComponent = this->components.find(componentTypeName);
+		typename ComponentMap::iterator foundComponent = this->components.find(componentType);
 		if(foundComponent == this->components.end())
 		{
-			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentTypeName << " Component!");
+			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentType.getName() << " Component!");
 			return NULL;
 		}
 		return foundComponent->second.get();
@@ -235,30 +259,30 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline bool ComponentHolder<BaseComponentType>::removeComponent(String const & componentTypeName)
+	inline bool ComponentHolder<BaseComponentType>::removeComponent(TypeInfo const & componentType)
 	{
-		typename ComponentMap::iterator foundComponent = this->components.find(componentTypeName);
+		typename ComponentMap::iterator foundComponent = this->components.find(componentType);
 		if(foundComponent == this->components.end())
 		{
-			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentTypeName << " Component!");
+			oDebugMsg("core",0,this->getObjectID() << " has no attached "<< componentType.getName() << " Component!");
 			return false;
 		}
 		optr<BaseComponentType> component = foundComponent->second;
 
-		StringList tobeRemovedComponents;
+		TypeInfoList tobeRemovedComponents;
 		foreach(typename ComponentMap::value_type const & current, components)
 		{
-			StringList const & dependencies = current.second->getDependencies();
-			foreach(String const & dependency, dependencies)
+			TypeInfoList const & dependencies = current.second->getDependencies();
+			foreach(TypeInfo const & dependency, dependencies)
 			{
-				if(dependency == componentTypeName)
+				if(dependency == componentType)
 				{
 					tobeRemovedComponents.push_back(current.first);
 					break;
 				}
 			}
 		}
-		foreach(String const & tobeRemovedComponent, tobeRemovedComponents)
+		foreach(TypeInfo const & tobeRemovedComponent, tobeRemovedComponents)
 		{
 			this->removeComponent(tobeRemovedComponent);
 		}
@@ -267,7 +291,7 @@ namespace Orkige
 		component->onRemove();
 		foreach(typename ComponentMap::value_type const & current, components)
 		{
-			current.second->onComponentRemoved(component->getTypeInfo().getName());
+			current.second->onComponentRemoved(component->getTypeInfo());
 		}
 		component->setComponentOwner(NULL);
 		component = oNull<BaseComponentType>();
@@ -277,71 +301,73 @@ namespace Orkige
 	template<class BaseComponentType>
 	inline void ComponentHolder<BaseComponentType>::removeAllComponents()
 	{
-		StringList componentNames = this->getAttachedComponentNames();
-		while(!componentNames.empty())
+		TypeInfoList componentTypes = this->getAttachedComponentTypes();
+		while(!componentTypes.empty())
 		{
-			this->removeComponent(componentNames.front());
-			componentNames = this->getAttachedComponentNames();
+			this->removeComponent(componentTypes.front());
+			componentTypes = this->getAttachedComponentTypes();
 		}
 		this->components.clear();
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline bool ComponentHolder<BaseComponentType>::hasComponent(String const & componentTypeName)
+	inline bool ComponentHolder<BaseComponentType>::hasComponent(TypeInfo const & componentType)
 	{
-		bool isComponentAdded = this->components.find(componentTypeName) != this->components.end();
+		bool isComponentAdded = this->components.find(componentType) != this->components.end();
 		return isComponentAdded; 
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline StringList ComponentHolder<BaseComponentType>::getAttachedComponentNames()
+	inline TypeInfoList ComponentHolder<BaseComponentType>::getAttachedComponentTypes()
 	{
-		StringList componentNames;
+		TypeInfoList componentTypes;
 		typename ComponentMap::const_iterator it = this->components.begin();
 		typename ComponentMap::const_iterator itend = this->components.end();
 		for(; it != itend; ++it)
 		{
-			componentNames.push_back(it->first);
+			componentTypes.push_back(it->first);
 		}
-		return componentNames;
+		return componentTypes;
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline bool ComponentHolder<BaseComponentType>::isComponentRegistered(String const & componentTypeName)
+	inline bool ComponentHolder<BaseComponentType>::isComponentRegistered(TypeInfo const & componentType)
 	{
 		optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 		oAssert(componentFactory);
-		bool isRegistered = componentFactory->isRegistered(componentTypeName);
+		bool isRegistered = componentFactory->isRegistered(componentType);
 		return isRegistered; 
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
-	inline StringList ComponentHolder<BaseComponentType>::getRegisteredComponentNames()
+	inline TypeInfoList ComponentHolder<BaseComponentType>::getRegisteredComponentTypes()
 	{
-		StringList componentNames;
+		TypeInfoList componentTypes;
 		optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 		oAssert(componentFactory);
 		typename OwnedComponentFactory::const_iterator it = componentFactory->begin();
 		typename OwnedComponentFactory::const_iterator itend = componentFactory->end();
 		for(; it != itend; ++it)
 		{
-			componentNames.push_back(it->first);
+			componentTypes.push_back(it->first);
 		}
-		return componentNames;
+		return componentTypes;
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
 	inline void ComponentHolder<BaseComponentType>::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		ar << this->components;
+		//@TODO: fix serialisation for TypeInfo
+		//ar << this->components;
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
 	inline void ComponentHolder<BaseComponentType>::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		ar >> this->components;
+		//@TODO: fix serialisation for TypeInfo
+		//ar >> this->components;
 	}
 	//---------------------------------------------------------
 	//has to be called before exporting your own module
@@ -367,9 +393,9 @@ namespace Orkige
 	OFUNCCR(getComponents)																	\
 	OFUNC(removeComponent)																	\
 	OFUNC(hasComponent)																		\
-	OFUNC(getAttachedComponentNames)														\
+	OFUNC(getAttachedComponentTypes)														\
 	OSTATICFUNC(isComponentRegistered)														\
-	OSTATICFUNC(getRegisteredComponentNames)												\
+	OSTATICFUNC(getRegisteredComponentTypes)												\
 	OOBJECT_END
 #else
 #define IMPLEMENT_COMPONENTHOLDER(BaseComponentType)											\
@@ -391,9 +417,9 @@ namespace Orkige
 	OFUNCCR(getComponents)																	\
 	OFUNC(removeComponent)																	\
 	OFUNC(hasComponent)																		\
-	OFUNC(getAttachedComponentNames)														\
+	OFUNC(getAttachedComponentTypes)														\
 	OSTATICFUNC(isComponentRegistered)														\
-	OSTATICFUNC(getRegisteredComponentNames)												\
+	OSTATICFUNC(getRegisteredComponentTypes)												\
 	OOBJECT_END
 #endif
 }

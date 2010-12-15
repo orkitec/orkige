@@ -33,7 +33,7 @@ namespace Orkige
 	private:
 		ProfileNode root;
 		ProfileNode* currentNode;
-		int frameCounter;
+		std::size_t frameCounter;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -65,9 +65,9 @@ namespace Orkige
 		//! This resets everything except for the tree structure.  All of the timing data is reset.  
 		void reset();
 		//! increment the frame counter
-		void incrementFrameCounter();
+		inline void incrementFrameCounter();
 		//! get the frame count
-		inline int getFrameCountSinceReset();
+		inline std::size_t getFrameCountSinceReset();
 		//! returns the elapsed time since last reset 
 		unsigned long getTimeSinceReset();
 
@@ -93,7 +93,12 @@ namespace Orkige
 	};
 	/** @} End of "addtogroup Debug"*/
 	//---------------------------------------------------------------
-	inline int ProfileManager::getFrameCountSinceReset() 
+	void ProfileManager::incrementFrameCounter()
+	{
+		this->frameCounter++;
+	}
+	//---------------------------------------------------------------
+	inline std::size_t ProfileManager::getFrameCountSinceReset() 
 	{ 
 		return this->frameCounter; 
 	}

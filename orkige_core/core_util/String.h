@@ -21,8 +21,8 @@
 namespace Orkige
 {
 	typedef std::string String;					//!< Orkige String implementation
-	typedef std::list<String> StringList;		//!< list of Orkige String's
-	typedef std::vector<String> StringVector;	//!< vector of Orkige String's
+	typedef std::list<String> StringList;		//!< list of Orkige Strings
+	typedef std::vector<String> StringVector;	//!< vector of Orkige Strings
 	//---------------------------------------------------------
 }
 

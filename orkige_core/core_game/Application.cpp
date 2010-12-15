@@ -30,6 +30,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Application::run()
 	{
+#if defined(ORKIGE_DEBUG) || defined(ORKIGE_STATS)
+		ProfileManager::getSingleton().incrementFrameCounter();
+#endif
 		OPROFILEFUNC();
 		this->gom->processDeleteQueue();
 		this->gem->tick();

@@ -60,11 +60,6 @@ namespace Orkige
 		this->root.startTime = Timer::getMilliseconds();
 	}
 	//---------------------------------------------------------
-	void ProfileManager::incrementFrameCounter()
-	{
-		this->frameCounter++;
-	}
-	//---------------------------------------------------------
 	unsigned long ProfileManager::getTimeSinceReset()
 	{
 		return Timer::getMilliseconds() - this->root.startTime;

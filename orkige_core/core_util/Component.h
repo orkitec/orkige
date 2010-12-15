@@ -24,13 +24,13 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		typedef OwnerType ComponentOwnerType;								//!< definition of the ComponentOwner
-		typedef ObjectFactory<Component<OwnerType> * (), String> Factory;	//!< Factory definitions for this Component
+		typedef ObjectFactory<Component<OwnerType> * (), TypeInfo> Factory;	//!< Factory definitions for this Component
 	protected:
 	private:
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		StringList componentDependencies;	//!< list of Component names this component depends on
+		TypeInfoList componentDependencies;	//!< list of Component names this component depends on
 	private:
 		OwnerType* owner;					//!< pointer to the owner of this component
 		//--- Methods -----------------------------------------
@@ -44,39 +44,39 @@ namespace Orkige
 		//! get the owner of this component
 		inline OwnerType* getComponentOwner()				{	return this->owner;		}
 		//! get list of component names this component depends on
-		inline StringList const & getDependencies();
+		inline TypeInfoList const & getDependencies();
 
 		//! called when another component is added to the owner
-		virtual void onComponentAdded(String const & componentTypeName){};
+		virtual void onComponentAdded(TypeInfo const & componentType){};
 		//! called when another component is removed from the owner
-		virtual void onComponentRemoved(String const & componentTypeName){};
+		virtual void onComponentRemoved(TypeInfo const & componentType){};
 		//! called when this component is added
 		virtual void onAdd(){};
 		//! called when this component is removed
 		virtual void onRemove(){};
 	protected:
 		//! add a dependency to the dependency list
-		inline void addDependency(String const & componentTypeName);
+		inline void addDependency(TypeInfo const & componentType);
 		//! add a dependency to the dependency list
 		template<typename ComponentType> 
-		inline void addDependency(String const & componentTypeName = ComponentType::getClassTypeInfo().getName(),
+		inline void addDependency(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
 			typename boost::enable_if<boost::is_base_of<Component<OwnerType>, ComponentType> >::type * = 0)
 		{
-			this->addDependency(componentTypeName);	
+			this->addDependency(componentType);	
 		}
 	private:
 	};
 	//---------------------------------------------------------
 	template<typename OwnerType>
-	inline StringList const & Component<OwnerType>::getDependencies()
+	inline TypeInfoList const & Component<OwnerType>::getDependencies()
 	{
 		return this->componentDependencies;
 	}
 	//---------------------------------------------------------
 	template<typename OwnerType>
-	inline void Component<OwnerType>::addDependency(String const & componentTypeName)
+	inline void Component<OwnerType>::addDependency(TypeInfo const & componentType)
 	{
-		this->componentDependencies.push_back(componentTypeName);
+		this->componentDependencies.push_back(componentType);
 	}
 
 	//! has to be called before exporting your own module

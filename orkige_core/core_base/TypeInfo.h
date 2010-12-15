@@ -13,6 +13,7 @@
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/Hash.h"
 #include "core_util/String.h"
+#include <list>
 #ifdef ORKIGE_LUA
 #include <luabind/luabind.hpp>
 namespace bp = luabind;
@@ -46,6 +47,9 @@ namespace Orkige
 		//! create a TypeInfo with given name as String
 		inline explicit TypeInfo(String const & cname);
 
+		//! copy constructor
+		inline explicit TypeInfo(TypeInfo const & other);
+
 		//! get name of this Type
 		inline String const & getName() const;
 
@@ -63,15 +67,23 @@ namespace Orkige
 
 		//! @see TypeInfo::isNotEqual
 		inline bool operator!=(TypeInfo const & other) const;
+
+		//! @see std::string <
+		inline bool operator<(TypeInfo const & other) const;
 	protected:
-		//! copy constructor
-		inline explicit TypeInfo(TypeInfo const & other);
 	private:
 	};
 	//---------------------------------------------------------------
 	inline TypeInfo::TypeInfo(String const & cname) 
 		: id(BoostHashFromString(cname))
 		, name(cname)
+	{
+	}
+	//---------------------------------------------------------------
+	inline TypeInfo::TypeInfo(TypeInfo const & other) 
+		: id(other.id) 
+		, name(other.name)
+
 	{
 	}
 	//---------------------------------------------------------------
@@ -105,13 +117,14 @@ namespace Orkige
 		return this->isNotEqual(other);
 	}
 	//---------------------------------------------------------------
-	inline TypeInfo::TypeInfo(TypeInfo const & other) 
-		: id(other.id) 
-		, name(other.name)
-		
+	inline bool TypeInfo::operator<(TypeInfo const & other) const
 	{
+		return this->id < other.id;
 	}
 	//---------------------------------------------------------------
+	typedef std::list<TypeInfo> TypeInfoList;		//!< list of TypeInfos
+	//---------------------------------------------------------------
+
 }
 
 #endif //__TypeInfo_h__9_8_2010__18_45_29__

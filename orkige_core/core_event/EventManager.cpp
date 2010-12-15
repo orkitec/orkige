@@ -162,7 +162,10 @@ namespace Orkige
 	bool EventManager::trigger (Event const & inEvent) const
 	{
 		OPROFILE(String(__FUNCTION__) + "( " + inEvent.getObjectID() + " )");
-		if ( ! this->validateType( inEvent.getType() ) )
+		//if ( ! this->validateType( inEvent.getType() ) )
+		//	return false;
+
+		if(registry.empty())
 			return false;
 
 		const EventListenerMap::const_iterator it = this->registry.find( inEvent.getType().getId() );

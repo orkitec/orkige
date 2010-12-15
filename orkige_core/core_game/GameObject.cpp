@@ -93,12 +93,13 @@ namespace Orkige
 				for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 				{
 					String const & componentTypeName = element->Value();
-					if(GameObject::isComponentRegistered(componentTypeName))
+					TypeInfo componentType(componentTypeName);
+					if(GameObject::isComponentRegistered(componentType))
 					{
-						bool componentAdded = this->addComponent(componentTypeName);
-						if(this->hasComponent(componentTypeName))
+						bool componentAdded = this->addComponent(componentType);
+						if(this->hasComponent(componentType))
 						{
-							optr<GameObjectComponent> component = this->getComponent(componentTypeName).lock();
+							optr<GameObjectComponent> component = this->getComponent(componentType).lock();
 							oAssert(component);
 
 							for(TiXmlElement* attributesElement = element->FirstChildElement(); attributesElement; attributesElement = attributesElement->NextSiblingElement())
@@ -239,7 +240,7 @@ namespace Orkige
 		foreach(ComponentMap::value_type const & current, components)
 		{
 			optr<OwnedComponentType> component = current.second;
-			String const & componentTypeName = current.first;
+			String const & componentTypeName = current.first.getName();
 			TiXmlElement element(componentTypeName.c_str());
 			TiXmlElement componentAttributesElement("Attributes");
 			foreach(GameObjectComponent::OwnedAttributeMap::value_type const & attribute, component->getAttributes())
