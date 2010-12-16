@@ -68,9 +68,9 @@ namespace Orkige
 	void ProfileManager::debugOutput()
 	{
 		oDebugMsg("profiler", 0," ProfileManager: hierarchical view");
-		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call | calls/ | name");
-		oDebugMsg("profiler", 0,"         |        |          |         | min     | max     | frame  |     ");
-		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+---------+--------+-----------------------------------------");
+		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call  | calls/  | name");
+		oDebugMsg("profiler", 0,"         |        |          |         | min     | max      | frame   |     ");
+		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+----------+---------+-----------------------------------------");
 
 		this->root.totalTime = this->getTimeSinceReset();
 		this->debugOutputInternal(this->root.getChild(), &this->root, 0);
@@ -79,9 +79,9 @@ namespace Orkige
 	void ProfileManager::debugOutputFlat()
 	{
 		oDebugMsg("profiler", 0," ProfileManager: non-hierarchical view");
-		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call | calls/ | name");
-		oDebugMsg("profiler", 0,"         |        |          |         | min     | max     | frame  |     ");
-		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+---------+--------+-----------------------------------------");
+		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call  | calls/  | name");
+		oDebugMsg("profiler", 0,"         |        |          |         | min     | max      | frame   |     ");
+		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+----------+---------+-----------------------------------------");
 
 		// build the flat view
 		ProfileNode flatRoot("flat root", NULL);
@@ -135,8 +135,8 @@ namespace Orkige
 					StringUtil::doubleToString(outputMsFrame,3,9)	<<" |"<<\
 					StringUtil::doubleToString(outputMsCall,3,8)	<<" |"<<\
 					StringUtil::doubleToString(outputMsMin,3,8)		<<" |"<<\
-					StringUtil::doubleToString(outputMsMax,3,8)		<<" |"<<\
-					StringUtil::doubleToString(outputCallFrame,3,7)	<<" |"<<\
+					StringUtil::doubleToString(outputMsMax,3,9)		<<" |"<<\
+					StringUtil::doubleToString(outputCallFrame,3,8)	<<" |"<<\
 					outputName);
 
 				this->debugOutputInternal(node->getChild(), rootNode, treeDepth + 1);

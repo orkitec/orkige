@@ -161,7 +161,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EventManager::trigger (Event const & inEvent) const
 	{
-		OPROFILE(String(__FUNCTION__) + "( " + inEvent.getObjectID() + " )");
+#if defined(ORKIGE_DEBUG) || defined(ORKIGE_STATS)
+		static const String __event_profile_prefix = String(__FUNCTION__) + " -> ";
+		OPROFILE(__event_profile_prefix + inEvent.getObjectID());
+#endif
 		//if ( ! this->validateType( inEvent.getType() ) )
 		//	return false;
 
