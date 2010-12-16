@@ -358,12 +358,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	inline Ogre::Node* SceneNodeGuard::createChild(Ogre::Vector3 const & translate, Ogre::Quaternion const & rotate)
 	{
-		this->sceneNode->createChild(translate, rotate);
+		return this->sceneNode->createChild(translate, rotate);
 	}
 	//---------------------------------------------------------
 	inline Ogre::Node* SceneNodeGuard::createChild(String const & name, Ogre::Vector3 const & translate, Ogre::Quaternion const & rotate)
 	{
-		this->sceneNode->createChild(name, translate, rotate);
+		return this->sceneNode->createChild(name, translate, rotate);
 	}
 	//---------------------------------------------------------
 	inline void SceneNodeGuard::addChild(Ogre::Node* child)
@@ -373,22 +373,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	inline unsigned short SceneNodeGuard::numChildren() const
 	{
-		this->sceneNode->numChildren();
+		return this->sceneNode->numChildren();
 	}
 	//---------------------------------------------------------
 	inline Ogre::Node* SceneNodeGuard::getChild(unsigned short index) const
 	{
-		this->sceneNode->getChild(index);
+		return this->sceneNode->getChild(index);
 	}
 	//---------------------------------------------------------    
 	inline Ogre::Node* SceneNodeGuard::getChild(String const & name) const
 	{
-		this->sceneNode->getChild(name);
+		return this->sceneNode->getChild(name);
 	}
 	//---------------------------------------------------------
 	inline Ogre::Node::ChildNodeIterator SceneNodeGuard::getChildIterator()
 	{
-		this->sceneNode->getChildIterator();
+		return this->sceneNode->getChildIterator();
 	}
 	//---------------------------------------------------------
 	inline Ogre::Node::ConstChildNodeIterator SceneNodeGuard::getChildIterator() const
