@@ -166,7 +166,7 @@ namespace Orkige
 		//! get static ComponentFactory for this ComponentHolder
 		static optr<OwnedComponentFactory> getComponentFactory();
 		//! get static dependencies map for this ComponentHolder
-		static optr<TypeInfoListMap> getDependencies();
+		static optr<TypeInfoListMap> getAllDependencies();
 	private:
 	};
 	//---------------------------------------------------------
@@ -362,11 +362,11 @@ namespace Orkige
 	template<class BaseComponentType>
 	inline TypeInfoList & ComponentHolder<BaseComponentType>::getDependencies(TypeInfo const & componentType)
 	{
-		optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> allDependencies = OSelf::getDependencies();
-		ComponentHolder<BaseComponentType>::TypeInfoListMap::iterator it = allDependencies->find(componentType);
+		optr<TypeInfoListMap> allDependencies = OSelf::getAllDependencies();
+		typename TypeInfoListMap::iterator it = allDependencies->find(componentType);
 		if(it == allDependencies->end())
 		{
-			allDependencies->insert(std::make_pair(componentType, TypeInfoList()));
+			(*allDependencies)[componentType] = TypeInfoList();
 		}
 		it = allDependencies->find(componentType);
 		return it->second;
@@ -403,7 +403,7 @@ namespace Orkige
 	}																															\
 	return staticComponentFactory##BaseComponentType;																			\
 	}																															\
-	template <> optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> ComponentHolder<BaseComponentType>::getDependencies()	\
+	template <> optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> ComponentHolder<BaseComponentType>::getAllDependencies()	\
 	{																															\
 	static optr<ComponentHolder<BaseComponentType>::TypeInfoListMap> staticDependencies##BaseComponentType;						\
 	if(!staticDependencies##BaseComponentType)																					\

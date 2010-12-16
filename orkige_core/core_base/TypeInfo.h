@@ -39,8 +39,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		const TypeId id;		//!< hash id of this Type
-		const String name;		//!< name of this Type
+		/*const*/ TypeId id;		//!< hash id of this Type
+		/*const*/ String name;		//!< name of this Type
 	private:
 		//--- Methods -----------------------------------------------
 	public:
