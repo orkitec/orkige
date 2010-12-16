@@ -66,7 +66,7 @@ namespace Orkige
 			String const & pluginCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/plugins.cfg",
 #endif
 #ifdef ORKIGE_IPHONE
-			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone.cfg", 
+			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone.cfg;" + Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_ipad.cfg", 
 #else
 			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
 #endif

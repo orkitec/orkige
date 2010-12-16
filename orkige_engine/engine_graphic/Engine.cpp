@@ -11,8 +11,12 @@
 #include "engine_module/EnginePrerequisites.h"
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
-
-
+#include <boost/algorithm/string.hpp>
+#ifdef ORKIGE_IPHONE
+#   ifdef __OBJC__
+#       import <UIKit/UIKit.h>
+#   endif
+#endif
 namespace Orkige
 {
 
@@ -35,13 +39,39 @@ namespace Orkige
 		viewport(NULL),
 		lastFrameTime(0)
 	{
+		String renderCfgPlatformFileName = renderCfgFileName;
+#ifdef ORKIGE_IPHONE
+		// iphone and ipad need different configs
+		if(renderCfgPlatformFileName.find(';') != String::npos)
+		{
+			bool iPad = false;
+//#ifdef UI_USER_INTERFACE_IDIOM
+			iPad = ((UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) == YES);
+//#endif
+			std::vector<std::string> strs;
+			boost::split(strs, renderCfgFileName, boost::is_any_of(";"));
+			if (iPad) 
+			{
+				// iPad specific code here
+				renderCfgPlatformFileName = strs[1];
+			} 
+			else 
+			{
+				// iPhone/iPod specific code here
+				renderCfgPlatformFileName = strs[0];
+			}
+			oDebugMsg("core", 0, "Setting 2 RenderConfigFile to: " << renderCfgPlatformFileName);
+		}
+
+#endif
 		this->data = onew(new FrameEventData());
 
 		this->frameStartedEvent.setData(this->data);
 		this->frameRenderingQueuedEvent.setData(this->data);
 		this->frameEndedEvent.setData(this->data);
 		//create the ogre root Master of Disaster
-		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgFileName, engineLogFileName));
+		
+		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
 
 		this->setupResources(resourceCfgFileName);
 	}

@@ -145,19 +145,33 @@ namespace Orkige
 		template<typename EventDataType>
 		inline void transformInputToOrientation(EventDataType & data)
 		{
-			Ogre::Viewport * viewport = Engine::getSingleton().getViewort();
-			oAssert(viewport);
-
-
-			int h = viewport->getActualWidth();
-			int w = viewport->getActualHeight();
-			int absX = data->absX*2;
-			int absY = data->absY*2;
-			int relX = data->relX*2;
-			int relY = data->relY*2;
+			static float contentScalingFactor = 1.f;
+#ifdef ORKIGE_IPHONE
+#if __IPHONE_4_0
+			static UIView* view = nil;
+			if(view == nil)
+			{
+				if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
+				{
+					Engine::getSingleton().getRenderWindow()->getCustomAttribute( "VIEW", &view );
+					contentScalingFactor = [view contentScaleFactor];
+				}
+			}
+#endif
+#endif
+			unsigned int width, height, depth;
+			int left, top;
+			Engine::getSingleton().getRenderWindow()->getMetrics( width, height, depth, left, top );
+			
+			int h = width;
+			int w = height;
+			int absX = data->absX*contentScalingFactor;
+			int absY = data->absY*contentScalingFactor;
+			int relX = data->relX*contentScalingFactor;
+			int relY = data->relY*contentScalingFactor;
 
 			//oDebugMsg("core", 0, "Input: x:" << absX <<  " y:" << absY);
-			switch (viewport->getOrientationMode())
+			switch (Engine::getSingleton().getViewort()->getOrientationMode())
 			{
 			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
 				break;
