@@ -20,8 +20,8 @@ namespace Orkige
     FastGuiProgressBar::FastGuiProgressBar(String const & id, String const & spriteName ,uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z): FastGuiWidget(id, atlas, z)
     {
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
-		Ogre::Vector2 barPos = Ogre::Vector2(this->decor->getPosition().x + this->decor->getSize().x *0.03 ,this->decor->getPosition().y + this->decor->getSize().y *0.1 );
-		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x *0.06 ,this->decor->getSize().y - this->decor->getSize().y *0.2 );
+		Ogre::Vector2 barPos = Ogre::Vector2(this->decor->getPosition().x + this->decor->getSize().x *0.03f ,this->decor->getPosition().y + this->decor->getSize().y *0.1f );
+		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x *0.06f ,this->decor->getSize().y - this->decor->getSize().y *0.2f );
 		this->barDecore = onew(new FastGuiDecorWidget(id + ".bar", "progressbar_bar",barPos,barMaxSize, atlas, z));
 
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
@@ -61,13 +61,13 @@ namespace Orkige
 	{
 		this->decor->setPosition(left, top);
 		this->label->setPosition(left, top);
-		this->barDecore->setPosition(this->decor->getPosition().x + this->decor->getSize().x *0.03 ,this->decor->getPosition().y + this->decor->getSize().y *0.1 );
+		this->barDecore->setPosition(this->decor->getPosition().x + this->decor->getSize().x *0.03f ,this->decor->getPosition().y + this->decor->getSize().y *0.1f );
 	}
 //----------------------------------------------------
 	void FastGuiProgressBar::setSize( Ogre::Real width, Ogre::Real height )
 	{
 		this->decor->setSize(width, height);
-		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x *0.06 ,this->decor->getSize().y - this->decor->getSize().y *0.2 );
+		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x *0.06f ,this->decor->getSize().y - this->decor->getSize().y *0.2f );
 		this->label->setSize(barMaxSize.x,barMaxSize.y);
 		this->addProgress(0.0f);
 
