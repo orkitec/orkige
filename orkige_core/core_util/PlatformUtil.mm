@@ -35,7 +35,7 @@ namespace Orkige
 #ifdef ORKIGE_IPHONE
 			static String path = getBaseDirectory();
 #else
-			static String path = getBaseDirectory() + "Contents/Resources/";
+			static String path = getBaseDirectory();
 #endif
 			return path;
 		}

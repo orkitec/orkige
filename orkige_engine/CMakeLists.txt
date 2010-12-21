@@ -46,7 +46,7 @@ if (ORKIGE_OPENAL_SOUND AND OPENAL_FOUND)
     add_definitions(-DORKIGE_OPENAL_SOUND)
 endif()
 
-if (ORKIGE_BUILD_IPHONE)
+if (APPLE)
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
   set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
   set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_graphic/Engine.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")

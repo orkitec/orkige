@@ -212,16 +212,7 @@ source_group(core_util FILES ${core_util_HEADER} ${core_util_SOURCE})
 # ---------------------------------------------------------
 # Build setup
 # ---------------------------------------------------------
-if(ORKIGE_USE_COCOA)
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Thread/gkSyncObj.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-endif()
 
-if (ORKIGE_BUILD_IPHONE)
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/gkWindowSystem.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Thread/gkSyncObj.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-endif()
-
-# for swig no __declspec(dllexport)
 add_definitions(-DSTATIC_LINKED)
 
 include_directories(

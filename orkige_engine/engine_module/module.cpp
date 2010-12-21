@@ -52,7 +52,7 @@ ORKIGE_MODULE(orkige_engine)
 	OSIMPLEEXPORT_END
 	
 	OEXPORT(SoundManager)
-	OEXPORT(SoundSource)
+	OEXPORT(::Orkige::SoundSource)
 	
 	OEXPORT(KeyEventData)
 	OEXPORT(MouseEventData)
@@ -68,7 +68,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(Dialog)
 	OEXPORT(OkDialog)
 	OEXPORT(YesNoDialog)
-	OEXPORT(Button)
+OEXPORT(::Orkige::Button)
 	OEXPORT(TextBox)
 	OEXPORT(SelectMenu)
 	OEXPORT(Label)
