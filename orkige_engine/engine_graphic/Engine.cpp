@@ -53,12 +53,23 @@ namespace Orkige
 			if (iPad) 
 			{
 				// iPad specific code here
-				renderCfgPlatformFileName = strs[1];
+				renderCfgPlatformFileName = strs[2];
 			} 
 			else 
 			{
 				// iPhone/iPod specific code here
-				renderCfgPlatformFileName = strs[0];
+				
+				if([[UIScreen mainScreen] respondsToSelector:@selector(scale)] && [[UIScreen mainScreen] scale] == 2.0) 
+				{
+					//>=iphone4
+					renderCfgPlatformFileName = strs[1];
+				}
+				else 
+				{
+					//older iphones
+					renderCfgPlatformFileName = strs[0];
+				}
+
 			}
 			oDebugMsg("core", 0, "Setting 2 RenderConfigFile to: " << renderCfgPlatformFileName);
 		}
