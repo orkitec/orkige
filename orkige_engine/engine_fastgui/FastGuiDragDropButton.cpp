@@ -189,12 +189,12 @@ namespace Orkige
 		{
 			this->decor->setPosition(cursorPos.x - this->imageToCursorOffset.x,
 				cursorPos.y - this->imageToCursorOffset.y);
-		}
+		
 		
 	
 		this->dragEventData->state = DragEventData::DS_DRAGGING;
 		this->dragEventData->position = cursorPos;
-		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));}
 		
 	}
 	//---------------------------------------------------------
