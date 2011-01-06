@@ -31,7 +31,8 @@ namespace Orkige
 		dragEvent(FastGuiDragDropButton::DragEndEvent),
 		dragEventData(),
 		imageToCursorOffset(),
-		initialDecorPosition(position)
+		initialDecorPosition(position),
+		initialWidgetPosition(position)
 	{
 		this->background = onew(new FastGuiDecorWidget(id + ".background", spriteName, position, size, atlas, z));
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
@@ -117,18 +118,27 @@ namespace Orkige
 		{
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
-			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
-	
-			
 			this->dragEventData->position = cursorPos;
 			if (this->isEnabled)
 			{
-				this->dragEventData->state = DragEventData::DS_DRAG_END;
+				//float distan = initialDecorPosition.distance(this->decor->getPosition()) ;
+				float distan = Ogre::Math::Abs(initialDecorPosition.x) - Ogre::Math::Abs(this->decor->getPosition().x) ;
+
+				if (Ogre::Math::Abs(distan) > 130.0f)
+				{
+					this->dragEventData->state = DragEventData::DS_DRAG_END;
+				}
+				else
+				{
+					this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+				}
+				
 			}
 			else
 			{
 				this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
 			}
+			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
 			GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
 		}
 		else if (this->state == FastGuiDragDropButton::DDBS_DOWN)
