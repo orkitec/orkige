@@ -23,7 +23,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiLabel::~FastGuiLabel()
 	{
-		this->layer->destroyCaption(this->caption);
+		//this->layer->destroyCaption(this->caption);
+		this->layer->destroyAllCaptions();
 	}
 	//---------------------------------------------------------
 	void FastGuiLabel::setPosition(Ogre::Real left, Ogre::Real top)
