@@ -29,6 +29,16 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
+	void AnimationComponent::pause()
+	{
+		this->unregisterEvent(Engine::FrameStartedEvent);
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::resume()
+	{
+		this->registerEvent(Engine::FrameStartedEvent,	&AnimationComponent::onFrameStarted,	this);
+	}
+	//---------------------------------------------------------
 	bool AnimationComponent::hasAnimations()
 	{
 		bool hasAnims = false;
@@ -313,5 +323,7 @@ namespace Orkige
 		OFUNCCR(getMotionBone)
 		OFUNC(setMotionBone)
 	OOBJECT_END
+
+
 	//---------------------------------------------------------
 }

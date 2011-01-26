@@ -107,6 +107,9 @@ namespace Orkige
 		inline String const & getMotionBone();
 		//! set bone for wich motions should be handled/extracted
 		inline void setMotionBone(String const & boneName);
+
+		void pause();
+		void resume();
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
