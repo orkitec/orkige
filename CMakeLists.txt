@@ -79,6 +79,11 @@ if (BUILD_MAXEXPORTER)
 	subdirs(orkige_maxexport)
 endif()
 
+option(BUILD_FONTCONVERTER "Build orkige_fontconverter" FALSE)
+if (BUILD_FONTCONVERTER)
+	subdirs(orkige_fontconverter)
+endif()
+
 if (ORKIGE_UPDATE_DOCS)
 	subdirs(Docs/OrkigeAPI)
 endif()
