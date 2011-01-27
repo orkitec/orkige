@@ -10,6 +10,8 @@
 #include "engine_fastgui/DragEventData.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include "core_event/GlobalEventManager.h"
+#include <engine_sound/SoundManager.h>
+
 namespace Orkige
 {
 	
@@ -90,12 +92,13 @@ namespace Orkige
 		{
 			// this can only be another mouse button than the one
 			// we started dragging with, so --> abort dragging
-
+			
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
 			if (this->isEnabled)
 			{
 				this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
+				
 			}
 	
 			this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
@@ -109,6 +112,7 @@ namespace Orkige
 			// I'm unsure about this, which way it should be done (pe)
 			//this->setState(FastGuiDragDropButton::DDBS_DOWN);
 			this->startDragging(cursorPos);
+			SoundManager::getSingleton().playSound("pickcard");
 		}
 	}
 	//---------------------------------------------------------
