@@ -46,7 +46,6 @@ link_libraries(
 		${ORKIGE_LIB}
 		${OGRE_LIBDIR}
 		${ORKIGE_OGRE_LIBS}
-		Box2D
 		OgrePaging
 		OgreTerrain
 		Plugin_ParticleFX
