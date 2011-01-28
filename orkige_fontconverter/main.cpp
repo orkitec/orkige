@@ -1,4 +1,4 @@
-#define cimg_OS 0
+//#define cimg_OS 0
 #define cimg_use_png
 #include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
 #include <engine_module/EnginePrerequisites.h>
@@ -215,6 +215,12 @@ int main(int argc, char **argv)
 
 	cimg_library::CImg<unsigned char> bitmapFontImage;
 	bitmapFontImage.load_png(oguifile.getSetting("file", "Texture").c_str());
+
+	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click a point"), draw_disp(bitmapFontImage,"Intensity profile");
+	while(!main_disp.is_closed && !draw_disp.is_closed)
+	{
+		main_disp.wait();
+	}
 
 	std::cout << "done!" << std::endl;
 
