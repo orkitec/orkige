@@ -226,7 +226,7 @@
 //
 #ifdef cimg_use_png
 extern "C" {
-#include "png.h"
+#include "LibPNG/png.h"
 }
 #endif
 
