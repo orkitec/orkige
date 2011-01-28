@@ -57,3 +57,9 @@ add_executable(
 		${TargetName}
 		${fontconverter_SOURCE}			${fontconverter_HEADER}
 	)
+add_custom_command(
+    TARGET ${TargetName}
+    POST_BUILD
+		COMMAND echo xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util/bmfontgen.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
+    COMMAND xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util\\bmfontgen.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
+)

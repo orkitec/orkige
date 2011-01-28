@@ -12,10 +12,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <Ogre.h>
+#include <windows.h>
 
 using namespace Orkige;
 int main(int argc, char **argv)
 {
+
 	String path;
 	char* buffer;
 
@@ -64,6 +66,17 @@ int main(int argc, char **argv)
 	}
 
 	filename = filename.substr(filename.find_last_of("\\")+1, filename.length());
+
+	LPCTSTR Caption = "Overwrite existing ogui files?";
+	String Text = "if you press yes the selected ogui file will be overwritten if you press no the following file(s) will be created:\n" + filename + ".new.ogui\n *.new.png";
+
+	bool overwriteFiles = false;
+	int messageboxReturn = MessageBox( NULL, Text.c_str(), Caption,	MB_YESNO | MB_ICONQUESTION);
+	if(messageboxReturn == IDYES)
+	{
+		overwriteFiles = true;
+	}
+
 	std::cout << "Filename: " << filename << std::endl;
 
 	std::cout << "image size:";
@@ -117,7 +130,15 @@ int main(int argc, char **argv)
 	std::cin >> fontindex;
 
 	std::ofstream outputOguiFile;
-	outputOguiFile.open((filename + "_convert").c_str());
+	if(overwriteFiles)
+	{
+		outputOguiFile.open(filename .c_str());
+	}
+	else
+	{
+		outputOguiFile.open((filename + ".new.ogui").c_str());
+	}
+	
 
 	Ogre::ConfigFile::SectionIterator it = oguifile.getSectionIterator();
 	while(it.hasMoreElements())
@@ -138,7 +159,21 @@ int main(int argc, char **argv)
 				outputOguiFile << std::endl << "[" << section << "]" << std::endl;
 				for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
 				{
-					outputOguiFile << jit->first << " "<< jit->second << std::endl;
+					if(overwriteFiles)
+					{
+						outputOguiFile << jit->first << " "<< jit->second << std::endl;
+					}
+					else
+					{
+						if(section == "Texture" && jit->first == "file")
+						{
+							outputOguiFile << jit->first << " "<< jit->second << ".new.png" << std::endl;
+						}
+						else
+						{
+							outputOguiFile << jit->first << " "<< jit->second << std::endl;
+						}
+					}
 				}
 			}
 		}
@@ -147,15 +182,6 @@ int main(int argc, char **argv)
 
 	outputOguiFile << std::endl;
 	outputOguiFile << "[Font."<< fontindex << "]" << std::endl;
-
-	std::cout << "offsetx:";
-	int offsetx;
-	std::cin >> offsetx;
-	outputOguiFile << "offset " << offsetx;
-	std::cout << "offsety:";
-	int offsety;
-	std::cin >> offsety;
-	outputOguiFile << " " << offsety  << std::endl;
 
 	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
 	document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
@@ -210,22 +236,114 @@ int main(int argc, char **argv)
 		}
 	}
 
+	String textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
 	cimg_library::CImg<unsigned char> textureAtlasImage;
-	textureAtlasImage.load_png(oguifile.getSetting("file", "Texture").c_str());
+	textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
 
+	String bitmapFontImageFilename = filename + ".temp-0.png";
 	cimg_library::CImg<unsigned char> bitmapFontImage;
-	bitmapFontImage.load_png(oguifile.getSetting("file", "Texture").c_str());
+	bitmapFontImage.load_png(bitmapFontImageFilename.c_str());
 
-	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click a point"), draw_disp(bitmapFontImage,"Intensity profile");
-	while(!main_disp.is_closed && !draw_disp.is_closed)
+
+	int offsetx = 0;
+	int offsety = 0;
+
+	
+	float opacity = 1.f;
+	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click where to draw the font!"), draw_disp(bitmapFontImage,"Bitmap Font");
+	while(!main_disp.is_closed)
 	{
 		main_disp.wait();
+
+		if (main_disp.button && main_disp.mouse_y>=0) {
+			offsetx = main_disp.mouse_x;
+			offsety = main_disp.mouse_y;	
+		}
+
+		textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
+		{
+			// RGBA over RGBA (@see ftp://ftp.alvyray.com/Acrobat/4_Comp.pdf)
+			cimg_library::CImg<unsigned char> dst_color = textureAtlasImage.get_shared_channels(0, 2);
+			cimg_library::CImg<unsigned char> src_color = bitmapFontImage.get_shared_channels(0, 2);
+			cimg_library::CImg<unsigned char> dst_alpha = textureAtlasImage.get_shared_channel(3);
+			cimg_library::CImg<unsigned char> src_alpha = bitmapFontImage.get_shared_channel(3);
+
+			cimg_forV(dst_color, v)
+			{
+				unsigned int src_y, src_x;
+				cimg_for_inY(dst_color, offsety, offsety + src_color.height-1, dst_y)
+				{
+					src_y = dst_y - offsety;
+					unsigned char* p_dst_color = dst_color.ptr(0, dst_y, 0, v);		
+					unsigned char* p_src_color = src_color.ptr(0, src_y, 0, v);		
+					unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
+					unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
+					cimg_for_inX(dst_color, offsetx, offsetx + src_color.width-1, dst_x)
+					{
+						src_x = dst_x - offsetx;
+						float c1 = p_src_color[src_x] / 255.f;
+						float c2 = p_dst_color[dst_x] / 255.f;
+						float a1 = p_src_alpha[src_x] / 255.f * opacity;
+						float a2 = p_dst_alpha[dst_x] / 255.f;
+						p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1) * a2) / (a1 + a2 - a1 * a2)));	
+						//p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1))));	
+					}
+				}
+			}
+			{
+				unsigned int src_y, src_x;
+				cimg_for_inY(dst_alpha, offsety, offsety + src_alpha.height-1, dst_y)
+				{
+					src_y = dst_y - offsety;
+					unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
+					unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
+					cimg_for_inX(dst_alpha, offsetx, offsetx + src_alpha.width-1, dst_x)
+					{
+						src_x = dst_x - offsetx;
+						float a1 = p_src_alpha[src_x] / 255.f * opacity;;
+						float a2 = p_dst_alpha[dst_x] / 255.f;
+						p_dst_alpha[dst_x] = (unsigned char) (255.0f * (a1 + a2 - a1 * a2));
+						//p_dst_alpha[dst_x] = (unsigned char) (255.0f * std::min(1.0f, a1 + a2));
+					}
+				}
+			}
+		}
+		textureAtlasImage.display(main_disp);
+
+		if(draw_disp.is_closed)
+			draw_disp.show();
 	}
+	if(!draw_disp.is_closed)
+		draw_disp.close();
+
+	outputOguiFile << "offset " << offsetx << " " << offsety  << std::endl;
 
 	std::cout << "done!" << std::endl;
 
+	if(overwriteFiles)
+	{
+		textureAtlasImage.save_png((textureAtlasImageFilename).c_str());
+	}
+	else
+	{
+		textureAtlasImage.save_png((textureAtlasImageFilename + ".new.png").c_str());
+	}
+
+	
 	outputOguiFile.close();
-	system("pause");
+	if(MessageBox( NULL, "Should temporary files generated while building the font be deleted?", "Remove Temp Files?",	MB_YESNO | MB_ICONQUESTION) == IDYES)
+	{
+		remove((filename + ".temp.xml").c_str());
+		remove(bitmapFontImageFilename.c_str());
+		remove("memleaks.log");
+		remove("memory.log");
+	}
+
+	std::stringstream quitMessage;
+	quitMessage << "A font with id [Font." << fontindex << "]";
+	quitMessage << " was succesfully created in " << filename;
+	quitMessage << " and placed in " << textureAtlasImageFilename << (overwriteFiles ? "" : ".new.png") << "!";
+	MessageBox( NULL, quitMessage.str().c_str(), "Font succesfully created!",	MB_OK | MB_ICONINFORMATION);
 
 	return 0;
 }
