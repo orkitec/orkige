@@ -128,7 +128,7 @@ namespace Orkige
 				//float distan = initialDecorPosition.distance(this->decor->getPosition()) ;
 				float distan = Ogre::Math::Abs(initialDecorPosition.x) - Ogre::Math::Abs(this->decor->getPosition().x) ;
 
-				if (Ogre::Math::Abs(distan) > 130.0f)
+				if (Ogre::Math::Abs(distan) > 45.0f)
 				{
 					this->dragEventData->state = DragEventData::DS_DRAG_END;
 				}
