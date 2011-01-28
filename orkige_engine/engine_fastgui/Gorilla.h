@@ -2690,10 +2690,11 @@ namespace Gorilla
 		*/
 		void               _redraw();
 
-	protected:
+	
 
 		void               _calculateDrawSize(Ogre::Vector2& size);
 
+	protected:
 		Caption(Ogre::uint glyphDataIndex, Ogre::Real left, Ogre::Real top, const Ogre::String& caption, Layer* parent);
 
 		~Caption() {}

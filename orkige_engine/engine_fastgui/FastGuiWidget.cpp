@@ -9,6 +9,7 @@
 
 #include "engine_fastgui/FastGuiWidget.h"
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_graphic/Engine.h"
 
 namespace Orkige
 {
@@ -25,6 +26,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiWidget::~FastGuiWidget()
 	{
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::centerHorizontal()
+	{
+		Ogre::Vector2 size = this->getSize();
+		Ogre::Vector2 pos = this->getPosition();
+		int screenWidth = Engine::getSingleton().getViewort()->getActualWidth();
+		pos.x = (screenWidth/2.f)-(size.x/2.f);
+		this->setPosition(pos.x, pos.y);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

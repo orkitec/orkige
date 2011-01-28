@@ -53,6 +53,8 @@ namespace Orkige
 		inline Gorilla::Layer* getLayer();
 		//! get the view of this layer
 		inline woptr<FastGuiView> getView();
+		//! center widget horizontally on the screen
+		void centerHorizontal();
 	protected:
 	private:
 	};

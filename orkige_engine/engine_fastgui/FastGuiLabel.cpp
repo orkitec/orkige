@@ -41,7 +41,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiLabel::getSize()
 	{
-		return Ogre::Vector2(this->caption->width(), this->caption->height());
+		Ogre::Vector2 size;
+		this->caption->_calculateDrawSize(size);
+		return size;
+		//return Ogre::Vector2(this->caption->width(), this->caption->height());
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiLabel::getPosition()

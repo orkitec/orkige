@@ -369,7 +369,42 @@ namespace Orkige
 	{
 		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
 
-		this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+		Ogre::ColourValue color = Ogre::ColourValue::White;
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+			if(key == "textcolor")
+			{
+				if(value == "black")
+				{
+					color = Ogre::ColourValue::Black;
+				}
+				else if(value == "white")
+				{
+					color = Ogre::ColourValue::White;
+				}
+				else if(value == "red")
+				{
+					color = Ogre::ColourValue::Red;
+				}
+				else if(value == "green")
+				{
+					color = Ogre::ColourValue::Green;
+				}
+				else if(value == "blue")
+				{
+					color = Ogre::ColourValue::Blue;
+				}
+				else
+				{
+					color = StringUtil::Converter::parseColourValue(value);
+				}
+			}
+		}
+
+		woptr<FastGuiLabel> label = this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+		label.lock()->getCaption()->colour(color);
 	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadTextbox(String const & id, SettingsMultiMap* settings)
