@@ -1,28 +1,19 @@
 //#define cimg_OS 0
-#include "OgreBuildSettings.h"
-#undef OGRE_CONTAINERS_USE_CUSTOM_MEMORY_ALLOCATOR
-#define OGRE_CONTAINERS_USE_CUSTOM_MEMORY_ALLOCATOR 0
-#include "Ogre.h"
-#include <engine_module/EnginePrerequisites.h>
-#include <engine_util/StringUtil.h>
-
-#include "core_debug/DisableMemoryManager.h"
-#include <windows.h>
-#include <CommDlg.h>
+#define cimg_use_png
 #define cimg_use_png
 #include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
-
-
-
+#include <engine_module/EnginePrerequisites.h>
 #include <ios>
 #include <iostream>
 #include <core_tinyxml/tinyxml.h>
 #include <core_util/optr.h>
+#include <engine_util/StringUtil.h>
 #include <conio.h>
 #include <direct.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+#include <Ogre.h>
+#include <windows.h>
 
 struct HexCharStruct
 {
@@ -40,11 +31,6 @@ inline HexCharStruct hex(char _c)
 	return HexCharStruct(_c);
 }
 
-class OguiConfig : public Ogre::ConfigFile
-{
-public:
-	OguiConfig(){}
-};
 using namespace Orkige;
 int main(int argc, char **argv)
 {
@@ -201,6 +187,64 @@ int main(int argc, char **argv)
 	int fontindex;
 	std::cin >> fontindex;
 
+	
+	// parse ogui file and backup contents
+	std::stringstream outputOguiFileString;
+	String textureAtlasImageFilename;
+	// parse old ogui file 
+	if(!createFile)
+	{
+		Ogre::ConfigFile oguifile;
+		oguifile.loadDirect(filename, " ", true);
+
+		Ogre::ConfigFile::SectionIterator it = oguifile.getSectionIterator();
+		while(it.hasMoreElements())
+		{
+			String const & section = it.peekNextKey();
+			Ogre::ConfigFile::SettingsMultiMap* settings = it.peekNextValue();
+			if(section.empty())
+			{
+				for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
+				{
+					outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+				}
+			}
+			else
+			{
+				// do not backup font with the index we're just creating
+				if(section != ("Font." + Orkige::StringUtil::Converter::toString(fontindex)))
+				{
+					outputOguiFileString << std::endl << "[" << section << "]" << std::endl;
+					for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
+					{
+						if(overwriteFiles)
+						{
+							outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+						}
+						else
+						{
+							if(section == "Texture" && jit->first == "file")
+							{
+								// replace texture filename if we did chose to not overwrite stuff
+								outputOguiFileString << jit->first << " "<< filename << ".new.png" << std::endl;
+							}
+							else
+							{
+								outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+							}
+						}
+					}
+				}
+			}
+			it.moveNext();
+		}
+		textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
+	}
+	else
+	{
+		textureAtlasImageFilename = filename.substr(0, filename.find_last_of('.')) + ".png";
+	}
+
 	// create or open ogui file
 	std::ofstream outputOguiFile;
 	if(createFile)
@@ -211,72 +255,13 @@ int main(int argc, char **argv)
 	{
 		outputOguiFile.open((filename + ".new.ogui").c_str());
 	}
-	
-	std::stringstream outputOguiFileString;
-	String textureAtlasImageFilename;
-	// parse old ogui file 
-	if(!createFile)
+	else if(overwriteFiles)
 	{
-		OguiConfig oguifile;
-		oguifile.loadDirect(filename, " ", true);
-		textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
-
-		OguiConfig::SectionIterator it = oguifile.getSectionIterator();
-		while(it.hasMoreElements())
-		{
-			String const & section = it.peekNextKey();
-			OguiConfig::SettingsMultiMap* settings = it.peekNextValue();
-			if(settings && !settings->empty())
-			{
-				if(section.empty())
-				{
-					for(OguiConfig::SettingsMultiMap::iterator jit = settings->begin(); jit != settings->end(); ++jit)
-					{
-						String key = jit->first;
-						String value = jit->second;
-						std::cout << jit->first << std::endl;
-						std::cout << jit->second << std::endl;
-						outputOguiFileString << jit->first << " "<< jit->second << std::endl;
-					}
-				}
-				else
-				{
-					if(section != ("Font." + Orkige::StringUtil::Converter::toString(fontindex)))
-					{
-						outputOguiFile << std::endl << "[" << section << "]" << std::endl;
-						for(OguiConfig::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
-						{
-							if(overwriteFiles)
-							{
-								outputOguiFileString << jit->first << " "<< jit->second << std::endl;
-							}
-							else
-							{
-								if(section == "Texture" && jit->first == "file")
-								{
-									outputOguiFileString << jit->first << " "<< filename << ".new.png" << std::endl;
-								}
-								else
-								{
-									outputOguiFileString << jit->first << " "<< jit->second << std::endl;
-								}
-							}
-						}
-					}
-				}
-			}
-			it.moveNext();
-		}
-	}
-	else
-	{
-		textureAtlasImageFilename = filename.substr(0, filename.find_last_of('.')) + ".png";
-	}
-	
-	if(overwriteFiles)
 		outputOguiFile.open(filename.c_str());
+	}
 
-	outputOguiFile << outputOguiFileString;
+	// write backupped contents into new file
+	outputOguiFile << outputOguiFileString.str();
 
 	// write font section to config
 	outputOguiFile << std::endl;
