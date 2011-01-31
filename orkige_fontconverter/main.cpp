@@ -1,18 +1,28 @@
 //#define cimg_OS 0
+#include "OgreBuildSettings.h"
+#undef OGRE_CONTAINERS_USE_CUSTOM_MEMORY_ALLOCATOR
+#define OGRE_CONTAINERS_USE_CUSTOM_MEMORY_ALLOCATOR 0
+#include "Ogre.h"
+#include <engine_module/EnginePrerequisites.h>
+#include <engine_util/StringUtil.h>
+
+#include "core_debug/DisableMemoryManager.h"
+#include <windows.h>
+#include <CommDlg.h>
 #define cimg_use_png
 #include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
-#include <engine_module/EnginePrerequisites.h>
+
+
+
 #include <ios>
 #include <iostream>
 #include <core_tinyxml/tinyxml.h>
 #include <core_util/optr.h>
-#include <engine_util/StringUtil.h>
 #include <conio.h>
 #include <direct.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <Ogre.h>
-#include <windows.h>
+
 
 struct HexCharStruct
 {
@@ -30,24 +40,30 @@ inline HexCharStruct hex(char _c)
 	return HexCharStruct(_c);
 }
 
+class OguiConfig : public Ogre::ConfigFile
+{
+public:
+	OguiConfig(){}
+};
 using namespace Orkige;
 int main(int argc, char **argv)
 {
+	// backup startup path to get location for bmfontgen
 	String path;
 	char* buffer;
-
 	// Get the current working directory: 
 	if( (buffer = _getcwd( NULL, 0 )) == NULL )
 		perror( "_getcwd error" );
 	else
 	{
 		path = buffer;
-		#include "core_debug/DisableMemoryManager.h"
+#include "core_debug/DisableMemoryManager.h"
 		free(buffer);
-		#include "core_debug/EnableMemoryManager.h"
+#include "core_debug/EnableMemoryManager.h"
 	}
 	std::cout << path << std::endl;
 
+	// open ogui file or specify new one
 	OPENFILENAME ofn;
 	char szFileName[MAX_PATH] = "";
 
@@ -80,24 +96,37 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	// strip path from filename
 	filename = filename.substr(filename.find_last_of("\\")+1, filename.length());
-
-	LPCTSTR Caption = "Overwrite existing ogui files?";
-	String Text = "if you press yes the selected ogui file will be overwritten if you press no the following file(s) will be created:\n" + filename + ".new.ogui\n *.new.png";
-
-	bool overwriteFiles = false;
-	int messageboxReturn = MessageBox( NULL, Text.c_str(), Caption,	MB_YESNO | MB_ICONQUESTION);
-	if(messageboxReturn == IDYES)
-	{
-		overwriteFiles = true;
-	}
-
 	std::cout << "Filename: " << filename << std::endl;
 
+	// check if given file is new one or existing one
+	bool createFile = true;
+	std::ifstream ifile(filename.c_str());
+	if (ifile) {
+		createFile = false;
+	}
+	ifile.close();
+
+	// if file exists should it be overwritten?
+	bool overwriteFiles = createFile;
+	if(!createFile)
+	{
+		String Caption = "Overwrite existing .ogui files?";
+		String Text = "If you press yes "+filename+" will be overwritten!\n If you press no the following file(s) will be created:\n" + filename + ".new.ogui\n"+filename+".new.png";
+		int messageboxReturn = MessageBox( NULL, Text.c_str(), Caption.c_str(),	MB_YESNO | MB_ICONQUESTION);
+		if(messageboxReturn == IDYES)
+		{
+			overwriteFiles = true;
+		}
+	}
+
+	// size of bitmap font
 	std::cout << "Bitmap Font Image Size (64-1024): ";
 	int image_size;
 	std::cin >> image_size;
 
+	// font range
 	char start_letter=' ';
 	char end_letter='~';
 	if(MessageBox( NULL, "Do you want to specify a custom font range?", "Font Range",	MB_YESNO | MB_ICONQUESTION) == IDYES)
@@ -117,6 +146,7 @@ int main(int argc, char **argv)
 		std::cout << std::endl;
 	}
 
+	// execute bmfontgen and create bitmap font image and description
 	std::stringstream bmfontGenCommand;
 	bmfontGenCommand << "" << path << "\\bmfontgen.exe -fontdialog -bmsize " << image_size << " -range "<<hex(start_letter)<<"-"<<hex(end_letter)<<" -output " << filename << ".temp";
 	std::cout << bmfontGenCommand.str() << std::endl;
@@ -128,9 +158,8 @@ int main(int argc, char **argv)
 		system("pause");
 		return -1;
 	}
-	Ogre::ConfigFile oguifile;
-	oguifile.loadDirect(filename, " ", true);
 
+	// open font description
 	optr<TiXmlDocument>	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
 	if(!document || document->Error())
 	{
@@ -153,8 +182,8 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
+	// check if font did fit into the specified image size 
 	TiXmlElement* bitmapsElement = xmlRoot->FirstChildElement("bitmaps");
-
 	for(TiXmlElement* elementType = bitmapsElement->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
 	{
 		String const & elementTypeName = elementType->Attribute("id");
@@ -167,64 +196,93 @@ int main(int argc, char **argv)
 		}
 	}
 
+	// specify font index of new font
 	std::cout << "Font Index: ";
 	int fontindex;
 	std::cin >> fontindex;
 
+	// create or open ogui file
 	std::ofstream outputOguiFile;
-	if(overwriteFiles)
+	if(createFile)
 	{
 		outputOguiFile.open(filename .c_str());
 	}
-	else
+	else if(!overwriteFiles)
 	{
 		outputOguiFile.open((filename + ".new.ogui").c_str());
 	}
 	
-
-	Ogre::ConfigFile::SectionIterator it = oguifile.getSectionIterator();
-	while(it.hasMoreElements())
+	std::stringstream outputOguiFileString;
+	String textureAtlasImageFilename;
+	// parse old ogui file 
+	if(!createFile)
 	{
-		String const & section = it.peekNextKey();
-		Ogre::ConfigFile::SettingsMultiMap* settings = it.peekNextValue();
-		if(section.empty())
+		OguiConfig oguifile;
+		oguifile.loadDirect(filename, " ", true);
+		textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
+
+		OguiConfig::SectionIterator it = oguifile.getSectionIterator();
+		while(it.hasMoreElements())
 		{
-			for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
+			String const & section = it.peekNextKey();
+			OguiConfig::SettingsMultiMap* settings = it.peekNextValue();
+			if(settings && !settings->empty())
 			{
-				outputOguiFile << jit->first << " "<< jit->second << std::endl;
-			}
-		}
-		else
-		{
-			if(section != ("Font." + Orkige::StringUtil::Converter::toString(fontindex)))
-			{
-				outputOguiFile << std::endl << "[" << section << "]" << std::endl;
-				for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
+				if(section.empty())
 				{
-					if(overwriteFiles)
+					for(OguiConfig::SettingsMultiMap::iterator jit = settings->begin(); jit != settings->end(); ++jit)
 					{
-						outputOguiFile << jit->first << " "<< jit->second << std::endl;
+						String key = jit->first;
+						String value = jit->second;
+						std::cout << jit->first << std::endl;
+						std::cout << jit->second << std::endl;
+						outputOguiFileString << jit->first << " "<< jit->second << std::endl;
 					}
-					else
+				}
+				else
+				{
+					if(section != ("Font." + Orkige::StringUtil::Converter::toString(fontindex)))
 					{
-						if(section == "Texture" && jit->first == "file")
+						outputOguiFile << std::endl << "[" << section << "]" << std::endl;
+						for(OguiConfig::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
 						{
-							outputOguiFile << jit->first << " "<< jit->second << ".new.png" << std::endl;
-						}
-						else
-						{
-							outputOguiFile << jit->first << " "<< jit->second << std::endl;
+							if(overwriteFiles)
+							{
+								outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+							}
+							else
+							{
+								if(section == "Texture" && jit->first == "file")
+								{
+									outputOguiFileString << jit->first << " "<< filename << ".new.png" << std::endl;
+								}
+								else
+								{
+									outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+								}
+							}
 						}
 					}
 				}
 			}
+			it.moveNext();
 		}
-		it.moveNext();
 	}
+	else
+	{
+		textureAtlasImageFilename = filename.substr(0, filename.find_last_of('.')) + ".png";
+	}
+	
+	if(overwriteFiles)
+		outputOguiFile.open(filename.c_str());
 
+	outputOguiFile << outputOguiFileString;
+
+	// write font section to config
 	outputOguiFile << std::endl;
 	outputOguiFile << "[Font."<< fontindex << "]" << std::endl;
 
+	// parse font desc file
 	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
 	document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
 	xmlRoot = document->RootElement();
@@ -278,12 +336,28 @@ int main(int argc, char **argv)
 		}
 	}
 
-	String textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
+	int atlas_size=0;
+	// create or load texture atlas
 	cimg_library::CImg<unsigned char> textureAtlasImage;
-	textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
-
-	cimg_library::CImg<unsigned char> textureAtlasImageOrig;
-	textureAtlasImageOrig.load_png(textureAtlasImageFilename.c_str());
+	if(!createFile)
+	{
+		textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
+	}
+	else
+	{
+		// create atlas and draw white pixel
+		std::cout << "Atlas image size: ";
+		atlas_size;
+		std::cin >> atlas_size;
+		textureAtlasImage = cimg_library::CImg<unsigned char>(atlas_size,atlas_size,1,4);
+		const unsigned char white[4]={ 255, 255, 255, 255 };
+		textureAtlasImage.fill(0);
+		textureAtlasImage.draw_rectangle(atlas_size-2, atlas_size-2, atlas_size, atlas_size, white);
+	}
+	
+	// backup atlas
+	cimg_library::CImg<unsigned char> textureAtlasImageOrig = textureAtlasImage;
+	//textureAtlasImageOrig.load_png(textureAtlasImageFilename.c_str());
 
 	String bitmapFontImageFilename = filename + ".temp-0.png";
 	cimg_library::CImg<unsigned char> bitmapFontImage;
@@ -292,6 +366,7 @@ int main(int argc, char **argv)
 	int offsetx = 0;
 	int offsety = 0;
 
+	// sho atlas and font and let user choose where to draw the font inside the atlas
 	float opacity = 1.f;
 	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click where to draw the font!"), draw_disp(bitmapFontImage,"Bitmap Font");
 	while(!main_disp.is_closed)
@@ -360,16 +435,26 @@ int main(int argc, char **argv)
 
 	outputOguiFile << "offset " << offsetx << " " << offsety  << std::endl;
 
+	if(createFile)
+	{
+		// if its a new file write texture section
+		outputOguiFile << std::endl << "[Texture]" << std::endl << "file " << textureAtlasImageFilename << std::endl << "whitepixel " << atlas_size-2 << " " << atlas_size-2 << std::endl;
+	}
+
+	// save atlas
 	if(overwriteFiles)
 	{
 		textureAtlasImage.save_png((textureAtlasImageFilename).c_str());
 	}
 	else
 	{
-		textureAtlasImage.save_png((textureAtlasImageFilename + ".new.png").c_str());
+		textureAtlasImage.save_png((filename + ".new.png").c_str());
 	}
 
+	// close ogui file
 	outputOguiFile.close();
+
+	// cleanup
 	if(MessageBox( NULL, "Should temporary files generated while building the font be deleted?", "Remove Temp Files?",	MB_YESNO | MB_ICONQUESTION) == IDYES)
 	{
 		remove((filename + ".temp.xml").c_str());
@@ -378,6 +463,7 @@ int main(int argc, char **argv)
 		remove("memory.log");
 	}
 
+	// success message
 	std::stringstream quitMessage;
 	quitMessage << "A font with id [Font." << fontindex << "]";
 	quitMessage << " was succesfully created in " << filename;
