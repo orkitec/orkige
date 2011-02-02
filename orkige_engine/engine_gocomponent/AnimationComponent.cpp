@@ -16,11 +16,13 @@
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(AnimationComponent, AnimationEndedEvent);
+	IMPL_OWNED_EVENTTYPE(AnimationComponent, AnimationsLoaded);
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	AnimationComponent::AnimationComponent()
 	{
+		
 		this->addDependency<ModelComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -31,11 +33,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::pause()
 	{
+		this->paused = true;
 		this->unregisterEvent(Engine::FrameStartedEvent);
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::resume()
 	{
+		this->paused = false;
 		this->registerEvent(Engine::FrameStartedEvent,	&AnimationComponent::onFrameStarted,	this);
 	}
 	//---------------------------------------------------------
@@ -114,8 +118,8 @@ namespace Orkige
 			if(state->hasEnded())
 			{
 				endedAnimations.push_back(state);
-				this->eventData->setValue(state->getAnimationName());
-				this->getComponentOwner()->triggerEvent(Event(AnimationEndedEvent, this->eventData));
+				
+				
 			}
 
 			it.moveNext();
@@ -123,6 +127,10 @@ namespace Orkige
 		foreach(Ogre::AnimationState* state, endedAnimations)
 		{
 			state->setEnabled(false);
+			this->eventData->setValue(state->getAnimationName());
+			this->getComponentOwner()->triggerEvent(Event(AnimationEndedEvent, this->eventData));
+			//temporarly disabled to not return to default pause when no animation is played
+			
 		}
 	}
 	//---------------------------------------------------------
@@ -138,6 +146,8 @@ namespace Orkige
 		this->handleRotation = false;
 		this->extractMotion = false;
 		this->extractRotation = false;
+
+		this->paused = false;
 
 		this->getAnimationsFromModel();
 	}
@@ -164,7 +174,7 @@ namespace Orkige
 			}
 			this->updateAnimations(data->timeSinceLastFrame);
 		}
-		return false;
+		return this->paused;
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::onModelRemoved(Event const & event)
@@ -228,6 +238,7 @@ namespace Orkige
 					this->availableAnimations.push_back(animationName);
 					it.moveNext();
 				}
+				this->getComponentOwner()->triggerEvent(Event(AnimationsLoaded));
 			}
 			Ogre::Skeleton* skeleton = model->getSkeleton();
 			Ogre::Skeleton::BoneIterator boneIt = skeleton->getBoneIterator();
@@ -239,6 +250,7 @@ namespace Orkige
 					this->motionBone = bone->getName();
 			}
 		}
+		
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::handleMotionRotation(Ogre::AnimationState * state, float timeDelta)

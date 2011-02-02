@@ -24,6 +24,9 @@ namespace Orkige
 		//! @brief triggered when a playing animation has reached the end and is not looping
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(AnimationEndedEvent);
+		//! @brief triggered when the animations set is loaded means that the model is loaded 
+		//! @ingroup EngineEvents
+		DECL_EVENTTYPE(AnimationsLoaded);
 	protected:
 	private:
 		struct SimpleTransform
@@ -56,6 +59,7 @@ namespace Orkige
 		bool						handleRotation;
 		bool						extractMotion;
 		bool						extractRotation;
+		bool						paused; //we use as a return value for onFrameStarted function when the animation component is paused  
 		TransformRegistry			initialStateTransforms;
 		KeyFrameBackupRegistry		backuppedKeyframes;
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
@@ -92,6 +96,8 @@ namespace Orkige
 		inline bool getExtractMotion();
 		//! should rotations should be xtracted from anim
 		inline bool getExtractRotation();
+		//! is the AnimationComponent is paused 
+		inline bool isPaused();
 		
 
 		//! set motion handling
@@ -215,6 +221,11 @@ namespace Orkige
 		this->motionBone = boneName;
 	}
 	//---------------------------------------------------------------
+
+	inline bool AnimationComponent::isPaused()
+	{
+		return this->paused;
+	}
 }
 
 #endif //__AnimationComponent_h__30_8_2010__15_58_30__
