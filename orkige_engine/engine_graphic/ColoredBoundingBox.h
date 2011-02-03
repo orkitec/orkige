@@ -35,15 +35,17 @@ namespace Orkige
 		ColoredBoundingBox(Ogre::Entity * entity,Ogre::ColourValue colour);
 		//! construct colored SceneNode BoundingBox
 		ColoredBoundingBox(Ogre::SceneNode * sn,Ogre::ColourValue colour);
+		//! construct colored BoundingBox from extents
+		ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop ,Ogre::ColourValue colour);
 		//! destructor
 		virtual ~ColoredBoundingBox();
 		//! change the line colour 
 		void setColour(Ogre::ColourValue colour); 
 		//! Call this to update the hardware buffer after making changes.  
-		void update(); 
+		void update(Ogre::Vector3 const & nearLeftBottom = Ogre::Vector3::ZERO, Ogre::Vector3 const & farRightTop = Ogre::Vector3::ZERO); 
 	protected:
 	private:
-		void setup();
+		void setup(Ogre::Vector3 const & nearLeftBottom = Ogre::Vector3::ZERO, Ogre::Vector3 const & farRightTop = Ogre::Vector3::ZERO);
 	};
 	//---------------------------------------------------------
 }

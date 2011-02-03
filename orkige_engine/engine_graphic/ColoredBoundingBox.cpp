@@ -10,7 +10,7 @@
 #include "engine_graphic/ColoredBoundingBox.h"
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
-
+#include "engine_util/NodeUtil.h"
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -34,8 +34,18 @@ namespace Orkige
 		this->setup();
 	}
 	//---------------------------------------------------------
+	ColoredBoundingBox::ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop ,Ogre::ColourValue colour)
+	{
+		this->entity = NULL;
+		this->boxNode = NULL;
+		this->lines = onew(new DynamicLines(colour));
+
+		this->setup(nearLeftBottom, farRightTop);
+	}
+	//---------------------------------------------------------
 	ColoredBoundingBox::~ColoredBoundingBox()
 	{
+		NodeUtil::wipeSceneNode(this->node);
 	}
 	//---------------------------------------------------------
 	void ColoredBoundingBox::setColour(Ogre::ColourValue colour)
@@ -45,7 +55,7 @@ namespace Orkige
 		this->node->needUpdate();
 	}
 	//---------------------------------------------------------
-	void ColoredBoundingBox::update()
+	void ColoredBoundingBox::update(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop)
 	{
 		Ogre::AxisAlignedBox bb;
 		if(this->entity != NULL)
@@ -56,6 +66,10 @@ namespace Orkige
 		{
 			this->boxNode->_update(true,false);
 			bb = this->boxNode->_getWorldAABB();
+		}
+		else if(nearLeftBottom != Ogre::Vector3::ZERO || farRightTop != Ogre::Vector3::ZERO )
+		{
+			bb.setExtents(nearLeftBottom, farRightTop);
 		}
 		else
 		{
@@ -115,12 +129,12 @@ namespace Orkige
 		this->lines->setPoint(18,bb.getCorner(Ogre::AxisAlignedBox::NEAR_RIGHT_BOTTOM ));	//2
 
 		this->lines->update();
-		node->needUpdate();
+		this->node->needUpdate();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-	void ColoredBoundingBox::setup()
+	void ColoredBoundingBox::setup(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop)
 	{
 		
 		this->node = Engine::getSingleton().getSceneManager()->getRootSceneNode()->createChildSceneNode();
@@ -135,6 +149,10 @@ namespace Orkige
 		{
 			this->boxNode->_update(true,false);
 			bb = this->boxNode->_getWorldAABB();
+		}
+		else if(nearLeftBottom != Ogre::Vector3::ZERO || farRightTop != Ogre::Vector3::ZERO )
+		{
+			bb.setExtents(nearLeftBottom, farRightTop);
 		}
 		else
 		{

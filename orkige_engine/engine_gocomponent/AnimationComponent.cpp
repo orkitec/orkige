@@ -117,9 +117,7 @@ namespace Orkige
 
 			if(state->hasEnded())
 			{
-				endedAnimations.push_back(state);
-				
-				
+				endedAnimations.push_back(state);	
 			}
 
 			it.moveNext();
@@ -129,8 +127,6 @@ namespace Orkige
 			state->setEnabled(false);
 			this->eventData->setValue(state->getAnimationName());
 			this->getComponentOwner()->triggerEvent(Event(AnimationEndedEvent, this->eventData));
-			//temporarly disabled to not return to default pause when no animation is played
-			
 		}
 	}
 	//---------------------------------------------------------
@@ -205,12 +201,7 @@ namespace Orkige
 		optr<ModelComponent> modelComponent = owner->getComponent<ModelComponent>().lock();
 		oAssert(modelComponent);
 		Ogre::Entity const * model = modelComponent->getModel();
-
-		if(model && model->hasSkeleton())
-		{
-			return model;
-		}
-		return NULL;
+		return model;
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::getAnimationsFromModel()
@@ -241,13 +232,16 @@ namespace Orkige
 				this->getComponentOwner()->triggerEvent(Event(AnimationsLoaded));
 			}
 			Ogre::Skeleton* skeleton = model->getSkeleton();
-			Ogre::Skeleton::BoneIterator boneIt = skeleton->getBoneIterator();
-			while(boneIt.hasMoreElements())
+			if(skeleton)
 			{
-				Ogre::Bone* bone = boneIt.getNext();
-				this->boneNames.push_back(bone->getName());
-				if(this->motionBone.empty())
-					this->motionBone = bone->getName();
+				Ogre::Skeleton::BoneIterator boneIt = skeleton->getBoneIterator();
+				while(boneIt.hasMoreElements())
+				{
+					Ogre::Bone* bone = boneIt.getNext();
+					this->boneNames.push_back(bone->getName());
+					if(this->motionBone.empty())
+						this->motionBone = bone->getName();
+				}
 			}
 		}
 		
@@ -257,61 +251,64 @@ namespace Orkige
 	{
 		if(Ogre::Entity const * model = this->getAnimableModel())
 		{
-			Ogre::Bone * bone = model->getSkeleton()->getBone(this->motionBone/*"Spineroot"*/);
-
-			if(bone)
+			Ogre::Skeleton* skeleton = model->getSkeleton();
+			if(skeleton)
 			{
-				oAssert(bone);
-
-				String const & animationName = state->getAnimationName();
-				Ogre::SkeletonInstance* skeleton = model->getSkeleton();
-				Ogre::Animation* anim = skeleton->getAnimation(animationName);
-				Ogre::TransformKeyFrame interPolatedKeyframe(0,0);
-
-				unsigned short bonehandle = bone->getHandle();
-				if(anim->hasNodeTrack(bonehandle))
+				Ogre::Bone * bone = skeleton->getBone(this->motionBone/*"Spineroot"*/);
+				if(bone)
 				{
-					Ogre::NodeAnimationTrack* track = anim->getNodeTrack(bonehandle);
-					Ogre::TransformKeyFrame* startKf = track->getNodeKeyFrame(0);
-					Ogre::TransformKeyFrame* endKf = track->getNodeKeyFrame(track->getNumKeyFrames()-1);
-					foreach(KeyFrameBackup & kfBack, backuppedKeyframes[animationName][bonehandle])
+					oAssert(bone);
+
+					String const & animationName = state->getAnimationName();
+					Ogre::SkeletonInstance* skeleton = model->getSkeleton();
+					Ogre::Animation* anim = skeleton->getAnimation(animationName);
+					Ogre::TransformKeyFrame interPolatedKeyframe(0,0);
+
+					unsigned short bonehandle = bone->getHandle();
+					if(anim->hasNodeTrack(bonehandle))
 					{
-						Ogre::TransformKeyFrame* oldKf = track->getNodeKeyFrame(kfBack.index);
-						oldKf->setScale(kfBack.scale);
-						if(this->handleRotation)
-							oldKf->setRotation(kfBack.rotation);
-						oldKf->setTranslate(kfBack.translate);
-					}
-					this->backuppedKeyframes[animationName][bonehandle].clear();
+						Ogre::NodeAnimationTrack* track = anim->getNodeTrack(bonehandle);
+						Ogre::TransformKeyFrame* startKf = track->getNodeKeyFrame(0);
+						Ogre::TransformKeyFrame* endKf = track->getNodeKeyFrame(track->getNumKeyFrames()-1);
+						foreach(KeyFrameBackup & kfBack, backuppedKeyframes[animationName][bonehandle])
+						{
+							Ogre::TransformKeyFrame* oldKf = track->getNodeKeyFrame(kfBack.index);
+							oldKf->setScale(kfBack.scale);
+							if(this->handleRotation)
+								oldKf->setRotation(kfBack.rotation);
+							oldKf->setTranslate(kfBack.translate);
+						}
+						this->backuppedKeyframes[animationName][bonehandle].clear();
 
 
-					track->getInterpolatedKeyFrame(state->getTimePosition(), &interPolatedKeyframe);
+						track->getInterpolatedKeyFrame(state->getTimePosition(), &interPolatedKeyframe);
 
-					optr<TransformComponent> transform = this->getComponentOwner()->getComponent<TransformComponent>().lock();
+						optr<TransformComponent> transform = this->getComponentOwner()->getComponent<TransformComponent>().lock();
 
-					if(state->getTimePosition() >= state->getLength() || state->getTimePosition() + timeDelta >= state->getLength() || interPolatedKeyframe.getTime() == endKf->getTime())
-					{
-						Ogre::Quaternion currentOrientation = transform->getOrientation();
-						currentOrientation.normalise();
-						this->initialStateTransforms[animationName] = SimpleTransform(transform->getPosition(), currentOrientation, transform->getScale());
-					}
-					else
-					{
-						SimpleTransform initialTransform = this->initialStateTransforms[animationName];
-						transform->setScale(initialTransform.scale * interPolatedKeyframe.getScale());
-						if(this->handleRotation)
-							transform->setOrientation(initialTransform.rotation * /*bone->getInitialOrientation() * */interPolatedKeyframe.getRotation());
-						transform->setPosition(initialTransform.translate + /*bone->getInitialPosition() + */(interPolatedKeyframe.getTranslate()-startKf->getTranslate()));
-					}
-					for(int i = 0 ; i <track->getNumKeyFrames(); i++)
-					{
-						Ogre::TransformKeyFrame* kf = track->getNodeKeyFrame(i);
-						this->backuppedKeyframes[animationName][bonehandle].push_back(KeyFrameBackup(i, kf));
-						kf->setScale(startKf->getScale());
-						if(this->handleRotation)
-							kf->setRotation(startKf->getRotation());
-						kf->setTranslate(startKf->getTranslate());
+						if(state->getTimePosition() >= state->getLength() || state->getTimePosition() + timeDelta >= state->getLength() || interPolatedKeyframe.getTime() == endKf->getTime())
+						{
+							Ogre::Quaternion currentOrientation = transform->getOrientation();
+							currentOrientation.normalise();
+							this->initialStateTransforms[animationName] = SimpleTransform(transform->getPosition(), currentOrientation, transform->getScale());
+						}
+						else
+						{
+							SimpleTransform initialTransform = this->initialStateTransforms[animationName];
+							transform->setScale(initialTransform.scale * interPolatedKeyframe.getScale());
+							if(this->handleRotation)
+								transform->setOrientation(initialTransform.rotation * /*bone->getInitialOrientation() * */interPolatedKeyframe.getRotation());
+							transform->setPosition(initialTransform.translate + /*bone->getInitialPosition() + */(interPolatedKeyframe.getTranslate()-startKf->getTranslate()));
+						}
+						for(int i = 0 ; i <track->getNumKeyFrames(); i++)
+						{
+							Ogre::TransformKeyFrame* kf = track->getNodeKeyFrame(i);
+							this->backuppedKeyframes[animationName][bonehandle].push_back(KeyFrameBackup(i, kf));
+							kf->setScale(startKf->getScale());
+							if(this->handleRotation)
+								kf->setRotation(startKf->getRotation());
+							kf->setTranslate(startKf->getTranslate());
 
+						}
 					}
 				}
 			}
