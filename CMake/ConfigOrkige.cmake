@@ -77,6 +77,7 @@ macro (configure_orkige ROOT OGREPATH)
 	include(MacroLogFeature)
 
 	if (APPLE)
+		add_definitions(-Wno-reorder)
 		option(ORKIGE_BUILD_IPHONE	"Build Orkige on IPhone SDK"	OFF)
 		if (ORKIGE_BUILD_IPHONE)
 			option(ORKIGE_USE_COCOA "Use Cocoa" ON)
