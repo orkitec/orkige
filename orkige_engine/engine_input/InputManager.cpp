@@ -216,9 +216,7 @@ namespace Orkige
 					currentDistance = (this->lastTouchPoints.at(each) - state.X.abs) * (this->lastTouchPoints.at(each) - state.X.abs);
 					currentDistance += (this->lastTouchPoints.at(each + 1) - state.Y.abs) * (this->lastTouchPoints.at(each + 1) - state.Y.abs);
 					currentDistance += (this->lastTouchPoints.at(each + 2) - state.Z.abs) * (this->lastTouchPoints.at(each + 2) - state.Z.abs);
-					
-					//oDebugMsg("philipp", 0, "currentDistance: " << currentDistance << " closestDistance: " << closestDistance << " each: " << each);
-					
+										
 					if (currentDistance < closestDistance)
 					{
 						closestSequence = each;
@@ -233,7 +231,6 @@ namespace Orkige
 		{
 			if ( state.touchIsType(OIS::MT_Pressed) )
 			{
-				//oDebugMsg("philipp", 0, "MT_Pressed");
 				// new sequence
 
 				for (int each = 0; each < (int)this->lastTouchPoints.size(); each += 3)
@@ -243,7 +240,6 @@ namespace Orkige
 						this->lastTouchPoints.at(each) = state.X.abs;
 						this->lastTouchPoints.at(each + 1) = state.Y.abs;
 						this->lastTouchPoints.at(each + 2) = state.Z.abs;
-						//oDebugMsg("philipp", 0, "punkte: " << this->lastTouchPoints.at(each + 0) << ", " << this->lastTouchPoints.at(each + 1) << ", " << this->lastTouchPoints.at(each + 2));
 						return (each / 3);		//this is the ID
 					}
 				}
@@ -251,19 +247,16 @@ namespace Orkige
 			}
 			else if ( state.touchIsType(OIS::MT_Released) || (state.touchIsType(OIS::MT_Cancelled)) )
 			{
-				//oDebugMsg("philipp", 0, "MT_Released || MT_Cancelled");
 				// find the sequence and "release" the vector entries
 			
 				int closestSequenceId = this->closestSquenceId(state);
 				this->lastTouchPoints.at(closestSequenceId * 3) = -1;
 				this->lastTouchPoints.at(closestSequenceId * 3 + 1) = -1;
 				this->lastTouchPoints.at(closestSequenceId * 3 + 2) = -1;
-				//oDebugMsg("philipp", 0, "squenzce start: " << closestSequenceId << " punkte: " << this->lastTouchPoints.at(closestSequenceId + 0) << ", " << this->lastTouchPoints.at(closestSequenceId + 1) << ", " << this->lastTouchPoints.at(closestSequenceId + 2));
 				return closestSequenceId;
 			}
 			else if ( state.touchIsType(OIS::MT_Moved) )
 			{
-				//oDebugMsg("philipp", 0, "MT_Moved");
 				// find the sequence
 				return this->closestSquenceId(state);
 			}			
@@ -300,12 +293,6 @@ namespace Orkige
 			this->touchData->absZ = state.Z.abs;
 			this->touchData->sequenceId = this->getTouchSquenceId(state);
 			this->transformInputToOrientation(this->touchData);
-			
-//			oDebugMsg("philipp", 0, "touch at: (" << state.X.abs << "@"
-//												  << state.Y.abs << "@"
-//												  << state.Z.abs << ") squence: "
-//					  << this->touchData->sequenceId
-//					  << " touchType: " << state.touchType);
 		}
 		virtual bool keyPressed( const OIS::KeyEvent &e )
 		{
