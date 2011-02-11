@@ -102,6 +102,15 @@ namespace Orkige
 		bool onMouseReleased(Orkige::Event const & event);
 		//! Updates cursor position. Returns true if the event was consumed and should not be passed on to other handlers.
 		bool onMouseMoved(Orkige::Event const & event);
+
+
+		//! Processes touch down events. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onTouchPressed(Orkige::Event const & event);
+		//! Processes touch up events. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onTouchReleased(Orkige::Event const & event);
+		//! Processes touch move events. Returns true if the event was consumed and should not be passed on to other handlers.
+		bool onTouchMoved(Orkige::Event const & event);
+
 	private:
 	};
 	//---------------------------------------------------------------

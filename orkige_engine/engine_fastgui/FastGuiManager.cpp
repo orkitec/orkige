@@ -36,9 +36,15 @@ namespace Orkige
 	{
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,				&FastGuiManager::onKeyPressed,				this);
 		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,				&FastGuiManager::onKeyReleased,				this);
+#ifdef ORKIGE_IPHONE
+		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
+		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
+		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
+#else
 		this->registerEvent(Orkige::InputManager::MousePressedEvent,			&FastGuiManager::onMousePressed,			this);
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,			&FastGuiManager::onMouseReleased,			this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,				&FastGuiManager::onMouseMoved,				this);
+#endif
 		this->refreshCursor();
 	}
 	//---------------------------------------------------------
@@ -46,9 +52,15 @@ namespace Orkige
 	{
 		this->unregisterEvent(Orkige::InputManager::KeyPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::KeyReleasedEvent);
+#ifdef ORKIGE_IPHONE
+		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
+		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
+		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
+#else
 		this->unregisterEvent(Orkige::InputManager::MousePressedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
+#endif
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::showCursor(String const & atlas, String const & sprite)
@@ -86,6 +98,10 @@ namespace Orkige
 		if(states.size() > 0)
 		this->cursor->setPosition(states[0].X.abs, states[0].Y.abs);
 		*/
+		if(this->cursor)
+		{
+			this->cursor->setPosition((Ogre::Real)InputManager::getSingleton().getLastTouchData()->absX, (Ogre::Real)InputManager::getSingleton().getLastTouchData()->absY);
+		}
 #else
 		if(this->cursor)
 		{
@@ -245,6 +261,43 @@ namespace Orkige
 	bool FastGuiManager::onMouseMoved(Orkige::Event const & event)
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
+		if(this->cursor)
+		{
+			this->cursor->setPosition((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		}
+		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorMoved(cursorPos);
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	bool FastGuiManager::onTouchPressed(Orkige::Event const & event)
+	{
+		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
+		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorPressed(cursorPos);
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	bool FastGuiManager::onTouchReleased(Orkige::Event const & event)
+	{
+		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
+		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			vt.second->onCursorReleased(cursorPos);
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	bool FastGuiManager::onTouchMoved(Orkige::Event const & event)
+	{
+		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
 		if(this->cursor)
 		{
 			this->cursor->setPosition((Ogre::Real)data->absX, (Ogre::Real)data->absY);
