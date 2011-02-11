@@ -37,11 +37,13 @@ namespace Orkige
 		int absY;
 		//! absolute z axis position
 		int absZ;
+		//! ID which touch event sequence
+		int sequenceId;
 	protected:
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		inline TouchEventData() : relX(0), relY(0), relZ(0), absX(0), absY(0), absZ(0) {}
+		inline TouchEventData() : relX(0), relY(0), relZ(0), absX(0), absY(0), absZ(0), sequenceId (0) {}
 	protected:
 	private:
 	};

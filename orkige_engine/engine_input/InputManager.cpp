@@ -92,6 +92,8 @@ namespace Orkige
 		optr<TouchEventData> touchData;
 		optr<GestureEventData> gestureData;
 		optr<AccelerationEventData> accelerationData;
+		
+		std::vector<int> lastTouchPoints;
 
 		InputManagerImpl() 
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -132,6 +134,11 @@ namespace Orkige
 			this->gestureCancelledEvent.setData(this->gestureData);
 
 			this->accelerationEvent.setData((this->accelerationData));
+			
+			for (int each = 0; each < OIS_MAX_NUM_TOUCHES * 3; each++)
+			{
+				this->lastTouchPoints.push_back(-1);
+			}
 #ifdef ORKIGE_IPHONE
 			gestureView = 0;
 #endif
@@ -195,6 +202,73 @@ namespace Orkige
 				break;
 			}
 		}
+		
+		inline int closestSquenceId(const OIS::MultiTouchState &state)
+		{
+			unsigned int closestDistance = 999999;
+			unsigned int currentDistance = 999999;
+			int closestSequence = -1;
+			
+			for (int each = 0; each < (int)this->lastTouchPoints.size(); each += 3)
+			{
+				if (this->lastTouchPoints.at(each) != -1 )
+				{
+					currentDistance = (this->lastTouchPoints.at(each) - state.X.abs) * (this->lastTouchPoints.at(each) - state.X.abs);
+					currentDistance += (this->lastTouchPoints.at(each + 1) - state.Y.abs) * (this->lastTouchPoints.at(each + 1) - state.Y.abs);
+					currentDistance += (this->lastTouchPoints.at(each + 2) - state.Z.abs) * (this->lastTouchPoints.at(each + 2) - state.Z.abs);
+					
+					//oDebugMsg("philipp", 0, "currentDistance: " << currentDistance << " closestDistance: " << closestDistance << " each: " << each);
+					
+					if (currentDistance < closestDistance)
+					{
+						closestSequence = each;
+						closestDistance = currentDistance;
+					}
+				}
+			}
+			return closestSequence / 3;
+		}
+		
+		inline int getTouchSquenceId(const OIS::MultiTouchState &state)
+		{
+			if ( state.touchIsType(OIS::MT_Pressed) )
+			{
+				//oDebugMsg("philipp", 0, "MT_Pressed");
+				// new sequence
+
+				for (int each = 0; each < (int)this->lastTouchPoints.size(); each += 3)
+				{
+					if (this->lastTouchPoints.at(each) == -1 )
+					{
+						this->lastTouchPoints.at(each) = state.X.abs;
+						this->lastTouchPoints.at(each + 1) = state.Y.abs;
+						this->lastTouchPoints.at(each + 2) = state.Z.abs;
+						//oDebugMsg("philipp", 0, "punkte: " << this->lastTouchPoints.at(each + 0) << ", " << this->lastTouchPoints.at(each + 1) << ", " << this->lastTouchPoints.at(each + 2));
+						return (each / 3);		//this is the ID
+					}
+				}
+				return -1;
+			}
+			else if ( state.touchIsType(OIS::MT_Released) || (state.touchIsType(OIS::MT_Cancelled)) )
+			{
+				//oDebugMsg("philipp", 0, "MT_Released || MT_Cancelled");
+				// find the sequence and "release" the vector entries
+			
+				int closestSequenceId = this->closestSquenceId(state);
+				this->lastTouchPoints.at(closestSequenceId * 3) = -1;
+				this->lastTouchPoints.at(closestSequenceId * 3 + 1) = -1;
+				this->lastTouchPoints.at(closestSequenceId * 3 + 2) = -1;
+				//oDebugMsg("philipp", 0, "squenzce start: " << closestSequenceId << " punkte: " << this->lastTouchPoints.at(closestSequenceId + 0) << ", " << this->lastTouchPoints.at(closestSequenceId + 1) << ", " << this->lastTouchPoints.at(closestSequenceId + 2));
+				return closestSequenceId;
+			}
+			else if ( state.touchIsType(OIS::MT_Moved) )
+			{
+				//oDebugMsg("philipp", 0, "MT_Moved");
+				// find the sequence
+				return this->closestSquenceId(state);
+			}			
+			return -1;
+		}
 
 		inline void oisMouseToOrkige(const OIS::MouseState &state)
 		{
@@ -224,7 +298,14 @@ namespace Orkige
 			this->touchData->absX = state.X.abs;
 			this->touchData->absY = state.Y.abs;
 			this->touchData->absZ = state.Z.abs;
+			this->touchData->sequenceId = this->getTouchSquenceId(state);
 			this->transformInputToOrientation(this->touchData);
+			
+//			oDebugMsg("philipp", 0, "touch at: (" << state.X.abs << "@"
+//												  << state.Y.abs << "@"
+//												  << state.Z.abs << ") squence: "
+//					  << this->touchData->sequenceId
+//					  << " touchType: " << state.touchType);
 		}
 		virtual bool keyPressed( const OIS::KeyEvent &e )
 		{
