@@ -36,53 +36,14 @@ source_group(engine_util FILES ${engine_util_FILES})
 # ---------------------------------------------------------
 # Build setup
 # ---------------------------------------------------------
-
-if (APPLE)
-  include_directories( ${OGRE_INCLUDE_DIR}/OgreMain/include/OSX )
-endif ()
-
-
-if (ORKIGE_OPENAL_SOUND AND OPENAL_FOUND)
-    add_definitions(-DORKIGE_OPENAL_SOUND)
-endif()
-
 if (APPLE)
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_graphic/Engine.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
-  set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_base/Localisation.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_graphic/Engine.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_base/Localisation.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
-include_directories()
-
-include_directories(
-    ${ORKIGE_INCLUDE}
-    ${ORKIGE_OGRE_INCLUDE}
-    ${OGRE_INCLUDE_DIR}/PlugIns/ParticleFX/include
-    ${ORKIGE_OIS_INCLUDE}
-    ${ORKIGE_ZLIB_INCLUDE}
-    ${ORKIGE_LUA_INCLUDE}
-    ${ORKIGE_OPENAL_INCLUDE}
-    ./
-    )
-
-link_libraries(
-    ${OGRE_LIBDIR}
-    ${ORKIGE_OGRE_LIBS}
-    ${ORKIGE_CORE_LIB}
-    Plugin_ParticleFX
-    OIS
-    )
-
-configure_rendersystem()
-
-set(HiddenDepenCMakeLists ../Dependencies/CMakeLists.txt)
-source_group(DependenciesCMakeLists FILES ${HiddenDepenCMakeLists})
-
-
-# for swig no __declspec(dllexport)
-add_definitions(-DSTATIC_LINKED)
-
+ConfigureOrkigeDependencies()
 
 add_library(orkige_engine STATIC
             ${engine_base_FILES}
@@ -95,5 +56,4 @@ add_library(orkige_engine STATIC
             ${engine_physic_FILES}
             ${engine_sound_FILES}
             ${engine_util_FILES}
-            ${HiddenDepenCMakeLists}
     )

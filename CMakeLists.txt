@@ -9,9 +9,10 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE
    ${CMAKE_CURRENT_SOURCE_DIR}/CMake/c_flag_overrides.cmake)
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX
    ${CMAKE_CURRENT_SOURCE_DIR}/CMake/cxx_flag_overrides.cmake)
-	 
-project(ORKIGE)
-SET(ORKIGE 1.0)
+   
+SET(ORKIGE_PROJECT_NAME  "ORKIGE" CACHE STRING "Project File Name" )
+
+project(${ORKIGE_PROJECT_NAME})
 
 if(COMMAND cmake_policy)
    cmake_policy(SET CMP0003 NEW)
@@ -31,21 +32,9 @@ set(CMAKE_MODULE_PATH
     )
 include(CMakeDependentOption)
 include(CheckCXXCompilerFlag)
-include(ConfigOrkige)
+include(ConfigureOrkige)
 
-
-configure_orkige(${CMAKE_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/OgreLite)
-
-
-# ---------------------------------------------------------
-# Common base paths
-set(ORKIGE_SOURCE_DIR ${CMAKE_SOURCE_DIR})
-set(ORKIGE_INCLUDE ${ORKIGE_OGRE_INCLUDE}
-	${ORKIGE_SOURCE_DIR}/orkige_core
-	${ORKIGE_SOURCE_DIR}/orkige_engine
-	${CMAKE_SOURCE_DIR}/Dependencies/Source/boost
-	${ORKIGE_DEP_INCLUDE}
-)
+ConfigureOrkige()
 
 # determine Ogre version numbers
 include(OgreGetVersion)
@@ -54,33 +43,20 @@ message(STATUS "Configuring OGRE ${OGRE_VERSION}")
 # Configure version file for use by scripts
 configure_file("${OGRE_TEMPLATES_DIR}/version.txt.in" "${OGRE_BINARY_DIR}/version.txt" @ONLY)
 
-
-if (ORKIGE_USE_LUA)
-	set(ORKIGE_CORE_LIB             orkige_core ${ORKIGE_LUA_TARGET})
-	set(ORKIGE_ENGINE_LIB           orkige_engine ${ORKIGE_LUA_TARGET})
-	set(ORKIGE_STD_LUA_LIB          orkige_core ${ORKIGE_LUA_TARGET})
-else()
-	set(ORKIGE_CORE_LIB             orkige_core)
-	set(ORKIGE_ENGINE_LIB           orkige_engine)
-endif()
-
-set(ORKIGE_LIB orkige_core orkige_engine)
-
 subdirs(Dependencies)
 subdirs(OgreLite)
 subdirs(orkige_core)
 subdirs(orkige_engine)
 
-if (BUILD_GAME)
+if (ORKIGE_BUILD_GAME)
 	subdirs(../game)
 endif()
 
-if (BUILD_MAXEXPORTER)
+if (ORKIGE_BUILD_MAXEXPORTER)
 	subdirs(orkige_maxexport)
 endif()
 
-option(BUILD_FONTCONVERTER "Build orkige_fontconverter" FALSE)
-if (BUILD_FONTCONVERTER)
+if (ORKIGE_BUILD_FONTCONVERTER)
 	subdirs(orkige_fontconverter)
 endif()
 
