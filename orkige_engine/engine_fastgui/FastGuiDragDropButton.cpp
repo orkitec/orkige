@@ -214,9 +214,13 @@ namespace Orkige
 // 			cursorPos.x - this->decor->getPosition().x,
 // 			cursorPos.y - this->decor->getPosition().y );
 
+// 		this->imageToCursorOffset =  Ogre::Vector2(
+// 			 this->decor->getSize().x/2.0f,
+// 			this->decor->getSize().x*0.5f + this->decor->getSize().y/2.0f );
+
 		this->imageToCursorOffset =  Ogre::Vector2(
-			 this->decor->getSize().x/2.0f,
-			this->decor->getSize().x*0.5f + this->decor->getSize().y/2.0f );
+			this->decor->getSize().x/2.0f,
+			this->decor->getSize().y);
 
 
 
