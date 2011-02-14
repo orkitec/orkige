@@ -238,6 +238,7 @@
 
 #define ORKIGE_MODULE(ModuleName)							void init_module_##ModuleName()\
 															{\
+															CREATE_ORKIGE_MEMORY_MANAGER\
 															const char* CURRENT_ORKIGE_MODULE_NAME = #ModuleName;\
 															oDebugMsg("core",0,"*** Init Module "<<CURRENT_ORKIGE_MODULE_NAME<<"!");
 

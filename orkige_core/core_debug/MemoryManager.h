@@ -59,6 +59,7 @@ purpose:	Memory manager & tracking software
 #include <limits>
 
 // C++ Stream stuff
+#include <streambuf>
 #include <fstream>
 #include <iostream>
 #include <iomanip>
@@ -157,6 +158,7 @@ namespace Orkige
 	public:
 	protected:
 	private:
+		static bool isInitialized;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -252,6 +254,7 @@ namespace Orkige
 	};
 	/** @} End of "addtogroup Debug"*/
 	//---------------------------------------------------------------
+	void createOrkigeMemoryManager();
 }
 
 #if defined(__cplusplus_cli)
@@ -261,41 +264,64 @@ namespace Orkige
 //! Overridden global new([])/delete([]) functions
 inline void *operator new(size_t reportedSize)
 {
-	return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize);
+	if(Orkige::MemoryManager::isInitialized)
+		return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize);
+
+	return malloc(reportedSize);
 }
 //-------------------------------------------------------------------
 inline void *operator new[](size_t reportedSize)
 {
-	return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize);
+	if(Orkige::MemoryManager::isInitialized)
+		return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize);
+
+	return malloc(reportedSize);
 }
 //-------------------------------------------------------------------
 inline void	* operator new(size_t reportedSize, const char *sourceFile, int sourceLine)
 {
-	return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize, sourceFile, sourceLine);
+	if(Orkige::MemoryManager::isInitialized)
+		return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize, sourceFile, sourceLine);
+
+	return malloc(reportedSize);
 }
 //-------------------------------------------------------------------
 inline void	* operator new[](size_t reportedSize, const char *sourceFile, int sourceLine)
 {
-	return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize, sourceFile, sourceLine);
+	if(Orkige::MemoryManager::isInitialized)
+		return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize, sourceFile, sourceLine);
+
+	return malloc(reportedSize);
 }
 //-------------------------------------------------------------------
 inline void operator delete(void *reportedAddress)
 {
-	Orkige::MemoryManager::getSingleton().operator_delete_p( reportedAddress);    
+	if(Orkige::MemoryManager::isInitialized)
+		Orkige::MemoryManager::getSingleton().operator_delete_p( reportedAddress);
+	else
+		free(reportedAddress);
 }
 //-------------------------------------------------------------------
 inline void operator delete[](void *reportedAddress)
 {
-	Orkige::MemoryManager::getSingleton().operator_delete_a( reportedAddress);
+	if(Orkige::MemoryManager::isInitialized)
+		Orkige::MemoryManager::getSingleton().operator_delete_a( reportedAddress);
+	else
+		free(reportedAddress);
 }
 //-------------------------------------------------------------------
 #if defined(__cplusplus_cli)
 #pragma managed(pop)
 #endif
-
+#ifndef CREATE_ORKIGE_MEMORY_MANAGER
+#	define CREATE_ORKIGE_MEMORY_MANAGER ::Orkige::createOrkigeMemoryManager();
+#endif
 #include "core_debug/EnableMemoryManager.h"
 
 #endif // WIN32
 #endif // _DEBUG
 #endif // ORKIGE_ENABLE_MEMORYMANAGER
 #endif //__MemoryManager_h__12_8_2010__15_55_37__
+#ifndef CREATE_ORKIGE_MEMORY_MANAGER
+#	define CREATE_ORKIGE_MEMORY_MANAGER 
+#endif

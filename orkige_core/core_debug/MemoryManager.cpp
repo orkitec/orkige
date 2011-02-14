@@ -183,6 +183,7 @@ namespace Orkige
 #else	// Linux uses assert, which we can use safely, since it doesn't bring up a dialog within the program.
 #define	m_assert(cond) assert(cond)
 #endif
+bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	//! Here, we turn off our macros because any place in this source file where the word 'new' or the word 'delete' (etc.)
 	//! appear will be expanded by the macro. So to avoid problems using them within this source file, we'll just #undef them.
@@ -213,13 +214,18 @@ namespace Orkige
 	static const	char		*memoryLogFile         = "memory.log";
 	static const	char		*memoryLeakLogFile     = "memleaks.log";
 
+	void createOrkigeMemoryManager()
+	{
+		static MemoryManager g_mmgr = MemoryManager();
+	}
 	//---------------------------------------------------------
-	IMPL_OSINGLETON_GETCREATE(MemoryManager)
+	IMPL_OSINGLETON(MemoryManager)
 	//---------------------------------------------------------
 	MemoryManager::MemoryManager()
 	{
 		oInfo("...MemoryManager created!...");
 		doCleanupLogOnFirstRun();
+		isInitialized = true;
 	}
 	//---------------------------------------------------------
 	MemoryManager::~MemoryManager()
@@ -227,6 +233,7 @@ namespace Orkige
 		staticDeinitTime = true; 
 		dumpLeakReport();
 		oInfo("\t...MemoryManager destroyed!...");
+		isInitialized = false;
 	}
 	//---------------------------------------------------------
 	bool	&MemoryManager::m_breakOnRealloc(void *reportedAddress)

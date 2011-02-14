@@ -46,7 +46,9 @@
 
 #ifdef ORKIGE_DEBUG
 #	ifdef WIN32
+#	ifndef _CRTDBG_MAP_ALLOC
 #		define _CRTDBG_MAP_ALLOC
+#	endif
 #		include <stdlib.h>
 #		include <crtdbg.h>
 #	endif
