@@ -65,6 +65,16 @@ macro(ConfigureOrkigeDependencies)
 		link_libraries(
 			RenderSystem_GLES
 		)
+		
+		if(WIN32)
+			include_directories(
+				${OPENGLES_INCLUDE_DIR}
+			)
+	
+			link_libraries(
+				${OPENGLES_gl_LIBRARY}
+			)
+		endif(WIN32)
 	endif()
 
 	if (OGRE_BUILD_RENDERSYSTEM_D3D9)
