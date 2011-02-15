@@ -310,7 +310,7 @@ namespace Orkige
 #ifdef ORKIGE_OGGSOUNDMANAGER
 #	ifdef ORKIGE_IPHONE
 		// Deactivate the current audio session
-		AudioSessionSetActive(NO);
+		AudioSessionSetActive(false);
 #	endif //ORKIGE_IPHONE
 		oAssert(this->context);
 		// set the current context to NULL will 'shutdown' openAL
@@ -353,29 +353,29 @@ namespace Orkige
 #ifdef ORKIGE_IPHONE
 		// Reset audio session
 		UInt32 category = kAudioSessionCategory_AmbientSound;
-		result = AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(category), &category);
-		Sleep(1);
+		bool result = AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(category), &category);
+		//Sleep(1);
 		if (result) 
 		{
 			oDebugMsg("sound", 0, "Error setting audio session category! " << result);
-			return false;
+			return;
 		}
 		else 
 		{
 			// Reactivate the current audio session
 			result = AudioSessionSetActive(true);
-			Sleep(1);
+			//Sleep(1);
 			if (result) 
 			{
 				oDebugMsg("sound", 0, "Error setting audio session active! " << result);
-				return false;
+				return;
 			}
 		}
 #endif
 		oAssert(this->context);
 		// Restore open al context
 		alcMakeContextCurrent(this->context);
-		Sleep(1);
+		//Sleep(1);
 		ALenum err = alGetError();
 		if (err != 0) 
 		{
@@ -383,7 +383,7 @@ namespace Orkige
 		}
 		// 'unpause' my context
 		alcProcessContext(this->context);
-		Sleep(1);
+		//Sleep(1);
 		err = alGetError();
 		if (err != 0) 
 		{
