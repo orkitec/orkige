@@ -35,6 +35,7 @@ namespace Orkige
 	private:
 		//--- Variables ---------------------------------------------
 	public:
+		bool								isFreezed; //!<same as isEnabled iy's just used when we want to temporarly disable the button
 	protected:
 		optr<FastGuiLabel>					label;			//!< current button text
 		optr<FastGuiDecorWidget>			decor;			//!< current button image
@@ -46,6 +47,7 @@ namespace Orkige
 		Ogre::Vector2						initialDecorPosition; //!< initial position of the decor to snap it back after it gets moved around
 		Ogre::Vector2						imageToCursorOffset; //!< offset between the image and the cursor position
 		bool								isEnabled;
+		
 		Ogre::Vector2						initialWidgetPosition; //!< initial position of the decor to snap it back after it gets moved around
 
 	private:

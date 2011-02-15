@@ -51,6 +51,7 @@ namespace Orkige
 		this->dragEvent.setData(this->dragEventData);
 
 		this->isEnabled = true;
+		this->isFreezed = false;
 	}
 	//---------------------------------------------------------
 	FastGuiDragDropButton::~FastGuiDragDropButton()
@@ -95,7 +96,7 @@ namespace Orkige
 			
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
-			if (this->isEnabled)
+			if (this->isEnabled && !this->isFreezed)
 			{
 				this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
 				
@@ -123,7 +124,7 @@ namespace Orkige
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
 			this->dragEventData->position = cursorPos;
-			if (this->isEnabled)
+			if (this->isEnabled && !this->isFreezed)
 			{
 				//float distan = initialDecorPosition.distance(this->decor->getPosition()) ;
 				float distan = Ogre::Math::Abs(initialDecorPosition.x) - Ogre::Math::Abs(this->decor->getPosition().x) ;
@@ -189,7 +190,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	FastGuiDragDropButton::dragging	(const Ogre::Vector2& cursorPos)
 	{
-		if (this->isEnabled)
+		if (this->isEnabled&& !this->isFreezed)
 		{
 			this->decor->setPosition(cursorPos.x - this->imageToCursorOffset.x,
 				cursorPos.y - this->imageToCursorOffset.y);
