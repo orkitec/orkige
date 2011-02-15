@@ -39,7 +39,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener)
+	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener), context(0)
 	{
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		this->ms_Singleton = this->singleton;
@@ -305,7 +305,27 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::onInterruptBegin()
 	{
-#ifndef ORKIGE_OGGSOUNDMANAGER
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#	ifdef ORKIGE_IPHONE
+		// Deactivate the current audio session
+		AudioSessionSetActive(NO);
+#	endif //ORKIGE_IPHONE
+		oAssert(this->context);
+		// set the current context to NULL will 'shutdown' openAL
+		alcMakeContextCurrent(NULL);
+		ALenum err = alGetError();
+		if (err != 0) 
+		{
+			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: "<<err);
+		}
+		// now suspend your context to 'pause' your sound world
+		alcSuspendContext(this->context);
+		err = alGetError();
+		if (err != 0) 
+		{
+			oDebugMsg("sound", 0, "Error Calling alcSuspendContext. Error: "<<err);
+		}
+#else
 		//backup playing sounds indexes and deinit sources
 		this->interruptedSounds.clear();
 		foreach(SoundRegistry::value_type const & vt, sounds)
@@ -327,7 +347,47 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::onInterruptEnd()
 	{
-#ifndef ORKIGE_OGGSOUNDMANAGER
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#ifdef ORKIGE_IPHONE
+		// Reset audio session
+		UInt32 category = kAudioSessionCategory_AmbientSound;
+		result = AudioSessionSetProperty(kAudioSessionProperty_AudioCategory, sizeof(category), &category);
+		Sleep(1);
+		if (result) 
+		{
+			oDebugMsg("sound", 0, "Error setting audio session category! " << result);
+			return false;
+		}
+		else 
+		{
+			// Reactivate the current audio session
+			result = AudioSessionSetActive(true);
+			Sleep(1);
+			if (result) 
+			{
+				oDebugMsg("sound", 0, "Error setting audio session active! " << result);
+				return false;
+			}
+		}
+#endif
+		oAssert(this->context);
+		// Restore open al context
+		alcMakeContextCurrent(this->context);
+		Sleep(1);
+		ALenum err = alGetError();
+		if (err != 0) 
+		{
+			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: "<<err);
+		}
+		// 'unpause' my context
+		alcProcessContext(this->context);
+		Sleep(1);
+		err = alGetError();
+		if (err != 0) 
+		{
+			oDebugMsg("sound", 0, "Error Calling alcProcessContext. Error: "<<err);
+		}
+#else
 #ifdef ORKIGE_IPHONE
 		//reinit audio
 		OSStatus result = AudioSessionSetActive(true);
@@ -366,6 +426,8 @@ namespace Orkige
 		devicename = "DirectSound3D";
 #endif
 		OgreOggSound::OgreOggSoundManager::init(devicename, 100, 64, Engine::getSingleton().getSceneManager());
+		this->context = alcGetCurrentContext();
+		oAssert(this->context);
 #else
 		// clear any errors
 		alGetError();

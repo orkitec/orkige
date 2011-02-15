@@ -13,8 +13,8 @@
 
 namespace Orkige
 {
-	//! @brief Basic Sound Management
-	//! @remarks currently no dynamic source sharing/reusing, streaming, priorities, etc and only AL_MAX_SOURCES concurrent SoundSources can be active
+	//! @brief Sound Management
+	//! @remarks if ORKIGE_OGGSOUNDMANAGER is not used then there is no ogg support and no dynamic source sharing/reusing, streaming, priorities, etc and only AL_MAX_SOURCES concurrent SoundSources can be active
 	class SoundManager : public Singleton<SoundManager>, public Interface
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		, public OgreOggSound::OgreOggSoundManager
@@ -41,6 +41,7 @@ namespace Orkige
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
 #endif
+		ALCcontext*					context;					// OpenAL context
 		Ogre::Camera*				listener;			//!< optional sound listener
 
 	private:
