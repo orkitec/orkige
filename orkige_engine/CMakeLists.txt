@@ -29,6 +29,9 @@ source_group(engine_physic FILES ${engine_physic_FILES})
 FILE (GLOB engine_sound_FILES "engine_sound/[A-z]*.*")
 source_group(engine_sound FILES ${engine_sound_FILES})
 # ---------------------------------------------------------
+FILE (GLOB engine_video_FILES "engine_video/[A-z]*.*")
+source_group(engine_video FILES ${engine_video_FILES})
+# ---------------------------------------------------------
 FILE (GLOB engine_util_FILES "engine_util/[A-z]*.*")
 source_group(engine_util FILES ${engine_util_FILES})
 # ---------------------------------------------------------
@@ -55,5 +58,6 @@ add_library(orkige_engine STATIC
             ${engine_module_FILES}
             ${engine_physic_FILES}
             ${engine_sound_FILES}
+            ${engine_video_FILES}
             ${engine_util_FILES}
     )

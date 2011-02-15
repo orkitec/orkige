@@ -41,7 +41,7 @@ namespace Orkige
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
 #endif
-		ALCcontext*					context;					// OpenAL context
+		ALCcontext*					context;			//!< OpenAL context
 		Ogre::Camera*				listener;			//!< optional sound listener
 
 	private:
