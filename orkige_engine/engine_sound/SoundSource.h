@@ -6,6 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
+
 #ifndef __SoundSource_h__31_8_2010__13_58_48__
 #define __SoundSource_h__31_8_2010__13_58_48__
 
@@ -14,6 +15,10 @@
 
 namespace Orkige
 {
+#ifdef ORKIGE_OGGSOUNDMANAGER
+	typedef OgreOggSound::OgreOggISound SoundSource;
+	typedef SoundSource* SoundSourcePtr;
+#else
 	//! simple SoundSource (3D for Mono sounds 2D for Stereo)
 	class SoundSource : public Object
 	{
@@ -75,6 +80,8 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------------
+	typedef woptr<SoundSource> SoundSourcePtr;
+#endif //ORKIGE_OGGSOUNDMANAGER
 }
 
 #endif //__SoundSource_h__31_8_2010__13_58_48__

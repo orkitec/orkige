@@ -9,6 +9,7 @@
 
 #include "engine_sound/SoundManager.h"
 #include <core_util/foreach.h>
+#include <engine_graphic/Engine.h>
 
 #ifdef ORKIGE_IPHONE
 #import <AudioToolbox/AudioToolbox.h>
@@ -40,6 +41,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener)
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		this->ms_Singleton = this->singleton;
+#endif
 		oInfo("...SoundManager created!...");
 	}
 	//---------------------------------------------------------
@@ -81,15 +85,32 @@ namespace Orkige
 		}
 #else
 #ifdef WIN32
-		OpenAL_LoadLibrary();
+		int openAlLibraryLoaded = OpenAL_LoadLibrary();
+		oAssert(openAlLibraryLoaded);
 #endif
 #endif
-		
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#if OGREOGGSOUND_STATIC
+		this->plugin = new OgreOggSound::OgreOggSoundPlugin();
+		Ogre::Root::getSingleton().installPlugin(this->plugin);
+#endif
+#endif
+
 		return this->initOpenAl();		
 	}
 	//---------------------------------------------------------
-	void SoundManager::update()
+	void SoundManager::update(float delta)
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		OgreOggSound::OgreOggSoundManager::update(delta);
+		if(this->listener)
+		{
+			if(!this->getListener()->isAttached())
+			{
+				this->getListener()->setPosition(this->listener->getRealPosition());
+			}
+		}
+#else
 		if(this->listener)
 		{
 			Ogre::Vector3 const & pos = this->listener->getDerivedPosition();
@@ -109,10 +130,18 @@ namespace Orkige
 
 			alListenerfv(AL_ORIENTATION, orientation);
 		}
+#endif
 	}
 	//---------------------------------------------------------
 	bool SoundManager::deinit()
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#if OGREOGGSOUND_STATIC
+		this->plugin = new OgreOggSound::OgreOggSoundPlugin();
+		Ogre::Root::getSingleton().uninstallPlugin(this->plugin);
+		delete this->plugin;
+#endif
+#else
 		foreach(SoundRegistry::value_type const & vt, sounds)
 		{
 			optr<SoundSource> src = vt.second;
@@ -123,22 +152,29 @@ namespace Orkige
 			src->deinit();
 		}
 		this->sounds.clear();
+#endif
 		return this->deinitOpenAl();
 	}
 	//---------------------------------------------------------
-	woptr<SoundSource> SoundManager::createSound(String const & id, String const & fileName, bool loop, Ogre::Vector3 const & pos)
+	SoundSourcePtr SoundManager::createSound(String const & id, String const & fileName, bool loop, Ogre::Vector3 const & pos, bool stream, bool preBuffer)
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		return OgreOggSound::OgreOggSoundManager::createSound(id, fileName, stream, loop, preBuffer, Engine::getSingleton().getSceneManager());
+#else
 		SoundRegistry::const_iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
 		{
+
 			optr<SoundSource> sound = onew(new SoundSource(id, fileName, loop, pos));
 			sound->init();
 			this->sounds[id] = sound;
 			return sound;
 		}
 		return it->second;
+#endif
 	}
 	//---------------------------------------------------------
+#ifndef ORKIGE_OGGSOUNDMANAGER
 	bool SoundManager::destroySound(String const & id)
 	{
 		SoundRegistry::iterator it = this->sounds.find(id);
@@ -168,33 +204,70 @@ namespace Orkige
 		}
 		return it->second;
 	}
+#endif
 	//---------------------------------------------------------
 	bool SoundManager::playSound(String  const & id)
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		SoundSourcePtr sound = this->getSound(id);
+		if(sound)
+		{
+			if(!sound->isPlaying())
+			{
+				sound->play();
+				return sound->isPlaying();
+			}
+		}
+		return false;
+#else
 		SoundRegistry::iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
 		{
 			oDebugMsg("sound",0,"Sound not found: " << id <<"!");
 			return false;
 		}
-		bool success = it->second->play();
+		it->second->play();
+		bool success = it->second->isPlaying();
 		return success;
+#endif
 	}
 	//---------------------------------------------------------
 	bool SoundManager::stopSound(String  const & id)
-	{
+	{	
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		SoundSourcePtr sound = this->getSound(id);
+		if(sound)
+		{
+			if(sound->isPlaying())
+			{
+				sound->stop();
+				return true;
+			}
+		}
+		return false;
+#else
 		SoundRegistry::iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
 		{
 			oDebugMsg("sound",0,"Sound not found: " << id <<"!");
 			return false;
 		}
-		bool success = it->second->stop();
+		it->second->stop();
+		bool success = !it->second->isPlaying();
 		return success;
+#endif
 	}
 	//---------------------------------------------------------
 	bool SoundManager::isPlaying(String const & id)
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		SoundSourcePtr sound = this->getSound(id);
+		if(sound)
+		{
+			return sound->isPlaying();
+		}
+		return false;
+#else
 		SoundRegistry::iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
 		{
@@ -203,26 +276,36 @@ namespace Orkige
 		}
 		bool playing = it->second->isPlaying();
 		return playing;
+#endif
 	}
 	//---------------------------------------------------------
 	void SoundManager::pause()
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		this->pauseAllSounds();
+#else
 		foreach(SoundRegistry::value_type const & vt, sounds)
 		{
 			vt.second->pause();
 		}
+#endif
 	}
 	//---------------------------------------------------------
 	void SoundManager::resume()
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		this->resumeAllPausedSounds();
+#else
 		foreach(SoundRegistry::value_type const & vt, sounds)
 		{
 			vt.second->resume();
 		}
+#endif
 	}
 	//---------------------------------------------------------
 	void SoundManager::onInterruptBegin()
 	{
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		//backup playing sounds indexes and deinit sources
 		this->interruptedSounds.clear();
 		foreach(SoundRegistry::value_type const & vt, sounds)
@@ -239,10 +322,12 @@ namespace Orkige
 
 		//deinit al
 		this->deinitOpenAl();
+#endif
 	}
 	//---------------------------------------------------------
 	void SoundManager::onInterruptEnd()
 	{
+#ifndef ORKIGE_OGGSOUNDMANAGER
 #ifdef ORKIGE_IPHONE
 		//reinit audio
 		OSStatus result = AudioSessionSetActive(true);
@@ -268,12 +353,20 @@ namespace Orkige
 			src->play();
 		}
 		this->interruptedSounds.clear();
+#endif
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool SoundManager::initOpenAl()
 	{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		String devicename;
+#ifdef WIN32
+		devicename = "DirectSound3D";
+#endif
+		OgreOggSound::OgreOggSoundManager::init(devicename, 100, 64, Engine::getSingleton().getSceneManager());
+#else
 		// clear any errors
 		alGetError();
 
@@ -319,12 +412,13 @@ namespace Orkige
 			oDebugMsg("sound",0,"Error initializing OpenAL!");
 			return false;
 		}
-
+#endif
 		return true;
 	}
 	//---------------------------------------------------------	
 	bool SoundManager::deinitOpenAl()
 	{
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		ALCcontext	*context = NULL;
 		ALCdevice	*device = NULL;
 
@@ -345,7 +439,7 @@ namespace Orkige
 		alcDestroyContext(context);
 		//Close device
 		alcCloseDevice(device);
-
+#endif
 		return true;
 	}
 	//---------------------------------------------------------

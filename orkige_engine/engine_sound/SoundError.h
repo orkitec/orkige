@@ -6,6 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
+#ifndef ORKIGE_OGGSOUNDMANAGER
 #ifndef __SoundError_h__6_9_2010__16_30_32__
 #define __SoundError_h__6_9_2010__16_30_32__
 
@@ -48,3 +49,4 @@ namespace Orkige
 }
 
 #endif //__SoundError_h__6_9_2010__16_30_32__
+#endif //ORKIGE_OGGSOUNDMANAGER

@@ -21,7 +21,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 	protected:
-		typedef std::map<String, woptr<SoundSource> > SoundSourceMap;	//!< registry type for attched SoundSource's
+		typedef std::map<String, Orkige::SoundSourcePtr > SoundSourceMap;	//!< registry type for attched SoundSource's
 	private:
 		//--- Variables ---------------------------------------------
 	public:

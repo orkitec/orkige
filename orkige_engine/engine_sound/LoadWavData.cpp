@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2010 orkitec
 *********************************************************************/
-
+#ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundPlatform.h"
 #include "engine_sound/SoundError.h"
 
@@ -227,3 +227,4 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 }
+#endif //ORKIGE_OGGSOUNDMANAGER

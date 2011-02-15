@@ -68,8 +68,10 @@ macro (ConfigureOrkige)
 	endif()
 	
 	if (ORKIGE_BUILD_OGGSOUNDMANAGER)
+		add_definitions(-DHAVE_EFX=0)
 		add_definitions(-DORKIGE_OGGSOUNDMANAGER)	
-		add_definitions(-DOGREOGGSOUND_STATIC=1)	
+		add_definitions(-DOGREOGGSOUND_STATIC=1)
+		add_definitions(-DOGGSOUND_THREADED=0)
 	endif()
 	
 	if (ORKIGE_BUILD_THEORAVIDEOMANAGER)

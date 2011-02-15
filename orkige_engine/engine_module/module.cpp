@@ -52,7 +52,9 @@ ORKIGE_MODULE(orkige_engine)
 	OSIMPLEEXPORT_END
 	
 	OEXPORT(SoundManager)
+#ifndef ORKIGE_OGGSOUNDMANAGER
 	OEXPORT(::Orkige::SoundSource)
+#endif
 	
 	OEXPORT(KeyEventData)
 	OEXPORT(MouseEventData)

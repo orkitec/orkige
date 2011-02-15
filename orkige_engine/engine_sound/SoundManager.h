@@ -16,21 +16,33 @@ namespace Orkige
 	//! @brief Basic Sound Management
 	//! @remarks currently no dynamic source sharing/reusing, streaming, priorities, etc and only AL_MAX_SOURCES concurrent SoundSources can be active
 	class SoundManager : public Singleton<SoundManager>, public Interface
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		, public OgreOggSound::OgreOggSoundManager
+#endif
 	{
 		OOBJECT(SoundManager,Interface);
 		DECL_OSINGLETON(SoundManager)
 		//--- Types -------------------------------------------------
 	public:
 	protected:
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#if OGREOGGSOUND_STATIC
+		OgreOggSound::OgreOggSoundPlugin* plugin;
+#endif
+#else
 		typedef std::map<String, optr<SoundSource> > SoundRegistry;		//!< registry of sound sources with id's
 		typedef std::map<String, float>	InterruptedSoundRegistry;		//!< interrupted sound ids and play offset
+#endif
 	private:
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
+#endif
 		Ogre::Camera*				listener;			//!< optional sound listener
+
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -41,17 +53,19 @@ namespace Orkige
 		//! init sound system
 		bool init();
 		//! update sounds and listener position
-		void update();
+		void update(float delta = 0.f);
 		//! deinit sound system
 		bool deinit();
 		//! create a SoundSource
-		woptr<SoundSource> createSound(String const & id, String const & fileName, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO);
+		SoundSourcePtr createSound(String const & id, String const & fileName, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO,  bool stream = false, bool preBuffer=false);
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		//! destroy a SoundSource
 		bool destroySound(String const & id);
 		//! does sound with given id exist
 		bool hasSound(String const & id);
 		//! get SoundSource with given id
-		woptr<SoundSource> getSound(String const & id);
+		SoundSourcePtr getSound(String const & id);
+#endif
 		//! play sound
 		bool playSound(String const & id);
 		//! stop sound

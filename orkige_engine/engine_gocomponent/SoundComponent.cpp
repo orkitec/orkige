@@ -38,7 +38,7 @@ namespace Orkige
 			oAssert(componentOwner);
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
-			woptr<SoundSource> ss = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
+			Orkige::SoundSourcePtr ss = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
 			this->attachedSoundObjects[id] = ss;
 			return true;
 		}
@@ -52,13 +52,17 @@ namespace Orkige
 		{
 			return false;
 		}
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		Orkige::SoundSourcePtr source = it->second;
+#else
 		optr<SoundSource> source = it->second.lock();
+#endif
 		if(!source)
 		{
 			return false;
 		}
-		bool ret = source->play();
-		return ret;
+		source->play();
+		return source->isPlaying();
 	}
 	//---------------------------------------------------------
 	bool SoundComponent::stop(String const & id)
@@ -68,13 +72,17 @@ namespace Orkige
 		{
 			return false;
 		}
+#ifdef ORKIGE_OGGSOUNDMANAGER
+		Orkige::SoundSourcePtr source = it->second;
+#else
 		optr<SoundSource> source = it->second.lock();
+#endif
 		if(!source)
 		{
 			return false;
 		}
-		bool ret = source->stop();
-		return ret;
+		source->stop();
+		return !source->isPlaying();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -105,7 +113,11 @@ namespace Orkige
 			std::vector<SoundSourceMap::iterator> sourcesToDelete;
 			for(SoundSourceMap::iterator it = this->attachedSoundObjects.begin(), itend = this->attachedSoundObjects.end(); it != itend; ++it)
 			{
+#ifdef ORKIGE_OGGSOUNDMANAGER
+				Orkige::SoundSourcePtr source = it->second;
+#else
 				optr<SoundSource> source = it->second.lock();
+#endif
 				if(source)
 				{
 					if(source->isPlaying())

@@ -8,6 +8,7 @@
 	
 	purpose:	Platform specific sound handling
 *********************************************************************/
+
 #ifndef __SoundPlatform_h__6_9_2010__16_19_22__
 #define __SoundPlatform_h__6_9_2010__16_19_22__
 
@@ -21,6 +22,10 @@
 #endif
 #include <boost/algorithm/string.hpp>
 
+#ifdef ORKIGE_OGGSOUNDMANAGER
+#include <OgreOggSound.h>
+#include <OgreOggSoundPlugin.h>
+#else
 namespace Orkige
 {
 	//! sound utilities
@@ -56,5 +61,6 @@ namespace Orkige
 	}
 	//---------------------------------------------------------------
 }
-
+#endif //ORKIGE_OGGSOUNDMANAGER
 #endif //__SoundPlatform_h__6_9_2010__16_19_22__
+
