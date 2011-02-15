@@ -38,8 +38,11 @@ namespace Orkige
 			oAssert(componentOwner);
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
-			Orkige::SoundSourcePtr ss = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
-			this->attachedSoundObjects[id] = ss;
+			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
+			this->attachedSoundObjects[id] = sound;
+#ifdef ORKIGE_OGGSOUNDMANAGER
+			transformComponent->attachObject(sound);
+#endif
 			return true;
 		}
 		return false;
@@ -89,7 +92,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundComponent::onAdd()
 	{
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		this->registerEvent(Engine::FrameStartedEvent, &SoundComponent::onFrameStarted, this);
+#endif
 	}
 	//---------------------------------------------------------
 	void SoundComponent::onRemove()
@@ -104,6 +109,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundComponent::onFrameStarted(Event const & event)
 	{
+#ifndef ORKIGE_OGGSOUNDMANAGER
 		if(!this->attachedSoundObjects.empty())
 		{
 			GameObject* componentOwner = this->getComponentOwner();
@@ -113,11 +119,8 @@ namespace Orkige
 			std::vector<SoundSourceMap::iterator> sourcesToDelete;
 			for(SoundSourceMap::iterator it = this->attachedSoundObjects.begin(), itend = this->attachedSoundObjects.end(); it != itend; ++it)
 			{
-#ifdef ORKIGE_OGGSOUNDMANAGER
-				Orkige::SoundSourcePtr source = it->second;
-#else
 				optr<SoundSource> source = it->second.lock();
-#endif
+
 				if(source)
 				{
 					if(source->isPlaying())
@@ -138,6 +141,7 @@ namespace Orkige
 				}
 			}
 		}
+#endif //ORKIGE_OGGSOUNDMANAGER
 		return false;
 	}
 	//---------------------------------------------------------

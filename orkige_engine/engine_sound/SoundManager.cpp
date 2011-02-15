@@ -159,7 +159,9 @@ namespace Orkige
 	SoundSourcePtr SoundManager::createSound(String const & id, String const & fileName, bool loop, Ogre::Vector3 const & pos, bool stream, bool preBuffer)
 	{
 #ifdef ORKIGE_OGGSOUNDMANAGER
-		return OgreOggSound::OgreOggSoundManager::createSound(id, fileName, stream, loop, preBuffer, Engine::getSingleton().getSceneManager());
+		SoundSourcePtr sound = OgreOggSound::OgreOggSoundManager::createSound(id, fileName, stream, loop, preBuffer, Engine::getSingleton().getSceneManager());
+		sound->setPosition(pos);
+		return sound;
 #else
 		SoundRegistry::const_iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
