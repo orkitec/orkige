@@ -39,6 +39,7 @@ namespace Orkige
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
 			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
+			sound->setRolloffFactor(0.3);
 			this->attachedSoundObjects[id] = sound;
 #ifdef ORKIGE_OGGSOUNDMANAGER
 			transformComponent->attachObject(sound);
