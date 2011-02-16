@@ -86,10 +86,12 @@ namespace Orkige
 		if(this->clip)
 		{
 			this->clip->stop();
+			String clipName = this->clip->getName();
 			this->destroyVideoClip(this->clip);
 			this->clip = NULL;
 			this->videoLayer->hide();
 			this->videoPanel->hide();
+			Ogre::TextureManager::getSingleton().remove(clipName);
 			return true;
 		}
 		return false;
