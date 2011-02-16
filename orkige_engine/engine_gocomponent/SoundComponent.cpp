@@ -39,7 +39,7 @@ namespace Orkige
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
 			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
-			sound->setRolloffFactor(0.3);
+			sound->setRolloffFactor(0.01f);
 			this->attachedSoundObjects[id] = sound;
 #ifdef ORKIGE_OGGSOUNDMANAGER
 			transformComponent->attachObject(sound);
@@ -88,6 +88,30 @@ namespace Orkige
 		source->stop();
 		return !source->isPlaying();
 	}
+	//---------------------------------------------------------
+	bool SoundComponent::stopAllSounds()
+	{
+		SoundSourceMap::iterator it;
+		SoundSourceMap::iterator itEnd = this->attachedSoundObjects.end();
+		foreach(SoundSourceMap::value_type const & vt, this->attachedSoundObjects)
+		{
+			//SoundManager::getSingleton().destroySound(vt.first);
+#ifdef ORKIGE_OGGSOUNDMANAGER
+			Orkige::SoundSourcePtr source = vt.second;
+#else
+			optr<SoundSource> source = vt.second.lock();
+#endif
+			if(!source)
+			{
+				return false;
+			}
+			source->stop();
+
+		}
+
+		return false;
+	}
+
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------

@@ -40,6 +40,8 @@ namespace Orkige
 		bool play(String const & sid);
 		//! stop a attached sound
 		bool stop(String const & sid);
+		//! stop all sounds from this component
+		bool stopAllSounds();
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
