@@ -1,6 +1,5 @@
 //#define cimg_OS 0
 #define cimg_use_png
-#define cimg_use_png
 #include <engine_util/CImg.h>      // Open source image library (http://cimg.sourceforge.net/)
 #include <engine_module/EnginePrerequisites.h>
 #include <ios>
@@ -14,6 +13,24 @@
 #include <stdio.h>
 #include <Ogre.h>
 #include <windows.h>
+
+char xtod(char c) {
+	if (c>='0' && c<='9') return c-'0';
+	if (c>='A' && c<='F') return c-'A'+10;
+	if (c>='a' && c<='f') return c-'a'+10;
+	return c=0;        // not Hex digit
+}
+
+int HextoDec(const char *hex)
+{
+	if (*hex==0) return 0;
+	return  HextoDec(hex-1)*16 +  xtod(*hex) ; 
+}
+
+int xstrtoi(const char *hex)      // hex string to integer
+{
+	return HextoDec(hex+strlen(hex)-1);
+}
 
 struct HexCharStruct
 {
@@ -113,6 +130,7 @@ int main(int argc, char **argv)
 	int image_size;
 	std::cin >> image_size;
 
+	std::string letterFileName;
 	// font range
 	char start_letter=' ';
 	char end_letter='~';
@@ -132,10 +150,52 @@ int main(int argc, char **argv)
 		}
 		std::cout << std::endl;
 	}
+	else if(MessageBox( NULL, "Do you want to specify a file wich holds all wanted letters)", "Letter Input File",	MB_YESNO | MB_ICONQUESTION) == IDYES)
+	{
+		char* workingDir = _getcwd( NULL, 0 );
+		// open ogui file or specify new one
+		OPENFILENAME ofn2;
+		char szFileName2[MAX_PATH] = "";
+
+		ZeroMemory(&ofn2, sizeof(ofn2));
+		ofn2.lStructSize = sizeof(ofn2); // SEE NOTE BELOW
+		ofn2.hwndOwner = 0;
+		ofn2.lpstrFilter = "Letter Text Files (*.txt)\0*.txt\0";
+		ofn2.lpstrFile = szFileName2;
+		ofn2.nMaxFile = MAX_PATH;
+		ofn2.Flags = OFN_EXPLORER;
+		ofn2.lpstrDefExt = "txt";
+
+		if(GetOpenFileName(&ofn2))
+		{
+			letterFileName = szFileName2;
+			if(letterFileName.empty())
+			{
+				std::cerr << "Error Loading file!" << std::endl;
+				system("pause");
+				return -1;
+			}
+		}
+		else
+		{
+			std::cerr << "Error Loading file!" << std::endl;
+			system("pause");
+			return -1;
+		}
+		_chdir(workingDir);
+#include "core_debug/DisableMemoryManager.h"
+		free(workingDir);
+#include "core_debug/EnableMemoryManager.h"
+	}
 
 	// execute bmfontgen and create bitmap font image and description
 	std::stringstream bmfontGenCommand;
-	bmfontGenCommand << "" << path << "\\bmfontgen.exe -fontdialog -bmsize " << image_size << " -range "<<hex(start_letter)<<"-"<<hex(end_letter)<<" -output " << filename << ".temp";
+	bmfontGenCommand << "" << path << "\\bmfontgen.exe -fontdialog -bmsize " << image_size;
+	if(letterFileName.empty())
+		bmfontGenCommand << " -range "<<hex(start_letter)<<"-"<<hex(end_letter);
+	else
+		bmfontGenCommand << " -source "<<letterFileName;
+	bmfontGenCommand << " -output " << filename << ".temp";
 	std::cout << bmfontGenCommand.str() << std::endl;
 	int returnValue = system(bmfontGenCommand.str().c_str());
 	std::cout << "bmfontgen.exe returned: " << returnValue << std::endl;
@@ -285,7 +345,7 @@ int main(int argc, char **argv)
 			
 			for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 			{
-				int glyph = int(element->Attribute("ch")[0]);
+				int glyph = xstrtoi(element->Attribute("code"));
 				
 				String origin = element->Attribute("origin");
 				String size = element->Attribute("size");
