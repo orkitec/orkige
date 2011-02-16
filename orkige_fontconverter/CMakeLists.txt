@@ -24,34 +24,7 @@ source_group(fontconverter FILES ${fontconverter_HEADER} ${fontconverter_SOURCE}
 # ---------------------------------------------------------
 # Build setup
 # ---------------------------------------------------------
-
-# for swig no __declspec(dllexport)
-add_definitions(-DPRE_MAX_2010 -D_SECURE_SCL=0 -D_SCL_SECURE_NO_DEPRECATE -DISOLATION_AWARE_ENABLED=1)
-
-include_directories(
-	${ORKIGE_INCLUDE}
-	${ORKIGE_OGRE_INCLUDE}
-	${OGRE_INCLUDE_DIR}/PlugIns/OctreeSceneManager/include
-	${OGRE_INCLUDE_DIR}/PlugIns/CgProgramManager/include
-	${OGRE_INCLUDE_DIR}/PlugIns/ParticleFX/include
-	${ORKIGE_WATERMAZE_RENDERSYSTEM_INCLUDES}
-	${ORKIGE_OIS_INCLUDE}
-	${ORKIGE_ZLIB_INCLUDE}
-	${ORKIGE_LUA_INCLUDE}
-	${ORKIGE_OPENAL_INCLUDE}
-	./
-	)
-
-link_libraries(
-		${ORKIGE_LIB}
-		${OGRE_LIBDIR}
-		${ORKIGE_OGRE_LIBS}
-		OgrePaging
-		OgreTerrain
-		Plugin_ParticleFX
-		Plugin_OctreeSceneManager
-		OIS
-    )
+ConfigureOrkigeDependencies()
     
 add_executable(
 		${TargetName}

@@ -1,7 +1,7 @@
 //#define cimg_OS 0
 #define cimg_use_png
 #define cimg_use_png
-#include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
+#include <engine_util/CImg.h>      // Open source image library (http://cimg.sourceforge.net/)
 #include <engine_module/EnginePrerequisites.h>
 #include <ios>
 #include <iostream>
@@ -34,6 +34,7 @@ inline HexCharStruct hex(char _c)
 using namespace Orkige;
 int main(int argc, char **argv)
 {
+	OLOAD_MODULE_STATIC(orkige_core);
 	// backup startup path to get location for bmfontgen
 	String path;
 	char* buffer;
