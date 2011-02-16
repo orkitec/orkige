@@ -14,14 +14,14 @@ namespace Orkige
 {
 	void VideoManagerLog(String message)
 	{
-		oDebugMsg("engine", 0 ,"VideoManager: " << message);
+		oInfo("VideoManager: " << message);
 	}
 	//---------------------------------------------------------
 	IMPL_OSINGLETON(VideoManager)
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	VideoManager::VideoManager() : clip(NULL), videoLayer(NULL), videoPanel(NULL)
+	VideoManager::VideoManager(int num_worker_threads) : OgreVideoManager(num_worker_threads), clip(NULL), videoLayer(NULL), videoPanel(NULL)
 	{
 	}
 	//---------------------------------------------------------
@@ -56,6 +56,7 @@ namespace Orkige
 		this->soundFactory = new VideoSoundHandlerFactory();
 		this->setAudioInterfaceFactory(this->soundFactory);
 		this->setLogFunction(VideoManagerLog);
+		this->setDefaultNumPrecachedFrames(200);
 	}
 	//---------------------------------------------------------
 	void VideoManager::deinit()

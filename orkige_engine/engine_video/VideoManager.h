@@ -35,7 +35,7 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		VideoManager();
+		VideoManager(int num_worker_threads);
 		virtual ~VideoManager();
 		//! initialise video manager and needed textures
 		void init();
