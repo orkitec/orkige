@@ -10,7 +10,7 @@
 #include "engine_video/VideoManager.h"
 #include "engine_video/VideoSoundHandler.h"
 #include "engine_graphic/Engine.h"
-
+#ifdef ORKIGE_IPHONE
 #import <UIKit/UIKit.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <MediaPlayer/MPMoviePlayerViewController.h>
@@ -219,9 +219,10 @@
 }
 
 @end
-
+#endif //ORKIGE_IPHONE
 namespace Orkige
 {
+#ifdef ORKIGE_IPHONE
 	class VideoPlayerIphoneImpl
 	{
 	public:
@@ -245,6 +246,7 @@ namespace Orkige
 		}
 		
 	};
+#endif //ORKIGE_IPHONE
 	void VideoManagerLog(String message)
 	{
 		oInfo("VideoManager: " << message);
