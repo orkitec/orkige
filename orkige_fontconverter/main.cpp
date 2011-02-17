@@ -190,7 +190,7 @@ int main(int argc, char **argv)
 
 	// execute bmfontgen and create bitmap font image and description
 	std::stringstream bmfontGenCommand;
-	bmfontGenCommand << "" << path << "\\bmfontgen.exe -fontdialog -bmsize " << image_size;
+	bmfontGenCommand << "" << path << "\\bmfontgen.exe -v -fontdialog -bmsize " << image_size;
 	if(letterFileName.empty())
 		bmfontGenCommand << " -range "<<hex(start_letter)<<"-"<<hex(end_letter);
 	else
