@@ -44,6 +44,7 @@ if (APPLE)
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_graphic/Engine.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_base/Localisation.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
+	set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/engine_video/VideoManager.cpp PROPERTIES COMPILE_FLAGS "-x objective-c++")
 endif()
 
 ConfigureOrkigeDependencies()

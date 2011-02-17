@@ -28,6 +28,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+		class VideoPlayerIphoneImpl* iphoneVideoPlayer;
 		TheoraVideoClip* clip;
 		Ogre::OverlayElement* videoPanel;
 		Ogre::Overlay* videoLayer;
