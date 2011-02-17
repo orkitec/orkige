@@ -1994,7 +1994,7 @@ namespace Gorilla
 		{
 			wchar_t unicodeChar;
 			char ansiChar = mText[i];
-			mbstowcs(&unicodeChar, &ansiChar, 1);
+			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2109,7 +2109,7 @@ namespace Gorilla
 		{
 			wchar_t unicodeChar;
 			char ansiChar = mText[i];
-			mbstowcs(&unicodeChar, &ansiChar, 1);
+			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2232,7 +2232,7 @@ namespace Gorilla
 		{
 			wchar_t unicodeChar;
 			char ansiChar = mText[i];
-			mbstowcs(&unicodeChar, &ansiChar, 1);
+			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
