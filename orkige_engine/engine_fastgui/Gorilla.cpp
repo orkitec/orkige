@@ -1992,7 +1992,10 @@ namespace Gorilla
 
 		for (size_t i=0;i < mText.length();i++)
 		{
-			thisChar = mText[i];
+			wchar_t unicodeChar;
+			char ansiChar = mText[i];
+			mbstowcs(&unicodeChar, &ansiChar, 1);
+			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
 			{
@@ -2104,7 +2107,10 @@ namespace Gorilla
 
 		for (size_t i=0;i < mText.size();i++)
 		{
-			thisChar = mText[i];
+			wchar_t unicodeChar;
+			char ansiChar = mText[i];
+			mbstowcs(&unicodeChar, &ansiChar, 1);
+			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
 			{
@@ -2224,8 +2230,10 @@ namespace Gorilla
 
 		for(size_t i=0;i < mText.length();i++)
 		{
-
-			thisChar = mText[i];
+			wchar_t unicodeChar;
+			char ansiChar = mText[i];
+			mbstowcs(&unicodeChar, &ansiChar, 1);
+			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
 			{
