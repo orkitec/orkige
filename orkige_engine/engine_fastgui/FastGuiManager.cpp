@@ -126,6 +126,14 @@ namespace Orkige
 		return view;
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::destroyView(String const & atlas)
+	{
+		woptr<FastGuiView> view = this->getView(atlas);
+		oAssert(view.lock());
+		this->silverback->destroyScreen(view.lock()->getScreen());
+		this->views.erase(this->views.find(atlas));
+	}
+	//---------------------------------------------------------
 	bool FastGuiManager::addWidget(optr<FastGuiWidget> widget)
 	{
 		if(this->widgets.find(widget->getObjectID()) != this->widgets.end())

@@ -61,6 +61,8 @@ namespace Orkige
 		inline woptr<FastGuiFactory> getFactory();
 		//! create screen with given atlas asserts if there is already a screen with that atlas
 		woptr<FastGuiView> createView(String const & atlas);
+		//! free ressources from given view
+		void destroyView(String const & atlas);
 		//! get screen with given atlas or NULL
 		inline woptr<FastGuiView> getView(String const & atlas);
 		//! get o create view with given atlas
