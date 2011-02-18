@@ -13,6 +13,7 @@
 #include "engine_util/StringUtil.h"
 
 #ifdef ORKIGE_IPHONE
+static bool g_StopCalledFromInsideVideoManager = false;
 #import <UIKit/UIKit.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <MediaPlayer/MPMoviePlayerViewController.h>
@@ -112,8 +113,11 @@
 	 name:MPMoviePlayerPlaybackDidFinishNotification 
 	 object:nil];
 	
-	[self dismissModalViewControllerAnimated:YES];	
-	Orkige::VideoManager::getSingleton().stop();
+	[self dismissModalViewControllerAnimated:YES];
+	if(!g_StopCalledFromInsideVideoManager)
+	{
+		Orkige::VideoManager::getSingleton().stop();
+	}
 }
 
 /*---------------------------------------------------------------------------
@@ -126,7 +130,7 @@
 	if ([mp respondsToSelector:@selector(loadState)]) 
 	{
 		// Set movie player layout
-		[mp setControlStyle:MPMovieControlStyleFullscreen];
+		[mp setControlStyle:MPMovieControlStyleNone];
 		[mp setFullscreen:YES];
 		
 		// May help to reduce latency
@@ -155,6 +159,16 @@
 }
 
 /*---------------------------------------------------------------------------
+ *
+ *--------------------------------------------------------------------------*/
+- (void) finishPlayer
+{
+	if(mp.playbackState == MPMoviePlaybackStatePlaying)
+	{
+		[mp stop];
+	}
+}
+/*---------------------------------------------------------------------------
  * 
  *--------------------------------------------------------------------------*/
 - (void) loadView
@@ -168,6 +182,7 @@
  *--------------------------------------------------------------------------*/
 - (void)dealloc 
 {
+	[self finishPlayer];
 	[mp release];
   [movieURL release];
 	[super dealloc];
@@ -199,6 +214,13 @@
 	[moviePlayer readyPlayer];    
 }
 
+/*---------------------------------------------------------------------------
+ * 
+ *--------------------------------------------------------------------------*/
+- (void)stopMoviePlayer
+{
+	[moviePlayer finishPlayer]; 
+}
 /*---------------------------------------------------------------------------
  * 
  *--------------------------------------------------------------------------*/
@@ -255,7 +277,7 @@ namespace Orkige
 			NSString * path = (NSString*)CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)s.c_str(), s.size(), kCFStringEncodingUTF8,false);
 			
 
-			[[vc loadMoviePlayer] path];
+			[vc loadMoviePlayer:path];
 			
 		}
 		
@@ -263,6 +285,7 @@ namespace Orkige
 		{
 			if(vc)
 			{
+				[vc stopMoviePlayer];
 				[vc release];
 				vc = 0;
 			}
@@ -333,8 +356,7 @@ namespace Orkige
 #ifdef ORKIGE_IPHONE
 		if(this->iphoneClip)
 		{
-			delete this->iphoneClip;
-			this->iphoneClip = NULL;
+			this->stop();
 		}
 		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v"))
 		{
@@ -360,8 +382,11 @@ namespace Orkige
 #ifdef ORKIGE_IPHONE
 		if(this->iphoneClip)
 		{
+			g_StopCalledFromInsideVideoManager = true;
+			this->iphoneClip->stop();
 			delete this->iphoneClip;
 			this->iphoneClip = NULL;
+			g_StopCalledFromInsideVideoManager = false;
 			return true;
 		}
 #endif
