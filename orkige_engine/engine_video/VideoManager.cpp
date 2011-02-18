@@ -10,6 +10,8 @@
 #include "engine_video/VideoManager.h"
 #include "engine_video/VideoSoundHandler.h"
 #include "engine_graphic/Engine.h"
+#include "engine_util/StringUtil.h"
+
 #ifdef ORKIGE_IPHONE
 #import <UIKit/UIKit.h>
 #import <MediaPlayer/MediaPlayer.h>
@@ -66,12 +68,12 @@
 		[[UIApplication sharedApplication] setStatusBarOrientation:UIInterfaceOrientationLandscapeRight animated:NO];
 		
 		// Rotate the view for landscape playback
-		[[self view] setBounds:CGRectMake(0, 0, 480, 320)];
-		[[self view] setCenter:CGPointMake(160, 240)];
+		[[self view] setBounds:CGRectMake(0, 0, Orkige::Engine::getSingleton().getViewort()->getActualWidth(), Orkige::Engine::getSingleton().getViewort()->getActualHeight())];
+		[[self view] setCenter:CGPointMake(Orkige::Engine::getSingleton().getViewort()->getActualHeight()/2, Orkige::Engine::getSingleton().getViewort()->getActualWidth()/2)];
 		[[self view] setTransform:CGAffineTransformMakeRotation(M_PI / 2)]; 
 		
 		// Set frame of movieplayer
-		[[mp view] setFrame:CGRectMake(0, 0, 480, 320)];
+		[[mp view] setFrame:CGRectMake(0, 0, Orkige::Engine::getSingleton().getViewort()->getActualWidth(), Orkige::Engine::getSingleton().getViewort()->getActualHeight())];
 		
 		// Add movie player as subview
 		[[self view] addSubview:[mp view]];   
@@ -111,6 +113,7 @@
 	 object:nil];
 	
 	[self dismissModalViewControllerAnimated:YES];	
+	Orkige::VideoManager::getSingleton().stop();
 }
 
 /*---------------------------------------------------------------------------
@@ -184,11 +187,8 @@
 /*---------------------------------------------------------------------------
  * 
  *--------------------------------------------------------------------------*/
-- (void)loadMoviePlayer
+- (void)loadMoviePlayer:(NSString*)path
 {  
-	// Play movie from the bundle
-	NSString *path = [[NSBundle mainBundle] pathForResource:@"data/Video/Movie-1" ofType:@"mp4" inDirectory:nil];
-	
 	// Create custom movie player   
 	moviePlayer = [[[CustomMoviePlayerViewController alloc] initWithPath:path] autorelease];
 	
@@ -207,7 +207,7 @@
 	// Setup the view
 	[self setView:[[[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]] autorelease]];
 	//[[self view] setBackgroundColor:[UIColor grayColor]];
-	[[self view] setUserInteractionEnabled:YES];
+	[[self view] setUserInteractionEnabled:NO];
 }
 
 /*---------------------------------------------------------------------------
@@ -223,10 +223,18 @@
 namespace Orkige
 {
 #ifdef ORKIGE_IPHONE
-	class VideoPlayerIphoneImpl
+	class VideoPlayerIphone
 	{
 	public:
 		TestViewController *vc;
+		VideoPlayerIphone()
+		{
+			vc = 0;
+		}
+		~VideoPlayerIphone()
+		{
+			this->stop();
+		}
 		void play(String const & movie)
 		{
 			static UIView* view = nil;
@@ -241,7 +249,23 @@ namespace Orkige
 
 			vc = [[TestViewController alloc] init];
 			[view addSubview:vc.view];
-			[vc loadMoviePlayer];
+			
+			static String s;
+			s = Orkige::PlatformUtil::getResourceDirectory() + movie;
+			NSString * path = (NSString*)CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)s.c_str(), s.size(), kCFStringEncodingUTF8,false);
+			
+
+			[[vc loadMoviePlayer] path];
+			
+		}
+		
+		void stop()
+		{
+			if(vc)
+			{
+				[vc release];
+				vc = 0;
+			}
 			
 		}
 		
@@ -257,6 +281,9 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	VideoManager::VideoManager(int num_worker_threads) : OgreVideoManager(num_worker_threads), clip(NULL), videoLayer(NULL), videoPanel(NULL)
+#ifdef ORKIGE_IPHONE
+		, iphoneClip(NULL)
+#endif
 	{
 	}
 	//---------------------------------------------------------
@@ -266,8 +293,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VideoManager::init()
 	{
-		//iphoneVideoPlayer = new VideoPlayerIphoneImpl();
-		
 		Ogre::ExternalTextureSourceManager::getSingleton().setExternalTextureSource("ogg_video",this);
 		Ogre::Root::getSingleton().addFrameListener(this);
 
@@ -293,7 +318,6 @@ namespace Orkige
 		this->soundFactory = new VideoSoundHandlerFactory();
 		this->setAudioInterfaceFactory(this->soundFactory);
 		this->setLogFunction(VideoManagerLog);
-		this->setDefaultNumPrecachedFrames(60);
 	}
 	//---------------------------------------------------------
 	void VideoManager::deinit()
@@ -306,8 +330,19 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool VideoManager::play(String const & fileName, bool loop)
 	{
-		//iphoneVideoPlayer->play(fileName);
-		
+#ifdef ORKIGE_IPHONE
+		if(this->iphoneClip)
+		{
+			delete this->iphoneClip;
+			this->iphoneClip = NULL;
+		}
+		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v"))
+		{
+			this->iphoneClip = new VideoPlayerIphone();
+			iphoneClip->play(fileName);
+			return true;
+		}
+#endif
 		if(this->clip)
 			this->stop();
 
@@ -317,11 +352,19 @@ namespace Orkige
 		this->clip->setAutoRestart(loop);
 		this->videoLayer->show();
 		this->videoPanel->show();
-		return false;
+		return true;
 	}
 	//---------------------------------------------------------
 	bool VideoManager::stop()
 	{
+#ifdef ORKIGE_IPHONE
+		if(this->iphoneClip)
+		{
+			delete this->iphoneClip;
+			this->iphoneClip = NULL;
+			return true;
+		}
+#endif
 		if(this->clip)
 		{
 			this->clip->stop();
@@ -338,6 +381,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool VideoManager::isPlaying()
 	{
+#ifdef ORKIGE_IPHONE
+		if(this->iphoneClip)
+		{
+			return true;
+		}
+#endif
 		if(this->clip)
 		{
 			bool playing = !this->clip->isDone();
