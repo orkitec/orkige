@@ -10,8 +10,10 @@
 
 #include "engine_base/Localisation.h"
 #include <core_util/PlatformUtil.h>
+#include <core_util/foreach.h>
 #include <boost/static_assert.hpp>
 #include <boost/algorithm/string.hpp>
+
 #ifdef __APPLE__
 #import <Foundation/NSString.h>
 #import <Foundation/NSPathUtilities.h>
@@ -25,8 +27,19 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Localisation::Localisation(Orkige::String const & _currentLocale, Orkige::String const & validLocales, Orkige::String const & defaultLocale) : currentLocale(_currentLocale)
+	Localisation::Localisation(Orkige::String const & _currentLocale, Orkige::String const & validLocales, Orkige::String const & defaultLocale)
 	{
+		this->loadLocaleCfg(_currentLocale, validLocales, defaultLocale);
+	}
+	//---------------------------------------------------------
+	Localisation::~Localisation()
+	{
+	}
+	//---------------------------------------------------------
+	void Localisation::loadLocaleCfg(Orkige::String const & currentLocale, Orkige::String const & validLocales, Orkige::String const & defaultLocale)
+	{
+		this->clear();
+		this->currentLocale = currentLocale;
 		boost::split(this->supportedLocales, validLocales, boost::is_any_of(","));
 		if(this->currentLocale.empty())
 		{
@@ -74,8 +87,21 @@ namespace Orkige
 		oAssert(this->languageSettings);
 	}
 	//---------------------------------------------------------
-	Localisation::~Localisation()
+	void Localisation::setupResources(String const & directories)
 	{
+		if(Ogre::ResourceGroupManager::getSingleton().resourceGroupExists("Language"))
+		{
+			Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup("Language");
+		}
+
+		Ogre::ResourceGroupManager::getSingleton().createResourceGroup("Language");
+		Orkige::StringVector dirs;
+		boost::split(dirs, directories, boost::is_any_of(","));
+		foreach(Orkige::String const & dir, dirs)
+		{
+			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/" + dir, "FileSystem", "Language");
+		}
+		Ogre::ResourceGroupManager::getSingleton().initialiseResourceGroup("Language");
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

@@ -19,11 +19,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas) : factory(_factory), defaultAtlas(_defaultAtlas)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas)
 	{
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
-		this->getCreateView(this->defaultAtlas);
+		this->getCreateView(this->defaultAtlas, group);
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,	&FastGuiManager::onFrameRenderingQueued,	this);
 	}
 	//---------------------------------------------------------
@@ -110,10 +110,10 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiView> FastGuiManager::createView(String const & atlas)
+	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group)
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
-		this->silverback->loadAtlas(atlas);
+		this->silverback->loadAtlas(atlas, group);
 		Ogre::Viewport* viewport = Engine::getSingleton().getViewort();
 		oAssert(viewport);
 		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
@@ -187,12 +187,13 @@ namespace Orkige
 		{
 			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
 			std::stringstream sstr;
-			sstr << "FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
+			sstr << "%1FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
 			sstr << "Average FPS: "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
 			sstr << "Best FPS:        "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
 			sstr << "Worst FPS:      "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
 			sstr << "Triangles:       "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
 			sstr << "Batches:         "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			sstr << "TextureMemory:   "	<< std::fixed << std::setprecision(2) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< std::endl;
 			this->stats->setText(sstr.str());
 			this->stats->getMarkupText()->background(Gorilla::rgb(123,123,123,123));
 		}

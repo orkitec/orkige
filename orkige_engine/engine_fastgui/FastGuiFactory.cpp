@@ -20,7 +20,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiFactory::FastGuiFactory()
+	FastGuiFactory::FastGuiFactory() : resourceGroup(Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
 	{
 	}
 	//---------------------------------------------------------
@@ -145,6 +145,7 @@ namespace Orkige
 	void FastGuiFactory::load(String const filename)
 	{
 		Ogre::ConfigFile::load(Orkige::PlatformUtil::getResourceDirectory() + "data/" + filename);
+		this->resourceGroup = this->getSetting("ResourceGroup", StringUtil::BLANK, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		FastGuiFactory::SectionIterator it = this->getSectionIterator();
 		while(it.hasMoreElements())
 		{
@@ -170,16 +171,21 @@ namespace Orkige
 		//each global setting is consiederd a view/atlas name with its z order
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
+			
 			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
-			optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(vt.first).lock();
-			if(!view)
+			if(key != "resourcegroup")
 			{
-				view = FastGuiManager::getSingleton().getCreateView(key).lock();
+				String value = boost::to_lower_copy(vt.second);
+				optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(vt.first, this->resourceGroup).lock();
+				if(!view)
+				{
+					view = FastGuiManager::getSingleton().getCreateView(key, this->resourceGroup).lock();
+				}
+				oAssert(view);
+				uint z = StringUtil::Converter::fromString<uint>(value);
+				view->setZ(z);
 			}
-			oAssert(view);
-			uint z = StringUtil::Converter::fromString<uint>(value);
-			view->setZ(z);
+
 		}
 	}
 	//---------------------------------------------------------

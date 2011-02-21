@@ -37,8 +37,15 @@ namespace Orkige
 		Localisation(Orkige::String const & currentLocale = Orkige::StringUtil::BLANK, Orkige::String const & validLocales = "en,de", Orkige::String const & defaultLocale = "en");
 		//! destructor
 		virtual ~Localisation();
+		//! load given locale settings
+		void loadLocaleCfg(Orkige::String const & currentLocale = Orkige::StringUtil::BLANK, Orkige::String const & validLocales = "en,de", Orkige::String const & defaultLocale = "en");
 		//! get localized string from given id if id is not found the id itself is returned
 		inline Orkige::String const & getLocalized(Orkige::String const & id);
+		//! get current setupped locale
+		inline String const & getCurrentLocale();
+		//! setup resource directories (Category Language) for current locale
+		//! @param directories comma seperated list of directories
+		void setupResources(String const & directories);
 	protected:
 	private:
 	};
@@ -52,6 +59,11 @@ namespace Orkige
 		}
 
 		return i->second;
+	}
+	//----------------------------------------------------
+	inline String const & Localisation::getCurrentLocale()
+	{
+		return this->currentLocale;
 	}
 }
 

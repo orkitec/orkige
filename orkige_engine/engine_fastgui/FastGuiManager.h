@@ -42,7 +42,7 @@ namespace Orkige
 		String defaultAtlas;
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default");
+		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		virtual ~FastGuiManager();
 		//! enable key and mouse events
 		void enableInputEvents();
@@ -60,13 +60,13 @@ namespace Orkige
 		//! get widget creation factory
 		inline woptr<FastGuiFactory> getFactory();
 		//! create screen with given atlas asserts if there is already a screen with that atlas
-		woptr<FastGuiView> createView(String const & atlas);
+		woptr<FastGuiView> createView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! free ressources from given view
 		void destroyView(String const & atlas);
 		//! get screen with given atlas or NULL
 		inline woptr<FastGuiView> getView(String const & atlas);
 		//! get o create view with given atlas
-		inline woptr<FastGuiView> getCreateView(String const & atlas);
+		inline woptr<FastGuiView> getCreateView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! checks if screen with given id exists
 		inline bool hasView(String const & atlas);
 		//! add given widget
@@ -137,7 +137,7 @@ namespace Orkige
 		return screenExists;
 	}
 	//---------------------------------------------------------------
-	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas)
+	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas, String const & group)
 	{
 		if(atlas == StringUtil::BLANK)
 		{
@@ -149,7 +149,7 @@ namespace Orkige
 			return this->getView(atlas);
 		}
 
-		return this->createView(atlas);
+		return this->createView(atlas, group);
 	}
 	//---------------------------------------------------------------
 	inline bool FastGuiManager::widgetExists(String const & id)

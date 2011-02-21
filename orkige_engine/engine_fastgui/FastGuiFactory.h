@@ -43,6 +43,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+		String resourceGroup;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
