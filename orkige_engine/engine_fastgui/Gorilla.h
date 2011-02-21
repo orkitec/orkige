@@ -2746,6 +2746,7 @@ namespace Gorilla
 		{
 			mLeft = left;
 			mDirty = true;
+			mTextDirty = true;
 			mLayer->_markDirty();
 		}
 
@@ -2766,6 +2767,7 @@ namespace Gorilla
 		{
 			mTop = top;
 			mDirty = true;
+			mTextDirty = true;
 			mLayer->_markDirty();
 		}
 

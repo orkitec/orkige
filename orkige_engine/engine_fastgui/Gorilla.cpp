@@ -2218,6 +2218,8 @@ namespace Gorilla
 		Ogre::Real cursorX = mLeft, cursorY = mTop, kerning = 0, texelOffsetX = mLayer->_getTexelX(), texelOffsetY = mLayer->_getTexelY(), right = 0, bottom = 0, left = 0, top = 0;
 		unsigned int thisChar = 0, lastChar = 0;
 		Glyph* glyph = 0;
+		this->mWidth = 0;
+		this->mHeight = 0;
 
 		mCharacters.remove_all();
 
@@ -2407,8 +2409,22 @@ namespace Gorilla
 				cursorX  += glyph->glyphAdvance + kerning;
 
 			lastChar = thisChar;
+			
+			// find width
+			if (this->mWidth < cursorX)
+			{
+				this->mWidth = cursorX;
+			}
+			// find height
+			if (this->mHeight < cursorY)
+			{
+				this->mHeight = cursorY;
+			}
+			
 		}
-
+		this->mHeight -= mTop;
+		this->mHeight += lineHeight;
+		this->mWidth -= mLeft;
 		mTextDirty = false;
 	}
 
