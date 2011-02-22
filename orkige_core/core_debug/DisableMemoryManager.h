@@ -10,7 +10,7 @@
 *********************************************************************/
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
-#ifdef _DEBUG
+//#ifdef _DEBUG
 
 #ifdef	new
 #undef	new
@@ -36,6 +36,6 @@
 #undef	free
 #endif
 
-#endif // _DEBUG
+//#endif // _DEBUG
 #endif // WIN32
 #endif // ORKIGE_ENABLE_MEMORYMANAGER

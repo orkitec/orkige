@@ -1,6 +1,6 @@
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
-#ifdef _DEBUG
+//#ifdef _DEBUG
 /********************************************************************
 created:	Thursday 2010/08/12 at 16:30
 filename: 	MemoryManager.cpp
@@ -1658,6 +1658,6 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 }
 
-#endif // _DEBUG
+//#endif // _DEBUG
 #endif // WIN32
 #endif // ORKIGE_ENABLE_MEMORYMANAGER

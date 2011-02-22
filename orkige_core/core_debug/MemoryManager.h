@@ -80,7 +80,7 @@ extern "C" {
 #endif
 
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
-#ifdef _DEBUG
+//#ifdef _DEBUG
 #ifdef WIN32
 
 //! Variations of global operators new & delete
@@ -319,7 +319,7 @@ inline void operator delete[](void *reportedAddress)
 #include "core_debug/EnableMemoryManager.h"
 
 #endif // WIN32
-#endif // _DEBUG
+//#endif // _DEBUG
 #endif // ORKIGE_ENABLE_MEMORYMANAGER
 #endif //__MemoryManager_h__12_8_2010__15_55_37__
 #ifndef CREATE_ORKIGE_MEMORY_MANAGER

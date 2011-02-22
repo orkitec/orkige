@@ -10,7 +10,7 @@
 *********************************************************************/
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
-#ifdef _DEBUG
+//#ifdef _DEBUG
 
 #include "DisableMemoryManager.h"
 
@@ -21,6 +21,6 @@
 #define	realloc(ptr,sz)	::Orkige::MemoryManager::getSingleton().m_reallocator(__FILE__,__LINE__,__FUNCTION__,::Orkige::MemoryManager::m_alloc_realloc,sz,ptr)
 #define	free(ptr)	::Orkige::MemoryManager::getSingleton().m_deallocator(__FILE__,__LINE__,__FUNCTION__,::Orkige::MemoryManager::m_alloc_free,ptr)
 
-#endif // _DEBUG
+//#endif // _DEBUG
 #endif // WIN32
 #endif // ORKIGE_ENABLE_MEMORYMANAGER
