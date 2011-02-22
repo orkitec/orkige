@@ -179,13 +179,12 @@ namespace Orkige
 		this->statsMarkupColorIndex = markupColorIndex;
 		this->stats = onew(new FastGuiTextbox("FastGuiManagerFrameStats", glyphIndex, "", pos, atlas, 15));
 		this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", glyphIndex, "", pos, atlas, 15));
-#ifdef ORKIGE_ENABLE_MEMORYMANAGER
-#ifdef WIN32
+#if defined(ORKIGE_ENABLE_MEMORYMANAGER) && defined(WIN32)
 		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: \nOrkigeMemory: \nOrkigeMemoryPeak: ");
-#endif
 #else
 		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
-#endif		
+#endif
+
 		this->stats->getMarkupText()->_calculateCharacters();
 		Ogre::Vector2 size = this->stats->getSize();
 		size.y = 0.f;
