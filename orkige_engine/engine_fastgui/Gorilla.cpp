@@ -193,8 +193,8 @@ namespace Gorilla
 #if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
 					if(textureName.find(".pvr") == Ogre::String::npos)
 					{
-						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + "pvr"; 
-						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(textureNamePvr, group))
+						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + ".pvr"; 
+						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(textureNamePvr, groupName))
 						{
 							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureNamePvr, groupName, Ogre::TEX_TYPE_2D, 0);
 						}
@@ -204,10 +204,11 @@ namespace Gorilla
 						}
 					}
 					else
-#else
 					{
 						mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
 					}
+#else
+					mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
 #endif
 				}
 
