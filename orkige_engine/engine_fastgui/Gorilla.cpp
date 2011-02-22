@@ -194,7 +194,7 @@ namespace Gorilla
 					if(textureName.find(".pvr") == Ogre::String::npos)
 					{
 						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + ".pvr"; 
-						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(textureNamePvr, groupName))
+						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(groupName, textureNamePvr))
 						{
 							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureNamePvr, groupName, Ogre::TEX_TYPE_2D, 0);
 						}
