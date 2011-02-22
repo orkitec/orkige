@@ -14,6 +14,56 @@
 #include <Ogre.h>
 #include <windows.h>
 
+
+inline void drawImage(cimg_library::CImg<unsigned char> & src, cimg_library::CImg<unsigned char> & dst, int offsetx, int offsety)
+{
+	// RGBA over RGBA (@see ftp://ftp.alvyray.com/Acrobat/4_Comp.pdf)
+	cimg_library::CImg<unsigned char> dst_color = dst.get_shared_channels(0, 2);
+	cimg_library::CImg<unsigned char> src_color = src.get_shared_channels(0, 2);
+	cimg_library::CImg<unsigned char> dst_alpha = dst.get_shared_channel(3);
+	cimg_library::CImg<unsigned char> src_alpha = src.get_shared_channel(3);
+
+	cimg_forV(dst_color, v)
+	{
+		unsigned int src_y, src_x;
+		cimg_for_inY(dst_color, offsety, offsety + src_color.height-1, dst_y)
+		{
+			src_y = dst_y - offsety;
+			unsigned char* p_dst_color = dst_color.ptr(0, dst_y, 0, v);		
+			unsigned char* p_src_color = src_color.ptr(0, src_y, 0, v);		
+			unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
+			unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
+			cimg_for_inX(dst_color, offsetx, offsetx + src_color.width-1, dst_x)
+			{
+				src_x = dst_x - offsetx;
+				float c1 = p_src_color[src_x] / 255.f;
+				float c2 = p_dst_color[dst_x] / 255.f;
+				float a1 = p_src_alpha[src_x] / 255.f;
+				float a2 = p_dst_alpha[dst_x] / 255.f;
+				p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1) * a2) / (a1 + a2 - a1 * a2)));	
+				//p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1))));	
+			}
+		}
+	}
+	{
+		unsigned int src_y, src_x;
+		cimg_for_inY(dst_alpha, offsety, offsety + src_alpha.height-1, dst_y)
+		{
+			src_y = dst_y - offsety;
+			unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
+			unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
+			cimg_for_inX(dst_alpha, offsetx, offsetx + src_alpha.width-1, dst_x)
+			{
+				src_x = dst_x - offsetx;
+				float a1 = p_src_alpha[src_x] / 255.f;
+				float a2 = p_dst_alpha[dst_x] / 255.f;
+				p_dst_alpha[dst_x] = (unsigned char) (255.0f * (a1 + a2 - a1 * a2));
+				//p_dst_alpha[dst_x] = (unsigned char) (255.0f * std::min(1.0f, a1 + a2));
+			}
+		}
+	}
+}
+
 char xtod(char c) {
 	if (c>='0' && c<='9') return c-'0';
 	if (c>='A' && c<='F') return c-'A'+10;
@@ -332,10 +382,15 @@ int main(int argc, char **argv)
 	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
 	document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
 	xmlRoot = document->RootElement();
+	std::map<char, int> glyphHexValues;
+	Orkige::String sourceFontName = xmlRoot->Attribute("face");
+	Orkige::String sourceFontSize = xmlRoot->Attribute("size");
+	outputOguiFile << "SourceFont " << sourceFontName << " "<< sourceFontSize << std::endl;
+
 	for(TiXmlElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
 	{
 		String const & elementTypeName = elementType->Value();
-
+		
 		if(elementTypeName == "glyphs")
 		{
 			outputOguiFile << "lineheight " << xmlRoot->Attribute("height") << std::endl;
@@ -347,6 +402,7 @@ int main(int argc, char **argv)
 			{
 				int glyph = xstrtoi(element->Attribute("code"));
 				
+				glyphHexValues[element->Attribute("ch")[0]] = glyph;
 				String origin = element->Attribute("origin");
 				String size = element->Attribute("size");
 
@@ -372,8 +428,8 @@ int main(int argc, char **argv)
 		{
 			for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 			{
-				int left = int(element->Attribute("left")[0]);
-				int right = int(element->Attribute("right")[0]);
+				int left = glyphHexValues[element->Attribute("left")[0]];
+				int right = glyphHexValues[element->Attribute("right")[0]];
 
 				outputOguiFile << "kerning_" << left 
 					<< " " << right
@@ -387,8 +443,12 @@ int main(int argc, char **argv)
 	cimg_library::CImg<unsigned char> textureAtlasImage;
 	if(!createFile)
 	{
-		textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
-	}
+		Orkige::String::size_type tildePos = textureAtlasImageFilename.find('~');
+		if(tildePos != Orkige::String::npos)
+			textureAtlasImage.load_png(textureAtlasImageFilename.substr(0, tildePos).c_str());
+		else
+			textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
+	}	
 	else
 	{
 		// create atlas and draw white pixel
@@ -413,8 +473,7 @@ int main(int argc, char **argv)
 	int offsety = 0;
 
 	// sho atlas and font and let user choose where to draw the font inside the atlas
-	float opacity = 1.f;
-	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click where to draw the font!"), draw_disp(bitmapFontImage,"Bitmap Font");
+	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click where to draw the font!", 1), draw_disp(bitmapFontImage,"Bitmap Font");
 	while(!main_disp.is_closed)
 	{
 		main_disp.wait();
@@ -422,54 +481,46 @@ int main(int argc, char **argv)
 		if (main_disp.button && main_disp.mouse_y>=0) {
 			offsetx = main_disp.mouse_x;
 			offsety = main_disp.mouse_y;
+			float factorx = (float)textureAtlasImage.width / (float)main_disp.window_width;
+			float factory = (float)textureAtlasImage.height / (float)main_disp.window_height;
 
+			offsetx = int((float)offsetx * factorx);
+			offsety = int((float)offsety * factory);
 			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
 			{
-				// RGBA over RGBA (@see ftp://ftp.alvyray.com/Acrobat/4_Comp.pdf)
-				cimg_library::CImg<unsigned char> dst_color = textureAtlasImage.get_shared_channels(0, 2);
-				cimg_library::CImg<unsigned char> src_color = bitmapFontImage.get_shared_channels(0, 2);
-				cimg_library::CImg<unsigned char> dst_alpha = textureAtlasImage.get_shared_channel(3);
-				cimg_library::CImg<unsigned char> src_alpha = bitmapFontImage.get_shared_channel(3);
-
-				cimg_forV(dst_color, v)
-				{
-					unsigned int src_y, src_x;
-					cimg_for_inY(dst_color, offsety, offsety + src_color.height-1, dst_y)
-					{
-						src_y = dst_y - offsety;
-						unsigned char* p_dst_color = dst_color.ptr(0, dst_y, 0, v);		
-						unsigned char* p_src_color = src_color.ptr(0, src_y, 0, v);		
-						unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
-						unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
-						cimg_for_inX(dst_color, offsetx, offsetx + src_color.width-1, dst_x)
-						{
-							src_x = dst_x - offsetx;
-							float c1 = p_src_color[src_x] / 255.f;
-							float c2 = p_dst_color[dst_x] / 255.f;
-							float a1 = p_src_alpha[src_x] / 255.f * opacity;
-							float a2 = p_dst_alpha[dst_x] / 255.f;
-							p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1) * a2) / (a1 + a2 - a1 * a2)));	
-							//p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1))));	
-						}
-					}
-				}
-				{
-					unsigned int src_y, src_x;
-					cimg_for_inY(dst_alpha, offsety, offsety + src_alpha.height-1, dst_y)
-					{
-						src_y = dst_y - offsety;
-						unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
-						unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
-						cimg_for_inX(dst_alpha, offsetx, offsetx + src_alpha.width-1, dst_x)
-						{
-							src_x = dst_x - offsetx;
-							float a1 = p_src_alpha[src_x] / 255.f * opacity;;
-							float a2 = p_dst_alpha[dst_x] / 255.f;
-							p_dst_alpha[dst_x] = (unsigned char) (255.0f * (a1 + a2 - a1 * a2));
-							//p_dst_alpha[dst_x] = (unsigned char) (255.0f * std::min(1.0f, a1 + a2));
-						}
-					}
-				}
+				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
+			}
+		}
+		else if(main_disp.is_keyARROWUP)
+		{
+			offsety--;
+			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
+			{
+				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
+			}
+		}
+		else if(main_disp.is_keyARROWDOWN)
+		{
+			offsety++;
+			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
+			{
+				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
+			}
+		}
+		else if(main_disp.is_keyARROWLEFT)
+		{
+			offsetx--;
+			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
+			{
+				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
+			}
+		}
+		else if(main_disp.is_keyARROWRIGHT)
+		{
+			offsetx++;
+			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
+			{
+				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
 			}
 		}
 
@@ -480,7 +531,7 @@ int main(int argc, char **argv)
 		draw_disp.close();
 
 	outputOguiFile << "offset " << offsetx << " " << offsety  << std::endl;
-
+	
 	if(createFile)
 	{
 		// if its a new file write texture section
@@ -490,7 +541,11 @@ int main(int argc, char **argv)
 	// save atlas
 	if(overwriteFiles)
 	{
-		textureAtlasImage.save_png((textureAtlasImageFilename).c_str());
+		Orkige::String::size_type tildePos = textureAtlasImageFilename.find('~');
+		if(tildePos != Orkige::String::npos)
+			textureAtlasImage.save_png(textureAtlasImageFilename.substr(0, tildePos).c_str());
+		else
+			textureAtlasImage.save_png(textureAtlasImageFilename.c_str());
 	}
 	else
 	{
