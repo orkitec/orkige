@@ -189,7 +189,27 @@ namespace Gorilla
 				mTexture = Ogre::TextureManager::getSingletonPtr()->getByName(data, groupName);
 #endif
 				if (mTexture.isNull())
-					mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
+				{
+#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
+					if(textureName.find(".pvr") == Ogre::String::npos)
+					{
+						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + "pvr"; 
+						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(textureNamePvr, group))
+						{
+							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureNamePvr, groupName, Ogre::TEX_TYPE_2D, 0);
+						}
+						else
+						{
+							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
+						}
+					}
+					else
+#else
+					{
+						mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
+					}
+#endif
+				}
 
 				mInverseTextureSize.x = 1.0f / mTexture->getWidth();
 				mInverseTextureSize.y = 1.0f / mTexture->getHeight();
