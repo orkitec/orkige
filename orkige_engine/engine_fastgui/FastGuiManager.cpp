@@ -19,7 +19,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0)
 	{
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
@@ -168,17 +168,35 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas)
+	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas, unsigned short markupColorIndex)
 	{
 		if(this->stats)
+		{
 			this->stats.reset();
-
+			this->statsValues.reset();
+		}
+	
+		this->statsMarkupColorIndex = markupColorIndex;
 		this->stats = onew(new FastGuiTextbox("FastGuiManagerFrameStats", glyphIndex, "", pos, atlas, 15));
+		this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", glyphIndex, "", pos, atlas, 15));
+#ifdef ORKIGE_ENABLE_MEMORYMANAGER
+#ifdef WIN32
+		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: \nOrkigeMemory: \nOrkigeMemoryPeak: ");
+#endif
+#else
+		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
+#endif		
+		this->stats->getMarkupText()->_calculateCharacters();
+		Ogre::Vector2 size = this->stats->getSize();
+		size.y = 0.f;
+		size += this->stats->getPosition();
+		this->statsValues->setPosition(size.x, size.y);
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::hideStats()
 	{
 		this->stats.reset();
+		this->statsValues.reset();
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::updateStats()
@@ -187,15 +205,23 @@ namespace Orkige
 		{
 			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
 			std::stringstream sstr;
-			sstr << "%1FPS:                  "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
-			sstr << "Average FPS: "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
-			sstr << "Best FPS:        "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
-			sstr << "Worst FPS:      "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
-			sstr << "Triangles:       "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
-			sstr << "Batches:         "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
-			sstr << "TextureMemory:   "	<< std::fixed << std::setprecision(2) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< std::endl;
-			this->stats->setText(sstr.str());
-			this->stats->getMarkupText()->background(Gorilla::rgb(123,123,123,123));
+			sstr << "%" << this->statsMarkupColorIndex;
+			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
+			sstr << "   "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
+			sstr << "   "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< "  mb" << std::endl;
+#ifdef ORKIGE_ENABLE_MEMORYMANAGER
+#ifdef WIN32
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().m_getMemoryStatistics().totalActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().m_getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
+#endif
+#endif
+
+
+			this->statsValues->setText(sstr.str());
 		}
 	}
 	//---------------------------------------------------------
@@ -211,7 +237,7 @@ namespace Orkige
 
 		foreach(FastGuiView & view, orderedViews)
 		{
-			oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
+			//oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
 			Gorilla::Screen* screen = view.getScreen();
 			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
 		}

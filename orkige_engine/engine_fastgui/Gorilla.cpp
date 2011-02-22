@@ -189,7 +189,7 @@ namespace Gorilla
 				mTexture = Ogre::TextureManager::getSingletonPtr()->getByName(data, groupName);
 #endif
 				if (mTexture.isNull())
-					mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName);
+					mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
 
 				mInverseTextureSize.x = 1.0f / mTexture->getWidth();
 				mInverseTextureSize.y = 1.0f / mTexture->getHeight();
@@ -417,7 +417,7 @@ namespace Gorilla
 		pass->setDepthWriteEnabled(false);
 		pass->setLightingEnabled(false);
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
-
+		
 		Ogre::TextureUnitState* texUnit = pass->createTextureUnitState();
 		texUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
 		texUnit->setTextureFiltering(Ogre::FO_NONE, Ogre::FO_NONE, Ogre::FO_NONE);

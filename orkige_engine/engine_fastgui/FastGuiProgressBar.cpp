@@ -74,7 +74,7 @@ namespace Orkige
 	}
 	void FastGuiProgressBar::setProgress(float _progress)
 	{
-		this->progress = Ogre::Math::ICeil(_progress);
+		this->progress = Ogre::Math::Ceil(_progress);
 		this->progress = Ogre::Math::Clamp(progress,0.0f,100.0f);
 		this->barDecore->setSize(this->barMaxSize.x * progress/100 ,this->barDecore->getSize().y );
 

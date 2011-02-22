@@ -11,7 +11,7 @@ copyright:	(c) 2009-2010 orkitec
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_event/GlobalEventManager.h>
 
-#define FASTGUICHECKBOX_MARGING 10.0
+#define FASTGUICHECKBOX_MARGING 10.f
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(FastGuiCheckBox, CheckBoxToggledEvent);
@@ -28,7 +28,7 @@ namespace Orkige
 		//this->label->setAlignment(textAlignment);
 
 		Ogre::Real xPosition = this->decor->getPosition().x+(this->decor->getSize().x )- (this->checkSymbol->getSize().x) - FASTGUICHECKBOX_MARGING ;
-		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.0 )- (this->checkSymbol->getSize().y/2.0) ;
+		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.f )- (this->checkSymbol->getSize().y/2.f) ;
 		this->checkSymbol->setPosition(xPosition, yPosition);
 
 		xPosition = this->decor->getPosition().x + FASTGUICHECKBOX_MARGING;
@@ -48,7 +48,7 @@ namespace Orkige
 		this->decor->setPosition(left, top);
 		//this->label->setPosition(left, top);
 		Ogre::Real xPosition = this->decor->getPosition().x+(this->decor->getSize().x )- (this->checkSymbol->getSize().x) - FASTGUICHECKBOX_MARGING ;
-		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.0 )- (this->checkSymbol->getSize().y/2.0) ;
+		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.f )- (this->checkSymbol->getSize().y/2.f) ;
 		this->checkSymbol->setPosition(xPosition, yPosition);
 		xPosition = this->decor->getPosition().x + FASTGUICHECKBOX_MARGING;
 		this->label->setPosition(xPosition,yPosition);

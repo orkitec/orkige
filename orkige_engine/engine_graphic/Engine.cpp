@@ -19,7 +19,18 @@
 #endif
 namespace Orkige
 {
-
+#ifdef WIN32
+#ifdef ORKIGE_DEBUG
+	struct LogListener : public Ogre::LogListener
+	{
+		virtual void messageLogged( const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName )
+		{
+			OutputDebugStringA(message.c_str());
+			OutputDebugStringA("\n");
+		}
+	};
+#endif
+#endif
 	IMPL_OWNED_EVENTTYPE(Engine, FrameStartedEvent);
 	IMPL_OWNED_EVENTTYPE(Engine, FrameRenderingQueuedEvent);
 	IMPL_OWNED_EVENTTYPE(Engine, FrameEndedEvent);
@@ -83,7 +94,13 @@ namespace Orkige
 		//create the ogre root Master of Disaster
 		
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
-
+#ifdef WIN32
+#ifdef ORKIGE_DEBUG
+		static LogListener logListener;
+		Ogre::LogManager::getSingleton().getDefaultLog()->addListener(&logListener);
+#endif
+#endif
+		
 		this->setupResources(resourceCfgFileName);
 	}
 	//---------------------------------------------------------
