@@ -51,6 +51,7 @@ namespace Orkige
 		if(modelFileName.empty())
 			return;
 
+		this->modelFileName = modelFileName;
 		this->model = parentSceneNode->getCreator()->createEntity(componentOwner->getObjectID() + ".ModelComponent." + modelFileName, modelFileName);
 		oAssert(this->model);
 		this->sceneNode->attachObject(model);
