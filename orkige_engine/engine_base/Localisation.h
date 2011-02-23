@@ -12,10 +12,11 @@
 #include "engine_module/EnginePrerequisites.h"
 #include <core_util/Singleton.h>
 #include "engine_util/StringUtil.h"
+#include <core_event/EventHandler.h>
 
 namespace Orkige
 {
-	class Localisation : public Ogre::ConfigFile, public Orkige::Singleton<Localisation>
+	class Localisation : public Ogre::ConfigFile, public Orkige::Singleton<Localisation>, public Orkige::EventHandler
 	{
 		DECL_OSINGLETON(Localisation);
 		//-Types--------------------------------------------
@@ -30,6 +31,7 @@ namespace Orkige
 		Orkige::String currentLocale;
 		Orkige::String localeFileName;
 		SettingsMultiMap* languageSettings;
+		Orkige::String directories;
 		//-Methods------------------------------------------
 	public:
 		//! create Localisation if currentLocale is empty trys to get the current systems locale
@@ -46,7 +48,10 @@ namespace Orkige
 		//! setup resource directories (Category Language) for current locale
 		//! @param directories comma seperated list of directories
 		void setupResources(String const & directories);
+		//! call setupResources when scene rendering is done
+		void setupResourcesDelayed(String const & directories);
 	protected:
+		bool onFrameEnded(Event const & event);
 	private:
 	};
 	//----------------------------------------------------

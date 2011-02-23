@@ -13,6 +13,9 @@
 #include <core_util/foreach.h>
 #include <boost/static_assert.hpp>
 #include <boost/algorithm/string.hpp>
+#include "engine_graphic/Engine.h"
+#include <core_game/GameObjectManager.h>
+#include <engine_gocomponent/Modelcomponent.h>
 
 #ifdef __APPLE__
 #import <Foundation/NSString.h>
@@ -89,6 +92,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void Localisation::setupResources(String const & directories)
 	{
+		this->directories = directories;
 		if(Ogre::ResourceGroupManager::getSingleton().resourceGroupExists("Language"))
 		{
 			Ogre::ResourceGroupManager::getSingleton().destroyResourceGroup("Language");
@@ -96,17 +100,45 @@ namespace Orkige
 
 		Ogre::ResourceGroupManager::getSingleton().createResourceGroup("Language");
 		Orkige::StringVector dirs;
-		boost::split(dirs, directories, boost::is_any_of(","));
+		boost::split(dirs, this->directories, boost::is_any_of(","));
 		foreach(Orkige::String const & dir, dirs)
 		{
 			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/" + dir, "FileSystem", "Language");
 		}
 		Ogre::ResourceGroupManager::getSingleton().initialiseResourceGroup("Language");
+		Ogre::SceneManager::MovableObjectIterator iterator = Engine::getSingleton().getSceneManager()->getMovableObjectIterator(Ogre::EntityFactory::FACTORY_TYPE_NAME);
+		while(iterator.hasMoreElements())
+		{
+			Ogre::Entity* e = static_cast<Ogre::Entity*>(iterator.getNext());
+			oAssert(e);
+			e->_deinitialise();
+		}
+
+		GameObjectManager::GameObjectMap gos = GameObjectManager::getSingleton().getGameObjects();
+		foreach(GameObjectManager::GameObjectMap::value_type const & vt, gos)
+		{
+			optr<GameObject> go = vt.second;
+			if(go->hasComponent<ModelComponent>())
+			{
+				go->getComponentPtr<ModelComponent>()->loadModel(go->getComponentPtr<ModelComponent>()->getCurrentModelFileName());
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void Localisation::setupResourcesDelayed(String const & directories)
+	{
+		this->directories = directories;
+		this->registerEvent(Engine::FrameRenderingQueuedEvent, &Localisation::onFrameEnded, this);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-
+	bool Localisation::onFrameEnded(Event const & event)
+	{
+		this->setupResources(this->directories);
+		this->unregisterEvent(Engine::FrameRenderingQueuedEvent);
+		return true;
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
