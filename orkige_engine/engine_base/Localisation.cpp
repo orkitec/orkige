@@ -15,7 +15,7 @@
 #include <boost/algorithm/string.hpp>
 #include "engine_graphic/Engine.h"
 #include <core_game/GameObjectManager.h>
-#include <engine_gocomponent/Modelcomponent.h>
+#include <engine_gocomponent/ModelComponent.h>
 
 #ifdef __APPLE__
 #import <Foundation/NSString.h>
