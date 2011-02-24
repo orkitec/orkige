@@ -101,7 +101,7 @@ namespace Orkige
 		//if logging to file is enabled write!
 		if( this->fileLog )
 		{
-			this->logXML(message.c_str(),priorityLevel,fileName,lineNumber);
+			this->logMessage(message.c_str(),priorityLevel,fileName,lineNumber);
 		}
 	}
 	//---------------------------------------------------------------
@@ -155,6 +155,7 @@ namespace Orkige
 	//---------------------------------------------------------------
 	bool LogManager::startFileLog(const char* logFileName)
 	{
+#ifdef ORKIGE_XML_LOG
 		this->logFile = onew(new TiXmlDocument(logFileName));
 		oInfo("trying to init logfile: " << logFileName);
 		this->logFile->SaveFile();
@@ -182,12 +183,15 @@ namespace Orkige
 		this->elements[4]->SetAttribute("Time",this->getDate());
 		this->logFile->InsertEndChild((*this->elements[4]));
 		this->logFile->SaveFile();
-
+#else
+		this->logFile.open(logFileName);
+#endif
 		return true;
 	}
 	//---------------------------------------------------------------
-	void LogManager::logXML(const char* message, Priority priorityLevel,char* fileName,int lineNumber)
+	void LogManager::logMessage(const char* message, Priority priorityLevel,char* fileName,int lineNumber)
 	{
+#ifdef ORKIGE_XML_LOG
 		TiXmlElement xFileName("file");
 		TiXmlElement xMessage("message");
 		xMessage.SetAttribute("value", message);
@@ -213,6 +217,16 @@ namespace Orkige
 
 		//save file after every message not only in destructor because of crashes
 		this->logFile->SaveFile();
+#else
+		if(this->fileNameLog)
+		{
+			this->logFile << fileName << "(" << lineNumber << "): ";
+		}
+		this->logFile << message << std::endl;
+
+		// Flush stcmdream to ensure it is written (incase of a crash, we need log to be up to date)
+		this->logFile.flush();
+#endif
 	}
 	//---------------------------------------------------------------
 	const char* LogManager::getDate()

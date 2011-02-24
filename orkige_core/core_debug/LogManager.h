@@ -66,9 +66,14 @@ namespace Orkige
 		bool filterLog;
 		bool fileNameLog;
 		std::vector<optr<LogChannel> > channels;
-		std::vector<optr<TiXmlElement> > elements;
+		
 		optr<LogConfig> config;
+#ifdef ORKIGE_XML_LOG
 		optr<TiXmlDocument> logFile;
+		std::vector<optr<TiXmlElement> > elements;
+#else
+		std::ofstream logFile;
+#endif
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -93,7 +98,7 @@ namespace Orkige
 		const char* getDate();
 	protected:
 		//! log to xml file
-		void logXML(const char* message, Priority priorityLevel, char* fileName,int lineNumber);
+		void logMessage(const char* message, Priority priorityLevel, char* fileName,int lineNumber);
 		//! python utility function
 		inline void py_write(const char * tag,int level,String const & message, Priority priorityLevel, char* fileName,int lineNumber);
 	private:
