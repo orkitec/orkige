@@ -174,7 +174,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 - (void) loadView
 {
 	[self setView:[[[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]] autorelease]];
-	[[self view] setBackgroundColor:[UIColor blackColor]];
+	//[[self view] setBackgroundColor:[UIColor blackColor]];
 }
 
 /*---------------------------------------------------------------------------
