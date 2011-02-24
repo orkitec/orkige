@@ -353,20 +353,26 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool VideoManager::play(String const & fileName, bool loop)
 	{
+		if(this->clip)
+			this->stop();
+
 #ifdef ORKIGE_IPHONE
 		if(this->iphoneClip)
 		{
 			this->stop();
 		}
-		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v"))
+		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v") || StringUtil::hasEnding(fileName, ".m4v"))
 		{
 			this->iphoneClip = new VideoPlayerIphone();
 			iphoneClip->play(fileName);
 			return true;
 		}
+#else
+		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v") || StringUtil::hasEnding(fileName, ".m4v"))
+		{
+			return false;
+		}
 #endif
-		if(this->clip)
-			this->stop();
 
 		this->setInputName(fileName);
 		this->createDefinedTexture("VideoTextureMaterial");
