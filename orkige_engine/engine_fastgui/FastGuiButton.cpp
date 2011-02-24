@@ -16,8 +16,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiButton::FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
+	FastGuiButton::FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z,bool _nostate) : FastGuiWidget(id, atlas, z)
 	{
+		this->nostate = _nostate ;
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		
 		if(!text.empty())
@@ -118,17 +119,30 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::setState(const FastGuiButton::ButtonState& bs)
 	{
+		
 		if (bs == FastGuiButton::BS_OVER)
 		{
-			this->decor->setSprite(this->baseSpriteName + "_Over");
+			if (!this->nostate)
+			{
+				this->decor->setSprite(this->baseSpriteName + "_Over");
+			}
+			
 		}
 		else if (bs == FastGuiButton::BS_UP)
 		{
-			this->decor->setSprite(this->baseSpriteName);
+			if (!this->nostate)
+			{
+				this->decor->setSprite(this->baseSpriteName);
+			}
+			
 		}
 		else
 		{
-			this->decor->setSprite(this->baseSpriteName + "_Down");
+			if (!this->nostate)
+			{
+				this->decor->setSprite(this->baseSpriteName + "_Down");
+			}
+			
 		}
 
 		this->state = bs;

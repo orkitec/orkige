@@ -39,10 +39,11 @@ namespace Orkige
 		optr<FastGuiDecorWidget> decor;		//!< current button image
 		ButtonState state;					//!< current button state
 		String baseSpriteName;				//!< base name of the button state sprite;
+		bool nostate;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
+		FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z,bool _nostate = false);
 		virtual ~FastGuiButton();
 
 		//! get current ButtonState
