@@ -185,6 +185,7 @@ namespace Orkige
 		this->logFile->SaveFile();
 #else
 		this->logFile.open(logFileName);
+		this->fileLog=true;
 #endif
 		return true;
 	}
