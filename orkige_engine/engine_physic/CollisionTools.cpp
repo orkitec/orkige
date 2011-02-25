@@ -39,12 +39,12 @@ namespace Orkige
 			delete this->terrainRaySceneQuery;
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask)
+	bool CollisionTools::raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
-		return this->raycastFromCamera(rw, camera, mousecoords, result, (Ogre::MovableObject*&) target, closest_distance, queryMask);
+		return this->raycastFromCamera(rw, camera, mousecoords, result, (Ogre::MovableObject*&) target, closest_distance, queryMask, checkAnimatedMesh);
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask)
+	bool CollisionTools::raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
 		// Create the ray to test
 //#ifdef ORKIGE_IPHONE
@@ -58,16 +58,16 @@ namespace Orkige
 
 		Ogre::Ray ray = camera->getCameraToViewportRay(tx, ty);
 
-		return this->raycast(ray, result, target, closest_distance, queryMask);
+		return this->raycast(ray, result, target, closest_distance, queryMask, checkAnimatedMesh);
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, const float collisionRadius, const float rayHeightLevel, const Ogre::uint32 queryMask)
+	bool CollisionTools::collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, const float collisionRadius, const float rayHeightLevel, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
 		Ogre::MovableObject* myObject = NULL;
 		return this->collidesWithEntity(fromPoint, toPoint, myObject, collisionRadius, rayHeightLevel, queryMask);
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, Ogre::MovableObject* &target, const float collisionRadius, const float rayHeightLevel, const Ogre::uint32 queryMask)
+	bool CollisionTools::collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, Ogre::MovableObject* &target, const float collisionRadius, const float rayHeightLevel, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
 		Ogre::Vector3 fromPointAdj(fromPoint.x, fromPoint.y + rayHeightLevel, fromPoint.z);
 		Ogre::Vector3 toPointAdj(toPoint.x, toPoint.y + rayHeightLevel, toPoint.z);
@@ -178,26 +178,26 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::Entity* &target, float &closest_distance, const Ogre::uint32 queryMask) 
+	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::Entity* &target, float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh) 
 	{
-		return this->raycastFromPoint(point, normal, result,(Ogre::MovableObject*&) target, closest_distance, queryMask);
+		return this->raycastFromPoint(point, normal, result,(Ogre::MovableObject*&) target, closest_distance, queryMask, checkAnimatedMesh);
 	}		
 	//---------------------------------------------------------
-	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::MovableObject* &target, float &closest_distance, const Ogre::uint32 queryMask)
+	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::MovableObject* &target, float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
 		// create the ray to test
 		static Ogre::Ray ray;
 		ray.setOrigin(point);
 		ray.setDirection(normal);
-		return this->raycast(ray, result, target, closest_distance, queryMask);
+		return this->raycast(ray, result, target, closest_distance, queryMask, checkAnimatedMesh);
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::raycast(const Ogre::Ray &ray, Ogre::Vector3 &result,Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask) 
+	bool CollisionTools::raycast(const Ogre::Ray &ray, Ogre::Vector3 &result,Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh) 
 	{
-		return this->raycast(ray, result, (Ogre::MovableObject*&)target, closest_distance, queryMask);
+		return this->raycast(ray, result, (Ogre::MovableObject*&)target, closest_distance, queryMask, checkAnimatedMesh);
 	}
 	//---------------------------------------------------------
-	bool CollisionTools::raycast(const Ogre::Ray &ray, Ogre::Vector3 &result,Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask)
+	bool CollisionTools::raycast(const Ogre::Ray &ray, Ogre::Vector3 &result,Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
 	{
 		OPROFILEFUNC();
 		target = NULL;
@@ -252,11 +252,20 @@ namespace Orkige
 				Ogre::Vector3 *vertices;
 				Ogre::uint32 *indices;
 
-				// get the mesh information
-				MeshUtil::getMeshInformation(pentity->getMesh(), vertex_count, vertices, index_count, indices,
-					pentity->getParentNode()->_getDerivedPosition(),
-					pentity->getParentNode()->_getDerivedOrientation(),
-					pentity->getParentNode()->_getDerivedScale());
+				if (checkAnimatedMesh)
+				{
+					MeshUtil::getMeshInformationWithAnimation(pentity, vertex_count, vertices, index_count, indices,
+						pentity->getParentNode()->_getDerivedPosition(),
+						pentity->getParentNode()->_getDerivedOrientation(),
+						pentity->getParentNode()->_getDerivedScale());
+				}
+				else
+				{
+					MeshUtil::getMeshInformation(pentity->getMesh(), vertex_count, vertices, index_count, indices,
+						 pentity->getParentNode()->_getDerivedPosition(),
+						 pentity->getParentNode()->_getDerivedOrientation(),
+						 pentity->getParentNode()->_getDerivedScale());
+				}
 
 				// test for hitting individual triangles on the mesh
 				bool new_closest_found = false;
@@ -304,6 +313,7 @@ namespace Orkige
 			return (false);
 		}
 	}
+
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------

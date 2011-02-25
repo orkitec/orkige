@@ -64,9 +64,9 @@ namespace Orkige
 		//! destructor
 		~CollisionTools();
 		//! check if there is a entity collision between to points
-		bool collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, const float collisionRadius = 2.5f, const float rayHeightLevel = 0.0f, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, const float collisionRadius = 2.5f, const float rayHeightLevel = 0.0f, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! collidesWithEntity
-		bool collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, Ogre::MovableObject* &target, const float collisionRadius = 2.5f, const float rayHeightLevel = 0.0f, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool collidesWithEntity(const Ogre::Vector3& fromPoint, const Ogre::Vector3& toPoint, Ogre::MovableObject* &target, const float collisionRadius = 2.5f, const float rayHeightLevel = 0.0f, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! set SceneNode on ground
 		void setOnGround(Ogre::SceneNode *n, const bool doTerrainCheck = true, const bool doGridCheck = true, const float gridWidth = 1.0f, Ogre::Real heightAdjust = 0.f, const Ogre::uint32 queryMask = 0xFFFFFFFF);
 		//! get Terrain height at given Position
@@ -74,19 +74,20 @@ namespace Orkige
 		//! @brief scene RayCast using Ogre::Ray
 		//! @return true on hit
 		//! on success the point is returned in the result.
-		bool raycast(const Ogre::Ray &ray, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycast(const Ogre::Ray &ray, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! raycast convenience wrapper with Ogre::Entity to it:
-		bool raycast(const Ogre::Ray &ray, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycast(const Ogre::Ray &ray, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! @brief raycast from a point in to the scene.
 		//! @return true on hit
 		//! on success the point is returned in the result.
-		bool raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! raycastFromPoint convenience wrapper with Ogre::Entity to it:
-		bool raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! raycast from given Ogre::Camera and Ogre::RenderWindow
-		bool raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::MovableObject* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
 		//! raycastFromCamera convenience wrapper with Ogre::Entity to it:
-		bool raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF);
+		bool raycastFromCamera(Ogre::RenderWindow* rw, Ogre::Camera* camera, const Ogre::Vector2 &mousecoords, Ogre::Vector3 &result, Ogre::Entity* &target,float &closest_distance, const Ogre::uint32 queryMask = 0xFFFFFFFF, bool checkAnimatedMesh = true);
+		
 	protected:
 	private:
 	};
