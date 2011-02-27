@@ -7,7 +7,7 @@ filename: 	MemoryManager.cpp
 author:		steffen.roemer
 notice:		This source file is part of orkige (orkitec Game engine)
 For the latest info, see http://www.orkitec.com/
-copyright:	(c) 2009-2010 orkitec
+copyright:	(c) 2009-2011 orkitec
 
 ---------------------------------------------------------------------
 Restrictions & freedoms pertaining to usage and redistribution of this software:
@@ -138,9 +138,9 @@ namespace Orkige
 	//#define	STRESS_TEST
 
 	//---------------------------------------------------------
-	//! Enable this sucker if you want to stress-test your app's error-handling. Set RANDOM_FAIL to the percentage of failures you
+	//! Enable this sucker if you want to stress-test your app's error-handling. Set RANDOFAIL to the percentage of failures you
 	//  want to test with (0 = none, >100 = all failures).
-	//#define	RANDOM_FAILURE 10.0
+	//#define	RANDOFAILURE 10.0
 
 
 	//---------------------------------------------------------
@@ -169,19 +169,19 @@ namespace Orkige
 	//! The BEOS assert added by Arvid Norberg <arvid@iname.com>.
 #ifdef	WIN32
 #ifdef	ORKIGE_DEBUG
-#define	m_assert(x) if ((x) == false) __asm { int 3 }
+#define	MemoryManagerAssert(x) if ((x) == false) __asm { int 3 }
 #else
-#define	m_assert(x) {}
+#define	MemoryManagerAssert(x) {}
 #endif
 #elif defined(__BEOS__)
 #ifdef DEBUG
 	extern void debugger(const char *message);
-#define	m_assert(x) if ((x) == false) debugger("mmgr: assert failed")
+#define	MemoryManagerAssert(x) if ((x) == false) debugger("mmgr: assert failed")
 #else
-#define m_assert(x) {}
+#define MemoryManagerAssert(x) {}
 #endif
 #else	// Linux uses assert, which we can use safely, since it doesn't bring up a dialog within the program.
-#define	m_assert(cond) assert(cond)
+#define	MemoryManagerAssert(cond) assert(cond)
 #endif
 bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
@@ -236,7 +236,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		isInitialized = false;
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_breakOnRealloc(void *reportedAddress)
+	bool	&MemoryManager::breakOnRealloc(void *reportedAddress)
 	{
 		// Locate the existing allocation unit
 
@@ -244,18 +244,18 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, you tried to set a breakpoint on reallocation for an address that doesn't exist. Interrogate the
 		// stack frame or the variable 'au' to see which allocation this is.
-		m_assert(au != NULL);
+		MemoryManagerAssert(au != NULL);
 
 		// If you hit this assert, you tried to set a breakpoint on reallocation for an address that wasn't allocated in a way that
 		// is compatible with reallocation.
-		m_assert(au->allocationType == m_alloc_malloc ||
-			au->allocationType == m_alloc_calloc ||
-			au->allocationType == m_alloc_realloc);
+		MemoryManagerAssert(au->allocationType == alloc_malloc ||
+			au->allocationType == alloc_calloc ||
+			au->allocationType == alloc_realloc);
 
 		return au->breakOnRealloc;
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_breakOnDealloc(void *reportedAddress)
+	bool	&MemoryManager::breakOnDealloc(void *reportedAddress)
 	{
 		// Locate the existing allocation unit
 
@@ -263,12 +263,12 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, you tried to set a breakpoint on deallocation for an address that doesn't exist. Interrogate the
 		// stack frame or the variable 'au' to see which allocation this is.
-		m_assert(au != NULL);
+		MemoryManagerAssert(au != NULL);
 
 		return au->breakOnDealloc;
 	}
 	//---------------------------------------------------------
-	void	MemoryManager::m_setOwner(const char *file, const unsigned int line, const char *func)
+	void	MemoryManager::setOwner(const char *file, const unsigned int line, const char *func)
 	{
 		// You're probably wondering about this...
 		//
@@ -276,29 +276,29 @@ bool Orkige::MemoryManager::isInitialized = false;
 		// no extra parameters.) In order to do this, we use macros that call this function prior to operators new & delete. This
 		// is fine... usually. Here's what actually happens when you use this macro to delete an object:
 		//
-		// m_setOwner(__FILE__, __LINE__, __FUNCTION__) --> object::~object() --> delete
+		// setOwner(__FILE__, __LINE__, __FUNCTION__) --> object::~object() --> delete
 		//
 		// Note that the compiler inserts a call to the object's destructor just prior to calling our overridden operator delete.
 		// But what happens when we delete an object whose destructor deletes another object, whose desctuctor deletes another
 		// object? Here's a diagram (indentation follows stack depth):
 		//
-		// m_setOwner(...) -> ~obj1()                          // original call to delete obj1
-		//     m_setOwner(...) -> ~obj2()                      // obj1's destructor deletes obj2
-		//         m_setOwner(...) -> ~obj3()                  // obj2's destructor deletes obj3
+		// setOwner(...) -> ~obj1()                          // original call to delete obj1
+		//     setOwner(...) -> ~obj2()                      // obj1's destructor deletes obj2
+		//         setOwner(...) -> ~obj3()                  // obj2's destructor deletes obj3
 		//             ...                                     // obj3's destructor just does some stuff
 		//         delete                                      // back in obj2's destructor, we call delete
 		//     delete                                          // back in obj1's destructor, we call delete
 		// delete                                              // back to our original call, we call delete
 		//
-		// Because m_setOwner() just sets up some static variables (below) it's important that each call to m_setOwner() and
-		// successive calls to new/delete alternate. However, in this case, three calls to m_setOwner() happen in succession
+		// Because setOwner() just sets up some static variables (below) it's important that each call to setOwner() and
+		// successive calls to new/delete alternate. However, in this case, three calls to setOwner() happen in succession
 		// followed by three calls to delete in succession (with a few calls to destructors mixed in for fun.) This means that
 		// only the final call to delete (in this chain of events) will have the proper reporting, and the first two in the chain
 		// will not have ANY owner-reporting information. The deletes will still work fine, we just won't know who called us.
 		//
 		// "Then build a stack, my friend!" you might think... but it's a very common thing that people will be working with third-
 		// party libraries (including MFC under Windows) which is not compiled with this memory manager's macros. In those cases,
-		// m_setOwner() is never called, and rightfully should not have the proper trace-back information. So if one of the
+		// setOwner() is never called, and rightfully should not have the proper trace-back information. So if one of the
 		// destructors in the chain ends up being a call to a delete from a non-mmgr-compiled library, the stack will get confused.
 		//
 		// I've been unable to find a solution to this problem, but at least we can detect it and report the data before we
@@ -306,7 +306,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		// information is present...
 		//
 		// There's a caveat here... The compiler is not required to call operator delete if the value being deleted is NULL.
-		// In this case, any call to delete with a NULL will sill call m_setOwner(), which will make m_setOwner() think that
+		// In this case, any call to delete with a NULL will sill call setOwner(), which will make setOwner() think that
 		// there is a destructor chain becuase we setup the variables, but nothing gets called to clear them. Because of this
 		// we report a "Possible destructor chain".
 		//
@@ -346,7 +346,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		{
 			// Try the allocation
 
-			void	*ptr = m_allocator(file, line, func, m_alloc_new, reportedSize);
+			void	*ptr = allocator(file, line, func, alloc_new, reportedSize);
 			if (ptr)
 			{
 #ifdef TEST_MEMORY_MANAGER
@@ -402,7 +402,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		{
 			// Try the allocation
 
-			void	*ptr = m_allocator(file, line, func, m_alloc_new_array, reportedSize);
+			void	*ptr = allocator(file, line, func, alloc_new_array, reportedSize);
 			if (ptr)
 			{
 #ifdef TEST_MEMORY_MANAGER
@@ -452,7 +452,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		{
 			// Try the allocation
 
-			void	*ptr = m_allocator(sourceFile, sourceLine, "??", m_alloc_new, reportedSize);
+			void	*ptr = allocator(sourceFile, sourceLine, "??", alloc_new, reportedSize);
 			if (ptr)
 			{
 #ifdef TEST_MEMORY_MANAGER
@@ -502,7 +502,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		{
 			// Try the allocation
 
-			void	*ptr = m_allocator(sourceFile, sourceLine, "??", m_alloc_new_array, reportedSize);
+			void	*ptr = allocator(sourceFile, sourceLine, "??", alloc_new_array, reportedSize);
 			if (ptr)
 			{
 #ifdef TEST_MEMORY_MANAGER
@@ -544,8 +544,8 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// ANSI says: delete & delete[] allow NULL pointers (they do nothing)
 
-		if (reportedAddress) m_deallocator(sourceFile, sourceLine, sourceFunc, m_alloc_delete, reportedAddress);
-		else if (alwaysLogAll) log("[-] ----- %8s of NULL                      by %s", allocationTypes[m_alloc_delete], ownerString(sourceFile, sourceLine, sourceFunc));
+		if (reportedAddress) deallocator(sourceFile, sourceLine, sourceFunc, alloc_delete, reportedAddress);
+		else if (alwaysLogAll) log("[-] ----- %8s of NULL                      by %s", allocationTypes[alloc_delete], ownerString(sourceFile, sourceLine, sourceFunc));
 
 		// Resetting the globals insures that if at some later time, somebody calls our memory manager from an unknown
 		// source (i.e. they didn't include our H file) then we won't think it was the last allocation.
@@ -565,9 +565,9 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// ANSI says: delete & delete[] allow NULL pointers (they do nothing)
 
-		if (reportedAddress) m_deallocator(sourceFile, sourceLine, sourceFunc, m_alloc_delete_array, reportedAddress);
+		if (reportedAddress) deallocator(sourceFile, sourceLine, sourceFunc, alloc_delete_array, reportedAddress);
 		else if (alwaysLogAll)
-			log("[-] ----- %8s of NULL                      by %s", allocationTypes[m_alloc_delete_array], ownerString(sourceFile, sourceLine, sourceFunc));
+			log("[-] ----- %8s of NULL                      by %s", allocationTypes[alloc_delete_array], ownerString(sourceFile, sourceLine, sourceFunc));
 
 		// Resetting the globals insures that if at some later time, somebody calls our memory manager from an unknown
 		// source (i.e. they didn't include our H file) then we won't think it was the last allocation.
@@ -579,12 +579,12 @@ bool Orkige::MemoryManager::isInitialized = false;
 #endif
 	}
 	//---------------------------------------------------------
-	void	*MemoryManager::m_allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize)
+	void	*MemoryManager::allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize)
 	{
 		try
 		{
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] ENTER: m_allocator()");
+			log("[D] ENTER: allocator()");
 #endif
 
 			// Increase our allocation count
@@ -596,7 +596,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			if (alwaysLogAll) log("[+] %05d %8s of size 0x%08X(%08d) by %s", currentAllocationCount, allocationTypes[allocationType], reportedSize, reportedSize, ownerString(sourceFile, sourceLine, sourceFunc));
 
 			// If you hit this assert, you requested a breakpoint on a specific allocation count
-			m_assert(currentAllocationCount != breakOnAllocationCount);
+			MemoryManagerAssert(currentAllocationCount != breakOnAllocationCount);
 
 			// If necessary, grow the reservoir of unused allocation units
 
@@ -608,7 +608,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 				// If you hit this assert, then the memory manager failed to allocate internal memory for tracking the
 				// allocations
-				m_assert(reservoir != NULL);
+				MemoryManagerAssert(reservoir != NULL);
 
 				// Danger Will Robinson!
 
@@ -625,7 +625,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 				// Add this address to our reservoirBuffer so we can free it later
 
 				MemoryManager::AllocUnit	**temp = (MemoryManager::AllocUnit **) realloc(reservoirBuffer, (reservoirBufferSize + 1) * sizeof(MemoryManager::AllocUnit *));
-				m_assert(temp);
+				MemoryManagerAssert(temp);
 				if (temp)
 				{
 					reservoirBuffer = temp;
@@ -634,7 +634,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			}
 
 			// Logical flow says this should never happen...
-			m_assert(reservoir != NULL);
+			MemoryManagerAssert(reservoir != NULL);
 
 			// Grab a new allocaton unit from the front of the reservoir
 
@@ -645,9 +645,9 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			memset(au, 0, sizeof(MemoryManager::AllocUnit));
 			au->actualSize        = calculateActualSize(reportedSize);
-#ifdef RANDOM_FAILURE
+#ifdef RANDOFAILURE
 			double	a = rand();
-			double	b = RAND_MAX / 100.0 * RANDOM_FAILURE;
+			double	b = RAND_MAX / 100.0 * RANDOFAILURE;
 			if (a > b)
 			{
 				au->actualAddress = malloc(au->actualSize);
@@ -675,10 +675,10 @@ bool Orkige::MemoryManager::isInitialized = false;
 				strcpy (au->sourceFunc, "??");
 
 			// We don't want to assert with random failures, because we want the application to deal with them.
-#ifndef RANDOM_FAILURE
+#ifndef RANDOFAILURE
 			// If you hit this assert, then the requested allocation simply failed (you're out of memory.) Interrogate the
 			// variable 'au' or the stack frame to see what you were trying to do.
-			m_assert(au->actualAddress != NULL);
+			MemoryManagerAssert(au->actualAddress != NULL);
 #endif
 
 			if (au->actualAddress == NULL)
@@ -688,7 +688,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			// If you hit this assert, then this allocation was made from a source that isn't setup to use this memory tracking
 			// software, use the stack frame to locate the source and include our H file.
-			m_assert(allocationType != m_alloc_unknown);
+			MemoryManagerAssert(allocationType != alloc_unknown);
 
 			// Insert the new allocation into the hash table
 
@@ -716,14 +716,14 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			// calloc() expects the reported memory address range to be filled with 0's
 
-			if (allocationType == m_alloc_calloc)
+			if (allocationType == alloc_calloc)
 			{
 				memset(au->reportedAddress, 0, au->reportedSize);
 			}
 
 			// Validate every single allocated unit in memory
 
-			if (alwaysValidateAll) m_validateAllAllocUnits();
+			if (alwaysValidateAll) validateAllAllocUnits();
 
 			// Log the result
 
@@ -737,7 +737,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			// Return the (reported) address of the new allocation unit
 
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] EXIT : m_allocator()");
+			log("[D] EXIT : allocator()");
 #endif
 
 			return au->reportedAddress;
@@ -750,26 +750,26 @@ bool Orkige::MemoryManager::isInitialized = false;
 			resetGlobals();
 
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] EXIT : m_allocator()");
+			log("[D] EXIT : allocator()");
 #endif
 
 			return NULL;
 		}
 	}
 	//---------------------------------------------------------
-	void	*MemoryManager::m_reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress)
+	void	*MemoryManager::reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress)
 	{
 		try
 		{
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] ENTER: m_reallocator()");
+			log("[D] ENTER: reallocator()");
 #endif
 
 			// Calling realloc with a NULL should force same operations as a malloc
 
 			if (!reportedAddress)
 			{
-				return m_allocator(sourceFile, sourceLine, sourceFunc, reallocationType, reportedSize);
+				return allocator(sourceFile, sourceLine, sourceFunc, reallocationType, reportedSize);
 			}
 
 			// Increase our allocation count
@@ -777,7 +777,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			currentAllocationCount++;
 
 			// If you hit this assert, you requested a breakpoint on a specific allocation count
-			m_assert(currentAllocationCount != breakOnAllocationCount);
+			MemoryManagerAssert(currentAllocationCount != breakOnAllocationCount);
 
 			// Log the request
 
@@ -788,27 +788,27 @@ bool Orkige::MemoryManager::isInitialized = false;
 			MemoryManager::AllocUnit	*au = findAllocUnit(reportedAddress);
 
 			// If you hit this assert, you tried to reallocate RAM that wasn't allocated by this memory manager.
-			m_assert(au != NULL);
+			MemoryManagerAssert(au != NULL);
 			if (au == NULL) throw "Request to reallocate RAM that was never allocated";
 
 			// If you hit this assert, then the allocation unit that is about to be reallocated is damaged. But you probably
 			// already know that from a previous assert you should have seen in validateAllocUnit() :)
-			m_assert(m_validateAllocUnit(au));
+			MemoryManagerAssert(validateAllocUnit(au));
 
 			// If you hit this assert, then this reallocation was made from a source that isn't setup to use this memory
 			// tracking software, use the stack frame to locate the source and include our H file.
-			m_assert(reallocationType != m_alloc_unknown);
+			MemoryManagerAssert(reallocationType != alloc_unknown);
 
 			// If you hit this assert, you were trying to reallocate RAM that was not allocated in a way that is compatible with
 			// realloc. In other words, you have a allocation/reallocation mismatch.
-			m_assert(au->allocationType == m_alloc_malloc ||
-				au->allocationType == m_alloc_calloc ||
-				au->allocationType == m_alloc_realloc);
+			MemoryManagerAssert(au->allocationType == alloc_malloc ||
+				au->allocationType == alloc_calloc ||
+				au->allocationType == alloc_realloc);
 
 			// If you hit this assert, then the "break on realloc" flag for this allocation unit is set (and will continue to be
 			// set until you specifically shut it off. Interrogate the 'au' variable to determine information about this
 			// allocation unit.
-			m_assert(au->breakOnRealloc == false);
+			MemoryManagerAssert(au->breakOnRealloc == false);
 
 			// Keep track of the original size
 
@@ -821,9 +821,9 @@ bool Orkige::MemoryManager::isInitialized = false;
 			void	*oldReportedAddress = reportedAddress;
 			size_t	newActualSize = calculateActualSize(reportedSize);
 			void	*newActualAddress = NULL;
-#ifdef RANDOM_FAILURE
+#ifdef RANDOFAILURE
 			double	a = rand();
-			double	b = RAND_MAX / 100.0 * RANDOM_FAILURE;
+			double	b = RAND_MAX / 100.0 * RANDOFAILURE;
 			if (a > b)
 			{
 				newActualAddress = realloc(au->actualAddress, newActualSize);
@@ -838,11 +838,11 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			// We don't want to assert with random failures, because we want the application to deal with them.
 
-#ifndef RANDOM_FAILURE
+#ifndef RANDOFAILURE
 			// If you hit this assert, then the requested allocation simply failed (you're out of memory) Interrogate the
 			// variable 'au' to see the original allocation. You can also query 'newActualSize' to see the amount of memory
 			// trying to be allocated. Finally, you can query 'reportedSize' to see how much memory was requested by the caller.
-			m_assert(newActualAddress);
+			MemoryManagerAssert(newActualAddress);
 #endif
 
 			if (!newActualAddress) throw "Request for reallocation failed. Out of memory.";
@@ -914,11 +914,11 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			// If you hit this assert, then something went wrong, because the allocation unit was properly validated PRIOR to
 			// the reallocation. This should not happen.
-			m_assert(m_validateAllocUnit(au));
+			MemoryManagerAssert(validateAllocUnit(au));
 
 			// Validate every single allocated unit in memory
 
-			if (alwaysValidateAll) m_validateAllAllocUnits();
+			if (alwaysValidateAll) validateAllAllocUnits();
 
 			// Log the result
 
@@ -932,7 +932,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			// Return the (reported) address of the new allocation unit
 
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] EXIT : m_reallocator()");
+			log("[D] EXIT : reallocator()");
 #endif
 
 			return au->reportedAddress;
@@ -945,19 +945,19 @@ bool Orkige::MemoryManager::isInitialized = false;
 			resetGlobals();
 
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] EXIT : m_reallocator()");
+			log("[D] EXIT : reallocator()");
 #endif
 
 			return NULL;
 		}
 	}
 	//---------------------------------------------------------
-	void	MemoryManager::m_deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress)
+	void	MemoryManager::deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress)
 	{
 		try
 		{
 #ifdef TEST_MEMORY_MANAGER
-			log("[D] ENTER: m_deallocator()");
+			log("[D] ENTER: deallocator()");
 #endif
 
 			// Log the request
@@ -975,29 +975,29 @@ bool Orkige::MemoryManager::isInitialized = false;
 				MemoryManager::AllocUnit	*au = findAllocUnit(reportedAddress);
 
 				// If you hit this assert, you tried to deallocate RAM that wasn't allocated by this memory manager.
-				m_assert(au != NULL);
+				MemoryManagerAssert(au != NULL);
 				if (au == NULL) throw "Request to deallocate RAM that was never allocated";
 
 				// If you hit this assert, then the allocation unit that is about to be deallocated is damaged. But you probably
 				// already know that from a previous assert you should have seen in validateAllocUnit() :)
-				m_assert(m_validateAllocUnit(au));
+				MemoryManagerAssert(validateAllocUnit(au));
 
 				// If you hit this assert, then this deallocation was made from a source that isn't setup to use this memory
 				// tracking software, use the stack frame to locate the source and include our H file.
-				m_assert(deallocationType != m_alloc_unknown);
+				MemoryManagerAssert(deallocationType != alloc_unknown);
 
 				// If you hit this assert, you were trying to deallocate RAM that was not allocated in a way that is compatible with
 				// the deallocation method requested. In other words, you have a allocation/deallocation mismatch.
-				m_assert((deallocationType == m_alloc_delete       && au->allocationType == m_alloc_new      ) ||
-					(deallocationType == m_alloc_delete_array && au->allocationType == m_alloc_new_array) ||
-					(deallocationType == m_alloc_free         && au->allocationType == m_alloc_malloc   ) ||
-					(deallocationType == m_alloc_free         && au->allocationType == m_alloc_calloc   ) ||
-					(deallocationType == m_alloc_free         && au->allocationType == m_alloc_realloc  ) ||
-					(deallocationType == m_alloc_unknown                                                ) );
+				MemoryManagerAssert((deallocationType == alloc_delete       && au->allocationType == alloc_new      ) ||
+					(deallocationType == alloc_delete_array && au->allocationType == alloc_new_array) ||
+					(deallocationType == alloc_free         && au->allocationType == alloc_malloc   ) ||
+					(deallocationType == alloc_free         && au->allocationType == alloc_calloc   ) ||
+					(deallocationType == alloc_free         && au->allocationType == alloc_realloc  ) ||
+					(deallocationType == alloc_unknown                                                ) );
 
 				// If you hit this assert, then the "break on dealloc" flag for this allocation unit is set. Interrogate the 'au'
 				// variable to determine information about this allocation unit.
-				m_assert(au->breakOnDealloc == false);
+				MemoryManagerAssert(au->breakOnDealloc == false);
 
 				// Wipe the deallocated RAM with a new pattern. This doen't actually do us much good in debug mode under WIN32,
 				// because Microsoft's memory debugging & tracking utilities will wipe it right after we do. Oh well.
@@ -1041,7 +1041,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 			// Validate every single allocated unit in memory
 
-			if (alwaysValidateAll) m_validateAllAllocUnits();
+			if (alwaysValidateAll) validateAllAllocUnits();
 
 			// If we're in the midst of static deinitialization time, track any pending memory leaks
 
@@ -1056,18 +1056,18 @@ bool Orkige::MemoryManager::isInitialized = false;
 		}
 
 #ifdef TEST_MEMORY_MANAGER
-		log("[D] EXIT : m_deallocator()");
+		log("[D] EXIT : deallocator()");
 #endif
 	}
 	//---------------------------------------------------------
-	bool	MemoryManager::m_validateAddress(const void *reportedAddress)
+	bool	MemoryManager::validateAddress(const void *reportedAddress)
 	{
 		// Just see if the address exists in our allocation routines
 
 		return findAllocUnit(reportedAddress) != NULL;
 	}
 	//---------------------------------------------------------
-	bool	MemoryManager::m_validateAllocUnit(const MemoryManager::AllocUnit *allocUnit)
+	bool	MemoryManager::validateAllocUnit(const MemoryManager::AllocUnit *allocUnit)
 	{
 		// Make sure the padding is untouched
 
@@ -1079,26 +1079,26 @@ bool Orkige::MemoryManager::isInitialized = false;
 			if (*pre != (long) prefixPattern)
 			{
 				log("[!] A memory allocation unit was corrupt because of an underrun:");
-				m_dumpAllocUnit(allocUnit, "  ");
+				dumpAllocUnit(allocUnit, "  ");
 				errorFlag = true;
 			}
 
 			// If you hit this assert, then you should know that this allocation unit has been damaged. Something (possibly the
 			// owner?) has underrun the allocation unit (modified a few bytes prior to the start). You can interrogate the
 			// variable 'allocUnit' to see statistics and information about this damaged allocation unit.
-			m_assert(*pre == static_cast<long>(prefixPattern));
+			MemoryManagerAssert(*pre == static_cast<long>(prefixPattern));
 
 			if (*post != static_cast<long>(postfixPattern))
 			{
 				log("[!] A memory allocation unit was corrupt because of an overrun:");
-				m_dumpAllocUnit(allocUnit, "  ");
+				dumpAllocUnit(allocUnit, "  ");
 				errorFlag = true;
 			}
 
 			// If you hit this assert, then you should know that this allocation unit has been damaged. Something (possibly the
 			// owner?) has overrun the allocation unit (modified a few bytes after the end). You can interrogate the variable
 			// 'allocUnit' to see statistics and information about this damaged allocation unit.
-			m_assert(*post == static_cast<long>(postfixPattern));
+			MemoryManagerAssert(*post == static_cast<long>(postfixPattern));
 		}
 
 		// Return the error status (we invert it, because a return of 'false' means error)
@@ -1106,7 +1106,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		return !errorFlag;
 	}
 	//---------------------------------------------------------
-	bool	MemoryManager::m_validateAllAllocUnits()
+	bool	MemoryManager::validateAllAllocUnits()
 	{
 		// Just go through each allocation unit in the hash table and count the ones that have errors
 
@@ -1118,7 +1118,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			while(ptr)
 			{
 				allocCount++;
-				if (!m_validateAllocUnit(ptr)) errors++;
+				if (!validateAllocUnit(ptr)) errors++;
 				ptr = ptr->next;
 			}
 		}
@@ -1136,11 +1136,11 @@ bool Orkige::MemoryManager::isInitialized = false;
 		// offending code. After running the application with these settings (and hitting this assert again), interrogate the
 		// memory.log file to find the previous successful operation. The corruption will have occurred between that point and this
 		// assertion.
-		m_assert(allocCount == stats.totalAllocUnitCount);
+		MemoryManagerAssert(allocCount == stats.totalAllocUnitCount);
 
 		// If you hit this assert, then you've probably already been notified that there was a problem with a allocation unit in a
 		// prior call to validateAllocUnit(), but this assert is here just to make sure you know about it. :)
-		m_assert(errors == 0);
+		MemoryManagerAssert(errors == 0);
 
 		// Log any errors
 
@@ -1151,7 +1151,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		return errors != 0;
 	}
 	//---------------------------------------------------------
-	unsigned int	MemoryManager::m_calcUnused(const MemoryManager::AllocUnit *allocUnit)
+	unsigned int	MemoryManager::calcUnused(const MemoryManager::AllocUnit *allocUnit)
 	{
 		const unsigned long	*ptr = reinterpret_cast<const unsigned long *>(allocUnit->reportedAddress);
 		unsigned int		count = 0;
@@ -1164,7 +1164,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		return count;
 	}
 	//---------------------------------------------------------
-	unsigned int	MemoryManager::m_calcAllUnused()
+	unsigned int	MemoryManager::calcAllUnused()
 	{
 		// Just go through each allocation unit in the hash table and count the unused RAM
 
@@ -1174,7 +1174,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 			MemoryManager::AllocUnit	*ptr = hashTable[i];
 			while(ptr)
 			{
-				total += m_calcUnused(ptr);
+				total += calcUnused(ptr);
 				ptr = ptr->next;
 			}
 		}
@@ -1182,7 +1182,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		return total;
 	}
 	//---------------------------------------------------------
-	void	MemoryManager::m_dumpAllocUnit(const MemoryManager::AllocUnit *allocUnit, const char *prefix)
+	void	MemoryManager::dumpAllocUnit(const MemoryManager::AllocUnit *allocUnit, const char *prefix)
 	{
 		log("[I] %sAddress (reported): %010p",       prefix, allocUnit->reportedAddress);
 		log("[I] %sAddress (actual)  : %010p",       prefix, allocUnit->actualAddress);
@@ -1193,7 +1193,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		log("[I] %sAllocation number : %d",          prefix, allocUnit->allocationNumber);
 	}
 	//---------------------------------------------------------
-	void	MemoryManager::m_dumpMemoryReport(const char *filename, const bool overwrite)
+	void	MemoryManager::dumpMemoryReport(const char *filename, const bool overwrite)
 	{
 		// Open the report file
 
@@ -1204,7 +1204,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, then the memory report generator is unable to log information to a file (can't open the file for
 		// some reason.)
-		m_assert(fp);
+		MemoryManagerAssert(fp);
 		if (!fp) return;
 
 		// Header
@@ -1250,7 +1250,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		fprintf(fp, " ---------------------------------------------------------------------------------------------------------------------------------- \r\n");
 		fprintf(fp, "|                                                           U N U S E D                                                            |\r\n");
 		fprintf(fp, " ---------------------------------------------------------------------------------------------------------------------------------- \r\n");
-		fprintf(fp, "    Memory allocated but not in use: %s\r\n", memorySizeString(m_calcAllUnused()));
+		fprintf(fp, "    Memory allocated but not in use: %s\r\n", memorySizeString(calcAllUnused()));
 		fprintf(fp, "\r\n");
 
 		dumpAllocations(fp);
@@ -1258,7 +1258,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		fclose(fp);
 	}
 	//---------------------------------------------------------
-	MemoryManager::MemStats	MemoryManager::m_getMemoryStatistics()
+	MemoryManager::MemStats	MemoryManager::getMemoryStatistics()
 	{
 		return stats;
 	}
@@ -1292,7 +1292,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 						ptr->allocationNumber,
 						reinterpret_cast<unsigned int>(ptr->reportedAddress), ptr->reportedSize,
 						reinterpret_cast<unsigned int>(ptr->actualAddress), ptr->actualSize,
-						m_calcUnused(ptr),
+						calcUnused(ptr),
 						allocationTypes[ptr->allocationType],
 						ptr->breakOnDealloc ? 'Y':'N',
 						ptr->breakOnRealloc ? 'Y':'N',
@@ -1312,7 +1312,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, then the memory report generator is unable to log information to a file (can't open the file for
 		// some reason.)
-		m_assert(fp);
+		MemoryManagerAssert(fp);
 		if (!fp) return;
 
 		// Any leaks?
@@ -1417,7 +1417,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, then the memory logger is unable to log information to a file (can't open the file for some
 		// reason.) You can interrogate the variable 'buffer' to see what was supposed to be logged (but won't be.)
-		m_assert(fp);
+		MemoryManagerAssert(fp);
 
 		if (!fp) return;
 
@@ -1524,7 +1524,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	MemoryManager::AllocUnit	*MemoryManager::findAllocUnit(const void *reportedAddress)
 	{
 		// Just in case...
-		m_assert(reportedAddress != NULL);
+		MemoryManagerAssert(reportedAddress != NULL);
 
 		// Use the address to locate the hash index. Note that we shift off the lower four bits. This is because most allocated
 		// addresses will be on four-, eight- or even sixteen-byte boundaries. If we didn't do this, the hash index would not have
@@ -1624,27 +1624,27 @@ bool Orkige::MemoryManager::isInitialized = false;
 		}
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_alwaysValidateAll()
+	bool	&MemoryManager::setGetAlwaysValidateAll()
 	{
 		return alwaysValidateAll;
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_alwaysLogAll()
+	bool	&MemoryManager::setGetAlwaysLogAll()
 	{
 		return alwaysLogAll;
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_alwaysWipeAll()
+	bool	&MemoryManager::setGetAlwaysWipeAll()
 	{
 		return alwaysWipeAll;
 	}
 	//---------------------------------------------------------
-	bool	&MemoryManager::m_randomeWipe()
+	bool	&MemoryManager::setGetRandomeWipe()
 	{
 		return randomWipe;
 	}
 	//---------------------------------------------------------
-	void	MemoryManager::m_breakOnAllocation(unsigned int count)
+	void	MemoryManager::setBreakOnAllocation(unsigned int count)
 	{
 		breakOnAllocationCount = count;
 	}

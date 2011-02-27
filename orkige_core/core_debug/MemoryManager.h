@@ -4,7 +4,7 @@ filename: 	MemoryManager.h
 author:		steffen.roemer
 notice:		This source file is part of orkige (orkitec Game engine)
 			For the latest info, see http://www.orkitec.com/
-copyright:	(c) 2009-2010 orkitec
+copyright:	(c) 2009-2011 orkitec
 
 ---------------------------------------------------------------------
 Restrictions & freedoms pertaining to usage and redistribution of this software:
@@ -142,15 +142,15 @@ namespace Orkige
 		//! Defaults for the constants & statics in the MemoryManager class
 		enum
 		{
-			m_alloc_unknown        = 0,
-			m_alloc_new            = 1,
-			m_alloc_new_array      = 2,
-			m_alloc_malloc         = 3,
-			m_alloc_calloc         = 4,
-			m_alloc_realloc        = 5,
-			m_alloc_delete         = 6,
-			m_alloc_delete_array   = 7,
-			m_alloc_free           = 8
+			alloc_unknown        = 0,
+			alloc_new            = 1,
+			alloc_new_array      = 2,
+			alloc_malloc         = 3,
+			alloc_calloc         = 4,
+			alloc_realloc        = 5,
+			alloc_delete         = 6,
+			alloc_delete_array   = 7,
+			alloc_free           = 8
 		};
 	protected:
 	private:
@@ -184,44 +184,54 @@ namespace Orkige
 		void operator_delete_a(void *reportedAddress);
 
 		//! Used by the macros
-		void m_setOwner(const char *file, const unsigned int line, const char *func);
+		void setOwner(const char *file, const unsigned int line, const char *func);
 
 		// Allocation breakpoints
 		
 		//! Simply call this routine with the address of an allocated block of RAM, to cause it to force a breakpoint when it is reallocated.
-		bool &m_breakOnRealloc(void *reportedAddress);
+		bool &breakOnRealloc(void *reportedAddress);
 		//! Simply call this routine with the address of an allocated block of RAM, to cause it to force a breakpoint when it is deallocated.
-		bool &m_breakOnDealloc(void *reportedAddress);
+		bool &breakOnDealloc(void *reportedAddress);
 
 		// The meat of the memory tracking software
 		
 		//! Allocate memory and track it
-		void *m_allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize);
+		void *allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize);
 		//! Reallocate memory and track it
-		void *m_reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress);
+		void *reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress);
 		//! Deallocate memory and track it
-		void m_deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress);
+		void deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress);
 
 		// The following utilitarian allow you to become proactive in tracking your own memory, or help you narrow in on those tough bugs.
 		//! validate given memory adress
-		bool m_validateAddress(const void *reportedAddress);
+		bool validateAddress(const void *reportedAddress);
 		//! validate given AllocUnit
-		bool m_validateAllocUnit(const AllocUnit *allocUnit);
+		bool validateAllocUnit(const AllocUnit *allocUnit);
 		//! validate all AlllocUnit's
-		bool m_validateAllAllocUnits();
+		bool validateAllAllocUnits();
 
 		//! Unused RAM calculation routines. Use these to determine how much of your RAM is unused (in bytes)
-		unsigned int m_calcUnused(const AllocUnit *allocUnit);
-		//! @see MemoryManager::m_calcUnused
-		unsigned int m_calcAllUnused();
+		unsigned int calcUnused(const AllocUnit *allocUnit);
+		//! @see MemoryManager::calcUnused
+		unsigned int calcAllUnused();
 
 		// The following functions are for logging and statistics reporting.
 		//! dump AllocUnit to log
-		void m_dumpAllocUnit(const AllocUnit *allocUnit, const char *prefix = "");
+		void dumpAllocUnit(const AllocUnit *allocUnit, const char *prefix = "");
 		//! write memory report
-		void m_dumpMemoryReport(const char *filename = "memreport.log", const bool overwrite = true);
+		void dumpMemoryReport(const char *filename = "memreport.log", const bool overwrite = true);
 		//! get the memory statistics
-		MemStats m_getMemoryStatistics();
+		MemStats getMemoryStatistics();
+		//! Force a validation of all allocation units each time we enter this software
+		bool	&setGetAlwaysValidateAll();
+		//! Force a log of every allocation & deallocation into memory.log
+		bool	&setGetAlwaysLogAll();
+		//! Force this software to always wipe memory with a pattern when it is being allocated/dallocated
+		bool	&setGetAlwaysWipeAll();
+		//! Force this software to use a random pattern when wiping memory -- good for stress testing
+		bool	&setGetRandomeWipe();
+		//! When tracking down a difficult bug, use this routine to force a breakpoint on a specific allocation count
+		void	setBreakOnAllocation(unsigned int count);
 	protected:
 	private:
 		void dumpAllocations(FILE *fp);
@@ -238,18 +248,7 @@ namespace Orkige
 		void	*calculateReportedAddress(const void *actualAddress);
 		void	wipeWithPattern(AllocUnit *allocUnit, unsigned long pattern, const unsigned int originalReportedSize = 0);
 
-		//! Flags & options -- Call these routines to enable/disable the following options
-		
-		//! Force a validation of all allocation units each time we enter this software
-		bool	&m_alwaysValidateAll();
-		//! Force a log of every allocation & deallocation into memory.log
-		bool	&m_alwaysLogAll();
-		//! Force this software to always wipe memory with a pattern when it is being allocated/dallocated
-		bool	&m_alwaysWipeAll();
-		//! Force this software to use a random pattern when wiping memory -- good for stress testing
-		bool	&m_randomeWipe();
-		//! When tracking down a difficult bug, use this routine to force a breakpoint on a specific allocation count
-		void	m_breakOnAllocation(unsigned int count);
+
 		void	resetGlobals();
 	};
 	/** @} End of "addtogroup Debug"*/
