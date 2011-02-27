@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 
 	based on the work by William E. Kempf. on http://www.codeproject.com/debug/debug_macros.asp
 	

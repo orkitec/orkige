@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 
 #include "engine_input/InputManager.h"
@@ -172,10 +172,10 @@ namespace Orkige
 			
 			int h = width;
 			int w = height;
-			int absX = data->absX*contentScalingFactor;
-			int absY = data->absY*contentScalingFactor;
-			int relX = data->relX*contentScalingFactor;
-			int relY = data->relY*contentScalingFactor;
+			int absX = int(data->absX*contentScalingFactor);
+			int absY = int(data->absY*contentScalingFactor);
+			int relX = int(data->relX*contentScalingFactor);
+			int relY = int(data->relY*contentScalingFactor);
 
 			//oDebugMsg("core", 0, "Input: x:" << absX <<  " y:" << absY);
 			switch (Engine::getSingleton().getViewort()->getOrientationMode())

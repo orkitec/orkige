@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __ComponentHolder_h__19_8_2010__23_00_22__
 #define __ComponentHolder_h__19_8_2010__23_00_22__
@@ -24,7 +24,7 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		typedef BaseComponentType OwnedComponentType;						//!< definition of the owned Component Type
-		typedef std::map<TypeInfo, optr<BaseComponentType> > ComponentMap;	//!< map of Component's and their Types
+		typedef std::map<TypeInfo, optr<BaseComponentType> > ComponentMap;	//!< map of Components and their Types
 		typedef typename BaseComponentType::Factory OwnedComponentFactory;	//!< factory to create Components
 		typedef std::map<TypeInfo, TypeInfoList> TypeInfoListMap;			//!< maps list of TypeInfos to a TypeInfo for registering dependecies
 	protected:

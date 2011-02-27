@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __EventManager_h__26_7_2010__13_42_12__
 #define __EventManager_h__26_7_2010__13_42_12__
@@ -16,7 +16,7 @@
 
 namespace Orkige
 {
-	//! vector with EventEventListener's
+	//! vector with EventEventListeners
 	typedef std::vector< optr<EventListener> >		EventListenerList;
 	//! vector with EventType definitions
 	typedef std::vector<EventType>				EventTypeList;

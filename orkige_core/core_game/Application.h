@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec	
+	copyright:	(c) 2009-2011 orkitec	
 *********************************************************************/
 #ifndef __Application_h__18_7_2009__0_14_46__
 #define __Application_h__18_7_2009__0_14_46__

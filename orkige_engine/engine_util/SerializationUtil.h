@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __SerializationUtil_h__31_8_2010__0_43_47__
 #define __SerializationUtil_h__31_8_2010__0_43_47__

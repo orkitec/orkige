@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef __MouseEventData_h__30_8_2010__14_01_58__
 #define __MouseEventData_h__30_8_2010__14_01_58__

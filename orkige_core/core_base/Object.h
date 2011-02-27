@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef __Object_h__9_8_2010__18_40_46__
 #define __Object_h__9_8_2010__18_40_46__
@@ -17,11 +17,11 @@ namespace Orkige
 {
 	class Object;
 
-	//! AttributeHolder holds Object's mapped to String's
+	//! AttributeHolder holds Objects mapped to Strings
 	typedef AttributeHolder<String, Object> ObjectAttributeHolder;
 	//! maps a string to a Object optr
 	typedef std::pair<String,optr<Object> > ObjectPair;
-	//! map of Object's with String id's
+	//! map of Objects with String ids
 	typedef std::map<String,optr<Object> > ObjectMap;
 	
 	//! @brief	base Object

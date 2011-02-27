@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec	
+	copyright:	(c) 2009-2011 orkitec	
 *********************************************************************/
 #ifndef __FastGuiTextbox_h__1_11_2010__13_44_54__
 #define __FastGuiTextbox_h__1_11_2010__13_44_54__

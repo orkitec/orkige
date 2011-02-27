@@ -4,7 +4,7 @@ filename:   FastGuiCheckBox.h
 author:     hicham.allaoui  
 notice:		This source file is part of orkige (orkitec Game engine)
 			For the latest info, see http://www.orkitec.com/
-copyright:	(c) 2009-2010 orkitec
+copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef __FASTGUICHECKBOX__h__2_11_2010__17_50_02__
 #define __FASTGUICHECKBOX__h__2_11_2010__17_50_02__

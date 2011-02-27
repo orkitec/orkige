@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef __CheckBox_h__4_8_2010__15_05_28__
 #define __CheckBox_h__4_8_2010__15_05_28__

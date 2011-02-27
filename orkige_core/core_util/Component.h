@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __Component_h__19_8_2010__22_54_36__
 #define __Component_h__19_8_2010__22_54_36__
@@ -31,28 +31,28 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		OwnerType* owner;					//!< pointer to the owner of this component
+		OwnerType* owner;													//!< pointer to the owner of this component
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
-		explicit Component()								{	this->owner = NULL;		}
+		explicit Component() : owner(NULL)								{							}
 		//! destructor
-		virtual ~Component(){};
+		virtual ~Component()											{							};
 		//! only for internal use! called by the owner on attachment
-		inline void setComponentOwner(OwnerType* _owner)	{	this->owner = _owner;	}
+		inline void setComponentOwner(OwnerType* _owner)				{	this->owner = _owner;	}
 		//! get the owner of this component
-		inline OwnerType* getComponentOwner()				{	return this->owner;		}
+		inline OwnerType* getComponentOwner()							{	return this->owner;		}
 		//! get list of component names this component depends on
 		inline TypeInfoList const & getDependencies();
 
 		//! called when another component is added to the owner
-		virtual void onComponentAdded(TypeInfo const & componentType){};
+		virtual void onComponentAdded(TypeInfo const & componentType)	{							};
 		//! called when another component is removed from the owner
-		virtual void onComponentRemoved(TypeInfo const & componentType){};
+		virtual void onComponentRemoved(TypeInfo const & componentType)	{							};
 		//! called when this component is added
-		virtual void onAdd(){};
+		virtual void onAdd()											{							};
 		//! called when this component is removed
-		virtual void onRemove(){};
+		virtual void onRemove()											{							};
 	protected:
 		//! add a dependency to the dependency list
 		inline void addDependency(TypeInfo const & componentType);

@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 	
 	purpose:	
 *********************************************************************/
@@ -214,8 +214,8 @@ namespace Orkige
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< "  mb" << std::endl;
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
-			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().m_getMemoryStatistics().totalActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
-			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().m_getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().totalActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
 #endif
 #endif
 

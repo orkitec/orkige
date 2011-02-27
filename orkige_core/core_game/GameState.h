@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __GameState_h__15_8_2010__15_51_24__
 #define __GameState_h__15_8_2010__15_51_24__
@@ -24,13 +24,13 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 	protected:
-		typedef std::vector<optr<EventListener> >			EventListenerVector; //!< vector with pointers to EventListener's
-		typedef std::map<EventType, EventListenerVector >	EventTypeListenerMap;//!< maps EventType's to EventListenerVector's
+		typedef std::vector<optr<EventListener> >			EventListenerVector; //!< vector with pointers to EventListeners
+		typedef std::map<EventType, EventListenerVector >	EventTypeListenerMap;//!< maps EventTypes to EventListenerVectors
 	private:
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		EventTypeListenerMap listeners;					//!< added EventListener's
+		EventTypeListenerMap listeners;					//!< added EventListeners
 		String transitionState;							//!< if set GameStateManager goes to this GameState on next update cycle
 	private:
 		//--- Methods -----------------------------------------
@@ -56,11 +56,11 @@ namespace Orkige
 		void registerEvent(EventType const & eventType, F const & handlerFunction, T * const handlerClass);
 		//! @brief add a EventListener for given EventType
 		void addListener(optr<EventListener> inListener,EventType const & eventType);
-		//! @brief enable all added EventListener's
+		//! @brief enable all added EventListeners
 		void enableListeners();
-		//! @brief disable all added EventListener's
+		//! @brief disable all added EventListeners
 		void disableListeners();
-		//! @brief delete all added EventListener's
+		//! @brief delete all added EventListeners
 		void deleteListeners();
 		//! @brief delete given EventListener
 		void delListener(optr<EventListener>);

@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef __GameStateManager_h__16_8_2010__16_52_47__
 #define __GameStateManager_h__16_8_2010__16_52_47__
@@ -18,7 +18,7 @@ namespace Orkige
 	typedef std::map<String,optr<GameState> > StateRegistryMap;
 	//! pair with String key and GameState pointer
 	typedef std::pair<String,optr<GameState> > StateRegistryPair;
-	//! manages GameState's in Hierarchical StateMachine
+	//! manages GameStates in Hierarchical StateMachine
 	class ORKIGE_DLL GameStateManager : public Singleton<GameStateManager> , public Object
 	{
 		OOBJECT(GameStateManager,Object);
@@ -69,7 +69,7 @@ namespace Orkige
 		inline String const & getPreviousStateID();
 		//! get / seperated string of active GameState Stack
 		String getStatePathString();
-		//! delete given EventListener from all GameState's
+		//! delete given EventListener from all GameStates
 		void delListener(optr<EventListener> listener);
 		//! remove all listeners from state with given id
 		void resetState(String  const & id);

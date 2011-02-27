@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2010 orkitec
+	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #ifndef __PythonFunction_hpp__12_9_2010__0_13_01__
 #define __PythonFunction_hpp__12_9_2010__0_13_01__
@@ -119,7 +119,7 @@ namespace Orkige
 		{
 			static void* convertible( PyObject* obj )
 			{
-				// Is there anyway to test for the callable object's arity? Otherwise, I
+				// Is there anyway to test for the callable objects arity? Otherwise, I
 				// don't see what else we can check here.
 				return PyCallable_Check( obj ) ? obj : 0 ;
 			}
