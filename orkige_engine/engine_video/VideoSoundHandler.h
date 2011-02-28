@@ -25,25 +25,27 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		int mMaxBuffSize;
-		int mBuffSize;
-		short *mTempBuffer;
-		float mTimeOffset;
+		int maxBuffSize;
+		int buffSize;
+		short *tempBuffer;
+		float timeOffset;
 
 		struct OpenAL_Buffer
 		{
 			ALuint id;
-			int nSamples;
-		}mBuffers[1000];
-		std::queue<OpenAL_Buffer> mBufferQueue;
+			int samples;
+		} buffers[1000];
 
-		ALuint mSource;
-		int mNumProcessedSamples,mNumPlayedSamples;
+		std::queue<OpenAL_Buffer> bufferQueue;
+
+		ALuint source;
+		int numProcessedSamples;
+		int numPlayedSamples;
 		//--- Methods -----------------------------------------------
 	public:
-		VideoSoundHandler(TheoraVideoClip* owner,int nChannels,int freq);
+		VideoSoundHandler(TheoraVideoClip* owner, int channels, int freq);
 		virtual ~VideoSoundHandler();
-		void insertData(float** data,int nSamples);
+		void insertData(float** data, int samples);
 		void destroy();
 
 		void update(float time_increase);

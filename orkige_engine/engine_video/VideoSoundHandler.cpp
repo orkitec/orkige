@@ -20,23 +20,23 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	VideoSoundHandler::VideoSoundHandler(TheoraVideoClip* owner,int nChannels,int freq) : TheoraAudioInterface(owner,nChannels,freq)
+	VideoSoundHandler::VideoSoundHandler(TheoraVideoClip* owner, int channels, int freq) : TheoraAudioInterface(owner, channels, freq)
 	{
-		mMaxBuffSize=freq*mNumChannels*2;
-		mBuffSize=0;
-		mNumProcessedSamples=0;
-		mTimeOffset=0;
+		this->maxBuffSize=freq*mNumChannels*2;
+		this->buffSize=0;
+		this->numProcessedSamples=0;
+		this->timeOffset=0;
 
-		mTempBuffer=new short[mMaxBuffSize];
-		alGenSources(1,&mSource);
+		this->tempBuffer=new short[this->maxBuffSize];
+		alGenSources(1,&this->source);
 		owner->setTimer(this);
-		mNumPlayedSamples=0;
+		this->numPlayedSamples=0;
 	}
 	//---------------------------------------------------------
 	VideoSoundHandler::~VideoSoundHandler()
 	{
 		// todo: delete buffers and source
-		if (mTempBuffer) delete[] mTempBuffer;
+		if (this->tempBuffer) delete[] this->tempBuffer;
 	}
 	//---------------------------------------------------------
 	void VideoSoundHandler::destroy()
@@ -44,36 +44,36 @@ namespace Orkige
 		// todo
 	}
 	//---------------------------------------------------------
-	void VideoSoundHandler::insertData(float** data,int nSamples)
+	void VideoSoundHandler::insertData(float** data,int samples)
 	{
-		for (int i=0;i<nSamples;i++)
+		for (int i=0;i<samples;i++)
 		{
-			if (mBuffSize < mMaxBuffSize)
+			if (this->buffSize < this->maxBuffSize)
 			{
-				mTempBuffer[mBuffSize++]=float2short(data[0][i]);
+				this->tempBuffer[this->buffSize++]=float2short(data[0][i]);
 				if (mNumChannels == 2)
-					mTempBuffer[mBuffSize++]=float2short(data[1][i]);
+					this->tempBuffer[this->buffSize++]=float2short(data[1][i]);
 			}
-			if (mBuffSize == mFreq*mNumChannels/4)
+			if (this->buffSize == mFreq*mNumChannels/4)
 			{	
 				OpenAL_Buffer buff;
 				alGenBuffers(1,&buff.id);
 				ALuint format = (mNumChannels == 1) ? AL_FORMAT_MONO16 : AL_FORMAT_STEREO16;
-				alBufferData(buff.id,format,mTempBuffer,mBuffSize*2,mFreq);
-				alSourceQueueBuffers(mSource, 1, &buff.id);
-				buff.nSamples=mBuffSize/mNumChannels;
-				mNumProcessedSamples+=mBuffSize/mNumChannels;
-				mBufferQueue.push(buff);
+				alBufferData(buff.id,format,this->tempBuffer,this->buffSize*2,mFreq);
+				alSourceQueueBuffers(this->source, 1, &buff.id);
+				buff.samples=this->buffSize/mNumChannels;
+				this->numProcessedSamples+=this->buffSize/mNumChannels;
+				this->bufferQueue.push(buff);
 
-				mBuffSize=0;
+				this->buffSize=0;
 
 				int state;
-				alGetSourcei(mSource,AL_SOURCE_STATE,&state);
+				alGetSourcei(this->source,AL_SOURCE_STATE,&state);
 				if (state != AL_PLAYING)
 				{
 					//alSourcef(mSource,AL_PITCH,0.5); // debug
-					alSourcef(mSource,AL_SAMPLE_OFFSET,mNumProcessedSamples-mFreq/4);
-					alSourcePlay(mSource);
+					alSourcef(this->source,AL_SAMPLE_OFFSET,this->numProcessedSamples-mFreq/4);
+					alSourcePlay(this->source);
 
 				}
 
@@ -88,28 +88,28 @@ namespace Orkige
 
 		// process played buffers
 
-		alGetSourcei(mSource,AL_BUFFERS_PROCESSED,&nProcessed);
+		alGetSourcei(this->source,AL_BUFFERS_PROCESSED,&nProcessed);
 		for (i=0;i<nProcessed;i++)
 		{
-			buff=mBufferQueue.front();
-			mBufferQueue.pop();
-			mNumPlayedSamples+=buff.nSamples;
-			alSourceUnqueueBuffers(mSource,1,&buff.id);
+			buff=this->bufferQueue.front();
+			this->bufferQueue.pop();
+			this->numPlayedSamples+=buff.samples;
+			alSourceUnqueueBuffers(this->source,1,&buff.id);
 			alDeleteBuffers(1,&buff.id);
 		}
 
 		// control playback and return time position
-		alGetSourcei(mSource,AL_SOURCE_STATE,&state);
+		alGetSourcei(this->source,AL_SOURCE_STATE,&state);
 		if (state == AL_PLAYING)
 		{
-			alGetSourcef(mSource,AL_SEC_OFFSET,&mTime);
-			mTime+=(float) mNumPlayedSamples/mFreq;
-			mTimeOffset=0;
+			alGetSourcef(this->source,AL_SEC_OFFSET,&mTime);
+			mTime+=(float) this->numPlayedSamples/mFreq;
+			this->timeOffset=0;
 		}
 		else
 		{
-			mTime=(float) mNumProcessedSamples/mFreq+mTimeOffset;
-			mTimeOffset+=time_increase;
+			mTime=(float) this->numProcessedSamples/mFreq+this->timeOffset;
+			this->timeOffset+=time_increase;
 		}
 
 		float duration=mClip->getDuration();
@@ -118,13 +118,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VideoSoundHandler::pause()
 	{
-		alSourcePause(mSource);
+		alSourcePause(this->source);
 		TheoraTimer::pause();
 	}
 	//---------------------------------------------------------
 	void VideoSoundHandler::play()
 	{
-		alSourcePlay(mSource);
+		alSourcePlay(this->source);
 		TheoraTimer::play();
 	}
 	//---------------------------------------------------------
@@ -132,22 +132,22 @@ namespace Orkige
 	{
 		OpenAL_Buffer buff;
 
-		alSourceStop(mSource);
-		while (!mBufferQueue.empty())
+		alSourceStop(this->source);
+		while (!this->bufferQueue.empty())
 		{
-			buff=mBufferQueue.front();
-			mBufferQueue.pop();
-			alSourceUnqueueBuffers(mSource,1,&buff.id);
+			buff=this->bufferQueue.front();
+			this->bufferQueue.pop();
+			alSourceUnqueueBuffers(this->source,1,&buff.id);
 			alDeleteBuffers(1,&buff.id);
 		}
 		//		int nProcessed;
 		//		alGetSourcei(mSource,AL_BUFFERS_PROCESSED,&nProcessed);
 		//		if (nProcessed != 0)
 		//			nProcessed=nProcessed;
-		mBuffSize=0;
-		mTimeOffset=0;
+		this->buffSize=0;
+		this->timeOffset=0;
 
-		mNumPlayedSamples=mNumProcessedSamples=time*mFreq;
+		this->numPlayedSamples=this->numProcessedSamples=time*mFreq;
 	}
 	//---------------------------------------------------------
 	VideoSoundHandlerFactory::VideoSoundHandlerFactory() : handler(NULL)
@@ -164,7 +164,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	VideoSoundHandler* VideoSoundHandlerFactory::createInstance(TheoraVideoClip* owner,int nChannels,int freq)
+	VideoSoundHandler* VideoSoundHandlerFactory::createInstance(TheoraVideoClip* owner,int channels, int freq)
 	{
 		if(this->handler)
 		{
@@ -172,7 +172,7 @@ namespace Orkige
 			this->handler = NULL;
 		}
 
-		this->handler = new VideoSoundHandler(owner,nChannels,freq);
+		this->handler = new VideoSoundHandler(owner, channels, freq);
 		return this->handler;
 	}
 	//---------------------------------------------------------
