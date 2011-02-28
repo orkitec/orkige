@@ -94,15 +94,11 @@ namespace Ogre {
         /** Get an iterator over all the available settings in a section */
         SettingsIterator getSettingsIterator(const String& section = StringUtil::BLANK);
 
-		
-
-
 
         
         /** Clear the settings */
         void clear(void);
-    //protected:  //hicham edit : public so i can access it from settings manager;
-	public:
+    protected:
         SettingsBySection mSettings;
     };
 	/** @} */
