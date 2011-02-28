@@ -43,7 +43,7 @@ namespace Orkige
 		uint z;
 		//--- Methods -----------------------------------------------
 	public:
-		//! constrcutor
+		//! constructor
 		FastGuiView(Gorilla::Screen* _screen, uint _z = 0);
 		FastGuiView(FastGuiView const & other);
 		//! destructor

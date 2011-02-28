@@ -64,7 +64,6 @@ namespace Orkige
     protected:
     private:
     };
-    //----------------------------------------------------
 	//---------------------------------------------------------------
 	inline woptr<FastGuiLabel> FastGuiProgressBar::getLabel()
 	{
