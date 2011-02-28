@@ -12,10 +12,10 @@
 ############################################################
 
 PROJECT(OgreMain)
-include_directories(${OGREKIT_FREEIMAGE_INCLUDE})
-include_directories(${OGREKIT_FREETYPE_INCLUDE})
-include_directories(${OGREKIT_ZLIB_INCLUDE})
-include_directories(${OGREKIT_ZZIP_INCLUDE})
+include_directories(${ORKIGE_FREEIMAGE_INCLUDE})
+include_directories(${ORKIGE_FREETYPE_INCLUDE})
+include_directories(${ORKIGE_ZLIB_INCLUDE})
+include_directories(${ORKIGE_ZZIP_INCLUDE})
 
 include(PrecompiledHeader)
 
@@ -666,7 +666,7 @@ add_definitions(-DOGRE_NONCLIENT_BUILD -DFREEIMAGE_LIB -D_MT -D_USRDLL)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/nedmalloc)
 
 set(LIBRARIES
-  ${OGREKIT_FREETYPE_TARGET}
+  ${ORKIGE_FREETYPE_TARGET}
   ${PLATFORM_LIBS}
 )
 
@@ -677,7 +677,7 @@ endif ()
 if (OGRE_CONFIG_ENABLE_FREEIMAGE)
   list(APPEND HEADER_FILES include/OgreFreeImageCodec.h)
   list(APPEND SOURCE_FILES src/OgreFreeImageCodec.cpp)
-  list(APPEND LIBRARIES    "${OGREKIT_FREEIMAGE_TARGET}")
+  list(APPEND LIBRARIES    "${ORKIGE_FREEIMAGE_TARGET}")
 endif()
 
 if (OGRE_CONFIG_ENABLE_DDS)
@@ -693,8 +693,8 @@ endif ()
 if (OGRE_CONFIG_ENABLE_ZIP)
   list(APPEND HEADER_FILES include/OgreZip.h)
   list(APPEND SOURCE_FILES src/OgreZip.cpp)
-  list(APPEND LIBRARIES "${OGREKIT_ZZIP_TARGET}")
-  list(APPEND LIBRARIES "${OGREKIT_ZLIB_TARGET}")
+  list(APPEND LIBRARIES "${ORKIGE_ZZIP_TARGET}")
+  list(APPEND LIBRARIES "${ORKIGE_ZLIB_TARGET}")
 endif ()
 
 set (TARGET_LINK_FLAGS "")

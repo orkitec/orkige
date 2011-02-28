@@ -38,13 +38,13 @@ ConfigureOrkige()
 
 # determine Ogre version numbers
 include(OgreGetVersion)
-ogre_get_version(${ORKIGE_SOURCE_DIR}/OgreLite/OgreMain/include/OgrePrerequisites.h)
+ogre_get_version(${OGREPATH}/OgreMain/include/OgrePrerequisites.h)
 message(STATUS "Configuring OGRE ${OGRE_VERSION}")
 # Configure version file for use by scripts
 configure_file("${OGRE_TEMPLATES_DIR}/version.txt.in" "${OGRE_BINARY_DIR}/version.txt" @ONLY)
 
 subdirs(Dependencies)
-subdirs(OgreLite)
+subdirs(${OGRELITEDIRECTORY})
 subdirs(orkige_core)
 subdirs(orkige_engine)
 

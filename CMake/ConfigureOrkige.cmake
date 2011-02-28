@@ -2,7 +2,7 @@
 macro (ConfigureOrkige)
 
 	set(ROOT ${CMAKE_SOURCE_DIR})
-	set(OGREPATH ${CMAKE_SOURCE_DIR}/OgreLite)
+	
 	
 	set(GNUSTEP_SYSTEM_ROOT $ENV{GNUSTEP_SYSTEM_ROOT})
 	
@@ -31,6 +31,7 @@ macro (ConfigureOrkige)
 	option(OGRE_BUILD_COMPONENT_PAGING	"Build Paging component"						TRUE)
 	option(OGRE_BUILD_COMPONENT_TERRAIN	"Build Terrain component"						TRUE)
 	#end of ogre options
+	option(ORKIGE_USE_OGRE_DEVBRACH		"Use Ogre Development Branch"					OFF)
 	option(ORKIGE_BROWSERPLUGIN			"Build for Browser"							OFF)
 	option(ORKIGE_NOSCRIPT				"Use Scripting Language"						ON)
 	option(ORKIGE_ENABLE_MEMORYMANAGER	"Enable meory leak check (in debug builds)"			ON)
@@ -45,6 +46,14 @@ macro (ConfigureOrkige)
 	option(ORKIGE_UPDATE_DOCS			"Update Orkige API documentation(Requires doxygen)."	OFF)
 	option(ORKIGE_BUILD_OGGSOUNDMANAGER 	"enable ogg vorbis sound playback" 				OFF)
 	option(ORKIGE_BUILD_THEORAVIDEOMANAGER	"enable theora video player"						OFF)
+	
+	if(ORKIGE_USE_OGRE_DEVBRACH)
+		set(OGRELITEDIRECTORY OgreLite_1.8)
+	else()
+		set(OGRELITEDIRECTORY OgreLite)
+	endif(ORKIGE_USE_OGRE_DEVBRACH)
+	
+	set(OGREPATH ${CMAKE_SOURCE_DIR}/${OGRELITEDIRECTORY})
 	
 	if (ORKIGE_USE_LUA)
 		add_definitions(-DORKIGE_USE_LUA)
