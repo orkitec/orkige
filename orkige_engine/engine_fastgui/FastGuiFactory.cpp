@@ -261,6 +261,7 @@ namespace Orkige
 			else if(key == "text")
 			{
 				baseSettings.text = Localisation::getSingleton().getLocalized(vt.second);
+				boost::replace_all(baseSettings.text, "\\n", "\n");
 			}
 			else if(key == "font")
 			{
