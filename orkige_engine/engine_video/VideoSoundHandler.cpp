@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 #include "engine_video/VideoSoundHandler.h"
 
 namespace Orkige
@@ -183,3 +183,4 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 }
+#endif //ORKIGE_THEORAVIDEOMANAGER

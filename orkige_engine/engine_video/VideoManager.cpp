@@ -208,7 +208,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	moviePlayer = [[[CustomMoviePlayerViewController alloc] initWithPath:path] autorelease];
 	
 	// Show the movie player as modal
- 	[self presentModalViewController:moviePlayer animated:YES];
+ 	[self presentModalViewController:moviePlayer animated:NO];
 	
 	// Prep and play the movie
 	[moviePlayer readyPlayer];    
@@ -303,9 +303,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	VideoManager::VideoManager(int num_worker_threads) : OgreVideoManager(num_worker_threads), clip(NULL), videoLayer(NULL), videoPanel(NULL)
+	VideoManager::VideoManager(int num_worker_threads) 
+#if defined(ORKIGE_THEORAVIDEOMANAGER) || defined(ORKIGE_IPHONE)
+	: 
+#endif
+#ifdef ORKIGE_THEORAVIDEOMANAGER
+	OgreVideoManager(num_worker_threads), clip(NULL), videoLayer(NULL), videoPanel(NULL)
+#endif
 #ifdef ORKIGE_IPHONE
-		, iphoneClip(NULL)
+#	ifdef ORKIGE_THEORAVIDEOMANAGER
+		, 
+#	endif
+		iphoneClip(NULL)
 #endif
 	{
 	}
@@ -316,6 +325,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VideoManager::init()
 	{
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		Ogre::ExternalTextureSourceManager::getSingleton().setExternalTextureSource("ogg_video",this);
 		Ogre::Root::getSingleton().addFrameListener(this);
 
@@ -341,21 +351,25 @@ namespace Orkige
 		this->soundFactory = new VideoSoundHandlerFactory();
 		this->setAudioInterfaceFactory(this->soundFactory);
 		this->setLogFunction(VideoManagerLog);
+#endif
 	}
 	//---------------------------------------------------------
 	void VideoManager::deinit()
 	{
 		this->stop();
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		Ogre::Root::getSingleton().removeFrameListener(this);
 		delete this->soundFactory;
 		this->soundFactory = NULL;
+#endif
 	}
 	//---------------------------------------------------------
 	bool VideoManager::play(String const & fileName, bool loop)
 	{
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		if(this->clip)
 			this->stop();
-
+#endif
 #ifdef ORKIGE_IPHONE
 		if(this->iphoneClip)
 		{
@@ -373,13 +387,14 @@ namespace Orkige
 			return false;
 		}
 #endif
-
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		this->setInputName(fileName);
 		this->createDefinedTexture("VideoTextureMaterial");
 		this->clip = this->getVideoClipByName(fileName);
 		this->clip->setAutoRestart(loop);
 		this->videoLayer->show();
 		this->videoPanel->show();
+#endif
 		return true;
 	}
 	//---------------------------------------------------------
@@ -396,6 +411,7 @@ namespace Orkige
 			return true;
 		}
 #endif
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		if(this->clip)
 		{
 			this->clip->stop();
@@ -407,6 +423,7 @@ namespace Orkige
 			Ogre::TextureManager::getSingleton().remove(clipName);
 			return true;
 		}
+#endif
 		return false;
 	}
 	//---------------------------------------------------------
@@ -418,11 +435,13 @@ namespace Orkige
 			return true;
 		}
 #endif
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		if(this->clip)
 		{
 			bool playing = !this->clip->isDone();
 			return playing;
 		}
+#endif
 		return false;
 	}
 	//---------------------------------------------------------

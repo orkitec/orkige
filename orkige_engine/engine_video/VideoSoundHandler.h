@@ -8,7 +8,7 @@
 *********************************************************************/
 #ifndef __VideoSoundHandler_h__15_2_2011__11_52_17__
 #define __VideoSoundHandler_h__15_2_2011__11_52_17__
-
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 #include <engine_sound/SoundManager.h>
 #include <engine_video/VideoManager.h>
 
@@ -66,5 +66,5 @@ namespace Orkige
 		VideoSoundHandler* createInstance(TheoraVideoClip* owner,int nChannels,int freq);
 	};
 }
-
+#endif //ORKIGE_THEORAVIDEOMANAGER
 #endif //__VideoSoundHandler_h__15_2_2011__11_52_17__

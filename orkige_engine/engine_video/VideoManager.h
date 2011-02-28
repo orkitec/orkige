@@ -9,16 +9,23 @@
 #ifndef __VideoManager_h__15_2_2011__11_09_25__
 #define __VideoManager_h__15_2_2011__11_09_25__
 #include "engine_module/EnginePrerequisites.h"
-#include <OgreVideoManager.h>
-#include <TheoraAudioInterface.h>
-#include <TheoraTimer.h>
-
+#ifdef ORKIGE_THEORAVIDEOMANAGER
+#	include <OgreVideoManager.h>
+#	include <TheoraAudioInterface.h>
+#	include <TheoraTimer.h>
+#endif
 
 namespace Orkige
 {
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 	class VideoSoundHandlerFactory;
+#endif
 	//! simplified video interface around OgreVideoManager and TheoraVideoManager to play fullscreen videos
-	class VideoManager : public Ogre::OgreVideoManager, public Singleton<VideoManager>
+	class VideoManager : 
+#ifdef ORKIGE_THEORAVIDEOMANAGER
+		public Ogre::OgreVideoManager,
+#endif
+		public Singleton<VideoManager>
 	{
 		DECL_OSINGLETON(VideoManager)
 		//--- Types -------------------------------------------------
@@ -29,10 +36,12 @@ namespace Orkige
 	public:
 	protected:
 		class VideoPlayerIphone* iphoneClip;
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		TheoraVideoClip* clip;
 		Ogre::OverlayElement* videoPanel;
 		Ogre::Overlay* videoLayer;
 		VideoSoundHandlerFactory* soundFactory;
+#endif
 	private:
 		//--- Methods -----------------------------------------------
 	public:
