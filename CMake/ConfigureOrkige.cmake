@@ -51,7 +51,7 @@ macro (ConfigureOrkige)
 		set(OGRELITEDIRECTORY OgreLiteUnstable)
 	else()
 		set(OGRELITEDIRECTORY OgreLite)
-	endif(ORKIGE_USE_OGRE_DEVBRACH)
+	endif(ORKIGE_USE_OGRE_UNSTABLE)
 	
 	set(OGREPATH ${CMAKE_SOURCE_DIR}/${OGRELITEDIRECTORY})
 	
