@@ -87,7 +87,7 @@ namespace Orkige
 		GameObjectMap::iterator it = this->objects.find(id);
 		if(it == this->objects.end())
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " doesn't exist!");
+			oDebugMsg("core",0,"GameObject: " << id << " doesn't exist!");
 			return oNull<GameObject>();
 		}
 		return it->second;
@@ -99,7 +99,7 @@ namespace Orkige
 
 		if(this->objectExists(id))
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " does already exist");
+			oDebugMsg("core",0,"GameObject: " << id << " does already exist");
 			return false;
 		}
 		this->objects[id] = obj;
@@ -111,7 +111,7 @@ namespace Orkige
 		GameObjectMap::iterator it = this->objects.find(id);
 		if(it == this->objects.end())
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " doesn't exist!");
+			oDebugMsg("core",0,"GameObject: " << id << " doesn't exist!");
 			return false;
 		}
 		this->objects.erase(it);
@@ -123,12 +123,12 @@ namespace Orkige
 		GameObjectMap::iterator it = this->objects.find(id);
 		if(it == this->objects.end())
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " doesn't exist!");
+			oDebugMsg("core",0,"GameObject: " << id << " doesn't exist!");
 			return false;
 		}
 		if(std::find(this->deleteQueue.begin(), this->deleteQueue.end(), id) != this->deleteQueue.end())
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " already queued for deletion!");
+			oDebugMsg("core",0,"GameObject: " << id << " already queued for deletion!");
 			return false;
 		}
 		this->deleteQueue.push_back(id);
@@ -139,7 +139,7 @@ namespace Orkige
 	{
 		if(this->objectExists(id))
 		{
-			oDebugMsg("world",0,"GameObject: " << id << " does already exist");
+			oDebugMsg("core",0,"GameObject: " << id << " does already exist");
 			return oNull<GameObject>();
 		}
 		optr<GameObject> go = onew(new GameObject(id));
