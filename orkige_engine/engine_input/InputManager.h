@@ -16,6 +16,11 @@
 #include "engine_input/TouchEventData.h"
 #include "engine_input/AccelerationEventData.h"
 #include "engine_input/GestureEventData.h"
+#ifdef ORKIGE_IPHONE
+#   ifdef __OBJC__
+#       import <UIKit/UIKit.h>
+#   endif
+#endif
 
 namespace Orkige
 {
@@ -86,6 +91,11 @@ namespace Orkige
 		optr<TouchEventData> const & getLastTouchData() const;
 		//! Set mouse region (if window resizes, we should alter this to reflect as well)
 		void setWindowExtents( int width, int height );
+#ifdef ORKIGE_IPHONE
+#   ifdef __OBJC__
+		UIView* getInputDelegate();
+#	endif
+#endif
 	protected:
 	private:
 		bool onFrameStarted(Event const & event);

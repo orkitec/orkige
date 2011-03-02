@@ -11,15 +11,17 @@
 #include "engine_video/VideoSoundHandler.h"
 #include "engine_graphic/Engine.h"
 #include "engine_util/StringUtil.h"
+#include "engine_input/InputManager.h"
 
 #ifdef ORKIGE_IPHONE
+#include <iphone/iPhoneInputManager.h>
 static bool g_StopCalledFromInsideVideoManager = false;
 #import <UIKit/UIKit.h>
 #import <MediaPlayer/MediaPlayer.h>
 #import <MediaPlayer/MPMoviePlayerViewController.h>
 
 @interface CustomMoviePlayerViewController : UIViewController 
-{
+{		
 	MPMoviePlayerController *mp;
 	NSURL  *movieURL;
 }
@@ -96,6 +98,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	 name:MPMoviePlayerContentPreloadDidFinishNotification
 	 object:nil];
 	
+	[[self view] setUserInteractionEnabled:YES];
 	// Play the movie
  	[mp play];
 }
@@ -130,7 +133,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	if ([mp respondsToSelector:@selector(loadState)]) 
 	{
 		// Set movie player layout
-		[mp setControlStyle:MPMovieControlStyleNone];
+		[mp setControlStyle:MPMovieControlStyleFullscreen];
 		[mp setFullscreen:YES];
 		
 		// May help to reduce latency
@@ -168,6 +171,10 @@ static bool g_StopCalledFromInsideVideoManager = false;
 		[mp stop];
 	}
 }
+- (BOOL)canBecomeFirstResponder {
+    NSLog(@"canBecomeFirstResponder");
+    return NO;
+ }
 /*---------------------------------------------------------------------------
  * 
  *--------------------------------------------------------------------------*/
@@ -175,6 +182,8 @@ static bool g_StopCalledFromInsideVideoManager = false;
 {
 	[self setView:[[[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]] autorelease]];
 	//[[self view] setBackgroundColor:[UIColor blackColor]];
+	[[self view] setUserInteractionEnabled:YES];
+	//[self becomeFirstResponder];
 }
 
 /*---------------------------------------------------------------------------
@@ -219,6 +228,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
  *--------------------------------------------------------------------------*/
 - (void)stopMoviePlayer
 {
+	//[[self view] resignFirstResponder];
 	[moviePlayer finishPlayer]; 
 }
 /*---------------------------------------------------------------------------
@@ -229,7 +239,8 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	// Setup the view
 	[self setView:[[[UIView alloc] initWithFrame:[[UIScreen mainScreen] applicationFrame]] autorelease]];
 	//[[self view] setBackgroundColor:[UIColor grayColor]];
-	[[self view] setUserInteractionEnabled:NO];
+	[[self view] setUserInteractionEnabled:YES];
+	//[[self view] becomeFirstResponder];
 }
 
 /*---------------------------------------------------------------------------
@@ -239,8 +250,31 @@ static bool g_StopCalledFromInsideVideoManager = false;
 {
 	[super dealloc];
 }
-
+- (BOOL)canBecomeFirstResponder {
+    NSLog(@"canBecomeFirstResponder");
+    return NO;
+}
 @end
+
+@implementation UIView (FindFirstResponder)
+- (UIView *)findFirstResponder
+{
+    if (self.isFirstResponder) {        
+        return self;     
+    }
+	
+    for (UIView *subView in self.subviews) {
+        UIView *firstResponder = [subView findFirstResponder];
+		
+        if (firstResponder != nil) {
+			return firstResponder;
+        }
+    }
+	
+    return nil;
+}
+@end
+
 #endif //ORKIGE_IPHONE
 namespace Orkige
 {
@@ -249,29 +283,33 @@ namespace Orkige
 	{
 	public:
 		TestViewController *vc;
+		UIView* view;
+		UIView* oldFirstResponder;
 		VideoPlayerIphone()
 		{
 			vc = 0;
-		}
-		~VideoPlayerIphone()
-		{
-			this->stop();
-		}
-		void play(String const & movie)
-		{
-			static UIView* view = nil;
+			view = InputManager::getSingleton().getInputDelegate();//nil;//[[UIApplication sharedApplication] keyWindow];
 			if(view == nil)
 			{
 				if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
 				{
-					Engine::getSingleton().getRenderWindow()->getCustomAttribute( "VIEW", &view );
+					Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &view );
 				}
 			}
 			oAssert(view);
-
+			oldFirstResponder = [view findFirstResponder];
+			//oAssert(oldFirstResponder);
+		}
+		~VideoPlayerIphone()
+		{
+			this->stop();
+			view = nil;
+		}
+		void play(String const & movie)
+		{
+			//view.userInteractionEnabled = NO;
 			vc = [[TestViewController alloc] init];
 			[view addSubview:vc.view];
-			
 			static String s;
 			s = Orkige::PlatformUtil::getResourceDirectory() + movie;
 			NSString * path = (NSString*)CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)s.c_str(), s.size(), kCFStringEncodingUTF8,false);
@@ -283,8 +321,12 @@ namespace Orkige
 		
 		void stop()
 		{
+			//view.userInteractionEnabled = YES;
+			//
 			if(vc)
 			{
+				[vc.view removeFromSuperview];
+				//[oldFirstResponder becomeFirstResponder];
 				[vc stopMoviePlayer];
 				[vc release];
 				vc = 0;

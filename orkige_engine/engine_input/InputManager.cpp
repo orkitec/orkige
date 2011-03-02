@@ -20,6 +20,7 @@
 #   ifdef __OBJC__
 #       import <UIKit/UIKit.h>
 #   endif
+#include <iphone/iPhoneInputManager.h>
 #endif
 
 
@@ -495,6 +496,11 @@ namespace Orkige
 	optr<TouchEventData> const & InputManager::getLastTouchData() const
 	{
 		return impl->touchData;
+	}
+	//---------------------------------------------------------
+	UIView* InputManager::getInputDelegate()
+	{
+		return static_cast<UIView*>(static_cast<OIS::iPhoneInputManager*>(this->impl->inputSystem)->_getDelegate());
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
