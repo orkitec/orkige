@@ -497,11 +497,16 @@ namespace Orkige
 	{
 		return impl->touchData;
 	}
+#ifdef ORKIGE_IPHONE
+#   ifdef __OBJC__
 	//---------------------------------------------------------
 	UIView* InputManager::getInputDelegate()
 	{
 		return static_cast<UIView*>(static_cast<OIS::iPhoneInputManager*>(this->impl->inputSystem)->_getDelegate());
 	}
+#   endif
+#endif
+	
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
