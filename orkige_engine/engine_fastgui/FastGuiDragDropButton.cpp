@@ -168,6 +168,20 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	String FastGuiDragDropButton::getCaption()
+	{
+		if(label)
+			return this->label->getCaption()->text();	
+		else
+			return StringUtil::BLANK;
+	}
+	//---------------------------------------------------------
+	void FastGuiDragDropButton::setCaption(String const & text)
+	{
+		if(label)
+			this->label->setText(text);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::setState(const FastGuiDragDropButton::DragDropButtonState& bs)

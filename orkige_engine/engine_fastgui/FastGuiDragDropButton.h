@@ -67,6 +67,11 @@ namespace Orkige
 		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
+		
+		//! get button text
+		String getCaption();
+		//! set button text
+		void setCaption(String const & text);
 	protected:
 		//! set current ButtonState 
 		void setState(const DragDropButtonState& bs);
