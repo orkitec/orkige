@@ -63,3 +63,7 @@ endif()
 if (ORKIGE_UPDATE_DOCS)
 	subdirs(Docs/OrkigeAPI)
 endif()
+
+if (ORKIGE_BUILD_OGITOR)
+	subdirs(Ogitor)
+endif()
