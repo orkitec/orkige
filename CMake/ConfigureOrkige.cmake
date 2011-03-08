@@ -46,6 +46,14 @@ macro (ConfigureOrkige)
 	option(ORKIGE_UPDATE_DOCS			"Update Orkige API documentation(Requires doxygen)."	OFF)
 	option(ORKIGE_BUILD_OGGSOUNDMANAGER 	"enable ogg vorbis sound playback" 				OFF)
 	option(ORKIGE_BUILD_THEORAVIDEOMANAGER	"enable theora video player"						OFF)
+	option(ORKIGE_BUILD_OGITOR	"enable Ogitor build"						OFF)
+	option(ORKIGE_BUILD_BOOST_REGEX	"enable building of boost regex build"						OFF)
+	
+	if(ORKIGE_BUILD_OGITOR)
+		set(ORKIGE_BUILD_BOOST_REGEX TRUE CACHE BOOL "enable building of boost regex build"   FORCE)
+	endif(ORKIGE_BUILD_OGITOR)
+	
+	add_definitions(-DBOOST_ALL_NO_LIB)	
 	
 	if(ORKIGE_USE_OGRE_UNSTABLE)
 		set(OGRELITEDIRECTORY OgreLiteUnstable)
@@ -187,6 +195,7 @@ macro (ConfigureOrkige)
 		endif (UNIX)
 	endif (APPLE)
 	
+	set(Boost_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/Dependencies/Source/boost)
 	set(ORKIGE_DEP_DIR ${ROOT}/Dependencies/Source)
 	set(ORKIGE_FREEIMAGE_INCLUDE ${ORKIGE_DEP_DIR}/FreeImage)
 	set(ORKIGE_FREETYPE_INCLUDE ${ORKIGE_DEP_DIR}/FreeType/include)
