@@ -62,7 +62,7 @@ distribution.
    #ifdef OGITOR_EXPORT
      #define OgitorExport __declspec (dllexport)
    #else
-     #define OgitorExport __declspec (dllimport)
+     #define OgitorExport /*__declspec (dllimport)*/
    #endif
 #else
    #define OgitorExport
