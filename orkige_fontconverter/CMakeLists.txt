@@ -36,3 +36,9 @@ add_custom_command(
 		COMMAND echo xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util/bmfontgen.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
     COMMAND xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util\\bmfontgen.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
 )
+add_custom_command(
+    TARGET ${TargetName}
+    POST_BUILD
+		COMMAND echo xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util/sspack.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
+    COMMAND xcopy /y /h \"${CMAKE_CURRENT_SOURCE_DIR}/../Util\\sspack.exe\" \"${CMAKE_CURRENT_BINARY_DIR}\"
+)

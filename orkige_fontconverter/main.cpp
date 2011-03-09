@@ -15,66 +15,284 @@
 #include <windows.h>
 
 
-inline void drawImage(cimg_library::CImg<unsigned char> & src, cimg_library::CImg<unsigned char> & dst, int offsetx, int offsety)
+std::string DialogBrowseFolder(const char* szTitle)
 {
-	// RGBA over RGBA (@see ftp://ftp.alvyray.com/Acrobat/4_Comp.pdf)
-	cimg_library::CImg<unsigned char> dst_color = dst.get_shared_channels(0, 2);
-	cimg_library::CImg<unsigned char> src_color = src.get_shared_channels(0, 2);
-	cimg_library::CImg<unsigned char> dst_alpha = dst.get_shared_channel(3);
-	cimg_library::CImg<unsigned char> src_alpha = src.get_shared_channel(3);
+	// code from http://vctipsplusplus.wordpress.com/2008/07/15/using-shbrowseforfolder/
 
-	cimg_forV(dst_color, v)
+	std::cout << szTitle << std::endl;
+	
+	BROWSEINFO bi; 
+	ZeroMemory(&bi, sizeof(bi)); 
+	TCHAR szDisplayName[MAX_PATH]; 
+	szDisplayName[0] = '\0';  
+
+	bi.hwndOwner = NULL; 
+	bi.pidlRoot = NULL; 
+	bi.pszDisplayName = szDisplayName; 
+	bi.lpszTitle = szTitle; 
+	bi.ulFlags = BIF_RETURNONLYFSDIRS;
+	bi.lParam = NULL; 
+	bi.iImage = 0;
+
+	LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
+	TCHAR szPathName[MAX_PATH]; 
+	szPathName[0] = '\0';
+	if (pidl != NULL)
 	{
-		unsigned int src_y, src_x;
-		cimg_for_inY(dst_color, offsety, offsety + src_color.height-1, dst_y)
-		{
-			src_y = dst_y - offsety;
-			unsigned char* p_dst_color = dst_color.ptr(0, dst_y, 0, v);		
-			unsigned char* p_src_color = src_color.ptr(0, src_y, 0, v);		
-			unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
-			unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
-			cimg_for_inX(dst_color, offsetx, offsetx + src_color.width-1, dst_x)
-			{
-				src_x = dst_x - offsetx;
-				float c1 = p_src_color[src_x] / 255.f;
-				float c2 = p_dst_color[dst_x] / 255.f;
-				float a1 = p_src_alpha[src_x] / 255.f;
-				float a2 = p_dst_alpha[dst_x] / 255.f;
-				p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1) * a2) / (a1 + a2 - a1 * a2)));	
-				//p_dst_color[dst_x] = (unsigned char) (255.0f * ((c1 * a1 + c2 * (1 - a1))));	
-			}
-		}
+		 BOOL bRet = SHGetPathFromIDList(pidl, szPathName);
+		 if (bRet == FALSE)
+		 {
+			 szPathName[0] = '\0';
+		 }
 	}
+
+	if (strlen(szPathName) == 0)
 	{
-		unsigned int src_y, src_x;
-		cimg_for_inY(dst_alpha, offsety, offsety + src_alpha.height-1, dst_y)
-		{
-			src_y = dst_y - offsety;
-			unsigned char* p_dst_alpha = dst_alpha.ptr(0, dst_y);
-			unsigned char* p_src_alpha = src_alpha.ptr(0, src_y);
-			cimg_for_inX(dst_alpha, offsetx, offsetx + src_alpha.width-1, dst_x)
-			{
-				src_x = dst_x - offsetx;
-				float a1 = p_src_alpha[src_x] / 255.f;
-				float a2 = p_dst_alpha[dst_x] / 255.f;
-				p_dst_alpha[dst_x] = (unsigned char) (255.0f * (a1 + a2 - a1 * a2));
-				//p_dst_alpha[dst_x] = (unsigned char) (255.0f * std::min(1.0f, a1 + a2));
-			}
-		}
+		std::cout << "Browse Dialog user aborted" << std::endl;
 	}
+
+	return std::string(szPathName);
 }
 
-char xtod(char c) {
-	if (c>='0' && c<='9') return c-'0';
-	if (c>='A' && c<='F') return c-'A'+10;
-	if (c>='a' && c<='f') return c-'a'+10;
-	return c=0;        // not Hex digit
+
+std::string DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc)
+{
+	char szFileName[MAX_PATH] = "";
+
+	OPENFILENAME ofn;
+	ZeroMemory(&ofn, sizeof(ofn));
+
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = 0;
+	ofn.lpstrFilter = szFileTypeDesc; // e.g. "orkige gui Files (*.ogui)\0*.ogui\0";
+	ofn.lpstrFile = szFileName;
+	ofn.nMaxFile = MAX_PATH;
+	ofn.Flags = OFN_EXPLORER; // | OFN_HIDEREADONLY;
+	ofn.lpstrDefExt = szFileType; // e.g. "ogui";
+	ofn.lpstrInitialDir = NULL;
+
+	std::string sFilename;
+	if (GetOpenFileName(&ofn))
+	{
+		sFilename = szFileName;
+	}
+
+	return sFilename;
+}
+
+
+void GetFilesInDirectory(const char* szPath, const char* szPattern, std::vector<std::string>& files)
+{
+	// code from http://www.dreamincode.net/code/snippet546.htm
+	// and http://www.c-plusplus.de/forum/39396
+
+	WIN32_FIND_DATA findFileData; 
+	HANDLE hFind = INVALID_HANDLE_VALUE; 
+	
+	std::stringstream sPathPattern;
+	sPathPattern << szPath << "\\" << szPattern << "\0";
+	
+	char szPathPattern[MAX_PATH];
+	strcpy(szPathPattern, sPathPattern.str().c_str());
+
+	// the first two results used to be "." and "..", but not todays
+	hFind = FindFirstFile(szPathPattern, &findFileData);
+
+	if (hFind == INVALID_HANDLE_VALUE)
+	{
+		std::cout << "Error: invalid path: " << szPathPattern << std::endl;
+	}
+	else
+	{
+		do
+		{
+			if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+			{ 
+				// directory
+			}
+			else
+			{
+				//std::cout << "file: " << findFileData.cFileName << std::endl;
+				files.push_back(findFileData.cFileName);
+			}
+		}
+		while (FindNextFile(hFind, &findFileData) != 0);		
+
+		// sort, we are nice
+		std::sort(files.begin(), files.end());
+	}
+	FindClose(hFind);
+
+
+	/*	
+	// TODO use ogre
+	use Ogre::FileSystemArchive::find()
+	
+	StringVectorPtr vec(OGRE_NEW_T(StringVector, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
+
+	Ogre::ArchiveManager::ArchiveMapIterator it = Ogre::ArchiveManager::getSingleton().getArchiveIterator();
+	for (Ogre::ArchiveManager::ArchiveMapIterator i = it.begin(); i != it.end(); i++)
+	{
+		Ogre::Archive* archive = (*it);
+
+        StringVectorPtr lst = archive->find(pattern, (*i)->recursive, dirs);
+            vec->insert(vec->end(), lst->begin(), lst->end());        
+	}
+
+	// TODO use boost
+	boost::path p("");
+    cout << p << " is a directory containing:\n";
+
+    typedef vector<path> vec;
+    vec v;
+
+    copy(directory_iterator(p), directory_iterator(), back_inserter(v));
+
+    sort(v.begin(), v.end());
+
+    for (vec::const_iterator it (v.begin()); it != v.end(); ++it)
+    {
+		cout << "   " << *it << '\n';
+    }	
+
+	vector<string> listFiles = boost::filesystem::getFiles("\directory", ...);
+	*/
+}
+
+std::string GetTempPath()
+{
+	/*
+	TCHAR buf[MAX_PATH];
+	if (GetTempPath(MAX_PATH, buf))
+	{
+		return std::string(buf);
+	}
+	return std::string();
+	*/
+
+	// hack: because of the external tool crashes with long temp path names, we use a short fixed one
+	const char* szTempPath = "C:\\Temp";
+	if (SetCurrentDirectory(szTempPath) == 0)
+	{
+		if (!CreateDirectory(szTempPath, NULL))
+		{
+			std::cerr << "ERROR: can't create temp directory" << szTempPath << std::endl;
+		}
+	}
+	return std::string(szTempPath) + "\\";
+}
+
+
+int GetIndexFromFilename(const char* szFilename)
+{
+	Ogre::String sFilenameXML(szFilename);
+		
+	// get fontindex from filename, e.g. "Font_3.xml" or "Font_2"
+	int pos1 = sFilenameXML.find_last_of("_");
+	int pos2 = sFilenameXML.find_last_of(".");
+	if (pos2 == -1)
+	{
+		pos2 = sFilenameXML.size();
+	}
+	oAssertDesc(pos1 > 0 && pos1 > 0, "GetIndexFromFilename: unexpected filename format");
+	oAssertDesc(pos1 < pos2, "GetIndexFromFilename: unexpected filename format");
+	std::string sFontIndex = sFilenameXML.substr(pos1+1, pos2-pos1-1);
+	int fontIndex = Orkige::StringUtil::Converter::parseInt(sFontIndex, -1);
+	oAssertDesc(fontIndex >= 0, "GetIndexFromFilename: can't get font index");
+
+	return fontIndex;
+}
+
+
+int ShowImage(const char* szFilenamePNG)
+{
+	// TODO this might start photoshop, which has a long loading time, alternatively use CImg lib
+	// TODO for a non-interactive mode just return here
+
+	std::stringstream command;
+	command << "start " << szFilenamePNG;
+	
+	std::cout << "cmd: " << command.str().c_str() << std::endl;
+	int returnValue = system(command.str().c_str());
+	std::cout << "cmd returned: " << returnValue << std::endl;
+
+	if (returnValue != 0)
+	{
+		std::cerr << "Error showing image with associated program or no program associated with png files" << std::endl;
+		return -1;
+	}
+
+	return 0;
+}
+
+void AutocropImage(cimg_library::CImg<unsigned char>& image)
+{
+	// autocrop works from CImg version 1.30, we use 1.29
+	//const unsigned char color = 0; 
+	//bitmapFontImage.autocrop(color, "xy");
+
+
+	//cimg_library::CImg<unsigned char> color = image.get_shared_channels(0, 2);
+	cimg_library::CImg<unsigned char> alpha = image.get_shared_channel(3);
+	
+	int cropR = 0;
+	int cropB = 0;
+
+	int cropL = image.dimx();
+	int cropU = image.dimy();
+
+	cimg_forY(alpha, y)
+	{
+		cimg_forX(alpha, x)
+		{
+			unsigned char* p_alpha = alpha.ptr(0, y);
+			
+			if (p_alpha[x] != 0)
+			{
+				// this is not optimized but we are not time critical here
+				if (x > cropR) 
+					cropR = x;
+				if (y > cropB) 
+					cropB = y;
+				if (x < cropL) 
+					cropL = x;
+				if (y < cropU) 
+					cropU = y;
+			}
+		}
+	}
+
+	std::cout << "Image cropped " << cropR << " x " << cropB << std::endl;
+	oAssertDesc(cropL >= 0 && cropU >= 0, "AutocropImage: crop values L/B invalid, check image content");
+	oAssertDesc(cropR < image.dimx() && cropB < image.dimy(), "AutocropImage: crop values R/U invalid, check image content");
+
+	if (cropL == 0 || cropU == 0 || cropR == image.dimx() || cropB == image.dimy())
+	{
+		MessageBox(NULL, "Warning: generated font image has no padding pixels on at least one border.", "Atlas Generator", MB_OK | MB_ICONASTERISK);
+	}
+
+	// do not crop at the left and right border to not mismatch with the uv-offset, add little space depending on font size
+	cropR += cropL;
+	cropB += cropU;
+	oAssertDesc(cropR < image.dimx() && cropB < image.dimy(), "AutocropImage: crop values invalid, check image content");
+	
+	image.crop(0, 0, cropR, cropB, false);
+}
+
+
+char xtod(char c) 
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	return c = 0;        // not Hex digit
 }
 
 int HextoDec(const char *hex)
 {
-	if (*hex==0) return 0;
-	return  HextoDec(hex-1)*16 +  xtod(*hex) ; 
+	if (*hex == 0) 
+		return 0;
+	return HextoDec(hex-1)*16 + xtod(*hex) ; 
 }
 
 int xstrtoi(const char *hex)      // hex string to integer
@@ -99,182 +317,107 @@ inline HexCharStruct hex(char _c)
 }
 
 using namespace Orkige;
-int main(int argc, char **argv)
+int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 {
-	OLOAD_MODULE_STATIC(orkige_core);
-	// backup startup path to get location for bmfontgen
-	String path;
-	char* buffer;
-	// Get the current working directory: 
-	if( (buffer = _getcwd( NULL, 0 )) == NULL )
-		perror( "_getcwd error" );
-	else
-	{
-		path = buffer;
-#include "core_debug/DisableMemoryManager.h"
-		free(buffer);
-#include "core_debug/EnableMemoryManager.h"
-	}
-	std::cout << path << std::endl;
-
-	// open ogui file or specify new one
-	OPENFILENAME ofn;
-	char szFileName[MAX_PATH] = "";
-
-	ZeroMemory(&ofn, sizeof(ofn));
-
-	ofn.lStructSize = sizeof(ofn); // SEE NOTE BELOW
-	ofn.hwndOwner = 0;
-	ofn.lpstrFilter = "orkige gui Files (*.ogui)\0*.ogui\0";
-	ofn.lpstrFile = szFileName;
-	ofn.nMaxFile = MAX_PATH;
-	ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
-	ofn.lpstrDefExt = "ogui";
-
-	std::string filename;
-
-	if(GetOpenFileName(&ofn))
-	{
-		filename = szFileName;
-		if(filename.empty())
-		{
-			std::cerr << "Error Loading file!" << std::endl;
-			system("pause");
-			return -1;
-		}
-	}
-	else
-	{
-		std::cerr << "Error Loading file!" << std::endl;
-		system("pause");
-		return -1;
-	}
-
-	// strip path from filename
-	filename = filename.substr(filename.find_last_of("\\")+1, filename.length());
-	std::cout << "Filename: " << filename << std::endl;
-
-	// check if given file is new one or existing one
-	bool createFile = true;
-	std::ifstream ifile(filename.c_str());
-	if (ifile) {
-		createFile = false;
-	}
-	ifile.close();
-
-	// if file exists should it be overwritten?
-	bool overwriteFiles = createFile;
-	if(!createFile)
-	{
-		String Caption = "Overwrite existing .ogui files?";
-		String Text = "If you press yes "+filename+" will be overwritten!\n If you press no the following file(s) will be created:\n" + filename + ".new.ogui\n"+filename+".new.png";
-		int messageboxReturn = MessageBox( NULL, Text.c_str(), Caption.c_str(),	MB_YESNO | MB_ICONQUESTION);
-		if(messageboxReturn == IDYES)
-		{
-			overwriteFiles = true;
-		}
-	}
+	// specify font index of new font
+	std::cout << "Font Index (0..99): ";
+	int fontindex;
+	std::cin >> fontindex;
 
 	// size of bitmap font
 	std::cout << "Bitmap Font Image Size (64-1024): ";
 	int image_size;
 	std::cin >> image_size;
 
-	std::string letterFileName;
+	// TODO get the tool accept different values for width and height to save space on the texture atlas
+
+
 	// font range
-	char start_letter=' ';
-	char end_letter='~';
-	if(MessageBox( NULL, "Do you want to specify a custom font range?", "Font Range",	MB_YESNO | MB_ICONQUESTION) == IDYES)
+	std::string letterFileName;
+	char start_letter = ' ';
+	char end_letter = '~';
+	if (MessageBox( NULL, "Do you want to specify a custom font range?", "Font Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
 	{
 		std::cout << "Start Letter (default: ' '): ";
 		start_letter = getch();
-		if(start_letter == 13)
+		if (start_letter == 13)		// enter_key
 		{
-			start_letter=' ';
+			start_letter = ' ';
 		}
 		std::cout << std::endl << "End Letter (default: '~'): ";
 		end_letter = getch();
-		if(end_letter == 13)
+		if (end_letter == 13)		// enter key
 		{
-			end_letter='~';
+			end_letter = '~';
 		}
-		std::cout << std::endl;
+		std::cout << "Range specified" << std::endl;
 	}
-	else if(MessageBox( NULL, "Do you want to specify a file wich holds all wanted letters)", "Letter Input File",	MB_YESNO | MB_ICONQUESTION) == IDYES)
+	else if(MessageBox( NULL, "Do you want to specify a file wich holds all wanted letters", "Font Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
 	{
-		char* workingDir = _getcwd( NULL, 0 );
-		// open ogui file or specify new one
-		OPENFILENAME ofn2;
-		char szFileName2[MAX_PATH] = "";
-
-		ZeroMemory(&ofn2, sizeof(ofn2));
-		ofn2.lStructSize = sizeof(ofn2); // SEE NOTE BELOW
-		ofn2.hwndOwner = 0;
-		ofn2.lpstrFilter = "Letter Text Files (*.txt)\0*.txt\0";
-		ofn2.lpstrFile = szFileName2;
-		ofn2.nMaxFile = MAX_PATH;
-		ofn2.Flags = OFN_EXPLORER;
-		ofn2.lpstrDefExt = "txt";
-
-		if(GetOpenFileName(&ofn2))
-		{
-			letterFileName = szFileName2;
-			if(letterFileName.empty())
-			{
-				std::cerr << "Error Loading file!" << std::endl;
-				system("pause");
-				return -1;
-			}
-		}
-		else
+		letterFileName = DialogBrowseFile("Select Letter Input File", "txt", "Letter text files (*.txt)\0*.txt\0");
+		if (letterFileName.empty())
 		{
 			std::cerr << "Error Loading file!" << std::endl;
 			system("pause");
 			return -1;
 		}
-		_chdir(workingDir);
-#include "core_debug/DisableMemoryManager.h"
-		free(workingDir);
-#include "core_debug/EnableMemoryManager.h"
+		std::cout << "Letter input file specified" << std::endl;
 	}
+
+	
+	// basename xml and png file
+	std::string sTempPath = GetTempPath();
+	std::string sFilenameBase = std::string(szAtlasPath) + "\\Font_" + Orkige::StringUtil::Converter::toString(fontindex);
+	std::string sFilenameBaseTemp = sTempPath + "Font_" + Orkige::StringUtil::Converter::toString(fontindex) + "_temp";
+	std::string sFilenameXMLTemp = sFilenameBaseTemp + ".xml";
+	std::string sFilenamePNGTemp = sFilenameBaseTemp + ".png";
+
+	_chdir(szExecutablePath);
 
 	// execute bmfontgen and create bitmap font image and description
-	std::stringstream bmfontGenCommand;
-	bmfontGenCommand << "" << path << "\\bmfontgen.exe -v -fontdialog -bmsize " << image_size;
-	if(letterFileName.empty())
-		bmfontGenCommand << " -range "<<hex(start_letter)<<"-"<<hex(end_letter);
-	else
-		bmfontGenCommand << " -source "<<letterFileName;
-	bmfontGenCommand << " -output " << filename << ".temp";
-	std::cout << bmfontGenCommand.str() << std::endl;
-	int returnValue = system(bmfontGenCommand.str().c_str());
-	std::cout << "bmfontgen.exe returned: " << returnValue << std::endl;
-
-	if(returnValue != 0)
 	{
-		system("pause");
-		return -1;
+		std::stringstream command;
+		command << "" << szExecutablePath << "\\bmfontgen.exe -v -fontdialog -bmsize " << image_size;
+		if (letterFileName.empty())
+			command << " -range " << hex(start_letter) << "-" << hex(end_letter);
+		else
+			command << " -source " << letterFileName;
+		command << " -output " << sFilenameBaseTemp;
+		std::cout << "cmd: " << command.str() << std::endl;
+		
+		int returnValue = system(command.str().c_str());
+		std::cout << "cmd returned: " << returnValue << std::endl;
+
+		if (returnValue != 0)
+		{
+			std::cerr << "Error generating font!" << std::endl;
+			system("pause");		
+			return -1;
+		}
 	}
 
-	// open font description
-	optr<TiXmlDocument>	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
+	_chdir(szAtlasPath);
+
+
+	// open font description file
+	optr<TiXmlDocument>	document =  onew(new TiXmlDocument(sFilenameXMLTemp.c_str()));
 	if(!document || document->Error())
 	{
-		std::cerr << "Error Loading file: "<<filename<<std::endl <<document->ErrorDesc() <<std::endl;
+		std::cerr << "Error Loading file: " << sFilenameXMLTemp << std::endl << document->ErrorDesc() << std::endl;
 		system("pause");
 		return -1;
 	}
 	document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
 	if(!document || document->Error())
 	{
-		std::cerr << "Error Loading file: "<<filename<<std::endl <<document->ErrorDesc()<<std::endl;
+		std::cerr << "Error Loading file: " << sFilenameXMLTemp << std::endl << document->ErrorDesc() << std::endl;
 		system("pause");
 		return -1;
 	}
 	TiXmlElement* xmlRoot = document->RootElement();
 	if(!xmlRoot || document->Error())
 	{
-		std::cerr << "Error finding XML-Root in file: "<<filename<<std::endl <<document->ErrorDesc()<<std::endl;
+		std::cerr << "Error finding XML-Root in file: " << sFilenameXMLTemp << std::endl << document->ErrorDesc() << std::endl;
 		system("pause");
 		return -1;
 	}
@@ -284,292 +427,418 @@ int main(int argc, char **argv)
 	for(TiXmlElement* elementType = bitmapsElement->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
 	{
 		String const & elementTypeName = elementType->Attribute("id");
-
 		if(elementTypeName == "1")
 		{
 			std::cerr << "Error: image size to small for given font and fontsize!" << std::endl;
 			system("pause");
 			return -1;
 		}
+
+		// e.g. "test-0.png"
+		String const & textureFilename = elementType->Attribute("name");
+		sFilenamePNGTemp = textureFilename;
 	}
 
-	// specify font index of new font
-	std::cout << "Font Index: ";
-	int fontindex;
-	std::cin >> fontindex;
-
+	// let the tool finish write ops while showing this message
+	MessageBox(NULL, "Font was created. Image is shown after this message.", "Font Generator", MB_OK | MB_ICONASTERISK);
 	
-	// parse ogui file and backup contents
-	std::stringstream outputOguiFileString;
-	String textureAtlasImageFilename;
-	// parse old ogui file 
-	if(!createFile)
-	{
-		Ogre::ConfigFile oguifile;
-		oguifile.loadDirect(filename, " ", true);
+	// show results with system associated program
+	ShowImage(sFilenamePNGTemp.c_str());
 
-		Ogre::ConfigFile::SectionIterator it = oguifile.getSectionIterator();
-		while(it.hasMoreElements())
+
+	std::cout << "Temporary files:" << std::endl << sFilenameXMLTemp << std::endl << sFilenamePNGTemp << std::endl;
+	
+	std::string sFilenameXML = sFilenameBase + ".xml";
+	std::string sFilenamePNG = sFilenameBase + ".png";
+		
+	// accept results and cleanup
+	if(MessageBox(NULL, "Do you accept the result and want to add it to the texture atlas?", "Font Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
+	{
+		CopyFile(sFilenameXMLTemp.c_str(), sFilenameXML.c_str(), FALSE);
+		CopyFile(sFilenamePNGTemp.c_str(), sFilenamePNG.c_str(), FALSE);
+		remove(sFilenameXMLTemp.c_str());
+		remove(sFilenamePNGTemp.c_str());
+	
+		remove("memleaks.log");
+		remove("memory.log");
+
+		// autocrop images
+		cimg_library::CImg<unsigned char> bitmapFontImage;
+		bitmapFontImage.load_png(sFilenamePNG.c_str());
+		AutocropImage(bitmapFontImage);
+		bitmapFontImage.save_png(sFilenamePNG.c_str());
+		
+		std::cout << "Final Files:" << std::endl << sFilenameXML << std::endl << sFilenamePNG << std::endl << "Font successfully created." << std::endl;
+	}
+
+	std::cout << std::endl;
+	system("pause");
+	
+	return 0;
+}
+
+
+typedef std::map<int, std::pair<int,int> > FontOffsets;
+
+bool ConvertTXTtoOGUI(const char* szFilenameTXT, FontOffsets& fontOffsets, std::ofstream& fileOgui)
+{
+	// open txt file readonly	
+	std::ifstream infile;
+	infile.open(szFilenameTXT);
+	if (infile)
+	{
+		fileOgui << std::endl;
+		fileOgui << "[Sprites]" << std::endl;
+
+		// read content 
+		std::string strTXT;
+		std::string strOgui;
+		while (!infile.eof())
 		{
-			String const & section = it.peekNextKey();
-			Ogre::ConfigFile::SettingsMultiMap* settings = it.peekNextValue();
-			if(section.empty())
-			{
-				for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
+			getline(infile, strTXT);
+			if (!strTXT.empty())
+			{	
+				// parse line
+				std::string sFont;
+				Ogre::StringVector tokens = Ogre::StringUtil::split(strTXT, " ");
+				oAssertDesc(tokens.size() == 6, "ConvertTXTtoOGUI: parse error");
+				sFont = tokens[0];
+				int x = Ogre::StringConverter::parseInt(tokens[2]);
+				int y = Ogre::StringConverter::parseInt(tokens[3]); 
+				oAssertDesc(!sFont.empty() && x >= 0 && y >= 0, "ConvertTXTtoOGUI: invalid values");
+
+				// backup font offset
+				if (Ogre::StringUtil::startsWith(sFont.c_str(), "Font_", false))
 				{
-					outputOguiFileString << jit->first << " "<< jit->second << std::endl;
+					int fontIndex = GetIndexFromFilename(sFont.c_str());
+					//fontOffsets.insert(fontIndex, std::pair<int, int>(x, y) );
+					fontOffsets[fontIndex] = std::pair<int, int>(x, y);
 				}
+
+				// conversion
+				strOgui = Ogre::StringUtil::replaceAll(strTXT, " =", "");				
+				fileOgui << strOgui << std::endl;
 			}
-			else
-			{
-				// do not backup font with the index we're just creating
-				if(section != ("Font." + Orkige::StringUtil::Converter::toString(fontindex)))
-				{
-					outputOguiFileString << std::endl << "[" << section << "]" << std::endl;
-					for(Ogre::ConfigFile::SettingsMultiMap::iterator jit = settings->begin(), jitend = settings->end(); jit != jitend; jit++)
-					{
-						if(overwriteFiles)
-						{
-							outputOguiFileString << jit->first << " "<< jit->second << std::endl;
-						}
-						else
-						{
-							if(section == "Texture" && jit->first == "file")
-							{
-								// replace texture filename if we did chose to not overwrite stuff
-								outputOguiFileString << jit->first << " "<< filename << ".new.png" << std::endl;
-							}
-							else
-							{
-								outputOguiFileString << jit->first << " "<< jit->second << std::endl;
-							}
-						}
-					}
-				}
-			}
-			it.moveNext();
 		}
-		textureAtlasImageFilename = oguifile.getSetting("file", "Texture");
+		
+		infile.close();
 	}
 	else
 	{
-		textureAtlasImageFilename = filename.substr(0, filename.find_last_of('.')) + ".png";
+		std::cerr << "ERROR: can't open file " << szFilenameTXT << std::endl;
+		system("pause");		
+		return false;
 	}
 
-	// create or open ogui file
-	std::ofstream outputOguiFile;
-	if(createFile)
-	{
-		outputOguiFile.open(filename .c_str());
-	}
-	else if(!overwriteFiles)
-	{
-		outputOguiFile.open((filename + ".new.ogui").c_str());
-	}
-	else if(overwriteFiles)
-	{
-		outputOguiFile.open(filename.c_str());
-	}
+	remove(szFilenameTXT);
 
-	// write backupped contents into new file
-	outputOguiFile << outputOguiFileString.str();
+	return true;
+}
+
+
+bool ConvertXMLtoOGUI(const char* szFilenameXML, FontOffsets& fontOffsets, std::ofstream& fileOgui)
+{
+	int fontIndex = GetIndexFromFilename(szFilenameXML);
+	std::cout << "Processing font: " << fontIndex << std::endl;
 
 	// write font section to config
-	outputOguiFile << std::endl;
-	outputOguiFile << "[Font."<< fontindex << "]" << std::endl;
+	fileOgui << std::endl;
+	fileOgui << "[Font."<< fontIndex << "]" << std::endl;
 
-	// parse font desc file
-	document =  onew(new TiXmlDocument((filename + ".temp.xml").c_str()));
+	fileOgui << "offset " << fontOffsets[fontIndex].first << " " << fontOffsets[fontIndex].second << std::endl;
+
+	// parse xml font desc file
+	optr<TiXmlDocument>	document = onew(new TiXmlDocument(szFilenameXML));
 	document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
-	xmlRoot = document->RootElement();
+	TiXmlElement* xmlRoot = document->RootElement();
+
 	std::map<char, int> glyphHexValues;
+	
 	Orkige::String sourceFontName = xmlRoot->Attribute("face");
 	Orkige::String sourceFontSize = xmlRoot->Attribute("size");
-	outputOguiFile << "SourceFont " << sourceFontName << " "<< sourceFontSize << std::endl;
+	std::cout << "SourceFont " << sourceFontName << " "<< sourceFontSize << std::endl;
 
-	for(TiXmlElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
+	for (TiXmlElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
 	{
 		String const & elementTypeName = elementType->Value();
 		
-		if(elementTypeName == "glyphs")
+		if (elementTypeName == "glyphs")
 		{
-			outputOguiFile << "lineheight " << xmlRoot->Attribute("height") << std::endl;
-			outputOguiFile << "baseline " << xmlRoot->Attribute("base") << std::endl;
+			fileOgui << "lineheight " << xmlRoot->Attribute("height") << std::endl;
+			fileOgui << "baseline " << xmlRoot->Attribute("base") << std::endl;
 
 			std::vector<int> glyphs;
 			
-			for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
+			for (TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 			{
 				int glyph = xstrtoi(element->Attribute("code"));
 				
 				glyphHexValues[element->Attribute("ch")[0]] = glyph;
 				String origin = element->Attribute("origin");
 				String size = element->Attribute("size");
-
-				if(glyph == 32)
+				std::string sizeX = size.substr(0, size.find("x"));
+				std::string sizeY = size.substr(size.find("x")+1, size.length());
+				std::string originX = origin.substr(0, origin.find(","));
+				std::string originY = origin.substr(origin.find(",")+1, origin.length());
+					
+				if (glyph == 32)
 				{
-					int spacelength = Orkige::StringUtil::Converter::fromString<int>(size.substr(0,size.find("x"))) + Orkige::StringUtil::Converter::fromString<int>(element->Attribute("aw"));
-					outputOguiFile << "spacelength " << spacelength << std::endl;
-					outputOguiFile << "monowidth " << spacelength*2.5 << std::endl;
+					int spacelength = Orkige::StringUtil::Converter::fromString<int>(sizeX) + Orkige::StringUtil::Converter::fromString<int>(element->Attribute("aw"));
+					fileOgui << "spacelength " << spacelength << std::endl;
+					fileOgui << "monowidth " << spacelength*2.5 << std::endl;
 				}
 
 				glyphs.push_back(glyph);
-				outputOguiFile << "glyph_" <<  glyph
-					<< " " << origin.substr(0,origin.find(","))
-					<< " " << origin.substr(origin.find(",")+1,origin.length())
-					<< " " << size.substr(0,size.find("x"))
-					<< " " << size.substr(size.find("x")+1,size.length())
+				fileOgui << "glyph_" << glyph
+					<< " " << originX
+					<< " " << originY
+					<< " " << sizeX
+					<< " " << sizeY
 					<< " " << element->Attribute("aw")
 					<< std::endl;
 			}
-			outputOguiFile << "range " << glyphs[0] << " " << glyphs[glyphs.size()-1] << std::endl;
+
+			oAssertDesc(glyphs.size() > 0, "ConvertXMLtoOGUI: no glyphs found");
+			fileOgui << "range " << glyphs[0] << " " << glyphs[glyphs.size()-1] << std::endl;
 		}
-		if(elementTypeName == "kernpairs")
+		if (elementTypeName == "kernpairs")
 		{
-			for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
+			for (TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 			{
 				int left = glyphHexValues[element->Attribute("left")[0]];
 				int right = glyphHexValues[element->Attribute("right")[0]];
 
-				outputOguiFile << "kerning_" << left 
+				fileOgui << "kerning_" << left 
 					<< " " << right
-					<< " " << element->Attribute("adjust") << std::endl;
+					<< " " << element->Attribute("adjust") 
+					<< std::endl;
 			}
+
+			//fileOgui << "kerning " << ? << std::endl;
 		}
 	}
 
-	int atlas_size=0;
-	// create or load texture atlas
-	cimg_library::CImg<unsigned char> textureAtlasImage;
-	if(!createFile)
-	{
-		Orkige::String::size_type tildePos = textureAtlasImageFilename.find('~');
-		if(tildePos != Orkige::String::npos)
-			textureAtlasImage.load_png(textureAtlasImageFilename.substr(0, tildePos).c_str());
-		else
-			textureAtlasImage.load_png(textureAtlasImageFilename.c_str());
-	}	
-	else
-	{
-		// create atlas and draw white pixel
-		std::cout << "Atlas image size: ";
-		atlas_size;
-		std::cin >> atlas_size;
-		textureAtlasImage = cimg_library::CImg<unsigned char>(atlas_size,atlas_size,1,4);
-		const unsigned char white[4]={ 255, 255, 255, 255 };
-		textureAtlasImage.fill(0);
-		textureAtlasImage.draw_rectangle(atlas_size-2, atlas_size-2, atlas_size, atlas_size, white);
-	}
+	return true;
+}
+
+
+
+int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
+{
+	// place to store ogui and texture atlas
+	std::string sAtlasPath(szAtlasPath);
+	int pos = sAtlasPath.find_last_of("\\");
+	std::string sAtlasName = sAtlasPath.substr(pos+1, sAtlasPath.length());
+	std::string sOutputPath = sAtlasPath.substr(0, pos);
+
+	std::cout << "Atlas Name: " << sAtlasName << std::endl;
+	std::cout << "Output path: " << std::endl << sOutputPath << std::endl;
 	
-	// backup atlas
-	cimg_library::CImg<unsigned char> textureAtlasImageOrig = textureAtlasImage;
-	//textureAtlasImageOrig.load_png(textureAtlasImageFilename.c_str());
+	//std::string sFilenameOGUI = DialogBrowseFile("Select Ogre Texture Atlas File", "ogui", "orkige gui Files (*.ogui)\0*.ogui\0");
+	//std::string sFilenamePNG = DialogBrowseFile("Select Texture File", "texture", "textures (*.png)\0*.png\0");
+	std::string outputImage = sAtlasName + ".png";
+	std::string outputMap   = sAtlasName + ".txt";
+	std::string sFilenameOGUI = sOutputPath + "\\" + sAtlasName + ".ogui"; 
+	std::string sFilenamePNG = sOutputPath + "\\" + outputImage;  
+	std::string sFilenameTXT = sOutputPath + "\\" + outputMap;
+	
+	std::cout << "Output ogui: " << std::endl << sFilenameOGUI << std::endl;
+	std::cout << "Output png: " << std::endl << sFilenamePNG << std::endl;
 
-	String bitmapFontImageFilename = filename + ".temp-0.png";
-	cimg_library::CImg<unsigned char> bitmapFontImage;
-	bitmapFontImage.load_png(bitmapFontImageFilename.c_str());
+	// clean from previous run
+	remove(sFilenameOGUI.c_str());
+	remove(sFilenamePNG.c_str());
+	
+	
+	// execute sprite sheet packer and create bitmap font image and description
+	std::stringstream command;
+	command << "" << szExecutablePath << "\\sspack.exe";
+	//command << "sspack.exe";
+	command << " /image:" << outputImage << " /map:" << outputMap << " /r /sqr /pow2 /pad:1 " << sAtlasName << "\\*.png";
+	
+	// attention: the tool doesn't accept absolute path and then compains with a "No Images to pack." message
+	// so far the only solution is to temporarily copy the executable to the output folder...
+	//_chdir(szExecutablePath);
+	_chdir(sOutputPath.c_str());
+	std::string sFilenameExe(szExecutablePath); sFilenameExe += "\\sspack.exe";
+	std::string sFilenameExeTemp = sOutputPath + "\\sspack.exe";
+	CopyFile(sFilenameExe.c_str(), sFilenameExeTemp.c_str(), FALSE);
 
-	int offsetx = 0;
-	int offsety = 0;
+	// execute tool
+	std::cout << "cmd: " << command.str() << std::endl << "Please wait..." << std::endl;
+	int returnValue = system(command.str().c_str());
+	std::cout << "cmd returned: " << returnValue << std::endl;
 
-	// sho atlas and font and let user choose where to draw the font inside the atlas
-	cimg_library::CImgDisplay main_disp(textureAtlasImage,"Click where to draw the font!", 1), draw_disp(bitmapFontImage,"Bitmap Font");
-	while(!main_disp.is_closed)
+	// delete the temporary executable
+	remove(sFilenameExeTemp.c_str());
+
+	if (returnValue != 0)
 	{
-		main_disp.wait();
+		std::cerr << "Error layouting texture atlas!" << std::endl;
+		system("pause");
+		return -1;
+	}
+	else
+	{		
+		// get image dimensions and write white pixel
+		int width = 0;
+		int height = 0;
+		{
+			cimg_library::CImg<unsigned char> bitmapFontImage;
+			bitmapFontImage.load_png(sFilenamePNG.c_str());
+			
+			width = bitmapFontImage.dimx();
+			height = bitmapFontImage.dimy();
 
-		if (main_disp.button && main_disp.mouse_y>=0) {
-			offsetx = main_disp.mouse_x;
-			offsety = main_disp.mouse_y;
-			float factorx = (float)textureAtlasImage.width / (float)main_disp.window_width;
-			float factory = (float)textureAtlasImage.height / (float)main_disp.window_height;
+			std::cout << "Atlas texture size: " << width << " x " << height << std::endl;
 
-			offsetx = int((float)offsetx * factorx);
-			offsety = int((float)offsety * factory);
-			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
-			{
-				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
-			}
+			// TODO show a warning when image size increased
+
+			// TODO do we need a white pixel?
+			
+			// write whitepixel
+			const unsigned char white[4] = { 255, 255, 255, 255 };
+			bitmapFontImage.draw_rectangle(width-2, height-2, width, height, white);
+			bitmapFontImage.save_png(sFilenamePNG.c_str());
 		}
-		else if(main_disp.is_keyARROWUP)
+
+		// open ogui file
+		std::ofstream fileOgui;
+		fileOgui.open(sFilenameOGUI.c_str());
+
+		// write header
+		fileOgui << "[Texture]" << std::endl;
+		fileOgui << "file " << sAtlasName << ".png" << std::endl;
+		fileOgui << "whitepixel " << width-2 << " " << height-2 << std::endl;
+
+
+		// list all xml files in atlas folder
+		std::vector<std::string> files;
+		GetFilesInDirectory(sAtlasPath.c_str(), "*.xml", files);
+
+		// parse map file and append it to ogui file, store font offset from texture atlas
+		FontOffsets fontOffsets;
+		bool ok = ConvertTXTtoOGUI(outputMap.c_str(), fontOffsets, fileOgui);
+
+		// loop all font xml files and append to ogui file, apply font offset
+		std::vector<std::string>::iterator it = files.begin();
+		for ( ; it != files.end(); it++)
 		{
-			offsety--;
-			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
-			{
-				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
-			}
+			std::stringstream sFilenameXML;
+			sFilenameXML << szAtlasPath << "\\" << (*it).c_str();
+
+			ok &= ConvertXMLtoOGUI(sFilenameXML.str().c_str(), fontOffsets, fileOgui);
 		}
-		else if(main_disp.is_keyARROWDOWN)
-		{
-			offsety++;
-			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
-			{
-				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
-			}
-		}
-		else if(main_disp.is_keyARROWLEFT)
-		{
-			offsetx--;
-			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
-			{
-				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
-			}
-		}
-		else if(main_disp.is_keyARROWRIGHT)
-		{
-			offsetx++;
-			textureAtlasImage.draw_image(textureAtlasImageOrig,0,0);
-			{
-				drawImage(bitmapFontImage, textureAtlasImage, offsetx, offsety);
-			}
-		}
+
+		fileOgui.close();
 
 		
-		textureAtlasImage.display(main_disp);
-	}
-	if(!draw_disp.is_closed)
-		draw_disp.close();
-
-	outputOguiFile << "offset " << offsetx << " " << offsety  << std::endl;
-	
-	if(createFile)
-	{
-		// if its a new file write texture section
-		outputOguiFile << std::endl << "[Texture]" << std::endl << "file " << textureAtlasImageFilename << std::endl << "whitepixel " << atlas_size-2 << " " << atlas_size-2 << std::endl;
-	}
-
-	// save atlas
-	if(overwriteFiles)
-	{
-		Orkige::String::size_type tildePos = textureAtlasImageFilename.find('~');
-		if(tildePos != Orkige::String::npos)
-			textureAtlasImage.save_png(textureAtlasImageFilename.substr(0, tildePos).c_str());
+		if (ok) 
+		{
+			// success
+			MessageBox(NULL, "Atlas texture and Ogre Atlas description file successfully created. \nImage is shown after this message.", "Atlas Generator", MB_OK | MB_ICONASTERISK);
+		}
 		else
-			textureAtlasImage.save_png(textureAtlasImageFilename.c_str());
+		{
+			// something went wrong
+			if (MessageBox(NULL, "ERROR: There was an error creating the Atlas texture. \nDo you want to delete the intermediate files?", "Atlas Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
+			{
+				remove(sFilenameOGUI.c_str());
+				remove(sFilenamePNG.c_str());
+			}
+		}
+
+		// let the tool finish flushing data before reading these, so show after message box
+		ShowImage(sFilenamePNG.c_str());
 	}
-	else
+
+	return 0;
+}
+
+int main(int argc, char **argv)
+{
+	std::cout << "Orkige font and texture atlas converter" << std::endl << std::endl;
+
+	OLOAD_MODULE_STATIC(orkige_core);
+
+	std::string sExecutablePath;
+	std::string sAtlasPath;	
+	
+	// parse command line parameters
+	bool createFont = false;
+	//bool createFont = (cimg_library::cimg::option("-createFont", argc, argv, false) != 0);
+	if (argc == 0)
 	{
-		textureAtlasImage.save_png((filename + ".new.png").c_str());
+		std::cout << "  usage: [-createFont] <path>" << std::endl;
 	}
-
-	// close ogui file
-	outputOguiFile.close();
-
-	// cleanup
-	if(MessageBox( NULL, "Should temporary files generated while building the font be deleted?", "Remove Temp Files?",	MB_YESNO | MB_ICONQUESTION) == IDYES)
+	for (int i = 1; i < argc; ++i)
 	{
-		remove((filename + ".temp.xml").c_str());
-		remove(bitmapFontImageFilename.c_str());
-		remove("memleaks.log");
-		remove("memory.log");
+		std::string s(argv[i]);
+		if (s == "-createFont")
+		{
+			createFont = true;
+		}
+		else
+		{
+			sAtlasPath = s;
+		}
 	}
 
-	// success message
-	std::stringstream quitMessage;
-	quitMessage << "A font with id [Font." << fontindex << "]";
-	quitMessage << " was succesfully created in " << filename;
-	quitMessage << " and placed in " << textureAtlasImageFilename << (overwriteFiles ? "" : ".new.png") << "!";
-	MessageBox( NULL, quitMessage.str().c_str(), "Font succesfully created!",	MB_OK | MB_ICONINFORMATION);
+
+	// backup startup path to get location for external tools
+	{
+		String path;
+		char* buffer;
+		// Get the current working directory: 
+		if( (buffer = _getcwd( NULL, 0 )) == NULL )
+			perror( "_getcwd error" );
+		else
+		{
+			path = buffer;
+	#include "core_debug/DisableMemoryManager.h"
+			free(buffer);
+	#include "core_debug/EnableMemoryManager.h"
+		}
+	
+		//sExecutablePath = argv[0];	
+		sExecutablePath = path.data();
+
+		if (sExecutablePath.empty())
+		{
+			std::cerr << "ERROR: cannot detect path to executable" << std::endl;
+			system("pause");
+			
+			return -1;
+		}
+	}
+
+	std::cout << "path to executable:" << std::endl << sExecutablePath << std::endl;
+
+	if (sAtlasPath.empty())
+	{	
+		sAtlasPath = DialogBrowseFolder("Browse for texture atlas folder");
+	}
+
+	std::cout << "path to texture altas:" << std::endl << sAtlasPath << std::endl;
+		
+	if (!sAtlasPath.empty())
+	{
+		// check for existence
+		if (SetCurrentDirectory(sAtlasPath.c_str()) == 0)
+		{
+			std::cerr << "ERROR: texture atlas path doesn't exist" << std::endl;
+			system("pause");
+			return -1;
+		}
+
+		if (createFont)
+		{
+			generateFont(sExecutablePath.c_str(), sAtlasPath.c_str());
+		}	
+		generateTextureAtlas(sExecutablePath.c_str(), sAtlasPath.c_str());
+	}
+
+	system("pause");
 
 	return 0;
 }
