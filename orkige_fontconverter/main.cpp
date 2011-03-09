@@ -159,6 +159,27 @@ void GetFilesInDirectory(const char* szPath, const char* szPattern, std::vector<
 	*/
 }
 
+std::string GetCurrentPath()
+{
+	std::string path;
+
+	// get the current working directory
+	char* buffer;
+	if( (buffer = _getcwd( NULL, 0 )) == NULL )
+	{
+		perror( "_getcwd error" );
+	}
+	else
+	{
+		path = buffer;
+#include "core_debug/DisableMemoryManager.h"
+		free(buffer);
+#include "core_debug/EnableMemoryManager.h"
+	}
+
+	return path;
+}
+
 std::string GetTempPath()
 {
 	/*
@@ -786,33 +807,21 @@ int main(int argc, char **argv)
 
 
 	// backup startup path to get location for external tools
-	{
-		String path;
-		char* buffer;
-		// Get the current working directory: 
-		if( (buffer = _getcwd( NULL, 0 )) == NULL )
-			perror( "_getcwd error" );
-		else
-		{
-			path = buffer;
-	#include "core_debug/DisableMemoryManager.h"
-			free(buffer);
-	#include "core_debug/EnableMemoryManager.h"
-		}
-	
-		//sExecutablePath = argv[0];	
-		sExecutablePath = path.data();
-
-		if (sExecutablePath.empty())
-		{
-			std::cerr << "ERROR: cannot detect path to executable" << std::endl;
-			system("pause");
-			
-			return -1;
-		}
-	}
+	//sExecutablePath = GetCurrentPath();
+	sExecutablePath = argv[0];	
 
 	std::cout << "path to executable:" << std::endl << sExecutablePath << std::endl;
+	
+	if (sExecutablePath.empty())
+	{
+		std::cerr << "ERROR: can't detect path to executable" << std::endl;
+		system("pause");
+		return -1;
+	}
+	int p = sExecutablePath.find_last_of("\\");
+	oAssertDesc(p > 0, "ERROR: unexpected executable path");
+	sExecutablePath = sExecutablePath.substr(0, p);
+
 
 	if (sAtlasPath.empty())
 	{	
