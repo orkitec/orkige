@@ -37,7 +37,7 @@ include_directories(.)
 LINK_DIRECTORIES( ${OGITOR_LIBPATH} )
 LINK_DIRECTORIES( ${DEPENDENCIES_LIBPATH} )
 
-link_libraries( ${OGRE_LIBRARIES} Ogitor Hydrax)
+link_libraries( ${OGRE_LIBRARIES} Ogitor)
 add_library(DotSceneSerializer SHARED ${HEADER_FILES} ${SOURCE_FILES}  )
 #target_link_libraries(OgreMain Ogitor)
 SET(LIBRARY_OUTPUT_PATH ../lib)

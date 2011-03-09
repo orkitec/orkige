@@ -126,7 +126,7 @@ add_subdirectory(Ogitor)
 # Setup Dependencies
 ##ORKIGE##add_subdirectory(Dependencies/HYDRAX/Hydrax/src/Hydrax)
 ##ORKIGE##add_subdirectory(Dependencies/Caelum-0.5.0/main)
-##ORKIGE##add_subdirectory(Dependencies/PagedGeometry)
+add_subdirectory(Dependencies/PagedGeometry)
 ##ORKIGE##add_subdirectory(Dependencies/SkyX)
 IF(OGITOR_EXPERIMENTAL_INTERFACE)
 add_subdirectory(Dependencies/MeshMagick)
