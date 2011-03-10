@@ -60,6 +60,10 @@ if (ORKIGE_BUILD_FONTCONVERTER)
 	subdirs(orkige_fontconverter)
 endif()
 
+if (ORKIGE_BUILD_MENUVIEWER)
+	subdirs(orkige_menuviewer)
+endif()
+
 if (ORKIGE_UPDATE_DOCS)
 	subdirs(Docs/OrkigeAPI)
 endif()
