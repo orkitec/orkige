@@ -6,11 +6,7 @@
 	purpose:	
 *********************************************************************/
 #include "Application.h"
-//#include "cc_states/IngameState.h"
 #include "PreviewMenuState.h"
-//#include "cc_states/ModelViewerState.h"
-//#include "cc_states/LevelPreviewState.h"
-//#include "cc_states/LevelSummaryState.h"
 #include <core_game/GameStateManager.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <core_util/PlatformUtil.h>
@@ -26,7 +22,8 @@ namespace CC
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Application::Application(String const & _externalWindowHandle, Orkige::String const & _topLevelWindowHandle) : ::Orkige::Application("data/Config/LogConfig.xml"), externalWindowHandle(_externalWindowHandle), topLevelWindowHandle(_topLevelWindowHandle)
+	Application::Application(String const & _externalWindowHandle, Orkige::String const & _topLevelWindowHandle) 
+		: ::Orkige::Application("data/Config/LogConfig.xml"), externalWindowHandle(_externalWindowHandle), topLevelWindowHandle(_topLevelWindowHandle)
 	{
 	}
 	//---------------------------------------------------------
@@ -34,19 +31,14 @@ namespace CC
 	{
 	}
 	//---------------------------------------------------------
-	bool Application::init()
-	{		
-
+	bool Application::init(Ogre::String const & sCommandLine)
+	{
 		Orkige::Application::init();
 		this->localisation = onew(new Orkige::Localisation("en"));
 //		this->settingsManager = onew(new SettingsManager(Orkige::PlatformUtil::getResourceDirectory() + "data/Config/game.cfg",
 //			Orkige::PlatformUtil::getResourceDirectory() + "data/Config/levelCards.cfg"));
 //		this->statisticsManager = onew(new StatisticsManager());
-//		this->gsm->registerState(onew(new IngameState("Ingame")));
-		this->gsm->registerState(onew(new PreviewMenuState("MainMenu")));
-//		this->gsm->registerState(onew(new ModelViewerState("ModelViewer")));
-//		this->gsm->registerState(onew(new LevelPreviewState("LevelPreview")));
-//		this->gsm->registerState(onew(new LevelSummaryState("LevelSummary")));
+		this->gsm->registerState(onew(new PreviewMenuState("PreviewMenu", sCommandLine)));
 
 		//initialize the timer system
 		Timer::initialise();
@@ -57,7 +49,7 @@ namespace CC
 		this->staticPluginLoader.load();
 
 		//load the game config and check in which mode app should be started
-		bool editorMode = true;//cfg->getEntry<bool>("App","OrkigeWorldEditor");
+		bool editorMode = true;
 
 		//default initialization when we aren't in "tool" mode
 		if( !this->engine->setup(false, "orkige 3D Engine RenderWindow", this->externalWindowHandle, this->topLevelWindowHandle))
@@ -82,22 +74,15 @@ namespace CC
 // 				this->ingameConsole->init();
 // 			}
 
-			//setup Compositors and Compositormanager
-			//this->engine->enableCompositors();
-
-
 			//loadingBar.worldGeometryStageStarted("Initializing Inputsystem!");
 			this->inputManager = onew(new InputManager(editorMode));
 			
-
 			//loadingBar.worldGeometryStageStarted("Initializing Sound!");
-//			this->soundManager = onew(new SoundManager(Engine::getSingleton().getCamera()));
+			this->soundManager = onew(new SoundManager(Engine::getSingleton().getCamera()));
 			/*this->soundManager->initSound();*/
-//			this->soundManager->init();
+			this->soundManager->init();
 			
 			this->gem->trigger(Event("InitEngine"));
-
-//			this->collisionTools = onew(new CollisionTools());
 
 //			this->settingsManager->load();
 //			this->settingsManager->loadLayout();
@@ -111,36 +96,27 @@ namespace CC
 		this->fastGuiManager->showStats();
 #endif
 
-		this->gsm->setState("MainMenu");
+		SoundManager::getSingleton().createSound("click", "click.wav", false);
 
+		this->gsm->setState("PreviewMenu");
 
-		SoundManager::getSingleton().createSound("click","click.wav", false);
-// 		SoundManager::getSingleton().createSound("scrdjelly1","scrdjelly1.wav", false);
-// 		SoundManager::getSingleton().createSound("scrdjelly2","scrdjelly2.wav", false);
-// 		SoundManager::getSingleton().createSound("coinmed","coinmed.wav", false);
-// 		SoundManager::getSingleton().createSound("pickcard","pickcard.wav", false);
-// 		SoundManager::getSingleton().createSound("placecard","placecard.wav", false);
-// 		SoundManager::getSingleton().createSound("plantturn","plantturn.wav", false);
-// 		SoundManager::getSingleton().createSound("jellywin","jellywin.wav", false);
-// 		SoundManager::getSingleton().createSound("jellylose","jellylose.wav", false);
-// 		SoundManager::getSingleton().createSound("lever","lever.wav", false);
-// 		SoundManager::getSingleton().createSound("opendoor","opendoor.wav", false);
-// 		//SoundManager::getSingleton().createSound("jellyTheme1_retro","jellyTheme1_retro.wav", true);
-// 		SoundManager::getSingleton().createSound("snakewhstle","snakewhstle.wav", false);
-// 		SoundManager::getSingleton().createSound("speedup","speedup.wav", false);
-// 		SoundManager::getSingleton().createSound("sheild","sheild.wav", false);
-// 		SoundManager::getSingleton().createSound("collctvalerian","collctvalerian.wav", false);
-// 		SoundManager::getSingleton().createSound("respawn","respawn.wav", false);
 
 // 		if (SettingsManager::getSingleton().getSetting("EnableSound") == "no")
-// 		{
-// 			SoundManager::getSingleton().setMasterVolume(0);
-// 		}
+ 		{
+ 			SoundManager::getSingleton().setMasterVolume(0);
+ 		}
 
 		
 		this->registerEvent(Orkige::Button::ButtonHitEvent,			&Application::onGuiEvent, this, 1);
 		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,	&Application::onGuiEvent, this, 1);
-		
+
+		/*
+		if (!sCommandLine.empty())
+		{
+			static_cast<PreviewMenuState>(this->gsm->getCurrent())->LoadMenu(sCommandLine);
+		}
+		*/
+
 		return true;
 	}
 	//---------------------------------------------------------

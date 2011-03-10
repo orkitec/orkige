@@ -55,7 +55,7 @@
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_base/Localisation.h>
 #include <engine_util/StringUtil.h>
-#include "cc_game/SettingsManager.h"
+//#include "cc_game/SettingsManager.h"
 #include "cc_game/StatisticsManager.h"
 
 
@@ -86,7 +86,8 @@ namespace CC
 	public:
 		Application(Orkige::String const & externalWindowHandle = Orkige::StringUtil::BLANK, Orkige::String const & topLevelWindowHandle = Orkige::StringUtil::BLANK);
 		virtual ~Application();
-		bool init();
+
+		bool init(Ogre::String const & sCommandLine);
 		bool deinit();
 		virtual bool run();
 	protected:

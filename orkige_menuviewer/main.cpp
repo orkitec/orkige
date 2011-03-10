@@ -26,7 +26,7 @@ void __orkige_debug_msg(std::string const & msg)
 #ifndef ORKIGE_IPHONE
 
 #ifdef WIN32
-INT WINAPI WinMain(HINSTANCE , HINSTANCE, LPSTR, INT)
+INT WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR lpCmdLine, INT)
 #else
 int main(int argc, char **argv)
 #endif
@@ -37,7 +37,7 @@ int main(int argc, char **argv)
 
 	CC::Application app;
 
-	if(!app.init())
+	if(!app.init(Ogre::String(lpCmdLine)))
 		return -1;
 
 //	KS::initConsoleCommands();

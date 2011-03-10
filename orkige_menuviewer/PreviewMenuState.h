@@ -27,9 +27,10 @@ namespace CC
 	public:
 	protected:
 	private:
+		Ogre::String sFilename;
 		//--- Methods -----------------------------------------
 	public:
-		PreviewMenuState(Orkige::String const & id);
+		PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename);
 		virtual ~PreviewMenuState();
 	protected:
 		//! gets called when this stat is entered
@@ -47,11 +48,13 @@ namespace CC
 		bool onMousePressed(Orkige::Event const & event);
 		bool onMouseReleased(Orkige::Event const & event);
 		bool onMouseMoved(Orkige::Event const & event);
-		
-//		Orkige::String getLastLevel();
-//		void setLastLevel( Orkige::String sceneName );
+
 	private:
+		//Ogre::String DialogBrowseFile(Ogre::String const & sTitle, Ogre::String const & sFileType, Ogre::String const & sFileTypeDesc);
 		std::string DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc);
+		void SelectAndLoadMenu();
+		void LoadMenu();
+
 	};
 	//---------------------------------------------------------
 }

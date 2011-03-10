@@ -25,14 +25,15 @@ namespace CC
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	PreviewMenuState::PreviewMenuState(Orkige::String const & id) : GameState(id)
+	PreviewMenuState::PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename) 
+		: GameState(id), sFilename(sFilename)
 	{
-		this->registerEvent(Orkige::Engine::FrameStartedEvent,	&PreviewMenuState::onFrameStarted,		this);
-		this->registerEvent(Orkige::InputManager::KeyPressedEvent,		&PreviewMenuState::onKeyPressed,		this);
-		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,		&PreviewMenuState::onKeyReleased,		this);
-		this->registerEvent(Orkige::InputManager::MousePressedEvent,		&PreviewMenuState::onMousePressed,		this);
+		this->registerEvent(Orkige::Engine::FrameStartedEvent,			&PreviewMenuState::onFrameStarted,	this);
+		this->registerEvent(Orkige::InputManager::KeyPressedEvent,		&PreviewMenuState::onKeyPressed,	this);
+		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,		&PreviewMenuState::onKeyReleased,	this);
+		this->registerEvent(Orkige::InputManager::MousePressedEvent,	&PreviewMenuState::onMousePressed,	this);
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,	&PreviewMenuState::onMouseReleased,	this);
-		this->registerEvent(Orkige::InputManager::MouseMovedEvent,		&PreviewMenuState::onMouseMoved,		this);
+		this->registerEvent(Orkige::InputManager::MouseMovedEvent,		&PreviewMenuState::onMouseMoved,	this);
 		this->registerEvent(Orkige::Button::ButtonHitEvent,				&PreviewMenuState::onButtonHit,		this);
 	}
 	//---------------------------------------------------------
@@ -45,57 +46,29 @@ namespace CC
 	//---------------------------------------------------------
 	void PreviewMenuState::onEnter()
 	{
-		Ogre::StringVectorPtr scenes = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.scene");
+		//Ogre::StringVectorPtr scenes = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.scene");
+		Ogre::StringVectorPtr menus = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.menu");
 		
 
 		// just curious...
-		int i = scenes->size();
-		Ogre::StringVector::iterator It = (*scenes).begin();
-		Ogre::StringVector::iterator ItEnd = (*scenes).end();
+		int i = menus->size();
+		Ogre::StringVector::iterator It = (*menus).begin();
+		Ogre::StringVector::iterator ItEnd = (*menus).end();
 		for ( ; It < ItEnd; ++It)
 		{
 			Ogre::String s = *It;
 			int i = 0;
 		}
 
-
-		//if(SettingsManager::getSingleton().getSettingAs<bool>("DemoMode") == true)
-		if (true)
+		if (!sFilename.empty())
 		{
-			FastGuiManager::getSingleton().getFactory().lock()->load("FastGui/main_demo.menu");
-		}
-		else
-		{
-			FastGuiManager::getSingleton().getFactory().lock()->load("FastGui/main.menu");
-		}
-		
-	
-		if (FastGuiManager::getSingleton().widgetExists("scenemenu"))
-		{
-			woptr<Orkige::FastGuiWidget> widget_fast = FastGuiManager::getSingleton().getWidget("scenemenu") ;
-			oAssert(widget_fast.lock());
-			optr<Orkige::FastGuiSelectMenu> SelectMenu_fast = boost::static_pointer_cast<Orkige::FastGuiSelectMenu>(widget_fast.lock());//.lock()->setItems(*scenes) ;
-			oAssert(SelectMenu_fast);
-			SelectMenu_fast->setItems(*scenes);
-//			SelectMenu_fast->selectItem(this->getLastLevel());
+			LoadMenu();
 		}
 	}
 	//---------------------------------------------------------
 	void PreviewMenuState::onExit()
 	{
-		if(FastGuiManager::getSingleton().widgetExists("scenemenu"))
-		{
-//			String sceneName =boost::static_pointer_cast<Orkige::FastGuiSelectMenu>(FastGuiManager::getSingleton().getWidget("scenemenu").lock())->getSelectedItem();
-//
-//			SettingsManager::getSingleton().setSetting("SelectedScene",sceneName);
-			
-//			this->setLastLevel(boost::static_pointer_cast<Orkige::FastGuiSelectMenu>(FastGuiManager::getSingleton().getWidget("scenemenu").lock())->getSelectedItem());
-//			Orkige::String selectedItem = boost::static_pointer_cast<Orkige::FastGuiSelectMenu>(FastGuiManager::getSingleton().getWidget("scenemenu").lock())->getSelectedItem();
-//			GameStateManager::getSingleton().setAttribute("CurrentLevel", selectedItem);
-		}
-
-//		SettingsManager::getSingleton().save();
-		
+//		SettingsManager::getSingleton().save();		
 		FastGuiManager::getSingleton().destroyAllWidgets();
 	}
 	//---------------------------------------------------------
@@ -170,7 +143,6 @@ namespace CC
 	//---------------------------------------------------------
 	bool PreviewMenuState::onFrameStarted(Orkige::Event const & event)
 	{
-		//OPROFILE("PreviewMenuState::onFrameStarted");
 		optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
 
 		return false;
@@ -188,7 +160,10 @@ namespace CC
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
 
 		switch(data->key)
-		{		
+		{
+		case KeyEventData::KC_O:
+			this->SelectAndLoadMenu();
+			break;
 		case KeyEventData::KC_GRAVE:
 			Orkige::IngameConsole::getSingleton().switchVisible();
 			break;
@@ -202,7 +177,8 @@ namespace CC
 		default:
 			{
 				
-			} break;
+			} 
+			break;
 		}
 
 		return false;
@@ -229,39 +205,34 @@ namespace CC
 		return false;
 	}
 	//---------------------------------------------------------
-/*
-	Orkige::String PreviewMenuState::getLastLevel	()
-	{
-		Orkige::String filename = Orkige::String(Orkige::PlatformUtil::getDocumentsDirectory() + "lastlevel.txt");
-		std::ifstream in(filename.c_str());
-		if (in)
-		{
-			Orkige::String buf;
-			std::getline (in, buf);
-			in.close();
-			return buf;
-		}
-		else
-		{
-			return Orkige::String("Level_01.scene");
-		}
-	}
-	//---------------------------------------------------------
-	void PreviewMenuState::setLastLevel	( Orkige::String sceneName )	
-	{
-		Orkige::String filename = Orkige::String(Orkige::PlatformUtil::getDocumentsDirectory() + "lastlevel.txt");
-		std::ofstream out(filename.c_str());
-		if (out)
-		{
-			out << sceneName;
-			out.close();
-		}	
-	}
-*/
-	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+	/*
+	Ogre::String PreviewMenuState::DialogBrowseFile(Ogre::String const & sTitle, Ogre::String const & sFileType, Ogre::String const & sFileTypeDesc)
+	{
+		char szFileName[MAX_PATH] = "";
 
+		OPENFILENAME ofn;
+		ZeroMemory(&ofn, sizeof(ofn));
+
+		ofn.lStructSize = sizeof(ofn);
+		ofn.hwndOwner = 0;
+		ofn.lpstrFilter = sFileTypeDesc.c_str(); // e.g. "orkige gui Files (*.ogui)\0*.ogui\0";
+		ofn.lpstrFile = (char*)sFileTypeDesc.c_str();
+		ofn.nMaxFile = MAX_PATH;
+		ofn.Flags = OFN_EXPLORER; // | OFN_HIDEREADONLY;
+		ofn.lpstrDefExt = sFileType.c_str(); // e.g. "ogui";
+		ofn.lpstrInitialDir = NULL;
+
+		Ogre::String sFilename;
+		if (GetOpenFileName(&ofn))
+		{
+			sFilename = szFileName;
+		}
+
+		return sFilename;
+	}
+	*/
 	std::string PreviewMenuState::DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc)
 	{
 		char szFileName[MAX_PATH] = "";
@@ -287,6 +258,35 @@ namespace CC
 		return sFilename;
 	}
 
+	void PreviewMenuState::SelectAndLoadMenu()
+	{
+		//Ogre::String sTemp = this->DialogBrowseFile(
+		//	Ogre::String("Select menu file to view"), 
+		//	Ogre::String("*.menu"), 
+		//	Ogre::String("orkige menu definition files (*.menu)\0*.menu\0"));
+		Ogre::String sTemp = this->DialogBrowseFile(
+			"Select menu file to view", 
+			"*.menu", 
+			"orkige menu definition files (*.menu)\0*.menu\0");
 
+		if (!sTemp.empty())
+		{
+			this->sFilename = sTemp;
+			this->LoadMenu();
+		}
+	}
+
+	void PreviewMenuState::LoadMenu()
+	{
+		if (!sFilename.empty())
+		{
+			Ogre::String sBasename, sExtension, sPath;
+			Ogre::StringUtil::splitFullFilename(this->sFilename, sBasename, sExtension, sPath);
+
+			sBasename = "FastGui/" + sBasename + "." + sExtension;  // e.g. "FastGui/main_demo.menu"
+
+			FastGuiManager::getSingleton().getFactory().lock()->load(Orkige::String(sBasename));
+		}
+	}
 
 }
