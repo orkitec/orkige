@@ -215,7 +215,7 @@ ELSE(NOT QT4_FOUND)
             COMMAND cp -r ${OGITORFILE} ../RunPath/bin/${TARGET} )
     ENDIF(UNIX AND NOT APPLE)
 
-    install(DIRECTORY ${CMAKE_SOURCE_DIR}/RunPath/languages
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/Ogitor/RunPath/languages
         DESTINATION ${PREFIX}
         PATTERN ".svn" EXCLUDE
         PATTERN "translate.pro" EXCLUDE
@@ -254,11 +254,11 @@ ELSE(NOT QT4_FOUND)
             ${QT_DLL_DIR}/QtGuid4.dll
             ${QT_DLL_DIR}/QtSvgd4.dll
             ${QT_BINARY_DIR}/assistant.exe
-            ${QT_DLL_DIR}/QtHelpd4.dll
+            ${QT_DLL_DIR}/QtHelp4.dll
             ${QT_DLL_DIR}/QtNetworkd4.dll
             ${QT_DLL_DIR}/QtSqld4.dll
             ${QT_DLL_DIR}/QtWebKitd4.dll
-            ${QT_DLL_DIR}/QtCLucened4.dll
+            ${QT_DLL_DIR}/QtCLucene4.dll
             ${QT_DLL_DIR}/QtXmld4.dll
             ${QT_DLL_DIR}/QtXmlPatternsd4.dll
             ${QT_DLL_DIR}/phonond4.dll
