@@ -349,13 +349,13 @@ void OgitorsRoot::RegisterSerializer(void *pluginIdentifier, CBaseSerializer *se
         {
             it->second.mSerializers.push_back(serializer->GetTypeString());
             it->second.mFeatures |= PLUGIN_FEATURE_SERIALIZER;
-            serializer->SetTypeID(mSerializerList.size());
-            mSerializerList.insert(SerializerMap::value_type(serializer->GetTypeString(), serializer));
         }
         catch(...)
         {
         }
     }
+	serializer->SetTypeID(mSerializerList.size());
+	mSerializerList.insert(SerializerMap::value_type(serializer->GetTypeString(), serializer));
 }
 //-----------------------------------------------------------------------------------------
 void OgitorsRoot::RegisterPreferenceEditor(PreferenceEditorRegistrationStruct &regStruct)

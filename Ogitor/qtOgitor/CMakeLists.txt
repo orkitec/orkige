@@ -133,6 +133,7 @@ ELSE(NOT QT4_FOUND)
     SET(SRCS ${SRCS} ${MOC_SRCS} ${UI_FILES})
 
     include_directories(../Ogitor/include
+	../Plugins/DotSceneSerializer
       ./qtpropertybrowser-2.5/src
     )
 
@@ -185,9 +186,9 @@ ELSE(NOT QT4_FOUND)
     SET_TARGET_PROPERTIES( qtOgitor PROPERTIES DEBUG_POSTFIX _d )
 
     if(OGITOR_EXPERIMENTAL_INTERFACE)
-        TARGET_LINK_LIBRARIES(qtOgitor QtSolutions_PropertyBrowser ${QT_QTMAIN_LIBRARY} ${QT_LIBRARIES} ${OGRE_LIBRARIES} ${OGRE_Paging_LIBRARY} ${OGRE_Terrain_LIBRARY} Ogitor meshmagick_shared_lib ${Boost_REGEX_LIBRARY})
+        TARGET_LINK_LIBRARIES(qtOgitor QtSolutions_PropertyBrowser ${QT_QTMAIN_LIBRARY} ${QT_LIBRARIES} ${OGRE_LIBRARIES} ${OGRE_Paging_LIBRARY} ${OGRE_Terrain_LIBRARY} Ogitor DotSceneSerializer meshmagick_shared_lib ${Boost_REGEX_LIBRARY})
     else(OGITOR_EXPERIMENTAL_INTERFACE)
-        TARGET_LINK_LIBRARIES(qtOgitor QtSolutions_PropertyBrowser ${QT_QTMAIN_LIBRARY} ${QT_LIBRARIES} ${OGRE_LIBRARIES} ${OGRE_Paging_LIBRARY} ${OGRE_Terrain_LIBRARY} Ogitor ${Boost_REGEX_LIBRARY})
+        TARGET_LINK_LIBRARIES(qtOgitor QtSolutions_PropertyBrowser ${QT_QTMAIN_LIBRARY} ${QT_LIBRARIES} ${OGRE_LIBRARIES} ${OGRE_Paging_LIBRARY} ${OGRE_Terrain_LIBRARY} Ogitor DotSceneSerializer ${Boost_REGEX_LIBRARY})
     endif(OGITOR_EXPERIMENTAL_INTERFACE)
     if(UNIX AND NOT APPLE)
         TARGET_LINK_LIBRARIES(qtOgitor optimized QtSolutions_PropertyBrowser ${Boost_LIBRARIES})

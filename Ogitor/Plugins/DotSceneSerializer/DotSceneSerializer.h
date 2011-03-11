@@ -38,7 +38,7 @@
    #ifdef PLUGIN_EXPORT
      #define PluginExport __declspec (dllexport)
    #else
-     #define PluginExport __declspec (dllimport)
+     #define PluginExport/* __declspec (dllimport)*/
    #endif
 #else
    #define PluginExport

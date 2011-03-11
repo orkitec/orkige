@@ -38,7 +38,7 @@ LINK_DIRECTORIES( ${OGITOR_LIBPATH} )
 LINK_DIRECTORIES( ${DEPENDENCIES_LIBPATH} )
 
 link_libraries( ${OGRE_LIBRARIES} Ogitor)
-add_library(DotSceneSerializer SHARED ${HEADER_FILES} ${SOURCE_FILES}  )
+add_library(DotSceneSerializer STATIC ${HEADER_FILES} ${SOURCE_FILES}  )
 #target_link_libraries(OgreMain Ogitor)
 SET(LIBRARY_OUTPUT_PATH ../lib)
 
@@ -70,9 +70,9 @@ IF(WIN32)
         COMMAND if exist ..\\..\\RunPath\\Plugins\\DotSceneSerializer_d.dll move ..\\..\\RunPath\\Plugins\\DotSceneSerializer_d.dll ..\\..\\RunPath\\Plugins\\debug)
 ENDIF(WIN32)
 
-IF(WIN32)
-install(TARGETS DotSceneSerializer
-    RUNTIME DESTINATION Plugins
-    CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
-ENDIF()
+#IF(WIN32)
+#install(TARGETS DotSceneSerializer
+#    RUNTIME DESTINATION Plugins
+#    CONFIGURATIONS Release RelWithDebInfo MinSizeRel)
+#ENDIF()
 

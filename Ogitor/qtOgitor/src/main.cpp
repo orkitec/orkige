@@ -29,6 +29,38 @@
 /// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 /// THE SOFTWARE.
 ////////////////////////////////////////////////////////////////////////////////*/
+/*#ifdef OGRE_STATIC_LIB*/
+#ifdef ORKIGE_GLESRS
+#  define OGRE_STATIC_GLES 1
+#else
+#  define OGRE_STATIC_GL
+#endif
+#ifdef WIN32
+#    define OGRE_STATIC_Direct3D9
+#  endif
+//#  define OGRE_STATIC_BSPSceneManager
+#  define OGRE_STATIC_ParticleFX
+#ifdef ORKIGE_CG
+#  define OGRE_STATIC_CgProgramManager
+#endif
+#  ifdef OGRE_USE_PCZ
+#    define OGRE_STATIC_PCZSceneManager
+#    define OGRE_STATIC_OctreeZone
+#  else
+#    define OGRE_STATIC_OctreeSceneManager
+#  endif
+#ifdef ORKIGE_IPHONE
+#  if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
+//#     undef OGRE_STATIC_CgProgramManager
+#     undef OGRE_STATIC_GL
+#     define OGRE_STATIC_GLES 1
+#     ifdef __OBJC__
+#       import <UIKit/UIKit.h>
+#     endif
+#  endif
+#endif
+/*#endif*/
+#include "OgreStaticPluginLoader.h"
 
 #include "mainwindow.hxx"
 #include "shortcuts.hxx"
@@ -38,6 +70,7 @@
 #include "BaseEditor.h"
 #include "ViewportEditor.h"
 #include "OgitorsRoot.h"
+#include "DotSceneSerializer.h"
 
 extern bool    ViewKeyboard[1024];
 extern QString ConvertToQString(Ogre::UTFString& value);
@@ -49,8 +82,13 @@ Shortcuts            *shortCuts;
 //-------------------------------------------------------------------------------------
 void setupOgre(Ogre::String plugins, Ogre::String config, Ogre::String log)
 {
+	Ogre::StaticPluginLoader		staticPluginLoader;
+	
+
     // create the main ogre object
     mOgreRoot = OGRE_NEW Ogre::Root( plugins);
+
+	staticPluginLoader.load();
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_LINUX
     // load additional plugins
@@ -221,7 +259,7 @@ int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
-    QDir::setCurrent(a.applicationDirPath());
+    //QDir::setCurrent(a.applicationDirPath());
 
     // See if we are loading something from the commandline.
     QString fileArg("");
@@ -311,11 +349,16 @@ int main(int argc, char *argv[])
         splash->show();
     }
 
+
 #ifdef _DEBUG
     setupOgre(resourcePath() + Ogre::String("plugins_debug.cfg"), Ogre::String("ogre.cfg"), Ogre::String("ogitor.log"));
 #else
     setupOgre(resourcePath() + Ogre::String("plugins.cfg"), Ogre::String("ogre.cfg"), Ogre::String("ogitor.log"));
 #endif
+
+	Ogitors::CDotSceneSerializer* DotSceneSerializer = OGRE_NEW Ogitors::CDotSceneSerializer();
+	Ogitors::OgitorsRoot::getSingletonPtr()->RegisterSerializer(DotSceneSerializer, DotSceneSerializer);
+
 
     readRecentFiles(settings);
 
@@ -366,6 +409,7 @@ int main(int argc, char *argv[])
     OGRE_DELETE mOgitorsRoot;
     OGRE_DELETE mSystem;
     OGRE_DELETE mOgreRoot;
+	OGRE_DELETE DotSceneSerializer;
 
     return retval;
 }
