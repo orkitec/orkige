@@ -274,7 +274,7 @@ int main(int argc, char *argv[])
             fileArg = info.absoluteFilePath();
             suffix = info.suffix();
         }
-        else if(info.baseName() != "qtOgitor" && info.baseName() != "qtOgitor_d"  )
+        else if(info.baseName() != "qtOgitor" && info.baseName() != "qtOgitor_d" && info.baseName() != "qtOgitor_Win32_Debug" && info.baseName() != "qtOgitor_Win32_MinSizeRel" && info.baseName() != "qtOgitor_Win32_Release" && info.baseName() != "qtOgitor_Win32_RelWithDebInfo"  )
         {
             // We are trying to load something we can't load
             // Exit the application.
@@ -358,7 +358,6 @@ int main(int argc, char *argv[])
 
 	Ogitors::CDotSceneSerializer* DotSceneSerializer = OGRE_NEW Ogitors::CDotSceneSerializer();
 	Ogitors::OgitorsRoot::getSingletonPtr()->RegisterSerializer(DotSceneSerializer, DotSceneSerializer);
-
 
     readRecentFiles(settings);
 
