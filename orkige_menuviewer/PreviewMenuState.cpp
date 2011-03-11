@@ -9,15 +9,11 @@
 #include "PreviewMenuState.h"
 #include <engine_input/InputManager.h>
 #include <core_game/Application.h>
-#include <core_game/GameStateManager.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gui/IngameConsole.h>
-#include <engine_gui/YesNoDialog.h>
-#include <engine_sound/SoundManager.h>
-#include <engine_util/StringUtil.h>
-#include <core_debug/Profile.h>
-//#include "cc_game/SettingsManager.h"
 #include <engine_fastgui/FastGuiManager.h>
+#include "FileUtils.h"
+
 
 namespace CC
 {
@@ -26,7 +22,7 @@ namespace CC
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	PreviewMenuState::PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename) 
-		: GameState(id), sFilename(sFilename)
+		: GameState(id), sFilenameMenu(sFilename)
 	{
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,			&PreviewMenuState::onFrameStarted,	this);
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,		&PreviewMenuState::onKeyPressed,	this);
@@ -46,21 +42,21 @@ namespace CC
 	//---------------------------------------------------------
 	void PreviewMenuState::onEnter()
 	{
-		//Ogre::StringVectorPtr scenes = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.scene");
-		Ogre::StringVectorPtr menus = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.menu");
-		
+		/* for debug: lists all menu files
 
-		// just curious...
+		Ogre::StringVectorPtr menus = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.menu");
+
 		int i = menus->size();
 		Ogre::StringVector::iterator It = (*menus).begin();
 		Ogre::StringVector::iterator ItEnd = (*menus).end();
 		for ( ; It < ItEnd; ++It)
 		{
 			Ogre::String s = *It;
-			int i = 0;
+			...
 		}
+		*/
 
-		if (!sFilename.empty())
+		if (!this->sFilenameMenu.empty())
 		{
 			LoadMenu();
 		}
@@ -74,70 +70,18 @@ namespace CC
 	//---------------------------------------------------------
 	bool PreviewMenuState::onButtonHit(Orkige::Event const & event)
 	{
-/*
 		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
-		if(btn->getObjectID() == "StartRot" || btn->getObjectID() == "Start" )
-		{	
-			GameStateManager::getSingleton().setAttribute("GameVariation", Orkige::String("NormalGame"));
-			this->setTransition("LevelPreview");
-			return false;
-		}
-// 		else if(btn->getObjectID() == "StartNoRot")
-// 		{	
-// 			GameStateManager::getSingleton().setAttribute("GameVariation", Orkige::String("NoRotation"));
-// 			this->setTransition("LevelPreview");
-// 			return false;
-// 		}
-		else if(btn->getObjectID() == "Level1") //chillingo hack
-		{	
-//			SettingsManager::getSingleton().setSetting("SelectedScene","Level_02.scene");
-			this->setLastLevel(Orkige::String("Level_02.scene"));
-			GameStateManager::getSingleton().setAttribute("GameVariation", btn->getObjectID());
-			this->setTransition("LevelPreview");
-			return false;
-		}
-		else if(btn->getObjectID() == "Level2") //chillingo hack
-		{	
-//			SettingsManager::getSingleton().setSetting("SelectedScene","Level_10.scene");
-			this->setLastLevel(Orkige::String("Level_10.scene"));
-			GameStateManager::getSingleton().setAttribute("GameVariation", btn->getObjectID());
-			this->setTransition("LevelPreview");
-			return false;
-		}
-		else if(btn->getObjectID() == "Level3") //chillingo hack
-		{	
-//			SettingsManager::getSingleton().setSetting("SelectedScene","Action_03.scene");
-			this->setLastLevel(Orkige::String("Action_03.scene"));
-			GameStateManager::getSingleton().setAttribute("GameVariation", btn->getObjectID());
-			this->setTransition("LevelPreview");
-			return false;
-		}
-		else if(btn->getObjectID() == "Level4") //chillingo hack
-		{	
-//			SettingsManager::getSingleton().setSetting("SelectedScene","Labyrinth_01.scene");
-			this->setLastLevel(Orkige::String("Labyrinth_01.scene"));
-			GameStateManager::getSingleton().setAttribute("GameVariation", btn->getObjectID());
-			this->setTransition("LevelPreview");
-			return false;
-		}
-		else if(btn->getObjectID() == "Level5") //chillingo hack
-		{	
-//			SettingsManager::getSingleton().setSetting("SelectedScene","Level_18.scene");
-			this->setLastLevel(Orkige::String("Level_18.scene"));
-			GameStateManager::getSingleton().setAttribute("GameVariation", btn->getObjectID());
-			this->setTransition("LevelPreview");
-			return false;
-		}
-		else if(btn->getObjectID() == "ModelViewer")
-		{	
-			this->setTransition("ModelViewer");
-			return false;
-		}
-		else if(btn->getObjectID() == "Quit")
+		Orkige::String sID = btn->getObjectID();
+
+		// TODO show message box, click sound
+
+		/*
+		if(btn->getObjectID() == "Quit")
 		{
 			Orkige::Application::getSingleton().quit();
 		}
-*/
+		*/
+
 		return false;
 	}
 	//---------------------------------------------------------
@@ -163,6 +107,9 @@ namespace CC
 		{
 		case KeyEventData::KC_O:
 			this->SelectAndLoadMenu();
+			break;
+		case KeyEventData::KC_R:
+			this->LoadMenu();
 			break;
 		case KeyEventData::KC_GRAVE:
 			Orkige::IngameConsole::getSingleton().switchVisible();
@@ -207,85 +154,47 @@ namespace CC
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	/*
-	Ogre::String PreviewMenuState::DialogBrowseFile(Ogre::String const & sTitle, Ogre::String const & sFileType, Ogre::String const & sFileTypeDesc)
-	{
-		char szFileName[MAX_PATH] = "";
-
-		OPENFILENAME ofn;
-		ZeroMemory(&ofn, sizeof(ofn));
-
-		ofn.lStructSize = sizeof(ofn);
-		ofn.hwndOwner = 0;
-		ofn.lpstrFilter = sFileTypeDesc.c_str(); // e.g. "orkige gui Files (*.ogui)\0*.ogui\0";
-		ofn.lpstrFile = (char*)sFileTypeDesc.c_str();
-		ofn.nMaxFile = MAX_PATH;
-		ofn.Flags = OFN_EXPLORER; // | OFN_HIDEREADONLY;
-		ofn.lpstrDefExt = sFileType.c_str(); // e.g. "ogui";
-		ofn.lpstrInitialDir = NULL;
-
-		Ogre::String sFilename;
-		if (GetOpenFileName(&ofn))
-		{
-			sFilename = szFileName;
-		}
-
-		return sFilename;
-	}
-	*/
-	std::string PreviewMenuState::DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc)
-	{
-		char szFileName[MAX_PATH] = "";
-
-		OPENFILENAME ofn;
-		ZeroMemory(&ofn, sizeof(ofn));
-
-		ofn.lStructSize = sizeof(ofn);
-		ofn.hwndOwner = 0;
-		ofn.lpstrFilter = szFileTypeDesc; // e.g. "orkige gui Files (*.ogui)\0*.ogui\0";
-		ofn.lpstrFile = szFileName;
-		ofn.nMaxFile = MAX_PATH;
-		ofn.Flags = OFN_EXPLORER; // | OFN_HIDEREADONLY;
-		ofn.lpstrDefExt = szFileType; // e.g. "ogui";
-		ofn.lpstrInitialDir = NULL;
-
-		std::string sFilename;
-		if (GetOpenFileName(&ofn))
-		{
-			sFilename = szFileName;
-		}
-
-		return sFilename;
-	}
+	
 
 	void PreviewMenuState::SelectAndLoadMenu()
 	{
+		// TODO hide soft mouse cursor
+
 		//Ogre::String sTemp = this->DialogBrowseFile(
 		//	Ogre::String("Select menu file to view"), 
 		//	Ogre::String("*.menu"), 
 		//	Ogre::String("orkige menu definition files (*.menu)\0*.menu\0"));
-		Ogre::String sTemp = this->DialogBrowseFile(
+		Ogre::String sFilenameTemp = FileUtils::DialogBrowseFile(
 			"Select menu file to view", 
 			"*.menu", 
-			"orkige menu definition files (*.menu)\0*.menu\0");
+			"orkige menu files (*.menu)\0*.menu\0");
 
-		if (!sTemp.empty())
+		// TODO show soft mouse cursor
+
+		if (!sFilenameTemp.empty())
 		{
-			this->sFilename = sTemp;
+			this->sFilenameMenu = sFilenameTemp;
 			this->LoadMenu();
 		}
 	}
 
 	void PreviewMenuState::LoadMenu()
 	{
-		if (!sFilename.empty())
+		if (!this->sFilenameMenu.empty())
 		{
 			Ogre::String sBasename, sExtension, sPath;
-			Ogre::StringUtil::splitFullFilename(this->sFilename, sBasename, sExtension, sPath);
+			Ogre::StringUtil::splitFullFilename(this->sFilenameMenu, sBasename, sExtension, sPath);
 
 			sBasename = "FastGui/" + sBasename + "." + sExtension;  // e.g. "FastGui/main_demo.menu"
 
-			FastGuiManager::getSingleton().getFactory().lock()->load(Orkige::String(sBasename));
+			//FileUtils::SetCurrentPath(FileUtils::GetResourceDirectory().c_str());
+
+			FastGuiManager::getSingleton().destroyAllWidgets();
+			FastGuiManager::getSingleton().getFactory().lock()->load(Orkige::String(sBasename.c_str()));
+
+
+			// TODO add filename to window title
+
 		}
 	}
 

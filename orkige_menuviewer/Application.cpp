@@ -14,6 +14,7 @@
 #include "cc_gui/CcGuiFactory.h"
 #include "cc_gui/CcFastGuiFactory.h"
 //#include "CcFastGuiFactory.h"
+#include "FileUtils.h"
 
 
 namespace CC
@@ -33,6 +34,9 @@ namespace CC
 	//---------------------------------------------------------
 	bool Application::init(Ogre::String const & sCommandLine)
 	{
+		// set root resource directory as current
+		FileUtils::SetCurrentPath(FileUtils::GetResourceDirectory().c_str());
+
 		Orkige::Application::init();
 		this->localisation = onew(new Orkige::Localisation("en"));
 //		this->settingsManager = onew(new SettingsManager(Orkige::PlatformUtil::getResourceDirectory() + "data/Config/game.cfg",
@@ -52,7 +56,7 @@ namespace CC
 		bool editorMode = true;
 
 		//default initialization when we aren't in "tool" mode
-		if( !this->engine->setup(false, "orkige 3D Engine RenderWindow", this->externalWindowHandle, this->topLevelWindowHandle))
+		if( !this->engine->setup(false, "Menu Viewer - press O for open and R for reload", this->externalWindowHandle, this->topLevelWindowHandle))
 			return false;
 
 		this->engine->createDefaultCameraAndViewport();

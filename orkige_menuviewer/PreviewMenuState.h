@@ -27,7 +27,7 @@ namespace CC
 	public:
 	protected:
 	private:
-		Ogre::String sFilename;
+		Ogre::String sFilenameMenu;
 		//--- Methods -----------------------------------------
 	public:
 		PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename);
@@ -50,8 +50,6 @@ namespace CC
 		bool onMouseMoved(Orkige::Event const & event);
 
 	private:
-		//Ogre::String DialogBrowseFile(Ogre::String const & sTitle, Ogre::String const & sFileType, Ogre::String const & sFileTypeDesc);
-		std::string DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc);
 		void SelectAndLoadMenu();
 		void LoadMenu();
 
