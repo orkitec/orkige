@@ -69,7 +69,7 @@ namespace Orkige
 		virtual woptr<FastGuiProgressBar> createProgressBar(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 
 		
-		virtual void load(String const filename);
+		virtual void load(String const & filename);
 	protected:
 		//! overridable mothod for loading global settings
 		virtual void onLoadGlobalSettings(SettingsMultiMap* settings);

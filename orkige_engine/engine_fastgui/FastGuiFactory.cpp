@@ -142,9 +142,10 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
-	void FastGuiFactory::load(String const filename)
+	void FastGuiFactory::load(String const & filename)
 	{
-		Ogre::ConfigFile::load(Orkige::PlatformUtil::getResourceDirectory() + "data/" + filename);
+		Orkige::String sName = Orkige::PlatformUtil::getResourceDirectory() + "data/" + filename;
+		Ogre::ConfigFile::load(sName);
 		this->resourceGroup = this->getSetting("ResourceGroup", StringUtil::BLANK, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		FastGuiFactory::SectionIterator it = this->getSectionIterator();
 		while(it.hasMoreElements())

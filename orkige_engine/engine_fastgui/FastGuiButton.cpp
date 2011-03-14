@@ -10,6 +10,7 @@
 #include "engine_fastgui/FastGuiButton.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_event/GlobalEventManager.h>
+
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(FastGuiButton, ButtonHitEvent);

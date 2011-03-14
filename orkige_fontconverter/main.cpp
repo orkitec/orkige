@@ -1,209 +1,17 @@
 //#define cimg_OS 0
 #define cimg_use_png
 #include <engine_util/CImg.h>      // Open source image library (http://cimg.sourceforge.net/)
+
 #include <engine_module/EnginePrerequisites.h>
-#include <ios>
-#include <iostream>
 #include <core_tinyxml/tinyxml.h>
-#include <core_util/optr.h>
 #include <engine_util/StringUtil.h>
 #include <conio.h>
-#include <direct.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <Ogre.h>
-#include <windows.h>
+
+#include "FileUtils.h"
 
 
-std::string DialogBrowseFolder(const char* szTitle)
-{
-	// code from http://vctipsplusplus.wordpress.com/2008/07/15/using-shbrowseforfolder/
-
-	std::cout << szTitle << std::endl;
-	
-	BROWSEINFO bi; 
-	ZeroMemory(&bi, sizeof(bi)); 
-	TCHAR szDisplayName[MAX_PATH]; 
-	szDisplayName[0] = '\0';  
-
-	bi.hwndOwner = NULL; 
-	bi.pidlRoot = NULL; 
-	bi.pszDisplayName = szDisplayName; 
-	bi.lpszTitle = szTitle; 
-	bi.ulFlags = BIF_RETURNONLYFSDIRS;
-	bi.lParam = NULL; 
-	bi.iImage = 0;
-
-	LPITEMIDLIST pidl = SHBrowseForFolder(&bi);
-	TCHAR szPathName[MAX_PATH]; 
-	szPathName[0] = '\0';
-	if (pidl != NULL)
-	{
-		 BOOL bRet = SHGetPathFromIDList(pidl, szPathName);
-		 if (bRet == FALSE)
-		 {
-			 szPathName[0] = '\0';
-		 }
-	}
-
-	if (strlen(szPathName) == 0)
-	{
-		std::cout << "Browse Dialog user aborted" << std::endl;
-	}
-
-	return std::string(szPathName);
-}
-
-
-std::string DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc)
-{
-	char szFileName[MAX_PATH] = "";
-
-	OPENFILENAME ofn;
-	ZeroMemory(&ofn, sizeof(ofn));
-
-	ofn.lStructSize = sizeof(ofn);
-	ofn.hwndOwner = 0;
-	ofn.lpstrFilter = szFileTypeDesc; // e.g. "orkige gui Files (*.ogui)\0*.ogui\0";
-	ofn.lpstrFile = szFileName;
-	ofn.nMaxFile = MAX_PATH;
-	ofn.Flags = OFN_EXPLORER; // | OFN_HIDEREADONLY;
-	ofn.lpstrDefExt = szFileType; // e.g. "ogui";
-	ofn.lpstrInitialDir = NULL;
-
-	std::string sFilename;
-	if (GetOpenFileName(&ofn))
-	{
-		sFilename = szFileName;
-	}
-
-	return sFilename;
-}
-
-
-void GetFilesInDirectory(const char* szPath, const char* szPattern, std::vector<std::string>& files)
-{
-	// code from http://www.dreamincode.net/code/snippet546.htm
-	// and http://www.c-plusplus.de/forum/39396
-
-	WIN32_FIND_DATA findFileData; 
-	HANDLE hFind = INVALID_HANDLE_VALUE; 
-	
-	std::stringstream sPathPattern;
-	sPathPattern << szPath << "\\" << szPattern << "\0";
-	
-	char szPathPattern[MAX_PATH];
-	strcpy(szPathPattern, sPathPattern.str().c_str());
-
-	// the first two results used to be "." and "..", but not todays
-	hFind = FindFirstFile(szPathPattern, &findFileData);
-
-	if (hFind == INVALID_HANDLE_VALUE)
-	{
-		std::cout << "Error: invalid path: " << szPathPattern << std::endl;
-	}
-	else
-	{
-		do
-		{
-			if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			{ 
-				// directory
-			}
-			else
-			{
-				//std::cout << "file: " << findFileData.cFileName << std::endl;
-				files.push_back(findFileData.cFileName);
-			}
-		}
-		while (FindNextFile(hFind, &findFileData) != 0);		
-
-		// sort, we are nice
-		std::sort(files.begin(), files.end());
-	}
-	FindClose(hFind);
-
-
-	/*	
-	// TODO use ogre
-	use Ogre::FileSystemArchive::find()
-	
-	StringVectorPtr vec(OGRE_NEW_T(StringVector, MEMCATEGORY_GENERAL)(), SPFM_DELETE_T);
-
-	Ogre::ArchiveManager::ArchiveMapIterator it = Ogre::ArchiveManager::getSingleton().getArchiveIterator();
-	for (Ogre::ArchiveManager::ArchiveMapIterator i = it.begin(); i != it.end(); i++)
-	{
-		Ogre::Archive* archive = (*it);
-
-        StringVectorPtr lst = archive->find(pattern, (*i)->recursive, dirs);
-            vec->insert(vec->end(), lst->begin(), lst->end());        
-	}
-
-	// TODO use boost
-	boost::path p("");
-    cout << p << " is a directory containing:\n";
-
-    typedef vector<path> vec;
-    vec v;
-
-    copy(directory_iterator(p), directory_iterator(), back_inserter(v));
-
-    sort(v.begin(), v.end());
-
-    for (vec::const_iterator it (v.begin()); it != v.end(); ++it)
-    {
-		cout << "   " << *it << '\n';
-    }	
-
-	vector<string> listFiles = boost::filesystem::getFiles("\directory", ...);
-	*/
-}
-
-std::string GetCurrentPath()
-{
-	std::string path;
-
-	// get the current working directory
-	char* buffer;
-	if( (buffer = _getcwd( NULL, 0 )) == NULL )
-	{
-		perror( "_getcwd error" );
-	}
-	else
-	{
-		path = buffer;
-#include "core_debug/DisableMemoryManager.h"
-		free(buffer);
-#include "core_debug/EnableMemoryManager.h"
-	}
-
-	return path;
-}
-
-std::string GetTempPath()
-{
-	/*
-	TCHAR buf[MAX_PATH];
-	if (GetTempPath(MAX_PATH, buf))
-	{
-		return std::string(buf);
-	}
-	return std::string();
-	*/
-
-	// hack: because of the external tool crashes with long temp path names, we use a short fixed one
-	const char* szTempPath = "C:\\Temp";
-	if (SetCurrentDirectory(szTempPath) == 0)
-	{
-		if (!CreateDirectory(szTempPath, NULL))
-		{
-			std::cerr << "ERROR: can't create temp directory" << szTempPath << std::endl;
-		}
-	}
-	return std::string(szTempPath) + "\\";
-}
-
-
+//---------------------------------------------------------
 int GetIndexFromFilename(const char* szFilename)
 {
 	Ogre::String sFilenameXML(szFilename);
@@ -223,8 +31,7 @@ int GetIndexFromFilename(const char* szFilename)
 
 	return fontIndex;
 }
-
-
+//---------------------------------------------------------
 int ShowImage(const char* szFilenamePNG)
 {
 	// TODO this might start photoshop, which has a long loading time, alternatively use CImg lib
@@ -245,7 +52,7 @@ int ShowImage(const char* szFilenamePNG)
 
 	return 0;
 }
-
+//---------------------------------------------------------
 void AutocropImage(cimg_library::CImg<unsigned char>& image)
 {
 	// autocrop works from CImg version 1.30, we use 1.29
@@ -299,8 +106,7 @@ void AutocropImage(cimg_library::CImg<unsigned char>& image)
 	
 	image.crop(0, 0, cropR, cropB, false);
 }
-
-
+//---------------------------------------------------------
 char xtod(char c) 
 {
 	if (c >= '0' && c <= '9') return c - '0';
@@ -308,35 +114,35 @@ char xtod(char c)
 	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
 	return c = 0;        // not Hex digit
 }
-
+//---------------------------------------------------------
 int HextoDec(const char *hex)
 {
 	if (*hex == 0) 
 		return 0;
 	return HextoDec(hex-1)*16 + xtod(*hex) ; 
 }
-
+//---------------------------------------------------------
 int xstrtoi(const char *hex)      // hex string to integer
 {
 	return HextoDec(hex+strlen(hex)-1);
 }
-
+//---------------------------------------------------------
 struct HexCharStruct
 {
 	char c;
 	HexCharStruct(char _c) : c(_c) { }
 };
-
+//---------------------------------------------------------
 inline std::ostream& operator<<(std::ostream& o, const HexCharStruct& hs)
 {
 	return (o << std::setw(4) << std::setfill('0') << std::hex << (int)hs.c);
 }
-
+//---------------------------------------------------------
 inline HexCharStruct hex(char _c)
 {
 	return HexCharStruct(_c);
 }
-
+//---------------------------------------------------------
 using namespace Orkige;
 int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 {
@@ -375,7 +181,7 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 	}
 	else if(MessageBox( NULL, "Do you want to specify a file wich holds all wanted letters", "Font Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
 	{
-		letterFileName = DialogBrowseFile("Select Letter Input File", "txt", "Letter text files (*.txt)\0*.txt\0");
+		letterFileName = CC::FileUtils::DialogBrowseFile("Select Letter Input File", "txt", "Letter text files (*.txt)\0*.txt\0");
 		if (letterFileName.empty())
 		{
 			std::cerr << "Error Loading file!" << std::endl;
@@ -387,13 +193,13 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 
 	
 	// basename xml and png file
-	std::string sTempPath = GetTempPath();
+	std::string sTempPath = CC::FileUtils::GetTempPath();
 	std::string sFilenameBase = std::string(szAtlasPath) + "\\Font_" + Orkige::StringUtil::Converter::toString(fontindex);
 	std::string sFilenameBaseTemp = sTempPath + "Font_" + Orkige::StringUtil::Converter::toString(fontindex) + "_temp";
 	std::string sFilenameXMLTemp = sFilenameBaseTemp + ".xml";
 	std::string sFilenamePNGTemp = sFilenameBaseTemp + ".png";
 
-	_chdir(szExecutablePath);
+	CC::FileUtils::SetCurrentPath(szExecutablePath);
 
 	// execute bmfontgen and create bitmap font image and description
 	{
@@ -417,7 +223,7 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 		}
 	}
 
-	_chdir(szAtlasPath);
+	CC::FileUtils::SetCurrentPath(szAtlasPath);
 
 
 	// open font description file
@@ -497,8 +303,7 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 	
 	return 0;
 }
-
-
+//---------------------------------------------------------
 typedef std::map<int, std::pair<int,int> > FontOffsets;
 
 bool ConvertTXTtoOGUI(const char* szFilenameTXT, FontOffsets& fontOffsets, std::ofstream& fileOgui)
@@ -555,8 +360,7 @@ bool ConvertTXTtoOGUI(const char* szFilenameTXT, FontOffsets& fontOffsets, std::
 
 	return true;
 }
-
-
+//---------------------------------------------------------
 bool ConvertXMLtoOGUI(const char* szFilenameXML, FontOffsets& fontOffsets, std::ofstream& fileOgui)
 {
 	int fontIndex = GetIndexFromFilename(szFilenameXML);
@@ -641,9 +445,7 @@ bool ConvertXMLtoOGUI(const char* szFilenameXML, FontOffsets& fontOffsets, std::
 
 	return true;
 }
-
-
-
+//---------------------------------------------------------
 int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
 {
 	// place to store ogui and texture atlas
@@ -679,8 +481,8 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
 	
 	// attention: the tool doesn't accept absolute path and then compains with a "No Images to pack." message
 	// so far the only solution is to temporarily copy the executable to the output folder...
-	//_chdir(szExecutablePath);
-	_chdir(sOutputPath.c_str());
+	//SetCurrentPath(szExecutablePath);
+	CC::FileUtils::SetCurrentPath(sOutputPath.c_str());
 	std::string sFilenameExe(szExecutablePath); sFilenameExe += "\\sspack.exe";
 	std::string sFilenameExeTemp = sOutputPath + "\\sspack.exe";
 	CopyFile(sFilenameExe.c_str(), sFilenameExeTemp.c_str(), FALSE);
@@ -735,7 +537,7 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
 
 		// list all xml files in atlas folder
 		std::vector<std::string> files;
-		GetFilesInDirectory(sAtlasPath.c_str(), "*.xml", files);
+		CC::FileUtils::GetFilesInDirectory(sAtlasPath.c_str(), "*.xml", files);
 
 		// parse map file and append it to ogui file, store font offset from texture atlas
 		FontOffsets fontOffsets;
@@ -775,7 +577,7 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
 
 	return 0;
 }
-
+//---------------------------------------------------------
 int main(int argc, char **argv)
 {
 	std::cout << "Orkige font and texture atlas converter" << std::endl << std::endl;
@@ -825,7 +627,7 @@ int main(int argc, char **argv)
 
 	if (sAtlasPath.empty())
 	{	
-		sAtlasPath = DialogBrowseFolder("Browse for texture atlas folder");
+		sAtlasPath = CC::FileUtils::DialogBrowseFolder("Browse for texture atlas folder");
 	}
 
 	std::cout << "path to texture altas:" << std::endl << sAtlasPath << std::endl;
