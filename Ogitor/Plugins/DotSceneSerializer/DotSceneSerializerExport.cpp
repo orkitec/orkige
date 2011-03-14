@@ -33,7 +33,52 @@
 #include "DotSceneSerializer.h"
 
 using namespace Ogitors;
+void saveUserData(OgitorsCustomPropertySet *set, TiXmlElement *pParent);
+//-----------------------------------------------------------------------------------------
+TiXmlElement* exportDotScene(CBaseEditor* baseEditor, TiXmlElement *pParent)
+{
+	assert(baseEditor->getEditorType() == ETYPE_NODE);
+	CNodeEditor* editor = static_cast<CNodeEditor*>(baseEditor);
 
+	TiXmlElement *pNode = pParent->InsertEndChild(TiXmlElement("node"))->ToElement();
+
+	// node properties
+	pNode->SetAttribute("name", editor->getName().c_str());
+	pNode->SetAttribute("id", Ogre::StringConverter::toString(editor->getObjectID()).c_str());
+	// position
+	TiXmlElement *pPosition = pNode->InsertEndChild(TiXmlElement("position"))->ToElement();
+	pPosition->SetAttribute("x", Ogre::StringConverter::toString(editor->getPosition().x).c_str());
+	pPosition->SetAttribute("y", Ogre::StringConverter::toString(editor->getPosition().y).c_str());
+	pPosition->SetAttribute("z", Ogre::StringConverter::toString(editor->getPosition().z).c_str());
+	// rotation
+	TiXmlElement *pRotation = pNode->InsertEndChild(TiXmlElement("rotation"))->ToElement();
+	pRotation->SetAttribute("qw", Ogre::StringConverter::toString(editor->getOrientation().w).c_str());
+	pRotation->SetAttribute("qx", Ogre::StringConverter::toString(editor->getOrientation().x).c_str());
+	pRotation->SetAttribute("qy", Ogre::StringConverter::toString(editor->getOrientation().y).c_str());
+	pRotation->SetAttribute("qz", Ogre::StringConverter::toString(editor->getOrientation().z).c_str());
+	// scale
+	TiXmlElement *pScale = pNode->InsertEndChild(TiXmlElement("scale"))->ToElement();
+	pScale->SetAttribute("x", Ogre::StringConverter::toString(editor->getScale().x).c_str());
+	pScale->SetAttribute("y", Ogre::StringConverter::toString(editor->getScale().y).c_str());
+	pScale->SetAttribute("z", Ogre::StringConverter::toString(editor->getScale().z).c_str());
+
+	// loop over children
+	NameObjectPairList::const_iterator it = editor->getChildren().begin();
+	while(it != editor->getChildren().end())
+	{
+		if(it->second->getEditorType() == ETYPE_NODE)
+		{
+			exportDotScene(it->second, pNode);
+		}
+		else
+		{
+			it->second->exportDotScene(pNode);
+		}
+		it++;
+	}
+	saveUserData(editor->getCustomProperties(), pNode);
+	return pNode;
+}
 //----------------------------------------------------------------------------
 void saveUserData(OgitorsCustomPropertySet *set, TiXmlElement *pParent)
 {
@@ -194,8 +239,19 @@ int CDotSceneSerializer::Export(bool SaveAs)
             nodeIt->second->getEditorType() != ETYPE_LIGHT &&
             nodeIt->second->getEditorType() != ETYPE_CAMERA )
         {
-            TiXmlElement *result = nodeIt->second->exportDotScene(pNodes);
-            saveUserData(nodeIt->second->getCustomProperties(), result);
+			TiXmlElement *result = NULL;
+			if(nodeIt->second->getEditorType() == ETYPE_NODE)
+			{
+				result = exportDotScene(nodeIt->second, pNodes);
+				//assert(result);
+			}
+			else
+			{
+				result = nodeIt->second->exportDotScene(pNodes);
+				saveUserData(nodeIt->second->getCustomProperties(), result);
+				//assert(result);
+			}
+            //assert(result);
         }
         nodeIt++;
     }
