@@ -39,7 +39,7 @@
 #endif
 
 #include <core_game/Application.h>
-#include "../../game/cc_base/OgreStaticPluginLoader.h"
+#include "OgreStaticPluginLoader.h"
 #include <core_debug/LogManager.h>
 #include <core_util/Timer.h>
 #include <core_game/GameObjectManager.h>
@@ -56,7 +56,7 @@
 #include <engine_base/Localisation.h>
 #include <engine_util/StringUtil.h>
 //#include "cc_game/SettingsManager.h"
-#include "cc_game/StatisticsManager.h"
+//#include "cc_game/StatisticsManager.h"
 
 
 namespace CC

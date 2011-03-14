@@ -6,7 +6,7 @@
 	copyright:	(c) 2010 kunst-stoff
 *********************************************************************/
 
-#include "cc_gui/CcFastGuiFactory.h"
+#include "CcFastGuiFactory.h"
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_graphic/Engine.h>
 

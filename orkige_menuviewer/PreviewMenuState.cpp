@@ -73,15 +73,11 @@ namespace CC
 		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
 		Orkige::String sID = btn->getObjectID();
 
-		// TODO show message box, click sound
+		//click sound
+		//SoundManager::getSingleton().playSound("click");
 
-		/*
-		if(btn->getObjectID() == "Quit")
-		{
-			Orkige::Application::getSingleton().quit();
-		}
-		*/
-
+		// TODO show message box
+		
 		return false;
 	}
 	//---------------------------------------------------------
@@ -158,7 +154,8 @@ namespace CC
 
 	void PreviewMenuState::SelectAndLoadMenu()
 	{
-		// TODO hide soft mouse cursor
+		// hide soft mouse cursor
+		FastGuiManager::getSingleton().hideCursor();
 
 		//Ogre::String sTemp = this->DialogBrowseFile(
 		//	Ogre::String("Select menu file to view"), 
@@ -169,7 +166,8 @@ namespace CC
 			"*.menu", 
 			"orkige menu files (*.menu)\0*.menu\0");
 
-		// TODO show soft mouse cursor
+		// show soft mouse cursor
+		FastGuiManager::getSingleton().showCursor("fastgui_default", "mousepointer");
 
 		if (!sFilenameTemp.empty())
 		{
@@ -187,7 +185,7 @@ namespace CC
 
 			sBasename = "FastGui/" + sBasename + "." + sExtension;  // e.g. "FastGui/main_demo.menu"
 
-			//FileUtils::SetCurrentPath(FileUtils::GetResourceDirectory().c_str());
+			Ogre::LogManager::getSingleton().logMessage("Loading menu " + sBasename);
 
 			FastGuiManager::getSingleton().destroyAllWidgets();
 			FastGuiManager::getSingleton().getFactory().lock()->load(Orkige::String(sBasename.c_str()));

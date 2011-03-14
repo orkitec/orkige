@@ -9,8 +9,6 @@
 #define __FileUtils_h__19_7_2010__23_44_36__
 
 
-// TODO 
-//#include <core_game/GameState.h>
 #include <core_base/Object.h>
 
 
@@ -35,8 +33,12 @@ namespace CC
 		static std::string GetResourceDirectory();
 		static std::string GetCurrentPath();
 		static void SetCurrentPath(const char* szPath);
+		static std::string FileUtils::DialogBrowseFolder(const char* szTitle);
 		//static Ogre::String DialogBrowseFile(Ogre::String const & sTitle, Ogre::String const & sFileType, Ogre::String const & sFileTypeDesc);
 		static std::string DialogBrowseFile(const char* szTitle, const char* szFileType, const char* szFileTypeDesc);
+		static void GetFilesInDirectory(const char* szPath, const char* szPattern, std::vector<std::string>& files);
+		static std::string GetTempPath();
+
 	protected:
 	private:
 

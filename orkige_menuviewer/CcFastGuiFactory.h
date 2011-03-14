@@ -7,7 +7,7 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiFactory.h"
-#include "cc_gui/CcFastGuiCoolDownButton.h"
+#include "CcFastGuiCoolDownButton.h"
 #include <engine_fastgui/FastGuiManager.h>
 //#include <engine_fastgui/FastGuiLabel.h>
 // #include "core_event/EventManager.h"

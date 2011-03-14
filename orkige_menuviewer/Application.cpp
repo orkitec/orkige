@@ -11,9 +11,8 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <core_util/PlatformUtil.h>
 
-#include "cc_gui/CcGuiFactory.h"
-#include "cc_gui/CcFastGuiFactory.h"
-//#include "CcFastGuiFactory.h"
+#include "CcGuiFactory.h"
+#include "CcFastGuiFactory.h"
 #include "FileUtils.h"
 
 
@@ -113,13 +112,6 @@ namespace CC
 		
 		this->registerEvent(Orkige::Button::ButtonHitEvent,			&Application::onGuiEvent, this, 1);
 		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,	&Application::onGuiEvent, this, 1);
-
-		/*
-		if (!sCommandLine.empty())
-		{
-			static_cast<PreviewMenuState>(this->gsm->getCurrent())->LoadMenu(sCommandLine);
-		}
-		*/
 
 		return true;
 	}

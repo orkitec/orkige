@@ -7,7 +7,7 @@
 *********************************************************************/
 
 #include "engine_gui/GuiFactory.h"
-#include "cc_gui/DragDropButton.h"
+#include "DragDropButton.h"
 
 #ifndef __CcGuiFactory_h__
 #define __CcGuiFactory_h__

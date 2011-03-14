@@ -7,7 +7,6 @@
 *********************************************************************/
 
 #include "engine_gui/Widget.h"
-#include "cc_game/CardPickEventData.h"
 
 #ifndef __DragDropButton_h__
 #define __DragDropButton_h__
@@ -50,7 +49,6 @@ namespace CC
 		Ogre::OverlayContainer*				imageOverlayContainer; //!< container of the image overlay
 		Ogre::Vector2						imageToCursorOffset; //!< offset between the image and the cursor position
 		Orkige::Event						pickEvent;		//!< 
-		optr<CardPickEventData>			pickEventData;	//!< 
 
 
 	private:
@@ -76,9 +74,6 @@ namespace CC
 	protected:
 		//! set current ButtonState 
 		void	setState		(const ButtonState& bs);
-		void	PickAt			(const Ogre::Vector2& cursorPos);
-		void	StartDragging	(const Ogre::Vector2& cursorPos);
-		void	StopDragging	();
 
 	private:
 	};

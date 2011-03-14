@@ -6,7 +6,7 @@
 	copyright:	(c) 2010 kunst-stoff
 *********************************************************************/
 
-#include "cc_gui/CcGuiFactory.h"
+#include "CcGuiFactory.h"
 #include "engine_gui/GuiManager.h"
 
 namespace CC

@@ -6,7 +6,8 @@ author:     hicham.allaoui
 purpose:	cooldown button
 *********************************************************************/
 
-#include "cc_gui/CcFastGuiCoolDownButton.h"
+#include "CcFastGuiCoolDownButton.h"
+
 using namespace Orkige;
 namespace CC
 {
