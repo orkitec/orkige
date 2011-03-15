@@ -84,10 +84,10 @@ IF ((NOT "${OGRE_VERSION_NAME}" STREQUAL "Cthugha") AND (NOT  "${OGRE_VERSION_NA
   MESSAGE(SEND_ERROR "You need Ogre 1.7 Cthugha or 1.8.0 Byatis to build this.")
 ENDIF()
 
-if(UNIX)
-    get_filename_component(OGRE_PLUGIN_DIR_LINUX ${OGRE_Plugin_OctreeSceneManager_LIBRARY_REL} PATH)
-    set (OGRE_PLUGIN_DIR_LINUX ${OGRE_PLUGIN_DIR_LINUX} CACHE STRING "Ogre plugin dir (release)")
-endif(UNIX)
+##ORKIGE##if(UNIX)
+##ORKIGE##    get_filename_component(OGRE_PLUGIN_DIR_LINUX ${OGRE_Plugin_OctreeSceneManager_LIBRARY_REL} PATH)
+##ORKIGE##    set (OGRE_PLUGIN_DIR_LINUX ${OGRE_PLUGIN_DIR_LINUX} CACHE STRING "Ogre plugin dir (release)")
+##ORKIGE##endif(UNIX)
 
 include_directories(${OGRE_INCLUDE_DIRS})
 include_directories(${OGRE_Terrain_INCLUDE_DIR})
@@ -112,11 +112,11 @@ SET(RUNPATH "${CMAKE_CURRENT_SOURCE_DIR}/RunPath")
 #set_target_properties(PACKAGE PROPERTIES SOLUTION_FOLDER CMake) 
 
 # Fix the plugins configuration file for Linux
-if(UNIX)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/plugins.cfg.in ${OGITOR_WORK_DIR}/RunPath/bin/plugins.cfg)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/plugins.cfg.in ${OGITOR_WORK_DIR}/RunPath/plugins.cfg.backup_copy)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/ogitor.desktop.in ${OGITOR_WORK_DIR}/RunPath/bin/qtOgitor.desktop)
-endif(UNIX)
+##ORKIGE##if(UNIX)
+##ORKIGE##    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/plugins.cfg.in ${OGITOR_WORK_DIR}/RunPath/bin/plugins.cfg)
+##ORKIGE##    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/plugins.cfg.in ${OGITOR_WORK_DIR}/RunPath/plugins.cfg.backup_copy)
+##ORKIGE##    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/Templates/ogitor.desktop.in ${OGITOR_WORK_DIR}/RunPath/bin/qtOgitor.desktop)
+##ORKIGE##endif(UNIX)
 
 file(MAKE_DIRECTORY ${OGITOR_WORK_DIR}/RunPath/Plugins/debug)
 file(MAKE_DIRECTORY ${OGITOR_WORK_DIR}/RunPath/bin)

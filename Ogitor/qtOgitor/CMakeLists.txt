@@ -92,7 +92,6 @@ ELSE(NOT QT4_FOUND)
         ./include/layerview.hxx
         ./include/lineeditwithhistory.hxx
         ./include/mainwindow.hxx
-        ./include/magickwidget.hxx
         ./include/objectsview.hxx
         ./include/ogitorpreferenceswidget.hxx
         ./include/ogrewidget.hxx
@@ -110,6 +109,7 @@ ELSE(NOT QT4_FOUND)
     )
 
     if(OGITOR_EXPERIMENTAL_INTERFACE)
+	SET(MOC_SRCS2 ${MOC_SRCS2} ./include/magickwidget.hxx)
         set(OGITOR_QT_PREPROCESSOR "${OGITOR_QT_PREPROCESSOR} -DOGITOR_EXPERIMENTAL_INTERFACE")
     endif(OGITOR_EXPERIMENTAL_INTERFACE)
 
@@ -178,7 +178,7 @@ ELSE(NOT QT4_FOUND)
     include(BundleUtilities)
     get_target_property(qtOgitorLocation qtOgitor LOCATION)
     get_dotapp_dir(${qtOgitorLocation} qtOgitorLocationAppdir)
-    set(MakeBundle cp ${QtSolutions_PropertyBrowser_BINARY_DIR}/${CMAKE_CFG_INTDIR}/libQtSolutions_PropertyBrowser*.dylib ${OGRE_Terrain_LIBRARY_DBG} ${OGRE_Paging_LIBRARY_DBG} ${qtOgitorLocationAppdir}/Contents/Components && cp ${OGRE_RenderSystem_GL_LIBRARY_DBG} ${OGRE_Plugin_OctreeSceneManager_LIBRARY_DBG} ${OGRE_Plugin_ParticleFX_LIBRARY_DBG} ${OGRE_Plugin_CgProgramManager_LIBRARY_DBG} ${qtOgitorLocationAppdir}/Contents/Plugins && cp -r /Library/Frameworks/OGRE.framework ${qtOgitorLocationAppdir}/Contents/Frameworks && cp -r ../lib/${CMAKE_CFG_INTDIR}/Ogitor.framework ${qtOgitorLocationAppdir}/Contents/Frameworks && cp ../Plugins/lib/${CMAKE_CFG_INTDIR}/libOgCaelum*.dylib ../Plugins/lib/${CMAKE_CFG_INTDIR}/libOgHydrax*.dylib ../Plugins/lib/${CMAKE_CFG_INTDIR}/libOgModularZone*.dylib ../Plugins/lib/${CMAKE_CFG_INTDIR}/libOgSkyx*.dylib ../Plugins/lib/${CMAKE_CFG_INTDIR}/libDotSceneSerializer*.dylib ${qtOgitorLocationAppdir}/Contents/Plugins/Ogitor && cp -r ../RunPath/Media ${qtOgitorLocationAppdir}/Contents/Resources && cp -r ../RunPath/Plugins/Icons ${qtOgitorLocationAppdir}/Contents/Plugins && cp ../Mac/plugins.cfg ../Mac/resources.cfg ${qtOgitorLocationAppdir}/Contents/Resources)
+    set(MakeBundle cp -v ${QtSolutions_PropertyBrowser_BINARY_DIR}/${CMAKE_CFG_INTDIR}/libQtSolutions_PropertyBrowser*.dylib ${qtOgitorLocationAppdir}/Contents/Components && cp -vr ../lib/${CMAKE_CFG_INTDIR}/Ogitor.framework ${qtOgitorLocationAppdir}/Contents/Frameworks && /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp -exclude .DS_Store -exclude CVS -exclude .svn -resolve-src-symlinks ${CMAKE_SOURCE_DIR}/Ogitor/RunPath/Media ${qtOgitorLocationAppdir}/Contents/Resources && /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp -exclude .DS_Store -exclude CVS -exclude .svn -resolve-src-symlinks ${CMAKE_SOURCE_DIR}/Ogitor/RunPath/Plugins/Icons ${qtOgitorLocationAppdir}/Contents/Plugins && cp -v ${CMAKE_SOURCE_DIR}/Ogitor/Mac/plugins.cfg ${CMAKE_SOURCE_DIR}/Ogitor/Mac/resources.cfg ${qtOgitorLocationAppdir}/Contents/Resources)
     ADD_CUSTOM_COMMAND(TARGET qtOgitor POST_BUILD COMMAND mkdir -p ${qtOgitorLocationAppdir}/Contents/Resources && mkdir -p ${qtOgitorLocationAppdir}/Contents/Components && mkdir -p ${qtOgitorLocationAppdir}/Contents/Plugins/Ogitor && mkdir -p ${qtOgitorLocationAppdir}/Contents/Frameworks)
     ADD_CUSTOM_COMMAND(TARGET qtOgitor POST_BUILD COMMAND ${MakeBundle})
     endif(NOT APPLE)
