@@ -29,6 +29,7 @@ namespace CC
 	private:
 		Ogre::String filenameMenu;
 		Ogre::String filenameResourceConfig;
+		Ogre::Vector2 mousePos;
 		//optr<Orkige::FastGuiTextbox> statsValues;
 		//--- Methods -----------------------------------------
 	public:

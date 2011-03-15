@@ -24,6 +24,8 @@ namespace CC
 	PreviewMenuState::PreviewMenuState(Orkige::String const & id, Orkige::String const & filenameMenu) 
 		: GameState(id), filenameMenu(filenameMenu)
 	{
+		this->mousePos = Ogre::Vector2::ZERO;
+
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,			&PreviewMenuState::onFrameStarted,	this);
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,		&PreviewMenuState::onKeyPressed,	this);
 		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,		&PreviewMenuState::onKeyReleased,	this);
@@ -124,6 +126,10 @@ namespace CC
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		
+		// store mouse position
+		this->mousePos.x = static_cast<Ogre::Real>(data->absX);
+		this->mousePos.y = static_cast<Ogre::Real>(data->absY);
+
 		return false;
 	}
 	//---------------------------------------------------------
@@ -131,6 +137,30 @@ namespace CC
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		
+		// store mouse position
+		Ogre::Vector2 mouseSize(static_cast<Ogre::Real>(data->absX), static_cast<Ogre::Real>(data->absY));
+		mouseSize -= mousePos;
+
+		// convert pixel to percent
+		this->mousePos.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
+		this->mousePos.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
+		mouseSize.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
+		mouseSize.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
+
+		// center
+		this->mousePos.x -= 50.0;
+		this->mousePos.y -= 50.0;
+
+		// size = 30% 10%
+		// position = -15% -15%
+		char tmp[128];
+		sprintf(tmp, "size = %d%% %d%%\nposition = %d%% %d%%\n", 
+			static_cast<int>(mouseSize.x),
+			static_cast<int>(mouseSize.y),
+			static_cast<int>(this->mousePos.x),
+			static_cast<int>(this->mousePos.y));
+		Ogre::LogManager::getSingleton().logMessage(Orkige::String(tmp));
+
 		return false;
 	}
 	//---------------------------------------------------------
@@ -173,25 +203,28 @@ namespace CC
 
 			oAssertDesc(Ogre::StringUtil::endsWith(this->filenameMenu, ".menu"), "");
 
-			// TODO resize window
-
-			// platform dependent resource paths
+			// platform dependent resource paths and resize window
 			this->filenameResourceConfig = Orkige::PlatformUtil::getResourceDirectory();
+			Ogre::RenderWindow* renderWindow = Engine::getSingleton().getRenderWindow();
 			if (path.find("_iphone"))
 			{
 				this->filenameResourceConfig += "data/Config/resources_iphone.cfg";
+				//renderWindow->resize(480, 320);
 			}
 			else if (path.find("_iphone4"))
 			{
 				this->filenameResourceConfig += "data/Config/resources_iphone4.cfg";
+				//renderWindow->resize(960, 640);
 			}
 			else if (path.find("_ipad"))
 			{
 				this->filenameResourceConfig += "data/Config/resources_ipad.cfg";
+				//renderWindow->resize(1024, 768);
 			}
 			else
 			{
 				this->filenameResourceConfig += "data/Config/resources.cfg";
+				//renderWindow->resize(800, 600);
 			}
 			Engine::getSingleton().resetupResources(filenameResourceConfig);
 
