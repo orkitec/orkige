@@ -80,7 +80,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	String Engine::getPlatformSpecificConfig(String const & cfgFileName)
 	{
-//#ifdef ORKIGE_IPHONE
+#ifdef ORKIGE_IPHONE
 		// iphone and ipad need different configs
 		if(cfgFileName.find(';') != String::npos)
 		{
@@ -116,7 +116,7 @@ namespace Orkige
 
 			return cfgPlatformFileName;
 		}
-//#endif
+#endif
 		return cfgFileName;
 	}
 
