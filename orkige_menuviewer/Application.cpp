@@ -31,23 +31,38 @@ namespace CC
 	{
 	}
 	//---------------------------------------------------------
-	bool Application::init(Ogre::String const & sCommandLine)
+	bool Application::init(Orkige::String const & commandLine)
 	{
 		// set root resource directory as current
 		FileUtils::SetCurrentPath(FileUtils::GetResourceDirectory().c_str());
+
+		// parse command line 
+		String filenameMenu;
+		if (Ogre::StringUtil::endsWith(commandLine, ".menu"))
+		{
+			filenameMenu = commandLine;
+		}
+		String filenameResourceConfig;
+		if (Ogre::StringUtil::endsWith(commandLine, ".cfg"))
+		{
+			filenameResourceConfig = commandLine;
+		}
 
 		Orkige::Application::init();
 		this->localisation = onew(new Orkige::Localisation("en"));
 //		this->settingsManager = onew(new SettingsManager(Orkige::PlatformUtil::getResourceDirectory() + "data/Config/game.cfg",
 //			Orkige::PlatformUtil::getResourceDirectory() + "data/Config/levelCards.cfg"));
 //		this->statisticsManager = onew(new StatisticsManager());
-		this->gsm->registerState(onew(new PreviewMenuState("PreviewMenu", sCommandLine)));
+		this->gsm->registerState(onew(new PreviewMenuState("PreviewMenu", filenameMenu)));
 
 		//initialize the timer system
 		Timer::initialise();
 
 		//create graphic system and Ogre root
-		this->engine = onew(new Engine());
+		if (!filenameResourceConfig.empty())
+			this->engine = onew(new Engine(Ogre::ST_GENERIC, filenameResourceConfig));
+		else
+			this->engine = onew(new Engine());
 
 		this->staticPluginLoader.load();
 
@@ -55,7 +70,7 @@ namespace CC
 		bool editorMode = true;
 
 		//default initialization when we aren't in "tool" mode
-		if( !this->engine->setup(false, "Menu Viewer - press O for open and R for reload", this->externalWindowHandle, this->topLevelWindowHandle))
+		if( !this->engine->setup(false, "Menu Viewer - press O for open, R for reload", this->externalWindowHandle, this->topLevelWindowHandle))
 			return false;
 
 		this->engine->createDefaultCameraAndViewport();
@@ -64,7 +79,7 @@ namespace CC
 
 		
 
-		//go into new scope before init loadingbar so i gets destroyed after loading process
+		//go into new scope before init loadingbar so it gets destroyed after loading process
 		{
 			//loadingBar.start();
 			//loading resource after loadingbar is initialized so we can see our nice bar :)

@@ -21,8 +21,8 @@ namespace CC
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	PreviewMenuState::PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename) 
-		: GameState(id), sFilenameMenu(sFilename)
+	PreviewMenuState::PreviewMenuState(Orkige::String const & id, Orkige::String const & filenameMenu) 
+		: GameState(id), filenameMenu(filenameMenu)
 	{
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,			&PreviewMenuState::onFrameStarted,	this);
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,		&PreviewMenuState::onKeyPressed,	this);
@@ -31,6 +31,8 @@ namespace CC
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,	&PreviewMenuState::onMouseReleased,	this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,		&PreviewMenuState::onMouseMoved,	this);
 		this->registerEvent(Orkige::Button::ButtonHitEvent,				&PreviewMenuState::onButtonHit,		this);
+		
+		//this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", 9, "", Ogre::Vector2(100,100), "", 15));
 	}
 	//---------------------------------------------------------
 	PreviewMenuState::~PreviewMenuState()
@@ -56,15 +58,11 @@ namespace CC
 		}
 		*/
 
-		if (!this->sFilenameMenu.empty())
-		{
-			LoadMenu();
-		}
+		this->loadMenu();
 	}
 	//---------------------------------------------------------
 	void PreviewMenuState::onExit()
 	{
-//		SettingsManager::getSingleton().save();		
 		FastGuiManager::getSingleton().destroyAllWidgets();
 	}
 	//---------------------------------------------------------
@@ -73,10 +71,7 @@ namespace CC
 		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
 		Orkige::String sID = btn->getObjectID();
 
-		//click sound
-		//SoundManager::getSingleton().playSound("click");
 
-		// TODO show message box
 		
 		return false;
 	}
@@ -102,10 +97,10 @@ namespace CC
 		switch(data->key)
 		{
 		case KeyEventData::KC_O:
-			this->SelectAndLoadMenu();
+			this->selectAndLoadMenu();
 			break;
 		case KeyEventData::KC_R:
-			this->LoadMenu();
+			this->loadMenu();
 			break;
 		case KeyEventData::KC_GRAVE:
 			Orkige::IngameConsole::getSingleton().switchVisible();
@@ -113,9 +108,7 @@ namespace CC
 		case KeyEventData::KC_BACK:
 			break;
 		case KeyEventData::KC_ESCAPE:
-			{
-				Orkige::Application::getSingleton().quit();
-			}
+			Orkige::Application::getSingleton().quit();			
 			break;
 		default:
 			{
@@ -150,17 +143,12 @@ namespace CC
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	
 
-	void PreviewMenuState::SelectAndLoadMenu()
+	void PreviewMenuState::selectAndLoadMenu()
 	{
 		// hide soft mouse cursor
 		FastGuiManager::getSingleton().hideCursor();
 
-		//Ogre::String sTemp = this->DialogBrowseFile(
-		//	Ogre::String("Select menu file to view"), 
-		//	Ogre::String("*.menu"), 
-		//	Ogre::String("orkige menu definition files (*.menu)\0*.menu\0"));
 		Ogre::String sFilenameTemp = FileUtils::DialogBrowseFile(
 			"Select menu file to view", 
 			"*.menu", 
@@ -171,28 +159,65 @@ namespace CC
 
 		if (!sFilenameTemp.empty())
 		{
-			this->sFilenameMenu = sFilenameTemp;
-			this->LoadMenu();
+			this->filenameMenu = sFilenameTemp;
+			this->loadMenu();
 		}
 	}
-
-	void PreviewMenuState::LoadMenu()
+	//---------------------------------------------------------
+	void PreviewMenuState::loadMenu()
 	{
-		if (!this->sFilenameMenu.empty())
+		if (!this->filenameMenu.empty())
 		{
-			Ogre::String sBasename, sExtension, sPath;
-			Ogre::StringUtil::splitFullFilename(this->sFilenameMenu, sBasename, sExtension, sPath);
+			Ogre::String basename, extension, path;
+			Ogre::StringUtil::splitFullFilename(this->filenameMenu, basename, extension, path);
 
-			sBasename = "FastGui/" + sBasename + "." + sExtension;  // e.g. "FastGui/main_demo.menu"
+			oAssertDesc(Ogre::StringUtil::endsWith(this->filenameMenu, ".menu"), "");
 
-			Ogre::LogManager::getSingleton().logMessage("Loading menu " + sBasename);
+			// TODO resize window
+
+			// platform dependent resource paths
+			this->filenameResourceConfig = Orkige::PlatformUtil::getResourceDirectory();
+			if (path.find("_iphone"))
+			{
+				this->filenameResourceConfig += "data/Config/resources_iphone.cfg";
+			}
+			else if (path.find("_iphone4"))
+			{
+				this->filenameResourceConfig += "data/Config/resources_iphone4.cfg";
+			}
+			else if (path.find("_ipad"))
+			{
+				this->filenameResourceConfig += "data/Config/resources_ipad.cfg";
+			}
+			else
+			{
+				this->filenameResourceConfig += "data/Config/resources.cfg";
+			}
+			Engine::getSingleton().resetupResources(filenameResourceConfig);
+
+
+			// assemble engine compatible filename, e.g. "FastGui/main_demo.menu"
+			Ogre::String sResourcePath = CC::FileUtils::GetResourceDirectory();
+			sResourcePath += "/data/";
+			oAssertDesc(this->filenameMenu.length() > sResourcePath.length(), "");
+			sResourcePath = this->filenameMenu.substr(sResourcePath.length(), this->filenameMenu.length());			
+			//basename = Ogre::StringUtil::standardisePath(sResourcePath);
+			basename = Ogre::StringUtil::replaceAll(sResourcePath, "\\", "/");
+
+			Ogre::LogManager::getSingleton().logMessage("Loading menu " + basename);
+
+			FileUtils::SetCurrentPath(FileUtils::GetResourceDirectory().c_str());
 
 			FastGuiManager::getSingleton().destroyAllWidgets();
-			FastGuiManager::getSingleton().getFactory().lock()->load(Orkige::String(sBasename.c_str()));
+			FastGuiManager::getSingleton().getFactory().lock()->load(basename);
 
 
 			// TODO add filename to window title
 
+
+			//std::stringstream sstr;
+			//sstr << "Filename" << std::endl;
+			//this->statsValues->setText(sstr.str());
 		}
 	}
 

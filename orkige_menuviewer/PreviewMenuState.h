@@ -11,7 +11,7 @@
 #include <core_game/GameState.h>
 #include <engine_input/InputManager.h>
 #include <engine_gui/GuiManager.h>
-
+//#include <engine_fastgui/FastGuiTextbox.h>
 
 
 
@@ -27,7 +27,9 @@ namespace CC
 	public:
 	protected:
 	private:
-		Ogre::String sFilenameMenu;
+		Ogre::String filenameMenu;
+		Ogre::String filenameResourceConfig;
+		//optr<Orkige::FastGuiTextbox> statsValues;
 		//--- Methods -----------------------------------------
 	public:
 		PreviewMenuState(Orkige::String const & id, Orkige::String const & sFilename);
@@ -50,8 +52,8 @@ namespace CC
 		bool onMouseMoved(Orkige::Event const & event);
 
 	private:
-		void SelectAndLoadMenu();
-		void LoadMenu();
+		void selectAndLoadMenu();
+		void loadMenu();
 
 	};
 	//---------------------------------------------------------

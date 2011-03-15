@@ -87,13 +87,14 @@ namespace CC
 		Application(Orkige::String const & externalWindowHandle = Orkige::StringUtil::BLANK, Orkige::String const & topLevelWindowHandle = Orkige::StringUtil::BLANK);
 		virtual ~Application();
 
-		bool init(Ogre::String const & sCommandLine);
+		bool init(Orkige::String const & sCommandLine);
 		bool deinit();
 		virtual bool run();
 	protected:
 		//! react on gui events an play sounds
 		bool onGuiEvent(Orkige::Event const & e);
 	private:
+
 	};
 	//---------------------------------------------------------------
 }
