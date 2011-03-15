@@ -50,46 +50,12 @@ namespace Orkige
 		viewport(NULL),
 		lastFrameTime(0)
 	{
-		String renderCfgPlatformFileName = renderCfgFileName;
-		String resourceCfgPlatformFileName = resourceCfgFileName;
-#ifdef ORKIGE_IPHONE
-		// iphone and ipad need different configs
-		if(renderCfgPlatformFileName.find(';') != String::npos)
-		{
-			bool iPad = false;
-//#ifdef UI_USER_INTERFACE_IDIOM
-			iPad = ((UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) == YES);
-//#endif
-			std::vector<std::string> strs;
-			boost::split(strs, renderCfgFileName, boost::is_any_of(";"));
-			if (iPad) 
-			{
-				// iPad specific code here
-				renderCfgPlatformFileName = strs[2];
-				resourceCfgPlatformFileName = strs[2];
-			} 
-			else 
-			{
-				// iPhone/iPod specific code here
-				
-				if([[UIScreen mainScreen] respondsToSelector:@selector(scale)] && [[UIScreen mainScreen] scale] == 2.0) 
-				{
-					//>=iphone4
-					renderCfgPlatformFileName = strs[1];
-					resourceCfgPlatformFileName = strs[1];
-				}
-				else 
-				{
-					//older iphones
-					renderCfgPlatformFileName = strs[0];
-					resourceCfgPlatformFileName = strs[0];
-				}
+		String renderCfgPlatformFileName = this->getPlatformSpecificConfig(renderCfgFileName);
+		String resourceCfgPlatformFileName = this->getPlatformSpecificConfig(resourceCfgFileName);
 
-			}
-			oDebugMsg("core", 0, "Setting 2 RenderConfigFile to: " << renderCfgPlatformFileName);
-		}
+		oDebugMsg("core", 0, "Setting 2 RenderConfigFile to: " << renderCfgPlatformFileName);
+		oDebugMsg("core", 0, "Setting 2 ResourceConfigFile to: " << resourceCfgPlatformFileName);
 
-#endif
 		this->data = onew(new FrameEventData());
 
 		this->frameStartedEvent.setData(this->data);
@@ -111,6 +77,49 @@ namespace Orkige
 	Engine::~Engine()
 	{
 	}
+	//---------------------------------------------------------
+	String Engine::getPlatformSpecificConfig(String const & cfgFileName)
+	{
+//#ifdef ORKIGE_IPHONE
+		// iphone and ipad need different configs
+		if(cfgFileName.find(';') != String::npos)
+		{
+			String cfgPlatformFileName = cfgFileName;
+
+			bool iPad = false;
+//#ifdef UI_USER_INTERFACE_IDIOM
+			iPad = ((UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) == YES);
+//#endif
+			std::vector<std::string> strs;
+			boost::split(strs, cfgFileName, boost::is_any_of(";"));
+			oAssert(strs.size() == 3, "");
+			if (iPad) 
+			{
+				// iPad specific code here
+				cfgPlatformFileName = strs[2];
+			} 
+			else 
+			{
+				// iPhone/iPod specific code here
+
+				if ([[UIScreen mainScreen] respondsToSelector:@selector(scale)] && [[UIScreen mainScreen] scale] == 2.0)
+				{
+					//>=iphone4
+					cfgPlatformFileName = strs[1];
+				}
+				else 
+				{
+					//older iphones
+					cfgPlatformFileName = strs[0];
+				}
+			}
+
+			return cfgPlatformFileName;
+		}
+//#endif
+		return cfgFileName;
+	}
+
 	//---------------------------------------------------------
 	bool Engine::setup(bool alwaysShowConfigDialog, String const & windowTitle, String const & externalHandle, String const & topLevelHandle)
 	{
