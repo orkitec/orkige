@@ -59,14 +59,22 @@ namespace Orkige
 	public:
 		//! construct Engine and set basic parameters
 		Engine(Ogre::SceneType st = Ogre::ST_GENERIC, 
+#ifdef ORKIGE_IPHONE
+			String const & resourceCfgFileName =  Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone.cfg;" 
+												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone4.cfg;" 
+												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_ipad.cfg", 
+#else
 			String const & resourceCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources.cfg",
+#endif
 #ifdef _DEBUG
 			String const & pluginCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/plugins_d.cfg",
 #else
 			String const & pluginCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/plugins.cfg",
 #endif
 #ifdef ORKIGE_IPHONE
-			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone.cfg;" + Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone4.cfg;" + Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_ipad.cfg", 
+			String const & renderCfgFileName =    Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone.cfg;" 
+												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone4.cfg;" 
+												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_ipad.cfg", 
 #else
 			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
 #endif
@@ -102,6 +110,8 @@ namespace Orkige
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
 		inline String const & getTopLevelWindowHandle(); 
+		//! define the source of resources (other than current folder) but doesn't load them
+		void resetupResources(String const & resourceCfgFileName);
 		
 		/** \addtogroup Debug
 		*  @{ */

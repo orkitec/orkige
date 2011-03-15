@@ -134,7 +134,7 @@ namespace Ogre {
 
         /** Method for standardising paths - use forward slashes only, end with slash.
         */
-        static String standardisePath( const String &init);
+        static String standardisePath(const String& init);
 
         /** Method for splitting a fully qualified filename into the base name
             and path.

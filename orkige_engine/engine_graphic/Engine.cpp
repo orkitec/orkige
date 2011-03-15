@@ -51,6 +51,7 @@ namespace Orkige
 		lastFrameTime(0)
 	{
 		String renderCfgPlatformFileName = renderCfgFileName;
+		String resourceCfgPlatformFileName = resourceCfgFileName;
 #ifdef ORKIGE_IPHONE
 		// iphone and ipad need different configs
 		if(renderCfgPlatformFileName.find(';') != String::npos)
@@ -65,6 +66,7 @@ namespace Orkige
 			{
 				// iPad specific code here
 				renderCfgPlatformFileName = strs[2];
+				resourceCfgPlatformFileName = strs[2];
 			} 
 			else 
 			{
@@ -74,11 +76,13 @@ namespace Orkige
 				{
 					//>=iphone4
 					renderCfgPlatformFileName = strs[1];
+					resourceCfgPlatformFileName = strs[1];
 				}
 				else 
 				{
 					//older iphones
 					renderCfgPlatformFileName = strs[0];
+					resourceCfgPlatformFileName = strs[0];
 				}
 
 			}
@@ -101,7 +105,7 @@ namespace Orkige
 #endif
 #endif
 		
-		this->setupResources(resourceCfgFileName);
+		this->setupResources(resourceCfgPlatformFileName);
 	}
 	//---------------------------------------------------------
 	Engine::~Engine()
@@ -184,6 +188,12 @@ namespace Orkige
 		this->camera->setAspectRatio(	Ogre::Real(this->viewport->getActualWidth()) / Ogre::Real(this->viewport->getActualHeight()));
 	}
 	//---------------------------------------------------------
+	void Engine::resetupResources(String const & resourceCfgFileName)
+	{
+		Ogre::ResourceGroupManager::getSingleton().shutdownAll();
+		this->setupResources(resourceCfgFileName);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -195,9 +205,6 @@ namespace Orkige
 		// Load resource paths from config file
 		Ogre::ConfigFile cf;
 		cf.load(resourceCfgFileName);
-
-		//Load Log Config
-
 
 		// Go through all sections & settings in the file
 		Ogre::ConfigFile::SectionIterator seci = cf.getSectionIterator();
