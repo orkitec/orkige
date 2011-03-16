@@ -296,7 +296,7 @@ void ViewportGrid::updatePersp()
 
     // Start creating or updating the grid
     m_pGrid->estimateVertexCount(4 * numLines);
-    if(m_created)
+    if(m_created &&  m_pGrid->getNumSections()>0)
         m_pGrid->beginUpdate(0);
     else
     {
