@@ -92,7 +92,7 @@ namespace Orkige
 //#endif
 			std::vector<std::string> strs;
 			boost::split(strs, cfgFileName, boost::is_any_of(";"));
-			oAssert(strs.size() == 3, "");
+			oAssert(strs.size() == 3);
 			if (iPad) 
 			{
 				// iPad specific code here

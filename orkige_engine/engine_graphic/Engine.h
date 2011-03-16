@@ -133,7 +133,7 @@ namespace Orkige
 		virtual bool frameEnded(const Ogre::FrameEvent& evt);
 	private:
 		//! split comma separated string and returns according to current platform
-		String Engine::getPlatformSpecificConfig(String const & cfgFileName);
+		String getPlatformSpecificConfig(String const & cfgFileName);
 	};
 	//---------------------------------------------------------------
 	inline Ogre::SceneManager* Engine::getSceneManager() 
