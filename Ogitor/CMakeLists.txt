@@ -77,7 +77,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/;${CMAKE_MODULE_
 ##ORKIGE##find_package(OGRE REQUIRED)
 
 if(APPLE)
-    find_package(CG REQUIRED)
+    find_package(Cg REQUIRED)
 endif(APPLE)
 
 IF ((NOT "${OGRE_VERSION_NAME}" STREQUAL "Cthugha") AND (NOT  "${OGRE_VERSION_NAME}" STREQUAL "Byatis"))

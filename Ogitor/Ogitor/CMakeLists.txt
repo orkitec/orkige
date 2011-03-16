@@ -133,7 +133,7 @@ MESSAGE(STATUS ${OGRE_LIBRARY})
 target_link_libraries(Ogitor ${OGRE_LIBRARY} ${OGRE_Terrain_LIBRARY} ${OGRE_Paging_LIBRARY} PagedGeometry ${Boost_LIBRARIES})
 
 IF(APPLE)
-    find_package(CARBON REQUIRED)
+    find_package(Carbon REQUIRED)
     MESSAGE(STATUS ${Carbon_LIBRARY_FWK})
     target_link_libraries(Ogitor ${Carbon_LIBRARY_FWK})
 
