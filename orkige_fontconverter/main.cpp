@@ -446,7 +446,7 @@ bool ConvertXMLtoOGUI(const char* szFilenameXML, FontOffsets& fontOffsets, std::
 	return true;
 }
 //---------------------------------------------------------
-int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
+int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath, bool useBorder)
 {
 	// place to store ogui and texture atlas
 	std::string sAtlasPath(szAtlasPath);
@@ -476,10 +476,18 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath)
 	// execute sprite sheet packer and create bitmap font image and description
 	std::stringstream command;
 	command << "" << szExecutablePath << "\\sspack.exe";
-	//command << "sspack.exe";
-	command << " /image:" << outputImage << " /map:" << outputMap << " /r /sqr /pow2 /pad:1 " << sAtlasName << "\\*.png";
+	command << " /image:" << outputImage << " /map:" << outputMap << " /r /sqr /pow2 ";
+	if (useBorder)
+	{
+		command << "/pad:1 ";
+	}
+	else
+	{
+		command << "/pad:0 ";
+	}
+	command << sAtlasName << "\\*.png";
 	
-	// attention: the tool doesn't accept absolute path and then compains with a "No Images to pack." message
+	// attention: the tool doesn't accept absolute path and then complains with a "No Images to pack." message
 	// so far the only solution is to temporarily copy the executable to the output folder...
 	//SetCurrentPath(szExecutablePath);
 	CC::FileUtils::SetCurrentPath(sOutputPath.c_str());
@@ -589,6 +597,7 @@ int main(int argc, char **argv)
 	
 	// parse command line parameters
 	bool createFont = false;
+	bool useBorder = true;
 	//bool createFont = (cimg_library::cimg::option("-createFont", argc, argv, false) != 0);
 	if (argc == 0)
 	{
@@ -600,6 +609,10 @@ int main(int argc, char **argv)
 		if (s == "-createFont")
 		{
 			createFont = true;
+		}
+		if (s == "-noBorder")
+		{
+			useBorder = false;
 		}
 		else
 		{
@@ -646,7 +659,7 @@ int main(int argc, char **argv)
 		{
 			generateFont(sExecutablePath.c_str(), sAtlasPath.c_str());
 		}	
-		generateTextureAtlas(sExecutablePath.c_str(), sAtlasPath.c_str());
+		generateTextureAtlas(sExecutablePath.c_str(), sAtlasPath.c_str(), useBorder);
 	}
 
 	system("pause");

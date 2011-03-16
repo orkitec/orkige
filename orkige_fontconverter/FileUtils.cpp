@@ -169,7 +169,7 @@ namespace CC
 
 		if (hFind == INVALID_HANDLE_VALUE)
 		{
-			std::cout << "Error: invalid path: " << szPathPattern << std::endl;
+			std::cout << "Warning: invalid path or not files found: \n" << szPathPattern << std::endl;
 		}
 		else
 		{
