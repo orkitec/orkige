@@ -1583,8 +1583,8 @@ namespace Ogre {
 
         OGRE_LOCK_MUTEX(grp->OGRE_AUTO_MUTEX_NAME) // lock group mutex
 
-        // Iterate over the archives
-        LocationList::iterator i, iend;
+            // Iterate over the archives
+            LocationList::iterator i, iend;
         iend = grp->locationList.end();
         for (i = grp->locationList.begin(); i != iend; ++i)
         {
@@ -1613,8 +1613,8 @@ namespace Ogre {
 
         OGRE_LOCK_MUTEX(grp->OGRE_AUTO_MUTEX_NAME) // lock group mutex
 
-        // Iterate over the archives
-        LocationList::iterator i, iend;
+            // Iterate over the archives
+            LocationList::iterator i, iend;
         iend = grp->locationList.end();
         for (i = grp->locationList.begin(); i != iend; ++i)
         {
