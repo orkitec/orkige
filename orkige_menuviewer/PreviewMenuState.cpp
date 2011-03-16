@@ -205,26 +205,30 @@ namespace CC
 
 			// platform dependent resource paths and resize window
 			this->filenameResourceConfig = Orkige::PlatformUtil::getResourceDirectory();
-			Ogre::RenderWindow* renderWindow = Engine::getSingleton().getRenderWindow();
-			if (path.find("_iphone"))
+			if (path.find("_iphone") != String::npos)
 			{
+				Ogre::LogManager::getSingleton().logMessage("set to iPhone 1,2,3");
 				this->filenameResourceConfig += "data/Config/resources_iphone.cfg";
-				//renderWindow->resize(480, 320);
+				Engine::getSingleton().getRenderWindow()->resize(480, 320);
 			}
-			else if (path.find("_iphone4"))
+			else if (path.find("_iphone4") != String::npos)
 			{
+				Ogre::LogManager::getSingleton().logMessage("set to iPhone 4 or newer");
 				this->filenameResourceConfig += "data/Config/resources_iphone4.cfg";
-				//renderWindow->resize(960, 640);
+				Engine::getSingleton().getRenderWindow()->resize(960, 640);
 			}
-			else if (path.find("_ipad"))
+			else if (path.find("_ipad") != String::npos)
 			{
+				Ogre::LogManager::getSingleton().logMessage("set to iPad");
 				this->filenameResourceConfig += "data/Config/resources_ipad.cfg";
-				//renderWindow->resize(1024, 768);
+				Engine::getSingleton().getRenderWindow()->resize(1024, 768);
 			}
 			else
 			{
+				Ogre::LogManager::getSingleton().logMessage("set to Windows");
 				this->filenameResourceConfig += "data/Config/resources.cfg";
 				//renderWindow->resize(800, 600);
+				Engine::getSingleton().getRenderWindow()->resize(1024, 768);
 			}
 			Engine::getSingleton().resetupResources(filenameResourceConfig);
 
@@ -247,10 +251,12 @@ namespace CC
 
 			// TODO add filename to window title
 
-
 			//std::stringstream sstr;
 			//sstr << "Filename" << std::endl;
 			//this->statsValues->setText(sstr.str());
+
+			// TODO notify rendering of screen resolution change
+			//FastGuiManager::getSingleton().updateStats();
 		}
 	}
 
