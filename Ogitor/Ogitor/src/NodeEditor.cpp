@@ -390,7 +390,7 @@ CNodeEditorFactory::CNodeEditorFactory(OgitorsView *view) : CBaseEditorFactory(v
     OgitorsPropertyDef *definition;
 
     AddPropertyDefinition("position","Position","The position of the object.",PROP_VECTOR3);
-    AddPropertyDefinition("orientation","Orientation","The orientation of the object.",PROP_QUATERNION,true,false);
+    AddPropertyDefinition("orientation","Orientation","The orientation of the object.",PROP_QUATERNION/*,true,false*/);
     AddPropertyDefinition("scale","Scale","The scale of the object.", PROP_VECTOR3);
     definition = AddPropertyDefinition("autotracktarget","Tracking Target","The object's tracking target.",PROP_STRING);
     definition->setOptions(OgitorsRoot::GetAutoTrackTargets());
