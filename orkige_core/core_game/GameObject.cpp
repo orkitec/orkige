@@ -9,6 +9,7 @@
 
 #include "core_tinyxml/tinyxml.h"
 #include "core_game/GameObject.h"
+#include "core_game/GameObjectManager.h"
 #include <boost/lexical_cast.hpp>
 #include <core_debug/ProfileManager.h>
 
@@ -317,6 +318,7 @@ namespace Orkige
 			oAssert(goc);
 
 			this->updatableComponents.push_back(goc);
+			GameObjectManager::getSingleton().enableUpdates(this->getObjectID());
 		}
 	}
 	//---------------------------------------------------------
@@ -333,6 +335,10 @@ namespace Orkige
 			if(gocit != this->updatableComponents.end())
 			{
 				this->updatableComponents.erase(gocit);
+				if(this->updatableComponents.empty())
+				{
+					GameObjectManager::getSingleton().disableUpdates(this->getObjectID());
+				}
 			}
 			
 		}
