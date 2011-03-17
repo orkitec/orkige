@@ -27,7 +27,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		EventManager* eventManager;	//!< EventManager assigned Components can listen to
+		EventManager*								eventManager;			//!< EventManager assigned Components can listen to
+		std::vector< optr<GameObjectComponent> >	updatableComponents;	//!< holds components that needs ther onUpdate method called
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -43,7 +44,17 @@ namespace Orkige
 		bool loadTemplate(String const & templateFileName);
 		//! load GameObject and GameObjectComponents from Template
 		bool saveTemplate(String const & templateFileName);
+		//! enable updates for component of given type
+		void enableUpdates(TypeInfo const & componentType);
+		//! disable updates for component of given type
+		void disableUpdates(TypeInfo const & componentType);
+		//! update components that wants Updates
+		inline void updateComponents(float delta);
 	protected:
+		//! called when a component is added
+		virtual void onComponentAdded(TypeInfo const & componentType);
+		//! called when a component is removed
+		virtual void onComponentRemoved(TypeInfo const & componentType);
 		//--- SERIALIZATION ---
 		//! load from Archive
 		virtual void save(optr<IArchive> const & ar);
@@ -62,6 +73,15 @@ namespace Orkige
 	inline bool GameObject::triggerEvent(Event const & event) const
 	{
 		return this->eventManager->trigger(event);
+	}
+	//---------------------------------------------------------
+	inline void GameObject::updateComponents(float delta)
+	{
+		std::vector< optr<GameObjectComponent> > tempUpdatableComponents = this->updatableComponents;
+		foreach(optr<GameObjectComponent> const & goc, tempUpdatableComponents)
+		{
+			goc->onUpdateComponent(delta);
+		}
 	}
 }
 

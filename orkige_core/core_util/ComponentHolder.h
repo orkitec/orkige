@@ -32,8 +32,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-	private:
 		ComponentMap components;											//!< created Components
+	private:
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
@@ -161,6 +161,10 @@ namespace Orkige
 		virtual void save(optr<IArchive> const & ar);
 		virtual void load(optr<IArchive> const & ar);
 	protected:
+		//! called when a component is added
+		virtual void onComponentAdded(TypeInfo const & componentType)	{							};
+		//! called when a component is removed
+		virtual void onComponentRemoved(TypeInfo const & componentType)	{							};
 		//! prevent construction
 		ComponentHolder(){};
 		//! get static ComponentFactory for this ComponentHolder
@@ -217,6 +221,7 @@ namespace Orkige
 			if(currentComponent != componentOptr)
 				currentComponent->onComponentAdded(component->getTypeInfo());
 		}
+		this->onComponentAdded(component->getTypeInfo());
 		return true;	
 	}
 	//---------------------------------------------------------
@@ -291,6 +296,9 @@ namespace Orkige
 		{
 			this->removeComponent(tobeRemovedComponent);
 		}
+
+		//needs to be called before this->components.erase(foundComponent) to still have acces to the component
+		this->onComponentRemoved(component->getTypeInfo());
 
 		this->components.erase(foundComponent);
 		component->onRemove();

@@ -24,6 +24,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	GameObject::~GameObject()
 	{
+		this->updatableComponents.clear();
 		this->removeAllComponents();
 		delete this->eventManager;
 		this->eventManager = NULL;
@@ -304,7 +305,61 @@ namespace Orkige
 		return retval;
 	}
 	//---------------------------------------------------------
+	void GameObject::enableUpdates(TypeInfo const & componentType)
+	{
+		ComponentMap::iterator it = this->components.find(componentType);
+		
+		oAssert(it != this->components.end());
+
+		if(it != this->components.end())
+		{
+			optr<GameObjectComponent> goc = it->second;
+			oAssert(goc);
+
+			this->updatableComponents.push_back(goc);
+		}
+	}
+	//---------------------------------------------------------
+	void GameObject::disableUpdates(TypeInfo const & componentType)
+	{
+		ComponentMap::iterator it = this->components.find(componentType);
+		
+		if(it != this->components.end())
+		{
+			optr<GameObjectComponent> goc = it->second;
+			oAssert(goc);
+
+			std::vector< optr<GameObjectComponent> >::iterator gocit = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), goc);
+			if(gocit != this->updatableComponents.end())
+			{
+				this->updatableComponents.erase(gocit);
+			}
+			
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void GameObject::onComponentAdded(TypeInfo const & componentType)
+	{
+		ComponentMap::iterator it = this->components.find(componentType);
+
+		oAssert(it != this->components.end());
+		
+		optr<GameObjectComponent> goc = it->second;
+		
+		oAssert(goc);
+
+		if(goc->getWantsUpdates())
+		{
+			this->enableUpdates(componentType);
+		}
+	}
+	//---------------------------------------------------------
+	void GameObject::onComponentRemoved(TypeInfo const & componentType)
+	{
+		this->disableUpdates(componentType);
+	}
 	//---------------------------------------------------------
 	void GameObject::save(optr<IArchive> const & ar)
 	{

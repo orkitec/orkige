@@ -73,6 +73,36 @@ namespace Orkige
 		return retval;
 	}
 	//---------------------------------------------------------
+	void GameObjectManager::enableUpdates(String const & id)
+	{
+		GameObjectMap::iterator it = this->updatableObjects.find(id);
+		if(it == this->updatableObjects.end())
+		{
+			oAssert(this->objectExists(id));
+			this->updatableObjects[id] = this->objects[id];
+		}	
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::disableUpdates(String const & id)
+	{
+		GameObjectMap::iterator it = this->updatableObjects.find(id);
+		if(it != this->updatableObjects.end())
+		{
+			this->updatableObjects.erase(it);
+		}
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::update(float delta)
+	{
+		this->processDeleteQueue();
+		for(GameObjectMap::const_iterator it = this->updatableObjects.begin(), itend = this->updatableObjects.end(); it != itend; ++it)
+		{
+			it->second->updateComponents(delta);
+		}
+	}
+	//---------------------------------------------------------
+	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
 	void GameObjectManager::processDeleteQueue()
 	{
 		OPROFILEFUNC();
@@ -82,8 +112,6 @@ namespace Orkige
 		}
 		this->deleteQueue.clear();
 	}
-	//---------------------------------------------------------
-	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool GameObjectManager::createBeforeLoad()	
 	{

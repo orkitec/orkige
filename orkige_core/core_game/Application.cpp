@@ -34,7 +34,10 @@ namespace Orkige
 		ProfileManager::getSingleton().incrementFrameCounter();
 #endif
 		OPROFILEFUNC();
-		this->gom->processDeleteQueue();
+		long currentTime = Orkige::Timer::getMilliseconds();
+		float delta = (currentTime - this->lastUpdateTime)/1000.f;
+		this->lastUpdateTime = currentTime;
+		this->gom->update(delta);
 		this->gem->tick();
 		this->gem->trigger(Event(Application::UpdateEvent));
 		return this->_run;
@@ -59,6 +62,7 @@ namespace Orkige
 		this->gom = onew(new GameObjectManager());
 		this->gsm = onew(new GameStateManager());
 		this->gem = onew(new GlobalEventManager());
+		this->lastUpdateTime = Timer::getMilliseconds();
 		return true;
 	}
 	//---------------------------------------------------------

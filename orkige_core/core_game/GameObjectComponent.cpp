@@ -32,6 +32,22 @@ namespace Orkige
 		return eventManager;
 	}
 	//---------------------------------------------------------
+	void GameObjectComponent::setWantsUpdates(bool wantsUpdates)
+	{
+		this->wantsUpdates = wantsUpdates;
+		if(this->getComponentOwner())
+		{
+			if(this->wantsUpdates)
+			{
+				this->getComponentOwner()->enableUpdates(this->getTypeInfo());
+			}
+			else
+			{
+				this->getComponentOwner()->disableUpdates(this->getTypeInfo());
+			}
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 

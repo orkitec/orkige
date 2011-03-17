@@ -29,6 +29,7 @@ namespace Orkige
 	public:
 	protected:
 		GameObjectMap objects;			//!< managed GameObjects
+		GameObjectMap updatableObjects;	//!< managed GameObjects
 		EventListenerMap globalEvents;	//!< enabled Global Events
 		StringVector deleteQueue;		//!< queue of GameObjects that should be deleted on next update
 	private:
@@ -61,6 +62,11 @@ namespace Orkige
 		//! stop forwarding given Event
 		bool disableEvent(EventType const & eventType);
 
+		//! enable updates for given GameObject
+		void enableUpdates(String const & id);
+		//! disable updates for given GameObject
+		void disableUpdates(String const & id);
+
 		//! save to archive
 		virtual void save(optr<IArchive> const & ar);
 		//! load from archive
@@ -68,9 +74,11 @@ namespace Orkige
 		//! @see ISerializable::createBeforeLoad
 		virtual bool createBeforeLoad();
 
+		//! update GameObjects and components and process DeleteQueue
+		void update(float delta);
+	protected:
 		//! delete GameObjects that are queued for deletion
 		void processDeleteQueue();
-	protected:
 		//! handle Global Event forwarding
 		inline bool onGlobalEvent(Event const & event);
 	private:

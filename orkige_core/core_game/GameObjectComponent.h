@@ -32,6 +32,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
+		bool wantsUpdates; //!< mark if this Componenets ::onUpdate method should be called when the GameObject is updated!
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -47,9 +48,20 @@ namespace Orkige
 		//!	calls GameObject::getEventManager
 		//! @see EventHandler::getEventManager
 		virtual EventManager* getEventManager();
+		//! overridable to update the component
+		virtual void onUpdateComponent(float deltaTime) {};
+		//! does this component wants updates?
+		inline bool getWantsUpdates();
+		//! set if this compomponent should receive updates
+		void setWantsUpdates(bool wantsUpdates);
 	protected:
 	private:
 	};
+	//---------------------------------------------------------
+	inline bool GameObjectComponent::getWantsUpdates()
+	{
+		return this->wantsUpdates;
+	}
 	//---------------------------------------------------------
 #define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder< ::Orkige::GameObjectComponent >::registerComponent<Class>();
 	//put this in the OOBJECT_IMPL block of each component
