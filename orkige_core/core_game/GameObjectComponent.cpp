@@ -15,7 +15,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GameObjectComponent::GameObjectComponent()
+	GameObjectComponent::GameObjectComponent() : wantsUpdates(false)
 	{
 	}
 	//---------------------------------------------------------

@@ -123,6 +123,13 @@ namespace Orkige
 			return false;
 		}
 		this->objects.erase(it);
+
+		it = this->updatableObjects.find(id);
+		if(it != this->updatableObjects.end())
+		{
+			this->updatableObjects.erase(it);
+		}
+		
 		return true;
 	}
 	//---------------------------------------------------------
@@ -163,6 +170,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	inline void GameObjectManager::clear()										
 	{	
+		this->updatableObjects.clear();
 		this->objects.clear();								
 	}
 	//---------------------------------------------------------
