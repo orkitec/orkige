@@ -45,7 +45,7 @@ namespace Orkige
 			return atoi(str);
 		}
 		//---------------------------------------------------------------
-		const char* IntToString(int i)
+		String intToString(int i)
 		{
 			std::ostringstream temp;
 			temp << i;

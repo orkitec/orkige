@@ -22,6 +22,7 @@ namespace Orkige
 		typedef Value<String> StringObject;
 		//! blank String definition
 		static String BLANK = "";
+
 		//! @return true if strings match :)
 		bool StringCompare(const char  *s1, const char  *s2);
 
@@ -32,8 +33,8 @@ namespace Orkige
 		//! @return value of str as int and 0 if str is a NULLPOINTER
 		int StringToInt(const char * str);
 
-		//! @return i as char*
-		const char * IntToString(int i);
+		//! @return i as String
+		String intToString(int i);
 
 		//! @return float val as String
 		String floatToString(float val, unsigned short precision = 6, unsigned short width = 0, char fill = ' ', std::ios::fmtflags flags = std::ios::fmtflags(0) );
