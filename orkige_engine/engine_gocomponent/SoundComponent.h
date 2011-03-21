@@ -47,8 +47,8 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
-		//! updates sound positions
-		bool onFrameStarted(Event const & event);
+		//! overridable to update the component
+		virtual void onUpdateComponent(float deltaTime);
 	private:
 	};
 	//---------------------------------------------------------------

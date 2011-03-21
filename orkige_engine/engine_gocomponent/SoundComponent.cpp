@@ -24,6 +24,9 @@ namespace Orkige
 	SoundComponent::SoundComponent() 
 	{
 		this->addDependency<TransformComponent>();
+#ifndef ORKIGE_OGGSOUNDMANAGER
+		this->setWantsUpdates(true);
+#endif
 	}
 	//---------------------------------------------------------
 	SoundComponent::~SoundComponent()
@@ -120,9 +123,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundComponent::onAdd()
 	{
-#ifndef ORKIGE_OGGSOUNDMANAGER
-		this->registerEvent(Engine::FrameStartedEvent, &SoundComponent::onFrameStarted, this);
-#endif
+
 	}
 	//---------------------------------------------------------
 	void SoundComponent::onRemove()
@@ -135,7 +136,7 @@ namespace Orkige
 		this->attachedSoundObjects.clear();
 	}
 	//---------------------------------------------------------
-	bool SoundComponent::onFrameStarted(Event const & event)
+	void SoundComponent::onUpdateComponent(float deltaTime)
 	{
 #ifndef ORKIGE_OGGSOUNDMANAGER
 		if(!this->attachedSoundObjects.empty())
@@ -170,7 +171,6 @@ namespace Orkige
 			}
 		}
 #endif //ORKIGE_OGGSOUNDMANAGER
-		return false;
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

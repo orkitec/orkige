@@ -29,7 +29,8 @@ namespace Orkige
 	public:
 	protected:
 		GameObjectMap objects;			//!< managed GameObjects
-		GameObjectMap updatableObjects;	//!< managed GameObjects
+		GameObjectMap updatableObjects;	//!< managed GameObjects that should be updated per frame
+		bool enableObjectUpdates;		//!< mark if updating Objects is enabled
 		EventListenerMap globalEvents;	//!< enabled Global Events
 		StringVector deleteQueue;		//!< queue of GameObjects that should be deleted on next update
 	private:
@@ -62,6 +63,8 @@ namespace Orkige
 		//! stop forwarding given Event
 		bool disableEvent(EventType const & eventType);
 
+		//! set GameObject updates enabled or disabled
+		inline void setUpdatesEnabled(bool enabled);
 		//! enable updates for given GameObject
 		void enableUpdates(String const & id);
 		//! disable updates for given GameObject
@@ -177,6 +180,11 @@ namespace Orkige
 	inline bool GameObjectManager::onGlobalEvent(Event const & event)
 	{
 		return this->triggerEvent(event);
+	}
+	//---------------------------------------------------------
+	inline void GameObjectManager::setUpdatesEnabled(bool enabled)
+	{
+		this->enableObjectUpdates = enabled;
 	}
 }
 

@@ -95,9 +95,19 @@ namespace Orkige
 	void GameObjectManager::update(float delta)
 	{
 		this->processDeleteQueue();
-		for(GameObjectMap::const_iterator it = this->updatableObjects.begin(), itend = this->updatableObjects.end(); it != itend; ++it)
+		if(this->enableObjectUpdates)
 		{
-			it->second->updateComponents(delta);
+			try
+			{
+				for(GameObjectMap::const_iterator it = this->updatableObjects.begin(), itend = this->updatableObjects.end(); it != itend; ++it)
+				{
+					it->second->updateComponents(delta);
+				}
+			}
+			catch (GameObject::GameObjectUpdateBreak const &/* e*/)
+			{
+
+			}
 		}
 	}
 	//---------------------------------------------------------

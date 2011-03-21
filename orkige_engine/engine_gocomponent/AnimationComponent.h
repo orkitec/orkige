@@ -122,7 +122,8 @@ namespace Orkige
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
 	private:
-		bool onFrameStarted(Event const & event);
+		//! overridable to update the component
+		virtual void onUpdateComponent(float deltaTime);
 
 		bool onModelRemoved(Event const & event);
 		bool onModelSet(Event const & event);

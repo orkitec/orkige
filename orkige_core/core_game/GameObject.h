@@ -22,6 +22,14 @@ namespace Orkige
 		OOBJECT(GameObject,ComponentHolder<GameObjectComponent>)
 		//--- Types -------------------------------------------
 	public:
+		class GameObjectComponentUpdateBreak
+		{
+
+		};
+		class GameObjectUpdateBreak
+		{
+
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -77,10 +85,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	inline void GameObject::updateComponents(float delta)
 	{
-		std::vector< optr<GameObjectComponent> > tempUpdatableComponents = this->updatableComponents;
-		foreach(optr<GameObjectComponent> const & goc, tempUpdatableComponents)
+		try
 		{
-			goc->onUpdateComponent(delta);
+			foreach(optr<GameObjectComponent> const & goc, this->updatableComponents)
+			{
+				goc->onUpdateComponent(delta);
+			}
+		}
+		catch (GameObjectComponentUpdateBreak const &/* e*/)
+		{
+
 		}
 	}
 }

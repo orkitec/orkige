@@ -65,8 +65,8 @@ namespace Orkige
 		//! set camera with delta smoothing
 		inline void setCamera (Ogre::Real timeSinceLastFrame, Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition, Ogre::Real tightness);
 	protected:
-		//! ticks camera updates
-		bool onFrameStarted(Event const & event);
+		//! overridable to update the component
+		virtual void onUpdateComponent(float deltaTime);
 		//! Component override gets called after the Component is attached to a GameObject
 		virtual void onAdd();
 		//! Component override gets called before the Component is removed from a GameObject

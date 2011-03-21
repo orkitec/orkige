@@ -50,7 +50,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-
+	void GameObjectComponent::cancelComponentsUpdate()
+	{
+		static GameObject::GameObjectComponentUpdateBreak exception;
+		throw exception;
+	}
+	//---------------------------------------------------------
+	void GameObjectComponent::cancelGameObjectsUpdate()
+	{
+		static GameObject::GameObjectUpdateBreak exception;
+		throw exception;
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------

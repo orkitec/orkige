@@ -27,6 +27,7 @@ namespace Orkige
 		this->cameraNode = NULL;
 		this->targetNode = NULL;
 		this->addDependency<TransformComponent>();
+		this->setWantsUpdates(true);
 	}
 	//---------------------------------------------------------
 	CameraComponent::~CameraComponent()
@@ -35,11 +36,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-	bool CameraComponent::onFrameStarted(Event const & event)
+	void CameraComponent::onUpdateComponent(float deltaTime)
 	{
-		optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
-		this->cameraFunction(this,data->timeSinceLastFrame,1.0f);
-		return false;
+		this->cameraFunction(this,deltaTime,1.0f);
 	}
 	//---------------------------------------------------------
 	void CameraComponent::onAdd()
@@ -71,7 +70,6 @@ namespace Orkige
 		this->camera->detachFromParent();
 		this->attachNode->attachObject(this->camera);
 		this->setMode(CameraDefaultModes::ThirdPersonChaseCamera);
-		this->registerEvent(Engine::FrameStartedEvent,&CameraComponent::onFrameStarted,this);
 	}
 	//---------------------------------------------------------
 	void CameraComponent::onRemove()
@@ -80,7 +78,6 @@ namespace Orkige
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		this->unregisterEvent(Engine::FrameStartedEvent);
 		this->controlNode->removeAndDestroyAllChildren();
 		transformComponent->removeChild(this->controlNode->getName());
 		this->actorNode->getCreator()->destroySceneNode(this->controlNode->getName());

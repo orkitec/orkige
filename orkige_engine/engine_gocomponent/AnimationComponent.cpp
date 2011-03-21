@@ -25,6 +25,7 @@ namespace Orkige
 		
 		this->addDependency<ModelComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
+		this->setWantsUpdates(true);
 	}
 	//---------------------------------------------------------
 	AnimationComponent::~AnimationComponent()
@@ -34,13 +35,13 @@ namespace Orkige
 	void AnimationComponent::pause()
 	{
 		this->paused = true;
-		this->unregisterEvent(Engine::FrameStartedEvent);
+		this->setWantsUpdates(false);
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::resume()
 	{
 		this->paused = false;
-		this->registerEvent(Engine::FrameStartedEvent,	&AnimationComponent::onFrameStarted,	this);
+		this->setWantsUpdates(true);
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::hasAnimations()
@@ -134,7 +135,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::onAdd()
 	{
-		this->registerEvent(Engine::FrameStartedEvent,	&AnimationComponent::onFrameStarted,	this);
 		this->registerEvent(ModelComponent::ModelRemovedEvent,	&AnimationComponent::onModelRemoved,	this);
 		this->registerEvent(ModelComponent::ModelSetEvent,		&AnimationComponent::onModelSet,		this);
 
@@ -150,27 +150,28 @@ namespace Orkige
 	//---------------------------------------------------------
 	void AnimationComponent::onRemove()
 	{
-		this->unregisterEvent(Engine::FrameStartedEvent);
 		this->unregisterEvent(ModelComponent::ModelRemovedEvent);
 		this->unregisterEvent(ModelComponent::ModelSetEvent);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-	bool AnimationComponent::onFrameStarted(Event const & event)
+	void AnimationComponent::onUpdateComponent(float deltaTime)
 	{
 		if(this->hasAnimations())
 		{
-			optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
-
 			if(!this->hasPlayingAnimations())
 			{
 				bool playDefaultAnimation = this->playAnimation(this->defaultAnimation, true);
 				oAssert(playDefaultAnimation);
 			}
-			this->updateAnimations(data->timeSinceLastFrame);
+			this->updateAnimations(deltaTime);
 		}
-		return this->paused;
+		//@TODO get rid of this check
+		if(this->paused)
+		{
+			this->cancelGameObjectsUpdate();
+		}
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::onModelRemoved(Event const & event)
