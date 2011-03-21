@@ -42,7 +42,8 @@ namespace CC
 		virtual void onExit();
 
 		bool onButtonHit(Orkige::Event const & event);
-	
+		bool onCheckBoxToggled(Orkige::Event const & event);
+
 		bool onFrameStarted(Orkige::Event const & event);
 
 		bool onKeyPressed(Orkige::Event const & event);

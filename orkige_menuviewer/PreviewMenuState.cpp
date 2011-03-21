@@ -32,7 +32,10 @@ namespace CC
 		this->registerEvent(Orkige::InputManager::MousePressedEvent,	&PreviewMenuState::onMousePressed,	this);
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,	&PreviewMenuState::onMouseReleased,	this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,		&PreviewMenuState::onMouseMoved,	this);
+		
 		this->registerEvent(Orkige::Button::ButtonHitEvent,				&PreviewMenuState::onButtonHit,		this);
+		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,		&PreviewMenuState::onCheckBoxToggled, this);
+
 		
 		//this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", 9, "", Ogre::Vector2(100,100), "", 15));
 	}
@@ -46,19 +49,19 @@ namespace CC
 	//---------------------------------------------------------
 	void PreviewMenuState::onEnter()
 	{
-		/* for debug: lists all menu files
+		// for debug: lists all menu files
 
 		Ogre::StringVectorPtr menus = Ogre::ResourceGroupManager::getSingleton().findResourceNames("General", "*.menu");
 
-		int i = menus->size();
+		Ogre::LogManager::getSingleton().logMessage("Found " + Orkige::StringUtil::intToString(menus->size()) + " menus");
+
 		Ogre::StringVector::iterator It = (*menus).begin();
 		Ogre::StringVector::iterator ItEnd = (*menus).end();
 		for ( ; It < ItEnd; ++It)
 		{
 			Ogre::String s = *It;
-			...
+			Ogre::LogManager::getSingleton().logMessage("File:: " + s);
 		}
-		*/
 
 		this->loadMenu();
 	}
@@ -71,10 +74,20 @@ namespace CC
 	bool PreviewMenuState::onButtonHit(Orkige::Event const & event)
 	{
 		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
-		Orkige::String sID = btn->getObjectID();
+		oAssert(btn);
 
-
+		Ogre::LogManager::getSingleton().logMessage("Button hit: " + btn->getObjectID());
 		
+		return false;
+	}
+	//---------------------------------------------------------
+	bool PreviewMenuState::onCheckBoxToggled(Orkige::Event const & event)
+	{
+		optr< ::Orkige::FastGuiCheckBox > checkbox = event.getDataPtr< ::Orkige::FastGuiCheckBox >();
+		oAssert(checkbox);
+
+		Ogre::LogManager::getSingleton().logMessage("Checkbox hit: " + checkbox->getObjectID());
+
 		return false;
 	}
 	//---------------------------------------------------------
