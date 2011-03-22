@@ -317,8 +317,12 @@ namespace Orkige
 			optr<GameObjectComponent> goc = it->second;
 			oAssert(goc);
 
-			this->updatableComponents.push_back(goc);
-			GameObjectManager::getSingleton().enableUpdates(this->getObjectID());
+			std::vector< optr<GameObjectComponent> >::iterator gocit = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), goc);
+			if(gocit == this->updatableComponents.end())
+			{
+				this->updatableComponents.push_back(goc);
+				GameObjectManager::getSingleton().enableUpdates(this->getObjectID());
+			}
 		}
 	}
 	//---------------------------------------------------------
