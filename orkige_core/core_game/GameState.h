@@ -43,7 +43,9 @@ namespace Orkige
 		virtual ~GameState();
 		//! @brief sets a state that should be entered on the next update cycle
 		void setTransition(String const & id);
+		//! @brief sets a sub state that should be entered on the next update cycle, increases stack depth
 		void setPush(String const & id);
+		//! @brief returns from a sub state that should be returned on the next update cycle, decreases stack depth
 		void setPop();
 	protected:
 		//! @brief overridable when GameState is entered and is not and StateStack
@@ -59,7 +61,7 @@ namespace Orkige
 		template<class F,class T>
 		void registerEvent(EventType const & eventType, F const & handlerFunction, T * const handlerClass);
 		//! @brief add a EventListener for given EventType
-		void addListener(optr<EventListener> inListener,EventType const & eventType);
+		void addListener(optr<EventListener> inListener, EventType const & eventType);
 		//! @brief enable all added EventListeners
 		void enableListeners();
 		//! @brief disable all added EventListeners

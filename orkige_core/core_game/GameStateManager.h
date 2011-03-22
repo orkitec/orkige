@@ -64,7 +64,7 @@ namespace Orkige
 		inline String getCurrentStateID();
 		//! get id of previous GameState
 		inline String const & getPreviousStateID();
-		//! get / seperated string of active GameState Stack
+		//! get / separated string of active GameState stack
 		String getStatePathString();
 		//! delete given EventListener from all GameStates
 		void delListener(optr<EventListener> listener);
