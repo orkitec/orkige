@@ -610,7 +610,7 @@ int main(int argc, char **argv)
 		{
 			createFont = true;
 		}
-		if (s == "-noBorder")
+		else if (s == "-noBorder")
 		{
 			useBorder = false;
 		}
