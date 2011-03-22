@@ -7,6 +7,11 @@
 	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 #include "core_util/PlatformUtil.h"
+#ifdef WIN32
+#	include <windows.h>
+#	include <stdarg.h>
+#	include <Shlobj.h>
+#endif
 
 namespace Orkige
 {
@@ -21,7 +26,18 @@ namespace Orkige
 		//---------------------------------------------------------
 		String const & getDocumentsDirectory()
 		{
-			static String path = "./";
+			static String path;
+			if(path.empty())
+			{
+				TCHAR szPath[MAX_PATH];
+
+				//@Note maybe use CSIDL_APPDATA instead of CSIDL_PERSONAL
+				if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath))) 
+				{
+					path = szPath;
+					path += "\\";
+				}
+			}
 			return path;
 		}
 		//---------------------------------------------------------
