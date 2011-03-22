@@ -86,6 +86,8 @@ namespace Orkige
 		bool hasPlayingAnimations();
 		//! play a anim
 		bool playAnimation(String const & anim, bool loop);
+		//! play a anim
+		bool stopAnimation(String const & anim);
 		//! update playing anims
 		void updateAnimations(float timeDelta);
 		//! should component handle motions in anims?

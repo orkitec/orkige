@@ -87,6 +87,21 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	bool AnimationComponent::stopAnimation(String const & anim)
+	{
+		if(this->hasAnimations())
+		{
+			if(this->animationStates->hasAnimationState(anim))
+			{
+				Ogre::AnimationState* animState = this->animationStates->getAnimationState(anim);
+				animState->setTimePosition(0.f);//set animation to start
+				animState->setEnabled(false);
+				return true;
+			}
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	void AnimationComponent::setDefaultAnimation(String const & anim)
 	{
 		if(this->hasAnimations())
