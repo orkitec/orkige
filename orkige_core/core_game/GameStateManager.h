@@ -21,6 +21,7 @@ namespace Orkige
 	//! manages GameStates in Hierarchical StateMachine
 	class ORKIGE_DLL GameStateManager : public Singleton<GameStateManager> , public Object
 	{
+		friend class GameState;
 		OOBJECT(GameStateManager,Object);
 		DECL_OSINGLETON(GameStateManager);
 		//--- Types -------------------------------------------------
@@ -53,12 +54,8 @@ namespace Orkige
 		~GameStateManager();
 		//! register a GameState
 		void registerState(optr<GameState> state);
-		//! pushes a state to the state stack and sets it active
-		void pushState(String  const & id);
-		//! pop current state from the state path
-		void popState();
-		//! set a state immediate pop current state and push the new on
-		void setState(String const & id);
+		//! set starting state, later use GameState::setTransition
+		void setInitialState(String const & id);
 		//! get current active GameState
 		woptr<GameState> getCurrent();
 		//! get state with given id
@@ -72,8 +69,14 @@ namespace Orkige
 		//! delete given EventListener from all GameStates
 		void delListener(optr<EventListener> listener);
 		//! remove all listeners from state with given id
-		void resetState(String  const & id);
+		void resetState(String const & id);
 	protected:
+		//! pushes a state to the state stack and sets it active
+		void pushState(String  const & id);
+		//! pop current state from the state path
+		void popState();
+		//! set a state immediate pop current state and push the new on
+		void setState(String const & id);
 	private:
 	};
 	//---------------------------------------------------------------

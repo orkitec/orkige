@@ -39,6 +39,13 @@ namespace Orkige
 		this->stateRegistry[stateId] = state;
 	}
 	//---------------------------------------------------------
+	void GameStateManager::setInitialState(String const & id)
+	{
+		oAssertDesc(this->previousStateId.empty(), "GameStateManager: already in a state");
+		oAssertDesc(this->statePath.empty(), "GameStateManager: already in a state");
+		this->pushState(id);
+	}
+	//---------------------------------------------------------
 	void GameStateManager::pushState(String const & id)
 	{
 		if(this->stateRegistry.find(id) == this->stateRegistry.end())
@@ -47,7 +54,7 @@ namespace Orkige
 		}
 
 		//if there is already a state active then pause it and leave the state
-		if(this->statePath.size()>0)
+		if(this->statePath.size() > 0)
 		{
 			this->statePath.back()->disableListeners();
 			this->statePath.back()->onLeave();

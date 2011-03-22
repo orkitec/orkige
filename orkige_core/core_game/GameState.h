@@ -32,6 +32,8 @@ namespace Orkige
 	protected:
 		EventTypeListenerMap listeners;					//!< added EventListeners
 		String transitionState;							//!< if set GameStateManager goes to this GameState on next update cycle
+		String pushState;								//!< if set GameStateManager goes to this sub GameState on next update cycle
+		bool popState;									//!< if set GameStateManager leaves current sub GameState on next update cycle
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -41,6 +43,8 @@ namespace Orkige
 		virtual ~GameState();
 		//! @brief sets a state that should be entered on the next update cycle
 		void setTransition(String const & id);
+		void setPush(String const & id);
+		void setPop();
 	protected:
 		//! @brief overridable when GameState is entered and is not and StateStack
 		virtual void onEnter();

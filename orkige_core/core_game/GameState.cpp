@@ -17,9 +17,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GameState::GameState(String const & id) : Object(id)
+	GameState::GameState(String const & id) : Object(id), popState(false)
 	{
-		this->registerEvent(Application::UpdateEvent, &GameState::onApplicationUpdate,this);
+		this->registerEvent(Application::UpdateEvent, &GameState::onApplicationUpdate, this);
 	}
 	//---------------------------------------------------------
 	GameState::~GameState()
@@ -29,6 +29,16 @@ namespace Orkige
 	void GameState::setTransition(String const & id)
 	{
 		this->transitionState = id;
+	}
+	//---------------------------------------------------------
+	void GameState::setPush(String const & id)
+	{
+		this->pushState = id;
+	}
+	//---------------------------------------------------------
+	void GameState::setPop()
+	{
+		this->popState = true;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -53,7 +63,7 @@ namespace Orkige
 
 	}
 	//---------------------------------------------------------
-	void GameState::addListener(optr<EventListener> inListener,EventType const & eventType)
+	void GameState::addListener(optr<EventListener> inListener, EventType const & eventType)
 	{
 		EventTypeListenerMap::iterator it = this->listeners.find(eventType);
 		EventListenerVector elv;
@@ -123,8 +133,26 @@ namespace Orkige
 	{
 		if(!this->transitionState.empty())
 		{
+			oAssertDesc(this->pushState.empty() && !popState, "GameState transition ambigous");
+
 			GameStateManager::getSingleton().setState(transitionState);
 			this->transitionState.clear();
+			return true;
+		}
+		else if(!this->pushState.empty())
+		{
+			oAssertDesc(this->transitionState.empty() && !popState, "GameState transition ambigous");
+
+			GameStateManager::getSingleton().pushState(pushState);
+			this->pushState.clear();
+			return true;
+		}
+		else if(popState)
+		{
+			oAssertDesc(this->transitionState.empty() && this->pushState.empty(), "GameState transition ambigous");
+
+			GameStateManager::getSingleton().popState();
+			popState = false;
 			return true;
 		}
 		return false;

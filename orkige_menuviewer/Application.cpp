@@ -116,7 +116,7 @@ namespace CC
 
 		SoundManager::getSingleton().createSound("click", "click.wav", false);
 
-		this->gsm->setState("PreviewMenu");
+		this->gsm->setInitialState("PreviewMenu");
 
 
 // 		if (SettingsManager::getSingleton().getSetting("EnableSound") == "no")
