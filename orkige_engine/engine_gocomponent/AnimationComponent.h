@@ -86,7 +86,7 @@ namespace Orkige
 		bool hasPlayingAnimations();
 		//! play a anim
 		bool playAnimation(String const & anim, bool loop);
-		//! play a anim
+		//! stop a anim
 		bool stopAnimation(String const & anim);
 		//! update playing anims
 		void updateAnimations(float timeDelta);
@@ -98,9 +98,6 @@ namespace Orkige
 		inline bool getExtractMotion();
 		//! should rotations should be xtracted from anim
 		inline bool getExtractRotation();
-		//! is the AnimationComponent is paused 
-		inline bool isPaused();
-		
 
 		//! set motion handling
 		inline void setHandleMotion(bool handleMotion);
@@ -111,13 +108,17 @@ namespace Orkige
 		//! set rotation extraction
 		inline void setExtractRotation(bool extractRotation);
 
-		//! get bon for wich motions should be handled/extracted
+		//! get bone for which motions should be handled/extracted
 		inline String const & getMotionBone();
-		//! set bone for wich motions should be handled/extracted
+		//! set bone for which motions should be handled/extracted
 		inline void setMotionBone(String const & boneName);
 
+		//! pause playing animations
 		void pause();
+		//! resume playing animations
 		void resume();
+		//! is the AnimationComponent is paused 
+		inline bool isPaused();
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
