@@ -130,13 +130,13 @@ namespace Orkige
 				String outputName = indent + node->getName();
 
 				oDebugMsg("profiler", 0, \
-					StringUtil::doubleToString(outputTotal,3,7)		<<" |"<<\
-					StringUtil::doubleToString(outputParent,3,7)	<<" |"<<\
-					StringUtil::doubleToString(outputMsFrame,3,9)	<<" |"<<\
-					StringUtil::doubleToString(outputMsCall,3,8)	<<" |"<<\
-					StringUtil::doubleToString(outputMsMin,3,8)		<<" |"<<\
-					StringUtil::doubleToString(outputMsMax,3,9)		<<" |"<<\
-					StringUtil::doubleToString(outputCallFrame,3,8)	<<" |"<<\
+					StringUtil::doubleToString(outputTotal,		3,7,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputParent,	3,7,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputMsFrame,	3,9,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputMsCall,	3,8,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputMsMin,		3,8,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputMsMax,		3,9,' ',std::ios::fixed)	<<" |"<<\
+					StringUtil::doubleToString(outputCallFrame,	3,8,' ',std::ios::fixed)	<<" |"<<\
 					outputName);
 
 				this->debugOutputInternal(node->getChild(), rootNode, treeDepth + 1);
