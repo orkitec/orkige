@@ -32,8 +32,8 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		bool wantsUpdates; //!< mark if this Componenets ::onUpdate method should be called when the GameObject is updated!
 	private:
+		bool wantsUpdates; //!< mark if this Componenets ::onUpdate method should be called when the GameObject is updated!
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
