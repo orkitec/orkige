@@ -17,6 +17,7 @@ namespace Orkige
 	//! GameObject management
 	class ORKIGE_DLL GameObjectManager : public Singleton<GameObjectManager>, public Object
 	{
+		friend class GameObject;
 		OOBJECT(GameObjectManager,Object)
 		DECL_OSINGLETON(GameObjectManager)
 		//--- Types -------------------------------------------
@@ -24,15 +25,19 @@ namespace Orkige
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
 	protected:
 		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
+		typedef std::vector< GameObjectComponent *> GameObjectComponentPtrVector;
 	private:
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		GameObjectMap objects;			//!< managed GameObjects
-		GameObjectMap updatableObjects;	//!< managed GameObjects that should be updated per frame
-		bool enableObjectUpdates;		//!< mark if updating Objects is enabled
-		EventListenerMap globalEvents;	//!< enabled Global Events
-		StringVector deleteQueue;		//!< queue of GameObjects that should be deleted on next update
+		GameObjectMap								objects;				//!< managed GameObjects
+		GameObjectComponentPtrVector				updatableComponents;	//!< holds components that needs their onUpdate method called
+		std::size_t									numUpdatableComponents;
+		std::size_t									currentUpdatableComponentIndex;
+		bool										enableObjectUpdates;	//!< mark if updating Objects is enabled
+		bool										isUpdating;			
+		EventListenerMap							globalEvents;			//!< enabled Global Events
+		StringVector								deleteQueue;			//!< queue of GameObjects that should be deleted on next update
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -65,10 +70,6 @@ namespace Orkige
 
 		//! set GameObject updates enabled or disabled
 		inline void setUpdatesEnabled(bool enabled);
-		//! enable updates for given GameObject
-		void enableUpdates(String const & id);
-		//! disable updates for given GameObject
-		void disableUpdates(String const & id);
 
 		//! save to archive
 		virtual void save(optr<IArchive> const & ar);
@@ -80,6 +81,11 @@ namespace Orkige
 		//! update GameObjects and components and process DeleteQueue
 		void update(float delta);
 	protected:
+		//! enable updates for given GameObjectComponent
+		void enableUpdates(GameObjectComponent * component);
+		//! disable updates for given GameObjectComponent
+		void disableUpdates(GameObjectComponent * component);
+
 		//! delete GameObjects that are queued for deletion
 		void processDeleteQueue();
 		//! handle Global Event forwarding
@@ -125,14 +131,7 @@ namespace Orkige
 			oDebugMsg("core",0,"GameObject: " << id << " doesn't exist!");
 			return false;
 		}
-		this->objects.erase(it);
-
-		it = this->updatableObjects.find(id);
-		if(it != this->updatableObjects.end())
-		{
-			this->updatableObjects.erase(it);
-		}
-		
+		this->objects.erase(it);		
 		return true;
 	}
 	//---------------------------------------------------------
@@ -172,8 +171,10 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	inline void GameObjectManager::clear()										
-	{	
-		this->updatableObjects.clear();
+	{
+		this->numUpdatableComponents = 0;
+		this->currentUpdatableComponentIndex = 0;
+		this->updatableComponents.clear();
 		this->objects.clear();								
 	}
 	//---------------------------------------------------------

@@ -17,7 +17,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GameObjectManager::GameObjectManager() : Object(String("GameObjectManager"))
+	GameObjectManager::GameObjectManager() : Object(String("GameObjectManager")), numUpdatableComponents(0), currentUpdatableComponentIndex(0)
 	{
 	}
 	//---------------------------------------------------------
@@ -73,45 +73,46 @@ namespace Orkige
 		return retval;
 	}
 	//---------------------------------------------------------
-	void GameObjectManager::enableUpdates(String const & id)
-	{
-		GameObjectMap::iterator it = this->updatableObjects.find(id);
-		if(it == this->updatableObjects.end())
-		{
-			oAssert(this->objectExists(id));
-			this->updatableObjects[id] = this->objects[id];
-		}	
-	}
-	//---------------------------------------------------------
-	void GameObjectManager::disableUpdates(String const & id)
-	{
-		GameObjectMap::iterator it = this->updatableObjects.find(id);
-		if(it != this->updatableObjects.end())
-		{
-			this->updatableObjects.erase(it);
-		}
-	}
-	//---------------------------------------------------------
 	void GameObjectManager::update(float delta)
 	{
 		this->processDeleteQueue();
 		if(this->enableObjectUpdates)
 		{
-			try
+			for(this->currentUpdatableComponentIndex = 0; this->currentUpdatableComponentIndex < this->numUpdatableComponents; this->currentUpdatableComponentIndex++)
 			{
-				for(GameObjectMap::const_iterator it = this->updatableObjects.begin(), itend = this->updatableObjects.end(); it != itend; ++it)
-				{
-					it->second->updateComponents(delta);
-				}
-			}
-			catch (GameObject::GameObjectUpdateBreak const &/* e*/)
-			{
-
+				this->updatableComponents[this->currentUpdatableComponentIndex]->onUpdateComponent(delta);
 			}
 		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void GameObjectManager::enableUpdates(GameObjectComponent * component)
+	{
+		oAssert(component);
+		GameObjectComponentPtrVector::const_iterator it = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), component);
+		if(it == this->updatableComponents.end())
+		{
+			this->updatableComponents.push_back(component);
+		}
+		this->numUpdatableComponents = this->updatableComponents.size();
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::disableUpdates(GameObjectComponent * component)
+	{
+		oAssert(component);
+		GameObjectComponentPtrVector::const_iterator it = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), component);
+		if(it != this->updatableComponents.end())
+		{
+			std::size_t eraseIndex = it - this->updatableComponents.begin();
+			if(eraseIndex < this->currentUpdatableComponentIndex)
+			{
+				this->currentUpdatableComponentIndex--;
+			}
+			this->updatableComponents.erase(it);
+		}
+		this->numUpdatableComponents = this->updatableComponents.size();
+	}
 	//---------------------------------------------------------
 	void GameObjectManager::processDeleteQueue()
 	{

@@ -57,10 +57,6 @@ namespace Orkige
 		//! get GameObject this Component belongs to
 		inline GameObject* getGameObject();
 	protected:
-		//! call this inside of onUpdateComponent(..) if you want to cancel updating other components (after this one) of the owner GameObject inside this update cycle
-		void cancelComponentsUpdate();
-		//! call this inside of onUpdateComponent(..) if you want to cancel updating all other GameObjects (after this one) inside this update cycle
-		void cancelGameObjectsUpdate();
 	private:
 	};
 	//---------------------------------------------------------

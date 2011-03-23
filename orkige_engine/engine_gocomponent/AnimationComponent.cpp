@@ -182,11 +182,6 @@ namespace Orkige
 			}
 			this->updateAnimations(deltaTime);
 		}
-		//@TODO get rid of this check
-		if(this->paused)
-		{
-			this->cancelGameObjectsUpdate();
-		}
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::onModelRemoved(Event const & event)

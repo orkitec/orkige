@@ -308,43 +308,21 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GameObject::enableUpdates(TypeInfo const & componentType)
 	{
-		ComponentMap::iterator it = this->components.find(componentType);
-		
-		oAssert(it != this->components.end());
-
-		if(it != this->components.end())
+		if(this->hasComponent(componentType))
 		{
-			optr<GameObjectComponent> goc = it->second;
-			oAssert(goc);
-
-			std::vector< optr<GameObjectComponent> >::iterator gocit = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), goc);
-			if(gocit == this->updatableComponents.end())
-			{
-				this->updatableComponents.push_back(goc);
-				GameObjectManager::getSingleton().enableUpdates(this->getObjectID());
-			}
+			GameObjectComponent* component = this->getComponentPtr(componentType);
+			oAssert(component);
+			GameObjectManager::getSingleton().enableUpdates(component);
 		}
 	}
 	//---------------------------------------------------------
 	void GameObject::disableUpdates(TypeInfo const & componentType)
 	{
-		ComponentMap::iterator it = this->components.find(componentType);
-		
-		if(it != this->components.end())
+		if(this->hasComponent(componentType))
 		{
-			optr<GameObjectComponent> goc = it->second;
-			oAssert(goc);
-
-			std::vector< optr<GameObjectComponent> >::iterator gocit = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), goc);
-			if(gocit != this->updatableComponents.end())
-			{
-				this->updatableComponents.erase(gocit);
-				if(this->updatableComponents.empty())
-				{
-					GameObjectManager::getSingleton().disableUpdates(this->getObjectID());
-				}
-			}
-			
+			GameObjectComponent* component = this->getComponentPtr(componentType);
+			oAssert(component);
+			GameObjectManager::getSingleton().disableUpdates(component);
 		}
 	}
 	//---------------------------------------------------------

@@ -22,14 +22,6 @@ namespace Orkige
 		OOBJECT(GameObject,ComponentHolder<GameObjectComponent>)
 		//--- Types -------------------------------------------
 	public:
-		class GameObjectComponentUpdateBreak
-		{
-
-		};
-		class GameObjectUpdateBreak
-		{
-
-		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -56,8 +48,6 @@ namespace Orkige
 		void enableUpdates(TypeInfo const & componentType);
 		//! disable updates for component of given type
 		void disableUpdates(TypeInfo const & componentType);
-		//! update components that wants Updates
-		inline void updateComponents(float delta);
 	protected:
 		//! called when a component is added
 		virtual void onComponentAdded(TypeInfo const & componentType);
@@ -81,21 +71,6 @@ namespace Orkige
 	inline bool GameObject::triggerEvent(Event const & event) const
 	{
 		return this->eventManager->trigger(event);
-	}
-	//---------------------------------------------------------
-	inline void GameObject::updateComponents(float delta)
-	{
-		try
-		{
-			for(std::vector< optr<GameObjectComponent> >::const_iterator it = this->updatableComponents.begin(), itend = this->updatableComponents.end(); it != itend; ++it)
-			{
-				(*it)->onUpdateComponent(delta);
-			}
-		}
-		catch (GameObjectComponentUpdateBreak const &/* e*/)
-		{
-
-		}
 	}
 }
 
