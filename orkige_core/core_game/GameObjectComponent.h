@@ -54,6 +54,8 @@ namespace Orkige
 		inline bool getWantsUpdates();
 		//! set if this component should receive updates
 		void setWantsUpdates(bool wantsUpdates);
+		//! get GameObject this Component belongs to
+		inline GameObject* getGameObject();
 	protected:
 		//! call this inside of onUpdateComponent(..) if you want to cancel updating other components (after this one) of the owner GameObject inside this update cycle
 		void cancelComponentsUpdate();
@@ -65,6 +67,11 @@ namespace Orkige
 	inline bool GameObjectComponent::getWantsUpdates()
 	{
 		return this->wantsUpdates;
+	}
+	//---------------------------------------------------------
+	inline GameObject* GameObjectComponent::getGameObject()
+	{
+		return this->getComponentOwner();
 	}
 	//---------------------------------------------------------
 #define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder< ::Orkige::GameObjectComponent >::registerComponent<Class>();
