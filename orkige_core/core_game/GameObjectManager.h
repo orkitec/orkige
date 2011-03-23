@@ -25,19 +25,18 @@ namespace Orkige
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
 	protected:
 		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
-		typedef std::vector< GameObjectComponent *> GameObjectComponentPtrVector;
+		typedef std::vector< GameObjectComponent *> GameObjectComponentPtrVector;	//!< Vector of Component pointers
 	private:
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		GameObjectMap								objects;				//!< managed GameObjects
-		GameObjectComponentPtrVector				updatableComponents;	//!< holds components that needs their onUpdate method called
-		std::size_t									numUpdatableComponents;
-		std::size_t									currentUpdatableComponentIndex;
-		bool										enableObjectUpdates;	//!< mark if updating Objects is enabled
-		bool										isUpdating;			
-		EventListenerMap							globalEvents;			//!< enabled Global Events
-		StringVector								deleteQueue;			//!< queue of GameObjects that should be deleted on next update
+		GameObjectMap					objects;						//!< managed GameObjects
+		GameObjectComponentPtrVector	updatableComponents;			//!< holds components that needs their onUpdate method called
+		std::size_t						numUpdatableComponents;			//!< cached number of components that should receive updates
+		std::size_t						currentUpdatableComponentIndex;	//!< index of current updated component in updatableComponents vector
+		bool							enableObjectUpdates;			//!< mark if updating Objects is enabled	
+		EventListenerMap				globalEvents;					//!< enabled Global Events
+		StringVector					deleteQueue;					//!< queue of GameObjects that should be deleted on next update
 	private:
 		//--- Methods -----------------------------------------
 	public:
