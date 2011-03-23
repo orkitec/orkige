@@ -42,6 +42,8 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//! detaches all TransformComponents that are attached to my SceneNode
+		void detachTransformComponents(const Ogre::Node* node, bool traverseChildren = true);
 	private:
 	};
 

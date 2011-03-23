@@ -46,6 +46,7 @@ namespace Orkige
 		oAssert(this->sceneNode);
 		oAssert(this->nodeListener);
 		this->nodeListener->nodeCanBeDestroyed = true;
+		this->detachTransformComponents(this->getSceneNode());
 		NodeUtil::wipeSceneNode(this->sceneNode);
 		this->deinitSceneNodeGuard();
 	}
@@ -67,6 +68,36 @@ namespace Orkige
 			tc = TransformComponent::getComponentFromNode(node->getParent(), traverseParents);
 		}
 		return tc;
+	}
+	//---------------------------------------------------------
+	void TransformComponent::detachTransformComponents(const Ogre::Node* node, bool traverseChildren)
+	{
+
+		TransformComponent* trans = 0;
+		Ogre::Node* nextNode = 0;
+
+		for (unsigned int each = 0; each < node->numChildren(); each++)
+		{
+
+			nextNode = node->getChild(each);
+			
+			if (nextNode)
+			{
+
+				trans = this->getComponentFromNode(nextNode, false);
+				
+				if (trans)
+				{
+					trans->attachToNode(trans->getSceneManager()->getRootSceneNode());
+				}
+				else if (traverseChildren)
+				{
+					this->detachTransformComponents(nextNode, traverseChildren);
+				}
+			}
+
+		}
+
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
