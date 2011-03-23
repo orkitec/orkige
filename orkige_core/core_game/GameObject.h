@@ -87,9 +87,9 @@ namespace Orkige
 	{
 		try
 		{
-			foreach(optr<GameObjectComponent> const & goc, this->updatableComponents)
+			for(std::vector< optr<GameObjectComponent> >::const_iterator it = this->updatableComponents.begin(), itend = this->updatableComponents.end(); it != itend; ++it)
 			{
-				goc->onUpdateComponent(delta);
+				(*it)->onUpdateComponent(delta);
 			}
 		}
 		catch (GameObjectComponentUpdateBreak const &/* e*/)
