@@ -9,6 +9,7 @@
 
 #include "engine_fastgui/FastGuiView.h"
 #include "engine_fastgui/FastGuiManager.h"
+#include <core_util/foreach.h>
 
 namespace Orkige
 {
@@ -27,6 +28,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiView::~FastGuiView()
 	{
+		for(std::map<uint, Gorilla::Layer*>::iterator it = this->layers.begin(), itend = this->layers.end(); it != itend; it++)
+		{
+			it->second->destroyAllCaptions();
+			it->second->destroyAllLineLists();
+			it->second->destroyAllMarkupTexts();
+			it->second->destroyAllPolygons();
+			it->second->destroyAllQuadLists();
+			it->second->destroyAllRectangles();
+
+			it->second->hide();
+			this->screen->hide();
+
+			this->screen->destroy(it->second);
+		}
+		this->screen->_destroyVertexBuffer();
+		this->screen->_redrawAllIndexes();
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiView::getPosition(FastGuiView::Alignment alignment)

@@ -417,6 +417,7 @@ namespace Gorilla
 		to be "General".
 		*/
 		void loadAtlas(const Ogre::String& name, const Ogre::String& group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		void destroyAtlas(const Ogre::String& name);
 
 		/*! function. createScreen
 		desc.

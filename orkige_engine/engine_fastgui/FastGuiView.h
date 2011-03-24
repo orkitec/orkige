@@ -88,6 +88,15 @@ namespace Orkige
 	{
 		return this->z < other.z;
 	}
+	//---------------------------------------------------------------
+	struct FastGuiViewOptrCmp
+	{
+		inline bool operator()( optr<FastGuiView> const & lhs, optr<FastGuiView> const & rhs)
+		{
+			return *lhs < *rhs;
+		}
+	};
+	//---------------------------------------------------------------
 }
 
 #endif //__FastGuiView_h__29_10_2010__18_16_35__

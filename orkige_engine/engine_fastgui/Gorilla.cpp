@@ -651,6 +651,13 @@ namespace Gorilla
 		mAtlases[name] = atlas;
 	}
 
+	void Silverback::destroyAtlas(const Ogre::String &name)
+	{
+		std::map<Ogre::String, TextureAtlas*>::iterator it = mAtlases.find(name);
+		OGRE_DELETE (*it).second;
+		mAtlases.erase(it);
+	}
+
 	Screen* Silverback::createScreen(Ogre::Viewport* viewport, const Ogre::String& atlas_name)
 	{
 		TextureAtlas* atlas = (*mAtlases.find(atlas_name)).second;

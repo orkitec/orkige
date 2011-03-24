@@ -25,7 +25,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 		typedef std::map<String, optr<FastGuiView> > FastGuiViewMap;
-		typedef std::list<FastGuiView> FastGuiViewList;
+		typedef std::list<optr<FastGuiView> > FastGuiViewList;
 		typedef std::map<String, optr<FastGuiWidget> > FastGuiWidgetMap;
 	protected:
 	private:
@@ -65,6 +65,8 @@ namespace Orkige
 		woptr<FastGuiView> createView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! free ressources from given view
 		void destroyView(String const & atlas);
+		//! free all views
+		void destroyAllViews(bool keepDefaultAtlas = true);
 		//! get screen with given atlas or NULL
 		inline woptr<FastGuiView> getView(String const & atlas);
 		//! get o create view with given atlas
