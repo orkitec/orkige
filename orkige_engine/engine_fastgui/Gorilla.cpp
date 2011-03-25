@@ -151,9 +151,30 @@ namespace Gorilla
 
 	}
 
+
+	void TextureAtlas::replaceTexture(const Ogre::String& texture)
+	{
+		oAssertDesc(!mTexture.isNull(), "replaceTexture: no texture to replace present");
+		
+		// backup dimensions
+		size_t w = mTexture->getWidth();
+		size_t h = mTexture->getHeight();
+
+		// load texture
+		Ogre::ConfigFile::SettingsMultiMap settings;
+		settings.insert(Ogre::ConfigFile::SettingsMultiMap::value_type(Ogre::String("file"), texture));
+		_loadTexture(&settings);
+
+		oAssertDesc(!mTexture.isNull(), "replaceTexture: texture replacement not loaded");
+		oAssertDesc(w == mTexture->getWidth() && h == mTexture->getHeight(), "replaceTexture: replaced atlas texture has different size");
+
+		// apply texture
+		m2DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+		m3DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+	}
+
 	void  TextureAtlas::_loadTexture(Ogre::ConfigFile::SettingsMultiMap* settings)
 	{
-
 
 		Ogre::String name, data;
 		Ogre::ConfigFile::SettingsMultiMap::iterator i;
@@ -584,6 +605,9 @@ namespace Gorilla
 		mMarkupColour[index] = colour;
 	}
 
+
+
+
 	Ogre::ColourValue  TextureAtlas::getMarkupColour(Ogre::uint index)
 	{
 		if (index > 9)
@@ -697,6 +721,17 @@ namespace Gorilla
 
 		return true;
 	}
+
+	void Silverback::replaceTexture(const Ogre::String& atlas, const Ogre::String& texture)
+	{
+		std::map<Ogre::String, TextureAtlas*>::iterator it = mAtlases.find(atlas);
+		if (it != mAtlases.end())
+		{
+			TextureAtlas* textureAtlas = (*it).second;
+			textureAtlas->replaceTexture(texture);
+		}
+	}
+
 
 	LayerContainer::LayerContainer(TextureAtlas* atlas)
 		: mAtlas(atlas), mIndexRedrawAll(false)

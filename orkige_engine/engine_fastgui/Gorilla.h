@@ -452,6 +452,12 @@ namespace Gorilla
 		*/
 		bool frameStarted(const Ogre::FrameEvent& evt);
 
+		/*! function. replaceTexture
+		desc.
+		exchanges the texture of an atlas, debug purpose
+		*/
+		void replaceTexture(const Ogre::String& atlas, const Ogre::String& texture);
+
 	protected:
 
 		std::map<Ogre::String, TextureAtlas*>  mAtlases;
@@ -685,6 +691,14 @@ namespace Gorilla
 		colour_palette_index must be between or equal to 0 and 9.
 		*/
 		Ogre::ColourValue getMarkupColour(Ogre::uint colour_palette_index);
+
+		/*! function. replaceTexture
+		desc.
+		overwrites the texture buffer with another texture of the same size, debug purpose
+		note.
+		with file extension
+		*/
+		void replaceTexture(const Ogre::String& texture);
 
 	protected:
 

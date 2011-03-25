@@ -93,6 +93,10 @@ namespace Orkige
 		void hideStats();
 		//! reorder the view rendering by their z value
 		void reorderViews();
+
+		//! exchanges the texture of an atlas
+		void replaceAtlasTexture(String const & atlas, String const & texture);
+
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);

@@ -268,6 +268,13 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::replaceAtlasTexture(const Ogre::String& atlas, const Ogre::String& texture)
+	{
+		oAssertDesc(this->hasView(atlas), "replaceAtlasTexture: atlas not found");
+		this->silverback->replaceTexture(atlas, texture);
+	}
+
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
