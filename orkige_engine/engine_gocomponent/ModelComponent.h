@@ -44,7 +44,7 @@ namespace Orkige
 		//! destructor
 		virtual ~ModelComponent();
 		//! loads a model into the componentn and triggers ModelSetEvent (removes old model if there is one)
-		void loadModel(String const & modelFileName);
+		void loadModel(String const & modelFileName, bool shareSkeletonInstance = false);
 		//! removes model and triggers ModelRemovedEvent
 		void removeModel();
 		

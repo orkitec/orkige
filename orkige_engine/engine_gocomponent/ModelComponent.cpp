@@ -10,6 +10,7 @@
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_util/NodeUtil.h"
+#include <core_game/GameObjectManager.h>
 
 namespace Orkige
 {
@@ -31,7 +32,7 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
-	void ModelComponent::loadModel(String const & modelFileName)
+	void ModelComponent::loadModel(String const & modelFileName, bool shareSkeletonInstance)
 	{
 		oAssert(!modelFileName.empty());
 
@@ -54,6 +55,32 @@ namespace Orkige
 		this->modelFileName = modelFileName;
 		this->model = parentSceneNode->getCreator()->createEntity(componentOwner->getObjectID() + ".ModelComponent." + modelFileName, modelFileName);
 		oAssert(this->model);
+
+		if(shareSkeletonInstance)
+		{
+			if(this->model->hasSkeleton())
+			{
+				foreach(GameObjectManager::GameObjectMap::value_type const & vt, GameObjectManager::getSingleton().getGameObjects())
+				{
+					optr<GameObject> go = vt.second;
+					if(go.get() != this->getGameObject())
+					{
+						if(go->hasComponent<ModelComponent>())
+						{
+							ModelComponent* mc = go->getComponentPtr<ModelComponent>();
+							Ogre::Entity* ent = mc->getModel();
+							String fileName = mc->getCurrentModelFileName();
+							if(fileName == modelFileName)
+							{
+								this->getModel()->shareSkeletonInstanceWith(ent);
+							}
+
+						}
+					}
+				}
+			}
+		}
+
 		this->sceneNode->attachObject(model);
 		this->eventData->setValue(modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
