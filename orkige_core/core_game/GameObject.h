@@ -28,17 +28,17 @@ namespace Orkige
 	public:
 	protected:
 		EventManager*								eventManager;			//!< EventManager assigned Components can listen to
-		std::vector< optr<GameObjectComponent> >	updatableComponents;	//!< holds components that needs ther onUpdate method called
+		std::vector< optr<GameObjectComponent> >	updatableComponents;	//!< holds components that needs their onUpdate method called
 	private:
 		//--- Methods -----------------------------------------
 	public:
-		//! create  GameObject with given id
+		//! create GameObject with given id
 		explicit GameObject(String const & id);
 		//! destructor
 		virtual ~GameObject();
 		//! get EventManager
 		inline EventManager* getEventManager();
-		//! trigger a Event on this GameObject
+		//! trigger an Event on this GameObject
 		inline bool triggerEvent(Event const & event) const;
 		//! load GameObject and GameObjectComponents from Template
 		bool loadTemplate(String const & templateFileName);

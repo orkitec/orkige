@@ -34,8 +34,8 @@ namespace Orkige
 		Orkige::String directories;
 		//-Methods------------------------------------------
 	public:
-		//! create Localisation if currentLocale is empty trys to get the current systems locale
-		//! if setted locale is not supported in validLocale the defaultLocale is used
+		//! create Localisation, if currentLocale is empty it tries to get the current systems locale
+		//! if set locale is not supported in validLocale the defaultLocale is used
 		Localisation(Orkige::String const & currentLocale = Orkige::StringUtil::BLANK, Orkige::String const & validLocales = "en,de", Orkige::String const & defaultLocale = "en");
 		//! destructor
 		virtual ~Localisation();
@@ -43,10 +43,10 @@ namespace Orkige
 		void loadLocaleCfg(Orkige::String const & currentLocale = Orkige::StringUtil::BLANK, Orkige::String const & validLocales = "en,de", Orkige::String const & defaultLocale = "en");
 		//! get localized string from given id if id is not found the id itself is returned
 		inline Orkige::String const & getLocalized(Orkige::String const & id);
-		//! get current setupped locale
+		//! get current set locale
 		inline String const & getCurrentLocale();
 		//! setup resource directories (Category Language) for current locale
-		//! @param directories comma seperated list of directories
+		//! @param directories comma separated list of directories
 		void setupResources(String const & directories);
 		//! call setupResources when scene rendering is done
 		void setupResourcesDelayed(String const & directories);

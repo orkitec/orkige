@@ -70,7 +70,7 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z,bool _nostate)
+	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool _nostate)
 	{
 		optr<FastGuiButton> widget;
 

@@ -164,7 +164,7 @@ namespace Orkige
 		return go;
 	}
 	//---------------------------------------------------------
-	inline GameObjectManager::GameObjectMap  const & GameObjectManager::getGameObjects()						
+	inline GameObjectManager::GameObjectMap const & GameObjectManager::getGameObjects()
 	{	
 		return this->objects;									
 	}

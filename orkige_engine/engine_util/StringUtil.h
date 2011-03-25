@@ -24,7 +24,7 @@ namespace Orkige
 		{
 			Ogre::UTFString utfString;
 			Ogre::UTFString::code_point cp;
-			for (std::size_t i=0; i<text.size(); ++i)
+			for (std::size_t i = 0; i < text.size(); ++i)
 			{
 				cp = text[i];
 				cp &= 0xFF;
@@ -37,7 +37,7 @@ namespace Orkige
 		{
 			if (fullString.length() > ending.length()) 
 			{
-				return (0 == fullString.compare (fullString.length() - ending.length(), ending.length(), ending));
+				return (0 == fullString.compare(fullString.length() - ending.length(), ending.length(), ending));
 			} 
 			else 
 			{

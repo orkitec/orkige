@@ -34,11 +34,11 @@ namespace Orkige
 		//! constructor creates event with given name as EventType and no assigned data
 		explicit inline Event( String const & inEventTypeName );
 		//! constructor creates event with given name as EventType and given data
-		explicit inline Event( String const & inEventTypeName, optr<Object> const & inData  );
+		explicit inline Event( String const & inEventTypeName, optr<Object> const & inData );
 		//! constructor creates event with given EventType and no assigned data
 		explicit inline Event( EventType const & inEventType );
 		//! constructor creates event with given EventType and given data
-		explicit inline Event( EventType const & inEventType, optr<Object> const & inData  );
+		explicit inline Event( EventType const & inEventType, optr<Object> const & inData );
 		//! copy constructor
 		inline Event( Event const & o );
 		//! destructor

@@ -19,7 +19,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiButton::FastGuiButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z,bool _nostate) : FastGuiWidget(id, atlas, z)
 	{
-		this->nostate = _nostate ;
+		this->nostate = _nostate;
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		
 		if(!text.empty())
@@ -28,7 +28,6 @@ namespace Orkige
 			this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 			this->label->setAlignment(textAlignment);
 		}
-
 
 		this->state = BS_UP;
 		this->baseSpriteName = spriteName;

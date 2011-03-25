@@ -19,7 +19,7 @@ namespace Orkige
 		//! retrieve base path of current running app
 		String const & getBaseDirectory();
 		//! retrieve Documents path
-		String  const & getDocumentsDirectory();
+		String const & getDocumentsDirectory();
 		//! retrieve Resource path
 		String const & getResourceDirectory();
 	};

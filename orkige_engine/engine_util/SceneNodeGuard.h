@@ -66,7 +66,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Ogre::SceneNode*	sceneNode;	//!< transform SceneNode
+		Ogre::SceneNode*	sceneNode;		//!< transform SceneNode
 		SceneNodeListener*	nodeListener;	//!< listens on events for the transform node
 	private:
 		//--- Methods -----------------------------------------------
