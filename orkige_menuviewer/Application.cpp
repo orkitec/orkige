@@ -114,7 +114,7 @@ namespace CC
 		this->fastGuiManager->showStats();
 #endif
 
-		SoundManager::getSingleton().createSound("click", "click.wav", false);
+		SoundManager::getSingleton().createSound("click","click.ogg", false)->disable3D(true);
 
 		this->gsm->setInitialState("PreviewMenu");
 
