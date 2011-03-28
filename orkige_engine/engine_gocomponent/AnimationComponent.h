@@ -50,19 +50,19 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		StringList					availableAnimations;
-		StringList					boneNames;
-		String						defaultAnimation;
-		String						motionBone;
-		Ogre::AnimationStateSet*	animationStates;
-		bool						handleMotion;
-		bool						handleRotation;
-		bool						extractMotion;
-		bool						extractRotation;
-		bool						paused; //we use as a return value for onFrameStarted function when the animation component is paused  
-		TransformRegistry			initialStateTransforms;
-		KeyFrameBackupRegistry		backuppedKeyframes;
-		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
+		StringList						availableAnimations;
+		StringList						boneNames;
+		String							defaultAnimation;
+		String							motionBone;
+		Ogre::AnimationStateSet*		animationStates;
+		bool							handleMotion;
+		bool							handleRotation;
+		bool							extractMotion;
+		bool							extractRotation;
+		TransformRegistry				initialStateTransforms;
+		KeyFrameBackupRegistry			backuppedKeyframes;
+		optr<StringUtil::StringObject>	eventData;				//!< name of set or removed model
+		float							speed;					//!< sets the speed of the animation
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
@@ -80,23 +80,23 @@ namespace Orkige
 		inline Ogre::AnimationStateSet const * getAnimationStates() const;
 		//! set default anim name
 		void setDefaultAnimation(String const & anim);
-		//! are anims available
+		//! are animations available
 		bool hasAnimations();
-		//! are anims playing?
+		//! are animations playing?
 		bool hasPlayingAnimations();
 		//! play a anim
 		bool playAnimation(String const & anim, bool loop);
 		//! stop a anim
 		bool stopAnimation(String const & anim);
-		//! update playing anims
+		//! update playing animations
 		void updateAnimations(float timeDelta);
-		//! should component handle motions in anims?
+		//! should component handle motions in animations?
 		inline bool getHandleMotion();
-		//! should component handle rotations in anims?
+		//! should component handle rotations in animations?
 		inline bool getHandleRotation();
 		//! should motions be extracted from anim
 		inline bool getExtractMotion();
-		//! should rotations should be xtracted from anim
+		//! should rotations should be extracted from anim
 		inline bool getExtractRotation();
 
 		//! set motion handling
@@ -114,11 +114,16 @@ namespace Orkige
 		inline void setMotionBone(String const & boneName);
 
 		//! pause playing animations
-		void pause();
+		inline void pause();
 		//! resume playing animations
-		void resume();
+		inline void resume();
 		//! is the AnimationComponent is paused 
 		inline bool isPaused();
+
+		//! set animations speed
+		inline void setSpeed(float speed);
+		//! get animation speed
+		inline float getSpeed();
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -225,10 +230,29 @@ namespace Orkige
 		this->motionBone = boneName;
 	}
 	//---------------------------------------------------------------
-
+	inline void AnimationComponent::pause()
+	{
+		this->setWantsUpdates(false);
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::resume()
+	{
+		this->setWantsUpdates(true);
+	}
+	//---------------------------------------------------------------
 	inline bool AnimationComponent::isPaused()
 	{
-		return this->paused;
+		return !this->getWantsUpdates();
+	}
+	//---------------------------------------------------------------
+	inline void AnimationComponent::setSpeed(float speed)
+	{
+		this->speed = speed;
+	}
+	//---------------------------------------------------------------
+	inline float AnimationComponent::getSpeed()
+	{
+		return this->speed;
 	}
 }
 

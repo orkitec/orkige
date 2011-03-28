@@ -32,18 +32,6 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
-	void AnimationComponent::pause()
-	{
-		this->paused = true;
-		this->setWantsUpdates(false);
-	}
-	//---------------------------------------------------------
-	void AnimationComponent::resume()
-	{
-		this->paused = false;
-		this->setWantsUpdates(true);
-	}
-	//---------------------------------------------------------
 	bool AnimationComponent::hasAnimations()
 	{
 		bool hasAnims = false;
@@ -126,10 +114,10 @@ namespace Orkige
 
 			if(this->handleMotion || this->handleRotation)
 			{
-				this->handleMotionRotation(state, timeDelta);
+				this->handleMotionRotation(state, timeDelta * this->speed);
 			}
 
-			state->addTime(timeDelta);
+			state->addTime(timeDelta * this->speed);
 
 			if(state->hasEnded())
 			{
@@ -157,9 +145,7 @@ namespace Orkige
 		this->handleRotation = false;
 		this->extractMotion = false;
 		this->extractRotation = false;
-
-		this->paused = false;
-
+		this->speed = 1.f;
 		this->getAnimationsFromModel();
 	}
 	//---------------------------------------------------------
