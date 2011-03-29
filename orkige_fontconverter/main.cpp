@@ -614,7 +614,8 @@ int main(int argc, char **argv)
 	//bool createFont = (cimg_library::cimg::option("-createFont", argc, argv, false) != 0);
 	if (argc == 0)
 	{
-		std::cout << "  usage: [-createFont] <path>" << std::endl;
+		std::cout << "  usage: [-createFont] [-noBorder] <path>" << std::endl;
+		std::cout << "  <path> is the path to the textures, within path all characters after two underscores (__) are ignored" << std::endl;
 	}
 	for (int i = 1; i < argc; ++i)
 	{
