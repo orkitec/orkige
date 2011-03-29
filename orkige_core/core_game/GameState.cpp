@@ -131,9 +131,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool GameState::onApplicationUpdate(Event const & event)
 	{
-		if(!this->transitionState.empty())
+		if(this->popState)
 		{
-			oAssertDesc(this->pushState.empty() && !popState, "GameState transition ambigous");
+			// we allow popping directly followed by transit to sibling state
+			//oAssertDesc(this->transitionState.empty() && this->pushState.empty(), "GameState transition ambigous");
+
+			GameStateManager::getSingleton().popState();
+			this->popState = false;
+			return true;
+		}
+		else if(!this->transitionState.empty())
+		{
+			oAssertDesc(this->pushState.empty() && !this->popState, "GameState transition ambigous");
 
 			GameStateManager::getSingleton().setState(transitionState);
 			this->transitionState.clear();
@@ -141,20 +150,13 @@ namespace Orkige
 		}
 		else if(!this->pushState.empty())
 		{
-			oAssertDesc(this->transitionState.empty() && !popState, "GameState transition ambigous");
+			oAssertDesc(this->transitionState.empty() && !this->popState, "GameState transition ambigous");
 
 			GameStateManager::getSingleton().pushState(pushState);
 			this->pushState.clear();
 			return true;
 		}
-		else if(popState)
-		{
-			oAssertDesc(this->transitionState.empty() && this->pushState.empty(), "GameState transition ambigous");
 
-			GameStateManager::getSingleton().popState();
-			popState = false;
-			return true;
-		}
 		return false;
 	}
 	//---------------------------------------------------------
