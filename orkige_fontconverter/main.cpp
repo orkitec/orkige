@@ -451,17 +451,29 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath, 
 	// place to store ogui and texture atlas
 	std::string sAtlasPath(szAtlasPath);
 	int pos = sAtlasPath.find_last_of("\\");
+	oAssertDesc(pos != String::npos, "Unexpected path format");
 	std::string sAtlasName = sAtlasPath.substr(pos+1, sAtlasPath.length());
 	std::string sOutputPath = sAtlasPath.substr(0, pos);
 
+	// hide platform dependent string after "__"
+	std::string sAtlasNameShort(sAtlasName);
+	pos = sAtlasNameShort.find("__");
+	if (pos != String::npos)
+	{
+		sAtlasNameShort = sAtlasNameShort.substr(0, pos);
+	}
+	pos = sAtlasNameShort.find_last_of("\\");
+	oAssertDesc(pos == String::npos, "Atlas name contains path");
+
 	std::cout << "Atlas Name: " << sAtlasName << std::endl;
+	std::cout << "Atlas Name Short: " << sAtlasNameShort << std::endl;
 	std::cout << "Output path: " << std::endl << sOutputPath << std::endl;
 	
 	//std::string sFilenameOGUI = DialogBrowseFile("Select Ogre Texture Atlas File", "ogui", "orkige gui Files (*.ogui)\0*.ogui\0");
 	//std::string sFilenamePNG = DialogBrowseFile("Select Texture File", "texture", "textures (*.png)\0*.png\0");
-	std::string outputImage = sAtlasName + ".png";
-	std::string outputMap   = sAtlasName + ".txt";
-	std::string sFilenameOGUI = sOutputPath + "\\" + sAtlasName + ".ogui"; 
+	std::string outputImage = sAtlasNameShort + ".png";
+	std::string outputMap   = sAtlasNameShort + ".txt";
+	std::string sFilenameOGUI = sOutputPath + "\\" + sAtlasNameShort + ".ogui"; 
 	std::string sFilenamePNG = sOutputPath + "\\" + outputImage;  
 	std::string sFilenameTXT = sOutputPath + "\\" + outputMap;
 	
@@ -476,7 +488,8 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath, 
 	// execute sprite sheet packer and create bitmap font image and description
 	std::stringstream command;
 	command << "" << szExecutablePath << "\\sspack.exe";
-	command << " /image:" << outputImage << " /map:" << outputMap << " /r /sqr /pow2 ";
+	command << " /image:" << outputImage << " /map:" << outputMap << " /sqr /pow2 ";
+	//command << "/r ";
 	if (useBorder)
 	{
 		command << "/pad:1 ";
@@ -539,7 +552,7 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath, 
 
 		// write header
 		fileOgui << "[Texture]" << std::endl;
-		fileOgui << "file " << sAtlasName << ".png" << std::endl;
+		fileOgui << "file " << sAtlasNameShort << ".png" << std::endl;
 		fileOgui << "whitepixel " << width-2 << " " << height-2 << std::endl;
 
 
