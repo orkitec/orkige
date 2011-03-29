@@ -36,8 +36,8 @@ namespace Orkige
 		oAssert(componentOwner);
 		String const & componentOwnerObjectId = componentOwner->getObjectID();
 		oAssert(!componentOwnerObjectId.empty());
-		Ogre::SceneNode* node = Engine::getSingleton().getSceneManager()->getRootSceneNode()->createChildSceneNode( componentOwnerObjectId +".TransformComponent");
-		node->getUserObjectBindings().setUserAny(TransformComponent::USEROBJECT_BINDING_KEY ,Ogre::Any(this));
+		Ogre::SceneNode* node = Engine::getSingleton().getSceneManager()->getRootSceneNode()->createChildSceneNode(componentOwnerObjectId +".TransformComponent");
+		node->getUserObjectBindings().setUserAny(TransformComponent::USEROBJECT_BINDING_KEY, Ogre::Any(this));
 		this->initSceneNodeGuard(node, componentOwner->getEventManager(), this);
 	}
 	//---------------------------------------------------------

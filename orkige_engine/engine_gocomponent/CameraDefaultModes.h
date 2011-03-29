@@ -14,10 +14,10 @@
 
 namespace Orkige
 {
-	//! some baseic modes for CameraComponent
+	//! some basic modes for CameraComponent
 	namespace CameraDefaultModes
 	{
-		//! CameraComponent is a bit bloatet for FPS Camera but it can be done too
+		//! CameraComponent is a bit bloated for FPS Camera but it can be done too
 		static inline void FirstPersonCamera(CameraComponent* cameraComponent, Ogre::Real timeSinceLastFrame, Ogre::Real tightness)
 		{
 			cameraComponent->instantSetCamera(cameraComponent->getControlNode()->_getDerivedPosition(),cameraComponent->getSightNode ()->_getDerivedPosition());
@@ -36,11 +36,11 @@ namespace Orkige
 				camdjusted = false;
 			}
 
-			Ogre::Real i = 0.025f;//softnesss on collision
+			Ogre::Real i = 0.025f;//softness on collision
 			while(i < 1 && CollisionTools::getSingleton().collidesWithEntity(cameraComponent->getActorNode()->_getDerivedPosition(), cameraComponent->getCameraPosition()))
 			{
 				cameraComponent->setCamera(timeSinceLastFrame, cameraComponent->getControlNode()->_getDerivedPosition(), cameraComponent->getSightNode ()->_getDerivedPosition(), i*timeSinceLastFrame);
-				i+=0.025f;
+				i += 0.025f;
 				camdjusted = true;
 			}	
 
@@ -51,7 +51,7 @@ namespace Orkige
 		//! 3rd Person camera without smoothing and collision
 		static inline void ThirdPersonFixedCamera(CameraComponent* cameraComponent, Ogre::Real timeSinceLastFrame, Ogre::Real tightness)
 		{
-			cameraComponent->setCamera (timeSinceLastFrame, Ogre::Vector3 (0, 200, 0), cameraComponent->getSightNode ()->_getDerivedPosition(),	0.01f);
+			cameraComponent->setCamera (timeSinceLastFrame, Ogre::Vector3(0, 200, 0), cameraComponent->getSightNode()->_getDerivedPosition(), 0.01f);
 		}
 		//---------------------------------------------------------
 	}

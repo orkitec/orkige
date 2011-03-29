@@ -16,7 +16,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	ColoredBoundingBox::ColoredBoundingBox(Ogre::Entity * entity,Ogre::ColourValue colour)
+	ColoredBoundingBox::ColoredBoundingBox(Ogre::Entity * entity, Ogre::ColourValue colour)
 	{
 		this->entity = entity;
 		this->boxNode = NULL;
@@ -25,7 +25,7 @@ namespace Orkige
 		this->setup();
 	}
 	//---------------------------------------------------------
-	ColoredBoundingBox::ColoredBoundingBox(Ogre::SceneNode * sn,Ogre::ColourValue colour)
+	ColoredBoundingBox::ColoredBoundingBox(Ogre::SceneNode * sn, Ogre::ColourValue colour)
 	{
 		this->entity = NULL;
 		this->boxNode = sn;
@@ -34,7 +34,7 @@ namespace Orkige
 		this->setup();
 	}
 	//---------------------------------------------------------
-	ColoredBoundingBox::ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop ,Ogre::ColourValue colour)
+	ColoredBoundingBox::ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop, Ogre::ColourValue colour)
 	{
 		this->entity = NULL;
 		this->boxNode = NULL;
@@ -85,7 +85,7 @@ namespace Orkige
 		//  0       2
 		//
 		//		01235746045205167317//51 crossed middle line
-		//		01235746045205761371//57 line drawed twice
+		//		01235746045205761371//57 line drawn twice
 		/*
 		lines->setPoint(0,bb.getCorner(Ogre::AxisAlignedBox::NEAR_LEFT_BOTTOM ));		//0
 				lines->setPoint(1,bb.getCorner(Ogre::AxisAlignedBox::NEAR_LEFT_TOP  ));			//1
@@ -168,7 +168,7 @@ namespace Orkige
 		//  0       2
 		//
 		//		01235746045205167317//51 crossed middle line
-		//		01235746045205761371//57 line drawed twice
+		//		01235746045205761371//57 line drawn twice
 		//		2102406136756452372
 		/*
 		lines->addPoint(bb.getCorner(Ogre::AxisAlignedBox::NEAR_LEFT_BOTTOM ));		//0

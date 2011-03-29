@@ -187,14 +187,14 @@ namespace Orkige
 		// Create the camera
 		this->camera = this->sceneManager->createCamera("OrkigeCamera");
 		this->camera->setNearClipDistance(1.0f);
-		this->camera->setFarClipDistance(100000);
+		this->camera->setFarClipDistance(100000.0f);
 		// Create one viewport, entire window
 		this->viewport = this->renderWindow->addViewport(this->camera);
 		this->viewport->setBackgroundColour(Ogre::ColourValue(0,0,0));
 		this->viewport->setShadowsEnabled(true);
 
 		// Alter the camera aspect ratio to match the viewport
-		this->camera->setAspectRatio(	Ogre::Real(this->viewport->getActualWidth()) / Ogre::Real(this->viewport->getActualHeight()));
+		this->camera->setAspectRatio(Ogre::Real(this->viewport->getActualWidth()) / Ogre::Real(this->viewport->getActualHeight()));
 	}
 	//---------------------------------------------------------
 	void Engine::resetupResources(String const & resourceCfgFileName)

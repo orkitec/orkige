@@ -41,7 +41,7 @@ namespace Orkige
 			oAssert(componentOwner);
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
-			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id ,fileName, loop, transformComponent->getPosition() );
+			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id, fileName, loop, transformComponent->getPosition() );
 			sound->setRolloffFactor(20.0);
 			//sound->setVolume(50);
 			sound->setReferenceDistance(200);

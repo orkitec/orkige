@@ -85,10 +85,10 @@ namespace Orkige
 		void setCharacterHeight(unsigned int height);
 		//! set spacing
 		void setSpaceWidth(unsigned int width);
-		//! set text alignemnt
+		//! set text alignment
 		void setTextAlignment(HorizontalAlignment const & horizontalAlignment, VerticalAlignment const & verticalAlignment);
 		//! set text offset to alignment
-		void setAdditionalHeight( float height );
+		void setAdditionalHeight(float height);
 		//! show on top of object?
 		void showOnTop(bool show = true);
 
@@ -102,11 +102,11 @@ namespace Orkige
 		inline unsigned int getCharacterHeight() const;
 		//! get space size
 		inline unsigned int getSpaceWidth() const;
-		//! get height offste
+		//! get height offset
 		inline float getAdditionalHeight() const;
-		//! should text be shonw on top?
+		//! should text be shown on top?
 		inline bool getShowOnTop() const;
-		//! get text bouns
+		//! get text bounds
 		inline Ogre::AxisAlignedBox getBoundingBox(void);
 	protected:
 	private:

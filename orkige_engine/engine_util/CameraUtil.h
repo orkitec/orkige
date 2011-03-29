@@ -26,7 +26,7 @@ namespace Orkige
 		inline  Ogre::Vector2 sceneToScreen(Ogre::Camera* cam, const Ogre::Vector3& pt)
 		{
 			Ogre::Vector3 result = cam->getProjectionMatrix() * cam->getViewMatrix() * pt;
-					return Ogre::Vector2((result.x + 1) / 2, -(result.y + 1) / 2);
+			return Ogre::Vector2((result.x + 1) / 2, -(result.y + 1) / 2);
 		}
 		//! Converts a 3D scene position to a 2D screen relative coordinate (in pixels).
 		inline  Ogre::Vector2 sceneToScreenRelative(Ogre::Camera* cam, const Ogre::Vector3& pt)
@@ -75,9 +75,7 @@ namespace Orkige
  			else
 			{
 				return screenPos;
-			}
-
-			
+			}			
 
 		}
 		//---------------------------------------------------------------

@@ -22,11 +22,11 @@ namespace Orkige
 			foreach(Ogre::FileInfo const & fileInfo, fil)
 			{
 				path = fileInfo.archive->getName() + String("/");
-				oDebugMsg("ressources",0,fileName + " -> " + fileInfo.archive->getName());
+				oDebugMsg("ressources", 0, fileName + " -> " + fileInfo.archive->getName());
 			}
 			if(path.empty())
 			{
-				oDebugMsg("ressources",0,fileName + " <- not found in any resource path!");
+				oDebugMsg("ressources", 0, fileName + " <- not found in any resource path!");
 			}
 			return path;
 		}

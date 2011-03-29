@@ -259,14 +259,17 @@ static bool g_StopCalledFromInsideVideoManager = false;
 @implementation UIView (FindFirstResponder)
 - (UIView *)findFirstResponder
 {
-    if (self.isFirstResponder) {        
+    if (self.isFirstResponder) 
+	{        
         return self;     
     }
 	
-    for (UIView *subView in self.subviews) {
+    for (UIView *subView in self.subviews) 
+	{
         UIView *firstResponder = [subView findFirstResponder];
 		
-        if (firstResponder != nil) {
+        if (firstResponder != nil) 
+		{
 			return firstResponder;
         }
     }
@@ -368,7 +371,7 @@ namespace Orkige
 	void VideoManager::init()
 	{
 #ifdef ORKIGE_THEORAVIDEOMANAGER
-		Ogre::ExternalTextureSourceManager::getSingleton().setExternalTextureSource("ogg_video",this);
+		Ogre::ExternalTextureSourceManager::getSingleton().setExternalTextureSource("ogg_video", this);
 		Ogre::Root::getSingleton().addFrameListener(this);
 
 		Ogre::OverlayManager& om = Ogre::OverlayManager::getSingleton();
@@ -376,7 +379,7 @@ namespace Orkige
 		// create overlay layers for everything
 		this->videoLayer = om.create("VideoPanelLayer");
 
-		this->videoPanel = Ogre::OverlayManager::getSingleton().createOverlayElement("Panel","VideoPanel");
+		this->videoPanel = Ogre::OverlayManager::getSingleton().createOverlayElement("Panel", "VideoPanel");
 		this->videoPanel->setMaterialName("VideoTextureMaterial");
 		this->videoPanel->setMetricsMode(Ogre::GMM_RELATIVE);
 		this->videoPanel->setWidth(1.f);

@@ -83,7 +83,7 @@ namespace Orkige
 		this->statePath.pop_back();
 
 		//if there are any previous states on the path go back to previous
-		if(this->statePath.size()>0)
+		if(this->statePath.size() > 0)
 		{
 			this->statePath.back()->enableListeners();
 			this->statePath.back()->onReturn();

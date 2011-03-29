@@ -26,7 +26,7 @@ namespace Orkige
 		oAssert(this->raySceneQuery);
 		this->raySceneQuery->setSortByDistance(true);
 
-		this->terrainRaySceneQuery =  this->sceneManager->createRayQuery(Ogre::Ray());
+		this->terrainRaySceneQuery = this->sceneManager->createRayQuery(Ogre::Ray());
 		oAssert(this->terrainRaySceneQuery);
 	}
 	//---------------------------------------------------------
@@ -91,7 +91,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	float CollisionTools::getTerrainHeightAt(const float x, const float z) 
 	{
-		float y=0.0f;
+		float y = 0.0f;
 
 		static Ogre::Ray updateRay;
 
@@ -104,7 +104,7 @@ namespace Orkige
 		Ogre::RaySceneQueryResult::iterator i = qryResult.begin();
 		if (i != qryResult.end() && i->worldFragment)
 		{
-			y=i->worldFragment->singleIntersection.y;
+			y = i->worldFragment->singleIntersection.y;
 		}
 		return y;
 	}
@@ -118,12 +118,12 @@ namespace Orkige
 		float y = pos.y;
 
 		Ogre::Vector3 myResult(0,0,0);
-		Ogre::MovableObject *myObject=NULL;
+		Ogre::MovableObject *myObject = NULL;
 		float distToColl = 0.0f;
 
 		float terrY = 0, colY = 0, colY2 = 0;
 
-		if( this->raycastFromPoint(Ogre::Vector3(x,y,z),Ogre::Vector3::NEGATIVE_UNIT_Y, myResult, myObject, distToColl, queryMask))
+		if( this->raycastFromPoint(Ogre::Vector3(x,y,z), Ogre::Vector3::NEGATIVE_UNIT_Y, myResult, myObject, distToColl, queryMask))
 		{
 			if (myObject != NULL) 
 			{
@@ -180,7 +180,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::Entity* &target, float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh) 
 	{
-		return this->raycastFromPoint(point, normal, result,(Ogre::MovableObject*&) target, closest_distance, queryMask, checkAnimatedMesh);
+		return this->raycastFromPoint(point, normal, result, (Ogre::MovableObject*&) target, closest_distance, queryMask, checkAnimatedMesh);
 	}		
 	//---------------------------------------------------------
 	bool CollisionTools::raycastFromPoint(const Ogre::Vector3 &point, const Ogre::Vector3 &normal, Ogre::Vector3 &result,Ogre::MovableObject* &target, float &closest_distance, const Ogre::uint32 queryMask, bool checkAnimatedMesh)
@@ -241,7 +241,7 @@ namespace Orkige
 			}
 
 			// only check this result if its a hit against an entity
-			if ((res.movable != NULL)  && (res.movable->getQueryFlags() == queryMask) &&(res.movable->getMovableType().compare("Entity") == 0) )
+			if ((res.movable != NULL) && (res.movable->getQueryFlags() == queryMask) &&(res.movable->getMovableType().compare("Entity") == 0) )
 			{
 				// get the entity to check
 				Ogre::Entity *pentity = static_cast<Ogre::Entity*>(res.movable);
@@ -286,7 +286,7 @@ namespace Orkige
 					}
 				}
 
-				// free the verticies and indicies memory
+				// free the vertices and indices memory
 				delete[] vertices;
 				delete[] indices;
 

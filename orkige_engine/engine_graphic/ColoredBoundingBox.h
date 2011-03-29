@@ -32,11 +32,11 @@ namespace Orkige
 		//--- Methods -----------------------------------------
 	public:
 		//! construct colored Entity BoundingBox
-		ColoredBoundingBox(Ogre::Entity * entity,Ogre::ColourValue colour);
+		ColoredBoundingBox(Ogre::Entity * entity, Ogre::ColourValue colour);
 		//! construct colored SceneNode BoundingBox
-		ColoredBoundingBox(Ogre::SceneNode * sn,Ogre::ColourValue colour);
+		ColoredBoundingBox(Ogre::SceneNode * sn, Ogre::ColourValue colour);
 		//! construct colored BoundingBox from extents
-		ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop ,Ogre::ColourValue colour);
+		ColoredBoundingBox(Ogre::Vector3 const & nearLeftBottom, Ogre::Vector3 const & farRightTop, Ogre::ColourValue colour);
 		//! destructor
 		virtual ~ColoredBoundingBox();
 		//! change the line colour 

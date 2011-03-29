@@ -61,9 +61,9 @@ namespace Orkige
 		//! get camera target position
 		inline Ogre::Vector3 const & getTargetPosition();
 		//! instant set camera
-		inline void instantSetCamera (Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition);
+		inline void instantSetCamera(Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition);
 		//! set camera with delta smoothing
-		inline void setCamera (Ogre::Real timeSinceLastFrame, Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition, Ogre::Real tightness);
+		inline void setCamera(Ogre::Real timeSinceLastFrame, Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition, Ogre::Real tightness);
 	protected:
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);

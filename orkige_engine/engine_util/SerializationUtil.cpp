@@ -31,14 +31,14 @@ namespace Orkige
 			ar << nodeScale;
 			ar << numAttachedObjects;
 
-			for(unsigned short i=0;i<numAttachedObjects;i++)
+			for(unsigned short i = 0; i < numAttachedObjects; i++)
 			{
 				Ogre::MovableObject * attachedObject = node->getAttachedObject(i);
 				saveMoveAbleObject(attachedObject,ar,file_version);
 			}
 
 			ar << numChildren;
-			for(unsigned short i=0;i<numChildren;i++)
+			for(unsigned short i = 0; i < numChildren; i++)
 			{
 				Ogre::SceneNode * childNode = static_cast<Ogre::SceneNode*>(node->getChild(i));
 				oAssert(childNode);
@@ -162,7 +162,7 @@ namespace Orkige
 			childSceneNode->setOrientation(nodeOrientation);
 			childSceneNode->setScale(nodeScale);
 
-			for(unsigned long i=0;i<numAttachedObjects;i++)
+			for(unsigned long i = 0; i < numAttachedObjects; i++)
 			{
 				Ogre::MovableObject* object = loadMoveAbleObject(childSceneNode,ar,file_version);
 				if(object!=NULL && userObject!=NULL)
@@ -170,7 +170,7 @@ namespace Orkige
 			}
 
 			ar >> numChildren;
-			for(unsigned long i=0;i<numChildren;i++)
+			for(unsigned long i = 0; i < numChildren; i++)
 			{
 				loadSceneNode(childSceneNode,ar,file_version);
 			}
@@ -184,11 +184,11 @@ namespace Orkige
 			ar >> type;
 			if(type == "Entity")
 			{
-				return loadEntity(parentSceneNode,ar,file_version);
+				return loadEntity(parentSceneNode, ar, file_version);
 			} 
 			else if(type == "Light")
 			{
-				return loadLight(parentSceneNode,ar,file_version);
+				return loadLight(parentSceneNode, ar, file_version);
 			}
 			return NULL;
 		}
@@ -215,7 +215,7 @@ namespace Orkige
 			}
 			entity->setCastShadows(entityCastShadows);
 			entity->setVisible(entityIsVisible);
-			parentSceneNode->attachObject( entity );
+			parentSceneNode->attachObject(entity);
 			return entity;
 		}
 		//---------------------------------------------------------
@@ -262,7 +262,7 @@ namespace Orkige
 			ar >> lightCastShadows;
 
 			Ogre::Light* light = parentSceneNode->getCreator()->createLight(lightName);
-			parentSceneNode->attachObject( light );
+			parentSceneNode->attachObject(light);
 			light->setType(lightType);
 
 			light->setDiffuseColour(lightDiffuseColour);

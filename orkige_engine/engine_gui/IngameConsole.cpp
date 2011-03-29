@@ -31,14 +31,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	IngameConsole::IngameConsole()
 	{
-		this->start_line=0;
-		this->cursor_pos=0;
+		this->start_line = 0;
+		this->cursor_pos = 0;
 		this->pythonMode = false;
 		this->visible = false;
 		this->initialized = false;
 		this->cursor = "|";
-		this->history_pos=0;
-		this->height=0;
+		this->history_pos = 0;
+		this->height = 0;
 		this->blink = 0;
 	}
 	//---------------------------------------------------------
@@ -67,12 +67,12 @@ namespace Orkige
 			while (in) 
 			{
 				String buf;
-				std::getline (in, buf);
+				std::getline(in, buf);
 
 				if (in) 
-					this->history.push_back (buf);
+					this->history.push_back(buf);
 			}
-			this->history_pos=this->history.size();
+			this->history_pos = this->history.size();
 		}
 
 		this->scene=Ogre::Root::getSingleton().getSceneManagerIterator().getNext();
@@ -122,29 +122,30 @@ namespace Orkige
 		//delete this->overlay;
 	}
 	//---------------------------------------------------------
-	void IngameConsole::print(const String &text){
+	void IngameConsole::print(const String &text)
+	{
 		//subdivide it into this->lines
-		const char *str=text.c_str();
-		int start=0,count=0;
-		std::size_t	len=text.length();
+		const char *str = text.c_str();
+		int start = 0, count = 0;
+		std::size_t	len = text.length();
 		String line;
-		for(std::size_t	c=0;c<len;c++)
+		for(std::size_t	c = 0; c < len; c++)
 		{
-			if(str[c]=='\n'||line.length()>=CONSOLE_LINE_LENGTH)
+			if(str[c] == '\n' || line.length() >= CONSOLE_LINE_LENGTH)
 			{
 				this->lines.push_back(line);
-				line="";
+				line = "";
 			}
-			if(str[c]!='\n')
-				line+=str[c];
+			if(str[c] != '\n')
+				line += str[c];
 		}
 		if(line.length())
 			this->lines.push_back(line);
-		if(this->lines.size()>CONSOLE_LINE_COUNT)
-			this->start_line=this->lines.size()-CONSOLE_LINE_COUNT;
+		if(this->lines.size() > CONSOLE_LINE_COUNT)
+			this->start_line = this->lines.size()-CONSOLE_LINE_COUNT;
 		else
-			this->start_line=0;
-		this->update_overlay=true;
+			this->start_line = 0;
+		this->update_overlay = true;
 	}
 	//---------------------------------------------------------
 	void IngameConsole::setVisible(bool visible)
@@ -236,8 +237,8 @@ namespace Orkige
 			//
 			this->history.push_back(this->prompt);
 			this->history_pos=this->history.size();
-			this->prompt="";
-			this->cursor_pos=0;
+			this->prompt = "";
+			this->cursor_pos = 0;
 		}
 		else if(data->key == KeyEventData::KC_DELETE)
 		{
@@ -248,23 +249,23 @@ namespace Orkige
 		}
 		else if(data->key == KeyEventData::KC_BACK)
 		{
-			if(this->cursor_pos>0)
+			if(this->cursor_pos > 0)
 			{
 				std::size_t	from = 0;
-				if(this->cursor_pos>1)
-					from=this->cursor_pos-1;
-				this->prompt=(this->prompt.substr(0,from)+this->prompt.substr(this->cursor_pos,this->prompt.length()));
+				if(this->cursor_pos > 1)
+					from = this->cursor_pos-1;
+				this->prompt = (this->prompt.substr(0,from)+this->prompt.substr(this->cursor_pos,this->prompt.length()));
 				this->cursor_pos--;
 			}
 		}
 		else if(data->key == KeyEventData::KC_PGUP)
 		{
-			if(this->start_line>0)
+			if(this->start_line > 0)
 				this->start_line--;
 		}
 		else if(data->key == KeyEventData::KC_PGDOWN)
 		{
-			if(this->start_line<this->lines.size())
+			if(this->start_line < this->lines.size())
 				this->start_line++;
 		}
 		else if(data->key == KeyEventData::KC_LSHIFT || data->key == KeyEventData::KC_RSHIFT)
@@ -273,16 +274,16 @@ namespace Orkige
 		}
 		else if (data->key == KeyEventData::KC_UP)
 		{
-			if(this->history_pos>0)
+			if(this->history_pos > 0)
 			{
 				this->history_pos--;
 				this->prompt = this->history[this->history_pos];
-				this->cursor_pos=this->prompt.length();
+				this->cursor_pos = this->prompt.length();
 			}
 		}
 		else if (data->key == KeyEventData::KC_DOWN)
 		{
-			if(this->history.size() > 0 && this->history_pos<this->history.size()-1)
+			if(this->history.size() > 0 && this->history_pos < this->history.size()-1)
 			{
 				this->history_pos++;
 				this->prompt = this->history[this->history_pos];
@@ -290,35 +291,35 @@ namespace Orkige
 			}
 			else
 			{
-				this->prompt="";
-				this->cursor_pos=0;
-				this->history_pos=this->history.size();
+				this->prompt = "";
+				this->cursor_pos = 0;
+				this->history_pos = this->history.size();
 			}
 
 		}
 		else if (data->key == KeyEventData::KC_LEFT)
 		{
-			if(this->cursor_pos>0)
+			if(this->cursor_pos > 0)
 			{
 				this->cursor_pos--;
 			}
 		}
 		else if (data->key == KeyEventData::KC_RIGHT)
 		{
-			if(this->cursor_pos<this->prompt.length())
+			if(this->cursor_pos < this->prompt.length())
 			{
 				this->cursor_pos++;
 			}
 		}
 		else if (data->key == KeyEventData::KC_SPACE)
 		{
-			if(this->prompt.length()>0)
+			if(this->prompt.length() > 0)
 			{
-				this->prompt=(this->prompt.substr(0,this->cursor_pos)+" "+this->prompt.substr(this->cursor_pos,this->prompt.length()));
+				this->prompt = (this->prompt.substr(0,this->cursor_pos)+" "+this->prompt.substr(this->cursor_pos,this->prompt.length()));
 			}
 			else
 			{
-				this->prompt+=" ";
+				this->prompt += " ";
 			}
 			this->cursor_pos++;
 		}
@@ -329,63 +330,63 @@ namespace Orkige
 			boost::to_lower(input);
 			if(legalchars.find(input) != String::npos)
 			{
-				if(this->prompt.length()>0)
+				if(this->prompt.length() > 0)
 				{
-					this->prompt=(this->prompt.substr(0,this->cursor_pos)+input+this->prompt.substr(this->cursor_pos,this->prompt.length()));
+					this->prompt = (this->prompt.substr(0,this->cursor_pos)+input+this->prompt.substr(this->cursor_pos,this->prompt.length()));
 				}
 				else
 				{
-					this->prompt+=input;
+					this->prompt += input;
 				}
 
 				this->cursor_pos++;
 			}
 		}
 
-		this->update_overlay=true;
+		this->update_overlay = true;
 		return false;
 	}
 	//---------------------------------------------------------
 	bool IngameConsole::onFrameStarted(Event const & event)
 	{
-		if(this->visible&&this->height<1)
+		if(this->visible && this->height < 1)
 		{
 			optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
-			this->height+=data->timeSinceLastFrame*2;
+			this->height += data->timeSinceLastFrame*2;
 			this->textbox->show();
-			if(this->height>=1)
+			if(this->height >= 1)
 			{
-				this->height=1;
+				this->height = 1;
 			}
-			this->textbox->setPosition(0,(this->height-1)*0.5f);
-			this->rect->setCorners(-1,1+this->height,1,1-this->height);
+			this->textbox->setPosition(0, (this->height-1)*0.5f);
+			this->rect->setCorners(-1, 1+this->height, 1, 1-this->height);
 		}
-		else if(!this->visible&&this->height>0)
+		else if(!this->visible && this->height > 0)
 		{
 			optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
-			this->height-=data->timeSinceLastFrame*2;
-			if(this->height<=0)
+			this->height -= data->timeSinceLastFrame*2;
+			if(this->height <= 0)
 			{
-				this->height=0;
+				this->height = 0;
 				this->textbox->hide();
 			}
-			this->textbox->setPosition(0,(this->height-1)*0.5f);
-			this->rect->setCorners(-1,1+this->height,1,1-this->height);
+			this->textbox->setPosition(0, (this->height-1)*0.5f);
+			this->rect->setCorners(-1, 1+this->height, 1, 1-this->height);
 		}
-		else if(this->visible && this->blink>.5)
+		else if(this->visible && this->blink > 0.5)
 		{
-			if(this->cursor=="|")
-				this->cursor=".";
+			if(this->cursor == "|")
+				this->cursor = ".";
 			else
-				this->cursor="|";
+				this->cursor = "|";
 
 			this->blink = 0;
-			this->update_overlay=true;
+			this->update_overlay = true;
 		}
 		else if(this->visible)
 		{
 			optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
-			this->blink+=data->timeSinceLastFrame;
+			this->blink += data->timeSinceLastFrame;
 		}
 
 		if(this->update_overlay)
@@ -394,38 +395,38 @@ namespace Orkige
 			std::list<String>::iterator i,start,end;
 
 			//make sure is in range
-			if(this->start_line>this->lines.size())
-				this->start_line=this->lines.size();
+			if(this->start_line > this->lines.size())
+				this->start_line = this->lines.size();
 
-			int lcount=0;
-			start=this->lines.begin();
-			for(unsigned int c=0;c<this->start_line;c++)
+			int lcount = 0;
+			start = this->lines.begin();
+			for(unsigned int c=0; c < this->start_line; c++)
 				start++;
-			end=start;
-			for(int c=0;c<CONSOLE_LINE_COUNT;c++)
+			end = start;
+			for(int c=0; c < CONSOLE_LINE_COUNT; c++)
 			{
-				if(end==this->lines.end())
+				if(end == this->lines.end())
 					break;
 				end++;
 			}
-			for(i=start;i!=end;i++)
-				text+=(*i)+"\n";
+			for(i=start; i!=end; i++)
+				text += (*i)+"\n";
 
 			//add the this->prompt
 			String tempPrompt = this->cursor;
-			if(this->prompt.length()>0)
-				tempPrompt=(this->prompt.substr(0,this->cursor_pos)+this->cursor+this->prompt.substr(this->cursor_pos,this->prompt.length()));	
+			if(this->prompt.length() > 0)
+				tempPrompt = (this->prompt.substr(0,this->cursor_pos)+this->cursor+this->prompt.substr(this->cursor_pos,this->prompt.length()));	
 
 			String prefix = ":]";
 
 			if(this->pythonMode)
 				prefix = "python:>";
 
-			text+=prefix+tempPrompt;
+			text += prefix+tempPrompt;
 
 
 			this->textbox->setCaption(StringUtil::convertToUTF(text));
-			this->update_overlay=false;
+			this->update_overlay = false;
 		}
 		return false;
 	}
