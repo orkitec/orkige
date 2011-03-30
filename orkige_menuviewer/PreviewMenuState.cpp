@@ -218,11 +218,11 @@ namespace CC
 
 			// platform dependent resource paths and resize window
 			this->filenameResourceConfig = Orkige::PlatformUtil::getResourceDirectory();
-			if (path.find("_iphone") != String::npos)
+			if (path.find("_ipad") != String::npos)
 			{
-				Ogre::LogManager::getSingleton().logMessage("set to iPhone 1,2,3");
-				this->filenameResourceConfig += "data/Config/resources_iphone.cfg";
-				Engine::getSingleton().getRenderWindow()->resize(480, 320);
+				Ogre::LogManager::getSingleton().logMessage("set to iPad");
+				this->filenameResourceConfig += "data/Config/resources_ipad.cfg";
+				Engine::getSingleton().getRenderWindow()->resize(1024, 768);
 			}
 			else if (path.find("_iphone4") != String::npos)
 			{
@@ -230,11 +230,11 @@ namespace CC
 				this->filenameResourceConfig += "data/Config/resources_iphone4.cfg";
 				Engine::getSingleton().getRenderWindow()->resize(960, 640);
 			}
-			else if (path.find("_ipad") != String::npos)
+			else if (path.find("_iphone") != String::npos)
 			{
-				Ogre::LogManager::getSingleton().logMessage("set to iPad");
-				this->filenameResourceConfig += "data/Config/resources_ipad.cfg";
-				Engine::getSingleton().getRenderWindow()->resize(1024, 768);
+				Ogre::LogManager::getSingleton().logMessage("set to iPhone 1,2,3");
+				this->filenameResourceConfig += "data/Config/resources_iphone.cfg";
+				Engine::getSingleton().getRenderWindow()->resize(480, 320);
 			}
 			else
 			{
