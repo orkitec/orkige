@@ -2291,6 +2291,7 @@ namespace Gorilla
 		bool fixedWidth = false;
 
 		GlyphData* glyphData = mDefaultGlyphData;
+		oAssertDesc(glyphData, "Font rendering can't find glyph data. Font size correctly specified?");
 		Ogre::Real lineHeight = glyphData->mLineHeight;
 
 		for(size_t i=0;i < mText.length();i++)
