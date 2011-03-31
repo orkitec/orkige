@@ -9,11 +9,57 @@
 #ifndef __MeshUtil_h__31_8_2010__0_20_13__
 #define __MeshUtil_h__31_8_2010__0_20_13__
 
+#include "engine_module/EnginePrerequisites.h"
+
 namespace Orkige
 {
 	//! mesh utilities
 	namespace MeshUtil
 	{
+		//! @brief setup custom lod mesh for given mesh
+		//! @param meshFileName mesh filename to whom the lod should be applied
+		//! @param distance distance at wich this lod should be applied
+		//! @param useLodBoundingBoxAsDefault use the boundingbox of the lod mesh as default boundingbox
+		//! @param lodMeshFileNameSuffix filename suffix for custom lod mesh
+		//! @param onlyApplyToMeshWithNoLod only apply lod if mesh has not already lod
+		//! @return true on success false on error
+		static inline bool setupCustomLodMesh(String const & meshFileName, Ogre::Real distance, bool useLodBoundingBoxAsDefault = false, String const & lodMeshFileNameSuffix = "_lod", bool onlyApplyToMeshWithNoLod = true, String const & groupName = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
+		{
+			Ogre::MeshPtr mesh = Ogre::MeshManager::getSingleton().load(meshFileName, groupName);
+			if(!mesh.isNull())
+			{
+				if(onlyApplyToMeshWithNoLod && mesh->getNumLodLevels() > 1)
+				{
+					return false;
+				}
+
+				String lodMeshFileName = meshFileName.substr(0, meshFileName.length()-5) + lodMeshFileNameSuffix + ".mesh";
+				
+				if(!Ogre::ResourceGroupManager::getSingleton().resourceExists(groupName, lodMeshFileName))
+				{
+					return false;
+				}
+
+				Ogre::MeshPtr lodMesh = Ogre::MeshManager::getSingleton().load(lodMeshFileName, groupName);
+				if(!lodMesh.isNull())
+				{
+					if(useLodBoundingBoxAsDefault)
+					{
+						mesh->_setBounds(lodMesh->getBounds(), false);
+					}
+					
+					mesh->createManualLodLevel(distance, lodMeshFileName, groupName);
+
+					return true;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			return false;
+		}
+		//---------------------------------------------------------
 		//! Get the mesh information for the given mesh.
 		static inline void getMeshInformation(const Ogre::MeshPtr mesh,
 			size_t &vertex_count,
@@ -139,6 +185,7 @@ namespace Orkige
 			}
 		}
 		//---------------------------------------------------------
+		//! Get the mesh information for the given mesh in current animation position.
 		static inline void getMeshInformationWithAnimation(
 			Ogre::Entity *entity,
 			size_t &vertex_count,
