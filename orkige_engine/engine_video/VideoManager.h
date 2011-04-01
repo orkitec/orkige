@@ -52,7 +52,7 @@ namespace Orkige
 		//! deinit videomanager and free ressources
 		void deinit();
 		//! play given video file
-		bool play(String const & fileName, bool loop = false);
+		bool play(String const & fileName, bool loop = false, bool showui = true);
 		//! stop currently playinf video
 		bool stop();
 		//! is currently a video playing

@@ -126,14 +126,28 @@ static bool g_StopCalledFromInsideVideoManager = false;
 /*---------------------------------------------------------------------------
  *
  *--------------------------------------------------------------------------*/
-- (void) readyPlayer
+- (void) readyPlayer: (bool) loop showVideoControls: (bool) showui
 {
  	mp =  [[MPMoviePlayerController alloc] initWithContentURL:movieURL];
 	
 	if ([mp respondsToSelector:@selector(loadState)]) 
 	{
 		// Set movie player layout
-		[mp setControlStyle:MPMovieControlStyleFullscreen];
+		if(showui)
+		{
+			[mp setControlStyle:MPMovieControlStyleFullscreen];
+		}
+		else 
+		{
+			[mp setControlStyle:MPMovieControlStyleNone];
+		}
+
+		if(loop)
+		{
+			mp.repeatMode = MPMovieRepeatModeOne;
+		}
+
+		
 		[mp setFullscreen:YES];
 		
 		// May help to reduce latency
@@ -211,7 +225,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 /*---------------------------------------------------------------------------
  * 
  *--------------------------------------------------------------------------*/
-- (void)loadMoviePlayer:(NSString*)path
+- (void)loadMoviePlayer:(NSString*)path loopVideo: (bool) loop showVideoControls: (bool) showui
 {  
 	// Create custom movie player   
 	moviePlayer = [[[CustomMoviePlayerViewController alloc] initWithPath:path] autorelease];
@@ -220,7 +234,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
  	[self presentModalViewController:moviePlayer animated:NO];
 	
 	// Prep and play the movie
-	[moviePlayer readyPlayer];    
+	[moviePlayer readyPlayer:loop showVideoControls:showui];    
 }
 
 /*---------------------------------------------------------------------------
@@ -287,28 +301,18 @@ namespace Orkige
 	public:
 		TestViewController *vc;
 		UIView* view;
-		UIView* oldFirstResponder;
 		VideoPlayerIphone()
 		{
 			vc = 0;
-			view = InputManager::getSingleton().getInputDelegate();//nil;//[[UIApplication sharedApplication] keyWindow];
-			if(view == nil)
-			{
-				if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
-				{
-					Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &view );
-				}
-			}
+			view = InputManager::getSingleton().getInputDelegate();
 			oAssert(view);
-			oldFirstResponder = [view findFirstResponder];
-			//oAssert(oldFirstResponder);
 		}
 		~VideoPlayerIphone()
 		{
 			this->stop();
 			view = nil;
 		}
-		void play(String const & movie)
+		void play(String const & movie, bool loop, bool showui)
 		{
 			//view.userInteractionEnabled = NO;
 			vc = [[TestViewController alloc] init];
@@ -318,7 +322,7 @@ namespace Orkige
 			NSString * path = (NSString*)CFStringCreateWithBytes(kCFAllocatorDefault, (const UInt8*)s.c_str(), s.size(), kCFStringEncodingUTF8,false);
 			
 
-			[vc loadMoviePlayer:path];
+			[vc loadMoviePlayer:path loopVideo:loop showVideoControls:showui];
 			
 		}
 		
@@ -409,7 +413,7 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
-	bool VideoManager::play(String const & fileName, bool loop)
+	bool VideoManager::play(String const & fileName, bool loop, bool showui)
 	{
 #ifdef ORKIGE_THEORAVIDEOMANAGER
 		if(this->clip)
@@ -423,7 +427,7 @@ namespace Orkige
 		if(StringUtil::hasEnding(fileName, ".mp4") || StringUtil::hasEnding(fileName, ".mov") || StringUtil::hasEnding(fileName, ".m2v") || StringUtil::hasEnding(fileName, ".m4v"))
 		{
 			this->iphoneClip = new VideoPlayerIphone();
-			iphoneClip->play(fileName);
+			iphoneClip->play(fileName, loop, showui);
 			return true;
 		}
 #else
