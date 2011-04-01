@@ -67,7 +67,7 @@ namespace CC
 		this->staticPluginLoader.load();
 
 		//load the game config and check in which mode app should be started
-		bool editorMode = true;
+		bool sharedMouse = true;
 
 		//default initialization when we aren't in "tool" mode
 		if( !this->engine->setup(false, "Menu Viewer - press O for open, R for reload", this->externalWindowHandle, this->topLevelWindowHandle))
@@ -93,7 +93,7 @@ namespace CC
 // 			}
 
 			//loadingBar.worldGeometryStageStarted("Initializing Inputsystem!");
-			this->inputManager = onew(new InputManager(editorMode));
+			this->inputManager = onew(new InputManager(sharedMouse));
 			
 			//loadingBar.worldGeometryStageStarted("Initializing Sound!");
 			this->soundManager = onew(new SoundManager(Engine::getSingleton().getCamera()));
