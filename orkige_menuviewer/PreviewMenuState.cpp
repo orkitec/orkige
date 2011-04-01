@@ -240,12 +240,12 @@ namespace CC
 			{
 				Ogre::LogManager::getSingleton().logMessage("set to Windows");
 				this->filenameResourceConfig += "data/Config/resources.cfg";
-				//renderWindow->resize(800, 600);
+				//Engine::getSingleton().getRenderWindow()->resize(800, 600);
 				Engine::getSingleton().getRenderWindow()->resize(1024, 768);
 			}
 			Engine::getSingleton().resetupResources(filenameResourceConfig);
 
-
+			/*
 			// assemble engine compatible filename, e.g. "FastGui/main_demo.menu"
 			Ogre::String sResourcePath = CC::FileUtils::GetResourceDirectory();
 			sResourcePath += "/data/";
@@ -253,6 +253,9 @@ namespace CC
 			sResourcePath = this->filenameMenu.substr(sResourcePath.length(), this->filenameMenu.length());			
 			//basename = Ogre::StringUtil::standardisePath(sResourcePath);
 			basename = Ogre::StringUtil::replaceAll(sResourcePath, "\\", "/");
+			*/
+			basename += ".";
+			basename += extension;
 
 			Ogre::LogManager::getSingleton().logMessage("Loading menu " + basename);
 
