@@ -188,7 +188,7 @@ namespace Orkige
 	{
 		if (bs == FastGuiDragDropButton::DDBS_OVER)
 		{
-			this->decor->setSprite(this->baseSpriteName + "_Over");
+			this->decor->setSprite(this->baseSpriteName + "_over");
 		}
 		else if (bs == FastGuiDragDropButton::DDBS_UP)
 		{
@@ -196,7 +196,7 @@ namespace Orkige
 		}
 		else
 		{
-			this->decor->setSprite(this->baseSpriteName + "_Down");
+			this->decor->setSprite(this->baseSpriteName + "_down");
 		}
 	
 		this->state = bs;

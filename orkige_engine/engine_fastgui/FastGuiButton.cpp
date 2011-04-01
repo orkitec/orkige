@@ -124,7 +124,7 @@ namespace Orkige
 		{
 			if (!this->nostate)
 			{
-				this->decor->setSprite(this->baseSpriteName + "_Over");
+				this->decor->setSprite(this->baseSpriteName + "_over");
 			}
 			
 		}
@@ -140,7 +140,7 @@ namespace Orkige
 		{
 			if (!this->nostate)
 			{
-				this->decor->setSprite(this->baseSpriteName + "_Down");
+				this->decor->setSprite(this->baseSpriteName + "_down");
 			}
 			
 		}
