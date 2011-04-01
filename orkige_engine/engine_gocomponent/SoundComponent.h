@@ -35,7 +35,7 @@ namespace Orkige
 		//! destructor
 		virtual ~SoundComponent();
 		//! adds (and creates if needed) a SoundSource
-		bool addSound(String const & id, String const & fileName, bool loop = false);
+		bool addSound(String const & id, String const & fileName, bool loop = false,bool no3D = false);
 		//! play a attached sound
 		bool play(String const & sid);
 		//! stop a attached sound

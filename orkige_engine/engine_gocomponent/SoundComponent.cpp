@@ -33,7 +33,7 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
-	bool SoundComponent::addSound(String const & id, String const & fileName, bool loop)
+	bool SoundComponent::addSound(String const & id, String const & fileName, bool loop,bool no3D)
 	{
 		if(this->attachedSoundObjects.find(id) == this->attachedSoundObjects.end())
 		{
@@ -46,6 +46,7 @@ namespace Orkige
 			//sound->setVolume(50);
 			sound->setReferenceDistance(200);
 			sound->setMaxDistance(250);
+			sound->disable3D(no3D);
 			this->attachedSoundObjects[id] = sound;
 #ifdef ORKIGE_OGGSOUNDMANAGER
 			transformComponent->attachObject(sound);
