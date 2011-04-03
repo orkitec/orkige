@@ -6,6 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
+#ifdef __APPLE__
 #ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundPlatform.h"
 #include "engine_util/ResourceUtil.h"
@@ -130,3 +131,4 @@ Exit:
 	}
 }
 #endif //ORKIGE_OGGSOUNDMANAGER
+#endif //__APPLE__

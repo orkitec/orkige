@@ -32,12 +32,31 @@ namespace Orkige
 				TCHAR szPath[MAX_PATH];
 
 				//@Note maybe use CSIDL_APPDATA instead of CSIDL_PERSONAL
-				if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath))) 
+				if( SUCCEEDED(SHGetFolderPath(NULL,CSIDL_PERSONAL, NULL, 0, szPath)))
 				{
 					path = szPath;
 					path += "\\";
 				}
 			}
+			return path;
+		}
+		//---------------------------------------------------------
+		String const & getResourceDirectory()
+		{
+			static String path = "./";
+			return path;
+		}
+		//---------------------------------------------------------
+#else
+		String const & getBaseDirectory()
+		{
+			static String path = "./";
+			return path;
+		}
+		//---------------------------------------------------------
+		String const & getDocumentsDirectory()
+		{
+			static String path = "./";
 			return path;
 		}
 		//---------------------------------------------------------

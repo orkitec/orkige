@@ -68,11 +68,14 @@ namespace Orkige
 			NSString* preferredLang = [languages objectAtIndex:0];
 			this->currentLocale = String((char*)[preferredLang cStringUsingEncoding:1]);
 #else
-			BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
+			//BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
+			this->currentLocale = "de";
+			oDebugMsg("global", 0, "blubb: " << setlocale(LC_ALL,NULL));
 #endif
 		}
 
-		oDebugMsg("global", 0, "Current System Locale: \"" << this->currentLocale << "\" !");
+        oDebugMsg("global", 0, "2blubb: " << setlocale(LC_ALL,NULL));
+		oDebugMsg("global", 0, "zack azck Current System Locale: \"" << this->currentLocale << "\" !");
 
 		if(std::find(this->supportedLocales.begin(), this->supportedLocales.end(), this->currentLocale) == this->supportedLocales.end())
 		{

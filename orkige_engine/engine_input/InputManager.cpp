@@ -31,7 +31,7 @@
 }
 @end
 #endif
-	
+
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(InputManager, KeyPressedEvent);
@@ -50,7 +50,7 @@ namespace Orkige
 
 	IMPL_OSINGLETON(InputManager);
 	//! hidden inputmanager translates OIS Input to Orkige input
-	class InputManagerImpl 
+	class InputManagerImpl
 		: public Singleton<InputManagerImpl>, public OIS::KeyListener, public OIS::MouseListener, public OIS::MultiTouchListener
 	{
 		DECL_OSINGLETON(InputManagerImpl)
@@ -75,10 +75,10 @@ namespace Orkige
 		Event gestureEndedEvent;
 		Event gestureCancelledEvent;
 		Event accelerationEvent;
-		
-		
+
+
 		OIS::InputManager	*inputSystem;
-		
+
 		Keyboard			*keyboard;
 		Mouse				*mouse;					// mouse device
 		MultiTouch			*touch;
@@ -93,10 +93,10 @@ namespace Orkige
 		optr<TouchEventData> touchData;
 		optr<GestureEventData> gestureData;
 		optr<AccelerationEventData> accelerationData;
-		
+
 		std::vector<int> lastTouchPoints;
 
-		InputManagerImpl() 
+		InputManagerImpl()
 			: keyPressedEvent(InputManager::KeyPressedEvent),
 			keyReleasedEvent(InputManager::KeyReleasedEvent),
 			mousePressedEvent(InputManager::MousePressedEvent),
@@ -135,7 +135,7 @@ namespace Orkige
 			this->gestureCancelledEvent.setData(this->gestureData);
 
 			this->accelerationEvent.setData((this->accelerationData));
-			
+
 			for (int each = 0; each < OIS_MAX_NUM_TOUCHES * 3; each++)
 			{
 				this->lastTouchPoints.push_back(-1);
@@ -170,7 +170,7 @@ namespace Orkige
 			unsigned int width, height, depth;
 			int left, top;
 			Engine::getSingleton().getRenderWindow()->getMetrics( width, height, depth, left, top );
-			
+
 			int h = width;
 			int w = height;
 			int absX = int(data->absX*contentScalingFactor);
@@ -203,13 +203,13 @@ namespace Orkige
 				break;
 			}
 		}
-		
+
 		inline int closestSquenceId(const OIS::MultiTouchState &state)
 		{
 			unsigned int closestDistance = 999999;
 			unsigned int currentDistance = 999999;
 			int closestSequence = -1;
-			
+
 			for (int each = 0; each < (int)this->lastTouchPoints.size(); each += 3)
 			{
 				if (this->lastTouchPoints.at(each) != -1 )
@@ -217,7 +217,7 @@ namespace Orkige
 					currentDistance = (this->lastTouchPoints.at(each) - state.X.abs) * (this->lastTouchPoints.at(each) - state.X.abs);
 					currentDistance += (this->lastTouchPoints.at(each + 1) - state.Y.abs) * (this->lastTouchPoints.at(each + 1) - state.Y.abs);
 					currentDistance += (this->lastTouchPoints.at(each + 2) - state.Z.abs) * (this->lastTouchPoints.at(each + 2) - state.Z.abs);
-										
+
 					if (currentDistance < closestDistance)
 					{
 						closestSequence = each;
@@ -227,7 +227,7 @@ namespace Orkige
 			}
 			return closestSequence / 3;
 		}
-		
+
 		inline int getTouchSquenceId(const OIS::MultiTouchState &state)
 		{
 			if ( state.touchIsType(OIS::MT_Pressed) )
@@ -249,7 +249,7 @@ namespace Orkige
 			else if ( state.touchIsType(OIS::MT_Released) || (state.touchIsType(OIS::MT_Cancelled)) )
 			{
 				// find the sequence and "release" the vector entries
-			
+
 				int closestSequenceId = this->closestSquenceId(state);
 				this->lastTouchPoints.at(closestSequenceId * 3) = -1;
 				this->lastTouchPoints.at(closestSequenceId * 3 + 1) = -1;
@@ -260,7 +260,7 @@ namespace Orkige
 			{
 				// find the sequence
 				return this->closestSquenceId(state);
-			}			
+			}
 			return -1;
 		}
 
@@ -336,7 +336,7 @@ namespace Orkige
 			{
 				this->oisMouseToOrkige(e.state);
 				GlobalEventManager::getSingleton().trigger(this->mouseMovedEvent);
-			}		
+			}
 #endif
 			this->oisMultiTouchToOrkige(e.state);
 			GlobalEventManager::getSingleton().trigger(this->touchMovedEvent);
@@ -409,7 +409,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	InputManager::InputManager(bool shareMouse) 		
+	InputManager::InputManager(bool shareMouse)
 	{
 		this->frameListener = GlobalEventManager::getSingleton().bind(Engine::FrameStartedEvent,&InputManager::onFrameStarted,this);
 		this->impl = new InputManagerImpl();
@@ -417,21 +417,21 @@ namespace Orkige
 		this->initialise();
 	}
 	//---------------------------------------------------------
-	InputManager::~InputManager( void ) 
+	InputManager::~InputManager( void )
 	{
 		if( this->impl->inputSystem )
 		{
-			if( this->impl->keyboard ) 
+			if( this->impl->keyboard )
 			{
 				this->impl->inputSystem->destroyInputObject( this->impl->keyboard );
 				this->impl->keyboard = 0;
 			}
-			if( this->impl->mouse ) 
+			if( this->impl->mouse )
 			{
 				this->impl->inputSystem->destroyInputObject( this->impl->mouse );
 				this->impl->mouse = 0;
 			}
-			if( this->impl->touch ) 
+			if( this->impl->touch )
 			{
 				this->impl->inputSystem->destroyInputObject( this->impl->touch );
 				this->impl->touch = 0;
@@ -472,7 +472,7 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	void InputManager::setWindowExtents( int width, int height ) 
+	void InputManager::setWindowExtents( int width, int height )
 	{
 		if(this->impl->mouse)
 		{
@@ -506,7 +506,7 @@ namespace Orkige
 	}
 #   endif
 #endif
-	
+
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
@@ -520,13 +520,13 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	void InputManager::initialise() 
+	void InputManager::initialise()
 	{
-		
+
 		if( ! this->impl->inputSystem )
 		{
 			// Setup basic variables
-			OIS::ParamList paramList;    
+			OIS::ParamList paramList;
 
 			String const & externalTopLevelWindowHandle = Engine::getSingleton().getTopLevelWindowHandle();
 
@@ -534,20 +534,20 @@ namespace Orkige
 			{
 				size_t windowHnd = 0;
 
-				// Get window handle	
-#if defined OIS_LINUX_PLATFORM
-				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "GLXWINDOW", &windowHnd );
-#else
+				// Get window handle
+//#if defined OIS_LINUX_PLATFORM        // this is no longer needed as far as I know (pe)
+//				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "GLXWINDOW", &windowHnd );
+//#else
 				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
-#endif
+//#endif
 
 				paramList.insert( std::make_pair( "WINDOW" , StringUtil::Converter::toString(windowHnd) ) );
 
 				if(this->sharedMouse)
 				{
-					// note: on win32 the hardware and buffered software mouse position differs a centimeter. 
+					// note: on win32 the hardware and buffered software mouse position differs a centimeter.
 					// it will become congruent once you move the pointer over the right or bottom window border.
-					//paramList.insert(std::make_pair("w32_mouse",	"DISCL_FOREGROUND"));				
+					//paramList.insert(std::make_pair("w32_mouse",	"DISCL_FOREGROUND"));
 					paramList.insert(std::make_pair("w32_mouse",	"DISCL_NONEXCLUSIVE"));
 				}
 			}
@@ -578,7 +578,7 @@ namespace Orkige
 				return;
 			}
 
-			
+
 #ifndef ORKIGE_IPHONE
 			oDebugMsg("core", 0, "creating Keyboard");
 			try
@@ -638,7 +638,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void InputManager::capture( void ) 
+	void InputManager::capture( void )
 	{
 		try
 		{
@@ -688,46 +688,46 @@ namespace Orkige
 	return YES;
 }
 
-- (void)dealloc 
+- (void)dealloc
 {
 	[super dealloc];
 }
 
-- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+- (void)motionBegan:(UIEventSubtype)motion withEvent:(UIEvent *)event
 {
 	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
 		Orkige::InputManagerImpl::getSingleton().motionBegan(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionBegan:withEvent:)]) 
+
+		if ([super respondsToSelector:@selector(motionBegan:withEvent:)])
 		{
 			[super motionBegan:motion withEvent:event];
 		}
 }
 
-- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event
 {
 	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
 		Orkige::InputManagerImpl::getSingleton().motionEnded(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionEnded:withEvent:)]) 
+
+		if ([super respondsToSelector:@selector(motionEnded:withEvent:)])
 		{
 			[super motionEnded:motion withEvent:event];
 		}
 }
 
-- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event 
+- (void)motionCancelled:(UIEventSubtype)motion withEvent:(UIEvent *)event
 {
 	if(event.type == UIEventTypeMotion && event.subtype == UIEventSubtypeMotionShake)
 		Orkige::InputManagerImpl::getSingleton().motionCancelled(Orkige::GestureEventData::GT_Shake);
-		
-		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)]) 
+
+		if ([super respondsToSelector:@selector(motionCancelled:withEvent:)])
 		{
 			[super motionCancelled:motion withEvent:event];
 		}
 }
 
 #pragma mark Accelerator Event Handling
-- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration 
+- (void)accelerometer:(UIAccelerometer *)accelerometer didAccelerate:(UIAcceleration *)acceleration
 {
 	acc.x = acceleration.x;
 	acc.y = acceleration.y;
