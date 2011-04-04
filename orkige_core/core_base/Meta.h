@@ -9,11 +9,13 @@
 #ifndef __Meta_h__9_9_2010__18_37_07__
 #define __Meta_h__9_9_2010__18_37_07__
 
+#ifdef ORKIGE_NDS
 #ifdef _GLIBCXX_USE_C99
 namespace std
 {
 	int snprintf(char *str, size_t size, const char *format, va_list args);
 }
+#endif
 #endif
 
 #ifdef max
