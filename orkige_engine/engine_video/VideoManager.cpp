@@ -399,7 +399,7 @@ namespace Orkige
 		this->videoPanel->hide();
 		this->soundFactory = new VideoSoundHandlerFactory();
 		this->setAudioInterfaceFactory(this->soundFactory);
-		this->setLogFunction(VideoManagerLog);
+		//this->setLogFunction(VideoManagerLog);
 #endif
 	}
 	//---------------------------------------------------------
