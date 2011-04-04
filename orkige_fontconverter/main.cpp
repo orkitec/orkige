@@ -210,6 +210,10 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 		else
 			command << " -source " << letterFileName;
 		command << " -output " << sFilenameBaseTemp;
+		
+		// see http://blogs.msdn.com/b/garykac/archive/2006/08/30/732007.aspx
+		command << " -trh aa"; // aa, aa-grid, 1bpp or 1bpp-grid
+
 		std::cout << "cmd: " << command.str() << std::endl;
 		
 		int returnValue = system(command.str().c_str());
