@@ -13,6 +13,10 @@
 #include "engine_util/StringUtil.h"
 #include "engine_input/InputManager.h"
 
+namespace Orkige
+{
+	IMPL_OWNED_EVENTTYPE(VideoManager, VideoStartedEvent);
+}
 #ifdef ORKIGE_IPHONE
 #include <iphone/iPhoneInputManager.h>
 static bool g_StopCalledFromInsideVideoManager = false;
@@ -83,6 +87,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 		
 		// Play the movie
 		[mp play];
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
 	}
 }
 
@@ -101,6 +106,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	[[self view] setUserInteractionEnabled:YES];
 	// Play the movie
  	[mp play];
+	Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
 }
 
 /*---------------------------------------------------------------------------
@@ -443,6 +449,7 @@ namespace Orkige
 		this->clip->setAutoRestart(loop);
 		this->videoLayer->show();
 		this->videoPanel->show();
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
 #endif
 		return true;
 	}
@@ -456,6 +463,7 @@ namespace Orkige
 			this->iphoneClip->stop();
 			delete this->iphoneClip;
 			this->iphoneClip = NULL;
+			
 			g_StopCalledFromInsideVideoManager = false;
 			return true;
 		}
@@ -492,6 +500,23 @@ namespace Orkige
 		}
 #endif
 		return false;
+	}
+	//---------------------------------------------------------
+	void VideoManager::forceUpdate(float delta)
+	{
+		if(this->iphoneClip)
+		{
+			[this->iphoneClip->view setNeedsDisplay];
+		}
+		Ogre::FrameEvent evt;
+		evt.timeSinceLastFrame = delta;
+		evt.timeSinceLastEvent = delta;
+		this->frameStarted(evt);
+		
+		Engine::getSingleton().getRenderWindow()->_updateViewport(Engine::getSingleton().getViewort(), false);
+		Engine::getSingleton().getRenderWindow()->_beginUpdate();
+		Engine::getSingleton().getRenderWindow()->swapBuffers();
+		Engine::getSingleton().getRenderWindow()->_endUpdate();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

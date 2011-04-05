@@ -14,7 +14,7 @@
 #	include <TheoraAudioInterface.h>
 #	include <TheoraTimer.h>
 #endif
-
+#include <core_event/GlobalEventManager.h>
 namespace Orkige
 {
 #ifdef ORKIGE_THEORAVIDEOMANAGER
@@ -30,6 +30,11 @@ namespace Orkige
 		DECL_OSINGLETON(VideoManager)
 		//--- Types -------------------------------------------------
 	public:
+		/** \addtogroup EngineEvents
+		 *  @{ */
+		//! Called when a video is started (on iOS after preloading)
+		DECL_EVENTTYPE(VideoStartedEvent);
+		/** @} End of "addtogroup EngineEvents"*/
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -57,6 +62,8 @@ namespace Orkige
 		bool stop();
 		//! is currently a video playing
 		bool isPlaying();
+		//! force manager to update the video and the screen
+		void forceUpdate(float delta);
 	protected:
 	private:
 	};
