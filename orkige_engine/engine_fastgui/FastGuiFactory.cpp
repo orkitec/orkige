@@ -245,6 +245,7 @@ namespace Orkige
 
 		Ogre::Vector2 relSize = Ogre::Vector2::ZERO;
 		Ogre::Vector2 relPosition = Ogre::Vector2::ZERO;
+		bool snapSubpixel = false;
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
 			String key = boost::to_lower_copy(vt.first);
@@ -348,6 +349,10 @@ namespace Orkige
 					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
 				}
 			}
+			else if(key == "snap")
+			{
+				snapSubpixel = Ogre::StringConverter::parseBool(value, snapSubpixel);
+			}
 		}
 		optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(baseSettings.atlas).lock();
 		oAssert(view);
@@ -355,12 +360,24 @@ namespace Orkige
 		{
 			baseSettings.position.x = (relPosition.x * view->getScreen()->getWidth()) / 100.f;
 			baseSettings.position.y = (relPosition.y * view->getScreen()->getHeight()) / 100.f;
+			if (snapSubpixel)
+			{
+				// limit position to half integer values for better visible result
+				baseSettings.position.x = static_cast<int>(baseSettings.position.x + 1e-4f) + 0.5f;
+				baseSettings.position.y = static_cast<int>(baseSettings.position.y + 1e-4f) + 0.5f;
+			}
 		}
 		baseSettings.position += view->getPosition(baseSettings.alignment);
 		if(relSize != Ogre::Vector2::ZERO)
 		{
 			baseSettings.size.x = (relSize.x * view->getScreen()->getWidth()) / 100.f;
 			baseSettings.size.y = (relSize.y * view->getScreen()->getHeight()) / 100.f;
+			if (snapSubpixel)
+			{
+				// limit size to full integer values for better visible result
+				baseSettings.size.x = static_cast<int>(baseSettings.size.x + 1e-4f);
+				baseSettings.size.y = static_cast<int>(baseSettings.size.y + 1e-4f);
+			}
 		}
 		return baseSettings;
 	}
