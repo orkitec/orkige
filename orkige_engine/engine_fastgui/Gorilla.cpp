@@ -2044,6 +2044,7 @@ namespace Gorilla
 
 	void Caption::_calculateDrawSize(Ogre::Vector2& retSize)
 	{ 
+		oAssertDesc(mGlyphData != NULL, "Font rendering can't find glyph data. Font size correctly specified?");
 
 		Ogre::Real cursor = 0,
 			kerning = 0;
