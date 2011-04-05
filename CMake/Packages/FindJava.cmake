@@ -1,6 +1,6 @@
 FIND_PROGRAM( JAVA_COMPILER javac
       $ENV{JAVA_BIN_PATH}
-      $ENV{PROGRAMFILES}/Java/jdk1.6.0_22/bin
+      $ENV{PROGRAMFILES}/Java/jdk1.6.0_24/bin
       $ENV{PROGRAMFILES}/Java/bin
       DOC "The Java Compiler"
       )
@@ -12,7 +12,7 @@ ENDIF (JAVA_COMPILER)
     
 FIND_PATH( JAVA_INCLUDE_DIRS jni.h
       $ENV{JAVA_INC_PATH}
-      $ENV{PROGRAMFILES}/Java/jdk1.6.0_22/include
+      $ENV{PROGRAMFILES}/Java/jdk1.6.0_24/include
       $ENV{PROGRAMFILES}/Java/include
       DOC "The directory where jni.h resides"
 )
@@ -20,7 +20,7 @@ FIND_LIBRARY( JAVA_LIBRARIES
       NAMES jvm
       PATHS
       $ENV{JAVA_LIB_PATH}
-      $ENV{PROGRAMFILES}/Java/jdk1.6.0_22/lib
+      $ENV{PROGRAMFILES}/Java/jdk1.6.0_24/lib
       $ENV{PROGRAMFILES}/Java/lib
       DOC "The Java jvm library"
 )

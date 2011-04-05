@@ -50,6 +50,12 @@ macro (ConfigureOrkige)
 	option(ORKIGE_BUILD_BOOST_REGEX		"enable building of boost regex build"				OFF)
 	option(ORKIGE_ENABLE_PROFILER			"enable engine profiling"							ON)
 	
+	if(ORKIGE_BROWSERPLUGIN)
+		set(ORKIGE_ENABLE_PROFILER FALSE CACHE BOOL "enable engine profiling"   FORCE)
+		set(ORKIGE_ENABLE_MEMORYMANAGER FALSE CACHE BOOL "Enable meory leak check (in debug builds)"   FORCE)
+		set(ORKIGE_EXTERN_LOG TRUE CACHE BOOL "Enable specifiying an external logfile"   FORCE)
+	endif(ORKIGE_BROWSERPLUGIN)
+	
 	if(ORKIGE_BUILD_OGITOR)
 		set(ORKIGE_BUILD_BOOST_REGEX TRUE CACHE BOOL "enable building of boost regex build"   FORCE)
 	endif(ORKIGE_BUILD_OGITOR)

@@ -30,7 +30,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Application::run()
 	{
-#if defined(ORKIGE_DEBUG) || defined(ORKIGE_STATS)
+#if defined(ORKIGE_ENABLE_PROFILER)
 		ProfileManager::getSingleton().incrementFrameCounter();
 #endif
 		OPROFILEFUNC();

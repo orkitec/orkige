@@ -1,6 +1,6 @@
 FIND_PROGRAM( 7ZIP 7z
-      $ENV{7ZIP_PATH}
       $ENV{PROGRAMFILES}/7-Zip
+      $ENV{7ZIP_PATH}
       DOC "7 Zip"
       )
 
