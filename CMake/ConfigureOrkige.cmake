@@ -46,8 +46,9 @@ macro (ConfigureOrkige)
 	option(ORKIGE_UPDATE_DOCS			"Update Orkige API documentation(Requires doxygen)."	OFF)
 	option(ORKIGE_BUILD_OGGSOUNDMANAGER 	"enable ogg vorbis sound playback" 				OFF)
 	option(ORKIGE_BUILD_THEORAVIDEOMANAGER	"enable theora video player"						OFF)
-	option(ORKIGE_BUILD_OGITOR	"enable Ogitor build"						OFF)
-	option(ORKIGE_BUILD_BOOST_REGEX	"enable building of boost regex build"						OFF)
+	option(ORKIGE_BUILD_OGITOR			"enable Ogitor build"							OFF)
+	option(ORKIGE_BUILD_BOOST_REGEX		"enable building of boost regex build"				OFF)
+	option(ORKIGE_ENABLE_PROFILER			"enable engine profiling"							ON)
 	
 	if(ORKIGE_BUILD_OGITOR)
 		set(ORKIGE_BUILD_BOOST_REGEX TRUE CACHE BOOL "enable building of boost regex build"   FORCE)
@@ -82,6 +83,10 @@ macro (ConfigureOrkige)
 	
 	if (ORKIGE_EXTERN_LOG)
 		add_definitions(-DORKIGE_EXTERN_LOG)	
+	endif()
+	
+	if (ORKIGE_ENABLE_PROFILER)
+		add_definitions(-DORKIGE_ENABLE_PROFILER)	
 	endif()
 	
 	if (ORKIGE_BUILD_OGGSOUNDMANAGER)

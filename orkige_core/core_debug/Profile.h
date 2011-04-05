@@ -67,7 +67,7 @@ namespace Orkige
 	//---------------------------------------------------------------
 }
 
-#if defined(ORKIGE_DEBUG) || defined(ORKIGE_STATS)
+#if defined(ORKIGE_ENABLE_PROFILER)
 #	define	OPROFILE(name) ::Orkige::Profile ___orkige__profile(name)
 #	define	OPROFILEFUNC() OPROFILE(__FUNCTION__)
 #else
