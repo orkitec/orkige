@@ -504,10 +504,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VideoManager::forceUpdate(float delta)
 	{
+#ifdef ORKIGE_IPHONE
 		if(this->iphoneClip)
 		{
 			[this->iphoneClip->view setNeedsDisplay];
 		}
+#endif
 		Ogre::FrameEvent evt;
 		evt.timeSinceLastFrame = delta;
 		evt.timeSinceLastEvent = delta;
