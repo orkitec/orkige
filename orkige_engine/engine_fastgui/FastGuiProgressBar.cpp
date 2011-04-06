@@ -17,11 +17,12 @@ namespace Orkige
 	//----------------------------------------------------
 	//- public: ------------------------------------------
 	//----------------------------------------------------
-    FastGuiProgressBar::FastGuiProgressBar(String const & id, String const & spriteName ,uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z): FastGuiWidget(id, atlas, z)
+    FastGuiProgressBar::FastGuiProgressBar(String const & id, String const & spriteName ,uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z)
+		: FastGuiWidget(id, atlas, z)
     {
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
-		Ogre::Vector2 barPos = Ogre::Vector2(this->decor->getPosition().x + this->decor->getSize().x * 0.03f, this->decor->getPosition().y + this->decor->getSize().y * 0.1f );
-		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x * 0.06f, this->decor->getSize().y - this->decor->getSize().y * 0.2f );
+		Ogre::Vector2 barPos = Ogre::Vector2(this->decor->getPosition().x + this->decor->getSize().x * 0.03f, this->decor->getPosition().y + this->decor->getSize().y * 0.1f);
+		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x * 0.06f, this->decor->getSize().y - this->decor->getSize().y * 0.2f);
 		this->barDecore = onew(new FastGuiDecorWidget(id + ".bar", "progressbar_bar", barPos, barMaxSize, atlas, z));
 		
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
@@ -75,12 +76,9 @@ namespace Orkige
 	{
 		this->progress = Ogre::Math::Ceil(_progress);
 		this->progress = Ogre::Math::Clamp(progress, 0.0f, 100.0f);
-		this->barDecore->setSize(this->barMaxSize.x * progress/100, this->barDecore->getSize().y);
+		this->barDecore->setSize(this->barMaxSize.x * progress/100.0f, this->barDecore->getSize().y);
 
-		if (progress == 0.0f || progress == 100.0f)
-		{
-			GlobalEventManager::getSingleton().trigger(Event(FastGuiProgressBar::ProgressBarChanged, oBadPointer(this)));
-		}
+		GlobalEventManager::getSingleton().trigger(Event(FastGuiProgressBar::ProgressBarChanged, oBadPointer(this)));
 	}
 	//----------------------------------------------------
 	void FastGuiProgressBar::addProgress(float _progress)
