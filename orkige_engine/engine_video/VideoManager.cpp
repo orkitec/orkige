@@ -74,17 +74,38 @@ static bool g_StopCalledFromInsideVideoManager = false;
 		// in portrait mode by default. Set orientation to landscape
 		[[UIApplication sharedApplication] setStatusBarOrientation:UIInterfaceOrientationLandscapeRight animated:NO];
 		
+		static float contentScalingFactor = 1.f;
+#ifdef ORKIGE_IPHONE
+#if __IPHONE_4_0
+		static UIView* static_view = nil;
+		if(static_view == nil)
+		{
+			if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
+			{
+				Orkige::Engine::getSingleton().getRenderWindow()->getCustomAttribute( "VIEW", &static_view );
+				contentScalingFactor = [static_view contentScaleFactor];
+			}
+		}
+#endif
+#endif
+		unsigned int width, height, depth;
+		int left, top;
+		Orkige::Engine::getSingleton().getRenderWindow()->getMetrics( width, height, depth, left, top );
+		
+		width /= contentScalingFactor;
+		height /= contentScalingFactor;
+		
 		// Rotate the view for landscape playback
-		[[self view] setBounds:CGRectMake(0, 0, Orkige::Engine::getSingleton().getViewort()->getActualWidth(), Orkige::Engine::getSingleton().getViewort()->getActualHeight())];
-		[[self view] setCenter:CGPointMake(Orkige::Engine::getSingleton().getViewort()->getActualHeight()/2, Orkige::Engine::getSingleton().getViewort()->getActualWidth()/2)];
+		[[self view] setBounds:CGRectMake(0, 0, width, height)];
+		[[self view] setCenter:CGPointMake(height/2, width/2)];
 		[[self view] setTransform:CGAffineTransformMakeRotation(M_PI / 2)]; 
 		
 		// Set frame of movieplayer
-		[[mp view] setFrame:CGRectMake(0, 0, Orkige::Engine::getSingleton().getViewort()->getActualWidth(), Orkige::Engine::getSingleton().getViewort()->getActualHeight())];
+		[[mp view] setFrame:CGRectMake(0, 0, width, height)];
 		
 		// Add movie player as subview
 		[[self view] addSubview:[mp view]];   
-		
+
 		// Play the movie
 		[mp play];
 		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
@@ -152,6 +173,9 @@ static bool g_StopCalledFromInsideVideoManager = false;
 		{
 			mp.repeatMode = MPMovieRepeatModeOne;
 		}
+
+		//mp.scalingMode = MPMovieScalingModeFill;
+		
 
 		
 		[mp setFullscreen:YES];
