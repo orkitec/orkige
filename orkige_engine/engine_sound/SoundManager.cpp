@@ -21,7 +21,7 @@ extern "C" int OpenAL_LoadLibrary( void );
 namespace Orkige
 {
 #ifdef ORKIGE_IPHONE
-	void SoundManagerInterruptionListener(	void *	inClientData, UInt32 inInterruptionState)
+	void SoundManagerInterruptionListener(void * inClientData, UInt32 inInterruptionState)
 	{
 		SoundManager *THIS = (SoundManager*)inClientData;
 		oAssert(THIS);
@@ -318,14 +318,14 @@ namespace Orkige
 		ALenum err = alGetError();
 		if (err != 0) 
 		{
-			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: "<<err);
+			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: " << err);
 		}
 		// now suspend your context to 'pause' your sound world
 		alcSuspendContext(this->context);
 		err = alGetError();
 		if (err != 0) 
 		{
-			oDebugMsg("sound", 0, "Error Calling alcSuspendContext. Error: "<<err);
+			oDebugMsg("sound", 0, "Error Calling alcSuspendContext. Error: " << err);
 		}
 #else
 		//backup playing sounds indexes and deinit sources
@@ -379,7 +379,7 @@ namespace Orkige
 		ALenum err = alGetError();
 		if (err != 0) 
 		{
-			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: "<<err);
+			oDebugMsg("sound", 0, "Error Calling alcMakeContextCurrent. Error: " << err);
 		}
 		// 'unpause' my context
 		alcProcessContext(this->context);
@@ -387,7 +387,7 @@ namespace Orkige
 		err = alGetError();
 		if (err != 0) 
 		{
-			oDebugMsg("sound", 0, "Error Calling alcProcessContext. Error: "<<err);
+			oDebugMsg("sound", 0, "Error Calling alcProcessContext. Error: " << err);
 		}
 #else
 #ifdef ORKIGE_IPHONE
