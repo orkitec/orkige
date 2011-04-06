@@ -554,9 +554,9 @@ namespace Orkige
 			else//wxWindow or something else
 			{
 				paramList.insert(std::make_pair("WINDOW",		externalTopLevelWindowHandle ) );
-				paramList.insert(std::make_pair("w32_keyboard", "DISCL_BACKGROUND"));
+				paramList.insert(std::make_pair("w32_keyboard", "DISCL_FOREGROUND"));
 				paramList.insert(std::make_pair("w32_keyboard", "DISCL_NONEXCLUSIVE"));
-				paramList.insert(std::make_pair("w32_mouse",	"DISCL_BACKGROUND"));
+				paramList.insert(std::make_pair("w32_mouse",	"DISCL_FOREGROUND"));
 				paramList.insert(std::make_pair("w32_mouse",	"DISCL_NONEXCLUSIVE"));
 
 			}
