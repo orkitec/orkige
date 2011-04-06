@@ -12,31 +12,36 @@ copyright:	(c) 2009-2011 orkitec
 #include <core_event/GlobalEventManager.h>
 
 #define FASTGUICHECKBOX_MARGING 10.f
+
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(FastGuiCheckBox, CheckBoxToggledEvent);
     //----------------------------------------------------
     //- public: ------------------------------------------
     //----------------------------------------------------
-    FastGuiCheckBox::FastGuiCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
+    FastGuiCheckBox::FastGuiCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool useCheckbox) : 
+		FastGuiWidget(id, atlas, z), 
+		checked(false),
+		baseSpriteName(spriteName)
     {
-		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
-		this->checkSymbol	 = onew(new FastGuiDecorWidget("checkSymbol.decor", "checkbox_off", position, size, atlas, z+2));
+		if (useCheckbox)
+		{
+			// needs "name.png" and "checkbox_off.png" and "checkbox_on.png"
+			this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
+			this->checkbox = onew(new FastGuiDecorWidget("checkSymbol.decor", spriteName + "_off", position, size, atlas, z+2));
+		}
+		else
+		{
+			// needs "name_off.png" and "name_on.png"
+			this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName + "_off", position, size, atlas, z));
+		}
 
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 		//this->label->setAlignment(textAlignment);
 
-		Ogre::Real xPosition = this->decor->getPosition().x+(this->decor->getSize().x )- (this->checkSymbol->getSize().x) - FASTGUICHECKBOX_MARGING ;
-		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.f )- (this->checkSymbol->getSize().y/2.f) ;
-		this->checkSymbol->setPosition(xPosition, yPosition);
-
-		xPosition = this->decor->getPosition().x + FASTGUICHECKBOX_MARGING;
-		this->label->setPosition(xPosition,yPosition);
-
-
-		this->baseSpriteName = spriteName;
-		this->checked = false;
+		//this->setPosition(this->getPosition().x, this->getPosition().y);
+		//this->setChecked(this->checked);
     }
     //----------------------------------------------------
     FastGuiCheckBox::~FastGuiCheckBox()
@@ -45,23 +50,33 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiCheckBox::setPosition( Ogre::Real left, Ogre::Real top )
 	{
+		// TODO when executing this code the sprite appear completely white!
+		oAssertDesc(false, "CheckBox position not implemented");
+
+
 		this->decor->setPosition(left, top);
-		//this->label->setPosition(left, top);
-		Ogre::Real xPosition = this->decor->getPosition().x+(this->decor->getSize().x )- (this->checkSymbol->getSize().x) - FASTGUICHECKBOX_MARGING ;
-		Ogre::Real yPosition = this->decor->getPosition().y+(this->decor->getSize().y/2.f )- (this->checkSymbol->getSize().y/2.f) ;
-		this->checkSymbol->setPosition(xPosition, yPosition);
-		xPosition = this->decor->getPosition().x + FASTGUICHECKBOX_MARGING;
-		this->label->setPosition(xPosition,yPosition);
-
-
-
+		if (this->checkbox != NULL)
+		{
+			Ogre::Real xPosition = this->decor->getPosition().x + (this->decor->getSize().x) - (this->checkbox->getSize().x) - FASTGUICHECKBOX_MARGING;
+			Ogre::Real yPosition = this->decor->getPosition().y + (this->decor->getSize().y/2.f) - (this->checkbox->getSize().y/2.f);
+			this->checkbox->setPosition(xPosition, yPosition);
+			xPosition = this->decor->getPosition().x + FASTGUICHECKBOX_MARGING;
+			this->label->setPosition(xPosition, yPosition);
+		}
+		else
+		{
+			this->label->setPosition(left, top); //?
+		}
 	}
 	//----------------------------------------------------
 	void FastGuiCheckBox::setSize( Ogre::Real width, Ogre::Real height )
 	{
 		this->decor->setSize(width, height);
 		this->label->setSize(width, height);
-		this->checkSymbol->setSize(width, height);
+		if (this->checkbox != NULL)
+		{
+			this->checkbox->setSize(width, height);
+		}
 	}
 	//----------------------------------------------------
 	Ogre::Vector2 FastGuiCheckBox::getSize()
@@ -80,7 +95,6 @@ namespace Orkige
 		{
 			this->toggle();
 		}
-
 	}
 	//----------------------------------------------------
 	void FastGuiCheckBox::onCursorReleased( Ogre::Vector2 const & cursorPos )
@@ -88,21 +102,21 @@ namespace Orkige
 
 	}
 	//----------------------------------------------------
-	bool FastGuiCheckBox::isChecked()
-	{
-		return this->checked ;
-	}
-	//----------------------------------------------------
 	void FastGuiCheckBox::setChecked( bool checked, bool notifyListener /*= true*/ )
 	{
 		this->checked = checked;
-		if (this->checked)
+
+		if (this->checkbox != NULL)
 		{
-			this->checkSymbol->setSprite("checkbox_on");
+			Orkige::String spriteName("checkbox");
+			spriteName += (this->checked ? "_on" : "_off");
+			this->checkbox->setSprite(spriteName);
 		}
 		else
 		{
-			this->checkSymbol->setSprite("checkbox_off");
+			Orkige::String spriteName(this->baseSpriteName);
+			spriteName += (this->checked ? "_on" : "_off");
+			this->decor->setSprite(spriteName);
 		}
 		if (notifyListener)
 		{
@@ -112,9 +126,8 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiCheckBox::toggle( bool notifyListener /*= true*/ )
 	{
-		setChecked(!isChecked(),notifyListener);
+		this->setChecked(!this->isChecked(), notifyListener);
 	}
-
 
     //----------------------------------------------------
     //- protected: ---------------------------------------

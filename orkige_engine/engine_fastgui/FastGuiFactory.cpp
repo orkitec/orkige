@@ -84,8 +84,8 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
- 	woptr<FastGuiCheckBox> FastGuiFactory::createCheckBox( String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
- 	{
+	woptr<FastGuiCheckBox> FastGuiFactory::createCheckBox( String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/, bool useCheckbox /* = false */)
+	{
  		optr<FastGuiCheckBox> widget;
  
  		if(FastGuiManager::getSingleton().widgetExists(id))
@@ -93,7 +93,7 @@ namespace Orkige
  			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
  			return widget;
  		}
- 		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+ 		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, useCheckbox));
  		FastGuiManager::getSingleton().addWidget(widget);
  		return widget;
  
@@ -534,6 +534,7 @@ namespace Orkige
 
 		//FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
 		Ogre::ColourValue color = Ogre::ColourValue::Black;
+		bool useCheckbox = false;
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
@@ -566,10 +567,14 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
+			if (key == "checkbox")
+			{
+				useCheckbox = Ogre::StringConverter::parseBool(value, false);
+			}
 		}
-		woptr<FastGuiCheckBox> checkBox = this->createCheckBox(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, FastGuiLabel::LA_CENTER, baseSettings.size, baseSettings.atlas, baseSettings.z);
+		woptr<FastGuiCheckBox> checkBox = this->createCheckBox(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, FastGuiLabel::LA_CENTER, baseSettings.size, baseSettings.atlas, baseSettings.z, useCheckbox);
 		oAssert(checkBox.lock());
-		checkBox.lock()->getLabel().lock()->getCaption()->colour(color);
+		//checkBox.lock()->getLabel().lock()->getCaption()->colour(color);
  	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadDragDropButton(String const & id, SettingsMultiMap* settings)

@@ -28,14 +28,14 @@ namespace Orkige
     public:
     protected:
 		optr<FastGuiLabel> label;			//!< current CheckBox text
-		optr<FastGuiDecorWidget> checkSymbol;			//!< current CheckBox symbol
+		optr<FastGuiDecorWidget> checkbox;	//!< current CheckBox symbol
 		optr<FastGuiDecorWidget> decor;		//!< current CheckBox image
-		bool checked;							//!< current CheckBox state
+		bool checked;						//!< current CheckBox state
 		String baseSpriteName;				//!< base name of the CheckBox state sprite;
     private:
         //-Methods------------------------------------------
     public:
-        FastGuiCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
+		FastGuiCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool useCheckbox);
         virtual ~FastGuiCheckBox();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
@@ -47,14 +47,11 @@ namespace Orkige
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
 
 		//! is box currently checked?
-		bool isChecked();
+		inline bool isChecked();
 		//! set box checked and trigger CheckBox::CheckBoxToggledEvent if notifyListener = true
 		void setChecked(bool checked, bool notifyListener = true);
 		//! toggle state and trigger CheckBox::CheckBoxToggledEvent if notifyListener = true
 		void toggle(bool notifyListener = true);
-
-
-
 
 		//! get text holding ui element
 		inline woptr<FastGuiLabel> getLabel();
@@ -64,7 +61,6 @@ namespace Orkige
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);
-
     protected:
     private:
     };
@@ -77,6 +73,11 @@ namespace Orkige
 	inline woptr<FastGuiDecorWidget> FastGuiCheckBox::getDecor()
 	{
 		return this->decor;
+	}
+	//----------------------------------------------------
+	bool FastGuiCheckBox::isChecked()
+	{
+		return this->checked;
 	}
 }
 #endif //__FASTGUICHECKBOX__h__2_11_2010__17_50_02__ 
