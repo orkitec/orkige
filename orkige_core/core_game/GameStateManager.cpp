@@ -50,7 +50,7 @@ namespace Orkige
 	{
 		if(this->stateRegistry.find(id) == this->stateRegistry.end())
 		{
-			throw GameStateError(id + " State not registered!");
+			throw GameStateError(Orkige::String("State not registered: ") + id);
 		}
 
 		//if there is already a state active then pause it and leave the state
