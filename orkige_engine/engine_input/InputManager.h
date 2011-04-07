@@ -72,7 +72,7 @@ namespace Orkige
 		//--- Methods -----------------------------------------
 	public:
 		//! construct InputManager if shareMouse is true mouse input will be not exclusive to RenderWindow (for EditorMode etc.)
-		InputManager(bool shareMouse = false);
+		InputManager(bool shareMouse = false, bool enableNativeInput = true);
 		//! destructor
 		virtual ~InputManager();
 		//! enable input updates

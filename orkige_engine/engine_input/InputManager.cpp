@@ -32,6 +32,7 @@
 @end
 #endif
 
+
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(InputManager, KeyPressedEvent);
@@ -404,17 +405,75 @@ namespace Orkige
 			//GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
 		}
 	};
+}
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+	void OrkigeBrowserPluginSendKeyPressed(Orkige::KeyEventData::KeyCode key, unsigned int text)
+	{
+		Orkige::InputManagerImpl::getSingleton().keyData->key = key;
+		Orkige::InputManagerImpl::getSingleton().keyData->text = text;
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::InputManagerImpl::getSingleton().keyPressedEvent);
+	}
+	void OrkigeBrowserPluginSendKeyReleased(Orkige::KeyEventData::KeyCode key, unsigned int text)
+	{
+		Orkige::InputManagerImpl::getSingleton().keyData->key = key;
+		Orkige::InputManagerImpl::getSingleton().keyData->text = text;
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::InputManagerImpl::getSingleton().keyReleasedEvent);
+	}
+	void OrkigeBrowserPluginSendMouseMoved(int x, int y)
+	{
+		int oldX = Orkige::InputManagerImpl::getSingleton().mouseData->absX;
+		int oldY = Orkige::InputManagerImpl::getSingleton().mouseData->absY;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absX = x;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absY = y;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relX = x - oldX;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relY = y - oldY;
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::InputManagerImpl::getSingleton().mouseMovedEvent);
+	}
+	void OrkigeBrowserPluginSendMousePressed(Orkige::MouseEventData::MouseButtonID buttonID, int x, int y)
+	{
+		Orkige::InputManagerImpl::getSingleton().mouseData->button = buttonID;
+		int oldX = Orkige::InputManagerImpl::getSingleton().mouseData->absX;
+		int oldY = Orkige::InputManagerImpl::getSingleton().mouseData->absY;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absX = x;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absY = y;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relX = x - oldX;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relY = y - oldY;
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::InputManagerImpl::getSingleton().mousePressedEvent);
+	}
+	void OrkigeBrowserPluginSendMouseReleased(Orkige::MouseEventData::MouseButtonID buttonID, int x, int y)
+	{
+		Orkige::InputManagerImpl::getSingleton().mouseData->button = buttonID;
+		int oldX = Orkige::InputManagerImpl::getSingleton().mouseData->absX;
+		int oldY = Orkige::InputManagerImpl::getSingleton().mouseData->absY;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absX = x;
+		Orkige::InputManagerImpl::getSingleton().mouseData->absY = y;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relX = x - oldX;
+		Orkige::InputManagerImpl::getSingleton().mouseData->relY = y - oldY;
+		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::InputManagerImpl::getSingleton().mouseReleasedEvent);
+	}
+#ifdef __cplusplus
+}
+#endif
+
+namespace Orkige
+{
 	IMPL_OSINGLETON(InputManagerImpl);
 
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	InputManager::InputManager(bool shareMouse)
+	InputManager::InputManager(bool shareMouse, bool enableNativeInput)
 	{
 		this->frameListener = GlobalEventManager::getSingleton().bind(Engine::FrameStartedEvent,&InputManager::onFrameStarted,this);
 		this->impl = new InputManagerImpl();
 		this->sharedMouse = shareMouse;
-		this->initialise();
+		if(enableNativeInput)
+		{
+			this->initialise();
+		}
 	}
 	//---------------------------------------------------------
 	InputManager::~InputManager( void )
