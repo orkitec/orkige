@@ -2097,6 +2097,12 @@ namespace Gorilla
 
 		mVertices.remove_all();
 
+		if (mText.length() == 0)
+		{
+			mDirty = false;
+			return;
+		}
+
 		Ogre::Vector2 uv = mLayer->_getSolidUV();
 
 		if (mBackground.a > 0)
