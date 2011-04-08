@@ -394,6 +394,8 @@ namespace Orkige
 		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
 
 		Ogre::ColourValue color = Ogre::ColourValue::White;
+		FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
+
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
 			String key = boost::to_lower_copy(vt.first);
@@ -425,10 +427,54 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
+			else if(key == "textalignment")
+			{
+				if(value == "topleft")
+				{
+					alignment = FastGuiLabel::LA_TOPLEFT;
+				}
+				else if(value == "top")
+				{
+					alignment = FastGuiLabel::LA_TOP;
+				}
+				else if(value == "topright")
+				{
+					alignment = FastGuiLabel::LA_TOPRIGHT;
+				}
+				else if(value == "left")
+				{
+					alignment = FastGuiLabel::LA_LEFT;
+				}
+				else if(value == "center")
+				{
+					alignment = FastGuiLabel::LA_CENTER;
+				}
+				else if(value == "right")
+				{
+					alignment = FastGuiLabel::LA_RIGHT;
+				}
+				else if(value == "bottomleft")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMLEFT;
+				}
+				else if(value == "bottom")
+				{
+					alignment = FastGuiLabel::LA_BOTTOM;
+				}
+				else if(value == "bottomright")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMRIGHT;
+				}
+				else
+				{
+					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
+				}
+			}
 		}
 
 		woptr<FastGuiLabel> label = this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
 		label.lock()->getCaption()->colour(color);
+		label.lock()->setAlignment(alignment);
 	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadTextbox(String const & id, SettingsMultiMap* settings)
@@ -519,7 +565,6 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
-
 		}
 
 		woptr<FastGuiButton> button = this->createButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
@@ -567,7 +612,7 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
-			if (key == "checkbox")
+			else if (key == "checkbox")
 			{
 				useCheckbox = Ogre::StringConverter::parseBool(value, false);
 			}
@@ -676,7 +721,7 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
-			if(key == "textalignment")
+			else if(key == "textalignment")
 			{
 				if(value == "topleft")
 				{
@@ -765,7 +810,7 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
-			if(key == "textalignment")
+			else if(key == "textalignment")
 			{
 				if(value == "topleft")
 				{
