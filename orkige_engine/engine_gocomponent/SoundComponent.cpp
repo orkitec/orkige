@@ -46,11 +46,16 @@ namespace Orkige
 			//sound->setVolume(50);
 			sound->setReferenceDistance(200);
 			sound->setMaxDistance(250);
+			
+
 			sound->disable3D(no3D);
 			this->attachedSoundObjects[id] = sound;
+			if (!no3D)
+			{
 #ifdef ORKIGE_OGGSOUNDMANAGER
-			transformComponent->attachObject(sound);
+				transformComponent->attachObject(sound);
 #endif
+			}
 			return true;
 		}
 		return false;
