@@ -88,9 +88,10 @@ namespace Gorilla
 		return ret;
 	}
 
-	TextureAtlas::TextureAtlas(const Ogre::String& gorillaFile, const Ogre::String& groupName)
+	TextureAtlas::TextureAtlas(const Ogre::String& gorillaFile, const Ogre::String& groupName) : 
+		m2DPass(NULL), 
+		m3DPass(NULL)
 	{
-
 		_reset();
 		_load(gorillaFile, groupName);
 		_calculateCoordinates();
