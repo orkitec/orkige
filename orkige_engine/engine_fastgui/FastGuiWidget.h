@@ -36,6 +36,7 @@ namespace Orkige
 		Gorilla::Layer* layer;
 		woptr<FastGuiView> view;
 	private:
+		bool visible;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiWidget(String const & id, String const & atlas, uint z);
@@ -55,6 +56,10 @@ namespace Orkige
 		inline woptr<FastGuiView> getView();
 		//! center widget horizontally on the screen
 		void centerHorizontal();
+		
+		//! show or hide 
+		//void setVisibility(bool enable);
+		//bool getVisibility();
 	protected:
 	private:
 	};

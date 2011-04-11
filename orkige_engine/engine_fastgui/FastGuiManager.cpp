@@ -114,7 +114,7 @@ namespace Orkige
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
 		this->silverback->loadAtlas(atlas, group);
-		Ogre::Viewport* viewport = Engine::getSingleton().getViewort();
+		Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
 		oAssert(viewport);
 		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
 		oAssert(screen);

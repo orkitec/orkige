@@ -105,7 +105,7 @@ namespace Orkige
 		//! get Engine default Camera if it was created through Engine::createDefaultCameraAndViewport
 		inline Ogre::Camera* getCamera();
 		//! get Engine default Viewport if it was created through Engine::createDefaultCameraAndViewport
-		inline Ogre::Viewport* getViewort();
+		inline Ogre::Viewport* getViewport();
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
@@ -151,7 +151,7 @@ namespace Orkige
 		return this->camera;
 	}
 	//---------------------------------------------------------------
-	inline Ogre::Viewport* Engine::getViewort()
+	inline Ogre::Viewport* Engine::getViewport()
 	{
 		return this->viewport;
 	}

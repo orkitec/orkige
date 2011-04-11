@@ -180,7 +180,7 @@ namespace Orkige
 			int relY = int(data->relY*contentScalingFactor);
 
 			//oDebugMsg("core", 0, "Input: x:" << absX <<  " y:" << absY);
-			switch (Engine::getSingleton().getViewort()->getOrientationMode())
+			switch (Engine::getSingleton().getViewport()->getOrientationMode())
 			{
 			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
 				break;

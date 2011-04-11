@@ -539,7 +539,7 @@ namespace Orkige
 		evt.timeSinceLastEvent = delta;
 		this->frameStarted(evt);
 		
-		Engine::getSingleton().getRenderWindow()->_updateViewport(Engine::getSingleton().getViewort(), false);
+		Engine::getSingleton().getRenderWindow()->_updateViewport(Engine::getSingleton().getViewport(), false);
 		Engine::getSingleton().getRenderWindow()->_beginUpdate();
 		Engine::getSingleton().getRenderWindow()->swapBuffers();
 		Engine::getSingleton().getRenderWindow()->_endUpdate();
