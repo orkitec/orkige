@@ -87,6 +87,8 @@ namespace Orkige
 		inline String const & getDefaultAtlas();
 		//! show frame stats
 		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0);
+		//! clear worst and best fps and more
+		void resetStats();
 		//! update statistic
 		void updateStats();
 		//! hide frame stats

@@ -12,6 +12,9 @@
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
+#include "OgreRenderTarget.h"
+#include "OgreRenderSystem.h"
+#include "OgreRoot.h"
 
 namespace Orkige
 {
@@ -224,6 +227,11 @@ namespace Orkige
 		this->statsValues.reset();
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::resetStats()
+	{
+		Ogre::Root::getSingleton().getRenderSystem()->_initRenderTargets();
+	}
+	//---------------------------------------------------------
 	void FastGuiManager::updateStats()
 	{
 		if(this->stats)
@@ -235,8 +243,8 @@ namespace Orkige
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.avgFPS	<< std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.bestFPS	<< std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
-			sstr << "   "	<< Ogre::StringConverter::toString(stats.triangleCount) << std::endl;
-			sstr << "   "	<< Ogre::StringConverter::toString(stats.batchCount)	<< std::endl;
+			sstr << "   "	<< stats.triangleCount << std::endl;
+			sstr << "   "	<< stats.batchCount << std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< "  mb" << std::endl;
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
