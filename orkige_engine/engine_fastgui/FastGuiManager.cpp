@@ -12,9 +12,6 @@
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
-#include "OgreRenderTarget.h"
-#include "OgreRenderSystem.h"
-#include "OgreRoot.h"
 
 namespace Orkige
 {
@@ -229,7 +226,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiManager::resetStats()
 	{
-		Ogre::Root::getSingleton().getRenderSystem()->_initRenderTargets();
+		Engine::getSingleton().getRenderWindow()->resetStatistics();
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::updateStats()
@@ -252,7 +249,6 @@ namespace Orkige
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
 #endif
 #endif
-
 
 			this->statsValues->setText(sstr.str());
 		}
