@@ -144,8 +144,29 @@ inline HexCharStruct hex(char _c)
 }
 //---------------------------------------------------------
 using namespace Orkige;
-int generateFont(const char* szExecutablePath, const char* szAtlasPath)
+
+enum ANTIALIAS_MODE
 {
+	ANTIALIAS_AUTOMATIC,
+	ANTIALIAS_AA,
+	ANTIALIAS_AA_GRID,
+	ANTIALIAS_1BPP,
+	ANTIALIAS_1BPP_GRID
+};
+int generateFont(const char* szExecutablePath, const char* szAtlasPath, ANTIALIAS_MODE antiAliasMode)
+{
+	std::cout << "Anti-Alias mode: ";
+	switch (antiAliasMode)
+	{
+		case ANTIALIAS_AUTOMATIC	: std::cout << "automatic"; break;
+		case ANTIALIAS_AA			: std::cout << "aa"; break;
+		case ANTIALIAS_AA_GRID		: std::cout << "aagrid"; break;
+		case ANTIALIAS_1BPP			: std::cout << "1bpp"; break;
+		case ANTIALIAS_1BPP_GRID	: std::cout << "1bppgrid"; break;
+		default						: std::cout << "unknown"; break;
+	}
+	std::cout << std::endl;
+
 	// specify font index of new font
 	std::cout << "Font Index (0..99): ";
 	int fontindex;
@@ -212,7 +233,13 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath)
 		command << " -output " << sFilenameBaseTemp;
 		
 		// see http://blogs.msdn.com/b/garykac/archive/2006/08/30/732007.aspx
-		command << " -trh aa"; // aa, aa-grid, 1bpp or 1bpp-grid
+		switch (antiAliasMode)
+		{
+			case ANTIALIAS_AA			: command << " -trh aa"; break;
+			case ANTIALIAS_AA_GRID		: command << " -trh aa-grid"; break;
+			case ANTIALIAS_1BPP			: command << " -trh 1bpp"; break;
+			case ANTIALIAS_1BPP_GRID	: command << " -trh 1bpp-grid"; break;
+		}
 
 		std::cout << "cmd: " << command.str() << std::endl;
 		
@@ -612,14 +639,20 @@ int main(int argc, char **argv)
 	std::string sExecutablePath;
 	std::string sAtlasPath;	
 	
-	// parse command line parameters
 	bool createFont = false;
 	bool useBorder = true;
+	ANTIALIAS_MODE antiAliasMode = ANTIALIAS_AUTOMATIC;
+
+	// parse command line parameters
 	//bool createFont = (cimg_library::cimg::option("-createFont", argc, argv, false) != 0);
 	if (argc == 0)
 	{
-		std::cout << "  usage: [-createFont] [-noBorder] <path>" << std::endl;
-		std::cout << "  <path> is the path to the textures, within path all characters after two underscores (__) are ignored" << std::endl;
+		std::cout << "  usage: [-createFont] [-noBorder] [-aa|-aagrid|-1bpp|-1bppgrid] <path>" << std::endl;
+		std::cout << "  <path>		is the path to the textures, within path all characters after two underscores (__) are ignored" << std::endl;
+		std::cout << "  -aa			antialias on" << std::endl;
+		std::cout << "  -aagrid		antialias on with grid fit" << std::endl;
+		std::cout << "  -1bpp		antialias on with 1 bit per pixel" << std::endl;
+		std::cout << "  -1bppgrid	antialias on with 1 bit per pixel with grid fit" << std::endl;
 	}
 	for (int i = 1; i < argc; ++i)
 	{
@@ -631,6 +664,22 @@ int main(int argc, char **argv)
 		else if (s == "-noBorder")
 		{
 			useBorder = false;
+		}
+		else if (s == "-aa")
+		{
+			antiAliasMode = ANTIALIAS_AA;
+		}
+		else if (s == "-aagrid")
+		{
+			antiAliasMode = ANTIALIAS_AA_GRID;
+		}
+		else if (s == "-1bpp")
+		{
+			antiAliasMode = ANTIALIAS_1BPP;
+		}
+		else if (s == "-1bppgrid")
+		{
+			antiAliasMode = ANTIALIAS_1BPP_GRID;
 		}
 		else
 		{
@@ -675,7 +724,7 @@ int main(int argc, char **argv)
 
 		if (createFont)
 		{
-			generateFont(sExecutablePath.c_str(), sAtlasPath.c_str());
+			generateFont(sExecutablePath.c_str(), sAtlasPath.c_str(), antiAliasMode);
 		}	
 		generateTextureAtlas(sExecutablePath.c_str(), sAtlasPath.c_str(), useBorder);
 	}
