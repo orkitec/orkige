@@ -493,6 +493,7 @@ namespace Gorilla
 
 	void  TextureAtlas::_create2DMaterial()
 	{
+		oAssertDesc(!mTexture.isNull(), "Gorilla: texture not loaded");
 
 		std::string matName = "Gorilla2D." + mTexture->getName();
 		m2DMaterial = Ogre::MaterialManager::getSingletonPtr()->getByName(matName);
@@ -509,6 +510,7 @@ namespace Gorilla
 
 	void  TextureAtlas::_create3DMaterial()
 	{
+		oAssertDesc(!mTexture.isNull(), "Gorilla: texture not loaded");
 
 		std::string matName = "Gorilla3D." + mTexture->getName();
 		m3DMaterial = Ogre::MaterialManager::getSingletonPtr()->getByName(matName);
