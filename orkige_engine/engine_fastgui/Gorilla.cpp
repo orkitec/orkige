@@ -184,7 +184,12 @@ namespace Gorilla
 			name = i->first;
 			data = i->second;
 
-			size_t comment = data.find_first_of('#');
+			size_t comment;
+			comment = data.find_first_of('#');
+			if (comment != std::string::npos)
+				data = data.substr(0, comment);
+
+			comment = data.find("//");
 			if (comment != std::string::npos)
 				data = data.substr(0, comment);
 
