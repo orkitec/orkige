@@ -198,7 +198,7 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath, ANTIALIA
 		{
 			end_letter = '~';
 		}
-		std::cout << "Range specified" << std::endl;
+		std::cout << std::endl << "Range specified" << std::endl;
 	}
 	else if(MessageBox( NULL, "Do you want to specify a file wich holds all wanted letters", "Font Generator", MB_YESNO | MB_ICONQUESTION) == IDYES)
 	{
@@ -229,7 +229,7 @@ int generateFont(const char* szExecutablePath, const char* szAtlasPath, ANTIALIA
 		if (letterFileName.empty())
 			command << " -range " << hex(start_letter) << "-" << hex(end_letter);
 		else
-			command << " -source " << letterFileName;
+			command << " -source \"" << letterFileName << "\"";
 		command << " -output " << sFilenameBaseTemp;
 		
 		// see http://blogs.msdn.com/b/garykac/archive/2006/08/30/732007.aspx
@@ -523,7 +523,7 @@ int generateTextureAtlas(const char* szExecutablePath, const char* szAtlasPath, 
 	//command << "/r ";
 	if (useBorder)
 	{
-		command << "/pad:1 ";
+		command << "/pad:2 ";
 	}
 	else
 	{
