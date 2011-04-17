@@ -12,6 +12,7 @@
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
+#include <core_game/GameStateManager.h>
 
 namespace Orkige
 {
@@ -24,12 +25,14 @@ namespace Orkige
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
 		this->getCreateView(this->defaultAtlas, group);
-		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,	&FastGuiManager::onFrameRenderingQueued,	this);
+		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&FastGuiManager::onFrameRenderingQueued,	this);
+		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&FastGuiManager::onGameStateChanged,		this);
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
 	{
-
+		this->unregisterEvent(Orkige::GameStateManager::GameStateChangedEvent);
+		this->unregisterEvent(Orkige::Engine::FrameRenderingQueuedEvent);
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::enableInputEvents()
@@ -284,6 +287,12 @@ namespace Orkige
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{
 		this->updateStats();
+		return false;
+	}
+	//---------------------------------------------------------
+	bool FastGuiManager::onGameStateChanged(Orkige::Event const & event)
+	{
+		this->resetStats();
 		return false;
 	}
 	//---------------------------------------------------------

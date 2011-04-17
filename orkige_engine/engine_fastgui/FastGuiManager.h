@@ -102,6 +102,8 @@ namespace Orkige
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);
+		//! after changing a game state (with its possible loading times) reset the worst and best fps
+		bool onGameStateChanged(Orkige::Event const & event);
 
 		//! process key pressed events
 		bool onKeyPressed(Orkige::Event const & event);
