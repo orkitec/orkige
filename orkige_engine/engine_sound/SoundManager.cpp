@@ -101,6 +101,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::update(float delta)
 	{
+		OPROFILEFUNC();
+
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		OgreOggSound::OgreOggSoundManager::update(delta);
 		if(this->listener)

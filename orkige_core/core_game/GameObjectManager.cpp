@@ -75,6 +75,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GameObjectManager::update(float delta)
 	{
+		OPROFILEFUNC();
+
 		this->processDeleteQueue();
 		if(this->enableObjectUpdates)
 		{
