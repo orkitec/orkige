@@ -126,21 +126,22 @@ namespace Orkige
 			this->dragEventData->position = cursorPos;
 			if (this->isEnabled && !this->isFreezed)
 			{
-				//float distan = initialDecorPosition.distance(this->decor->getPosition()) ;
-				float distan = Ogre::Math::Abs(initialDecorPosition.x) - Ogre::Math::Abs(this->decor->getPosition().x) ;
-
-				if (Ogre::Math::Abs(distan) > 45.0f)
+				if (this->background->getRectangle()->intersects(cursorPos))
 				{
-					this->dragEventData->state = DragEventData::DS_DRAG_END;
+					this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+					GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
 				}
 				else
 				{
-					this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+					this->dragEventData->state = DragEventData::DS_DRAG_END;
 				}
-				
 			}
 			else
 			{
+				if (this->background->getRectangle()->intersects(cursorPos))
+				{
+					GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+				}
 				this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
 			}
 			this->decor->setPosition(this->initialDecorPosition.x, this->initialDecorPosition.y);
