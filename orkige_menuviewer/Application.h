@@ -87,8 +87,9 @@ namespace CC
 		Application(Orkige::String const & externalWindowHandle = Orkige::StringUtil::BLANK, Orkige::String const & topLevelWindowHandle = Orkige::StringUtil::BLANK);
 		virtual ~Application();
 
-		bool init(Orkige::String const & sCommandLine);
-		bool deinit();
+		//! resource path config filename can be given as command line
+		virtual bool init(Orkige::String const & sCommandLine);
+		virtual bool deinit();
 		virtual bool run();
 	protected:
 		//! react on gui events an play sounds

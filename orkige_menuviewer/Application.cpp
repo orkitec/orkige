@@ -6,7 +6,9 @@
 	purpose:	
 *********************************************************************/
 #include "Application.h"
+
 #include "PreviewMenuState.h"
+
 #include <core_game/GameStateManager.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <core_util/PlatformUtil.h>
@@ -118,12 +120,7 @@ namespace CC
 
 		this->gsm->setInitialState("PreviewMenu");
 
-
-// 		if (SettingsManager::getSingleton().getSetting("EnableSound") == "no")
- 		{
- 			SoundManager::getSingleton().setMasterVolume(0);
- 		}
-
+ 		SoundManager::getSingleton().setMasterVolume(0);
 		
 		this->registerEvent(Orkige::Button::ButtonHitEvent,			&Application::onGuiEvent, this, 1);
 		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,	&Application::onGuiEvent, this, 1);
