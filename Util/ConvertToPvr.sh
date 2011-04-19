@@ -5,7 +5,7 @@ echo "Conversion errors" > ConvertToPvr.log
 for f in *.png
 do
   echo "Processing $f file..."
-  /Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool -e PVRTC -f PVR --bits-per-pixel-4 -o ${f%.*}.pvr $f	
+  /Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool -e PVRTC -f PVR --bits-per-pixel-4 -m -o ${f%.*}.pvr $f	
   if [ $? == 0 ]; then
   {
 	FILENAME_OLD=$f
@@ -17,7 +17,7 @@ do
   {
 	echo "-------------------------">> ConvertToPvr.log
 	echo "Error converting file:" $f " Reason:">> ConvertToPvr.log
-	/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool -e PVRTC -f PVR --bits-per-pixel-4 -o ${f%.*}.pvr $f 2>> ConvertToPvr.log
+	/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/texturetool -e PVRTC -f PVR --bits-per-pixel-4 -m -o ${f%.*}.pvr $f 2>> ConvertToPvr.log
   } fi
 
 done
