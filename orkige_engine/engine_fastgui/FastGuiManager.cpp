@@ -20,7 +20,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false)
 	{
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
@@ -170,6 +170,8 @@ namespace Orkige
 			return false;
 		}
 		this->widgets[widget->getObjectID()] = widget;
+		this->sortedWidgets.push_back(widget);
+		this->sortedWidgets.sort(FastGuiWidgetOptrCmp());
 		return true;
 	}
 	//---------------------------------------------------------
@@ -180,7 +182,9 @@ namespace Orkige
 		{
 			return false;
 		}
+		FastGuiWidgetList::iterator it2 = std::find(this->sortedWidgets.begin(), this->sortedWidgets.end(), it->second);
 		this->widgets.erase(it);
+		this->sortedWidgets.erase(it2);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -280,7 +284,11 @@ namespace Orkige
 		oAssertDesc(this->hasView(atlas), "replaceAtlasTexture: atlas not found");
 		this->silverback->replaceTexture(atlas, texture);
 	}
-
+	//---------------------------------------------------------
+	void FastGuiManager::cancelCurrentInputUpdate()
+	{
+		this->cancelInputUpdate = true;
+	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
@@ -299,20 +307,30 @@ namespace Orkige
 	bool FastGuiManager::onKeyPressed(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onKeyPressed(*data);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onKeyPressed(*data);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onKeyReleased(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onKeyReleased(*data);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onKeyReleased(*data);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
@@ -320,10 +338,15 @@ namespace Orkige
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorPressed(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorPressed(cursorPos);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
@@ -331,10 +354,15 @@ namespace Orkige
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorReleased(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorReleased(cursorPos);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
@@ -346,10 +374,15 @@ namespace Orkige
 			this->cursor->setPosition((Ogre::Real)data->absX, (Ogre::Real)data->absY);
 		}
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorMoved(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorMoved(cursorPos);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
@@ -357,9 +390,13 @@ namespace Orkige
 	{
 		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorPressed(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorPressed(cursorPos);
 		}
 		return false;
 	}
@@ -368,10 +405,15 @@ namespace Orkige
 	{
 		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorReleased(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorReleased(cursorPos);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------
@@ -383,10 +425,15 @@ namespace Orkige
 			this->cursor->setPosition((Ogre::Real)data->absX, (Ogre::Real)data->absY);
 		}
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
-		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
-			vt.second->onCursorMoved(cursorPos);
+			if(this->cancelInputUpdate)
+			{
+				break;
+			}
+			widget->onCursorMoved(cursorPos);
 		}
+		this->cancelInputUpdate = false;
 		return false;
 	}
 	//---------------------------------------------------------

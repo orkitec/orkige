@@ -51,7 +51,7 @@ namespace Orkige
 		//! get position of this widget
 		virtual Ogre::Vector2 getPosition() = 0;
 		//! get layer this widget is in
-		inline Gorilla::Layer* getLayer();
+		inline Gorilla::Layer* getLayer() const;
 		//! get the view of this layer
 		inline woptr<FastGuiView> getView();
 		//! center widget horizontally on the screen
@@ -60,11 +60,13 @@ namespace Orkige
 		//! show or hide 
 		//void setVisibility(bool enable);
 		//bool getVisibility();
+		//! for priority sorting
+		inline bool operator < (FastGuiWidget const & other) const;
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Layer* FastGuiWidget::getLayer()
+	inline Gorilla::Layer* FastGuiWidget::getLayer() const
 	{
 		return this->layer;
 	}
@@ -74,6 +76,18 @@ namespace Orkige
 		return this->view;
 	}
 	//---------------------------------------------------------------
+	inline bool FastGuiWidget::operator < (FastGuiWidget  const & other) const 
+	{
+		return this->getLayer()->getIndex() > other.getLayer()->getIndex();
+	}
+	//---------------------------------------------------------------
+	struct FastGuiWidgetOptrCmp
+	{
+		inline bool operator()( optr<FastGuiWidget> const & lhs, optr<FastGuiWidget> const & rhs)
+		{
+			return *lhs < *rhs;
+		}
+	};
 }
 
 #endif //__FastGuiWidget_h__27_10_2010__13_08_39__

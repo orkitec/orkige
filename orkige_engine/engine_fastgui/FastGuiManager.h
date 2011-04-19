@@ -27,6 +27,7 @@ namespace Orkige
 		typedef std::map<String, optr<FastGuiView> > FastGuiViewMap;
 		typedef std::list<optr<FastGuiView> > FastGuiViewList;
 		typedef std::map<String, optr<FastGuiWidget> > FastGuiWidgetMap;
+		typedef std::list<optr<FastGuiWidget> > FastGuiWidgetList;
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -37,11 +38,13 @@ namespace Orkige
 		optr<FastGuiFactory> factory;
 		FastGuiViewMap views;
 		FastGuiWidgetMap widgets;
+		FastGuiWidgetList sortedWidgets;
 		optr<FastGuiDecorWidget> cursor;
 		optr<FastGuiTextbox> stats;
 		optr<FastGuiTextbox> statsValues;
 		unsigned short statsMarkupColorIndex;
 		String defaultAtlas;
+		bool cancelInputUpdate;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -99,6 +102,8 @@ namespace Orkige
 		//! exchanges the texture of an atlas
 		void replaceAtlasTexture(String const & atlas, String const & texture);
 
+		//! cancel current input dispatch
+		void cancelCurrentInputUpdate();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);
