@@ -38,6 +38,8 @@ namespace Orkige
 	{
 		this->background = onew(new FastGuiDecorWidget(id + ".background", spriteName, position, size, atlas, z));
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
+
+		this->background->getRectangle()->no_background();
 		
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
@@ -113,6 +115,7 @@ namespace Orkige
 			// I'm unsure about this, which way it should be done (pe)
 			//this->setState(FastGuiDragDropButton::DDBS_DOWN);
 			this->startDragging(cursorPos);
+			this->dragging(cursorPos);
 			SoundManager::getSingleton().playSound("pickcard");
 		}
 	}
@@ -161,6 +164,7 @@ namespace Orkige
 			if(this->background->getRectangle()->intersects(cursorPos))
 			{
 				this->startDragging(cursorPos);
+				this->dragging(cursorPos);
 			}
 		}
 		else if (this->state == FastGuiDragDropButton::DDBS_DRAGGING)
@@ -244,6 +248,7 @@ namespace Orkige
 		this->dragEventData->state = DragEventData::DS_DRAG_START;
 		this->dragEventData->position = cursorPos;
 		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+
 		
 	}
 	//---------------------------------------------------------
