@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/AnimationComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_util/NodeUtil.h"
 #include <core_game/GameObjectManager.h>
@@ -72,9 +73,20 @@ namespace Orkige
 							String fileName = mc->getCurrentModelFileName();
 							if(fileName == modelFileName)
 							{
-								this->getModel()->shareSkeletonInstanceWith(ent);
-							}
 
+								try
+								{
+									this->getModel()->shareSkeletonInstanceWith(ent);
+									if(this->getGameObject()->hasComponent<AnimationComponent>())
+									{
+										this->getGameObject()->removeComponent<AnimationComponent>();
+									}
+								}
+								catch(...)
+								{
+								}
+
+							}
 						}
 					}
 				}
