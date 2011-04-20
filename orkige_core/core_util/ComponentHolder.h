@@ -55,7 +55,6 @@ namespace Orkige
 			return success;
 		}
 
-
 		//! unregister a component to the manager (don't add it)
 		template<class ComponentType> 
 		static bool unregisterComponent(typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
@@ -96,7 +95,7 @@ namespace Orkige
 			return component;
 		}
 
-				//! get attached component by name
+		//! get attached component by name
 		inline BaseComponentType* getComponentPtr(TypeInfo const & componentType);
 
 		//! get attached component by type
@@ -110,6 +109,7 @@ namespace Orkige
 			oAssert(component);
 			return component;
 		}
+
 		//! get all attached components
 		inline ComponentMap const & getComponents();
 
@@ -162,11 +162,11 @@ namespace Orkige
 		virtual void load(optr<IArchive> const & ar);
 	protected:
 		//! called when a component is added
-		virtual void onComponentAdded(TypeInfo const & componentType)	{							};
+		virtual void onComponentAdded(TypeInfo const & componentType)	{};
 		//! called when a component is removed
-		virtual void onComponentRemoved(TypeInfo const & componentType)	{							};
+		virtual void onComponentRemoved(TypeInfo const & componentType)	{};
 		//! prevent construction
-		ComponentHolder(){};
+		ComponentHolder() {};
 		//! get static ComponentFactory for this ComponentHolder
 		static optr<OwnedComponentFactory> getComponentFactory();
 		//! get static dependencies map for this ComponentHolder
