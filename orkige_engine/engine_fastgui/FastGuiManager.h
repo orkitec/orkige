@@ -66,8 +66,10 @@ namespace Orkige
 		inline woptr<FastGuiFactory> getFactory();
 		//! create screen with given atlas asserts if there is already a screen with that atlas
 		woptr<FastGuiView> createView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-		//! free ressources from given view
+		//! free resources from given view
 		void destroyView(String const & atlas);
+		//! free resources from given view and all widgets using its view/atlas
+		void destroyViewWithWidgets(String const & atlas);
 		//! free all views
 		void destroyAllViews(bool keepDefaultAtlas = true);
 		//! get screen with given atlas or NULL

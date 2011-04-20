@@ -144,6 +144,30 @@ namespace Orkige
 		this->silverback->destroyAtlas(atlas);
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::destroyViewWithWidgets(String const & atlas)
+	{
+		woptr<FastGuiView> view = this->getView(atlas);
+		oAssert(view.lock());
+		Gorilla::Screen* screen = view.lock()->getScreen();
+		
+		StringVector names;
+		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			// compare used view/atlas
+			//woptr<FastGuiView> view = vt.second->getView();
+			if (vt.second->getView().lock()->getScreen() == screen)
+			{
+				names.push_back(vt.first);
+			}
+		}
+		foreach(String const & name, names)
+		{
+			this->destroyWidget(name);
+		}
+
+		this->destroyView(atlas);
+	}	
+	//---------------------------------------------------------
 	void FastGuiManager::destroyAllViews(bool keepDefaultAtlas)
 	{
 		this->destroyAllWidgets();
