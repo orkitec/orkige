@@ -19,6 +19,8 @@ namespace Orkige
 	{
 		//! get path for given fileName
 		String findPath(String const & filename);
+
+		void removeUnusedResources();
 	};
 	//---------------------------------------------------------
 }

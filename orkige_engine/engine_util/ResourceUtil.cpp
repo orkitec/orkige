@@ -14,6 +14,7 @@ namespace Orkige
 {
 	namespace ResourceUtil
 	{
+		//---------------------------------------------------------
 		String findPath(String const & fileName)
 		{
 			String path;
@@ -30,5 +31,17 @@ namespace Orkige
 			}
 			return path;
 		}
+		//---------------------------------------------------------
+		void removeUnusedResources()
+		{
+			//FastGuiManager::getSingleton().destroyAllViews();
+			Ogre::ResourceGroupManager::ResourceManagerIterator resMgrs = Ogre::ResourceGroupManager::getSingleton().getResourceManagerIterator();
+			while (resMgrs.hasMoreElements())
+			{
+				Ogre::ResourceManager* m = resMgrs.getNext();
+				m->unloadUnreferencedResources();
+			}
+		}
+
 	};
 }	
