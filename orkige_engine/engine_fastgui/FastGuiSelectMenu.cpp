@@ -49,6 +49,7 @@ namespace Orkige
 	void FastGuiSelectMenu::setPosition( Ogre::Real left, Ogre::Real top )
 	{
 		this->decor->setPosition(left, top);
+		this->label->setPosition(left, top);
 		this->updatePosition();
 	}
 	//----------------------------------------------------
