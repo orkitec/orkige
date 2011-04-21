@@ -30,16 +30,16 @@ namespace Orkige
 
     public:
     protected:
-		optr<FastGuiLabel> label;			//!< current SelectMenu Title text
-		optr<FastGuiDecorWidget> decor;		//!< back decore for the selectMenu
-		optr<FastGuiDecorWidget> leftArrow;		//!< back decore for the selectMenu
+		optr<FastGuiLabel> label;					//!< current SelectMenu Title text
+		optr<FastGuiDecorWidget> decor;				//!< back decore for the selectMenu
+		optr<FastGuiDecorWidget> leftArrow;			//!< back decore for the selectMenu
 		optr<FastGuiDecorWidget> rightArrow;		//!< back decore for the selectMenu
-		optr<FastGuiButton> buttonMainSelection;			//!< the selected item field
+		optr<FastGuiButton> buttonMainSelection;	//!< the selected item field
     private:
         //-Methods------------------------------------------
     public:
         FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
-        virtual ~FastGuiSelectMenu();
+		virtual ~FastGuiSelectMenu();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
 		virtual void setSize(Ogre::Real width, Ogre::Real height);
@@ -50,13 +50,11 @@ namespace Orkige
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
 
-
 		//! set all item names
 		void setItems(const Ogre::StringVector& items);
 		void showItem();
 		String getSelectedItem();
-		void selectItem(String itemm);
-
+		void selectItem(String item);
 
 		//! get text holding ui element
 		inline woptr<FastGuiLabel> getLabel();
@@ -69,6 +67,8 @@ namespace Orkige
 
     protected:
     private:
+		void updatePosition();
+		void updateSize();
     };
 	//---------------------------------------------------------------
 	inline woptr<FastGuiLabel> FastGuiSelectMenu::getLabel()

@@ -19,7 +19,8 @@ namespace Orkige
     //----------------------------------------------------
     //- public: ------------------------------------------
     //----------------------------------------------------
-	FastGuiSelectMenu::FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
+	FastGuiSelectMenu::FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) 
+		: FastGuiWidget(id, atlas, z)
 	{
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
@@ -29,33 +30,16 @@ namespace Orkige
 		this->leftArrow = onew(new FastGuiDecorWidget("leftArrow.decor", "select_menu_field_left", position, Ogre::Vector2::ZERO, atlas, z));
 		this->rightArrow = onew(new FastGuiDecorWidget("rightArrow.decor", "select_menu_field_right", position, Ogre::Vector2::ZERO, atlas, z));
 		
-
-
-		this->buttonMainSelection = onew(new FastGuiButton(buttonId,"select_menu_field", defaultGlyphIndex, "dunnoooooo!", position,FastGuiLabel::LA_LEFT,Ogre::Vector2::ZERO, atlas, z));
+		this->buttonMainSelection = onew(new FastGuiButton(buttonId, "select_menu_field", defaultGlyphIndex, "dunnoooooo!", position, FastGuiLabel::LA_LEFT, Ogre::Vector2::ZERO, atlas, z));
 		this->buttonMainSelection->getLabel().lock()->getCaption()->colour(Orkige::Colours::webcolour(Orkige::Colours::Black));
 		if (size != Ogre::Vector2::ZERO)
 		{
-			this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f,this->decor->getSize().y* 0.3f);
-			this->leftArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
-			this->rightArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
-
+			this->updateSize();
 		}
-		this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x
-			,this->leftArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->leftArrow->getSize().y/2.0f));
-		this->rightArrow->setPosition(this->decor->getPosition().x + this->decor->getSize().x
-			,this->rightArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->rightArrow->getSize().y/2.0f));
-
-
-
-
-		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x/2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
-		float positionY = this->decor->getPosition().y + (this->decor->getSize().y/2.0f) /*- FASTGUISELECTMENU_MARGING_Y*/;
-		this->buttonMainSelection->setPosition(positionX,positionY);
-
+		this->updatePosition();
 
 		this->selectedIndex = 0;
-		showItem();
-		
+		this->showItem();
 	}
 	//----------------------------------------------------
     FastGuiSelectMenu::~FastGuiSelectMenu()
@@ -65,20 +49,19 @@ namespace Orkige
 	void FastGuiSelectMenu::setPosition( Ogre::Real left, Ogre::Real top )
 	{
 		this->decor->setPosition(left, top);
-		this->label->setPosition(left, top);
+		this->updatePosition();
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::setSize( Ogre::Real width, Ogre::Real height )
 	{
 		this->decor->setSize(width, height);
 		this->label->setSize(width, height);
-
+		this->updateSize();
 	}
 	//----------------------------------------------------
 	Ogre::Vector2 FastGuiSelectMenu::getSize()
 	{
 		return this->decor->getSize();
-
 	}
 	//----------------------------------------------------
 	Ogre::Vector2 FastGuiSelectMenu::getPosition()
@@ -94,12 +77,11 @@ namespace Orkige
 		}
 		if (this->leftArrow->getRectangle()->intersects(cursorPos))
 		{
-			
 			if (this->selectedIndex > 0)
 			{
 				this->selectedIndex -= 1;
 			}
-			showItem();
+			this->showItem();
 		}
 		if (this->rightArrow->getRectangle()->intersects(cursorPos))
 		{
@@ -108,9 +90,8 @@ namespace Orkige
 			{
 				this->selectedIndex = this->items.size()-1;
 			}
-			showItem();
+			this->showItem();
 		}
-		
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::onCursorReleased( Ogre::Vector2 const & cursorPos )
@@ -122,14 +103,12 @@ namespace Orkige
 	{
 		this->buttonMainSelection->onCursorMoved(cursorPos);
 	}
-
 	//----------------------------------------------------
 	void FastGuiSelectMenu::setItems( const Ogre::StringVector& items )
 	{
 		this->selectedIndex = 0;
 		this->items = items;
-		showItem();
-
+		this->showItem();
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::showItem()
@@ -144,19 +123,19 @@ namespace Orkige
 		}
 	}
 	//----------------------------------------------------
-	void FastGuiSelectMenu::selectItem(String itemm)
+	void FastGuiSelectMenu::selectItem(String item)
 	{
 		for (unsigned int i = 0; i < this->items.size(); i++)
 		{
-			if (itemm == this->items[i])
+			if (item == this->items[i])
 			{
-				this->selectedIndex = i ;
-				showItem();
+				this->selectedIndex = i;
+				this->showItem();
 				return;
 			}
 		}
 
-		OGRE_EXCEPT(Ogre::Exception::ERR_ITEM_NOT_FOUND, itemm, "SelectMenu::selectItem");
+		OGRE_EXCEPT(Ogre::Exception::ERR_ITEM_NOT_FOUND, item, "SelectMenu::selectItem");
 	}
 	//----------------------------------------------------
 	Orkige::String FastGuiSelectMenu::getSelectedItem()
@@ -180,12 +159,28 @@ namespace Orkige
     //----------------------------------------------------
     //- private: -----------------------------------------
     //----------------------------------------------------
+	void FastGuiSelectMenu::updatePosition()
+	{
+		this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x,
+			this->leftArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->leftArrow->getSize().y/2.0f));
+		this->rightArrow->setPosition(this->decor->getPosition().x + this->decor->getSize().x,
+			this->rightArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->rightArrow->getSize().y/2.0f));
+
+		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x/2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
+		float positionY = this->decor->getPosition().y + (this->decor->getSize().y/2.0f) /*- FASTGUISELECTMENU_MARGING_Y*/;
+		this->buttonMainSelection->setPosition(positionX, positionY);
+	}
+	//----------------------------------------------------
+	void FastGuiSelectMenu::updateSize()
+	{
+		this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f,this->decor->getSize().y* 0.3f);
+		this->leftArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
+		this->rightArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
+	}
+	//----------------------------------------------------
+
 	OABSTRACT_IMPL(FastGuiSelectMenu)
 		OOBJECT_END
-
-
-
-
 
 
 } 
