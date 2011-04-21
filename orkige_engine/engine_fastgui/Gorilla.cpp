@@ -156,22 +156,25 @@ namespace Gorilla
 	void TextureAtlas::replaceTexture(const Ogre::String& texture)
 	{
 		oAssertDesc(!mTexture.isNull(), "replaceTexture: no texture to replace present");
-		
-		// backup dimensions
-		size_t w = mTexture->getWidth();
-		size_t h = mTexture->getHeight();
 
-		// load texture
-		Ogre::ConfigFile::SettingsMultiMap settings;
-		settings.insert(Ogre::ConfigFile::SettingsMultiMap::value_type(Ogre::String("file"), texture));
-		_loadTexture(&settings);
+		if (texture != mTexture->getName())
+		{
+			// backup dimensions
+			size_t w = mTexture->getWidth();
+			size_t h = mTexture->getHeight();
 
-		oAssertDesc(!mTexture.isNull(), "replaceTexture: texture replacement not loaded");
-		oAssertDesc(w == mTexture->getWidth() && h == mTexture->getHeight(), "replaceTexture: replaced atlas texture has different size");
+			// load texture
+			Ogre::ConfigFile::SettingsMultiMap settings;
+			settings.insert(Ogre::ConfigFile::SettingsMultiMap::value_type(Ogre::String("file"), texture));
+			_loadTexture(&settings);
 
-		// apply texture
-		m2DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
-		m3DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+			oAssertDesc(!mTexture.isNull(), "replaceTexture: texture replacement not loaded");
+			oAssertDesc(w == mTexture->getWidth() && h == mTexture->getHeight(), "replaceTexture: replaced atlas texture has different size");
+
+			// apply texture
+			m2DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+			m3DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+		}
 	}
 
 	void  TextureAtlas::_loadTexture(Ogre::ConfigFile::SettingsMultiMap* settings)
