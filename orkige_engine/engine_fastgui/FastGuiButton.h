@@ -66,9 +66,9 @@ namespace Orkige
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);
-	protected:
-		//! set current ButtonState 
+		//! set current ButtonState, will be overwritten by cursor events
 		void setState(const ButtonState& bs);
+	protected:
 	private:
 	};
 	//---------------------------------------------------------------
