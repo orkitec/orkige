@@ -128,14 +128,15 @@ namespace Gorilla
 		Ogre::String secName;
 		while (seci.hasMoreElements())
 		{
-
 			secName = seci.peekNextKey();
 			Ogre::ConfigFile::SettingsMultiMap *settings = seci.getNext();
 
 			Ogre::StringUtil::toLowerCase(secName);
 
 			if (secName == "texture")
+			{
 				_loadTexture(settings);
+			}
 			else if (Ogre::StringUtil::startsWith(secName, "font.", false))
 			{
 				Ogre::uint index = Ogre::StringConverter::parseUnsignedInt(secName.substr(5));
@@ -146,10 +147,10 @@ namespace Gorilla
 				_loadKerning(settings, glyphData);
 			}
 			else if (secName == "sprites")
+			{
 				_loadSprites(settings);
-
+			}
 		}
-
 	}
 
 

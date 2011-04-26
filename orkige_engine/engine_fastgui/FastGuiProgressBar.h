@@ -51,12 +51,12 @@ namespace Orkige
 
 		//! set progress
 		void setProgress(float _progress);
-		//! set progress
+		//! increment/decrement progress
 		void addProgress(float _progress);
-		//! set progress
+		//! get progress
 		inline float getProgress();
 
-
+		//! get button text
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);

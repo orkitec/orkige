@@ -98,7 +98,7 @@ namespace Orkige
 		inline Ogre::UTFString const & getCaption() const;
 		//! get text color
 		inline Ogre::ColourValue const & getColor() const;
-		//! get text char hight
+		//! get text char height
 		inline unsigned int getCharacterHeight() const;
 		//! get space size
 		inline unsigned int getSpaceWidth() const;
