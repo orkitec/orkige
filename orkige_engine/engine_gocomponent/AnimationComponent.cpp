@@ -112,20 +112,23 @@ namespace Orkige
 		{
 			Ogre::AnimationState * state = it.peekNext();
 
-			if(this->handleMotion || this->handleRotation)
-			{
-				this->handleMotionRotation(state, timeDelta * this->speed);
-			}
-
-			state->addTime(timeDelta * this->speed);
-
 			if(state->hasEnded())
 			{
 				endedAnimations.push_back(state);	
 			}
+			else
+			{
+				if(this->handleMotion || this->handleRotation)
+				{
+					this->handleMotionRotation(state, timeDelta * this->speed);
+				}
 
+				state->addTime(timeDelta * this->speed);
+			}
+			
 			it.moveNext();
 		}
+		
 		foreach(Ogre::AnimationState* state, endedAnimations)
 		{
 			state->setEnabled(false);
