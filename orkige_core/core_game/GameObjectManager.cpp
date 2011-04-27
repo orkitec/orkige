@@ -17,7 +17,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GameObjectManager::GameObjectManager() : Object(String("GameObjectManager")), numUpdatableComponents(0), currentUpdatableComponentIndex(0)
+	GameObjectManager::GameObjectManager() : Object(String("GameObjectManager")), numUpdatableComponents(0), currentUpdatableComponentIndex(0), enableObjectUpdates(true)
 	{
 	}
 	//---------------------------------------------------------
