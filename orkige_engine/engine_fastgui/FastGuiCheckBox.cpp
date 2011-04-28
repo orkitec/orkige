@@ -24,6 +24,8 @@ namespace Orkige
 		checked(false),
 		baseSpriteName(spriteName)
     {
+		oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
+
 		if (useCheckbox)
 		{
 			// needs "name.png" and "checkbox_off.png" and "checkbox_on.png"

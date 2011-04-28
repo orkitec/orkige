@@ -36,6 +36,8 @@ namespace Orkige
 		initialDecorPosition(position),
 		initialWidgetPosition(position)
 	{
+		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
+
 		this->background = onew(new FastGuiDecorWidget(id + ".background", spriteName, position, size, atlas, z));
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 
@@ -89,7 +91,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
-		
 
 		if ( this->state == FastGuiDragDropButton::DDBS_DRAGGING )
 		{

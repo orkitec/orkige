@@ -19,9 +19,11 @@ namespace Orkige
     //----------------------------------------------------
     //- public: ------------------------------------------
     //----------------------------------------------------
-	FastGuiSelectMenu::FastGuiSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) 
+	FastGuiSelectMenu::FastGuiSelectMenu(String const & id, String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z) 
 		: FastGuiWidget(id, atlas, z)
 	{
+		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
+
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
@@ -169,7 +171,7 @@ namespace Orkige
 
 		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x/2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
 		float positionY = this->decor->getPosition().y + (this->decor->getSize().y/2.0f) /*- FASTGUISELECTMENU_MARGING_Y*/;
-		this->buttonMainSelection->setPosition(positionX, positionY);
+		this->buttonMainSelection->setPosition(floor(positionX), floor(positionY));
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::updateSize()
