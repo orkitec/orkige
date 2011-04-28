@@ -150,26 +150,41 @@ namespace CC
 		
 		// store mouse position
 		Ogre::Vector2 mouseSize(static_cast<Ogre::Real>(data->absX), static_cast<Ogre::Real>(data->absY));
-		mouseSize -= mousePos;
 
-		// convert pixel to percent
-		this->mousePos.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
-		this->mousePos.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
-		mouseSize.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
-		mouseSize.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
-
-		// center
-		this->mousePos.x -= 50.0;
-		this->mousePos.y -= 50.0;
-
-		// size = 30% 10%
-		// position = -15% -15%
 		char tmp[128];
-		sprintf(tmp, "size = %d%% %d%%\nposition = %d%% %d%%\n", 
-			static_cast<int>(mouseSize.x),
-			static_cast<int>(mouseSize.y),
-			static_cast<int>(this->mousePos.x),
-			static_cast<int>(this->mousePos.y));
+		if (false)
+		{
+			mouseSize -= mousePos;
+
+			// convert pixel to percent
+			mouseSize.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
+			mouseSize.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
+			this->mousePos.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
+			this->mousePos.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
+
+			// center
+			this->mousePos.x -= 50.0;
+			this->mousePos.y -= 50.0;
+
+			// size = 30% 10%
+			// position = -15% -15%
+			sprintf(tmp, "size = %d%% %d%%\nposition = %d%% %d%%\n", 
+				static_cast<int>(mouseSize.x),
+				static_cast<int>(mouseSize.y),
+				static_cast<int>(this->mousePos.x),
+				static_cast<int>(this->mousePos.y));
+		}
+		else
+		{
+			mouseSize.x *= 100.0 / Engine::getSingleton().getRenderWindow()->getWidth();
+			mouseSize.y *= 100.0 / Engine::getSingleton().getRenderWindow()->getHeight();
+
+			// position 65% 65%
+			sprintf(tmp, "position = %d%% %d%%\n", 
+				static_cast<int>(mouseSize.x),
+				static_cast<int>(mouseSize.y));
+		}
+
 		Ogre::LogManager::getSingleton().logMessage(Orkige::String(tmp));
 
 		return false;
