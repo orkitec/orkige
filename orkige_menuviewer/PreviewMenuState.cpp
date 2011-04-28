@@ -74,7 +74,6 @@ namespace CC
 	bool PreviewMenuState::onButtonHit(Orkige::Event const & event)
 	{
 		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
-		oAssert(btn);
 
 		Ogre::LogManager::getSingleton().logMessage("Button hit: " + btn->getObjectID());
 		
@@ -84,7 +83,6 @@ namespace CC
 	bool PreviewMenuState::onCheckBoxToggled(Orkige::Event const & event)
 	{
 		optr< ::Orkige::FastGuiCheckBox > checkbox = event.getDataPtr< ::Orkige::FastGuiCheckBox >();
-		oAssert(checkbox);
 
 		Ogre::LogManager::getSingleton().logMessage("Checkbox hit: " + checkbox->getObjectID());
 

@@ -2455,6 +2455,8 @@ namespace Gorilla
 		*/
 		void  left(const Ogre::Real& left)
 		{
+			oAssertDesc(floor(left) == ceil(left), "FastGui: text label positioned on subpixel. expect graphical artefacts.");
+
 			mLeft = left;
 			mDirty = true;
 			mLayer->_markDirty();
@@ -2475,6 +2477,8 @@ namespace Gorilla
 		*/
 		void  top(const Ogre::Real& top)
 		{
+			oAssertDesc(floor(top) == ceil(top), "FastGui: text label positioned on subpixel. expect graphical artefacts.");
+
 			mTop = top;
 			mDirty = true;
 			mLayer->_markDirty();
