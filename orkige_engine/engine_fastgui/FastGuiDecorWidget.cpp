@@ -23,7 +23,7 @@ namespace Orkige
 
 		if(size == Ogre::Vector2::ZERO)
 		{
-			this->rect = this->layer->createRectangle(position.x, position.y , sprite->spriteWidth, sprite->spriteHeight);
+			this->rect = this->layer->createRectangle(position.x, position.y, sprite->spriteWidth, sprite->spriteHeight);
 		}
 		else
 		{

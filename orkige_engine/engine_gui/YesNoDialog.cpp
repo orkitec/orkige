@@ -19,14 +19,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	YesNoDialog::YesNoDialog(DialogType type, String const & name, String const & materialGroup, Ogre::DisplayString const & caption, Ogre::DisplayString const & message, const Ogre::DisplayString& yesButtontext,const Ogre::DisplayString& noButtontext) : Dialog(type, name, materialGroup, caption, message)
 	{
-		this->yesButton = new Button(name + "/YesButton",materialGroup , yesButtontext, 58);
+		this->yesButton = new Button(name + "/YesButton", materialGroup, yesButtontext, 58);
 
 		GuiManager::getSingleton().getDialogShade()->addChild(this->yesButton->getOverlayElement());
 		this->yesButton->getOverlayElement()->setVerticalAlignment(Ogre::GVA_CENTER);
 		this->yesButton->getOverlayElement()->setLeft(-(this->yesButton->getOverlayElement()->getWidth() + 2));
 		this->yesButton->getOverlayElement()->setTop(this->text->getOverlayElement()->getTop() + this->text->getOverlayElement()->getHeight() + 5);
 
-		this->noButton = new Button(name + "/NoButton",materialGroup , noButtontext, 50);
+		this->noButton = new Button(name + "/NoButton", materialGroup, noButtontext, 50);
 
 		GuiManager::getSingleton().getDialogShade()->addChild(this->noButton->getOverlayElement());
 		this->noButton->getOverlayElement()->setVerticalAlignment(Ogre::GVA_CENTER);

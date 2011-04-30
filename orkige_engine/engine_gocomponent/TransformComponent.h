@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! basic Transformation component for all GameObjects in 3D Space
-	class ORKIGE_DLL TransformComponent : public GameObjectComponent , public Ogre::Any, public SceneNodeGuard
+	class ORKIGE_DLL TransformComponent : public GameObjectComponent, public Ogre::Any, public SceneNodeGuard
 	{
 		OOBJECT(TransformComponent,GameObjectComponent)
 		//--- Types -------------------------------------------

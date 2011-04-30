@@ -70,7 +70,7 @@ namespace Orkige
 
  			if (anglee > 90.0)
  			{
- 				return Ogre::Vector2(cam->getViewport()->getActualWidth()-screenPos.x ,Ogre::Math::Abs(screenPos.y) + cam->getViewport()->getActualHeight());
+ 				return Ogre::Vector2(cam->getViewport()->getActualWidth()-screenPos.x, Ogre::Math::Abs(screenPos.y) + cam->getViewport()->getActualHeight());
  			}
  			else
 			{

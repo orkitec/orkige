@@ -766,7 +766,7 @@ namespace Orkige
 			}
 		}
 																	
-		woptr<FastGuiSelectMenu> selectMenu = this->createSelectMenu(id,"select_menu_button", baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
+		woptr<FastGuiSelectMenu> selectMenu = this->createSelectMenu(id, "select_menu_button", baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
 		oAssert(selectMenu.lock());
 		selectMenu.lock()->getLabel().lock()->getCaption()->colour(color);
 

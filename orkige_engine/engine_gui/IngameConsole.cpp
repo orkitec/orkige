@@ -86,14 +86,14 @@ namespace Orkige
 		node = this->scene->getRootSceneNode()->createChildSceneNode("#Console");
 		node->attachObject(this->rect);
 
-		this->textbox=Ogre::OverlayManager::getSingleton().createOverlayElement("TextArea","ConsoleText");
+		this->textbox=Ogre::OverlayManager::getSingleton().createOverlayElement("TextArea", "ConsoleText");
 		this->textbox->setCaption("hello");
 		this->textbox->setMetricsMode(Ogre::GMM_RELATIVE);
 		this->textbox->setPosition(0,0);
-		this->textbox->setParameter("font_name","Console");
-		this->textbox->setParameter("colour_top","1 0.8 1");
-		this->textbox->setParameter("colour_bottom","1 0.9 1");
-		this->textbox->setParameter("char_height","0.015");
+		this->textbox->setParameter("font_name", "Console");
+		this->textbox->setParameter("colour_top", "1 0.8 1");
+		this->textbox->setParameter("colour_bottom", "1 0.9 1");
+		this->textbox->setParameter("char_height", "0.015");
 
 		this->overlay=Ogre::OverlayManager::getSingleton().create("Console");	
 		this->overlay->setZOrder(500);

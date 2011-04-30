@@ -600,7 +600,7 @@ namespace Orkige
 				Engine::getSingleton().getRenderWindow()->getCustomAttribute( "WINDOW", &windowHnd );
 //#endif
 
-				paramList.insert( std::make_pair( "WINDOW" , StringUtil::Converter::toString(windowHnd) ) );
+				paramList.insert( std::make_pair( "WINDOW", StringUtil::Converter::toString(windowHnd) ) );
 
 				if(this->sharedMouse)
 				{

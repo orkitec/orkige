@@ -112,7 +112,8 @@ namespace Orkige
 
 		this->prepareHardwareBuffers(size,0); 
 
-		if (!size) { 
+		if (!size) 
+		{ 
 			this->mBox.setExtents(Ogre::Vector3::ZERO,Ogre::Vector3::ZERO); 
 			this->isDirty=false; 
 			return; 
