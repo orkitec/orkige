@@ -95,9 +95,12 @@ namespace Orkige
 
 		if ((this->isActionButton) && (this->decor->getRectangle()->intersects(cursorPos)))
 		{
-			SoundManager::getSingleton().playSound("pickcard");
-			this->setState(FastGuiDragDropButton::DDBS_OVER);
-			GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+			if (this->isEnabled && !this->isFreezed)
+			{
+				SoundManager::getSingleton().playSound("pickcard");
+				this->setState(FastGuiDragDropButton::DDBS_OVER);
+				GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+			}
 			return;
 		}
 			
