@@ -34,7 +34,8 @@ namespace Orkige
 		dragEventData(),
 		imageToCursorOffset(),
 		initialDecorPosition(position),
-		initialWidgetPosition(position)
+		initialWidgetPosition(position),
+		isActionButton(false)
 	{
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
@@ -92,6 +93,14 @@ namespace Orkige
 	void FastGuiDragDropButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
 
+		if ((this->isActionButton) && (this->decor->getRectangle()->intersects(cursorPos)))
+		{
+			SoundManager::getSingleton().playSound("pickcard");
+			this->setState(FastGuiDragDropButton::DDBS_OVER);
+			GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+			return;
+		}
+			
 		if ( this->state == FastGuiDragDropButton::DDBS_DRAGGING )
 		{
 			// this can only be another mouse button than the one
@@ -123,7 +132,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::onCursorReleased(Ogre::Vector2 const & cursorPos)
 	{
-		if (this->state == FastGuiDragDropButton::DDBS_DRAGGING)
+		
+		if (this->isActionButton)
+		{
+			return;
+		}
+		else if (this->state == FastGuiDragDropButton::DDBS_DRAGGING)
 		{
 			this->setState(FastGuiDragDropButton::DDBS_OVER);
 	
@@ -160,7 +174,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::onCursorMoved(Ogre::Vector2 const & cursorPos)
 	{
-		if (this->state == FastGuiDragDropButton::DDBS_DOWN)
+		if (this->isActionButton)
+		{
+			return;
+		}
+		else if (this->state == FastGuiDragDropButton::DDBS_DOWN)
 		{
 			if(this->background->getRectangle()->intersects(cursorPos))
 			{
@@ -186,6 +204,11 @@ namespace Orkige
 	{
 		if(label)
 			this->label->setText(text);
+	}
+	//---------------------------------------------------------
+	void FastGuiDragDropButton::setIsActionButton(bool _isActionButton)
+	{
+		this->isActionButton = _isActionButton;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

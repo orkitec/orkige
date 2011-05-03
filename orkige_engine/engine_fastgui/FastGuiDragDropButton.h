@@ -49,6 +49,7 @@ namespace Orkige
 		bool								isEnabled;
 		
 		Ogre::Vector2						initialWidgetPosition; //!< initial position of the decor to snap it back after it gets moved around
+		bool								isActionButton; //!< is the button really a dragable button or a action button
 
 	private:
 		//--- Methods -----------------------------------------------
@@ -72,6 +73,9 @@ namespace Orkige
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);
+		//! set if the button is really a dragable button or a normal one
+		void setIsActionButton(bool _isActionButton);
+
 	protected:
 		//! set current ButtonState 
 		void setState(const DragDropButtonState& bs);
