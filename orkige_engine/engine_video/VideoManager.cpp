@@ -144,6 +144,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	 object:nil];
 	
 	[self dismissModalViewControllerAnimated:YES];
+	mp.view.alpha = 1.0;
 	if(!g_StopCalledFromInsideVideoManager)
 	{
 		Orkige::VideoManager::getSingleton().stop();
@@ -213,6 +214,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	if(mp.playbackState == MPMoviePlaybackStatePlaying)
 	{
 		[mp stop];
+		mp.view.alpha = 1.0;
 	}
 }
 - (BOOL)canBecomeFirstResponder {
@@ -261,6 +263,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 	moviePlayer = [[[CustomMoviePlayerViewController alloc] initWithPath:path] autorelease];
 	
 	// Show the movie player as modal
+	moviePlayer.modalTransitionStyle = UIModalTransitionStyleCrossDissolve;
  	[self presentModalViewController:moviePlayer animated:NO];
 	
 	// Prep and play the movie
@@ -362,11 +365,13 @@ namespace Orkige
 			//
 			if(vc)
 			{
+				vc.view.alpha = 1.0;
 				[vc.view removeFromSuperview];
 				//[oldFirstResponder becomeFirstResponder];
 				[vc stopMoviePlayer];
+				//[vc.view release];
 				[vc release];
-				vc = 0;
+				vc = nil;
 			}
 			
 		}
