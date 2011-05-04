@@ -2464,7 +2464,9 @@ namespace Gorilla
 				if (kerning == 0)
 					kerning = glyphData->mLetterSpacing;
 			}
-
+			cursorX = (int)cursorX;
+			cursorY = (int)cursorY;
+			
 			right = cursorX + glyph->glyphWidth + texelOffsetX;
 			bottom = cursorY + glyph->glyphHeight + texelOffsetY;
 
