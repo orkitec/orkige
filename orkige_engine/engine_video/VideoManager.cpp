@@ -78,7 +78,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 #ifdef ORKIGE_IPHONE
 #if __IPHONE_4_0
 		static UIView* static_view = nil;
-		if(static_view == nil)
+		if(Orkige::Engine::getSingletonPtr() && static_view == nil)
 		{
 			if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
 			{
@@ -88,9 +88,14 @@ static bool g_StopCalledFromInsideVideoManager = false;
 		}
 #endif
 #endif
-		unsigned int width, height, depth;
+		unsigned int width = 1024;
+		unsigned int height = 768;
+		unsigned int depth;
 		int left, top;
-		Orkige::Engine::getSingleton().getRenderWindow()->getMetrics( width, height, depth, left, top );
+		if(Orkige::Engine::getSingletonPtr())
+		{
+			Orkige::Engine::getSingleton().getRenderWindow()->getMetrics( width, height, depth, left, top );
+		}
 		
 		width /= contentScalingFactor;
 		height /= contentScalingFactor;
@@ -108,7 +113,10 @@ static bool g_StopCalledFromInsideVideoManager = false;
 
 		// Play the movie
 		[mp play];
-		Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
+		if(Orkige::GlobalEventManager::getSingletonPtr())
+		{
+			Orkige::GlobalEventManager::getSingleton().trigger(Orkige::Event(Orkige::VideoManager::VideoStartedEvent));
+		}
 	}
 }
 
@@ -337,7 +345,15 @@ namespace Orkige
 		VideoPlayerIphone()
 		{
 			vc = 0;
-			view = InputManager::getSingleton().getInputDelegate();
+			if(InputManager::getSingletonPtr())
+			{
+				view = InputManager::getSingleton().getInputDelegate();
+			}
+			else 
+			{
+				view = [[UIApplication sharedApplication] keyWindow];
+			}
+
 			oAssert(view);
 		}
 		~VideoPlayerIphone()
@@ -542,8 +558,9 @@ namespace Orkige
 		Ogre::FrameEvent evt;
 		evt.timeSinceLastFrame = delta;
 		evt.timeSinceLastEvent = delta;
+#ifdef ORKIGE_THEORAVIDEOMANAGER
 		this->frameStarted(evt);
-		
+#endif		
 		Engine::getSingleton().getRenderWindow()->_updateViewport(Engine::getSingleton().getViewport(), false);
 		Engine::getSingleton().getRenderWindow()->_beginUpdate();
 		Engine::getSingleton().getRenderWindow()->swapBuffers();
