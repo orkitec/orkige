@@ -115,7 +115,7 @@ namespace CC
 		case KeyEventData::KC_R:
 			this->loadMenu();
 			break;
-		case KeyEventData::KC_GRAVE:
+		case KeyEventData::KC_TAB:
 			Orkige::IngameConsole::getSingleton().switchVisible();
 			break;
 		case KeyEventData::KC_BACK:
