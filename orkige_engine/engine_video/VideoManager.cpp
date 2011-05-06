@@ -164,7 +164,10 @@ static bool g_StopCalledFromInsideVideoManager = false;
  *--------------------------------------------------------------------------*/
 - (void) readyPlayer: (bool) loop showVideoControls: (bool) showui
 {
+	UIColor* color = [UIColor clearColor];
  	mp =  [[MPMoviePlayerController alloc] initWithContentURL:movieURL];
+	mp.backgroundColor = color;
+	[[mp view] setBackgroundColor:color];
 	
 	if ([mp respondsToSelector:@selector(loadState)]) 
 	{
