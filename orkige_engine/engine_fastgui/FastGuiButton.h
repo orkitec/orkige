@@ -49,7 +49,7 @@ namespace Orkige
 		//! get current ButtonState
 		const ButtonState& getState();
 		//! set current ButtonState, will be overwritten by cursor events
-		void setState(const ButtonState& bs);
+		virtual void setState(const ButtonState& bs);
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);
 		virtual void setSize(Ogre::Real width, Ogre::Real height);

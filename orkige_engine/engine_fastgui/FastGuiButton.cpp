@@ -92,14 +92,14 @@ namespace Orkige
 		{
 			if (this->state == FastGuiButton::BS_UP) 
 			{
-				this->setState(FastGuiButton::BS_OVER);
+				setState(FastGuiButton::BS_OVER);
 			}
 		}
 		else
 		{
 			if (this->state != FastGuiButton::BS_UP)
 			{
-				this->setState(FastGuiButton::BS_UP);
+				setState(FastGuiButton::BS_UP);
 			}
 		}
 	}
@@ -122,32 +122,21 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::setState(const FastGuiButton::ButtonState& bs)
 	{
-		
-		if (bs == FastGuiButton::BS_OVER)
+		if (!this->nostate)
 		{
-			if (!this->nostate)
+			if (bs == FastGuiButton::BS_OVER)
 			{
 				this->decor->setSprite(this->baseSpriteName + "_over");
 			}
-			
-		}
-		else if (bs == FastGuiButton::BS_UP)
-		{
-			if (!this->nostate)
+			else if (bs == FastGuiButton::BS_UP)
 			{
 				this->decor->setSprite(this->baseSpriteName);
 			}
-			
-		}
-		else
-		{
-			if (!this->nostate)
+			else
 			{
 				this->decor->setSprite(this->baseSpriteName + "_down");
 			}
-			
 		}
-
 		this->state = bs;
 	}
 	//---------------------------------------------------------

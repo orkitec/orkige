@@ -44,6 +44,11 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	bool IGuiObject::onFrameStarted(FrameEventData const & data) 
+	{
+		return false;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	IGuiObject::IGuiObject(String const & id) : Object(id)

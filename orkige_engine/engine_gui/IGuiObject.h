@@ -12,6 +12,7 @@
 #include <core_base/Object.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_input/KeyEventData.h"
+#include "engine_graphic/FrameEventData.h"
 
 namespace Orkige
 {
@@ -47,6 +48,8 @@ namespace Orkige
 		virtual bool onKeyPressed(KeyEventData const & data);
 		//! overridable message gets called when a key is released
 		virtual bool onKeyReleased(KeyEventData const & data);
+		//! overridable gets called every frame
+		virtual bool onFrameStarted(FrameEventData const & data);
 	protected:
 		//! protected constructor t o prevent creation
 		IGuiObject(String const & id);

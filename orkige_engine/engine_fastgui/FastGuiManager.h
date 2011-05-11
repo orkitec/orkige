@@ -108,6 +108,8 @@ namespace Orkige
 		void cancelCurrentInputUpdate();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
+		bool onFrameStarted(Orkige::Event const & event);
+		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);
 		//! after changing a game state (with its possible loading times) reset the worst and best fps
 		bool onGameStateChanged(Orkige::Event const & event);
@@ -123,7 +125,6 @@ namespace Orkige
 		bool onMouseReleased(Orkige::Event const & event);
 		//! Updates cursor position. Returns true if the event was consumed and should not be passed on to other handlers.
 		bool onMouseMoved(Orkige::Event const & event);
-
 
 		//! Processes touch down events. Returns true if the event was consumed and should not be passed on to other handlers.
 		bool onTouchPressed(Orkige::Event const & event);

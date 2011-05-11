@@ -1517,6 +1517,15 @@ namespace Gorilla
 			mLayer->_markDirty();
 		}
 
+		/*! function. size
+		desc.
+		Get the width and height
+		*/
+		inline Ogre::Vector2 size() const
+		{
+			return Ogre::Vector2(mRight - mLeft, mBottom - mTop);
+		}
+
 		/*! function. no_background 
 		desc.
 		Don't draw the background.
@@ -1880,6 +1889,13 @@ namespace Gorilla
 		This should not be needed to be called by the user.
 		*/
 		void _redraw();
+
+		/*! function. setAlpha
+		desc.
+		set transparency of all vertices
+		note.		
+		*/
+		void setAlpha(float alpha);
 
 	protected:
 

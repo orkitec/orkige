@@ -15,6 +15,7 @@
 #include <boost/algorithm/string.hpp>
 #include "engine_base/Localisation.h"
 
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -70,7 +71,7 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool _nostate)
+	woptr<FastGuiButton> FastGuiFactory::createButton(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool _nostate, FastGuiButtonBlink::ButtonBlinkState blinkState)
 	{
 		optr<FastGuiButton> widget;
 
@@ -79,7 +80,10 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z,_nostate));
+		if (blinkState != FastGuiButtonBlink::BBLINK_NONE)
+			widget = onew(new FastGuiButtonBlink(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, _nostate, blinkState));
+		else
+			widget = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, _nostate));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -490,6 +494,7 @@ namespace Orkige
 
 		FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
 		Ogre::ColourValue color = Ogre::ColourValue::Black;
+		FastGuiButtonBlink::ButtonBlinkState blinkState = FastGuiButtonBlink::BBLINK_NONE;
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
@@ -565,12 +570,33 @@ namespace Orkige
 					color = StringUtil::Converter::parseColourValue(value);
 				}
 			}
+			else if(key == "blink")
+			{
+				if(value == "base")
+				{
+					blinkState = FastGuiButtonBlink::BBLINK_BASE;
+				}
+				else if(value == "highlight")
+				{
+					blinkState = FastGuiButtonBlink::BBLINK_HIGHLIGHT;
+				}
+				else if(value == "base_and_highlight")
+				{
+					blinkState = FastGuiButtonBlink::BBLINK_BASE_AND_HIGHLIGHT;
+				}
+				else
+				{
+					oAssertDesc(!"Unknown blink mode", "Unknown blink mode: " << value);
+				}
+			}
 		}
 
-		woptr<FastGuiButton> button = this->createButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
+		woptr<FastGuiButton> button = this->createButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z, false, blinkState);
 		oAssert(button.lock());
-		if(button.lock()->getLabel().lock())
+		if (button.lock()->getLabel().lock())
+		{
 			button.lock()->getLabel().lock()->getCaption()->colour(color);
+		}
 	}
 	//---------------------------------------------------------
  	void FastGuiFactory::onLoadCheckBox( String const & id, SettingsMultiMap* settings )

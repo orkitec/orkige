@@ -27,10 +27,12 @@ namespace Orkige
 		this->getCreateView(this->defaultAtlas, group);
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&FastGuiManager::onFrameRenderingQueued,	this);
 		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&FastGuiManager::onGameStateChanged,		this);
+		this->registerEvent(Orkige::Engine::FrameStartedEvent,					&FastGuiManager::onFrameStarted,			this);
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
 	{
+		this->unregisterEvent(Orkige::Engine::FrameStartedEvent);
 		this->unregisterEvent(Orkige::GameStateManager::GameStateChangedEvent);
 		this->unregisterEvent(Orkige::Engine::FrameRenderingQueuedEvent);
 	}
@@ -315,6 +317,16 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	bool FastGuiManager::onFrameStarted(Orkige::Event const & event)
+	{
+		optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
+		{
+			widget->onFrameStarted(*data);
+		}
+		return false;
+	}	
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{

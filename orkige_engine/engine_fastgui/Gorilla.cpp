@@ -1541,19 +1541,19 @@ namespace Gorilla
 
 			// North
 			PUSH_TRIANGLE(mVertices, temp, a, j, i, uv, mBorderColour[Border_North])
-				PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
+			PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
 
-				// East
-				PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
-				PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
+			// East
+			PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
+			PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
 
-				// South
-				PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
-				PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
+			// South
+			PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
+			PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
 
-				// West
-				PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
-				PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
+			// West
+			PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
+			PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
 
 		}
 
@@ -1575,6 +1575,17 @@ namespace Gorilla
 		mDirty = false;
 
 	}
+
+	void  Rectangle::setAlpha(float alpha)
+	{
+		mBackgroundColour[0].a = alpha;
+		mBackgroundColour[1].a = alpha;
+		mBackgroundColour[2].a = alpha;
+		mBackgroundColour[3].a = alpha;
+		mDirty = true;
+		mLayer->_markDirty();
+	}
+
 
 	Polygon::Polygon(Ogre::Real left, Ogre::Real top, Ogre::Real radius, size_t sides, Layer* layer)
 		: mLayer(layer), mSprite(0)
