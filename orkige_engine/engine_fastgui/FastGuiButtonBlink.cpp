@@ -73,7 +73,7 @@ namespace Orkige
 			if (this->blinkState == FastGuiButtonBlink::BBLINK_NONE)
 			{
 				// classic non-blinking behavior
-				__super::setState(bs);
+				FastGuiButton::setState(bs);
 				this->decor->getRectangle()->setAlpha(1.0f);
 
 				// disable
@@ -117,7 +117,7 @@ namespace Orkige
 	void FastGuiButtonBlink::setBlinkState(const ButtonBlinkState& blinkState)
 	{
 		// reset sprites
-		__super::setState(FastGuiButton::BS_UP);
+		FastGuiButton::setState(FastGuiButton::BS_UP);
 
 		if (this->blinkState == BBLINK_NONE && blinkState != BBLINK_NONE)
 		{
