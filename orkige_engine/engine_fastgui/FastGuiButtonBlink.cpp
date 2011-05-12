@@ -17,13 +17,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
+	float FastGuiButtonBlink::blinkingTime = 1.0;
+
 	FastGuiButtonBlink::FastGuiButtonBlink(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool _nostate, int blinkState) :
 		FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, _nostate)
 	{
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->blinkState = (ButtonBlinkState)blinkState;
-		this->blinkingTime = 0.5;
 	
 		this->decor2 = onew(new FastGuiDecorWidget(id + ".decor2", spriteName, position, size, atlas, z+1));
 
@@ -62,6 +63,11 @@ namespace Orkige
 			}
 		}
 		return false;
+	}
+	//---------------------------------------------------------
+	void FastGuiButtonBlink::setBlinkingTime(float blinkingTime)
+	{
+		FastGuiButtonBlink::blinkingTime = blinkingTime;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

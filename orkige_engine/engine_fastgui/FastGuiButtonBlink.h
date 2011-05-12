@@ -36,10 +36,10 @@ namespace Orkige
 	private:
 		//--- Variables ---------------------------------------------
 	public:
+		static float blinkingTime;
 	protected:
 		optr<FastGuiDecorWidget> decor2;	//!< current button image
 		ButtonBlinkState blinkState;
-		float blinkingTime;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -57,6 +57,9 @@ namespace Orkige
 		const ButtonBlinkState& getBlinkState();
 		//! set blinking setting, resets the state
 		void setBlinkState(const ButtonBlinkState& blinkState);
+
+		//! global blink duration
+		static void setBlinkingTime(float blinkingTime);
 
 	protected:
 	private:
