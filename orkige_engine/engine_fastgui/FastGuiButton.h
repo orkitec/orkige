@@ -26,6 +26,7 @@ namespace Orkige
 		//! enumerator values for button states
 		enum ButtonState   
 		{
+			BS_DISABLED,
 			BS_UP,
 			BS_OVER,
 			BS_DOWN

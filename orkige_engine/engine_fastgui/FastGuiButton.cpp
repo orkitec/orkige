@@ -71,35 +71,44 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
-		if (this->decor->getRectangle()->intersects(cursorPos)) 
+		if (this->state != BS_DISABLED)
 		{
-			this->setState(FastGuiButton::BS_DOWN);
+			if (this->decor->getRectangle()->intersects(cursorPos)) 
+			{
+				this->setState(FastGuiButton::BS_DOWN);
+			}
 		}
 	}
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorReleased(Ogre::Vector2 const & cursorPos)
 	{
-		if (this->state == FastGuiButton::BS_DOWN)
+		if (this->state != BS_DISABLED)
 		{
-			this->setState(FastGuiButton::BS_OVER);
-			GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+			if (this->state == FastGuiButton::BS_DOWN)
+			{
+				this->setState(FastGuiButton::BS_OVER);
+				GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+			}
 		}
 	}
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorMoved(Ogre::Vector2 const & cursorPos)
 	{
-		if(this->decor->getRectangle()->intersects(cursorPos))
+		if (this->state != BS_DISABLED)
 		{
-			if (this->state == FastGuiButton::BS_UP) 
+			if(this->decor->getRectangle()->intersects(cursorPos))
 			{
-				setState(FastGuiButton::BS_OVER);
+				if (this->state == FastGuiButton::BS_UP) 
+				{
+					setState(FastGuiButton::BS_OVER);
+				}
 			}
-		}
-		else
-		{
-			if (this->state != FastGuiButton::BS_UP)
+			else
 			{
-				setState(FastGuiButton::BS_UP);
+				if (this->state != FastGuiButton::BS_UP)
+				{
+					setState(FastGuiButton::BS_UP);
+				}
 			}
 		}
 	}
@@ -124,17 +133,21 @@ namespace Orkige
 	{
 		if (!this->nostate)
 		{
-			if (bs == FastGuiButton::BS_OVER)
-			{
-				this->decor->setSprite(this->baseSpriteName + "_over");
-			}
-			else if (bs == FastGuiButton::BS_UP)
+			if (bs == FastGuiButton::BS_UP)
 			{
 				this->decor->setSprite(this->baseSpriteName);
 			}
-			else
+			else if (bs == FastGuiButton::BS_OVER)
+			{
+				this->decor->setSprite(this->baseSpriteName + "_over");
+			}
+			else if (bs == FastGuiButton::BS_DOWN)
 			{
 				this->decor->setSprite(this->baseSpriteName + "_down");
+			}
+			else if (bs == FastGuiButton::BS_DISABLED)
+			{
+				this->decor->setSprite(this->baseSpriteName + "_disabled");
 			}
 		}
 		this->state = bs;
