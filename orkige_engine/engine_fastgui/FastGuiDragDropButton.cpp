@@ -35,7 +35,9 @@ namespace Orkige
 		imageToCursorOffset(),
 		initialDecorPosition(position),
 		initialWidgetPosition(position),
-		isActionButton(false)
+		isActionButton(false),
+		isRightSide(true),
+		windowWidth(0)
 	{
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
@@ -147,7 +149,12 @@ namespace Orkige
 			this->dragEventData->position = cursorPos;
 			if (this->isEnabled && !this->isFreezed)
 			{
-				if (this->background->getRectangle()->intersects(cursorPos))
+				if ( this->isRightSide && (cursorPos.x > this->background->getRectangle()->left()) )
+				{
+					this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
+					GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
+				}
+				else if (!this->isRightSide && (cursorPos.x < this->background->getRectangle()->left() + this->background->getRectangle()->width()) )
 				{
 					this->dragEventData->state = DragEventData::DS_DRAG_ABORT;
 					GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
@@ -214,6 +221,11 @@ namespace Orkige
 		this->isActionButton = _isActionButton;
 	}
 	//---------------------------------------------------------
+	void FastGuiDragDropButton::setIsRightSide(bool _isRightSide)
+	{
+		this->isRightSide = _isRightSide;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiDragDropButton::setState(const FastGuiDragDropButton::DragDropButtonState& bs)
@@ -243,9 +255,20 @@ namespace Orkige
 		
 		
 	
-		this->dragEventData->state = DragEventData::DS_DRAGGING;
-		this->dragEventData->position = cursorPos;
-		GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));}
+			if ((this->isRightSide && (cursorPos.x < this->background->getRectangle()->left()) )
+				||  (!this->isRightSide && (cursorPos.x > this->background->getRectangle()->left() + this->background->getRectangle()->width())) )
+			{
+				this->dragEventData->state = DragEventData::DS_DRAGGING;
+				this->dragEventData->position = cursorPos;
+				GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+			}
+			else
+			{
+				this->dragEventData->state = DragEventData::DS_DRAGGING;
+				this->dragEventData->position = Ogre::Vector2(-54321, -54321);
+				GlobalEventManager::getSingleton().trigger(Event(this->dragEvent));
+			}
+		}
 		
 	}
 	//---------------------------------------------------------

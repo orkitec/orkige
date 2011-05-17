@@ -50,6 +50,8 @@ namespace Orkige
 		
 		Ogre::Vector2						initialWidgetPosition; //!< initial position of the decor to snap it back after it gets moved around
 		bool								isActionButton; //!< is the button really a dragable button or a action button
+		bool								isRightSide;	//!< is the button on the side for putting the button back
+		unsigned int						windowWidth;	//!< cached size of window I'm in
 
 	private:
 		//--- Methods -----------------------------------------------
@@ -75,6 +77,8 @@ namespace Orkige
 		void setCaption(String const & text);
 		//! set if the button is really a dragable button or a normal one
 		void setIsActionButton(bool _isActionButton);
+		
+		void setIsRightSide(bool _isRightSide);
 
 	protected:
 		//! set current ButtonState 
