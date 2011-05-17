@@ -36,8 +36,7 @@ namespace Orkige
 		initialDecorPosition(position),
 		initialWidgetPosition(position),
 		isActionButton(false),
-		isRightSide(true),
-		windowWidth(0)
+		isRightSide(true)
 	{
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
