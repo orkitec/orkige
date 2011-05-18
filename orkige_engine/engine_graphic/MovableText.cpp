@@ -237,7 +237,8 @@ namespace Orkige
 			this->spaceWidth = (unsigned int)(this->font->getGlyphAspectRatio('A') * this->charHeight * 2.f);
 
 		// for calculation of AABB
-		Ogre::Vector3 min, max, currPos;
+		Ogre::Vector3 min = Ogre::Vector3::ZERO;
+		Ogre::Vector3 max = Ogre::Vector3::ZERO;
 		float maxSquaredRadius = 50.f;
 		bool first = true;
 
