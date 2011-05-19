@@ -130,6 +130,7 @@ macro (ConfigureOrkige)
 		option(ORKIGE_BUILD_IPAD	"Build Orkige on IPhone SDK"	OFF)
 		if (ORKIGE_BUILD_IPAD)
 			set(ORKIGE_BUILD_IPHONE ON CACHE BOOL "Build Orkige on IPhone SDK"  FORCE)
+			add_definitions(-DORKIGE_IPAD)
 		endif(ORKIGE_BUILD_IPAD)
 		
 		if (ORKIGE_BUILD_IPHONE)
