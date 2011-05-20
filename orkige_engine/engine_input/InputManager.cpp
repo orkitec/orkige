@@ -606,7 +606,7 @@ namespace Orkige
 				{
 					// note: on win32 the hardware and buffered software mouse position differs a centimeter.
 					// it will become congruent once you move the pointer over the right or bottom window border.
-					//paramList.insert(std::make_pair("w32_mouse",	"DISCL_FOREGROUND"));
+					paramList.insert(std::make_pair("w32_mouse",	"DISCL_FOREGROUND"));
 					paramList.insert(std::make_pair("w32_mouse",	"DISCL_NONEXCLUSIVE"));
 				}
 			}
