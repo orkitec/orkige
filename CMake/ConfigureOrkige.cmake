@@ -49,6 +49,10 @@ macro (ConfigureOrkige)
 	option(ORKIGE_BUILD_OGITOR			"enable Ogitor build"							OFF)
 	option(ORKIGE_BUILD_BOOST_REGEX		"enable building of boost regex build"				OFF)
 	option(ORKIGE_ENABLE_PROFILER			"enable engine profiling"							ON)
+	if (WIN32)
+				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
+	endif (WIN32)
+	
 	
 	if(ORKIGE_BROWSERPLUGIN)
 		set(ORKIGE_ENABLE_PROFILER FALSE CACHE BOOL "enable engine profiling"   FORCE)
@@ -62,6 +66,10 @@ macro (ConfigureOrkige)
 	
 	add_definitions(-DBOOST_ALL_NO_LIB)	
 	
+	if(ORKIGE_ENABLE_APPUP)
+		add_definitions(-DORKIGE_ENABLE_APPUP)	
+	endif(ORKIGE_ENABLE_APPUP)
+
 	if(ORKIGE_USE_OGRE_UNSTABLE)
 		set(OGRELITEDIRECTORY OgreLiteUnstable)
 	else()

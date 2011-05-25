@@ -51,5 +51,19 @@ macro(ConfigureOrkigeDependencies)
 			OgreVideo
 		)
 	endif()
+	
+	if(ORKIGE_ENABLE_APPUP)
+		include_directories(
+			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib"
+			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/include"
+		)
+
+		link_libraries(
+			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcored.lib"
+			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcppfd.lib"
+			Psapi
+			Shlwapi
+		)
+	endif(ORKIGE_ENABLE_APPUP)
 endmacro(ConfigureOrkigeDependencies)
 
