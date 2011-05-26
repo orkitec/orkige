@@ -57,13 +57,15 @@ macro(ConfigureOrkigeDependencies)
 			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib"
 			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/include"
 		)
-
+		
 		link_libraries(
-			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcored.lib"
-			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcppfd.lib"
-			Psapi
-			Shlwapi
-		)
+				optimized "C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcore.lib"
+				optimized "C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcppf.lib"
+				debug "C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcored.lib"
+				debug "C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib/adpcppfd.lib"
+				Psapi
+				Shlwapi
+			)
 	endif(ORKIGE_ENABLE_APPUP)
 endmacro(ConfigureOrkigeDependencies)
 
