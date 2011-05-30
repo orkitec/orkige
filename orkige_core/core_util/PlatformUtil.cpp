@@ -48,6 +48,8 @@ namespace Orkige
 		}
 		//---------------------------------------------------------
 #else
+		//for linux
+#ifndef __APPLE__
 		String const & getBaseDirectory()
 		{
 			static String path = "./";
@@ -66,6 +68,7 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+#endif //__APPLE__
 #endif
 	}
 }
