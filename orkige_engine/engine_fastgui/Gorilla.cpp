@@ -2128,6 +2128,8 @@ namespace Gorilla
 			return;
 		}
 
+		oAssertDesc(mGlyphData != NULL, "Font rendering can't find glyph data. Font size correctly specified?");
+
 		Ogre::Vector2 uv = mLayer->_getSolidUV();
 
 		if (mBackground.a > 0)
