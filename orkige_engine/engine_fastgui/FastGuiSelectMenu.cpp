@@ -125,6 +125,15 @@ namespace Orkige
 			this->buttonMainSelection->setCaption("Empty!!");
 		}
 	}
+	//---------------------------------------------------------------
+	void FastGuiSelectMenu::selectItemIndex(unsigned int index)
+	{
+		if (index < this->items.size())
+		{
+			this->selectedIndex = index;
+			this->showItem();
+		}
+	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::selectItem(String item)
 	{

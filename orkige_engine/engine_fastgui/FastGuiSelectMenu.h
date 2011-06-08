@@ -53,7 +53,11 @@ namespace Orkige
 		//! set all item names
 		void setItems(const Ogre::StringVector& items);
 		void showItem();
+		
+		//! selection
+		unsigned int getSelectedItemIndex();
 		String getSelectedItem();
+		void selectItemIndex(unsigned int index);
 		void selectItem(String item);
 
 		//! get text holding ui element
@@ -80,5 +84,11 @@ namespace Orkige
 	{
 		return this->decor;
 	}
+	//---------------------------------------------------------------
+	inline unsigned int FastGuiSelectMenu::getSelectedItemIndex()
+	{
+		return this->selectedIndex;
+	}
+
 }
 #endif //__FASTGUISELECTMENU__h__3_11_2010__19_56_54__ 
