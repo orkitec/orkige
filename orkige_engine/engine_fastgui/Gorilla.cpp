@@ -65,6 +65,9 @@ template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singlet
 
 namespace Gorilla
 {
+	
+	Ogre::Vector2 Glyph::scale = Ogre::Vector2(1.0,1.0);
+
 
 	enum
 	{
@@ -363,10 +366,9 @@ namespace Gorilla
 			glyph->uvBottom  = glyph->uvTop + glyph->uvHeight;
 
 			if (str_values.size() == 5)
-				glyph->glyphAdvance = Ogre::StringConverter::parseInt(  str_values[4]  );
+				glyph->SetGlyphAdvance(Ogre::StringConverter::parseInt(  str_values[4]  ));
 			else
-				glyph->glyphAdvance = glyph->uvWidth;
-
+				glyph->SetGlyphAdvance(glyph->uvWidth);
 
 		}
 
@@ -566,8 +568,8 @@ namespace Gorilla
 				(*it)->texCoords[BottomLeft].x = (*it)->uvLeft;
 				(*it)->texCoords[BottomLeft].y = (*it)->uvBottom;
 
-				(*it)->glyphWidth     = (*it)->uvWidth;
-				(*it)->glyphHeight    = (*it)->uvHeight;
+				(*it)->SetGlyphWidth( (*it)->uvWidth );
+				(*it)->SetGlyphHeight( (*it)->uvHeight );
 
 			}
 		}
@@ -1949,12 +1951,12 @@ namespace Gorilla
 		Quad q;
 		q.mPosition[TopLeft].x = x;
 		q.mPosition[TopLeft].y = y;
-		q.mPosition[TopRight].x = x + glyph->glyphWidth;
+		q.mPosition[TopRight].x = x + glyph->GetGlyphWidthScaled();
 		q.mPosition[TopRight].y = y;
-		q.mPosition[BottomRight].x = x + glyph->glyphWidth;
-		q.mPosition[BottomRight].y = y + glyph->glyphHeight;
+		q.mPosition[BottomRight].x = x + glyph->GetGlyphWidthScaled();
+		q.mPosition[BottomRight].y = y + glyph->GetGlyphHeightScaled();
 		q.mPosition[BottomLeft].x = x;
-		q.mPosition[BottomLeft].y = y + glyph->glyphHeight;
+		q.mPosition[BottomLeft].y = y + glyph->GetGlyphHeightScaled();
 
 		q.mColour[0] = q.mColour[1] = q.mColour[2] = q.mColour[3] = colour;
 
@@ -2075,7 +2077,7 @@ namespace Gorilla
 		unsigned char thisChar = 0, lastChar = 0;
 		Glyph* glyph = 0;
 		retSize.x = 0;
-		retSize.y = mGlyphData->mLineHeight;
+		retSize.y = mGlyphData->GetLineHeightScaled();
 
 		for (size_t i=0;i < mText.length();i++)
 		{
@@ -2087,11 +2089,11 @@ namespace Gorilla
 			if (thisChar == ' ')
 			{
 				lastChar = thisChar;
-				cursor += mGlyphData->mSpaceLength;
+				cursor += mGlyphData->GetSpaceLengthScaled();
 				continue;
 			}
 
-			if (  thisChar < mGlyphData->mRangeBegin || thisChar > mGlyphData->mRangeEnd  )
+			if (thisChar < mGlyphData->mRangeBegin || thisChar > mGlyphData->mRangeEnd)
 			{
 				lastChar = 0;
 				continue;
@@ -2100,11 +2102,11 @@ namespace Gorilla
 			glyph = mGlyphData->getGlyph(thisChar);
 			if (glyph == 0)
 				continue;
-			kerning = glyph->getKerning(lastChar);
+			kerning = glyph->getKerningScaled(lastChar);
 			if (kerning == 0)
-				kerning = mGlyphData->mLetterSpacing;
+				kerning = mGlyphData->GetLetterSpacingScaled();
 
-			cursor  += glyph->glyphAdvance + kerning;
+			cursor += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
 
 		} // for
@@ -2186,9 +2188,9 @@ namespace Gorilla
 		if (mVerticalAlign == VerticalAlign_Top)
 			cursorY = mTop;
 		else if (mVerticalAlign == VerticalAlign_Middle)
-			cursorY = mTop + (mHeight * 0.5) - (mGlyphData->mLineHeight * 0.5);
+			cursorY = mTop + (mHeight * 0.5) - (mGlyphData->GetLineHeightScaled() * 0.5);
 		else if (mVerticalAlign == VerticalAlign_Bottom)
-			cursorY = mTop +  mHeight - mGlyphData->mLineHeight;
+			cursorY = mTop +  mHeight - mGlyphData->GetLineHeightScaled();
 
 		unsigned char thisChar = 0, lastChar = 0;
 		Vertex temp;
@@ -2197,6 +2199,14 @@ namespace Gorilla
 
 		cursorX = Ogre::Math::Floor( cursorX );
 		cursorY = Ogre::Math::Floor( cursorY );
+
+		/*
+		Ogre::Real scaleRefX = cursorX;
+		Ogre::Real scaleRefY = cursorY;
+		Ogre::Real leftScaled, rightScaled, topScaled, bottomScaled;		
+		GlyphData::mScale.x = 0.1;
+		GlyphData::mScale.y = 0.1;
+		*/
 
 		for (size_t i=0;i < mText.size();i++)
 		{
@@ -2208,11 +2218,11 @@ namespace Gorilla
 			if (thisChar == ' ')
 			{
 				lastChar = thisChar;
-				cursorX += mGlyphData->mSpaceLength;
+				cursorX += mGlyphData->GetSpaceLengthScaled();
 				continue;
 			}
 
-			if (  thisChar < mGlyphData->mRangeBegin || thisChar > mGlyphData->mRangeEnd  )
+			if (thisChar < mGlyphData->mRangeBegin || thisChar > mGlyphData->mRangeEnd)
 			{
 				lastChar = 0;
 				continue;
@@ -2221,14 +2231,14 @@ namespace Gorilla
 			glyph = mGlyphData->getGlyph(thisChar);
 			if (glyph == 0)
 				continue;
-			kerning = glyph->getKerning(lastChar);
+			kerning = glyph->getKerningScaled(lastChar);
 			if (kerning == 0)
-				kerning = mGlyphData->mLetterSpacing;
+				kerning = mGlyphData->GetLetterSpacingScaled();
 
 			left = cursorX - texelOffsetX;
 			top = cursorY - texelOffsetY;
-			right = left + glyph->glyphWidth + texelOffsetX;
-			bottom = top + glyph->glyphHeight + texelOffsetY;
+			right = left + glyph->GetGlyphWidthScaled() + texelOffsetX;
+			bottom = top + glyph->GetGlyphHeightScaled() + texelOffsetY;
 
 			if (clipLeft)
 			{
@@ -2236,7 +2246,7 @@ namespace Gorilla
 				{
 					if (mClippedLeftIndex == std::string::npos)
 						mClippedLeftIndex = i;
-					cursorX  += glyph->glyphAdvance + kerning;
+					cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 					lastChar = thisChar;
 					continue;
 				}
@@ -2248,12 +2258,28 @@ namespace Gorilla
 				{
 					if (mClippedRightIndex == std::string::npos)
 						mClippedRightIndex = i;
-					cursorX  += glyph->glyphAdvance + kerning;
+					cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 					lastChar = thisChar;
 					continue;
 				}
 			}
 
+			/*
+			leftScaled = left + (left - scaleRefX) * GlyphData::mScale.x;
+			rightScaled = right + (right - scaleRefX) * GlyphData::mScale.x;
+			topScaled = top + (top - scaleRefX) * GlyphData::mScale.y;
+			bottomScaled = bottom + (bottom - scaleRefX) * GlyphData::mScale.y;
+
+			// Triangle A
+			PUSH_VERTEX(mVertices, temp, leftScaled, bottomScaled, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
+			PUSH_VERTEX(mVertices, temp, rightScaled, topScaled, glyph->texCoords[TopRight], mColour);    // Right/Top    1
+			PUSH_VERTEX(mVertices, temp, leftScaled, topScaled, glyph->texCoords[TopLeft], mColour);     // Left/Top     0
+
+			// Triangle B
+			PUSH_VERTEX(mVertices, temp, leftScaled, bottomScaled, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
+			PUSH_VERTEX(mVertices, temp, rightScaled, bottomScaled, glyph->texCoords[BottomRight], mColour); // Right/Bottom 2
+			PUSH_VERTEX(mVertices, temp, rightScaled, topScaled, glyph->texCoords[TopRight], mColour);    // Right/Top    1
+			*/
 			// Triangle A
 			PUSH_VERTEX(mVertices, temp, left, bottom, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
 			PUSH_VERTEX(mVertices, temp, right, top, glyph->texCoords[TopRight], mColour);    // Right/Top    1
@@ -2265,7 +2291,7 @@ namespace Gorilla
 			PUSH_VERTEX(mVertices, temp, right, top, glyph->texCoords[TopRight], mColour);    // Right/Top    1
 
 
-			cursorX  += glyph->glyphAdvance + kerning;
+			cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
 
 		} // for
@@ -2322,7 +2348,7 @@ namespace Gorilla
 
 		GlyphData* glyphData = mDefaultGlyphData;
 		oAssertDesc(glyphData, "Font rendering can't find glyph data. Font size correctly specified?");
-		Ogre::Real lineHeight = glyphData->mLineHeight;
+		Ogre::Real lineHeight = glyphData->GetLineHeightScaled();
 
 		for(size_t i=0;i < mText.length();i++)
 		{
@@ -2334,7 +2360,7 @@ namespace Gorilla
 			if (thisChar == ' ')
 			{
 				lastChar = thisChar;
-				cursorX += glyphData->mSpaceLength;
+				cursorX += glyphData->GetSpaceLengthScaled();
 				continue;
 			}
 
@@ -2343,11 +2369,11 @@ namespace Gorilla
 				lastChar = thisChar;
 				cursorX = mLeft;
 				cursorY += lineHeight;
-				lineHeight = glyphData->mLineHeight;
+				lineHeight = glyphData->GetLineHeightScaled();
 				continue;
 			}
 
-			if (  thisChar < glyphData->mRangeBegin || thisChar > glyphData->mRangeEnd  )
+			if (thisChar < glyphData->mRangeBegin || thisChar > glyphData->mRangeEnd)
 			{
 				lastChar = 0;
 				continue;
@@ -2404,7 +2430,7 @@ namespace Gorilla
 						if (glyphData == 0)
 							return;
 						// TODO: Check against line height?
-						lineHeight = std::max(lineHeight, glyphData->mLineHeight);
+						lineHeight = std::max(lineHeight, glyphData->GetLineHeightScaled());
 						continue;
 					}
 					else if (thisChar == ':')
@@ -2471,15 +2497,15 @@ namespace Gorilla
 
 			if (!fixedWidth)
 			{
-				kerning = glyph->getKerning(lastChar);
+				kerning = glyph->getKerningScaled(lastChar);
 				if (kerning == 0)
-					kerning = glyphData->mLetterSpacing;
+					kerning = glyphData->GetLetterSpacingScaled();
 			}
 			cursorX = (int)cursorX;
 			cursorY = (int)cursorY;
 			
-			right = cursorX + glyph->glyphWidth + texelOffsetX;
-			bottom = cursorY + glyph->glyphHeight + texelOffsetY;
+			right = cursorX + glyph->GetGlyphWidthScaled() + texelOffsetX;
+			bottom = cursorY + glyph->GetGlyphHeightScaled() + texelOffsetY;
 
 			Character c;
 			c.mIndex = i;
@@ -2500,9 +2526,9 @@ namespace Gorilla
 			mCharacters.push_back(c);
 
 			if (fixedWidth)
-				cursorX  += glyphData->mMonoWidth;
+				cursorX  += glyphData->GetMonoWidthScaled();
 			else
-				cursorX  += glyph->glyphAdvance + kerning;
+				cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 
 			lastChar = thisChar;
 			

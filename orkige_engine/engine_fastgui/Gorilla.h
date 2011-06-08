@@ -348,23 +348,35 @@ namespace Gorilla
 		~Glyph() {}
 
 		Ogre::Vector2    texCoords[4];
-		Ogre::Real uvTop, uvBottom, uvWidth, uvHeight, uvLeft, uvRight,
-			glyphWidth, glyphHeight, glyphAdvance;
+		Ogre::Real uvTop, uvBottom, uvWidth, uvHeight, uvLeft, uvRight;
 		buffer<Kerning> kerning;
+
+		static Ogre::Vector2 scale;
 
 		// Get kerning value of a character to the right of another.
 		// Ab -- get the kerning value of b, pass on A.
-		inline const Ogre::Real getKerning(char left_of) const
+		inline const Ogre::Real getKerningScaled(char left_of) const
 		{
 			if (kerning.size() == 0)
 				return 0;
 			for (size_t i=0;i < kerning.size();i++)
 			{
 				if (kerning[i].character == left_of)
-					return kerning[i].kerning;
+					return kerning[i].kerning * Glyph::scale.x;
 			}
 			return 0;
 		}
+
+		void SetGlyphWidth(Ogre::Real width)		{ glyphWidth = width; }
+		void SetGlyphHeight(Ogre::Real height)		{ glyphHeight = height; }
+		void SetGlyphAdvance(Ogre::Real advance)	{ glyphAdvance = advance; }
+
+		Ogre::Real GetGlyphWidthScaled()			{ return Glyph::scale.x * glyphWidth; }
+		Ogre::Real GetGlyphHeightScaled()			{ return Glyph::scale.y * glyphHeight; }
+		Ogre::Real GetGlyphAdvanceScaled()			{ return Glyph::scale.x * glyphAdvance; }
+
+	protected:
+		Ogre::Real glyphWidth, glyphHeight, glyphAdvance;
 
 	};
 
@@ -498,6 +510,21 @@ namespace Gorilla
 
 		std::vector<Glyph*>  mGlyphs;
 		Ogre::uint           mRangeBegin, mRangeEnd;
+		
+		Ogre::Real GetSpaceLengthScaled()		{ return Glyph::scale.x * mSpaceLength; }
+		Ogre::Real GetLineHeightScaled()		{ return Glyph::scale.y * mLineHeight; }
+		Ogre::Real GetBaseLineScaled()			{ return Glyph::scale.y * mBaseline; }
+		Ogre::Real GetLetterSpacingScaled()		{ return Glyph::scale.x * mLetterSpacing; }
+		Ogre::Real GetMonoWidthScaled()			{ return Glyph::scale.x * mMonoWidth; }
+
+		void SetSpaceLength(Ogre::Real spaceLength)			{ mSpaceLength = spaceLength; }
+		void SetLineHeight(Ogre::Real lineHeight)			{ mLineHeight = lineHeight; }
+		void SetBaseLine(Ogre::Real baseline)				{ mBaseline = baseline; }
+		void SetLetterSpacing(Ogre::Real letterSpacing)		{ mLetterSpacing = letterSpacing; }
+		void SetMonoWidthScaled(Ogre::Real monoWidth)		{ mMonoWidth = monoWidth; }
+		
+	protected:
+		
 		Ogre::Real           mSpaceLength,
 			mLineHeight,
 			mBaseline,
