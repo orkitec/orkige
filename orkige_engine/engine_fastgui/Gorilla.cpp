@@ -2202,14 +2202,6 @@ namespace Gorilla
 		cursorX = Ogre::Math::Floor( cursorX );
 		cursorY = Ogre::Math::Floor( cursorY );
 
-		/*
-		Ogre::Real scaleRefX = cursorX;
-		Ogre::Real scaleRefY = cursorY;
-		Ogre::Real leftScaled, rightScaled, topScaled, bottomScaled;		
-		GlyphData::mScale.x = 0.1;
-		GlyphData::mScale.y = 0.1;
-		*/
-
 		for (size_t i=0;i < mText.size();i++)
 		{
 			wchar_t unicodeChar;
@@ -2266,22 +2258,6 @@ namespace Gorilla
 				}
 			}
 
-			/*
-			leftScaled = left + (left - scaleRefX) * GlyphData::mScale.x;
-			rightScaled = right + (right - scaleRefX) * GlyphData::mScale.x;
-			topScaled = top + (top - scaleRefX) * GlyphData::mScale.y;
-			bottomScaled = bottom + (bottom - scaleRefX) * GlyphData::mScale.y;
-
-			// Triangle A
-			PUSH_VERTEX(mVertices, temp, leftScaled, bottomScaled, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
-			PUSH_VERTEX(mVertices, temp, rightScaled, topScaled, glyph->texCoords[TopRight], mColour);    // Right/Top    1
-			PUSH_VERTEX(mVertices, temp, leftScaled, topScaled, glyph->texCoords[TopLeft], mColour);     // Left/Top     0
-
-			// Triangle B
-			PUSH_VERTEX(mVertices, temp, leftScaled, bottomScaled, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
-			PUSH_VERTEX(mVertices, temp, rightScaled, bottomScaled, glyph->texCoords[BottomRight], mColour); // Right/Bottom 2
-			PUSH_VERTEX(mVertices, temp, rightScaled, topScaled, glyph->texCoords[TopRight], mColour);    // Right/Top    1
-			*/
 			// Triangle A
 			PUSH_VERTEX(mVertices, temp, left, bottom, glyph->texCoords[BottomLeft], mColour);  // Left/Bottom  3
 			PUSH_VERTEX(mVertices, temp, right, top, glyph->texCoords[TopRight], mColour);    // Right/Top    1
