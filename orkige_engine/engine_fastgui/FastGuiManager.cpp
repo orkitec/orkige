@@ -244,11 +244,17 @@ namespace Orkige
 		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
 #endif
 
+		// don't scale font by resolution
+		Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
+		Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;
+
 		this->stats->getMarkupText()->_calculateCharacters();
 		Ogre::Vector2 size = this->stats->getSize();
 		size.y = 0.f;
 		size += this->stats->getPosition();
 		this->statsValues->setPosition(size.x, size.y);
+
+		Gorilla::Glyph::scale = scaleBackup;
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::hideStats()
@@ -284,7 +290,14 @@ namespace Orkige
 #endif
 #endif
 
+			// don't scale font by resolution
+			Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
+			Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;
+
 			this->statsValues->setText(sstr.str());
+			this->statsValues->getMarkupText()->_calculateCharacters();
+
+			Gorilla::Glyph::scale = scaleBackup;
 		}
 	}
 	//---------------------------------------------------------
