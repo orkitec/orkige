@@ -43,7 +43,7 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiLabel> FastGuiFactory::createLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z)
+	woptr<FastGuiLabel> FastGuiFactory::createLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z, bool scaled)
 	{
 		optr<FastGuiLabel> widget;
 
@@ -52,12 +52,12 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiLabel(id, defaultGlyphIndex, text, position, atlas, z));
+		widget = onew(new FastGuiLabel(id, defaultGlyphIndex, text, position, atlas, z, scaled));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiTextbox> FastGuiFactory::createTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z)
+	woptr<FastGuiTextbox> FastGuiFactory::createTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z, bool scaled)
 	{
 		optr<FastGuiTextbox> widget;
 
@@ -66,7 +66,7 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiTextbox(id, defaultGlyphIndex, text, position, atlas, z));
+		widget = onew(new FastGuiTextbox(id, defaultGlyphIndex, text, position, atlas, z, scaled));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -399,6 +399,7 @@ namespace Orkige
 
 		Ogre::ColourValue color = Ogre::ColourValue::White;
 		FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
+		bool scaled = true;
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
@@ -474,9 +475,13 @@ namespace Orkige
 					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
 				}
 			}
+			else if (key == "scaled")
+			{
+				scaled = Ogre::StringConverter::parseBool(value, scaled);
+			}		
 		}
 
-		woptr<FastGuiLabel> label = this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+		woptr<FastGuiLabel> label = this->createLabel(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z, scaled);
 		label.lock()->getCaption()->colour(color);
 		label.lock()->setAlignment(alignment);
 	}
@@ -484,8 +489,18 @@ namespace Orkige
 	void FastGuiFactory::onLoadTextbox(String const & id, SettingsMultiMap* settings)
 	{
 		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
-
-		this->createTextbox(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z);
+	
+		bool scaled = true;
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+			if (key == "scaled")
+			{
+				scaled = Ogre::StringConverter::parseBool(value, scaled);
+			}
+		}
+		this->createTextbox(id, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.atlas, baseSettings.z, scaled);
 	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadButton(String const & id, SettingsMultiMap* settings)

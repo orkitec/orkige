@@ -25,7 +25,7 @@ namespace Orkige
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
-		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
+		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z, true));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 		this->label->setAlignment(FastGuiLabel::LA_TOP);
 

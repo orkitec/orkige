@@ -2042,7 +2042,7 @@ namespace Gorilla
 
 
 	Caption::Caption(Ogre::uint glyphDataIndex, Ogre::Real left, Ogre::Real top, const Ogre::String& caption, Layer* layer)
-		: mLayer(layer)
+		: mLayer(layer), mScaled(true)
 	{
 		mGlyphData      = mLayer->_getGlyphData(glyphDataIndex);
 		if (mGlyphData == 0)
@@ -2280,7 +2280,7 @@ namespace Gorilla
 
 
 	MarkupText::MarkupText(Ogre::uint defaultGlyphIndex, Ogre::Real left, Ogre::Real top, const Ogre::String& text, Layer* parent)
-		: mLayer(parent)
+		: mLayer(parent), mScaled(true)
 	{
 		mDefaultGlyphData = mLayer->_getGlyphData(defaultGlyphIndex);
 

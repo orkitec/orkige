@@ -14,9 +14,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiTextbox::FastGuiTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
+	FastGuiTextbox::FastGuiTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z, bool scaled) : FastGuiWidget(id, atlas, z)
 	{
-		this->markupText = this->layer->createMarkupText(defaultGlyphIndex, position.x, position.y, text );
+		this->markupText = this->layer->createMarkupText(defaultGlyphIndex, position.x, position.y, text);
+		this->markupText->scaled(scaled);
 	}
 	//---------------------------------------------------------
 	FastGuiTextbox::~FastGuiTextbox()

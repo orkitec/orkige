@@ -38,7 +38,7 @@ namespace Orkige
 			this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName + "_off", position, size, atlas, z));
 		}
 
-		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
+		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z, true));
 		this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 		//this->label->setAlignment(textAlignment);
 

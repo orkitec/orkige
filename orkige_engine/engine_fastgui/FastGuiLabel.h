@@ -40,7 +40,7 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		FastGuiLabel(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z, bool scaled);
 		virtual ~FastGuiLabel();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);

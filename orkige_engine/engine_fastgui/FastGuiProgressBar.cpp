@@ -25,7 +25,7 @@ namespace Orkige
 		this->barMaxSize = Ogre::Vector2(this->decor->getSize().x - this->decor->getSize().x * 0.06f, this->decor->getSize().y - this->decor->getSize().y * 0.2f);
 		this->barDecore = onew(new FastGuiDecorWidget(id + ".bar", "progressbar_bar", barPos, barMaxSize, atlas, z));
 		
-		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z));
+		this->label = onew(new FastGuiLabel(id + ".label", defaultGlyphIndex, text, position, atlas, z, false));
 	//	this->label->setSize(this->decor->getSize().x, this->decor->getSize().y);
 		this->label->setSize(barMaxSize.x, barMaxSize.y);
 		this->label->setAlignment(textAlignment);

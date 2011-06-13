@@ -27,7 +27,7 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		FastGuiTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z);
+		FastGuiTextbox(String const & id, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, String const & atlas, uint z, bool scaled);
 		virtual ~FastGuiTextbox();
 
 		virtual void setPosition(Ogre::Real left, Ogre::Real top);

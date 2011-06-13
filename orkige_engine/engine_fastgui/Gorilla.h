@@ -2744,6 +2744,13 @@ namespace Gorilla
 			mLayer->_markDirty();
 		}
 
+		/* 
+		*/
+		void scaled(bool scaled)
+		{
+			mScaled = scaled;
+		}
+
 		/*! function. _redraw
 		desc.
 		Redraw the text.
@@ -2773,6 +2780,7 @@ namespace Gorilla
 		bool                  mDirty;
 		buffer<Vertex>        mVertices;
 		size_t                mClippedLeftIndex, mClippedRightIndex;
+		bool                  mScaled;
 
 	};
 
@@ -2941,6 +2949,13 @@ namespace Gorilla
 			mLayer->_markDirty();
 		}
 
+		/* 
+		*/
+		void scaled(bool scaled)
+		{
+			mScaled = scaled;
+		}
+
 		/*! function. _redraw
 		desc.
 		Redraw the text.
@@ -2976,6 +2991,7 @@ namespace Gorilla
 		buffer<Character>     mCharacters;
 		buffer<Vertex>        mVertices;
 		size_t                mClippedIndex;
+		bool                  mScaled;
 
 	};
 }
