@@ -21,7 +21,10 @@ namespace Orkige
 		OOBJECT(FastGuiSelectMenu, FastGuiWidget);
         //-Types--------------------------------------------
     public:
-    protected:
+		//! @brief triggered when selection is changed
+		//! @ingroup EngineEvents
+		DECL_EVENTTYPE(SelectMenuEvent);
+	protected:
     private:
         //-Variables----------------------------------------
 
@@ -31,9 +34,9 @@ namespace Orkige
     public:
     protected:
 		optr<FastGuiLabel> label;					//!< current SelectMenu Title text
-		optr<FastGuiDecorWidget> decor;				//!< back decore for the selectMenu
-		optr<FastGuiDecorWidget> leftArrow;			//!< back decore for the selectMenu
-		optr<FastGuiDecorWidget> rightArrow;		//!< back decore for the selectMenu
+		optr<FastGuiDecorWidget> decor;				//!< back decor for the selectMenu
+		optr<FastGuiDecorWidget> leftArrow;			//!< back decor for the selectMenu
+		optr<FastGuiDecorWidget> rightArrow;		//!< back decor for the selectMenu
 		optr<FastGuiButton> buttonMainSelection;	//!< the selected item field
     private:
         //-Methods------------------------------------------
@@ -57,7 +60,7 @@ namespace Orkige
 		//! selection
 		unsigned int getSelectedItemIndex();
 		String getSelectedItem();
-		void selectItemIndex(unsigned int index);
+		void selectItemIndex(unsigned int index, bool throwEvent=true);
 		void selectItem(String item);
 
 		//! get text holding ui element

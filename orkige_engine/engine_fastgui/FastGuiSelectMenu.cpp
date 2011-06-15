@@ -15,7 +15,7 @@
 
 namespace Orkige 
 {
-
+	IMPL_OWNED_EVENTTYPE(FastGuiSelectMenu, SelectMenuEvent);
     //----------------------------------------------------
     //- public: ------------------------------------------
     //----------------------------------------------------
@@ -80,20 +80,11 @@ namespace Orkige
 		}
 		if (this->leftArrow->getRectangle()->intersects(cursorPos))
 		{
-			if (this->selectedIndex > 0)
-			{
-				this->selectedIndex -= 1;
-			}
-			this->showItem();
+			this->selectItemIndex(this->selectedIndex - 1);
 		}
 		if (this->rightArrow->getRectangle()->intersects(cursorPos))
 		{
-			this->selectedIndex += 1;
-			if (this->selectedIndex >= this->items.size()-1)
-			{
-				this->selectedIndex = this->items.size()-1;
-			}
-			this->showItem();
+			this->selectItemIndex(this->selectedIndex + 1);
 		}
 	}
 	//----------------------------------------------------
@@ -109,9 +100,8 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiSelectMenu::setItems( const Ogre::StringVector& items )
 	{
-		this->selectedIndex = 0;
 		this->items = items;
-		this->showItem();
+		this->selectItemIndex(0, false);
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::showItem()
@@ -126,12 +116,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------------
-	void FastGuiSelectMenu::selectItemIndex(unsigned int index)
+	void FastGuiSelectMenu::selectItemIndex(unsigned int index, bool throwEvent)
 	{
-		if (index < this->items.size())
+		if (index >= 0 && index < this->items.size())
 		{
 			this->selectedIndex = index;
 			this->showItem();
+
+			if (throwEvent)
+			{
+				GlobalEventManager::getSingleton().trigger(Event(FastGuiSelectMenu::SelectMenuEvent, oBadPointer(this)));
+			}
 		}
 	}
 	//----------------------------------------------------
@@ -141,8 +136,7 @@ namespace Orkige
 		{
 			if (item == this->items[i])
 			{
-				this->selectedIndex = i;
-				this->showItem();
+				this->selectItemIndex(i);
 				return;
 			}
 		}
