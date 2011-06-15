@@ -166,7 +166,7 @@ macro (ConfigureOrkige)
 			# Set build variables
 			set(CMAKE_OSX_SYSROOT iphoneos4.2)
 			set(CMAKE_OSX_DEPLOYMENT_TARGET "")
-			set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit -framework AudioToolbox -framework MediaPlayer -framework SystemConfiguration -framework GameKit")
+			set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit -framework AudioToolbox -framework MediaPlayer -framework SystemConfiguration -weak_framework GameKit")
 			set(XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer: Steffen Roemer")
 			set(XCODE_ATTRIBUTE_SDKROOT iphoneos4.2)
 			set(OGRE_BUILD_RENDERSYSTEM_GLES TRUE CACHE BOOL "Forcing OpenGL ES RenderSystem for iPhone" FORCE)
