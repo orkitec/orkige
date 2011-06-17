@@ -41,9 +41,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	void Localisation::loadLocaleCfg(Orkige::String const & currentLocale, Orkige::String const & validLocales, Orkige::String const & defaultLocale)
 	{
+		// list of country specific top level domains
+		//http://de.wikipedia.org/wiki/Liste_l%C3%A4nderspezifischer_Top-Level-Domains
+
 		this->clear();
 		this->currentLocale = currentLocale;
 		boost::split(this->supportedLocales, validLocales, boost::is_any_of(","));
+		
+		oAssertDesc(!defaultLocale.empty(), "Localization: no default language set");
+		oAssertDesc(!this->supportedLocales.empty(), "Localization: no supported language found");
+
 		if(this->currentLocale.empty())
 		{
 #ifdef WIN32
@@ -52,7 +59,23 @@ namespace Orkige
 			//http://msdn.microsoft.com/en-us/goglobal/bb964664.aspx
 			LCID lcid = GetSystemDefaultLCID();
 
-			//Locale ID (LCID) Chart: http://msdn.microsoft.com/en-us/library/0h88fahh(VS.85).aspx
+
+			// http://msdn.microsoft.com/en-us/library/dd318103%28v=vs.85%29.aspx
+			// http://msdn.microsoft.com/en-us/library/dd464799%28v=VS.85%29.aspx
+			// TODO use GetLocaleInfoEx() for vista and above
+			// returns German, English, French, ...
+			char buf[256];
+			int ret = GetLocaleInfo( 
+				LOCALE_SYSTEM_DEFAULT, 
+				/*LOCALE_SABBREVLANGNAME,*/	LOCALE_SENGLANGUAGE, /*LOCALE_SNATIVELANGNAME, */
+				buf, 
+				sizeof(buf)-1);
+
+
+			//Locale ID (LCID) Chart: 
+			// http://msdn.microsoft.com/en-us/library/0h88fahh(VS.85).aspx
+			// http://msdn.microsoft.com/en-us/library/cc233968%28v=PROT.10%29.aspx
+			// http://msdn.microsoft.com/en-us/goglobal/bb895996
 			switch(lcid)
 			{
 			case 1031:
@@ -60,16 +83,61 @@ namespace Orkige
 			case 5127:
 			case 2055:
 			case 4103: this->currentLocale = "de"; break;
-			default: this->currentLocale = defaultLocale ; break;
+
+			case 1036:
+			case 2060:
+			case 3084:
+			case 5132:
+			case 4108: this->currentLocale = "fr"; break;
+
+			case 3082:
+			case 1034:
+			case 11274:
+			case 16394:
+			case 13322:
+			case 9226:
+			case 5130:
+			case 7178:
+			case 12298:
+			case 4106:
+			case 18442:
+			case 2058:
+			case 19466:
+			case 6154:
+			case 10250:
+			case 20490:
+			case 15370:
+			case 17418:
+			case 14346:
+			case 8202: this->currentLocale = "es"; break;
+
+			case 1040:
+			case 2064: this->currentLocale = "it"; break;
+
+			case 1043:
+			case 2067: this->currentLocale = "nl"; break;
+
+			case 1041: this->currentLocale = "ja"; break;
+
+			//TODO chinese?
+
+			default: this->currentLocale = defaultLocale; break;
 			}
 #elif __APPLE__
 			NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
 			NSArray* languages = [defs objectForKey:@"AppleLanguages"];
 			NSString* preferredLang = [languages objectAtIndex:0];
 			this->currentLocale = String((char*)[preferredLang cStringUsingEncoding:1]);
+			//this->currentLocale = String((char*)[[NSLocale currentLocale] localeIdentifier]);
+
+			// possible values
+			// http://developer.apple.com/library/ios/#documentation/MacOSX/Conceptual/BPInternational/BPInternational.pdf
+			// http://www.loc.gov/standards/iso639-2/php/English_list.php
+			// http://www.plasmaworks.com/forums/index.php?action=printpage;topic=70.0
 #else
 			//BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
 			this->currentLocale = "de";	//FIXME: find the right locale here (pe)
+
 #endif
 		}
 
