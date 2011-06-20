@@ -119,7 +119,11 @@ namespace Orkige
 
 			case 1041: this->currentLocale = "ja"; break;
 
-			//TODO chinese?
+			case 2052:
+			case 4100:
+			case 1028:
+			case 3076:
+			case 5124: this->currentLocale = "cn"; break;
 
 			default: this->currentLocale = defaultLocale; break;
 			}
