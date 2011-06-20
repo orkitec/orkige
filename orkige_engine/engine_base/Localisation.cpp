@@ -138,6 +138,9 @@ namespace Orkige
 			// http://developer.apple.com/library/ios/#documentation/MacOSX/Conceptual/BPInternational/BPInternational.pdf
 			// http://www.loc.gov/standards/iso639-2/php/English_list.php
 			// http://www.plasmaworks.com/forums/index.php?action=printpage;topic=70.0
+
+			// about different mac versions
+			//http://developer.apple.com/library/mac/#qa/qa1391/_index.html
 #else
 			//BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
 			this->currentLocale = "de";	//FIXME: find the right locale here (pe)
