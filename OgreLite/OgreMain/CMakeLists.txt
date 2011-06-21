@@ -649,7 +649,8 @@ endif ()
 
 
 # setup OgreMain target
-add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES})
+# exclude OgreAlignedAllocator.cpp from unity builds; causes problems on Linux
+ogre_add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES} SEPARATE "src/OgreAlignedAllocator.cpp" "src/OgreAlignedAllocator.cpp" "src/OgreFreeImageCodec.cpp" "src/WIN32/OgreErrorDialog.cpp" "src/WIN32/OgreConfigDialog.cpp")
 
 if (APPLE)
   if (NOT OGRE_BUILD_PLATFORM_IPHONE)

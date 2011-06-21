@@ -53,6 +53,16 @@ macro (ConfigureOrkige)
 				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
 	endif (WIN32)
 	
+	# Unity build options
+	# A Unity build includes all sources files in just a few actual compilation units
+	# to potentially speed up the compilation.
+	option(OGRE_UNITY_BUILD "Enable unity build for Ogre." FALSE)
+	set(OGRE_UNITY_FILES_PER_UNIT "50" CACHE STRING "Number of files per compilation unit in Unity build.")
+
+  if (OGRE_UNITY_BUILD)
+    # object files can get large with Unity builds
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj")
+  endif ()
 	
 	if(ORKIGE_BROWSERPLUGIN)
 		set(ORKIGE_ENABLE_PROFILER FALSE CACHE BOOL "enable engine profiling"   FORCE)
@@ -127,6 +137,7 @@ macro (ConfigureOrkige)
 	set(OGRE_TEMPLATES_DIR ${ROOT}/CMake/Templates)
 	set(OGRELITE_SOURCE_DIR ${OGREPATH})
 
+	include(OgreAddTargets)
 	include(OgreConfigTargets)
 	include(DependenciesOrkige)
 	include(MacroLogFeature)

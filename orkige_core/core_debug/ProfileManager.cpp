@@ -11,7 +11,12 @@
 #include "core_util/Timer.h"
 #include "core_util/StringUtil.h"
 #include <limits>
-
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 namespace Orkige
 {
 	IMPL_OSINGLETON_GETCREATE(ProfileManager);

@@ -49,7 +49,7 @@ endif()
 
 ConfigureOrkigeDependencies()
 
-add_library(orkige_engine STATIC
+ogre_add_library(orkige_engine STATIC
             ${engine_base_FILES}
             ${engine_gocomponent_FILES}
             ${engine_graphic_FILES}

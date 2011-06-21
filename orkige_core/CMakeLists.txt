@@ -220,7 +220,7 @@ include_directories(
 	./
 	)
 
-add_library(orkige_core STATIC
+ogre_add_library(orkige_core STATIC
 	${core_base_SOURCE}			${core_base_HEADER}
 	${core_debug_SOURCE}		${core_debug_HEADER}
 	${core_event_SOURCE}		${core_event_HEADER}
