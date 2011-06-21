@@ -55,6 +55,7 @@ namespace Orkige
 
 		//! set all item names
 		void setItems(const Ogre::StringVector& items);
+		inline Ogre::StringVector& getItems();
 		void showItem();
 		
 		//! selection
@@ -92,6 +93,12 @@ namespace Orkige
 	{
 		return this->selectedIndex;
 	}
+	//---------------------------------------------------------------
+	inline Ogre::StringVector& FastGuiSelectMenu::getItems() 
+	{ 
+		return this->items; 
+	}
+
 
 }
 #endif //__FASTGUISELECTMENU__h__3_11_2010__19_56_54__ 
