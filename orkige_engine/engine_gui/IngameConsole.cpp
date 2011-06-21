@@ -153,7 +153,7 @@ namespace Orkige
 		if(!this->initialized)
 			OGRE_EXCEPT( Ogre::Exception::ERR_INTERNAL_ERROR, "Console is not this->initialized!", "setVisible" );
 
-		if(this->visible == visible )
+		if(this->visible == visible)
 			return;
 
 		if(visible)
@@ -161,7 +161,7 @@ namespace Orkige
 		else
 			GlobalEventManager::getSingleton().delListener(this->keyListener,InputManager::KeyPressedEvent);//del the listener 
 
-		this->visible=visible;
+		this->visible = visible;
 	}
 	//---------------------------------------------------------
 	void IngameConsole::switchVisible()
@@ -171,7 +171,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void IngameConsole::addCommand(const String &command, IngameConsole::ConsoleCommand func)
 	{
-		this->commands[command]=func;
+		this->commands[command] = func;
 	}
 	//---------------------------------------------------------
 	void IngameConsole::removeCommand(const String &command)
