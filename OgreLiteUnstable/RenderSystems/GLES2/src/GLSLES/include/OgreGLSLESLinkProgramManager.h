@@ -34,13 +34,17 @@ THE SOFTWARE.
 #include "OgreGLSLESExtSupport.h"
 #include "OgreGLSLESLinkProgram.h"
 
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+#   include "glsl_optimizer.h"
+#endif
+
 namespace Ogre {
 
 
-	/** Ogre assumes that there are seperate vertex and fragment programs to deal with but
+	/** Ogre assumes that there are separate vertex and fragment programs to deal with but
 		GLSL ES has one program object that represents the active vertex and fragment shader objects
 		during a rendering state.  GLSL Vertex and fragment 
-		shader objects are compiled seperately and then attached to a program object and then the
+		shader objects are compiled separately and then attached to a program object and then the
 		program object is linked.  Since Ogre can only handle one vertex program and one fragment
 		program being active in a pass, the GLSL ES Link Program Manager does the same.  The GLSL ES Link
 		program manager acts as a state machine and activates a program object based on the active
@@ -67,7 +71,9 @@ namespace Ogre {
 
 		typedef map<String, GLenum>::type StringToEnumMap;
 		StringToEnumMap mTypeEnumMap;
-
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+        struct glslopt_ctx *mGLSLOptimiserContext;
+#endif
 		/// Use type to complete other information
 		void completeDefInfo(GLenum gltype, GpuConstantDefinition& defToUpdate);
 		/// Find where the data for a specific uniform should come from, populate
@@ -98,6 +104,13 @@ namespace Ogre {
 			Normally called from the GLSLESGpuProgram::bindProgram and unbindProgram methods
 		*/
 		void setActiveVertexShader(GLSLESGpuProgram* vertexGpuProgram);
+
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+        /**
+         
+        */
+        void optimiseShaderSource(GLSLESGpuProgram* gpuProgram);
+#endif
 
 		/** Populate a list of uniforms based on a program object.
 		@param programObject Handle to the program object to query

@@ -82,6 +82,8 @@ namespace Ogre {
 
 		LogManager::getSingleton().logMessage(getName() + " created.");
 
+        mRenderAttribsBound.reserve(100);
+
 #ifdef RTSHADER_SYSTEM_BUILD_CORE_SHADERS
 		mEnableFixedPipeline = false;
 #endif
@@ -296,6 +298,11 @@ namespace Ogre {
         rsc->setFragmentProgramConstantBoolCount((Ogre::ushort)floatConstantCount);
         rsc->setFragmentProgramConstantIntCount((Ogre::ushort)floatConstantCount);
 
+        // Geometry programs are not supported, report 0
+        rsc->setGeometryProgramConstantFloatCount(0);
+        rsc->setGeometryProgramConstantBoolCount(0);
+        rsc->setGeometryProgramConstantIntCount(0);
+        
         // Check for Float textures
 //        rsc->setCapability(RSC_TEXTURE_FLOAT);
 
@@ -458,21 +465,6 @@ namespace Ogre {
         mGLSupport->stop();
 
         mGLInitialised = 0;
-    }
-
-    void GLES2RenderSystem::setAmbientLight(float r, float g, float b)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::setShadingType(ShadeOptions so)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::setLightingEnabled(bool enabled)
-    {
-        // Not supported
     }
 
     RenderWindow* GLES2RenderSystem::_createRenderWindow(const String &name, unsigned int width, unsigned int height,
@@ -687,16 +679,6 @@ namespace Ogre {
         return VET_COLOUR_ABGR;
     }
 
-    void GLES2RenderSystem::setNormaliseNormals(bool normalise)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::_useLights(const LightList& lights, unsigned short limit)
-    {
-        // Not supported
-    }
-
     void GLES2RenderSystem::_setWorldMatrix(const Matrix4 &m)
     {
         mWorldMatrix = m;
@@ -763,18 +745,6 @@ namespace Ogre {
 		mTextureCoordIndex[stage] = index;
     }
 
-    void GLES2RenderSystem::_setTextureCoordCalculation(size_t stage,
-                                                       TexCoordCalcMethod m,
-                                                       const Frustum* frustum)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::_setTextureBlendMode(size_t stage, const LayerBlendModeEx& bm)
-    {
-        // Not supported
-    }
-
     GLint GLES2RenderSystem::getTextureAddressingMode(TextureUnitState::TextureAddressingMode tam) const
     {
         switch (tam)
@@ -799,21 +769,6 @@ namespace Ogre {
 		glTexParameteri( mTextureTypes[stage], GL_TEXTURE_WRAP_T, getTextureAddressingMode(uvw.v));
         GL_CHECK_ERROR;
         activateGLTextureUnit(0);
-    }
-
-    void GLES2RenderSystem::_setTextureBorderColour(size_t stage, const ColourValue& colour)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::_setTextureMipmapBias(size_t unit, float bias)
-    {
-        // Not supported
-    }
-
-    void GLES2RenderSystem::_setTextureMatrix(size_t stage, const Matrix4& xform)
-    {
-        // Not supported
     }
 
     GLenum GLES2RenderSystem::getBlendMode(SceneBlendFactor ogreBlend) const
@@ -1565,18 +1520,18 @@ namespace Ogre {
             op.vertexData->vertexDeclaration->getElements();
         VertexDeclaration::VertexElementList::const_iterator elem, elemEnd;
         elemEnd = decl.end();
-        vector<GLuint>::type attribsBound;
 
         for (elem = decl.begin(); elem != elemEnd; ++elem)
         {
             if (!op.vertexData->vertexBufferBinding->isBufferBound(elem->getSource()))
                 continue; // skip unbound elements
+        GL_CHECK_ERROR;
 
             HardwareVertexBufferSharedPtr vertexBuffer =
                 op.vertexData->vertexBufferBinding->getBuffer(elem->getSource());
+
             _bindGLBuffer(GL_ARRAY_BUFFER,
                 static_cast<const GLES2HardwareVertexBuffer*>(vertexBuffer.get())->getGLBufferId());
-            GL_CHECK_ERROR;
             pBufferData = VBO_BUFFER_OFFSET(elem->getOffset());
 
             if (op.vertexData->vertexStart)
@@ -1622,12 +1577,11 @@ namespace Ogre {
             glEnableVertexAttribArray(attrib);
             GL_CHECK_ERROR;
  			
-			attribsBound.push_back(attrib);
+			mRenderAttribsBound.push_back(attrib);
         }	
 
 		if (multitexturing)
             activateGLTextureUnit(GL_TEXTURE0);
-        GL_CHECK_ERROR;
 
         // Find the correct type to render
         GLint primType;
@@ -1659,7 +1613,6 @@ namespace Ogre {
             _bindGLBuffer(GL_ELEMENT_ARRAY_BUFFER,
                          static_cast<GLES2HardwareIndexBuffer*>(op.indexData->indexBuffer.get())->getGLBufferId());
 
-            GL_CHECK_ERROR;
             pBufferData = VBO_BUFFER_OFFSET(op.indexData->indexStart *
                                             op.indexData->indexBuffer->getIndexSize());
 
@@ -1696,11 +1649,13 @@ namespace Ogre {
         }
 
  		// Unbind all attributes
-		for (vector<GLuint>::type::iterator ai = attribsBound.begin(); ai != attribsBound.end(); ++ai)
+		for (vector<GLuint>::type::iterator ai = mRenderAttribsBound.begin(); ai != mRenderAttribsBound.end(); ++ai)
  		{
  			glDisableVertexAttribArray(*ai);
             GL_CHECK_ERROR;
   		}
+
+        mRenderAttribsBound.clear();
     }
 
     void GLES2RenderSystem::setScissorTest(bool enabled, size_t left,
@@ -1851,36 +1806,6 @@ namespace Ogre {
         }
     }
 
-    HardwareOcclusionQuery* GLES2RenderSystem::createHardwareOcclusionQuery(void)
-    {
-        // Not supported
-        return 0;
-    }
-
-    Real GLES2RenderSystem::getHorizontalTexelOffset(void)
-    {
-		// No offset in GL
-        return 0.0;
-    }
-
-    Real GLES2RenderSystem::getVerticalTexelOffset(void)
-    {
-		// No offset in GL
-        return 0.0;
-    }
-
-    Real GLES2RenderSystem::getMinimumDepthInputValue(void)
-    {
-		// Range [-1.0f, 1.0f]
-        return -1.0f;
-    }
-
-    Real GLES2RenderSystem::getMaximumDepthInputValue(void)
-    {
-		// Range [-1.0f, 1.0f]
-        return 1.0f;
-    }
-
     void GLES2RenderSystem::_switchContext(GLES2Context *context)
     {
 		// Unbind GPU programs and rebind to new context later, because
@@ -1972,7 +1897,7 @@ namespace Ogre {
     void GLES2RenderSystem::_setRenderTarget(RenderTarget *target)
     {
         // Unbind frame buffer object
-        if(mActiveRenderTarget)
+        if(mActiveRenderTarget && mRTTManager)
             mRTTManager->unbind(mActiveRenderTarget);
 
         mActiveRenderTarget = target;
@@ -2219,4 +2144,13 @@ namespace Ogre {
         }
     }
 
+    void GLES2RenderSystem::_deleteGLBuffer(GLenum target, GLuint buffer)
+    {
+        BindBufferMap::iterator i = mActiveBufferMap.find(target);
+        if (i != mActiveBufferMap.end())
+        {
+            if((*i).second == buffer)
+                mActiveBufferMap.erase(i);
+        }
+    }
 }

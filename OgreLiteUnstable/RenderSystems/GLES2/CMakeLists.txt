@@ -112,11 +112,15 @@ elseif (APPLE)
   set(PLATFORM_HEADERS 
     include/EAGL/OgreEAGLES2Context.h
     include/EAGL/OgreEAGL2Support.h
+    include/EAGL/OgreEAGL2View.h
+    include/EAGL/OgreEAGL2ViewController.h
     include/EAGL/OgreEAGL2Window.h
     include/EAGL/OgreGLES2Util.h
   )
   set(PLATFORM_SOURCES
     src/EAGL/OgreEAGL2Support.mm
+    src/EAGL/OgreEAGL2View.mm
+    src/EAGL/OgreEAGL2ViewController.mm
     src/EAGL/OgreEAGL2Window.mm
     src/EAGL/OgreEAGLES2Context.mm
   )
@@ -167,7 +171,7 @@ include_directories(
   ${OPENGLES2_INCLUDE_DIR} ${EGL_INCLUDE_DIR}
 )
 
-add_library(RenderSystem_GLES2 ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${GLSLES_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
+ogre_add_library(RenderSystem_GLES2 ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${GLSLES_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
 target_link_libraries(RenderSystem_GLES2 OgreMain ${OPENGLES2_LIBRARIES} ${EGL_LIBRARIES} ${PLATFORM_LIBS})
 
 if (NOT OGRE_STATIC)

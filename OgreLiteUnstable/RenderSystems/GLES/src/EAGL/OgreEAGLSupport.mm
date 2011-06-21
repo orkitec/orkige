@@ -76,7 +76,7 @@ namespace Ogre {
         optOrientation.possibleValues.push_back("Landscape Left");
         optOrientation.possibleValues.push_back("Landscape Right");
         optOrientation.possibleValues.push_back("Portrait");
-        optOrientation.currentValue = "Landscape Left";
+        optOrientation.currentValue = "Landscape Right";
         optOrientation.immutable = false;
         
         optDisplayFrequency.name = "Display Frequency";
@@ -289,9 +289,9 @@ namespace Ogre {
         return window;
     }
 
-    EAGLESContext * EAGLSupport::createNewContext(CFDictionaryRef &glconfig, CAEAGLLayer *drawable) const //, EAGLESContext shareList) const
+    EAGLESContext * EAGLSupport::createNewContext(CFDictionaryRef &glconfig, CAEAGLLayer *drawable, EAGLSharegroup *group) const
     {
-        EAGLESContext *context = OGRE_NEW EAGLESContext(drawable);
+        EAGLESContext *context = OGRE_NEW EAGLESContext(drawable, group);
         if (context == NULL)
         {
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
@@ -314,5 +314,20 @@ namespace Ogre {
     
     void EAGLSupport::stop()
     {
+    }
+
+    bool EAGLSupport::interfaceOrientationIsSupported(NSString *orientation)
+    {
+        NSArray *supportedOrientations = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
+        
+        return [supportedOrientations containsObject:orientation];
+    }
+    
+    bool EAGLSupport::portraitIsSupported()
+    {
+        NSArray *supportedOrientations = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"UISupportedInterfaceOrientations"];
+        
+        return ([supportedOrientations containsObject:@"UIInterfaceOrientationPortrait"] || 
+                [supportedOrientations containsObject:@"UIInterfaceOrientationPortraitUpsideDown"]);
     }
 }

@@ -582,6 +582,12 @@ namespace Ogre {
         */
         virtual const MaterialPtr& getMaterial(void) const;
 
+        /** Sets the name of the material to be used for this billboard set.
+             @param
+                material The new material to use for this set.
+         */
+		virtual void setMaterial( const MaterialPtr& material );
+
         /** Overridden from MovableObject
             @see
                 MovableObject
@@ -598,7 +604,7 @@ namespace Ogre {
         */
         virtual void _notifyBillboardResized(void);
 
-        /** Internal callback used by Billboards to notify their parent that they have been rotated..
+        /** Internal callback used by Billboards to notify their parent that they have been rotated.
         */
         virtual void _notifyBillboardRotated(void);
 
@@ -633,7 +639,7 @@ namespace Ogre {
             smoke, anything which is symmetrical about a central point) but does not look good for
             billboards which have an orientation (e.g. an elongated raindrop). In this case, the
             oriented billboards are more suitable (BBT_ORIENTED_COMMON or BBT_ORIENTED_SELF) since
-            they retain an independant Y axis and only the X axis is generated, perpendicular to both
+            they retain an independent Y axis and only the X axis is generated, perpendicular to both
             the local Y and the camera Z.
         @par
             In some case you might want the billboard has fixed Z axis and doesn't need to face to

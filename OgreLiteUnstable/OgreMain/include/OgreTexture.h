@@ -302,7 +302,7 @@ namespace Ogre {
         }
 
         /** Returns the pixel format of the original input texture (may differ due to
-            hardware requirements and pixel format convertion).
+            hardware requirements and pixel format conversion).
         */
         virtual PixelFormat getSrcFormat(void) const
         {
@@ -374,6 +374,14 @@ namespace Ogre {
 		@param includeMipMaps Whether to embed mipmaps in the image
 		*/
 		virtual void convertToImage(Image& destImage, bool includeMipMaps = false);
+		
+		/** Retrieve a platform or API-specific piece of information from this texture.
+		 This method of retrieving information should only be used if you know what you're doing.
+		 @param name The name of the attribute to retrieve
+		 @param pData Pointer to memory matching the type of data you want to retrieve.
+		*/
+		virtual void getCustomAttribute(const String& name, void* pData) {}
+		
 
 
     protected:

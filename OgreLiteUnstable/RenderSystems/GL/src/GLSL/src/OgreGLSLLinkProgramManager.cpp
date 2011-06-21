@@ -331,10 +331,10 @@ namespace Ogre {
 		GLUniformReferenceList& list)
 	{
 		// scan through the active uniforms and add them to the reference list
-		GLint uniformCount;
+		GLint uniformCount = 0;
 
 		#define BUFFERSIZE 200
-		char   uniformName[BUFFERSIZE];
+		char   uniformName[BUFFERSIZE] = "";
 		//GLint location;
 		GLUniformReference newGLUniformReference;
 
@@ -346,7 +346,7 @@ namespace Ogre {
 		// only do this for user defined uniforms, ignore built in gl state uniforms
 		for (int index = 0; index < uniformCount; index++)
 		{
-			GLint arraySize;
+			GLint arraySize = 0;
 			GLenum glType;
 			glGetActiveUniformARB(programObject, index, BUFFERSIZE, NULL, 
 				&arraySize, &glType, uniformName);
@@ -435,7 +435,7 @@ namespace Ogre {
 				line = src.substr(currPos, endPos - currPos);
 
 				// Remove spaces before opening square braces, otherwise
-				// the following split() can split the line at inappropiate
+				// the following split() can split the line at inappropriate
 				// places (e.g. "vec3 something [3]" won't work).
 				for (String::size_type sqp = line.find (" ["); sqp != String::npos;
 					 sqp = line.find (" ["))

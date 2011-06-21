@@ -38,25 +38,31 @@ namespace Ogre {
 		: 
 	mlpD3DDevice(device)
 	, mNeedsRebuild(true)
-	, mD3delems(NULL)
 	{
 
 	}
 	//-----------------------------------------------------------------------
 	D3D11VertexDeclaration::~D3D11VertexDeclaration()
 	{
-		ShaderToILayoutMapIterator iter = mShaderToILayoutMap.begin();
-		ShaderToILayoutMapIterator iterE = mShaderToILayoutMap.end();
+        {
+		    ShaderToILayoutMapIterator iter = mShaderToILayoutMap.begin();
+		    ShaderToILayoutMapIterator iterE = mShaderToILayoutMap.end();
 
-		for ( ; iter != iterE ; iter++)
-		{
-			iter->second->Release();
-		}
+		    for ( ; iter != iterE ; iter++)
+		    {
+			    iter->second->Release();
+		    }
+        }
 
-		if (mD3delems)
-		{
-			SAFE_DELETE_ARRAY(mD3delems);
-		}
+        {
+            ShaderToInputDescIterator iter = mD3delems.begin();
+            ShaderToInputDescIterator iterE = mD3delems.end();
+            for( ; iter != iterE ; iter++ )
+            {
+                SAFE_DELETE_ARRAY(iter->second);
+
+            }
+        }
 
 
 	}
@@ -103,24 +109,58 @@ namespace Ogre {
 		mNeedsRebuild = true;
 	}
 	//-----------------------------------------------------------------------
-	D3D11_INPUT_ELEMENT_DESC * D3D11VertexDeclaration::getD3DVertexDeclaration(VertexBufferBinding* binding)
+	D3D11_INPUT_ELEMENT_DESC * D3D11VertexDeclaration::getD3DVertexDeclaration(D3D11HLSLProgram* boundVertexProgram, VertexBufferBinding* binding)
 	{
 		// Create D3D elements
-		size_t iNumElements = mElementList.size();
+		size_t iNumElements = boundVertexProgram->getNumInputs();
 
-		//SAFE_DELETE_ARRAY(mD3delems);
-
-		if (!mD3delems)
+		if (mD3delems.find(boundVertexProgram) == mD3delems.end())
 		{
 			D3D11_INPUT_ELEMENT_DESC*  D3delems = new D3D11_INPUT_ELEMENT_DESC[iNumElements];
+            ZeroMemory(D3delems, sizeof(D3D11_INPUT_ELEMENT_DESC) * iNumElements);
 
-			VertexElementList::const_iterator i, iend;
 			unsigned int idx;
-			iend = mElementList.end();
-			for (idx = 0, i = mElementList.begin(); i != iend; ++i, ++idx)
+       		for (unsigned int idx = 0; idx < iNumElements; ++idx)
 			{
-				D3delems[idx].SemanticName			= D3D11Mappings::get(i->getSemantic());
-				D3delems[idx].SemanticIndex			= i->getIndex();
+                D3D11_SIGNATURE_PARAMETER_DESC inputDesc = boundVertexProgram->getInputParamDesc(idx);
+       			VertexElementList::const_iterator i, iend;
+			    iend = mElementList.end();
+                bool found = false;
+		        for (i = mElementList.begin(); i != iend; ++i)
+                {
+                    LPCSTR semanticName			= D3D11Mappings::get(i->getSemantic());
+                    UINT semanticIndex			= i->getIndex();
+                    if(
+                        strcmp(semanticName, inputDesc.SemanticName) == 0
+                        && semanticIndex == inputDesc.SemanticIndex
+                      )
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if(!found)
+                {
+                    // find by pos
+                    i = mElementList.begin();
+                    for (int count = 0; count < idx && i != iend; count++, ++i)
+                    {
+                    }
+                    if (i != iend)
+                    {
+                        found = true;
+                    }
+                }
+
+                if(!found)
+                {
+                    OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unable to set D3D11 vertex declaration" , 
+                        						"D3D11VertexDeclaration::getILayoutByShader");
+                }
+
+				D3delems[idx].SemanticName			= inputDesc.SemanticName;
+				D3delems[idx].SemanticIndex			= inputDesc.SemanticIndex;
 				D3delems[idx].Format				= D3D11Mappings::get(i->getType());
 				D3delems[idx].InputSlot				= i->getSource();
 				D3delems[idx].AlignedByteOffset		= static_cast<WORD>(i->getOffset());
@@ -147,11 +187,11 @@ namespace Ogre {
 				}				
 			}
 
-			mD3delems = D3delems;
+			mD3delems[boundVertexProgram] = D3delems;
 
 		}
 
-		return mD3delems;
+		return mD3delems[boundVertexProgram];
 	}
 	//-----------------------------------------------------------------------
 	ID3D11InputLayout*  D3D11VertexDeclaration::getILayoutByShader(D3D11HLSLProgram* boundVertexProgram, VertexBufferBinding* binding)
@@ -165,13 +205,17 @@ namespace Ogre {
 			// if not found - create
 
 			DWORD dwShaderFlags = 0;
-			ID3D10Blob* pVSBuf = boundVertexProgram->getMicroCode();
-			D3D11_INPUT_ELEMENT_DESC * pVertexDecl=getD3DVertexDeclaration(binding);
+			const MicroCode &  vSBuf = boundVertexProgram->getMicroCode();
+            if (boundVertexProgram->getName() == "595364079_VS")
+            {
+                int u = 1;
+            }
+			D3D11_INPUT_ELEMENT_DESC * pVertexDecl=getD3DVertexDeclaration(boundVertexProgram, binding);
 			HRESULT hr = mlpD3DDevice->CreateInputLayout( 
 				pVertexDecl, 
-				(UINT)getElementCount(), 
-				pVSBuf->GetBufferPointer(), 
-				pVSBuf->GetBufferSize(),
+				boundVertexProgram->getNumInputs(), 
+				&vSBuf[0], 
+				vSBuf.size(),
 				&pVertexLayout );
 
 			if (FAILED(hr)|| mlpD3DDevice.isError())

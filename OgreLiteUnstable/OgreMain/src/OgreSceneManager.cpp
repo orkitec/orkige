@@ -2178,6 +2178,8 @@ MeshPtr SceneManager::createSkydomePlane(
 //-----------------------------------------------------------------------
 void SceneManager::_updateSceneGraph(Camera* cam)
 {
+	firePreUpdateSceneGraph(cam);
+
 	// Process queued needUpdate calls 
 	Node::processQueuedUpdates();
 
@@ -2187,7 +2189,7 @@ void SceneManager::_updateSceneGraph(Camera* cam)
     //   certain scene graph branches
     getRootSceneNode()->_update(true, false);
 
-
+	firePostUpdateSceneGraph(cam);
 }
 //-----------------------------------------------------------------------
 void SceneManager::_findVisibleObjects(
@@ -3906,43 +3908,49 @@ void SceneManager::resetViewProjMode(bool fixedFunction)
 //---------------------------------------------------------------------
 void SceneManager::_queueSkiesForRendering(Camera* cam)
 {
-    // Update nodes
-    // Translate the box by the camera position (constant distance)
-    if (mSkyPlaneNode)
-    {
-        // The plane position relative to the camera has already been set up
-        mSkyPlaneNode->setPosition(cam->getDerivedPosition());
-    }
+	// Update nodes
+	// Translate the box by the camera position (constant distance)
+	if (mSkyPlaneNode)
+	{
+		// The plane position relative to the camera has already been set up
+		mSkyPlaneNode->setPosition(cam->getDerivedPosition());
+	}
 
-    if (mSkyBoxNode)
-    {
-        mSkyBoxNode->setPosition(cam->getDerivedPosition());
-    }
+	if (mSkyBoxNode)
+	{
+		mSkyBoxNode->setPosition(cam->getDerivedPosition());
+	}
 
-    if (mSkyDomeNode)
-    {
-        mSkyDomeNode->setPosition(cam->getDerivedPosition());
-    }
+	if (mSkyDomeNode)
+	{
+		mSkyDomeNode->setPosition(cam->getDerivedPosition());
+	}
 
-    if (mSkyPlaneEnabled)
-    {
-        getRenderQueue()->addRenderable(mSkyPlaneEntity->getSubEntity(0), mSkyPlaneRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
-    }
+	if (mSkyPlaneEnabled
+		&& mSkyPlaneEntity && mSkyPlaneEntity->isVisible()
+		&& mSkyPlaneEntity->getSubEntity(0) && mSkyPlaneEntity->getSubEntity(0)->isVisible())
+	{
+		getRenderQueue()->addRenderable(mSkyPlaneEntity->getSubEntity(0), mSkyPlaneRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
+	}
 
-    if (mSkyBoxEnabled)
-    {
+	if (mSkyBoxEnabled
+		&& mSkyBoxObj && mSkyBoxObj->isVisible())
+	{
 		mSkyBoxObj->_updateRenderQueue(getRenderQueue());
-    }
+	}
 
-	uint plane;
-    if (mSkyDomeEnabled)
-    {
-        for (plane = 0; plane < 5; ++plane)
-        {
-            getRenderQueue()->addRenderable(
-                mSkyDomeEntity[plane]->getSubEntity(0), mSkyDomeRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
-        }
-    }
+	if (mSkyDomeEnabled)
+	{
+		for (uint plane = 0; plane < 5; ++plane)
+		{
+			if (mSkyDomeEntity[plane] && mSkyDomeEntity[plane]->isVisible()
+				&& mSkyDomeEntity[plane]->getSubEntity(0) && mSkyDomeEntity[plane]->getSubEntity(0)->isVisible())
+			{
+				getRenderQueue()->addRenderable(
+					mSkyDomeEntity[plane]->getSubEntity(0), mSkyDomeRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
+			}
+		}
+	}
 }
 //---------------------------------------------------------------------
 void SceneManager::addRenderQueueListener(RenderQueueListener* newListener)
@@ -4092,6 +4100,29 @@ void SceneManager::fireShadowTexturesPreReceiver(Light* light, Frustum* f)
         (*i)->shadowTextureReceiverPreViewProj(light, f);
     }
 }
+//---------------------------------------------------------------------
+void SceneManager::firePreUpdateSceneGraph(Camera* camera)
+{
+	ListenerList::iterator i, iend;
+
+	iend = mListeners.end();
+	for (i = mListeners.begin(); i != iend; ++i)
+	{
+		(*i)->preUpdateSceneGraph(this, camera);
+	}
+}
+//---------------------------------------------------------------------
+void SceneManager::firePostUpdateSceneGraph(Camera* camera)
+{
+	ListenerList::iterator i, iend;
+
+	iend = mListeners.end();
+	for (i = mListeners.begin(); i != iend; ++i)
+	{
+		(*i)->postUpdateSceneGraph(this, camera);
+	}
+}
+
 //---------------------------------------------------------------------
 void SceneManager::firePreFindVisibleObjects(Viewport* v)
 {
@@ -5771,12 +5802,13 @@ void SceneManager::setShadowIndexBufferSize(size_t size)
 }
 //---------------------------------------------------------------------
 void SceneManager::setShadowTextureConfig(size_t shadowIndex, unsigned short width, 
-	unsigned short height, PixelFormat format, uint16 depthBufferPoolId )
+	unsigned short height, PixelFormat format, unsigned short fsaa, uint16 depthBufferPoolId )
 {
 	ShadowTextureConfig conf;
 	conf.width = width;
 	conf.height = height;
 	conf.format = format;
+    conf.fsaa = fsaa;
 	conf.depthBufferPoolId = depthBufferPoolId;
 
 	setShadowTextureConfig(shadowIndex, conf);
@@ -5851,18 +5883,31 @@ void SceneManager::setShadowTexturePixelFormat(PixelFormat fmt)
 		}
 	}
 }
+void SceneManager::setShadowTextureFSAA(unsigned short fsaa)
+{
+    for (ShadowTextureConfigList::iterator i = mShadowTextureConfigList.begin();
+                i != mShadowTextureConfigList.end(); ++i)
+    {
+        if (i->fsaa != fsaa)
+        {
+            i->fsaa = fsaa;
+            mShadowTextureConfigDirty = true;
+        }
+    }
+}
 //---------------------------------------------------------------------
 void SceneManager::setShadowTextureSettings(unsigned short size, 
-	unsigned short count, PixelFormat fmt, uint16 depthBufferPoolId)
+	unsigned short count, PixelFormat fmt, unsigned short fsaa, uint16 depthBufferPoolId)
 {
 	setShadowTextureCount(count);
 	for (ShadowTextureConfigList::iterator i = mShadowTextureConfigList.begin();
 		i != mShadowTextureConfigList.end(); ++i)
 	{
-		if (i->width != size || i->height != size || i->format != fmt)
+		if (i->width != size || i->height != size || i->format != fmt || i->fsaa != fsaa)
 		{
 			i->width = i->height = size;
 			i->format = fmt;
+            i->fsaa = fsaa;
 			i->depthBufferPoolId = depthBufferPoolId;
 			mShadowTextureConfigDirty = true;
 		}
@@ -6027,7 +6072,7 @@ void SceneManager::ensureShadowTexturesCreated()
 
 			RenderTexture *shadowRTT = shadowTex->getBuffer()->getRenderTarget();
 
-			//Set appropiate depth buffer
+			//Set appropriate depth buffer
 			shadowRTT->setDepthBufferPool( mShadowTextureConfigList[__i].depthBufferPoolId );
 
 			// Create camera for this texture, but note that we have to rebind
@@ -6475,6 +6520,20 @@ InstanceManager* SceneManager::createInstanceManager( const String &customName, 
 	return retVal;
 }
 //---------------------------------------------------------------------
+InstanceManager* SceneManager::getInstanceManager( const String &managerName ) const
+{
+	InstanceManagerMap::const_iterator itor = mInstanceManagerMap.find(managerName);
+
+	if (itor == mInstanceManagerMap.end())
+	{
+		OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, 
+				"InstancedManager with name '" + managerName + "' not found", 
+				"SceneManager::getInstanceManager");
+	}
+
+	return itor->second;
+}
+//---------------------------------------------------------------------
 void SceneManager::destroyInstanceManager( const String &name )
 {
 	InstanceManagerMap::iterator i = mInstanceManagerMap.find(name);
@@ -6542,16 +6601,35 @@ void SceneManager::_addDirtyInstanceManager( InstanceManager *dirtyManager )
 //---------------------------------------------------------------------
 void SceneManager::updateDirtyInstanceManagers(void)
 {
-	InstanceManagerVec::const_iterator itor = mDirtyInstanceManagers.begin();
-	InstanceManagerVec::const_iterator end  = mDirtyInstanceManagers.end();
-
-	while( itor != end )
-	{
-		(*itor)->_updateDirtyBatches();
-		++itor;
-	}
-
+	//Copy all dirty mgrs to a temporary buffer to iterate through them. We need this because
+	//if two InstancedEntities from different managers belong to the same SceneNode, one of the
+	//managers may have been tagged as dirty while the other wasn't, and _addDirtyInstanceManager
+	//will get called while iterating through them. The "while" loop will update all mgrs until
+	//no one is dirty anymore (i.e. A makes B aware it's dirty, B makes C aware it's dirty)
+	//mDirtyInstanceMgrsTmp isn't a local variable to prevent allocs & deallocs every frame.
+	mDirtyInstanceMgrsTmp.insert( mDirtyInstanceMgrsTmp.end(), mDirtyInstanceManagers.begin(),
+									mDirtyInstanceManagers.end() );
 	mDirtyInstanceManagers.clear();
+
+	while( !mDirtyInstanceMgrsTmp.empty() )
+	{
+		InstanceManagerVec::const_iterator itor = mDirtyInstanceMgrsTmp.begin();
+		InstanceManagerVec::const_iterator end  = mDirtyInstanceMgrsTmp.end();
+
+		while( itor != end )
+		{
+			(*itor)->_updateDirtyBatches();
+			++itor;
+		}
+
+		//Clear temp buffer
+		mDirtyInstanceMgrsTmp.clear();
+
+		//Do it again?
+		mDirtyInstanceMgrsTmp.insert( mDirtyInstanceMgrsTmp.end(), mDirtyInstanceManagers.begin(),
+									mDirtyInstanceManagers.end() );
+		mDirtyInstanceManagers.clear();
+	}
 }
 //---------------------------------------------------------------------
 AxisAlignedBoxSceneQuery* 
@@ -7072,6 +7150,11 @@ void SceneManager::bindGpuProgram(GpuProgram* prog)
 	mLastLightHashGpuProgram = 1;
 	mGpuParamsDirty = (uint16)GPV_ALL;
 	mDestRenderSystem->bindGpuProgram(prog);
+}
+//---------------------------------------------------------------------
+void SceneManager::_markGpuParamsDirty(uint16 mask)
+{
+	mGpuParamsDirty |= mask;
 }
 //---------------------------------------------------------------------
 void SceneManager::updateGpuProgramParameters(const Pass* pass)

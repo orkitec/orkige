@@ -35,6 +35,7 @@ THE SOFTWARE.
 // Forward declarations
 @class CAEAGLLayer;
 @class UIWindow;
+@class NSString;
 typedef UIWindow *NativeWindowType;
 #endif
 
@@ -74,7 +75,10 @@ namespace Ogre {
                                         const NameValuePairList *miscParams = 0);
 
 #ifdef __OBJC__
-            EAGLES2Context * createNewContext(CFDictionaryRef &glconfig, CAEAGLLayer *drawable) const;
+            bool portraitIsSupported(void);
+            bool interfaceOrientationIsSupported(NSString *orientation);
+
+            EAGLES2Context * createNewContext(CFDictionaryRef &glconfig, CAEAGLLayer *drawable, EAGLSharegroup *group) const;
             CFDictionaryRef getGLConfigFromContext(EAGLES2Context context);
             CFDictionaryRef getGLConfigFromDrawable(CAEAGLLayer *drawable, unsigned int *w, unsigned int *h);
 #endif

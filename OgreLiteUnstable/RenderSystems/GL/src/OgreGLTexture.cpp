@@ -267,7 +267,7 @@ namespace Ogre {
     void GLTexture::createRenderTexture(void)
     {
         // Create the GL texture
-		// This already does everything neccessary
+		// This already does everything necessary
         createInternalResources();
     }
 
@@ -430,6 +430,12 @@ namespace Ogre {
 		unsigned int idx = face*(mNumMipmaps+1) + mipmap;
 		assert(idx < mSurfaceList.size());
 		return mSurfaceList[idx];
+	}
+	//---------------------------------------------------------------------------------------------
+	void GLTexture::getCustomAttribute(const String& name, void* pData)
+	{
+		if (name == "GLID")
+			*static_cast<GLuint*>(pData) = mTextureID;
 	}
 	
 }

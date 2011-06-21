@@ -114,12 +114,16 @@ elseif (APPLE)
     include/EAGL/OgreEAGLESContext.h
     include/EAGL/OgreEAGLSupport.h
     include/EAGL/OgreEAGLRenderTexture.h
+    include/EAGL/OgreEAGLView.h
+    include/EAGL/OgreEAGLViewController.h
     include/EAGL/OgreEAGLWindow.h
     include/EAGL/OgreGLESUtil.h
   )
   set(PLATFORM_SOURCES
     src/EAGL/OgreEAGLSupport.mm
     src/EAGL/OgreEAGLRenderTexture.mm
+    src/EAGL/OgreEAGLView.mm
+    src/EAGL/OgreEAGLViewController.mm
     src/EAGL/OgreEAGLWindow.mm
     src/EAGL/OgreEAGLESContext.mm
   )
@@ -160,7 +164,7 @@ include_directories(
   ${OPENGLES_INCLUDE_DIR}
 )
 
-add_library(RenderSystem_GLES ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
+ogre_add_library(RenderSystem_GLES ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
 target_link_libraries(RenderSystem_GLES OgreMain ${OPENGLES_LIBRARIES} ${PLATFORM_LIBS})
 
 if (NOT OGRE_STATIC)

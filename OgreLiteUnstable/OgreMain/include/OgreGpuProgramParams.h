@@ -77,7 +77,7 @@ namespace Ogre {
 		GCT_UNKNOWN = 99
 	};
 
-	/** The variability of a GPU parameter, as derived from auto-params targetting it.
+	/** The variability of a GPU parameter, as derived from auto-params targeting it.
 	These values must be powers of two since they are used in masks.
 	*/
 	enum GpuParamVariability
@@ -851,6 +851,8 @@ namespace Ogre {
 			ACT_TEXTURE_WORLDVIEWPROJ_MATRIX_ARRAY,
 			/// The view/projection matrix of a given spotlight
 			ACT_SPOTLIGHT_VIEWPROJ_MATRIX,
+			/// Array of view/projection matrix of a given spotlight
+			ACT_SPOTLIGHT_VIEWPROJ_MATRIX_ARRAY,
 			/** The view/projection matrix of a given spotlight projection frustum, 
 			combined with the current world matrix
 			*/

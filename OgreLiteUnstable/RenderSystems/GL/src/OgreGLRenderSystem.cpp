@@ -111,6 +111,9 @@ namespace Ogre {
 
 		LogManager::getSingleton().logMessage(getName() + " created.");
 
+        mRenderAttribsBound.reserve(100);
+        mRenderInstanceAttribsBound.reserve(100);
+
 		// Get our GLSupport
 		mGLSupport = getGLSupport();
 
@@ -457,8 +460,8 @@ namespace Ogre {
 			rsc->setGeometryProgramConstantBoolCount(0);
 			rsc->setGeometryProgramConstantIntCount(0);
 
-			GLint floatConstantCount;
-			glGetProgramivARB(GL_GEOMETRY_PROGRAM_NV, GL_MAX_PROGRAM_LOCAL_PARAMETERS_ARB, &floatConstantCount);
+			GLint floatConstantCount = 0;
+            glGetIntegerv(GL_MAX_GEOMETRY_UNIFORM_COMPONENTS_EXT, &floatConstantCount);
 			rsc->setGeometryProgramConstantFloatCount(floatConstantCount);
 
 			GLint maxOutputVertices;
@@ -1080,7 +1083,7 @@ namespace Ogre {
 			//Unlike D3D9, OGL doesn't allow sharing the main depth buffer, so keep them separate.
 			//Only Copy does, but Copy means only one depth buffer...
 			GLContext *windowContext;
-			win->getCustomAttribute( "GLCONTEXT", &windowContext );
+			win->getCustomAttribute( GLRenderTexture::CustomAttributeString_GLCONTEXT, &windowContext );
 
  			GLDepthBuffer *depthBuffer = new GLDepthBuffer( DepthBuffer::POOL_DEFAULT, this,
 															windowContext, 0, 0,
@@ -1103,7 +1106,7 @@ namespace Ogre {
 		//else creates dummy (empty) containers
 		//retVal = mRTTManager->_createDepthBufferFor( renderTarget );
 		GLFrameBufferObject *fbo = 0;
-        renderTarget->getCustomAttribute("FBO", &fbo);
+        renderTarget->getCustomAttribute(GLRenderTexture::CustomAttributeString_FBO, &fbo);
 
 		if( fbo )
 		{
@@ -1141,7 +1144,7 @@ namespace Ogre {
 	{
 		// Set main and current context
 		mMainContext = 0;
-		primary->getCustomAttribute("GLCONTEXT", &mMainContext);
+		primary->getCustomAttribute(GLRenderTexture::CustomAttributeString_GLCONTEXT, &mMainContext);
 		mCurrentContext = mMainContext;
 
 		// Set primary context as active
@@ -1182,7 +1185,7 @@ namespace Ogre {
 			if (i->second == pWin)
 			{
 				GLContext *windowContext;
-				pWin->getCustomAttribute("GLCONTEXT", &windowContext);
+				pWin->getCustomAttribute(GLRenderTexture::CustomAttributeString_GLCONTEXT, &windowContext);
 
 				//1 Window <-> 1 Context, should be always true
 				assert( windowContext );
@@ -2404,7 +2407,9 @@ namespace Ogre {
 		}
 		else
 		{
-			glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
+            if(!GLEW_VERSION_2_0)
+                glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
+
 			flip = false;
 			glStencilMask(mask);
 			glStencilFunc(convertCompareFunction(func), refValue, mask);
@@ -2878,8 +2883,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
             op.vertexData->vertexDeclaration->getElements();
         VertexDeclaration::VertexElementList::const_iterator elemIter, elemEnd;
         elemEnd = decl.end();
-		vector<GLuint>::type attribsBound;
-		vector<GLuint>::type instanceAttribsBound;
         size_t maxSource = 0;
 
 		for (elemIter = decl.begin(); elemIter != elemEnd; ++elemIter)
@@ -2898,7 +2901,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 				op.vertexData->vertexBufferBinding->getBuffer(source);
 
             bindVertexElementToGpu(elem, vertexBuffer, op.vertexData->vertexStart, 
-                                   attribsBound, instanceAttribsBound);
+                                   mRenderAttribsBound, mRenderInstanceAttribsBound);
         }
 
         if( !globalInstanceVertexBuffer.isNull() && globalVertexDeclaration != NULL )
@@ -2908,7 +2911,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		    {
                 const VertexElement & elem = *elemIter;
                 bindVertexElementToGpu(elem, globalInstanceVertexBuffer, 0, 
-                                       attribsBound, instanceAttribsBound);
+                                       mRenderAttribsBound, mRenderInstanceAttribsBound);
             
             }
         }
@@ -3031,19 +3034,22 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 			glDisableClientState( GL_SECONDARY_COLOR_ARRAY );
 		}
  		// unbind any custom attributes
-		for (vector<GLuint>::type::iterator ai = attribsBound.begin(); ai != attribsBound.end(); ++ai)
+		for (vector<GLuint>::type::iterator ai = mRenderAttribsBound.begin(); ai != mRenderAttribsBound.end(); ++ai)
  		{
  			glDisableVertexAttribArrayARB(*ai); 
  
   		}
 		
 		// unbind any instance attributes
-		for (vector<GLuint>::type::iterator ai = instanceAttribsBound.begin(); ai != instanceAttribsBound.end(); ++ai)
+		for (vector<GLuint>::type::iterator ai = mRenderInstanceAttribsBound.begin(); ai != mRenderInstanceAttribsBound.end(); ++ai)
 		{
 			glVertexAttribDivisor(*ai, 0); 
 
 		}
 		
+        mRenderAttribsBound.clear();
+        mRenderInstanceAttribsBound.clear();
+
 		glColor4f(1,1,1,1);
 		if (GLEW_EXT_secondary_color)
 		{
@@ -3246,7 +3252,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		//  GL measures from the bottom, not the top
 		size_t targetHeight = mActiveRenderTarget->getHeight();
 		// Calculate the "lower-left" corner of the viewport
-		GLsizei w, h, x, y;
+        GLsizei x = 0, y = 0, w = 0, h = 0;
 
 		if (enabled)
 		{
@@ -3279,7 +3285,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 	void GLRenderSystem::clearFrameBuffer(unsigned int buffers, 
 		const ColourValue& colour, Real depth, unsigned short stencil)
 	{
-
 		bool colourMask = !mColourWrite[0] || !mColourWrite[1] 
 		|| !mColourWrite[2] || !mColourWrite[3]; 
 
@@ -3322,7 +3327,8 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		}
 
 		// Sets the scissor box as same as viewport
-		GLint viewport[4], scissor[4];
+        GLint viewport[4] = { 0, 0, 0, 0 };
+        GLint scissor[4] = { 0, 0, 0, 0 };
 		glGetIntegerv(GL_VIEWPORT, viewport);
 		glGetIntegerv(GL_SCISSOR_BOX, scissor);
 		bool scissorBoxDifference =
@@ -3360,7 +3366,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		{
 			glStencilMask(mStencilMask);
 		}
-
 	}
 	// ------------------------------------------------------------------
 	void GLRenderSystem::_makeProjectionMatrix(Real left, Real right, 
@@ -3529,7 +3534,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		{
 			// Switch context if different from current one
 			GLContext *newContext = 0;
-			target->getCustomAttribute("GLCONTEXT", &newContext);
+			target->getCustomAttribute(GLRenderTexture::CustomAttributeString_GLCONTEXT, &newContext);
 			if(newContext && mCurrentContext != newContext) 
 			{
 				_switchContext(newContext);

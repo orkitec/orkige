@@ -64,7 +64,6 @@ namespace Ogre {
         }
 
         dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ELEMENT_ARRAY_BUFFER, mBufferId);
-        GL_CHECK_ERROR;
 
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, mSizeInBytes, NULL,
                      GLES2HardwareBufferManager::getGLUsage(usage));
@@ -75,6 +74,9 @@ namespace Ogre {
     {
         glDeleteBuffers(1, &mBufferId);
         GL_CHECK_ERROR;
+        
+        // Delete the cached value
+        dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_deleteGLBuffer(GL_ELEMENT_ARRAY_BUFFER, mBufferId);
     }
 
     void GLES2HardwareIndexBuffer::unlockImpl(void)
@@ -162,11 +164,13 @@ namespace Ogre {
 				// Discard the buffer
 				glBufferData(GL_ELEMENT_ARRAY_BUFFER, mSizeInBytes, NULL, 
 					GLES2HardwareBufferManager::getGLUsage(mUsage));
+                GL_CHECK_ERROR;
 			}
 			if (mUsage & HBU_WRITE_ONLY)
 				access = GL_WRITE_ONLY_OES;
 
 			void* pBuffer = glMapBufferOES(GL_ELEMENT_ARRAY_BUFFER, access);
+            GL_CHECK_ERROR;
 
 			if(pBuffer == 0)
 			{
@@ -211,7 +215,6 @@ namespace Ogre {
                                             bool discardWholeBuffer)
     {
         dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ELEMENT_ARRAY_BUFFER, mBufferId);
-        GL_CHECK_ERROR;
 
         // Update the shadow buffer
         if (mUseShadowBuffer)

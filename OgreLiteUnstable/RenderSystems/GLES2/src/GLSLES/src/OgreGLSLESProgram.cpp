@@ -42,8 +42,9 @@ namespace Ogre {
 
     //-----------------------------------------------------------------------
 	GLSLESProgram::CmdPreprocessorDefines GLSLESProgram::msCmdPreprocessorDefines;
-    GLSLESProgram::CmdAttach GLSLESProgram::msCmdAttach;
-
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+    GLSLESProgram::CmdOptimisation GLSLESProgram::msCmdOptimisation;
+#endif
     //-----------------------------------------------------------------------
 	//-----------------------------------------------------------------------
     GLSLESProgram::GLSLESProgram(ResourceManager* creator, 
@@ -52,23 +53,27 @@ namespace Ogre {
         : HighLevelGpuProgram(creator, name, handle, group, isManual, loader) 
 		, mGLHandle(0)
         , mCompiled(0)
+        , mIsOptimised(false)
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+        , mOptimiserEnabled(true)
+#endif
     {
-		// Add parameter command "attach" to the material serializer dictionary
         if (createParamDictionary("GLSLESProgram"))
         {
             setupBaseParamDictionary();
             ParamDictionary* dict = getParamDictionary();
 
 			dict->addParameter(ParameterDef("preprocessor_defines", 
-				"Preprocessor defines use to compile the program.",
-				PT_STRING),&msCmdPreprocessorDefines);
-            dict->addParameter(ParameterDef("attach", 
-                "name of another GLSL ES program needed by this program",
-                PT_STRING),&msCmdAttach);
+                                            "Preprocessor defines use to compile the program.",
+                                            PT_STRING),&msCmdPreprocessorDefines);
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+			dict->addParameter(ParameterDef("use_optimiser", 
+                                            "Should the GLSL optimiser be used. Default is true.",
+                                            PT_BOOL),&msCmdOptimisation);
+#endif
         }
         // Manually assign language now since we use it immediately
         mSyntaxCode = "glsles";
-        
     }
     //---------------------------------------------------------------------------
     GLSLESProgram::~GLSLESProgram()
@@ -87,35 +92,6 @@ namespace Ogre {
     //-----------------------------------------------------------------------
 	void GLSLESProgram::loadFromSource(void)
 	{
-		// we want to compile only if we need to link - else it is a waste of CPU
-	}
-    
-    //---------------------------------------------------------------------------
-	bool GLSLESProgram::compile(const bool checkErrors)
-	{
-		if (mCompiled == 1)
-		{
-			return true;
-		}
-		// Only create a shader object if glsl es is supported
-		if (isSupported())
-		{
-            GL_CHECK_ERROR
-
-			// Create shader object
-			GLenum shaderType = 0x0000;
-			if (mType == GPT_VERTEX_PROGRAM)
-			{
-				shaderType = GL_VERTEX_SHADER;
-			}
-            else if (mType == GPT_FRAGMENT_PROGRAM)
-            {
-				shaderType = GL_FRAGMENT_SHADER;
-			}
-			mGLHandle = glCreateShader(shaderType);
-            GL_CHECK_ERROR
-		}
-
 		// Preprocess the GLSL ES shader in order to get a clean source
 		CPreprocessor cpp;
 
@@ -182,6 +158,32 @@ namespace Ogre {
 		mSource = String (out, out_size);
 		if (out < src || out > src + src_len)
 			free (out);
+    }
+
+	bool GLSLESProgram::compile(const bool checkErrors)
+	{
+		if (mCompiled == 1)
+		{
+			return true;
+		}
+		// Only create a shader object if glsl es is supported
+		if (isSupported())
+		{
+            GL_CHECK_ERROR
+
+			// Create shader object
+			GLenum shaderType = 0x0000;
+			if (mType == GPT_VERTEX_PROGRAM)
+			{
+				shaderType = GL_VERTEX_SHADER;
+			}
+            else if (mType == GPT_FRAGMENT_PROGRAM)
+            {
+				shaderType = GL_FRAGMENT_SHADER;
+			}
+			mGLHandle = glCreateShader(shaderType);
+            GL_CHECK_ERROR
+		}
 
 		// Add preprocessor extras and main source
 		if (!mSource.empty())
@@ -204,8 +206,6 @@ namespace Ogre {
 		{
             String message = logObjectInfo("GLSL ES compile log: " + mName, mGLHandle);
 			checkAndFixInvalidDefaultPrecisionError(message);
-
-			
 		}
 
 		// Log a message that the shader compiled successfully.
@@ -277,14 +277,16 @@ namespace Ogre {
 		return true;
 	}
 	//-----------------------------------------------------------------------
-    String GLSLESProgram::CmdAttach::doGet(const void *target) const
-    {
-        return (static_cast<const GLSLESProgram*>(target))->getAttachedShaderNames();
-    }
-	//-----------------------------------------------------------------------
-    void GLSLESProgram::CmdAttach::doSet(void *target, const String& shaderNames)
-    {
-    }
+#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
+	String GLSLESProgram::CmdOptimisation::doGet(const void *target) const
+	{
+        return StringConverter::toString(static_cast<const GLSLESProgram*>(target)->getOptimiserEnabled());
+	}
+	void GLSLESProgram::CmdOptimisation::doSet(void *target, const String& val)
+	{
+        static_cast<GLSLESProgram*>(target)->setOptimiserEnabled(StringConverter::parseBool(val));
+	}
+#endif
 	//-----------------------------------------------------------------------
 	String GLSLESProgram::CmdPreprocessorDefines::doGet(const void *target) const
 	{
@@ -293,11 +295,6 @@ namespace Ogre {
 	void GLSLESProgram::CmdPreprocessorDefines::doSet(void *target, const String& val)
 	{
 		static_cast<GLSLESProgram*>(target)->setPreprocessorDefines(val);
-	}
-
-	//-----------------------------------------------------------------------
-    void GLSLESProgram::attachChildShader(const String& name)
-	{
 	}
 
 	//-----------------------------------------------------------------------
@@ -340,7 +337,7 @@ namespace Ogre {
 			vector< String >::type errors = StringUtil::split(message, "\n");
 
 			// going from the end so when we delete a line the numbers of the lines before will not change
-			for(size_t i = errors.size() - 1 ; i != -1 ; i--)
+			for(int i = errors.size() - 1 ; i != -1 ; i--)
 			{
 				String & curError = errors[i];
 				size_t foundPos = curError.find(precisionQualifierErrorString);

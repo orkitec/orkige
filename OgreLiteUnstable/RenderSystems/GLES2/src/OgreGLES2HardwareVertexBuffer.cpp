@@ -57,7 +57,6 @@ namespace Ogre {
         }
 
         dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
-        GL_CHECK_ERROR;
         glBufferData(GL_ARRAY_BUFFER, mSizeInBytes, NULL,
                      GLES2HardwareBufferManager::getGLUsage(usage));
         GL_CHECK_ERROR;
@@ -67,6 +66,9 @@ namespace Ogre {
     {
         glDeleteBuffers(1, &mBufferId);
         GL_CHECK_ERROR;
+
+        // Delete the cached value
+        dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_deleteGLBuffer(GL_ARRAY_BUFFER, mBufferId);
     }
 
     void* GLES2HardwareVertexBuffer::lockImpl(size_t offset,
@@ -119,18 +121,19 @@ namespace Ogre {
 		{
 			// Use glMapBuffer
             dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
-			// Use glMapBuffer
-			if(options == HBL_DISCARD)
+
+            if(options == HBL_DISCARD)
 			{
 				// Discard the buffer
 				glBufferData(GL_ARRAY_BUFFER, mSizeInBytes, NULL, 
 					GLES2HardwareBufferManager::getGLUsage(mUsage));
-
+                GL_CHECK_ERROR;
 			}
 			if (mUsage & HBU_WRITE_ONLY)
 				access = GL_WRITE_ONLY_OES;
 
 			void* pBuffer = glMapBufferOES(GL_ARRAY_BUFFER, access);
+            GL_CHECK_ERROR;
 
 			if(pBuffer == 0)
 			{
@@ -155,9 +158,9 @@ namespace Ogre {
         {
             if (mScratchUploadOnUnlock)
             {
-                    // have to write the data back to vertex buffer
-                    writeData(mScratchOffset, mScratchSize, mScratchPtr,
-                              mScratchOffset == 0 && mScratchSize == getSizeInBytes());
+                // have to write the data back to vertex buffer
+                writeData(mScratchOffset, mScratchSize, mScratchPtr,
+                          mScratchOffset == 0 && mScratchSize == getSizeInBytes());
             }
 
             static_cast<GLES2HardwareBufferManager*>(
@@ -208,7 +211,6 @@ namespace Ogre {
                                            bool discardWholeBuffer)
     {
         dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
-        GL_CHECK_ERROR;
 
         // Update the shadow buffer
         if(mUseShadowBuffer)
@@ -248,7 +250,6 @@ namespace Ogre {
                                                        HBL_READ_ONLY);
 
             dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
-            GL_CHECK_ERROR;
 
             // Update whole buffer if possible, otherwise normal
             if (mLockStart == 0 && mLockSize == mSizeInBytes)
@@ -259,7 +260,7 @@ namespace Ogre {
             }
             else
             {
-                // TODO: GPU stall
+                // FIXME: GPU frequently stalls here - DJR
                 glBufferSubData(GL_ARRAY_BUFFER, mLockStart, mLockSize, srcData);
                 GL_CHECK_ERROR;
             }

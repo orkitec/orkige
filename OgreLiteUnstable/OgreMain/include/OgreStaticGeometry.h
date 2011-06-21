@@ -95,7 +95,7 @@ namespace Ogre {
 		There are 2 ways you can add geometry to this class; you can add
 		Entity objects directly with predetermined positions, scales and 
 		orientations, or you can add an entire SceneNode and it's subtree, 
-		including all the objects attached to it. Once you've added everthing
+		including all the objects attached to it. Once you've added everything
 		you need to, you have to call build() the fix the geometry in place. 
 	@note
 		This class is not a replacement for world geometry (@see 
@@ -329,6 +329,8 @@ namespace Ogre {
 				void getWorldTransforms(Matrix4* xform) const;
 				HardwareVertexBufferSharedPtr getPositionBuffer(void) { return mPositionBuffer; }
 				HardwareVertexBufferSharedPtr getWBuffer(void) { return mWBuffer; }
+				/// Overridden from ShadowRenderable
+				virtual void rebindIndexBuffer(const HardwareIndexBufferSharedPtr& indexBuffer);
 
 			};
 			/// Pointer to parent region

@@ -229,6 +229,9 @@ namespace Ogre
         /** Internal method to build keyframe time index map to translate global lower
             bound index to local lower bound index. */
         virtual void _buildKeyFrameIndexMap(const vector<Real>::type& keyFrameTimes);
+		
+		/** Internal method to re-base the keyframes relative to a given keyframe. */
+		virtual void _applyBaseKeyFrame(const KeyFrame* base) {}
 
 		/** Set a listener for this track. */
 		virtual void setListener(Listener* l) { mListener = l; }
@@ -378,6 +381,8 @@ namespace Ogre
 		/** Clone this track (internal use only) */
 		NodeAnimationTrack* _clone(Animation* newParent) const;
 		
+		void _applyBaseKeyFrame(const KeyFrame* base);
+		
 	protected:
 		/// Specialised keyframe creation
 		KeyFrame* createKeyFrameImpl(Real time);
@@ -422,7 +427,7 @@ namespace Ogre
 		For animating in a vertex shader, morph animation is quite simple and 
 		just requires the 2 vertex buffers (one the original position buffer) 
 		of absolute position data, and an interpolation factor. Each track in 
-		a morph animation refrences a unique set of vertex data.
+		a morph animation references a unique set of vertex data.
 	@par
 		Pose animation is more complex. Like morph animation each track references
 		a single unique set of vertex data, but unlike morph animation, each 
@@ -551,6 +556,8 @@ namespace Ogre
 
 		/** Clone this track (internal use only) */
 		VertexAnimationTrack* _clone(Animation* newParent) const;
+		
+		void _applyBaseKeyFrame(const KeyFrame* base);
 
 	protected:
 		/// Animation type

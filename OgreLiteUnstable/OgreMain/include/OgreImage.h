@@ -344,7 +344,7 @@ namespace Ogre {
 		@remarks
 			Saving and loading are implemented by back end (sometimes third 
 			party) codecs.  Implemented saving functionality is more limited
-			than loading in some cases.	Particulary DDS file format support 
+			than loading in some cases.	Particularly DDS file format support 
 			is currently limited to true colour or single channel float32, 
 			square, power of two textures with no mipmaps.  Volumetric support
 			is currently limited to DDS files.
@@ -430,8 +430,15 @@ namespace Ogre {
          * is only valid for cubemaps and volume textures. This uses the first (largest)
          * mipmap.
          */
-        ColourValue getColourAt(int x, int y, int z) const;
+        ColourValue getColourAt(size_t x, size_t y, size_t z) const;
         
+        /**
+         * Set colour value at a certain location in the image. The z coordinate
+         * is only valid for cubemaps and volume textures. This uses the first (largest)
+         * mipmap.
+         */
+        void setColourAt(ColourValue const &cv, size_t x, size_t y, size_t z);
+
         /**
          * Get a PixelBox encapsulating the image data of a mipmap
          */

@@ -34,6 +34,7 @@ THE SOFTWARE.
 
 #if (OGRE_PLATFORM == OGRE_PLATFORM_WIN32)
 #	if !defined( __MINGW32__ )
+#		define __PRETTY_FUNCTION__ __FUNCTION__
 #		ifndef WIN32_LEAN_AND_MEAN
 #			define WIN32_LEAN_AND_MEAN 1
 #		endif
@@ -106,6 +107,11 @@ extern PFNGLGETTEXLEVELPARAMETERiVNVPROC glGetTexLevelParameterivNV;
 #   define GL_BGRA  0x80E1
 #endif
 
+#if (OGRE_PLATFORM == OGRE_PLATFORM_WIN32)
+// an error in all windows gles sdks...
+#   undef GL_OES_get_program_binary
+#endif
+
 #if (OGRE_PLATFORM == OGRE_PLATFORM_WIN32) && !defined(__MINGW32__) && !defined(OGRE_STATIC_LIB)
 #   ifdef OGRE_GLES2PLUGIN_EXPORTS
 #       define _OgreGLES2Export __declspec(dllexport)
@@ -127,14 +133,25 @@ extern PFNGLGETTEXLEVELPARAMETERiVNVPROC glGetTexLevelParameterivNV;
         fprintf(stderr, "%s:%d: %s\n", __FUNCTION__, __LINE__, text); \
     }
 
-#define ENABLE_GL_CHECK 0
+#define ENABLE_GL_CHECK 1
 #if ENABLE_GL_CHECK
 #define GL_CHECK_ERROR \
     { \
         int e = glGetError(); \
         if (e != 0) \
         { \
-            fprintf(stderr, "OpenGL error 0x%04X in %s at line %i in %s\n", e, __PRETTY_FUNCTION__, __LINE__, __FILE__); \
+            const char * errorString = ""; \
+            switch(e) \
+            { \
+            case GL_INVALID_ENUM:       errorString = "GL_INVALID_ENUM";        break; \
+            case GL_INVALID_VALUE:      errorString = "GL_INVALID_VALUE";       break; \
+            case GL_INVALID_OPERATION:  errorString = "GL_INVALID_OPERATION";   break; \
+            case GL_OUT_OF_MEMORY:      errorString = "GL_OUT_OF_MEMORY";       break; \
+            default:                                                            break; \
+            } \
+            char msgBuf[10000]; \
+            sprintf(msgBuf, "OpenGL ES2 error 0x%04X %s in %s at line %i\n", e, errorString, __PRETTY_FUNCTION__, __LINE__); \
+            LogManager::getSingleton().logMessage(msgBuf); \
         } \
     }
 #else
@@ -147,8 +164,10 @@ extern PFNGLGETTEXLEVELPARAMETERiVNVPROC glGetTexLevelParameterivNV;
         int e = eglGetError(); \
         if ((e != 0) && (e != EGL_SUCCESS))\
         { \
-            fprintf(stderr, "EGL error 0x%04X in %s at line %i in %s\n", e, __PRETTY_FUNCTION__, __LINE__, __FILE__); \
-            assert(false); \
+            char msgBuf[10000]; \
+            sprintf(msgBuf, "EGL error 0x%04X in %s at line %i\n", e, __PRETTY_FUNCTION__, __LINE__); \
+            LogManager::getSingleton().logMessage(msgBuf); \
+            OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, msgBuf, __PRETTY_FUNCTION__); \
         } \
     }
 #else

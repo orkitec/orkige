@@ -112,7 +112,7 @@ namespace Ogre {
             neg     eax
             sbb     eax, eax
 
-            // Return values in eax, no return statment requirement here for VC.
+            // Return values in eax, no return statement requirement here for VC.
         }
 	#endif
 #elif OGRE_COMPILER == OGRE_COMPILER_GNUC
@@ -167,7 +167,7 @@ namespace Ogre {
             mov     [edi]._ebx, ebx
             mov     [edi]._edx, edx
             mov     [edi]._ecx, ecx
-            // Return values in eax, no return statment requirement here for VC.
+            // Return values in eax, no return statement requirement here for VC.
         }
 	#endif
 #elif OGRE_COMPILER == OGRE_COMPILER_GNUC
@@ -202,12 +202,14 @@ namespace Ogre {
     //---------------------------------------------------------------------
     // Detect whether or not os support Streaming SIMD Extension.
 #if OGRE_COMPILER == OGRE_COMPILER_GNUC
+    #if OGRE_ARCH_TYPE == OGRE_ARCHITECTURE_32
     static jmp_buf sIllegalJmpBuf;
     static void _illegalHandler(int x)
     {
         (void)(x); // Unused
         longjmp(sIllegalJmpBuf, 1);
     }
+    #endif
 #endif
     static bool _checkOperatingSystemSupportSSE(void)
     {

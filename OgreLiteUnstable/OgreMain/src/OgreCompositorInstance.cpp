@@ -53,7 +53,8 @@ namespace Ogre {
 CompositorInstance::CompositorInstance(CompositionTechnique *technique,
     CompositorChain *chain):
     mCompositor(technique->getParent()), mTechnique(technique), mChain(chain),
-		mEnabled(false)
+		mEnabled(false),
+		mAlive(false)
 {
 	const String& logicName = mTechnique->getCompositorLogicName();
 	if (!logicName.empty())
@@ -77,9 +78,24 @@ CompositorInstance::~CompositorInstance()
 //-----------------------------------------------------------------------
 void CompositorInstance::setEnabled(bool value)
 {
-    if (mEnabled != value)
+	if (mEnabled != value)
     {
         mEnabled = value;
+
+	    //Probably first time enabling, create resources.
+	    if( mEnabled && !mAlive )
+    		setAlive( true );
+
+		/// Notify chain state needs recompile.
+        mChain->_markDirty();
+	}
+}
+//-----------------------------------------------------------------------
+void CompositorInstance::setAlive(bool value)
+{
+    if (mAlive != value)
+    {
+        mAlive = value;
 
         // Create of free resource.
         if (value)
@@ -89,16 +105,12 @@ void CompositorInstance::setEnabled(bool value)
         else
         {
             freeResources(false, true);
+			setEnabled(false);
         }
 
 		/// Notify chain state needs recompile.
         mChain->_markDirty();
     }
-}
-//-----------------------------------------------------------------------
-bool CompositorInstance::getEnabled()
-{
-    return mEnabled;
 }
 //-----------------------------------------------------------------------
 
@@ -439,7 +451,7 @@ void CompositorInstance::_compileTargetOperations(CompiledState &compiledState)
         if(target->getInputMode() == CompositionTargetPass::IM_PREVIOUS)
         {
             /// Collect target state for previous compositor
-            /// The TargetOperation for the final target is collected seperately as it is merged
+            /// The TargetOperation for the final target is collected separately as it is merged
             /// with later operations
             mPreviousInstance->_compileOutputOperation(ts);
         }
@@ -463,7 +475,7 @@ void CompositorInstance::_compileOutputOperation(TargetOperation &finalState)
     if(tpass->getInputMode() == CompositionTargetPass::IM_PREVIOUS)
     {
         /// Collect target state for previous compositor
-        /// The TargetOperation for the final target is collected seperately as it is merged
+        /// The TargetOperation for the final target is collected separately as it is merged
         /// with later operations
         mPreviousInstance->_compileOutputOperation(finalState);
     }
@@ -510,7 +522,7 @@ void CompositorInstance::setTechnique(CompositionTechnique* tech, bool reuseText
 		// replace technique
 		mTechnique = tech;
 
-		if (mEnabled)
+		if (mAlive)
 		{
 			// free up resources, but keep reserves if reusing
 			freeResources(false, !reuseTextures);
@@ -528,6 +540,7 @@ void CompositorInstance::setScheme(const String& schemeName, bool reuseTextures)
 	if (tech)
 	{
 		setTechnique(tech, reuseTextures);
+		mActiveScheme = tech->getSchemeName();
 	}
 }
 //-----------------------------------------------------------------------
@@ -968,13 +981,14 @@ RenderTarget *CompositorInstance::getTargetForTex(const String &name)
 	if (texDef != 0 && !texDef->refCompName.empty()) 
 	{
 		//This is a reference - find the compositor and referenced texture definition
-		const CompositorPtr& refComp = CompositorManager::getSingleton().getByName(texDef->refCompName);
-		if (refComp.isNull())
+		Ogre::CompositorInstance *refCompInst = mChain->getCompositor(texDef->refCompName);
+		if(refCompInst == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor",
 				"CompositorInstance::getTargetForTex");
 		}
-		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique()->getTextureDefinition(texDef->refTexName);
+		Ogre::Compositor *refComp = refCompInst->getCompositor();
+		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique(refCompInst->getScheme())->getTextureDefinition(texDef->refTexName);
 		if (refTexDef == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor texture",
@@ -1038,14 +1052,14 @@ const String &CompositorInstance::getSourceForTex(const String &name, size_t mrt
 
 	if (!texDef->refCompName.empty()) 
 	{
-		//This is a reference - find the compositor and referenced texture definition
-		const CompositorPtr& refComp = CompositorManager::getSingleton().getByName(texDef->refCompName);
-		if (refComp.isNull())
+		Ogre::CompositorInstance *refCompInst = mChain->getCompositor(texDef->refCompName);
+		if(refCompInst == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor",
-				"CompositorInstance::getSourceForTex");
+			"CompositorInstance::getSourceForTex");
 		}
-		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique()->getTextureDefinition(texDef->refTexName);
+		Ogre::Compositor *refComp = refCompInst->getCompositor();
+		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique(refCompInst->getScheme())->getTextureDefinition(texDef->refTexName);
 		if (refTexDef == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor texture",

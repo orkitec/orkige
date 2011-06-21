@@ -222,6 +222,24 @@ namespace Ogre {
 			Listener() {}
 			virtual ~Listener() {}
 
+			/** Called prior to updating the scene graph in this SceneManager.
+			@remarks
+				This is called before updating the scene graph for a camera.
+			@param source The SceneManager instance raising this event.
+			@param camera The camera being updated.
+			*/
+			virtual void preUpdateSceneGraph(SceneManager* source, Camera* camera)
+                        { (void)source; (void)camera; }
+
+			/** Called after updating the scene graph in this SceneManager.
+			@remarks
+				This is called after updating the scene graph for a camera.
+			@param source The SceneManager instance raising this event.
+			@param camera The camera being updated.
+			*/
+			virtual void postUpdateSceneGraph(SceneManager* source, Camera* camera)
+                        { (void)source; (void)camera; }
+
 			/** Called prior to searching for visible objects in this SceneManager.
 			@remarks
 				Note that the render queue at this stage will be full of the last
@@ -653,6 +671,10 @@ namespace Ogre {
         virtual void fireShadowTexturesPreCaster(Light* light, Camera* camera, size_t iteration);
 		/// Internal method for firing the pre receiver texture shadows event
         virtual void fireShadowTexturesPreReceiver(Light* light, Frustum* f);
+		/// Internal method for firing pre update scene graph event
+		virtual void firePreUpdateSceneGraph(Camera* camera);
+		/// Internal method for firing post update scene graph event
+		virtual void firePostUpdateSceneGraph(Camera* camera);
 		/// Internal method for firing find visible objects event
 		virtual void firePreFindVisibleObjects(Viewport* v);
 		/// Internal method for firing find visible objects event
@@ -772,6 +794,7 @@ namespace Ogre {
 
 		typedef vector<InstanceManager*>::type		InstanceManagerVec;
 		InstanceManagerVec mDirtyInstanceManagers;
+		InstanceManagerVec mDirtyInstanceMgrsTmp;
 
 		/** Updates all instance managaers with dirty instance batches. @See _addDirtyInstanceManager */
 		void updateDirtyInstanceManagers(void);
@@ -1867,7 +1890,7 @@ namespace Ogre {
 				bow If zero, the plane will be completely flat (like previous
 				versions.  If above zero, the plane will be curved, allowing
 				the sky to appear below camera level.  Curved sky planes are 
-				simular to skydomes, but are more compatable with fog.
+				simular to skydomes, but are more compatible with fog.
             @param xsegments, ysegments
                 Determines the number of segments the plane will have to it. This
                 is most important when you are bowing the plane, but may also be useful
@@ -1917,7 +1940,7 @@ namespace Ogre {
 				bow If zero, the plane will be completely flat (like previous
 				versions.  If above zero, the plane will be curved, allowing
 				the sky to appear below camera level.  Curved sky planes are 
-				simular to skydomes, but are more compatable with fog.
+				simular to skydomes, but are more compatible with fog.
             @param xsegments, ysegments
                 Determines the number of segments the plane will have to it. This
                 is most important when you are bowing the plane, but may also be useful
@@ -1931,6 +1954,9 @@ namespace Ogre {
             Real tiling = 10, uint8 renderQueue = RENDER_QUEUE_SKIES_EARLY, Real bow = 0, 
             int xsegments = 1, int ysegments = 1, 
             const String& groupName = ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+
+		/** Enables / disables a 'sky plane' */
+		virtual void setSkyPlaneEnabled(bool enable) { mSkyPlaneEnabled = enable; }
 
 		/** Return whether a key plane is enabled */
 		virtual bool isSkyPlaneEnabled(void) const { return mSkyPlaneEnabled; }
@@ -2024,6 +2050,9 @@ namespace Ogre {
             uint8 renderQueue = RENDER_QUEUE_SKIES_EARLY, const Quaternion& orientation = Quaternion::IDENTITY,
             const String& groupName = ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
+		/** Enables / disables a 'sky box' */
+		virtual void setSkyBoxEnabled(bool enable) { mSkyBoxEnabled = enable; }
+
 		/** Return whether a skybox is enabled */
 		virtual bool isSkyBoxEnabled(void) const { return mSkyBoxEnabled; }
 
@@ -2048,7 +2077,7 @@ namespace Ogre {
                 backdrop with an overlayed curved cloud layer.
             @par
                 Sky domes work well with 2D repeating textures like clouds. You
-                can change the apparant 'curvature' of the sky depending on how
+                can change the apparent 'curvature' of the sky depending on how
                 your scene is viewed - lower curvatures are better for 'open'
                 scenes like landscapes, whilst higher curvatures are better for
                 say FPS levels where you don't see a lot of the sky at once and
@@ -2110,7 +2139,7 @@ namespace Ogre {
                 backdrop with an overlayed curved cloud layer.
             @par
                 Sky domes work well with 2D repeating textures like clouds. You
-                can change the apparant 'curvature' of the sky depending on how
+                can change the apparent 'curvature' of the sky depending on how
                 your scene is viewed - lower curvatures are better for 'open'
                 scenes like landscapes, whilst higher curvatures are better for
                 say FPS levels where you don't see a lot of the sky at once and
@@ -2147,6 +2176,9 @@ namespace Ogre {
             const Quaternion& orientation = Quaternion::IDENTITY,
             int xsegments = 16, int ysegments = 16, int ysegments_keep = -1,
             const String& groupName = ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+
+		/** Enables / disables a 'sky dome' */
+		virtual void setSkyDomeEnabled(bool enable) { mSkyDomeEnabled = enable; }
 
 		/** Return whether a skydome is enabled */
 		virtual bool isSkyDomeEnabled(void) const { return mSkyDomeEnabled; }
@@ -2640,7 +2672,7 @@ namespace Ogre {
             simple decal approach. The 2 stencil approaches differ in the amount of multipass work 
             that is required - the modulative approach simply 'darkens' areas in shadow after the 
             main render, which is the least expensive, whilst the additive approach has to perform 
-            a render per light and adds the cumulative effect, whcih is more expensive but more 
+            a render per light and adds the cumulative effect, which is more expensive but more 
             accurate. The texture based shadows both work in roughly the same way, the only difference is
             that the shadowmap approach is slightly more accurate, but requires a more recent
             graphics card.
@@ -2758,10 +2790,11 @@ namespace Ogre {
 			number of shadow textures setting
 		@param width, height The dimensions of the texture
 		@param format The pixel format of the texture
+        @param fsaa The level of multisampling to use. Ignored if the device does not support it.
 		@param depthBufferPoolId The pool # it should query the depth buffers from
 		*/
 		virtual void setShadowTextureConfig(size_t shadowIndex, unsigned short width, 
-			unsigned short height, PixelFormat format, uint16 depthBufferPoolId=1);
+			unsigned short height, PixelFormat format, unsigned short fsaa = 0, uint16 depthBufferPoolId=1);
 		/** Set the detailed configuration for a shadow texture.
 		@param shadowIndex The index of the texture to configure, must be < the
 			number of shadow textures setting
@@ -2785,6 +2818,14 @@ namespace Ogre {
 			complex form.
         */
         virtual void setShadowTexturePixelFormat(PixelFormat fmt);
+        /** Set the level of multisample AA of the textures used for texture-based shadows.
+        @remarks
+            By default, the level of multisample AA is zero.
+        @note This is the simple form, see setShadowTextureConfig for the more 
+            complex form.
+        */
+        virtual void setShadowTextureFSAA(unsigned short fsaa);
+
         /** Set the number of textures allocated for texture-based shadows.
         @remarks
             The default number of textures assigned to deal with texture based
@@ -2820,7 +2861,7 @@ namespace Ogre {
 			complex form.
         */
         virtual void setShadowTextureSettings(unsigned short size, unsigned short count, 
-			PixelFormat fmt = PF_X8R8G8B8, uint16 depthBufferPoolId=1);
+			PixelFormat fmt = PF_X8R8G8B8, unsigned short fsaa = 0, uint16 depthBufferPoolId=1);
 
 		/** Get a reference to the shadow texture currently in use at the given index.
 		@note
@@ -3116,6 +3157,11 @@ namespace Ogre {
 														size_t numInstancesPerBatch, uint16 flags=0,
 														unsigned short subMeshIdx=0 );
 
+		/** Retrieves an existing InstanceManager by it's name.
+		@note Throws an exception if the named InstanceManager does not exist
+		*/
+		virtual InstanceManager* getInstanceManager( const String &managerName ) const;
+
 		/** Destroys an InstanceManager <b>if</b> it was created with createInstanceManager()
 		@remarks
 			Be sure you don't have any InstancedEntity referenced somewhere which was created with
@@ -3131,7 +3177,7 @@ namespace Ogre {
 		@remarks
 			If you've already created an InstanceManager, you can call it's
 			getMaxOrBestNumInstancesPerBatch() function directly.
-			Another (not recomended) way to know if the technique is unsupported is by creating
+			Another (not recommended) way to know if the technique is unsupported is by creating
 			an InstanceManager and use createInstancedEntity, which will return null pointer.
 			The input parameter "numInstancesPerBatch" is a suggested value when using IM_VTFBESTFIT
 			flag (in that case it should be non-zero)
@@ -3365,6 +3411,15 @@ namespace Ogre {
         */
         virtual const Pass* _setPass(const Pass* pass, 
 			bool evenIfSuppressed = false, bool shadowDerivation = true);
+		
+		/** Method to allow you to mark gpu parameters as dirty, causing them to 
+			be updated according to the mask that you set when updateGpuProgramParameters is
+			next called. Only really useful if you're controlling parameter state in 
+			inner rendering loop callbacks.
+			@param mask Some combination of GpuParamVariability which is bitwise OR'ed with the
+				current dirty state.
+		*/
+		virtual void _markGpuParamsDirty(uint16 mask);
 
 
 		/** Indicates to the SceneManager whether it should suppress the 

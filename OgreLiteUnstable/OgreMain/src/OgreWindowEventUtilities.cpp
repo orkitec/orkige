@@ -37,11 +37,12 @@ THE SOFTWARE.
 void GLXProc( Ogre::RenderWindow *win, const XEvent &event );
 #endif
 
-using namespace Ogre;
+//using namespace Ogre;
 
-WindowEventUtilities::WindowEventListeners WindowEventUtilities::_msListeners;
-WindowEventUtilities::Windows WindowEventUtilities::_msWindows;
+Ogre::WindowEventUtilities::WindowEventListeners Ogre::WindowEventUtilities::_msListeners;
+Ogre::WindowEventUtilities::Windows Ogre::WindowEventUtilities::_msWindows;
 
+namespace Ogre {
 //--------------------------------------------------------------------------------//
 void WindowEventUtilities::messagePump()
 {
@@ -81,7 +82,7 @@ void WindowEventUtilities::messagePump()
 		GLXProc(*win, event);
 	    }
 	}
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && !defined __OBJC__
+#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && !defined __OBJC__ && !defined __LP64__
 	// OSX Message Pump
 	EventRef event = NULL;
 	EventTargetRef targetWindow;
@@ -135,8 +136,10 @@ void WindowEventUtilities::_removeRenderWindow(RenderWindow* window)
 		_msWindows.erase( i );
 }
 
+}
 #if OGRE_PLATFORM == OGRE_PLATFORM_WIN32
 //--------------------------------------------------------------------------------//
+namespace Ogre {
 LRESULT CALLBACK WindowEventUtilities::_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	if (uMsg == WM_CREATE)
@@ -252,14 +255,15 @@ LRESULT CALLBACK WindowEventUtilities::_WndProc(HWND hWnd, UINT uMsg, WPARAM wPa
 
 	return DefWindowProc( hWnd, uMsg, wParam, lParam );
 }
+}
 #elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX
 //--------------------------------------------------------------------------------//
-void GLXProc( RenderWindow *win, const XEvent &event )
+void GLXProc( Ogre::RenderWindow *win, const XEvent &event )
 {
 	//An iterator for the window listeners
-	WindowEventUtilities::WindowEventListeners::iterator index,
-		start = WindowEventUtilities::_msListeners.lower_bound(win),
-		end   = WindowEventUtilities::_msListeners.upper_bound(win);
+  Ogre::WindowEventUtilities::WindowEventListeners::iterator index,
+		start = Ogre::WindowEventUtilities::_msListeners.lower_bound(win),
+		end   = Ogre::WindowEventUtilities::_msListeners.upper_bound(win);
 
 	switch(event.type)
 	{
@@ -360,8 +364,9 @@ void GLXProc( RenderWindow *win, const XEvent &event )
 		break;
 	} //End switch event.type
 }
-#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && !defined __OBJC__
+#elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE && !defined __OBJC__ && !defined __LP64__
 //--------------------------------------------------------------------------------//
+namespace Ogre {
 OSStatus WindowEventUtilities::_CarbonWindowHandler(EventHandlerCallRef nextHandler, EventRef event, void* wnd)
 {
     OSStatus status = noErr;
@@ -445,5 +450,6 @@ OSStatus WindowEventUtilities::_CarbonWindowHandler(EventHandlerCallRef nextHand
     }
     
     return status;
+}
 }
 #endif
