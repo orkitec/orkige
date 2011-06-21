@@ -157,7 +157,8 @@ macro (ConfigureOrkige)
 			option(ORKIGE_COMPILE_FOR_THUMB "Thumb Mode" OFF)
 			option(ORKIGE_IPHONE_ADHOC_BUILD "Adhoc build" OFF)
 			option(ORKIGE_MULTITOUCH_TO_MOUSE	"Convert Multitouch events to mouse events" ON)
-			
+			option(ORKIGE_OPTIMIZED_ARMV7		"Build code optimized for armv7 processor (iPhone 3GS and above)"	TRUE)
+
 			if(ORKIGE_COMPILE_FOR_THUMB)
 				set(XCODE_ATTRIBUTE_GCC_THUMB_SUPPORT "YES")
 				add_definitions(-mthumb)
@@ -187,8 +188,10 @@ macro (ConfigureOrkige)
 	
 			# CMake 2.8.1 added the ability to specify per-target architectures.
 			# As a side effect, it creates corrupt Xcode projects if you try do it for the whole project.
-			if(VERSION STRLESS "2.8.1")
-				set(CMAKE_OSX_ARCHITECTURES $(ARCHS_STANDARD_32_BIT))
+			if(ORKIGE_OPTIMIZED_ARMV7)
+				set(CMAKE_OSX_ARCHITECTURES $(ARCHS_UNIVERSAL_IPHONE_OS))
+				set(XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH YES)
+				set(XCODE_ATTRIBUTE_VALID_ARCHS armv7)
 			else()
 				set(CMAKE_OSX_ARCHITECTURES "armv6;armv7;")
 			endif()

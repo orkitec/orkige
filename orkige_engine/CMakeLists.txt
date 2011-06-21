@@ -61,4 +61,10 @@ ogre_add_library(orkige_engine STATIC
             ${engine_sound_FILES}
             ${engine_video_FILES}
             ${engine_util_FILES}
+            SEPARATE 
+            "${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp" 
+            "${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp" 
+            "${CMAKE_CURRENT_SOURCE_DIR}/engine_graphic/Engine.cpp" 
+            "${CMAKE_CURRENT_SOURCE_DIR}/engine_base/Localisation.cpp" 
+            "${CMAKE_CURRENT_SOURCE_DIR}/engine_video/VideoManager.cpp"
     )
