@@ -262,13 +262,15 @@ namespace Ogre
 				}
 				else
 				{
-					if (border == "none")
+					// changed by kunst-stoff: disable resizing and maximizing window
+
+					/*if (border == "none")
 						dwStyle |= WS_POPUP;
-					else if (border == "fixed")
+					else if (border == "fixed")*/
 						dwStyle |= WS_OVERLAPPED | WS_BORDER | WS_CAPTION |
 						WS_SYSMENU | WS_MINIMIZEBOX;
-					else
-						dwStyle |= WS_OVERLAPPEDWINDOW;
+					/*else
+						dwStyle |= WS_OVERLAPPEDWINDOW;*/
 				}
 
 				adjustWindow(width, height, dwStyle, &winWidth, &winHeight);
@@ -392,7 +394,13 @@ namespace Ogre
 			}
 			else
 			{
+				// changed by kunst-stoff: disable resizing and maximizing window
+
+				/*
 				mStyle |= WS_OVERLAPPEDWINDOW;
+				*/
+				mStyle |= WS_OVERLAPPED | WS_BORDER | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+				
 				// Calculate window dimensions required
 				// to get the requested client area
 				unsigned int winWidth, winHeight;
