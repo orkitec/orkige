@@ -650,7 +650,7 @@ endif ()
 
 # setup OgreMain target
 # exclude OgreAlignedAllocator.cpp from unity builds; causes problems on Linux
-if (Win32)
+if (WIN32)
 	ogre_add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES} SEPARATE "src/OgreAlignedAllocator.cpp" "src/OgreAlignedAllocator.cpp" "src/OgreFreeImageCodec.cpp" "src/WIN32/OgreErrorDialog.cpp" "src/WIN32/OgreConfigDialog.cpp")
 else()
 	ogre_add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES} SEPARATE "src/OgreAlignedAllocator.cpp" "src/OgreAlignedAllocator.cpp" "src/OgreFreeImageCodec.cpp")
