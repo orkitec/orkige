@@ -67,5 +67,31 @@ macro(ConfigureOrkigeDependencies)
 				Shlwapi
 			)
 	endif(ORKIGE_ENABLE_APPUP)
+	
+	if (ORKIGE_ENABLE_GAMESWF)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/gameswf
+			${ORKIGE_DEP_DIR}/gameswf/base
+			${ORKIGE_DEP_DIR}/gameswf/gameswf
+			${ORKIGE_DEP_DIR}/gameswf/gameswf/gameswf_as_classes
+			${ORKIGE_DEP_DIR}/gameswf/gameswf/platforms
+			${ORKIGE_DEP_DIR}/gameswf/gameswf/plugins/file
+
+		)
+
+		link_libraries(
+			gameswf
+		)
+		add_definitions(-DTU_CONFIG_LINK_TO_LIBPNG=1)
+		add_definitions(-DTU_CONFIG_LINK_TO_FFMPEG=0)
+		add_definitions(-DTU_CONFIG_LINK_TO_LIB3DS=0)
+		add_definitions(-DTU_CONFIG_LINK_TO_MYSQL=0)
+		add_definitions(-DTU_CONFIG_LINK_TO_FREETYPE=1)
+		add_definitions(-DTU_CONFIG_LINK_TO_THREAD=0)
+		add_definitions(-DTU_ENABLE_NETWORK=0)
+		add_definitions(-DTU_USE_FLASH_COMPATIBLE_HITTEST=0)
+		add_definitions(-DTU_CONFIG_LINK_TO_JPEGLIB=1)
+		add_definitions(-DTU_USE_SDL=0)
+	endif()
 endmacro(ConfigureOrkigeDependencies)
 
