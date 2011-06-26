@@ -1,3 +1,12 @@
+/**************************************************************
+	created:	2011/06/26 at 20:41
+	filename: 	SwfPanelMovie.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+
 #include "engine_swf/SwfPanelMovie.h"
 #include "engine_swf/SwfMovieManager.h"
 
@@ -13,7 +22,7 @@
 
 namespace Orkige
 {
-	PanelMovie::PanelMovie(const Ogre::String & file, const Ogre::String & name)
+	SwfPanelMovie::SwfPanelMovie(const Ogre::String & file, const Ogre::String & name)
 		: SwfBaseMovie(file,name,SwfBaseMovie::PANEL,0)
 	{
 
@@ -26,13 +35,13 @@ namespace Orkige
 	}
 
 	// -------------------------------------------------------------------------------
-	PanelMovie::~PanelMovie()
+	SwfPanelMovie::~SwfPanelMovie()
 	{
 
 	}
 
 	// -------------------------------------------------------------------------------
-	void PanelMovie::draw_mesh_strip(const void* coords, int vertex_count, float transform[16], float xOffset, float yOffset)
+	void SwfPanelMovie::draw_mesh_strip(const void* coords, int vertex_count, float transform[16], float xOffset, float yOffset)
 	{
 		transform[12] -= xOffset;
 		transform[13] -= yOffset;
@@ -76,7 +85,7 @@ namespace Orkige
 	}
 
 	// -------------------------------------------------------------------------------
-	void PanelMovie::_setBounds(Ogre::ManualObject * obj, const Ogre::AxisAlignedBox& bounds, bool pad) 
+	void SwfPanelMovie::_setBounds(Ogre::ManualObject * obj, const Ogre::AxisAlignedBox& bounds, bool pad) 
 	{ 
 		Ogre::AxisAlignedBox AABB = bounds; 
 		Ogre::Vector3 max = AABB.getMaximum(); 

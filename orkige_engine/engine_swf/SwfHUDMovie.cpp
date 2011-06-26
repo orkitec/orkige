@@ -1,3 +1,12 @@
+/**************************************************************
+	created:	2011/06/26 at 19:10
+	filename: 	SwfHUDMovie.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+
 #include "engine_swf/SwfHUDMovie.h"
 #include "engine_swf/SwfMovieManager.h"
 

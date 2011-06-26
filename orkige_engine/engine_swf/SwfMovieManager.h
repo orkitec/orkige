@@ -1,7 +1,13 @@
-//created 2008/09/21
-#ifndef __OGRESWFMOVIEMANAGER_H__
-#define __OGRESWFMOVIEMANAGER_H__
-
+/**************************************************************
+	created:	2011/06/26 at 19:35
+	filename: 	SwfMovieManager.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+#ifndef __SwfMovieManager_h__26_6_2011__19_35_29__
+#define __SwfMovieManager_h__26_6_2011__19_35_29__
 
 #include "engine_swf/SwfApiDefs.h"
 
@@ -18,17 +24,20 @@ namespace Orkige
 {
 	struct SwfBitmapInfo;
 	struct SwfRenderHandler;
+
 	class SwfMovieManager : public Ogre::Singleton<SwfMovieManager>, public EventHandler
 	{
 		friend class SwfBaseMovie;
 		friend struct SwfRenderHandler;
 		friend struct SwfBitmapInfo;
 		friend void	fs_callback(gameswf::character*, const char*, const char*);
-		
+		//--- Types -------------------------------------------
+	public:
 		typedef std::vector<SwfBaseMovie*> MovieVector;
 		typedef std::map<SwfBaseMovie::SwfMovieType, MovieVector> MovieRegistry;
-
-		// Attributes --------------------------------------------------------------
+	protected:
+	private:
+		//--- Variables ---------------------------------------
 	public:
 	protected:
 	private:
@@ -39,7 +48,7 @@ namespace Orkige
 		MovieRegistry managedMovies;
 
 		int	mouse_buttons;
-		// Methods -----------------------------------------------------------------
+		//--- Methods -----------------------------------------
 	public:
 		SwfMovieManager(const Ogre::String & sceneMgrName);
 		~SwfMovieManager(void);
@@ -50,6 +59,7 @@ namespace Orkige
 		/**update all TextureMovies, HudMovies, ...
 		@param: unique time factor for updating everything*/
 		void update(Ogre::Real timeSinceLastFrame);
+	protected:
 	private:
 		//some helpers for our friends
 		Ogre::SceneManager* getSceneManager();
@@ -78,6 +88,7 @@ namespace Orkige
 		//! Processes mouse button down events. Returns true if the event was consumed and should not be passed on to other handlers.
 		bool onMouseEvent(Orkige::Event const & event);
 	};
+	//---------------------------------------------------------
 }
 
-#endif //__OGRESWFMOVIEMANAGER_H__
+#endif //__SwfMovieManager_h__26_6_2011__19_35_29__

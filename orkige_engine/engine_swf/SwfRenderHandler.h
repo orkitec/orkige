@@ -1,9 +1,15 @@
-//created 2008/09/21
-#ifndef __OGRESWFRENDERHANDLER_H__
-#define __OGRESWFRENDERHANDLER_H__
+/**************************************************************
+	created:	2011/06/26 at 20:47
+	filename: 	SwfRenderHandler.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+#ifndef __SwfRenderHandler_h__26_6_2011__20_47_10__
+#define __SwfRenderHandler_h__26_6_2011__20_47_10__
 
 #include "engine_swf/SwfApiDefs.h"
-
 
 namespace Orkige
 {
@@ -115,7 +121,7 @@ namespace Orkige
 
 		// Delete the given bitmap info struct.
 		void	delete_bitmap_info(gameswf::bitmap_info* bi);
-		
+
 		// Set up to render a full frame from a movie and fills the
 		// background.	Sets up necessary transforms, to scale the
 		// movie to fit within the given dimensions.  Call
@@ -201,6 +207,8 @@ namespace Orkige
 		gameswf::video_handler* create_video_handler(void);
 
 		bool test_stencil_buffer(const gameswf::rect &,Uint8);
-	};	// end struct render_handler_ogre
-};
-#endif //__OGRESWFRENDERHANDLER_H__
+	};
+	//---------------------------------------------------------
+}
+
+#endif //__SwfRenderHandler_h__26_6_2011__20_47_10__

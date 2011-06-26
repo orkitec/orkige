@@ -1,6 +1,13 @@
-//created 2008/09/21
-#ifndef __OGRESWFHUD_H__
-#define __OGRESWFHUD_H__
+/**************************************************************
+	created:	2011/06/26 at 19:11
+	filename: 	SwfHUDMovie.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2010 orkitec
+***************************************************************/
+#ifndef __SwfHUDMovie_h__26_6_2011__19_11_11__
+#define __SwfHUDMovie_h__26_6_2011__19_11_11__
 
 #include "engine_swf/SwfApiDefs.h"
 #include "engine_swf/SwfBaseMovie.h"
@@ -13,7 +20,11 @@ namespace Orkige
 	class SwfHudMovie : public SwfBaseMovie
 	{
 		friend class SwfMovieManager;
-		// Attributes --------------------------------------------------------------
+		//--- Types -------------------------------------------
+	public:
+	protected:
+	private:
+		//--- Variables ---------------------------------------
 	public:
 	protected:
 		//viewport movie position
@@ -29,7 +40,7 @@ namespace Orkige
 
 		Ogre::Camera* currentCamera;
 	private:
-		// Methods -----------------------------------------------------------------
+		//--- Methods -----------------------------------------
 	public:
 		SwfHudMovie(const Ogre::String & file, const Ogre::String & name, Ogre::Camera* cam);
 		~SwfHudMovie(void);
@@ -39,6 +50,7 @@ namespace Orkige
 
 		//the cam at witch the gui is targeted
 		inline void setCurrentCamera(Ogre::Camera* cam);
+	protected:
 	private:
 		void update(Ogre::Real timeSinceLastFrame);
 
@@ -48,10 +60,11 @@ namespace Orkige
 
 		/*Ogre::AxisAlignedBox infiniteBox;*/
 	};
-	// -------------------------------------------------------------------------------
+	//---------------------------------------------------------
 	void SwfHudMovie::setCurrentCamera(Ogre::Camera* cam)
 	{
 		this->currentCamera = cam;
 	}
-};
-#endif //__OGRESWFHUD_H__
+}
+
+#endif //__SwfHUDMovie_h__26_6_2011__19_11_11__
