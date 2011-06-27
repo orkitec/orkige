@@ -26,7 +26,7 @@
 #include "engine_swf/SwfRenderHandler.h"
 
 #include "engine_swf/SwfHUDMovie.h"
-
+#include "engine_graphic/Engine.h"
 
 gameswf::render_handler*  create_render_handler_ogre_d3d();
 void updateOgreRenderer();
@@ -35,9 +35,9 @@ template<> Orkige::SwfMovieManager* Ogre::Singleton<Orkige::SwfMovieManager>::ms
 
 namespace Orkige
 {
-	SwfMovieManager::SwfMovieManager   (const Ogre::String & sceneMgrName)
+	SwfMovieManager::SwfMovieManager   ()
 	{
-		this->sceneManager = Ogre::Root::getSingletonPtr()->getSceneManager(sceneMgrName);
+		this->sceneManager = Engine::getSingleton().getSceneManager();
 
 		this->sceneManager->setVisibilityMask(1);
 		Ogre::MovableObject::setDefaultVisibilityFlags(1);

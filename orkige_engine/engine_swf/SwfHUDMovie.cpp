@@ -127,6 +127,6 @@ namespace Orkige
 
 		this->numMeshes++;
 
-		this->sorting += 0.01f;
+		this->sorting += 0.05f;
 	}
 }

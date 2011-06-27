@@ -50,7 +50,7 @@ namespace Orkige
 		int	mouse_buttons;
 		//--- Methods -----------------------------------------
 	public:
-		SwfMovieManager(const Ogre::String & sceneMgrName);
+		SwfMovieManager();
 		~SwfMovieManager(void);
 
 		static SwfMovieManager& getSingleton(void);

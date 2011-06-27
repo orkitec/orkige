@@ -151,6 +151,7 @@ namespace Orkige
 		this->textureList.push_back(ptex);
 
 		////DEBUGGING CODE -> START
+/*
 		buffer->lock(Ogre::HardwareBuffer::HBL_READ_ONLY );
 		const Ogre::PixelBox &readrefpb = buffer->getCurrentLock();   
 		unsigned char *readrefdata = static_cast<unsigned char*>(readrefpb.data);      
@@ -159,7 +160,8 @@ namespace Orkige
 		Ogre::Image img;
 		img = img.loadDynamicImage (readrefdata, ptex->getWidth(),
 			ptex->getHeight(), ptex->getFormat());   
-		img.save("C:/image"+Ogre::StringConverter::toString(index)+".png"); 
+		img.save("C:/image"+Ogre::StringConverter::toString(index)+".png"); */
+
 		////DEBUGGING CODE -> END
 	}
 	// -------------------------------------------------------------------------------
@@ -177,7 +179,7 @@ namespace Orkige
 		//if no more free Object is in the list, create a new one
 		else
 		{
-			Ogre::MaterialPtr material = this->rootColorMaterial->clone(this->name + "_ColorMat_" + Ogre::StringConverter::toString(this->numColorMaterials), true, "Swf_Renderer");
+			Ogre::MaterialPtr material = this->rootColorMaterial->clone(this->name + "_ColorMat_" + Ogre::StringConverter::toString(this->numColorMaterials)/*, true, "Swf_Renderer"*/);
 			material->compile(false);
 			material->getBestTechnique()->setLightingEnabled(true);
 			Ogre::Pass* pass = material->getBestTechnique()->getPass(0);
@@ -207,7 +209,7 @@ namespace Orkige
 		//if no more free Object is in the list, create a new one
 		else
 		{
-			Ogre::MaterialPtr material = this->rootImageMaterial->clone(this->name + "_ImageMat_" + Ogre::StringConverter::toString(this->numImageMaterials), true, "Swf_Renderer");
+			Ogre::MaterialPtr material = this->rootImageMaterial->clone(this->name + "_ImageMat_" + Ogre::StringConverter::toString(this->numImageMaterials)/*, true, "Swf_Renderer"*/);
 			material->compile(false);
 			Ogre::Pass* pass = material->getBestTechnique()->getPass(0);
 			Ogre::TexturePtr texture = this->textureList[index];
