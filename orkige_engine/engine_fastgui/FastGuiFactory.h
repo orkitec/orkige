@@ -17,8 +17,9 @@
 #include "engine_fastgui/FastGuiSelectMenu.h"
 #include "engine_fastgui/FastGuiDragDropButton.h"
 #include "engine_fastgui/FastGuiProgressBar.h"
-#include <core_util/StringUtil.h>
 #include "engine_fastgui/FastGuiButtonBlink.h"
+#include "engine_fastgui/FastGuiSlider.h"
+#include <core_util/StringUtil.h>
 
 
 namespace Orkige
@@ -64,11 +65,13 @@ namespace Orkige
 		//! create a simple CheckBox
 		virtual woptr<FastGuiCheckBox> createCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0, bool useCheckbox = false);
 		//! create a simple decor SelectMenu
-		virtual woptr<FastGuiSelectMenu> createSelectMenu(String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_TOP, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
+		virtual woptr<FastGuiSelectMenu> createSelectMenu(String const & id, String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_TOP, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 		//! create a Drag and Drop Button
 		virtual woptr<FastGuiDragDropButton> createDragDropButton(String const & id, String const & spriteName, unsigned char defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned char z = 0);
 		//! create a simple ProgressBar
 		virtual woptr<FastGuiProgressBar> createProgressBar(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
+		//! create a simple decor SelectMenu
+		virtual woptr<FastGuiSlider> createSlider(String const & id, String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position,FastGuiLabel::LabelAlignment textAlignment = FastGuiLabel::LA_TOP, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 
 		
 		virtual void load(String const & filename);
@@ -95,6 +98,8 @@ namespace Orkige
 		virtual void onLoadSelectMenu(String const & id, SettingsMultiMap* settings);
 		//! overridable to load a ProgressBar
 		virtual void onLoadProgressBar(String const & id, SettingsMultiMap* settings);
+		//! overridable to load a Slider
+		virtual void onLoadSlider(String const & id, SettingsMultiMap* settings);
 	private:
 	};
 	//---------------------------------------------------------------

@@ -161,10 +161,6 @@ namespace Orkige
     //----------------------------------------------------
     //- protected: ---------------------------------------
     //----------------------------------------------------
-
-    //----------------------------------------------------
-    //- private: -----------------------------------------
-    //----------------------------------------------------
 	void FastGuiSelectMenu::updatePosition()
 	{
 		this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x,
@@ -184,7 +180,8 @@ namespace Orkige
 		this->rightArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
 	}
 	//----------------------------------------------------
-
+	//- private: -----------------------------------------
+	//----------------------------------------------------
 	OABSTRACT_IMPL(FastGuiSelectMenu)
 		OOBJECT_END
 

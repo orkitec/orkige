@@ -100,7 +100,6 @@ namespace Orkige
  		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, useCheckbox));
  		FastGuiManager::getSingleton().addWidget(widget);
  		return widget;
- 
  	}
 	//---------------------------------------------------------
 	woptr<FastGuiSelectMenu> FastGuiFactory::createSelectMenu( String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
@@ -115,7 +114,6 @@ namespace Orkige
 		widget = onew(new FastGuiSelectMenu(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
-
 	}
 	//---------------------------------------------------------
 	woptr<FastGuiDragDropButton> FastGuiFactory::createDragDropButton(String const & id, String const & spriteName, unsigned char defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, unsigned char z)
@@ -131,7 +129,7 @@ namespace Orkige
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
-
+	//---------------------------------------------------------
 	woptr<FastGuiProgressBar> FastGuiFactory::createProgressBar( String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
 	{
 		optr<FastGuiProgressBar> widget;
@@ -142,6 +140,20 @@ namespace Orkige
 			return widget;
 		}
 		widget = onew(new FastGuiProgressBar(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		FastGuiManager::getSingleton().addWidget(widget);
+		return widget;
+	}
+	//---------------------------------------------------------
+	woptr<FastGuiSlider> FastGuiFactory::createSlider( String const & id,String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment /*= FastGuiLabel::LA_CENTER*/, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/ )
+	{
+		optr<FastGuiSlider> widget;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new FastGuiSlider(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -233,6 +245,10 @@ namespace Orkige
 		else if(widgetTypeName == "progressbar")
 		{
 			this->onLoadProgressBar(widgetId, settings);
+		}
+		else if(widgetTypeName == "slider")
+		{
+			this->onLoadSlider(widgetId, settings);
 		}
 	}
 	//---------------------------------------------------------
@@ -721,7 +737,7 @@ namespace Orkige
 
 		woptr<FastGuiDragDropButton> button = this->createDragDropButton(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
 		oAssert(button.lock());
-		}
+	}
 
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadSelectMenu( String const & id, SettingsMultiMap* settings )
@@ -810,7 +826,6 @@ namespace Orkige
 		woptr<FastGuiSelectMenu> selectMenu = this->createSelectMenu(id, "select_menu_button", baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
 		oAssert(selectMenu.lock());
 		selectMenu.lock()->getLabel().lock()->getCaption()->colour(color);
-
 	}
 
 	void FastGuiFactory::onLoadProgressBar( String const & id, SettingsMultiMap* settings )
@@ -899,8 +914,97 @@ namespace Orkige
 		woptr<FastGuiProgressBar> progressBar = this->createProgressBar(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
 		oAssert(progressBar.lock());
 		progressBar.lock()->getLabel().lock()->getCaption()->colour(color);
-
 	}
+
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadSlider( String const & id, SettingsMultiMap* settings )
+	{
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+
+		FastGuiLabel::LabelAlignment alignment = FastGuiLabel::LA_CENTER;
+		Ogre::ColourValue color = Ogre::ColourValue::Black;
+
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = boost::to_lower_copy(vt.first);
+			String value = boost::to_lower_copy(vt.second);
+			if(key == "textcolor")
+			{
+				if(value == "black")
+				{
+					color = Ogre::ColourValue::Black;
+				}
+				else if(value == "white")
+				{
+					color = Ogre::ColourValue::White;
+				}
+				else if(value == "red")
+				{
+					color = Ogre::ColourValue::Red;
+				}
+				else if(value == "green")
+				{
+					color = Ogre::ColourValue::Green;
+				}
+				else if(value == "blue")
+				{
+					color = Ogre::ColourValue::Blue;
+				}
+				else
+				{
+					color = StringUtil::Converter::parseColourValue(value);
+				}
+			}
+			else if(key == "textalignment")
+			{
+				if(value == "topleft")
+				{
+					alignment = FastGuiLabel::LA_TOPLEFT;
+				}
+				else if(value == "top")
+				{
+					alignment = FastGuiLabel::LA_TOP;
+				}
+				else if(value == "topright")
+				{
+					alignment = FastGuiLabel::LA_TOPRIGHT;
+				}
+				else if(value == "left")
+				{
+					alignment = FastGuiLabel::LA_LEFT;
+				}
+				else if(value == "center")
+				{
+					alignment = FastGuiLabel::LA_CENTER;
+				}
+				else if(value == "right")
+				{
+					alignment = FastGuiLabel::LA_RIGHT;
+				}
+				else if(value == "bottomleft")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMLEFT;
+				}
+				else if(value == "bottom")
+				{
+					alignment = FastGuiLabel::LA_BOTTOM;
+				}
+				else if(value == "bottomright")
+				{
+					alignment = FastGuiLabel::LA_BOTTOMRIGHT;
+				}
+				else
+				{
+					oAssertDesc(!"Unknown Alignment", "Unknown Alignment: " << value);
+				}
+			}
+		}
+
+		woptr<FastGuiSlider> slider = this->createSlider(id, "slider_menu_button", baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, alignment, baseSettings.size, baseSettings.atlas, baseSettings.z);
+		oAssert(slider.lock());
+		slider.lock()->getLabel().lock()->getCaption()->colour(color);
+	}
+
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------

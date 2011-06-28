@@ -27,12 +27,11 @@ namespace Orkige
 	protected:
     private:
         //-Variables----------------------------------------
-
-		Ogre::StringVector items;		//!< item names
-		std::size_t selectedIndex;
-
     public:
     protected:
+		Ogre::StringVector items;					//!< item names
+		std::size_t selectedIndex;
+
 		optr<FastGuiLabel> label;					//!< current SelectMenu Title text
 		optr<FastGuiDecorWidget> decor;				//!< back decor for the selectMenu
 		optr<FastGuiDecorWidget> leftArrow;			//!< back decor for the selectMenu
@@ -54,9 +53,9 @@ namespace Orkige
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
 
 		//! set all item names
-		void setItems(const Ogre::StringVector& items);
+		virtual void setItems(const Ogre::StringVector& items);
 		inline Ogre::StringVector& getItems();
-		void showItem();
+		virtual void showItem();
 		
 		//! selection
 		unsigned int getSelectedItemIndex();
@@ -74,9 +73,9 @@ namespace Orkige
 		void setCaption(String const & text);
 
     protected:
-    private:
 		void updatePosition();
 		void updateSize();
+	private:
     };
 	//---------------------------------------------------------------
 	inline woptr<FastGuiLabel> FastGuiSelectMenu::getLabel()
