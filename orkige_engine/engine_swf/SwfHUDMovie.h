@@ -50,6 +50,7 @@ namespace Orkige
 
 		//the cam at witch the gui is targeted
 		inline void setCurrentCamera(Ogre::Camera* cam);
+		virtual void setMouseSettings(float x, float y, int mouseMask);
 	protected:
 	private:
 		void update(Ogre::Real timeSinceLastFrame);

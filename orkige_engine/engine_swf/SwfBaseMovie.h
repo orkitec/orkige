@@ -85,7 +85,7 @@ namespace Orkige
 		int getMovieWidth(void);
 		int getMovieHeight(void);
 
-		void setMouseSettings(float x, float y, int mouseMask);
+		virtual void setMouseSettings(float x, float y, int mouseMask);
 		Ogre::String getVariable(Ogre::String name);
 		void setVariable(Ogre::String name, Ogre::String data);
 		Ogre::String callFunction(Ogre::String name);

@@ -26,8 +26,8 @@ namespace Orkige
 	SwfHudMovie::SwfHudMovie(const Ogre::String & file, const Ogre::String & name, Ogre::Camera* cam)
 		: SwfBaseMovie(file,name,SwfBaseMovie::HUD,-100), left(0), top(0), scaleX(1), scaleY(1)
 	{
-		this->widthConst  = 200.0 / (float)this->width * this->scaleX;
-		this->heightConst = 200.0 / (float)this->height * this->scaleY;
+		this->widthConst  = 100.0 / (float)this->width * this->scaleX;
+		this->heightConst = 100.0 / (float)this->height * this->scaleY;
 		this->setCurrentCamera(cam);
 		/*infiniteBox.setInfinite();*/
 		//create the gameswf movie
@@ -85,7 +85,14 @@ namespace Orkige
 		this->widthConst  = 100.0 / (float)this->width * this->scaleX;
 		this->heightConst = 100.0 / (float)this->height * this->scaleY;
 	}
+	// -------------------------------------------------------------------------------
+	void SwfHudMovie::setMouseSettings(float x, float y, int mouseMask)
+	{
+		int absX = x * (this->movieDefinition->get_width_pixels() / currentCamera->getViewport()->getActualWidth());
+		int absY = y * (this->movieDefinition->get_height_pixels() / currentCamera->getViewport()->getActualHeight());
 
+		this->movieInterface->notify_mouse_state(absX, absY, mouseMask);
+	}
 	// -------------------------------------------------------------------------------
 	void SwfHudMovie::draw_mesh_strip(const void* coords, int vertex_count, float transform[16], float xOffset, float yOffset)
 	{
