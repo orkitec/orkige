@@ -94,7 +94,7 @@ namespace Orkige
 		{
 			// calculate closest snap point
 			int closestIndex = -1;
-			float minDist = Math::POS_INFINITY;
+			float minDist = Ogre::Math::POS_INFINITY;
 			float dist;
 			for (int i = 0; i < itemsPinSnap.size(); ++i)
 			{
