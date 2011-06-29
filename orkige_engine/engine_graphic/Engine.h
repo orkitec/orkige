@@ -130,7 +130,7 @@ namespace Orkige
 		//! define the source of resources (other than current folder) but doesn't load them
 		void setupResources(String const & resourceCfgFileName);
 		//! Configures the Engine shows dialog on first configuration - returns false if the user chooses to abandon configuration.
-		bool configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior = ShowConfigBehavior::SHOW_IFERROR);
+		bool configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR);
 		//! @see Ogre::FrameListener::frameStarted
 		virtual bool frameStarted(const Ogre::FrameEvent& evt);
 		//! @see Ogre::FrameListener::frameRenderingQueued
