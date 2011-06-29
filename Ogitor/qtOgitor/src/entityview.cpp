@@ -218,6 +218,12 @@ void EntityViewWidget::_createImages(ImageMap& retlist)
         mEntity->detachFromParent();
         mSceneMgr->destroyEntity(mEntity);
 
+		Ogre::ResourceGroupManager::ResourceManagerIterator resMgrs = Ogre::ResourceGroupManager::getSingleton().getResourceManagerIterator();
+		while (resMgrs.hasMoreElements())
+		{
+			Ogre::ResourceManager* m = resMgrs.getNext();
+			m->unloadUnreferencedResources();
+		}
         ite++;
     }
 
