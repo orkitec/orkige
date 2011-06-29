@@ -254,10 +254,16 @@ namespace Orkige
 					}
 					else
 					{
-						// TODO setConfigOption(..)
+						oDebugMsg("core", 0, "Not allowed to show config dialog. using fallback config values.");
 
-						oDebugMsg("core", 0, "Error initializating render context with current config. not allowed to show config dialog.");
-						return false;
+						// fallback values
+						Ogre::RenderSystem* renderSystem = Ogre::Root::getSingleton().getRenderSystem();
+						renderSystem->setConfigOption("Video Mode", "640 x 480 @ 32-bit colour");
+						renderSystem->setConfigOption("VSync", "No");
+						renderSystem->setConfigOption("Full Screen", "No");
+						renderSystem->setConfigOption("Resource Creation Policy", "Create on all devices");
+						renderSystem->setConfigOption("FSAA", "0");
+						renderSystem->setConfigOption("Rendering Device", ""); 
 					}
 					this->renderWindow = root->initialise(true, windowTitle);
 				}
