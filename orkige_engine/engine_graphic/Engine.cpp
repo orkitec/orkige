@@ -121,7 +121,7 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
-	bool Engine::setup(bool alwaysShowConfigDialog, String const & windowTitle, String const & externalHandle, String const & topLevelHandle)
+	bool Engine::setup(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle)
 	{
 		this->externalWindowHandle = externalHandle;
 		
@@ -133,7 +133,7 @@ namespace Orkige
 		{
 			this->topLevelWindowHandle = topLevelHandle;
 		}
-		if(!this->configure(alwaysShowConfigDialog, windowTitle))
+		if(!this->configure(windowTitle, showConfigBehavior))
 			return false;
 
 		// Create the SceneManager
@@ -233,13 +233,13 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	bool Engine::configure(bool alwaysShowConfigDialog, String const & windowTitle)
+	bool Engine::configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior)
 	{
 		// Show the configuration dialog and initialise the system
-		if( (!alwaysShowConfigDialog && this->root->restoreConfig()) || this->root->showConfigDialog())
+		if( (showConfigBehavior != SHOW_ALWAYS && this->root->restoreConfig()) || this->root->showConfigDialog())
 		{
 			// If returned true, user clicked OK so initialise
-			// Here we choose to let the system create a default rendering window or a embedded windo in externalhandle
+			// Here we choose to let the system create a default rendering window or a embedded window in externalhandle
 			if(this->externalWindowHandle.empty())
 			{
 				try
@@ -248,7 +248,17 @@ namespace Orkige
 				}
 				catch (...)
 				{
-					this->root->showConfigDialog();
+					if (showConfigBehavior != SHOW_NEVER)
+					{
+						this->root->showConfigDialog();
+					}
+					else
+					{
+						// TODO setConfigOption(..)
+
+						oDebugMsg("core", 0, "Error initializating render context with current config. not allowed to show config dialog.");
+						return false;
+					}
 					this->renderWindow = root->initialise(true, windowTitle);
 				}
 				oAssert(this->renderWindow);

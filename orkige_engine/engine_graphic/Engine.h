@@ -35,6 +35,12 @@ namespace Orkige
 		//! Called just after a frame has been rendered.
 		DECL_EVENTTYPE(FrameEndedEvent);
 		/** @} End of "addtogroup EngineEvents"*/
+		enum ShowConfigBehavior
+		{
+			SHOW_IFERROR = 0,
+			SHOW_ALWAYS,
+			SHOW_NEVER,
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -88,7 +94,7 @@ namespace Orkige
 		//! @param windowTitle for tray and windowed mode
 		//! @param externalHandle can be used for embedding Engine into custom created window
 		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
-		bool setup(bool alwaysShowConfigDialog = false, String const & windowTitle = StringUtil::BLANK, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
+		bool setup(String const & windowTitle = StringUtil::BLANK, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
 
 		//! optional: you can have as many Cameras and Viewports as you wish but in most cases 1 is enough for a game
 		void createDefaultCameraAndViewport();
@@ -124,7 +130,7 @@ namespace Orkige
 		//! define the source of resources (other than current folder) but doesn't load them
 		void setupResources(String const & resourceCfgFileName);
 		//! Configures the Engine shows dialog on first configuration - returns false if the user chooses to abandon configuration.
-		bool configure(bool alwaysShowConfigDialog, String const & windowTitle);
+		bool configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior = ShowConfigBehavior::SHOW_IFERROR);
 		//! @see Ogre::FrameListener::frameStarted
 		virtual bool frameStarted(const Ogre::FrameEvent& evt);
 		//! @see Ogre::FrameListener::frameRenderingQueued
