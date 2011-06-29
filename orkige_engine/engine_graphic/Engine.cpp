@@ -263,7 +263,18 @@ namespace Orkige
 						renderSystem->setConfigOption("Full Screen", "No");
 						renderSystem->setConfigOption("Resource Creation Policy", "Create on all devices");
 						renderSystem->setConfigOption("FSAA", "0");
-						renderSystem->setConfigOption("Rendering Device", ""); 
+
+						// fallback device, this may set video mode and anti-aliasing settings
+						const Ogre::ConfigOptionMap& options = renderSystem->getConfigOptions();
+						Ogre::ConfigOptionMap::const_iterator optIt = options.find( "Rendering Device" );
+						if( optIt != options.end() )
+						{
+							Ogre::StringVector possibleVideoModes = optIt->second.possibleValues;
+							if (!possibleVideoModes.empty())
+							{
+								renderSystem->setConfigOption("Rendering Device", possibleVideoModes.at(0)); 
+							}
+						}
 					}
 					this->renderWindow = root->initialise(true, windowTitle);
 				}
