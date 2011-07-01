@@ -11,8 +11,6 @@
 #include "engine_swf/SwfRenderHandler.h"
 #include "engine_swf/SwfMovieManager.h"
 
-#include <Ogre.h>
-
 namespace Orkige
 {
 	SwfBitmapInfo::SwfBitmapInfo()

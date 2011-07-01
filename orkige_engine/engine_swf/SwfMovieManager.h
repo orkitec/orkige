@@ -10,13 +10,6 @@
 #define __SwfMovieManager_h__26_6_2011__19_35_29__
 
 #include "engine_swf/SwfApiDefs.h"
-
-#include <base/utility.h>
-#include <base/container.h>
-#include <base/tu_file.h>
-
-#include <OgreSingleton.h>
-
 #include "engine_swf/SwfBaseMovie.h"
 #include "engine_input/InputManager.h"
 
@@ -25,8 +18,9 @@ namespace Orkige
 	struct SwfBitmapInfo;
 	struct SwfRenderHandler;
 
-	class SwfMovieManager : public Ogre::Singleton<SwfMovieManager>, public EventHandler
+	class SwfMovieManager : public Singleton<SwfMovieManager>, public EventHandler
 	{
+		DECL_OSINGLETON(SwfMovieManager);
 		friend class SwfBaseMovie;
 		friend struct SwfRenderHandler;
 		friend struct SwfBitmapInfo;
@@ -52,9 +46,6 @@ namespace Orkige
 	public:
 		SwfMovieManager();
 		~SwfMovieManager(void);
-
-		static SwfMovieManager& getSingleton(void);
-		static SwfMovieManager* getSingletonPtr(void);
 
 		/**update all TextureMovies, HudMovies, ...
 		@param: unique time factor for updating everything*/

@@ -12,9 +12,6 @@
 #include "engine_swf/SwfApiDefs.h"
 #include "engine_swf/SwfBaseMovie.h"
 
-/*#include <OgreAxisAlignedBox.h>*/
-#include <OgreCamera.h>
-
 namespace Orkige
 {
 	class SwfHudMovie : public SwfBaseMovie

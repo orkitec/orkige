@@ -8,12 +8,6 @@
 ***************************************************************/
 
 #include "engine_swf/SwfMovieManager.h"
-#include <gameswf/gameswf_stream.h>
-#include <base/tu_file.h>
-#include <base/zlib_adapter.h>
-
-#include <Ogre.h>
-
 #include "engine_swf/SwfUtil.h"
 #include "engine_swf/SwfFileHelper.h"
 

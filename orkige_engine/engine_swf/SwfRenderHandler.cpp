@@ -7,17 +7,9 @@
 	copyright:	(c) 2009-2010 orkitec
 ***************************************************************/
 
-#include <gameswf/gameswf.h>
-#include <gameswf/gameswf_types.h>
-#include <base/image.h>
-#include <base/utility.h>
-#include <string.h>
-
 #include "engine_swf/SwfRenderHandler.h"
 #include "engine_swf/SwfMovieManager.h"
 #include "engine_swf/SwfBitmapInfo.h"
-
-#include <Ogre.h>
 
 namespace Orkige
 {
@@ -213,41 +205,31 @@ namespace Orkige
 	// -------------------------------------------------------------------------------
 	gameswf::bitmap_info* SwfRenderHandler::create_bitmap_info_rgb(image::rgb* im)
 	{
-		#include <core_debug/DisableMemoryManager.h>
 		return new Orkige::SwfBitmapInfo(im);
-		#include <core_debug/EnableMemoryManager.h>
 	}
 
 	// -------------------------------------------------------------------------------
 	gameswf::bitmap_info* SwfRenderHandler::create_bitmap_info_rgba(image::rgba* im)
 	{
-		#include <core_debug/DisableMemoryManager.h>
 		return new Orkige::SwfBitmapInfo(im);
-		#include <core_debug/EnableMemoryManager.h>
 	}
 	
 	// -------------------------------------------------------------------------------
 	gameswf::bitmap_info* SwfRenderHandler::create_bitmap_info_empty()
 	{
-		#include <core_debug/DisableMemoryManager.h>
 		return new Orkige::SwfBitmapInfo();
-		#include <core_debug/EnableMemoryManager.h>
 	}
 
 	// -------------------------------------------------------------------------------
 	gameswf::bitmap_info* SwfRenderHandler::create_bitmap_info_alpha(int w, int h, Uint8* data)
 	{
-		#include <core_debug/DisableMemoryManager.h>
 		return new Orkige::SwfBitmapInfo(w, h, data);
-		#include <core_debug/EnableMemoryManager.h>
 	}
 	
 	// -------------------------------------------------------------------------------
 	void SwfRenderHandler::delete_bitmap_info(gameswf::bitmap_info* bi)
 	{
-		#include <core_debug/DisableMemoryManager.h>
 		delete bi;
-		#include <core_debug/EnableMemoryManager.h>
 	}
 
 	// -------------------------------------------------------------------------------

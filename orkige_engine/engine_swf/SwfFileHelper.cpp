@@ -7,11 +7,7 @@
 	copyright:	(c) 2009-2010 orkitec
 ***************************************************************/
 
-#include "SwfFileHelper.h"
-
 #include "engine_swf/SwfFileHelper.h"
-
-#include <Ogre.h>
 
 namespace Orkige
 {

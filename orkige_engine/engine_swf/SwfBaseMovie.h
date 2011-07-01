@@ -10,7 +10,6 @@
 #define __SwfBaseMovie_h__25_6_2011__4_03_04__
 
 #include "engine_swf/SwfApiDefs.h"
-#include <OgreMaterial.h>
 
 namespace Orkige
 {

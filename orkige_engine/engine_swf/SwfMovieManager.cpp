@@ -9,18 +9,6 @@
 
 #include "engine_swf/SwfMovieManager.h"
 
-
-#include <gameswf/gameswf_root.h>
-#include <gameswf/gameswf_movie_def.h>
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
-#include <Ogre.h>
-#include <OgreWireBoundingBox.h>
-
 #include "engine_swf/SwfFileHelper.h"
 #include "engine_swf/SwfUtil.h"
 #include "engine_swf/SwfRenderHandler.h"
@@ -31,10 +19,11 @@
 gameswf::render_handler*  create_render_handler_ogre_d3d();
 void updateOgreRenderer();
 
-template<> Orkige::SwfMovieManager* Ogre::Singleton<Orkige::SwfMovieManager>::ms_Singleton = 0;
 
 namespace Orkige
 {
+	IMPL_OSINGLETON(SwfMovieManager);
+
 	SwfMovieManager::SwfMovieManager   ()
 	{
 		this->sceneManager = Engine::getSingleton().getSceneManager();
@@ -74,20 +63,6 @@ namespace Orkige
 		delete this->swfPlayer;
 		/*gameswf::clear();*/
 	}
-
-	// -------------------------------------------------------------------------------
-	SwfMovieManager* SwfMovieManager::getSingletonPtr(void)
-	{
-		return ms_Singleton;
-	}
-
-	// -------------------------------------------------------------------------------
-	SwfMovieManager& SwfMovieManager::getSingleton(void)
-	{
-		assert(ms_Singleton);
-		return *ms_Singleton;
-	}
-
 	// -------------------------------------------------------------------------------
 	bool SwfMovieManager::addMovie(SwfBaseMovie::SwfMovieType type, SwfBaseMovie* movie)
 	{

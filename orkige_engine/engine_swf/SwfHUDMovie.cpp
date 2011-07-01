@@ -10,16 +10,6 @@
 #include "engine_swf/SwfHUDMovie.h"
 #include "engine_swf/SwfMovieManager.h"
 
-#include <gameswf/gameswf_root.h>
-#include <gameswf/gameswf_movie_def.h>
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
-#include <Ogre.h>
-
 namespace Orkige
 {
 	// -------------------------------------------------------------------------------

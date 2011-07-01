@@ -8,18 +8,8 @@
 ***************************************************************/
 
 #include "engine_swf/SwfBaseMovie.h"
-
-#include <gameswf/gameswf_root.h>
-#include <gameswf/gameswf_movie_def.h>
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
-#include <Ogre.h>
-
 #include "engine_swf/SwfMovieManager.h"
+#include "engine_swf/SwfRenderHandler.h"
 
 namespace Orkige
 {
@@ -72,13 +62,32 @@ namespace Orkige
 			Ogre::MaterialManager::getSingleton().remove(this->imageMaterialList[i]->getName());
 
 		//destroy the gameswf movie
+		
 		/*
 		if (this->movieDefinition) this->movieDefinition->drop_ref();
-		if (this->movieInterface) this->movieInterface->drop_ref();*/
+				if (this->movieInterface) this->movieInterface->drop_ref();*/
+		
 
 /*
+
 		delete this->movieDefinition;
 		delete this->movieInterface;*/
+	/*
+		this->movieDefinition->action_clear();
+			this->movieDefinition->clear_library();
+			this->movieDefinition->clear_heap();
+			this->movieDefinition->set_as_garbage();
+			this->movieDefinition->clear_garbage();*/
+	
+		/*this->movieDefinition->clear_instance();*/
+
+/*
+		int	ct = this->movieDefinition->get_bitmap_info_count();
+		for (int i = 0; i < ct; i++)
+		{
+			gameswf::bitmap_info*	bi = this->movieDefinition->get_bitmap_info(i);
+			static_cast<SwfRenderHandler*>(SwfMovieManager::getSingleton().getSingleton().renderHandler)->delete_bitmap_info(bi);
+		}*/
 
 	}
 
