@@ -28,12 +28,16 @@ namespace Orkige
         //-Variables----------------------------------------
     public:
     protected:
-		optr<FastGuiDecorWidget> pin;		//!< decor for the grip element
+		optr<FastGuiDecorWidget> pin;			//!< decor for the grip element
+		optr<FastGuiDecorWidget> pin_area;		//!< decor for the grip element
     private:
         //-Methods------------------------------------------
     public:
         FastGuiSlider(String const & id, String const & buttonId, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, FastGuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z);
 		virtual ~FastGuiSlider();
+
+		virtual void setPosition(Ogre::Real left, Ogre::Real top);
+		virtual void setSize(Ogre::Real width, Ogre::Real height);
 
 		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);

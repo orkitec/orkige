@@ -10,8 +10,7 @@
 #include "engine_fastgui/FastGuiSelectMenu.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_event/GlobalEventManager.h>
-
-#define FASTGUISELECTMENU_MARGING_Y 20.0F
+#include <boost/algorithm/string/replace.hpp>
 
 namespace Orkige 
 {
@@ -106,13 +105,17 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiSelectMenu::showItem()
 	{
-		if (this->items.size() > 0)
+		if (!this->items.empty())
 		{
-			this->buttonMainSelection->setCaption(this->items[this->selectedIndex]);
+			//Orkige::String text = this->items.at(this->selectedIndex);
+			//boost::replace_all(text, "\\n", "\n");
+			//this->buttonMainSelection->setCaption(text);
+			
+			this->buttonMainSelection->setCaption(this->items.at(this->selectedIndex));
 		}
 		else
 		{
-			this->buttonMainSelection->setCaption("Empty!!");
+			this->buttonMainSelection->setCaption("Empty!");
 		}
 	}
 	//---------------------------------------------------------------
@@ -164,20 +167,20 @@ namespace Orkige
 	void FastGuiSelectMenu::updatePosition()
 	{
 		this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x,
-			this->leftArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->leftArrow->getSize().y/2.0f));
+			this->leftArrow->getPosition().y + (this->decor->getSize().y / 2.0f) - (this->leftArrow->getSize().y / 2.0f));
 		this->rightArrow->setPosition(this->decor->getPosition().x + this->decor->getSize().x,
-			this->rightArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->rightArrow->getSize().y/2.0f));
+			this->rightArrow->getPosition().y + (this->decor->getSize().y / 2.0f) - (this->rightArrow->getSize().y / 2.0f));
 
-		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x/2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
-		float positionY = this->decor->getPosition().y + (this->decor->getSize().y/2.0f) /*- FASTGUISELECTMENU_MARGING_Y*/;
+		float positionX = this->buttonMainSelection->getPosition().x + (this->decor->getSize().x / 2.0f) - (this->buttonMainSelection->getSize().x / 2.0f);
+		float positionY = this->decor->getPosition().y + (this->decor->getSize().y / 2.0f);
 		this->buttonMainSelection->setPosition(floor(positionX), floor(positionY));
 	}
 	//----------------------------------------------------
 	void FastGuiSelectMenu::updateSize()
 	{
-		this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f,this->decor->getSize().y* 0.3f);
-		this->leftArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
-		this->rightArrow->setSize(this->decor->getSize().x * 0.2f,this->decor->getSize().y* 0.9f);
+		this->buttonMainSelection->setSize(this->decor->getSize().x * 0.8f, this->decor->getSize().y * 0.3f);
+		this->leftArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
+		this->rightArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
 	}
 	//----------------------------------------------------
 	//- private: -----------------------------------------
