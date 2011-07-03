@@ -63,12 +63,18 @@ namespace Orkige
 				this->leftArrow = onew(new FastGuiDecorWidget(idArrowLeft, "select_menu_field_left", position, Ogre::Vector2::ZERO, atlas, z));
 				this->rightArrow = onew(new FastGuiDecorWidget(idArrowRight, "select_menu_field_right", position, Ogre::Vector2::ZERO, atlas, z));
 
-				this->leftArrow->setPosition(this->decor->getPosition().x - this->leftArrow->getSize().x,
+				this->leftArrow->setPosition(
+					this->decor->getPosition().x - this->leftArrow->getSize().x,
 					this->leftArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->leftArrow->getSize().y/2.0f));
-				this->rightArrow->setPosition(this->decor->getPosition().x + this->decor->getSize().x,
+				this->rightArrow->setPosition(
+					this->decor->getPosition().x + this->decor->getSize().x,
 					this->rightArrow->getPosition().y + (this->decor->getSize().y/2.0f) - (this->rightArrow->getSize().y/2.0f));
-				this->leftArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
-				this->rightArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
+				this->leftArrow->setSize(
+					this->decor->getSize().x * 0.2f, 
+					this->decor->getSize().y * 0.9f);
+				this->rightArrow->setSize(
+					this->decor->getSize().x * 0.2f, 
+					this->decor->getSize().y * 0.9f);
 			}
 		}
 		{
@@ -97,9 +103,7 @@ namespace Orkige
 			}
 			else
 			{
-				//this->pin_area = onew(new FastGuiDecorWidget(idPinArea, "select_menu_pin", position, size, atlas, z-1));
 				this->pin_area = onew(new FastGuiDecorWidget(idPinArea, "select_menu_pin", this->buttonMainSelection->getPosition(), this->buttonMainSelection->getSize(), atlas, z-1));
-
 			}
 		}		
 		{
@@ -114,7 +118,7 @@ namespace Orkige
 			}
 		}
 
-		this->selectedIndex = 0;
+		this->selectedIndex = -1;
 		this->showItem();
 	}
 	//----------------------------------------------------
@@ -124,7 +128,32 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiSlider::setPosition( Ogre::Real left, Ogre::Real top )
 	{
-		oAssertDesc(false, "not implemented");
+		Ogre::Vector2 d(
+			left - this->decor->getPosition().x,
+			top  - this->decor->getPosition().y);
+		
+		// rounding label the diff vector for nicer font
+		this->decor->setPosition( 
+			this->decor->getPosition().x + d.x, 
+			this->decor->getPosition().y + d.y );
+		this->label->setPosition( 
+			static_cast<int>(this->label->getPosition().x + d.x), 
+			static_cast<int>(this->label->getPosition().y + d.y) );
+		this->leftArrow->setPosition( 
+			this->leftArrow->getPosition().x + d.x, 
+			this->leftArrow->getPosition().y + d.y );
+		this->rightArrow->setPosition( 
+			this->rightArrow->getPosition().x + d.x, 
+			this->leftArrow->getPosition().y + d.y );
+ 		this->buttonMainSelection->getDecor().lock()->setPosition( 
+			this->buttonMainSelection->getDecor().lock()->getPosition().x + d.x, 
+			this->buttonMainSelection->getDecor().lock()->getPosition().y + d.y );
+		this->pin->setPosition( 
+			this->pin->getPosition().x + d.x, 
+			this->pin->getPosition().y + d.y );
+		this->pin_area->setPosition( 
+			this->pin_area->getPosition().x + d.x, 
+			this->pin_area->getPosition().y + d.y );
 	}
 	//----------------------------------------------------
 	void FastGuiSlider::setSize( Ogre::Real width, Ogre::Real height )
@@ -142,7 +171,7 @@ namespace Orkige
 		{
 			if (itemsPinSnap.size() >= 2)
 			{
-				pinActive = true;
+				this->pinActive = true;
 			}
 		}
 		else
@@ -162,14 +191,14 @@ namespace Orkige
 	{
 		this->buttonMainSelection->onCursorReleased(cursorPos);
 
-		pinActive = false;
+		this->pinActive = false;
 	}
 	//----------------------------------------------------
 	void FastGuiSlider::onCursorMoved( Ogre::Vector2 const & cursorPos )
 	{
 		this->buttonMainSelection->onCursorMoved(cursorPos);
 
-		if (pinActive)
+		if (this->pinActive)
 		{
 			// calculate closest snap point
 			int closestIndex = -1;

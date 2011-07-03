@@ -39,7 +39,7 @@ namespace Orkige
 		}
 		this->updatePosition();
 
-		this->selectedIndex = 0;
+		this->selectedIndex = -1;
 		this->showItem();
 	}
 	//----------------------------------------------------
@@ -123,12 +123,15 @@ namespace Orkige
 	{
 		if (index >= 0 && index < this->items.size())
 		{
-			this->selectedIndex = index;
-			this->showItem();
-
-			if (throwEvent)
+			if (this->selectedIndex != index)
 			{
-				GlobalEventManager::getSingleton().trigger(Event(FastGuiSelectMenu::SelectMenuEvent, oBadPointer(this)));
+				this->selectedIndex = index;
+				this->showItem();
+
+				if (throwEvent)
+				{
+					GlobalEventManager::getSingleton().trigger(Event(FastGuiSelectMenu::SelectMenuEvent, oBadPointer(this)));
+				}
 			}
 		}
 	}
