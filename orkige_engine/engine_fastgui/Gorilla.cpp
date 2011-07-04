@@ -2331,8 +2331,8 @@ namespace Gorilla
 		for(size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			char ansiChar = mText[i];
-			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
+			int multiByteLength = mbtowc(&unicodeChar, &mText[i], MB_CUR_MAX);
+			//std::cout << "\nmultiByteLength: " << multiByteLength;
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2520,7 +2520,10 @@ namespace Gorilla
 			{
 				this->mHeight = cursorY;
 			}
-			
+			if (multiByteLength > 0)
+			{
+				i += multiByteLength -1;
+			}
 		}
 		this->mHeight -= mTop;
 		this->mHeight += lineHeight;
