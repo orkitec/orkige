@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec	
 ***************************************************************/
 
-#include "engine_gui/IGuiObject.h"
+#include "engine_fastgui/IGuiObject.h"
 
 namespace Orkige
 {

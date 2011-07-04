@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 
-#include "engine_gui/IngameConsole.h"
+#include "engine_graphic/IngameConsole.h"
 #include "engine_gocomponent/PythonScriptComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 
@@ -22,7 +22,6 @@
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/ColoredBoundingBox.h"
 
-#include "engine_gui/GuiManager.h"
 
 using namespace Orkige;
 
@@ -62,22 +61,5 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TouchEventData)
 	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
-
-	OEXPORT(GuiManager)
-	OEXPORT(GuiFactory)
 	OEXPORT(IGuiObject)
-	OEXPORT(Widget)
-	OEXPORT(Dialog)
-	OEXPORT(OkDialog)
-	OEXPORT(YesNoDialog)
-OEXPORT(::Orkige::Button)
-	OEXPORT(TextBox)
-	OEXPORT(SelectMenu)
-	OEXPORT(Label)
-	OEXPORT(Separator)
-	OEXPORT(Slider)
-	OEXPORT(ParamsPanel)
-	OEXPORT(CheckBox)
-	OEXPORT(DecorWidget)
-	OEXPORT(ProgressBar)
 ORKIGE_MODULE_END

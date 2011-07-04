@@ -9,7 +9,7 @@
 #ifndef __FastGuiWidget_h__27_10_2010__13_08_39__
 #define __FastGuiWidget_h__27_10_2010__13_08_39__
 
-#include "engine_gui/IGuiObject.h"
+#include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiView.h"
 #include "engine_fastgui/Gorilla.h"
 

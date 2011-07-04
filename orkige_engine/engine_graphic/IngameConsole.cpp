@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 
-#include "engine_gui/IngameConsole.h"
+#include "engine_graphic/IngameConsole.h"
 #ifndef ORKIGE_NOSCRIPT
 #include <core_python/PythonInterpreter.h>
 #endif
