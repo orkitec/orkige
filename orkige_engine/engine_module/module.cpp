@@ -21,7 +21,7 @@
 #include "engine_sound/SoundSource.h"
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/ColoredBoundingBox.h"
-
+#include "engine_fastgui/IGuiObject.h"
 
 using namespace Orkige;
 
