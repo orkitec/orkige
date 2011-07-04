@@ -123,27 +123,44 @@ namespace Orkige
 			case 4100:
 			case 1028:
 			case 3076:
-			case 5124: this->currentLocale = "cn"; break;
+			case 5124: this->currentLocale = "zh"; break;
 
 			default: this->currentLocale = defaultLocale; break;
 			}
 #elif __APPLE__
-			NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
-			NSArray* languages = [defs objectForKey:@"AppleLanguages"];
-			NSString* preferredLang = [languages objectAtIndex:0];
-			this->currentLocale = String((char*)[preferredLang cStringUsingEncoding:1]);
-			//this->currentLocale = String((char*)[[NSLocale currentLocale] localeIdentifier]);
+#ifdef __OBJC__
+			
+			this->currentLocale = defaultLocale;
 
 			// possible values
 			// http://developer.apple.com/library/ios/#documentation/MacOSX/Conceptual/BPInternational/BPInternational.pdf
 			// http://www.loc.gov/standards/iso639-2/php/English_list.php
 			// http://www.plasmaworks.com/forums/index.php?action=printpage;topic=70.0
-
+			
 			// about different mac versions
-			//http://developer.apple.com/library/mac/#qa/qa1391/_index.html
+			//http://developer.apple.com/library/mac/#qa/qa1391/_index.html			
+			
+			NSUserDefaults* defs = [NSUserDefaults standardUserDefaults];
+			NSArray* languages = [defs objectForKey:@"AppleLanguages"];
+			// From Mac OS X v10.4 (Tiger) on this is using the standard canonical form as defined by BCP 47 / RFC 4646
+			// entries are: en, fr, de, es, it, nl, sv, nb, ja, "zh-Hans", da, fi, pt, "zh-Hant", ko, hu
+			
+			for (unsigned int each = 0; each < [languages count]; each++)
+			{
+				NSString* preferredLang = [languages objectAtIndex:each];
+				String lang = String((char*)[preferredLang cStringUsingEncoding:1]).substr(0, 2); // substr because of "zh-Hans", "zh-Hant"
+								
+				if (std::find(this->supportedLocales.begin(), this->supportedLocales.end(), lang) != this->supportedLocales.end())
+				{
+					this->currentLocale = lang;
+					break;
+				}
+			}
+			
+#endif //__OBJC__
 #else
 			//BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
-			this->currentLocale = "de";	//FIXME: find the right locale here (pe)
+			this->currentLocale = defaultLocale;	//FIXME: find the right locale here (pe)
 
 #endif
 		}
