@@ -330,6 +330,24 @@ namespace Orkige
 		this->cancelInputUpdate = true;
 	}
 	//---------------------------------------------------------
+	bool FastGuiManager::isPointOverWidget(Ogre::Vector2 const & point)
+	{
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
+		{
+			Ogre::Vector2 pos = widget->getPosition();
+			Ogre::Vector2 size = widget->getSize();
+			Real left = pos.x;
+			Real top = pos.y;
+			Real right = pos.x + size.x;
+			Real bottom = pos.y + size.y;
+			if(point.x >= left && point.x <= right && point.y >= top && point.y <= bottom)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameStarted(Orkige::Event const & event)

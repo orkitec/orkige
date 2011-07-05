@@ -106,6 +106,9 @@ namespace Orkige
 
 		//! cancel current input dispatch
 		void cancelCurrentInputUpdate();
+
+		//! returns true if given point is over any widget
+		bool isPointOverWidget(Ogre::Vector2 const & point);
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameStarted(Orkige::Event const & event);
