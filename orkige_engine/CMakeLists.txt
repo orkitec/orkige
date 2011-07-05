@@ -14,11 +14,6 @@ source_group(engine_graphic FILES ${engine_graphic_FILES})
 FILE (GLOB engine_fastgui_FILES "engine_fastgui/[A-z]*.*")
 source_group(engine_fastgui FILES ${engine_fastgui_FILES})
 # ---------------------------------------------------------
-if(ORKIGE_ENABLE_OVERLAYGUI)
-	FILE (GLOB engine_gui_FILES "engine_gui/[A-z]*.*")
-	source_group(engine_gui FILES ${engine_gui_FILES})
-endif()
-# ---------------------------------------------------------
 FILE (GLOB engine_input_FILES "engine_input/[A-z]*.*")
 source_group(engine_input FILES ${engine_input_FILES})
 # ---------------------------------------------------------
@@ -60,7 +55,6 @@ ogre_add_library(orkige_engine STATIC
             ${engine_base_FILES}
             ${engine_gocomponent_FILES}
             ${engine_graphic_FILES}
-            ${engine_gui_FILES}
             ${engine_fastgui_FILES}
             ${engine_input_FILES}
             ${engine_module_FILES}
