@@ -2070,11 +2070,11 @@ namespace Gorilla
 	void Caption::_calculateDrawSize(Ogre::Vector2& retSize)
 	{ 
 		oAssertDesc(mGlyphData != NULL, "Font rendering can't find glyph data. Font size correctly specified?");
-
+		
 		Ogre::Real cursor = 0,
 			kerning = 0;
 
-		unsigned char thisChar = 0, lastChar = 0;
+		unsigned int thisChar = 0, lastChar = 0;
 		Glyph* glyph = 0;
 		retSize.x = 0;
 		retSize.y = mGlyphData->GetLineHeightScaled();
@@ -2082,8 +2082,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			char ansiChar = mText[i];
-			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
+			int multiByteLength = mbtowc(&unicodeChar, &mText[i], MB_CUR_MAX);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2108,6 +2107,11 @@ namespace Gorilla
 
 			cursor += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
+			
+			if (multiByteLength > 0)
+			{
+				i += multiByteLength -1;
+			}
 
 		} // for
 
@@ -2194,7 +2198,7 @@ namespace Gorilla
 		else if (mVerticalAlign == VerticalAlign_Bottom)
 			cursorY = mTop +  mHeight - mGlyphData->GetLineHeightScaled();
 
-		unsigned char thisChar = 0, lastChar = 0;
+		unsigned int thisChar = 0, lastChar = 0;
 		Vertex temp;
 		mClippedLeftIndex = std::string::npos;
 		mClippedRightIndex = std::string::npos;
@@ -2205,8 +2209,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.size();i++)
 		{
 			wchar_t unicodeChar;
-			char ansiChar = mText[i];
-			mbtowc(&unicodeChar, &ansiChar, MB_CUR_MAX);
+			int multiByteLength = mbtowc(&unicodeChar, &mText[i], MB_CUR_MAX);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2271,6 +2274,11 @@ namespace Gorilla
 
 			cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
+			
+			if (multiByteLength > 0)
+			{
+				i += multiByteLength -1;
+			}
 
 		} // for
 
@@ -2524,7 +2532,7 @@ namespace Gorilla
 			{
 				i += multiByteLength -1;
 			}
-		}
+		} // for
 		this->mHeight -= mTop;
 		this->mHeight += lineHeight;
 		this->mWidth -= mLeft;
