@@ -336,10 +336,10 @@ namespace Orkige
 		{
 			Ogre::Vector2 pos = widget->getPosition();
 			Ogre::Vector2 size = widget->getSize();
-			Real left = pos.x;
-			Real top = pos.y;
-			Real right = pos.x + size.x;
-			Real bottom = pos.y + size.y;
+			Ogre::Real left = pos.x;
+			Ogre::Real top = pos.y;
+			Ogre::Real right = pos.x + size.x;
+			Ogre::Real bottom = pos.y + size.y;
 			if(point.x >= left && point.x <= right && point.y >= top && point.y <= bottom)
 			{
 				return true;
