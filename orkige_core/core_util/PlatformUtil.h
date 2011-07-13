@@ -22,6 +22,17 @@ namespace Orkige
 		String const & getDocumentsDirectory();
 		//! retrieve Resource path
 		String const & getResourceDirectory();
+		
+		enum ORKIGE_PLATFORM {
+			PLATFORM_MACOS,
+			PLATFORM_IPHONE,
+			PLATFORM_IPHONE4,
+			PLATFORM_IPAD,
+			PLATFORM_LINUX,
+			PLATFORM_WIN32,
+		};
+		const ORKIGE_PLATFORM getPlatform();
+		
 	};
 	//---------------------------------------------------------
 }

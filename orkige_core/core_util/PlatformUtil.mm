@@ -11,6 +11,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSBundle.h>
+#ifdef ORKIGE_IPHONE
+#import <UIKit/UIKit.h>
+#endif //ORKIGE_IPHONE
 #endif
 
 namespace Orkige
@@ -40,6 +43,29 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+		const ORKIGE_PLATFORM getPlatform()
+		{
+#ifdef ORKIGE_IPHONE
+#ifdef ORKIGE_IPAD
+			return PLATFORM_IPAD;
+#else
+#ifdef __OBJC__
+			if ([[UIScreen mainScreen] respondsToSelector:@selector(scale)] && [[UIScreen mainScreen] scale] == 2.0)
+			{
+				//>=iphone4
+				return PLATFORM_IPHONE4;
+			}
+			else 
+			{
+				//older iphones
+				return PLATFORM_IPHONE;
+			}
+#endif
+#endif //ORKIGE_IPAD
+#else //ORKIGE_IPHONE
+			return PLATFORM_MACOS;
+#endif //ORKIGE_IPHONE
+		}
 #endif
 	}
 }

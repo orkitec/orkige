@@ -47,6 +47,11 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+		const ORKIGE_PLATFORM getPlatform()
+		{
+			return PLATFORM_WIN32;
+		}
+		//---------------------------------------------------------
 #else
 		//for linux
 #ifndef __APPLE__
@@ -66,6 +71,11 @@ namespace Orkige
 		{
 			static String path = "./";
 			return path;
+		}
+		//---------------------------------------------------------
+		const ORKIGE_PLATFORM getPlatform()
+		{
+			return PLATFORM_LINUX;
 		}
 		//---------------------------------------------------------
 #endif //__APPLE__
