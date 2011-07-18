@@ -17,7 +17,7 @@ namespace Orkige
 {
 	class FastGuiButtonBlink : public FastGuiButton
 	{
-		OOBJECT(FastGuiButtonBlink, FastGuiWidget);
+		OOBJECT(FastGuiButtonBlink, FastGuiButton);
 		//--- Types -------------------------------------------------
 	public:
 		//! @brief triggered when a button is released

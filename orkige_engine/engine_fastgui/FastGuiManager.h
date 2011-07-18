@@ -88,6 +88,9 @@ namespace Orkige
 		inline bool widgetExists(String const & id);
 		//! get widget with given id
 		inline woptr<FastGuiWidget> getWidget(String const & id);
+		//! get widget of given type with given id
+		template<typename WidgetType>
+		inline woptr<WidgetType> getWidgetAs(String const & id);
 		//! get default texture atlas
 		inline String const & getDefaultAtlas();
 		//! show frame stats
@@ -189,6 +192,17 @@ namespace Orkige
 		FastGuiWidgetMap::iterator it = this->widgets.find(id);
 		oAssertDesc(it != this->widgets.end(), "Could not find Widget: " << id << "!");
 		return it->second;
+	}
+	//---------------------------------------------------------------
+	template<typename WidgetType>
+	inline woptr<WidgetType> FastGuiManager::getWidgetAs(String const & id)
+	{
+		woptr<FastGuiWidget> weak_widget = this->getWidget(id);
+		optr<FastGuiWidget> widget = weak_widget.lock();
+		oAssert(widget);
+		oAssertDesc(widget->getTypeInfo() == WidgetType::getClassTypeInfo(), "Widget: " << id << " is of type: " << widget->getTypeInfo().getName() << " and not of type: " << WidgetType::getClassTypeInfo().getName() << " !");
+		optr<WidgetType> casted_widget = boost::static_pointer_cast<WidgetType>(widget);
+		return casted_widget;
 	}
 	//---------------------------------------------------------------
 	inline String const & FastGuiManager::getDefaultAtlas()
