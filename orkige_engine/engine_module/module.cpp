@@ -22,6 +22,7 @@
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/ColoredBoundingBox.h"
 #include "engine_fastgui/IGuiObject.h"
+#include "engine_fastgui/FastGuiManager.h"
 
 using namespace Orkige;
 
