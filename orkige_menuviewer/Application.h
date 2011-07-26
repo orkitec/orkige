@@ -50,7 +50,7 @@
 #include <engine_input/InputManager.h>
 #include <engine_graphic/Engine.h>
 #include <engine_sound/SoundManager.h>
-#include <engine_gui/IngameConsole.h>
+
 #include <engine_physic/CollisionTools.h>
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_base/Localisation.h>
@@ -73,7 +73,7 @@ namespace CC
 		optr<Orkige::Engine>			engine;
 		optr<Orkige::InputManager>		inputManager;
 		optr<Orkige::SoundManager>		soundManager;
-		optr<Orkige::IngameConsole>		ingameConsole;
+/*		optr<Orkige::IngameConsole>		ingameConsole;*/
 		optr<Orkige::FastGuiManager>	fastGuiManager;
 //		optr<Orkige::CollisionTools>	collisionTools;
 //		optr<SettingsManager>			settingsManager;
