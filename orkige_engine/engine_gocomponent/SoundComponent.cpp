@@ -35,6 +35,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundComponent::addSound(String const & id, String const & fileName, bool loop,bool no3D)
 	{
+		if ( !SoundManager::getSingleton().isinitialised())
+		{
+			return false;
+		}
 		if(this->attachedSoundObjects.find(id) == this->attachedSoundObjects.end())
 		{
 			GameObject* componentOwner = this->getComponentOwner();
@@ -63,6 +67,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundComponent::play(String const & id)
 	{
+		if ( !SoundManager::getSingleton().isinitialised())
+		{
+			return false;
+		}
 		SoundSourceMap::iterator it = this->attachedSoundObjects.find(id);
 		if(it == this->attachedSoundObjects.end())
 		{
@@ -83,6 +91,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundComponent::stop(String const & id)
 	{
+		if ( !SoundManager::getSingleton().isinitialised())
+		{
+			return false;
+		}
 		SoundSourceMap::iterator it = this->attachedSoundObjects.find(id);
 		if(it == this->attachedSoundObjects.end())
 		{
@@ -103,6 +115,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundComponent::stopAllSounds()
 	{
+		if ( !SoundManager::getSingleton().isinitialised())
+		{
+			return false;
+		}
 		SoundSourceMap::iterator it;
 		SoundSourceMap::iterator itEnd = this->attachedSoundObjects.end();
 		foreach(SoundSourceMap::value_type const & vt, this->attachedSoundObjects)
@@ -144,6 +160,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundComponent::onUpdateComponent(float deltaTime)
 	{
+		if ( !SoundManager::getSingleton().isinitialised())
+		{
+			return ;
+		}
 #ifndef ORKIGE_OGGSOUNDMANAGER
 		if(!this->attachedSoundObjects.empty())
 		{
