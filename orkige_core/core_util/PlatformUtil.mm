@@ -8,9 +8,7 @@
 ***************************************************************/
 #include "core_util/PlatformUtil.h"
 #ifdef __APPLE__
-#import <Foundation/NSString.h>
-#import <Foundation/NSPathUtilities.h>
-#import <Foundation/NSBundle.h>
+#import <Foundation/Foundation.h>
 #ifdef ORKIGE_IPHONE
 #import <UIKit/UIKit.h>
 #endif //ORKIGE_IPHONE
@@ -41,6 +39,49 @@ namespace Orkige
 			static String path = getBaseDirectory();
 #endif
 			return path;
+		}
+		//---------------------------------------------------------
+		String const & getSupportDirectory(String applicationName)
+		{
+#ifndef ORKIGE_IPHONE
+			NSString* bundleID = [NSString stringWithCString:applicationName.c_str() encoding:[NSString defaultCStringEncoding]];//[[NSBundle mainBundle] bundleIdentifier];
+			NSFileManager*fm = [NSFileManager defaultManager];
+			NSMutableString* dirPath = nil;
+			
+			// Find the application support directory in the home directory.
+			NSArray* appSupportDir = [fm URLsForDirectory:NSApplicationSupportDirectory
+												inDomains:NSUserDomainMask];
+			
+			if ([appSupportDir count] > 0)
+			{
+				// Append the bundle ID to the URL for the
+				// Application Support directory
+				
+				dirPath = [[appSupportDir objectAtIndex:0] path];
+				
+				// This did not work: 
+				//[dirPath appendString:bundleID];
+				// That's why I did this: (pe)
+				String tempString = String([dirPath UTF8String] + String("/") + applicationName + String("/"));
+				dirPath = [NSString stringWithCString:tempString.c_str() encoding:[NSString defaultCStringEncoding]];
+
+				// If the directory does not exist, this method creates it.
+				NSError* theError = nil;
+				if (![fm createDirectoryAtPath:dirPath withIntermediateDirectories:YES			  
+								   attributes:nil error:&theError])
+				{
+					// Handle the error.
+					NSLog(@"Could not create Application Support folder: /@", dirPath);
+					//NSAssert(0, @"Could not create Application Support folder");
+					return nil;
+				}
+			}
+			
+			static String path = String([dirPath UTF8String]);			
+			return path;
+#else //ORKIGE_IPHONE
+			return nil;
+#endif //ORKIGE_IPHONE
 		}
 		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()

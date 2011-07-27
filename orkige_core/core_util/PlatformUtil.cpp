@@ -47,6 +47,12 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+		String const & getSupportDirectory(String applicationName)
+		{
+			//FIXME: get the right path
+			return getDocumentsDirectory();
+		}
+		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()
 		{
 			return PLATFORM_WIN32;
