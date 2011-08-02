@@ -319,7 +319,10 @@ namespace Gorilla
 	struct Vertex
 	{
 		Ogre::Vector3 position;
+		Ogre::Vector3 blending;
+		Ogre::Vector3 normals;
 		Ogre::ColourValue colour;
+		Ogre::ColourValue colourAmbient;
 		Ogre::Vector2 uv;
 	};
 

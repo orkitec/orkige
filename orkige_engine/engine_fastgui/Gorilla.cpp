@@ -36,9 +36,16 @@ template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singlet
 	VERTEX.position.x = X;                                           \
 	VERTEX.position.y = Y;                                           \
 	VERTEX.position.z = 0;                                           \
+	VERTEX.blending.x = 0;                                           \
+	VERTEX.blending.y = 0;                                           \
+	VERTEX.blending.z = 0;                                           \
+	VERTEX.normals.x = 0;                                           \
+	VERTEX.normals.y = 0;                                           \
+	VERTEX.normals.z = 0;                                           \
+	VERTEX.colour = COLOUR;                                          \
+	VERTEX.colourAmbient = Ogre::ColourValue::ZERO;                                  \
 	VERTEX.uv.x = UV.x;                                              \
 	VERTEX.uv.y = UV.y;                                              \
-	VERTEX.colour = COLOUR;                                          \
 	VERTICES.push_back(VERTEX);                                       
 
 #define PUSH_TRIANGLE(VERTICES, VERTEX, A, B, C, UV, COLOUR)       \
@@ -828,9 +835,25 @@ namespace Gorilla
 		vertexDecl->addElement(0,0, Ogre::VET_FLOAT3, Ogre::VES_POSITION);
 		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
 
+		// Blend
+
+		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT3, Ogre::VES_BLEND_WEIGHTS);
+		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
+
+		// Normal
+		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT3, Ogre::VES_NORMAL);
+		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
+
+
 		// Colour
 		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT4, Ogre::VES_DIFFUSE);
 		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT4);
+
+		// Colour
+
+		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT4, Ogre::VES_SPECULAR);
+		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT4);
+
 
 		// Texture Coordinates
 		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES);
@@ -839,7 +862,7 @@ namespace Gorilla
 			->createVertexBuffer(
 			vertexDecl->getVertexSize(0),
 			mVertexBufferSize,
-			Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE,
+			Ogre::HardwareBuffer::HBU_STATIC,
 			false
 			);
 
@@ -872,7 +895,7 @@ namespace Gorilla
 			mVertexBuffer = Ogre::HardwareBufferManager::getSingletonPtr()->createVertexBuffer(
 				mRenderOpPtr->vertexData->vertexDeclaration->getVertexSize(0),
 				newVertexBufferSize,
-				Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE,
+				Ogre::HardwareBuffer::HBU_STATIC,
 				false
 				);
 			mVertexBufferSize = newVertexBufferSize;
