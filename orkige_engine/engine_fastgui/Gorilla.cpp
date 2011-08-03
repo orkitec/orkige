@@ -36,16 +36,9 @@ template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singlet
 	VERTEX.position.x = X;                                           \
 	VERTEX.position.y = Y;                                           \
 	VERTEX.position.z = 0;                                           \
-	VERTEX.blending.x = 0;                                           \
-	VERTEX.blending.y = 0;                                           \
-	VERTEX.blending.z = 0;                                           \
-	VERTEX.normals.x = 0;                                           \
-	VERTEX.normals.y = 0;                                           \
-	VERTEX.normals.z = 0;                                           \
-	VERTEX.colour = COLOUR;                                          \
-	VERTEX.colourAmbient = Ogre::ColourValue::ZERO;                                  \
 	VERTEX.uv.x = UV.x;                                              \
 	VERTEX.uv.y = UV.y;                                              \
+	VERTEX.colour = COLOUR;                                          \
 	VERTICES.push_back(VERTEX);                                       
 
 #define PUSH_TRIANGLE(VERTICES, VERTEX, A, B, C, UV, COLOUR)       \
@@ -74,7 +67,7 @@ template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singlet
 
 namespace Gorilla
 {
-	
+
 	Ogre::Vector2 Glyph::scale = Ogre::Vector2(1.0,1.0);
 
 
@@ -101,7 +94,7 @@ namespace Gorilla
 	}
 
 	TextureAtlas::TextureAtlas(const Ogre::String& gorillaFile, const Ogre::String& groupName) : 
-		m2DPass(NULL), 
+	m2DPass(NULL), 
 		m3DPass(NULL)
 	{
 		_reset();
@@ -480,7 +473,7 @@ namespace Gorilla
 		pass->setDepthWriteEnabled(false);
 		pass->setLightingEnabled(false);
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
-		
+
 		Ogre::TextureUnitState* texUnit = pass->createTextureUnitState();
 		texUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
 		texUnit->setTextureFiltering(Ogre::FO_NONE, Ogre::FO_NONE, Ogre::FO_NONE);
@@ -835,25 +828,9 @@ namespace Gorilla
 		vertexDecl->addElement(0,0, Ogre::VET_FLOAT3, Ogre::VES_POSITION);
 		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
 
-		// Blend
-
-		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT3, Ogre::VES_BLEND_WEIGHTS);
-		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
-
-		// Normal
-		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT3, Ogre::VES_NORMAL);
-		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT3);
-
-
 		// Colour
 		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT4, Ogre::VES_DIFFUSE);
 		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT4);
-
-		// Colour
-
-		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT4, Ogre::VES_SPECULAR);
-		offset += Ogre::VertexElement::getTypeSize(Ogre::VET_FLOAT4);
-
 
 		// Texture Coordinates
 		vertexDecl->addElement(0, offset, Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES);
@@ -862,7 +839,7 @@ namespace Gorilla
 			->createVertexBuffer(
 			vertexDecl->getVertexSize(0),
 			mVertexBufferSize,
-			Ogre::HardwareBuffer::HBU_STATIC,
+			Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE,
 			false
 			);
 
@@ -895,7 +872,7 @@ namespace Gorilla
 			mVertexBuffer = Ogre::HardwareBufferManager::getSingletonPtr()->createVertexBuffer(
 				mRenderOpPtr->vertexData->vertexDeclaration->getVertexSize(0),
 				newVertexBufferSize,
-				Ogre::HardwareBuffer::HBU_STATIC,
+				Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE,
 				false
 				);
 			mVertexBufferSize = newVertexBufferSize;
@@ -1568,19 +1545,19 @@ namespace Gorilla
 
 			// North
 			PUSH_TRIANGLE(mVertices, temp, a, j, i, uv, mBorderColour[Border_North])
-			PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
+				PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
 
-			// East
-			PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
-			PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
+				// East
+				PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
+				PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
 
-			// South
-			PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
-			PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
+				// South
+				PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
+				PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
 
-			// West
-			PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
-			PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
+				// West
+				PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
+				PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
 
 		}
 
@@ -2095,7 +2072,7 @@ namespace Gorilla
 	void Caption::_calculateDrawSize(Ogre::Vector2& retSize)
 	{ 
 		oAssertDesc(mGlyphData != NULL, "Font rendering can't find glyph data. Font size correctly specified?");
-		
+
 		Ogre::Real cursor = 0,
 			kerning = 0;
 
@@ -2132,7 +2109,7 @@ namespace Gorilla
 
 			cursor += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
-			
+
 			if (multiByteLength > 0)
 			{
 				i += multiByteLength -1;
@@ -2299,7 +2276,7 @@ namespace Gorilla
 
 			cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
-			
+
 			if (multiByteLength > 0)
 			{
 				i += multiByteLength -1;
@@ -2514,7 +2491,7 @@ namespace Gorilla
 			}
 			cursorX = (int)cursorX;
 			cursorY = (int)cursorY;
-			
+
 			right = cursorX + glyph->GetGlyphWidthScaled() + texelOffsetX;
 			bottom = cursorY + glyph->GetGlyphHeightScaled() + texelOffsetY;
 
@@ -2542,7 +2519,7 @@ namespace Gorilla
 				cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 
 			lastChar = thisChar;
-			
+
 			// find width
 			if (this->mWidth < cursorX)
 			{
@@ -2582,4 +2559,3 @@ namespace Gorilla
 	}
 
 } // namespace Gorilla
-
