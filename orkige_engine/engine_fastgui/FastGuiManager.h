@@ -78,6 +78,10 @@ namespace Orkige
 		inline woptr<FastGuiView> getCreateView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! checks if screen with given id exists
 		inline bool hasView(String const & atlas);
+		//! hides all views
+		void hideAllViews();
+		//! inhieds all views
+		void showAllViews();
 		//! add given widget
 		bool addWidget(optr<FastGuiWidget> widget);
 		//! destroy given widget

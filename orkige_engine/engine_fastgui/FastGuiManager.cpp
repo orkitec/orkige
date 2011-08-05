@@ -319,6 +319,22 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::hideAllViews()
+	{
+		foreach(FastGuiViewMap::value_type const & vt, this->views)
+		{
+			vt.second->getScreen()->setVisible(false);
+		}
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::showAllViews()
+	{
+		foreach(FastGuiViewMap::value_type const & vt, this->views)
+		{
+			vt.second->getScreen()->setVisible(true);
+		}
+	}
+	//---------------------------------------------------------
 	void FastGuiManager::replaceAtlasTexture(const Ogre::String& atlas, const Ogre::String& texture)
 	{
 		oAssertDesc(this->hasView(atlas), "replaceAtlasTexture: atlas not found");
