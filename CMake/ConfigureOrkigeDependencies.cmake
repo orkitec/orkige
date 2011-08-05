@@ -68,6 +68,20 @@ macro(ConfigureOrkigeDependencies)
 			)
 	endif(ORKIGE_ENABLE_APPUP)
 	
+	if(ORKIGE_ENABLE_JADEDS)
+		include_directories(
+			${ORKIGE_DEP_DIR}/JadeDS
+		)
+		
+		link_libraries(
+			JadeDS_OgrePlugin
+			optimized "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeSDK_VS2008.lib"
+			optimized "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeDSConnect.lib"
+			debug "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeSDK_VS2008d.lib"
+			debug "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeDSConnect_d.lib"
+		)
+	endif(ORKIGE_ENABLE_JADEDS)
+	
 	if (ORKIGE_ENABLE_GAMESWF)		
 		include_directories(
 			${ORKIGE_DEP_DIR}/gameswf

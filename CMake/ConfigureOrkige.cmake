@@ -55,6 +55,7 @@ macro (ConfigureOrkige)
 	option(ORKIGE_MINIMAL_FREEIMAGE_CODEC	"Compile minimal FreeImage Codec(PNG/JPEG/TGA)" OFF)
 	if (WIN32)
 				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
+				option(ORKIGE_ENABLE_JADEDS			"enable Jade:DS / Little Indie"			OFF)	
 	endif (WIN32)
 	
 	# Unity build options
@@ -83,6 +84,10 @@ macro (ConfigureOrkige)
 	if(ORKIGE_ENABLE_APPUP)
 		add_definitions(-DORKIGE_ENABLE_APPUP)	
 	endif(ORKIGE_ENABLE_APPUP)
+	
+	if(ORKIGE_ENABLE_JADEDS)
+		add_definitions(-DORKIGE_ENABLE_JADEDS)	
+	endif(ORKIGE_ENABLE_JADEDS)
 
 	if(ORKIGE_ENABLE_GAMESWF)
 		add_definitions(-DORKIGE_ENABLE_GAMESWF)	
