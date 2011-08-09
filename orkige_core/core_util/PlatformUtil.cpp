@@ -43,7 +43,11 @@ namespace Orkige
 		//---------------------------------------------------------
 		String const & getResourceDirectory()
 		{
+#ifdef ORKIGE_ENABLE_JADEDS
+			static String path = "";
+#else
 			static String path = "./";
+#endif
 			return path;
 		}
 		//---------------------------------------------------------
