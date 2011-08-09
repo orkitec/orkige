@@ -47,7 +47,7 @@ namespace Orkige
 		inline String const & getCurrentLocale();
 		//! setup resource directories (Category Language) for current locale
 		//! @param directories comma separated list of directories
-		void setupResources(String const & directories);
+		void setupResources(String const & directories, String const & locType = "FileSystem");
 		//! call setupResources when scene rendering is done
 		void setupResourcesDelayed(String const & directories);
 	protected:

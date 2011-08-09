@@ -71,7 +71,10 @@ namespace Orkige
 #endif
 #endif
 		
-		this->setupResources(resourceCfgPlatformFileName);
+		if(!resourceCfgPlatformFileName.empty())
+		{
+			this->setupResources(resourceCfgPlatformFileName);
+		}
 	}
 	//---------------------------------------------------------
 	Engine::~Engine()
