@@ -75,10 +75,6 @@ macro(ConfigureOrkigeDependencies)
 		
 		link_libraries(
 			JadeDS_OgrePlugin
-			optimized "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeSDK_VS2008.lib"
-			optimized "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeDSConnect.lib"
-			debug "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeSDK_VS2008d.lib"
-			debug "${ORKIGE_DEP_DIR}/JadeDS/lib/JadeDSConnect_d.lib"
 		)
 	endif(ORKIGE_ENABLE_JADEDS)
 	
