@@ -183,6 +183,10 @@ namespace Orkige
 			switch (Engine::getSingleton().getViewport()->getOrientationMode())
 			{
 			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+                data->absX = absX;
+                data->absY = absY;
+                data->relX = relX;
+                data->relY = relY;
 				break;
 			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
 				data->absX = w - absY;
