@@ -45,6 +45,7 @@ namespace Orkige
 		unsigned short statsMarkupColorIndex;
 		String defaultAtlas;
 		bool cancelInputUpdate;
+        bool scaleStats;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -98,7 +99,7 @@ namespace Orkige
 		//! get default texture atlas
 		inline String const & getDefaultAtlas();
 		//! show frame stats
-		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0);
+		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0, bool scaleStats = false);
 		//! clear worst and best fps and more
 		void resetStats();
 		//! update statistic
