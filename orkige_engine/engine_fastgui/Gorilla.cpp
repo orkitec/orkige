@@ -1029,8 +1029,21 @@ namespace Gorilla
 		mRenderSystem = Ogre::Root::getSingletonPtr()->getRenderSystem();
 
 #ifdef ORKIGE_IPHONE
-		mHeight = mViewport->getActualWidth();
-		mWidth = mViewport->getActualHeight();
+        switch (mViewport->getOrientationMode())
+        {
+			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+            case Ogre::OR_DEGREE_180:
+            {
+                mHeight = mViewport->getActualHeight();
+                mWidth = mViewport->getActualWidth();
+            }	break;
+			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+            case Ogre::OR_DEGREE_270:
+            {
+                mHeight = mViewport->getActualWidth();
+                mWidth = mViewport->getActualHeight();
+            }break;
+        }
 #else
 		mWidth = mViewport->getActualWidth();
 		mHeight = mViewport->getActualHeight();
@@ -1075,9 +1088,24 @@ namespace Gorilla
 	void Screen::renderOnce()
 	{
 		bool force = false;
+        
 		// force == true if viewport size changed.
 #ifdef ORKIGE_IPHONE
-		if (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight() 
+        bool renderOrientFix = false;
+        switch (mViewport->getOrientationMode())
+        {
+			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+            case Ogre::OR_DEGREE_180:
+            {
+                renderOrientFix = (mHeight != mViewport->getActualHeight() || mWidth != mViewport->getActualWidth());
+            }	break;
+			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+            case Ogre::OR_DEGREE_270:
+            {
+                renderOrientFix = (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight());
+            }break;
+        }
+		if (renderOrientFix 
 #else
 		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight() 
 #endif
@@ -1089,8 +1117,21 @@ namespace Gorilla
 			)
 		{
 #ifdef ORKIGE_IPHONE
-			mHeight = mViewport->getActualWidth();
-			mWidth = mViewport->getActualHeight();
+			switch (mViewport->getOrientationMode())
+            {
+                case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+                case Ogre::OR_DEGREE_180:
+                {
+                    mHeight = mViewport->getActualHeight();
+                    mWidth = mViewport->getActualWidth();
+                }	break;
+                case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+                case Ogre::OR_DEGREE_270:
+                {
+                    mHeight = mViewport->getActualWidth();
+                    mWidth = mViewport->getActualHeight();
+                }break;
+            }
 #else
 			mWidth = mViewport->getActualWidth();
 			mHeight = mViewport->getActualHeight();
