@@ -45,39 +45,48 @@ namespace Orkige
 		{
 #ifndef ORKIGE_IPHONE
 			NSString* bundleID = [NSString stringWithCString:applicationName.c_str() encoding:[NSString defaultCStringEncoding]];//[[NSBundle mainBundle] bundleIdentifier];
-			NSFileManager*fm = [NSFileManager defaultManager];
-			NSMutableString* dirPath = nil;
-			
-			// Find the application support directory in the home directory.
-			NSArray* appSupportDir = [fm URLsForDirectory:NSApplicationSupportDirectory
-												inDomains:NSUserDomainMask];
-			
-			if ([appSupportDir count] > 0)
-			{
-				// Append the bundle ID to the URL for the
-				// Application Support directory
-				
-				dirPath = [[appSupportDir objectAtIndex:0] path];
-				
-				// This did not work: 
-				//[dirPath appendString:bundleID];
-				// That's why I did this: (pe)
-				String tempString = String([dirPath UTF8String] + String("/") + applicationName + String("/"));
-				dirPath = [NSString stringWithCString:tempString.c_str() encoding:[NSString defaultCStringEncoding]];
+			NSFileManager* fm = [NSFileManager defaultManager];
+			NSMutableString* applicationSupportFolder = nil;
 
+			FSRef foundRef;
+			OSErr err = FSFindFolder(kUserDomain, kApplicationSupportFolderType,
+									 kDontCreateFolder, &foundRef);
+			if (err != noErr)
+			{
+				NSLog(@"Can't find application support folder");
+			}
+			else
+			{
+				unsigned char path[1024];
+				FSRefMakePath(&foundRef, path, sizeof(path));
+				applicationSupportFolder = [NSString stringWithUTF8String:(char *)path];
+
+			}
+
+
+			// Append the bundle ID to the URL for the
+			// Application Support directory		
+			// This did not work: 
+			//[applicationSupportFolder appendString:bundleID];
+			// That's why I did this: (pe)
+			String tempString = String([applicationSupportFolder UTF8String] + String("/") + applicationName + String("/"));
+			applicationSupportFolder = [NSString stringWithCString:tempString.c_str() encoding:[NSString defaultCStringEncoding]];
+
+			bool dirExisits = [fm fileExistsAtPath: applicationSupportFolder];
+			if (!dirExisits )
+			{
 				// If the directory does not exist, this method creates it.
 				NSError* theError = nil;
-				if (![fm createDirectoryAtPath:dirPath withIntermediateDirectories:YES			  
-								   attributes:nil error:&theError])
+				if (![fm createDirectoryAtPath:applicationSupportFolder attributes:nil ])
 				{
 					// Handle the error.
-					NSLog(@"Could not create Application Support folder: /@", dirPath);
+					NSLog(@"Could not create Application Support folder: /@", applicationSupportFolder);
 					//NSAssert(0, @"Could not create Application Support folder");
 					return nil;
 				}
 			}
 			
-			static String path = String([dirPath UTF8String]);			
+			static String path = String([applicationSupportFolder UTF8String]);			
 			return path;
 #else //ORKIGE_IPHONE
 			return nil;
