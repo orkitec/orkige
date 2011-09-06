@@ -86,10 +86,6 @@ namespace Orkige
 			String fileExtention = ".png";
 			bool stitchGridImages = true;
 
-			Ogre::Vector3 posOld = cam->getPosition();
-			Ogre::Quaternion orientOld = cam->getOrientation();
-			cam->setPosition(cam->getRealPosition());
-			cam->setOrientation(cam->getRealOrientation());
 			cam->setCustomProjectionMatrix(false); // reset projection matrix 
 			Ogre::Matrix4 standard = cam->getProjectionMatrix(); 
 			Ogre::Real nearDist = cam->getNearClipDistance(); 
@@ -144,9 +140,6 @@ namespace Orkige
 				} 
 			} 
 			cam->setCustomProjectionMatrix(false); // reset projection matrix 
-
-			cam->setPosition(posOld);
-			cam->setOrientation(orientOld);
 
 			if(stitchGridImages) 
 			{ 

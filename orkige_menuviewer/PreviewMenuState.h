@@ -10,6 +10,7 @@
 
 #include <core_game/GameState.h>
 #include <engine_input/InputManager.h>
+#include <engine_gui/GuiManager.h>
 //#include <engine_fastgui/FastGuiTextbox.h>
 
 

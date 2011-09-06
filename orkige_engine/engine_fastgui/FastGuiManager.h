@@ -45,7 +45,6 @@ namespace Orkige
 		unsigned short statsMarkupColorIndex;
 		String defaultAtlas;
 		bool cancelInputUpdate;
-        bool scaleStats;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -79,10 +78,6 @@ namespace Orkige
 		inline woptr<FastGuiView> getCreateView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! checks if screen with given id exists
 		inline bool hasView(String const & atlas);
-		//! hides all views
-		void hideAllViews();
-		//! inhieds all views
-		void showAllViews();
 		//! add given widget
 		bool addWidget(optr<FastGuiWidget> widget);
 		//! destroy given widget
@@ -99,7 +94,7 @@ namespace Orkige
 		//! get default texture atlas
 		inline String const & getDefaultAtlas();
 		//! show frame stats
-		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0, bool scaleStats = false);
+		void showStats(uint glyphIndex = 9, Ogre::Vector2 const & pos = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, unsigned short markupColorIndex = 0);
 		//! clear worst and best fps and more
 		void resetStats();
 		//! update statistic
@@ -207,7 +202,6 @@ namespace Orkige
 		oAssert(widget);
 		oAssertDesc(widget->getTypeInfo() == WidgetType::getClassTypeInfo(), "Widget: " << id << " is of type: " << widget->getTypeInfo().getName() << " and not of type: " << WidgetType::getClassTypeInfo().getName() << " !");
 		optr<WidgetType> casted_widget = boost::static_pointer_cast<WidgetType>(widget);
-		oAssert(casted_widget);
 		return casted_widget;
 	}
 	//---------------------------------------------------------------

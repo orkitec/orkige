@@ -528,7 +528,6 @@ void CompositorInstance::setScheme(const String& schemeName, bool reuseTextures)
 	if (tech)
 	{
 		setTechnique(tech, reuseTextures);
-		mActiveScheme = tech->getSchemeName();
 	}
 }
 //-----------------------------------------------------------------------
@@ -959,14 +958,13 @@ RenderTarget *CompositorInstance::getTargetForTex(const String &name)
 	if (texDef != 0 && !texDef->refCompName.empty()) 
 	{
 		//This is a reference - find the compositor and referenced texture definition
-		Ogre::CompositorInstance *refCompInst = mChain->getCompositor(texDef->refCompName);
-		if(refCompInst == 0)
+		const CompositorPtr& refComp = CompositorManager::getSingleton().getByName(texDef->refCompName);
+		if (refComp.isNull())
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor",
 				"CompositorInstance::getTargetForTex");
 		}
-		Ogre::Compositor *refComp = refCompInst->getCompositor();
-		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique(refCompInst->getScheme())->getTextureDefinition(texDef->refTexName);
+		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique()->getTextureDefinition(texDef->refTexName);
 		if (refTexDef == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor texture",
@@ -1030,14 +1028,14 @@ const String &CompositorInstance::getSourceForTex(const String &name, size_t mrt
 
 	if (!texDef->refCompName.empty()) 
 	{
-		Ogre::CompositorInstance *refCompInst = mChain->getCompositor(texDef->refCompName);
-		if(refCompInst == 0)
+		//This is a reference - find the compositor and referenced texture definition
+		const CompositorPtr& refComp = CompositorManager::getSingleton().getByName(texDef->refCompName);
+		if (refComp.isNull())
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor",
-			"CompositorInstance::getSourceForTex");
+				"CompositorInstance::getSourceForTex");
 		}
-		Ogre::Compositor *refComp = refCompInst->getCompositor();
-		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique(refCompInst->getScheme())->getTextureDefinition(texDef->refTexName);
+		CompositionTechnique::TextureDefinition* refTexDef = refComp->getSupportedTechnique()->getTextureDefinition(texDef->refTexName);
 		if (refTexDef == 0)
 		{
 			OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "Referencing non-existent compositor texture",

@@ -3876,49 +3876,43 @@ void SceneManager::resetViewProjMode(bool fixedFunction)
 //---------------------------------------------------------------------
 void SceneManager::_queueSkiesForRendering(Camera* cam)
 {
-	// Update nodes
-	// Translate the box by the camera position (constant distance)
-	if (mSkyPlaneNode)
-	{
-		// The plane position relative to the camera has already been set up
-		mSkyPlaneNode->setPosition(cam->getDerivedPosition());
-	}
+    // Update nodes
+    // Translate the box by the camera position (constant distance)
+    if (mSkyPlaneNode)
+    {
+        // The plane position relative to the camera has already been set up
+        mSkyPlaneNode->setPosition(cam->getDerivedPosition());
+    }
 
-	if (mSkyBoxNode)
-	{
-		mSkyBoxNode->setPosition(cam->getDerivedPosition());
-	}
+    if (mSkyBoxNode)
+    {
+        mSkyBoxNode->setPosition(cam->getDerivedPosition());
+    }
 
-	if (mSkyDomeNode)
-	{
-		mSkyDomeNode->setPosition(cam->getDerivedPosition());
-	}
+    if (mSkyDomeNode)
+    {
+        mSkyDomeNode->setPosition(cam->getDerivedPosition());
+    }
 
-	if (mSkyPlaneEnabled
-		&& mSkyPlaneEntity && mSkyPlaneEntity->isVisible()
-		&& mSkyPlaneEntity->getSubEntity(0) && mSkyPlaneEntity->getSubEntity(0)->isVisible())
-	{
-		getRenderQueue()->addRenderable(mSkyPlaneEntity->getSubEntity(0), mSkyPlaneRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
-	}
+    if (mSkyPlaneEnabled)
+    {
+        getRenderQueue()->addRenderable(mSkyPlaneEntity->getSubEntity(0), mSkyPlaneRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
+    }
 
-	if (mSkyBoxEnabled
-		&& mSkyBoxObj && mSkyBoxObj->isVisible())
-	{
+    if (mSkyBoxEnabled)
+    {
 		mSkyBoxObj->_updateRenderQueue(getRenderQueue());
-	}
+    }
 
-	if (mSkyDomeEnabled)
-	{
-		for (uint plane = 0; plane < 5; ++plane)
-		{
-			if (mSkyDomeEntity[plane] && mSkyDomeEntity[plane]->isVisible()
-				&& mSkyDomeEntity[plane]->getSubEntity(0) && mSkyDomeEntity[plane]->getSubEntity(0)->isVisible())
-			{
-				getRenderQueue()->addRenderable(
-					mSkyDomeEntity[plane]->getSubEntity(0), mSkyDomeRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
-			}
-		}
-	}
+	uint plane;
+    if (mSkyDomeEnabled)
+    {
+        for (plane = 0; plane < 5; ++plane)
+        {
+            getRenderQueue()->addRenderable(
+                mSkyDomeEntity[plane]->getSubEntity(0), mSkyDomeRenderQueue, OGRE_RENDERABLE_DEFAULT_PRIORITY);
+        }
+    }
 }
 //---------------------------------------------------------------------
 void SceneManager::addRenderQueueListener(RenderQueueListener* newListener)

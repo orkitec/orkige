@@ -49,10 +49,13 @@ namespace Orkige
 	private:
 		optr<Ogre::Root>			root;
 		Ogre::RenderWindow*			renderWindow;
+		Ogre::RenderWindow*			renderWindow2;
 		Ogre::SceneManager*			sceneManager;
 		Ogre::SceneType				sceneType;
 		Ogre::Camera*				camera;
+		Ogre::Camera*				camera2;
 		Ogre::Viewport*				viewport;
+		Ogre::Viewport*				viewport2;
 		EventManager*				eventManager;
 		Event						frameStartedEvent;
 		Event						frameRenderingQueuedEvent;
@@ -61,6 +64,7 @@ namespace Orkige
 		String						externalWindowHandle;
 		String						topLevelWindowHandle;
 		unsigned long				lastFrameTime;
+		bool						hasSecondRenderWindow;
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
@@ -98,6 +102,7 @@ namespace Orkige
 
 		//! optional: you can have as many Cameras and Viewports as you wish but in most cases 1 is enough for a game
 		void createDefaultCameraAndViewport();
+		void createSecondDefaultCameraAndViewport();
 
 		//! as the name says Render one Frame
 		bool renderOneFrame();
@@ -110,8 +115,10 @@ namespace Orkige
 		inline Ogre::RenderWindow* getRenderWindow();
 		//! get Engine default Camera if it was created through Engine::createDefaultCameraAndViewport
 		inline Ogre::Camera* getCamera();
+		inline Ogre::Camera* getSecondCamera();
 		//! get Engine default Viewport if it was created through Engine::createDefaultCameraAndViewport
 		inline Ogre::Viewport* getViewport();
+		inline Ogre::Viewport* getSecondViewport();
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
@@ -157,9 +164,19 @@ namespace Orkige
 		return this->camera;
 	}
 	//---------------------------------------------------------------
+	inline Ogre::Camera* Engine::getSecondCamera()
+	{
+		return this->camera2;
+	}
+	//---------------------------------------------------------------
 	inline Ogre::Viewport* Engine::getViewport()
 	{
 		return this->viewport;
+	}
+	//---------------------------------------------------------------
+	inline Ogre::Viewport* Engine::getSecondViewport()
+	{
+		return this->viewport2;
 	}
 	//---------------------------------------------------------------
 	inline String const & Engine::getExternalWindowHandle()

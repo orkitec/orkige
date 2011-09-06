@@ -139,7 +139,7 @@ namespace CC
 			int pos = sPath.find_last_of("\\");
 			sPath = sPath.substr(0, pos);
 
-			sPathTest = sPath + "\\Export";
+			sPathTest = sPath + "\\Export\\data";
 			if (SetCurrentDirectory(sPathTest.c_str()) != 0)
 			{
 				break;

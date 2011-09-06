@@ -20,7 +20,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false)
 	{
 		oAssert(this->factory);
 		this->silverback = onew(new Gorilla::Silverback());
@@ -227,14 +227,14 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas, unsigned short markupColorIndex, bool scaleStats)
+	void FastGuiManager::showStats(uint glyphIndex, Ogre::Vector2 const & pos, String const & atlas, unsigned short markupColorIndex)
 	{
 		if(this->stats)
 		{
 			this->stats.reset();
 			this->statsValues.reset();
 		}
-        this->scaleStats = scaleStats;
+	
 		this->statsMarkupColorIndex = markupColorIndex;
 		this->stats = onew(new FastGuiTextbox("FastGuiManagerFrameStats", glyphIndex, "", pos, atlas, 15, false));
 		this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", glyphIndex, "", pos, atlas, 15, false));
@@ -245,11 +245,8 @@ namespace Orkige
 #endif
 
 		// don't scale font by resolution
-        Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
-        if(!this->scaleStats)
-        {
-            Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;   
-        }
+		Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
+		Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;
 
 		this->stats->getMarkupText()->_calculateCharacters();
 		Ogre::Vector2 size = this->stats->getSize();
@@ -295,10 +292,7 @@ namespace Orkige
 
 			// don't scale font by resolution
 			Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
-            if(!this->scaleStats)
-            {
-                Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;   
-            }
+			Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;
 
 			this->statsValues->setText(sstr.str());
 			this->statsValues->getMarkupText()->_calculateCharacters();
@@ -322,22 +316,6 @@ namespace Orkige
 			//oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
 			Gorilla::Screen* screen = view->getScreen();
 			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
-		}
-	}
-	//---------------------------------------------------------
-	void FastGuiManager::hideAllViews()
-	{
-		foreach(FastGuiViewMap::value_type const & vt, this->views)
-		{
-			vt.second->getScreen()->setVisible(false);
-		}
-	}
-	//---------------------------------------------------------
-	void FastGuiManager::showAllViews()
-	{
-		foreach(FastGuiViewMap::value_type const & vt, this->views)
-		{
-			vt.second->getScreen()->setVisible(true);
 		}
 	}
 	//---------------------------------------------------------

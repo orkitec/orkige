@@ -96,35 +96,12 @@ namespace Orkige
 #endif
 #endif
 
-		
-		try
-		{
-			this->isInitialized = true;
-			this->isInitialized = this->initOpenAl();	
-		}
-		catch (...)
-		{
-			this->isInitialized = false;
-		}
-		//this->isInitialized= false;
-		return this->isInitialized;
-		
-			
+		return this->initOpenAl();		
 	}
-	//----------------------------------------------------
-	bool SoundManager::isinitialised()
-	{
-		return this->isInitialized;
-	} 
-
 	//---------------------------------------------------------
 	void SoundManager::update(float delta)
 	{
 		OPROFILEFUNC();
-		if (!this->isInitialized)
-		{
-			return;
-		}
 
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		OgreOggSound::OgreOggSoundManager::update(delta);
@@ -178,15 +155,7 @@ namespace Orkige
 		}
 		this->sounds.clear();
 #endif
-		if (this->isInitialized)
-		{
-			return this->deinitOpenAl();
-		}
-		else
-		{
-			return true;
-		}
-		
+		return this->deinitOpenAl();
 	}
 	//---------------------------------------------------------
 	SoundSourcePtr SoundManager::createSound(String const & id, String const & fileName, bool loop, Ogre::Vector3 const & pos, bool stream, bool preBuffer)
@@ -243,10 +212,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundManager::playSound(String  const & id)
 	{
-		if (!this->isInitialized)
-		{
-			return false;
-		}
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		SoundSourcePtr sound = this->getSound(id);
 		if(sound)
@@ -273,10 +238,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundManager::stopSound(String  const & id)
 	{	
-		if (!this->isInitialized)
-		{
-			return false;
-		}
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		SoundSourcePtr sound = this->getSound(id);
 		if(sound)
@@ -324,10 +285,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::pause()
 	{
-		if (!this->isInitialized)
-		{
-			return;
-		}
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		this->pauseAllSounds();
 #else
@@ -340,10 +297,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::resume()
 	{
-		if (!this->isInitialized)
-		{
-			return;
-		}
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		this->resumeAllPausedSounds();
 #else
@@ -474,10 +427,9 @@ namespace Orkige
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		String devicename;
 #ifdef WIN32
-		devicename = "Generic Software";
+		devicename = "DirectSound3D";
 #endif
-		if(!OgreOggSound::OgreOggSoundManager::init(devicename, 100, 64, Engine::getSingleton().getSceneManager()))
-			return false;
+		OgreOggSound::OgreOggSoundManager::init(devicename, 100, 64, Engine::getSingleton().getSceneManager());
 		this->context = alcGetCurrentContext();
 		oAssert(this->context);
 #else

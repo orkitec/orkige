@@ -36,9 +36,7 @@ namespace Orkige
 	private:
 		//--- Variables ---------------------------------------------
 	public:
-		
 	protected:
-		bool isInitialized;
 #ifndef ORKIGE_OGGSOUNDMANAGER
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
@@ -83,13 +81,11 @@ namespace Orkige
 		void onInterruptBegin();
 		//! sound interruption end
 		void onInterruptEnd();
-		bool isinitialised();
 	protected:
 		//! init openAl
 		bool initOpenAl();
 		//! deinit openAl
 		bool deinitOpenAl();
-		
 	private:
 	};
 	//---------------------------------------------------------------

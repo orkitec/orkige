@@ -68,16 +68,6 @@ macro(ConfigureOrkigeDependencies)
 			)
 	endif(ORKIGE_ENABLE_APPUP)
 	
-	if(ORKIGE_ENABLE_JADEDS)
-		include_directories(
-			${ORKIGE_DEP_DIR}/JadeDS
-		)
-		
-		link_libraries(
-			JadeDS_OgrePlugin
-		)
-	endif(ORKIGE_ENABLE_JADEDS)
-	
 	if (ORKIGE_ENABLE_GAMESWF)		
 		include_directories(
 			${ORKIGE_DEP_DIR}/gameswf

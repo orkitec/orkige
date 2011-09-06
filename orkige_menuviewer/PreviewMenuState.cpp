@@ -10,6 +10,7 @@
 #include <engine_input/InputManager.h>
 #include <core_game/Application.h>
 #include <engine_graphic/Engine.h>
+#include <engine_gui/IngameConsole.h>
 #include <engine_fastgui/FastGuiManager.h>
 #include "FileUtils.h"
 
@@ -32,8 +33,8 @@ namespace CC
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,	&PreviewMenuState::onMouseReleased,	this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,		&PreviewMenuState::onMouseMoved,	this);
 		
-		this->registerEvent(Orkige::FastGuiButton::ButtonHitEvent,				&PreviewMenuState::onButtonHit,		this);
-		this->registerEvent(Orkige::FastGuiCheckBox::CheckBoxToggledEvent,		&PreviewMenuState::onCheckBoxToggled, this);
+		this->registerEvent(Orkige::Button::ButtonHitEvent,				&PreviewMenuState::onButtonHit,		this);
+		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,		&PreviewMenuState::onCheckBoxToggled, this);
 
 		
 		//this->statsValues = onew(new FastGuiTextbox("FastGuiManagerFrameStatsValues", 9, "", Ogre::Vector2(100,100), "", 15));
@@ -72,7 +73,7 @@ namespace CC
 	//---------------------------------------------------------
 	bool PreviewMenuState::onButtonHit(Orkige::Event const & event)
 	{
-		optr< ::Orkige::FastGuiButton > btn = event.getDataPtr< ::Orkige::FastGuiButton >();
+		optr< ::Orkige::Button > btn = event.getDataPtr< ::Orkige::Button >();
 
 		Ogre::LogManager::getSingleton().logMessage("Button hit: " + btn->getObjectID());
 		
@@ -115,6 +116,7 @@ namespace CC
 			this->loadMenu();
 			break;
 		case KeyEventData::KC_TAB:
+			Orkige::IngameConsole::getSingleton().switchVisible();
 			break;
 		case KeyEventData::KC_BACK:
 			break;

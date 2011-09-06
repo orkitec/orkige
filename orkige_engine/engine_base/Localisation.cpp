@@ -183,7 +183,7 @@ namespace Orkige
 		oAssert(this->languageSettings);
 	}
 	//---------------------------------------------------------
-	void Localisation::setupResources(String const & directories, String const & locType)
+	void Localisation::setupResources(String const & directories)
 	{
 		this->directories = directories;
 		if(Ogre::ResourceGroupManager::getSingleton().resourceGroupExists("Language"))
@@ -196,7 +196,7 @@ namespace Orkige
 		boost::split(dirs, this->directories, boost::is_any_of(","));
 		foreach(Orkige::String const & dir, dirs)
 		{
-			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/" + dir, locType, "Language");
+			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/" + dir, "FileSystem", "Language");
 		}
 		Ogre::ResourceGroupManager::getSingleton().initialiseResourceGroup("Language");
 		Ogre::SceneManager::MovableObjectIterator iterator = Engine::getSingleton().getSceneManager()->getMovableObjectIterator(Ogre::EntityFactory::FACTORY_TYPE_NAME);

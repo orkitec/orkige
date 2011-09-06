@@ -296,14 +296,10 @@ namespace Ogre {
 		if (rs)
 		{
 			Viewport* currentvp = rs->_getViewport();
-			if (currentvp && currentvp == this)
-				rs->clearFrameBuffer(buffers, col, depth, stencil);
-			else if (currentvp)
-			{
-				rs->_setViewport(this);
-				rs->clearFrameBuffer(buffers, col, depth, stencil);
+			rs->_setViewport(this);
+			rs->clearFrameBuffer(buffers, col, depth, stencil);
+			if (currentvp && currentvp != this)
 				rs->_setViewport(currentvp);
-			}
 		}
 	}
     //---------------------------------------------------------------------
