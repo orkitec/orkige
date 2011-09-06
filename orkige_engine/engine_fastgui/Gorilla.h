@@ -510,7 +510,7 @@ namespace Gorilla
 
 		std::vector<Glyph*>  mGlyphs;
 		Ogre::uint           mRangeBegin, mRangeEnd;
-		
+
 		Ogre::Real GetSpaceLengthScaled()		{ return Glyph::scale.x * mSpaceLength; }
 		Ogre::Real GetLineHeightScaled()		{ return Glyph::scale.y * mLineHeight; }
 		Ogre::Real GetBaseLineScaled()			{ return Glyph::scale.y * mBaseline; }
@@ -522,9 +522,9 @@ namespace Gorilla
 		void SetBaseLine(Ogre::Real baseline)				{ mBaseline = baseline; }
 		void SetLetterSpacing(Ogre::Real letterSpacing)		{ mLetterSpacing = letterSpacing; }
 		void SetMonoWidthScaled(Ogre::Real monoWidth)		{ mMonoWidth = monoWidth; }
-		
+
 	protected:
-		
+
 		Ogre::Real           mSpaceLength,
 			mLineHeight,
 			mBaseline,
@@ -2759,7 +2759,7 @@ namespace Gorilla
 		*/
 		void               _redraw();
 
-	
+
 
 		void               _calculateDrawSize(Ogre::Vector2& size);
 

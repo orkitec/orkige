@@ -67,7 +67,7 @@ template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singlet
 
 namespace Gorilla
 {
-	
+
 	Ogre::Vector2 Glyph::scale = Ogre::Vector2(1.0,1.0);
 
 
@@ -94,7 +94,7 @@ namespace Gorilla
 	}
 
 	TextureAtlas::TextureAtlas(const Ogre::String& gorillaFile, const Ogre::String& groupName) : 
-		m2DPass(NULL), 
+	m2DPass(NULL), 
 		m3DPass(NULL)
 	{
 		_reset();
@@ -473,7 +473,7 @@ namespace Gorilla
 		pass->setDepthWriteEnabled(false);
 		pass->setLightingEnabled(false);
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
-		
+
 		Ogre::TextureUnitState* texUnit = pass->createTextureUnitState();
 		texUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
 		texUnit->setTextureFiltering(Ogre::FO_NONE, Ogre::FO_NONE, Ogre::FO_NONE);
@@ -1029,8 +1029,21 @@ namespace Gorilla
 		mRenderSystem = Ogre::Root::getSingletonPtr()->getRenderSystem();
 
 #ifdef ORKIGE_IPHONE
-		mHeight = mViewport->getActualWidth();
-		mWidth = mViewport->getActualHeight();
+        switch (mViewport->getOrientationMode())
+        {
+			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+            case Ogre::OR_DEGREE_180:
+            {
+                mHeight = mViewport->getActualHeight();
+                mWidth = mViewport->getActualWidth();
+            }	break;
+			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+            case Ogre::OR_DEGREE_270:
+            {
+                mHeight = mViewport->getActualWidth();
+                mWidth = mViewport->getActualHeight();
+            }break;
+        }
 #else
 		mWidth = mViewport->getActualWidth();
 		mHeight = mViewport->getActualHeight();
@@ -1075,9 +1088,24 @@ namespace Gorilla
 	void Screen::renderOnce()
 	{
 		bool force = false;
+        
 		// force == true if viewport size changed.
 #ifdef ORKIGE_IPHONE
-		if (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight() 
+        bool renderOrientFix = false;
+        switch (mViewport->getOrientationMode())
+        {
+			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+            case Ogre::OR_DEGREE_180:
+            {
+                renderOrientFix = (mHeight != mViewport->getActualHeight() || mWidth != mViewport->getActualWidth());
+            }	break;
+			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+            case Ogre::OR_DEGREE_270:
+            {
+                renderOrientFix = (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight());
+            }break;
+        }
+		if (renderOrientFix 
 #else
 		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight() 
 #endif
@@ -1089,8 +1117,21 @@ namespace Gorilla
 			)
 		{
 #ifdef ORKIGE_IPHONE
-			mHeight = mViewport->getActualWidth();
-			mWidth = mViewport->getActualHeight();
+			switch (mViewport->getOrientationMode())
+            {
+                case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+                case Ogre::OR_DEGREE_180:
+                {
+                    mHeight = mViewport->getActualHeight();
+                    mWidth = mViewport->getActualWidth();
+                }	break;
+                case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
+                case Ogre::OR_DEGREE_270:
+                {
+                    mHeight = mViewport->getActualWidth();
+                    mWidth = mViewport->getActualHeight();
+                }break;
+            }
 #else
 			mWidth = mViewport->getActualWidth();
 			mHeight = mViewport->getActualHeight();
@@ -1545,19 +1586,19 @@ namespace Gorilla
 
 			// North
 			PUSH_TRIANGLE(mVertices, temp, a, j, i, uv, mBorderColour[Border_North])
-			PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
+				PUSH_TRIANGLE(mVertices, temp, a, b, j, uv, mBorderColour[Border_North])
 
-			// East
-			PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
-			PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
+				// East
+				PUSH_TRIANGLE(mVertices, temp, d, j, b, uv, mBorderColour[Border_East])
+				PUSH_TRIANGLE(mVertices, temp, d, l, j, uv, mBorderColour[Border_East])
 
-			// South
-			PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
-			PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
+				// South
+				PUSH_TRIANGLE(mVertices, temp, k, d, c, uv, mBorderColour[Border_South])
+				PUSH_TRIANGLE(mVertices, temp, k, l, d, uv, mBorderColour[Border_South])
 
-			// West
-			PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
-			PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
+				// West
+				PUSH_TRIANGLE(mVertices, temp, k, a, i, uv, mBorderColour[Border_West])
+				PUSH_TRIANGLE(mVertices, temp, k, c, a, uv, mBorderColour[Border_West])
 
 		}
 
@@ -2072,7 +2113,7 @@ namespace Gorilla
 	void Caption::_calculateDrawSize(Ogre::Vector2& retSize)
 	{ 
 		oAssertDesc(mGlyphData != NULL, "Font rendering can't find glyph data. Font size correctly specified?");
-		
+
 		Ogre::Real cursor = 0,
 			kerning = 0;
 
@@ -2109,7 +2150,7 @@ namespace Gorilla
 
 			cursor += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
-			
+
 			if (multiByteLength > 0)
 			{
 				i += multiByteLength -1;
@@ -2276,7 +2317,7 @@ namespace Gorilla
 
 			cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 			lastChar = thisChar;
-			
+
 			if (multiByteLength > 0)
 			{
 				i += multiByteLength -1;
@@ -2491,7 +2532,7 @@ namespace Gorilla
 			}
 			cursorX = (int)cursorX;
 			cursorY = (int)cursorY;
-			
+
 			right = cursorX + glyph->GetGlyphWidthScaled() + texelOffsetX;
 			bottom = cursorY + glyph->GetGlyphHeightScaled() + texelOffsetY;
 
@@ -2519,7 +2560,7 @@ namespace Gorilla
 				cursorX  += glyph->GetGlyphAdvanceScaled() + kerning;
 
 			lastChar = thisChar;
-			
+
 			// find width
 			if (this->mWidth < cursorX)
 			{
@@ -2559,4 +2600,3 @@ namespace Gorilla
 	}
 
 } // namespace Gorilla
-

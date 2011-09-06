@@ -22,6 +22,8 @@ namespace Orkige
 		String const & getDocumentsDirectory();
 		//! retrieve Resource path
 		String const & getResourceDirectory();
+		//! retrieve path to application support/data directory
+		String const & getSupportDirectory(String applicationName);		
 		
 		enum ORKIGE_PLATFORM {
 			PLATFORM_MACOS,

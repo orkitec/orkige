@@ -13,7 +13,6 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <core_util/PlatformUtil.h>
 
-#include "CcGuiFactory.h"
 #include "CcFastGuiFactory.h"
 #include "FileUtils.h"
 
@@ -72,7 +71,7 @@ namespace CC
 		bool sharedMouse = true;
 
 		//default initialization when we aren't in "tool" mode
-		if( !this->engine->setup(false, "Menu Viewer - press O for open, R for reload", this->externalWindowHandle, this->topLevelWindowHandle))
+		if( !this->engine->setup("Menu Viewer - press O for open, R for reload", Engine::SHOW_IFERROR, this->externalWindowHandle, this->topLevelWindowHandle))
 			return false;
 
 		this->engine->createDefaultCameraAndViewport();
@@ -122,8 +121,8 @@ namespace CC
 
  		SoundManager::getSingleton().setMasterVolume(0);
 		
-		this->registerEvent(Orkige::Button::ButtonHitEvent,			&Application::onGuiEvent, this, 1);
-		this->registerEvent(Orkige::CheckBox::CheckBoxToggledEvent,	&Application::onGuiEvent, this, 1);
+		this->registerEvent(Orkige::FastGuiButton::ButtonHitEvent,			&Application::onGuiEvent, this, 1);
+		this->registerEvent(Orkige::FastGuiCheckBox::CheckBoxToggledEvent,	&Application::onGuiEvent, this, 1);
 
 		return true;
 	}
@@ -137,8 +136,6 @@ namespace CC
 		this->gsm.reset();
 		
 		this->fastGuiManager.reset();
-
-		this->ingameConsole.reset();
 
 		this->engine.reset();
 		

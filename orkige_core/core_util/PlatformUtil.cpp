@@ -43,8 +43,18 @@ namespace Orkige
 		//---------------------------------------------------------
 		String const & getResourceDirectory()
 		{
+#ifdef ORKIGE_ENABLE_JADEDS
+			static String path = "";
+#else
 			static String path = "./";
+#endif
 			return path;
+		}
+		//---------------------------------------------------------
+		String const & getSupportDirectory(String applicationName)
+		{
+			//FIXME: get the right path
+			return getDocumentsDirectory();
 		}
 		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()

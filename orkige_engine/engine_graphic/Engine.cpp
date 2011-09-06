@@ -46,13 +46,9 @@ namespace Orkige
 		eventManager(NULL),
 		sceneManager(NULL),
 		renderWindow(NULL),
-		renderWindow2(NULL),
 		camera(NULL),
-		camera2(NULL),
 		viewport(NULL),
-		viewport2(NULL),
-		lastFrameTime(0),
-		hasSecondRenderWindow(true)
+		lastFrameTime(0)
 	{
 		String renderCfgPlatformFileName = this->getPlatformSpecificConfig(renderCfgFileName);
 		String resourceCfgPlatformFileName = this->getPlatformSpecificConfig(resourceCfgFileName);
@@ -75,7 +71,10 @@ namespace Orkige
 #endif
 #endif
 		
-		this->setupResources(resourceCfgPlatformFileName);
+		if(!resourceCfgPlatformFileName.empty())
+		{
+			this->setupResources(resourceCfgPlatformFileName);
+		}
 	}
 	//---------------------------------------------------------
 	Engine::~Engine()
@@ -178,20 +177,10 @@ namespace Orkige
 		this->eventManager->trigger(this->frameStartedEvent);
 		//this->viewport->update();
 		this->renderWindow->_updateViewport(this->viewport, true);
-		if (this->hasSecondRenderWindow)
-		{
-			this->renderWindow2->_updateViewport(this->viewport2, true);
-		}
 		this->eventManager->trigger(this->frameRenderingQueuedEvent);
 		this->renderWindow->_beginUpdate();
 		this->renderWindow->swapBuffers();
 		this->renderWindow->_endUpdate();
-		if (this->hasSecondRenderWindow)
-		{
-			this->renderWindow2->_beginUpdate();
-			this->renderWindow2->swapBuffers();
-			this->renderWindow2->_endUpdate();
-		}			
 		this->eventManager->trigger(this->frameEndedEvent);
 		return true;
 	}
@@ -209,21 +198,6 @@ namespace Orkige
 
 		// Alter the camera aspect ratio to match the viewport
 		this->camera->setAspectRatio(Ogre::Real(this->viewport->getActualWidth()) / Ogre::Real(this->viewport->getActualHeight()));
-	}
-	//---------------------------------------------------------
-	void Engine::createSecondDefaultCameraAndViewport()
-	{
-		// Create the camera
-		this->camera2 = this->sceneManager->createCamera("OrkigeCamera2");
-		this->camera2->setNearClipDistance(1.0f);
-		this->camera2->setFarClipDistance(100000.0f);
-		// Create one viewport, entire window
-		this->viewport2 = this->renderWindow2->addViewport(this->camera2);
-		this->viewport2->setBackgroundColour(Ogre::ColourValue::Blue);
-		this->viewport2->setShadowsEnabled(true);
-		
-		// Alter the camera aspect ratio to match the viewport
-		this->camera2->setAspectRatio(Ogre::Real(this->viewport2->getActualWidth()) / Ogre::Real(this->viewport2->getActualHeight()));
 	}
 	//---------------------------------------------------------
 	void Engine::resetupResources(String const & resourceCfgFileName)
@@ -274,19 +248,6 @@ namespace Orkige
 				try
 				{
 					this->renderWindow = this->root->initialise(true, windowTitle);
-					if (this->hasSecondRenderWindow)
-					{
-						Ogre::NameValuePairList params;
-						params["monitorIndex"] = "1";
-
-						this->renderWindow2 = this->root->createRenderWindow("second window", 800, 600, false, &params);
-						this->renderWindow2->setDeactivateOnFocusChange(false);
-						this->renderWindow2->setActive(false);
-						this->renderWindow2->reposition(0, 0);
-						this->renderWindow2->resize(800, 600);
-						
-						this->renderWindow2->windowMovedOrResized();
-					}
 				}
 				catch (...)
 				{
@@ -411,7 +372,6 @@ namespace Orkige
 		OFUNC(setup)
 		OFUNC(getTopLevelWindowHandle)
 		OFUNC(createDefaultCameraAndViewport)
-		OFUNC(createSecondDefaultCameraAndViewport)
 		OFUNC(renderOneFrame)
 		OFUNC(enableWireframeMode)
 		OFUNC(disableWireframeMode)

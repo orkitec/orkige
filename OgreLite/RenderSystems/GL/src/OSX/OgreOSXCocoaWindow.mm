@@ -359,7 +359,11 @@ namespace Ogre {
             bufferRect[2] = mWidth;     // width of buffer rect 
             bufferRect[3] = mHeight;    // height of buffer rect 
             CGLContextObj ctx = (CGLContextObj)[mGLContext CGLContextObj];
+#if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4
             CGLSetParameter(ctx, kCGLCPSwapRectangle, bufferRect);
+#else
+			CGLSetParameter(ctx, kCGLCPSwapRectangle, (long int*)bufferRect);
+#endif 
         }
         else
         {
@@ -385,7 +389,11 @@ namespace Ogre {
             bufferRect[2] = viewFrame.size.width; // width of buffer rect 
             bufferRect[3] = viewFrame.size.height; // height of buffer rect 
             CGLContextObj ctx = (CGLContextObj)[mGLContext CGLContextObj];
+#if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4
             CGLSetParameter(ctx, kCGLCPSwapRectangle, bufferRect);
+#else
+			CGLSetParameter(ctx, kCGLCPSwapRectangle, (long int*)bufferRect);
+#endif 
             [mGLContext update];
             
             mLeft = viewFrame.origin.x; 
@@ -480,7 +488,7 @@ namespace Ogre {
         mWindowTitle = title;
 
         [mWindow center];
-        
+
         mView = [[OgreView alloc] initWithGLOSXWindow:this];
         [mWindow setContentView:mView];
         [mWindow makeFirstResponder:mView];
@@ -514,7 +522,11 @@ namespace Ogre {
         bufferRect[2] = viewBounds.size.width;    // width of buffer rect 
         bufferRect[3] = viewBounds.size.height;   // height of buffer rect 
         CGLContextObj ctx = (CGLContextObj)[mGLContext CGLContextObj];
-        CGLSetParameter(ctx, kCGLCPSwapRectangle, bufferRect);
+#if MAC_OS_X_VERSION_MIN_REQUIRED > MAC_OS_X_VERSION_10_4
+		CGLSetParameter(ctx, kCGLCPSwapRectangle, bufferRect);
+#else
+		CGLSetParameter(ctx, kCGLCPSwapRectangle, (long int*)bufferRect);
+#endif 
         
         mIsExternal = true;
     }

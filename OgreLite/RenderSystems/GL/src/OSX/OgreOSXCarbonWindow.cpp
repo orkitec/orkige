@@ -517,9 +517,12 @@ namespace Ogre
             bufferRect[2] = viewBounds.size.width; // width of buffer rect 
             bufferRect[3] = viewBounds.size.height; // height of buffer rect 
             
-            aglSetInteger(mAGLContext, AGL_BUFFER_RECT, bufferRect); 
-            aglEnable(mAGLContext, AGL_BUFFER_RECT); 
-            aglUpdateContext(mAGLContext);
+			
+// Removed AGL_BUFFER_RECT because it causes a black window after moving the window (pe)
+// see: http://www.ogre3d.org/forums/viewtopic.php?f=2&t=65937			
+//            aglSetInteger(mAGLContext, AGL_BUFFER_RECT, bufferRect); 
+//            aglEnable(mAGLContext, AGL_BUFFER_RECT); 
+//            aglUpdateContext(mAGLContext);
             
             mLeft = viewBounds.origin.x; 
             mTop = bufferRect[1];
