@@ -38,23 +38,33 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Engine::Engine(Ogre::SceneType st, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName) 
+	Engine::Engine(Ogre::SceneType st, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows) 
 		: frameStartedEvent(Engine::FrameStartedEvent), 
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
 		sceneType(st),
 		eventManager(NULL),
 		sceneManager(NULL),
-		renderWindow(NULL),
-		camera(NULL),
-		viewport(NULL),
-		lastFrameTime(0)
+		renderWindow(),
+		camera(),
+		viewport(),
+		lastFrameTime(0),
+		numberOfWindows(_numberOfWindows)
 	{
 		String renderCfgPlatformFileName = this->getPlatformSpecificConfig(renderCfgFileName);
 		String resourceCfgPlatformFileName = this->getPlatformSpecificConfig(resourceCfgFileName);
 
 		oDebugMsg("core", 0, "Setting 2 RenderConfigFile to: " << renderCfgPlatformFileName);
 		oDebugMsg("core", 0, "Setting 2 ResourceConfigFile to: " << resourceCfgPlatformFileName);
+		
+		oAssert((this->numberOfWindows > 0) && (this->numberOfWindows <= MAX_MUMBER_OF_WINDOWS));
+		oDebugMsg("core", 0, "Setting number of windows to: " << this->numberOfWindows);
+		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		{
+			this->renderWindow[each] = NULL;
+			this->camera[each] = NULL;
+			this->viewport[each] = NULL;
+		}
 
 		this->data = onew(new FrameEventData());
 
@@ -176,28 +186,45 @@ namespace Orkige
 		this->data->timeSinceLastEvent = delta;
 		this->eventManager->trigger(this->frameStartedEvent);
 		//this->viewport->update();
-		this->renderWindow->_updateViewport(this->viewport, true);
+		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		{
+			this->renderWindow[each]->_updateViewport(this->viewport[each], true);
+		}
+		
 		this->eventManager->trigger(this->frameRenderingQueuedEvent);
-		this->renderWindow->_beginUpdate();
-		this->renderWindow->swapBuffers();
-		this->renderWindow->_endUpdate();
+		
+		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		{
+			this->renderWindow[each]->_beginUpdate();
+			this->renderWindow[each]->swapBuffers();
+			this->renderWindow[each]->_endUpdate();
+		}
 		this->eventManager->trigger(this->frameEndedEvent);
 		return true;
 	}
 	//---------------------------------------------------------
 	void Engine::createDefaultCameraAndViewport()
 	{
-		// Create the camera
-		this->camera = this->sceneManager->createCamera("OrkigeCamera");
-		this->camera->setNearClipDistance(1.0f);
-		this->camera->setFarClipDistance(100000.0f);
-		// Create one viewport, entire window
-		this->viewport = this->renderWindow->addViewport(this->camera);
-		this->viewport->setBackgroundColour(Ogre::ColourValue(0,0,0));
-		this->viewport->setShadowsEnabled(true);
+		Orkige::String name;
+		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		{
+			// Create the camera
+			name = "OrkigeCamera";
+			std::stringstream number;
+			number << each;
+			name.append(number.str());
+			this->camera[each] = this->sceneManager->createCamera(name);
+			this->camera[each]->setNearClipDistance(1.0f);
+			this->camera[each]->setFarClipDistance(100000.0f);
+			// Create one viewport, entire window
+			this->viewport[each] = this->renderWindow[each]->addViewport(this->camera[each]);
+			this->viewport[each]->setBackgroundColour(Ogre::ColourValue(0,0,0));
+			this->viewport[each]->setShadowsEnabled(true);
 
-		// Alter the camera aspect ratio to match the viewport
-		this->camera->setAspectRatio(Ogre::Real(this->viewport->getActualWidth()) / Ogre::Real(this->viewport->getActualHeight()));
+			// Alter the camera aspect ratio to match the viewport
+			this->camera[each]->setAspectRatio(Ogre::Real(this->viewport[each]->getActualWidth())
+											   / Ogre::Real(this->viewport[each]->getActualHeight()));
+		}
 	}
 	//---------------------------------------------------------
 	void Engine::resetupResources(String const & resourceCfgFileName)
@@ -247,7 +274,26 @@ namespace Orkige
 			{
 				try
 				{
-					this->renderWindow = this->root->initialise(true, windowTitle);
+					this->renderWindow[0] = this->root->initialise(true, windowTitle);
+					
+					for (unsigned int each = 1; each < this->numberOfWindows; ++each)
+					{
+						Ogre::NameValuePairList params;
+						params["monitorIndex"] = "1";
+
+						Ogre::String nextWindowTitle;
+						nextWindowTitle.append(windowTitle);
+						std::stringstream number;
+						number << each;
+						nextWindowTitle.append(number.str());
+						this->renderWindow[each] = this->root->createRenderWindow(nextWindowTitle , 800, 600, false, &params);
+						this->renderWindow[each]->setDeactivateOnFocusChange(false);
+						this->renderWindow[each]->setActive(false);
+						this->renderWindow[each]->reposition(40 + each * 20, 40 + each * 20);
+						this->renderWindow[each]->resize(800, 600);
+						
+						this->renderWindow[each]->windowMovedOrResized();
+					}
 				}
 				catch (...)
 				{
@@ -279,22 +325,22 @@ namespace Orkige
 							}
 						}
 					}
-					this->renderWindow = root->initialise(true, windowTitle);
+					this->renderWindow[0] = root->initialise(true, windowTitle);
 				}
-				oAssert(this->renderWindow);
+				oAssert(this->renderWindow[0]);
 			}
 			else
 			{
-				this->renderWindow = this->root->initialise(false/*, windowTitle*/);
+				this->renderWindow[0] = this->root->initialise(false/*, windowTitle*/);
 				
 				unsigned int width = 640;
 				unsigned int height = 480;
 				unsigned int depth; 
 				int left = 0;
 				int top = 0;
-				if(this->renderWindow)
+				if(this->renderWindow[0])
 				{
-					this->renderWindow->getMetrics(width, height, depth, left, top);
+					this->renderWindow[0]->getMetrics(width, height, depth, left, top);
 				}
 
 				Ogre::NameValuePairList params;
@@ -304,24 +350,24 @@ namespace Orkige
 				try
 				{
 					oDebugMsg("core", 0, "Trying to create external RenderWindow with handle: " << this->externalWindowHandle << " and size: " << width << "x" << height);
-					this->renderWindow = this->root->createRenderWindow(windowTitle, width, height, false, &params);
+					this->renderWindow[0] = this->root->createRenderWindow(windowTitle, width, height, false, &params);
 
-					this->renderWindow->setDeactivateOnFocusChange(false);
-					this->renderWindow->setActive(true);
-					this->renderWindow->reposition(left,top);
-					this->renderWindow->resize(width, height);
+					this->renderWindow[0]->setDeactivateOnFocusChange(false);
+					this->renderWindow[0]->setActive(true);
+					this->renderWindow[0]->reposition(left,top);
+					this->renderWindow[0]->resize(width, height);
 
-					this->renderWindow->windowMovedOrResized();
+					this->renderWindow[0]->windowMovedOrResized();
 				}
 				catch (...)
 				{
 					oDebugMsg("core", 0, "Error while creating external RenderWindow showing config");
 					this->root->showConfigDialog();
 					oDebugMsg("core", 0, "Trying to create external window with handle: " << this->externalWindowHandle);
-					this->renderWindow = this->root->createRenderWindow(windowTitle, width, height, false, &params);
+					this->renderWindow[0] = this->root->createRenderWindow(windowTitle, width, height, false, &params);
 				}
-				oAssert(this->renderWindow);
-				this->renderWindow->getMetrics( width, height, depth, left, top );
+				oAssert(this->renderWindow[0]);
+				this->renderWindow[0]->getMetrics( width, height, depth, left, top );
 				oDebugMsg("core", 0, "external RenderWindow initialized! width, height, depth, left, top: " << width <<", "<< height<<", "<< depth<<", "<< left<<", "<< top);
 			}
 			return true;
@@ -335,7 +381,7 @@ namespace Orkige
 	bool Engine::frameStarted(const Ogre::FrameEvent& evt)
 	{
 		OPROFILEFUNC();
-		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow[0]->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;
@@ -346,7 +392,7 @@ namespace Orkige
 	bool Engine::frameRenderingQueued(const Ogre::FrameEvent& evt)
 	{
 		OPROFILEFUNC();
-		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow[0]->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;
@@ -357,7 +403,7 @@ namespace Orkige
 	bool Engine::frameEnded(const Ogre::FrameEvent& evt)
 	{
 		OPROFILEFUNC();
-		if(this->externalWindowHandle.empty() && this->renderWindow->isClosed())
+		if(this->externalWindowHandle.empty() && this->renderWindow[0]->isClosed())
 			return false;
 		this->data->timeSinceLastEvent = evt.timeSinceLastEvent;
 		this->data->timeSinceLastFrame = evt.timeSinceLastFrame;

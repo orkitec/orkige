@@ -16,6 +16,8 @@
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
 
+#define MAX_MUMBER_OF_WINDOWS 8
+
 namespace Orkige
 {
 	//! Engine core responsible for config dialog, plugin loading, RenderWindow's, SceneManager, Camera's etc
@@ -48,11 +50,11 @@ namespace Orkige
 	protected:
 	private:
 		optr<Ogre::Root>			root;
-		Ogre::RenderWindow*			renderWindow;
+		Ogre::RenderWindow*			renderWindow[MAX_MUMBER_OF_WINDOWS];
 		Ogre::SceneManager*			sceneManager;
 		Ogre::SceneType				sceneType;
-		Ogre::Camera*				camera;
-		Ogre::Viewport*				viewport;
+		Ogre::Camera*				camera[MAX_MUMBER_OF_WINDOWS];
+		Ogre::Viewport*				viewport[MAX_MUMBER_OF_WINDOWS];
 		EventManager*				eventManager;
 		Event						frameStartedEvent;
 		Event						frameRenderingQueuedEvent;
@@ -61,6 +63,7 @@ namespace Orkige
 		String						externalWindowHandle;
 		String						topLevelWindowHandle;
 		unsigned long				lastFrameTime;
+		unsigned int				numberOfWindows;
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
@@ -84,7 +87,8 @@ namespace Orkige
 #else
 			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
 #endif
-			String const & engineLogFileName = Orkige::PlatformUtil::getResourceDirectory() + "orkitec.log");
+			String const & engineLogFileName = Orkige::PlatformUtil::getResourceDirectory() + "orkitec.log",
+			unsigned int _numberOfWindows = 1);
 		//! destructor
 		virtual ~Engine();
 
@@ -107,11 +111,11 @@ namespace Orkige
 		//! get Engine SceneManager
 		inline Ogre::SceneManager* getSceneManager();
 		//! get Engine RenderWindow
-		inline Ogre::RenderWindow* getRenderWindow();
+		inline Ogre::RenderWindow* getRenderWindow( unsigned int num = 0 );
 		//! get Engine default Camera if it was created through Engine::createDefaultCameraAndViewport
-		inline Ogre::Camera* getCamera();
+		inline Ogre::Camera* getCamera( unsigned int num = 0 );
 		//! get Engine default Viewport if it was created through Engine::createDefaultCameraAndViewport
-		inline Ogre::Viewport* getViewport();
+		inline Ogre::Viewport* getViewport( unsigned int num = 0 );
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
@@ -147,19 +151,19 @@ namespace Orkige
 		return this->sceneManager;
 	}
 	//---------------------------------------------------------------
-	inline Ogre::RenderWindow* Engine::getRenderWindow() 
+	inline Ogre::RenderWindow* Engine::getRenderWindow( unsigned int num ) 
 	{
-		return this->renderWindow;
+		return this->renderWindow[num];
 	}
 	//---------------------------------------------------------------
-	inline Ogre::Camera* Engine::getCamera()
+	inline Ogre::Camera* Engine::getCamera( unsigned int num )
 	{
-		return this->camera;
+		return this->camera[num];
 	}
 	//---------------------------------------------------------------
-	inline Ogre::Viewport* Engine::getViewport()
+	inline Ogre::Viewport* Engine::getViewport( unsigned int num )
 	{
-		return this->viewport;
+		return this->viewport[num];
 	}
 	//---------------------------------------------------------------
 	inline String const & Engine::getExternalWindowHandle()
@@ -174,12 +178,12 @@ namespace Orkige
 	//---------------------------------------------------------------
 	inline void Engine::enableWireframeMode()
 	{
-		this->renderWindow->getViewport(0)->getCamera()->setPolygonMode(Ogre::PM_WIREFRAME);     /* wireframe */
+		this->renderWindow[0]->getViewport(0)->getCamera()->setPolygonMode(Ogre::PM_WIREFRAME);     /* wireframe */
 	}
 	//---------------------------------------------------------------
 	inline void Engine::disableWireframeMode()
 	{
-		this->renderWindow->getViewport(0)->getCamera()->setPolygonMode(Ogre::PM_SOLID);         /* solid */
+		this->renderWindow[0]->getViewport(0)->getCamera()->setPolygonMode(Ogre::PM_SOLID);         /* solid */
 	}
 	//---------------------------------------------------------------
 }
