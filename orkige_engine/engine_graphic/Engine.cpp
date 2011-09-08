@@ -45,9 +45,11 @@ namespace Orkige
 		sceneType(st),
 		eventManager(NULL),
 		sceneManager(NULL),
+/*
 		renderWindow(),
 		camera(),
-		viewport(),
+		viewport(),*/
+
 		lastFrameTime(0),
 		numberOfWindows(_numberOfWindows)
 	{
@@ -59,7 +61,7 @@ namespace Orkige
 		
 		oAssert((this->numberOfWindows > 0) && (this->numberOfWindows <= MAX_MUMBER_OF_WINDOWS));
 		oDebugMsg("core", 0, "Setting number of windows to: " << this->numberOfWindows);
-		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		for (unsigned int each = 0; each < MAX_MUMBER_OF_WINDOWS; ++each)
 		{
 			this->renderWindow[each] = NULL;
 			this->camera[each] = NULL;
