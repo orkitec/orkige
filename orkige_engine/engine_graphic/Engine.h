@@ -55,6 +55,7 @@ namespace Orkige
 		Ogre::SceneType				sceneType;
 		Ogre::Camera*				camera[MAX_MUMBER_OF_WINDOWS];
 		Ogre::Viewport*				viewport[MAX_MUMBER_OF_WINDOWS];
+		Ogre::NameValuePairList		windowParams[MAX_MUMBER_OF_WINDOWS];
 		EventManager*				eventManager;
 		Event						frameStartedEvent;
 		Event						frameRenderingQueuedEvent;
@@ -91,6 +92,10 @@ namespace Orkige
 			unsigned int _numberOfWindows = 1);
 		//! destructor
 		virtual ~Engine();
+
+		//! set custom window properties (has to be called before calling setup(...) to take effect
+		//! @see Ogre::RenderSystem::_createRenderWindow for parameters
+		void setCustomWindowParam(Orkige::String paramName, Orkige::String paramValue, unsigned int windowNumber = 0);
 
 		//! @brief setup Engine
 		//! @copydoc Engine::configure

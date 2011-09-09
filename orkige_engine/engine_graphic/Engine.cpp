@@ -9,6 +9,7 @@
 
 #include "engine_graphic/Engine.h"
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_util/StringUtil.h"
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
 #include <boost/algorithm/string.hpp>
@@ -66,6 +67,7 @@ namespace Orkige
 			this->renderWindow[each] = NULL;
 			this->camera[each] = NULL;
 			this->viewport[each] = NULL;
+			this->windowParams[each] = Ogre::NameValuePairList();
 		}
 
 		this->data = onew(new FrameEventData());
@@ -134,14 +136,18 @@ namespace Orkige
 #endif
 		return cfgFileName;
 	}
-
+	//---------------------------------------------------------
+	void Engine::setCustomWindowParam(Orkige::String paramName, Orkige::String paramValue, unsigned int windowNumber)
+	{
+		this->windowParams[windowNumber][paramName] = paramValue;
+	}
 	//---------------------------------------------------------
 	bool Engine::setup(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle)
 	{
 		this->externalWindowHandle = externalHandle;
 		
 		if(topLevelHandle.empty() && !externalHandle.empty())
-		{
+		{ 
 			this->topLevelWindowHandle = externalHandle;
 		}
 		else
@@ -276,23 +282,35 @@ namespace Orkige
 			{
 				try
 				{
-					this->renderWindow[0] = this->root->initialise(true, windowTitle);
+					//if there are no params for window 0 we úse the auto create window
+					bool autoCreateWindow = this->windowParams[0].empty();
+
+					this->renderWindow[0] = this->root->initialise(autoCreateWindow, windowTitle);
 					
-					for (unsigned int each = 1; each < this->numberOfWindows; ++each)
+					for (unsigned int each = (autoCreateWindow ? 1 : 0); each < this->numberOfWindows; ++each)
 					{
-						Ogre::NameValuePairList params;
-						params["monitorIndex"] = "1";
+						Ogre::NameValuePairList params = this->windowParams[each];
+						int width = 800;
+						int height = 600;
+						if(params.find("width") != params.end())
+						{
+							width = Orkige::StringUtil::Converter::fromString<int>(params["width"]);
+						}
+						if(params.find("height") != params.end())
+						{
+							height = Orkige::StringUtil::Converter::fromString<int>(params["height"]);
+						}
 
 						Ogre::String nextWindowTitle;
 						nextWindowTitle.append(windowTitle);
 						std::stringstream number;
 						number << each;
 						nextWindowTitle.append(number.str());
-						this->renderWindow[each] = this->root->createRenderWindow(nextWindowTitle , 800, 600, false, &params);
+						this->renderWindow[each] = this->root->createRenderWindow(nextWindowTitle , width, height, false, &params);
 						this->renderWindow[each]->setDeactivateOnFocusChange(false);
-						this->renderWindow[each]->setActive(false);
-						this->renderWindow[each]->reposition(40 + each * 20, 40 + each * 20);
-						this->renderWindow[each]->resize(800, 600);
+						this->renderWindow[each]->setActive(true);
+						//this->renderWindow[each]->reposition(40 + each * 20, 40 + each * 20);
+						this->renderWindow[each]->resize(width, height);
 						
 						this->renderWindow[each]->windowMovedOrResized();
 					}
