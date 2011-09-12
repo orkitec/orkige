@@ -18,7 +18,7 @@
 
 namespace Orkige
 {
-	class FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
+	class FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler, public Ogre::RenderTargetListener
 	{
 		OOBJECT(FastGuiManager, Interface);
 		DECL_OSINGLETON(FastGuiManager);
@@ -117,7 +117,14 @@ namespace Orkige
 
 		//! returns true if given point is over any widget
 		bool isPointOverWidget(Ogre::Vector2 const & point);
+
+		//! enable/disable rendering on given Viewport
+		// @param enable on/off
+		// @param windowIdx
+		void setEnabledOnViewport(bool enable, int viewportIdx);
 	protected:
+		virtual void preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
+		virtual void postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameStarted(Orkige::Event const & event);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.

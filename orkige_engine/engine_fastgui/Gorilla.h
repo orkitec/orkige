@@ -406,7 +406,6 @@ namespace Gorilla
 	{
 
 	public:
-
 		/*! constructor. Silverback
 		desc.
 		Silverback constructor.
@@ -470,6 +469,9 @@ namespace Gorilla
 		*/
 		void replaceTexture(const Ogre::String& atlas, const Ogre::String& texture);
 
+	public:
+		//! setable flag to enable or disable rendering of the screens needed for multimonitor setups to disable rendering on different viewports 
+		bool renderScreens;
 	protected:
 
 		std::map<Ogre::String, TextureAtlas*>  mAtlases;

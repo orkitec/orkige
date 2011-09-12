@@ -28,6 +28,9 @@ namespace Orkige
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&FastGuiManager::onFrameRenderingQueued,	this);
 		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&FastGuiManager::onGameStateChanged,		this);
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,					&FastGuiManager::onFrameStarted,			this);
+		// anbled on window 0 by default
+		//this->setEnabledOnViewport(true, 1);
+		this->setEnabledOnViewport(true, 0);
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
@@ -370,7 +373,29 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::setEnabledOnViewport(bool enable, int viewportIdx)
+	{
+		if(enable)
+		{
+			Engine::getSingleton().getViewport(viewportIdx)->getTarget()->addListener(this);
+		}
+		else
+		{
+			Engine::getSingleton().getViewport(viewportIdx)->getTarget()->removeListener(this);
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void FastGuiManager::preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt)
+	{
+		this->silverback->renderScreens = true;
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt)
+	{
+		this->silverback->renderScreens = false;
+	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameStarted(Orkige::Event const & event)
 	{

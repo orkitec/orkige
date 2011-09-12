@@ -654,7 +654,7 @@ namespace Gorilla
 	}
 
 
-	Silverback::Silverback()
+	Silverback::Silverback() : renderScreens(true)
 	{
 
 		Ogre::Root::getSingletonPtr()->addFrameListener(this);
@@ -1071,6 +1071,8 @@ namespace Gorilla
 
 	void Screen::renderQueueEnded(Ogre::uint8 queueGroupId, const Ogre::String& invocation, bool& repeatThisInvocation)
 	{
+		if(!Silverback::getSingleton().renderScreens)
+			return;
 		if (queueGroupId != SCREEN_RENDERQUEUE)
 			return;
 		if (mIsVisible && mLayers.size())
