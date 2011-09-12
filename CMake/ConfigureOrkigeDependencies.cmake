@@ -103,5 +103,24 @@ macro(ConfigureOrkigeDependencies)
 		add_definitions(-DTU_CONFIG_LINK_TO_JPEGLIB=1)
 		add_definitions(-DTU_USE_SDL=0)
 	endif()
+
+
+	if (ORKIGE_ENABLE_PARTICLE_UNIVERSE)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/Externs
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleAffectors
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleBehaviours
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleEmitters
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleEventHandlers
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleObservers
+			${ORKIGE_DEP_DIR}/ParticleUniverse/include/ParticleRenderers
+
+		)
+
+		link_libraries(
+			particleUniverse_OgrePlugin
+		)
+	endif()
 endmacro(ConfigureOrkigeDependencies)
 

@@ -57,6 +57,7 @@ macro (ConfigureOrkige)
 				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
 				option(ORKIGE_ENABLE_JADEDS			"enable Jade:DS / Little Indie"			OFF)	
 	endif (WIN32)
+	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
 	
 	# Unity build options
 	# A Unity build includes all sources files in just a few actual compilation units
@@ -88,6 +89,10 @@ macro (ConfigureOrkige)
 	if(ORKIGE_ENABLE_JADEDS)
 		add_definitions(-DORKIGE_ENABLE_JADEDS)	
 	endif(ORKIGE_ENABLE_JADEDS)
+	
+	if(ORKIGE_ENABLE_PARTICLE_UNIVERSE)
+		add_definitions(-DOGRE_STATIC_ParticleUniverse)
+	endif(ORKIGE_ENABLE_PARTICLE_UNIVERSE)
 
 	if(ORKIGE_ENABLE_GAMESWF)
 		add_definitions(-DORKIGE_ENABLE_GAMESWF)	
