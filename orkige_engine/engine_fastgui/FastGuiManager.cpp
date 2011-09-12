@@ -35,6 +35,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
 	{
+		this->setEnabledOnViewport(false, 0);
 		this->unregisterEvent(Orkige::Engine::FrameStartedEvent);
 		this->unregisterEvent(Orkige::GameStateManager::GameStateChangedEvent);
 		this->unregisterEvent(Orkige::Engine::FrameRenderingQueuedEvent);
