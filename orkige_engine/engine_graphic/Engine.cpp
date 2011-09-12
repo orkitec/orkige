@@ -292,6 +292,7 @@ namespace Orkige
 						Ogre::NameValuePairList params = this->windowParams[each];
 						int width = 800;
 						int height = 600;
+						bool fullscreen = false;
 						if(params.find("width") != params.end())
 						{
 							width = Orkige::StringUtil::Converter::fromString<int>(params["width"]);
@@ -300,13 +301,17 @@ namespace Orkige
 						{
 							height = Orkige::StringUtil::Converter::fromString<int>(params["height"]);
 						}
+						if(params.find("fullscreen") != params.end())
+						{
+							fullscreen = Orkige::StringUtil::Converter::fromString<bool>(params["fullscreen"]);
+						}
 
 						Ogre::String nextWindowTitle;
 						nextWindowTitle.append(windowTitle);
 						std::stringstream number;
 						number << each;
 						nextWindowTitle.append(number.str());
-						this->renderWindow[each] = this->root->createRenderWindow(nextWindowTitle , width, height, false, &params);
+						this->renderWindow[each] = this->root->createRenderWindow(nextWindowTitle , width, height, fullscreen, &params);
 						this->renderWindow[each]->setDeactivateOnFocusChange(false);
 						this->renderWindow[each]->setActive(true);
 						//this->renderWindow[each]->reposition(40 + each * 20, 40 + each * 20);
