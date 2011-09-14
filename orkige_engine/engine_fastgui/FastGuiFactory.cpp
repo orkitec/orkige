@@ -378,8 +378,8 @@ namespace Orkige
 		oAssert(view);
 		if(relPosition != Ogre::Vector2::ZERO)
 		{
-			baseSettings.position.x = (relPosition.x * view->getScreen()->getWidth()) / 100.f;
-			baseSettings.position.y = (relPosition.y * view->getScreen()->getHeight()) / 100.f;
+			baseSettings.position.x = (relPosition.x * view->getWidth()) / 100.f;
+			baseSettings.position.y = (relPosition.y * view->getHeight()) / 100.f;
 			if (snapSubpixel)
 			{
 				// limit position to half integer values for better visible result
@@ -390,8 +390,8 @@ namespace Orkige
 		baseSettings.position += view->getPosition(baseSettings.alignment);
 		if(relSize != Ogre::Vector2::ZERO)
 		{
-			baseSettings.size.x = (relSize.x * view->getScreen()->getWidth()) / 100.f;
-			baseSettings.size.y = (relSize.y * view->getScreen()->getHeight()) / 100.f;
+			baseSettings.size.x = (relSize.x * view->getWidth()) / 100.f;
+			baseSettings.size.y = (relSize.y * view->getHeight()) / 100.f;
 			if (snapSubpixel)
 			{
 				// limit size to full integer values for better visible result

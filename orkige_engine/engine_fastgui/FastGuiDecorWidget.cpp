@@ -18,7 +18,7 @@ namespace Orkige
 	FastGuiDecorWidget::FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
 	{
 		oAssert(this->layer);
-		Gorilla::Sprite* sprite = this->view.lock()->getScreen()->getAtlas()->getSprite(spriteName);
+		Gorilla::Sprite* sprite = this->view.lock()->getAtlas()->getSprite(spriteName);
 		oAssertDesc(sprite, "Warning: sprite not found: " << spriteName);
 
 		if(size == Ogre::Vector2::ZERO)

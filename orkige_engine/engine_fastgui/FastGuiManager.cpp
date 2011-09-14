@@ -76,7 +76,7 @@ namespace Orkige
 	{
 		optr<FastGuiView> view = this->getCreateView(atlas).lock();
 		oAssert(view);
-		Gorilla::Sprite* spriteObject = view->getScreen()->getAtlas()->getSprite(sprite);
+		Gorilla::Sprite* spriteObject = view->getAtlas()->getSprite(sprite);
 		oAssert(spriteObject);
 		this->cursor = onew(new FastGuiDecorWidget("Cursor", sprite, Ogre::Vector2::ZERO, Ogre::Vector2(spriteObject->spriteWidth, spriteObject->spriteHeight), atlas, 16));
 	}
@@ -119,49 +119,70 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group)
+	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group, bool make3D)
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
 		this->silverback->loadAtlas(atlas, group);
-		Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
-		oAssert(viewport);
-		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
-		oAssert(screen);
+		if(make3D)
+		{
+			Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
+			oAssert(viewport);
+			Gorilla::ScreenRenderable* screen = this->silverback->createScreenRenderable(Ogre::Vector2(/*viewport->getActualWidth()*/0, /*viewport->getActualHeight()*/0), atlas);
+			oAssert(screen);
+			optr<FastGuiView> view = onew(new FastGuiView(screen));
+			this->views[atlas] = view;
+			return view;
+		}
+		else
+		{
+			Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
+			oAssert(viewport);
+			Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
+			oAssert(screen);
 #if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-		screen->setOrientation(viewport->getOrientationMode());
+			screen->setOrientation(viewport->getOrientationMode());
 #endif
-		optr<FastGuiView> view = onew(new FastGuiView(screen));
-		this->views[atlas] = view;
-		return view;
+			optr<FastGuiView> view = onew(new FastGuiView(screen));
+			this->views[atlas] = view;
+			return view;
+		}
+
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::destroyView(String const & atlas)
 	{
 		woptr<FastGuiView> view = this->getView(atlas);
 		oAssert(view.lock());
-		Gorilla::Screen* screen = view.lock()->getScreen();
-		this->views.erase(this->views.find(atlas));
 
-		Ogre::TextureManager::getSingletonPtr()->remove(screen->getAtlas()->getTexture()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get2DMaterial()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get3DMaterial()->getName());
+		Ogre::TextureManager::getSingletonPtr()->remove(view.lock()->getAtlas()->getTexture()->getName());
+		Ogre::MaterialManager::getSingletonPtr()->remove(view.lock()->getAtlas()->get2DMaterial()->getName());
+		Ogre::MaterialManager::getSingletonPtr()->remove(view.lock()->getAtlas()->get3DMaterial()->getName());
 
-		this->silverback->destroyScreen(screen);
+		if(view.lock()->getScreen())
+		{
+			this->silverback->destroyScreen(view.lock()->getScreen());
+		}
+		else
+		{
+			this->silverback->destroyScreenRenderable(view.lock()->getScreenRenderable());
+		}
 		this->silverback->destroyAtlas(atlas);
+
+		this->views.erase(this->views.find(atlas));
 	}
 	//---------------------------------------------------------
-	void FastGuiManager::destroyViewWithWidgets(String const & atlas)
+	void FastGuiManager::destroyViewWithWidgets(String const & atlasName)
 	{
-		woptr<FastGuiView> view = this->getView(atlas);
+		woptr<FastGuiView> view = this->getView(atlasName);
 		oAssert(view.lock());
-		Gorilla::Screen* screen = view.lock()->getScreen();
+		Gorilla::TextureAtlas* atlas = view.lock()->getAtlas();
 		
 		StringVector names;
 		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
 		{
 			// compare used view/atlas
 			//woptr<FastGuiView> view = vt.second->getView();
-			if (vt.second->getView().lock()->getScreen() == screen)
+			if (vt.second->getView().lock()->getAtlas() == atlas)
 			{
 				names.push_back(vt.first);
 			}
@@ -171,7 +192,7 @@ namespace Orkige
 			this->destroyWidget(name);
 		}
 
-		this->destroyView(atlas);
+		this->destroyView(atlasName);
 	}	
 	//---------------------------------------------------------
 	void FastGuiManager::destroyAllViews(bool keepDefaultAtlas)
@@ -317,7 +338,9 @@ namespace Orkige
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
 			orderedViews.push_back(vt.second);
-			Engine::getSingleton().getSceneManager()->removeRenderQueueListener(vt.second->getScreen());
+			Gorilla::Screen* screen = vt.second->getScreen();
+			if(screen)
+				Engine::getSingleton().getSceneManager()->removeRenderQueueListener(screen);
 		}
 		orderedViews.sort(FastGuiViewOptrCmp());
 
@@ -325,7 +348,8 @@ namespace Orkige
 		{
 			//oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
 			Gorilla::Screen* screen = view->getScreen();
-			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
+			if(screen)
+				Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
 		}
 	}
 	//---------------------------------------------------------
@@ -333,7 +357,7 @@ namespace Orkige
 	{
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
-			vt.second->getScreen()->setVisible(false);
+			vt.second->setVisible(false);
 		}
 	}
 	//---------------------------------------------------------
@@ -341,7 +365,7 @@ namespace Orkige
 	{
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
-			vt.second->getScreen()->setVisible(true);
+			vt.second->setVisible(true);
 		}
 	}
 	//---------------------------------------------------------

@@ -16,12 +16,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiView::FastGuiView(Gorilla::Screen* _screen, uint _z) : screen(_screen), z(_z)
+	FastGuiView::FastGuiView(Gorilla::Screen* _screen, uint _z) : screen(_screen), z(_z), screenRenderable(NULL)
 	{
 
 	}
 	//---------------------------------------------------------
-	FastGuiView::FastGuiView(FastGuiView const & other) : screen(other.screen), z(other.z), layers(other.layers)
+	FastGuiView::FastGuiView(Gorilla::ScreenRenderable* _screenRenderable, uint _z) : screen(NULL), screenRenderable(_screenRenderable), z(_z)
+	{
+
+	}
+	//---------------------------------------------------------
+	FastGuiView::FastGuiView(FastGuiView const & other) : screen(other.screen), screenRenderable(other.screenRenderable), z(other.z), layers(other.layers)
 	{
 
 	}
@@ -38,16 +43,45 @@ namespace Orkige
 			it->second->destroyAllRectangles();
 
 			it->second->hide();
-			this->screen->hide();
-
-			this->screen->destroy(it->second);
+			if(this->screen)
+			{
+				this->screen->setVisible(false);
+				this->screen->destroy(it->second);
+			}
+			else if(this->screenRenderable)
+			{
+				this->screenRenderable->setVisible(false);
+				this->screenRenderable->destroy(it->second);
+			}
 		}
-		this->screen->_destroyVertexBuffer();
-		this->screen->_redrawAllIndexes();
+		if(this->screen)
+		{
+			this->screen->_destroyVertexBuffer();
+			this->screen->_redrawAllIndexes();
+		}
+		else if(this->screenRenderable)
+		{
+			this->screenRenderable->_destroyVertexBuffer();
+			this->screenRenderable->_redrawAllIndexes();
+		}
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiView::getPosition(FastGuiView::Alignment alignment)
 	{
+		Ogre::Real width = 0.f;
+		Ogre::Real height = 0.f;
+
+		if(this->screen)
+		{
+			width = this->screen->getWidth();
+			height = this->screen->getHeight();
+		}
+		else
+		{
+			width = this->screenRenderable->getBoundingBox().getSize().x;
+			height = this->screenRenderable->getBoundingBox().getSize().y;
+		}
+		
 		switch(alignment)
 		{
 		case VA_TOPLEFT:
@@ -56,39 +90,87 @@ namespace Orkige
 			} break;
 		case VA_TOP:
 			{
-				return Ogre::Vector2(screen->getWidth()/2.f, 0.f);
+				return Ogre::Vector2(width/2.f, 0.f);
 			} break;
 		case VA_TOPRIGHT:
 			{
-				return Ogre::Vector2(screen->getWidth(), 0.f);
+				return Ogre::Vector2(width, 0.f);
 			} break;
 		case VA_LEFT:
 			{
-				return Ogre::Vector2(0.f, screen->getHeight()/2.f);
+				return Ogre::Vector2(0.f, height/2.f);
 			} break;
 		case VA_CENTER:
 			{
-				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight()/2.f);
+				return Ogre::Vector2(width/2.f, height/2.f);
 			} break;
 		case VA_RIGHT:
 			{
-				return Ogre::Vector2(screen->getWidth(), screen->getHeight()/2.f);
+				return Ogre::Vector2(width, height/2.f);
 			} break;
 		case VA_BOTTOMLEFT:
 			{
-				return Ogre::Vector2(0, screen->getHeight());
+				return Ogre::Vector2(0, height);
 			} break;
 		case VA_BOTTOM:
 			{
-				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight());
+				return Ogre::Vector2(width/2.f, height);
 			} break;
 		case VA_BOTTOMRIGHT:
 			{
-				return Ogre::Vector2(screen->getWidth(), screen->getHeight());
+				return Ogre::Vector2(width, height);
 			} break;
 		}
 
 		return Ogre::Vector2::ZERO;
+	}
+	//---------------------------------------------------------
+	Ogre::Real FastGuiView::getWidth()
+	{
+		if(this->screen)
+		{
+			return this->screen->getWidth();
+		}
+		else
+		{
+			return this->screenRenderable->getBoundingBox().getSize().x;
+		}
+	}
+	//---------------------------------------------------------
+	Ogre::Real FastGuiView::getHeight()
+	{
+		if(this->screen)
+		{
+			return this->screen->getHeight();
+		}
+		else
+		{
+			return this->screenRenderable->getBoundingBox().getSize().y;
+		}
+	}
+	//---------------------------------------------------------
+	void FastGuiView::setVisible(bool visible)
+	{
+		if(this->screen)
+		{
+			this->screen->setVisible(visible);
+		}
+		else if(this->screenRenderable)
+		{
+			this->screenRenderable->setVisible(visible);
+		}
+	}
+	//---------------------------------------------------------
+	Gorilla::TextureAtlas* FastGuiView::getAtlas() const
+	{
+		if(this->screen)
+		{
+			return this->screen->getAtlas();
+		}
+		else
+		{
+			return this->screenRenderable->getAtlas();
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
