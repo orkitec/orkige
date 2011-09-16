@@ -10,6 +10,7 @@
 #include "engine_fastgui/FastGuiView.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_util/foreach.h>
+#include "engine_graphic/Engine.h"
 
 namespace Orkige
 {
@@ -133,7 +134,9 @@ namespace Orkige
 		}
 		else
 		{
-			return this->screenRenderable->getBoundingBox().getSize().x;
+			return Engine::getSingleton().getViewport()->getActualWidth();
+			/*return 1920.f;*/
+			return this->screenRenderable->getBoundingBox().getSize().x*100.f;
 		}
 	}
 	//---------------------------------------------------------
@@ -145,7 +148,9 @@ namespace Orkige
 		}
 		else
 		{
-			return this->screenRenderable->getBoundingBox().getSize().y;
+			return Engine::getSingleton().getViewport()->getActualHeight();
+			/*return 1080.f;*/
+			return this->screenRenderable->getBoundingBox().getSize().y*100.f;
 		}
 	}
 	//---------------------------------------------------------
