@@ -67,6 +67,18 @@ macro(ConfigureOrkigeDependencies)
 				Shlwapi
 			)
 	endif(ORKIGE_ENABLE_APPUP)
+
+	if(ORKIGE_ENABLE_WINSDK)
+		include_directories(
+			"D:/Microsoft SDKs/Windows/v7.1/Include"
+			"D:/Microsoft SDKs/Windows/v7.1/Lib"
+		)
+		
+		link_libraries(
+				"D:/Microsoft SDKs/Windows/v7.1//lib/Vfw32.Lib"
+				
+			)
+	endif(ORKIGE_ENABLE_WINSDK)
 	
 	if(ORKIGE_ENABLE_JADEDS)
 		include_directories(
