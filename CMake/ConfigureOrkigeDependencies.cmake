@@ -69,13 +69,14 @@ macro(ConfigureOrkigeDependencies)
 	endif(ORKIGE_ENABLE_APPUP)
 
 	if(ORKIGE_ENABLE_WINSDK)
+		GET_FILENAME_COMPONENT(WINSDK_ROOT_PATH  "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Microsoft SDKs\\Windows\\v7.1;InstallationFolder]" ABSOLUTE CACHE)
 		include_directories(
-			"D:/Microsoft SDKs/Windows/v7.1/Include"
-			"D:/Microsoft SDKs/Windows/v7.1/Lib"
+			${WINSDK_ROOT_PATH}/Include
+			${WINSDK_ROOT_PATH}/Lib
 		)
 		
 		link_libraries(
-				"D:/Microsoft SDKs/Windows/v7.1//lib/Vfw32.Lib"
+				${WINSDK_ROOT_PATH}/Lib/Vfw32.Lib
 				
 			)
 	endif(ORKIGE_ENABLE_WINSDK)
