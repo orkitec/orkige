@@ -52,6 +52,20 @@ macro(ConfigureOrkigeDependencies)
 		)
 	endif()
 	
+	if (ORKIGE_BUILD_POCO)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/poco/Foundation/include
+			${ORKIGE_DEP_DIR}/poco/Net/include
+		)
+
+		link_libraries(
+			optimized ${ORKIGE_DEP_DIR}/poco/lib/PocoFoundation.lib
+			optimized ${ORKIGE_DEP_DIR}/poco/lib/PocoNet.lib
+			debug ${ORKIGE_DEP_DIR}/poco/lib/PocoFoundationd.lib
+			debug ${ORKIGE_DEP_DIR}/poco/lib/PocoNetd.lib
+		)
+	endif()
+	
 	if(ORKIGE_ENABLE_APPUP)
 		include_directories(
 			"C:/Program Files (x86)/Intel/IntelAppUpSDK/Cpp/lib"

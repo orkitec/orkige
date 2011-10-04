@@ -57,6 +57,7 @@ macro (ConfigureOrkige)
 				option(ORKIGE_ENABLE_WINSDK			"enable AWINSDK"							OFF)
 				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
 				option(ORKIGE_ENABLE_JADEDS			"enable Jade:DS / Little Indie"			OFF)	
+				option(ORKIGE_BUILD_POCO			"enable Poco network library"			OFF)
 	endif (WIN32)
 	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
 	
@@ -86,6 +87,11 @@ macro (ConfigureOrkige)
 	if(ORKIGE_ENABLE_APPUP)
 		add_definitions(-DORKIGE_ENABLE_APPUP)	
 	endif(ORKIGE_ENABLE_APPUP)
+
+	if(ORKIGE_BUILD_POCO)
+		add_definitions(-DORKIGE_BUILD_POCO)	
+	endif(ORKIGE_BUILD_POCO)
+
 
 	if(ORKIGE_ENABLE_WINSDK)
 		add_definitions(-DORKIGE_ENABLE_WINSDK)	
