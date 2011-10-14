@@ -491,7 +491,7 @@ namespace Gorilla
 		d3Material = Ogre::MaterialManager::getSingletonPtr()->create("Gorilla3D", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		Ogre::Pass* pass = d3Material->getTechnique(0)->getPass(0);
 		pass->setCullingMode(Ogre::CULL_NONE);
-		pass->setDepthCheckEnabled(false);
+		pass->setDepthCheckEnabled(true);
 		pass->setDepthWriteEnabled(false);
 		pass->setLightingEnabled(false);
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
