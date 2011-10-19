@@ -180,6 +180,30 @@ namespace Orkige
 		FastGuiManager::getSingleton().reorderViews();
 	}
 	//---------------------------------------------------------
+	void FastGuiFactory::unload(String const & filename)
+	{
+		FastGuiFactory::SectionIterator it = this->getSectionIterator();
+		while(it.hasMoreElements())
+		{
+			String const & widgetType = it.peekNextKey();
+			
+			if(!widgetType.empty())
+			{
+				Ogre::vector<String>::type widgetSpecifier = Ogre::StringUtil::split(widgetType);
+				oAssertDesc(widgetSpecifier.size() == 2, "Invalid Widget Specifier: " << widgetType);
+				String widgetId = widgetSpecifier[1];
+				if(FastGuiManager::getSingleton().widgetExists(widgetId))
+				{
+					FastGuiManager::getSingleton().destroyWidget(widgetId);
+				}
+			}
+
+
+			
+			it.moveNext();
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadGlobalSettings(SettingsMultiMap* settings)
