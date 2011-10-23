@@ -64,6 +64,7 @@ purpose:	Memory manager & tracking software
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <boost/type_traits/has_new_operator.hpp>
 
 extern "C" {
 
