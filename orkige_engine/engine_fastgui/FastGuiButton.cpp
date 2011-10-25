@@ -14,6 +14,7 @@
 namespace Orkige
 {
 	IMPL_OWNED_EVENTTYPE(FastGuiButton, ButtonHitEvent);
+	IMPL_OWNED_EVENTTYPE(FastGuiButton, ButtonDownEvent);
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -76,6 +77,7 @@ namespace Orkige
 			if (this->decor->getRectangle()->intersects(cursorPos)) 
 			{
 				this->setState(FastGuiButton::BS_DOWN);
+				GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonDownEvent, oBadPointer(this)));
 			}
 		}
 	}
