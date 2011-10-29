@@ -132,6 +132,27 @@ macro(ConfigureOrkigeDependencies)
 	endif()
 
 
+	if (ORKIGE_ENABLE_MYGUI)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/MyGui
+			${ORKIGE_DEP_DIR}/MyGui/MyGUIEngine
+			${ORKIGE_DEP_DIR}/MyGui/MyGUIEngine/include
+			${ORKIGE_DEP_DIR}/MyGui/Platforms
+			${ORKIGE_DEP_DIR}/MyGui/Platforms/Ogre
+			${ORKIGE_DEP_DIR}/MyGui/Platforms/Ogre/OgrePlatform
+			${ORKIGE_DEP_DIR}/MyGui/Platforms/Ogre/OgrePlatform/include
+			${ORKIGE_DEP_DIR}/MyGui/Common
+		)
+
+		link_libraries(
+			MyGUIEngine
+			MyGUI.OgrePlatform
+		)
+		add_definitions(-DMYGUI_USE_FREETYPE)
+		add_definitions(-DMYGUI_BUILD)
+		add_definitions(-DMYGUI_STATIC)
+	endif()
+	
 	if (ORKIGE_ENABLE_PARTICLE_UNIVERSE)		
 		include_directories(
 			${ORKIGE_DEP_DIR}/ParticleUniverse/include
