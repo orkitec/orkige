@@ -37,6 +37,11 @@ if (ORKIGE_ENABLE_GAMESWF)
 	source_group(engine_swf FILES ${engine_swf_FILES})
 endif(ORKIGE_ENABLE_GAMESWF)
 # ---------------------------------------------------------
+if (ORKIGE_ENABLE_MYGUI)
+	FILE (GLOB engine_mygui_FILES "engine_mygui/[A-z]*.*")
+	source_group(engine_mygui FILES ${engine_mygui_FILES})
+endif(ORKIGE_ENABLE_MYGUI)
+# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # Build setup
@@ -62,7 +67,8 @@ ogre_add_library(orkige_engine STATIC
             ${engine_sound_FILES}
             ${engine_video_FILES}
             ${engine_util_FILES}
-	    ${engine_swf_FILES}
+            ${engine_swf_FILES}
+            ${engine_mygui_FILES}
             SEPARATE 
             "${CMAKE_CURRENT_SOURCE_DIR}/engine_input/InputManager.cpp" 
             "${CMAKE_CURRENT_SOURCE_DIR}/engine_sound/SoundManager.cpp" 
