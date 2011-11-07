@@ -240,7 +240,7 @@ extern "C" {
 //
 #ifdef cimg_use_jpeg
 extern "C" {
-#include "jpeglib.h"
+#include "../../FreeImage/LibJPEG/jpeglib.h"
 }
 #endif
 
