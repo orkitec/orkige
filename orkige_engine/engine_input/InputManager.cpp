@@ -345,64 +345,75 @@ namespace Orkige
 		{
 
 			//this->tuioMultiTouchToOrkige(tcur);
-			std::list<TUIO::TuioPoint> path = tcur->getPath();
-			if (path.size()>0) {
+				std::list<TUIO::TuioPoint> path = tcur->getPath();
+				if (path.size()>1) 
+				{
+					path.pop_back();
+				}
+				
+				TUIO::TuioPoint last_point = path.back();
+	
 
-				TUIO::TuioPoint last_point = path.front();
+				this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
+				this->touchData->relY = (int)((tcur->getY()-last_point.getY())*1080) ;
+				this->touchData->relZ = 0;
+				this->touchData->absX = (int)(tcur->getX()*1980);
+				this->touchData->absY = (int)(tcur->getY()*1080);
+				this->touchData->absZ = (int)(tcur->getY()*1080);
 
-
-				this->touchData->relX = (int)last_point.getX();
-				this->touchData->relY = (int)last_point.getY();
-				this->touchData->relZ = (int)last_point.getY();
-				this->touchData->absX = (int)(last_point.getX()*1980);
-				this->touchData->absY = (int)(last_point.getY()*1080);
-				this->touchData->absZ = (int)(last_point.getY()*1080);
-
-				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
+				this->touchData->sequenceId = tcur->getCursorID();
 				this->transformInputToOrientation(this->touchData);
-			}
+			
 
-			GlobalEventManager::getSingleton().trigger(this->touchPressedEvent);
+				GlobalEventManager::getSingleton().queueEvent(oBadPointer(&this->touchPressedEvent));
 		}
 		virtual void updateTuioCursor(TUIO::TuioCursor *tcur)
 		{
+
 			std::list<TUIO::TuioPoint> path = tcur->getPath();
-			if (path.size()>0) {
-
-				TUIO::TuioPoint last_point = path.front();
-
-
-				this->touchData->relX = (int)last_point.getX();
-				this->touchData->relY = (int)last_point.getY();
-				this->touchData->relZ = (int)last_point.getY();
-				this->touchData->absX = (int)(last_point.getX()*1980);
-				this->touchData->absY = (int)(last_point.getY()*1080);
-				this->touchData->absZ = (int)(last_point.getY()*1080);
-
-				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
-				this->transformInputToOrientation(this->touchData);
+			if (path.size()>1) 
+			{
+				path.pop_back();
 			}
-			GlobalEventManager::getSingleton().trigger(this->touchMovedEvent);
+			TUIO::TuioPoint last_point = path.back();
+
+
+			this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
+			this->touchData->relY = (int)((tcur->getY()-last_point.getY())*1080) ;
+			this->touchData->relZ = 0;
+			this->touchData->absX = (int)(tcur->getX()*1980);
+			this->touchData->absY = (int)(tcur->getY()*1080);
+			this->touchData->absZ = (int)(tcur->getY()*1080);
+
+				this->touchData->sequenceId = tcur->getCursorID();
+				this->transformInputToOrientation(this->touchData);
+			
+			GlobalEventManager::getSingleton().queueEvent(oBadPointer(&this->touchMovedEvent));
 		}
 		virtual void removeTuioCursor(TUIO::TuioCursor *tcur)
 		{
+
+
+
 			std::list<TUIO::TuioPoint> path = tcur->getPath();
-			if (path.size()>0) {
-
-				TUIO::TuioPoint last_point = path.front();
-
-
-				this->touchData->relX = (int)last_point.getX();
-				this->touchData->relY = (int)last_point.getY();
-				this->touchData->relZ = (int)last_point.getY();
-				this->touchData->absX = (int)(last_point.getX()*1980);
-				this->touchData->absY = (int)(last_point.getY()*1080);
-				this->touchData->absZ = (int)(last_point.getY()*1080);
-
-				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
-				this->transformInputToOrientation(this->touchData);
+			if (path.size()>1) 
+			{
+				path.pop_back();
 			}
-			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
+			TUIO::TuioPoint last_point = path.back();
+
+
+			this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
+			this->touchData->relY = (int)((tcur->getY()-last_point.getY())*1080) ;
+			this->touchData->relZ = 0;
+			this->touchData->absX = (int)(tcur->getX()*1980);
+			this->touchData->absY = (int)(tcur->getY()*1080);
+			this->touchData->absZ = (int)(tcur->getY()*1080);
+
+			this->touchData->sequenceId = tcur->getCursorID();
+			this->transformInputToOrientation(this->touchData);
+			
+			GlobalEventManager::getSingleton().queueEvent(oBadPointer(&this->touchReleasedEvent));
 		}
 		virtual void refresh(TUIO::TuioTime ftime)
 		{
