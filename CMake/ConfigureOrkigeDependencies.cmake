@@ -65,6 +65,20 @@ macro(ConfigureOrkigeDependencies)
 			debug ${ORKIGE_DEP_DIR}/poco/lib/PocoNetd.lib
 		)
 	endif()
+
+	if (ORKIGE_ENABLE_TUIO)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/TUIO/TUIO
+			${ORKIGE_DEP_DIR}/TUIO/oscpack
+		)
+		link_libraries(
+			libTUIO
+			ws2_32.lib 
+			winmm.lib 
+		)
+
+	endif()
+	
 	
 	if(ORKIGE_ENABLE_APPUP)
 		include_directories(

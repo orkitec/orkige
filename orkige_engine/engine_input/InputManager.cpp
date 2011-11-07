@@ -16,6 +16,17 @@
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
 #include "engine_util/StringUtil.h"
+
+
+#ifdef ORKIGE_ENABLE_TUIO
+	#include "tuio/tuio/TuioListener.h"
+	#include "tuio/tuio/TuioClient.h"
+	#include "tuio/tuio/TuioObject.h"
+	#include "tuio/tuio/TuioCursor.h"
+	#include "tuio/tuio/TuioPoint.h"
+	#include "tuio/tuio/TuioContainer.h"
+#endif
+
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
 #       import <UIKit/UIKit.h>
@@ -53,6 +64,9 @@ namespace Orkige
 	//! hidden inputmanager translates OIS Input to Orkige input
 	class InputManagerImpl
 		: public Singleton<InputManagerImpl>, public OIS::KeyListener, public OIS::MouseListener, public OIS::MultiTouchListener
+#ifdef ORKIGE_ENABLE_TUIO
+		, public TUIO::TuioListener
+#endif
 	{
 		DECL_OSINGLETON(InputManagerImpl)
 	public:
@@ -62,6 +76,7 @@ namespace Orkige
 		typedef OIS::MultiTouch		MultiTouch;			// multitouch device
 		typedef OIS::Mouse			Mouse;			// mouse device
 		typedef OIS::Keyboard		Keyboard;
+
 
 		Event keyPressedEvent;
 		Event keyReleasedEvent;
@@ -83,6 +98,10 @@ namespace Orkige
 		Keyboard			*keyboard;
 		Mouse				*mouse;					// mouse device
 		MultiTouch			*touch;
+#ifdef ORKIGE_ENABLE_TUIO
+		TUIO::TuioClient *tuioClient;
+#endif
+		
 #ifdef ORKIGE_IPHONE
 		OrkigeGestureView *gestureView;
 #endif
@@ -141,6 +160,12 @@ namespace Orkige
 			{
 				this->lastTouchPoints.push_back(-1);
 			}
+#ifdef ORKIGE_ENABLE_TUIO
+  			this->tuioClient = new TUIO::TuioClient(3333);
+  			this->tuioClient->addTuioListener(this);
+  			this->tuioClient->connect();
+#endif
+
 #ifdef ORKIGE_IPHONE
 			gestureView = 0;
 #endif
@@ -232,6 +257,7 @@ namespace Orkige
 			}
 			return closestSequence / 3;
 		}
+		
 
 		inline int getTouchSquenceId(const OIS::MultiTouchState &state)
 		{
@@ -268,6 +294,7 @@ namespace Orkige
 			}
 			return -1;
 		}
+	
 
 		inline void oisMouseToOrkige(const OIS::MouseState &state)
 		{
@@ -300,6 +327,89 @@ namespace Orkige
 			this->touchData->sequenceId = this->getTouchSquenceId(state);
 			this->transformInputToOrientation(this->touchData);
 		}
+	
+#ifdef ORKIGE_ENABLE_TUIO
+		virtual void addTuioObject(TUIO::TuioObject *tobj)
+		{
+			int test = 1;
+		}
+		virtual void updateTuioObject(TUIO::TuioObject *tobj)
+		{
+			int test = 1; 
+		}
+		virtual void removeTuioObject(TUIO::TuioObject *tobj)
+		{
+			int test = 1;
+		}
+		virtual void addTuioCursor(TUIO::TuioCursor *tcur)
+		{
+
+			//this->tuioMultiTouchToOrkige(tcur);
+			std::list<TUIO::TuioPoint> path = tcur->getPath();
+			if (path.size()>0) {
+
+				TUIO::TuioPoint last_point = path.front();
+
+
+				this->touchData->relX = (int)last_point.getX();
+				this->touchData->relY = (int)last_point.getY();
+				this->touchData->relZ = (int)last_point.getY();
+				this->touchData->absX = (int)(last_point.getX()*1980);
+				this->touchData->absY = (int)(last_point.getY()*1080);
+				this->touchData->absZ = (int)(last_point.getY()*1080);
+
+				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
+				this->transformInputToOrientation(this->touchData);
+			}
+
+			GlobalEventManager::getSingleton().trigger(this->touchPressedEvent);
+		}
+		virtual void updateTuioCursor(TUIO::TuioCursor *tcur)
+		{
+			std::list<TUIO::TuioPoint> path = tcur->getPath();
+			if (path.size()>0) {
+
+				TUIO::TuioPoint last_point = path.front();
+
+
+				this->touchData->relX = (int)last_point.getX();
+				this->touchData->relY = (int)last_point.getY();
+				this->touchData->relZ = (int)last_point.getY();
+				this->touchData->absX = (int)(last_point.getX()*1980);
+				this->touchData->absY = (int)(last_point.getY()*1080);
+				this->touchData->absZ = (int)(last_point.getY()*1080);
+
+				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
+				this->transformInputToOrientation(this->touchData);
+			}
+			GlobalEventManager::getSingleton().trigger(this->touchMovedEvent);
+		}
+		virtual void removeTuioCursor(TUIO::TuioCursor *tcur)
+		{
+			std::list<TUIO::TuioPoint> path = tcur->getPath();
+			if (path.size()>0) {
+
+				TUIO::TuioPoint last_point = path.front();
+
+
+				this->touchData->relX = (int)last_point.getX();
+				this->touchData->relY = (int)last_point.getY();
+				this->touchData->relZ = (int)last_point.getY();
+				this->touchData->absX = (int)(last_point.getX()*1980);
+				this->touchData->absY = (int)(last_point.getY()*1080);
+				this->touchData->absZ = (int)(last_point.getY()*1080);
+
+				//this->touchData->sequenceId = this->getTuioTouchSquenceId(tcur);
+				this->transformInputToOrientation(this->touchData);
+			}
+			GlobalEventManager::getSingleton().trigger(this->touchReleasedEvent);
+		}
+		virtual void refresh(TUIO::TuioTime ftime)
+		{
+			
+		}
+
+#endif
 		virtual bool keyPressed( const OIS::KeyEvent &e )
 		{
 			this->keyData->key = static_cast<KeyEventData::KeyCode>(e.key);
@@ -698,6 +808,11 @@ namespace Orkige
 			// Set mouse region
 			this->setWindowExtents( width, height );
 			oDebugMsg("core", 0, "Input initialized! width, height, depth, left, top: " << width <<", "<< height<<", "<< depth<<", "<< left<<", "<< top);
+
+
+
+
+
 		}
 	}
 	//---------------------------------------------------------
@@ -717,6 +832,7 @@ namespace Orkige
 			{
 				this->impl->touch->capture();
 			}
+
 		}
 		catch (OIS::Exception const & e)
 		{

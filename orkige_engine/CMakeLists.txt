@@ -42,6 +42,18 @@ if (ORKIGE_ENABLE_MYGUI)
 	source_group(engine_mygui FILES ${engine_mygui_FILES})
 endif(ORKIGE_ENABLE_MYGUI)
 # ---------------------------------------------------------
+# ---------------------------------------------------------
+if (ORKIGE_ENABLE_TUIO)
+	FILE (GLOB engine_TUIO_FILES "engine_TUIO/[A-z]*.*")
+	source_group(engine_TUIO FILES ${engine_TUIO_FILES})
+endif(ORKIGE_ENABLE_TUIO)
+# ---------------------------------------------------------
+# ---------------------------------------------------------
+if (ORKIGE_ENABLE_TUIO)
+	FILE (GLOB engine_OSC_FILES "engine_OSC/[A-z]*.*")
+	source_group(engine_OSC FILES ${engine_OSC_FILES})
+endif(ORKIGE_ENABLE_TUIO)
+# ---------------------------------------------------------
 
 # ---------------------------------------------------------
 # Build setup
@@ -65,6 +77,8 @@ ogre_add_library(orkige_engine STATIC
             ${engine_module_FILES}
             ${engine_physic_FILES}
             ${engine_sound_FILES}
+	    ${engine_TUIO_FILES}
+	    ${engine_OSC_FILES}
             ${engine_video_FILES}
             ${engine_util_FILES}
             ${engine_swf_FILES}

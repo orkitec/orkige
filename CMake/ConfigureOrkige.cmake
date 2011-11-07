@@ -59,6 +59,7 @@ macro (ConfigureOrkige)
 				option(ORKIGE_ENABLE_APPUP			"enable APPUP"							OFF)	
 				option(ORKIGE_ENABLE_JADEDS			"enable Jade:DS / Little Indie"			OFF)	
 				option(ORKIGE_BUILD_POCO			"enable Poco network library"			OFF)
+				option(ORKIGE_ENABLE_TUIO			"enable TUIO"			OFF)
 	endif (WIN32)
 	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
 	
@@ -92,6 +93,10 @@ macro (ConfigureOrkige)
 	if(ORKIGE_BUILD_POCO)
 		add_definitions(-DORKIGE_BUILD_POCO)	
 	endif(ORKIGE_BUILD_POCO)
+
+	if(ORKIGE_ENABLE_TUIO)
+		add_definitions(-DORKIGE_ENABLE_TUIO)	
+	endif(ORKIGE_ENABLE_TUIO)
 
 
 	if(ORKIGE_ENABLE_WINSDK)

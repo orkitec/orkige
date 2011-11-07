@@ -49,7 +49,13 @@ namespace Orkige
 		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
 		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
 		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
-#else
+#endif
+#ifdef  ORKIGE_ENABLE_TUIO
+		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
+		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
+		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
+#endif
+#ifndef ORKIGE_IPHONE
 		this->registerEvent(Orkige::InputManager::MousePressedEvent,			&FastGuiManager::onMousePressed,			this);
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,			&FastGuiManager::onMouseReleased,			this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,				&FastGuiManager::onMouseMoved,				this);
@@ -65,7 +71,13 @@ namespace Orkige
 		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
-#else
+#endif
+#ifdef ORKIGE_ENABLE_TUIO
+		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
+		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
+		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
+#endif
+#ifndef ORKIGE_IPHONE
 		this->unregisterEvent(Orkige::InputManager::MousePressedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
