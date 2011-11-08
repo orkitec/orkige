@@ -53,8 +53,9 @@ namespace Orkige
 		//---------------------------------------------------------
 		String const & getSupportDirectory(String applicationName)
 		{
+			static String path = getDocumentsDirectory() + applicationName + "";
 			//FIXME: get the right path
-			return getDocumentsDirectory();
+			return path;
 		}
 		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()
