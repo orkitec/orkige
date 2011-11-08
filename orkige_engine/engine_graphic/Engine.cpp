@@ -241,6 +241,20 @@ namespace Orkige
 		this->setupResources(resourceCfgFileName);
 	}
 	//---------------------------------------------------------
+	Engine::AspectRatio Engine::getCurrentAspectRatio(unsigned int num, double maxErrorDist)
+	{
+		static const double aspectRatioFactors[] = { 5.0/4.0, 4.0/3.0, 16.0/10.0, 16.0/9.0 };
+		double aspectFactor = double(this->getViewport(0)->getActualWidth()) / double(this->getViewport(0)->getActualHeight());
+		for(std::size_t i = Engine::AspectRatio_Unknown-1; i >= 0; i--)
+		{
+			if(aspectFactor - aspectRatioFactors[i] < maxErrorDist)
+			{
+				return Engine::AspectRatio(i);
+			}
+		}
+		return Engine::AspectRatio_Unknown;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 

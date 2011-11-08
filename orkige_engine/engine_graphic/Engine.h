@@ -43,6 +43,14 @@ namespace Orkige
 			SHOW_ALWAYS,
 			SHOW_NEVER,
 		};
+		enum AspectRatio
+		{
+			AspectRatio_5_4 = 0, 
+			AspectRatio_4_3, 
+			AspectRatio_16_10, 
+			AspectRatio_16_9,
+			AspectRatio_Unknown
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -127,7 +135,8 @@ namespace Orkige
 		inline String const & getTopLevelWindowHandle(); 
 		//! define the source of resources (other than current folder) but doesn't load them
 		void resetupResources(String const & resourceCfgFileName);
-		
+		//! get aspect ratio based on resolution
+		AspectRatio getCurrentAspectRatio(unsigned int num = 0, double maxErrorDist = 0.1);
 		/** \addtogroup Debug
 		*  @{ */
 		//! Wireframe rendering mode
