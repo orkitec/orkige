@@ -298,13 +298,21 @@ namespace Orkige
 
 		inline void oisMouseToOrkige(const OIS::MouseState &state)
 		{
+			Ogre::Real scaleFactorX = 1.0f;
+			Ogre::Real scaleFactorY = 1.0f;
+			/*if(Engine::getSingleton().getCamera()->getProjectionType() == Ogre::PT_ORTHOGRAPHIC)
+			{
+				scaleFactorX = (Ogre::Real)(Engine::getSingleton().getCamera()->getOrthoWindowHeight()) / (Ogre::Real)(Engine::getSingleton().getViewport()->getActualHeight());
+				scaleFactorY = (Ogre::Real)(Engine::getSingleton().getCamera()->getOrthoWindowWidth()) / (Ogre::Real)(Engine::getSingleton().getViewport()->getActualWidth());
+			}*/
+			
 			this->mouseData->buttons = state.buttons;
-			this->mouseData->relX = state.X.rel;
-			this->mouseData->relY = state.Y.rel;
-			this->mouseData->relZ = state.Z.rel;
-			this->mouseData->absX = state.X.abs;
-			this->mouseData->absY = state.Y.abs;
-			this->mouseData->absZ = state.Z.abs;
+			this->mouseData->relX = state.X.rel / scaleFactorX;
+			this->mouseData->relY = state.Y.rel / scaleFactorY;
+			this->mouseData->relZ = state.Z.rel / scaleFactorY;
+			this->mouseData->absX = state.X.abs / scaleFactorX;
+			this->mouseData->absY = state.Y.abs / scaleFactorY;
+			this->mouseData->absZ = state.Z.abs / scaleFactorY;
 		}
 		inline void oisMouseToOrkige(const OIS::MultiTouchState &state)
 		{
@@ -343,7 +351,8 @@ namespace Orkige
 		}
 		virtual void addTuioCursor(TUIO::TuioCursor *tcur)
 		{
-
+			if (tcur->getCursorID() != 1)
+				return;
 			//this->tuioMultiTouchToOrkige(tcur);
 				std::list<TUIO::TuioPoint> path = tcur->getPath();
 				if (path.size()>1) 
@@ -352,6 +361,7 @@ namespace Orkige
 				}
 				
 				TUIO::TuioPoint last_point = path.back();
+
 	
 
 				this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
@@ -369,26 +379,59 @@ namespace Orkige
 		}
 		virtual void updateTuioCursor(TUIO::TuioCursor *tcur)
 		{
+			if (tcur->getCursorID() != 1)
+				return;
+			//std::list<TUIO::TuioPoint> path = tcur->getPath();
+			//if (path.size()>1) 
+			//{
+			//	path.pop_back();
+			//}
+			//TUIO::TuioPoint last_point = path.back();
 
-			std::list<TUIO::TuioPoint> path = tcur->getPath();
-			if (path.size()>1) 
+
+			int distanceX = Ogre::Math::Abs(this->touchData->absX - ((int)(tcur->getX()*1980))) ;
+			int distanceY = Ogre::Math::Abs(this->touchData->absY - ((int)(tcur->getY()*1080))) ;
+
+			bool sendEv= false ;
+			if (distanceX > 14)
 			{
-				path.pop_back();
+				this->touchData->relX = (int)((tcur->getX())*1980)-this->touchData->absX;
+				this->touchData->absX = (int)(tcur->getX()*1980);
+				sendEv= true;
 			}
-			TUIO::TuioPoint last_point = path.back();
+			else
+			{
+				this->touchData->relX = 0;
+			}
 
+			if (distanceY > 14)
+			{
+				this->touchData->relY = (int)((tcur->getY())*1080)-this->touchData->absY ;
+				this->touchData->absY = (int)(tcur->getY()*1080);
+				sendEv= true;
+			}
+			else
+			{
+				this->touchData->relY = 0;
+			}
+			
+			oDebugMsg("core", 0, "distances (X,Y)= " <<distanceX<<" , "<<distanceY);
 
-			this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
+			/*this->touchData->relX = (int)((tcur->getX()-last_point.getX())*1980);
 			this->touchData->relY = (int)((tcur->getY()-last_point.getY())*1080) ;
 			this->touchData->relZ = 0;
 			this->touchData->absX = (int)(tcur->getX()*1980);
 			this->touchData->absY = (int)(tcur->getY()*1080);
-			this->touchData->absZ = (int)(tcur->getY()*1080);
+			this->touchData->absZ = (int)(tcur->getY()*1080);*/
 
+			if(sendEv)
+			{
 				this->touchData->sequenceId = tcur->getCursorID();
 				this->transformInputToOrientation(this->touchData);
 			
-			GlobalEventManager::getSingleton().queueEvent(oBadPointer(&this->touchMovedEvent));
+				GlobalEventManager::getSingleton().queueEvent(oBadPointer(&this->touchMovedEvent));
+			}
+				
 		}
 		virtual void removeTuioCursor(TUIO::TuioCursor *tcur)
 		{
