@@ -422,6 +422,20 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	std::vector<woptr<FastGuiWidget> > FastGuiManager::getWidgetsFromView(Orkige::String const & atlasName)
+	{
+		std::vector<woptr<FastGuiWidget> > widgets;
+		woptr<FastGuiView> view = this->getView(atlasName);
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
+		{
+			if(widget->getView().lock().get() == view.lock().get())
+			{
+				widgets.push_back(widget);
+			}
+		}
+		return widgets;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiManager::preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt)

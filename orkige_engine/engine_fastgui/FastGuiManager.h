@@ -122,6 +122,9 @@ namespace Orkige
 		// @param enable on/off
 		// @param windowIdx
 		void setEnabledOnViewport(bool enable, int viewportIdx);
+
+		//! get all widgets that use the given atlas
+		std::vector<woptr<FastGuiWidget> > getWidgetsFromView(Orkige::String const & atlas);
 	protected:
 		virtual void preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
 		virtual void postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
