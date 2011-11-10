@@ -351,7 +351,7 @@ namespace Orkige
 		}
 		virtual void addTuioCursor(TUIO::TuioCursor *tcur)
 		{
-			if (tcur->getCursorID() != 1)
+			if (tcur->getCursorID() != 0)
 				return;
 			//this->tuioMultiTouchToOrkige(tcur);
 				std::list<TUIO::TuioPoint> path = tcur->getPath();
@@ -379,7 +379,7 @@ namespace Orkige
 		}
 		virtual void updateTuioCursor(TUIO::TuioCursor *tcur)
 		{
-			if (tcur->getCursorID() != 1)
+			if (tcur->getCursorID() != 0)
 				return;
 			//std::list<TUIO::TuioPoint> path = tcur->getPath();
 			//if (path.size()>1) 
@@ -393,7 +393,7 @@ namespace Orkige
 			int distanceY = Ogre::Math::Abs(this->touchData->absY - ((int)(tcur->getY()*1080))) ;
 
 			bool sendEv= false ;
-			if (distanceX > 14)
+			if (distanceX > 8)
 			{
 				this->touchData->relX = (int)((tcur->getX())*1980)-this->touchData->absX;
 				this->touchData->absX = (int)(tcur->getX()*1980);
@@ -404,7 +404,7 @@ namespace Orkige
 				this->touchData->relX = 0;
 			}
 
-			if (distanceY > 14)
+			if (distanceY > 8)
 			{
 				this->touchData->relY = (int)((tcur->getY())*1080)-this->touchData->absY ;
 				this->touchData->absY = (int)(tcur->getY()*1080);
