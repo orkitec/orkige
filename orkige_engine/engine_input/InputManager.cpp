@@ -172,6 +172,10 @@ namespace Orkige
 		}
 		~InputManagerImpl()
 		{
+#ifdef ORKIGE_ENABLE_TUIO
+			tuioClient->disconnect();
+			delete tuioClient;
+#endif
 #ifdef ORKIGE_IPHONE
 			[gestureView release];
 #endif
