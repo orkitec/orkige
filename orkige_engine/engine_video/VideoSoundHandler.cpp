@@ -35,7 +35,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	VideoSoundHandler::~VideoSoundHandler()
 	{
-		//alDeleteSources(1, &this->source);
+		alDeleteSources(1, &this->source);
 		// todo: delete buffers and source
 		if (this->tempBuffer) delete[] this->tempBuffer;
 	}
