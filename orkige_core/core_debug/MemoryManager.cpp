@@ -27,6 +27,31 @@ Copyright 2000, Fluid Studios, Inc., all rights reserved.
 ---------------------------------------------------------------------
 purpose:	Memory manager & tracking software
 *********************************************************************/
+#include "core_debug/DisableMemoryManager.h"
+// force memory manager to be the very first thing to be created on application launch
+typedef int cb(void);
+#pragma data_seg(".CRT$XIU")
+static cb *autostart[] = { Orkige::createOrkigeMemoryManager };
+#pragma data_seg()    /* reset data-segment */
+//this makes dealloc calls after the memory manager is destroyed (wich should not happen) a little better traceable
+namespace Orkige
+{
+	void operator_delete_p_unmanaged(void *reportedAddress)
+	{
+#ifdef	delete
+#undef	delete
+#endif
+		delete reportedAddress;
+	}
+	void operator_delete_a_unmanaged(void *reportedAddress)
+	{
+#ifdef	delete
+#undef	delete
+#endif
+		delete[] reportedAddress;
+	}
+}
+
 
 #include <iostream>
 #include <stdio.h>
@@ -36,6 +61,7 @@ purpose:	Memory manager & tracking software
 #include <time.h>
 #include <stdarg.h>
 #include <new>
+
 
 #ifndef	WIN32
 #include <unistd.h>
@@ -188,6 +214,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//! Here, we turn off our macros because any place in this source file where the word 'new' or the word 'delete' (etc.)
 	//! appear will be expanded by the macro. So to avoid problems using them within this source file, we'll just #undef them.
 #include "core_debug/DisableMemoryManager.h"
+
 	//---------------------------------------------------------
 	//! Get to know these values. They represent the values that will be used to fill unused and deallocated RAM.
 	static		unsigned int	prefixPattern          = 0xbaadf00d; // Fill pattern for bytes preceeding allocated blocks
@@ -214,26 +241,33 @@ bool Orkige::MemoryManager::isInitialized = false;
 	static const	char		*memoryLogFile         = "memory.log";
 	static const	char		*memoryLeakLogFile     = "memleaks.log";
 
-	void createOrkigeMemoryManager()
+	
+
+	int createOrkigeMemoryManager()
 	{
 		static MemoryManager g_mmgr = MemoryManager();
+		return 0;
 	}
 	//---------------------------------------------------------
 	IMPL_OSINGLETON(MemoryManager)
 	//---------------------------------------------------------
 	MemoryManager::MemoryManager()
 	{
-		oInfo("...MemoryManager created!...");
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		OutputDebugStringA("\n\t...MemoryManager created!...\n\n");
 		doCleanupLogOnFirstRun();
 		isInitialized = true;
+		
 	}
 	//---------------------------------------------------------
 	MemoryManager::~MemoryManager()
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		isInitialized = false;
 		staticDeinitTime = true; 
 		dumpLeakReport();
-		oInfo("\t...MemoryManager destroyed!...");
-		isInitialized = false;
+		OutputDebugStringA("\n\t...MemoryManager destroyed!...\n\n");
+		
 	}
 	//---------------------------------------------------------
 	bool	&MemoryManager::breakOnRealloc(void *reportedAddress)
@@ -326,6 +360,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_p(size_t reportedSize)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new");
 #endif
@@ -382,6 +417,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_a(size_t reportedSize)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new[]");
 #endif
@@ -438,6 +474,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_p(size_t reportedSize, const char *sourceFile, int sourceLine)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new");
 #endif
@@ -488,6 +525,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_a(size_t reportedSize, const char *sourceFile, int sourceLine)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new[]");
 #endif
@@ -538,6 +576,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	MemoryManager::operator_delete_p(void *reportedAddress)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: delete");
 #endif
@@ -559,6 +598,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	void	MemoryManager::operator_delete_a(void *reportedAddress)
 	{
+		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: delete[]");
 #endif
@@ -1312,6 +1352,9 @@ bool Orkige::MemoryManager::isInitialized = false;
 
 		// If you hit this assert, then the memory report generator is unable to log information to a file (can't open the file for
 		// some reason.)
+		if(!fp)
+			fp = fopen(memoryLeakLogFile, "ab");
+
 		MemoryManagerAssert(fp);
 		if (!fp) return;
 
@@ -1656,6 +1699,7 @@ bool Orkige::MemoryManager::isInitialized = false;
 		sourceFunc = "??";
 	}
 	//---------------------------------------------------------
+
 }
 
 //#endif // _DEBUG
