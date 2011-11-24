@@ -8,6 +8,8 @@
 ***************************************************************/
 
 #include "engine_mygui/MyGuiManager.h"
+#include "engine_graphic/Engine.h"
+#include "engine_base/Localisation.h"
 
 namespace Orkige
 {

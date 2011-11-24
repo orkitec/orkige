@@ -160,7 +160,7 @@ macro(ConfigureOrkigeDependencies)
 
 		link_libraries(
 			MyGUIEngine
-			MyGUI.OgrePlatform
+			MyGUI_OgrePlatform
 		)
 		add_definitions(-DMYGUI_USE_FREETYPE)
 		add_definitions(-DMYGUI_BUILD)

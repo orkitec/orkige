@@ -19,6 +19,17 @@
 #include <OgreTextAreaOverlayElement.h>
 #include <OgreExternalTextureSourceManager.h>
 #include <OgreWireBoundingBox.h>
+
+#ifdef ORKIGE_ENABLE_MYGUI
+#	include <MyGUI.h>
+#	include <MyGUI_OgrePlatform.h>
+#	include <Common/MessageBox/MessageBox.h>
+	namespace MyGUI
+	{
+		typedef Message* MessagePtr;
+	}
+#endif //ORKIGE_ENABLE_MYGUI
+
 #include <core_debug/EnableMemoryManager.h>
 #include <core_debug/Profile.h>
 #endif //__EnginePrerequisites_h__8_9_2010__20_40_50__

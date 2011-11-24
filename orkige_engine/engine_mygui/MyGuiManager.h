@@ -12,8 +12,6 @@
 #include <core_module/OrkigePrerequisites.h>
 #include "engine_input/InputManager.h"
 #include <core_event/EventHandler.h>
-#include <MyGUI.h>
-#include <MyGUI_OgrePlatform.h>
 
 namespace Orkige
 {
