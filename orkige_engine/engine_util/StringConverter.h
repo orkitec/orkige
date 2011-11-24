@@ -70,6 +70,20 @@ namespace Orkige
 			{
 				return parseReal(val);
 			}
+#if OGRE_DOUBLE_PRECISION == 0
+			//! convert String to Ogre::Real
+			template<class Type>
+			static Type fromString(const String& val,
+				typename boost::enable_if<boost::is_same<Type, double>  >::type * = 0)
+			{
+				// Use istringstream for direct correspondence with toString
+				Ogre::StringStream str(val);
+				double ret = 0;
+				str >> ret;
+
+				return ret;
+			}
+#endif
 			//! convert String to Ogre::Radian
 			template<class Type>
 			static Type fromString(const String& val,
