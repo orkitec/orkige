@@ -224,6 +224,18 @@ namespace Orkige
 		this->registerEvent(Engine::FrameRenderingQueuedEvent, &Localisation::onFrameEnded, this);
 	}
 	//---------------------------------------------------------
+	Orkige::String Localisation::getLocalizedFormatted(Orkige::String const & id, Orkige::StringVector const & args)
+	{
+		Orkige::String localized = this->getLocalized(id);
+		for(std::size_t i; i < args.size(); i++)
+		{
+			std::stringstream sstr;
+			sstr << "%%" << i << "%%";
+			boost::replace_all( localized, sstr.str(), args[i]);
+		}
+		return localized;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	bool Localisation::onFrameEnded(Event const & event)

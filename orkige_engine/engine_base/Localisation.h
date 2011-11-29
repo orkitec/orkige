@@ -43,6 +43,8 @@ namespace Orkige
 		void loadLocaleCfg(Orkige::String const & currentLocale = Orkige::StringUtil::BLANK, Orkige::String const & validLocales = "en,de", Orkige::String const & defaultLocale = "en");
 		//! get localized string from given id if id is not found the id itself is returned
 		inline Orkige::String const & getLocalized(Orkige::String const & id);
+		//! get localized string from given id and replaces format parameters in form %%0%%, %%1%%, %%2%% with equivalent positions in args
+		Orkige::String getLocalizedFormatted(Orkige::String const & id, Orkige::StringVector const & args);
 		//! get current set locale
 		inline String const & getCurrentLocale();
 		//! setup resource directories (Category Language) for current locale
