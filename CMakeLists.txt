@@ -36,6 +36,12 @@ include(ConfigureOrkige)
 
 ConfigureOrkige()
 
+if (APPLE)
+    if (${XCODE_VERSION} STRGREATER "4.0.0")
+        set(CMAKE_XCODE_ATTRIBUTE_GCC_VERSION "4.2")
+    endif()
+endif()
+
 # determine Ogre version numbers
 include(OgreGetVersion)
 ogre_get_version(${OGREPATH}/OgreMain/include/OgrePrerequisites.h)
