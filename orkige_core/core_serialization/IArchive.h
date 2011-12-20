@@ -14,6 +14,7 @@
 #include "core_util/optr.h"
 #include "core_base/Interface.h"
 #include "core_serialization/StreamOperators.h"
+#include "core_serialization/ISerializeable.h"
 
 namespace Orkige
 {

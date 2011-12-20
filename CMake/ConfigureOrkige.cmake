@@ -217,7 +217,7 @@ macro (ConfigureOrkige)
 			include_directories("${OGREPATH}/OgreMain/include/iPhone")
 	
 			# Set build variables
-			set(CMAKE_OSX_SYSROOT iphoneos4.2)
+			set(CMAKE_OSX_SYSROOT iphoneos5.0)
 			set(CMAKE_OSX_DEPLOYMENT_TARGET "")
 			set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit -framework AudioToolbox -framework MediaPlayer -framework SystemConfiguration -weak_framework GameKit")
 			set(XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer: Steffen Roemer")
@@ -230,7 +230,7 @@ macro (ConfigureOrkige)
 			# CMake 2.8.1 added the ability to specify per-target architectures.
 			# As a side effect, it creates corrupt Xcode projects if you try do it for the whole project.
 			if(ORKIGE_OPTIMIZED_ARMV7)
-				set(CMAKE_OSX_ARCHITECTURES $(ARCHS_UNIVERSAL_IPHONE_OS))
+				set(CMAKE_OSX_ARCHITECTURES armv7)
 				set(XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH YES)
 				set(XCODE_ATTRIBUTE_VALID_ARCHS armv7)
 			else()

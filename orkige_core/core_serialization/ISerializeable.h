@@ -11,10 +11,11 @@
 
 #include "core_base/Meta.h"
 #include "core_base/Interface.h"
-#include "core_serialization/IArchive.h"
+
 
 namespace Orkige
 {
+    class IArchive;
 	//! base class for serializable objects
 	class ORKIGE_DLL ISerializeable : public Interface
 	{

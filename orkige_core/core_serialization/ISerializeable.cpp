@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "core_serialization/ISerializeable.h"
+#include "core_serialization/IArchive.h"
 
 namespace Orkige
 {

@@ -11,6 +11,7 @@
 
 #include "core_base/Interface.h"
 #include "core_serialization/ISerializeable.h"
+#include "core_serialization/IArchive.h"
 #include "core_util/AttributeHolder.h"
 
 namespace Orkige
