@@ -39,14 +39,12 @@ namespace Orkige
 	protected:
 	private:
 		Gorilla::Screen* screen;				//!< actual screen (1atlas)
-		Gorilla::ScreenRenderable* screenRenderable;		//!< actual screen (1atlas)
 		std::map<uint, Gorilla::Layer*> layers;	//!< all z layers of this screen
 		uint z;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
 		FastGuiView(Gorilla::Screen* _screen, uint _z = 0);
-		FastGuiView(Gorilla::ScreenRenderable* _screenRenderable, uint _z = 0);
 		FastGuiView(FastGuiView const & other);
 		//! destructor
 		virtual ~FastGuiView();
@@ -54,22 +52,12 @@ namespace Orkige
 		inline Gorilla::Layer* getLayer(uint z);
 		//! get the gorilla screen for this view
 		inline Gorilla::Screen* getScreen();
-		//! get the gorilla screenRenderable for this view
-		inline Gorilla::ScreenRenderable* getScreenRenderable();
 		//! get coordimate for given alignment
 		Ogre::Vector2 getPosition(FastGuiView::Alignment alignment);
 		//! set view z value (this doesn't reorder the view rendering immediately you have to call fastGuiManager::getSingleton().reorderViews();)
 		inline void setZ(uint z);
 		//! for priority sorting
 		inline bool operator < (FastGuiView const & other) const;
-		//! get this views width
-		Ogre::Real getWidth();
-		//! get this views height
-		Ogre::Real getHeight();
-		//! set visibility of this view
-		void setVisible(bool visible);
-		//! Get atlas assigned to screen or screenRenderable
-		Gorilla::TextureAtlas* getAtlas() const;
 	protected:
 	private:
 	};
@@ -81,16 +69,7 @@ namespace Orkige
 		{
 			return it->second;
 		}
-		Gorilla::Layer* layer = NULL;
-		if(this->screen)
-		{
-			layer = this->screen->createLayer(z);
-		}
-		else
-		{
-			layer = this->screenRenderable->createLayer(z);
-		}
-		oAssert(layer);
+		Gorilla::Layer* layer = screen->createLayer(z);
 		this->layers[z] = layer;
 		return layer;
 	}
@@ -98,11 +77,6 @@ namespace Orkige
 	inline Gorilla::Screen* FastGuiView::getScreen()
 	{
 		return this->screen;
-	}
-	//---------------------------------------------------------------
-	inline Gorilla::ScreenRenderable* FastGuiView::getScreenRenderable()
-	{
-		return this->screenRenderable;
 	}
 	//---------------------------------------------------------------
 	inline void FastGuiView::setZ(uint z)

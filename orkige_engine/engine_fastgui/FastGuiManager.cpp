@@ -49,13 +49,7 @@ namespace Orkige
 		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
 		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
 		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
-#endif
-#ifdef  ORKIGE_ENABLE_TUIO
-		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
-		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
-		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
-#endif
-#ifndef ORKIGE_IPHONE
+#else
 		this->registerEvent(Orkige::InputManager::MousePressedEvent,			&FastGuiManager::onMousePressed,			this);
 		this->registerEvent(Orkige::InputManager::MouseReleasedEvent,			&FastGuiManager::onMouseReleased,			this);
 		this->registerEvent(Orkige::InputManager::MouseMovedEvent,				&FastGuiManager::onMouseMoved,				this);
@@ -71,13 +65,7 @@ namespace Orkige
 		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
-#endif
-#ifdef ORKIGE_ENABLE_TUIO
-		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
-		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
-		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);
-#endif
-#ifndef ORKIGE_IPHONE
+#else
 		this->unregisterEvent(Orkige::InputManager::MousePressedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::MouseMovedEvent);
@@ -88,7 +76,7 @@ namespace Orkige
 	{
 		optr<FastGuiView> view = this->getCreateView(atlas).lock();
 		oAssert(view);
-		Gorilla::Sprite* spriteObject = view->getAtlas()->getSprite(sprite);
+		Gorilla::Sprite* spriteObject = view->getScreen()->getAtlas()->getSprite(sprite);
 		oAssert(spriteObject);
 		this->cursor = onew(new FastGuiDecorWidget("Cursor", sprite, Ogre::Vector2::ZERO, Ogre::Vector2(spriteObject->spriteWidth, spriteObject->spriteHeight), atlas, 16));
 	}
@@ -131,70 +119,49 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
-	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group, bool make3D)
+	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group)
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
 		this->silverback->loadAtlas(atlas, group);
-		if(make3D)
-		{
-			Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
-			oAssert(viewport);
-			Gorilla::ScreenRenderable* screen = this->silverback->createScreenRenderable(Ogre::Vector2(/*viewport->getActualWidth()*/0, /*viewport->getActualHeight()*/0), atlas);
-			oAssert(screen);
-			optr<FastGuiView> view = onew(new FastGuiView(screen));
-			this->views[atlas] = view;
-			return view;
-		}
-		else
-		{
-			Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
-			oAssert(viewport);
-			Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
-			oAssert(screen);
+		Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
+		oAssert(viewport);
+		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
+		oAssert(screen);
 #if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-			screen->setOrientation(viewport->getOrientationMode());
+		screen->setOrientation(viewport->getOrientationMode());
 #endif
-			optr<FastGuiView> view = onew(new FastGuiView(screen));
-			this->views[atlas] = view;
-			return view;
-		}
-
+		optr<FastGuiView> view = onew(new FastGuiView(screen));
+		this->views[atlas] = view;
+		return view;
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::destroyView(String const & atlas)
 	{
 		woptr<FastGuiView> view = this->getView(atlas);
 		oAssert(view.lock());
-
-		Ogre::TextureManager::getSingletonPtr()->remove(view.lock()->getAtlas()->getTexture()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(view.lock()->getAtlas()->get2DMaterial()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(view.lock()->getAtlas()->get3DMaterial()->getName());
-
-		if(view.lock()->getScreen())
-		{
-			this->silverback->destroyScreen(view.lock()->getScreen());
-		}
-		else
-		{
-			this->silverback->destroyScreenRenderable(view.lock()->getScreenRenderable());
-		}
-		this->silverback->destroyAtlas(atlas);
-
+		Gorilla::Screen* screen = view.lock()->getScreen();
 		this->views.erase(this->views.find(atlas));
+
+		Ogre::TextureManager::getSingletonPtr()->remove(screen->getAtlas()->getTexture()->getName());
+		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get2DMaterial()->getName());
+		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get3DMaterial()->getName());
+
+		this->silverback->destroyScreen(screen);
+		this->silverback->destroyAtlas(atlas);
 	}
 	//---------------------------------------------------------
-	void FastGuiManager::destroyViewWithWidgets(String const & atlasName)
+	void FastGuiManager::destroyViewWithWidgets(String const & atlas)
 	{
-		woptr<FastGuiView> view = this->getView(atlasName);
+		woptr<FastGuiView> view = this->getView(atlas);
 		oAssert(view.lock());
-		Gorilla::TextureAtlas* atlas = view.lock()->getAtlas();
+		Gorilla::Screen* screen = view.lock()->getScreen();
 		
 		StringVector names;
 		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
 		{
 			// compare used view/atlas
 			//woptr<FastGuiView> view = vt.second->getView();
-			if (vt.second->getView().lock()->getAtlas() == atlas)
+			if (vt.second->getView().lock()->getScreen() == screen)
 			{
 				names.push_back(vt.first);
 			}
@@ -204,7 +171,7 @@ namespace Orkige
 			this->destroyWidget(name);
 		}
 
-		this->destroyView(atlasName);
+		this->destroyView(atlas);
 	}	
 	//---------------------------------------------------------
 	void FastGuiManager::destroyAllViews(bool keepDefaultAtlas)
@@ -350,9 +317,7 @@ namespace Orkige
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
 			orderedViews.push_back(vt.second);
-			Gorilla::Screen* screen = vt.second->getScreen();
-			if(screen)
-				Engine::getSingleton().getSceneManager()->removeRenderQueueListener(screen);
+			Engine::getSingleton().getSceneManager()->removeRenderQueueListener(vt.second->getScreen());
 		}
 		orderedViews.sort(FastGuiViewOptrCmp());
 
@@ -360,8 +325,7 @@ namespace Orkige
 		{
 			//oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
 			Gorilla::Screen* screen = view->getScreen();
-			if(screen)
-				Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
+			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
 		}
 	}
 	//---------------------------------------------------------
@@ -369,7 +333,7 @@ namespace Orkige
 	{
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
-			vt.second->setVisible(false);
+			vt.second->getScreen()->setVisible(false);
 		}
 	}
 	//---------------------------------------------------------
@@ -377,7 +341,7 @@ namespace Orkige
 	{
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
-			vt.second->setVisible(true);
+			vt.second->getScreen()->setVisible(true);
 		}
 	}
 	//---------------------------------------------------------
@@ -420,20 +384,6 @@ namespace Orkige
 		{
 			Engine::getSingleton().getViewport(viewportIdx)->getTarget()->removeListener(this);
 		}
-	}
-	//---------------------------------------------------------
-	std::vector<woptr<FastGuiWidget> > FastGuiManager::getWidgetsFromView(Orkige::String const & atlasName)
-	{
-		std::vector<woptr<FastGuiWidget> > widgets;
-		woptr<FastGuiView> view = this->getView(atlasName);
-		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
-		{
-			if(widget->getView().lock().get() == view.lock().get())
-			{
-				widgets.push_back(widget);
-			}
-		}
-		return widgets;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

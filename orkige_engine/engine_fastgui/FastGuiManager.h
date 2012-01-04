@@ -66,7 +66,7 @@ namespace Orkige
 		//! get widget creation factory
 		inline woptr<FastGuiFactory> getFactory();
 		//! create screen with given atlas asserts if there is already a screen with that atlas
-		woptr<FastGuiView> createView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, bool make3D = false);
+		woptr<FastGuiView> createView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! free resources from given view
 		void destroyView(String const & atlas);
 		//! free resources from given view and all widgets using its view/atlas
@@ -76,7 +76,7 @@ namespace Orkige
 		//! get screen with given atlas or NULL
 		inline woptr<FastGuiView> getView(String const & atlas);
 		//! get o create view with given atlas
-		inline woptr<FastGuiView> getCreateView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, bool make3D = false);
+		inline woptr<FastGuiView> getCreateView(String const & atlas, String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		//! checks if screen with given id exists
 		inline bool hasView(String const & atlas);
 		//! hides all views
@@ -122,9 +122,6 @@ namespace Orkige
 		// @param enable on/off
 		// @param windowIdx
 		void setEnabledOnViewport(bool enable, int viewportIdx);
-
-		//! get all widgets that use the given atlas
-		std::vector<woptr<FastGuiWidget> > getWidgetsFromView(Orkige::String const & atlas);
 	protected:
 		virtual void preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
 		virtual void postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
@@ -178,31 +175,19 @@ namespace Orkige
 		return screenExists;
 	}
 	//---------------------------------------------------------------
-	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas, String const & group, bool make3D)
+	inline woptr<FastGuiView> FastGuiManager::getCreateView(String const & atlas, String const & group)
 	{
 		if(atlas == StringUtil::BLANK)
 		{
-			oAssertDesc(!make3D, "Default View cannot be 3D!");
 			return this->getView(this->defaultAtlas);
 		}
 
 		if(this->hasView(atlas))
 		{
-			woptr<FastGuiView> view = this->getView(atlas);
-/*
-			if(make3D)
-			{
-				oAssertDesc(view.lock()->getScreenRenderable(), "View: " << atlas << " cannot is a 2D view but was request as 3D!");
-			}
-			else
-			{
-				oAssertDesc(view.lock()->getScreen(), "View: " << atlas << " cannot is a 3D view but was request as 2D!");
-			}*/
-
-			return view;
+			return this->getView(atlas);
 		}
 
-		return this->createView(atlas, group, make3D);
+		return this->createView(atlas, group);
 	}
 	//---------------------------------------------------------------
 	inline bool FastGuiManager::widgetExists(String const & id)

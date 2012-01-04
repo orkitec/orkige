@@ -180,30 +180,6 @@ namespace Orkige
 		FastGuiManager::getSingleton().reorderViews();
 	}
 	//---------------------------------------------------------
-	void FastGuiFactory::unload(String const & filename)
-	{
-		FastGuiFactory::SectionIterator it = this->getSectionIterator();
-		while(it.hasMoreElements())
-		{
-			String const & widgetType = it.peekNextKey();
-			
-			if(!widgetType.empty())
-			{
-				Ogre::vector<String>::type widgetSpecifier = Ogre::StringUtil::split(widgetType);
-				oAssertDesc(widgetSpecifier.size() == 2, "Invalid Widget Specifier: " << widgetType);
-				String widgetId = widgetSpecifier[1];
-				if(FastGuiManager::getSingleton().widgetExists(widgetId))
-				{
-					FastGuiManager::getSingleton().destroyWidget(widgetId);
-				}
-			}
-
-
-			
-			it.moveNext();
-		}
-	}
-	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadGlobalSettings(SettingsMultiMap* settings)
@@ -402,8 +378,8 @@ namespace Orkige
 		oAssert(view);
 		if(relPosition != Ogre::Vector2::ZERO)
 		{
-			baseSettings.position.x = (relPosition.x * view->getWidth()) / 100.f;
-			baseSettings.position.y = (relPosition.y * view->getHeight()) / 100.f;
+			baseSettings.position.x = (relPosition.x * view->getScreen()->getWidth()) / 100.f;
+			baseSettings.position.y = (relPosition.y * view->getScreen()->getHeight()) / 100.f;
 			if (snapSubpixel)
 			{
 				// limit position to half integer values for better visible result
@@ -414,8 +390,8 @@ namespace Orkige
 		baseSettings.position += view->getPosition(baseSettings.alignment);
 		if(relSize != Ogre::Vector2::ZERO)
 		{
-			baseSettings.size.x = (relSize.x * view->getWidth()) / 100.f;
-			baseSettings.size.y = (relSize.y * view->getHeight()) / 100.f;
+			baseSettings.size.x = (relSize.x * view->getScreen()->getWidth()) / 100.f;
+			baseSettings.size.y = (relSize.y * view->getScreen()->getHeight()) / 100.f;
 			if (snapSubpixel)
 			{
 				// limit size to full integer values for better visible result

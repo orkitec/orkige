@@ -22,9 +22,6 @@ namespace Orkige
 		//! @brief triggered when a button is released
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(ButtonHitEvent);
-		//! @brief triggered when a button is down
-		//! @ingroup EngineEvents
-		DECL_EVENTTYPE(ButtonDownEvent);
 
 		//! enumerator values for button states
 		enum ButtonState   

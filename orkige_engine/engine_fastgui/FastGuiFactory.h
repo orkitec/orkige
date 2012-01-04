@@ -75,8 +75,6 @@ namespace Orkige
 
 		
 		virtual void load(String const & filename);
-		//! destroys all widgets that are specified in this menu
-		virtual void unload(String const & filename);
 	protected:
 		//! overridable mothod for loading global settings
 		virtual void onLoadGlobalSettings(SettingsMultiMap* settings);
