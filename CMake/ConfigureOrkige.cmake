@@ -249,6 +249,7 @@ macro (ConfigureOrkige)
 			if (NOT OGRE_CONFIG_ENABLE_VIEWPORT_ORIENTATIONMODE)
 				set(OGRE_SET_DISABLE_VIEWPORT_ORIENTATIONMODE 1)
 			endif()
+			set(CMAKE_XCODE_EFFECTIVE_PLATFORMS "-iphoneos;-iphonesimulator")
 		else(ORKIGE_BUILD_IPHONE)
 			set(ORKIGE_PLATFORM ${OGREPATH}/OgreMain/include/OSX )
 			# Set 10.4 as the base SDK by default
