@@ -14,8 +14,7 @@ include(MacroLogFeature)
 #######################################################################
 
 # Find X11
-if (UNIX) 
-    ## TEST THIS
+if (UNIX AND NOT OGRE_BUILD_PLATFORM_IPHONE AND NOT ORKIGE_BUILD_ANDROID)
     find_package(X11)
     macro_log_feature(X11_FOUND "X11" "X Window system" "http://www.x.org" TRUE "" "")
     macro_log_feature(X11_Xt_FOUND "Xt" "X Toolkit" "http://www.x.org" TRUE "" "")
@@ -33,6 +32,9 @@ macro_log_feature(OPENGL_FOUND "OpenGL" "Support for the OpenGL render system" "
 	# Find OpenGLES
 	find_package(OpenGLES)
 	macro_log_feature(OPENGLES_FOUND "OpenGLES" "Support for the OpenGLES render system" "" FALSE "" "")
+	# Find OpenGLES2
+	find_package(OpenGLES2)
+	macro_log_feature(OPENGLES2_FOUND "OpenGLES2" "Support for the OpenGLES2 render system" "" FALSE "" "")
 #endif()
 # else Disabled, untill further testing
 

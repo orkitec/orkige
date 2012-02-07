@@ -77,6 +77,30 @@ macro(ConfigureOgreDependencies)
 		endif(WIN32)
 	endif()
 
+	if (OGRE_BUILD_RENDERSYSTEM_GLES2)
+		
+		add_definitions(-DORKIGE_GLES2RS)
+
+		include_directories(
+			${OGRE_INCLUDE_DIR}/RenderSystems/GLES2/include
+			${OGRE_INCLUDE_DIR}/Components/RTShaderSystem/include		
+		)
+	
+		link_libraries(
+			RenderSystem_GLES2
+		)
+		
+		if(WIN32)
+			include_directories(
+				${OPENGLES2_INCLUDE_DIR}
+			)
+	
+			link_libraries(
+				${OPENGLES2_gl_LIBRARY}
+			)
+		endif(WIN32)
+	endif()
+	
 	if (OGRE_BUILD_RENDERSYSTEM_D3D9)
 
 		add_definitions(-DORKIGE_D3D9RS)
@@ -172,6 +196,16 @@ macro(ConfigureOgreDependencies)
 		
 		link_libraries(
 			OgreTerrain
+		)
+	endif()
+	
+	if (OGRE_BUILD_COMPONENT_RTSHADERSYSTEM)
+		add_definitions(-DORKIGE_RTSHADERSYSTEM)
+		
+		ogre_add_component_include_dir(RTShaderSystem)
+		
+		link_libraries(
+			OgreRTShaderSystem
 		)
 	endif()
 	

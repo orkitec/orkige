@@ -30,6 +30,7 @@ macro (ConfigureOrkige)
 	option(OGRE_BUILD_PLUGIN_CG			"Build CG plugin"								TRUE)
 	option(OGRE_BUILD_COMPONENT_PAGING	"Build Paging component"						TRUE)
 	option(OGRE_BUILD_COMPONENT_TERRAIN	"Build Terrain component"						TRUE)
+	option(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM	"Build OgreRTShaderSystem component"						FALSE)
 	#end of ogre options
 	option(ORKIGE_USE_OGRE_UNSTABLE		"Use Ogre Development Branch"					OFF)
 	option(ORKIGE_BROWSERPLUGIN			"Build for Browser"							OFF)
@@ -62,6 +63,7 @@ macro (ConfigureOrkige)
 				option(ORKIGE_ENABLE_TUIO			"enable TUIO"			OFF)
 	endif (WIN32)
 	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
+	option(ORKIGE_BUILD_ANDROID	"Build GameKit on Android SDK"	OFF)
 	
 	# Unity build options
 	# A Unity build includes all sources files in just a few actual compilation units
@@ -300,7 +302,7 @@ macro (ConfigureOrkige)
 		${ORKIGE_OGGVORBIS_INCLUDE}
 	)
 
-	if (WIN32)
+	if (WIN32 AND NOT ORKIGE_BUILD_ANDROID)
 		# Use static library. No SDK needed at build time.
 		# Must have OpenAL32.dll installed on the system 
 		# In order to use OpenAL sound.
@@ -372,6 +374,26 @@ macro (ConfigureOrkige)
 			endif()
 		endif()
 	endif()		
+  
+  if (ORKIGE_BUILD_ANDROID)
+      #disable stuff
+      set(OGRE_BUILD_RENDERSYSTEM_GL CACHE BOOL "Forcing remove OpenGL RenderSystem for iPhone" FORCE)
+      set(OGRE_BUILD_RENDERSYSTEM_GLES CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
+      set(OGRE_BUILD_RENDERSYSTEM_D3D9 CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
+						
+			set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
+			set(ORKIGE_USE_COCOA  CACHE BOOL "Forcing use COCOA for iPhone" FORCE)
+			
+      set(OGRE_BUILD_COMPONENT_PAGING CACHE BOOL "Build Paging component"   FORCE)
+      set(OGRE_BUILD_COMPONENT_TERRAIN CACHE BOOL "Build Terrain component"   FORCE)
+      set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
+      
+      #enable stuff
+      set(OGRE_BUILD_RENDERSYSTEM_GLES2 TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
+      set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
+      set(ORKIGE_USE_OGRE_UNSTABLE	TRUE CACHE BOOL "Use Ogre Development Branch" FORCE)
+  endif()
+  
 endmacro(ConfigureOrkige)
 
 include(ConfigureOrkigeDependencies)
