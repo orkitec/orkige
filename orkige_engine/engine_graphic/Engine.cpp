@@ -20,14 +20,27 @@
 #endif
 namespace Orkige
 {
-#ifdef WIN32
+#if defined(WIN32) || defined(__ANDROID__)
 #ifdef ORKIGE_DEBUG
 	struct LogListener : public Ogre::LogListener
 	{
-		virtual void messageLogged( const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName )
+		virtual void messageLogged( const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName
+#if OGRE_VERSION_MINOR >= 8
+			, bool& skipThisMessage
+#endif	
+			)
 		{
-			OutputDebugStringA(message.c_str());
-			OutputDebugStringA("\n");
+#if OGRE_VERSION_MINOR >= 8
+			if(skipThisMessage) return;
+#endif	
+			if(lml < Ogre::LML_CRITICAL)
+			{
+				OutputDebugStringA(("Ogre Info: " + message + "\n").c_str());
+			}
+			else
+			{
+				OutputDebugStringA(("Ogre Error: " + message + "\n").c_str());
+			}
 		}
 	};
 #endif
@@ -78,7 +91,7 @@ namespace Orkige
 		//create the ogre root Master of Disaster
 		
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
-#ifdef WIN32
+#if defined(WIN32) || defined(__ANDROID__)
 #ifdef ORKIGE_DEBUG
 		static LogListener logListener;
 		Ogre::LogManager::getSingleton().getDefaultLog()->addListener(&logListener);

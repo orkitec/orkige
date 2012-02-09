@@ -94,7 +94,7 @@ namespace Orkige
 #if OGRE_VERSION_MINOR >= 8
 , bool& skipThisMessage
 #endif	
-	);
+		);
 	private:
 	};
 	/** @} End of "addtogroup Gui"*/

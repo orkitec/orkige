@@ -81,7 +81,12 @@
 		#define WCHAR char
 		#define _vsnprintf_s vsnprintf
 		#ifndef ORKIGE_NDS
-			#define OutputDebugStringA(msg) (std::clog << msg)
+			#ifdef __ANDROID__
+				#include <android/log.h>
+				#define OutputDebugStringA(msg) __android_log_print(ANDROID_LOG_INFO,"Orkige",msg)
+			#else
+				#define OutputDebugStringA(msg) (std::clog << msg)
+			#endif
 			#define _ASSERTE assert
 		#else
 			#define OutputDebugStringA(msg) OS_Printf(msg)
