@@ -114,7 +114,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//--WRITING------------------------------------------------
-#ifdef ORKIGE_NDS
+#if defined(ORKIGE_NDS) || defined(__ANDROID__)
 	void XMLArchiveReadElementWCT(XMLArchive * ar, optr<TiXmlElement> & element,wchar_t &t)
 	{
 		oAssert(ar->isReading());
@@ -125,7 +125,7 @@ namespace Orkige
 		oAssert(attr_type);
 		oAssert(attr_value);
 		String temp = boost::lexical_cast<String>(attr_value);
-		std::wstring widestr = std::wstring(temp.begin(), temp.end());
+		std::basic_string<wchar_t> widestr = std::basic_string<wchar_t>(temp.begin(), temp.end());
 		const wchar_t* widecstr = widestr.c_str();
 		t = *widecstr;
 		TiXmlNode* node = element->NextSibling();
@@ -202,7 +202,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void XMLArchive::read(wchar_t & t)
 	{
-#ifdef ORKIGE_NDS
+#if defined(ORKIGE_NDS) || defined(__ANDROID__)
 		XMLArchiveReadElementWCT(this, this->currentElement, t);
 #else
 		XMLArchiveReadElement(this, this->currentElement, t);

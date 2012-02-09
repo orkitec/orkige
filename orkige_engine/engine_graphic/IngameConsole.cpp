@@ -431,8 +431,15 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	void IngameConsole::messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName)
+	void IngameConsole::messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName
+#if OGRE_VERSION_MINOR >= 8
+, bool& skipThisMessage
+#endif	
+	)
 	{
+#if OGRE_VERSION_MINOR >= 8
+		if(skipThisMessage) return;
+#endif	
 		this->print(logName + ": " + message);
 	}
 	//---------------------------------------------------------

@@ -6,7 +6,7 @@
 
 #SET (OGRE_BUILD_PLATFORM_ANDROID 1)
 #SET (ORKIGE_BUILD_ANDROID 1)
-SET (ORKIGE_UNITY_BUILD 1)
+SET (OGRE_UNITY_BUILD 1)
 #SET (ORKIGE_MINIMAL_FREEIMAGE_CODEC 1)
 SET (OPENGLES2_INCLUDE_DIR $ENV{NDK}/platforms/android-8/arch-arm/usr/include/GLES2)
 SET (OPENGLES2_gl_LIBRARY  $ENV{NDK}/platforms/android-8/arch-arm/usr/lib/libGLESv2.so)
@@ -139,6 +139,6 @@ SET (CMAKE_SHARED_LINKER_FLAGS "-Wl,--start-group --sysroot=${NDK_SYSROOT} ${NDK
 SET (CMAKE_EXE_LINKER_FLAGS    "-Wl,--start-group --sysroot=${NDK_SYSROOT} ${NDK_CPU_FLAGS} -Wl,--no-undefined -nostdlib -Wl,-rpath-link=${NDK_SYSROOT}/usr/lib,-dynamic-linker=/system/bin/linker ${NDK_SYSROOT}/usr/lib/crtbegin_dynamic.o ${NDK_SYSROOT}/usr/lib/crtend_android.o " CACHE TYPE STRING)
 
 SET (CMAKE_C_FLAGS   "-fpic -ffunction-sections -funwind-tables -fstack-protector -Wno-psabi ${NDK_CPU_FLAGS} -fomit-frame-pointer -fno-strict-aliasing -funswitch-loops -finline-limit=300 -fno-short-enums" CACHE TYPE STRING)
-SET (CMAKE_CXX_FLAGS "-fpic -ffunction-sections -funwind-tables -fstack-protector -Wno-psabi ${NDK_CPU_FLAGS} -fomit-frame-pointer -fno-strict-aliasing -funswitch-loops -finline-limit=300 -fno-short-enums ${NDK_BUILD_FLAGS}" CACHE TYPE STRING)
+SET (CMAKE_CXX_FLAGS "-fpic -ffunction-sections -funwind-tables -fstack-protector -Wno-psabi -Wno-write-strings ${NDK_CPU_FLAGS} -fomit-frame-pointer -fno-strict-aliasing -funswitch-loops -finline-limit=300 -fno-short-enums ${NDK_BUILD_FLAGS}" CACHE TYPE STRING)
 
 SET (Android 1)

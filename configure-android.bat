@@ -2,10 +2,6 @@
 
 @echo off
 
-set NDK=e:\SVN\android-ndk-r5c-windows\android-ndk-r5c\
-set NDK_BIN=%NDK%\toolchains\arm-linux-androideabi-4.4.3\prebuilt\windows\bin
-set PATH=%NDK_BIN%;%PATH%
-
 set MAINFOLDER=%CD%
 
 if "%1" == "" (
@@ -14,10 +10,12 @@ if "%1" == "" (
 )
 
 if "%NDK%" == "" (
-	echo "NDK Path is empty."
-	goto End
+	echo "NDK Path is empty. Please enter Path or set NDK enviroment variable to the correct PATH"
+	SET /p NDK= 
 )
-
+	set NDK_BIN=%NDK%\toolchains\arm-linux-androideabi-4.4.3\prebuilt\windows\bin
+	set PATH=%NDK_BIN%;%PATH%
+	
 if "%LIBPATH%" == "" (
 	echo "Warning: vc++ environment is missing."
 	goto End
@@ -53,7 +51,16 @@ echo Leaving...
 goto End
 :Yes
 echo Starting orkige build...
-nmake
+nmake /X android_build_errors.txt
+if ERRORLEVEL 2 (
+	type android_build_errors.txt
+	ECHO Buildlog has been written to %CD%\android_build_errors.txt
+	ECHO "Build had some errors try to rebuild? (y / n)." 
+	SET /p choice= 
+	if /i not '%choice%' == 'n' (if /i '%choice%' == 'y' (goto Yes ) ) else goto No  
+	if defined choice ECHO Don't start a conversation i'm not interested! 
+	ECHO Answer with y for Yes and n for No. & goto Question 
+)
 :End
 cd %MAINFOLDER%
 

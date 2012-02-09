@@ -11,7 +11,10 @@
 #define __SoundError_h__6_9_2010__16_30_32__
 
 #include "engine_sound/SoundPlatform.h"
-
+#ifdef __ANDROID__
+typedef int ALenum;
+#define AL_INVALID -1
+#endif
 namespace Orkige
 {
 	//! error that gets thrown on errors regarding Sounds

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2009 Torus Knot Software Ltd
+Copyright (c) 2000-2011 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -101,6 +101,9 @@ namespace Ogre {
 				ctxHandle = Ogre::StringConverter::parseInt(opt->second);
 			}
 			
+			mHandle = 0;
+			ctxHandle = 0;
+			
 			if(ctxHandle != -1)
 			{
 				mContext = new AndroidGLContext(mGLSupport, ctxHandle);
@@ -117,16 +120,24 @@ namespace Ogre {
 	void AndroidWindow::createNativeWindow( int &left, int &top, uint &width, uint &height, String &title )
 	{
 		LogManager::getSingleton().logMessage("\tcreateNativeWindow called");
+        mLeft = left;
+        mTop = top;
+        mWidth = width;
+        mHeight = height;
 	}
 
 	void AndroidWindow::reposition( int left, int top )
 	{
 		LogManager::getSingleton().logMessage("\treposition called");
+        mLeft = left;
+        mTop = top;
 	}
 
 	void AndroidWindow::resize(uint width, uint height)
 	{
 		LogManager::getSingleton().logMessage("\tresize called");
+        mWidth = width;
+        mHeight = height;
 	}
 
 	void AndroidWindow::windowMovedOrResized()

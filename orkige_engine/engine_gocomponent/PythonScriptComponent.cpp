@@ -125,4 +125,4 @@ namespace Orkige
 		OFUNC(addScript)
 	OOBJECT_END
 };
-#endif ORKIGE_NOSCRIPT
+#endif //ORKIGE_NOSCRIPT

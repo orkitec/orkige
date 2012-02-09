@@ -1,6 +1,6 @@
 # ---------------------------------------------------------
 cmake_minimum_required(VERSION 2.6)
-
+include(MacroListFilter)
 # ---------------------------------------------------------
 FILE (GLOB engine_base_FILES "engine_base/[A-z]*.*")
 source_group(engine_base FILES ${engine_base_FILES})
@@ -24,6 +24,11 @@ FILE (GLOB engine_physic_FILES "engine_physic/[A-z]*.*")
 source_group(engine_physic FILES ${engine_physic_FILES})
 # ---------------------------------------------------------
 FILE (GLOB engine_sound_FILES "engine_sound/[A-z]*.*")
+if (NOT APPLE)
+	SET(re_objc ".+\\.h$" ".+\\.hh$" ".+\\.hxx$" ".+\\.hpp$" ".+\\.c+" ".+\\.hcc$")
+	#remove *.mm files
+	LIST_FILTER(engine_sound_FILES re_objc)
+endif()
 source_group(engine_sound FILES ${engine_sound_FILES})
 # ---------------------------------------------------------
 FILE (GLOB engine_video_FILES "engine_video/[A-z]*.*")

@@ -9,6 +9,8 @@
 #ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundPlatform.h"
 
+#ifndef __ANDROID__
+
 #ifdef ORKIGE_IPHONE
 typedef ALvoid	AL_APIENTRY	(*alBufferDataStaticProcPtr) (const ALint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq);
 #endif
@@ -36,4 +38,6 @@ namespace Orkige
 		}
 	}
 }
+
+#endif //__ANDROID__
 #endif //ORKIGE_OGGSOUNDMANAGER

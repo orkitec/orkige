@@ -182,9 +182,15 @@ set(core_util_SOURCE
     core_util/SimpleStateMachine.cpp
     core_util/StringUtil.cpp
     core_util/Timer.cpp
-    core_util/PlatformUtil.mm
     core_util/PlatformUtil.cpp
 )
+
+if(APPLE)
+    set(core_util_SOURCE 
+        ${core_util_SOURCE}
+        core_util/PlatformUtil.mm
+    )
+endif(APPLE)
 
 set(core_util_HEADER
     # ----- Headers -----
@@ -219,7 +225,7 @@ include_directories(
 	${CMAKE_SOURCE_DIR}/Dependencies/Source/boost
 	./
 	)
-
+  
 ogre_add_library(orkige_core STATIC
 	${core_base_SOURCE}			${core_base_HEADER}
 	${core_debug_SOURCE}		${core_debug_HEADER}
@@ -231,3 +237,4 @@ ogre_add_library(orkige_core STATIC
 	${core_tinyxml_SOURCE}		${core_tinyxml_HEADER}
 	${core_util_SOURCE}			${core_util_HEADER}
     )
+

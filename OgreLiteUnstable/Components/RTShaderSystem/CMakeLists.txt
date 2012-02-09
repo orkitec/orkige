@@ -48,6 +48,9 @@ set (HEADER_FILES
   include/OgreShaderHLSLProgramWriter.h
   include/OgreShaderExLayeredBlending.h
   include/OgreShaderExHardwareSkinning.h
+  include/OgreShaderExDualQuaternionSkinning.h
+  include/OgreShaderExLinearSkinning.h
+  include/OgreShaderExHardwareSkinningTechnique.h
   include/OgreShaderExTextureAtlasSampler.h
 )
 
@@ -74,25 +77,35 @@ set (SOURCE_FILES
   src/OgreShaderScriptTranslator.cpp
   src/OgreShaderMaterialSerializerListener.cpp
   src/OgreShaderProgramProcessor.cpp
-  src/OgreShaderCGProgramProcessor.cpp
-  src/OgreShaderCGProgramWriter.cpp
-  src/OgreShaderGLSLProgramProcessor.cpp
-  src/OgreShaderGLSLProgramWriter.cpp
+  
   src/OgreShaderGLSLESProgramProcessor.cpp
   src/OgreShaderGLSLESProgramWriter.cpp
   src/OgreShaderProgramWriterManager.cpp
-  src/OgreShaderHLSLProgramProcessor.cpp
-  src/OgreShaderHLSLProgramWriter.cpp
   src/OgreShaderExLayeredBlending.cpp
   src/OgreShaderExHardwareSkinning.cpp
+  src/OgreShaderExHardwareSkinningTechnique.cpp
+  src/OgreShaderExDualQuaternionSkinning.cpp
+  src/OgreShaderExLinearSkinning.cpp
   src/OgreShaderExTextureAtlasSampler.cpp
 )
 
+if (NOT ORKIGE_BUILD_ANDROID)
+  list(APPEND SOURCE_FILES
+    src/OgreShaderGLSLProgramProcessor.cpp
+    src/OgreShaderGLSLProgramWriter.cpp  
+    src/OgreShaderCGProgramProcessor.cpp
+    src/OgreShaderCGProgramWriter.cpp
+    src/OgreShaderHLSLProgramProcessor.cpp
+    src/OgreShaderHLSLProgramWriter.cpp
+  )
+endif()  
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 ogre_add_library(OgreRTShaderSystem ${OGRE_COMP_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES})
+if(NOT ORKIGE_BUILD_ANDROID)
 set_target_properties(OgreRTShaderSystem PROPERTIES VERSION ${OGRE_SOVERSION})
+endif()
 target_link_libraries(OgreRTShaderSystem OgreMain)
 
 ogre_config_component(OgreRTShaderSystem)

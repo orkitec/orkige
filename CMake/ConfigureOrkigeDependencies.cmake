@@ -14,6 +14,12 @@ macro(ConfigureOrkigeDependencies)
 		orkige_engine
 	)
 	
+	if(ORKIGE_BUILD_ANDROID)
+		link_libraries(
+			log
+		)
+	endif()
+	
 	if(ORKIGE_OPENAL_SOUND)
 		add_definitions(-DORKIGE_OPENAL_SOUND)
 		include_directories(

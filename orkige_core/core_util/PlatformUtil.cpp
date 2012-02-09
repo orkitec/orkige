@@ -86,7 +86,11 @@ namespace Orkige
 		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()
 		{
-			return PLATFORM_LINUX;
+#ifdef __ANDROID__
+				return PLATFORM_ANDROID;
+#else
+				return PLATFORM_LINUX;
+#endif
 		}
 		//---------------------------------------------------------
 #endif //__APPLE__

@@ -16,7 +16,9 @@
 #import <AudioToolbox/ExtendedAudioFile.h>
 #endif
 
+#ifndef __ANDROID__
 extern "C" int OpenAL_LoadLibrary( void );
+#endif //__ANDROID__
 
 namespace Orkige
 {
@@ -39,7 +41,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener), context(0)
+	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener)
+#ifndef __ANDROID__
+	, context(0)
+#endif //__ANDROID__
 	{
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		this->ms_Singleton = this->singleton;
@@ -138,6 +143,7 @@ namespace Orkige
 #else
 		if(this->listener)
 		{
+#ifndef __ANDROID__
 			Ogre::Vector3 const & pos = this->listener->getDerivedPosition();
 			alListener3f(AL_POSITION, pos.x, pos.y, pos.z);
 
@@ -154,6 +160,7 @@ namespace Orkige
 			orientation[5]= up.z; // Up.z
 
 			alListenerfv(AL_ORIENTATION, orientation);
+#endif //__ANDROID__
 		}
 #endif
 	}
@@ -230,7 +237,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	woptr<SoundSource> SoundManager::getSound(String const & id)
+	SoundSourcePtr SoundManager::getSound(String const & id)
 	{
 		SoundRegistry::const_iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
@@ -471,6 +478,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundManager::initOpenAl()
 	{
+#ifndef __ANDROID__
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		String devicename;
 #ifdef WIN32
@@ -528,10 +536,14 @@ namespace Orkige
 		}
 #endif
 		return true;
+#else //__ANDROID__
+		return false;
+#endif //__ANDROID__
 	}
 	//---------------------------------------------------------	
 	bool SoundManager::deinitOpenAl()
 	{
+#ifndef __ANDROID__
 #ifndef ORKIGE_OGGSOUNDMANAGER
 		ALCcontext	*context = NULL;
 		ALCdevice	*device = NULL;
@@ -555,6 +567,9 @@ namespace Orkige
 		alcCloseDevice(device);
 #endif
 		return true;
+#else //__ANDROID__
+		return false;
+#endif //__ANDROID__
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

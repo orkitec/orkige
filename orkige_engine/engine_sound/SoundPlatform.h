@@ -13,6 +13,8 @@
 #define __SoundPlatform_h__6_9_2010__16_19_22__
 
 #include "engine_module/EnginePrerequisites.h"
+#ifndef __ANDROID__
+
 #ifdef ORKIGE_IPHONE
 #include <OpenAL/al.h>
 #include <OpenAL/alc.h>
@@ -62,5 +64,6 @@ namespace Orkige
 	//---------------------------------------------------------------
 }
 #endif //ORKIGE_OGGSOUNDMANAGER
+#endif //__ANDROID__
 #endif //__SoundPlatform_h__6_9_2010__16_19_22__
 

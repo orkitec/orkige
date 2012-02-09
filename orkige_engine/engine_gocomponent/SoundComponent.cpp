@@ -46,6 +46,8 @@ namespace Orkige
 			optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 			oAssert(transformComponent);
 			Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id, fileName, loop, transformComponent->getPosition() );
+
+#ifdef ORKIGE_OGGSOUNDMANAGER
 			sound->setRolloffFactor(20.0);
 			//sound->setVolume(50);
 			sound->setReferenceDistance(200);
@@ -53,6 +55,7 @@ namespace Orkige
 			
 
 			sound->disable3D(no3D);
+#endif
 			this->attachedSoundObjects[id] = sound;
 			if (!no3D)
 			{
@@ -76,11 +79,7 @@ namespace Orkige
 		{
 			return false;
 		}
-#ifdef ORKIGE_OGGSOUNDMANAGER
 		Orkige::SoundSourcePtr source = it->second;
-#else
-		optr<SoundSource> source = it->second.lock();
-#endif
 		if(!source)
 		{
 			return false;
@@ -100,11 +99,7 @@ namespace Orkige
 		{
 			return false;
 		}
-#ifdef ORKIGE_OGGSOUNDMANAGER
 		Orkige::SoundSourcePtr source = it->second;
-#else
-		optr<SoundSource> source = it->second.lock();
-#endif
 		if(!source)
 		{
 			return false;
@@ -124,11 +119,7 @@ namespace Orkige
 		foreach(SoundSourceMap::value_type const & vt, this->attachedSoundObjects)
 		{
 			//SoundManager::getSingleton().destroySound(vt.first);
-#ifdef ORKIGE_OGGSOUNDMANAGER
-			Orkige::SoundSourcePtr source = vt.second;
-#else
-			optr<SoundSource> source = vt.second.lock();
-#endif
+			Orkige::SoundSourcePtr source = it->second;
 			if(!source)
 			{
 				return false;
@@ -174,7 +165,7 @@ namespace Orkige
 			std::vector<SoundSourceMap::iterator> sourcesToDelete;
 			for(SoundSourceMap::iterator it = this->attachedSoundObjects.begin(), itend = this->attachedSoundObjects.end(); it != itend; ++it)
 			{
-				optr<SoundSource> source = it->second.lock();
+				Orkige::SoundSourcePtr source = it->second;
 
 				if(source)
 				{

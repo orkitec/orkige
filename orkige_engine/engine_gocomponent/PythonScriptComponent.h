@@ -345,5 +345,5 @@ namespace Orkige
 		}
 	}
 };
-#endif ORKIGE_NOSCRIPT
+#endif //ORKIGE_NOSCRIPT
 #endif //__PYTHONSCRIPTCOMPONENT_H__

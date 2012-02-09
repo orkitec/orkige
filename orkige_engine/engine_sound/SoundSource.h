@@ -30,12 +30,14 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
+#ifndef __ANDROID__
 		ALuint			source;			//!< openAl source
 		ALuint			buffer;			//!< openAl buffer
 
 		ALenum			format;			//!< Sound samples: format specifier e.g. AL_FORMA_*
 		ALsizei			size;			//!< sound data size
 		ALsizei			freq;			//!< sound SampleRate
+#endif //__ANDROID__
 		void*			data;			//!< the actual SoundFile data
 
 		Ogre::Vector3	position;		//!< position in 3d space (only for mono sounds)
@@ -80,7 +82,7 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------------
-	typedef woptr<SoundSource> SoundSourcePtr;
+	typedef optr<SoundSource> SoundSourcePtr;
 #endif //ORKIGE_OGGSOUNDMANAGER
 }
 

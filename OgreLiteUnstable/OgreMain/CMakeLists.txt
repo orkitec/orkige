@@ -70,6 +70,7 @@ set (HEADER_FILES
   include/OgreDeflate.h
   include/OgreDepthBuffer.h
   include/OgreDistanceLodStrategy.h
+  include/OgreDualQuaternion.h
   include/OgreDynLib.h
   include/OgreDynLibManager.h
   include/OgreEdgeListBuilder.h
@@ -304,6 +305,7 @@ set (SOURCE_FILES
   src/OgreDeflate.cpp
   src/OgreDepthBuffer.cpp
   src/OgreDistanceLodStrategy.cpp
+  src/OgreDualQuaternion.cpp
   src/OgreDynLib.cpp
   src/OgreDynLibManager.cpp
   src/OgreEdgeListBuilder.cpp
@@ -468,7 +470,22 @@ set (SOURCE_FILES
 )
 
 # Add platform specific files
-if (WIN32)
+if (OGRE_BUILD_PLATFORM_NACL)
+  include_directories("include/Nacl")
+  set(PLATFORM_HEADER_FILES
+    include/Nacl/OgreConfigDialogImp.h
+    include/Nacl/OgreErrorDialogImp.h
+    include/Nacl/OgreTimerImp.h
+  )
+  set(PLATFORM_SOURCE_FILES
+    src/Nacl/OgreConfigDialog.cpp
+    src/Nacl/OgreErrorDialog.cpp
+    src/Nacl/OgreTimer.cpp
+    src/OgreSearchOps.cpp
+  )
+  set(PLATFORM_LIBS nosys)
+  set(PLATFORM_HEADER_INSTALL "NaCl")
+elseif (WIN32)
   include_directories("include/WIN32")
   set(PLATFORM_HEADER_FILES
     include/WIN32/OgreConfigDialogImp.h
@@ -559,6 +576,29 @@ elseif (APPLE)
     set(PLATFORM_LIBS ${Carbon_LIBRARY_FWK} ${Cocoa_LIBRARY_FWK})
     set(PLATFORM_HEADER_INSTALL "OSX")
   endif ()
+elseif(ORKIGE_BUILD_ANDROID)
+    include_directories(include/Android)
+    set(PLATFORM_HEADER_FILES
+      include/Android/OgreConfigDialogImp.h
+      include/Android/OgreErrorDialogImp.h
+      include/Android/OgreTimerImp.h
+      include/OgreStringSerialiser.h
+    )
+    set(PLATFORM_SOURCE_FILES
+      src/Android/OgreConfigDialog.cpp
+      src/Android/OgreErrorDialog.cpp
+      src/Android/OgreTimer.cpp
+      src/OgreSearchOps.cpp
+      src/OgreStringSerialiser.cpp
+    )
+    set(PLATFORM_LIBS dl)
+    set(PLATFORM_HEADER_INSTALL "Android")
+    # some platforms require explicit linking to libdl, see if it's available
+    find_library(DL_LIBRARY NAMES dl dlsym)
+    mark_as_advanced(DL_LIBRARY)
+    if (DL_LIBRARY)
+      list(APPEND PLATFORM_LIBS dl)
+    endif ()
 elseif (UNIX)
   if (OGRE_BUILD_PLATFORM_TEGRA2)
     include_directories("include/Tegra2")
@@ -614,7 +654,7 @@ elseif (SYMBIAN)
   )
   set(PLATFORM_HEADER_INSTALL "SYMBIAN")
 
-endif(WIN32)
+endif()
 
 
 # Configure threading files
@@ -703,7 +743,7 @@ list(APPEND LIBRARIES "${HLSL2GLSL_LIBRARIES}")
 set (TARGET_LINK_FLAGS "")
 
 # setup OgreMain target
-# add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES})
+# exclude OgreAlignedAllocator.cpp from unity builds; causes problems on Linux
 ogre_add_library(OgreMain ${OGRE_LIB_TYPE} ${PREC_HEADER} ${HEADER_FILES} ${SOURCE_FILES} ${PLATFORM_HEADER_FILES} ${PLATFORM_SOURCE_FILES} ${THREAD_HEADER_FILES} ${THREAD_SOURCE_FILES} SEPARATE "src/OgreAlignedAllocator.cpp")
 # In visual studio 2010 - 64 bit we get this error: "LINK : fatal error LNK1210: exceeded internal ILK size limit; link with /INCREMENTAL:NO"
 if(WIN32 AND MSVC10 AND CMAKE_CL_64)
@@ -711,7 +751,7 @@ if(WIN32 AND MSVC10 AND CMAKE_CL_64)
                         VERSION ${OGRE_SOVERSION}
                         LINK_FLAGS "/INCREMENTAL:NO"
                       )
-else()
+elseif(NOT ORKIGE_BUILD_ANDROID AND OGRE_SOVERSION)
   set_target_properties(OgreMain PROPERTIES VERSION ${OGRE_SOVERSION})
 endif()
 

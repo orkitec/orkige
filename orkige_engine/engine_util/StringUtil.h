@@ -14,6 +14,7 @@
 #include <boost/type_traits/is_same.hpp>
 #include <core_util/StringUtil.h>
 #include "engine_util/StringConverter.h"
+#include <OgreUTFString.h>
 
 namespace Orkige
 {
