@@ -132,15 +132,15 @@ elseif (APPLE)
   set(PLATFORM_HEADER_INSTALL "APPLE")
 elseif (ORKIGE_BUILD_ANDROID)
   set(PLATFORM_HEADERS
-    include/Android/OgreAndroidGLContext.h
-    include/Android/OgreAndroidGLSupport.h
-    include/Android/OgreAndroidWindow.h
-    include/Android/OgreGLESUtil.h
+    include/Android/OgreAndroidGLESContext.h
+    include/Android/OgreAndroidGLESSupport.h
+    include/Android/OgreAndroidGLESWindow.h
+    include/Android/OgreAndroidGLESUtil.h
   )
   set(PLATFORM_SOURCES
-    src/Android/OgreAndroidGLContext.cpp
-    src/Android/OgreAndroidGLSupport.cpp
-    src/Android/OgreAndroidWindow.cpp
+    src/Android/OgreAndroidGLESContext.cpp
+    src/Android/OgreAndroidGLESSupport.cpp
+    src/Android/OgreAndroidGLESWindow.cpp
   )
   include_directories(src/Android include/Android)
   set(PLATFORM_HEADER_INSTALL "Android")

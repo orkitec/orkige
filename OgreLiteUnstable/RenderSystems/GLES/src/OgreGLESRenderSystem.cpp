@@ -36,12 +36,18 @@ THE SOFTWARE.
 #include "OgreGLESHardwareIndexBuffer.h"
 #include "OgreGLESHardwareVertexBuffer.h"
 #include "OgreGLESGpuProgramManager.h"
+#if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#include "OgreAndroidGLESUtil.h"
+#else
 #include "OgreGLESUtil.h"
+#endif
 #include "OgreGLESPBRenderTexture.h"
 #include "OgreGLESFBORenderTexture.h"
 
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 #   include "OgreEAGLWindow.h"
+#elif OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#	include "OgreAndroidGLESWindow.h"
 #else
 #   include "OgreEGLWindow.h"
 
@@ -271,13 +277,17 @@ namespace Ogre {
 //        if (mGLSupport->checkExtension("GL_APPLE_texture_2D_limited_npot"))
 //            rsc->setCapability(RSC_NON_POWER_OF_2_TEXTURES);
 
+#if OGRE_PLATFORM != OGRE_PLATFORM_ANDROID
         if (mGLSupport->checkExtension("GL_OES_framebuffer_object")) {
             rsc->setCapability(RSC_FBO);
             rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
         } else {
+#endif
             rsc->setCapability(RSC_PBUFFER);
             rsc->setCapability(RSC_HWRENDER_TO_TEXTURE);
+#if OGRE_PLATFORM != OGRE_PLATFORM_ANDROID
         }
+#endif
 
         // Cube map
         if (mGLSupport->checkExtension("GL_OES_texture_cube_map"))

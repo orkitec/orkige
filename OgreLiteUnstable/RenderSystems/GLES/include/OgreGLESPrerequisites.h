@@ -60,6 +60,12 @@ THE SOFTWARE.
 #	ifndef GL_GLEXT_PROTOTYPES
 #		define  GL_GLEXT_PROTOTYPES
 #	endif
+#elif (OGRE_PLATFORM == OGRE_PLATFORM_ANDROID)
+#	ifndef GL_GLEXT_PROTOTYPES
+#		define  GL_GLEXT_PROTOTYPES
+#	endif
+#	include <GLES/gl.h>
+#	include <GLES/glext.h>
 #else
 #   include <GLES/gl.h>
 #   include <GLES/glext.h>
