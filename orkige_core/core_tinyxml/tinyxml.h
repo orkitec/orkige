@@ -1252,6 +1252,7 @@ public:
 	bool LoadFile( TiXmlEncoding encoding = TIXML_DEFAULT_ENCODING );
 	/// Save a file using the current document value. Returns true if successful.
 	bool SaveFile() const;
+	bool LoadFromMemory( char * buffer, long length );
 	/// Load a file using the given filename. Returns true if successful.
 	bool LoadFile( const char * filename, TiXmlEncoding encoding = TIXML_DEFAULT_ENCODING, IphoneDir iphoneDir = TiXmlDocument::MainBundle);
 	/// Save a file using the given filename. Returns true if successful.
