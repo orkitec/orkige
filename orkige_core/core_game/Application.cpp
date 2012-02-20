@@ -37,6 +37,10 @@ namespace Orkige
 		long currentTime = Orkige::Timer::getMilliseconds();
 		float delta = (currentTime - this->lastUpdateTime)/1000.f;
 		this->lastUpdateTime = currentTime;
+		if (delta > 0.02)
+		{
+			delta = 0.02f;
+		}
 		this->gom->update(delta);
 		this->gem->tick();
 		this->gem->trigger(Event(Application::UpdateEvent));
