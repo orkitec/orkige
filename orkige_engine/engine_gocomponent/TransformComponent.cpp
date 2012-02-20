@@ -12,7 +12,6 @@
 #include "engine_graphic/Engine.h"
 #include "engine_util/NodeUtil.h"
 
-using namespace Ogre;
 namespace Orkige
 {
 	const String TransformComponent::USEROBJECT_BINDING_KEY = "TransformComponent";
