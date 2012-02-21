@@ -12,6 +12,7 @@
 #include "engine_swf/SwfApiDefs.h"
 #include "engine_swf/SwfBaseMovie.h"
 #include "engine_input/InputManager.h"
+#include <core_event/EventHandler.h>
 
 namespace Orkige
 {

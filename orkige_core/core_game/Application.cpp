@@ -35,7 +35,7 @@ namespace Orkige
 #endif
 		OPROFILEFUNC();
 		long currentTime = Orkige::Timer::getMilliseconds();
-		float delta = (currentTime - this->lastUpdateTime)/1000.f;
+		this->delta = (currentTime - this->lastUpdateTime)/1000.f;
 		this->lastUpdateTime = currentTime;
 		if (delta > 0.02)
 		{

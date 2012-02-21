@@ -46,7 +46,8 @@ namespace Orkige
 		optr<GlobalEventManager> gem;	//!< GlobalEventManager Singleton
 		bool _run;						//!< true as long application should run
 		String logConfigFileName;		//!< name of LogConfig
-		long lastUpdateTime;			//!< time from last update			
+		long lastUpdateTime;			//!< time from last update	
+		float delta;					//!< time since last frame
 	private:
 		//--- Methods -----------------------------------------------
 	public:

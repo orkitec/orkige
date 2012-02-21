@@ -36,7 +36,9 @@ namespace Orkige
 		this->ratio = (float)this->width / (float)this->height;
 
 		this->rootColorMaterial = Ogre::MaterialPtr(Ogre::MaterialManager::getSingleton().getByName("Orkige/colorMaterial_Camera"));
+		oAssert(this->rootColorMaterial.get());
 		this->rootImageMaterial = Ogre::MaterialPtr(Ogre::MaterialManager::getSingleton().getByName("Orkige/imageMaterial_Camera"));
+		oAssert(this->rootImageMaterial.get());
 	}
 
 	// -------------------------------------------------------------------------------
