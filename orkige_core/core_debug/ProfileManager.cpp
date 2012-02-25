@@ -123,7 +123,7 @@ namespace Orkige
 
 			if (node->getMinTime() != UINT_MAX)
 			{
-				int frameCount = this->getFrameCountSinceReset();
+				std::size_t frameCount = this->getFrameCountSinceReset();
 
 				double outputParent = 100.0 * (double)node->getTotalTime() / (double)node->getParent()->getTotalTime();
 				double outputTotal = 100.0 * (double)node->getTotalTime() / (double)rootNode->getTotalTime();

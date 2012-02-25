@@ -195,7 +195,8 @@ namespace Orkige
 	//! The BEOS assert added by Arvid Norberg <arvid@iname.com>.
 #ifdef	WIN32
 #ifdef	ORKIGE_DEBUG
-#define	MemoryManagerAssert(x) if ((x) == false) __asm { int 3 }
+#include <intrin.h>
+#define	MemoryManagerAssert(x) if ((x) == false) __debugbreak()
 #else
 #define	MemoryManagerAssert(x) {}
 #endif
