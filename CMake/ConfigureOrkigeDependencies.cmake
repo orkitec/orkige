@@ -190,5 +190,18 @@ macro(ConfigureOrkigeDependencies)
 			particleUniverse_OgrePlugin
 		)
 	endif()
+
+	if (ORKIGE_ENABLE_FLURRYANALYTICS)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/FlurryAnalytics
+
+
+		)
+
+		link_libraries(
+			${ORKIGE_DEP_DIR}/FlurryAnalytics/libFlurryAnalytics.a
+		)
+		add_definitions(-DORKIGE_ENABLE_FLURRYANALYTICS)
+	endif()
 endmacro(ConfigureOrkigeDependencies)
 
