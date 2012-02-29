@@ -222,6 +222,7 @@ source_group(core_util FILES ${core_util_HEADER} ${core_util_SOURCE})
 add_definitions(-DSTATIC_LINKED)
 
 include_directories(
+  ${CMAKE_SOURCE_DIR}/Dependencies/Source/ZZipLib
 	${CMAKE_SOURCE_DIR}/Dependencies/Source/boost
 	./
 	)

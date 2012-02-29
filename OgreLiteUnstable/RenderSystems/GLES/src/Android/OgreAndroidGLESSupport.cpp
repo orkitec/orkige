@@ -75,7 +75,7 @@ namespace Ogre {
             NameValuePairList miscParams;
 
             bool fullscreen = true;
-			unsigned int w = 800, h = 600;
+			unsigned int w = 320, h = 240;
 
             if ((opt = mOptions.find("Display Frequency")) != end)
             {

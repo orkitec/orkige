@@ -52,13 +52,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Engine::Engine(Ogre::SceneType st, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows) 
+	Engine::Engine(Ogre::SceneType st, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows, String const & zipFileName, String const & zipInternalPathPrefix) 
 		: frameStartedEvent(Engine::FrameStartedEvent), 
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
 		sceneType(st),
 		eventManager(NULL),
 		sceneManager(NULL),
+		defaultLocationType("FileSystem"),
 /*
 		renderWindow(),
 		camera(),
@@ -91,6 +92,12 @@ namespace Orkige
 		//create the ogre root Master of Disaster
 		
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
+		if(!zipFileName.empty())
+		{
+			this->bigZipArchiveFactory = onew(new BigZipArchiveFactory(zipFileName, zipInternalPathPrefix));
+			Ogre::ArchiveManager::getSingleton().addArchiveFactory( this->bigZipArchiveFactory.get() );
+			this->defaultLocationType = "BigZip";
+		}
 #if defined(WIN32) || defined(__ANDROID__)
 #ifdef ORKIGE_DEBUG
 		static LogListener logListener;
@@ -106,6 +113,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
+		this->root.reset();
+		this->bigZipArchiveFactory.reset();
+
 	}
 	//---------------------------------------------------------
 	String Engine::getPlatformSpecificConfig(String const & cfgFileName)

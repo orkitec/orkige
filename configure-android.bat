@@ -9,6 +9,7 @@ if "%1" == "" (
 	goto End
 )
 
+set NDK=e:\SVN\android-ndk-r7-windows\android-ndk-r7\
 if "%NDK%" == "" (
 	echo "NDK Path is empty. Please enter Path or set NDK enviroment variable to the correct PATH"
 	SET /p NDK= 
@@ -56,11 +57,13 @@ if ERRORLEVEL 2 (
 	type android_build_errors.txt
 	ECHO Buildlog has been written to %CD%\android_build_errors.txt
 	ECHO "Build had some errors try to rebuild? (y / n)." 
+) else (
+	ECHO "Build succesful finished... rebuild? (y / n)."
+)
 	SET /p choice= 
 	if /i not '%choice%' == 'n' (if /i '%choice%' == 'y' (goto Yes ) ) else goto No  
 	if defined choice ECHO Don't start a conversation i'm not interested! 
 	ECHO Answer with y for Yes and n for No. & goto Question 
-)
 :End
 cd %MAINFOLDER%
 

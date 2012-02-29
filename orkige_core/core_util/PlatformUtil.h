@@ -25,6 +25,14 @@ namespace Orkige
 		//! retrieve path to application support/data directory
 		String const & getSupportDirectory(String applicationName);		
 		
+#ifdef __ANDROID__
+		//! set path to android Apk
+		void setApkPath(String const & path);
+		//! get path to android Apk file
+		String const & getApkPath();
+		//! set path to android (cache) files on sdcard
+		void setFilesPath(String const & path);
+#endif //__ANDROID__
 		enum ORKIGE_PLATFORM {
 			PLATFORM_MACOS,
 			PLATFORM_IPHONE,

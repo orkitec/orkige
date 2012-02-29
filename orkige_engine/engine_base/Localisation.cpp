@@ -175,7 +175,7 @@ namespace Orkige
 
 		oDebugMsg("global", 0, "Game Locale: \"" << this->currentLocale << "\" !");
 
-		this->loadDirect(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/locale.cfg");
+		this->loadFromResourceSystem(this->currentLocale + "/locale.cfg", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
 		SettingsBySection::const_iterator languageSectionIterator = this->mSettings.find("Language");
 		oAssert(languageSectionIterator != this->mSettings.end());
@@ -227,7 +227,7 @@ namespace Orkige
 	Orkige::String Localisation::getLocalizedFormatted(Orkige::String const & id, Orkige::StringVector const & args)
 	{
 		Orkige::String localized = this->getLocalized(id);
-		for(std::size_t i; i < args.size(); i++)
+		for(std::size_t i = 0; i < args.size(); i++)
 		{
 			std::stringstream sstr;
 			sstr << "%%" << i << "%%";
@@ -240,7 +240,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Localisation::onFrameEnded(Event const & event)
 	{
-		this->setupResources(this->directories);
+		this->setupResources(this->directories, Engine::getSingleton().getDefaultLocationType());
 		this->unregisterEvent(Engine::FrameRenderingQueuedEvent);
 		return true;
 	}

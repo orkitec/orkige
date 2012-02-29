@@ -65,6 +65,8 @@ namespace Orkige
 
 #ifndef	WIN32
 #include <unistd.h>
+#else
+#include <intrin.h>
 #endif
 
 #include "core_debug/MemoryManager.h"
@@ -195,7 +197,6 @@ namespace Orkige
 	//! The BEOS assert added by Arvid Norberg <arvid@iname.com>.
 #ifdef	WIN32
 #ifdef	ORKIGE_DEBUG
-#include <intrin.h>
 #define	MemoryManagerAssert(x) if ((x) == false) __debugbreak()
 #else
 #define	MemoryManagerAssert(x) {}

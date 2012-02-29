@@ -15,6 +15,7 @@
 #include "engine_module/EnginePrerequisites.h"
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
+#include "engine_filesystem/BigZipArchiveFactory.h"
 
 #define MAX_MUMBER_OF_WINDOWS 8
 
@@ -58,6 +59,7 @@ namespace Orkige
 	protected:
 	private:
 		optr<Ogre::Root>			root;
+		optr<BigZipArchiveFactory>  bigZipArchiveFactory;
 		Ogre::RenderWindow*			renderWindow[MAX_MUMBER_OF_WINDOWS];
 		Ogre::SceneManager*			sceneManager;
 		Ogre::SceneType				sceneType;
@@ -73,6 +75,7 @@ namespace Orkige
 		String						topLevelWindowHandle;
 		unsigned long				lastFrameTime;
 		unsigned int				numberOfWindows;
+		String						defaultLocationType;
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
@@ -81,6 +84,8 @@ namespace Orkige
 			String const & resourceCfgFileName =  Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone.cfg;" 
 												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone4.cfg;" 
 												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_ipad.cfg", 
+#elif __ANDROID__
+			String const & resourceCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_android.cfg",
 #else
 			String const & resourceCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources.cfg",
 #endif
@@ -93,11 +98,15 @@ namespace Orkige
 			String const & renderCfgFileName =    Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone.cfg;" 
 												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_iphone4.cfg;" 
 												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_ipad.cfg", 
+#elif __ANDROID__
+			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec_android.cfg", 
 #else
 			String const & renderCfgFileName = Orkige::PlatformUtil::getResourceDirectory() + "data/Config/orkitec.cfg", 
 #endif
 			String const & engineLogFileName = Orkige::PlatformUtil::getResourceDirectory() + "orkitec.log",
-			unsigned int _numberOfWindows = 1);
+			unsigned int _numberOfWindows = 1,
+			String const & zipFileName = Orkige::StringUtil::BLANK,
+			String const & zipInternalPathPrefix = Orkige::StringUtil::BLANK);
 		//! destructor
 		virtual ~Engine();
 
@@ -133,6 +142,8 @@ namespace Orkige
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
 		inline String const & getTopLevelWindowHandle(); 
+		//! get default location type of current setting
+		inline String const & getDefaultLocationType();
 		//! define the source of resources (other than current folder) but doesn't load them
 		void resetupResources(String const & resourceCfgFileName);
 		//! get aspect ratio based on resolution
@@ -200,6 +211,10 @@ namespace Orkige
 		this->renderWindow[0]->getViewport(0)->getCamera()->setPolygonMode(Ogre::PM_SOLID);         /* solid */
 	}
 	//---------------------------------------------------------------
+	inline String const & Engine::getDefaultLocationType()
+	{
+		return this->defaultLocationType;
+	}
 }
 
 #endif //__Engine_h__7_9_2010__16_34_16__

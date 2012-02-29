@@ -66,6 +66,48 @@ namespace Orkige
 #else
 		//for linux
 #ifndef __APPLE__
+#ifdef __ANDROID__
+		//---------------------------------------------------------
+		static String _orkige_android_apk_path;
+		static String _orkige_android_files_path;
+		//---------------------------------------------------------
+		void setApkPath(String const & path)
+		{
+			_orkige_android_apk_path = path;
+		}
+		//---------------------------------------------------------
+		String const & getApkPath()
+		{
+			return _orkige_android_apk_path;
+		}
+		//---------------------------------------------------------
+		void setFilesPath(String const & path)
+		{
+			_orkige_android_files_path = path;
+		}
+		//---------------------------------------------------------
+		String const & getBaseDirectory()
+		{
+			return _orkige_android_files_path;
+		}
+		//---------------------------------------------------------
+		String const & getDocumentsDirectory()
+		{
+			return _orkige_android_files_path;
+		}
+		//---------------------------------------------------------
+		String const & getResourceDirectory()
+		{
+			return _orkige_android_files_path;
+		}
+		//---------------------------------------------------------
+		const ORKIGE_PLATFORM getPlatform()
+		{
+			return PLATFORM_ANDROID;
+		}
+		//---------------------------------------------------------
+#else	// LiNUX
+		//---------------------------------------------------------
 		String const & getBaseDirectory()
 		{
 			static String path = "./";
@@ -86,13 +128,10 @@ namespace Orkige
 		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()
 		{
-#ifdef __ANDROID__
-				return PLATFORM_ANDROID;
-#else
-				return PLATFORM_LINUX;
-#endif
+			return PLATFORM_LINUX;
 		}
 		//---------------------------------------------------------
+#endif //__ANDROID__
 #endif //__APPLE__
 #endif
 	}

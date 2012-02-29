@@ -204,7 +204,7 @@ namespace Orkige
 			int closestIndex = -1;
 			float minDist = Ogre::Math::POS_INFINITY;
 			float dist;
-			for (int i = 0; i < itemsPinSnap.size(); ++i)
+			for (std::size_t i = 0; i < itemsPinSnap.size(); ++i)
 			{
 				dist = cursorPos.distance(itemsPinSnap.at(i));
 				if (dist < minDist)
@@ -247,7 +247,7 @@ namespace Orkige
 		float t;
 		this->itemsPinSnap.resize(this->items.size());
 		if (this->itemsPinSnap.size() >= 2)
-		for (int i = 0; i < itemsPinSnap.size(); ++i)
+		for (std::size_t i = 0; i < itemsPinSnap.size(); ++i)
 		{
 			t = static_cast<float>(i) / static_cast<float>(items.size() - 1);
 			this->itemsPinSnap.at(i) = Ogre::Vector2(p0 + t * p1);
