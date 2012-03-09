@@ -30,14 +30,14 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		ALuint			source;			//!< openAl source
 		ALuint			buffer;			//!< openAl buffer
 
 		ALenum			format;			//!< Sound samples: format specifier e.g. AL_FORMA_*
 		ALsizei			size;			//!< sound data size
 		ALsizei			freq;			//!< sound SampleRate
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 		void*			data;			//!< the actual SoundFile data
 
 		Ogre::Vector3	position;		//!< position in 3d space (only for mono sounds)

@@ -23,7 +23,7 @@ namespace Orkige
 	{
 		switch(errorCode)
 		{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		case AL_INVALID_VALUE:
 			return "AL_INVALID_VALUE";
 			break;
@@ -39,7 +39,7 @@ namespace Orkige
 		case AL_OUT_OF_MEMORY:
 			return "AL_OUT_OF_MEMORY";
 			break;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 		default:
 			return "UNKNOWN_AL_ERROR";
 			break;
@@ -50,7 +50,7 @@ namespace Orkige
 	{
 		if(!condition)
 		{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 			SoundError exception(message, code);
 			if(code != AL_INVALID)
 			{
@@ -58,7 +58,7 @@ namespace Orkige
 			}
 			oDebugMsg("sound",0,message);
 			throw exception;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 		}
 	}
 	//---------------------------------------------------------

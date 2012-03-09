@@ -61,7 +61,7 @@ namespace Orkige
 		
 #endif
 		
-		LogManager::getSingleton().loadConfig(this->logConfigFileName.c_str());//LogConfig has to Be in Path
+		LogManager::getSingleton().loadConfig((PlatformUtil::getResourceDirectory() + this->logConfigFileName).c_str());//LogConfig has to Be in Path
 		Timer::initialise();
 		this->gom = onew(new GameObjectManager());
 		this->gsm = onew(new GameStateManager());

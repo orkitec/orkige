@@ -504,6 +504,7 @@ namespace Orkige
 		}
 		virtual bool touchMoved( const OIS::MultiTouchEvent &e )
 		{
+			OutputDebugStringA("touchMoved");
 #ifdef ORKIGE_MULTITOUCH_TO_MOUSE
 			if(this->mouseData->buttonDown(MouseEventData::MB_Left))
 			{
@@ -517,6 +518,7 @@ namespace Orkige
 		}
 		virtual bool touchPressed( const OIS::MultiTouchEvent &e )
 		{
+			OutputDebugStringA("touchPressed");
 #ifdef ORKIGE_MULTITOUCH_TO_MOUSE
 			if(!this->mouseData->buttonDown(MouseEventData::MB_Left))
 			{
@@ -532,6 +534,7 @@ namespace Orkige
 		}
 		virtual bool touchReleased( const OIS::MultiTouchEvent &e )
 		{
+			OutputDebugStringA("touchReleased");
 #ifdef ORKIGE_MULTITOUCH_TO_MOUSE
 			if(this->mouseData->buttonDown(MouseEventData::MB_Left))
 			{
@@ -810,7 +813,7 @@ namespace Orkige
 			}
 
 
-#ifndef ORKIGE_IPHONE
+#if !defined(ORKIGE_IPHONE) && !defined(__ANDROID__)
 			oDebugMsg("core", 0, "creating Keyboard");
 			try
 			{
@@ -975,3 +978,18 @@ namespace Orkige
 @end
 #endif
 
+#ifdef __ANDROID__
+#include <android/AndroidInputManager.h>
+namespace Orkige
+{
+	void InputManagerAndroidInjectKey(int action, int uniChar, int keyCode)
+	{
+		static_cast<OIS::AndroidInputManager*>(InputManagerImpl::getSingleton().inputSystem)->injectKey(action, uniChar, keyCode);
+	}
+	void InputManagerAndroidInjectTouch(int action, float x, float y)
+	{
+		OutputDebugStringA("InputManagerAndroidInjectTouch");
+		static_cast<OIS::AndroidInputManager*>(InputManagerImpl::getSingleton().inputSystem)->injectTouch(action, x, y);
+	}
+}
+#endif

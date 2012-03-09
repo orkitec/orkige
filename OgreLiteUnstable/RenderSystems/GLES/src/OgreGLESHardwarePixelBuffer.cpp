@@ -249,8 +249,8 @@ namespace Ogre {
         mFaceTarget = mTarget;
 
         // Calculate the width and height of the texture at this mip level
-        mWidth = mLevel == 0 ? width : width / pow(2, level);
-        mHeight = mLevel == 0 ? height : height / pow(2, level);
+        mWidth = mLevel == 0 ? width : width / pow(2.f, level);
+        mHeight = mLevel == 0 ? height : height / pow(2.f, level);
         if(mWidth < 1)
             mWidth = 1;
         if(mHeight < 1)

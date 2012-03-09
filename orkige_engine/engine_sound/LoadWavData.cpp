@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 #ifndef ORKIGE_OGGSOUNDMANAGER
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 #include "engine_sound/SoundPlatform.h"
 #include "engine_sound/SoundError.h"
 
@@ -228,5 +228,5 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 }
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 #endif //ORKIGE_OGGSOUNDMANAGER

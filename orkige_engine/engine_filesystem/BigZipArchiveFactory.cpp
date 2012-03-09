@@ -18,8 +18,14 @@ namespace Orkige
 	BigZipArchiveFactory::BigZipArchiveFactory(Ogre::String const & _fileName, Ogre::String const & _pathPrefix) : fileName(_fileName), pathPrefix(_pathPrefix)
 	{
 		this->zipFile = onew(new Ogre::ZipArchive(fileName, "Zip"));
+		oDebugMsg("steffen", 0, "Loading BigZip: " << this->fileName);
 		this->zipFile->load();
 		this->fileInfo = this->zipFile->listFileInfo();
+		for(Ogre::FileInfoList::iterator it = this->fileInfo->begin(), itend = this->fileInfo->end(); it != itend; it++)
+		{
+			oDebugMsg("steffen", 0, "Found File: " << it->filename);
+			oDebugMsg("steffen", 0, " - Path: " << it->path);
+		}
 	}
 	//---------------------------------------------------------
 	BigZipArchiveFactory::~BigZipArchiveFactory()
@@ -64,7 +70,7 @@ namespace Orkige
 		{
 			searchPattern += "/";
 		}             
-		return this->zipFile->findFileInfo(searchPattern + "*");
+		return this->zipFile->listFileInfo(/*searchPattern + "*"*/true, false);
 	}
 	//-----------------------------------------------------------------------
 	Ogre::ZipArchive const & BigZipArchiveFactory::getZipFile()

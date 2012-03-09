@@ -303,7 +303,11 @@ namespace Orkige
 			{
 				typeName = i->first;
 				archName = i->second;
-				Ogre::ResourceGroupManager::getSingleton().addResourceLocation(PlatformUtil::getResourceDirectory() + archName, typeName, secName);
+				if(typeName == "FileSystem")
+				{
+					archName = PlatformUtil::getResourceDirectory() + archName;
+				}
+				Ogre::ResourceGroupManager::getSingleton().addResourceLocation(archName, typeName, secName);
 			}
 		}
 	}

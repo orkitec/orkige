@@ -23,7 +23,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	SoundSource::~SoundSource()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(this->initialized)
 			this->deinit();
 
@@ -32,12 +32,12 @@ namespace Orkige
 			free(this->data);
 			this->data = NULL;
 		}
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::init(bool reloadData, bool alwaysFreeData)
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		oAssertDesc(!this->initialized, "Already initialized you have to call deinit first!");
 
 		ALenum  error = AL_NO_ERROR;
@@ -121,14 +121,14 @@ namespace Orkige
 		
 		this->initialized = true;
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::deinit(bool freeData)
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		oAssert(this->initialized);
 		ALenum  error = AL_NO_ERROR;
 
@@ -163,14 +163,14 @@ namespace Orkige
 		}
 		this->initialized = false;
 		return ret;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::play()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(this->isPlaying())
 			return false;
 
@@ -185,14 +185,14 @@ namespace Orkige
 		}
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::stop()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPlaying())
 			return false;
 
@@ -206,14 +206,14 @@ namespace Orkige
 		}
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::pause()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(this->isPaused())
 			return false;
 
@@ -227,14 +227,14 @@ namespace Orkige
 		}
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::resume()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPaused())
 			return false;
 
@@ -242,14 +242,14 @@ namespace Orkige
 			return false;
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::isPlaying()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
@@ -260,14 +260,14 @@ namespace Orkige
 			return false;
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::isPaused()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
@@ -278,38 +278,38 @@ namespace Orkige
 			return false;
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	float SoundSource::getPlayPosition()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->isPlaying())
 			return 0.f;
 
 		float pos;
 		alGetSourcef(this->source, AL_SEC_OFFSET,  &pos);
 		return pos;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return 0.f;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	void SoundSource::setPlayPosition(float pos)
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return;
 
 		alSourcef(this->source, AL_SEC_OFFSET, pos);
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	bool SoundSource::setPosition(Ogre::Vector3 const & pos)
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		if(!this->initialized)
 			return false;
 
@@ -318,9 +318,9 @@ namespace Orkige
 		alSourcefv(this->source, AL_POSITION, sourcePosAL);
 
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	Ogre::Vector3 const & SoundSource::getPosition()

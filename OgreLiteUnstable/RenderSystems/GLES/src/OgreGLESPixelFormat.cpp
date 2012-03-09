@@ -85,12 +85,12 @@ namespace Ogre  {
             case PF_R8G8B8:
                 return GL_RGB;
             case PF_B8G8R8:
-                return 0;
+                return GL_RGB;
 #else
             case PF_R8G8B8:
                 return GL_RGB;
             case PF_B8G8R8:
-                return 0;
+                return GL_RGB;
 #endif
             case PF_DXT1:
             case PF_DXT3:

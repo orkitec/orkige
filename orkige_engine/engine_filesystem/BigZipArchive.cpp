@@ -32,11 +32,14 @@ namespace Orkige
 		OGRE_LOCK_AUTO_MUTEX
 			if (this->mFileList.empty())
 			{
+				oDebugMsg("steffen", 0, "-------------------------------");
+				oDebugMsg("steffen", 0, "Loading Archive: " << this->mName);
 				Ogre::FileInfoListPtr fil = BigZipArchiveFactory::getSingleton().getFileInfoList(this->mName);
 				String prefix = BigZipArchiveFactory::getSingleton().getPathPrefix() + this->mName;
 				std::size_t prefixLength = prefix.length();
 				for(Ogre::FileInfoList::iterator it = fil->begin(), itend = fil->end(); it != itend; it++)
 				{
+					oDebugMsg("steffen", 0, this->mName << " <- trying to add: " << it->filename);
 					if(it->path.length() < prefixLength)
 					{
 						continue;
@@ -44,18 +47,30 @@ namespace Orkige
 					String subPath = it->path.substr(0, prefix.length());
 					if(subPath != prefix)
 					{
+						oDebugMsg("steffen", 0, "1");
 						continue;
 					}
-					String subFile = it->filename.substr(0, prefix.length());
-					if(subFile != prefix)
+					oDebugMsg("steffen", 0, "2");
+					String subFile = it->filename;
+					if(subFile.find('/') != String::npos && subFile.length() > prefix.length())
 					{
-						continue;
+						oDebugMsg("steffen", 0, "3");
+						subFile = it->filename.substr(0, prefix.length());
+						if(subFile != prefix)
+						{
+							oDebugMsg("steffen", 0, "4");
+							continue;
+						}
+						subFile = it->filename.substr(prefixLength, it->filename.length()-1);
 					}
+
+					oDebugMsg("steffen", 0, "5");
+					
 
 					Ogre::FileInfo fi;
 					fi.archive = this;
 
-					subFile = it->filename.substr(prefixLength, it->filename.length()-1);
+					
 					fi.filename = subFile;
 					subPath = it->path.substr(prefixLength, it->path.length()-1);
 					fi.path = subPath;
@@ -63,6 +78,8 @@ namespace Orkige
 					fi.compressedSize = it->compressedSize;
 					fi.uncompressedSize = it->uncompressedSize;
 					this->mFileList.push_back(fi);
+
+					oDebugMsg("steffen", 0, this->mName << " added: " << subFile);
 				}
 			}
 	}
@@ -142,7 +159,11 @@ namespace Orkige
 		return ret;
 	}
 	//-----------------------------------------------------------------------
+#if OGRE_VERSION_MINOR >= 8
+	Ogre::FileInfoListPtr BigZipArchive::findFileInfo(const Ogre::String& pattern, bool recursive, bool dirs) const
+#else
 	Ogre::FileInfoListPtr BigZipArchive::findFileInfo(const Ogre::String& pattern, bool recursive, bool dirs)
+#endif
 	{
 		OGRE_LOCK_AUTO_MUTEX
 			Ogre::FileInfoListPtr ret = Ogre::FileInfoListPtr(OGRE_NEW_T(Ogre::FileInfoList, Ogre::MEMCATEGORY_GENERAL)(), Ogre::SPFM_DELETE_T);
@@ -150,7 +171,7 @@ namespace Orkige
 		bool full_match = (pattern.find ('/') != Ogre::String::npos) ||
 			(pattern.find ('\\') != Ogre::String::npos);
 
-		Ogre::FileInfoList::iterator i, iend;
+		Ogre::FileInfoList::const_iterator i, iend;
 		iend = mFileList.end();
 		for (i = mFileList.begin(); i != iend; ++i)
 			if ((dirs == (i->compressedSize == size_t (-1))) &&

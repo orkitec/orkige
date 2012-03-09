@@ -45,7 +45,7 @@ namespace Orkige
 	{
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,				&FastGuiManager::onKeyPressed,				this);
 		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,				&FastGuiManager::onKeyReleased,				this);
-#ifdef ORKIGE_IPHONE
+#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
 		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
 		this->registerEvent(Orkige::InputManager::TouchMovedEvent,				&FastGuiManager::onTouchMoved,				this);
@@ -61,7 +61,7 @@ namespace Orkige
 	{
 		this->unregisterEvent(Orkige::InputManager::KeyPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::KeyReleasedEvent);
-#ifdef ORKIGE_IPHONE
+#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchMovedEvent);

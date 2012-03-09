@@ -63,10 +63,13 @@ namespace Orkige
 
 		//! @copydoc Archive::find
 		Ogre::StringVectorPtr find(const String& pattern, bool recursive = true, bool dirs = false);
-
+#if OGRE_VERSION_MINOR >= 8
+		//! @copydoc Archive::findFileInfo
+		Ogre::FileInfoListPtr findFileInfo(const Ogre::String& pattern, bool recursive = true, bool dirs = false) const;
+#else
 		//! @copydoc Archive::findFileInfo
 		Ogre::FileInfoListPtr findFileInfo(const Ogre::String& pattern, bool recursive = true, bool dirs = false);
-
+#endif
 		//! @copydoc Archive::exists
 		bool exists(const Ogre::String& filename);
 

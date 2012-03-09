@@ -43,9 +43,9 @@ namespace Orkige
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
 #endif
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 		ALCcontext*					context;			//!< OpenAL context
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 		Ogre::Camera*				listener;			//!< optional sound listener
 
 	private:

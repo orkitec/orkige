@@ -16,9 +16,9 @@
 #import <AudioToolbox/ExtendedAudioFile.h>
 #endif
 
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 extern "C" int OpenAL_LoadLibrary( void );
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 
 namespace Orkige
 {
@@ -42,9 +42,9 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	SoundManager::SoundManager(Ogre::Camera* soundListener) : listener(soundListener)
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 	, context(0)
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	{
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		this->ms_Singleton = this->singleton;
@@ -89,7 +89,7 @@ namespace Orkige
 			}
 		}
 #else
-#ifdef WIN32
+#if defined(WIN32) && defined(ORKIGE_OPENAL_SOUND)
 		int openAlLibraryLoaded = OpenAL_LoadLibrary();
 		oAssert(openAlLibraryLoaded);
 #endif
@@ -143,7 +143,7 @@ namespace Orkige
 #else
 		if(this->listener)
 		{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 			Ogre::Vector3 const & pos = this->listener->getDerivedPosition();
 			alListener3f(AL_POSITION, pos.x, pos.y, pos.z);
 
@@ -160,7 +160,7 @@ namespace Orkige
 			orientation[5]= up.z; // Up.z
 
 			alListenerfv(AL_ORIENTATION, orientation);
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 		}
 #endif
 	}
@@ -478,7 +478,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundManager::initOpenAl()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 #ifdef ORKIGE_OGGSOUNDMANAGER
 		String devicename;
 #ifdef WIN32
@@ -536,14 +536,14 @@ namespace Orkige
 		}
 #endif
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------	
 	bool SoundManager::deinitOpenAl()
 	{
-#ifndef __ANDROID__
+#ifdef ORKIGE_OPENAL_SOUND
 #ifndef ORKIGE_OGGSOUNDMANAGER
 		ALCcontext	*context = NULL;
 		ALCdevice	*device = NULL;
@@ -567,9 +567,9 @@ namespace Orkige
 		alcCloseDevice(device);
 #endif
 		return true;
-#else //__ANDROID__
+#else //ORKIGE_OPENAL_SOUND
 		return false;
-#endif //__ANDROID__
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
