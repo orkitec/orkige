@@ -58,9 +58,9 @@ namespace Orkige
 		virtual void showItem();
 		
 		//! selection
-		unsigned int getSelectedItemIndex();
+		std::size_t getSelectedItemIndex();
 		String getSelectedItem();
-		void selectItemIndex(unsigned int index, bool throwEvent=true);
+		void selectItemIndex(std::size_t index, bool throwEvent=true);
 		void selectItem(String item);
 
 		//! get text holding ui element
@@ -88,7 +88,7 @@ namespace Orkige
 		return this->decor;
 	}
 	//---------------------------------------------------------------
-	inline unsigned int FastGuiSelectMenu::getSelectedItemIndex()
+	inline std::size_t FastGuiSelectMenu::getSelectedItemIndex()
 	{
 		return this->selectedIndex;
 	}

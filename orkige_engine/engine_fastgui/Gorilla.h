@@ -265,10 +265,17 @@ namespace Gorilla
 
 			if (mUsed != 0)
 			{
+#ifdef WIN32
+				if (mUsed < new_capacity)  // Copy all
+					std::copy(mBuffer, mBuffer + mUsed, stdext::checked_array_iterator<T*>( new_buffer, mUsed ));
+				else if (mUsed >= new_capacity) // Copy some
+					std::copy(mBuffer, mBuffer + new_capacity, stdext::checked_array_iterator<T*>( new_buffer, new_capacity ));
+#else
 				if (mUsed < new_capacity)  // Copy all
 					std::copy(mBuffer, mBuffer + mUsed, new_buffer);
 				else if (mUsed >= new_capacity) // Copy some
 					std::copy(mBuffer, mBuffer + new_capacity, new_buffer);
+#endif
 			}
 
 			OGRE_FREE(mBuffer, Ogre::MEMCATEGORY_GEOMETRY);

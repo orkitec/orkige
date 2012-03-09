@@ -210,7 +210,7 @@ namespace Orkige
 				if (dist < minDist)
 				{
 					minDist = dist;
-					closestIndex = i;
+					closestIndex = (int)i;
 				}
 			}
 			oAssert(closestIndex != -1);

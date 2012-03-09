@@ -98,14 +98,14 @@ namespace Orkige
 			Ogre::Image sourceImage; 
 			Ogre::String gridFilename; 
 			Ogre::uchar* stitchedImageData; 
-			int nbScreenshots = 0; 
+			std::size_t nbScreenshots = 0; 
 
 			for (std::size_t n = 0; n < gridSize * gridSize; n++) 
 			{ 
 				// Use asymmetrical perspective projection. For more explanations check out: 
 				// http://www.cs.kuleuven.ac.be/cwis/research/graphics/INFOTEC/viewing-in-3d/node8.html 
-				int y = (n / gridSize); 
-				int x = (n - y * gridSize); 
+				std::size_t y = (n / gridSize); 
+				std::size_t x = (n - y * gridSize); 
 				Ogre::Matrix4 shearing( 
 					1, 0,(x - (gridSize - 1) * 0.5f) * nearWidth / nearDist, 0, 
 					0, 1, -(y - (gridSize - 1) * 0.5f) * nearHeight / nearDist, 0, 
@@ -125,17 +125,17 @@ namespace Orkige
 				{ 
 					sourceImage.load(gridFilename, "General"); 
 					Ogre::ColourValue colourValue; 
-					int stitchedX, stitchedY, stitchedIndex; 
+					std::size_t stitchedX, stitchedY, stitchedIndex; 
 					if(n == 0) 
 						stitchedImageData = new Ogre::uchar[sourceImage.getWidth() * gridSize * sourceImage.getHeight() * gridSize * 3]; // 3 colors per pixel 
-					for(int rawY = 0; rawY < (int) sourceImage.getHeight(); rawY++) 
+					for(std::size_t rawY = 0; rawY < sourceImage.getHeight(); rawY++) 
 					{ 
-						for(int rawX = 0; rawX < (int) sourceImage.getWidth(); rawX++) 
+						for(std::size_t rawX = 0; rawX < sourceImage.getWidth(); rawX++) 
 						{ 
 							colourValue = sourceImage.getColourAt(rawX, rawY, 0); 
-							stitchedY = y * (int) sourceImage.getHeight() + rawY; 
-							stitchedX = x * (int) sourceImage.getWidth() + rawX; 
-							stitchedIndex = stitchedY * (int) sourceImage.getWidth() * gridSize + stitchedX; 
+							stitchedY = y * sourceImage.getHeight() + rawY; 
+							stitchedX = x * sourceImage.getWidth() + rawX; 
+							stitchedIndex = stitchedY * sourceImage.getWidth() * gridSize + stitchedX; 
 							Ogre::PixelUtil::packColour(sourceImage.getColourAt(rawX, rawY, 0), 
 								Ogre::PF_R8G8B8, 
 								(void*) &stitchedImageData[stitchedIndex * 3]); 

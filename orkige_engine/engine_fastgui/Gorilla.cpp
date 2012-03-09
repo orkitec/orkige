@@ -2119,7 +2119,7 @@ namespace Gorilla
 		Ogre::Real cursor = 0,
 			kerning = 0;
 
-		unsigned int thisChar = 0, lastChar = 0;
+		Ogre::uint thisChar = 0, lastChar = 0;
 		Glyph* glyph = 0;
 		retSize.x = 0;
 		retSize.y = mGlyphData->GetLineHeightScaled();
@@ -2127,7 +2127,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			int multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2243,7 +2243,7 @@ namespace Gorilla
 		else if (mVerticalAlign == VerticalAlign_Bottom)
 			cursorY = mTop +  mHeight - mGlyphData->GetLineHeightScaled();
 
-		unsigned int thisChar = 0, lastChar = 0;
+		Ogre::uint thisChar = 0, lastChar = 0;
 		Vertex temp;
 		mClippedLeftIndex = std::string::npos;
 		mClippedRightIndex = std::string::npos;
@@ -2254,7 +2254,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.size();i++)
 		{
 			wchar_t unicodeChar;
-			int multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2384,7 +2384,7 @@ namespace Gorilla
 		for(size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			int multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
 			//std::cout << "\nmultiByteLength: " << multiByteLength;
 			thisChar = unicodeChar;
 
