@@ -39,7 +39,7 @@ namespace Orkige
 				std::size_t prefixLength = prefix.length();
 				for(Ogre::FileInfoList::iterator it = fil->begin(), itend = fil->end(); it != itend; it++)
 				{
-					oDebugMsg("steffen", 0, this->mName << " <- trying to add: " << it->filename);
+					//oDebugMsg("steffen", 0, this->mName << " <- trying to add: " << it->filename);
 					if(it->path.length() < prefixLength)
 					{
 						continue;
@@ -47,24 +47,24 @@ namespace Orkige
 					String subPath = it->path.substr(0, prefix.length());
 					if(subPath != prefix)
 					{
-						oDebugMsg("steffen", 0, "1");
+						//oDebugMsg("steffen", 0, "1");
 						continue;
 					}
-					oDebugMsg("steffen", 0, "2");
+					//oDebugMsg("steffen", 0, "2");
 					String subFile = it->filename;
 					if(subFile.find('/') != String::npos && subFile.length() > prefix.length())
 					{
-						oDebugMsg("steffen", 0, "3");
+						//oDebugMsg("steffen", 0, "3");
 						subFile = it->filename.substr(0, prefix.length());
 						if(subFile != prefix)
 						{
-							oDebugMsg("steffen", 0, "4");
+							//oDebugMsg("steffen", 0, "4");
 							continue;
 						}
 						subFile = it->filename.substr(prefixLength, it->filename.length()-1);
 					}
 
-					oDebugMsg("steffen", 0, "5");
+					//oDebugMsg("steffen", 0, "5");
 					
 
 					Ogre::FileInfo fi;

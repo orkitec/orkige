@@ -577,7 +577,7 @@ namespace Orkige
 			this->accelerationData->absX = acceleration.x;
 			this->accelerationData->absY = acceleration.y;
 			this->accelerationData->absZ = acceleration.z;
-			//GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
+			Orkige::GlobalEventManager::getSingleton().trigger(this->accelerationEvent);
 		}
 	};
 }
@@ -990,6 +990,15 @@ namespace Orkige
 	{
 		OutputDebugStringA("InputManagerAndroidInjectTouch");
 		static_cast<OIS::AndroidInputManager*>(InputManagerImpl::getSingleton().inputSystem)->injectTouch(action, x, y);
+	}
+	void InputManagerAndroidInjectAcceleration(float x, float y, float z)
+	{
+		if(Orkige::InputManagerImpl::getSingletonPtr())
+		{
+			Ogre::Vector3 acc(x,y,z);
+			Orkige::InputManagerImpl::getSingleton().didAccelerate(acc);
+			//OutputDebugStringA("InputManagerAndroidInjectAcceleration");
+		}
 	}
 }
 #endif
