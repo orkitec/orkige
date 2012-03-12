@@ -40,6 +40,8 @@ THE SOFTWARE.
 
 namespace Ogre {
 
+		int GetAndroidWindowWidth();
+		int GetAndroidWindowHeight();
     AndroidGLESSupport::AndroidGLESSupport()
     {
     }
@@ -75,7 +77,8 @@ namespace Ogre {
             NameValuePairList miscParams;
 
             bool fullscreen = true;
-			unsigned int w = 320, h = 240;
+			unsigned int w = GetAndroidWindowWidth();
+			unsigned int h = GetAndroidWindowHeight();
 
             if ((opt = mOptions.find("Display Frequency")) != end)
             {
