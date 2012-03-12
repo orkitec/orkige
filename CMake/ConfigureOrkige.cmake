@@ -50,7 +50,7 @@ macro (ConfigureOrkige)
 	option(ORKIGE_BUILD_FONTCONVERTER 		"Build orkige_fontconverter" 						OFF)
 	option(ORKIGE_BUILD_MENUVIEWER 		"Build orkige_menuviewer" 						OFF)
 	option(ORKIGE_UPDATE_DOCS			"Update Orkige API documentation(Requires doxygen)."	OFF)
-	option(ORKIGE_BUILD_OGGSOUNDMANAGER 	"enable ogg vorbis sound playback" 				OFF)
+	option(ORKIGE_BUILD_OGGSOUNDMANAGER 	"enable ogg vorbis sound playback" 				ON)
 	option(ORKIGE_BUILD_THEORAVIDEOMANAGER	"enable theora video player"						OFF)
 	option(ORKIGE_BUILD_OGITOR			"enable Ogitor build"							OFF)
 	option(ORKIGE_BUILD_BOOST_REGEX		"enable building of boost regex build"				OFF)
@@ -68,7 +68,7 @@ macro (ConfigureOrkige)
 	endif (WIN32)
 	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
 	option(ORKIGE_BUILD_ANDROID	"Build GameKit on Android SDK"	OFF)
-	
+	option(ORKIGE_OPENALSOFT_SOUND "Uses software implementation of OpenAL" OFF)
 	# Unity build options
 	# A Unity build includes all sources files in just a few actual compilation units
 	# to potentially speed up the compilation.
@@ -312,10 +312,24 @@ macro (ConfigureOrkige)
 		# In order to use OpenAL sound.
 		set(OPENAL_FOUND TRUE)
 	endif()
+	
+	set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
+	
+	if(ORKIGE_OPENALSOFT_SOUND)
+		set(OPENAL_INCLUDE_DIR 
+		    ${ORKIGE_DEP_DIR}/OpenALsoft/include
+		    ${ORKIGE_DEP_DIR}/OpenALsoft/include/AL 
+		)
+		set(OPENAL_LIBRARY openal)
+		set(OPENAL_FOUND TRUE)
+	endif()
 
 	if (OPENAL_FOUND)
 		option(ORKIGE_OPENAL_SOUND "Enable building of the OpenAL subsystem" ON)
-		
+		if(ORKIGE_OPENALSOFT_SOUND)
+		  set(ORKIGE_OPENAL_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
+		endif()
+
 		if (WIN32 AND ORKIGE_OPENAL_SOUND)
 			add_definitions(-DAL_STATIC_LIB -DALC_STATIC_LIB)
 			set(ORKIGE_OPENAL_INCLUDE ${ORKIGE_DEP_DIR}/OpenAL/)

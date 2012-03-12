@@ -126,6 +126,12 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+		String const & getSupportDirectory(String applicationName)
+		{
+			static String path = "./";
+			return path;
+		}
+		//---------------------------------------------------------
 		const ORKIGE_PLATFORM getPlatform()
 		{
 			return PLATFORM_LINUX;
