@@ -69,11 +69,14 @@ macro (ConfigureOrkige)
 	option(ORKIGE_ENABLE_PARTICLE_UNIVERSE		"enable Particle Universe Plugin"			OFF)
 	option(ORKIGE_BUILD_ANDROID	"Build GameKit on Android SDK"	OFF)
 	option(ORKIGE_OPENALSOFT_SOUND "Uses software implementation of OpenAL" OFF)
+	option(ORKIGE_STATIC	"Build Orkige Engine Static Library Version"	ON)
+  
 	# Unity build options
 	# A Unity build includes all sources files in just a few actual compilation units
 	# to potentially speed up the compilation.
 	option(OGRE_UNITY_BUILD "Enable unity build for Ogre." FALSE)
 	set(OGRE_UNITY_FILES_PER_UNIT "50" CACHE STRING "Number of files per compilation unit in Unity build.")
+
 
   if (WIN32 AND OGRE_UNITY_BUILD)
     # object files can get large with Unity builds
@@ -131,6 +134,13 @@ macro (ConfigureOrkige)
 		set(OGRELITEDIRECTORY OgreLite)
 	endif(ORKIGE_USE_OGRE_UNSTABLE)
 	
+  if(ORKIGE_STATIC)
+     add_definitions(-DORKIGE_STATIC)
+     set(ORKIGE_LIB_TYPE STATIC)
+  else()
+     set(ORKIGE_LIB_TYPE SHARED)
+  endif(ORKIGE_STATIC)
+  
 	set(OGREPATH ${CMAKE_SOURCE_DIR}/${OGRELITEDIRECTORY})
 	
 	if (ORKIGE_USE_LUA)
@@ -311,16 +321,22 @@ macro (ConfigureOrkige)
 		# Must have OpenAL32.dll installed on the system 
 		# In order to use OpenAL sound.
 		set(OPENAL_FOUND TRUE)
+  else()
+     set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
 	endif()
 	
-	set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
+	
 	
 	if(ORKIGE_OPENALSOFT_SOUND)
 		set(OPENAL_INCLUDE_DIR 
 		    ${ORKIGE_DEP_DIR}/OpenALsoft/include
 		    ${ORKIGE_DEP_DIR}/OpenALsoft/include/AL 
 		)
-		set(OPENAL_LIBRARY openal)
+    if (WIN32)
+		  set(OPENAL_LIBRARY OpenAL32)
+    else()
+      set(OPENAL_LIBRARY openal)
+    endif(WIN32)
 		set(OPENAL_FOUND TRUE)
 	endif()
 
@@ -330,14 +346,16 @@ macro (ConfigureOrkige)
 		  set(ORKIGE_OPENAL_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
 		endif()
 
-		if (WIN32 AND ORKIGE_OPENAL_SOUND)
-			add_definitions(-DAL_STATIC_LIB -DALC_STATIC_LIB)
-			set(ORKIGE_OPENAL_INCLUDE ${ORKIGE_DEP_DIR}/OpenAL/)
-			set(ORKIGE_OPENAL_LIBRARY OpenAL)
-		else()
-			set(ORKIGE_OPENAL_INCLUDE ${OPENAL_INCLUDE_DIR})
-			set(ORKIGE_OPENAL_LIBRARY ${OPENAL_LIBRARY})
-		endif()
+    if(ORKIGE_OPENAL_SOUND)
+      if (WIN32 AND NOT ORKIGE_OPENALSOFT_SOUND)
+			 add_definitions(-DAL_STATIC_LIB -DALC_STATIC_LIB)
+			 set(ORKIGE_OPENAL_INCLUDE ${ORKIGE_DEP_DIR}/OpenAL/)
+			 set(ORKIGE_OPENAL_LIBRARY OpenAL)
+		  else()
+			 set(ORKIGE_OPENAL_INCLUDE ${OPENAL_INCLUDE_DIR})
+			 set(ORKIGE_OPENAL_LIBRARY ${OPENAL_LIBRARY})
+		  endif()
+    endif(ORKIGE_OPENAL_SOUND)
 	else()
 		option(ORKIGE_OPENAL_SOUND "Enable building of the OpenAL subsystem" OFF)
 	endif()

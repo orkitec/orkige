@@ -7,7 +7,7 @@ include(PrecompiledHeader)
 set(OgreLite 1.0)
 
 set(OGRE_THREAD_PROVIDER  0)
-set(OGRE_LIB_TYPE         STATIC)
+set(OGRE_LIB_TYPE         ${ORKIGE_LIB_TYPE})
 SET(OGRE_BINARY_DIR       ${ORKIGE_BINARY_DIR})
 SET(OGRE_SOURCE_DIR       ${OgreLite_SOURCE_DIR})
 

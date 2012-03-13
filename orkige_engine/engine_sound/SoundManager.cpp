@@ -90,8 +90,8 @@ namespace Orkige
 		}
 #else
 #if defined(WIN32) && defined(ORKIGE_OPENAL_SOUND)
-		int openAlLibraryLoaded = OpenAL_LoadLibrary();
-		oAssert(openAlLibraryLoaded);
+		//int openAlLibraryLoaded = OpenAL_LoadLibrary();
+		//oAssert(openAlLibraryLoaded);
 #endif
 #endif
 #ifdef ORKIGE_OGGSOUNDMANAGER
