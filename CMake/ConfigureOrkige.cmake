@@ -332,6 +332,8 @@ macro (ConfigureOrkige)
 		    ${ORKIGE_DEP_DIR}/OpenALsoft/include
 		    ${ORKIGE_DEP_DIR}/OpenALsoft/include/AL 
 		)
+		add_definitions(-DORKIGE_OPENALSOFT_SOUND)
+
     if (WIN32)
 		  set(OPENAL_LIBRARY OpenAL32)
     else()
