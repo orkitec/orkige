@@ -28,11 +28,13 @@ Copyright 2000, Fluid Studios, Inc., all rights reserved.
 purpose:	Memory manager & tracking software
 *********************************************************************/
 #include "core_debug/DisableMemoryManager.h"
+#ifdef ORKIGE_STATIC
 // force memory manager to be the very first thing to be created on application launch
 typedef int cb(void);
 #pragma data_seg(".CRT$XIU")
 static cb *autostart[] = { Orkige::createOrkigeMemoryManager };
 #pragma data_seg()    /* reset data-segment */
+#endif
 //this makes dealloc calls after the memory manager is destroyed (wich should not happen) a little better traceable
 namespace Orkige
 {

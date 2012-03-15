@@ -1,7 +1,9 @@
 #ifndef __Custom_Config_H_
 #define __Custom_Config_H_
 
+#ifdef ORKIGE_STATIC
 #define OGRE_STATIC_LIB
+#endif
 #define OGRE_CONFIG_LITTLE_ENDIAN
 #define OGRE_DOUBLE_PRECISION 0
 #define OGRE_MEMORY_ALLOCATOR 4
