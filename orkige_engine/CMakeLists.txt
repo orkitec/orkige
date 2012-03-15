@@ -76,7 +76,7 @@ endif()
 
 ConfigureOrkigeDependencies()
 
-ogre_add_library(orkige_engine STATIC
+ogre_add_library(orkige_engine ${ORKIGE_LIB_TYPE}
             ${engine_base_FILES}
             ${engine_gocomponent_FILES}
             ${engine_graphic_FILES}
