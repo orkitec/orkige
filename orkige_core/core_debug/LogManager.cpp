@@ -13,7 +13,7 @@
 #include "core_debug/LogConfig.h"
 #include <string>
 #include <sstream>
-#include "core_tinyxml/tinyxml.h"
+#include <tinyxml2.h>
 
 #include <time.h>//is this standard c?
 #include <stdio.h>
@@ -156,7 +156,7 @@ namespace Orkige
 	bool LogManager::startFileLog(const char* logFileName)
 	{
 #ifdef ORKIGE_XML_LOG
-		this->logFile = onew(new TiXmlDocument(logFileName));
+		this->logFile = onew(new tinyxml2::XMLDocument(logFileName));
 		oInfo("trying to init logfile: " << logFileName);
 		this->logFile->SaveFile();
 
@@ -169,11 +169,11 @@ namespace Orkige
 		this->fileLog=true;
 
 		//create xml logfile structure
-		this->elements.push_back(onew(new TiXmlElement("NOTIFY") ) );
-		this->elements.push_back(onew(new TiXmlElement("WARNING") ) );
-		this->elements.push_back(onew(new TiXmlElement("ERROR") ) );
-		this->elements.push_back(onew(new TiXmlElement("DEBUG") ) );
-		this->elements.push_back(onew(new TiXmlElement("LogMessages") ) );//root node
+		this->elements.push_back(onew(new tinyxml2::XMLElement("NOTIFY") ) );
+		this->elements.push_back(onew(new tinyxml2::XMLElement("WARNING") ) );
+		this->elements.push_back(onew(new tinyxml2::XMLElement("ERROR") ) );
+		this->elements.push_back(onew(new tinyxml2::XMLElement("DEBUG") ) );
+		this->elements.push_back(onew(new tinyxml2::XMLElement("LogMessages") ) );//root node
 
 		this->elements[4]->InsertEndChild(*this->elements[0]);
 		this->elements[4]->InsertEndChild(*this->elements[1]);
@@ -193,8 +193,8 @@ namespace Orkige
 	void LogManager::logMessage(const char* message, Priority priorityLevel,char* fileName,int lineNumber)
 	{
 #ifdef ORKIGE_XML_LOG
-		TiXmlElement xFileName("file");
-		TiXmlElement xMessage("message");
+		tinyxml2::XMLElement xFileName("file");
+		tinyxml2::XMLElement xMessage("message");
 		xMessage.SetAttribute("value", message);
 		xMessage.SetAttribute("at", this->getDate());
 
@@ -205,9 +205,9 @@ namespace Orkige
 			xFileName.InsertEndChild(xMessage);
 		}
 
-		TiXmlHandle docHandle( this->logFile.get() );
-		TiXmlHandle rootHandle = docHandle.FirstChildElement("LogMessages").FirstChildElement(this->elements[priorityLevel]->Value() );
-		TiXmlElement *root = rootHandle.Element();
+		tinyxml2::XMLHandle docHandle( this->logFile.get() );
+		tinyxml2::XMLHandle rootHandle = docHandle.FirstChildElement("LogMessages").FirstChildElement(this->elements[priorityLevel]->Value() );
+		tinyxml2::XMLElement *root = rootHandle.Element();
 
 		if(this->fileNameLog)
 		{

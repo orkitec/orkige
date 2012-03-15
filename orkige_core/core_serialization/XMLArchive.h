@@ -11,8 +11,11 @@
 
 #include "core_serialization/IArchive.h"
 
-class TiXmlDocument;
-class TiXmlElement;
+namespace tinyxml2
+{
+	class XMLDocument;
+	class XMLElement;
+}
 
 namespace Orkige
 {
@@ -28,8 +31,9 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		optr<TiXmlDocument>		file;
-		optr<TiXmlElement>		currentElement;
+		optr<tinyxml2::XMLDocument>		file;
+		tinyxml2::XMLElement*			currentElement;
+		Orkige::String					fileName;
 		//--- Methods -----------------------------------------
 	public:
 		XMLArchive();

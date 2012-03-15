@@ -18,8 +18,6 @@
 #include "core_util/String.h"
 #include <vector>
 
-class TiXmlDocument;
-class TiXmlElement;
 
 namespace Orkige
 {
@@ -69,8 +67,8 @@ namespace Orkige
 		
 		optr<LogConfig> config;
 #ifdef ORKIGE_XML_LOG
-		optr<TiXmlDocument> logFile;
-		std::vector<optr<TiXmlElement> > elements;
+		optr<tinyxml2::XMLDocument> logFile;
+		std::vector<optr<tinyxml2::XMLElement> > elements;
 #else
 		std::ofstream logFile;
 #endif

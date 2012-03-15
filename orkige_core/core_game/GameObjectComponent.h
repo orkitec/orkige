@@ -14,8 +14,11 @@
 #include "core_event/EventListener.h"
 #include "core_event/EventHandler.h"
 
-class TiXmlDocument;
-class TiXmlElement;
+namespace tinyxml2
+{
+	class XMLDocument;
+	class XMLElement;
+}
 
 namespace Orkige
 {
@@ -41,9 +44,9 @@ namespace Orkige
 		//! destructor
 		virtual ~GameObjectComponent();
 		//! overridable to load special attributes when GameObject is loaded from template
-		virtual bool onLoadTemplate(TiXmlElement* element) { return true;};
+		virtual bool onLoadTemplate(tinyxml2::XMLElement* element) { return true;};
 		//! overridable to save special attributes when GameObject is saved to template
-		virtual bool onSaveTemplate(TiXmlElement* element) { return true;};
+		virtual bool onSaveTemplate(tinyxml2::XMLElement* element) { return true;};
 		//! @brief return EventManager
 		//!	calls GameObject::getEventManager
 		//! @see EventHandler::getEventManager

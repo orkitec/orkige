@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 
-#include "core_tinyxml/tinyxml.h"
+#include <tinyxml2.h>
 #include "core_game/GameObject.h"
 #include "core_game/GameObjectManager.h"
 #include <boost/lexical_cast.hpp>
@@ -34,30 +34,31 @@ namespace Orkige
 	bool GameObject::loadTemplate(String const & templateFileName)
 	{
 		bool retval = true;
-		optr<TiXmlDocument>	document =  onew(new TiXmlDocument(templateFileName.c_str()));
+		optr<tinyxml2::XMLDocument>	document =  onew(new tinyxml2::XMLDocument());
+		document->LoadFile(templateFileName.c_str());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->ErrorDesc());
+			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
 			return false;
 		}
-		document->LoadFile(document->Value(), TIXML_ENCODING_UTF8);
+		document->LoadFile(document->Value());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->ErrorDesc());
+			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
 			return false;
 		}
-		TiXmlElement* xmlRoot = document->RootElement();
+		tinyxml2::XMLElement* xmlRoot = document->RootElement();
 		if(!xmlRoot || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error finding XML-Root in file: "<<templateFileName<<std::endl <<document->ErrorDesc());
+			oDebugMsg("gameobject",0,"Error finding XML-Root in file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
 			return false;
 		}
-		for(TiXmlElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
+		for(tinyxml2::XMLElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
 		{
 			String const & elementTypeName = elementType->Value();
 			if(elementTypeName == "Attributes")
 			{
-				for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
+				for(tinyxml2::XMLElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 				{
 					String const & attributeTypeName = element->Value();
 					const char * id = element->Attribute("id");
@@ -92,7 +93,7 @@ namespace Orkige
 			}
 			else if(elementTypeName == "Components")
 			{
-				for(TiXmlElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
+				for(tinyxml2::XMLElement* element = elementType->FirstChildElement(); element; element = element->NextSiblingElement())
 				{
 					String const & componentTypeName = element->Value();
 					TypeInfo componentType(componentTypeName);
@@ -104,12 +105,12 @@ namespace Orkige
 							optr<GameObjectComponent> component = this->getComponent(componentType).lock();
 							oAssert(component);
 
-							for(TiXmlElement* attributesElement = element->FirstChildElement(); attributesElement; attributesElement = attributesElement->NextSiblingElement())
+							for(tinyxml2::XMLElement* attributesElement = element->FirstChildElement(); attributesElement; attributesElement = attributesElement->NextSiblingElement())
 							{
 								String const & elementTypeName = attributesElement->Value();
 								if(elementTypeName == "Attributes")
 								{
-									for(TiXmlElement* attributeElement = attributesElement->FirstChildElement(); attributeElement; attributeElement = attributeElement->NextSiblingElement())
+									for(tinyxml2::XMLElement* attributeElement = attributesElement->FirstChildElement(); attributeElement; attributeElement = attributeElement->NextSiblingElement())
 									{
 										String const & attributeTypeName = attributeElement->Value();
 										const char * id = attributeElement->Attribute("id");
@@ -163,8 +164,8 @@ namespace Orkige
 
 					if(document->Error())
 					{
-						oDebugMsg("gameobject",0,"Error while parsing file: "<<templateFileName<<" Row: "<<document->ErrorRow()<<" Column: "<<document->ErrorCol()<<"!"<<std::endl <<document->ErrorDesc());
-						document->ClearError();
+						oDebugMsg("gameobject",0,"Error while parsing file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
+						document->SetError(tinyxml2::XML_NO_ERROR, "", "");
 						retval = false;
 					}
 				}
@@ -180,22 +181,22 @@ namespace Orkige
 	bool GameObject::saveTemplate(String const & templateFileName)
 	{
 		bool retval = true;
-		optr<TiXmlDocument>	document =  onew(new TiXmlDocument(templateFileName.c_str()));
+		optr<tinyxml2::XMLDocument>	document =  onew(new tinyxml2::XMLDocument());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->ErrorDesc());
+			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
 			return false;
 		}
-		TiXmlDeclaration decl("1.0","UTF-8","yes");
+		tinyxml2::XMLDeclaration* decl = document->NewDeclaration("1.0, UTF-8, yes");
 		document->InsertEndChild(decl);
 
 		if(document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->ErrorDesc());
+			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
 			return false;
 		}
-		TiXmlElement xmlRoot("GameObject");
-		TiXmlElement attributesElement("Attributes");
+		tinyxml2::XMLElement* xmlRoot = document->NewElement("GameObject");
+		tinyxml2::XMLElement* attributesElement = document->NewElement("Attributes");
 
 		foreach(OwnedAttributeMap::value_type const & attribute, attributes)
 		{
@@ -203,103 +204,95 @@ namespace Orkige
 			String const & id = attribute.first;
 			if(attributeType == AttributeWrapper<int>::getClassTypeInfo())
 			{
-				TiXmlElement element("int");
-				element.SetAttribute("id",id.c_str());
-				element.SetAttribute("value",this->getAttribute<int>(id));
-				attributesElement.InsertEndChild(element);
+				tinyxml2::XMLElement* element = document->NewElement("int");
+				element->SetAttribute("id",id.c_str());
+				element->SetAttribute("value",this->getAttribute<int>(id));
+				attributesElement->InsertEndChild(element);
 			}
 			else if(attributeType == AttributeWrapper<bool>::getClassTypeInfo())
 			{
-				TiXmlElement element("bool");
-				element.SetAttribute("id",id.c_str());
-				element.SetAttribute("value",this->getAttribute<bool>(id));
-				attributesElement.InsertEndChild(element);
+				tinyxml2::XMLElement* element = document->NewElement("bool");
+				element->SetAttribute("id",id.c_str());
+				element->SetAttribute("value",this->getAttribute<bool>(id));
+				attributesElement->InsertEndChild(element);
 			}
 			else if(attributeType == AttributeWrapper<float>::getClassTypeInfo())
 			{
-				TiXmlElement element("float");
-				element.SetAttribute("id",id.c_str());
-				element.SetDoubleAttribute("value",this->getAttribute<float>(id));
-				attributesElement.InsertEndChild(element);
+				tinyxml2::XMLElement* element = document->NewElement("float");
+				element->SetAttribute("id",id.c_str());
+				element->SetAttribute("value",this->getAttribute<float>(id));
+				attributesElement->InsertEndChild(element);
 			}
 			else if(attributeType == AttributeWrapper<String>::getClassTypeInfo())
 			{
-				TiXmlElement element("string");
-				element.SetAttribute("id",id.c_str());
-#ifndef __WIN32__
-				element.SetAttribute("value",this->getAttribute<String>(id).c_str());
-#else
-				element.SetAttribute("value",this->getAttribute<String>(id));
-#endif
-				attributesElement.InsertEndChild(element);
+				tinyxml2::XMLElement* element = document->NewElement("string");
+				element->SetAttribute("id",id.c_str());
+				element->SetAttribute("value",this->getAttribute<String>(id).c_str());
+				attributesElement->InsertEndChild(element);
 			}
 		}
-		xmlRoot.InsertEndChild(attributesElement);
+		xmlRoot->InsertEndChild(attributesElement);
 
 		ComponentMap const & components = this->getComponents();
 
-		TiXmlElement componentsElement("Components");
+		tinyxml2::XMLElement* componentsElement = document->NewElement("Components");
 		foreach(ComponentMap::value_type const & current, components)
 		{
 			optr<OwnedComponentType> component = current.second;
 			String const & componentTypeName = current.first.getName();
-			TiXmlElement element(componentTypeName.c_str());
-			TiXmlElement componentAttributesElement("Attributes");
+			tinyxml2::XMLElement* element = document->NewElement(componentTypeName.c_str());
+			tinyxml2::XMLElement* componentAttributesElement = document->NewElement("Attributes");
 			foreach(GameObjectComponent::OwnedAttributeMap::value_type const & attribute, component->getAttributes())
 			{
 				TypeInfo const & attributeType = attribute.second->getTypeInfo();
 				String const & id = attribute.first;
 				if(attributeType == AttributeWrapper<int>::getClassTypeInfo())
 				{
-					TiXmlElement element("int");
-					element.SetAttribute("id",id.c_str());
-					element.SetAttribute("value",component->getAttribute<int>(id));
-					componentAttributesElement.InsertEndChild(element);
+					tinyxml2::XMLElement* element = document->NewElement("int");
+					element->SetAttribute("id",id.c_str());
+					element->SetAttribute("value",component->getAttribute<int>(id));
+					componentAttributesElement->InsertEndChild(element);
 				}
 				else if(attributeType == AttributeWrapper<bool>::getClassTypeInfo())
 				{
-					TiXmlElement element("bool");
-					element.SetAttribute("id",id.c_str());
-					element.SetAttribute("value",component->getAttribute<bool>(id));
-					componentAttributesElement.InsertEndChild(element);
+					tinyxml2::XMLElement* element = document->NewElement("bool");
+					element->SetAttribute("id",id.c_str());
+					element->SetAttribute("value",component->getAttribute<bool>(id));
+					componentAttributesElement->InsertEndChild(element);
 				}
 				else if(attributeType == AttributeWrapper<float>::getClassTypeInfo())
 				{
-					TiXmlElement element("float");
-					element.SetAttribute("id",id.c_str());
-					element.SetDoubleAttribute("value",component->getAttribute<float>(id));
-					componentAttributesElement.InsertEndChild(element);
+					tinyxml2::XMLElement* element = document->NewElement("float");
+					element->SetAttribute("id",id.c_str());
+					element->SetAttribute("value",component->getAttribute<float>(id));
+					componentAttributesElement->InsertEndChild(element);
 				}
 				else if(attributeType == AttributeWrapper<String>::getClassTypeInfo())
 				{
-					TiXmlElement element("string");
-					element.SetAttribute("id",id.c_str());
-#ifndef __WIN32__
-					element.SetAttribute("value",component->getAttribute<String>(id).c_str());
-#else
-					element.SetAttribute("value",component->getAttribute<String>(id));
-#endif
-					componentAttributesElement.InsertEndChild(element);
+					tinyxml2::XMLElement* element = document->NewElement("string");
+					element->SetAttribute("id",id.c_str());
+					element->SetAttribute("value",component->getAttribute<String>(id).c_str());
+					componentAttributesElement->InsertEndChild(element);
 				}
 			}
-			element.InsertEndChild(componentAttributesElement);
-			bool componentSaved = component->onSaveTemplate(&element);
+			element->InsertEndChild(componentAttributesElement);
+			bool componentSaved = component->onSaveTemplate(element);
 			if(!componentSaved)
 			{
 				oDebugMsg("gameobject",0,"Error while saving Component: "<<componentTypeName<< " to file: "<<templateFileName<<"!");
 				retval = false;
 			}
-			componentsElement.InsertEndChild(element);
+			componentsElement->InsertEndChild(element);
 
 		}
-		xmlRoot.InsertEndChild(componentsElement);
+		xmlRoot->InsertEndChild(componentsElement);
 		document->InsertEndChild(xmlRoot);
-		document->SaveFile();
+		document->SaveFile(templateFileName.c_str());
 
 		if(document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error while saving file: "<<templateFileName<<" Row: "<<document->ErrorRow()<<" Column: "<<document->ErrorCol()<<"!"<<std::endl <<document->ErrorDesc());
-			document->ClearError();
+			oDebugMsg("gameobject",0,"Error while saving file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
+			document->SetError(tinyxml2::XML_NO_ERROR, "", "");
 			retval = false;
 		}
 

@@ -12,9 +12,8 @@
 #include "core_debug/LogConfig.h"
 #include "core_debug/LogManager.h"
 #include <boost/scoped_ptr.hpp>
-#include "core_tinyxml/tinyxml.h"
 #include "core_util/PlatformUtil.h"
-
+#include <tinyxml2.h>
 
 namespace Orkige
 {
@@ -23,8 +22,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool LogConfig::readConfig(const char* configFileName)
 	{
-		boost::scoped_ptr<TiXmlDocument> config(new TiXmlDocument(configFileName));
-		config->LoadFile();
+		boost::scoped_ptr<tinyxml2::XMLDocument> config(new ::tinyxml2::XMLDocument(true));
+		config->LoadFile(configFileName);
 
 		if(config->Error())
 		{
@@ -32,10 +31,9 @@ namespace Orkige
 			return false;
 		}
 		oInfo("Parsing LogConfig: " << configFileName << "!");
-		TiXmlHandle docHandle( config.get() );
-		TiXmlHandle logHandle = docHandle.FirstChildElement("LogConfig");
+		tinyxml2::XMLElement* logHandle = config->FirstChildElement("LogConfig");
 
-		TiXmlElement* logFileElement = logHandle.FirstChildElement("LogFile").Element();
+		tinyxml2::XMLElement* logFileElement = logHandle->FirstChildElement("LogFile");
 
 		//If <LogFile> Tag exists an has a name start logging to this file
 		if(logFileElement)
@@ -52,10 +50,7 @@ namespace Orkige
 
 		}
 
-
-		TiXmlHandle elementHandle = logHandle.FirstChildElement("DebugChannels").FirstChildElement();
-
-		TiXmlElement *debugchannel = elementHandle.Element();
+		tinyxml2::XMLElement *debugchannel = logHandle->FirstChildElement("DebugChannels")->FirstChildElement();
 
 		// Loop debugchannels and add them
 		// TODO: make this stuff case insensitive!

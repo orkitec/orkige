@@ -156,25 +156,6 @@ source_group(core_serialization FILES ${core_serialization_HEADER} ${core_serial
 
 # ---------------------------------------------------------
 
-set(core_tinyxml_SOURCE
-    # ----- Source -----
-    core_tinyxml/tinystr.cpp
-    core_tinyxml/tinyxml.cpp
-    core_tinyxml/tinyxmlerror.cpp
-    core_tinyxml/tinyxmlparser.cpp
-)
-
-set(core_tinyxml_HEADER
-    # ----- Headers -----
-    core_tinyxml/foreach.h
-    core_tinyxml/tinystr.h
-    core_tinyxml/tinyxml.h
-)
-
-source_group(core_tinyxml FILES ${core_tinyxml_HEADER} ${core_tinyxml_SOURCE})
-
-# ---------------------------------------------------------
-
 set(core_util_SOURCE
     # ----- Source -----
     core_util/ModuleManagerFactory.cpp
@@ -219,13 +200,15 @@ source_group(core_util FILES ${core_util_HEADER} ${core_util_SOURCE})
 # Build setup
 # ---------------------------------------------------------
 
-add_definitions(-DSTATIC_LINKED)
-
 include_directories(
-  ${CMAKE_SOURCE_DIR}/Dependencies/Source/ZZipLib
+  ${CMAKE_SOURCE_DIR}/Dependencies/Source/tinyxml2
 	${CMAKE_SOURCE_DIR}/Dependencies/Source/boost
 	./
 	)
+ 
+link_libraries(
+	tinyxml2
+)
   
 ogre_add_library(orkige_core ${ORKIGE_LIB_TYPE}
 	${core_base_SOURCE}			${core_base_HEADER}
@@ -235,7 +218,6 @@ ogre_add_library(orkige_core ${ORKIGE_LIB_TYPE}
 	${core_module_SOURCE}		${core_module_HEADER}
 	${core_python_SOURCE}		${core_python_HEADER}
 	${core_serialization_SOURCE}	${core_serialization_HEADER}
-	${core_tinyxml_SOURCE}		${core_tinyxml_HEADER}
 	${core_util_SOURCE}			${core_util_HEADER}
     )
 

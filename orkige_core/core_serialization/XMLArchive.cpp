@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 ***************************************************************/
 
-#include "core_tinyxml/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "core_serialization/XMLArchive.h"
 #include "core_serialization/ISerializeable.h"
@@ -23,6 +23,7 @@ namespace Orkige
 	{
 		this->readMode = false;
 		this->writeMode = false;
+		this->currentElement = NULL;
 	}
 	//---------------------------------------------------------
 	XMLArchive::~XMLArchive()
@@ -34,25 +35,27 @@ namespace Orkige
 		oAssert(!writeMode);
 		oAssert(!readMode);
 		oAssert(!fileName.empty());
+		this->fileName = fileName;
 		this->readMode = false;
 		this->writeMode = true;
-		this->file = onew(new TiXmlDocument(fileName.c_str()));
+		this->file = onew(new tinyxml2::XMLDocument());
+
 		if(!this->file || this->file->Error())
 		{
 			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->ErrorDesc());
+			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
-		TiXmlDeclaration decl("1.0","UTF-8","yes");
+		tinyxml2::XMLDeclaration* decl = this->file->NewDeclaration("1.0, UTF-8, yes");
 		this->file->InsertEndChild(decl);
-		this->file->SaveFile();
+		this->file->SaveFile(this->fileName.c_str());
 		if(this->file->Error())
 		{
-			oDebugMsg("serialize",0,this->file->ErrorDesc());
+			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
-		this->currentElement = onew(new TiXmlElement("XMLArchive"));
-		this->currentElement->SetAttribute("Version",0);
+		this->currentElement = this->file->NewElement("XMLArchive");
+		this->currentElement->SetAttribute("Version", (int)0);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -60,16 +63,16 @@ namespace Orkige
 	{
 		oAssert(writeMode);
 		oAssert(!readMode);
-		this->file->InsertEndChild(*this->currentElement);
-		this->file->SaveFile();
+		this->file->InsertEndChild(this->currentElement);
+		this->file->SaveFile(this->fileName.c_str());
 		if(this->file->Error())
 		{
-			oDebugMsg("serialize",0,this->file->ErrorDesc());
+			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
 		this->readMode = false;
 		this->writeMode = false;
-		this->currentElement.reset();
+		this->currentElement = NULL;
 		this->file.reset();
 		return true;
 	}
@@ -81,32 +84,34 @@ namespace Orkige
 		oAssert(!fileName.empty());
 		this->readMode = true;
 		this->writeMode = false;
-		this->file = onew(new TiXmlDocument(fileName.c_str()));
+		this->fileName = fileName;
+		this->file = onew(new tinyxml2::XMLDocument());
+		this->file->LoadFile(fileName.c_str());
 		if(!this->file || this->file->Error())
 		{
 			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->ErrorDesc());
+			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
-		this->file->LoadFile(this->file->Value(), TIXML_ENCODING_UTF8);
+		this->file->LoadFile(this->file->Value());
 		if(!this->file || this->file->Error())
 		{
 			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->ErrorDesc());
+			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
-		this->currentElement = oBadPointer(this->file->RootElement());
+		this->currentElement = this->file->RootElement();
 		oAssert(this->currentElement);
 		const char * attr_version = this->currentElement->Attribute("Version");
 		oAssert(attr_version);
 		int version =  boost::lexical_cast<int>(attr_version);
-		this->currentElement = oBadPointer(static_cast<TiXmlElement*>(this->currentElement->FirstChild()));
+		this->currentElement = this->currentElement->FirstChildElement();
 		return true;
 	}
 	//---------------------------------------------------------
 	bool XMLArchive::stopReading()
 	{
-		this->currentElement.reset();
+		this->currentElement = NULL;
 		this->file.reset();
 		this->readMode = false;
 		this->writeMode = false;
@@ -115,7 +120,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--WRITING------------------------------------------------
 #if defined(ORKIGE_NDS) || defined(__ANDROID__)
-	void XMLArchiveReadElementWCT(XMLArchive * ar, optr<TiXmlElement> & element,wchar_t &t)
+	void XMLArchiveReadElementWCT(XMLArchive * ar, optr<tinyxml2::XMLElement> & element,wchar_t &t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
@@ -128,34 +133,34 @@ namespace Orkige
 		std::basic_string<wchar_t> widestr = std::basic_string<wchar_t>(temp.begin(), temp.end());
 		const wchar_t* widecstr = widestr.c_str();
 		t = *widecstr;
-		TiXmlNode* node = element->NextSibling();
+		tinyxml2::XMLNode* node = element->NextSibling();
 		if(node)
-			element = oBadPointer(static_cast<TiXmlElement*>(node));
+			element = oBadPointer(static_cast<tinyxml2::XMLElement*>(node));
 	}
 #endif
 	//---------------------------------------------------------
 	template<typename ValueType>
-	void XMLArchiveReadElement(XMLArchive * ar, optr<TiXmlElement> & element,ValueType &t)
+	void XMLArchiveReadElement(XMLArchive * ar, tinyxml2::XMLElement* element, ValueType &t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
-		oAssert(element.get());
+		oAssert(element);
 		const char * attr_type	= element->Value();
 		const char * attr_value = element->Attribute("value");
 		oAssert(attr_type);
 		oAssert(attr_value);
 		t = boost::lexical_cast<ValueType>(attr_value);
-		TiXmlNode* node = element->NextSibling();
+		tinyxml2::XMLNode* node = element->NextSibling();
 		if(node)
-			element = oBadPointer(static_cast<TiXmlElement*>(node));
+			element = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
 	template<typename ValueType>
-	void XMLArchiveReadPtrElement(XMLArchive * ar, std::map<unsigned int,void*> & registry, optr<TiXmlElement> & element, optr<ValueType> & t)
+	void XMLArchiveReadPtrElement(XMLArchive * ar, std::map<unsigned int,void*> & registry, tinyxml2::XMLElement* element, optr<ValueType> & t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
-		oAssert(element.get());
+		oAssert(element);
 		const char * attr_type		= element->Value();
 		const char * attr_ref		= element->Attribute("ref");
 		oAssert(attr_type);
@@ -171,8 +176,8 @@ namespace Orkige
 			const char * attr_ref_id	= element->Attribute("ref_id");
 			oAssert(attr_ref_id);
 			int ref_id = boost::lexical_cast<int>(attr_ref_id);
-			optr<TiXmlElement> oldElement = element;
-			element = oBadPointer(static_cast<TiXmlElement*>(element->FirstChild()));
+			tinyxml2::XMLElement* oldElement = element;
+			element = element->FirstChildElement();
 			t = onew(new ValueType());//me doez teh magic =)
 			registry[ref_id] = t.get();
 			ar->read(*t);
@@ -258,14 +263,14 @@ namespace Orkige
 	{
 		oAssert(this->isReading());
 		oAssert(!this->isWriting());
-		oAssert(this->currentElement.get());
+		oAssert(this->currentElement);
 		const char * attr_type	= this->currentElement->Value();
 		const char * create	= this->currentElement->Attribute("create");
 		oAssert(attr_type);
 		oAssert(create);
 		bool createBeforeLoad = boost::lexical_cast<bool>(create);
-		optr<TiXmlElement> oldElement = this->currentElement;
-		this->currentElement = oBadPointer(static_cast<TiXmlElement*>(this->currentElement->FirstChild()));
+		tinyxml2::XMLElement* oldElement = this->currentElement;
+		this->currentElement = this->currentElement->FirstChildElement();
 
 		if(createBeforeLoad)
 		{
@@ -279,30 +284,30 @@ namespace Orkige
 		t.load(oBadPointer(this));
 		//boost::python::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.load");
 		//bp::call<void>(fkt.ptr(),boost::ref(obj)/*self*/,boost::ref(*this)/*archive*/);		
-		TiXmlNode* node = oldElement->NextSibling();
+		tinyxml2::XMLNode* node = oldElement->NextSibling();
 		if(node)
-			this->currentElement = oBadPointer(static_cast<TiXmlElement*>(node));
+			this->currentElement = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
 	void XMLArchive::readx(ISerializeable & t)
 	{
 		oAssert(this->isReading());
 		oAssert(!this->isWriting());
-		oAssert(this->currentElement.get());
+		oAssert(this->currentElement);
 		const char * attr_type	= this->currentElement->Value();
 		const char * create	= this->currentElement->Attribute("create");
 		oAssert(attr_type);
 		oAssert(create);
 		bool createBeforeLoad = boost::lexical_cast<bool>(create);
-		optr<TiXmlElement> oldElement = this->currentElement;
-		this->currentElement = oBadPointer(static_cast<TiXmlElement*>(this->currentElement->FirstChild()));
+		tinyxml2::XMLElement* oldElement = this->currentElement;
+		this->currentElement = this->currentElement->FirstChildElement();
 
 		t.load(oBadPointer(this));
 		//boost::python::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.load");
 		//bp::call<void>(fkt.ptr(),boost::ref(obj)/*self*/,boost::ref(*this)/*archive*/);		
-		TiXmlNode* node = oldElement->NextSibling();
+		tinyxml2::XMLNode* node = oldElement->NextSibling();
 		if(node)
-			this->currentElement = oBadPointer(static_cast<TiXmlElement*>(node));
+			this->currentElement = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
 	void XMLArchive::read(optr<bool> & t)
@@ -379,7 +384,7 @@ namespace Orkige
 	{
 		oAssert(this->isReading());
 		oAssert(!this->isWriting());
-		oAssert(this->currentElement.get());
+		oAssert(this->currentElement);
 		const char * attr_type		= this->currentElement->Value();
 		const char * attr_ref		= this->currentElement->Attribute("ref");
 		oAssert(attr_type);
@@ -396,8 +401,8 @@ namespace Orkige
 			oAssert(create);
 			bool createBeforeLoad = boost::lexical_cast<bool>(create);
 			int ref_id = boost::lexical_cast<int>(attr_ref_id);
-			optr<TiXmlElement> oldElement = this->currentElement;
-			this->currentElement = oBadPointer(static_cast<TiXmlElement*>(this->currentElement->FirstChild()));
+			tinyxml2::XMLElement* oldElement = this->currentElement;
+			this->currentElement = this->currentElement->FirstChildElement();
 			
 			if(createBeforeLoad)
 			{
@@ -410,48 +415,48 @@ namespace Orkige
 			this->readx(*t);
 			this->currentElement= oldElement;	
 		}
-		TiXmlNode* node = this->currentElement->NextSibling();
+		tinyxml2::XMLNode* node = this->currentElement->NextSibling();
 		if(node)
-			this->currentElement = oBadPointer(static_cast<TiXmlElement*>(node));
+			this->currentElement = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//--WRITING------------------------------------------------
 	//---------------------------------------------------------
 	template<typename ValueType>
-	void XMLArchiveWriteElement(XMLArchive * ar, optr<TiXmlElement> & currentElement, ValueType const & value, String const & type)
+	void XMLArchiveWriteElement(XMLArchive * ar, tinyxml2::XMLElement* currentElement, ValueType const & value, String const & type)
 	{
 		oAssert(ar);
 		oAssert(!ar->isReading());
 		oAssert(ar->isWriting());
 		oAssert(!type.empty());
-		oAssert(currentElement.get());
-		TiXmlElement element(type.c_str());
-		element.SetAttribute("value",(boost::lexical_cast<String>(value)).c_str());
+		oAssert(currentElement);
+		tinyxml2::XMLElement* element = currentElement->GetDocument()->NewElement(type.c_str());
+		element->SetAttribute("value",(boost::lexical_cast<String>(value)).c_str());
 		currentElement->InsertEndChild(element);
 	}
 	//---------------------------------------------------------
 	template<typename ValueType>
-	void XMLArchiveWritePtrElement(XMLArchive * ar,std::map<void*,unsigned int> & registry, optr<TiXmlElement> & currentElement, ValueType const & value, String const & type)
+	void XMLArchiveWritePtrElement(XMLArchive * ar,std::map<void*,unsigned int> & registry, tinyxml2::XMLElement* currentElement, ValueType const & value, String const & type)
 	{
 		oAssert(ar);
 		oAssert(!ar->isReading());
 		oAssert(ar->isWriting());
 		oAssert(!type.empty());
-		oAssert(currentElement.get());
+		oAssert(currentElement);
 		if(ar->isRegistered(value))
 		{
-			TiXmlElement element(type.c_str());
-			element.SetAttribute("ref",registry[value.get()]);
+			tinyxml2::XMLElement* element = currentElement->GetDocument()->NewElement(type.c_str());
+			element->SetAttribute("ref",registry[value.get()]);
 			currentElement->InsertEndChild(element);
 		}
 		else
 		{
 			unsigned int ref_id = (int)registry.size();
 			registry[value.get()] = ref_id;
-			optr<TiXmlElement> oldElement = currentElement;
-			currentElement = onew(new TiXmlElement(type.c_str()));
+			tinyxml2::XMLElement* oldElement = currentElement;
+			currentElement = currentElement->GetDocument()->NewElement(type.c_str());
 			currentElement->SetAttribute("ref_id",ref_id);
 			ar->write(*value);
-			oldElement->InsertEndChild(*currentElement);
+			oldElement->InsertEndChild(currentElement);
 			currentElement = oldElement;
 		}
 	}
@@ -530,20 +535,20 @@ namespace Orkige
 	{
 		oAssert(writeMode);
 		oAssert(!readMode);
-		optr<TiXmlElement> oldElement = this->currentElement;
+		tinyxml2::XMLElement* oldElement = this->currentElement;
 		/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
 		const char * className = bp::call<const char *>(fkta.ptr(),boost::ref(*t));*/
 		const char * className = t.getTypeInfo().getName().c_str();
 		oAssert(className);
 		bool createBeforeLoad = t.createBeforeLoad();
-		this->currentElement = onew(new TiXmlElement(className));
+		this->currentElement = this->file->NewElement(className);
 		this->currentElement->SetAttribute("create",(boost::lexical_cast<String>(createBeforeLoad)).c_str());
 		t.save(oBadPointer(this));
 /*
 		bp::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.save");
 		bp::call<void>(fkt.ptr(),boost::ref(t),boost::ref(*this));*/
 
-		oldElement->InsertEndChild(*this->currentElement);
+		oldElement->InsertEndChild(this->currentElement);
 		this->currentElement = oldElement;
 	}
 	//---------------------------------------------------------
@@ -621,7 +626,7 @@ namespace Orkige
 	{
 		oAssert(!this->isReading());
 		oAssert(this->isWriting());
-		oAssert(this->currentElement.get());
+		oAssert(this->currentElement);
 		if(this->isRegistered(t))
 		{
 			/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
@@ -629,25 +634,25 @@ namespace Orkige
 			const char * className = t->getTypeInfo().getName().c_str();
 			oAssert(className);
 
-			TiXmlElement element(className);
-			element.SetAttribute("ref",this->registryOptrInt[t.get()]);
+			tinyxml2::XMLElement* element = this->file->NewElement(className);
+			element->SetAttribute("ref",this->registryOptrInt[t.get()]);
 			this->currentElement->InsertEndChild(element);
 		}
 		else
 		{
 			unsigned int ref_id = (int)this->registryOptrInt.size();
 			this->registryOptrInt[t.get()] = ref_id;
-			optr<TiXmlElement> oldElement = this->currentElement;
+			tinyxml2::XMLElement* oldElement = this->currentElement;
 			/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
 			const char * className = bp::call<const char *>(fkta.ptr(),boost::ref(*t));*/
 			const char * className = t->getTypeInfo().getName().c_str();
 			oAssert(className);
-			this->currentElement = onew(new TiXmlElement(className));
+			this->currentElement = this->file->NewElement(className);
 			this->currentElement->SetAttribute("ref_id",ref_id);
 			bool createBeforeLoad = t->createBeforeLoad();
 			this->currentElement->SetAttribute("create",(boost::lexical_cast<String>(createBeforeLoad)).c_str());
 			this->write(*t);
-			oldElement->InsertEndChild(*this->currentElement);
+			oldElement->InsertEndChild(this->currentElement);
 			this->currentElement = oldElement;
 		}
 	}

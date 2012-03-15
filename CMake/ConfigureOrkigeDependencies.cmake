@@ -7,11 +7,13 @@ macro(ConfigureOrkigeDependencies)
 	include_directories(
 		${ORKIGE_CORE_INCLUDE}
 		${ORKIGE_ENGINE_INCLUDE}
+		${ORKIGE_DEP_DIR}/tinyxml2
 	)
 	
 	link_libraries(
 		orkige_core
 		orkige_engine
+		tinyxml2
 	)
 	
 	if(ORKIGE_BUILD_ANDROID)

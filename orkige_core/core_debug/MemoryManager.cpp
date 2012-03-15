@@ -29,6 +29,10 @@ purpose:	Memory manager & tracking software
 *********************************************************************/
 #include "core_debug/DisableMemoryManager.h"
 #ifdef ORKIGE_STATIC
+namespace Orkige
+{
+	int createOrkigeMemoryManager();
+}
 // force memory manager to be the very first thing to be created on application launch
 typedef int cb(void);
 #pragma data_seg(".CRT$XIU")
@@ -1478,7 +1482,11 @@ bool Orkige::MemoryManager::isInitialized = false;
 	{
 		if (cleanupLogOnFirstRun)
 		{
+#ifdef WIN32
+			_unlink(memoryLogFile);
+#else
 			unlink(memoryLogFile);
+#endif
 			cleanupLogOnFirstRun = false;
 
 			// Print a header for the log
