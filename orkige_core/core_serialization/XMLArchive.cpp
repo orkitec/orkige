@@ -120,11 +120,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--WRITING------------------------------------------------
 #if defined(ORKIGE_NDS) || defined(__ANDROID__)
-	void XMLArchiveReadElementWCT(XMLArchive * ar, optr<tinyxml2::XMLElement> & element,wchar_t &t)
+	void XMLArchiveReadElementWCT(XMLArchive * ar, tinyxml2::XMLElement* element, wchar_t &t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
-		oAssert(element.get());
+		oAssert(element);
 		const char * attr_type	= element->Value();
 		const char * attr_value = element->Attribute("value");
 		oAssert(attr_type);
@@ -135,7 +135,7 @@ namespace Orkige
 		t = *widecstr;
 		tinyxml2::XMLNode* node = element->NextSibling();
 		if(node)
-			element = oBadPointer(static_cast<tinyxml2::XMLElement*>(node));
+			element = static_cast<tinyxml2::XMLElement*>(node);
 	}
 #endif
 	//---------------------------------------------------------
