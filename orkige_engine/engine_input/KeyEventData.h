@@ -16,7 +16,7 @@ namespace Orkige
 	/** \addtogroup EngineEvents
 	*  @{ */
 	//! Data that gets sent on InputManager::KeyPressedEvent and InputManager::KeyReleasedEvent
-	class ORKIGE_DLL KeyEventData : public Object
+	class ORKIGE_ENGINE_DLL KeyEventData : public Object
 	{
 		OOBJECT(KeyEventData,Object)
 		//--- Types -------------------------------------------------

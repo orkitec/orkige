@@ -17,7 +17,7 @@ namespace Orkige
 	//! @brief helper for registering and unregistering events
 	//!
 	//! downside on using this is that it only allows 1 function per registered event
-	class EventHandler
+	class ORKIGE_CORE_DLL EventHandler
 	{
 		//--- Types -------------------------------------------------
 	public:

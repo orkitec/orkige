@@ -22,7 +22,7 @@
 namespace Orkige
 {
 	//! Engine core responsible for config dialog, plugin loading, RenderWindow's, SceneManager, Camera's etc
-	class ORKIGE_DLL Engine : public Singleton<Engine>, public Interface, public Ogre::FrameListener
+	class ORKIGE_ENGINE_DLL Engine : public Singleton<Engine>, public Interface, public Ogre::FrameListener
 	{
 		OOBJECT(Engine,Interface)
 		DECL_OSINGLETON(Engine)

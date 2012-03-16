@@ -21,7 +21,7 @@ namespace Orkige
 	//! vector with EventType definitions
 	typedef std::vector<EventType>				EventTypeList;
 	//! manages events
-	class ORKIGE_DLL EventManager : public Object
+	class ORKIGE_CORE_DLL EventManager : public Object
 	{
 		OOBJECT(EventManager,Object)
 		//--- Types -------------------------------------------

@@ -27,7 +27,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! manager for logging
-	class ORKIGE_DLL LogManager : public Singleton<LogManager>
+	class ORKIGE_CORE_DLL LogManager : public Singleton<LogManager>
 	{
 	public:
 		/** @brief get the TypeInfo of this class. */

@@ -15,7 +15,7 @@
 #include "core_util/String.h"
 namespace Orkige
 {
-	class ORKIGE_DLL PythonInterpreter : public Singleton<PythonInterpreter>
+	class ORKIGE_CORE_DLL PythonInterpreter : public Singleton<PythonInterpreter>
 	{
 		DECL_OSINGLETON(PythonInterpreter)
 	// Attributes --------------------------------------------------------------

@@ -20,13 +20,23 @@
 	OTYPE_INFO(ClassName)																\
 	OMETACLASS(ClassName)
 	
+#define OINTERFACE_EXPORT(ClassName, EXPORTDEFINITION)									\
+	OTYPE_INFO_EXPORT(ClassName, EXPORTDEFINITION)										\
+	OMETACLASS(ClassName)
 
 //used for all objects and derived objects
 #define OOBJECT(ClassName, BaseClassName)																	\
 	friend class Orkige::TypeManager;																		\
-	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;														\
+	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;										\
 	ORKIGETTI(ClassName,BaseClassName)																		\
 	OINTERFACE(ClassName)
+
+//used for all objects and derived objects
+#define OOBJECT_EXPORT(ClassName, BaseClassName, EXPORTDEFINITION)											\
+	friend class Orkige::TypeManager;																		\
+	friend class ObjectFactory<Orkige::Interface * (), Orkige::String>;										\
+	ORKIGETTI(ClassName,BaseClassName)																		\
+	OINTERFACE_EXPORT(ClassName, EXPORTDEFINITION)
 
 //object with default constructor
 #define OOBJECT_WD(ClassName,BaseClassName)																	\

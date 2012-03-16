@@ -20,7 +20,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! A node in the Profile Hierarchy Tree
-	class ProfileNode
+	class ORKIGE_CORE_DLL ProfileNode
 	{
 		friend class ProfileManager;
 		//--- Types -------------------------------------------------
@@ -124,7 +124,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------------
 	//! A node in the Profile Hierarchy Tree that can be constructed from a String
-	class StringProfileNode : public ProfileNode
+	class ORKIGE_CORE_DLL StringProfileNode : public ProfileNode
 	{
 		friend class ProfileNode;
 		friend class ProfileManager;

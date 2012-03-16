@@ -15,7 +15,7 @@ namespace Orkige
 {
 	//! tiny helper class for creating and destroying Managers in Modules(Plugins etc.) if specific Events occour
 	//! @note creatible Managers must at least Derive from Interface, should probably be Singletons of some type and should have a Default Constructor
-	class ORKIGE_DLL ModuleManagerFactory
+	class ORKIGE_CORE_DLL ModuleManagerFactory
 	{
 		//--- Types -------------------------------------------
 	public:

@@ -56,6 +56,16 @@ namespace std
 		virtual Orkige::TypeInfo const & getTypeInfo() const;							\
 	private:
 
+#define OTYPE_INFO_EXPORT(ClassType, EXPORTDEFINITION)									\
+	public:																				\
+		/** @brief get the TypeInfo of this class. */									\
+		EXPORTDEFINITION static Orkige::TypeInfo const & getClassTypeInfo();			\
+		/** @brief get the TypeInfo of this class instance. */							\
+		EXPORTDEFINITION virtual Orkige::TypeInfo const & getTypeInfo();				\
+		/** @brief get the TypeInfo of this class instance. */							\
+		EXPORTDEFINITION virtual Orkige::TypeInfo const & getTypeInfo() const;			\
+	private:
+
 #define OTYPE_INFO_IMPL(ClassType,ClassName)											\
 	Orkige::TypeInfo const & ClassType::getClassTypeInfo()								\
 	{																					\

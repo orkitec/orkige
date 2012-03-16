@@ -33,7 +33,7 @@ namespace Orkige
 	//!	Attributes are automatic exposed to Scripting and are automatic serialized
 	//!	so this allows fast prototypic programming
 	//!	Objects have also an optional String which can serve as some form of very simple Object recognition mechanism
-	class ORKIGE_DLL Object : public ObjectAttributeHolder
+	class ORKIGE_CORE_DLL Object : public ObjectAttributeHolder
 	{
 		OOBJECT(Object, ObjectAttributeHolder);
 		//--- Types -------------------------------------------------

@@ -15,9 +15,9 @@ namespace Orkige
 {
 	//! wrapper for non Object Types
 	template<typename Type>
-	class ORKIGE_DLL Value : public Object
+	class Value : public Object
 	{
-		OOBJECT(Value<Type>,Object);
+		OOBJECT_EXPORT(Value<Type>,Object, ORKIGE_CORE_DLL);
 		//--- Types -------------------------------------------------
 	public:
 	protected:

@@ -16,7 +16,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! LogManager Config loader
-	class ORKIGE_DLL LogConfig
+	class ORKIGE_CORE_DLL LogConfig
 	{
 		//--- Types -------------------------------------------------
 	public:

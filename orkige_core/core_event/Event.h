@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! Event with type and optional assigned data
-	class ORKIGE_DLL Event : public Object
+	class ORKIGE_CORE_DLL Event : public Object
 	{
 		OOBJECT(Event,Object)
 		//--- Types -------------------------------------------

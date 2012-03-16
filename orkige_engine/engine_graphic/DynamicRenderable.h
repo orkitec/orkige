@@ -15,7 +15,7 @@ namespace Orkige
 {
 	//! @brief Abstract base class providing mechanisms for dynamically growing hardware buffers.
 	//! @see http://www.ogre3d.org/tikiwiki/DynamicGrowingBuffers
-	class ORKIGE_DLL DynamicRenderable : public Ogre::SimpleRenderable
+	class ORKIGE_ENGINE_DLL DynamicRenderable : public Ogre::SimpleRenderable
 	{
 		//--- Types -------------------------------------------
 	public:

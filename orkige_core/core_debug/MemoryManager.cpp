@@ -217,7 +217,6 @@ namespace Orkige
 #else	// Linux uses assert, which we can use safely, since it doesn't bring up a dialog within the program.
 #define	MemoryManagerAssert(cond) assert(cond)
 #endif
-bool Orkige::MemoryManager::isInitialized = false;
 	//---------------------------------------------------------
 	//! Here, we turn off our macros because any place in this source file where the word 'new' or the word 'delete' (etc.)
 	//! appear will be expanded by the macro. So to avoid problems using them within this source file, we'll just #undef them.
@@ -264,14 +263,12 @@ bool Orkige::MemoryManager::isInitialized = false;
 		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
 		OutputDebugStringA("\n\t...MemoryManager created!...\n\n");
 		doCleanupLogOnFirstRun();
-		isInitialized = true;
 		
 	}
 	//---------------------------------------------------------
 	MemoryManager::~MemoryManager()
 	{
 		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
-		isInitialized = false;
 		staticDeinitTime = true; 
 		dumpLeakReport();
 		OutputDebugStringA("\n\t...MemoryManager destroyed!...\n\n");

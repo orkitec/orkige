@@ -14,7 +14,7 @@
 namespace Orkige
 {
 	//! global EventManager Singleton
-	class ORKIGE_DLL GlobalEventManager : public Singleton<GlobalEventManager> , public EventManager
+	class ORKIGE_CORE_DLL GlobalEventManager : public Singleton<GlobalEventManager> , public EventManager
 	{
 		OOBJECT(GlobalEventManager,EventManager)
 		DECL_OSINGLETON(GlobalEventManager)

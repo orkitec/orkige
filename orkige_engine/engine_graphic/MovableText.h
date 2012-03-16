@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! create a billboarding object that displays a text
-	class ORKIGE_DLL MovableText : public Ogre::MovableObject, public Ogre::Renderable
+	class ORKIGE_ENGINE_DLL MovableText : public Ogre::MovableObject, public Ogre::Renderable
 	{
 		//--- Types -------------------------------------------
 	public:

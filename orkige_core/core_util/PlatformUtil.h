@@ -17,13 +17,13 @@ namespace Orkige
 	namespace PlatformUtil
 	{
 		//! retrieve base path of current running app
-		String const & getBaseDirectory();
+		ORKIGE_CORE_DLL String const & getBaseDirectory();
 		//! retrieve Documents path
-		String const & getDocumentsDirectory();
+		ORKIGE_CORE_DLL String const & getDocumentsDirectory();
 		//! retrieve Resource path
-		String const & getResourceDirectory();
+		ORKIGE_CORE_DLL String const & getResourceDirectory();
 		//! retrieve path to application support/data directory
-		String const & getSupportDirectory(String applicationName);		
+		ORKIGE_CORE_DLL String const & getSupportDirectory(String applicationName);		
 		
 #ifdef __ANDROID__
 		//! set path to android Apk
@@ -42,7 +42,7 @@ namespace Orkige
 			PLATFORM_LINUX,
 			PLATFORM_WIN32,
 		};
-		const ORKIGE_PLATFORM getPlatform();
+		ORKIGE_CORE_DLL const ORKIGE_PLATFORM getPlatform();
 		
 	};
 	//---------------------------------------------------------

@@ -18,7 +18,7 @@ namespace Orkige
 {
 	//! generic component management
 	template<typename BaseComponentType>
-	class ORKIGE_DLL ComponentHolder : public Object
+	class ComponentHolder : public Object
 	{
 		OOBJECT(ComponentHolder<BaseComponentType>,Object)
 		//--- Types -------------------------------------------

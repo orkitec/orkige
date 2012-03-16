@@ -18,7 +18,7 @@ namespace Orkige
 {
 	//! Generic Component
 	template<typename OwnerType>
-	class ORKIGE_DLL Component : public Object
+	class Component : public Object
 	{
 		OOBJECT(Component<OwnerType>,Object)
 		//--- Types -------------------------------------------

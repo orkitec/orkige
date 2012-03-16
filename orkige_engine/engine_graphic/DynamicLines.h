@@ -17,7 +17,7 @@ namespace Orkige
 {
 	//! @brief simple dynamic line drawing
 	//! @see http://www.ogre3d.org/tikiwiki/DynamicLineDrawing
-	class ORKIGE_DLL DynamicLines : public DynamicRenderable
+	class ORKIGE_ENGINE_DLL DynamicLines : public DynamicRenderable
 	{
 		//--- Types -------------------------------------------
 	public:

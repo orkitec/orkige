@@ -14,7 +14,7 @@
 namespace Orkige
 {
 	//! base State implementation for SimpleStateMachine
-	class ORKIGE_DLL SimpleState : public Object
+	class ORKIGE_CORE_DLL SimpleState : public Object
 	{
 		friend class SimpleStateMachine;
 		OOBJECT_WD(SimpleState, Object)

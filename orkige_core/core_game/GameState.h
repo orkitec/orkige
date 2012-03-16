@@ -17,7 +17,7 @@ namespace Orkige
 	class GameStateManager;
 
 	//! base state for GameStateManager
-	class ORKIGE_DLL GameState : public Object
+	class ORKIGE_CORE_DLL GameState : public Object
 	{
 		friend class GameStateManager;
 		OOBJECT_WD(GameState,Object)

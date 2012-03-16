@@ -25,7 +25,7 @@
 namespace Orkige
 {
 	//! Keyboard, Mouse and Multitouch Input Managemenet
-	class ORKIGE_DLL InputManager : public Singleton<InputManager>, public Interface
+	class ORKIGE_ENGINE_DLL InputManager : public Singleton<InputManager>, public Interface
 	{
 		OOBJECT(InputManager,Interface);
 		DECL_OSINGLETON(InputManager);

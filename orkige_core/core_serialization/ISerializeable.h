@@ -17,7 +17,7 @@ namespace Orkige
 {
     class IArchive;
 	//! base class for serializable objects
-	class ORKIGE_DLL ISerializeable : public Interface
+	class ORKIGE_CORE_DLL ISerializeable : public Interface
 	{
 		OOBJECT(ISerializeable, Interface)
 		//--- Types -------------------------------------------

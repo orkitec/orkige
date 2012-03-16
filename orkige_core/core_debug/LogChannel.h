@@ -17,7 +17,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! LogManager channel
-	class ORKIGE_DLL LogChannel
+	class ORKIGE_CORE_DLL LogChannel
 	{
 		//--- Types -------------------------------------------------
 	public:

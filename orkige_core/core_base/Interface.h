@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! java like Interface base class for all Objects
-	class ORKIGE_DLL Interface
+	class ORKIGE_CORE_DLL Interface
 	{
 		OINTERFACE(Interface);
 		//--- Types -------------------------------------------------

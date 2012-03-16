@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! a simple state machine
-	class ORKIGE_DLL SimpleStateMachine : public Object 
+	class ORKIGE_CORE_DLL SimpleStateMachine : public Object 
 	{
 		OOBJECT(SimpleStateMachine, Object)
 		//--- Types -------------------------------------------

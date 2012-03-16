@@ -24,7 +24,7 @@ namespace Orkige
 	/** \addtogroup Gui
 	*  @{ */
 	//! console to show Ingame log and execute commands
-	class ORKIGE_DLL IngameConsole : public Singleton<IngameConsole>, Ogre::LogListener, public Object
+	class ORKIGE_ENGINE_DLL IngameConsole : public Singleton<IngameConsole>, Ogre::LogListener, public Object
 	{
 		OOBJECT(IngameConsole,Object);
 		DECL_OSINGLETON(IngameConsole);

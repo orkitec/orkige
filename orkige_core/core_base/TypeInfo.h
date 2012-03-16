@@ -22,7 +22,7 @@ namespace bp = luabind;
 namespace Orkige
 {
 	//! Custom RTTI TypeInfo implementation
-	class ORKIGE_DLL TypeInfo
+	class ORKIGE_CORE_DLL TypeInfo
 	{
 	public:
 		//! TypeInfo Meta Data

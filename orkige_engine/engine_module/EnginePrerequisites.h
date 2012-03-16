@@ -9,6 +9,25 @@
 #ifndef __EnginePrerequisites_h__8_9_2010__20_40_50__
 #define __EnginePrerequisites_h__8_9_2010__20_40_50__
 
+#ifdef WIN32
+#	if defined( ORKIGE_STATIC )
+#   	define ORKIGE_CORE_DLL
+#   else
+#      if defined( __MINGW32__ )
+#			define ORKIGE_CORE_DLL
+#		else
+#			pragma warning( disable : 4251)
+#			ifdef orkige_engine_EXPORTS
+#				define ORKIGE_ENGINE_DLL __declspec( dllexport )
+#			else
+#				define ORKIGE_ENGINE_DLL __declspec( dllimport )
+#			endif
+#		endif
+#	endif
+#else // Linux / Mac OSX etc
+#	define ORKIGE_CORE_DLL
+#endif
+
 #include "core_module/OrkigePrerequisites.h"
 #include "core_base/Meta.h"
 #include <core_debug/DisableMemoryManager.h>

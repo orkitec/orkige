@@ -19,7 +19,7 @@ namespace Orkige
 	//! pair with String key and GameState pointer
 	typedef std::pair<String,optr<GameState> > StateRegistryPair;
 	//! manages GameStates in Hierarchical StateMachine
-	class ORKIGE_DLL GameStateManager : public Singleton<GameStateManager> , public Object
+	class ORKIGE_CORE_DLL GameStateManager : public Singleton<GameStateManager> , public Object
 	{
 		friend class GameState;
 		OOBJECT(GameStateManager,Object);

@@ -14,29 +14,25 @@ namespace Orkige
 {
 	typedef unsigned int uint; //!< unsigned int shortcut
 
-#ifdef __WIN32__
-#	ifndef NOPRAGMAS
-#		pragma once
-#		pragma warning(disable:4275)
-#		pragma warning(disable:4311)//reinterpret cast
-		// disable: "no suitable definition provided for explicit template
-		// instantiation request" Occurs in VC7 for no justifiable reason on all
-		// #includes of Singleton
-#		pragma warning( disable: 4661)
-
-		// disable: "<type> needs to have dll-interface to be used by clients'
-		// Happens on STL member variables which are not public therefore is ok
-#		pragma warning (disable : 4251)
-#	endif
-	// Export control
-#	ifdef ORKIGE_EXPORTS
-#		define ORKIGE_DLL __declspec( dllexport )
-#	else
-#		define ORKIGE_DLL //__declspec( dllimport )
+#ifdef WIN32
+#	if defined( ORKIGE_STATIC )
+#   	define ORKIGE_CORE_DLL
+#   else
+#      if defined( __MINGW32__ )
+#			define ORKIGE_CORE_DLL
+#		else
+#			pragma warning( disable : 4251)
+#			ifdef orkige_core_EXPORTS
+#				define ORKIGE_CORE_DLL __declspec( dllexport )
+#			else
+#				define ORKIGE_CORE_DLL __declspec( dllimport )
+#			endif
+#		endif
 #	endif
 #else // Linux / Mac OSX etc
-#	define ORKIGE_DLL
+#	define ORKIGE_CORE_DLL
 #endif
+
 
 }
 

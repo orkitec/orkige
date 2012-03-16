@@ -20,7 +20,7 @@ namespace Orkige
 {
 	class ISerializeable;
 	//! virtual base archive type for serialization
-	class ORKIGE_DLL IArchive : public Interface, public StreamOperators<IArchive>
+	class ORKIGE_CORE_DLL IArchive : public Interface, public StreamOperators<IArchive>
 	{
 		OOBJECT(IArchive, Interface)
 		//--- Types -------------------------------------------

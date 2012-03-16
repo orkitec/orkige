@@ -16,7 +16,7 @@ namespace Orkige
 	/** \addtogroup EngineEvents
 	*  @{ */
 	//! Data that gets sent on InputManager::AcceleartionEvent
-	class ORKIGE_DLL AccelerationEventData : public Object
+	class ORKIGE_ENGINE_DLL AccelerationEventData : public Object
 	{
 		OOBJECT(AccelerationEventData,Object)
 		//--- Types -------------------------------------------------

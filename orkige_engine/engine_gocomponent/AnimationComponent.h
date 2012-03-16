@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! component which can manage Animation Playback on GameObject's
-	class ORKIGE_DLL AnimationComponent : public GameObjectComponent
+	class ORKIGE_ENGINE_DLL AnimationComponent : public GameObjectComponent
 	{
 		OOBJECT(AnimationComponent, GameObjectComponent)
 		//--- Types -------------------------------------------------

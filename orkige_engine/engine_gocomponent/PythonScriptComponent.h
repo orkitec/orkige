@@ -6,7 +6,7 @@
 #ifndef ORKIGE_NOSCRIPT
 namespace Orkige
 {
-	class ORKIGE_DLL PythonScriptComponent : public GameObjectComponent
+	class ORKIGE_ENGINE_DLL PythonScriptComponent : public GameObjectComponent
 	{
 		OOBJECT(PythonScriptComponent,GameObjectComponent)
 	// Attributes --------------------------------------------------------------

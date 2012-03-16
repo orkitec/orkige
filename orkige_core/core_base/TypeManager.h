@@ -27,7 +27,7 @@ namespace Orkige
 
 	//! @brief can register and create all types Derived from Interface with default constructor
 	//! @see InterfaceTypeFactory
-	class ORKIGE_DLL TypeManager : public InterfaceTypeFactory, public Singleton<TypeManager>
+	class ORKIGE_CORE_DLL TypeManager : public InterfaceTypeFactory, public Singleton<TypeManager>
 	{
 		DECL_OSINGLETON(TypeManager);
 		//--- Types -------------------------------------------------

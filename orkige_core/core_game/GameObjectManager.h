@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! GameObject management
-	class ORKIGE_DLL GameObjectManager : public Singleton<GameObjectManager>, public Object
+	class ORKIGE_CORE_DLL GameObjectManager : public Singleton<GameObjectManager>, public Object
 	{
 		friend class GameObject;
 		OOBJECT(GameObjectManager,Object)

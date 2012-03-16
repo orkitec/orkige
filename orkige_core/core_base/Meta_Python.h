@@ -148,7 +148,7 @@ namespace bp = boost::python;
 #define OSIMPLEEXPORT_END ;};
 
 #define OWRAPPER_START(ClassName)													\
-	struct ORKIGE_DLL ClassName##VirtualWrapper : ClassName, bp::wrapper<ClassName>	\
+	struct ORKIGE_CORE_DLL ClassName##VirtualWrapper : ClassName, bp::wrapper<ClassName>	\
 	{																				\
 		typedef ClassName##VirtualWrapper	VirtualWrapperClassName;				\
 		typedef ClassName					VirtualWrapperBaseClassName;

@@ -20,7 +20,7 @@ namespace tinyxml2
 namespace Orkige
 {
 	//! IArchive that writes and reades to xml
-	class ORKIGE_DLL XMLArchive : public IArchive
+	class ORKIGE_CORE_DLL XMLArchive : public IArchive
 	{
 		OOBJECT(XMLArchive,IArchive)
 		//--- Types -------------------------------------------

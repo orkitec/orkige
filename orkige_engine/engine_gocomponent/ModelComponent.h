@@ -17,7 +17,7 @@
 namespace Orkige
 {
 	//! handles 1 Model attached to a GameObject
-	class ORKIGE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
+	class ORKIGE_ENGINE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
 		//--- Types -------------------------------------------------

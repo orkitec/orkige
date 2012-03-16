@@ -25,7 +25,7 @@ namespace Orkige
 	class GameObject;
 
 	//! Base Component for GameObjects
-	class ORKIGE_DLL GameObjectComponent : public Component<GameObject>, public EventHandler
+	class ORKIGE_CORE_DLL GameObjectComponent : public Component<GameObject>, public EventHandler
 	{
 		OOBJECT(GameObjectComponent,Component<GameObject>)
 		//--- Types -------------------------------------------

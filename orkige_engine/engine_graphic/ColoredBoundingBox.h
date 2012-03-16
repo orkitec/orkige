@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! colored AxisAlignedBoundingBox for Ogre::SceneNode and Ogre::Entity's
-	class ORKIGE_DLL ColoredBoundingBox
+	class ORKIGE_ENGINE_DLL ColoredBoundingBox
 	{
 		//--- Types -------------------------------------------
 	public:

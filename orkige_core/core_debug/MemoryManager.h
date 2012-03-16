@@ -98,7 +98,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! Memory manager & tracking software
-	class ORKIGE_DLL MemoryManager : public Singleton<MemoryManager>
+	class MemoryManager : public Singleton<MemoryManager>
 	{
 		friend void * ::operator new(size_t);
 		friend void * ::operator new[](size_t);
@@ -106,7 +106,7 @@ namespace Orkige
 		friend void	* ::operator new[](size_t reportedSize, const char *sourceFile, int sourceLine);
 		friend void ::operator delete(void*);
 		friend void ::operator delete[](void*);
-		DECL_OSINGLETON(MemoryManager);
+		DECL_OSINGLETON_ORKIGE_CORE_DLL(MemoryManager);
 		//--- Types -------------------------------------------------
 	public:
 		//! Allocation Unit Info
@@ -160,7 +160,6 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		static bool isInitialized;
 		boost::mutex memoryMutex;
 		//--- Methods -----------------------------------------------
 	public:
@@ -171,70 +170,70 @@ namespace Orkige
 
 		//! These are the standard new/new[] operators. They are merely interface functions that operate like normal new/new[], 
 		//!  but use our memory tracking routines.
-		void *operator_new_p(size_t reportedSize);
+		ORKIGE_CORE_DLL void *operator_new_p(size_t reportedSize);
 		//! @see MemoryManager::operator_new_p
-		void *operator_new_a(size_t reportedSize);
+		ORKIGE_CORE_DLL void *operator_new_a(size_t reportedSize);
 		//! These are the standard new/new[] operators as used by Microsoft's memory tracker. We don't want them interfering with our memory
 		//!  tracking efforts. Like the previous versions, these are merely interface functions that operate like normal new/new[], but use
 		//!  our memory tracking routines.
-		void *operator_new_p(size_t reportedSize, const char *sourceFile, int sourceLine);
+		ORKIGE_CORE_DLL void *operator_new_p(size_t reportedSize, const char *sourceFile, int sourceLine);
 		//! @see MemoryManager::operator_new_p
-		void *operator_new_a(size_t reportedSize, const char *sourceFile, int sourceLine);
+		ORKIGE_CORE_DLL void *operator_new_a(size_t reportedSize, const char *sourceFile, int sourceLine);
 		//! These are the standard delete/delete[] operators. They are merely interface functions that operate like normal delete/delete[],
 		//! but use our memory tracking routines.
-		void operator_delete_p(void *reportedAddress);
+		ORKIGE_CORE_DLL void operator_delete_p(void *reportedAddress);
 		//! @see MemoryManager::operator_delete_p
-		void operator_delete_a(void *reportedAddress);
+		ORKIGE_CORE_DLL void operator_delete_a(void *reportedAddress);
 
 		//! Used by the macros
-		void setOwner(const char *file, const unsigned int line, const char *func);
+		ORKIGE_CORE_DLL void setOwner(const char *file, const unsigned int line, const char *func);
 
 		// Allocation breakpoints
 		
 		//! Simply call this routine with the address of an allocated block of RAM, to cause it to force a breakpoint when it is reallocated.
-		bool &breakOnRealloc(void *reportedAddress);
+		ORKIGE_CORE_DLL bool &breakOnRealloc(void *reportedAddress);
 		//! Simply call this routine with the address of an allocated block of RAM, to cause it to force a breakpoint when it is deallocated.
-		bool &breakOnDealloc(void *reportedAddress);
+		ORKIGE_CORE_DLL bool &breakOnDealloc(void *reportedAddress);
 
 		// The meat of the memory tracking software
 		
 		//! Allocate memory and track it
-		void *allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize);
+		ORKIGE_CORE_DLL void *allocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int allocationType, const size_t reportedSize);
 		//! Reallocate memory and track it
-		void *reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress);
+		ORKIGE_CORE_DLL void *reallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int reallocationType, const size_t reportedSize, void *reportedAddress);
 		//! Deallocate memory and track it
-		void deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress);
+		ORKIGE_CORE_DLL void deallocator(const char *sourceFile, const unsigned int sourceLine, const char *sourceFunc, const unsigned int deallocationType, const void *reportedAddress);
 
 		// The following utilitarian allow you to become proactive in tracking your own memory, or help you narrow in on those tough bugs.
 		//! validate given memory adress
-		bool validateAddress(const void *reportedAddress);
+		ORKIGE_CORE_DLL bool validateAddress(const void *reportedAddress);
 		//! validate given AllocUnit
-		bool validateAllocUnit(const AllocUnit *allocUnit);
+		ORKIGE_CORE_DLL bool validateAllocUnit(const AllocUnit *allocUnit);
 		//! validate all AlllocUnit's
-		bool validateAllAllocUnits();
+		ORKIGE_CORE_DLL bool validateAllAllocUnits();
 
 		//! Unused RAM calculation routines. Use these to determine how much of your RAM is unused (in bytes)
-		unsigned int calcUnused(const AllocUnit *allocUnit);
+		ORKIGE_CORE_DLL unsigned int calcUnused(const AllocUnit *allocUnit);
 		//! @see MemoryManager::calcUnused
-		unsigned int calcAllUnused();
+		ORKIGE_CORE_DLL unsigned int calcAllUnused();
 
 		// The following functions are for logging and statistics reporting.
 		//! dump AllocUnit to log
-		void dumpAllocUnit(const AllocUnit *allocUnit, const char *prefix = "");
+		ORKIGE_CORE_DLL void dumpAllocUnit(const AllocUnit *allocUnit, const char *prefix = "");
 		//! write memory report
-		void dumpMemoryReport(const char *filename = "memreport.log", const bool overwrite = true);
+		ORKIGE_CORE_DLL void dumpMemoryReport(const char *filename = "memreport.log", const bool overwrite = true);
 		//! get the memory statistics
-		MemStats getMemoryStatistics();
+		ORKIGE_CORE_DLL MemStats getMemoryStatistics();
 		//! Force a validation of all allocation units each time we enter this software
-		bool	&setGetAlwaysValidateAll();
+		ORKIGE_CORE_DLL bool	&setGetAlwaysValidateAll();
 		//! Force a log of every allocation & deallocation into memory.log
-		bool	&setGetAlwaysLogAll();
+		ORKIGE_CORE_DLL bool	&setGetAlwaysLogAll();
 		//! Force this software to always wipe memory with a pattern when it is being allocated/dallocated
-		bool	&setGetAlwaysWipeAll();
+		ORKIGE_CORE_DLL bool	&setGetAlwaysWipeAll();
 		//! Force this software to use a random pattern when wiping memory -- good for stress testing
-		bool	&setGetRandomeWipe();
+		ORKIGE_CORE_DLL bool	&setGetRandomeWipe();
 		//! When tracking down a difficult bug, use this routine to force a breakpoint on a specific allocation count
-		void	setBreakOnAllocation(unsigned int count);
+		ORKIGE_CORE_DLL void	setBreakOnAllocation(unsigned int count);
 	protected:
 	private:
 		void dumpAllocations(FILE *fp);
@@ -256,9 +255,9 @@ namespace Orkige
 	};
 	/** @} End of "addtogroup Debug"*/
 	//---------------------------------------------------------------
-	int createOrkigeMemoryManager();
-	void operator_delete_p_unmanaged(void *reportedAddress);
-	void operator_delete_a_unmanaged(void *reportedAddress);
+	ORKIGE_CORE_DLL int createOrkigeMemoryManager();
+	ORKIGE_CORE_DLL void operator_delete_p_unmanaged(void *reportedAddress);
+	ORKIGE_CORE_DLL void operator_delete_a_unmanaged(void *reportedAddress);
 }
 
 #if defined(__cplusplus_cli)
@@ -268,7 +267,7 @@ namespace Orkige
 //! Overridden global new([])/delete([]) functions
 inline void *operator new(size_t reportedSize)
 {
-	if(!Orkige::MemoryManager::isInitialized)
+	if(!Orkige::MemoryManager::getSingletonPtr())
 		Orkige::createOrkigeMemoryManager();
 
 	return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize);
@@ -276,7 +275,7 @@ inline void *operator new(size_t reportedSize)
 //-------------------------------------------------------------------
 inline void *operator new[](size_t reportedSize)
 {
-	if(!Orkige::MemoryManager::isInitialized)
+	if(!Orkige::MemoryManager::getSingletonPtr())
 		Orkige::createOrkigeMemoryManager();
 
 	return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize);
@@ -284,7 +283,7 @@ inline void *operator new[](size_t reportedSize)
 //-------------------------------------------------------------------
 inline void	* operator new(size_t reportedSize, const char *sourceFile, int sourceLine)
 {
-	if(!Orkige::MemoryManager::isInitialized)
+	if(!Orkige::MemoryManager::getSingletonPtr())
 		Orkige::createOrkigeMemoryManager();
 
 	return Orkige::MemoryManager::getSingleton().operator_new_p( reportedSize, sourceFile, sourceLine);
@@ -293,7 +292,7 @@ inline void	* operator new(size_t reportedSize, const char *sourceFile, int sour
 //-------------------------------------------------------------------
 inline void	* operator new[](size_t reportedSize, const char *sourceFile, int sourceLine)
 {
-	if(!Orkige::MemoryManager::isInitialized)
+	if(!Orkige::MemoryManager::getSingletonPtr())
 		Orkige::createOrkigeMemoryManager();
 
 	return Orkige::MemoryManager::getSingleton().operator_new_a( reportedSize, sourceFile, sourceLine);
@@ -301,7 +300,7 @@ inline void	* operator new[](size_t reportedSize, const char *sourceFile, int so
 //-------------------------------------------------------------------
 inline void operator delete(void *reportedAddress)
 {
-	if(Orkige::MemoryManager::isInitialized)
+	if(Orkige::MemoryManager::getSingletonPtr())
 		Orkige::MemoryManager::getSingleton().operator_delete_p( reportedAddress);
 	else
 		Orkige::operator_delete_p_unmanaged( reportedAddress);
@@ -309,7 +308,7 @@ inline void operator delete(void *reportedAddress)
 //-------------------------------------------------------------------
 inline void operator delete[](void *reportedAddress)
 {
-	if(Orkige::MemoryManager::isInitialized)
+	if(Orkige::MemoryManager::getSingletonPtr())
 		Orkige::MemoryManager::getSingleton().operator_delete_a( reportedAddress);
 	else
 		Orkige::operator_delete_a_unmanaged( reportedAddress);

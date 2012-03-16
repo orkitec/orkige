@@ -16,7 +16,7 @@ namespace Orkige
 	/** \addtogroup EngineEvents
 	*  @{ */
 	//! Data that gets sent on InputManager::TouchPressedEvent, InputManager::TouchReleasedEvent, InputManager::TouchMovedEvent and InputManager::TouchCancelledEvent
-	class ORKIGE_DLL TouchEventData : public Object
+	class ORKIGE_ENGINE_DLL TouchEventData : public Object
 	{
 		OOBJECT(TouchEventData,Object)
 		//--- Types -------------------------------------------------

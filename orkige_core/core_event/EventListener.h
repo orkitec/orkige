@@ -26,7 +26,7 @@ namespace Orkige
 #endif
 	//---------------------------------------------------------
 	//!	manages event handling funtions and optional priorities
-	class ORKIGE_DLL EventListener
+	class ORKIGE_CORE_DLL EventListener
 	{
 		friend class EventManager;
 		//--- Types -------------------------------------------

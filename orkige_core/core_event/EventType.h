@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! Data necessary to register and event classification
-	class ORKIGE_DLL EventType : public Interface, public TypeInfo
+	class ORKIGE_CORE_DLL EventType : public Interface, public TypeInfo
 	{
 		OOBJECT2(EventType,Interface,TypeInfo)
 		//--- Types -------------------------------------------

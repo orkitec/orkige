@@ -16,7 +16,7 @@ namespace Orkige
 	/** \addtogroup EngineEvents
 	*  @{ */
 	//! Data that gets sent on InputManager::GestureBeganEvent, InputManager::GestureEndedEvent and InputManager::GestureCancelledEvent
-	class ORKIGE_DLL GestureEventData : public Object
+	class ORKIGE_ENGINE_DLL GestureEventData : public Object
 	{
 		OOBJECT(GestureEventData,Object)
 		//--- Types -------------------------------------------------

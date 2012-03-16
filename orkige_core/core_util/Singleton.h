@@ -67,6 +67,14 @@ public:																			\
 	static ClassName* getSingletonPtr( void );									\
 private:
 
+#define DECL_OSINGLETON_ORKIGE_CORE_DLL(ClassName)									\
+public:																			\
+	/** get singleton instance of ClassName */									\
+	ORKIGE_CORE_DLL static ClassName& getSingleton( void );							\
+	/** get singleton ptr of ClassName or NULL if singleton wasn't created.*/	\
+	ORKIGE_CORE_DLL static ClassName* getSingletonPtr( void );						\
+private:
+
 	//! default singleton implementation
 #define IMPL_OSINGLETON(ClassName)												\
 	ClassName& ClassName::getSingleton( void )									\

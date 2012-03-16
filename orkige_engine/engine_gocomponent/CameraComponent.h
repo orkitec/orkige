@@ -19,7 +19,7 @@ namespace Orkige
 	//! camera function definition
 	typedef fastdelegate::FastDelegate3<CameraComponent*, Ogre::Real, Ogre::Real, void> CameraModeFunction;
 	//! component that can handle a camera attached to to a GameObject
-	class ORKIGE_DLL CameraComponent : public GameObjectComponent
+	class ORKIGE_ENGINE_DLL CameraComponent : public GameObjectComponent
 	{
 		OOBJECT(CameraComponent,GameObjectComponent)
 		//--- Types -------------------------------------------

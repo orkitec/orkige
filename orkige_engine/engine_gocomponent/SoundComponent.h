@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! handles attached SoundSource's to GameObject's
-	class ORKIGE_DLL SoundComponent : public GameObjectComponent
+	class ORKIGE_ENGINE_DLL SoundComponent : public GameObjectComponent
 	{
 		OOBJECT(SoundComponent,GameObjectComponent)	
 		//--- Types -------------------------------------------------

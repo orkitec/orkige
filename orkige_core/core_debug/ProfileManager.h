@@ -20,7 +20,7 @@ namespace Orkige
 	/** \addtogroup Debug
 	*  @{ */
 	//! The Manager for the Profile system
-	class ProfileManager : public Singleton<ProfileManager>
+	class ORKIGE_CORE_DLL ProfileManager : public Singleton<ProfileManager>
 	{
 		DECL_OSINGLETON(ProfileManager);
 		//--- Types -------------------------------------------------
