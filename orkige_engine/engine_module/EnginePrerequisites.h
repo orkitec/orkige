@@ -11,10 +11,10 @@
 
 #ifdef WIN32
 #	if defined( ORKIGE_STATIC )
-#   	define ORKIGE_CORE_DLL
+#   	define ORKIGE_ENGINE_DLL
 #   else
 #      if defined( __MINGW32__ )
-#			define ORKIGE_CORE_DLL
+#			define ORKIGE_ENGINE_DLL
 #		else
 #			pragma warning( disable : 4251)
 #			ifdef orkige_engine_EXPORTS
@@ -25,7 +25,7 @@
 #		endif
 #	endif
 #else // Linux / Mac OSX etc
-#	define ORKIGE_CORE_DLL
+#	define ORKIGE_ENGINE_DLL
 #endif
 
 #include "core_module/OrkigePrerequisites.h"
