@@ -302,21 +302,22 @@ namespace Orkige
 
 		inline void oisMouseToOrkige(const OIS::MouseState &state)
 		{
+			/*
 			Ogre::Real scaleFactorX = 1.0f;
 			Ogre::Real scaleFactorY = 1.0f;
-			/*if(Engine::getSingleton().getCamera()->getProjectionType() == Ogre::PT_ORTHOGRAPHIC)
+			if(Engine::getSingleton().getCamera()->getProjectionType() == Ogre::PT_ORTHOGRAPHIC)
 			{
 				scaleFactorX = (Ogre::Real)(Engine::getSingleton().getCamera()->getOrthoWindowHeight()) / (Ogre::Real)(Engine::getSingleton().getViewport()->getActualHeight());
 				scaleFactorY = (Ogre::Real)(Engine::getSingleton().getCamera()->getOrthoWindowWidth()) / (Ogre::Real)(Engine::getSingleton().getViewport()->getActualWidth());
 			}*/
 			
 			this->mouseData->buttons = state.buttons;
-			this->mouseData->relX = state.X.rel / scaleFactorX;
-			this->mouseData->relY = state.Y.rel / scaleFactorY;
-			this->mouseData->relZ = state.Z.rel / scaleFactorY;
-			this->mouseData->absX = state.X.abs / scaleFactorX;
-			this->mouseData->absY = state.Y.abs / scaleFactorY;
-			this->mouseData->absZ = state.Z.abs / scaleFactorY;
+			this->mouseData->relX = state.X.rel /*/ scaleFactorX*/;
+			this->mouseData->relY = state.Y.rel /*/ scaleFactorY*/;
+			this->mouseData->relZ = state.Z.rel /*/ scaleFactorY*/;
+			this->mouseData->absX = state.X.abs /*/ scaleFactorX*/;
+			this->mouseData->absY = state.Y.abs /*/ scaleFactorY*/;
+			this->mouseData->absZ = state.Z.abs /*/ scaleFactorY*/;
 		}
 		inline void oisMouseToOrkige(const OIS::MultiTouchState &state)
 		{
