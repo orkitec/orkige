@@ -86,6 +86,11 @@ namespace Orkige
 			_orkige_android_files_path = path;
 		}
 		//---------------------------------------------------------
+		String const & getSupportDirectory(String applicationName)
+		{
+			return _orkige_android_files_path;
+		}
+		//---------------------------------------------------------
 		String const & getBaseDirectory()
 		{
 			return _orkige_android_files_path;
