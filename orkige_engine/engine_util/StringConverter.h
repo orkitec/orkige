@@ -19,7 +19,7 @@ namespace Orkige
 	{
 		//! @brief converter for several types into String's and vice versa
 		//! @see Ogre::StringConverter
-		class Converter : public Ogre::StringConverter
+		class ORKIGE_ENGINE_DLL Converter : public Ogre::StringConverter
 		{
 			//--- Types -------------------------------------------
 		public:

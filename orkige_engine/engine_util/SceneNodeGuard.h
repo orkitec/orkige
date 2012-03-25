@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! utility wrapper around Ogre::SceneNode to prevent accidental destruction and to receive of events on Node changes 
-	class SceneNodeGuard
+	class ORKIGE_ENGINE_DLL SceneNodeGuard
 	{
 		//--- Types -------------------------------------------------
 	public:

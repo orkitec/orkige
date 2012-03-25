@@ -18,9 +18,9 @@ namespace Orkige
 	namespace ResourceUtil
 	{
 		//! get path for given fileName
-		String findPath(String const & filename);
+		String ORKIGE_ENGINE_DLL findPath(String const & filename);
 
-		void removeUnusedResources();
+		void ORKIGE_ENGINE_DLL removeUnusedResources();
 	};
 	//---------------------------------------------------------
 }

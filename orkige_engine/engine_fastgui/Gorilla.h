@@ -345,7 +345,7 @@ namespace Gorilla
 	desc.
 	Texture and size information about a single character loaded from a TextureAtlas.
 	*/
-	class Glyph : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Glyph : public Ogre::GeneralAllocatedObject
 	{
 
 	public:
@@ -391,7 +391,7 @@ namespace Gorilla
 	desc.
 	Portions of a texture from a TextureAtlas.
 	*/
-	class Sprite : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Sprite : public Ogre::GeneralAllocatedObject
 	{
 
 	public:
@@ -409,7 +409,7 @@ namespace Gorilla
 	desc.
 	Main singleton class for Gorilla
 	*/
-	class Silverback : public Ogre::Singleton<Silverback>, public Ogre::GeneralAllocatedObject, public Ogre::FrameListener
+	class ORKIGE_ENGINE_DLL Silverback : public Ogre::Singleton<Silverback>, public Ogre::GeneralAllocatedObject, public Ogre::FrameListener
 	{
 
 	public:
@@ -491,7 +491,7 @@ namespace Gorilla
 	desc.
 	Collection of glyphs of the same size.
 	*/
-	class GlyphData : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL GlyphData : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class TextureAtlas;
@@ -548,7 +548,7 @@ namespace Gorilla
 	describes the portions of a single texture. Such as Glyph and Sprite information, text kerning,
 	line heights and so on. It isn't typically used by the end-user.
 	*/
-	class TextureAtlas : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL TextureAtlas : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Silverback;
@@ -763,7 +763,7 @@ namespace Gorilla
 
 	};
 
-	class LayerContainer
+	class ORKIGE_ENGINE_DLL LayerContainer
 	{
 
 	public:
@@ -904,7 +904,7 @@ namespace Gorilla
 
 	};
 
-	class Screen : public LayerContainer, public Ogre::RenderQueueListener, public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Screen : public LayerContainer, public Ogre::RenderQueueListener, public Ogre::GeneralAllocatedObject
 	{
 	public:
 
@@ -1009,7 +1009,7 @@ namespace Gorilla
 
 	};
 
-	class ScreenRenderable : public LayerContainer, public Ogre::SimpleRenderable
+	class ORKIGE_ENGINE_DLL ScreenRenderable : public LayerContainer, public Ogre::SimpleRenderable
 	{
 
 	public:
@@ -1048,7 +1048,7 @@ namespace Gorilla
 	desc.
 	Text
 	*/
-	class Layer : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Layer : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class LayerContainer;
@@ -1425,7 +1425,7 @@ namespace Gorilla
 	desc.
 	Single rectangle with an optional border.
 	*/
-	class Rectangle : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Rectangle : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;
@@ -1954,7 +1954,7 @@ namespace Gorilla
 	desc.
 	A regular n-sided polygon.
 	*/
-	class Polygon : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Polygon : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;
@@ -2269,7 +2269,7 @@ namespace Gorilla
 
 	};
 
-	class LineList : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL LineList : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;
@@ -2340,7 +2340,7 @@ namespace Gorilla
 	desc.
 	"ManualObject" like class to quickly draw rectangles, gradients, sprites and borders.
 	*/
-	class QuadList : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL QuadList : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;
@@ -2473,7 +2473,7 @@ namespace Gorilla
 	desc.
 	A single line piece of text
 	*/
-	class Caption : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL Caption : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;
@@ -2798,7 +2798,7 @@ namespace Gorilla
 	A multi-line collection of text formatted by a light markup language, that can
 	switch colours, change to monospace and insert sprites directly into the text.
 	*/
-	class MarkupText : public Ogre::GeneralAllocatedObject
+	class ORKIGE_ENGINE_DLL MarkupText : public Ogre::GeneralAllocatedObject
 	{
 
 		friend class Layer;

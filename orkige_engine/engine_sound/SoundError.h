@@ -18,7 +18,7 @@ typedef int ALenum;
 namespace Orkige
 {
 	//! error that gets thrown on errors regarding Sounds
-	class SoundError : public std::runtime_error 
+	class ORKIGE_ENGINE_DLL SoundError : public std::runtime_error 
 	{
 		//-Types--------------------------------------------
 	public:

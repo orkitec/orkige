@@ -24,7 +24,7 @@
 
 namespace Orkige
 {
-	class FastGuiFactory : public Ogre::ConfigFile
+	class ORKIGE_ENGINE_DLL FastGuiFactory : public Ogre::ConfigFile
 	{
 		//--- Types -------------------------------------------------
 	public:

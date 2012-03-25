@@ -28,7 +28,7 @@ namespace Orkige
 	*/
 
 	//! Base Game Application
-	class Application : public Singleton<Application>
+	class ORKIGE_CORE_DLL Application : public Singleton<Application>
 	{
 		DECL_OSINGLETON(Application)
 		//--- Types -------------------------------------------------

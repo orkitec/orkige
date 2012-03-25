@@ -46,7 +46,7 @@ namespace Orkige
 
 		this->clear();
 		this->currentLocale = currentLocale;
-		boost::split(this->supportedLocales, validLocales, boost::is_any_of(","));
+		boost::split(this->supportedLocales, validLocales, boost::is_any_of(Orkige::String(",")));
 		
 		oAssertDesc(!defaultLocale.empty(), "Localization: no default language set");
 		oAssertDesc(!this->supportedLocales.empty(), "Localization: no supported language found");

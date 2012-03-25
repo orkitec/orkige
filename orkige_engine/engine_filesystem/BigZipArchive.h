@@ -22,7 +22,7 @@ namespace Orkige
 	This archive format supports all archives compressed in the standard
 	zip format, including iD pk3 files.
 	*/
-	class BigZipArchive : public Ogre::Archive 
+	class ORKIGE_ENGINE_DLL BigZipArchive : public Ogre::Archive 
 	{
 		//--- Types -------------------------------------------------
 	public:

@@ -43,7 +43,7 @@
 namespace Orkige
 {
 	//! basic collision utilities
-	class CollisionTools : public Singleton<CollisionTools>
+	class ORKIGE_ENGINE_DLL CollisionTools : public Singleton<CollisionTools>
 	{
 		DECL_OSINGLETON(CollisionTools);
 		//--- Types -------------------------------------------

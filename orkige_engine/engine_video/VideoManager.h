@@ -21,7 +21,7 @@ namespace Orkige
 	class VideoSoundHandlerFactory;
 #endif
 	//! simplified video interface around OgreVideoManager and TheoraVideoManager to play fullscreen videos
-	class VideoManager : 
+	class ORKIGE_ENGINE_DLL VideoManager : 
 #ifdef ORKIGE_THEORAVIDEOMANAGER
 		public Ogre::OgreVideoManager,
 #endif

@@ -13,7 +13,7 @@
 
 namespace Orkige
 {
-	class FastGuiTextbox : public FastGuiWidget
+	class ORKIGE_ENGINE_DLL FastGuiTextbox : public FastGuiWidget
 	{
 		OOBJECT(FastGuiTextbox, FastGuiWidget);
 		//--- Types -------------------------------------------------

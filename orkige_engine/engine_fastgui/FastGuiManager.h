@@ -18,7 +18,7 @@
 
 namespace Orkige
 {
-	class FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler, public Ogre::RenderTargetListener
+	class ORKIGE_ENGINE_DLL FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler, public Ogre::RenderTargetListener
 	{
 		OOBJECT(FastGuiManager, Interface);
 		DECL_OSINGLETON(FastGuiManager);

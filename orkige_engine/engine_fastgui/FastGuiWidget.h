@@ -23,7 +23,7 @@ namespace Orkige
 		using Gorilla::rgb;
 	};
 
-	class FastGuiWidget : public IGuiObject
+	class ORKIGE_ENGINE_DLL FastGuiWidget : public IGuiObject
 	{
 		OOBJECT(FastGuiWidget, IGuiObject);
 		//--- Types -------------------------------------------------

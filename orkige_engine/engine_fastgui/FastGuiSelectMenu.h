@@ -16,7 +16,7 @@
 
 namespace Orkige
 {
-    class FastGuiSelectMenu : public FastGuiWidget
+    class ORKIGE_ENGINE_DLL FastGuiSelectMenu : public FastGuiWidget
     {
 		OOBJECT(FastGuiSelectMenu, FastGuiWidget);
         //-Types--------------------------------------------

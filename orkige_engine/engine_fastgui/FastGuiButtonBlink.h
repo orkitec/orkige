@@ -15,7 +15,7 @@
 
 namespace Orkige
 {
-	class FastGuiButtonBlink : public FastGuiButton
+	class ORKIGE_ENGINE_DLL FastGuiButtonBlink : public FastGuiButton
 	{
 		OOBJECT(FastGuiButtonBlink, FastGuiButton);
 		//--- Types -------------------------------------------------

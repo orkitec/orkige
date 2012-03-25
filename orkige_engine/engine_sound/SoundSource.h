@@ -20,7 +20,7 @@ namespace Orkige
         typedef SoundSource* SoundSourcePtr;
 #else
         //! simple SoundSource (3D for Mono sounds 2D for Stereo)
-        class SoundSource : public Object
+        class ORKIGE_ENGINE_DLL SoundSource : public Object
         {
                 OOBJECT(SoundSource, Object)
                 //--- Types -------------------------------------------------

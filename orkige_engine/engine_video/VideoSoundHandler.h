@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! handle ogg video sound playback trough openal
-	class VideoSoundHandler : public TheoraAudioInterface, TheoraTimer
+	class ORKIGE_ENGINE_DLL VideoSoundHandler : public TheoraAudioInterface, TheoraTimer
 	{
 		//--- Types -------------------------------------------------
 	public:

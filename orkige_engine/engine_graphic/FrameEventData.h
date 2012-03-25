@@ -17,7 +17,7 @@ namespace Orkige
 	/** \addtogroup EngineEvents
 	*  @{ */
 	//! data that gets triggered on GraphicManager::Frame*Event's
-	class FrameEventData : public Object
+	class ORKIGE_ENGINE_DLL FrameEventData : public Object
 	{
 		OOBJECT(FrameEventData,Object)
 		//--- Types -------------------------------------------------

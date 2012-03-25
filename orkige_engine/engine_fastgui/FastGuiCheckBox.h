@@ -14,7 +14,7 @@ copyright:	(c) 2009-2011 orkitec
 
 namespace Orkige
 {
-    class FastGuiCheckBox : public FastGuiWidget
+    class ORKIGE_ENGINE_DLL FastGuiCheckBox : public FastGuiWidget
     {
 		OOBJECT(FastGuiCheckBox, FastGuiWidget);
         //-Types--------------------------------------------

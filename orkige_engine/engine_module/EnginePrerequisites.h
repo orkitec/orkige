@@ -49,6 +49,8 @@
 	}
 #endif //ORKIGE_ENABLE_MYGUI
 
+void ORKIGE_ENGINE_DLL init_module_orkige_engine(void);
+
 #include <core_debug/EnableMemoryManager.h>
 #include <core_debug/Profile.h>
 #endif //__EnginePrerequisites_h__8_9_2010__20_40_50__

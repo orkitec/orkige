@@ -14,7 +14,7 @@
 
 namespace Orkige
 {
-	class FastGuiDragDropButton : public FastGuiWidget
+	class ORKIGE_ENGINE_DLL FastGuiDragDropButton : public FastGuiWidget
 	{
 		//class DragEventData;
 		OOBJECT(FastGuiDragDropButton, FastGuiWidget);

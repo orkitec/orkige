@@ -19,7 +19,7 @@ namespace Orkige
 	/** \addtogroup Gui
 	*  @{ */
 	//! abstract base for all GuiElements
-	class IGuiObject : public Object
+	class ORKIGE_ENGINE_DLL IGuiObject : public Object
 	{
 		OOBJECT(IGuiObject, Object);
 		//--- Types -------------------------------------------

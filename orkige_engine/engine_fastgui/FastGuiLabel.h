@@ -13,7 +13,7 @@
 
 namespace Orkige
 {
-	class FastGuiLabel : public FastGuiWidget
+	class ORKIGE_ENGINE_DLL FastGuiLabel : public FastGuiWidget
 	{
 		OOBJECT(FastGuiLabel, FastGuiWidget);
 		//--- Types -------------------------------------------------

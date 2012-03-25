@@ -19,7 +19,7 @@ namespace cimg_library
 namespace Orkige
 {
 	//! create a lightmap from Ogre::SubEntity
-	class LightMap : public Ogre::ManualResourceLoader
+	class ORKIGE_ENGINE_DLL LightMap : public Ogre::ManualResourceLoader
 	{
 		//--- Types -------------------------------------------------
 	public:

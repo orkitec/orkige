@@ -16,7 +16,7 @@
 
 namespace Orkige
 {
-	class Localisation : public Ogre::ConfigFile, public Orkige::Singleton<Localisation>, public Orkige::EventHandler
+	class ORKIGE_ENGINE_DLL Localisation : public Ogre::ConfigFile, public Orkige::Singleton<Localisation>, public Orkige::EventHandler
 	{
 		DECL_OSINGLETON(Localisation);
 		//-Types--------------------------------------------

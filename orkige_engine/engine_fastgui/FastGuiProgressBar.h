@@ -15,7 +15,7 @@
 
 namespace Orkige
 {
-    class FastGuiProgressBar : public FastGuiWidget
+    class ORKIGE_ENGINE_DLL FastGuiProgressBar : public FastGuiWidget
     {
 		OOBJECT(FastGuiProgressBar, FastGuiWidget);
 		

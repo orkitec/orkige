@@ -35,5 +35,6 @@ namespace Orkige
 
 
 }
+void ORKIGE_CORE_DLL init_module_orkige_core(void);
 
 #endif //__OrkigePrerequisites_h__8_9_2010__20_41_21__

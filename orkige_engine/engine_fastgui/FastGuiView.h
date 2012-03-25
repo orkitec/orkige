@@ -15,7 +15,7 @@
 namespace Orkige
 {
 	//! handles one Gorilla::Screen and its layers (used by FastGuiManager)
-	class FastGuiView : public Interface
+	class ORKIGE_ENGINE_DLL FastGuiView : public Interface
 	{
 		OOBJECT(FastGuiView, Interface);
 		//--- Types -------------------------------------------------

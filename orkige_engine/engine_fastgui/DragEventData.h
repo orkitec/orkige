@@ -18,7 +18,7 @@ namespace Orkige
 	/** \addtogroup cc_gui
 	*  @{ */
 	//! data that gets triggered on drag
-	class DragEventData : public Object
+	class ORKIGE_ENGINE_DLL DragEventData : public Object
 	{
 
 		OOBJECT(DragEventData, Object);

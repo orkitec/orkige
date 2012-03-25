@@ -15,7 +15,7 @@
 
 namespace Orkige
 {
-	class BigZipArchiveFactory : public Ogre::ArchiveFactory, public Singleton<BigZipArchiveFactory>
+	class ORKIGE_ENGINE_DLL BigZipArchiveFactory : public Ogre::ArchiveFactory, public Singleton<BigZipArchiveFactory>
 	{
 		DECL_OSINGLETON(BigZipArchiveFactory);
 		//--- Types -------------------------------------------------
