@@ -22,11 +22,6 @@ namespace Orkige
                 oDebugMsg("steffen", 0, "Loading BigZip: " << this->fileName);
                 this->zipFile->load();
                 this->fileInfo = this->zipFile->listFileInfo();
-                for(Ogre::FileInfoList::iterator it = this->fileInfo->begin(), itend = this->fileInfo->end(); it != itend; it++)
-                {
-                        oDebugMsg("steffen", 0, "Found File: " << it->filename);
-                        oDebugMsg("steffen", 0, " - Path: " << it->path);
-                }
         }
         //---------------------------------------------------------
         BigZipArchiveFactory::~BigZipArchiveFactory()

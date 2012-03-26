@@ -196,7 +196,12 @@ namespace Orkige
 		boost::split(dirs, this->directories, boost::is_any_of(","));
 		foreach(Orkige::String const & dir, dirs)
 		{
-			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(Orkige::PlatformUtil::getResourceDirectory() + "language/" + this->currentLocale + "/" + dir, locType, "Language");
+			Orkige::String archName = "language/" + this->currentLocale + "/" + dir;
+			if(locType == "FileSystem")
+			{
+				archName = PlatformUtil::getResourceDirectory() + archName;
+			}
+			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(archName, locType, "Language");
 		}
 		Ogre::ResourceGroupManager::getSingleton().initialiseResourceGroup("Language");
 		Ogre::SceneManager::MovableObjectIterator iterator = Engine::getSingleton().getSceneManager()->getMovableObjectIterator(Ogre::EntityFactory::FACTORY_TYPE_NAME);
