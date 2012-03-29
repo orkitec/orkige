@@ -321,6 +321,7 @@ macro (ConfigureOrkige)
 		# Must have OpenAL32.dll installed on the system 
 		# In order to use OpenAL sound.
 		set(OPENAL_FOUND TRUE)
+  elseif(APPLE)
   else()
      set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
 	endif()
