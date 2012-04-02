@@ -160,7 +160,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiFactory::load(String const & filename)
 	{
-		Ogre::ConfigFile::load(filename, "General", "\t:=", true);
+		Ogre::ConfigFile::load(filename, Ogre::ResourceGroupManager::getSingleton().findGroupContainingResource(filename), "\t:=", true);
 		this->resourceGroup = this->getSetting("ResourceGroup", StringUtil::BLANK, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		FastGuiFactory::SectionIterator it = this->getSectionIterator();
 		while(it.hasMoreElements())
