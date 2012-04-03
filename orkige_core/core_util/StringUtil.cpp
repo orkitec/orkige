@@ -18,7 +18,7 @@ namespace Orkige
 {
 	namespace StringUtil
 	{
-		bool StringCompare(const char *s1, const char *s2)
+		bool charStringCompare(const char *s1, const char *s2)
 		{
 			if (strcmp(s1, s2))
 				return false;
@@ -26,18 +26,18 @@ namespace Orkige
 			return true;
 		}
 		//---------------------------------------------------------------
-		bool StringToBool(const char* str)
+		bool charStringToBool(const char* str)
 		{
 			if(oIsNull(str))
 				return false;
 
-			if(StringCompare(str,"true") || StringCompare(str,"TRUE")|| StringCompare(str,"True") || StringCompare(str,"1"))
+			if(charStringCompare(str,"true") || charStringCompare(str,"TRUE")|| charStringCompare(str,"True") || charStringCompare(str,"1"))
 				return true;
 
 			return false;
 		}
 		//---------------------------------------------------------------
-		int StringToInt(const char* str)
+		int charStringToInt(const char* str)
 		{
 			if(oIsNull(str))
 				return 0;
@@ -69,6 +69,102 @@ namespace Orkige
 				stream.setf(flags);
 			stream << val;
 			return stream.str();
+		}
+		//---------------------------------------------------------------
+		std::size_t multibyteCharStringToWideCharString(wchar_t* wideCharString, const char* multiByteCharString, std::size_t searchLength)
+		{
+			if (multiByteCharString == NULL)
+			{
+				return 0;
+			}
+			else
+			{
+				const char* start = multiByteCharString;
+				if (searchLength == 0)
+				{
+					return (std::size_t)(-2);
+				}
+
+				unsigned char currentChar;
+				currentChar = (unsigned char) *multiByteCharString;
+				if (currentChar < 0x80)
+				{
+					if (wideCharString != NULL)
+					{
+						*wideCharString = (wchar_t) currentChar;
+					}
+
+					return (currentChar != 0);
+				}
+				else if (currentChar < 0xC0)
+				{
+					return 0;
+				}
+				else
+				{
+					wchar_t wideChar;
+					std::size_t count;
+					if (currentChar < 0xE0)
+					{
+						wideChar = (wchar_t)(currentChar & 0x1F) << 6;
+						count = 1;
+						if (currentChar < 0xC2)
+						{
+							return 0;
+						}
+					} 
+					else if (currentChar < 0xF0)
+					{
+						wideChar = (wchar_t)(currentChar & 0x0F) << 12;
+						count = 2;
+					}
+					else
+					{
+						return 0;
+					}
+
+					if (searchLength <= count)
+					{
+						return (std::size_t)(-2);
+					}
+
+					multiByteCharString++;
+					currentChar = (unsigned char) *multiByteCharString++ ^ 0x80;
+					if (!(currentChar < 0x40))
+					{
+						return 0;
+					}
+
+					wideChar |= (wchar_t) currentChar << (6 * --count);
+
+					if (count > 0)
+					{
+						if (wideChar < (1 << (count * 5 + 6)))
+						{
+							return 0;
+						}
+
+						do
+						{
+							currentChar = (unsigned char) *multiByteCharString++ ^ 0x80;
+							if (!(currentChar < 0x40))
+							{
+								return 0;
+							}
+							wideChar |= (wchar_t) currentChar << (6 * --count);
+
+						} while (count > 0);
+					}
+
+					if (wideCharString != NULL)
+					{
+						*wideCharString = wideChar;
+					}
+
+					return multiByteCharString - start;
+				}
+
+			}
 		}
 	}
 }

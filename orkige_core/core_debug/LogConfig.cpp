@@ -43,7 +43,7 @@ namespace Orkige
 			{
 				LogManager::getSingleton().startFileLog(logFileName);
 			}
-			if(StringUtil::StringToBool(logFileElement->Attribute("fileNames")))
+			if(StringUtil::charStringToBool(logFileElement->Attribute("fileNames")))
 			{
 				LogManager::getSingleton().enableFileNames();
 			}
@@ -58,13 +58,13 @@ namespace Orkige
 		while(debugchannel)
 		{
 			char* tag = const_cast<char*>(debugchannel->Value());
-			bool enabled = StringUtil::StringToBool( const_cast<char*>(debugchannel->Attribute("enabled")) );
-			int level = StringUtil::StringToInt(const_cast<char*>(debugchannel->Attribute("level")));
+			bool enabled = StringUtil::charStringToBool( const_cast<char*>(debugchannel->Attribute("enabled")) );
+			int level = StringUtil::charStringToInt(const_cast<char*>(debugchannel->Attribute("level")));
 
 			LogManager::getSingleton().addChannel(tag,level,enabled);
 			//check if to enable filtering of Logchannels
-			if ( StringUtil::StringCompare(tag,"global") )
-				LogManager::getSingleton().enableLogFiltering( StringUtil::StringToBool( debugchannel->Attribute("filterLog") ) );
+			if ( StringUtil::charStringCompare(tag,"global") )
+				LogManager::getSingleton().enableLogFiltering( StringUtil::charStringToBool( debugchannel->Attribute("filterLog") ) );
 
 			debugchannel = debugchannel->NextSiblingElement();
 		}

@@ -21,28 +21,29 @@ namespace Orkige
 		//! wrapper around String to make it a Orkige::Object
 		typedef Value<String> StringObject;
 		//! blank String definition
-		static String BLANK = "";
+		static const String BLANK = "";
 
 		//! @return true if strings match :)
-		bool StringCompare(const char  *s1, const char  *s2);
+		bool ORKIGE_CORE_DLL charStringCompare(const char  *s1, const char  *s2);
 
 		//! @return true if str is "true","TRUE","True" or "1"
 		//! @return also false if char is NULLPOINTER
-		bool StringToBool(const char * str);
+		bool ORKIGE_CORE_DLL charStringToBool(const char * str);
 
 		//! @return value of str as int and 0 if str is a NULLPOINTER
-		int StringToInt(const char * str);
+		int ORKIGE_CORE_DLL charStringToInt(const char * str);
 
 		//! @return i as String
-		String intToString(int i);
+		String ORKIGE_CORE_DLL intToString(int i);
 
 		//! @return float val as String
-		String floatToString(float val, unsigned short precision = 6, unsigned short width = 0, char fill = ' ', std::ios::fmtflags flags = std::ios::fmtflags(0) );
+		String ORKIGE_CORE_DLL floatToString(float val, unsigned short precision = 6, unsigned short width = 0, char fill = ' ', std::ios::fmtflags flags = std::ios::fmtflags(0) );
 		
 		//! @return double val as String
-		String doubleToString(double val, unsigned short precision = 6, unsigned short width = 0, char fill = ' ', std::ios::fmtflags flags = std::ios::fmtflags(0) );
+		String ORKIGE_CORE_DLL doubleToString(double val, unsigned short precision = 6, unsigned short width = 0, char fill = ' ', std::ios::fmtflags flags = std::ios::fmtflags(0) );
 
-
+		//! converts a utf-8 multi byte char to a wide char
+		std::size_t ORKIGE_CORE_DLL multibyteCharStringToWideCharString(wchar_t* wideCharString, const char* multiByteCharString, std::size_t searchLength);
 #ifdef ORKIGE_NDS
 		//! convert in String to lowercase
 		inline void to_lower(String & in)

@@ -25,7 +25,7 @@ THE SOFTWARE.
 */
 
 #include "engine_fastgui/Gorilla.h"
-#include "engine_fastgui/mbtowc.h"
+#include "core_util/StringUtil.h"
 
 
 #pragma warning ( disable : 4244 )
@@ -2127,7 +2127,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = Orkige::StringUtil::multibyteCharStringToWideCharString(&unicodeChar, &mText[i], 5);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2254,7 +2254,7 @@ namespace Gorilla
 		for (size_t i=0;i < mText.size();i++)
 		{
 			wchar_t unicodeChar;
-			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = Orkige::StringUtil::multibyteCharStringToWideCharString(&unicodeChar, &mText[i], 5);
 			thisChar = unicodeChar;
 
 			if (thisChar == ' ')
@@ -2384,7 +2384,7 @@ namespace Gorilla
 		for(size_t i=0;i < mText.length();i++)
 		{
 			wchar_t unicodeChar;
-			std::size_t multiByteLength = multiByteToWchar(&unicodeChar, &mText[i], 5);
+			std::size_t multiByteLength = Orkige::StringUtil::multibyteCharStringToWideCharString(&unicodeChar, &mText[i], 5);
 			//std::cout << "\nmultiByteLength: " << multiByteLength;
 			thisChar = unicodeChar;
 
