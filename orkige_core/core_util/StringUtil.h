@@ -20,6 +20,7 @@ namespace Orkige
 	{
 		//! wrapper around String to make it a Orkige::Object
 		typedef Value<String> StringObject;
+
 		//! blank String definition
 		static const String BLANK = "";
 

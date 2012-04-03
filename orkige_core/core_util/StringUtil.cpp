@@ -31,7 +31,7 @@ namespace Orkige
 			if(oIsNull(str))
 				return false;
 
-			if(charStringCompare(str,"true") || charStringCompare(str,"TRUE")|| charStringCompare(str,"True") || charStringCompare(str,"1"))
+			if(stricmp(str, "true") == 0 || stricmp(str, "yes") == 0 || stricmp(str, "on") == 0 || strcmp(str, "1") == 0)
 				return true;
 
 			return false;
@@ -49,17 +49,22 @@ namespace Orkige
 		{
 			std::ostringstream temp;
 			temp << i;
-			return temp.str().c_str();
+			return temp.str();
 		}
 		//---------------------------------------------------------------
-		String floatToString(float val, unsigned short precision, 
-			unsigned short width, char fill, std::ios::fmtflags flags)
+		String floatToString(float val, unsigned short precision, unsigned short width, char fill, std::ios::fmtflags flags)
 		{
-			return doubleToString((double)val, precision, width, flags);
+			std::stringstream stream;
+			stream.precision(precision);
+			stream.width(width);
+			stream.fill(fill);
+			if (flags)
+				stream.setf(flags);
+			stream << val;
+			return stream.str();
 		}
 		//---------------------------------------------------------------
-		String doubleToString(double val, unsigned short precision, 
-			unsigned short width, char fill, std::ios::fmtflags flags)
+		String doubleToString(double val, unsigned short precision, unsigned short width, char fill, std::ios::fmtflags flags)
 		{
 			std::stringstream stream;
 			stream.precision(precision);
@@ -163,7 +168,6 @@ namespace Orkige
 
 					return multiByteCharString - start;
 				}
-
 			}
 		}
 	}
