@@ -265,6 +265,7 @@ namespace Orkige
 
 		Ogre::Vector2 relSize = Ogre::Vector2::ZERO;
 		Ogre::Vector2 relPosition = Ogre::Vector2::ZERO;
+		Ogre::Vector2 baseSize = Ogre::Vector2::ZERO;
 		bool snapSubpixel = false;
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
@@ -325,6 +326,10 @@ namespace Orkige
 				}
 				
 			}
+			else if(key == "basesize")
+			{
+				baseSize = StringUtil::Converter::fromString<Ogre::Vector2>(value);
+			}
 			else if(key == "alignment")
 			{
 				baseSettings.alignment = FastGuiView::VA_TOPLEFT;
@@ -376,6 +381,19 @@ namespace Orkige
 		}
 		optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(baseSettings.atlas).lock();
 		oAssert(view);
+		if(baseSize != Ogre::Vector2::ZERO)
+		{
+			if(relPosition == Ogre::Vector2::ZERO && baseSettings.position != Ogre::Vector2::ZERO)
+			{
+				relPosition.x = (baseSettings.position.x / baseSize.x) * 100.f;
+				relPosition.y = (baseSettings.position.y / baseSize.y) * 100.f;
+			}
+			if(relSize == Ogre::Vector2::ZERO && baseSettings.size != Ogre::Vector2::ZERO)
+			{
+				relSize.x = (baseSettings.size.x / baseSize.x) * 100.f;
+				relSize.y = (baseSettings.size.y / baseSize.y) * 100.f;
+			}
+		}
 		if(relPosition != Ogre::Vector2::ZERO)
 		{
 			baseSettings.position.x = (relPosition.x * view->getScreen()->getWidth()) / 100.f;
