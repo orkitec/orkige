@@ -34,6 +34,10 @@ include(CMakeDependentOption)
 include(CheckCXXCompilerFlag)
 include(ConfigureOrkige)
 
+if(WIN32)
+  set(CMAKE_DEBUG_POSTFIX "_d")
+endif(WIN32)
+
 ConfigureOrkige()
 
 # determine Ogre version numbers
