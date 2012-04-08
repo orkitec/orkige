@@ -24,6 +24,7 @@ namespace Orkige
 	//! Engine core responsible for config dialog, plugin loading, RenderWindow's, SceneManager, Camera's etc
 	class ORKIGE_ENGINE_DLL Engine : public Singleton<Engine>, public Interface, public Ogre::FrameListener
 	{
+		friend class OrkigePluginApplication;
 		OOBJECT(Engine,Interface)
 		DECL_OSINGLETON(Engine)
 		//--- Types -------------------------------------------------
@@ -156,6 +157,8 @@ namespace Orkige
 		inline void disableWireframeMode();
 		/** @} End of "addtogroup Debug"*/
 	protected:
+		//! special constructor for creation from Editor Plugin
+		Engine(Ogre::Root* _root, Ogre::SceneManager* _sceneManager, Ogre::RenderWindow* _window, Ogre::Viewport* _viewport, Ogre::Camera* _camera);
 		//! define the source of resources (other than current folder) but doesn't load them
 		void setupResources(String const & resourceCfgFileName);
 		//! Configures the Engine shows dialog on first configuration - returns false if the user chooses to abandon configuration.

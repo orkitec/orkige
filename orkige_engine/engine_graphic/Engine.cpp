@@ -280,7 +280,37 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
+	Engine::Engine(Ogre::Root* _root, Ogre::SceneManager* _sceneManager, Ogre::RenderWindow* _window, Ogre::Viewport* _viewport, Ogre::Camera* _camera) 
+		: frameStartedEvent(Engine::FrameStartedEvent), 
+		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
+		frameEndedEvent(Engine::FrameEndedEvent),
+		sceneType(Ogre::ST_GENERIC),
+		eventManager(NULL),
+		sceneManager(NULL),
+		defaultLocationType("FileSystem"),
+		lastFrameTime(0),
+		numberOfWindows(1)
+	{
+		for (unsigned int each = 0; each < MAX_MUMBER_OF_WINDOWS; ++each)
+		{
+			this->renderWindow[each] = NULL;
+			this->camera[each] = NULL;
+			this->viewport[each] = NULL;
+			this->windowParams[each] = Ogre::NameValuePairList();
+		}
 
+		this->data = onew(new FrameEventData());
+
+		this->frameStartedEvent.setData(this->data);
+		this->frameRenderingQueuedEvent.setData(this->data);
+		this->frameEndedEvent.setData(this->data);
+
+		this->root = oBadPointer(_root);
+		this->sceneManager = _sceneManager;
+		this->renderWindow[0] = _window;
+		this->camera[0] = _camera;
+		this->viewport[0] = _viewport;
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
