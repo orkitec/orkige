@@ -103,17 +103,20 @@ namespace Orkige
 	void GameObjectManager::disableUpdates(GameObjectComponent * component)
 	{
 		oAssert(component);
-		GameObjectComponentPtrVector::iterator it = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), component);
-		if(it != this->updatableComponents.end())
+		if(this->numUpdatableComponents > 0)
 		{
-			std::size_t eraseIndex = it - this->updatableComponents.begin();
-			if(eraseIndex < this->currentUpdatableComponentIndex)
+			GameObjectComponentPtrVector::iterator it = std::find(this->updatableComponents.begin(), this->updatableComponents.end(), component);
+			if(it != this->updatableComponents.end())
 			{
-				this->currentUpdatableComponentIndex--;
+				std::size_t eraseIndex = it - this->updatableComponents.begin();
+				if(eraseIndex < this->currentUpdatableComponentIndex)
+				{
+					this->currentUpdatableComponentIndex--;
+				}
+				this->updatableComponents.erase(it);
 			}
-			this->updatableComponents.erase(it);
+			this->numUpdatableComponents = this->updatableComponents.size();
 		}
-		this->numUpdatableComponents = this->updatableComponents.size();
 	}
 	//---------------------------------------------------------
 	void GameObjectManager::processDeleteQueue()

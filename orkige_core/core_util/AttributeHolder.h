@@ -102,6 +102,7 @@ namespace Orkige
 		inline void setAttribute(OwnedAttributeTypeIdType const & id,optr<OwnedAttributeType> const & attribute)
 		{
 			this->attributes[id] = attribute;
+			this->onAttributeSet(id, attribute);
 		}
 
 		//! @brief	set an attribute that isn't derived from OwnedAttributeType
@@ -184,8 +185,11 @@ namespace Orkige
 			this->attributes.clear();
 		}
 
-		//--- SERIALIZATION ---
+		//! @brief overrideable that gets called after a attribute is set
+		virtual void onAttributeSet(OwnedAttributeTypeIdType const & id, optr<OwnedAttributeType> const & attribute) {}
 
+		//--- SERIALIZATION ---
+		
 		virtual void save(optr<IArchive> const & ar)
 		{
 			ar << this->attributes;
