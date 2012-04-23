@@ -1,4 +1,4 @@
-@call "%VS90COMNTOOLS%vsvars32.bat"
+@call "%VS100COMNTOOLS%vsvars32.bat"
 
 @echo off
 
@@ -9,7 +9,7 @@ if "%1" == "" (
 	goto End
 )
 
-set NDK=e:\SVN\android-ndk-r7-windows\android-ndk-r7\
+set NDK=C:\Development\SVN\android-ndk-r7c\
 if "%NDK%" == "" (
 	echo "NDK Path is empty. Please enter Path or set NDK enviroment variable to the correct PATH"
 	SET /p NDK= 
