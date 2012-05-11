@@ -19,7 +19,7 @@ ECHO Answer with y for Yes and n for No. & goto Question
 for %%f IN (%meshPath%\*.mesh) DO call OgreMeshMagick.exe optimise %%f -- %meshPath%\%%~nf_optimized%%~xf
 
 :Yes
-for %%f IN (%meshPath%\*.mesh) DO call OgreMeshMagick.exe optimise %%f -- %meshPath%\%%~nxf
+for %%f IN (%meshPath%\*.mesh) DO call OgreMeshMagick.exe optimise  -tolerance=0.5 %%f -- %meshPath%\%%~nxf
 
-echo Optimizing complete!
+ echo Optimizing complete!
 pause
