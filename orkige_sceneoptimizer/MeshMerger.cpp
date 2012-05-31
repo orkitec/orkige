@@ -101,6 +101,7 @@ namespace SceneOptimizer
 
 				int i =0;
 				Ogre::ColourValue color;
+				Ogre::Vector3 tangent;
 
 				for (size_t x=0; x<trianglesNeeded; x++)
 				{
@@ -116,8 +117,8 @@ namespace SceneOptimizer
 						manualObject->colour(color);
 					}
 
-					
-						manualObject->tangent(tangents[i]);
+					tangent = tangents[i];
+						manualObject->tangent(tangent);
 					
 
 					manualObject->position(vertices[indices[i+1]]);
@@ -129,8 +130,8 @@ namespace SceneOptimizer
 						manualObject->colour(color);
 					}
 
-					
-						manualObject->tangent(tangents[i+1]);
+					tangent = tangents[i+1];
+					manualObject->tangent(tangent);
 
 					manualObject->position(vertices[indices[i+2]]);
 					manualObject->normal(normals[indices[i+2]]);
@@ -141,8 +142,12 @@ namespace SceneOptimizer
 						manualObject->colour(color);
 					}
 
+					if(!tangents[i+2].isNaN())
+					{
+						tangent = tangents[i+2];
+						manualObject->tangent(tangent);
+					}
 					
-						manualObject->tangent(tangents[i+2]);
 									
 					i += 3;
 					face += 3;
