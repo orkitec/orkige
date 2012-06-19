@@ -418,7 +418,7 @@ macro (ConfigureOrkige)
   if (ORKIGE_BUILD_ANDROID)
       #disable stuff
       set(OGRE_BUILD_RENDERSYSTEM_GL CACHE BOOL "Forcing remove OpenGL RenderSystem for iPhone" FORCE)
-      set(OGRE_BUILD_RENDERSYSTEM_GLES2 TRUE CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
+      set(OGRE_BUILD_RENDERSYSTEM_GLES2 CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
       set(OGRE_BUILD_RENDERSYSTEM_D3D9 CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
 						
 			set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
@@ -429,8 +429,8 @@ macro (ConfigureOrkige)
       set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
       
       #enable stuff
-      set(OGRE_BUILD_RENDERSYSTEM_GLES CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
-      set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
+      set(OGRE_BUILD_RENDERSYSTEM_GLES TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
+      set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
       set(ORKIGE_USE_OGRE_UNSTABLE	TRUE CACHE BOOL "Use Ogre Development Branch" FORCE)
   endif()
   

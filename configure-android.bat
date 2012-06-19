@@ -1,15 +1,18 @@
+
+@echo "%VS100COMNTOOLS%vsvars32.bat"
 @call "%VS100COMNTOOLS%vsvars32.bat"
 
 @echo off
 
 set MAINFOLDER=%CD%
 
+
 if "%1" == "" (
 	echo "Enter build target directory."
 	goto End
 )
 
-set NDK=C:\Development\SVN\android-ndk-r7c\
+set NDK=C:\Development\android-ndk-r8\
 if "%NDK%" == "" (
 	echo "NDK Path is empty. Please enter Path or set NDK enviroment variable to the correct PATH"
 	SET /p NDK= 
@@ -34,11 +37,11 @@ cd %1
 cd orkige
 
 if "%2" == "debug" (	
-	"%ProgramFiles%\CMake 2.8\bin\cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DORKIGE_ANDROID_DEBUG=1 -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 --debug-trycompile
-	"%ProgramFiles%\CMake 2.8\bin\cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DORKIGE_ANDROID_DEBUG=1 -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 --debug-trycompile
+	"cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DORKIGE_ANDROID_DEBUG=1 -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 --debug-trycompile
+	"cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DORKIGE_ANDROID_DEBUG=1 -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 --debug-trycompile
 ) else (
-	"%ProgramFiles%\CMake 2.8\bin\cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 -DCMAKE_BUILD_TYPE="Release"
-	"%ProgramFiles%\CMake 2.8\bin\cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 -DCMAKE_BUILD_TYPE="Release"
+	"cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 -DCMAKE_BUILD_TYPE="Release"
+	"cmake.exe" %MAINFOLDER% -G "NMake Makefiles" -DCMAKE_TOOLCHAIN_FILE="%MAINFOLDER%/CMake/Android/android.toolchain" -DOGRE_BUILD_PLATFORM_ANDROID=1 -DORKIGE_BUILD_ANDROID=1 -DORKIGE_MINIMAL_FREEIMAGE_CODEC=1 -DCMAKE_BUILD_TYPE="Release"
 )
 
 ECHO Start orkige build? (y / n) 

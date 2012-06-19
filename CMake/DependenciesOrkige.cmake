@@ -49,7 +49,7 @@ endif()
 # find_package(Cg)
 # macro_log_feature(Cg_FOUND "cg" "C for graphics shader language" "http://developer.nvidia.com/object/cg_toolkit.html" FALSE "" "")
 # Find Cg
-if (NOT OGRE_BUILD_PLATFORM_IPHONE)
+if (NOT OGRE_BUILD_PLATFORM_IPHONE AND NOT ORKIGE_BUILD_ANDROID)
   find_package(Cg)
   macro_log_feature(Cg_FOUND "cg" "C for graphics shader language" "http://developer.nvidia.com/object/cg_toolkit.html" FALSE "" "")
 endif (NOT OGRE_BUILD_PLATFORM_IPHONE)
