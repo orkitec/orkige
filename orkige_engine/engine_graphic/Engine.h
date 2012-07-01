@@ -18,9 +18,83 @@
 #include "engine_filesystem/BigZipArchiveFactory.h"
 
 #define MAX_MUMBER_OF_WINDOWS 8
+#ifdef USE_RTSHADER_SYSTEM
+#include "OgreRTShaderSystem.h"
 
+// Remove the comment below in order to make the RTSS use valid path for writing down the generated shaders.
+// If cache path is not set - all shaders are generated to system memory.
+//#define _RTSS_WRITE_SHADERS_TO_DISK
+#endif // USE_RTSHADER_SYSTEM
 namespace Orkige
 {
+#ifdef USE_RTSHADER_SYSTEM
+
+/** This class demonstrates basic usage of the RTShader system.
+It sub class the material manager listener class and when a target scheme callback
+is invoked with the shader generator scheme it tries to create an equivalent shader
+based technique based on the default technique of the given material.
+*/
+class ShaderGeneratorTechniqueResolverListener : public Ogre::MaterialManager::Listener
+{
+public:
+
+	ShaderGeneratorTechniqueResolverListener(Ogre::RTShader::ShaderGenerator* pShaderGenerator)
+	{
+		mShaderGenerator = pShaderGenerator;			
+	}
+
+	/** This is the hook point where shader based technique will be created.
+	It will be called whenever the material manager won't find appropriate technique
+	that satisfy the target scheme name. If the scheme name is out target RT Shader System
+	scheme name we will try to create shader generated technique for it. 
+	*/
+	virtual Ogre::Technique* handleSchemeNotFound(unsigned short schemeIndex, 
+		const Ogre::String& schemeName, Ogre::Material* originalMaterial, unsigned short lodIndex, 
+		const Ogre::Renderable* rend)
+	{	
+		Ogre::Technique* generatedTech = NULL;
+
+		// Case this is the default shader generator scheme.
+		if (schemeName == Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME)
+		{
+			bool techniqueCreated;
+
+			// Create shader generated technique for this material.
+			techniqueCreated = mShaderGenerator->createShaderBasedTechnique(
+				originalMaterial->getName(), 
+				Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
+				schemeName);	
+
+			// Case technique registration succeeded.
+			if (techniqueCreated)
+			{
+				// Force creating the shaders for the generated technique.
+				mShaderGenerator->validateMaterial(schemeName, originalMaterial->getName());
+				
+				// Grab the generated technique.
+				Ogre::Material::TechniqueIterator itTech = originalMaterial->getTechniqueIterator();
+
+				while (itTech.hasMoreElements())
+				{
+					Ogre::Technique* curTech = itTech.getNext();
+
+					if (curTech->getSchemeName() == schemeName)
+					{
+						generatedTech = curTech;
+						break;
+					}
+				}				
+			}
+		}
+
+		return generatedTech;
+	}
+
+protected:	
+	Ogre::RTShader::ShaderGenerator*	mShaderGenerator;			// The shader generator instance.		
+};
+#endif // USE_RTSHADER_SYSTEM
+
 	//! Engine core responsible for config dialog, plugin loading, RenderWindow's, SceneManager, Camera's etc
 	class ORKIGE_ENGINE_DLL Engine : public Singleton<Engine>, public Interface, public Ogre::FrameListener
 	{
@@ -77,6 +151,10 @@ namespace Orkige
 		unsigned long				lastFrameTime;
 		unsigned int				numberOfWindows;
 		String						defaultLocationType;
+#ifdef USE_RTSHADER_SYSTEM
+		Ogre::RTShader::ShaderGenerator*			mShaderGenerator;			// The Shader generator instance.
+		ShaderGeneratorTechniqueResolverListener*	mMaterialMgrListener;		// Shader generator material manager listener.	
+#endif // USE_RTSHADER_SYSTEM
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
@@ -170,6 +248,12 @@ namespace Orkige
 		//! @see Ogre::FrameListener::frameEnded
 		virtual bool frameEnded(const Ogre::FrameEvent& evt);
 	private:
+#ifdef USE_RTSHADER_SYSTEM
+		//! Initialize the RT Shader system.
+		bool initializeRTShaderSystem(Ogre::SceneManager* sceneMgr);
+		//! Finalize the RT Shader system.
+		void finalizeRTShaderSystem();
+#endif // USE_RTSHADER_SYSTEM
 		//! split comma separated string and returns according to current platform
 		String getPlatformSpecificConfig(String const & cfgFileName);
 	};

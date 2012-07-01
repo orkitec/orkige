@@ -25,14 +25,14 @@ macro (ConfigureOrkige)
 	endif()
 
 	#ogre options
-	option(OGRE_BUILD_PLUGIN_OCTREE		"Build Octree SceneManager plugin"					TRUE)
-	option(OGRE_BUILD_PLUGIN_PFX			"Build ParticleFX plugin"							TRUE)
-	option(OGRE_BUILD_PLUGIN_CG			"Build CG plugin"								FALSE)
-	option(OGRE_BUILD_COMPONENT_PAGING	"Build Paging component"						FALSE)
-	option(OGRE_BUILD_COMPONENT_TERRAIN	"Build Terrain component"						FALSE)
-	option(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM	"Build OgreRTShaderSystem component"						FALSE)
+	option(OGRE_BUILD_PLUGIN_OCTREE              "Build Octree SceneManager plugin"    TRUE)
+	option(OGRE_BUILD_PLUGIN_PFX                 "Build ParticleFX plugin"             TRUE)
+	option(OGRE_BUILD_PLUGIN_CG                  "Build CG plugin"                     FALSE)
+	option(OGRE_BUILD_COMPONENT_PAGING           "Build Paging component"              FALSE)
+	option(OGRE_BUILD_COMPONENT_TERRAIN          "Build Terrain component"             FALSE)
+	option(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM   "Build OgreRTShaderSystem component"  FALSE)
 	#end of ogre options
-	option(ORKIGE_USE_OGRE_UNSTABLE		"Use Ogre Development Branch"					OFF)
+	option(ORKIGE_USE_OGRE_UNSTABLE              "Use Ogre Development Branch"         OFF)
 	option(ORKIGE_BROWSERPLUGIN			"Build for Browser"							OFF)
 	option(ORKIGE_NOSCRIPT				"Use Scripting Language"						ON)
 	option(ORKIGE_ENABLE_MEMORYMANAGER	"Enable meory leak check (in debug builds)"			ON)
@@ -75,7 +75,7 @@ macro (ConfigureOrkige)
 	# Unity build options
 	# A Unity build includes all sources files in just a few actual compilation units
 	# to potentially speed up the compilation.
-	option(OGRE_UNITY_BUILD "Enable unity build for Ogre." FALSE)
+	option(OGRE_UNITY_BUILD "Enable unity build for Ogre." ON)
 	set(OGRE_UNITY_FILES_PER_UNIT "50" CACHE STRING "Number of files per compilation unit in Unity build.")
 
 
@@ -135,6 +135,10 @@ macro (ConfigureOrkige)
 		set(OGRELITEDIRECTORY OgreLite)
 	endif(ORKIGE_USE_OGRE_UNSTABLE)
 	
+	if(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM)
+		add_definitions(-DUSE_RTSHADER_SYSTEM)
+	endif(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM)
+
   if(ORKIGE_STATIC)
      add_definitions(-DORKIGE_STATIC)
      set(ORKIGE_LIB_TYPE STATIC)
@@ -182,6 +186,8 @@ macro (ConfigureOrkige)
 		add_definitions(-DTHEORAVIDEO_STATIC)
 		add_definitions(-DOGREVIDEO_STATIC=1)
 	endif()
+
+	
 
 	set(ORKIGE_ZLIB_TARGET ZLib)
 	set(ORKIGE_ZZIP_TARGET ZZipLib)
@@ -323,8 +329,10 @@ macro (ConfigureOrkige)
 		# In order to use OpenAL sound.
 		set(OPENAL_FOUND TRUE)
   elseif(APPLE)
+    #do nothing on mac and iOS
   else()
-     set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
+    #build special version of openal soft (from source) to support android)
+    set(ORKIGE_OPENALSOFT_SOUND TRUE CACHE BOOL "Enable building of the OpenAL subsystem" FORCE)
 	endif()
 	
 	
@@ -365,19 +373,19 @@ macro (ConfigureOrkige)
 	endif()
 
 	if (WIN32)
-		if (NOT DirectX_FOUND OR NOT ORKIGE_MINGW_DIRECT3D)
+		if (DirectX_FOUND)
 			# Default use OIS without dinput 
-			option(ORKIGE_OIS_WIN32_NATIVE "Enable building of the OIS Win32 backend" ON)
+			option(ORKIGE_OIS_WIN32_NATIVE "Enable building of the OIS Win32 backend" OFF)
 		else ()
 			# Use standard OIS build.
-			option(ORKIGE_OIS_WIN32_NATIVE "Enable building of the OIS Win32 backend" OFF)
+			option(ORKIGE_OIS_WIN32_NATIVE "Enable building of the OIS Win32 backend" ON)
 		endif()
 	endif()
 
 	if (DirectX_FOUND)
 		option(OGRE_BUILD_RENDERSYSTEM_D3D9 "Enable the Direct3D9 render system" ON)
-		option(OGRE_BUILD_RENDERSYSTEM_D3D10 "Enable the Direct3D9 render system" OFF)
-		option(OGRE_BUILD_RENDERSYSTEM_D3D11 "Enable the Direct3D9 render system" OFF)
+		option(OGRE_BUILD_RENDERSYSTEM_D3D10 "Enable the Direct3D10 render system" OFF)
+		option(OGRE_BUILD_RENDERSYSTEM_D3D11 "Enable the Direct3D11 render system" OFF)
 	endif()
 	
 	if (OPENGL_FOUND)
@@ -386,6 +394,10 @@ macro (ConfigureOrkige)
 	
 	if (OPENGLES_FOUND)
 		option(OGRE_BUILD_RENDERSYSTEM_GLES "Enable the OpenGLES system" ON)
+	endif()
+  
+  if (OPENGLES2_FOUND)
+		option(OGRE_BUILD_RENDERSYSTEM_GLES2 "Enable the OpenGLES2 system" OFF)
 	endif()
 		
 	if (APPLE)
@@ -416,24 +428,57 @@ macro (ConfigureOrkige)
 	endif()		
   
   if (ORKIGE_BUILD_ANDROID)
-      #disable stuff
-      set(OGRE_BUILD_RENDERSYSTEM_GL CACHE BOOL "Forcing remove OpenGL RenderSystem for iPhone" FORCE)
-      set(OGRE_BUILD_RENDERSYSTEM_GLES2 CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
-      set(OGRE_BUILD_RENDERSYSTEM_D3D9 CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
-						
-			set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
-			set(ORKIGE_USE_COCOA  CACHE BOOL "Forcing use COCOA for iPhone" FORCE)
-			
-      set(OGRE_BUILD_COMPONENT_PAGING CACHE BOOL "Build Paging component"   FORCE)
-      set(OGRE_BUILD_COMPONENT_TERRAIN CACHE BOOL "Build Terrain component"   FORCE)
-      set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
-      
-      #enable stuff
-      set(OGRE_BUILD_RENDERSYSTEM_GLES TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
-      set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
-      set(ORKIGE_USE_OGRE_UNSTABLE	TRUE CACHE BOOL "Use Ogre Development Branch" FORCE)
+    set(OGRE_BUILD_RENDERSYSTEM_GLES2 TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
   endif()
   
+  if (OGRE_BUILD_RENDERSYSTEM_GLES2)
+      #we us gles2 so disable gl and gles(1.1) since else we get compile conflicts with gl.h
+      set(OGRE_BUILD_RENDERSYSTEM_GL CACHE BOOL "Forcing remove OpenGL RenderSystem for iPhone" FORCE)
+      if (OPENGLES_FOUND)
+        set(OGRE_BUILD_RENDERSYSTEM_GLES CACHE BOOL "Forcing use OpenGLES RenderSystem for iPhone" FORCE)
+      endif(OPENGLES_FOUND)
+      #android specific settings
+      if (ORKIGE_BUILD_ANDROID)
+        if(DirectX_FOUND)
+          #disable cg and direct3d on windows
+          set(OGRE_BUILD_RENDERSYSTEM_D3D9 CACHE BOOL "Direct3D9 render system" FORCE)
+          set(OGRE_BUILD_RENDERSYSTEM_D3D10 CACHE BOOL "Direct3D10 render system" FORCE)
+          set(OGRE_BUILD_RENDERSYSTEM_D3D11 CACHE BOOL "Direct3D11 render system" FORCE)
+          set(OGRE_BUILD_PLUGIN_CG CACHE BOOL "Forcing remove CG for iPhone"   FORCE)
+        elseif(APPLE)
+          #disable cocoa on mac
+          set(ORKIGE_USE_COCOA  CACHE BOOL "Forcing use COCOA for iPhone" FORCE)
+        endif()
+			endif(ORKIGE_BUILD_ANDROID)
+
+      #disable paging end terrain since its not supported for gles
+      set(OGRE_BUILD_COMPONENT_PAGING CACHE BOOL "Build Paging component"   FORCE)
+      set(OGRE_BUILD_COMPONENT_TERRAIN CACHE BOOL "Build Terrain component"   FORCE)
+      #disable memory manager for gles2 sinceits crashing
+      set(ORKIGE_ENABLE_MEMORYMANAGER CACHE BOOL "Enable meory leak check (in debug builds)"   FORCE)
+      
+      #enable ogre unstable (1.8)
+      set(ORKIGE_USE_OGRE_UNSTABLE	TRUE CACHE BOOL "Use Ogre Development Branch" FORCE)
+      #enable rtsahder and core shaders
+      set(OGRE_BUILD_COMPONENT_RTSHADERSYSTEM TRUE CACHE BOOL "Forcing use OpenGLES2 RenderSystem for Android" FORCE)
+  endif()
+  
+  #build rtshader builtin shaders
+  cmake_dependent_option(OGRE_BUILD_RTSHADERSYSTEM_CORE_SHADERS "Build RTShader System FFP core shaders" TRUE "OGRE_BUILD_COMPONENT_RTSHADERSYSTEM" FALSE)
+  cmake_dependent_option(OGRE_BUILD_RTSHADERSYSTEM_EXT_SHADERS "Build RTShader System extensions shaders" TRUE "OGRE_BUILD_COMPONENT_RTSHADERSYSTEM" FALSE)
+
+  if (OGRE_BUILD_RTSHADERSYSTEM_CORE_SHADERS)
+	 set(RTSHADER_SYSTEM_BUILD_CORE_SHADERS 1)
+  else ()
+	 set(RTSHADER_SYSTEM_BUILD_CORE_SHADERS 0)
+  endif ()
+
+  if (OGRE_BUILD_RTSHADERSYSTEM_EXT_SHADERS)	
+	 set(RTSHADER_SYSTEM_BUILD_EXT_SHADERS 1)
+  else ()
+	 set(RTSHADER_SYSTEM_BUILD_EXT_SHADERS 0)
+  endif ()
+
 endmacro(ConfigureOrkige)
 
 include(ConfigureOrkigeDependencies)

@@ -68,6 +68,10 @@ namespace Orkige
 		lastFrameTime(0),
 		numberOfWindows(_numberOfWindows)
 	{
+#ifdef USE_RTSHADER_SYSTEM
+			mShaderGenerator	 = NULL;		
+			mMaterialMgrListener = NULL;
+#endif // USE_RTSHADER_SYSTEM
 		String renderCfgPlatformFileName = this->getPlatformSpecificConfig(renderCfgFileName);
 		String resourceCfgPlatformFileName = this->getPlatformSpecificConfig(resourceCfgFileName);
 
@@ -113,6 +117,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
+#ifdef USE_RTSHADER_SYSTEM
+		// Finalize the RT Shader System.
+		this->finalizeRTShaderSystem();
+#endif // USE_RTSHADER_SYSTEM
 		this->root.reset();
 		this->bigZipArchiveFactory.reset();
 
@@ -183,6 +191,54 @@ namespace Orkige
 		// Create the SceneManager
 		this->sceneManager = root->createSceneManager(this->sceneType, "OrkigeSceneManager");
 		oAssert(this->sceneManager);
+#ifdef USE_RTSHADER_SYSTEM
+			// Initialize shader generator.
+			// Must be before resource loading in order to allow parsing extended material attributes.
+			bool success = initializeRTShaderSystem(this->sceneManager);
+			if (!success) 
+			{
+				OGRE_EXCEPT(Ogre::Exception::ERR_FILE_NOT_FOUND, 
+					"Shader Generator Initialization failed - Core shader libs path not found", 
+					"Sample::_setup");
+			}
+			if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
+			{
+				//newViewport->setMaterialScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+				
+				// creates shaders for base material BaseWhite using the RTSS
+				Ogre::MaterialPtr baseWhite = Ogre::MaterialManager::getSingleton().getByName("BaseWhite", Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);				
+				baseWhite->setLightingEnabled(false);
+				mShaderGenerator->createShaderBasedTechnique(
+					"BaseWhite", 
+					Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);	
+			    mShaderGenerator->validateMaterial(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, 
+					"BaseWhite");
+				baseWhite->getTechnique(0)->getPass(0)->setVertexProgram(
+				baseWhite->getTechnique(1)->getPass(0)->getVertexProgram()->getName());
+				baseWhite->getTechnique(0)->getPass(0)->setFragmentProgram(
+				baseWhite->getTechnique(1)->getPass(0)->getFragmentProgram()->getName());
+
+				// creates shaders for base material BaseWhiteNoLighting using the RTSS
+				mShaderGenerator->createShaderBasedTechnique(
+					"BaseWhiteNoLighting", 
+					Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
+					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);	
+			    mShaderGenerator->validateMaterial(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, 
+					"BaseWhiteNoLighting");
+				Ogre::MaterialPtr baseWhiteNoLighting = Ogre::MaterialManager::getSingleton().getByName("BaseWhiteNoLighting", Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
+				baseWhiteNoLighting->getTechnique(0)->getPass(0)->setVertexProgram(
+				baseWhiteNoLighting->getTechnique(1)->getPass(0)->getVertexProgram()->getName());
+				baseWhiteNoLighting->getTechnique(0)->getPass(0)->setFragmentProgram(
+				baseWhiteNoLighting->getTechnique(1)->getPass(0)->getFragmentProgram()->getName());
+			}
+#endif // USE_RTSHADER_SYSTEM
+#ifdef USE_RTSHADER_SYSTEM
+            if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
+            {
+                Ogre::RTShader::ShaderGenerator::getSingletonPtr()->addSceneManager(this->sceneManager);
+            }
+#endif // USE_RTSHADER_SYSTEM
 
 		// Set default mipmap level (NB some APIs ignore this)
 		Ogre::TextureManager::getSingleton().setDefaultNumMipmaps(5);
@@ -249,9 +305,14 @@ namespace Orkige
 			this->camera[each]->setFarClipDistance(100000.0f);
 			// Create one viewport, entire window
 			this->viewport[each] = this->renderWindow[each]->addViewport(this->camera[each]);
-			this->viewport[each]->setBackgroundColour(Ogre::ColourValue(0,0,0));
+			this->viewport[each]->setBackgroundColour(Ogre::ColourValue::Black);
 			this->viewport[each]->setShadowsEnabled(true);
-
+#ifdef USE_RTSHADER_SYSTEM
+			 if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
+            {
+                this->viewport[each]->setMaterialScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+            }
+#endif
 			// Alter the camera aspect ratio to match the viewport
 			this->camera[each]->setAspectRatio(Ogre::Real(this->viewport[each]->getActualWidth())
 											   / Ogre::Real(this->viewport[each]->getActualHeight()));
@@ -314,6 +375,99 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+
+#ifdef USE_RTSHADER_SYSTEM
+
+		/*-----------------------------------------------------------------------------
+		| Initialize the RT Shader system.	
+		-----------------------------------------------------------------------------*/
+		bool Engine::initializeRTShaderSystem(Ogre::SceneManager* sceneMgr)
+		{			
+			if (Ogre::RTShader::ShaderGenerator::initialize())
+			{
+				mShaderGenerator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();
+
+				mShaderGenerator->addSceneManager(sceneMgr);
+
+#if OGRE_PLATFORM != OGRE_PLATFORM_ANDROID && OGRE_PLATFORM != OGRE_PLATFORM_NACL
+				// Setup core libraries and shader cache path.
+				Ogre::StringVector groupVector = Ogre::ResourceGroupManager::getSingleton().getResourceGroups();
+				Ogre::StringVector::iterator itGroup = groupVector.begin();
+				Ogre::StringVector::iterator itGroupEnd = groupVector.end();
+				Ogre::String shaderCoreLibsPath;
+				Ogre::String shaderCachePath;
+			
+				for (; itGroup != itGroupEnd; ++itGroup)
+				{
+					Ogre::ResourceGroupManager::LocationList resLocationsList = Ogre::ResourceGroupManager::getSingleton().getResourceLocationList(*itGroup);
+					Ogre::ResourceGroupManager::LocationList::iterator it = resLocationsList.begin();
+					Ogre::ResourceGroupManager::LocationList::iterator itEnd = resLocationsList.end();
+					bool coreLibsFound = false;
+
+					// Try to find the location of the core shader lib functions and use it
+					// as shader cache path as well - this will reduce the number of generated files
+					// when running from different directories.
+					for (; it != itEnd; ++it)
+					{
+						if ((*it)->archive->getName().find("RTShaderLib") != Ogre::String::npos)
+						{
+							shaderCoreLibsPath = (*it)->archive->getName() + "/cache/";
+							shaderCachePath = shaderCoreLibsPath;
+							coreLibsFound = true;
+							break;
+						}
+					}
+					// Core libs path found in the current group.
+					if (coreLibsFound) 
+						break; 
+				}
+
+				// Core shader libs not found -> shader generating will fail.
+				if (shaderCoreLibsPath.empty())			
+					return false;			
+								
+#ifdef _RTSS_WRITE_SHADERS_TO_DISK
+				// Set shader cache path.
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+                shaderCachePath = Ogre::macCachePath();
+#endif
+				mShaderGenerator->setShaderCachePath(shaderCachePath);		
+#endif
+#endif
+				// Create and register the material manager listener if it doesn't exist yet.
+				if (mMaterialMgrListener == NULL) {
+					mMaterialMgrListener = new ShaderGeneratorTechniqueResolverListener(mShaderGenerator);
+					Ogre::MaterialManager::getSingleton().addListener(mMaterialMgrListener);
+				}
+			}
+
+			return true;
+		}
+
+		/*-----------------------------------------------------------------------------
+		| Finalize the RT Shader system.	
+		-----------------------------------------------------------------------------*/
+		void Engine::finalizeRTShaderSystem()
+		{
+			// Restore default scheme.
+			Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::MaterialManager::DEFAULT_SCHEME_NAME);
+
+			// Unregister the material manager listener.
+			if (mMaterialMgrListener != NULL)
+			{			
+				Ogre::MaterialManager::getSingleton().removeListener(mMaterialMgrListener);
+				delete mMaterialMgrListener;
+				mMaterialMgrListener = NULL;
+			}
+
+			// Finalize RTShader system.
+			if (mShaderGenerator != NULL)
+			{				
+				Ogre::RTShader::ShaderGenerator::finalize();
+				mShaderGenerator = NULL;
+			}
+		}
+#endif // USE_RTSHADER_SYSTEM
 	void Engine::setupResources(String const & resourceCfgFileName)
 	{
 		// Load resource paths from config file
@@ -391,8 +545,9 @@ namespace Orkige
 						this->renderWindow[each]->windowMovedOrResized();
 					}
 				}
-				catch (...)
+				catch (Ogre::Exception const & e)
 				{
+					oDebugMsg("core", 0, "Exception: " << e.what());
 					if (showConfigBehavior != SHOW_NEVER)
 					{
 						this->root->showConfigDialog();
@@ -404,9 +559,9 @@ namespace Orkige
 						// fallback values
 						Ogre::RenderSystem* renderSystem = Ogre::Root::getSingleton().getRenderSystem();
 						renderSystem->setConfigOption("Video Mode", "640 x 480 @ 32-bit colour");
-						renderSystem->setConfigOption("VSync", "No");
+						//renderSystem->setConfigOption("VSync", "No");
 						renderSystem->setConfigOption("Full Screen", "No");
-						renderSystem->setConfigOption("Resource Creation Policy", "Create on all devices");
+						//renderSystem->setConfigOption("Resource Creation Policy", "Create on all devices");
 						renderSystem->setConfigOption("FSAA", "0");
 
 						// fallback device, this may set video mode and anti-aliasing settings

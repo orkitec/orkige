@@ -47,7 +47,11 @@ namespace Orkige
 #endif //ORKIGE_OPENAL_SOUND
 	{
 #ifdef ORKIGE_OGGSOUNDMANAGER
+	#if OGRE_VERSION_MINOR >= 8
+		this->msSingleton = this->singleton;
+	#else
 		this->ms_Singleton = this->singleton;
+	#endif
 #endif
 		oInfo("...SoundManager created!...");
 	}

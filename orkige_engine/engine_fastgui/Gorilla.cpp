@@ -27,10 +27,13 @@ THE SOFTWARE.
 #include "engine_fastgui/Gorilla.h"
 #include "core_util/StringUtil.h"
 
-
 #pragma warning ( disable : 4244 )
+#if OGRE_VERSION_MINOR >= 8
+		template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::msSingleton = 0;
+#else
+		template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singleton = 0;
+#endif
 
-template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singleton = 0;
 
 #define PUSH_VERTEX(VERTICES, VERTEX, X, Y, UV, COLOUR)   \
 	VERTEX.position.x = X;                                           \
@@ -464,7 +467,23 @@ namespace Gorilla
 	{
 		Ogre::MaterialPtr d2Material = Ogre::MaterialManager::getSingletonPtr()->getByName("Gorilla2D");
 		if (d2Material.isNull() == false)
-			return d2Material;
+		{
+	  Ogre::Pass* pass = d2Material->getTechnique(0)->getPass(0);
+
+	  if(pass->hasVertexProgram())
+	  {
+		  Ogre::GpuProgramPtr gpuPtr = pass->getVertexProgram();
+		  gpuPtr->load();
+	  }
+
+	  if(pass->hasFragmentProgram())
+	  {
+		  Ogre::GpuProgramPtr gpuPtr = pass->getFragmentProgram();
+		  gpuPtr->load();
+	  }
+
+	  return d2Material;
+  }
 
 		d2Material = Ogre::MaterialManager::getSingletonPtr()->create("Gorilla2D", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		Ogre::Pass* pass = d2Material->getTechnique(0)->getPass(0);
@@ -486,7 +505,23 @@ namespace Gorilla
 
 		Ogre::MaterialPtr d3Material = Ogre::MaterialManager::getSingletonPtr()->getByName("Gorilla3D");
 		if (d3Material.isNull() == false)
-			return d3Material;
+		  {
+	  Ogre::Pass* pass = d3Material->getTechnique(0)->getPass(0);
+
+	  if(pass->hasVertexProgram())
+	  {
+		  Ogre::GpuProgramPtr gpuPtr = pass->getVertexProgram();
+		  gpuPtr->load();
+	  }
+
+	  if(pass->hasFragmentProgram())
+	  {
+		  Ogre::GpuProgramPtr gpuPtr = pass->getFragmentProgram();
+		  gpuPtr->load();
+	  }
+
+	  return d3Material;
+  }
 
 		d3Material = Ogre::MaterialManager::getSingletonPtr()->create("Gorilla3D", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		Ogre::Pass* pass = d3Material->getTechnique(0)->getPass(0);
