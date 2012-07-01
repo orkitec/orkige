@@ -212,10 +212,18 @@ namespace Orkige
 			switch (Engine::getSingleton().getViewport()->getOrientationMode())
 			{
 			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
+#if OGRE_VERSION_MINOR >= 8 && OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+                //currently no orientation support hack to make input work correct on ios and unstable ogre
+                data->absX = absY;
+				data->absY = w - absX;
+				data->relX = relY;
+				data->relY = -relX;                
+#else
                 data->absX = absX;
                 data->absY = absY;
                 data->relX = relX;
                 data->relY = relY;
+#endif
 				break;
 			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
 				data->absX = w - absY;

@@ -102,7 +102,7 @@ namespace Orkige
 		// the position should be based on the orientation, for now simply return
 		return;
 #endif
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
+#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 		/*		std::vector<OIS::MultiTouchState> states = InputManager::getSingleton().getMouse()->getMultiTouchStates();
 		if(states.size() > 0)
 		this->cursor->setPosition(states[0].X.abs, states[0].Y.abs);

@@ -229,7 +229,7 @@ namespace Gorilla
 #endif
 				if (mTexture.isNull())
 				{
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE
+#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 					if(textureName.find(".pvr") == Ogre::String::npos)
 					{
 						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + ".pvr"; 
