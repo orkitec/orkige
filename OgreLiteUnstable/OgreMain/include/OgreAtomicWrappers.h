@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -117,8 +117,7 @@ namespace Ogre {
 
 }
 
-// These GCC instrinsics are not supported on ARM - masterfalcon
-#if OGRE_COMPILER == OGRE_COMPILER_GNUC && OGRE_COMP_VER >= 412 && OGRE_THREAD_SUPPORT && OGRE_CPU != OGRE_CPU_ARM
+#if (((OGRE_COMPILER == OGRE_COMPILER_GNUC) && (OGRE_COMP_VER >= 412)) || (OGRE_COMPILER == OGRE_COMPILER_CLANG)) && OGRE_THREAD_SUPPORT
 
 namespace Ogre {
 
@@ -186,7 +185,7 @@ namespace Ogre {
 
 		T operator+=(const T &add)
 		{
-			__sync_fetch_and_add (&mField, add);
+			return __sync_add_and_fetch (&mField, add);
 		}
 
         volatile T mField;

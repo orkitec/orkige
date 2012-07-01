@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +43,10 @@ namespace Ogre {
             char* mScratchBufferPool;
             OGRE_MUTEX(mScratchMutex)
             size_t mMapBufferThreshold;
+            /// Internal method for creates a new vertex declaration, may be overridden by certain rendering APIs
+            VertexDeclaration* createVertexDeclarationImpl(void);
+            /// Internal method for destroys a vertex declaration, may be overridden by certain rendering APIs
+            void destroyVertexDeclarationImpl(VertexDeclaration* decl);
 
         public:
             GLES2HardwareBufferManagerBase();
@@ -77,9 +81,9 @@ namespace Ogre {
 
     		/** Threshold after which glMapBuffer is used and not glBufferSubData
             */
-            const size_t getGLMapBufferThreshold() const;
+            size_t getGLMapBufferThreshold() const;
             void setGLMapBufferThreshold( const size_t value );
-};
+    };
 
 	/// GLES2HardwareBufferManagerBase as a Singleton
 	class _OgreGLES2Export GLES2HardwareBufferManager : public HardwareBufferManager
@@ -123,7 +127,7 @@ namespace Ogre {
 
         /** Threshold after which glMapBuffer is used and not glBufferSubData
 		*/
-		const size_t getGLMapBufferThreshold() const
+		size_t getGLMapBufferThreshold() const
 		{
 			return static_cast<GLES2HardwareBufferManagerBase*>(mImpl)->getGLMapBufferThreshold();
 		}

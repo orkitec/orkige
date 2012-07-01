@@ -19,7 +19,11 @@
 #define OGRE_USE_NEW_COMPILERS 1
 #define OGRE_USE_BOOST  0
 #define OGRE_NO_ZIP_ARCHIVE  @OGRE_NO_ZIP_ARCHIVE@
-
+#define OGRE_NO_GLES2_GLSL_OPTIMISER 1
+#define OGRE_NO_GLES2_CG_SUPPORT 1
+#ifndef __APPLE__
+#define GL_APPLE_framebuffer_multisample 0
+#endif
 #cmakedefine RTSHADER_SYSTEM_BUILD_CORE_SHADERS
 #cmakedefine RTSHADER_SYSTEM_BUILD_EXT_SHADERS
 

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -32,12 +32,12 @@ THE SOFTWARE.
 #include "OgrePanelOverlayElement.h"
 
 namespace Ogre {
-	/** \addtogroup Core
-	*  @{
-	*/
-	/** \addtogroup Overlays
-	*  @{
-	*/
+    /** \addtogroup Core
+    *  @{
+    */
+    /** \addtogroup Overlays
+    *  @{
+    */
 
     class BorderRenderable;
     
@@ -64,7 +64,7 @@ namespace Ogre {
 
         virtual void initialise(void);
 
-		const String& getTypeName(void) const;
+        const String& getTypeName(void) const;
         /** Sets the size of the border.
         @remarks
             This method sets a constant size for all borders. There are also alternative
@@ -155,14 +155,14 @@ namespace Ogre {
         */
         void setBottomRightBorderUV(Real u1, Real v1, Real u2, Real v2);
 
-		String getLeftBorderUVString() const;
-		String getRightBorderUVString() const;
-		String getTopBorderUVString() const;
-		String getBottomBorderUVString() const;
-		String getTopLeftBorderUVString() const;
-		String getTopRightBorderUVString() const;
-		String getBottomLeftBorderUVString() const;
-		String getBottomRightBorderUVString() const;
+        String getLeftBorderUVString() const;
+        String getRightBorderUVString() const;
+        String getTopBorderUVString() const;
+        String getBottomBorderUVString() const;
+        String getTopLeftBorderUVString() const;
+        String getTopRightBorderUVString() const;
+        String getBottomLeftBorderUVString() const;
+        String getBottomRightBorderUVString() const;
 
 
 
@@ -172,16 +172,16 @@ namespace Ogre {
         /** Gets the name of the material to use for the borders. */
         const String& getBorderMaterialName(void) const;
 
-        /** Overridden from OverlayContainer */
+        /** @copydoc OverlayContainer::_updateRenderQueue */
         void _updateRenderQueue(RenderQueue* queue);
-		/// @copydoc OvelayElement::visitRenderables
-		void visitRenderables(Renderable::Visitor* visitor, 
-			bool debugRenderables = false);
+        /// @copydoc OverlayElement::visitRenderables
+        void visitRenderables(Renderable::Visitor* visitor, 
+            bool debugRenderables = false);
 
-        /** Overridden from OverlayElement */
+        /** @copydoc OverlayElement::setMetricsMode */
         void setMetricsMode(GuiMetricsMode gmm);
 
-        /** Overridden from OverlayElement */
+        /** @copydoc OverlayElement::_update */
         void _update(void);
 
 
@@ -260,10 +260,10 @@ namespace Ogre {
         Real mRightBorderSize;
         Real mTopBorderSize;
         Real mBottomBorderSize;
-		struct CellUV {
-			Real u1, v1, u2, v2;
-		};
-		CellUV mBorderUV[8];
+        struct CellUV {
+            Real u1, v1, u2, v2;
+        };
+        CellUV mBorderUV[8];
 
         ushort mPixelLeftBorderSize;
         ushort mPixelRightBorderSize;
@@ -271,7 +271,7 @@ namespace Ogre {
         ushort mPixelBottomBorderSize;
 
         String mBorderMaterialName;
-        MaterialPtr mpBorderMaterial;
+        MaterialPtr mBorderMaterial;
 
         // Render operation for the border area
         RenderOperation mRenderOp2;
@@ -280,8 +280,8 @@ namespace Ogre {
 
         /// internal method for setting up geometry, called by OverlayElement::update
         void updatePositionGeometry(void);
-		/// internal method for setting up geometry, called by OverlayElement::update
-		void updateTextureGeometry(void);
+        /// internal method for setting up geometry, called by OverlayElement::update
+        void updateTextureGeometry(void);
         /// Internal method for setting up parameters
         void addBaseParameters(void);
 
@@ -295,7 +295,7 @@ namespace Ogre {
             BCELL_BOTTOM = 6,
             BCELL_BOTTOM_RIGHT = 7
         };
-	    String getCellUVString(BorderCellIndex idx) const;
+        String getCellUVString(BorderCellIndex idx) const;
 
         // Command objects
         static CmdBorderSize msCmdBorderSize;
@@ -328,7 +328,7 @@ namespace Ogre {
             mUseIdentityProjection = true;
             mUseIdentityView = true;
         }
-        const MaterialPtr& getMaterial(void) const { return mParent->mpBorderMaterial; }
+        const MaterialPtr& getMaterial(void) const { return mParent->mBorderMaterial; }
         void getRenderOperation(RenderOperation& op) { op = mParent->mRenderOp2; }
         void getWorldTransforms(Matrix4* xform) const { mParent->getWorldTransforms(xform); }
         unsigned short getNumWorldTransforms(void) const { return 1; }
@@ -339,14 +339,14 @@ namespace Ogre {
             static LightList ll;
             return ll;
         }
-		bool getPolygonModeOverrideable(void) const
-		{
-			return mParent->getPolygonModeOverrideable();
-		}
+        bool getPolygonModeOverrideable(void) const
+        {
+            return mParent->getPolygonModeOverrideable();
+        }
     };
-	/** @} */
-	/** @} */
+    /** @} */
+    /** @} */
 
-}
+} // namespace Ogre
 
-#endif
+#endif // __BorderPanelOverlayElement_H__

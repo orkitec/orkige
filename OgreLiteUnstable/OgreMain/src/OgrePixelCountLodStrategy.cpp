@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -35,14 +35,14 @@ THE SOFTWARE.
 
 namespace Ogre {
     //-----------------------------------------------------------------------
-    template<> PixelCountLodStrategy* Singleton<PixelCountLodStrategy>::ms_Singleton = 0;
+    template<> PixelCountLodStrategy* Singleton<PixelCountLodStrategy>::msSingleton = 0;
     PixelCountLodStrategy* PixelCountLodStrategy::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     PixelCountLodStrategy& PixelCountLodStrategy::getSingleton(void)
     {
-        assert( ms_Singleton );  return ( *ms_Singleton );
+        assert( msSingleton );  return ( *msSingleton );
     }
     //-----------------------------------------------------------------------
     PixelCountLodStrategy::PixelCountLodStrategy()

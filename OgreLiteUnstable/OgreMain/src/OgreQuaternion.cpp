@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -42,7 +42,7 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-    const Real Quaternion::ms_fEpsilon = 1e-03;
+    const Real Quaternion::msEpsilon = 1e-03;
     const Quaternion Quaternion::ZERO(0,0,0,0);
     const Quaternion Quaternion::IDENTITY(1,0,0,0);
 
@@ -349,7 +349,7 @@ namespace Ogre {
         Quaternion kResult;
         kResult.w = Math::Cos(fAngle);
 
-        if ( Math::Abs(fSin) >= ms_fEpsilon )
+        if ( Math::Abs(fSin) >= msEpsilon )
         {
             Real fCoeff = fSin/(fAngle.valueRadians());
             kResult.x = fCoeff*x;
@@ -379,7 +379,7 @@ namespace Ogre {
         {
             Radian fAngle ( Math::ACos(w) );
             Real fSin = Math::Sin(fAngle);
-            if ( Math::Abs(fSin) >= ms_fEpsilon )
+            if ( Math::Abs(fSin) >= msEpsilon )
             {
                 Real fCoeff = fAngle.valueRadians()/fSin;
                 kResult.x = fCoeff*x;
@@ -438,7 +438,7 @@ namespace Ogre {
             rkT = rkQ;
         }
 
-        if (Math::Abs(fCos) < 1 - ms_fEpsilon)
+        if (Math::Abs(fCos) < 1 - msEpsilon)
         {
             // Standard case (slerp)
             Real fSin = Math::Sqrt(1 - Math::Sqr(fCos));
@@ -469,7 +469,7 @@ namespace Ogre {
         Real fCos = rkP.Dot(rkQ);
         Radian fAngle ( Math::ACos(fCos) );
 
-        if ( Math::Abs(fAngle.valueRadians()) < ms_fEpsilon )
+        if ( Math::Abs(fAngle.valueRadians()) < msEpsilon )
             return rkP;
 
         Real fSin = Math::Sin(fAngle);

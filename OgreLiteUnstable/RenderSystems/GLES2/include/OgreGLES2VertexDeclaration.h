@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,18 +25,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
-#include "OgreErrorDialog.h"
-#include <iostream>
+#ifndef __GLES2VERTEXDECLARATION_H__
+#define __GLES2VERTEXDECLARATION_H__
 
-using namespace Ogre;
+#include "OgreGLES2Prerequisites.h"
+#include "OgreHardwareVertexBuffer.h"
 
-//---------------------------------------------------------------------------//
-ErrorDialog::ErrorDialog()
-{
+namespace Ogre { 
+
+	/** Specialisation of VertexDeclaration for OpenGL ES 2 Vertex Array Object usage */
+	class GLES2VertexDeclaration : public VertexDeclaration
+	{
+	protected:
+        /// OpenGL id for the vertex array object
+        GLuint mVAO;
+        bool mIsInitialised;
+
+	public:
+		GLES2VertexDeclaration();
+		~GLES2VertexDeclaration();
+        void bind(void);
+        bool isInitialised(void) { return mIsInitialised; }
+        void setInitialised(bool flag) { mIsInitialised = flag; }
+	};
+
 }
 
-//---------------------------------------------------------------------------//
-void ErrorDialog::display(const String& errorMessage, String logName)
-{
-	std::cout << "*** ERROR: " << errorMessage << std::endl;
-}
+#endif

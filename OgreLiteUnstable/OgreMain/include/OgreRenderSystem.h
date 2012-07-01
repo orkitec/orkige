@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -153,7 +153,7 @@ namespace Ogre
 		This routine is called automatically by the default
 		configuration dialogue produced by Root::showConfigDialog
 		or may be used by the caller for custom settings dialogs
-		@returns
+		@return
 		A 'map' of options, i.e. a list of options which is also
 		indexed by option name.
 		*/
@@ -207,7 +207,7 @@ namespace Ogre
 		If an application has more specific window requirements,
 		however (e.g. a level design app), it should specify false
 		for this parameter and do it manually.
-		@returns
+		@return
 		A pointer to the automatically created window, if requested, otherwise null.
 		*/
 		virtual RenderWindow* _initialise(bool autoCreateWindow, const String& windowTitle = "OGRE Render Window");
@@ -342,7 +342,10 @@ namespace Ogre
 		<tr>
 			<td>externalWindowHandle</td>
 			<td>Win32: HWND as integer<br/>
-			    GLX: poslong:posint:poslong (display*:screen:windowHandle) or poslong:posint:poslong:poslong (display*:screen:windowHandle:XVisualInfo*)</td>
+			    GLX: poslong:posint:poslong (display*:screen:windowHandle) or poslong:posint:poslong:poslong (display*:screen:windowHandle:XVisualInfo*)<br/>
+                OS X: WindowRef for Carbon or NSWindow for Cocoa address as an integer
+                iOS: UIWindow address as an integer
+            </td>
 			<td>0 (none)</td>
 			<td>External window handle, for embedding the OGRE render in an existing window</td>
 			<td>&nbsp;</td>
@@ -379,6 +382,7 @@ namespace Ogre
 			<td>String: "cocoa" or "carbon"</td>
 			<td>"carbon"</td>
 			<td>Specifies the type of rendering window on the Mac Platform.</td>
+            <td>Mac OS X Specific</td>
 			<td>&nbsp;</td>
 		 </tr>
 		 <tr>
@@ -393,6 +397,7 @@ namespace Ogre
 				In short, by setting this flag to "true" the Ogre::Root::createRenderWindow interprets the "externalWindowHandle" as a NSView*
 				instead of an OgreView*. See OgreOSXCocoaView.h/mm.
 			</td>
+            <td>Mac OS X Specific</td>
 			<td>&nbsp;</td>
 		 </tr>
          <tr>
@@ -404,8 +409,25 @@ namespace Ogre
                  native resolution is 960 x 640.  Windows are always 320 x 480, if you would like to limit the display
                  to 720 x 480, specify 1.5 as the scaling factor.
              </td>
+             <td>iOS Specific</td>
              <td>&nbsp;</td>
 		 </tr>
+         <tr>
+             <td>externalViewHandle</td>
+             <td>UIView pointer as an integer</td>
+             <td>0</td>
+             <td>External view handle, for rendering OGRE render in an existing view</td>
+             <td>iOS Specific</td>
+             <td>&nbsp;</td>
+         </tr>
+         <tr>
+             <td>externalViewControllerHandle</td>
+             <td>UIViewController pointer as an integer</td>
+             <td>0</td>
+             <td>External view controller handle, for embedding OGRE in an existing view controller</td>
+             <td>iOS Specific</td>
+             <td>&nbsp;</td>
+         </tr>
          <tr>
 			<td>FSAA</td>
 			<td>Positive integer (usually 0, 2, 4, 8, 16)</td>
@@ -498,7 +520,7 @@ namespace Ogre
 		See _createRenderWindow for details about each member.		
 		@param
 		createdWindows This array will hold the created render windows.
-		@returns
+		@return
 		true on success.		
 		*/
 		virtual bool _createRenderWindows(const RenderWindowDescriptionList& renderWindowDescriptions, 
@@ -568,16 +590,16 @@ namespace Ogre
 		/** Sets the global instance vertex buffer.
 		*/
         void setGlobalInstanceVertexBuffer(const HardwareVertexBufferSharedPtr val);
-		/** gets vertex declaration for the global vertex buffer for the global instancing
+		/** Gets vertex declaration for the global vertex buffer for the global instancing
 		*/
         VertexDeclaration* getGlobalInstanceVertexBufferVertexDeclaration() const;
-		/** sets vertex declaration for the global vertex buffer for the global instancing
+		/** Sets vertex declaration for the global vertex buffer for the global instancing
 		*/
         void setGlobalInstanceVertexBufferVertexDeclaration( VertexDeclaration* val);
-		/** gets the global number of instances.
+		/** Gets the global number of instances.
 		*/
         size_t getGlobalNumberOfInstances() const;
-		/** sets the global number of instances.
+		/** Sets the global number of instances.
 		*/
         void setGlobalNumberOfInstances(const size_t val);
 
@@ -829,7 +851,7 @@ namespace Ogre
 		/** Sets the global alpha rejection approach for future renders.
 		By default images are rendered regardless of texture alpha. This method lets you change that.
 		@param func The comparison function which must pass for a pixel to be written.
-		@param val The value to compare each pixels alpha value to (0-255)
+		@param value The value to compare each pixels alpha value to (0-255)
 		@param alphaToCoverage Whether to enable alpha to coverage, if supported
 		*/
 		virtual void _setAlphaRejectSettings(CompareFunction func, unsigned char value, bool alphaToCoverage) = 0;
@@ -889,7 +911,7 @@ namespace Ogre
 		rendering operations. This viewport is aware of it's own
 		camera and render target. Must be implemented by subclass.
 
-		@param target Pointer to the appropriate viewport.
+		@param vp Pointer to the appropriate viewport.
 		*/
 		virtual void _setViewport(Viewport *vp) = 0;
 		/** Get the current active viewport for rendering. */
@@ -1498,7 +1520,7 @@ namespace Ogre
 
 		/** updates pass iteration rendering state including bound gpu program parameter
 		pass iteration auto constant entry
-		@returns True if more iterations are required
+		@return True if more iterations are required
 		*/
 		bool updatePassIterationRenderState(void);
 

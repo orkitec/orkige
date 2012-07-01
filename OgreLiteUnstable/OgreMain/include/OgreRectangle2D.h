@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -53,9 +53,12 @@ namespace Ogre {
         */
         void getWorldTransforms( Matrix4* xform ) const;
 
+        void _initRectangle2D(bool includeTextureCoords, Ogre::HardwareBuffer::Usage vBufUsage);
+
     public:
 
         Rectangle2D(bool includeTextureCoordinates = false, HardwareBuffer::Usage vBufUsage = HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY);
+        Rectangle2D(const String& name, bool includeTextureCoordinates = false, HardwareBuffer::Usage vBufUsage = HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY);
         ~Rectangle2D();
 
         /** Sets the corners of the rectangle, in relative coordinates.

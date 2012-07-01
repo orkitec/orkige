@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -26,30 +26,17 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 
-#ifndef __OSXCocoaView_H__
-#define __OSXCocoaView_H__
+#include "OgreErrorDialog.h"
+#include <CoreFoundation/CoreFoundation.h>
 
-#include "OgreRenderWindow.h"
-#include <UIKit/UIKit.h>
 
-@interface OgreView : UIView
+using namespace Ogre;
+
+ErrorDialog::ErrorDialog()
 {
-	Ogre::RenderWindow *window;
 }
 
-- (id)initWithFrame:(CGRect)f;
-- (id)initWithGLiPhoneWindow:(Ogre::RenderWindow*)w;
-
-- (void)setOgreWindow:(Ogre::RenderWindow*)w;
-- (Ogre::RenderWindow*)ogreWindow;
-
-- (void)setFrameSize:(CGSize)s;
-
-@end
-
-@interface OgreWindow : UIWindow
-{}
-@end
-
-#endif
-
+void ErrorDialog::display(const String& errorMessage, String logName)
+{
+// TODO: Implement with a UIAlertView perhaps
+}

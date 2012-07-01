@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -80,8 +80,8 @@ namespace Ogre {
 		/// in only a part of the render systems.
 		size_t numberOfInstances;
 
-        /// a flag to indicate that it is possible for this operation to use a global
-        /// vertex instance buffer if available. 
+        /** A flag to indicate that it is possible for this operation to use a global
+            vertex instance buffer if available.*/
         bool useGlobalInstancingVertexBufferIsAvailable;
 
         RenderOperation() :

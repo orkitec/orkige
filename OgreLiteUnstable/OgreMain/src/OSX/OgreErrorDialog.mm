@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -45,8 +45,8 @@ void ErrorDialog::display(const String& errorMessage, String logName)
 
     [alert setMessageText:@"An error has occurred!"];
     [alert setAlertStyle:NSCriticalAlertStyle];
-    [alert setInformativeText:[[NSString alloc] initWithCString:errorMessage.c_str()
-                                                       encoding:NSASCIIStringEncoding]];
+    [alert setInformativeText:[NSString stringWithCString:errorMessage.c_str()
+                                                 encoding:NSASCIIStringEncoding]];
     [alert runModal];
     [alert release];
     [pool release];

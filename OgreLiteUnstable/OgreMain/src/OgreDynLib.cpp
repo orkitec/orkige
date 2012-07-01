@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -52,7 +52,7 @@ namespace Ogre {
     DynLib::DynLib( const String& name )
     {
         mName = name;
-        m_hInst = NULL;
+        mInst = NULL;
     }
 
     //-----------------------------------------------------------------------
@@ -67,9 +67,9 @@ namespace Ogre {
         LogManager::getSingleton().logMessage("Loading library " + mName);
 
 		String name = mName;
-#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX || OGRE_PLATFORM == OGRE_PLATFORM_TEGRA2 || OGRE_PLATFORM == OGRE_PLATFORM_NACL
+#if OGRE_PLATFORM == OGRE_PLATFORM_LINUX || OGRE_PLATFORM == OGRE_PLATFORM_NACL
         // dlopen() does not add .so to the filename, like windows does for .dll
-        if (name.substr(name.length() - 3, 3) != ".so")
+	if (name.find(".so") == String::npos)
            name += ".so";
 #elif OGRE_PLATFORM == OGRE_PLATFORM_APPLE
         // dlopen() does not add .dylib to the filename, like windows does for .dll
@@ -81,9 +81,9 @@ namespace Ogre {
 		if (name.substr(name.length() - 4, 4) != ".dll")
 			name += ".dll";
 #endif
-        m_hInst = (DYNLIB_HANDLE)DYNLIB_LOAD( name.c_str() );
+        mInst = (DYNLIB_HANDLE)DYNLIB_LOAD( name.c_str() );
 
-        if( !m_hInst )
+        if( !mInst )
             OGRE_EXCEPT(
                 Exception::ERR_INTERNAL_ERROR, 
                 "Could not load dynamic library " + mName + 
@@ -97,7 +97,7 @@ namespace Ogre {
         // Log library unload
         LogManager::getSingleton().logMessage("Unloading library " + mName);
 
-        if( DYNLIB_UNLOAD( m_hInst ) )
+        if( DYNLIB_UNLOAD( mInst ) )
 		{
             OGRE_EXCEPT(
                 Exception::ERR_INTERNAL_ERROR, 
@@ -111,7 +111,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     void* DynLib::getSymbol( const String& strName ) const throw()
     {
-        return (void*)DYNLIB_GETSYM( m_hInst, strName.c_str() );
+        return (void*)DYNLIB_GETSYM( mInst, strName.c_str() );
     }
     //-----------------------------------------------------------------------
     String DynLib::dynlibError( void ) 
@@ -133,7 +133,7 @@ namespace Ogre {
         // Free the buffer.
         LocalFree( lpMsgBuf );
         return ret;
-#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX || OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_TEGRA2
+#elif OGRE_PLATFORM == OGRE_PLATFORM_LINUX || OGRE_PLATFORM == OGRE_PLATFORM_APPLE
         return String(dlerror());
 #else
         return String("");

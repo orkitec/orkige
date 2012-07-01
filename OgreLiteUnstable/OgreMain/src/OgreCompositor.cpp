@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -379,7 +379,7 @@ TexturePtr Compositor::getTextureInstance(const String& name, size_t mrtIndex)
 	}
 	//Try MRT
 	String mrtName = getMRTTexLocalName(name, mrtIndex);
-	i = mGlobalTextures.find(name);
+	i = mGlobalTextures.find(mrtName);
 	if(i != mGlobalTextures.end())
 	{
 		return i->second;

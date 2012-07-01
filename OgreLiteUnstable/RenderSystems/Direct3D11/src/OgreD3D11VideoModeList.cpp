@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38,26 +38,26 @@ namespace Ogre
 		if( NULL == pDriver )
 			OGRE_EXCEPT( Exception::ERR_INVALIDPARAMS, "pDriver parameter is NULL", "D3D11VideoModeList::D3D11VideoModeList" );
 
-		mpDriver = pDriver;
+		mDriver = pDriver;
 		enumerate();
 	}
 	//---------------------------------------------------------------------
 	D3D11VideoModeList::~D3D11VideoModeList()
 	{
-		mpDriver = NULL;
+		mDriver = NULL;
 		mModeList.clear();
 	}
 	//---------------------------------------------------------------------
 	BOOL D3D11VideoModeList::enumerate()
 	{
-		//		int pD3D = mpDriver->getD3D();
-		UINT adapter = mpDriver->getAdapterNumber();
+		//		int pD3D = mDriver->getD3D();
+		UINT adapter = mDriver->getAdapterNumber();
 		HRESULT hr;
 		IDXGIOutput *pOutput;
 		for( int iOutput = 0; ; ++iOutput )
 		{
 			//AIZTODO: one output for a single monitor ,to be handled for mulimon	    
-			hr = mpDriver->getDeviceAdapter()->EnumOutputs( iOutput, &pOutput );
+			hr = mDriver->getDeviceAdapter()->EnumOutputs( iOutput, &pOutput );
 			if( DXGI_ERROR_NOT_FOUND == hr )
 			{
 				return false;

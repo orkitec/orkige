@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -101,7 +101,7 @@ namespace Ogre {
 	class _OgreExport Log : public LogAlloc
     {
     protected:
-        std::ofstream	mfpLog;
+        std::ofstream	mLog;
         LoggingLevel	mLogLevel;
         bool			mDebugOut;
         bool			mSuppressFile;
@@ -165,7 +165,7 @@ namespace Ogre {
         /**
         @remarks
             Register a listener to this log
-        @param
+        @param listener
             A valid listener derived class
         */
         void addListener(LogListener* listener);
@@ -173,7 +173,7 @@ namespace Ogre {
         /**
         @remarks
             Unregister a listener from this log
-        @param
+        @param listener
             A valid listener derived class
         */
         void removeListener(LogListener* listener);

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -249,9 +249,9 @@ bool FFPColour::addFunctionInvocations(ProgramSet* programSet)
 	if (mPSOutputDiffuse.get() != NULL && psSpecular.get() != NULL)
 	{
 		curFuncInvocation = OGRE_NEW FunctionInvocation(FFP_FUNC_ADD, FFP_PS_COLOUR_END, internalCounter++);
-		curFuncInvocation->pushOperand(mPSOutputDiffuse, Operand::OPS_IN,(Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z));
-		curFuncInvocation->pushOperand(psSpecular, Operand::OPS_IN,(Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z));
-		curFuncInvocation->pushOperand(mPSOutputDiffuse, Operand::OPS_OUT,(Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z));
+		curFuncInvocation->pushOperand(mPSOutputDiffuse, Operand::OPS_IN, Operand::OPM_XYZ);
+		curFuncInvocation->pushOperand(psSpecular, Operand::OPS_IN, Operand::OPM_XYZ);
+		curFuncInvocation->pushOperand(mPSOutputDiffuse, Operand::OPS_OUT, Operand::OPM_XYZ);
 		psMain->addAtomInstance(curFuncInvocation);
 	}	
 

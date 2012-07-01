@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38,6 +38,8 @@ namespace Ogre
     EmitterCommands::CmdColourRangeStart ParticleEmitter::msColourRangeStartCmd;
     EmitterCommands::CmdColourRangeEnd ParticleEmitter::msColourRangeEndCmd;
     EmitterCommands::CmdDirection ParticleEmitter::msDirectionCmd;
+    EmitterCommands::CmdUp ParticleEmitter::msUpCmd;
+	EmitterCommands::CmdDirPositionRef ParticleEmitter::msDirPositionRefCmd;
     EmitterCommands::CmdEmissionRate ParticleEmitter::msEmissionRateCmd;
     EmitterCommands::CmdMaxTTL ParticleEmitter::msMaxTTLCmd;
     EmitterCommands::CmdMaxVelocity ParticleEmitter::msMaxVelocityCmd;
@@ -59,6 +61,8 @@ namespace Ogre
     //-----------------------------------------------------------------------
     ParticleEmitter::ParticleEmitter(ParticleSystem* psys)
       : mParent(psys),
+        mUseDirPositionRef(false),
+		mDirPositionRef(Vector3::ZERO),
         mStartTime(0),
         mDurationMin(0),
         mDurationMax(0),
@@ -101,16 +105,43 @@ namespace Ogre
     { 
         mDirection = inDirection; 
         mDirection.normalise();
-        // Generate an up vector (any will do)
+        // Generate a default up vector.
         mUp = mDirection.perpendicular();
         mUp.normalise();
     }
-    //-----------------------------------------------------------------------
+	//-----------------------------------------------------------------------
     const Vector3& ParticleEmitter::getDirection(void) const
     { 
         return mDirection; 
     }
     //-----------------------------------------------------------------------
+    void ParticleEmitter::setUp(const Vector3& inUp) 
+    {
+        mUp = inUp; 
+        mUp.normalise();
+    }
+    //-----------------------------------------------------------------------
+    const Vector3& ParticleEmitter::getUp(void) const
+    { 
+        return mUp; 
+    }
+	//-----------------------------------------------------------------------
+	void ParticleEmitter::setDirPositionReference( const Vector3& position, bool enable )
+    { 
+		mUseDirPositionRef	= enable;
+        mDirPositionRef		= position;
+    }
+    //-----------------------------------------------------------------------
+	const Vector3& ParticleEmitter::getDirPositionReference() const
+	{
+		return mDirPositionRef;
+	}
+	//-----------------------------------------------------------------------
+	bool ParticleEmitter::getDirPositionReferenceEnabled() const
+	{
+		return mUseDirPositionRef;
+	}
+	//-----------------------------------------------------------------------
     void ParticleEmitter::setAngle(const Radian& angle)
     {
         // Store as radians for efficiency
@@ -195,25 +226,46 @@ namespace Ogre
         mEmitted = emitted;
     }
     //-----------------------------------------------------------------------
-    void ParticleEmitter::genEmissionDirection(Vector3& destVector)
+    void ParticleEmitter::genEmissionDirection( const Vector3 &particlePos, Vector3& destVector )
     {
-        if (mAngle != Radian(0))
-        {
-            // Randomise angle
-            Radian angle = Math::UnitRandom() * mAngle;
+		if( mUseDirPositionRef )
+		{
+			Vector3 particleDir = particlePos - mDirPositionRef;
+			particleDir.normalise();
 
-            // Randomise direction
-            destVector = mDirection.randomDeviant(angle, mUp);
-        }
-        else
-        {
-            // Constant angle
-            destVector = mDirection;
-        }
+			if (mAngle != Radian(0))
+			{
+				// Randomise angle
+				Radian angle = Math::UnitRandom() * mAngle;
 
-        // Don't normalise, we can assume that it will still be a unit vector since
-        // both direction and 'up' are.
+				// Randomise direction
+				destVector = particleDir.randomDeviant( angle );
+			}
+			else
+			{
+				// Constant angle
+				destVector = particleDir.normalisedCopy();
+			}
+		}
+		else
+		{
+			if (mAngle != Radian(0))
+			{
+				// Randomise angle
+				Radian angle = Math::UnitRandom() * mAngle;
 
+				// Randomise direction
+				destVector = mDirection.randomDeviant(angle, mUp);
+			}
+			else
+			{
+				// Constant angle
+				destVector = mDirection;
+			}
+		}
+
+		// Don't normalise, we can assume that it will still be a unit vector since
+		// both direction and 'up' are.
     }
     //-----------------------------------------------------------------------
     void ParticleEmitter::genEmissionVelocity(Vector3& destVector)
@@ -245,13 +297,11 @@ namespace Ogre
     //-----------------------------------------------------------------------
     unsigned short ParticleEmitter::genConstantEmissionCount(Real timeElapsed)
     {
-        unsigned short intRequest;
-        
         if (mEnabled)
         {
             // Keep fractions, otherwise a high frame rate will result in zero emissions!
             mRemainder += mEmissionRate * timeElapsed;
-            intRequest = (unsigned short)mRemainder;
+            unsigned short intRequest = (unsigned short)mRemainder;
             mRemainder -= intRequest;
 
             // Check duration
@@ -333,6 +383,15 @@ namespace Ogre
         dict->addParameter(ParameterDef("direction", 
             "The base direction of the emitter." , PT_VECTOR3),
             &msDirectionCmd);
+
+        dict->addParameter(ParameterDef("up", 
+            "The up vector of the emitter." , PT_VECTOR3),
+            &msUpCmd);
+
+		dict->addParameter(ParameterDef("direction_position_reference", 
+            "The reference position to calculate the direction of emitted particles "
+			"based on their position. Good for explosions and implosions (use negative velocity)" , PT_COLOURVALUE),
+            &msDirPositionRefCmd);
 
         dict->addParameter(ParameterDef("emission_rate", 
             "The number of particles emitted per second." , PT_REAL),

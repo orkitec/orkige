@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -112,7 +112,7 @@ namespace Ogre {
         /// Tangent (X axis if normal is Z)
         VES_TANGENT = 9,
         /// The  number of VertexElementSemantic elements (note - the first value VES_POSITION is 1) 
-        VES_COUNT = 9,
+        VES_COUNT = 9
 	};
 
     /// Vertex element type, used to identify the base types of the vertex contents
@@ -382,12 +382,12 @@ namespace Ogre {
             vertex declaration. <b>Please read the information in VertexDeclaration about
 	    the importance of ordering and structure for compatibility with older D3D drivers</b>.
 	    @param source The binding index of HardwareVertexBuffer which will provide the source for this element.
-			See VertexBufferBindingState for full information.
+			See VertexBufferBinding for full information.
         @param offset The offset in bytes where this element is located in the buffer
         @param theType The data format of the element (3 floats, a colour etc)
         @param semantic The meaning of the data (position, normal, diffuse colour etc)
         @param index Optional index for multi-input elements like texture coordinates
-		@returns A reference to the VertexElement added.
+		@return A reference to the VertexElement added.
         */
         virtual const VertexElement& addElement(unsigned short source, size_t offset, VertexElementType theType,
             VertexElementSemantic semantic, unsigned short index = 0);
@@ -397,12 +397,12 @@ namespace Ogre {
         vertex declaration. <b>Please read the information in VertexDeclaration about
         the importance of ordering and structure for compatibility with older D3D drivers</b>.
         @param source The binding index of HardwareVertexBuffer which will provide the source for this element.
-        See VertexBufferBindingState for full information.
+        See VertexBufferBinding for full information.
         @param offset The offset in bytes where this element is located in the buffer
         @param theType The data format of the element (3 floats, a colour etc)
         @param semantic The meaning of the data (position, normal, diffuse colour etc)
         @param index Optional index for multi-input elements like texture coordinates
-        @returns A reference to the VertexElement added.
+        @return A reference to the VertexElement added.
         */
         virtual const VertexElement& insertElement(unsigned short atPosition,
             unsigned short source, size_t offset, VertexElementType theType,
@@ -566,7 +566,7 @@ namespace Ogre {
         */
         virtual void closeGaps(BindingIndexMap& bindingIndexMap);
 
-        /// returns true if has an element that is instance data
+        /// Returns true if has an element that is instance data
         virtual bool getHasInstanceData() const;
 
 

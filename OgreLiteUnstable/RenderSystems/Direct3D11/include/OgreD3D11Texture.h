@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
-#ifndef __D3D8TEXTURE_H__
-#define __D3D8TEXTURE_H__
+#ifndef __D3D11TEXTURE_H__
+#define __D3D11TEXTURE_H__
 
 #include "OgreD3D11Prerequisites.h"
 #include "OgreTexture.h"
@@ -41,7 +41,6 @@ namespace Ogre {
 
 		/// D3DDevice pointer
 		D3D11Device	&	mDevice;	
-
 
 		/// D3D11 pointer
 		//LPDIRECT3D11				*mpD3D;
@@ -89,6 +88,8 @@ namespace Ogre {
 		/// internal method, return a D3D pixel format for texture creation
 		DXGI_FORMAT _chooseD3DFormat();
 
+		/// @copydoc Texture::createInternalResources
+		void createInternalResources(void);
 		/// @copydoc Texture::createInternalResourcesImpl
 		void createInternalResourcesImpl(void);
 		/// @copydoc Texture::freeInternalResources

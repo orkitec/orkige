@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -49,7 +49,7 @@ const String cBlankString;
 
 //-----------------------------------------------------------------------
 template<> 
-RTShader::ShaderGenerator* Singleton<RTShader::ShaderGenerator>::ms_Singleton = 0;
+RTShader::ShaderGenerator* Singleton<RTShader::ShaderGenerator>::msSingleton = 0;
 
 namespace RTShader {
 
@@ -61,15 +61,15 @@ String ShaderGenerator::SGTechnique::UserKey	= "SGTechnique";
 //-----------------------------------------------------------------------
 ShaderGenerator* ShaderGenerator::getSingletonPtr()
 {
-	assert( ms_Singleton );  
-	return ms_Singleton;
+	assert( msSingleton );  
+	return msSingleton;
 }
 
 //-----------------------------------------------------------------------
 ShaderGenerator& ShaderGenerator::getSingleton()
 {
-	assert( ms_Singleton );  
-	return ( *ms_Singleton );
+	assert( msSingleton );  
+	return ( *msSingleton );
 }
 
 //-----------------------------------------------------------------------------
@@ -114,7 +114,7 @@ ShaderGenerator::ShaderGenerator()
 	}
 	else
 	{
-		// ASSAF: This is disabled for now - to stop an exception on the iPhone
+		// ASSAF: This is disabled for now - to stop an exception on the iOS
 		// when running with the OpenGL ES 1.x that doesn't support shaders...
 		/*
 		OGRE_EXCEPT( Exception::ERR_INTERNAL_ERROR, 
@@ -122,7 +122,7 @@ ShaderGenerator::ShaderGenerator()
 			"ShaderGenerator::ShaderGenerator" );
 
 		*/
-		mShaderLanguage	= "glsles"; // HACK for now
+		mShaderLanguage	= "cg"; // HACK for now
 	}
 
 	setVertexShaderProfiles("gpu_vp gp4vp vp40 vp30 arbvp1 vs_4_0 vs_3_0 vs_2_x vs_2_a vs_2_0 vs_1_1");
@@ -138,13 +138,13 @@ ShaderGenerator::~ShaderGenerator()
 //-----------------------------------------------------------------------------
 bool ShaderGenerator::initialize()
 {
-	if (ms_Singleton == NULL)
+	if (msSingleton == NULL)
 	{
-		ms_Singleton = OGRE_NEW ShaderGenerator;
-		if (false == ms_Singleton->_initialize())
+		msSingleton = OGRE_NEW ShaderGenerator;
+		if (false == msSingleton->_initialize())
 		{
-			OGRE_DELETE ms_Singleton;
-			ms_Singleton = NULL;
+			OGRE_DELETE msSingleton;
+			msSingleton = NULL;
 			return false;
 		}
 	}
@@ -224,12 +224,12 @@ void ShaderGenerator::createSubRenderStateExFactories()
 //-----------------------------------------------------------------------------
 void ShaderGenerator::finalize()
 {
-	if (ms_Singleton != NULL)
+	if (msSingleton != NULL)
 	{
-		ms_Singleton->_finalize();
+		msSingleton->_finalize();
 
-		OGRE_DELETE ms_Singleton;
-		ms_Singleton = NULL;
+		OGRE_DELETE msSingleton;
+		msSingleton = NULL;
 	}
 }
 

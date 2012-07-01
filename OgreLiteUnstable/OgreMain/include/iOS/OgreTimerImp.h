@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -26,10 +26,10 @@ THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 
-#ifndef __Tegra2Timer_H__
-#define __Tegra2Timer_H__
+#ifndef __iOSTimer_H__
+#define __iOSTimer_H__
 
-#include "../OgrePrerequisites.h"
+#include "OgrePrerequisites.h"
 
 namespace Ogre
 {
@@ -57,8 +57,7 @@ namespace Ogre
             @par
                 On failure, false is returned.
         */
-        bool setOption( const String& strKey, const void* pValue )
-        { (void)strKey; (void)pValue; return false; }
+        bool setOption( const String& strKey, const void* pValue ) { return false; }
 
 		/** Resets timer */
 		void reset();

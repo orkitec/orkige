@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -43,7 +43,7 @@ THE SOFTWARE.
 
 namespace Ogre
 {
-#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_6
     uint32 OSXWindow::bitDepthFromDisplayMode(CGDisplayModeRef mode)
     {
         uint32 depth = 0;
@@ -66,13 +66,17 @@ namespace Ogre
     //-------------------------------------------------------------------------------------------------//
     OSXWindow::~OSXWindow()
     {
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_6
+        if (mOriginalDisplayMode != NULL)
+            CGDisplayModeRelease(mOriginalDisplayMode);
+#endif
     }
     
     //-------------------------------------------------------------------------------------------------//
     void OSXWindow::copyContentsToMemory(const PixelBox &dst, FrameBuffer buffer)
     {
-        if ((dst.left < 0) || (dst.right > mWidth) ||
-            (dst.top < 0) || (dst.bottom > mHeight) ||
+        if ((dst.right > mWidth) ||
+            (dst.bottom > mHeight) ||
             (dst.front != 0) || (dst.back != 1))
         {
             OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
@@ -95,6 +99,10 @@ namespace Ogre
                         "OSXWindow::copyContentsToMemory" );
         }
         
+        // Switch context if different from current one
+		RenderSystem* rsys = Root::getSingleton().getRenderSystem();
+		rsys->_setViewport(this->getViewport(0));
+
         if((dst.getWidth()*Ogre::PixelUtil::getNumElemBytes(dst.format)) & 3)
         {
             // Standard alignment of 4 is not right
@@ -136,7 +144,7 @@ namespace Ogre
         CGLError cglErr = kCGLNoError;
         CGError cgErr = kCGErrorSuccess;
         
-#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_6
         // Get a copy of the current display mode
         CGDisplayModeRef displayMode = CGDisplayCopyDisplayMode(kCGDirectMainDisplay);
         
@@ -159,7 +167,10 @@ namespace Ogre
             
             if((CGDisplayModeGetWidth(mode) == width) && (CGDisplayModeGetHeight(mode) == height))
             {
+                // Release memory
+                CGDisplayModeRelease(displayMode);
                 displayMode = mode;
+                CGDisplayModeRetain(displayMode);
                 exactMatch = 1;
                 break;
             }
@@ -176,13 +187,19 @@ namespace Ogre
                 
                 if((CGDisplayModeGetWidth(mode) >= width) && (CGDisplayModeGetHeight(mode) >= height))
                 {
+                    // Release memory
+                    CGDisplayModeRelease(displayMode);
                     displayMode = mode;
+                    CGDisplayModeRetain(displayMode);
                     exactMatch = 1;
                     break;
                 }
             }
         }
-        
+
+        // Release memory
+        CFRelease(allModes);
+
         reqWidth = CGDisplayModeGetWidth(displayMode);
         reqHeight = CGDisplayModeGetHeight(displayMode);
         reqDepth = bitDepthFromDisplayMode(displayMode);
@@ -241,9 +258,12 @@ namespace Ogre
         CG_CHECK_ERROR(cgErr)
         
         // Switch to the correct resolution
-#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_6
         mOriginalDisplayMode = CGDisplayCopyDisplayMode(kCGDirectMainDisplay);
         cgErr = CGDisplaySetDisplayMode(kCGDirectMainDisplay, displayMode, NULL);
+
+        // Release memory
+        CFRelease(displayMode);
 #else
         mOriginalDisplayMode = CGDisplayCurrentMode(kCGDirectMainDisplay);
         cgErr = CGDisplaySwitchToMode(kCGDirectMainDisplay, displayMode);
@@ -403,7 +423,7 @@ namespace Ogre
         }
 
         // Switch back to the original screen resolution
-#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MAX_ALLOWED >= MAC_OS_X_VERSION_10_6
+#if defined(MAC_OS_X_VERSION_10_6) && MAC_OS_X_VERSION_MIN_REQUIRED >= MAC_OS_X_VERSION_10_6
         CGDisplaySetDisplayMode(kCGDirectMainDisplay, mOriginalDisplayMode, NULL);
 #else
         CGDisplaySwitchToMode(kCGDirectMainDisplay, mOriginalDisplayMode);

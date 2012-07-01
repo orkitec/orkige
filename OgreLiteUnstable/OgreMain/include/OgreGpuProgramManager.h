@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -182,12 +182,12 @@ namespace Ogre {
 
         /** Get if the microcode of a shader should be saved to a cache
         */
-		const bool getSaveMicrocodesToCache() const;
+		bool getSaveMicrocodesToCache();
         /** Set if the microcode of a shader should be saved to a cache
         */
 		void setSaveMicrocodesToCache( const bool val );
 
-		const bool canGetCompiledShaderBuffer() const;
+		bool canGetCompiledShaderBuffer();
         /** Check if a microcode is available for a program in the microcode cache.
         @param name The name of the program.
         */

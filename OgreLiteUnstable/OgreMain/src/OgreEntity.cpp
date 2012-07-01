@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -229,6 +229,7 @@ namespace Ogre {
 		{
 			// Delete SubEntity
 			OGRE_DELETE *i;
+            *i = 0;
 		}
 		mSubEntityList.clear();
 		
@@ -238,7 +239,8 @@ namespace Ogre {
 		for (li = mLodEntityList.begin(); li != liend; ++li)
 		{
 			// Delete
-			OGRE_DELETE (*li);
+			OGRE_DELETE *li;
+            *li = 0;
 		}
         mLodEntityList.clear();
         
@@ -248,6 +250,7 @@ namespace Ogre {
 		for (si = mShadowRenderables.begin(); si != siend; ++si)
 		{
 			OGRE_DELETE *si;
+            *si = 0;
 		}
         mShadowRenderables.clear();
         
@@ -257,6 +260,7 @@ namespace Ogre {
 
 		if (mSkeletonInstance) {
 			OGRE_FREE_SIMD(mBoneWorldMatrices, MEMCATEGORY_ANIMATION);
+            mBoneWorldMatrices = 0;
 
             if (mSharedSkeletonEntities) {
                 mSharedSkeletonEntities->erase(this);
@@ -267,29 +271,30 @@ namespace Ogre {
                 // Should never occur, just in case
                 else if (mSharedSkeletonEntities->empty())
                 {
-                    OGRE_DELETE_T(mSharedSkeletonEntities, EntitySet, MEMCATEGORY_ANIMATION);
+                    OGRE_DELETE_T(mSharedSkeletonEntities, EntitySet, MEMCATEGORY_ANIMATION); mSharedSkeletonEntities = 0;
 					// using OGRE_FREE since unsigned long is not a destructor
-                    OGRE_FREE(mFrameBonesLastUpdated, MEMCATEGORY_ANIMATION);
-                    OGRE_DELETE mSkeletonInstance;
-                    OGRE_FREE_SIMD(mBoneMatrices, MEMCATEGORY_ANIMATION);
-                    OGRE_DELETE mAnimationState;
+                    OGRE_FREE(mFrameBonesLastUpdated, MEMCATEGORY_ANIMATION); mFrameBonesLastUpdated = 0;
+                    OGRE_DELETE mSkeletonInstance; mSkeletonInstance = 0;
+                    OGRE_FREE_SIMD(mBoneMatrices, MEMCATEGORY_ANIMATION); mBoneMatrices = 0;
+                    OGRE_DELETE mAnimationState; mAnimationState = 0;
                 }
             } else {
 				// using OGRE_FREE since unsigned long is not a destructor
-				OGRE_FREE(mFrameBonesLastUpdated, MEMCATEGORY_ANIMATION);
-                OGRE_DELETE mSkeletonInstance;
-                OGRE_FREE_SIMD(mBoneMatrices, MEMCATEGORY_ANIMATION);
-                OGRE_DELETE mAnimationState;
+				OGRE_FREE(mFrameBonesLastUpdated, MEMCATEGORY_ANIMATION); mFrameBonesLastUpdated = 0;
+                OGRE_DELETE mSkeletonInstance; mSkeletonInstance = 0;
+                OGRE_FREE_SIMD(mBoneMatrices, MEMCATEGORY_ANIMATION); mBoneMatrices = 0;
+                OGRE_DELETE mAnimationState; mAnimationState = 0;
             }
         }
 		else if (hasVertexAnimation())
 		{
 			OGRE_DELETE mAnimationState;
+            mAnimationState = 0;
 		}
 
-		OGRE_DELETE mSkelAnimVertexData;
-		OGRE_DELETE mSoftwareVertexAnimVertexData;
-		OGRE_DELETE mHardwareVertexAnimVertexData;
+		OGRE_DELETE mSkelAnimVertexData; mSkelAnimVertexData = 0;
+		OGRE_DELETE mSoftwareVertexAnimVertexData; mSoftwareVertexAnimVertexData = 0;
+		OGRE_DELETE mHardwareVertexAnimVertexData; mHardwareVertexAnimVertexData = 0;
 
 		mInitialised = false;
 	}
@@ -429,7 +434,7 @@ namespace Ogre {
             for (i = mSubEntityList.begin(); i != iend; ++i)
             {
                 // Get sub-entity material
-                const MaterialPtr& material = (*i)->mpMaterial;
+                const MaterialPtr& material = (*i)->mMaterial;
                 
                 // Get material lod strategy
                 const LodStrategy *materialStrategy = material->getLodStrategy();
@@ -583,7 +588,19 @@ namespace Ogre {
         {
             if((*i)->isVisible())
             {
-				if (mRenderQueuePrioritySet)
+                // Order: first use subentity queue settings, if available
+                //        if not then use entity queue settings, if available
+                //        finally fall back on default queue settings
+                if((*i)->isRenderQueuePrioritySet())
+                {
+					assert((*i)->isRenderQueueGroupSet() == true);
+                    queue->addRenderable(*i, (*i)->getRenderQueueGroup(), (*i)->getRenderQueuePriority());
+                }
+                else if((*i)->isRenderQueueGroupSet())
+                {
+                    queue->addRenderable(*i, (*i)->getRenderQueueGroup());
+                }
+				else if (mRenderQueuePrioritySet)
 				{
 					assert(mRenderQueueIDSet == true);
 					queue->addRenderable(*i, mRenderQueueID, mRenderQueuePriority);
@@ -591,7 +608,7 @@ namespace Ogre {
                 else if(mRenderQueueIDSet)
                 {
                     queue->addRenderable(*i, mRenderQueueID);
-                }
+				}
                 else
                 {
                     queue->addRenderable(*i);
@@ -684,6 +701,11 @@ namespace Ogre {
         }
 
 		return mAnimationState->getAnimationState(name);
+    }
+    //-----------------------------------------------------------------------
+    bool Entity::hasAnimationState(const String& name) const
+    {
+        return mAnimationState && mAnimationState->hasAnimationState(name);
     }
     //-----------------------------------------------------------------------
     AnimationStateSet* Entity::getAllAnimationStates(void) const
@@ -1532,14 +1554,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     Real Entity::getBoundingRadius(void) const
     {
-        Real rad = mMesh->getBoundingSphereRadius();
-        // Scale by largest scale factor
-        if (mParentNode)
-        {
-            const Vector3& s = mParentNode->_getDerivedScale();
-			rad *=  std::max(Ogre::Math::Abs(s.x), std::max(Ogre::Math::Abs(s.y), Ogre::Math::Abs(s.z)));
-        }
-        return rad;
+        return mMesh->getBoundingSphereRadius();
     }
     //-----------------------------------------------------------------------
     void Entity::prepareTempBlendBuffers(void)

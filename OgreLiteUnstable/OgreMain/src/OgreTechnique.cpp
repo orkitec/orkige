@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -207,7 +207,8 @@ namespace Ogre {
 					// Any 3D textures? NB we make the assumption that any
 					// card capable of running fragment programs can support
 					// 3D textures, which has to be true, surely?
-					if (tex->getTextureType() == TEX_TYPE_3D && !caps->hasCapability(RSC_TEXTURE_3D))
+					if (((tex->getTextureType() == TEX_TYPE_3D) || (tex->getTextureType() == TEX_TYPE_2D_ARRAY)) && 
+                         !caps->hasCapability(RSC_TEXTURE_3D))
 					{
 						// Fail
 						compileErrors << "Pass " << passNum << 

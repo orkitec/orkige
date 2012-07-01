@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -228,7 +228,7 @@ namespace Ogre
                 from a previous run. If there is, the state of the system will
                 be restored to that configuration.
 
-            @returns
+            @return
                 If a valid configuration was found, <b>true</b> is returned.
             @par
                 If there is no saved configuration, or if the system failed
@@ -246,7 +246,7 @@ namespace Ogre
                 RenderSystem::setConfigOption and Root::saveConfig with the
                 user's choices. This is the easiest way to get the system
                 configured.
-            @returns
+            @return
                 If the user clicked 'Ok', <b>true</b> is returned.
             @par
                 If they clicked 'Cancel' (in which case the app should
@@ -278,7 +278,7 @@ namespace Ogre
         /** Retrieve a pointer to the render system by the given name
             @param
                 name Name of the render system intend to retrieve.
-            @returns
+            @return
                 A pointer to the render system, <b>NULL</b> if no found.
         */
         RenderSystem* getRenderSystemByName(const String& name);
@@ -317,7 +317,7 @@ namespace Ogre
                 Root::createRenderWindow). The window will be
                 created based on the options currently set on the render
                 system.
-            @returns
+            @return
                 A pointer to the automatically created window, if
                 requested, otherwise <b>NULL</b>.
         */
@@ -662,13 +662,19 @@ namespace Ogre
 		bool createRenderWindows(const RenderWindowDescriptionList& renderWindowDescriptions,
 			RenderWindowList& createdWindows);
 	
-        /** Detaches a RenderTarget from the active render system.
+        /** Detaches a RenderTarget from the active render system
+        and returns a pointer to it.
+        @note
+        If the render target cannot be found, NULL is returned.
         */
-        void detachRenderTarget( RenderTarget* pWin );
+        RenderTarget* detachRenderTarget( RenderTarget* pWin );
 
-        /** Detaches a named RenderTarget from the active render system.
+        /** Detaches a named RenderTarget from the active render system
+        and returns a pointer to it.
+        @note
+        If the render target cannot be found, NULL is returned.
         */
-        void detachRenderTarget( const String & name );
+        RenderTarget* detachRenderTarget( const String & name );
 
         /** Destroys the given RenderTarget.
         */
@@ -749,7 +755,7 @@ namespace Ogre
             for you, then call the other version of this method with no parameters.
         @param evt Event object which includes all the timing information which you have 
             calculated for yourself
-        @returns False if one or more frame listeners elected that the rendering loop should
+        @return False if one or more frame listeners elected that the rendering loop should
             be terminated, true otherwise.
         */
         bool _fireFrameStarted(FrameEvent& evt);
@@ -777,7 +783,7 @@ namespace Ogre
             for you, then call the other version of this method with no parameters.
         @param evt Event object which includes all the timing information which you have 
             calculated for yourself
-        @returns False if one or more frame listeners elected that the rendering loop should
+        @return False if one or more frame listeners elected that the rendering loop should
             be terminated, true otherwise.
         */
         bool _fireFrameEnded(FrameEvent& evt);
@@ -795,7 +801,7 @@ namespace Ogre
             This method calculates the frame timing information for you based on the elapsed
             time. If you want to specify elapsed times yourself you should call the other 
             version of this method which takes event details as a parameter.
-        @returns False if one or more frame listeners elected that the rendering loop should
+        @return False if one or more frame listeners elected that the rendering loop should
             be terminated, true otherwise.
         */
         bool _fireFrameStarted();
@@ -821,7 +827,7 @@ namespace Ogre
             This method calculates the frame timing information for you based on the elapsed
             time. If you want to specify elapsed times yourself you should call the other 
             version of this method which takes event details as a parameter.
-        @returns False if one or more frame listeners elected that the rendering loop should
+        @return False if one or more frame listeners elected that the rendering loop should
             be terminated, true otherwise.
         */
         bool _fireFrameEnded();
@@ -861,7 +867,7 @@ namespace Ogre
             you may wish to call it to update all the render targets which are
             set to auto update (RenderTarget::setAutoUpdated). You can also update
             individual RenderTarget instances using their own update() method.
-		@returns false if a FrameListener indicated it wishes to exit the render loop
+		@return false if a FrameListener indicated it wishes to exit the render loop
         */
         bool _updateAllRenderTargets(void);
 
@@ -874,7 +880,7 @@ namespace Ogre
             you may wish to call it to update all the render targets which are
             set to auto update (RenderTarget::setAutoUpdated). You can also update
             individual RenderTarget instances using their own update() method.
-		@returns false if a FrameListener indicated it wishes to exit the render loop
+		@return false if a FrameListener indicated it wishes to exit the render loop
         */
         bool _updateAllRenderTargets(FrameEvent& evt);
 
@@ -902,7 +908,6 @@ namespace Ogre
 		/** Destroy all RenderQueueInvocationSequences. 
 		@remarks
 			You must ensure that no Viewports are using custom sequences.
-		@param name The name to identify the sequence
 		*/
 		void destroyAllRenderQueueInvocationSequences(void);
 

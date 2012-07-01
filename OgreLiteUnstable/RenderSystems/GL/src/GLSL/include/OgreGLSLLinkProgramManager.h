@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -127,7 +127,7 @@ namespace Ogre {
 			GLUniformReferenceList& list);
 		/** Populate a list of uniforms based on GLSL source.
 		@param src Reference to the source code
-		@param list The defs to populate (will not be cleared before adding, clear
+		@param constantDefs The defs to populate (will not be cleared before adding, clear
 		it yourself before calling this if that's what you want).
 		@param filename The file name this came from, for logging errors.
 		*/

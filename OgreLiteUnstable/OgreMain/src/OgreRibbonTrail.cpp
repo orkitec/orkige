@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -387,7 +387,8 @@ namespace Ogre
 				Vector3 scaledDiff = diff * (mElemLength / Math::Sqrt(sqlen));
 				headElem.position = nextElem.position + scaledDiff;
 				// Add a new element to be the new head
-				Element newElem(newPos, mInitialWidth[index], 0.0f, mInitialColour[index]);
+				Element newElem( newPos, mInitialWidth[index], 0.0f,
+								 mInitialColour[index], node->_getDerivedOrientation() );
 				addChainElement(index, newElem);
 				// alter diff to represent new head size
 				diff = newPos - headElem.position;
@@ -486,7 +487,7 @@ namespace Ogre
 				/ mParentNode->_getDerivedScale();
 		}
         Element e(position,
-            mInitialWidth[index], 0.0f, mInitialColour[index]);
+			mInitialWidth[index], 0.0f, mInitialColour[index], node->_getDerivedOrientation());
         // Add the start position
         addChainElement(index, e);
         // Add another on the same spot, this will extend

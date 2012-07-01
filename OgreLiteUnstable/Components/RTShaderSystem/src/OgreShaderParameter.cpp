@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -328,6 +328,7 @@ namespace RTShader {
 		AutoShaderParameter(GpuProgramParameters::ACT_TEXTURE_MATRIX,							 "texture_matrix",					GCT_MATRIX_4X4),
 		AutoShaderParameter(GpuProgramParameters::ACT_LOD_CAMERA_POSITION,					"lod_camera_position",              GCT_FLOAT3),
 		AutoShaderParameter(GpuProgramParameters::ACT_LOD_CAMERA_POSITION_OBJECT_SPACE,		"lod_camera_position_object_space", GCT_FLOAT3),
+        AutoShaderParameter(GpuProgramParameters::ACT_LIGHT_CUSTOM,                     "light_custom",GCT_FLOAT1)
 	};
 
 //-----------------------------------------------------------------------
@@ -354,6 +355,7 @@ bool UniformParameter::isFloat() const
 	case GCT_INT4:
 	case GCT_SAMPLER1D:
 	case GCT_SAMPLER2D:
+    case GCT_SAMPLER2DARRAY:
 	case GCT_SAMPLER3D:
 	case GCT_SAMPLERCUBE:
 	case GCT_SAMPLER1DSHADOW:
@@ -371,6 +373,7 @@ bool UniformParameter::isSampler() const
 	{
 	case GCT_SAMPLER1D:
 	case GCT_SAMPLER2D:
+    case GCT_SAMPLER2DARRAY:
 	case GCT_SAMPLER3D:
 	case GCT_SAMPLERCUBE:
 	case GCT_SAMPLER1DSHADOW:
@@ -623,6 +626,7 @@ ParameterPtr ParameterFactory::createInTexcoord(GpuConstantType type, int index,
     default:
 	case GCT_SAMPLER1D:
     case GCT_SAMPLER2D:
+    case GCT_SAMPLER2DARRAY:
     case GCT_SAMPLER3D:
     case GCT_SAMPLERCUBE:
     case GCT_SAMPLER1DSHADOW:
@@ -667,6 +671,7 @@ ParameterPtr ParameterFactory::createOutTexcoord(GpuConstantType type, int index
     default:
 	case GCT_SAMPLER1D:
     case GCT_SAMPLER2D:
+    case GCT_SAMPLER2DARRAY:
     case GCT_SAMPLER3D:
     case GCT_SAMPLERCUBE:
     case GCT_SAMPLER1DSHADOW:
@@ -766,6 +771,9 @@ UniformParameterPtr ParameterFactory::createSampler(GpuConstantType type, int in
 	case GCT_SAMPLER2D:
 		return createSampler2D(index);
 
+    case GCT_SAMPLER2DARRAY:
+        return createSampler2DArray(index);
+
 	case GCT_SAMPLER3D:
 		return createSampler3D(index);
 
@@ -812,6 +820,15 @@ UniformParameterPtr ParameterFactory::createSampler2D(int index)
 		Parameter::SPS_UNKNOWN, index, 
 		Parameter::SPC_UNKNOWN,
 		(uint16)GPV_GLOBAL, 1));
+}
+
+//-----------------------------------------------------------------------
+UniformParameterPtr ParameterFactory::createSampler2DArray(int index)
+{
+    return UniformParameterPtr(OGRE_NEW UniformParameter(GCT_SAMPLER2DARRAY, "gSampler2DArray_" + StringConverter::toString(index), 
+                                                         Parameter::SPS_UNKNOWN, index, 
+                                                         Parameter::SPC_UNKNOWN,
+                                                         (uint16)GPV_GLOBAL, 1));
 }
 
 //-----------------------------------------------------------------------

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -312,7 +312,7 @@ namespace Ogre
 		Matrix4 matrix;
 		size_t floatsWritten = 0;
 
-		for (int m = 0; m < numOfMatrices; ++m)
+		for (size_t m = 0; m < numOfMatrices; ++m)
 		{
 			for(int i = 0; i < 3; ++i)
 			{
@@ -332,7 +332,7 @@ namespace Ogre
 			//Copy the 2x4 matrix
 			for(int i = 0; i < 8; ++i)
 			{
-				*outDualQuaternions++ = dQuat[i];
+				*outDualQuaternions++ = static_cast<float>( dQuat[i] );
 				++floatsWritten;
 			}
 		}
@@ -504,9 +504,19 @@ namespace Ogre
 		HWBoneIdxVec hwBoneIdx;
 		HWBoneWgtVec hwBoneWgt;
 
-		const VertexElement *veWeights = baseVertexData->vertexDeclaration->findElementBySemantic( VES_BLEND_WEIGHTS );
-		//One weight is recommended for VTF
-		mWeightCount = (forceOneWeight() || useOneWeight()) ? 1 : veWeights->getSize() / sizeof(float);
+		//Blend weights may not be present because HW_VTF does not require to be skeletally animated
+		const VertexElement *veWeights = baseVertexData->vertexDeclaration->
+													findElementBySemantic( VES_BLEND_WEIGHTS );
+		if( veWeights )
+		{
+			//One weight is recommended for VTF
+			mWeightCount = (forceOneWeight() || useOneWeight()) ?
+								1 : veWeights->getSize() / sizeof(float);
+		}
+		else
+		{
+			mWeightCount = 1;
+		}
 
 		hwBoneIdx.resize( baseVertexData->vertexCount * mWeightCount, 0 );
 
@@ -644,7 +654,7 @@ namespace Ogre
 		//Add the weights (supports up to four, which is Ogre's limit)
 		if(mWeightCount > 1)
 		{
-			offset += thisVertexData->vertexDeclaration->addElement(newSource, offset, VET_FLOAT4, VES_BLEND_WEIGHTS,
+			thisVertexData->vertexDeclaration->addElement(newSource, offset, VET_FLOAT4, VES_BLEND_WEIGHTS,
 										thisVertexData->vertexDeclaration->getNextFreeTextureCoordinate() ).getSize();
 		}
 
@@ -671,9 +681,9 @@ namespace Ogre
 					{
 						size_t instanceIdx = (hwBoneIdx[j+wgtIdx] + i * mMatricesPerInstance) * mRowLength + k;
 						//x
-						*thisFloat++ = ((instanceIdx % texWidth) / (float)texWidth) - texelOffsets.x;
+						*thisFloat++ = ((instanceIdx % texWidth) / (float)texWidth) - (float)texelOffsets.x;
 						//y
-						*thisFloat++ = ((instanceIdx / texWidth) / (float)texHeight) - texelOffsets.y;
+						*thisFloat++ = ((instanceIdx / texWidth) / (float)texHeight) - (float)texelOffsets.y;
 					}
 
 					++numberOfMatricesInLine;

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -67,7 +67,7 @@ namespace Ogre {
     //-----------------------------------------------------------------------
     GLSLGpuProgram::~GLSLGpuProgram()
     {
-        // have to call this here reather than in Resource destructor
+        // have to call this here rather than in Resource destructor
         // since calling virtual methods in base destructors causes crash
         unload(); 
     }
@@ -92,7 +92,7 @@ namespace Ogre {
 	//-----------------------------------------------------------------------------
 	void GLSLGpuProgram::bindProgram(void)
 	{
-		// tell the Link Program Manager what shader is to become active
+		// Tell the Link Program Manager what shader is to become active
 		switch (mType)
 		{
 		case GPT_VERTEX_PROGRAM:
@@ -104,13 +104,15 @@ namespace Ogre {
 		case GPT_GEOMETRY_PROGRAM:
 			GLSLLinkProgramManager::getSingleton().setActiveGeometryShader( this );
 			break;
+		default:
+		        break;
 		}
 	}
 
 	//-----------------------------------------------------------------------------
 	void GLSLGpuProgram::unbindProgram(void)
 	{
-		// tell the Link Program Manager what shader is to become inactive
+		// Tell the Link Program Manager what shader is to become inactive
 		if (mType == GPT_VERTEX_PROGRAM)
 		{
 			GLSLLinkProgramManager::getSingleton().setActiveVertexShader( NULL );

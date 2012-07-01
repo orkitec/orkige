@@ -471,16 +471,16 @@ set (SOURCE_FILES
 
 # Add platform specific files
 if (OGRE_BUILD_PLATFORM_NACL)
-  include_directories("include/Nacl")
+  include_directories("include/NaCl")
   set(PLATFORM_HEADER_FILES
-    include/Nacl/OgreConfigDialogImp.h
-    include/Nacl/OgreErrorDialogImp.h
-    include/Nacl/OgreTimerImp.h
+    include/NaCl/OgreConfigDialogImp.h
+    include/NaCl/OgreErrorDialogImp.h
+    include/NaCl/OgreTimerImp.h
   )
   set(PLATFORM_SOURCE_FILES
-    src/Nacl/OgreConfigDialog.cpp
-    src/Nacl/OgreErrorDialog.cpp
-    src/Nacl/OgreTimer.cpp
+    src/NaCl/OgreConfigDialog.cpp
+    src/NaCl/OgreErrorDialog.cpp
+    src/NaCl/OgreTimer.cpp
     src/OgreSearchOps.cpp
   )
   set(PLATFORM_LIBS nosys)
@@ -498,7 +498,6 @@ elseif (WIN32)
     src/WIN32/OgreErrorDialog.cpp
     src/WIN32/OgreTimer.cpp
     src/WIN32/resource.h
-    src/WIN32/OgreWin32Resources.rc
     src/WIN32/winres.h
   )  
   set(RESOURCE_FILES
@@ -510,7 +509,8 @@ elseif (WIN32)
   set(PLATFORM_HEADER_INSTALL "WIN32")
  
   if (MINGW) 
-    # There's a bug in CMake which makes it ignore resource files with Mingw
+    # Older CMake versions do not know how to deal with resource files on MinGW.
+	# Newer ones do, but pass along invalid command options to windres.
     # This is a manual fix for the moment.
     get_filename_component(OGRE_MINGW_PATH ${CMAKE_CXX_COMPILER} PATH)
     #set(OGRE_MINGW_RC ${OGRE_MINGW_PATH}/windres.exe)
@@ -525,27 +525,29 @@ elseif (WIN32)
 	                           -i${CMAKE_CURRENT_SOURCE_DIR}/src/WIN32/OgreWin32Resources.rc
 							   -o${CMAKE_CURRENT_BINARY_DIR}/OgreWin32Resources.rc.obj
       DEPENDS ${RESOURCE_FILES})
-	list(APPEND PLATFORM_SOURCE_FILES ${CMAKE_CURRENT_BINARY_DIR}/OgreWin32Resources.rc.obj)		
+	list(APPEND PLATFORM_SOURCE_FILES ${CMAKE_CURRENT_BINARY_DIR}/OgreWin32Resources.rc.obj)
+  else ()
+    list(APPEND PLATFORM_SOURCE_FILES src/WIN32/OgreWin32Resources.rc)
   endif ()
 
 elseif (APPLE)
   if (OGRE_BUILD_PLATFORM_APPLE_IOS)
-    include_directories("include/iPhone")
+    include_directories("include/iOS")
     set(PLATFORM_HEADER_FILES
-      include/iPhone/OgreConfigDialogImp.h
-      include/iPhone/OgreErrorDialogImp.h
-      include/iPhone/OgreTimerImp.h
-      include/iPhone/macUtils.h
+      include/iOS/OgreConfigDialogImp.h
+      include/iOS/OgreErrorDialogImp.h
+      include/iOS/OgreTimerImp.h
+      include/iOS/macUtils.h
     )
     set(PLATFORM_SOURCE_FILES
-      src/iPhone/OgreConfigDialog.cpp
-      src/iPhone/OgreErrorDialog.cpp
-      src/iPhone/OgreTimer.cpp
-      src/iPhone/macUtils.mm
+      src/iOS/OgreConfigDialog.cpp
+      src/iOS/OgreErrorDialog.cpp
+      src/iOS/OgreTimer.cpp
+      src/iOS/macUtils.mm
       src/OgreSearchOps.cpp
     )
     set(PLATFORM_LIBS "")
-    set(PLATFORM_HEADER_INSTALL "iPhone")
+    set(PLATFORM_HEADER_INSTALL "iOS")
   else ()
     include_directories("include/OSX")
     set(PLATFORM_HEADER_FILES
@@ -600,60 +602,27 @@ elseif(ORKIGE_BUILD_ANDROID)
       list(APPEND PLATFORM_LIBS dl)
     endif ()
 elseif (UNIX)
-  if (OGRE_BUILD_PLATFORM_TEGRA2)
-    include_directories("include/Tegra2")
-    set(PLATFORM_HEADER_FILES
-      include/Tegra2/OgreConfigDialogImp.h
-      include/Tegra2/OgreErrorDialogImp.h
-      include/Tegra2/OgreTimerImp.h
-    )
-    set(PLATFORM_SOURCE_FILES
-      src/Tegra2/OgreConfigDialog.cpp
-      src/Tegra2/OgreErrorDialog.cpp
-      src/Tegra2/OgreTimer.cpp
-      src/OgreSearchOps.cpp
-    )
-
-    set(PLATFORM_LIBS ${X11_LIBRARIES} pthread dl)
-    set(PLATFORM_HEADER_INSTALL "Tegra2")
-  else ()
-    include_directories(include/GLX ${X11_INCLUDE_DIR})
-    set(PLATFORM_HEADER_FILES
-      include/GLX/OgreConfigDialogImp.h
-      include/GLX/OgreErrorDialogImp.h
-      include/GLX/OgreTimerImp.h
-    )
-    set(PLATFORM_SOURCE_FILES
-      src/GLX/GLX_backdrop.h
-      src/GLX/OgreConfigDialog.cpp
-      src/GLX/OgreErrorDialog.cpp
-      src/GLX/OgreTimer.cpp
-      src/OgreSearchOps.cpp
-    )
-    set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xt_LIB} ${XAW_LIBRARY} pthread)
-    set(PLATFORM_HEADER_INSTALL "GLX")
-    # some platforms require explicit linking to libdl, see if it's available
-    find_library(DL_LIBRARY NAMES dl dlsym)
-    mark_as_advanced(DL_LIBRARY)
-    if (DL_LIBRARY)
-      list(APPEND PLATFORM_LIBS dl)
-    endif ()
-  endif(OGRE_BUILD_PLATFORM_TEGRA2)
-elseif (SYMBIAN)
-  include_directories(include/symbian)
+  include_directories(include/GLX ${X11_INCLUDE_DIR})
   set(PLATFORM_HEADER_FILES
+    include/GLX/OgreConfigDialogImp.h
+    include/GLX/OgreErrorDialogImp.h
     include/GLX/OgreTimerImp.h
-    include/symbian/OgreConfigDialogImp.h
-    include/symbian/OgreErrorDialogImp.h
   )
   set(PLATFORM_SOURCE_FILES
-    src/OgreSearchOps.cpp
+    src/GLX/GLX_backdrop.h
+    src/GLX/OgreConfigDialog.cpp
+    src/GLX/OgreErrorDialog.cpp
     src/GLX/OgreTimer.cpp
-    src/symbian/OgreConfigDialog.cpp
-    src/symbian/OgreErrorDialog.cpp
+    src/OgreSearchOps.cpp
   )
-  set(PLATFORM_HEADER_INSTALL "SYMBIAN")
-
+  set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xt_LIB} ${XAW_LIBRARY} pthread)
+  set(PLATFORM_HEADER_INSTALL "GLX")
+  # some platforms require explicit linking to libdl, see if it's available
+  find_library(DL_LIBRARY NAMES dl dlsym)
+  mark_as_advanced(DL_LIBRARY)
+  if (DL_LIBRARY)
+    list(APPEND PLATFORM_LIBS dl)
+  endif ()
 endif()
 
 
@@ -737,8 +706,13 @@ if (OGRE_CONFIG_ENABLE_ZIP)
   list(APPEND LIBRARIES "${ORKIGE_ZLIB_TARGET}")
 endif ()
 
-list(APPEND LIBRARIES "${GLSL_Optimizer_LIBRARIES}")
-list(APPEND LIBRARIES "${HLSL2GLSL_LIBRARIES}")
+if (OGRE_CONFIG_ENABLE_GLES2_GLSL_OPTIMISER)
+  list(APPEND LIBRARIES "${GLSL_Optimizer_LIBRARIES}")
+endif ()
+
+if (OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT)
+  list(APPEND LIBRARIES "${HLSL2GLSL_LIBRARIES}")
+endif ()
 
 set (TARGET_LINK_FLAGS "")
 
@@ -751,12 +725,14 @@ if(WIN32 AND MSVC10 AND CMAKE_CL_64)
                         VERSION ${OGRE_SOVERSION}
                         LINK_FLAGS "/INCREMENTAL:NO"
                       )
-elseif(NOT ORKIGE_BUILD_ANDROID AND OGRE_SOVERSION)
+else()
   set_target_properties(OgreMain PROPERTIES VERSION ${OGRE_SOVERSION})
 endif()
 
 if (APPLE)
-  if (NOT OGRE_BUILD_PLATFORM_APPLE_IOS)
+  if (OGRE_BUILD_PLATFORM_APPLE_IOS)
+    set_target_properties(OgreMain PROPERTIES INSTALL_NAME_DIR "OGRE")
+  else ()
     set_target_properties(OgreMain PROPERTIES FRAMEWORK TRUE)
     # Set the INSTALL_PATH so that Frameworks can be local
     set_target_properties(OgreMain
@@ -771,16 +747,10 @@ if (APPLE)
     set_target_properties(OgreMain PROPERTIES XCODE_ATTRIBUTE_GCC_UNROLL_LOOPS "YES")
     add_custom_command(TARGET OgreMain POST_BUILD
       COMMAND mkdir ARGS -p ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/Threading
-	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${OGRE_SOURCE_DIR}/OgreMain/include/Threading/* ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/Threading/
+	  COMMAND ditto ${OGRE_SOURCE_DIR}/OgreMain/include/Threading/* ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/Threading/
       COMMAND mkdir ARGS -p ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/OSX
-      COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${OGRE_SOURCE_DIR}/OgreMain/include/OSX/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/OSX/	
+      COMMAND ditto ${OGRE_SOURCE_DIR}/OgreMain/include/OSX/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/OSX/	
 	)
-  else ()
-    set_target_properties(OgreMain PROPERTIES INSTALL_NAME_DIR "OGRE")
-    set_target_properties(OgreMain PROPERTIES XCODE_ATTRIBUTE_GCC_THUMB_SUPPORT "NO")
-    set_target_properties(OgreMain PROPERTIES XCODE_ATTRIBUTE_GCC_UNROLL_LOOPS "YES")
-    set_target_properties(OgreMain PROPERTIES XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer")
-    set_target_properties(OgreMain PROPERTIES XCODE_ATTRIBUTE_GCC_PRECOMPILE_PREFIX_HEADER "YES")
   endif ()
 
   # Framework is called 'Ogre'

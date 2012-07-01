@@ -5,7 +5,7 @@ This source file is part of OGRE
 For the latest info, see http://www.ogre3d.org/
 
 Copyright (c) 2008 Renato Araujo Oliveira Filho <renatox@gmail.com>
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41,7 +41,7 @@ THE SOFTWARE.
 #include "OgreX11EGLContext.h"
 
 
-#if (OGRE_PLATFORM != OGRE_PLATFORM_LINUX) && (OGRE_PLATFORM != OGRE_PLATFORM_TEGRA2)
+#if (OGRE_PLATFORM != OGRE_PLATFORM_LINUX)
 	void XStringListToTextProperty(char ** prop, int num, XTextProperty * textProp){};
 	Window DefaultRootWindow(Display* nativeDisplayType){return Window();};
 	bool XQueryExtension(Display* nativeDisplayType, char * name, int * dummy0, int * dummy2, int * dummy3){return 0;}

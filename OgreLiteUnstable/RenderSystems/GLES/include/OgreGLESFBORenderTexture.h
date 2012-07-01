@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -131,8 +131,8 @@ namespace Ogre {
         */
         struct RBFormat
         {
-            RBFormat(GLenum format, size_t width, size_t height, uint fsaa):
-                format(format), width(width), height(height), samples(fsaa)
+            RBFormat(GLenum inFormat, size_t inWidth, size_t inHeight, uint fsaa):
+                format(inFormat), width(inWidth), height(inHeight), samples(fsaa)
             {}
             GLenum format;
             size_t width;
@@ -168,8 +168,8 @@ namespace Ogre {
         struct RBRef
         {
             RBRef(){}
-            RBRef(GLESRenderBuffer *buffer):
-                buffer(buffer), refcount(1)
+            RBRef(GLESRenderBuffer *inBuffer):
+                buffer(inBuffer), refcount(1)
             { }
             GLESRenderBuffer *buffer;
             size_t refcount;

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -51,12 +51,13 @@ namespace Ogre {
             OGRE_EXCEPT (Exception::ERR_INTERNAL_ERROR, "Could not load config dialog",
                          "ConfigDialog::initialise");
 
-        NSArray *keys = [[NSArray alloc] initWithObjects:@"Full Screen", @"FSAA", @"Colour Depth", @"RTT Preferred Mode", @"Video Mode", @"macAPI", nil];
+        NSArray *keys = [[NSArray alloc] initWithObjects:@"Full Screen", @"FSAA", @"Colour Depth", @"RTT Preferred Mode", @"Video Mode", @"sRGB Gamma Conversion", @"macAPI", nil];
         NSArray *fullScreenOptions = [[NSArray alloc] initWithObjects:@"Yes", @"No", nil];
         NSArray *colourDepthOptions = [[NSArray alloc] initWithObjects:@"32", @"16", nil];
         NSArray *rttOptions = [[NSArray alloc] initWithObjects:@"FBO", @"PBuffer", @"Copy", nil];
         NSMutableArray *videoModeOptions = [[NSMutableArray alloc] initWithCapacity:1];
         NSMutableArray *fsaaOptions = [[NSMutableArray alloc] initWithCapacity:1];
+        NSArray *sRGBOptions = [[NSArray alloc] initWithObjects:@"Yes", @"No", nil];
 #ifdef __LP64__
         NSArray *macAPIOptions = [[NSArray alloc] initWithObjects:@"cocoa", nil];
 #else
@@ -75,6 +76,7 @@ namespace Ogre {
 			rs->setConfigOption("FSAA", "0");
 			rs->setConfigOption("Full Screen", "No");
 			rs->setConfigOption("RTT Preferred Mode", "FBO");
+			rs->setConfigOption("sRGB Gamma Conversion", "No");
 #ifdef __LP64__
 			rs->setConfigOption("macAPI", "cocoa");
 #else
@@ -120,8 +122,8 @@ namespace Ogre {
         }
 
         NSArray *objects = [[NSArray alloc] initWithObjects:fullScreenOptions, fsaaOptions,
-                            colourDepthOptions, rttOptions, videoModeOptions, macAPIOptions, nil];
-        [mWindowDelegate setOptions:[[NSDictionary alloc] initWithObjects:objects forKeys:keys]];
+                            colourDepthOptions, rttOptions, videoModeOptions, sRGBOptions, macAPIOptions, nil];
+        [mWindowDelegate setOptions:[NSDictionary dictionaryWithObjects:objects forKeys:keys]];
 
         // Clean up all those arrays
         [fullScreenOptions release];
@@ -129,6 +131,7 @@ namespace Ogre {
         [colourDepthOptions release];
         [rttOptions release];
         [videoModeOptions release];
+        [sRGBOptions release];
         [macAPIOptions release];
         [keys release];
         [objects release];
@@ -244,9 +247,10 @@ namespace Ogre {
         [tableBox setBorderType:NSLineBorder];
 
         // Set up the tableview
-        mOptionsTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 437, 133)];
+        mOptionsTable = [[NSTableView alloc] init];
         [mOptionsTable setDelegate:self];
         [mOptionsTable setDataSource:self];
+        [mOptionsTable setHeaderView:nil];
         [mOptionsTable setUsesAlternatingRowBackgroundColors:YES];
         [mOptionsTable sizeToFit];
         
@@ -258,9 +262,10 @@ namespace Ogre {
         [column release];
 
         // Scroll view to hold the table in case the list grows some day
-        NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(18, 42, 439, 135)];
+        NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(22, 42, 439, 135)];
         [scrollView setBorderType:NSBezelBorder];
         [scrollView setAutoresizesSubviews:YES];
+        [scrollView setAutohidesScrollers:YES];
         [scrollView setDocumentView:mOptionsTable];
         
         [[tableBox contentView] addSubview:scrollView];

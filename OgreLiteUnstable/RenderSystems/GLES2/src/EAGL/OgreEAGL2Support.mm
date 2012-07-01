@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -49,7 +49,6 @@ namespace Ogre {
     void EAGL2Support::addConfig(void)
     {
         ConfigOption optFullScreen;
-        ConfigOption optOrientation;
         ConfigOption optVideoMode;
         ConfigOption optDisplayFrequency;
         ConfigOption optContentScalingFactor;
@@ -73,13 +72,6 @@ namespace Ogre {
                                     StringConverter::toString(screenSize.height);
         optVideoMode.immutable = false;
 
-        optOrientation.name = "Orientation";
-        optOrientation.possibleValues.push_back("Landscape Left");
-        optOrientation.possibleValues.push_back("Landscape Right");
-        optOrientation.possibleValues.push_back("Portrait");
-        optOrientation.currentValue = "Landscape Right";
-        optOrientation.immutable = false;
-        
         optDisplayFrequency.name = "Display Frequency";
         optDisplayFrequency.possibleValues.push_back("0 Hz");
         optDisplayFrequency.currentValue = "0 Hz";
@@ -90,12 +82,7 @@ namespace Ogre {
         optContentScalingFactor.possibleValues.push_back( "1.33" );
         optContentScalingFactor.possibleValues.push_back( "1.5" );
         optContentScalingFactor.possibleValues.push_back( "2.0" );
-#if __IPHONE_4_0
-        if([[[UIDevice currentDevice] systemVersion] floatValue] >= 4.0)
-            optContentScalingFactor.currentValue = StringConverter::toString([UIScreen mainScreen].scale);
-        else
-#endif
-        optContentScalingFactor.currentValue = "1.0";
+        optContentScalingFactor.currentValue = StringConverter::toString([UIScreen mainScreen].scale);
         optContentScalingFactor.immutable = false;
         
         optFSAA.name = "FSAA";
@@ -117,7 +104,6 @@ namespace Ogre {
         mOptions[optContentScalingFactor.name] = optContentScalingFactor;
         mOptions[optFSAA.name] = optFSAA;
         mOptions[optRTTMode.name] = optRTTMode;
-        mOptions[optOrientation.name] = optOrientation;
         
         // Set the shader cache path
         NSArray *paths = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES);
@@ -237,7 +223,7 @@ namespace Ogre {
 
             CGSize screenSize = [[UIScreen mainScreen] applicationFrame].size;
             bool fullscreen = false;
-            uint w = screenSize.width, h = screenSize.height;
+            uint w = (uint)screenSize.width, h = (uint)screenSize.height;
 
             if ((opt = mOptions.find("Full Screen")) != end)
             {
@@ -247,11 +233,6 @@ namespace Ogre {
             if ((opt = mOptions.find("Display Frequency")) != end)
             {
                 miscParams["displayFrequency"] = opt->second.currentValue;
-            }
-
-            if ((opt = mOptions.find("Orientation")) != end)
-            {
-                miscParams["orientation"] = opt->second.currentValue;
             }
 
             if ((opt = mOptions.find("Content Scaling Factor")) != end)
@@ -295,7 +276,7 @@ namespace Ogre {
 
     EAGLES2Context * EAGL2Support::createNewContext(CFDictionaryRef &glconfig, CAEAGLLayer *drawable, EAGLSharegroup *group) const
     {
-        EAGLES2Context *context = OGRE_NEW EAGLES2Context(drawable, group);
+        EAGLES2Context *context = new EAGLES2Context(drawable, group);
         if (context == NULL)
         {
             OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,

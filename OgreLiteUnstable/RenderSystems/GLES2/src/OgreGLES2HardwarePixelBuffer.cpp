@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,6 +34,8 @@ THE SOFTWARE.
 #include "OgreRoot.h"
 #include "OgreGLSLESLinkProgramManager.h"
 #include "OgreGLSLESLinkProgram.h"
+#include "OgreGLSLESProgramPipelineManager.h"
+#include "OgreGLSLESProgramPipeline.h"
 
 static int computeLog(GLuint value)
 {
@@ -70,7 +72,7 @@ namespace Ogre {
     GLES2HardwarePixelBuffer::~GLES2HardwarePixelBuffer()
     {
         // Force free buffer
-        OGRE_DELETE [] (uint8*)mBuffer.data;
+        delete [] (uint8*)mBuffer.data;
     }
 
     void GLES2HardwarePixelBuffer::allocateBuffer()
@@ -79,7 +81,7 @@ namespace Ogre {
             // Already allocated
             return;
 
-        mBuffer.data = OGRE_NEW_FIX_FOR_WIN32 uint8[mSizeInBytes];
+        mBuffer.data = new uint8[mSizeInBytes];
         // TODO use PBO if we're HBU_DYNAMIC
     }
 
@@ -88,7 +90,7 @@ namespace Ogre {
         // Free buffer if we're STATIC to save memory
         if (mUsage & HBU_STATIC)
         {
-            OGRE_DELETE [] (uint8*)mBuffer.data;
+            delete [] (uint8*)mBuffer.data;
             mBuffer.data = 0;
         }
     }
@@ -133,33 +135,25 @@ namespace Ogre {
             src.getHeight() != dstBox.getHeight() ||
             src.getDepth() != dstBox.getDepth())
         {
-            // Scale to destination size. Use DevIL and not iluScale because ILU screws up for 
-            // floating point textures and cannot cope with 3D images.
+            // Scale to destination size.
             // This also does pixel format conversion if needed
             allocateBuffer();
             scaled = mBuffer.getSubVolume(dstBox);
             Image::scale(src, scaled, Image::FILTER_BILINEAR);
         }
-        else if ((src.format != mFormat) ||
-                 ((GLES2PixelUtil::getGLOriginFormat(src.format) == 0) && (src.format != PF_R8G8B8)))
+        else if (GLES2PixelUtil::getGLOriginFormat(src.format) == 0)
         {
             // Extents match, but format is not accepted as valid source format for GL
             // do conversion in temporary buffer
             allocateBuffer();
             scaled = mBuffer.getSubVolume(dstBox);
             PixelUtil::bulkPixelConversion(src, scaled);
-            
-            if(mFormat == PF_A4R4G4B4)
-            {
-                // ARGB->BGRA
-                GLES2PixelUtil::convertToGLformat(scaled, scaled);
-            }
         }
         else
         {
             allocateBuffer();
+            // No scaling or conversion needed
             scaled = src;
-
             if (src.format == PF_R8G8B8)
             {
                 scaled.format = PF_B8G8R8;
@@ -273,8 +267,8 @@ namespace Ogre {
 
         // Log a message
 //        std::stringstream str;
-//        str << "GLES2HardwarePixelBuffer constructed for texture " << mTextureID 
-//            << " face " << mFace << " level " << mLevel << ": "
+//        str << "GLES2HardwarePixelBuffer constructed for texture " << baseName
+//            << " id " << mTextureID << " face " << mFace << " level " << mLevel << ": "
 //            << "width=" << mWidth << " height="<< mHeight << " depth=" << mDepth
 //            << " format=" << PixelUtil::getFormatName(mFormat);
 //        LogManager::getSingleton().logMessage(LML_NORMAL, str.str());
@@ -295,10 +289,10 @@ namespace Ogre {
             {
                 String name;
                 name = "rtt/" + StringConverter::toString((size_t)this) + "/" + baseName;
-                GLES2SurfaceDesc target;
-                target.buffer = this;
-                target.zoffset = zoffset;
-                RenderTexture *trt = GLES2RTTManager::getSingleton().createRenderTexture(name, target, writeGamma, fsaa);
+                GLES2SurfaceDesc surface;
+                surface.buffer = this;
+                surface.zoffset = zoffset;
+                RenderTexture *trt = GLES2RTTManager::getSingleton().createRenderTexture(name, surface, writeGamma, fsaa);
                 mSliceTRT.push_back(trt);
                 Root::getSingleton().getRenderSystem()->attachRenderTarget(*mSliceTRT[zoffset]);
             }
@@ -401,6 +395,10 @@ namespace Ogre {
                 GL_CHECK_ERROR;
             }
 
+//            LogManager::getSingleton().logMessage("GLES2TextureBuffer::upload - ID: " + StringConverter::toString(mTextureID) +
+//                                                  " Format: " + PixelUtil::getFormatName(data.format) +
+//                                                  " Origin format: " + StringConverter::toString(GLES2PixelUtil::getGLOriginFormat(data.format), 0, std::ios::hex) +
+//                                                  " Data type: " + StringConverter::toString(GLES2PixelUtil::getGLOriginDataType(data.format), 0, ' ', std::ios::hex));
             glTexSubImage2D(mFaceTarget,
                             mLevel,
                             dest.left, dest.top,
@@ -408,6 +406,11 @@ namespace Ogre {
                             GLES2PixelUtil::getGLOriginFormat(data.format),
                             GLES2PixelUtil::getGLOriginDataType(data.format),
                             data.data);
+        }
+        
+        if ((mUsage & TU_AUTOMIPMAP) && !mSoftwareMipmap && (mLevel == 0))
+        {
+            glGenerateMipmap(mFaceTarget);
             GL_CHECK_ERROR;
         }
 
@@ -641,26 +644,39 @@ namespace Ogre {
                 u1, v2, w
             };
 
-			GLSLESLinkProgram* linkProgram = GLSLESLinkProgramManager::getSingleton().getActiveLinkProgram();
+            GLuint posAttrIndex = 0;
+            GLuint texAttrIndex = 0;
+            if(Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_SEPARATE_SHADER_OBJECTS))
+            {
+                GLSLESProgramPipeline* programPipeline = GLSLESProgramPipelineManager::getSingleton().getActiveProgramPipeline();
+                posAttrIndex = (GLuint)programPipeline->getAttributeIndex(VES_POSITION, 0);
+                texAttrIndex = (GLuint)programPipeline->getAttributeIndex(VES_TEXTURE_COORDINATES, 0);
+            }
+            else
+            {
+                GLSLESLinkProgram* linkProgram = GLSLESLinkProgramManager::getSingleton().getActiveLinkProgram();
+                posAttrIndex = (GLuint)linkProgram->getAttributeIndex(VES_POSITION, 0);
+                texAttrIndex = (GLuint)linkProgram->getAttributeIndex(VES_TEXTURE_COORDINATES, 0);
+            }
 
             // Draw the textured quad
-            glVertexAttribPointer(linkProgram->getAttributeIndex(VES_POSITION, 0),
+            glVertexAttribPointer(posAttrIndex,
                                   2,
                                   GL_FLOAT,
                                   0,
                                   0,
                                   squareVertices);
             GL_CHECK_ERROR;
-            glEnableVertexAttribArray(linkProgram->getAttributeIndex(VES_POSITION, 0));
+            glEnableVertexAttribArray(posAttrIndex);
             GL_CHECK_ERROR;
-            glVertexAttribPointer(linkProgram->getAttributeIndex(VES_TEXTURE_COORDINATES, 0),
+            glVertexAttribPointer(texAttrIndex,
                                   3,
                                   GL_FLOAT,
                                   0,
                                   0,
                                   texCoords);
             GL_CHECK_ERROR;
-            glEnableVertexAttribArray(linkProgram->getAttributeIndex(VES_TEXTURE_COORDINATES, 0));
+            glEnableVertexAttribArray(texAttrIndex);
             GL_CHECK_ERROR;
 
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -859,8 +875,15 @@ namespace Ogre {
             int sizeInBytes = PixelUtil::getMemorySize(width, height, 1,
                                                        data.format);
             scaled = PixelBox(width, height, 1, data.format);
-            scaled.data = OGRE_NEW_FIX_FOR_WIN32 uint8[sizeInBytes];
+            scaled.data = new uint8[sizeInBytes];
             Image::scale(data, scaled, Image::FILTER_LINEAR);
+        }
+
+        // Delete the scaled data for the last level
+        if (level > 0)
+        {
+            delete[] (uint8*) scaled.data;
+            scaled.data = 0;
         }
     }
     
@@ -908,4 +931,4 @@ namespace Ogre {
                                      GL_RENDERBUFFER, mRenderbufferID);
         GL_CHECK_ERROR;
     }
-};
+}

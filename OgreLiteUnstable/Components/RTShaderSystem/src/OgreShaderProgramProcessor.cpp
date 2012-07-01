@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -243,6 +243,7 @@ void ProgramProcessor::buildTexcoordTable(const ShaderParameterList& paramList, 
 				break;
             case GCT_SAMPLER1D:
             case GCT_SAMPLER2D:
+            case GCT_SAMPLER2DARRAY:
             case GCT_SAMPLER3D:
             case GCT_SAMPLERCUBE:
             case GCT_SAMPLER1DSHADOW:
@@ -815,22 +816,10 @@ int	ProgramProcessor::getParameterFloatCount(GpuConstantType type)
 
 	switch (type)
 	{
-	case GCT_FLOAT1:
-		floatCount = 1;
-		break;
-
-	case GCT_FLOAT2:
-		floatCount = 2;
-		break;
-
-	case GCT_FLOAT3:
-		floatCount = 3;
-		break;
-
-	case GCT_FLOAT4:
-		floatCount = 4;
-		break;
-
+	case GCT_FLOAT1: floatCount = 1; break;
+	case GCT_FLOAT2: floatCount = 2; break;
+	case GCT_FLOAT3: floatCount = 3; break;
+	case GCT_FLOAT4: floatCount = 4; break;
 	default:
 		OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
 			"Invalid parameter float type.",
@@ -847,22 +836,10 @@ int ProgramProcessor::getParameterMaskByType(GpuConstantType type)
 
 	switch (type)
 	{
-	case GCT_FLOAT1:
-		paramMask = (Operand::OPM_X);
-		break;
-
-	case GCT_FLOAT2:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y);
-		break;
-
-	case GCT_FLOAT3:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z);
-		break;
-
-	case GCT_FLOAT4:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z | Operand::OPM_W);
-		break;
-
+	case GCT_FLOAT1: paramMask = Operand::OPM_X; break;
+	case GCT_FLOAT2: paramMask = Operand::OPM_XY; break;
+	case GCT_FLOAT3: paramMask = Operand::OPM_XYZ; break;
+	case GCT_FLOAT4: paramMask = Operand::OPM_XYZW; break;
 	default:
 		OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
 			"Invalid parameter float type.",
@@ -879,22 +856,10 @@ int ProgramProcessor::getParameterMaskByFloatCount(int floatCount)
 
 	switch (floatCount)
 	{
-	case 1:
-		paramMask = (Operand::OPM_X);
-		break;
-
-	case 2:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y);
-		break;
-
-	case 3:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z);
-		break;
-
-	case 4:
-		paramMask = (Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z | Operand::OPM_W);
-		break;
-
+	case 1:	paramMask = Operand::OPM_X; break;
+	case 2:	paramMask = Operand::OPM_XY; break;
+	case 3:	paramMask = Operand::OPM_XYZ; break;
+	case 4:	paramMask = Operand::OPM_XYZW; break;
 	default:
 		OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,
 			"Invalid parameter float type.",

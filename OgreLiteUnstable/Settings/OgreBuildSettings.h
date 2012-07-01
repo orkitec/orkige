@@ -18,6 +18,13 @@
 #define OGRE_NO_PVRTC_CODEC 1
 #define OGRE_USE_NEW_COMPILERS 1
 #define OGRE_USE_BOOST  0
-#define OGRE_NO_ZIP_ARCHIVE  1
+#define OGRE_NO_ZIP_ARCHIVE  0
+#define OGRE_NO_GLES2_GLSL_OPTIMISER 1
+#define OGRE_NO_GLES2_CG_SUPPORT 1
+#ifndef __APPLE__
+#define GL_APPLE_framebuffer_multisample 0
+#endif
+#define RTSHADER_SYSTEM_BUILD_CORE_SHADERS
+#define RTSHADER_SYSTEM_BUILD_EXT_SHADERS
 
 #endif

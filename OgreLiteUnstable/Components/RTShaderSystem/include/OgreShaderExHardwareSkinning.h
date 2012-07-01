@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -317,12 +317,12 @@ protected:
 			Updates an entity's the skeleton data onto one of it's materials.
 		
 		@param pMaterial The material to update with the information.
-		@param isVaild Tells if the material can be used with HS.
+		@param isValid Tells if the material can be used with HS.
 		@param boneCount The maximum number of bones used by the entity.
 		@param weightCount The maximum number of weights used by the entity.
 		@return Returns true if the data was updated on the material. False if not.
 	*/
-	bool imprintSkeletonData(const MaterialPtr& pMaterial, bool isVaild, 
+	bool imprintSkeletonData(const MaterialPtr& pMaterial, bool isValid, 
 		ushort boneCount, ushort weightCount, SkinningType skinningType, bool correctAntidpodalityHandling, bool scalingShearingSupport);
 
 protected:

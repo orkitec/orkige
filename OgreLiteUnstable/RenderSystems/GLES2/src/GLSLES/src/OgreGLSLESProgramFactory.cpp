@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,10 +28,13 @@ THE SOFTWARE.
 
 #include "OgreGLSLESProgramFactory.h"
 #include "OgreGLSLESLinkProgramManager.h"
+#include "OgreGLSLESProgramPipelineManager.h"
 #include "OgreGLSLESProgram.h"
+#include "OgreRoot.h"
 
 namespace Ogre {
     GLSLESLinkProgramManager* GLSLESProgramFactory::mLinkProgramManager = NULL;
+    GLSLESProgramPipelineManager* GLSLESProgramFactory::mProgramPipelineManager = NULL;
     //-----------------------------------------------------------------------
     String GLSLESProgramFactory::sLanguageName = "glsles";
     //-----------------------------------------------------------------------
@@ -41,6 +44,14 @@ namespace Ogre {
         {
 		    mLinkProgramManager = new GLSLESLinkProgramManager();
         }
+
+        if(Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_SEPARATE_SHADER_OBJECTS))
+        {
+            if (mProgramPipelineManager == NULL)
+            {
+                mProgramPipelineManager = new GLSLESProgramPipelineManager();
+            }
+        }
     }
     //-----------------------------------------------------------------------
     GLSLESProgramFactory::~GLSLESProgramFactory(void)
@@ -49,6 +60,15 @@ namespace Ogre {
         {
 			delete mLinkProgramManager;
             mLinkProgramManager = NULL;
+        }
+
+        if(Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_SEPARATE_SHADER_OBJECTS))
+        {
+            if (mProgramPipelineManager)
+            {
+                delete mProgramPipelineManager;
+                mProgramPipelineManager = NULL;
+            }
         }
     }
     //-----------------------------------------------------------------------
@@ -68,6 +88,4 @@ namespace Ogre {
     {
         OGRE_DELETE prog;
     }
-    //-----------------------------------------------------------------------
-
 }

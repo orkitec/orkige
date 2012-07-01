@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -4570,11 +4570,11 @@ namespace Ogre
 			float scrollAnimU = 0;
 			float scrollAnimV = 0;
 
-            EffectMap m_ef = pTex->getEffects();
-            if (!m_ef.empty())
+            EffectMap effMap = pTex->getEffects();
+            if (!effMap.empty())
             {
                 EffectMap::const_iterator it;
-                for (it = m_ef.begin(); it != m_ef.end(); ++it)
+                for (it = effMap.begin(); it != effMap.end(); ++it)
                 {
                     const TextureUnitState::TextureEffect& ef = it->second;
                     switch (ef.type)

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -216,10 +216,17 @@ namespace Ogre {
 					}
 				}
 			}
+
+			void _initGeometryBucket(const VertexData* vData, const IndexData* iData);
+			void _initGeometryBucket(GeometryBucket* bucket);
+
 		public:
 			GeometryBucket(MaterialBucket* parent, const String& formatString, 
 				const VertexData* vData, const IndexData* iData);
+			GeometryBucket(const String& name, MaterialBucket* parent, const String& formatString, 
+				const VertexData* vData, const IndexData* iData);
 			GeometryBucket(MaterialBucket* parent,const String& formatString,GeometryBucket*bucket);
+			GeometryBucket(const String& name, MaterialBucket* parent,const String& formatString,GeometryBucket*bucket);
 			virtual ~GeometryBucket();
 			MaterialBucket* getParent(void) { return mParent; }
 			Real getBoundingRadius(void) const;
@@ -237,7 +244,7 @@ namespace Ogre {
 			bool getCastsShadows(void) const;
 			String getFormatString(void) const;
 			/** Try to assign geometry to this bucket.
-			@returns false if there is no room left in this bucket
+			@return false if there is no room left in this bucket
 			*/
 			bool assign(QueuedGeometry* qsm);
 			/// Build
@@ -803,7 +810,7 @@ namespace Ogre {
 			the sparseness of population is no issue when it comes to rendering.
 			The default is Vector3(0,0,0).
 		@note Must be called before 'build'.
-		@param size Vector3 expressing the 3D origin of the geometry.
+		@param origin Vector3 expressing the 3D origin of the geometry.
 		*/
 		virtual void setOrigin(const Vector3& origin) { mOrigin = origin; }
 		/** Gets the origin of this geometry. */

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -46,6 +46,14 @@ namespace Ogre {
                 name, group, true, r);
 
         images[imgIdx].load(dstream, ext);
+        
+        size_t w = 0, h = 0;
+        
+        // Scale to nearest power of 2
+        w = GLES2PixelUtil::optionalPO2(images[imgIdx].getWidth());
+        h = GLES2PixelUtil::optionalPO2(images[imgIdx].getHeight());
+        if((images[imgIdx].getWidth() != w) || (images[imgIdx].getHeight() != h))
+            images[imgIdx].resize(w, h);
     }
 
     GLES2Texture::GLES2Texture(ResourceManager* creator, const String& name,
@@ -113,8 +121,12 @@ namespace Ogre {
         glBindTexture(getGLES2TextureTarget(), mTextureID);
         GL_CHECK_ERROR;
 
+        // If we can do automip generation and the user desires this, do so
+        mMipmapsHardwareGenerated =
+            Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_AUTOMIPMAP) && !PixelUtil::isCompressed(mFormat);
+
 #if GL_APPLE_texture_max_level
-        glTexParameteri( getGLES2TextureTarget(), GL_TEXTURE_MAX_LEVEL_APPLE, mNumMipmaps );
+        glTexParameteri( getGLES2TextureTarget(), GL_TEXTURE_MAX_LEVEL_APPLE, (mMipmapsHardwareGenerated && (mUsage & TU_AUTOMIPMAP)) ? maxMips : mNumMipmaps );
 #endif
 
         // Set some misc default parameters, these can of course be changed later
@@ -131,20 +143,10 @@ namespace Ogre {
                         GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         GL_CHECK_ERROR;
 
-		// If we can do automip generation and the user desires this, do so
-        mMipmapsHardwareGenerated =
-            Root::getSingleton().getRenderSystem()->getCapabilities()->hasCapability(RSC_AUTOMIPMAP) && !PixelUtil::isCompressed(mFormat);
-
-        if ((mUsage & TU_AUTOMIPMAP) &&
-            mNumRequestedMipmaps && mMipmapsHardwareGenerated)
-        {
-            glGenerateMipmap(getGLES2TextureTarget());
-            GL_CHECK_ERROR;
-        }
-
         // Allocate internal buffer so that glTexSubImageXD can be used
         // Internal format
-        GLenum format = GLES2PixelUtil::getClosestGLInternalFormat(mFormat, mHwGamma);
+        GLenum format = GLES2PixelUtil::getGLOriginFormat(mFormat);
+        GLenum internalformat = GLES2PixelUtil::getClosestGLInternalFormat(mFormat, mHwGamma);
         GLenum datatype = GLES2PixelUtil::getGLOriginDataType(mFormat);
         size_t width = mWidth;
         size_t height = mHeight;
@@ -159,10 +161,18 @@ namespace Ogre {
             // accept a 0 pointer like normal glTexImageXD
             // Run through this process for every mipmap to pregenerate mipmap pyramid
 
-            uint8* tmpdata = OGRE_NEW_FIX_FOR_WIN32 uint8[size];
+            uint8* tmpdata = new uint8[size];
             memset(tmpdata, 0, size);
             for (size_t mip = 0; mip <= mNumMipmaps; mip++)
             {
+//                LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
+//                                                      " Width: " + StringConverter::toString(width) +
+//                                                      " Height: " + StringConverter::toString(height) +
+//                                                      " Internal Format: " + StringConverter::toString(internalformat, 0, ' ', std::ios::hex) +
+//                                                      " Format: " + StringConverter::toString(format, 0, ' ', std::ios::hex) +
+//                                                      " Datatype: " + StringConverter::toString(datatype, 0, ' ', std::ios::hex)
+//                                                      );
+
                 size = PixelUtil::getMemorySize(width, height, depth, mFormat);
 
 				switch(mTextureType)
@@ -171,7 +181,7 @@ namespace Ogre {
 					case TEX_TYPE_2D:
                         glCompressedTexImage2D(GL_TEXTURE_2D,
                                                mip,
-                                               format,
+                                               internalformat,
                                                width, height,
                                                0,
                                                size,
@@ -180,7 +190,7 @@ namespace Ogre {
                         break;
 					case TEX_TYPE_CUBE_MAP:
 						for(int face = 0; face < 6; face++) {
-							glCompressedTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, mip, format,
+							glCompressedTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, mip, internalformat,
 								width, height, 0, 
 								size, tmpdata);
                             GL_CHECK_ERROR;
@@ -190,11 +200,6 @@ namespace Ogre {
                     default:
                         break;
                 };
-//                LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
-//                                                      " Width: " + StringConverter::toString(width) +
-//                                                      " Height: " + StringConverter::toString(height) +
-//                                                      " Internal Format: " + StringConverter::toString(format)
-//                                                      );
 
                 if(width > 1)
                 {
@@ -209,13 +214,23 @@ namespace Ogre {
                     depth = depth / 2;
                 }
             }
-            OGRE_DELETE [] tmpdata;
+            delete [] tmpdata;
         }
         else
         {
             // Run through this process to pregenerate mipmap pyramid
             for(size_t mip = 0; mip <= mNumMipmaps; mip++)
             {
+//                LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
+//                                                      " Name: " + mName +
+//                                                      " ID: " + StringConverter::toString(mTextureID) +
+//                                                      " Width: " + StringConverter::toString(width) +
+//                                                      " Height: " + StringConverter::toString(height) +
+//                                                      " Internal Format: " + StringConverter::toString(internalformat, 0, ' ', std::ios::hex) +
+//                                                      " Format: " + StringConverter::toString(format, 0, ' ', std::ios::hex) +
+//                                                      " Datatype: " + StringConverter::toString(datatype, 0, ' ', std::ios::hex)
+//                                                      );
+
 				// Normal formats
 				switch(mTextureType)
 				{
@@ -223,7 +238,7 @@ namespace Ogre {
 					case TEX_TYPE_2D:
                         glTexImage2D(GL_TEXTURE_2D,
                                      mip,
-                                     format,
+                                     internalformat,
                                      width, height,
                                      0,
                                      format,
@@ -232,7 +247,7 @@ namespace Ogre {
                         break;
 					case TEX_TYPE_CUBE_MAP:
 						for(int face = 0; face < 6; face++) {
-							glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, mip, format,
+							glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, mip, internalformat,
 								width, height, 0, 
 								format, datatype, 0);
 						}
@@ -241,11 +256,6 @@ namespace Ogre {
                     default:
                         break;
                 };
-//                LogManager::getSingleton().logMessage("GLES2Texture::create - Mip: " + StringConverter::toString(mip) +
-//                                                      " Width: " + StringConverter::toString(width) +
-//                                                      " Height: " + StringConverter::toString(height) +
-//                                                      " Internal Format: " + StringConverter::toString(format)
-//                                                      );
 
                 if (width > 1)
                 {
@@ -284,7 +294,7 @@ namespace Ogre {
             ext = mName.substr(pos+1);
         }
 
-        LoadedImages loadedImages = LoadedImages(OGRE_NEW_FIX_FOR_WIN32 vector<Image>::type());
+        LoadedImages loadedImages = LoadedImages(new vector<Image>::type());
 
         if (mTextureType == TEX_TYPE_1D || mTextureType == TEX_TYPE_2D)
         {

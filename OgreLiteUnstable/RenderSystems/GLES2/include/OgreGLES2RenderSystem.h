@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -41,7 +41,7 @@ namespace Ogre {
     class GLES2RTTManager;
     class GLES2GpuProgramManager;
     class GLSLESProgramFactory;
-#ifdef OGRE_CG_SUPPORT_FOR_GLES2
+#if !OGRE_NO_GLES2_CG_SUPPORT
     class GLSLESCgProgramFactory;
 #endif
     class GLSLESGpuProgram;
@@ -63,13 +63,6 @@ namespace Ogre {
             /// Last min & mip filtering options, so we can combine them
             FilterOptions mMinFilter;
             FilterOptions mMipFilter;
-
-            /** Used to store the number of mipmaps in the currently bound texture.  This is then
-             used to modify the texture unit filtering.  Some GL ES implementations e.g. iPhone, 
-             have a more strict implementation, if the current texture has no mipmaps and a filter that 
-             requires them is requested, it is as if the texture is unbound.
-             */
-            size_t mTextureMipmapCount;
 
             /// What texture coord set each texture unit is using
             size_t mTextureCoordIndex[OGRE_MAX_TEXTURE_LAYERS];
@@ -103,7 +96,7 @@ namespace Ogre {
             GLES2Context *mCurrentContext;
             GLES2GpuProgramManager *mGpuProgramManager;
             GLSLESProgramFactory* mGLSLESProgramFactory;
-#ifdef OGRE_CG_SUPPORT_FOR_GLES2
+#if !OGRE_NO_GLES2_CG_SUPPORT
             GLSLESCgProgramFactory* mGLSLESCgProgramFactory;
 #endif
             HardwareBufferManager* mHardwareBufferManager;
@@ -124,6 +117,9 @@ namespace Ogre {
 
             /// Check if the GL system has already been initialised
             bool mGLInitialised;
+
+            /// Mask of buffers who contents can be discarded if GL_EXT_discard_framebuffer is supported
+            unsigned int mDiscardBuffers;
 
             /** OpenGL ES doesn't support setting the PolygonMode like desktop GL
                 So we will cache the value and set it manually
@@ -411,7 +407,11 @@ namespace Ogre {
             /** See
              RenderSystem
              */
-            void setVertexDeclaration(VertexDeclaration* decl) {}
+            void setVertexDeclaration(VertexDeclaration* decl);
+            /** See
+             RenderSystem
+             */
+            void setVertexDeclaration(VertexDeclaration* decl, VertexBufferBinding* binding);
             /** See
              RenderSystem
              */
@@ -425,11 +425,13 @@ namespace Ogre {
              */
             void setScissorTest(bool enabled, size_t left = 0, size_t top = 0, size_t right = 800, size_t bottom = 600);
         
-        
+            void _setDiscardBuffers(unsigned int flags) { mDiscardBuffers = flags; }
+            unsigned int getDiscardBuffers(void) { return mDiscardBuffers; }
+
             void clearFrameBuffer(unsigned int buffers,
                 const ColourValue& colour = ColourValue::Black,
                 Real depth = 1.0f, unsigned short stencil = 0);
-            HardwareOcclusionQuery* createHardwareOcclusionQuery(void) { return NULL; }   // Not supported
+            HardwareOcclusionQuery* createHardwareOcclusionQuery(void);
             Real getHorizontalTexelOffset(void) { return 0.0; }               // No offset in GL
             Real getVerticalTexelOffset(void) { return 0.0; }                 // No offset in GL
             Real getMinimumDepthInputValue(void) { return -1.0f; }            // Range [-1.0f, 1.0f]
@@ -466,6 +468,7 @@ namespace Ogre {
              */
             void _setRenderTarget(RenderTarget *target);
 
+            GLES2Support* getGLES2Support() { return mGLSupport; }
             GLint convertCompareFunction(CompareFunction func) const;
             GLint convertStencilOp(StencilOperation op, bool invert = false) const;
 

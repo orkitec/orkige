@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -104,9 +104,10 @@ namespace Ogre {
 			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
 				"Geometry shader output operation type can only be point list,"
 				"line strip or triangle strip",
-				"GLSLLinkProgram::activate");
+                            "GLSLLinkProgram::getGLGeometryOutputPrimitiveType");
 		}
 	}
+
 	//-----------------------------------------------------------------------
 	GLSLLinkProgram::GLSLLinkProgram(GLSLGpuProgram* vertexProgram, GLSLGpuProgram* geometryProgram, GLSLGpuProgram* fragmentProgram)
         : mVertexProgram(vertexProgram)
@@ -366,6 +367,7 @@ namespace Ogre {
 					case GCT_SAMPLER1DSHADOW:
 					case GCT_SAMPLER2D:
 					case GCT_SAMPLER2DSHADOW:
+                    case GCT_SAMPLER2DARRAY:
 					case GCT_SAMPLER3D:
 					case GCT_SAMPLERCUBE:
 						// samplers handled like 1-element ints
@@ -468,7 +470,8 @@ namespace Ogre {
 				// The latter is recommended in GLSL 1.3 onwards 
 				// be slightly flexible about formatting
 				String::size_type pos = vpSource.find(a.name);
-				if (pos != String::npos)
+                bool foundAttr = false;
+				while (pos != String::npos && !foundAttr)
 				{
 					String::size_type startpos = vpSource.find("attribute", pos < 20 ? 0 : pos-20);
 					if (startpos == String::npos)
@@ -479,9 +482,13 @@ namespace Ogre {
 						String expr = vpSource.substr(startpos, pos + a.name.length() - startpos);
 						StringVector vec = StringUtil::split(expr);
 						if ((vec[0] == "in" || vec[0] == "attribute") && vec[2] == a.name)
+                        {
 							glBindAttribLocationARB(mGLHandle, a.attrib, a.name.c_str());
+                            foundAttr = true;
+                        }
 					}
-
+                    // Find the position of the next occurance if needed
+                    pos = vpSource.find(a.name, pos + a.name.length());
 				}
 			}
 		}

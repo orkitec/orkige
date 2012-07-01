@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -104,7 +104,7 @@ namespace Ogre {
             @param
                 delims A list of delimiter characters to split by
 			@param
-                delims A list of double delimeters characters to tokenise by
+                doubleDelims A list of double delimeters characters to tokenise by
             @param
                 maxSplits The maximum number of splits to perform (0 for unlimited splits). If this
                 parameters is > 0, the splitting process will stop after this many splits, left to right.
@@ -187,7 +187,7 @@ namespace Ogre {
 		@param source Source string
 		@param replaceWhat Sub-string to find and replace
 		@param replaceWithWhat Sub-string to replace with (the new sub-string)
-		@returns An updated string with the sub-string replaced
+		@return An updated string with the sub-string replaced
 		*/
 		static const String replaceAll(const String& source, const String& replaceWhat, const String& replaceWithWhat);
 
@@ -199,6 +199,12 @@ namespace Ogre {
 #if OGRE_COMPILER == OGRE_COMPILER_GNUC && OGRE_COMP_VER >= 310 && !defined(STLPORT)
 #   if OGRE_COMP_VER < 430
 	typedef ::__gnu_cxx::hash< _StringBase > _StringHash;
+#   else
+	typedef ::std::tr1::hash< _StringBase > _StringHash;
+#   endif
+#elif OGRE_COMPILER == OGRE_COMPILER_CLANG
+#   if defined(_LIBCPP_VERSION)
+	typedef ::std::hash< _StringBase > _StringHash;
 #   else
 	typedef ::std::tr1::hash< _StringBase > _StringHash;
 #   endif

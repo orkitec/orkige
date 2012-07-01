@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2009 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -262,7 +262,7 @@ void LinearSkinning::addIndexedPositionWeight(Function* vsMain,
 
 	FunctionInvocation* curFuncInvocation;
 
-	int outputMask = Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z;
+	int outputMask = Operand::OPM_XYZ;
 	if (mParamInWorldMatrices->getType() == GCT_MATRIX_4X4)
 	{
 		outputMask = Operand::OPM_ALL;

@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,43 +25,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
-#include "OgreConfigDialog.h"
-#include "OgreException.h"
-#include "OgreLogManager.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+#include "OgrePrerequisites.h"
 
 namespace Ogre {
-
-ConfigDialog::ConfigDialog ()
-{
-}
-
-bool ConfigDialog::display(void)
-{
-	if(Root::getSingleton().getRenderSystem() != NULL)
-	{
-		return true;
-	}
-
-	// just select the first available render system for now.
-	const RenderSystemList* lstRend;
-	RenderSystemList::const_iterator pRend;
-
-	lstRend = &Root::getSingleton().getAvailableRenderers();
-	pRend = lstRend->begin();            
-
-	while (pRend != lstRend->end())
-	{
-		Root::getSingleton().setRenderSystem((*pRend));
-
-		return true;
-	}
-
-
-
-	return false;
-
-}
-
-
+    void* mac_loadDylib(const char* name);
+    _OgreExport std::string macCachePath();
+    _OgreExport std::string macBundlePath(void);
+    _OgreExport std::string iOSDocumentsDirectory(void);
 }

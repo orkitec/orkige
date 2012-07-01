@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -45,6 +45,9 @@ namespace Ogre {
 		bool requiresTextureFlipping() const { return false; }
 	private:
 		D3D11HardwarePixelBuffer *targets[OGRE_MAX_MULTIPLE_RENDER_TARGETS];
+		ID3D11RenderTargetView* mRenderTargetViews[OGRE_MAX_MULTIPLE_RENDER_TARGETS];	// Store views to accelerate bind
+		uint mNumberOfViews;															// Store number of views to accelerate bind
+
 		virtual void bindSurfaceImpl(size_t attachment, RenderTexture *target);
 		virtual void unbindSurfaceImpl(size_t attachment);
 

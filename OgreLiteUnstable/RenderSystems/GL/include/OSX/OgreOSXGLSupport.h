@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -55,7 +55,7 @@ public:
 	/// @copydoc GLSupport::createWindow
 	RenderWindow* createWindow( bool autoCreateWindow, GLRenderSystem* renderSystem, const String& windowTitle );
 	
-	/// @copydoc RenderSystem::createRenderWindow
+	/// @copydoc Root::createRenderWindow
 	virtual RenderWindow* newWindow( const String &name, unsigned int width, unsigned int height, 
 		bool fullScreen, const NameValuePairList *miscParams = 0 );
 	
@@ -90,6 +90,6 @@ protected:
 	
 }; // class OSXGLSupport
 
-}; // namespace Ogre
+} // namespace Ogre
 
 #endif // OGRE_OSXGLSupport_H

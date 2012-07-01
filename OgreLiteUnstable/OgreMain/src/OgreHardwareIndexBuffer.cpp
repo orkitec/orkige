@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -57,7 +57,7 @@ namespace Ogre {
         // Create a shadow buffer if required
         if (mUseShadowBuffer)
         {
-            mpShadowBuffer = OGRE_NEW DefaultHardwareIndexBuffer(mIndexType, 
+            mShadowBuffer = OGRE_NEW DefaultHardwareIndexBuffer(mIndexType, 
                 mNumIndexes, HardwareBuffer::HBU_DYNAMIC);
         }
 
@@ -71,9 +71,9 @@ namespace Ogre {
 			mMgr->_notifyIndexBufferDestroyed(this);
 		}
 
-        if (mpShadowBuffer)
+        if (mShadowBuffer)
         {
-            OGRE_DELETE mpShadowBuffer;
+            OGRE_DELETE mShadowBuffer;
         }
     }
     //-----------------------------------------------------------------------------

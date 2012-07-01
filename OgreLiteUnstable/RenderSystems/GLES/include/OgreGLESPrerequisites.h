@@ -5,7 +5,7 @@ This source file is part of OGRE
 For the latest info, see http://www.ogre3d.org/
 
 Copyright (c) 2008 Renato Araujo Oliveira Filho <renatox@gmail.com>
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33,10 +33,6 @@ THE SOFTWARE.
 #include "OgrePrerequisites.h"
 #include "OgreMath.h"
 
-#if (OGRE_PLATFORM == OGRE_PLATFORM_SYMBIAN)
-#	undef _WIN32
-#endif
-
 #if (OGRE_PLATFORM == OGRE_PLATFORM_WIN32)
 #	if !defined( __MINGW32__ )
 #		ifndef WIN32_LEAN_AND_MEAN
@@ -46,9 +42,6 @@ THE SOFTWARE.
 #			define NOMINMAX // required to stop windows.h messing up std::min
 #		endif
 #	endif
-#	define OGRE_NEW_FIX_FOR_WIN32 new 
-#else
-#	define OGRE_NEW_FIX_FOR_WIN32 OGRE_NEW
 #endif
 
 #if (OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS)
@@ -60,12 +53,6 @@ THE SOFTWARE.
 #	ifndef GL_GLEXT_PROTOTYPES
 #		define  GL_GLEXT_PROTOTYPES
 #	endif
-#elif (OGRE_PLATFORM == OGRE_PLATFORM_ANDROID)
-#	ifndef GL_GLEXT_PROTOTYPES
-#		define  GL_GLEXT_PROTOTYPES
-#	endif
-#	include <GLES/gl.h>
-#	include <GLES/glext.h>
 #else
 #   include <GLES/gl.h>
 #   include <GLES/glext.h>

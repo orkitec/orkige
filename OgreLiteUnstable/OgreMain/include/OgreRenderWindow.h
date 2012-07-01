@@ -4,7 +4,7 @@ This source file is a part of OGRE
 
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -87,7 +87,7 @@ namespace Ogre
             @param
                 depthBuffer Specify true to include a depth-buffer.
             @param
-                miscParam A variable number of pointers to platform-specific arguments. The
+                miscParams A variable number of pointers to platform-specific arguments. The
                 actual requirements must be defined by the implementing subclasses.
         */
 		virtual void create(const String& name, unsigned int width, unsigned int height,
@@ -150,7 +150,7 @@ namespace Ogre
 		virtual void setVSyncEnabled(bool vsync)
 		{ (void)vsync; }
 
-		/** Indicates whether vertical sync is actived for the window.
+		/** Indicates whether vertical sync is activated for the window.
 		*/
 		virtual bool isVSyncEnabled() const { return false; }
 

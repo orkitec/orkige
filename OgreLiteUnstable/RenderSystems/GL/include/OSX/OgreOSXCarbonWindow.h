@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -53,13 +53,13 @@ namespace Ogre
 		virtual bool isActive( void ) const;
         /** Overridden - see RenderWindow */
 		virtual bool isClosed( void ) const;
-        /** @copydoc see RenderWindow::isHidden */
+        /** @copydoc RenderWindow::isHidden */
         bool isHidden(void) const { return mHidden; }
-        /** @copydoc see RenderWindow::setHidden */
+        /** @copydoc RenderWindow::setHidden */
         void setHidden(bool hidden);
-        /** @copydoc see RenderWindow::setVSyncEnabled */
+        /** @copydoc RenderWindow::setVSyncEnabled */
         void setVSyncEnabled(bool vsync);
-        /** @copydoc see RenderWindow::isVSyncEnabled */
+        /** @copydoc RenderWindow::isVSyncEnabled */
         bool isVSyncEnabled() const;
         /** Overridden - see RenderWindow */
 		virtual void reposition( int left, int top );

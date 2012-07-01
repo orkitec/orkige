@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -51,9 +51,9 @@ namespace Ogre {
 		/// GL Handle for the shader object
 		GLSLProgram* mGLSLProgram;
 
-		/// keep track of the number of vertex shaders created
+		/// Keep track of the number of vertex shaders created
 		static GLuint mVertexShaderCount;
-		/// keep track of the number of fragment shaders created
+		/// Keep track of the number of fragment shaders created
 		static GLuint mFragmentShaderCount;
 		/// keep track of the number of geometry shaders created
 		static GLuint mGeometryShaderCount;
@@ -73,10 +73,10 @@ namespace Ogre {
 		void bindProgramPassIterationParameters(GpuProgramParametersSharedPtr params);
 
 		/// Get the assigned GL program id
-		const GLuint getProgramID(void) const
+		GLuint getProgramID(void) const
 		{ return mProgramID; }
 
-		/// get the GLSLProgram for the shader object
+		/// Get the GLSLProgram for the shader object
 		GLSLProgram* getGLSLProgram(void) const { return mGLSLProgram; }
 
 		/// @copydoc GLGpuProgram::getAttributeIndex

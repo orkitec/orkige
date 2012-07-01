@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -43,21 +43,21 @@ email                : pjcast@yahoo.com
 namespace Ogre 
 {
 	//****************************************************************************************
-    template<> ExternalTextureSourceManager* Singleton<ExternalTextureSourceManager>::ms_Singleton = 0;
+    template<> ExternalTextureSourceManager* Singleton<ExternalTextureSourceManager>::msSingleton = 0;
     ExternalTextureSourceManager* ExternalTextureSourceManager::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     ExternalTextureSourceManager& ExternalTextureSourceManager::getSingleton(void)
     {  
-        assert( ms_Singleton );  return ( *ms_Singleton );  
+        assert( msSingleton );  return ( *msSingleton );  
     }
 	//****************************************************************************************
 
 	//****************************************************************************************
 	ExternalTextureSourceManager::ExternalTextureSourceManager()
 	{
-		mpCurrExternalTextureSource = 0;
+		mCurrExternalTextureSource = 0;
 	}
 
 	//****************************************************************************************
@@ -76,12 +76,12 @@ namespace Ogre
 		{
 			if( i->first == sTexturePlugInType )
 			{
-				mpCurrExternalTextureSource = i->second;
-				mpCurrExternalTextureSource->initialise();	//Now call overridden Init function
+				mCurrExternalTextureSource = i->second;
+				mCurrExternalTextureSource->initialise();	//Now call overridden Init function
 				return;
 			}
 		}
-		mpCurrExternalTextureSource = 0;
+		mCurrExternalTextureSource = 0;
 		LogManager::getSingleton().logMessage( "ExternalTextureSourceManager::SetCurrentPlugIn(ENUM) failed setting texture plugin ");
 	}
 
@@ -101,7 +101,7 @@ namespace Ogre
 	void ExternalTextureSourceManager::setExternalTextureSource( const String& sTexturePlugInType, ExternalTextureSource* pTextureSystem )
 	{
 		LogManager::getSingleton().logMessage( "Registering Texture Controller: Type = "
-						+ sTexturePlugInType + " Name = " + pTextureSystem->getPlugInStringName());
+						+ sTexturePlugInType + " Name = " + pTextureSystem->getPluginStringName());
 
 		TextureSystemList::iterator i;
 			
@@ -110,9 +110,9 @@ namespace Ogre
 			if( i->first == sTexturePlugInType )
 			{
 				LogManager::getSingleton().logMessage( "Shutting Down Texture Controller: " 
-						+ i->second->getPlugInStringName() 
+						+ i->second->getPluginStringName() 
 						+ " To be replaced by: "
-						+ pTextureSystem->getPlugInStringName());
+						+ pTextureSystem->getPluginStringName());
 
 				i->second->shutDown();				//Only one plugIn of Sent Type can be registered at a time
 													//so shut down old plugin before starting new plugin

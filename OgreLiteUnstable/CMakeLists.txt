@@ -61,7 +61,8 @@ if (ORKIGE_DISABLE_ZIP)
 else()
 	set(OGRE_NO_ZIP_ARCHIVE 0)
 endif()
-configure_file(${OgreLite_SOURCE_DIR}/Settings/OgreBuildSettings.h.in ${ORKIGE_BINARY_DIR}/Settings/OgreBuildSettings.h)
+configure_file(${OGRE_SOURCE_DIR}/Settings/OgreBuildSettings.h.in ${OGRE_SOURCE_DIR}/Settings/OgreBuildSettings.h)
+include_directories(${OGRE_SOURCE_DIR}/Settings)
 
 # determine Ogre version numbers
 include(OgreGetVersion)

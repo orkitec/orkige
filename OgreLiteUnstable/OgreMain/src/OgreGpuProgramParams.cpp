@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -650,6 +650,7 @@ namespace Ogre
 						assert(e.dstDefinition->elementSize % 4 == 0);
 						size_t iterations = e.dstDefinition->elementSize / 4 
 							* e.dstDefinition->arraySize;
+                        assert(iterations > 0);
 						size_t valsPerIteration = e.srcDefinition->elementSize / iterations;
 						for (size_t l = 0; l < iterations; ++l)
 						{
@@ -676,6 +677,7 @@ namespace Ogre
 					assert(e.dstDefinition->elementSize % 4 == 0);
 					size_t iterations = (e.dstDefinition->elementSize / 4)
 						* e.dstDefinition->arraySize;
+					assert(iterations > 0);
 					size_t valsPerIteration = e.srcDefinition->elementSize / iterations;
 					for (size_t l = 0; l < iterations; ++l)
 					{
@@ -1459,7 +1461,13 @@ namespace Ogre
 	{
 		// Get auto constant definition for sizing
 		const AutoConstantDefinition* autoDef = getAutoConstantDefinition(acType);
-		// round up to nearest multiple of 4
+
+        if(!autoDef)
+            OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "No constant definition found for type " + 
+                        StringConverter::toString(acType),
+                        "GpuProgramParameters::setAutoConstant");
+
+        // round up to nearest multiple of 4
 		size_t sz = autoDef->elementCount;
 		if (sz % 4 > 0)
 		{
@@ -1504,6 +1512,12 @@ namespace Ogre
 
 		// Get auto constant definition for sizing
 		const AutoConstantDefinition* autoDef = getAutoConstantDefinition(acType);
+        
+        if(!autoDef)
+            OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "No constant definition found for type " + 
+                        StringConverter::toString(acType),
+                        "GpuProgramParameters::setAutoConstant");
+
 		// round up to nearest multiple of 4
 		size_t sz = autoDef->elementCount;
 		if (sz % 4 > 0)
@@ -1600,6 +1614,12 @@ namespace Ogre
 	{
 		// Get auto constant definition for sizing
 		const AutoConstantDefinition* autoDef = getAutoConstantDefinition(acType);
+        
+        if(!autoDef)
+            OGRE_EXCEPT(Exception::ERR_ITEM_NOT_FOUND, "No constant definition found for type " + 
+                        StringConverter::toString(acType),
+                        "GpuProgramParameters::setAutoConstantReal");
+
 		// round up to nearest multiple of 4
 		size_t sz = autoDef->elementCount;
 		if (sz % 4 > 0)
@@ -1880,22 +1900,9 @@ namespace Ogre
 					_writeRawConstant(i->physicalIndex, source->getSpotlightWorldViewProjMatrix(i->data),i->elementCount);
 					break;
 				case ACT_LIGHT_POSITION_OBJECT_SPACE:
-					vec4 = source->getLightAs4DVector(i->data);
-					vec3 = Vector3(vec4.x, vec4.y, vec4.z);
-					if( vec4.w > 0.0f )
-					{
-						// point light
-						vec3 = source->getInverseWorldMatrix().transformAffine(vec3);
-					}
-					else
-					{
-						// directional light
-						// We need the inverse of the inverse transpose 
-						source->getInverseTransposeWorldMatrix().inverse().extract3x3Matrix(m3);
-						vec3 = (m3 * vec3).normalisedCopy();
-					}
 					_writeRawConstant(i->physicalIndex, 
-						Vector4(vec3.x, vec3.y, vec3.z, vec4.w),
+						source->getInverseWorldMatrix().transformAffine(
+						source->getLightAs4DVector(i->data)), 
 						i->elementCount);
 					break;
 				case ACT_LIGHT_DIRECTION_OBJECT_SPACE:
@@ -1911,26 +1918,11 @@ namespace Ogre
 					_writeRawConstant(i->physicalIndex, vec3.length());
 					break;
 				case ACT_LIGHT_POSITION_OBJECT_SPACE_ARRAY:
-					// We need the inverse of the inverse transpose 
-					source->getInverseTransposeWorldMatrix().inverse().extract3x3Matrix(m3);
 					for (size_t l = 0; l < i->data; ++l)
-					{
-						vec4 = source->getLightAs4DVector(l);
-						vec3 = Vector3(vec4.x, vec4.y, vec4.z);
-						if( vec4.w > 0.0f )
-						{
-							// point light
-							vec3 = source->getInverseWorldMatrix().transformAffine(vec3);
-						}
-						else
-						{
-							// directional light
-							vec3 = (m3 * vec3).normalisedCopy();
-						}
 						_writeRawConstant(i->physicalIndex + l*i->elementCount, 
-							Vector4(vec3.x, vec3.y, vec3.z, vec4.w),
-							i->elementCount);
-					}
+						source->getInverseWorldMatrix().transformAffine(
+						source->getLightAs4DVector(l)), 
+						i->elementCount);
 					break;
 
 				case ACT_LIGHT_DIRECTION_OBJECT_SPACE_ARRAY:

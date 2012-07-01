@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -67,7 +67,9 @@ namespace Ogre
 		mVisibilityFlags = std::numeric_limits<Ogre::uint32>::max();
 
 		if( indexToBoneMap )
+		{
 			assert( !(meshReference->hasSkeleton() && indexToBoneMap->empty()) );
+		}
 
 		mFullBoundingBox.setExtents( -Vector3::ZERO, Vector3::ZERO );
 
@@ -144,7 +146,7 @@ namespace Ogre
 		mBoundingRadius = Math::boundingRadiusFromAABB( mFullBoundingBox );
 
 		//Tell the SceneManager our bounds have changed
-		getParentSceneNode()->needUpdate();
+		getParentSceneNode()->needUpdate(true);
 
 		mBoundsDirty	= false;
 		mBoundsUpdated	= true;
@@ -157,7 +159,7 @@ namespace Ogre
 		InstancedEntityVec::const_iterator itor = mInstancedEntities.begin();
 		InstancedEntityVec::const_iterator end  = mInstancedEntities.end();
 
-		while( itor != end )
+		while( itor != end && !mVisible )
 		{
 			//Trick to force Ogre not to render us if none of our instances is visible
 			//Because we do Camera::isVisible(), it is better if the SceneNode from the
@@ -221,9 +223,9 @@ namespace Ogre
 										mat3x4[(i+2) * 4 + 3] );
 			const Vector3 newPos( worldTrans - cameraRelativePosition );
 
-			mat3x4[(i+0) * 4 + 3] = newPos.x;
-			mat3x4[(i+1) * 4 + 3] = newPos.y;
-			mat3x4[(i+2) * 4 + 3] = newPos.z;
+			mat3x4[(i+0) * 4 + 3] = (float)newPos.x;
+			mat3x4[(i+1) * 4 + 3] = (float)newPos.y;
+			mat3x4[(i+2) * 4 + 3] = (float)newPos.z;
 		}
 	}
 	//-----------------------------------------------------------------------

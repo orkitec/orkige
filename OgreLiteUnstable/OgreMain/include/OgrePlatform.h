@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -36,17 +36,16 @@ namespace Ogre {
 #define OGRE_PLATFORM_WIN32 1
 #define OGRE_PLATFORM_LINUX 2
 #define OGRE_PLATFORM_APPLE 3
-#define OGRE_PLATFORM_SYMBIAN 4
-#define OGRE_PLATFORM_APPLE_IOS 5
-#define OGRE_PLATFORM_ANDROID 6
-#define OGRE_PLATFORM_TEGRA2 7
-#define OGRE_PLATFORM_NACL 8
+#define OGRE_PLATFORM_APPLE_IOS 4
+#define OGRE_PLATFORM_ANDROID 5
+#define OGRE_PLATFORM_NACL 6
 
 #define OGRE_COMPILER_MSVC 1
 #define OGRE_COMPILER_GNUC 2
 #define OGRE_COMPILER_BORL 3
 #define OGRE_COMPILER_WINSCW 4
 #define OGRE_COMPILER_GCCE 5
+#define OGRE_COMPILER_CLANG 6
 
 #define OGRE_ENDIAN_LITTLE 1
 #define OGRE_ENDIAN_BIG 2
@@ -66,12 +65,16 @@ namespace Ogre {
 #elif defined( _MSC_VER )
 #   define OGRE_COMPILER OGRE_COMPILER_MSVC
 #   define OGRE_COMP_VER _MSC_VER
+#elif defined( __clang__ )
+#   define OGRE_COMPILER OGRE_COMPILER_CLANG
+#   define OGRE_COMP_VER (((__clang_major__)*100) + \
+        (__clang_minor__*10) + \
+        __clang_patchlevel__)
 #elif defined( __GNUC__ )
 #   define OGRE_COMPILER OGRE_COMPILER_GNUC
 #   define OGRE_COMP_VER (((__GNUC__)*100) + \
         (__GNUC_MINOR__*10) + \
         __GNUC_PATCHLEVEL__)
-
 #elif defined( __BORLANDC__ )
 #   define OGRE_COMPILER OGRE_COMPILER_BORL
 #   define OGRE_COMP_VER __BCPLUSPLUS__
@@ -96,37 +99,31 @@ namespace Ogre {
 
 /* Finds the current platform */
 
-#if defined( __SYMBIAN32__ ) 
-#   define OGRE_PLATFORM OGRE_PLATFORM_SYMBIAN
-#elif defined( __WIN32__ ) || defined( _WIN32 )
+#if defined( __WIN32__ ) || defined( _WIN32 )
 #   define OGRE_PLATFORM OGRE_PLATFORM_WIN32
 #elif defined( __APPLE_CC__)
     // Device                                                     Simulator
-    // Both requiring OS version 3.0 or greater
-#   if __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 30000 || __IPHONE_OS_VERSION_MIN_REQUIRED >= 30000
+    // Both requiring OS version 4.0 or greater
+#   if __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ >= 40000 || __IPHONE_OS_VERSION_MIN_REQUIRED >= 40000
 #       define OGRE_PLATFORM OGRE_PLATFORM_APPLE_IOS
 #   else
 #       define OGRE_PLATFORM OGRE_PLATFORM_APPLE
 #   endif
 #elif defined(__ANDROID__)
 #	define OGRE_PLATFORM OGRE_PLATFORM_ANDROID
-#elif defined(linux) && defined(__arm__)
-// TODO: This is NOT the correct way to detect the Tegra 2 platform but it works for now.
-// It doesn't appear that GCC defines any platform specific macros.
-#   define OGRE_PLATFORM OGRE_PLATFORM_TEGRA2
 #elif defined( __native_client__ ) 
 #   define OGRE_PLATFORM OGRE_PLATFORM_NACL
 #   ifndef OGRE_STATIC_LIB
-#       error OGRE must be built as static for NaCl (OGRE_STATIC=true in cmake)
+#       error OGRE must be built as static for NaCl (OGRE_STATIC=true in CMake)
 #   endif
 #   ifdef OGRE_BUILD_RENDERSYSTEM_D3D9
-#       error d3d9 is nor supported on NaCl (OOGRE_BUILD_RENDERSYSTEM_D3D9 false in cmake)
+#       error D3D9 is not supported on NaCl (OGRE_BUILD_RENDERSYSTEM_D3D9 false in CMake)
 #   endif
 #   ifdef OGRE_BUILD_RENDERSYSTEM_GL
-#       error gl is nor supported on NaCl (OOGRE_BUILD_RENDERSYSTEM_GL=false in cmake)
+#       error OpenGL is not supported on NaCl (OGRE_BUILD_RENDERSYSTEM_GL=false in CMake)
 #   endif
 #   ifndef OGRE_BUILD_RENDERSYSTEM_GLES2
-#       error GLES2 render system is needed for NaCl (OOGRE_BUILD_RENDERSYSTEM_GLES2=false in cmake)
+#       error GLES2 render system is required for NaCl (OGRE_BUILD_RENDERSYSTEM_GLES2=false in CMake)
 #   endif
 #else
 #   define OGRE_PLATFORM OGRE_PLATFORM_LINUX
@@ -202,26 +199,6 @@ namespace Ogre {
 #endif // OGRE_PLATFORM == OGRE_PLATFORM_WIN32
 
 //----------------------------------------------------------------------------
-// Symbian Settings
-#if OGRE_PLATFORM == OGRE_PLATFORM_SYMBIAN
-#   define _OgreExport 
-#	define OGRE_UNICODE_SUPPORT 1
-#   define OGRE_DEBUG_MODE 0
-#   define _OgrePrivate
-#	  define CLOCKS_PER_SEC  1000
-//  pragma def were found here: http://www.inf.pucrs.br/~eduardob/disciplinas/SistEmbarcados/Mobile/Nokia/Tools/Carbide_vs/WINSCW/Help/PDF/C_Compilers_Reference_3.2.pdf
-#	  pragma warn_unusedarg off
-#	  pragma warn_emptydecl off
-#	  pragma warn_possunwant off
-// A quick define to overcome different names for the same function
-#   define stricmp strcasecmp
-#   ifdef DEBUG
-#       define OGRE_DEBUG_MODE 1
-#   else
-#       define OGRE_DEBUG_MODE 0
-#   endif
-#endif
-//----------------------------------------------------------------------------
 // Android Settings
 /*
 #if OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
@@ -244,9 +221,9 @@ namespace Ogre {
 #endif
 */
 //----------------------------------------------------------------------------
-// Linux/Apple/iOs/Android/Symbian/Tegra2/NaCl Settings
+// Linux/Apple/iOs/Android/NaCl Settings
 #if OGRE_PLATFORM == OGRE_PLATFORM_LINUX || OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || \
-    OGRE_PLATFORM == OGRE_PLATFORM_ANDROID || OGRE_PLATFORM == OGRE_PLATFORM_TEGRA2 || OGRE_PLATFORM == OGRE_PLATFORM_NACL
+    OGRE_PLATFORM == OGRE_PLATFORM_ANDROID || OGRE_PLATFORM == OGRE_PLATFORM_NACL
 
 // Enable GCC symbol visibility
 #   if defined( OGRE_GCC_VISIBILITY )
@@ -260,10 +237,6 @@ namespace Ogre {
 // A quick define to overcome different names for the same function
 #   define stricmp strcasecmp
 
-// Unlike the Win32 compilers, Linux compilers seem to use DEBUG for when
-// specifying a debug build.
-// (??? this is wrong, on Linux debug builds aren't marked in any way unless
-// you mark it yourself any way you like it -- zap ???)
 #   ifdef DEBUG
 #       define OGRE_DEBUG_MODE 1
 #   else
@@ -278,11 +251,9 @@ namespace Ogre {
     #define OGRE_PLATFORM_LIB "libOgrePlatform.so"
 #endif
 
-//#ifndef __ANDROID__
 // Always enable unicode support for the moment
 // Perhaps disable in old versions of gcc if necessary
 #define OGRE_UNICODE_SUPPORT 1
-//#endif
 
 #endif
 

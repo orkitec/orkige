@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -260,6 +260,12 @@ namespace Ogre {
 			pLog->logMessage(
 				" * GL 1.5 without HW-occlusion workaround: "
 				+ StringConverter::toString(hasCapability(RSC_GL1_5_NOHWOCCLUSION), true));
+            pLog->logMessage(
+                " * Vertex Array Objects: "
+                + StringConverter::toString(hasCapability(RSC_VAO), true));
+			pLog->logMessage(
+                " * Separate shader objects: "
+                + StringConverter::toString(hasCapability(RSC_SEPARATE_SHADER_OBJECTS), true));
 		}
 
 		if (mCategoryRelevant[CAPS_CATEGORY_D3D9])
@@ -314,7 +320,7 @@ namespace Ogre {
 			msGPUVendorStrings[GPU_MATROX] = "matrox";
 			msGPUVendorStrings[GPU_SIS] = "sis";
 			msGPUVendorStrings[GPU_IMAGINATION_TECHNOLOGIES] = "imagination technologies";
-			msGPUVendorStrings[GPU_APPLE] = "apple";    // iPhone Simulator
+			msGPUVendorStrings[GPU_APPLE] = "apple";    // iOS Simulator
 		}
 	}
 

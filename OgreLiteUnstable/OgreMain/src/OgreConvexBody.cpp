@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Copyright (c) 2006 Matthias Fink, netAllied GmbH <matthias.fink@web.de>								
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -509,8 +509,6 @@ namespace Ogre
 
 		for ( size_t iPolyA = 0; iPolyA < getPolygonCount(); ++iPolyA )
 		{
-			// ??
-			OgreAssert( iPolyA >= 0, "strange..." );
 
 			for ( size_t iPolyB = iPolyA+1; iPolyB < getPolygonCount(); ++iPolyB )
 			{
@@ -631,7 +629,7 @@ namespace Ogre
 	//-----------------------------------------------------------------------
 	const Vector3& ConvexBody::getNormal( size_t poly )
 	{
-		OgreAssert( poly >= 0 && poly < getPolygonCount(), "Search position out of range" );
+		OgreAssert( poly < getPolygonCount(), "Search position out of range" );
 		
 		return mPolygons[ poly ]->getNormal();
 	}
@@ -764,7 +762,7 @@ namespace Ogre
 	//-----------------------------------------------------------------------
 	Polygon* ConvexBody::unlinkPolygon(size_t poly)
 	{
-		OgreAssert( poly >= 0 && poly < getPolygonCount(), "Search position out of range" );
+		OgreAssert( poly < getPolygonCount(), "Search position out of range" );
 
 		PolygonList::iterator it = mPolygons.begin();
 		std::advance(it, poly);
@@ -816,7 +814,7 @@ namespace Ogre
 	//-----------------------------------------------------------------------
 	const Vector3& ConvexBody::getVertex(size_t poly, size_t vertex) const
 	{
-		OgreAssert( poly >= 0 && poly < getPolygonCount(), "Search position out of range" );
+		OgreAssert( poly < getPolygonCount(), "Search position out of range" );
 		
 		return mPolygons[poly]->getVertex(vertex);
 	}

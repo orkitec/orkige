@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -75,10 +75,8 @@ using namespace Ogre;
     {
         // Get the window size and initialize temp variables
         unsigned int w = 0, h = 0;
-        unsigned int width = self.bounds.size.width;
-        unsigned int height = self.bounds.size.height;
-
-        Ogre::Viewport *viewPort = window->getViewport(0);
+        unsigned int width = (uint)self.bounds.size.width;
+        unsigned int height = (uint)self.bounds.size.height;
 
         if (UIDeviceOrientationIsLandscape(deviceOrientation))
         {
@@ -96,9 +94,13 @@ using namespace Ogre;
 
         // Resize the window
         window->resize(width, height);
-
+        
         // After rotation the aspect ratio of the viewport has changed, update that as well.
-        viewPort->getCamera()->setAspectRatio((Real) width / (Real) height);
+        if(window->getNumViewports() > 0)
+        {
+            Ogre::Viewport *viewPort = window->getViewport(0);
+            viewPort->getCamera()->setAspectRatio((Real) width / (Real) height);
+        }
     }
 }
 

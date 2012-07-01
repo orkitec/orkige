@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,6 +34,7 @@ THE SOFTWARE.
 #include "OgreWindowEventUtilities.h"
 
 #include "OgreGLESPixelFormat.h"
+#include "OgreGLESRenderSystem.h"
 
 namespace Ogre {
     EAGLWindow::EAGLWindow(EAGLSupport *glsupport)
@@ -166,17 +167,12 @@ namespace Ogre {
         // Call the base class method first
         RenderTarget::_beginUpdate();
 
-#if __IPHONE_4_0
-        if(mCurrentOSVersion >= 4.0)
+        if(mContext->mIsMultiSampleSupported && mContext->mNumSamples > 0)
         {
-            if(mContext->mIsMultiSampleSupported && mContext->mNumSamples > 0)
-            {
-                // Bind the FSAA buffer if we're doing multisampling
-                glBindFramebufferOES(GL_FRAMEBUFFER_OES, mContext->mFSAAFramebuffer);
-                GL_CHECK_ERROR
-            }
+            // Bind the FSAA buffer if we're doing multisampling
+            glBindFramebufferOES(GL_FRAMEBUFFER_OES, mContext->mFSAAFramebuffer);
+            GL_CHECK_ERROR
         }
-#endif
     }
 
     void EAGLWindow::initNativeCreatedWindow(const NameValuePairList *miscParams)
@@ -205,6 +201,11 @@ namespace Ogre {
             }
         }
 
+        if ((opt = mGLSupport->getConfigOptions().find("Content Scaling Factor")) != end)
+        {
+            mContentScalingFactor = StringConverter::parseReal(opt->second.currentValue);
+        }
+
         // Set us up with an external window, or create our own.
         if(!mIsExternal)
         {
@@ -221,10 +222,7 @@ namespace Ogre {
 
             // Use the default scale factor of the screen
             // See Apple's documentation on supporting high resolution devices for more info
-#if __IPHONE_4_0
-            if(mIsContentScalingSupported)
-                mView.contentScaleFactor = mContentScalingFactor;
-#endif
+            mView.contentScaleFactor = mContentScalingFactor;
         }
 
         OgreAssert(mView != nil, "EAGLWindow: Failed to create view");
@@ -265,14 +263,8 @@ namespace Ogre {
 
             mContext = mGLSupport->createNewContext(dict, eaglLayer, group);
 
-#if __IPHONE_4_0
-            // MSAA is only supported on devices running iOS 4+
-            if(mCurrentOSVersion >= 4.0)
-            {
-                mContext->mIsMultiSampleSupported = true;
-                mContext->mNumSamples = mFSAA;
-            }
-#endif
+            mContext->mIsMultiSampleSupported = true;
+            mContext->mNumSamples = mFSAA;
         }
         
         OgreAssert(mContext != nil, "EAGLWindow: Failed to create OpenGL ES context");
@@ -309,7 +301,6 @@ namespace Ogre {
     void EAGLWindow::create(const String& name, uint width, uint height,
                                 bool fullScreen, const NameValuePairList *miscParams)
     {
-        String orientation = "Landscape Right";
         short frequency = 0;
         bool vsync = false;
 		int left = 0;
@@ -361,11 +352,6 @@ namespace Ogre {
                 mName = opt->second;
             }
 
-            if ((opt = miscParams->find("orientation")) != end)
-            {
-                orientation = opt->second;
-            }
-
             if ((opt = miscParams->find("externalWindowHandle")) != end)
             {
                 mWindow = (UIWindow *)StringConverter::parseUnsignedLong(opt->second);
@@ -400,7 +386,7 @@ namespace Ogre {
 		mTop = top;
 
         // Resize, taking content scaling factor into account
-        resize(mWidth * mContentScalingFactor, mHeight * mContentScalingFactor);
+        resize(mWidth, mHeight);
 
 		mActive = true;
 		mVisible = true;
@@ -414,7 +400,25 @@ namespace Ogre {
             return;
         }
 
-#if __IPHONE_4_0
+        unsigned int attachmentCount = 0;
+        GLenum attachments[3];
+        GLESRenderSystem *rs =
+            static_cast<GLESRenderSystem*>(Root::getSingleton().getRenderSystem());
+        unsigned int buffers = rs->getDiscardBuffers();
+        
+        if(buffers & FBT_COLOUR)
+        {
+            attachments[attachmentCount++] = GL_COLOR_ATTACHMENT0_OES;
+        }
+        if(buffers & FBT_DEPTH)
+        {
+            attachments[attachmentCount++] = GL_DEPTH_ATTACHMENT_OES;
+        }
+        if(buffers & FBT_STENCIL)
+        {
+            attachments[attachmentCount++] = GL_STENCIL_ATTACHMENT_OES;
+        }
+        
         if(mContext->mIsMultiSampleSupported && mContext->mNumSamples > 0)
         {
             glDisable(GL_SCISSOR_TEST);     
@@ -424,19 +428,20 @@ namespace Ogre {
             GL_CHECK_ERROR
             glResolveMultisampleFramebufferAPPLE();
             GL_CHECK_ERROR
-        }
-
-        // Framebuffer discard is only supported on devices running iOS 4+
-        if(mCurrentOSVersion >= 4.0)
-        {
-            GLenum attachments[] = { GL_COLOR_ATTACHMENT0_OES, GL_DEPTH_ATTACHMENT_OES, GL_STENCIL_ATTACHMENT_OES };
-            glDiscardFramebufferEXT(GL_READ_FRAMEBUFFER_APPLE, 3, attachments);
+            glDiscardFramebufferEXT(GL_READ_FRAMEBUFFER_APPLE, attachmentCount, attachments);
+            GL_CHECK_ERROR
+            
+            glBindFramebufferOES(GL_FRAMEBUFFER_OES, mContext->mViewFramebuffer);
             GL_CHECK_ERROR
         }
-#endif
-        glBindFramebufferOES(GL_FRAMEBUFFER_OES, mContext->mViewFramebuffer);
-        GL_CHECK_ERROR
-
+        else
+        {
+            glBindFramebufferOES(GL_FRAMEBUFFER_OES, mContext->mViewFramebuffer);
+            GL_CHECK_ERROR
+            glDiscardFramebufferEXT(GL_FRAMEBUFFER_OES, attachmentCount, attachments);
+            GL_CHECK_ERROR
+        }
+        
         glBindRenderbufferOES(GL_RENDERBUFFER_OES, mContext->mViewRenderbuffer);
         GL_CHECK_ERROR
         if ([mContext->getContext() presentRenderbuffer:GL_RENDERBUFFER_OES] == NO)
@@ -486,8 +491,8 @@ namespace Ogre {
         if(dst.format != PF_A8R8G8B8)
             OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS, "Only PF_A8R8G8B8 is a supported format for OpenGL ES", __FUNCTION__);
 
-        if ((dst.left < 0) || (dst.right > mWidth) ||
-			(dst.top < 0) || (dst.bottom > mHeight) ||
+        if ((dst.right > mWidth) ||
+			(dst.bottom > mHeight) ||
 			(dst.front != 0) || (dst.back != 1))
 		{
 			OGRE_EXCEPT(Exception::ERR_INVALIDPARAMS,

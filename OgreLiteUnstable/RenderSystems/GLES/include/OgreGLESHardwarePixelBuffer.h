@@ -5,7 +5,7 @@ This source file is part of OGRE
 For the latest info, see http://www.ogre3d.org/
 
 Copyright (c) 2008 Renato Araujo Oliveira Filho <renatox@gmail.com>
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -90,11 +90,11 @@ namespace Ogre {
                             GLenum format, GLint face, GLint level, Usage usage, bool softwareMipmap, bool writeGamma, uint fsaa);
             virtual ~GLESTextureBuffer();
 
-            /// @copydoc HardwarePixelBuffer::bindToFramebuffer
+            /// @copydoc GLESHardwarePixelBuffer::bindToFramebuffer
             virtual void bindToFramebuffer(GLenum attachment, size_t zoffset);
 
             /// @copydoc HardwarePixelBuffer::getRenderTarget
-            RenderTexture* getRenderTarget(size_t);
+            RenderTexture* getRenderTarget(size_t slice);
 
             /// Upload a box of pixels to this buffer on the card
             virtual void upload(const PixelBox &data, const Image::Box &dest);
@@ -149,6 +149,6 @@ namespace Ogre {
             // In case this is a render buffer
             GLuint mRenderbufferID;
     };
-};
+}
 
 #endif

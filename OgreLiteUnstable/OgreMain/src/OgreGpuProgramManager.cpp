@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,14 +34,14 @@ THE SOFTWARE.
 
 namespace Ogre {
     //-----------------------------------------------------------------------
-    template<> GpuProgramManager* Singleton<GpuProgramManager>::ms_Singleton = 0;
+    template<> GpuProgramManager* Singleton<GpuProgramManager>::msSingleton = 0;
     GpuProgramManager* GpuProgramManager::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     GpuProgramManager& GpuProgramManager::getSingleton(void)
     {  
-        assert( ms_Singleton );  return ( *ms_Singleton );  
+        assert( msSingleton );  return ( *msSingleton );  
     }
 	//---------------------------------------------------------------------------
 	GpuProgramManager::GpuProgramManager()
@@ -202,12 +202,12 @@ namespace Ogre {
 		return mSharedParametersMap;
 	}
 	//---------------------------------------------------------------------
-	const bool GpuProgramManager::getSaveMicrocodesToCache() const
+	bool GpuProgramManager::getSaveMicrocodesToCache()
 	{
 		return mSaveMicrocodesToCache;
 	}
 	//---------------------------------------------------------------------
-	const bool GpuProgramManager::canGetCompiledShaderBuffer() const
+	bool GpuProgramManager::canGetCompiledShaderBuffer()
 	{
 		// Use the current render system
 		RenderSystem* rs = Root::getSingleton().getRenderSystem();

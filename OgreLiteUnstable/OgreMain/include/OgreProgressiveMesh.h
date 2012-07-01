@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -119,7 +119,7 @@ namespace Ogre {
 			VRQ_PROPORTIONAL,
 			/// All vertices with reduction error cost less than reductionValue * sqr(lodDistance[lodLevel] / lodDistance[0]) 
 			/// are removed at each reduction. Error cost is calculated as introduced error area divided by squared mesh diagonal
-			VRQ_ERROR_COST,
+			VRQ_ERROR_COST
 		};
 
 		
@@ -196,7 +196,7 @@ namespace Ogre {
 			work. Pass only shadowed buffers, or better yet perform mesh reduction as
 			an offline process using DefaultHardwareBufferManager to manage vertex
 			buffers in system memory.
-        @param buffer Pointer to x/y/z buffer with vertex positions. The number of vertices
+        @param vertexData Pointer to x/y/z buffer with vertex positions. The number of vertices
             must be the same as in the original GeometryData passed to the constructor.
         */
         virtual void addExtraVertexPositionBuffer(const VertexData* vertexData);
@@ -215,10 +215,10 @@ namespace Ogre {
 						
     protected:
 		/// Can be NULL for non-indexed subMeshes, such PM would be skipped
-		SubMesh* m_pSubMesh;
+		SubMesh* mSubMesh;
 		
-        VertexData *mpVertexData;
-        IndexData *mpIndexData;
+        VertexData *mVertexData;
+        IndexData *mIndexData;
 
 		vector<IndexData*>::type mLodFaceList;
 		

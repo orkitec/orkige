@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -42,7 +42,7 @@ namespace Ogre {
 
 //-----------------------------------------------------------------------
 template<> 
-RTShader::FFPRenderStateBuilder* Singleton<RTShader::FFPRenderStateBuilder>::ms_Singleton = 0;
+RTShader::FFPRenderStateBuilder* Singleton<RTShader::FFPRenderStateBuilder>::msSingleton = 0;
 
 namespace RTShader {
 
@@ -50,15 +50,15 @@ namespace RTShader {
 //-----------------------------------------------------------------------
 FFPRenderStateBuilder* FFPRenderStateBuilder::getSingletonPtr()
 {
-	assert( ms_Singleton );  
-	return ms_Singleton;
+	assert( msSingleton );  
+	return msSingleton;
 }
 
 //-----------------------------------------------------------------------
 FFPRenderStateBuilder& FFPRenderStateBuilder::getSingleton()
 {
-	assert( ms_Singleton );  
-	return ( *ms_Singleton );
+	assert( msSingleton );  
+	return ( *msSingleton );
 }
 
 //-----------------------------------------------------------------------------

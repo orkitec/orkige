@@ -20,6 +20,7 @@ set(HEADER_FILES
   include/OgreGLES2GpuProgramManager.h
   include/OgreGLES2HardwareBufferManager.h
   include/OgreGLES2HardwareIndexBuffer.h
+  include/OgreGLES2HardwareOcclusionQuery.h
   include/OgreGLES2HardwarePixelBuffer.h
   include/OgreGLES2HardwareVertexBuffer.h
   include/OgreGLES2PixelFormat.h
@@ -30,6 +31,7 @@ set(HEADER_FILES
   include/OgreGLES2Support.h
   include/OgreGLES2Texture.h
   include/OgreGLES2TextureManager.h
+  include/OgreGLES2VertexDeclaration.h
 )
 
 set(SOURCE_FILES
@@ -44,6 +46,7 @@ set(SOURCE_FILES
   src/OgreGLES2GpuProgramManager.cpp
   src/OgreGLES2HardwareBufferManager.cpp
   src/OgreGLES2HardwareIndexBuffer.cpp
+  src/OgreGLES2HardwareOcclusionQuery.cpp
   src/OgreGLES2HardwarePixelBuffer.cpp
   src/OgreGLES2HardwareVertexBuffer.cpp
   src/OgreGLES2PixelFormat.cpp
@@ -53,6 +56,7 @@ set(SOURCE_FILES
   src/OgreGLES2Support.cpp
   src/OgreGLES2Texture.cpp
   src/OgreGLES2TextureManager.cpp
+  src/OgreGLES2VertexDeclaration.cpp
 )
 
 set(GLSLES_FILES
@@ -61,26 +65,32 @@ set(GLSLES_FILES
   src/GLSLES/include/OgreGLSLESLinkProgram.h
   src/GLSLES/include/OgreGLSLESLinkProgramManager.h
   src/GLSLES/include/OgreGLSLESPreprocessor.h
-  src/GLSLES/include/OgreGLSLESProgramFactory.h
   src/GLSLES/include/OgreGLSLESProgram.h
+  src/GLSLES/include/OgreGLSLESProgramCommon.h
+  src/GLSLES/include/OgreGLSLESProgramFactory.h
+  src/GLSLES/include/OgreGLSLESProgramManagerCommon.h
+  src/GLSLES/include/OgreGLSLESProgramPipeline.h
+  src/GLSLES/include/OgreGLSLESProgramPipelineManager.h
   src/GLSLES/src/OgreGLSLESExtSupport.cpp
   src/GLSLES/src/OgreGLSLESGpuProgram.cpp
   src/GLSLES/src/OgreGLSLESLinkProgram.cpp
   src/GLSLES/src/OgreGLSLESLinkProgramManager.cpp
   src/GLSLES/src/OgreGLSLESPreprocessor.cpp
   src/GLSLES/src/OgreGLSLESProgram.cpp
+  src/GLSLES/src/OgreGLSLESProgramCommon.cpp
   src/GLSLES/src/OgreGLSLESProgramFactory.cpp
+  src/GLSLES/src/OgreGLSLESProgramManagerCommon.cpp
+  src/GLSLES/src/OgreGLSLESProgramPipeline.cpp
+  src/GLSLES/src/OgreGLSLESProgramPipelineManager.cpp
 )
 
-if (OGRE_CG_SUPPORT_FOR_GLES2)
-set(GLSLES_FILES 
-  src/GLSLES/src/OgreGLSLESCgProgram.cpp
-  src/GLSLES/src/OgreGLSLESCgProgramFactory.cpp
-  ${GLSLES_FILES}
-)
-endif (OGRE_CG_SUPPORT_FOR_GLES2)
-	
-	
+if (OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT)
+  set(GLSLES_FILES 
+    src/GLSLES/src/OgreGLSLESCgProgram.cpp
+    src/GLSLES/src/OgreGLSLESCgProgramFactory.cpp
+    ${GLSLES_FILES}
+  )
+endif (OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT)
 
 # Add system specific settings
 if (ORKIGE_BUILD_ANDROID)
@@ -98,8 +108,21 @@ if (ORKIGE_BUILD_ANDROID)
   )
   include_directories(src/Android include/Android)
   set(PLATFORM_HEADER_INSTALL "Android")
-  set(PLATFORM_LIBS "OgreRTShaderSystem")
-elseif (WIN32)	
+elseif (OGRE_BUILD_PLATFORM_NACL)
+  set(PLATFORM_HEADERS 
+    include/NaCl/OgreGLES2Util.h
+    include/NaCl/OgreNaClGLContext.h
+    include/NaCl/OgreNaClGLSupport.h
+    include/NaCl/OgreNaClWindow.h
+  )
+  set(PLATFORM_SOURCES
+    src/NaCl/OgreNaClGLContext.cpp
+    src/NaCl/OgreNaClGLSupport.cpp
+    src/NaCl/OgreNaClWindow.cpp
+  )
+  include_directories(src/NaCl include/NaCl)
+  set(PLATFORM_HEADER_INSTALL "NaCl")
+elseif (WIN32)
   set(PLATFORM_HEADERS 
     include/EGL/WIN32/OgreWin32EGLContext.h
     include/EGL/WIN32/OgreWin32EGLSupport.h
@@ -167,18 +190,11 @@ elseif (UNIX)
   )
   include_directories(src/EGL/X11 include/EGL/X11)
   set(PLATFORM_HEADER_INSTALL "X11")
-  if(OGRE_BUILD_PLATFORM_TEGRA2)
-    link_directories(${OPENGLES2_LIBRARY_PATH})
-    set(PLATFORM_LIBS ${X11_LIBRARIES} ${OPENGLES2_LIBRARIES} ${EGL_LIBRARIES}) 
-  else()
-    set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB})
-  endif()
+  set(PLATFORM_LIBS ${X11_LIBRARIES} ${X11_Xrandr_LIB})
 endif ()
 
 # Add support for the RT Shader System
 add_definitions(-DUSE_RTSHADER_SYSTEM)
-
-#message( STATUS "---" ${EGL_INCLUDE_DIR} "---"  ${OPENGLES2_INCLUDE_DIR} "---" ${EGL_LIBRARIES} "----" ${OPENGLES2_LIBRARY_PATH})
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -186,26 +202,11 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/include/EAGL
   ${CMAKE_CURRENT_SOURCE_DIR}/src/GLSLES/include
   ${CMAKE_SOURCE_DIR}/Components/RTShaderSystem/include
-  ${OPENGLES2_INCLUDE_DIR}
+  ${OPENGLES2_INCLUDE_DIR} ${EGL_INCLUDE_DIR}
 )
 
-#add_library(RenderSystem_GLES2 ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${GLSLES_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
 ogre_add_library(RenderSystem_GLES2 ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES} ${GLSLES_FILES} ${PLATFORM_HEADERS} ${PLATFORM_SOURCES})
-target_link_libraries(RenderSystem_GLES2 OgreMain ${OPENGLES2_LIBRARIES} ${PLATFORM_LIBS})
-
-if (NOT ORKIGE_BUILD_ANDROID)
-  include_directories(
-    ${EGL_INCLUDE_DIR}
-  )
-  #message(STATUS ${EGL_LIBRARIES})
-  target_link_libraries(RenderSystem_GLES2 ${EGL_LIBRARIES}) 
-endif()
-
-if (MSVC)
-  add_definitions(-DGL_OES_mapbuffer=0 -DGL_OES_get_program_binary=0)
-endif()
-
-
+target_link_libraries(RenderSystem_GLES2 OgreMain ${OPENGLES2_LIBRARIES} ${EGL_LIBRARIES} ${PLATFORM_LIBS})
 
 if (NOT OGRE_STATIC)
   set_target_properties(RenderSystem_GLES2 PROPERTIES
@@ -218,8 +219,6 @@ if (OGRE_CONFIG_THREADS)
 endif ()
 
 ogre_config_plugin(RenderSystem_GLES2)
-if (OGRE_INSTALL_PLUGINS_HEADERS)
-  install(FILES ${HEADER_FILES} DESTINATION include/OGRE/RenderSystems/GLES2)
-  install(FILES ${PLATFORM_HEADERS} DESTINATION include/OGRE/RenderSystems/GLES2/${PLATFORM_HEADER_INSTALL})
-  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/GLSLES/include/ DESTINATION include/OGRE/RenderSystems/GLES2/${PLATFORM_HEADER_INSTALL})
-endif ()
+install(FILES ${HEADER_FILES} DESTINATION include/OGRE/RenderSystems/GLES2)
+install(FILES ${PLATFORM_HEADERS} DESTINATION include/OGRE/RenderSystems/GLES2/${PLATFORM_HEADER_INSTALL})
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/GLSLES/include/ DESTINATION include/OGRE/RenderSystems/GLES2/${PLATFORM_HEADER_INSTALL})

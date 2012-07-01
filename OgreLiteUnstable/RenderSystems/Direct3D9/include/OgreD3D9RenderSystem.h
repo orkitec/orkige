@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -50,9 +50,17 @@ namespace Ogre
 	*/
 	class _OgreD3D9Export D3D9RenderSystem : public RenderSystem
 	{
+	public:
+		enum MultiheadUseType
+		{
+			mutAuto,
+			mutYes,
+			mutNo
+		};
+		
 	private:
 		/// Direct3D
-		IDirect3D9*	 mpD3D;		
+		IDirect3D9*	 mD3D;		
 		// Stored options
 		ConfigOptionMap mOptions;
 		size_t mFSAASamples;
@@ -154,6 +162,8 @@ namespace Ogre
 		typedef HashMap<unsigned int, D3DFORMAT> DepthStencilHash;
 		DepthStencilHash mDepthStencilHash;
 
+		MultiheadUseType mMultiheadUse;
+
 	protected:
 		void setClipPlanesImpl(const PlaneList& clipPlanes);		
 	public:
@@ -202,8 +212,8 @@ namespace Ogre
 		 * This function does NOT override RenderSystem::_cleanupDepthBuffers(bool) functionality.
 		 * Manually created surfaces may be released arbitrarely without being pulled out from the pool
 		 * (specially RenderWindows) this function takes care of that.
-		 * @param:
-		 *		Depthbuffer surrface to compare against. Shouldn't be null
+		 * @param manualSurface
+		 *		Depth buffer surface to compare against. Shouldn't be null
 		 */
 		void _cleanupDepthBuffers( IDirect3DSurface9 *manualSurface );
 
@@ -344,6 +354,11 @@ namespace Ogre
 		/// @copydoc RenderSystem::getDisplayMonitorCount
 		unsigned int getDisplayMonitorCount() const;
 		
+		/// fires a device releated event
+		void fireDeviceEvent( D3D9Device* device, const String & name );
+
+		/// Returns how multihead should be activated
+		MultiheadUseType getMultiheadUse() const { return mMultiheadUse; }
 	protected:	
 		///returns the sampler id for a given unit texture number
 		DWORD getSamplerId(size_t unit);

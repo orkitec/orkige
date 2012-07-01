@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -137,9 +137,11 @@ namespace Ogre {
         /// Overridden from GpuProgram
         bool isSupported(void) const;
         /// Overridden from GpuProgram
+		bool getPassTransformStates(void) const { return true; /* CG uses MVP matrix when -posinv argument passed */ }
+        /// Overridden from GpuProgram
         const String& getLanguage(void) const;
 
-		/// scan the file for #include and replace with source from the OGRE resources
+		/// Scan the file for #include and replace with source from the OGRE resources
 		static String resolveCgIncludes(const String& source, Resource* resourceBeingLoaded, const String& fileName);
     };
 }

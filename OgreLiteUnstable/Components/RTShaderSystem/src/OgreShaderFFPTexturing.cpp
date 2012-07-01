@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -408,7 +408,6 @@ bool FFPTexturing::addVSFunctionInvocations(TextureUnitParams* textureUnitParams
 			texCoordCalcFunc->pushOperand(textureUnitParams->mVSOutputTexCoord, Operand::OPS_OUT);
 		}			
 		break;
-		break;
 
 	case TEXCALC_PROJECTIVE_TEXTURE:
 
@@ -471,7 +470,7 @@ bool FFPTexturing::addPSFunctionInvocations(TextureUnitParams* textureUnitParams
 	addPSBlendInvocations(psMain, source1, source2, texel, 
 		textureUnitParams->mTextureSamplerIndex,
 		colourBlend, groupOrder, internalCounter, 
-		needDifferentAlphaBlend ? (Operand::OPM_X | Operand::OPM_Y | Operand::OPM_Z )  : Operand::OPM_ALL);
+		needDifferentAlphaBlend ? Operand::OPM_XYZ : Operand::OPM_ALL);
 
 	// Case we need different alpha channel code.
 	if (needDifferentAlphaBlend)
@@ -678,7 +677,7 @@ void FFPTexturing::addPSBlendInvocations(Function* psMain,
 	case LBX_BLEND_CURRENT_ALPHA:
 		curFuncInvocation = OGRE_NEW FunctionInvocation(FFP_FUNC_LERP, groupOrder, internalCounter++);
 		curFuncInvocation->pushOperand(arg2, Operand::OPS_IN, targetChannels);
-		curFuncInvocation->pushOperand(arg1, Operand::OPS_OUT, targetChannels);
+		curFuncInvocation->pushOperand(arg1, Operand::OPS_IN, targetChannels);
 
 		if (samplerIndex == 0)
 			curFuncInvocation->pushOperand(mPSDiffuse, Operand::OPS_IN, Operand::OPM_W);
@@ -905,6 +904,10 @@ void FFPTexturing::setTextureUnit(unsigned short index, TextureUnitState* textur
 		curParams.mTextureSamplerType = GCT_SAMPLER2D;
 		curParams.mVSInTextureCoordinateType = GCT_FLOAT2;
 		break;
+    case TEX_TYPE_2D_ARRAY:
+        curParams.mTextureSamplerType = GCT_SAMPLER2DARRAY;
+        curParams.mVSInTextureCoordinateType = GCT_FLOAT3;
+        break;
 	case TEX_TYPE_3D:
 		curParams.mTextureSamplerType = GCT_SAMPLER3D;
 		curParams.mVSInTextureCoordinateType = GCT_FLOAT3;

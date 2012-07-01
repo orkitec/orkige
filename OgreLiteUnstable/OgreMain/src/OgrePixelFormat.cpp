@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -630,7 +630,35 @@ namespace Ogre {
         /* Masks and shifts */
         0, 0, 0, 0, 0, 0, 0, 0
         },
-        
+    //-----------------------------------------------------------------------
+        {"PF_R8",
+        /* Bytes per element */
+        1,
+        /* Flags */
+        PFF_NATIVEENDIAN,
+        /* Component type and count */
+        PCT_BYTE, 1,
+        /* rbits, gbits, bbits, abits */
+        8, 0, 0, 0,
+        /* Masks and shifts */
+        0xFF0000, 0, 0, 0,
+        0, 0, 0, 0
+        },
+    //-----------------------------------------------------------------------
+        {"PF_RG8",
+        /* Bytes per element */
+        2,
+        /* Flags */
+        PFF_NATIVEENDIAN,
+        /* Component type and count */
+        PCT_BYTE, 2,
+        /* rbits, gbits, bbits, abits */
+        8, 8, 0, 0,
+        /* Masks and shifts */
+        0xFF0000, 0x00FF00, 0, 0,
+        8, 0, 0, 0
+        },
+
     };
     //-----------------------------------------------------------------------
 	size_t PixelBox::getConsecutiveSize() const
@@ -1127,7 +1155,7 @@ namespace Ogre {
             }
         } else {
             // Do the operation with the more generic floating point
-            float rr, gg, bb, aa;
+            float rr = 0, gg = 0, bb = 0, aa = 0;
             unpackColour(&rr,&gg,&bb,&aa, pf, src);
             *r = (uint8)Bitwise::floatToFixed(rr, 8);
             *g = (uint8)Bitwise::floatToFixed(gg, 8);
@@ -1356,7 +1384,7 @@ namespace Ogre {
         const size_t dstSliceSkipBytes = dst.getSliceSkip()*dstPixelSize;
 
         // The brute force fallback
-        float r,g,b,a;
+        float r = 0, g = 0, b = 0, a = 1;
         for(size_t z=src.front; z<src.back; z++)
         {
             for(size_t y=src.top; y<src.bottom; y++)

@@ -5,7 +5,7 @@ This source file is part of OGRE
 For the latest info, see http://www.ogre3d.org/
 
 Copyright (c) 2008 Renato Araujo Oliveira Filho <renatox@gmail.com>
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -69,7 +69,7 @@ namespace Ogre {
     GLESHardwarePixelBuffer::~GLESHardwarePixelBuffer()
     {
         // Force free buffer
-        OGRE_DELETE [] (uint8*)mBuffer.data;
+        delete [] (uint8*)mBuffer.data;
     }
 
     void GLESHardwarePixelBuffer::allocateBuffer()
@@ -78,7 +78,7 @@ namespace Ogre {
             // Already allocated
             return;
 
-        mBuffer.data = OGRE_NEW_FIX_FOR_WIN32 uint8[mSizeInBytes];
+        mBuffer.data = new uint8[mSizeInBytes];
         // TODO use PBO if we're HBU_DYNAMIC
     }
 
@@ -87,7 +87,7 @@ namespace Ogre {
         // Free buffer if we're STATIC to save memory
         if (mUsage & HBU_STATIC)
         {
-            OGRE_DELETE [] (uint8*)mBuffer.data;
+            delete [] (uint8*)mBuffer.data;
             mBuffer.data = 0;
         }
     }
@@ -131,33 +131,25 @@ namespace Ogre {
             src.getHeight() != dstBox.getHeight() ||
             src.getDepth() != dstBox.getDepth())
         {
-            // Scale to destination size. Use DevIL and not iluScale because ILU screws up for 
-            // floating point textures and cannot cope with 3D images.
+            // Scale to destination size.
             // This also does pixel format conversion if needed
             allocateBuffer();
             scaled = mBuffer.getSubVolume(dstBox);
             Image::scale(src, scaled, Image::FILTER_BILINEAR);
         }
-        else if ((src.format != mFormat) ||
-                 ((GLESPixelUtil::getGLOriginFormat(src.format) == 0) && (src.format != PF_R8G8B8)))
+        else if (GLESPixelUtil::getGLOriginFormat(src.format) == 0)
         {
             // Extents match, but format is not accepted as valid source format for GL
             // do conversion in temporary buffer
             allocateBuffer();
             scaled = mBuffer.getSubVolume(dstBox);
             PixelUtil::bulkPixelConversion(src, scaled);
-
-            if(mFormat == PF_A4R4G4B4)
-            {
-                // ARGB->BGRA
-                GLESPixelUtil::convertToGLformat(scaled, scaled);
-            }
         }
         else
         {
             allocateBuffer();
+            // No scaling or conversion needed
             scaled = src;
-
             if (src.format == PF_R8G8B8)
             {
                 scaled.format = PF_B8G8R8;
@@ -249,8 +241,8 @@ namespace Ogre {
         mFaceTarget = mTarget;
 
         // Calculate the width and height of the texture at this mip level
-        mWidth = mLevel == 0 ? width : width / pow(2.f, level);
-        mHeight = mLevel == 0 ? height : height / pow(2.f, level);
+        mWidth = mLevel == 0 ? width : width / pow(2, level);
+        mHeight = mLevel == 0 ? height : height / pow(2, level);
         if(mWidth < 1)
             mWidth = 1;
         if(mHeight < 1)
@@ -268,8 +260,8 @@ namespace Ogre {
 
         // Log a message
 //        std::stringstream str;
-//        str << "GLESHardwarePixelBuffer constructed for texture " << mTextureID 
-//            << " face " << mFace << " level " << mLevel << ": "
+//        str << "GLESHardwarePixelBuffer constructed for texture " << baseName
+//            << " id " << mTextureID << " face " << mFace << " level " << mLevel << ": "
 //            << "width=" << mWidth << " height="<< mHeight << " depth=" << mDepth
 //            << "format=" << PixelUtil::getFormatName(mFormat);
 //        LogManager::getSingleton().logMessage(LML_NORMAL, str.str());
@@ -290,10 +282,10 @@ namespace Ogre {
             {
                 String name;
                 name = "rtt/" + StringConverter::toString((size_t)this) + "/" + baseName;
-                GLESSurfaceDesc target;
-                target.buffer = this;
-                target.zoffset = zoffset;
-                RenderTexture *trt = GLESRTTManager::getSingleton().createRenderTexture(name, target, writeGamma, fsaa);
+                GLESSurfaceDesc surface;
+                surface.buffer = this;
+                surface.zoffset = zoffset;
+                RenderTexture *trt = GLESRTTManager::getSingleton().createRenderTexture(name, surface, writeGamma, fsaa);
                 mSliceTRT.push_back(trt);
                 Root::getSingleton().getRenderSystem()->attachRenderTarget(*mSliceTRT[zoffset]);
             }
@@ -396,6 +388,11 @@ namespace Ogre {
                 GL_CHECK_ERROR;
             }
 
+//            LogManager::getSingleton().logMessage("GLESTextureBuffer::upload - ID: " + StringConverter::toString(mTextureID) +
+//                                                  " Format: " + PixelUtil::getFormatName(data.format) +
+//                                                  " Origin format: " + StringConverter::toString(GLESPixelUtil::getGLOriginFormat(data.format, 0, ' ', std::ios::hex)) +
+//                                                  " Data type: " + StringConverter::toString(GLESPixelUtil::getGLOriginDataType(data.format, 0, ' ', std::ios::hex))
+//                                                  );
             glTexSubImage2D(mFaceTarget,
                             mLevel,
                             dest.left, dest.top,
@@ -773,7 +770,7 @@ namespace Ogre {
 
             if (mip != 0)
             {
-                OGRE_DELETE[] (uint8*) scaled.data;
+                delete[] (uint8*) scaled.data;
                 scaled.data = 0;
             }
 
@@ -790,7 +787,7 @@ namespace Ogre {
             int sizeInBytes = PixelUtil::getMemorySize(width, height, 1,
                                                        data.format);
             scaled = PixelBox(width, height, 1, data.format);
-            scaled.data = OGRE_NEW_FIX_FOR_WIN32 uint8[sizeInBytes];
+            scaled.data = new uint8[sizeInBytes];
             Image::scale(data, scaled, Image::FILTER_LINEAR);
         }
     }
@@ -831,4 +828,4 @@ namespace Ogre {
                                      GL_RENDERBUFFER_OES, mRenderbufferID);
         GL_CHECK_ERROR;
     }
-};
+}

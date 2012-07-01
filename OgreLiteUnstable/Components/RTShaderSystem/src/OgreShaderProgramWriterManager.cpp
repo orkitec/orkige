@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -32,20 +32,20 @@ namespace Ogre {
 
 //-----------------------------------------------------------------------
 template<> 
-RTShader::ProgramWriterManager* Singleton<RTShader::ProgramWriterManager>::ms_Singleton = 0;
+RTShader::ProgramWriterManager* Singleton<RTShader::ProgramWriterManager>::msSingleton = 0;
 
 namespace RTShader {
 //-----------------------------------------------------------------------
 ProgramWriterManager* ProgramWriterManager::getSingletonPtr(void)
 {
-	assert( ms_Singleton );  
-	return ms_Singleton;
+	assert( msSingleton );  
+	return msSingleton;
 }
 //-----------------------------------------------------------------------
 ProgramWriterManager& ProgramWriterManager::getSingleton(void)
 {  
-	assert( ms_Singleton );  
-	return ( *ms_Singleton );  
+	assert( msSingleton );  
+	return ( *msSingleton );  
 }
 //-----------------------------------------------------------------------
 ProgramWriterManager::ProgramWriterManager()
@@ -91,7 +91,7 @@ ProgramWriter* ProgramWriterManager::createProgramWriter( const String& language
 	}
 	
 	OGRE_EXCEPT( Exception::ERR_ITEM_NOT_FOUND, 
-		"Could not create ShaderProgramWriter unknown language " + language, 
+		"Could not create ShaderProgramWriter unknown language ", 
 		"ShaderProgramWriterManager::createProgramWriter" );
 }
 

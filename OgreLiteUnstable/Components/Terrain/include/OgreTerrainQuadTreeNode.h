@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -88,7 +88,7 @@ namespace Ogre
 		/** Constructor.
 		@param terrain The ultimate parent terrain
 		@param parent Optional parent node (in which case xoff, yoff are 0 and size must be entire terrain)
-		@param xoff,off Offsets from the start of the terrain data in 2D
+		@param xoff, yoff Offsets from the start of the terrain data in 2D
 		@param size The size of the node in vertices at the highest LOD
 		@param lod The base LOD level
 		@param depth The depth that this node is at in the tree (or convenience)
@@ -235,7 +235,7 @@ namespace Ogre
 		/** Calculate appropriate LOD for this node and children
 		@param cam The camera to be used (this should already be the LOD camera)
 		@param cFactor The cFactor which incorporates the viewport size, max pixel error and lod bias
-		@returns true if this node or any of its children were selected for rendering
+		@return true if this node or any of its children were selected for rendering
 		*/
 		bool calculateCurrentLod(const Camera* cam, Real cFactor);
 

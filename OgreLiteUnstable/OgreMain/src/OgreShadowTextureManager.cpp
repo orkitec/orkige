@@ -4,7 +4,7 @@ This source file is a part of OGRE
 
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -54,14 +54,14 @@ namespace Ogre
 		return !( lhs == rhs );
 	}
 	//-----------------------------------------------------------------------
-	template<> ShadowTextureManager* Singleton<ShadowTextureManager>::ms_Singleton = 0;
+	template<> ShadowTextureManager* Singleton<ShadowTextureManager>::msSingleton = 0;
 	ShadowTextureManager* ShadowTextureManager::getSingletonPtr(void)
 	{
-		return ms_Singleton;
+		return msSingleton;
 	}
 	ShadowTextureManager& ShadowTextureManager::getSingleton(void)
 	{
-		assert( ms_Singleton );  return ( *ms_Singleton );
+		assert( msSingleton );  return ( *msSingleton );
 	}
 	//---------------------------------------------------------------------
 	ShadowTextureManager::ShadowTextureManager()

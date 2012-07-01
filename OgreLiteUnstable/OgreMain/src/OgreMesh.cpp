@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -420,6 +420,7 @@ namespace Ogre {
 		newMesh->mIsLodManual = mIsLodManual;
 		newMesh->mNumLods = mNumLods;
 		newMesh->mMeshLodUsageList = mMeshLodUsageList;
+        newMesh->mAutoBuildEdgeLists = mAutoBuildEdgeLists;
         // Unreference edge lists, otherwise we'll delete the same lot twice, build on demand
         MeshLodUsageList::iterator lodi;
         for (lodi = newMesh->mMeshLodUsageList.begin(); lodi != newMesh->mMeshLodUsageList.end(); ++lodi) {
@@ -459,12 +460,10 @@ namespace Ogre {
 		newMesh->mSharedVertexDataAnimationType = mSharedVertexDataAnimationType;
 		newMesh->mAnimationTypesDirty = true;
 
-
         newMesh->load();
         newMesh->touch();
 
         return newMesh;
-
     }
     //-----------------------------------------------------------------------
     const AxisAlignedBox& Mesh::getBounds(void) const
@@ -642,7 +641,7 @@ namespace Ogre {
         for (size_t v = 0; v < vertexCount; ++v)
         {
             // Get number of entries for this vertex
-            unsigned short currBones = static_cast<unsigned short>(assignments.count(v));
+            short currBones = static_cast<unsigned short>(assignments.count(v));
 			if (currBones <= 0)
 				existsNonSkinnedVertices = true;
 
@@ -1302,7 +1301,6 @@ namespace Ogre {
         // Go through all the vertex data and locate source and dest (must agree)
         bool sharedGeometryDone = false;
         bool foundExisting = false;
-		VertexElementSemantic foundSemantic = VES_TEXTURE_COORDINATES;
         bool firstOne = true;
         SubMeshList::iterator i, iend;
         iend = mSubMeshList.end();
@@ -1497,7 +1495,7 @@ namespace Ogre {
 				{
 					usage.edgeData = eb.build();
 
-                #if 0 && OGRE_DEBUG_MODE
+                #if OGRE_DEBUG_MODE
                     // Override default log
                     Log* log = LogManager::getSingleton().createLog(
                         mName + "_lod" + StringConverter::toString(lodIndex) +

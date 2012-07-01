@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -49,11 +49,6 @@ THE SOFTWARE.
 #else
 #define FREEIMAGE_COLORORDER FREEIMAGE_COLORORDER_BGR
 #endif
-#endif
-
-// Color order is actually RGB on iPhone
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-#define FREEIMAGE_COLORORDER FREEIMAGE_COLORORDER_RGB
 #endif
 
 namespace Ogre {
@@ -165,9 +160,6 @@ namespace Ogre {
 	//---------------------------------------------------------------------
 	FIBITMAP* FreeImageCodec::encode(MemoryDataStreamPtr& input, CodecDataPtr& pData) const
 	{
-		// Set error handler
-		FreeImage_SetOutputMessage(FreeImageSaveErrorHandler);
-
 		FIBITMAP* ret = 0;
 
 		ImageData* pImgData = static_cast< ImageData * >( pData.getPointer() );
@@ -376,9 +368,6 @@ namespace Ogre {
     //---------------------------------------------------------------------
     DataStreamPtr FreeImageCodec::code(MemoryDataStreamPtr& input, Codec::CodecDataPtr& pData) const
     {        
-		// Set error handler
-		FreeImage_SetOutputMessage(FreeImageSaveErrorHandler);
-
 		FIBITMAP* fiBitmap = encode(input, pData);
 
 		// open memory chunk allocated by FreeImage
@@ -408,22 +397,14 @@ namespace Ogre {
     void FreeImageCodec::codeToFile(MemoryDataStreamPtr& input, 
         const String& outFileName, Codec::CodecDataPtr& pData) const
     {
-		// Set error handler
-		FreeImage_SetOutputMessage(FreeImageSaveErrorHandler);
-
 		FIBITMAP* fiBitmap = encode(input, pData);
 
 		FreeImage_Save((FREE_IMAGE_FORMAT)mFreeImageType, fiBitmap, outFileName.c_str());
 		FreeImage_Unload(fiBitmap);
-
-
     }
     //---------------------------------------------------------------------
     Codec::DecodeResult FreeImageCodec::decode(DataStreamPtr& input) const
     {
-		// Set error handler
-		FreeImage_SetOutputMessage(FreeImageLoadErrorHandler);
-
 		// Buffer stream into memory (TODO: override IO functions instead?)
 		MemoryDataStream memStream(input, true);
 
@@ -605,9 +586,6 @@ namespace Ogre {
 	//---------------------------------------------------------------------
 	String FreeImageCodec::magicNumberToFileExt(const char *magicNumberPtr, size_t maxbytes) const
 	{
-		// Set error handler
-		FreeImage_SetOutputMessage(FreeImageLoadErrorHandler);
-
 		FIMEMORY* fiMem = 
 			FreeImage_OpenMemory((BYTE*)magicNumberPtr, static_cast<DWORD>(maxbytes));
 

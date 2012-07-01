@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -43,17 +43,17 @@ THE SOFTWARE.
 
 
 namespace Ogre {
-template<> RTShader::HardwareSkinningFactory* Singleton<RTShader::HardwareSkinningFactory>::ms_Singleton = 0;
+template<> RTShader::HardwareSkinningFactory* Singleton<RTShader::HardwareSkinningFactory>::msSingleton = 0;
 
 namespace RTShader {
 
 HardwareSkinningFactory* HardwareSkinningFactory::getSingletonPtr(void)
 {
-    return ms_Singleton;
+    return msSingleton;
 }
 HardwareSkinningFactory& HardwareSkinningFactory::getSingleton(void)
 {  
-    assert( ms_Singleton );  return ( *ms_Singleton );
+    assert( msSingleton );  return ( *msSingleton );
 }
 
 String HardwareSkinning::Type = "SGX_HardwareSkinning";
@@ -62,8 +62,8 @@ String HardwareSkinning::Type = "SGX_HardwareSkinning";
 /*                                                                      */
 /************************************************************************/
 HardwareSkinning::HardwareSkinning() :
-	mSkinningType(ST_LINEAR),
-	mCreator(NULL)
+	mCreator(NULL),
+	mSkinningType(ST_LINEAR)
 {
 }
 
@@ -262,7 +262,7 @@ SubRenderState*	HardwareSkinningFactory::createInstance(ScriptCompiler* compiler
 		uint32 boneCount = 0;
 		uint32 weightCount = 0;
 		String skinningType = "";
-		SkinningType skinType;
+		SkinningType skinType = ST_LINEAR;
 		bool correctAntipodalityHandling = false;
 		bool scalingShearingSupport = false;
 		

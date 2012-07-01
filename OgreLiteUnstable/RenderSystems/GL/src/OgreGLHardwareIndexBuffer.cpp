@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -62,8 +62,6 @@ namespace Ogre {
     void* GLHardwareIndexBuffer::lockImpl(size_t offset, 
         size_t length, LockOptions options)
     {
-        GLenum access = 0;
-
         if(mIsLocked)
         {
             OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, 
@@ -98,6 +96,7 @@ namespace Ogre {
 
 		if (!retPtr)
 		{
+            GLenum access = 0;
 			glBindBufferARB( GL_ELEMENT_ARRAY_BUFFER_ARB, mBufferId );
 			// Use glMapBuffer
 			if(options == HBL_DISCARD)
@@ -172,9 +171,9 @@ namespace Ogre {
         if(mUseShadowBuffer)
         {
             // get data from the shadow buffer
-            void* srcData = mpShadowBuffer->lock(offset, length, HBL_READ_ONLY);
+            void* srcData = mShadowBuffer->lock(offset, length, HBL_READ_ONLY);
             memcpy(pDest, srcData, length);
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
         }
         else
         {
@@ -191,10 +190,10 @@ namespace Ogre {
         // Update the shadow buffer
         if(mUseShadowBuffer)
         {
-            void* destData = mpShadowBuffer->lock(offset, length, 
+            void* destData = mShadowBuffer->lock(offset, length, 
                 discardWholeBuffer ? HBL_DISCARD : HBL_NORMAL);
             memcpy(destData, pSource, length);
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
         }
 
         if (offset == 0 && length == mSizeInBytes)
@@ -219,7 +218,7 @@ namespace Ogre {
     {
         if (mUseShadowBuffer && mShadowUpdated && !mSuppressHardwareUpdate)
         {
-            const void *srcData = mpShadowBuffer->lock(
+            const void *srcData = mShadowBuffer->lock(
                 mLockStart, mLockSize, HBL_READ_ONLY);
 
             glBindBufferARB(GL_ELEMENT_ARRAY_BUFFER_ARB, mBufferId);
@@ -235,7 +234,7 @@ namespace Ogre {
                 glBufferSubDataARB(GL_ELEMENT_ARRAY_BUFFER_ARB, mLockStart, mLockSize, srcData);
             }
 
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
             mShadowUpdated = false;
         }
     }

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +37,7 @@ namespace Ogre
 		ZeroMemory( &mD3D9DeviceCaps, sizeof(mD3D9DeviceCaps) );
 		ZeroMemory( &mAdapterIdentifier, sizeof(mAdapterIdentifier) );
 		ZeroMemory( &mDesktopDisplayMode, sizeof(mDesktopDisplayMode) );		
-		mpVideoModeList = NULL;				
+		mVideoModeList = NULL;				
 	}
 
 	D3D9Driver::D3D9Driver( const D3D9Driver &ob )
@@ -46,7 +46,7 @@ namespace Ogre
 		mD3D9DeviceCaps		= ob.mD3D9DeviceCaps;
 		mAdapterIdentifier	= ob.mAdapterIdentifier;
 		mDesktopDisplayMode = ob.mDesktopDisplayMode;
-		mpVideoModeList		= NULL;				
+		mVideoModeList		= NULL;				
 	}
 
 	D3D9Driver::D3D9Driver( unsigned int adapterNumber,
@@ -58,15 +58,15 @@ namespace Ogre
 		mD3D9DeviceCaps		= deviceCaps;
 		mAdapterIdentifier	= adapterIdentifier;
 		mDesktopDisplayMode = desktopDisplayMode;
-		mpVideoModeList		= NULL;			
+		mVideoModeList		= NULL;			
 	}
 
 	D3D9Driver::~D3D9Driver()
 	{
-		if (mpVideoModeList != NULL)
+		if (mVideoModeList != NULL)
 		{
-			OGRE_DELETE mpVideoModeList;
-			mpVideoModeList = NULL;
+			OGRE_DELETE mVideoModeList;
+			mVideoModeList = NULL;
 		}
 	}
 
@@ -87,9 +87,9 @@ namespace Ogre
 
 	D3D9VideoModeList* D3D9Driver::getVideoModeList()
 	{
-		if( !mpVideoModeList )
-			mpVideoModeList = OGRE_NEW D3D9VideoModeList( this );
+		if( !mVideoModeList )
+			mVideoModeList = OGRE_NEW D3D9VideoModeList( this );
 
-		return mpVideoModeList;
+		return mVideoModeList;
 	}	
 }

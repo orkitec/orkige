@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -99,14 +99,14 @@ namespace Ogre {
 	};
 	//-----------------------------------------------------------------------
 	template<> HighLevelGpuProgramManager* 
-	Singleton<HighLevelGpuProgramManager>::ms_Singleton = 0;
+	Singleton<HighLevelGpuProgramManager>::msSingleton = 0;
     HighLevelGpuProgramManager* HighLevelGpuProgramManager::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     HighLevelGpuProgramManager& HighLevelGpuProgramManager::getSingleton(void)
     {  
-        assert( ms_Singleton );  return ( *ms_Singleton );  
+        assert( msSingleton );  return ( *msSingleton );  
     }
 	//-----------------------------------------------------------------------
 	HighLevelGpuProgramManager::HighLevelGpuProgramManager()

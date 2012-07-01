@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -390,6 +390,15 @@ namespace Ogre {
         void setSelfIllumination(Real red, Real green, Real blue);
 
         /** Sets the amount of self-illumination an object has.
+        @see
+            setSelfIllumination
+        */
+        void setEmissive(Real red, Real green, Real blue)
+        {
+            setSelfIllumination(red, green, blue);
+        }
+
+        /** Sets the amount of self-illumination an object has.
         @remarks
         If an object is self-illuminating, it does not need external sources to light it, ambient or
         otherwise. It's like the object has it's own personal ambient light. This property is rarely useful since
@@ -399,6 +408,15 @@ namespace Ogre {
         or if this is a programmable pass.
         */
         void setSelfIllumination(const ColourValue& selfIllum);
+
+        /** Sets the amount of self-illumination an object has.
+        @see
+            setSelfIllumination
+        */
+        void setEmissive(const ColourValue& emissive)
+        {
+            setSelfIllumination(emissive);
+        }
 
         /** Sets which material properties follow the vertex colour
          */
@@ -498,6 +516,15 @@ namespace Ogre {
         */
         const ColourValue& getSelfIllumination(void) const;
 
+        /** Gets the self illumination colour of the pass.
+        @see
+                getSelfIllumination
+        */
+        const ColourValue& getEmissive(void) const
+        {
+            return getSelfIllumination();
+        }
+
         /** Gets the 'shininess' property of the pass (affects specular highlights).
         */
         Real getShininess(void) const;
@@ -514,10 +541,10 @@ namespace Ogre {
         /** Inserts a new TextureUnitState object into the Pass.
         @remarks
         This unit is is added on top of all previous units.
-        @param
-        name The basic name of the texture e.g. brickwall.jpg, stonefloor.png
-        @param
-        texCoordSet The index of the texture coordinate set to use.
+        @param textureName
+            The basic name of the texture e.g. brickwall.jpg, stonefloor.png
+        @param texCoordSet
+            The index of the texture coordinate set to use.
         @note
         Applies to both fixed-function and programmable passes.
         */
@@ -708,7 +735,7 @@ namespace Ogre {
 			This function allows more control over blending since it allows you to select different blending
 			modes for the color and alpha channels
 			@param op The blending operation mode to use for color channels in this pass
-			@param op The blending operation mode to use for alpha channels in this pass
+			@param alphaOp The blending operation mode to use for alpha channels in this pass
 		*/
 		void setSeparateSceneBlendingOperation(SceneBlendOperation op, SceneBlendOperation alphaOp);
 
@@ -1428,7 +1455,7 @@ namespace Ogre {
 			split, it's up to the author to ensure that there is a fallback Technique
 			for less capable cards.
 		@param numUnits The target number of texture units
-		@returns A new Pass which contains the remaining units, and a scene_blend
+		@return A new Pass which contains the remaining units, and a scene_blend
 				setting appropriate to approximate the multitexture. This Pass will be
 				attached to the parent Technique of this Pass.
 		*/

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -60,7 +60,8 @@ namespace Ogre
 	D3D9RenderSystem* D3D9RenderSystem::msD3D9RenderSystem = NULL;
 
 	//---------------------------------------------------------------------
-	D3D9RenderSystem::D3D9RenderSystem( HINSTANCE hInstance )
+	D3D9RenderSystem::D3D9RenderSystem( HINSTANCE hInstance ) :
+		mMultiheadUse(mutAuto)
 	{
 		LogManager::getSingleton().logMessage( "D3D9 : " + getName() + " created." );
 
@@ -71,7 +72,7 @@ namespace Ogre
 		mhInstance = hInstance;
 
 		// set pointers to NULL
-		mpD3D = NULL;		
+		mD3D = NULL;		
 		mDriverList = NULL;
 		mActiveD3DDriver = NULL;
 		mTextureManager = NULL;
@@ -91,7 +92,7 @@ namespace Ogre
 			mLights[i] = 0;
 
 		// Create our Direct3D object
-		if( NULL == (mpD3D = Direct3DCreate9(D3D_SDK_VERSION)) )
+		if( NULL == (mD3D = Direct3DCreate9(D3D_SDK_VERSION)) )
 			OGRE_EXCEPT( Exception::ERR_INTERNAL_ERROR, "Failed to create Direct3D9 object", "D3D9RenderSystem::D3D9RenderSystem" );
 
 		// set config options defaults
@@ -134,7 +135,7 @@ namespace Ogre
 			mHLSLProgramFactory = 0;
 		}
 		
-		SAFE_RELEASE( mpD3D );
+		SAFE_RELEASE( mD3D );
 		
 		if (mResourceManager != NULL)
 		{
@@ -164,7 +165,7 @@ namespace Ogre
 	bool D3D9RenderSystem::_checkMultiSampleQuality(D3DMULTISAMPLE_TYPE type, DWORD *outQuality, D3DFORMAT format, UINT adapterNum, D3DDEVTYPE deviceType, BOOL fullScreen)
 	{
 		HRESULT hr;
-		hr = mpD3D->CheckDeviceMultiSampleType( 
+		hr = mD3D->CheckDeviceMultiSampleType( 
 			adapterNum, 
 			deviceType, 
 			format, 
@@ -186,6 +187,7 @@ namespace Ogre
 		ConfigOption optDevice;
 		ConfigOption optVideoMode;
 		ConfigOption optFullScreen;
+		ConfigOption optMultihead;
 		ConfigOption optVSync;
 		ConfigOption optVSyncInterval;
 		ConfigOption optAA;
@@ -214,6 +216,13 @@ namespace Ogre
 		optFullScreen.possibleValues.push_back( "No" );
 		optFullScreen.currentValue = "Yes";
 		optFullScreen.immutable = false;
+
+		optMultihead.name = "Use Multihead";
+		optMultihead.possibleValues.push_back( "Auto" );
+		optMultihead.possibleValues.push_back( "Yes" );
+		optMultihead.possibleValues.push_back( "No" );
+		optMultihead.currentValue = "Auto";
+		optMultihead.immutable = false;
 
 		optResourceCeationPolicy.name = "Resource Creation Policy";		
 		optResourceCeationPolicy.possibleValues.push_back( "Create on all devices" );
@@ -298,6 +307,7 @@ namespace Ogre
 		mOptions[optDevice.name] = optDevice;
 		mOptions[optVideoMode.name] = optVideoMode;
 		mOptions[optFullScreen.name] = optFullScreen;
+		mOptions[optMultihead.name] = optMultihead;
 		mOptions[optVSync.name] = optVSync;
 		mOptions[optVSyncInterval.name] = optVSyncInterval;
 		mOptions[optAA.name] = optAA;
@@ -396,6 +406,15 @@ namespace Ogre
 				it->second.currentValue = "800 x 600 @ 32-bit colour";
 				viewModeChanged = true;
 			}
+		}
+
+		if( name == "Use Multihead" )
+		{
+			if (value == "Yes")
+				mMultiheadUse = mutYes;
+			else if (value == "No")
+				mMultiheadUse = mutNo;
+			else mMultiheadUse = mutAuto;
 		}
 
 		if( name == "FSAA" )
@@ -773,7 +792,19 @@ namespace Ogre
 
 		mResourceManager->lockDeviceAccess();
 
-		mDeviceManager->linkRenderWindow(renderWindow);
+        try
+        {
+		    mDeviceManager->linkRenderWindow(renderWindow);
+        }
+        catch (const Ogre::RenderingAPIException&)
+        {
+            // after catching the exception, clean up
+            mResourceManager->unlockDeviceAccess();
+            renderWindow->destroy();
+
+            // re-throw
+            throw;
+        }
 
 		mResourceManager->unlockDeviceAccess();
 	
@@ -918,10 +949,6 @@ namespace Ogre
 			if ((rkCurCaps.TextureOpCaps & D3DTEXOPCAPS_DOTPRODUCT3) == 0)
 				rsc->unsetCapability(RSC_DOT3);
 
-			// Check cube map support.
-			if ((rkCurCaps.TextureOpCaps & D3DPTEXTURECAPS_CUBEMAP) == 0)
-				rsc->unsetCapability(RSC_CUBEMAPPING);
-			
 			// Scissor test
 			if ((rkCurCaps.RasterCaps & D3DPRASTERCAPS_SCISSORTEST) == 0)
 				rsc->unsetCapability(RSC_SCISSOR_TEST);
@@ -944,6 +971,10 @@ namespace Ogre
 			if ((rkCurCaps.DeclTypes & D3DDTCAPS_UBYTE4) == 0)			
 				rsc->unsetCapability(RSC_VERTEX_FORMAT_UBYTE4);	
 
+			// Check cube map support.
+			if ((rkCurCaps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) == 0)
+				rsc->unsetCapability(RSC_CUBEMAPPING);
+			
 			// 3D textures?
 			if ((rkCurCaps.TextureCaps & D3DPTEXTURECAPS_VOLUMEMAP) == 0)			
 				rsc->unsetCapability(RSC_TEXTURE_3D);			
@@ -1082,7 +1113,7 @@ namespace Ogre
 
 		for (int i = 0; i < 6; ++i)
 		{
-			if (SUCCEEDED(mpD3D->CheckDeviceFormat(mActiveD3DDriver->getAdapterNumber(), 
+			if (SUCCEEDED(mD3D->CheckDeviceFormat(mActiveD3DDriver->getAdapterNumber(), 
 				D3DDEVTYPE_HAL, bbSurfDesc.Format, 
 				0, D3DRTYPE_TEXTURE, floatFormats[i])))
 			{
@@ -1124,7 +1155,7 @@ namespace Ogre
 			// NVIDIA needs a separate check
 			if (rsc->getVendor() == GPU_NVIDIA)
 			{
-				if (mpD3D->CheckDeviceFormat(
+				if (mD3D->CheckDeviceFormat(
 						D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, D3DFMT_X8R8G8B8, 0,D3DRTYPE_SURFACE, 
 						(D3DFORMAT)MAKEFOURCC('A', 'T', 'O', 'C')) == S_OK)
 				{
@@ -1401,7 +1432,7 @@ namespace Ogre
 			D3DFORMAT fmt = 
 				D3D9Mappings::_getPF(D3D9Mappings::_getClosestSupportedPF(pf));
 
-			if (SUCCEEDED(mpD3D->CheckDeviceFormat(
+			if (SUCCEEDED(mD3D->CheckDeviceFormat(
 				mActiveD3DDriver->getAdapterNumber(), D3DDEVTYPE_HAL, bbSurfDesc.Format, 
 				D3DUSAGE_QUERY_VERTEXTEXTURE, D3DRTYPE_TEXTURE, fmt)))
 			{
@@ -1479,7 +1510,7 @@ namespace Ogre
 				return false;
 			}
 
-			HRESULT hr = mpD3D->CheckDeviceFormat(
+			HRESULT hr = mD3D->CheckDeviceFormat(
 				currDevice->getAdapterNumber(),
 				currDevice->getDeviceType(),
 				srfDesc.Format,
@@ -3169,6 +3200,13 @@ namespace Ogre
 	void D3D9RenderSystem::setVertexBufferBinding(
         VertexBufferBinding* binding, size_t numberOfInstances, bool useGlobalInstancingVertexBufferIsAvailable, bool indexesUsed)
 	{
+		/*if (!prg)
+		{
+			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+				"Null program bound.",
+				"D3D9RenderSystem::bindGpuProgram");
+		}*/
+
 		HRESULT hr;
 
         if (useGlobalInstancingVertexBufferIsAvailable)
@@ -3453,6 +3491,13 @@ namespace Ogre
 	//---------------------------------------------------------------------
 	void D3D9RenderSystem::bindGpuProgram(GpuProgram* prg)
 	{
+		if (!prg)
+		{
+			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+				"Null program bound.",
+				"D3D9RenderSystem::bindGpuProgram");
+		}
+
 		HRESULT hr;
 		switch (prg->getType())
 		{
@@ -3487,6 +3532,13 @@ namespace Ogre
 	//---------------------------------------------------------------------
 	void D3D9RenderSystem::unbindGpuProgram(GpuProgramType gptype)
 	{
+		/*if (!prg)
+		{
+			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+				"Null program bound.",
+				"D3D9RenderSystem::bindGpuProgram");
+		}*/
+
 		HRESULT hr;
 		switch(gptype)
 		{
@@ -3949,7 +4001,7 @@ namespace Ogre
 	//---------------------------------------------------------------------
 	IDirect3D9*	D3D9RenderSystem::getDirect3D9()
 	{
-		IDirect3D9* pDirect3D9 = msD3D9RenderSystem->mpD3D;
+		IDirect3D9* pDirect3D9 = msD3D9RenderSystem->mD3D;
 
 		if (pDirect3D9 == NULL)
 		{
@@ -4058,7 +4110,7 @@ namespace Ogre
 			for(size_t x=0; x<NDSFORMATS; ++x)
 			{
 				// Verify that the depth format exists
-				if (mpD3D->CheckDeviceFormat(
+				if (mD3D->CheckDeviceFormat(
 					activeDevice->getAdapterNumber(),
 					activeDevice->getDeviceType(),
 					srfDesc.Format,
@@ -4069,7 +4121,7 @@ namespace Ogre
 					continue;
 				}
 				// Verify that the depth format is compatible
-				if(mpD3D->CheckDepthStencilMatch(
+				if(mD3D->CheckDepthStencilMatch(
 					activeDevice->getAdapterNumber(),
 					activeDevice->getDeviceType(), 
 					srfDesc.Format,
@@ -4125,7 +4177,7 @@ namespace Ogre
 	//---------------------------------------------------------------------
 	unsigned int D3D9RenderSystem::getDisplayMonitorCount() const
 	{
-		return mpD3D->GetAdapterCount();
+		return mD3D->GetAdapterCount();
 	}
 
 	//---------------------------------------------------------------------
@@ -4143,9 +4195,8 @@ namespace Ogre
 		ss << "D3D9 Device 0x[" << device->getD3D9Device() << "] entered lost state";
 		LogManager::getSingleton().logMessage(ss.str());
 
+		fireDeviceEvent(device, "DeviceLost");
 
-		// you need to stop the physics or game engines after this event
-		fireEvent("DeviceLost");
 	}
 
 	//---------------------------------------------------------------------
@@ -4177,7 +4228,8 @@ namespace Ogre
 		ss << "D3D9 device: 0x[" << device->getD3D9Device() << "] was reset";
 		LogManager::getSingleton().logMessage(ss.str());
 
-		fireEvent("DeviceRestored");
+		fireDeviceEvent(device, "DeviceRestored");
+
 	}
 
 	//---------------------------------------------------------------------
@@ -4257,7 +4309,7 @@ namespace Ogre
 
 			HRESULT hr;
 			DWORD outQuality;
-			hr = mpD3D->CheckDeviceMultiSampleType( 
+			hr = mD3D->CheckDeviceMultiSampleType( 
 				deviceDriver->getAdapterNumber(), 
 				D3DDEVTYPE_HAL, 
 				d3dPixelFormat, 
@@ -4307,5 +4359,13 @@ namespace Ogre
 		} // while !ok
 	}
 
+	//---------------------------------------------------------------------
+	void D3D9RenderSystem::fireDeviceEvent( D3D9Device* device, const String & name )
+	{
+		NameValuePairList params;
+		params["D3DDEVICE"] =  StringConverter::toString((size_t)device->getD3D9Device());
+		params["DEVICE_ADAPTER_NUMBER"] =  StringConverter::toString(device->getAdapterNumber());
 
+		fireEvent(name, &params);
+	}
 }

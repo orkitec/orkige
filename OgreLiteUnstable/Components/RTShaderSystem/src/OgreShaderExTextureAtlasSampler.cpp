@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -45,7 +45,7 @@ THE SOFTWARE.
 #define TAS_MAX_SAFE_ATLASED_TEXTURES 250
 
 namespace Ogre {
-template<> RTShader::TextureAtlasSamplerFactory* Singleton<RTShader::TextureAtlasSamplerFactory>::ms_Singleton = 0;
+template<> RTShader::TextureAtlasSamplerFactory* Singleton<RTShader::TextureAtlasSamplerFactory>::msSingleton = 0;
 
 namespace RTShader {
 
@@ -214,7 +214,7 @@ bool TextureAtlasSampler::addFunctionInvocations(ProgramSet* programSet)
 				curFuncInvocation = OGRE_NEW FunctionInvocation(
 					mAutoAdjustPollPosition ? SGX_FUNC_ATLAS_SAMPLE_AUTO_ADJUST : SGX_FUNC_ATLAS_SAMPLE_NORMAL, groupOrder, internalCounter++);
 				curFuncInvocation->pushOperand(sampler, Operand::OPS_IN);
-				curFuncInvocation->pushOperand(texcoord, Operand::OPS_IN, Operand::OPM_X | Operand::OPM_Y);
+				curFuncInvocation->pushOperand(texcoord, Operand::OPS_IN, Operand::OPM_XY);
 				curFuncInvocation->pushOperand(psAtlasTextureCoord, Operand::OPS_IN);
 				curFuncInvocation->pushOperand(mPSInpTextureDatas[j], Operand::OPS_IN);
 				curFuncInvocation->pushOperand(mPSTextureSizes[j], Operand::OPS_IN);
@@ -356,11 +356,11 @@ TextureAtlasSamplerFactory::TextureAtlasSamplerFactory()
 
 TextureAtlasSamplerFactory* TextureAtlasSamplerFactory::getSingletonPtr(void)
 {
-	return ms_Singleton;
+	return msSingleton;
 }
 TextureAtlasSamplerFactory& TextureAtlasSamplerFactory::getSingleton(void)
 {  
-	assert( ms_Singleton );  return ( *ms_Singleton );  
+	assert( msSingleton );  return ( *msSingleton );  
 }
 
 

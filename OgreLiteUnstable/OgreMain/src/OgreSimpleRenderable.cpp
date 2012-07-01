@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -34,41 +34,48 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-    uint SimpleRenderable::ms_uGenNameCount = 0;
+    uint SimpleRenderable::msGenNameCount = 0;
 
     SimpleRenderable::SimpleRenderable()
+ 	: MovableObject()
+ 	, mWorldTransform(Matrix4::IDENTITY)
+ 	, mMatName("BaseWhite")
+ 	, mMaterial(MaterialManager::getSingleton().getByName("BaseWhite"))
+ 	, mParentSceneManager(NULL)
+ 	, mCamera(NULL)
+
     {
-        m_matWorldTransform = Matrix4::IDENTITY;
-
-        m_strMatName = "BaseWhite"; 
-        m_pMaterial = MaterialManager::getSingleton().getByName("BaseWhite");
-
-        m_pParentSceneManager = NULL;
-
-        mParentNode = NULL;
-        m_pCamera = NULL;
-
         // Generate name
 		StringUtil::StrStreamType name;
-		name << "SimpleRenderable" << ms_uGenNameCount++;
+		name << "SimpleRenderable" << msGenNameCount++;
 		mName = name.str();
     }
 
+ 	SimpleRenderable::SimpleRenderable(const String& name)
+ 	: MovableObject(name)
+ 	, mWorldTransform(Matrix4::IDENTITY)
+ 	, mMatName("BaseWhite")
+ 	, mMaterial(MaterialManager::getSingleton().getByName("BaseWhite"))
+ 	, mParentSceneManager(NULL)
+ 	, mCamera(NULL)
+ 	{
+ 	}
+
     void SimpleRenderable::setMaterial( const String& matName )
     {
-        m_strMatName = matName;
-        m_pMaterial = MaterialManager::getSingleton().getByName(m_strMatName);
-		if (m_pMaterial.isNull())
-			OGRE_EXCEPT( Exception::ERR_ITEM_NOT_FOUND, "Could not find material " + m_strMatName,
+        mMatName = matName;
+        mMaterial = MaterialManager::getSingleton().getByName(mMatName);
+		if (mMaterial.isNull())
+			OGRE_EXCEPT( Exception::ERR_ITEM_NOT_FOUND, "Could not find material " + mMatName,
 				"SimpleRenderable::setMaterial" );
     
         // Won't load twice anyway
-        m_pMaterial->load();
+        mMaterial->load();
     }
 
     const MaterialPtr& SimpleRenderable::getMaterial(void) const
     {
-        return m_pMaterial;
+        return mMaterial;
     }
 
     void SimpleRenderable::getRenderOperation(RenderOperation& op)
@@ -83,19 +90,19 @@ namespace Ogre {
 
     void SimpleRenderable::setWorldTransform( const Matrix4& xform )
     {
-        m_matWorldTransform = xform;
+        mWorldTransform = xform;
     }
 
     void SimpleRenderable::getWorldTransforms( Matrix4* xform ) const
     {
-        *xform = m_matWorldTransform * mParentNode->_getFullTransform();
+        *xform = mWorldTransform * mParentNode->_getFullTransform();
     }
 
     void SimpleRenderable::_notifyCurrentCamera(Camera* cam)
     {
 		MovableObject::_notifyCurrentCamera(cam);
 
-        m_pCamera = cam;
+        mCamera = cam;
     }
 
     void SimpleRenderable::setBoundingBox( const AxisAlignedBox& box )

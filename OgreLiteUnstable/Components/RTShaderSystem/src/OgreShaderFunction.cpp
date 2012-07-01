@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -34,9 +34,9 @@ namespace RTShader {
 //-----------------------------------------------------------------------------
 Function::Function(const String& name, const String& desc, const FunctionType functionType)
 {
-	m_name			= name;
-	m_description	= desc;
-	m_functionType	= functionType;
+	mName			= name;
+	mDescription	= desc;
+	mFunctionType	= functionType;
 }
 
 //-----------------------------------------------------------------------------
@@ -504,7 +504,7 @@ int Function::sAtomInstanceCompare(const void* p0, const void* p1)
 //-----------------------------------------------------------------------------
 Ogre::RTShader::Function::FunctionType Function::getFunctionType() const
 {
-	return m_functionType;
+	return mFunctionType;
 }
 
 }

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -289,7 +289,7 @@ namespace Ogre
 	/// Construct object to consider a specified plane of interest
 	PlaneOptimalShadowCameraSetup::PlaneOptimalShadowCameraSetup(MovablePlane* plane)
 	{
-		m_plane = plane;
+		mPlane = plane;
 	}
 
 	/// Destructor
@@ -301,7 +301,7 @@ namespace Ogre
 	{
 		// get the plane transformed by the parent node(s)
 		// Also, make sure the plane is normalized
-		Plane worldPlane = m_plane->_getDerivedPlane();
+		Plane worldPlane = mPlane->_getDerivedPlane();
 		worldPlane.normalise();
 
 		// get camera's projection matrix

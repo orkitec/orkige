@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.s
+THE SOFTWARE.
 -----------------------------------------------------------------------------
 */
 
@@ -196,6 +196,9 @@ namespace Ogre {
 	RenderWindow* GLRenderSystem::_initialise(bool autoCreateWindow, const String& windowTitle)
 	{
 		mGLSupport->start();
+
+        // Create the texture manager        
+		mTextureManager = new GLTextureManager(*mGLSupport); 
 
 		RenderWindow* autoWindow = mGLSupport->createWindow(autoCreateWindow, this, windowTitle);
 
@@ -486,7 +489,7 @@ namespace Ogre {
 			rsc->setCapability(RSC_CAN_GET_COMPILED_SHADER_BUFFER);
 		}
 
-		if (GLEW_VERSION_3_3)
+		if (GLEW_VERSION_3_3 || GLEW_ARB_instanced_arrays)
 		{
 			// states 3.3 here: http://www.opengl.org/sdk/docs/man3/xhtml/glVertexAttribDivisor.xml
 			rsc->setCapability(RSC_VERTEX_BUFFER_INSTANCE_DATA);
@@ -921,9 +924,6 @@ namespace Ogre {
 			caps->log(defaultLog);
 		}
 
-		/// Create the texture manager        
-		mTextureManager = new GLTextureManager(*mGLSupport); 
-
 		mGLInitialised = true;
 	}
 
@@ -1139,7 +1139,7 @@ namespace Ogre {
 																fbo->getHeight(), fbo->getFSAA() );
 
 			GLRenderBuffer *stencilBuffer = depthBuffer;
-			if( depthFormat != GL_DEPTH24_STENCIL8_EXT && stencilBuffer != GL_NONE )
+			if( depthFormat != GL_DEPTH24_STENCIL8_EXT && stencilBuffer )
 			{
 				stencilBuffer = new GLRenderBuffer( stencilFormat, fbo->getWidth(),
 													fbo->getHeight(), fbo->getFSAA() );
@@ -1590,13 +1590,15 @@ namespace Ogre {
 			{
 				if (stage < mFixedFunctionTextureUnits)
 				{
-					glDisable( lastTextureType );
+                    if(lastTextureType != GL_TEXTURE_2D_ARRAY_EXT)
+                        glDisable( lastTextureType );
 				}
 			}
 
 			if (stage < mFixedFunctionTextureUnits)
 			{
-				glEnable( mTextureTypes[stage] );
+                if(mTextureTypes[stage] != GL_TEXTURE_2D_ARRAY_EXT)
+                    glEnable( mTextureTypes[stage] );
 			}
 
 			if(!tex.isNull())
@@ -1610,7 +1612,8 @@ namespace Ogre {
 			{
 				if (lastTextureType != 0)
 				{
-					glDisable( mTextureTypes[stage] );
+                    if(mTextureTypes[stage] != GL_TEXTURE_2D_ARRAY_EXT)
+                        glDisable( mTextureTypes[stage] );
 				}
 				glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 			}
@@ -2887,9 +2890,9 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 
         HardwareVertexBufferSharedPtr globalInstanceVertexBuffer = getGlobalInstanceVertexBuffer();
         VertexDeclaration* globalVertexDeclaration = getGlobalInstanceVertexBufferVertexDeclaration();
-        bool hasInstanceData = op.useGlobalInstancingVertexBufferIsAvailable &&
-                    !globalInstanceVertexBuffer.isNull() && globalVertexDeclaration != NULL 
-                || op.vertexData->vertexBufferBinding->getHasInstanceData();
+        bool hasInstanceData = (op.useGlobalInstancingVertexBufferIsAvailable &&
+                                !globalInstanceVertexBuffer.isNull() && globalVertexDeclaration != NULL) ||
+                                op.vertexData->vertexBufferBinding->getHasInstanceData();
 
 		size_t numberOfInstances = op.numberOfInstances;
 
@@ -2999,7 +3002,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 				}
 				if(hasInstanceData)
 				{
-					glDrawElementsInstancedEXT(primType, op.indexData->indexCount, indexType, pBufferData, numberOfInstances);
+					glDrawElementsInstancedARB(primType, op.indexData->indexCount, indexType, pBufferData, numberOfInstances);
 				}
 				else
 				{
@@ -3022,7 +3025,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 
 				if(hasInstanceData)
 				{
-					glDrawArraysInstancedEXT(primType, 0, op.vertexData->vertexCount, numberOfInstances);
+					glDrawArraysInstancedARB(primType, 0, op.vertexData->vertexCount, numberOfInstances);
 				}
 				else
 				{
@@ -3037,7 +3040,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
         {
 			for (int i = 0; i < mFixedFunctionTextureUnits; i++)
 			{
-            glClientActiveTextureARB(GL_TEXTURE0 + i);
+                glClientActiveTextureARB(GL_TEXTURE0 + i);
 				glDisableClientState( GL_TEXTURE_COORD_ARRAY );
 			}
 			glClientActiveTextureARB(GL_TEXTURE0);
@@ -3056,14 +3059,12 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 		for (vector<GLuint>::type::iterator ai = mRenderAttribsBound.begin(); ai != mRenderAttribsBound.end(); ++ai)
  		{
  			glDisableVertexAttribArrayARB(*ai); 
- 
-  		}
+   		}
 		
 		// unbind any instance attributes
 		for (vector<GLuint>::type::iterator ai = mRenderInstanceAttribsBound.begin(); ai != mRenderInstanceAttribsBound.end(); ++ai)
 		{
-			glVertexAttribDivisor(*ai, 0); 
-
+			glVertexAttribDivisorARB(*ai, 0); 
 		}
 		
         mRenderAttribsBound.clear();
@@ -3088,6 +3089,13 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 	//---------------------------------------------------------------------
 	void GLRenderSystem::bindGpuProgram(GpuProgram* prg)
 	{
+		if (!prg)
+		{
+			OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, 
+				"Null program bound.",
+				"GLRenderSystem::bindGpuProgram");
+		}
+
 		GLGpuProgram* glprg = static_cast<GLGpuProgram*>(prg);
 
 		// Unbind previous gpu program first.
@@ -3465,14 +3473,14 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 	{
 		if (GLEW_VERSION_1_2)
 		{
-		// Set nicer lighting model -- d3d9 has this by default
-		glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR);
-		glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, 1);        
+            // Set nicer lighting model -- d3d9 has this by default
+            glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR);
+            glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, 1);        
 		}
 		if (GLEW_VERSION_1_4)
 		{
-		glEnable(GL_COLOR_SUM);
-		glDisable(GL_DITHER);
+            glEnable(GL_COLOR_SUM);
+            glDisable(GL_DITHER);
 		}
 
 		// Check for FSAA
@@ -3661,14 +3669,16 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
 	{
 		OGRE_LOCK_MUTEX(mThreadInitMutex)
 		// free context, we'll need this to share lists
-		mCurrentContext->endCurrent();
+        if(mCurrentContext)
+            mCurrentContext->endCurrent();
 	}
 	//---------------------------------------------------------------------
 	void GLRenderSystem::postExtraThreadsStarted()
 	{
 		OGRE_LOCK_MUTEX(mThreadInitMutex)
 		// reacquire context
-		mCurrentContext->setCurrent();
+        if(mCurrentContext)
+            mCurrentContext->setCurrent();
 	}
 	//---------------------------------------------------------------------
 	bool GLRenderSystem::activateGLTextureUnit(size_t unit)
@@ -3727,7 +3737,6 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
             pBufferData = static_cast<char*>(pBufferData) + vertexStart * vertexBuffer->getVertexSize();
         }
 
-        unsigned int i = 0;
         VertexElementSemantic sem = elem.getSemantic();
         bool multitexturing = (getCapabilities()->getNumTextureUnits() > 1);
 
@@ -3739,7 +3748,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
             if (hwGlBuffer->getIsInstanceData())
             {
                 GLint attrib = mCurrentVertexProgram->getAttributeIndex(sem, elem.getIndex());
-                glVertexAttribDivisor(attrib, hwGlBuffer->getInstanceDataStepRate() );
+                glVertexAttribDivisorARB(attrib, hwGlBuffer->getInstanceDataStepRate() );
                 instanceAttribsBound.push_back(attrib);
             }
         }
@@ -3832,7 +3841,7 @@ GL_RGB_SCALE : GL_ALPHA_SCALE, 1);
                 else
                 {
                     // fixed function matching to units based on tex_coord_set
-                    for (i = 0; i < mDisabledTexUnitsFrom; i++)
+                    for (unsigned int i = 0; i < mDisabledTexUnitsFrom; i++)
                     {
                         // Only set this texture unit's texcoord pointer if it
                         // is supposed to be using this element's index

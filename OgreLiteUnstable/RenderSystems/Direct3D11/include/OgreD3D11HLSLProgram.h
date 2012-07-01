@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -112,7 +112,7 @@ namespace Ogre {
 		bool mEnableBackwardsCompatibility;
 
 		bool mErrorsInCompile;
-		MicroCode mpMicroCode;
+		MicroCode mMicroCode;
 		ID3D11Buffer* mConstantBuffer;
 		
 		D3D11Device & mDevice;
@@ -123,11 +123,11 @@ namespace Ogre {
 
 		D3D11VertexDeclaration mInputVertexDeclaration;
 
-		ID3D11ShaderReflection* mpIShaderReflection;
+		ID3D11ShaderReflection* mIShaderReflection;
 
-		ID3D11VertexShader* mpVertexShader;
-		ID3D11PixelShader* mpPixelShader;
-		ID3D11GeometryShader* mpGeometryShader;
+		ID3D11VertexShader* mVertexShader;
+		ID3D11PixelShader* mPixelShader;
+		ID3D11GeometryShader* mGeometryShader;
 
 		struct ShaderVarWithPosInBuf
 		{

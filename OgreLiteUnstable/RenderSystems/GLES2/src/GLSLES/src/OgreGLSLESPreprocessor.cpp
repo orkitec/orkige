@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -106,10 +106,12 @@ bool CPreprocessor::Token::GetValue (long &oValue) const
 
     long base = 10;
     if (String [i] == '0')
+    {
         if (Length > i + 1 && String [i + 1] == 'x')
             base = 16, i += 2;
         else
             base = 8;
+    }
 
     for (; i < Length; i++)
     {
@@ -211,8 +213,8 @@ CPreprocessor::Token CPreprocessor::Macro::Expand (
     Expanding = false;
 
     // Remove the extra macros we have defined
-    for (int i = NumArgs - 1; i >= 0; i--)
-        cpp.Undef (Args [i].String, Args [i].Length);
+    for (int j = NumArgs - 1; j >= 0; j--)
+        cpp.Undef (Args [j].String, Args [j].Length);
 
     cpp.MacroList = NULL;
 
@@ -486,6 +488,7 @@ CPreprocessor::Token CPreprocessor::GetExpression (
 
     // Handle unary operators here
     if (oResult.Type == Token::TK_PUNCTUATION && oResult.Length == 1)
+    {
         if (strchr ("+-!~", oResult.String [0]))
         {
             char uop = oResult.String [0];
@@ -521,6 +524,7 @@ CPreprocessor::Token CPreprocessor::GetExpression (
                     op.String [0] == ')');
             op = GetToken (true);
         }
+    }
 
     while (op.Type == Token::TK_WHITESPACE ||
            op.Type == Token::TK_NEWLINE ||
@@ -739,6 +743,7 @@ CPreprocessor::Token CPreprocessor::GetArgument (Token &oArg, bool iExpand)
              oArg.Type == Token::TK_LINECONT);
 
     if (!iExpand)
+    {
         if (oArg.Type == Token::TK_EOS)
             return oArg;
         else if (oArg.Type == Token::TK_PUNCTUATION &&
@@ -754,6 +759,7 @@ CPreprocessor::Token CPreprocessor::GetArgument (Token &oArg, bool iExpand)
             Error (Line, "Unexpected token", &oArg);
             return Token (Token::TK_ERROR);
         }
+    }
 
     uint len = oArg.Length;
     while (true)
@@ -1042,7 +1048,7 @@ CPreprocessor::Token CPreprocessor::HandleDirective (Token &iToken, int iLine)
 {
     // Analyze preprocessor directive
     const char *directive = iToken.String + 1;
-    int dirlen = iToken.Length - 1;
+    size_t dirlen = iToken.Length - 1;
     while (dirlen && isspace (*directive))
         dirlen--, directive++;
 
@@ -1097,12 +1103,14 @@ CPreprocessor::Token CPreprocessor::HandleDirective (Token &iToken, int iLine)
     }
 Done:
 
-#define IS_DIRECTIVE(s) ((dirlen == sizeof (s) - 1) && (strncmp (directive, s, sizeof (s) - 1) == 0))
+#define IS_DIRECTIVE(s) \
+    (dirlen == strlen(s) && (strncmp (directive, s, strlen(s)) == 0))
 
+    bool outputEnabled = ((EnableOutput & (EnableOutput + 1)) == 0);
     bool rc;
-    if (IS_DIRECTIVE ("define"))
+    if (IS_DIRECTIVE ("define") && outputEnabled)
         rc = HandleDefine (t, iLine);
-    else if (IS_DIRECTIVE ("undef"))
+    else if (IS_DIRECTIVE ("undef") && outputEnabled)
         rc = HandleUnDef (t, iLine);
     else if (IS_DIRECTIVE ("ifdef"))
         rc = HandleIfDef (t, iLine);

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -58,7 +58,7 @@ namespace Ogre {
 	class D3D11GpuVertexProgram : public D3D11GpuProgram
 	{
 	protected:
-		ID3D11VertexShader * mpVertexShader;
+		ID3D11VertexShader * mVertexShader;
 	public:
 		D3D11GpuVertexProgram(ResourceManager* creator, const String& name, ResourceHandle handle,
 			const String& group, bool isManual, ManualResourceLoader* loader, D3D11Device & device);
@@ -75,7 +75,7 @@ namespace Ogre {
 	class D3D11GpuFragmentProgram : public D3D11GpuProgram
 	{
 	protected:
-		ID3D11PixelShader * mpPixelShader;
+		ID3D11PixelShader * mPixelShader;
 	public:
 		D3D11GpuFragmentProgram(ResourceManager* creator, const String& name, ResourceHandle handle,
 			const String& group, bool isManual, ManualResourceLoader* loader, D3D11Device & device);

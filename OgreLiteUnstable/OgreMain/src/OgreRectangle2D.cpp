@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -37,7 +37,19 @@ namespace Ogre {
 #define NORMAL_BINDING 1
 #define TEXCOORD_BINDING 2
 
-	Rectangle2D::Rectangle2D(bool includeTextureCoords, Ogre::HardwareBuffer::Usage vBufUsage) 
+	Rectangle2D::Rectangle2D(bool includeTextureCoords, Ogre::HardwareBuffer::Usage vBufUsage)
+	: SimpleRenderable()
+	{
+		_initRectangle2D(includeTextureCoords, vBufUsage);
+	}
+
+	Rectangle2D::Rectangle2D(const String& name, bool includeTextureCoords, Ogre::HardwareBuffer::Usage vBufUsage)
+	: SimpleRenderable(name)
+	{
+		_initRectangle2D(includeTextureCoords, vBufUsage);
+	}
+
+	void Rectangle2D::_initRectangle2D(bool includeTextureCoords, Ogre::HardwareBuffer::Usage vBufUsage) 
     {
         // use identity projection and view matrices
         mUseIdentityProjection = true;

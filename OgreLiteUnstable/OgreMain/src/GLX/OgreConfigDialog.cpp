@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -70,7 +70,7 @@ $ bintoheader.py GLX_backdrop GLX_backdrop.png > GLX_backdrop.h
 */
 #include "GLX_backdrop.h"
 
-};
+}
 
 namespace Ogre {
 
@@ -257,7 +257,7 @@ bool GLXConfigurator::CreateWindow() {
 	/* Create renderer selection */
 	int cury = ystart + 0*rowh;
 
-	Widget lb1 = XtVaCreateManagedWidget("topLabel", labelWidgetClass, box, XtNlabel, "Select Renderer", XtNborderWidth, 0,
+    XtVaCreateManagedWidget("topLabel", labelWidgetClass, box, XtNlabel, "Select Renderer", XtNborderWidth, 0,
 		XtNwidth, col1w, 	// Fixed width
 		XtNheight, 18,
 		XtNleft, XawChainLeft,
@@ -268,6 +268,7 @@ bool GLXConfigurator::CreateWindow() {
 		XtNvertDistance, cury,
 		XtNjustify, XtJustifyLeft,
 		NULL);
+
 	const char *curRenderName = " Select One "; // Name of current renderer, or hint to select one
 	if(mRenderer)
 		curRenderName = mRenderer->getName().c_str();
@@ -511,5 +512,5 @@ bool ConfigDialog::display()
 
 	return true;
 }
-};
+}
 

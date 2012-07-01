@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38,14 +38,14 @@ THE SOFTWARE.
 
 namespace Ogre {
 
-template<> CompositorManager* Singleton<CompositorManager>::ms_Singleton = 0;
+template<> CompositorManager* Singleton<CompositorManager>::msSingleton = 0;
 CompositorManager* CompositorManager::getSingletonPtr(void)
 {
-	return ms_Singleton;
+	return msSingleton;
 }
 CompositorManager& CompositorManager::getSingleton(void)
 {  
-	assert( ms_Singleton );  return ( *ms_Singleton );  
+	assert( msSingleton );  return ( *msSingleton );  
 }//-----------------------------------------------------------------------
 CompositorManager::CompositorManager():
 	mRectangle(0)
@@ -164,7 +164,6 @@ CompositorInstance *CompositorManager::addCompositor(Viewport *vp, const String 
 void CompositorManager::removeCompositor(Viewport *vp, const String &compositor)
 {
 	CompositorChain *chain = getCompositorChain(vp);
-	CompositorChain::InstanceIterator it = chain->getCompositors();
 	for(size_t pos=0; pos < chain->getNumCompositors(); ++pos)
 	{
 		CompositorInstance *instance = chain->getCompositor(pos);
@@ -179,7 +178,6 @@ void CompositorManager::removeCompositor(Viewport *vp, const String &compositor)
 void CompositorManager::setCompositorEnabled(Viewport *vp, const String &compositor, bool value)
 {
 	CompositorChain *chain = getCompositorChain(vp);
-	CompositorChain::InstanceIterator it = chain->getCompositors();
 	for(size_t pos=0; pos < chain->getNumCompositors(); ++pos)
 	{
 		CompositorInstance *instance = chain->getCompositor(pos);

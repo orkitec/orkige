@@ -38,7 +38,7 @@ endif ()
 # to find the PCZSceneManager library
 if (UNIX)
   set_property(TARGET Plugin_OctreeZone APPEND PROPERTY
-    INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib/OGRE
+    INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/${OGRE_LIB_DIRECTORY}/OGRE
   )
 endif ()
 
@@ -51,7 +51,7 @@ if (APPLE AND NOT OGRE_BUILD_PLATFORM_APPLE_IOS)
 
 	# Copy headers into the main Ogre framework
 	add_custom_command(TARGET Plugin_OctreeZone POST_BUILD
-	  COMMAND /Developer/Library/PrivateFrameworks/DevToolsCore.framework/Resources/pbxcp ARGS -exclude .DS_Store -exclude .hg -exclude 'CMakeLists.txt' -resolve-src-symlinks ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
+	  COMMAND ditto ${CMAKE_CURRENT_SOURCE_DIR}/include/*.h ${OGRE_BINARY_DIR}/lib/$(CONFIGURATION)/Ogre.framework/Headers/
 	)
 endif()
 

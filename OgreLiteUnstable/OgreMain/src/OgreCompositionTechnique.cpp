@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -221,7 +221,25 @@ bool CompositionTechnique::isSupported(bool acceptTextureDegradation)
 				if (!texMgr.isEquivalentFormatSupported(TEX_TYPE_2D, *pfi, TU_RENDERTARGET))
 				{
 					return false;
-				}	
+				}
+			}
+		}
+
+		//Check all render targets have same number of bits
+		if( !Root::getSingleton().getRenderSystem()->getCapabilities()->
+			hasCapability( RSC_MRT_DIFFERENT_BIT_DEPTHS ) && !td->formatList.empty() )
+		{
+			PixelFormat nativeFormat = texMgr.getNativeFormat( TEX_TYPE_2D, td->formatList.front(),
+																TU_RENDERTARGET );
+			size_t nativeBits = PixelUtil::getNumElemBits( nativeFormat );
+			for( PixelFormatList::iterator pfi = td->formatList.begin()+1;
+					pfi != td->formatList.end(); ++pfi )
+			{
+				PixelFormat nativeTmp = texMgr.getNativeFormat( TEX_TYPE_2D, *pfi, TU_RENDERTARGET );
+				if( PixelUtil::getNumElemBits( nativeTmp ) != nativeBits )
+				{
+					return false;
+				}
 			}
 		}
 	}

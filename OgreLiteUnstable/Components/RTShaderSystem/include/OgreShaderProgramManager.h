@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -162,7 +162,7 @@ protected:
 	@param programWriter The program writer instance.
 	@param language The target shader language.
 	@param profiles The profiles string for program compilation.
-	@param profiles The profiles string for program compilation as string list.
+	@param profilesList The profiles string for program compilation as string list.
 	@param cachePath The output path to write the program into.
 	*/
 	GpuProgramPtr	createGpuProgram		(Program* shaderProgram, 

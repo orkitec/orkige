@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -909,7 +909,7 @@ namespace Ogre
 			PCZSceneNodeList::iterator iter = mVisitorNodeList.begin();
 			while ( iter != mVisitorNodeList.end() )
 			{
-				PCZSceneNode * pczsn = *it;
+				PCZSceneNode * pczsn = *iter;
 				if ( pczsn != exclude )
 				{
 					// make sure node is not already in the list (might have been added in another

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -121,9 +121,9 @@ namespace Ogre
 		case TextureVTF:
 			batch = OGRE_NEW InstanceBatchVTF( this, mMeshReference, mat, suggestedSize,
 													0, mName + "/TempBatch" );
-			static_cast<InstanceBatchVTF*>(batch)->setBoneDualQuaternions(mInstancingFlags & IM_USEBONEDUALQUATERNIONS);
-			static_cast<InstanceBatchVTF*>(batch)->setUseOneWeight(mInstancingFlags & IM_USEONEWEIGHT);
-			static_cast<InstanceBatchVTF*>(batch)->setForceOneWeight(mInstancingFlags & IM_FORCEONEWEIGHT);
+			static_cast<InstanceBatchVTF*>(batch)->setBoneDualQuaternions((mInstancingFlags & IM_USEBONEDUALQUATERNIONS) != 0);
+			static_cast<InstanceBatchVTF*>(batch)->setUseOneWeight((mInstancingFlags & IM_USEONEWEIGHT) != 0);
+			static_cast<InstanceBatchVTF*>(batch)->setForceOneWeight((mInstancingFlags & IM_FORCEONEWEIGHT) != 0);
 			break;
 		case HWInstancingBasic:
 			batch = OGRE_NEW InstanceBatchHW( this, mMeshReference, mat, suggestedSize,
@@ -132,10 +132,10 @@ namespace Ogre
 		case HWInstancingVTF:
 			batch = OGRE_NEW InstanceBatchHW_VTF( this, mMeshReference, mat, suggestedSize,
 													0, mName + "/TempBatch" );
-			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneMatrixLookup(mInstancingFlags & IM_VTFBONEMATRIXLOOKUP, mMaxLookupTableInstances);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneDualQuaternions(mInstancingFlags & IM_USEBONEDUALQUATERNIONS);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setUseOneWeight(mInstancingFlags & IM_USEONEWEIGHT);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setForceOneWeight(mInstancingFlags & IM_FORCEONEWEIGHT);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneMatrixLookup((mInstancingFlags & IM_VTFBONEMATRIXLOOKUP) != 0, mMaxLookupTableInstances);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneDualQuaternions((mInstancingFlags & IM_USEBONEDUALQUATERNIONS) != 0);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setUseOneWeight((mInstancingFlags & IM_USEONEWEIGHT) != 0);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setForceOneWeight((mInstancingFlags & IM_FORCEONEWEIGHT) != 0);
 			break;
 		default:
 			OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
@@ -208,9 +208,9 @@ namespace Ogre
 			batch = OGRE_NEW InstanceBatchVTF( this, mMeshReference, mat, mInstancesPerBatch,
 													&idxMap, mName + "/InstanceBatch_" +
 													StringConverter::toString(mIdCount++) );
-			static_cast<InstanceBatchVTF*>(batch)->setBoneDualQuaternions(mInstancingFlags & IM_USEBONEDUALQUATERNIONS);
-			static_cast<InstanceBatchVTF*>(batch)->setUseOneWeight(mInstancingFlags & IM_USEONEWEIGHT);
-			static_cast<InstanceBatchVTF*>(batch)->setForceOneWeight(mInstancingFlags & IM_FORCEONEWEIGHT);
+			static_cast<InstanceBatchVTF*>(batch)->setBoneDualQuaternions((mInstancingFlags & IM_USEBONEDUALQUATERNIONS) != 0);
+			static_cast<InstanceBatchVTF*>(batch)->setUseOneWeight((mInstancingFlags & IM_USEONEWEIGHT) != 0);
+			static_cast<InstanceBatchVTF*>(batch)->setForceOneWeight((mInstancingFlags & IM_FORCEONEWEIGHT) != 0);
 			break;
 		case HWInstancingBasic:
 			batch = OGRE_NEW InstanceBatchHW( this, mMeshReference, mat, mInstancesPerBatch,
@@ -221,10 +221,10 @@ namespace Ogre
 			batch = OGRE_NEW InstanceBatchHW_VTF( this, mMeshReference, mat, mInstancesPerBatch,
 													&idxMap, mName + "/InstanceBatch_" +
 													StringConverter::toString(mIdCount++) );
-			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneMatrixLookup(mInstancingFlags & IM_VTFBONEMATRIXLOOKUP, mMaxLookupTableInstances);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneDualQuaternions(mInstancingFlags & IM_USEBONEDUALQUATERNIONS);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setUseOneWeight(mInstancingFlags & IM_USEONEWEIGHT);
-			static_cast<InstanceBatchHW_VTF*>(batch)->setForceOneWeight(mInstancingFlags & IM_FORCEONEWEIGHT);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneMatrixLookup((mInstancingFlags & IM_VTFBONEMATRIXLOOKUP) != 0, mMaxLookupTableInstances);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setBoneDualQuaternions((mInstancingFlags & IM_USEBONEDUALQUATERNIONS) != 0);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setUseOneWeight((mInstancingFlags & IM_USEONEWEIGHT) != 0);
+			static_cast<InstanceBatchHW_VTF*>(batch)->setForceOneWeight((mInstancingFlags & IM_FORCEONEWEIGHT) != 0);
 			break;
 		default:
 			OGRE_EXCEPT(Exception::ERR_NOT_IMPLEMENTED,
@@ -238,7 +238,7 @@ namespace Ogre
 
 		if( !firstTime )
 		{
-			//TODO: Check different materials have the same m_instancesPerBatch upper limit
+			//TODO: Check different materials have the same mInstancesPerBatch upper limit
 			//otherwise we can't share
 			batch->buildFrom( mMeshReference->getSubMesh(mSubMeshIdx), mSharedRenderOperation );
 		}
@@ -272,7 +272,7 @@ namespace Ogre
 	//-----------------------------------------------------------------------
 	void InstanceManager::cleanupEmptyBatches(void)
 	{
-		//Do this now to avoid any dangling pointer inside m_dirtyBatches
+		//Do this now to avoid any dangling pointer inside mDirtyBatches
 		_updateDirtyBatches();
 
 		InstanceBatchMap::iterator itor = mInstanceBatches.begin();
@@ -304,8 +304,8 @@ namespace Ogre
 			++itor;
 		}
 
-		//By this point it may happen that all m_instanceBatches' objects are also empty
-		//however if we call m_instanceBatches.clear(), next time we'll create an InstancedObject
+		//By this point it may happen that all mInstanceBatches' objects are also empty
+		//however if we call mInstanceBatches.clear(), next time we'll create an InstancedObject
 		//we'll end up calling buildFirstTime() instead of buildNewBatch(), which is not the idea
 		//(takes more time and will leak the shared render operation)
 	}
@@ -353,7 +353,7 @@ namespace Ogre
 	//-----------------------------------------------------------------------
 	void InstanceManager::defragmentBatches( bool optimizeCulling )
 	{
-		//Do this now to avoid any dangling pointer inside m_dirtyBatches
+		//Do this now to avoid any dangling pointer inside mDirtyBatches
 		_updateDirtyBatches();
 
 		//Do this for every material

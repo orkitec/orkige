@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -75,8 +75,6 @@ namespace Ogre {
                                            size_t length,
                                            LockOptions options)
     {
-        GLenum access = 0;
-
         if (mIsLocked)
         {
             OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR,
@@ -119,6 +117,7 @@ namespace Ogre {
 #if GL_OES_mapbuffer
         if (!retPtr)
 		{
+            GLenum access = 0;
 			// Use glMapBuffer
             dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
 
@@ -193,9 +192,9 @@ namespace Ogre {
     {
         if (mUseShadowBuffer)
         {
-            void* srcData = mpShadowBuffer->lock(offset, length, HBL_READ_ONLY);
+            void* srcData = mShadowBuffer->lock(offset, length, HBL_READ_ONLY);
             memcpy(pDest, srcData, length);
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
         }
         else
         {
@@ -215,10 +214,10 @@ namespace Ogre {
         // Update the shadow buffer
         if(mUseShadowBuffer)
         {
-            void* destData = mpShadowBuffer->lock(offset, length,
+            void* destData = mShadowBuffer->lock(offset, length,
                                                   discardWholeBuffer ? HBL_DISCARD : HBL_NORMAL);
             memcpy(destData, pSource, length);
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
         }
 
         if (offset == 0 && length == mSizeInBytes)
@@ -245,27 +244,29 @@ namespace Ogre {
     {
         if (mUseShadowBuffer && mShadowUpdated && !mSuppressHardwareUpdate)
         {
-            const void *srcData = mpShadowBuffer->lock(mLockStart,
+            const void *srcData = mShadowBuffer->lock(mLockStart,
                                                        mLockSize,
                                                        HBL_READ_ONLY);
 
             dynamic_cast<GLES2RenderSystem*>(Root::getSingleton().getRenderSystem())->_bindGLBuffer(GL_ARRAY_BUFFER, mBufferId);
 
+            // DJR - Always update the entire buffer. Much faster on mobiles.
+            // A better approach would be to double buffer or ring buffer
+
             // Update whole buffer if possible, otherwise normal
-            if (mLockStart == 0 && mLockSize == mSizeInBytes)
-            {
-                glBufferData(GL_ARRAY_BUFFER, mSizeInBytes, srcData,
+//            if (mLockStart == 0 && mLockSize == mSizeInBytes)
+//            {
+                glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)mSizeInBytes, srcData,
                              GLES2HardwareBufferManager::getGLUsage(mUsage));
                 GL_CHECK_ERROR;
-            }
-            else
-            {
-                // FIXME: GPU frequently stalls here - DJR
-                glBufferSubData(GL_ARRAY_BUFFER, mLockStart, mLockSize, srcData);
-                GL_CHECK_ERROR;
-            }
+//            }
+//            else
+//            {
+//                glBufferSubData(GL_ARRAY_BUFFER, mLockStart, mLockSize, srcData);
+//                GL_CHECK_ERROR;
+//            }
 
-            mpShadowBuffer->unlock();
+            mShadowBuffer->unlock();
             mShadowUpdated = false;
         }
     }

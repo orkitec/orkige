@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -209,11 +209,6 @@ SceneManager::~SceneManager()
 	}
 
 	OGRE_DELETE mSkyBoxObj;
-	OGRE_DELETE mSkyPlaneEntity;
-	for (int i=0;i<5;i++)
-	{
-		OGRE_DELETE mSkyDomeEntity[i];
-	}
 
 	OGRE_DELETE mShadowCasterQueryListener;
     OGRE_DELETE mSceneRoot;
@@ -468,9 +463,7 @@ void SceneManager::_populateLightList(const Vector3& position, Real radius,
         else
         {
             // only add in-range lights
-            Real range = lt->getAttenuationRange();
-            Real maxDist = range + radius;
-            if (lt->tempSquareDist <= Math::Sqr(maxDist))
+			if (lt->isInLightRange(Sphere(position,radius)))
             {
                 destList.push_back(lt);
             }
@@ -552,11 +545,22 @@ Entity* SceneManager::createEntity(
 
 }
 //---------------------------------------------------------------------
+Entity* SceneManager::createEntity(const String& entityName, const MeshPtr& pMesh)
+{
+    return createEntity(entityName, pMesh->getName(), pMesh->getGroup());
+}
+//---------------------------------------------------------------------
 Entity* SceneManager::createEntity(const String& meshName)
 {
 	String name = mMovableNameGenerator.generate();
 	// note, we can't allow groupName to be passes, it would be ambiguous (2 string params)
 	return createEntity(name, meshName, ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+}
+//---------------------------------------------------------------------
+Entity* SceneManager::createEntity(const MeshPtr& pMesh)
+{
+    String name = mMovableNameGenerator.generate();
+    return createEntity(name, pMesh);
 }
 //-----------------------------------------------------------------------
 Entity* SceneManager::getEntity(const String& name) const
@@ -1667,6 +1671,7 @@ void SceneManager::_setSkyPlane(
         {
             // destroy old one, do it by name for speed
             destroyEntity(meshName);
+            mSkyPlaneEntity = 0;
         }
         // Create, use the same name for mesh and entity
 		// manually construct as we don't want this to be destroyed on destroyAllMovableObjects
@@ -1677,6 +1682,9 @@ void SceneManager::_setSkyPlane(
         mSkyPlaneEntity = static_cast<Entity*>(factory->createInstance(meshName, this, &params));
         mSkyPlaneEntity->setMaterialName(materialName, groupName);
         mSkyPlaneEntity->setCastShadows(false);
+
+        MovableObjectCollection* objectMap = getMovableObjectCollection(EntityFactory::FACTORY_TYPE_NAME);
+        objectMap->map[meshName] = mSkyPlaneEntity;
 
         // Create node and attach
         if (!mSkyPlaneNode)
@@ -1989,15 +1997,20 @@ void SceneManager::_setSkyDome(
             {
                 // destroy old one, do it by name for speed
                 destroyEntity(entName);
+                mSkyDomeEntity[i] = 0;
             }
 			// construct manually so we don't have problems if destroyAllMovableObjects called
 			MovableObjectFactory* factory = 
 				Root::getSingleton().getMovableObjectFactory(EntityFactory::FACTORY_TYPE_NAME);
+
 			NameValuePairList params;
 			params["mesh"] = planeMesh->getName();
 			mSkyDomeEntity[i] = static_cast<Entity*>(factory->createInstance(entName, this, &params));
             mSkyDomeEntity[i]->setMaterialName(m->getName(), groupName);
             mSkyDomeEntity[i]->setCastShadows(false);
+
+            MovableObjectCollection* objectMap = getMovableObjectCollection(EntityFactory::FACTORY_TYPE_NAME);
+            objectMap->map[entName] = mSkyDomeEntity[i];
 
             // Attach to node
             mSkyDomeNode->attachObject(mSkyDomeEntity[i]);
@@ -3997,13 +4010,14 @@ void SceneManager::addListener(Listener* newListener)
 //---------------------------------------------------------------------
 void SceneManager::removeListener(Listener* delListener)
 {
+    ListenerList listenersCopy = mListeners;
     ListenerList::iterator i, iend;
-    iend = mListeners.end();
-    for (i = mListeners.begin(); i != iend; ++i)
+    iend = listenersCopy.end();
+    for (i = listenersCopy.begin(); i != iend; ++i)
     {
         if (*i == delListener)
         {
-            mListeners.erase(i);
+            listenersCopy.erase(i);
             break;
         }
     }
@@ -4069,10 +4083,11 @@ void SceneManager::fireRenderSingleObject(Renderable* rend, const Pass* pass,
 //---------------------------------------------------------------------
 void SceneManager::fireShadowTexturesUpdated(size_t numberOfShadowTextures)
 {
+    ListenerList listenersCopy = mListeners;
     ListenerList::iterator i, iend;
 
-    iend = mListeners.end();
-    for (i = mListeners.begin(); i != iend; ++i)
+    iend = listenersCopy.end();
+    for (i = listenersCopy.begin(); i != iend; ++i)
     {
         (*i)->shadowTexturesUpdated(numberOfShadowTextures);
     }
@@ -4080,10 +4095,11 @@ void SceneManager::fireShadowTexturesUpdated(size_t numberOfShadowTextures)
 //---------------------------------------------------------------------
 void SceneManager::fireShadowTexturesPreCaster(Light* light, Camera* camera, size_t iteration)
 {
+    ListenerList listenersCopy = mListeners;
     ListenerList::iterator i, iend;
 
-    iend = mListeners.end();
-    for (i = mListeners.begin(); i != iend; ++i)
+    iend = listenersCopy.end();
+    for (i = listenersCopy.begin(); i != iend; ++i)
     {
         (*i)->shadowTextureCasterPreViewProj(light, camera, iteration);
     }
@@ -4091,10 +4107,11 @@ void SceneManager::fireShadowTexturesPreCaster(Light* light, Camera* camera, siz
 //---------------------------------------------------------------------
 void SceneManager::fireShadowTexturesPreReceiver(Light* light, Frustum* f)
 {
+    ListenerList listenersCopy = mListeners;
     ListenerList::iterator i, iend;
 
-    iend = mListeners.end();
-    for (i = mListeners.begin(); i != iend; ++i)
+    iend = listenersCopy.end();
+    for (i = listenersCopy.begin(); i != iend; ++i)
     {
         (*i)->shadowTextureReceiverPreViewProj(light, f);
     }
@@ -4102,10 +4119,11 @@ void SceneManager::fireShadowTexturesPreReceiver(Light* light, Frustum* f)
 //---------------------------------------------------------------------
 void SceneManager::firePreUpdateSceneGraph(Camera* camera)
 {
+    ListenerList listenersCopy = mListeners;
 	ListenerList::iterator i, iend;
 
-	iend = mListeners.end();
-	for (i = mListeners.begin(); i != iend; ++i)
+	iend = listenersCopy.end();
+	for (i = listenersCopy.begin(); i != iend; ++i)
 	{
 		(*i)->preUpdateSceneGraph(this, camera);
 	}
@@ -4113,10 +4131,11 @@ void SceneManager::firePreUpdateSceneGraph(Camera* camera)
 //---------------------------------------------------------------------
 void SceneManager::firePostUpdateSceneGraph(Camera* camera)
 {
+    ListenerList listenersCopy = mListeners;
 	ListenerList::iterator i, iend;
 
-	iend = mListeners.end();
-	for (i = mListeners.begin(); i != iend; ++i)
+	iend = listenersCopy.end();
+	for (i = listenersCopy.begin(); i != iend; ++i)
 	{
 		(*i)->postUpdateSceneGraph(this, camera);
 	}
@@ -4125,10 +4144,11 @@ void SceneManager::firePostUpdateSceneGraph(Camera* camera)
 //---------------------------------------------------------------------
 void SceneManager::firePreFindVisibleObjects(Viewport* v)
 {
+    ListenerList listenersCopy = mListeners;
 	ListenerList::iterator i, iend;
 
-	iend = mListeners.end();
-	for (i = mListeners.begin(); i != iend; ++i)
+	iend = listenersCopy.end();
+	for (i = listenersCopy.begin(); i != iend; ++i)
 	{
 		(*i)->preFindVisibleObjects(this, mIlluminationStage, v);
 	}
@@ -4137,10 +4157,11 @@ void SceneManager::firePreFindVisibleObjects(Viewport* v)
 //---------------------------------------------------------------------
 void SceneManager::firePostFindVisibleObjects(Viewport* v)
 {
+    ListenerList listenersCopy = mListeners;
 	ListenerList::iterator i, iend;
 
-	iend = mListeners.end();
-	for (i = mListeners.begin(); i != iend; ++i)
+	iend = listenersCopy.end();
+	for (i = listenersCopy.begin(); i != iend; ++i)
 	{
 		(*i)->postFindVisibleObjects(this, mIlluminationStage, v);
 	}
@@ -4150,10 +4171,11 @@ void SceneManager::firePostFindVisibleObjects(Viewport* v)
 //---------------------------------------------------------------------
 void SceneManager::fireSceneManagerDestroyed()
 {
+    ListenerList listenersCopy = mListeners;
 	ListenerList::iterator i, iend;
 
-	iend = mListeners.end();
-	for (i = mListeners.begin(); i != iend; ++i)
+	iend = listenersCopy.end();
+	for (i = listenersCopy.begin(); i != iend; ++i)
 	{
 		(*i)->sceneManagerDestroyed(this);
 	}
@@ -4422,8 +4444,9 @@ void SceneManager::findLightsAffectingFrustum(const Camera* camera)
 			// Allow a Listener to override light sorting
 			// Reverse iterate so last takes precedence
 			bool overridden = false;
-			for (ListenerList::reverse_iterator ri = mListeners.rbegin();
-				ri != mListeners.rend(); ++ri)
+			ListenerList listenersCopy = mListeners;
+			for (ListenerList::reverse_iterator ri = listenersCopy.rbegin();
+				ri != listenersCopy.rend(); ++ri)
 			{
 				overridden = (*ri)->sortLightsAffectingFrustum(mLightsAffectingFrustum);
 				if (overridden)
@@ -4455,8 +4478,8 @@ bool SceneManager::ShadowCasterSceneQueryListener::queryResult(
     if (object->getCastShadows() && object->isVisible() && 
 		mSceneMgr->isRenderQueueToBeProcessed(object->getRenderQueueGroup()) &&
 		// objects need an edge list to cast shadows (shadow volumes only)
-		((mSceneMgr->getShadowTechnique() & SHADOWDETAILTYPE_TEXTURE) ||
-		 (mSceneMgr->getShadowTechnique() & SHADOWDETAILTYPE_STENCIL) && object->hasEdgeList()
+		(((mSceneMgr->getShadowTechnique() & SHADOWDETAILTYPE_TEXTURE) ||
+		 (mSceneMgr->getShadowTechnique() & SHADOWDETAILTYPE_STENCIL)) && object->hasEdgeList()
 		)
 	   )
     {
@@ -4952,7 +4975,11 @@ const Pass* SceneManager::deriveShadowCasterPass(const Pass* pass)
         
 		// handle the case where there is no fixed pipeline support
 		retPass->getParent()->getParent()->compile();
-		retPass = retPass->getParent()->getParent()->getBestTechnique()->getPass(0);
+        Technique* btech = retPass->getParent()->getParent()->getBestTechnique();
+        if( btech )
+        {
+		    retPass = btech->getPass(0);
+        }
 
 		return retPass;
 	}
@@ -4968,7 +4995,7 @@ const Pass* SceneManager::deriveShadowReceiverPass(const Pass* pass)
 
     if (isShadowTechniqueTextureBased())
     {
-		Pass* retPass;
+		Pass* retPass = NULL;
 		if (!pass->getParent()->getShadowReceiverMaterial().isNull())
 		{
 			return retPass = pass->getParent()->getShadowReceiverMaterial()->getBestTechnique()->getPass(0); 
@@ -5135,7 +5162,11 @@ const Pass* SceneManager::deriveShadowReceiverPass(const Pass* pass)
 
 		// handle the case where there is no fixed pipeline support
 		retPass->getParent()->getParent()->compile();
-		retPass = retPass->getParent()->getParent()->getBestTechnique()->getPass(0);
+        Technique* btech = retPass->getParent()->getParent()->getBestTechnique();
+        if( btech )
+        {
+		    retPass = btech->getPass(0);
+        }
 
 		return retPass;
 	}
@@ -6505,15 +6536,15 @@ InstanceManager* SceneManager::createInstanceManager( const String &customName, 
 													  size_t numInstancesPerBatch, uint16 flags,
 													  unsigned short subMeshIdx )
 {
-	InstanceManager *retVal = new InstanceManager( customName, this, meshName, groupName, technique,
-													flags, numInstancesPerBatch, subMeshIdx );
-	
 	if (mInstanceManagerMap.find(customName) != mInstanceManagerMap.end())
 	{
 		OGRE_EXCEPT( Exception::ERR_DUPLICATE_ITEM, 
 			"InstancedManager with name '" + customName + "' already exists!", 
 			"SceneManager::createInstanceManager");
 	}
+
+	InstanceManager *retVal = new InstanceManager( customName, this, meshName, groupName, technique,
+													flags, numInstancesPerBatch, subMeshIdx );
 
 	mInstanceManagerMap[customName] = retVal;
 	return retVal;
@@ -6531,6 +6562,12 @@ InstanceManager* SceneManager::getInstanceManager( const String &managerName ) c
 	}
 
 	return itor->second;
+}
+//---------------------------------------------------------------------
+bool SceneManager::hasInstanceManager( const String &managerName ) const
+{
+    InstanceManagerMap::const_iterator itor = mInstanceManagerMap.find(managerName);
+    return itor != mInstanceManagerMap.end();
 }
 //---------------------------------------------------------------------
 void SceneManager::destroyInstanceManager( const String &name )

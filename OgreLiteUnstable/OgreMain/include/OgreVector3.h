@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -407,7 +407,7 @@ namespace Ogre
             @param
                 vec Vector with which to calculate the dot product (together
                 with this one).
-            @returns
+            @return
                 A float representing the dot product value.
         */
         inline Real dotProduct(const Vector3& vec) const
@@ -422,7 +422,7 @@ namespace Ogre
             @param
                 vec Vector with which to calculate the absolute dot product (together
                 with this one).
-            @returns
+            @return
                 A Real representing the absolute dot product value.
         */
         inline Real absDotProduct(const Vector3& vec) const
@@ -437,7 +437,7 @@ namespace Ogre
             @note
                 This function will not crash for zero-sized vectors, but there
                 will be no changes made to their components.
-            @returns The previous length of the vector.
+            @return The previous length of the vector.
         */
         inline Real normalise()
         {
@@ -464,10 +464,10 @@ namespace Ogre
                 vector of a plane, by calculating the cross-product of 2
                 non-equivalent vectors which lie on the plane (e.g. 2 edges
                 of a triangle).
-            @param
-                vec Vector which, together with this one, will be used to
+            @param rkVector
+                Vector which, together with this one, will be used to
                 calculate the cross-product.
-            @returns
+            @return
                 A vector which is the result of the cross-product. This
                 vector will <b>NOT</b> be normalised, to maximise efficiency
                 - call Vector3::normalise on the result if you wish this to
@@ -591,7 +591,7 @@ namespace Ogre
                 derive one on it's own, however if you provide one yourself the
                 function will be faster (this allows you to reuse up vectors if
                 you call this method more than once)
-            @returns
+            @return
                 A random vector which deviates from this vector by angle. This
                 vector will not be normalised, normalise it if you wish
                 afterwards.
@@ -626,7 +626,7 @@ namespace Ogre
 		@remarks
 			Vectors do not have to be unit-length but must represent directions.
 		*/
-		inline Radian angleBetween(const Vector3& dest)
+		inline Radian angleBetween(const Vector3& dest) const
 		{
 			Real lenProduct = length() * dest.length();
 

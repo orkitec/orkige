@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -190,7 +190,7 @@ namespace Ogre {
             
             ++numSplits;
 
-        } while (pos != String::npos);
+        } while (start != String::npos);
 
         return ret;
     }
@@ -302,7 +302,7 @@ namespace Ogre {
 						do {
 							--indexDst;
 						}
-						while ((indexDst > metaPathArea) && (bufferDst[indexDst - 1] != '\\'));
+						while ((indexDst > metaPathArea) && (bufferDst[indexDst - 1] != '/'));
 						indexSrc += 3;
 						continue;
 					}
@@ -320,7 +320,7 @@ namespace Ogre {
 			{
 				char curChar = bufferSrc[indexSrc];
 				if (makeLowerCase) curChar = tolower(curChar);
-				if (curChar == '\\') curChar = '/';
+				if ((curChar == '\\') || (curChar == '/')) curChar = '/';
 				bufferDst[indexDst] = curChar;
 				++indexDst;
 				++indexSrc;

@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -85,13 +85,13 @@ namespace Ogre
 		destroySkeletonInstance();
 	}
 
-	void InstancedEntity::shareTransformWith( InstancedEntity *slave )
+	bool InstancedEntity::shareTransformWith( InstancedEntity *slave )
 	{
 		if( !this->mBatchOwner->_getMeshRef()->hasSkeleton() ||
 			this->mBatchOwner->_getMeshRef()->getSkeleton().isNull() ||
 			!this->mBatchOwner->_supportsSkeletalAnimation() )
 		{
-			return;
+			return false;
 		}
 
 		if( this->mSharedTransformEntity  )
@@ -100,6 +100,7 @@ namespace Ogre
 											"with slave '" + slave->mName + "' but '" + mName +"' is "
 											"already sharing. Hierarchical sharing not allowed.",
 											"InstancedEntity::shareTransformWith" );
+			return false;
 		}
 
 		if( this->mBatchOwner->_getMeshRef()->getSkeleton() !=
@@ -108,6 +109,7 @@ namespace Ogre
 			OGRE_EXCEPT( Exception::ERR_INVALID_STATE, "Sharing transforms requires both instanced"
 											" entities to have the same skeleton",
 											"InstancedEntity::shareTransformWith" );
+			return false;
 		}
 
 		slave->unlinkTransform();
@@ -125,6 +127,8 @@ namespace Ogre
 		this->mSharingPartners.push_back( slave );
 		
 		slave->mBatchOwner->_markTransformSharingDirty();
+
+		return true;
 	}
 	//-----------------------------------------------------------------------
 	void InstancedEntity::stopSharingTransform()
@@ -204,7 +208,7 @@ namespace Ogre
 				{
 					Real const *row = mat[i];
 					for( int j=0; j<4; ++j )
-						*xform++ = *row++;
+						*xform++ = static_cast<float>( *row++ );
 				}
 
 				retVal = 12;
@@ -224,7 +228,7 @@ namespace Ogre
 					{
 						Real const *row = mat[i];
 						for( int j=0; j<4; ++j )
-							*xform++ = *row++;
+							*xform++ = static_cast<float>( *row++ );
 					}
 				}
 
@@ -323,8 +327,6 @@ namespace Ogre
 			mBoneMatrices		= 0;
 			mBoneWorldMatrices	= 0;
 			mSharedTransformEntity = 0;
-			
-
 		}
 	}
 	//-----------------------------------------------------------------------

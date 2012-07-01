@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -66,6 +66,7 @@ void GLSLProgramWriter::initializeStringMaps()
 	mGpuConstTypeMap[GCT_FLOAT4] = "vec4";
 	mGpuConstTypeMap[GCT_SAMPLER1D] = "sampler1D";
 	mGpuConstTypeMap[GCT_SAMPLER2D] = "sampler2D";
+	mGpuConstTypeMap[GCT_SAMPLER2DARRAY] = "sampler2DArray";
 	mGpuConstTypeMap[GCT_SAMPLER3D] = "sampler3D";
 	mGpuConstTypeMap[GCT_SAMPLERCUBE] = "samplerCube";
 	mGpuConstTypeMap[GCT_MATRIX_2X2] = "mat2";

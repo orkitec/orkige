@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -58,9 +58,6 @@ namespace Ogre
 
 		OGRE_D3D11_DRIVER_TYPE mDriverType; // d3d11 driver type
 
-
-
-
 		/// Direct3D
 		//int			mpD3D;
 		/// Direct3D rendering device
@@ -82,7 +79,6 @@ namespace Ogre
 		bool mPerStageConstantSupport;
 
 		/// structure holding texture unit settings for every stage
-
 
 
 		D3D11DriverList* getDirect3DDrivers(void);

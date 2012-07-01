@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,7 @@ THE SOFTWARE.
 #include "OgreGLES2HardwareBufferManager.h"
 #include "OgreGLES2HardwareVertexBuffer.h"
 #include "OgreGLES2HardwareIndexBuffer.h"
+#include "OgreGLES2VertexDeclaration.h"
 
 namespace Ogre {
     //-----------------------------------------------------------------------
@@ -107,6 +108,16 @@ namespace Ogre {
 		return RenderToVertexBufferSharedPtr();
 	}
 
+	VertexDeclaration* GLES2HardwareBufferManagerBase::createVertexDeclarationImpl(void)
+	{
+		return OGRE_NEW GLES2VertexDeclaration();
+	}
+
+    void GLES2HardwareBufferManagerBase::destroyVertexDeclarationImpl(VertexDeclaration* decl)
+	{
+        if(decl)
+            OGRE_DELETE decl;
+	}
 
     GLenum GLES2HardwareBufferManagerBase::getGLUsage(unsigned int usage)
     {
@@ -249,7 +260,7 @@ namespace Ogre {
         assert(false && "Memory deallocation error");
     }
 	//---------------------------------------------------------------------
-	const size_t GLES2HardwareBufferManagerBase::getGLMapBufferThreshold() const
+	size_t GLES2HardwareBufferManagerBase::getGLMapBufferThreshold() const
 	{
 		return mMapBufferThreshold;
 	}

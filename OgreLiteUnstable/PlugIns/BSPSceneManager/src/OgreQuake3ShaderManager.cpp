@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -38,14 +38,14 @@ THE SOFTWARE.
 namespace Ogre {
 
     //-----------------------------------------------------------------------
-    template<> Quake3ShaderManager *Singleton<Quake3ShaderManager>::ms_Singleton = 0;
+    template<> Quake3ShaderManager *Singleton<Quake3ShaderManager>::msSingleton = 0;
     Quake3ShaderManager* Quake3ShaderManager::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     Quake3ShaderManager& Quake3ShaderManager::getSingleton(void)
     {  
-        assert( ms_Singleton );  return ( *ms_Singleton );  
+        assert( msSingleton );  return ( *msSingleton );  
     }
     //-----------------------------------------------------------------------
 

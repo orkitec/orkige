@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -72,10 +72,10 @@ namespace Ogre {
 			mAttributes = OGRE_NEW UserObjectBindings::Attributes;
 
 		// Case map doesn't exists.
-		if (mAttributes->mpUserObjectsMap == NULL)
-			mAttributes->mpUserObjectsMap = new UserObjectsMap;
+		if (mAttributes->mUserObjectsMap == NULL)
+			mAttributes->mUserObjectsMap = new UserObjectsMap;
 
-		(*mAttributes->mpUserObjectsMap)[key] = anything;
+		(*mAttributes->mUserObjectsMap)[key] = anything;
 	}	
 
 	//-----------------------------------------------------------------------
@@ -86,13 +86,13 @@ namespace Ogre {
 			mAttributes = OGRE_NEW UserObjectBindings::Attributes;
 
 		// Case map doesn't exists.
-		if (mAttributes->mpUserObjectsMap == NULL)
+		if (mAttributes->mUserObjectsMap == NULL)
 			return msEmptyAny;
 
-		UserObjectsMapConstIterator it = mAttributes->mpUserObjectsMap->find(key);
+		UserObjectsMapConstIterator it = mAttributes->mUserObjectsMap->find(key);
 
 		// Case user data found.
-		if (it != mAttributes->mpUserObjectsMap->end())
+		if (it != mAttributes->mUserObjectsMap->end())
 		{
 			return it->second;
 		}
@@ -104,14 +104,14 @@ namespace Ogre {
 	void UserObjectBindings::eraseUserAny(const String& key)
 	{
 		// Case attributes and map allocated.
-		if (mAttributes != NULL && mAttributes->mpUserObjectsMap != NULL)
+		if (mAttributes != NULL && mAttributes->mUserObjectsMap != NULL)
 		{
-			UserObjectsMapIterator it = mAttributes->mpUserObjectsMap->find(key);
+			UserObjectsMapIterator it = mAttributes->mUserObjectsMap->find(key);
 
 			// Case object found -> erase it from the map.
-			if (it != mAttributes->mpUserObjectsMap->end())
+			if (it != mAttributes->mUserObjectsMap->end())
 			{
-				mAttributes->mpUserObjectsMap->erase(it);
+				mAttributes->mUserObjectsMap->erase(it);
 			}
 		}
 	}

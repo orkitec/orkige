@@ -4,7 +4,7 @@ This source file is a part of OGRE
 
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -35,14 +35,14 @@ THE SOFTWARE
 namespace Ogre
 {
     //---------------------------------------------------------------------
-    template<> FontManager * Singleton< FontManager >::ms_Singleton = 0;
+    template<> FontManager * Singleton< FontManager >::msSingleton = 0;
     FontManager* FontManager::getSingletonPtr(void)
     {
-        return ms_Singleton;
+        return msSingleton;
     }
     FontManager& FontManager::getSingleton(void)
     {  
-        assert( ms_Singleton );  return ( *ms_Singleton );  
+        assert( msSingleton );  return ( *msSingleton );  
     }
     //---------------------------------------------------------------------
 	FontManager::FontManager() : ResourceManager()
@@ -201,7 +201,19 @@ namespace Ogre
             }
             // Set
             pFont->setTrueTypeSize(
-                StringConverter::parseReal(params[1]) );
+                StringConverter::parseReal(params[1]));
+        }
+        else if (attrib == "character_spacer")
+        {
+            // Check params
+            if (params.size() != 2)
+            {
+                logBadAttrib(line, pFont);
+                return;
+            }
+            // Set
+            pFont->setCharacterSpacer(
+                StringConverter::parseUnsignedInt(params[1]));
         }
         else if (attrib == "resolution")
         {

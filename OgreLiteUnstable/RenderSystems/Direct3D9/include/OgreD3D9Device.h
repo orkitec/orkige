@@ -4,7 +4,7 @@ This source file is part of OGRE
 (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -89,8 +89,8 @@ namespace Ogre {
 		~D3D9Device	();
 
 	protected:			
-		D3D9DeviceManager*				mpDeviceManager;			// The manager of this device instance.
-		IDirect3DDevice9*				mpDevice;					// Will hold the device interface.				
+		D3D9DeviceManager*				mDeviceManager;			// The manager of this device instance.
+		IDirect3DDevice9*				mDevice;					// Will hold the device interface.				
 		UINT							mAdapterNumber;				// The adapter that this device belongs to.	
 		HMONITOR						mMonitor;					// The monitor that this device belongs to.
 		D3DDEVTYPE						mDeviceType;				// Device type.	

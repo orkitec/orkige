@@ -4,7 +4,7 @@ This source file is part of OGRE
     (Object-oriented Graphics Rendering Engine)
 For the latest info, see http://www.ogre3d.org/
 
-Copyright (c) 2000-2011 Torus Knot Software Ltd
+Copyright (c) 2000-2012 Torus Knot Software Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -33,10 +33,7 @@ THE SOFTWARE.
 
 #include "OgreGLSLESExtSupport.h"
 #include "OgreGLSLESLinkProgram.h"
-
-#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
-#   include "glsl_optimizer.h"
-#endif
+#include "OgreGLSLESProgramManagerCommon.h"
 
 namespace Ogre {
 
@@ -50,10 +47,9 @@ namespace Ogre {
 		program manager acts as a state machine and activates a program object based on the active
 		vertex and fragment program.  Previously created program objects are stored along with a unique
 		key in a hash_map for quick retrieval the next time the program object is required.
-
 	*/
 
-	class _OgreGLES2Export GLSLESLinkProgramManager : public Singleton<GLSLESLinkProgramManager>
+	class _OgreGLES2Export GLSLESLinkProgramManager : public GLSLESProgramManagerCommon, public Singleton<GLSLESLinkProgramManager>
 	{
 
 	private:
@@ -61,26 +57,14 @@ namespace Ogre {
 		typedef map<uint64, GLSLESLinkProgram*>::type LinkProgramMap;
 		typedef LinkProgramMap::iterator LinkProgramIterator;
 
-		/// container holding previously created program objects 
+		/// Container holding previously created program objects 
 		LinkProgramMap mLinkPrograms; 
 
-		/// active objects defining the active rendering gpu state
-		GLSLESGpuProgram* mActiveVertexGpuProgram;
-		GLSLESGpuProgram* mActiveFragmentGpuProgram;
+		/// Active objects defining the active rendering gpu state
 		GLSLESLinkProgram* mActiveLinkProgram;
 
 		typedef map<String, GLenum>::type StringToEnumMap;
 		StringToEnumMap mTypeEnumMap;
-#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
-        struct glslopt_ctx *mGLSLOptimiserContext;
-#endif
-		/// Use type to complete other information
-		void completeDefInfo(GLenum gltype, GpuConstantDefinition& defToUpdate);
-		/// Find where the data for a specific uniform should come from, populate
-		bool completeParamSource(const String& paramName,
-			const GpuConstantDefinitionMap* vertexConstantDefs, 
-			const GpuConstantDefinitionMap* fragmentConstantDefs,
-			GLUniformReference& refToUpdate);
 
 	public:
 
@@ -104,37 +88,6 @@ namespace Ogre {
 			Normally called from the GLSLESGpuProgram::bindProgram and unbindProgram methods
 		*/
 		void setActiveVertexShader(GLSLESGpuProgram* vertexGpuProgram);
-
-#ifdef OGRE_USE_GLES2_GLSL_OPTIMISER
-        /**
-         
-        */
-        void optimiseShaderSource(GLSLESGpuProgram* gpuProgram);
-#endif
-
-		/** Populate a list of uniforms based on a program object.
-		@param programObject Handle to the program object to query
-		@param vertexConstantDefs Definition of the constants extracted from the
-			vertex program, used to match up physical buffer indexes with program
-			uniforms. May be null if there is no vertex program.
-		@param fragmentConstantDefs Definition of the constants extracted from the
-			fragment program, used to match up physical buffer indexes with program
-			uniforms. May be null if there is no fragment program.
-		@param list The list to populate (will not be cleared before adding, clear
-		it yourself before calling this if that's what you want).
-		*/
-		void extractUniforms(GLuint programObject, 
-			const GpuConstantDefinitionMap* vertexConstantDefs, 
-			const GpuConstantDefinitionMap* fragmentConstantDefs,
-			GLUniformReferenceList& list);
-		/** Populate a list of uniforms based on GLSL ES source.
-		@param src Reference to the source code
-		@param list The defs to populate (will not be cleared before adding, clear
-		it yourself before calling this if that's what you want).
-		@param filename The file name this came from, for logging errors.
-		*/
-		void extractConstantDefs(const String& src, GpuNamedConstants& constantDefs, 
-			const String& filename);
 
 		static GLSLESLinkProgramManager& getSingleton(void);
         static GLSLESLinkProgramManager* getSingletonPtr(void);
