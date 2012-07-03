@@ -117,13 +117,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
+		this->root.reset();
+		this->bigZipArchiveFactory.reset();
 #ifdef USE_RTSHADER_SYSTEM
 		// Finalize the RT Shader System.
 		this->finalizeRTShaderSystem();
 #endif // USE_RTSHADER_SYSTEM
-		this->root.reset();
-		this->bigZipArchiveFactory.reset();
-
 	}
 	//---------------------------------------------------------
 	String Engine::getPlatformSpecificConfig(String const & cfgFileName)
@@ -305,7 +304,7 @@ namespace Orkige
 			this->camera[each]->setFarClipDistance(100000.0f);
 			// Create one viewport, entire window
 			this->viewport[each] = this->renderWindow[each]->addViewport(this->camera[each]);
-			this->viewport[each]->setBackgroundColour(Ogre::ColourValue::Black);
+			this->viewport[each]->setBackgroundColour(Ogre::ColourValue::Blue);
 			this->viewport[each]->setShadowsEnabled(true);
 #ifdef USE_RTSHADER_SYSTEM
 			 if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
@@ -450,20 +449,29 @@ namespace Orkige
 		void Engine::finalizeRTShaderSystem()
 		{
 			// Restore default scheme.
-			Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::MaterialManager::DEFAULT_SCHEME_NAME);
+			if(Ogre::MaterialManager::getSingletonPtr())
+			{
+				Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::MaterialManager::DEFAULT_SCHEME_NAME);
+			}
 
 			// Unregister the material manager listener.
 			if (mMaterialMgrListener != NULL)
-			{			
-				Ogre::MaterialManager::getSingleton().removeListener(mMaterialMgrListener);
+			{	
+				if(Ogre::MaterialManager::getSingletonPtr())
+				{
+					Ogre::MaterialManager::getSingleton().removeListener(mMaterialMgrListener);
+				}
 				delete mMaterialMgrListener;
 				mMaterialMgrListener = NULL;
 			}
 
 			// Finalize RTShader system.
 			if (mShaderGenerator != NULL)
-			{				
-				Ogre::RTShader::ShaderGenerator::finalize();
+			{
+				if(Ogre::MaterialManager::getSingletonPtr())
+				{
+					Ogre::RTShader::ShaderGenerator::finalize();
+				}
 				mShaderGenerator = NULL;
 			}
 		}
