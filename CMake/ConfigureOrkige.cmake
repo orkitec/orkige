@@ -448,6 +448,9 @@ macro (ConfigureOrkige)
   endif()
   
   if (OGRE_BUILD_RENDERSYSTEM_GLES2)
+      if(NOT ORKIGE_BUILD_IPHONE)
+        add_definitions(-DFREEIMAGE_BIGENDIAN)
+      endif()
       #we us gles2 so disable gl and gles(1.1) since else we get compile conflicts with gl.h
       set(OGRE_BUILD_RENDERSYSTEM_GL CACHE BOOL "Forcing remove OpenGL RenderSystem for iPhone" FORCE)
       if (OPENGLES_FOUND)
