@@ -164,13 +164,12 @@ namespace Ogre {
     {
 		mGLSupport->start();
 
+        // Create the texture manager        
+		mTextureManager = OGRE_NEW GLES2TextureManager(*mGLSupport); 
+
         RenderWindow *autoWindow = mGLSupport->createWindow(autoCreateWindow,
                                                             this, windowTitle);
         RenderSystem::_initialise(autoCreateWindow, windowTitle);
-
-		// Create the texture manager        
-		mTextureManager = OGRE_NEW GLES2TextureManager(*mGLSupport); 
-
         return autoWindow;
     }
 

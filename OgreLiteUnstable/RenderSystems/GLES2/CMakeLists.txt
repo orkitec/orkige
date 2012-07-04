@@ -93,22 +93,7 @@ if (OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT)
 endif (OGRE_CONFIG_ENABLE_GLES2_CG_SUPPORT)
 
 # Add system specific settings
-if (ORKIGE_BUILD_ANDROID)
-#message("ANDROID" ${OPENGLES2_gl_LIBRARY})
-  set(PLATFORM_HEADERS
-    include/Android/OgreAndroidGLContext.h
-    include/Android/OgreAndroidGLSupport.h
-    include/Android/OgreAndroidWindow.h
-    include/Android/OgreGLES2Util.h
-  )
-  set(PLATFORM_SOURCES
-    src/Android/OgreAndroidGLContext.cpp
-    src/Android/OgreAndroidGLSupport.cpp
-    src/Android/OgreAndroidWindow.cpp
-  )
-  include_directories(src/Android include/Android)
-  set(PLATFORM_HEADER_INSTALL "Android")
-elseif (OGRE_BUILD_PLATFORM_NACL)
+if (OGRE_BUILD_PLATFORM_NACL)
   set(PLATFORM_HEADERS 
     include/NaCl/OgreGLES2Util.h
     include/NaCl/OgreNaClGLContext.h

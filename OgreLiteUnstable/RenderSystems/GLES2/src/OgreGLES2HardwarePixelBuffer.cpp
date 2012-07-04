@@ -154,13 +154,11 @@ namespace Ogre {
             allocateBuffer();
             // No scaling or conversion needed
             scaled = src;
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
             if (src.format == PF_R8G8B8)
             {
                 scaled.format = PF_B8G8R8;
                 PixelUtil::bulkPixelConversion(src, scaled);
             }
-#endif
         }
 
         upload(scaled, dstBox);

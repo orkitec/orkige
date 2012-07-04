@@ -38,12 +38,7 @@ THE SOFTWARE.
 #include "OgreAndroidWindow.h"
 #include "OgreAndroidGLContext.h"
 
-
-
 namespace Ogre {
-
-	int GetAndroidWindowWidth();
-		int GetAndroidWindowHeight();
 
     AndroidGLSupport::AndroidGLSupport()
     {
@@ -80,8 +75,7 @@ namespace Ogre {
             NameValuePairList miscParams;
 
             bool fullscreen = true;
-			unsigned int w = GetAndroidWindowWidth();
-			unsigned int h = GetAndroidWindowHeight();
+			unsigned int w = 800, h = 600;
 
             if ((opt = mOptions.find("Display Frequency")) != end)
             {

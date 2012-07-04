@@ -89,11 +89,7 @@ namespace Ogre  {
             case PF_A8B8G8R8:
             case PF_B8G8R8A8:
             case PF_A2R10G10B10:
-#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
                 return GL_BGRA;
-#else
-                return GL_RGBA;
-#endif
 			case PF_X8B8G8R8:
 			case PF_R8G8B8A8:
             case PF_A2B10G10R10:

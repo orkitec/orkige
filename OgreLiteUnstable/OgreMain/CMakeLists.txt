@@ -12,10 +12,6 @@
 ############################################################
 
 PROJECT(OgreMain)
-include_directories(${ORKIGE_FREEIMAGE_INCLUDE})
-include_directories(${ORKIGE_FREETYPE_INCLUDE})
-include_directories(${ORKIGE_ZLIB_INCLUDE})
-include_directories(${ORKIGE_ZZIP_INCLUDE})
 
 include(PrecompiledHeader)
 
@@ -44,7 +40,7 @@ set (HEADER_FILES
   include/OgreBlendMode.h
   include/OgreBone.h
   include/OgreBorderPanelOverlayElement.h
-  ${OGRE_SOURCE_DIR}/Settings/OgreBuildSettings.h
+  ${OGRE_BINARY_DIR}/include/OgreBuildSettings.h
   include/OgreCamera.h
   include/OgreCodec.h
   include/OgreColourValue.h
@@ -578,29 +574,6 @@ elseif (APPLE)
     set(PLATFORM_LIBS ${Carbon_LIBRARY_FWK} ${Cocoa_LIBRARY_FWK})
     set(PLATFORM_HEADER_INSTALL "OSX")
   endif ()
-elseif(ORKIGE_BUILD_ANDROID)
-    include_directories(include/Android)
-    set(PLATFORM_HEADER_FILES
-      include/Android/OgreConfigDialogImp.h
-      include/Android/OgreErrorDialogImp.h
-      include/Android/OgreTimerImp.h
-      include/OgreStringSerialiser.h
-    )
-    set(PLATFORM_SOURCE_FILES
-      src/Android/OgreConfigDialog.cpp
-      src/Android/OgreErrorDialog.cpp
-      src/Android/OgreTimer.cpp
-      src/OgreSearchOps.cpp
-      src/OgreStringSerialiser.cpp
-    )
-    set(PLATFORM_LIBS dl)
-    set(PLATFORM_HEADER_INSTALL "Android")
-    # some platforms require explicit linking to libdl, see if it's available
-    find_library(DL_LIBRARY NAMES dl dlsym)
-    mark_as_advanced(DL_LIBRARY)
-    if (DL_LIBRARY)
-      list(APPEND PLATFORM_LIBS dl)
-    endif ()
 elseif (UNIX)
   include_directories(include/GLX ${X11_INCLUDE_DIR})
   set(PLATFORM_HEADER_FILES
@@ -675,7 +648,7 @@ add_definitions(-DOGRE_NONCLIENT_BUILD -DFREEIMAGE_LIB -D_MT -D_USRDLL)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/nedmalloc)
 
 set(LIBRARIES
-  ${ORKIGE_FREETYPE_TARGET}
+  ${FREETYPE_LIBRARIES}
   ${PLATFORM_LIBS}
 )
 
@@ -686,7 +659,7 @@ endif ()
 if (OGRE_CONFIG_ENABLE_FREEIMAGE)
   list(APPEND HEADER_FILES include/OgreFreeImageCodec.h)
   list(APPEND SOURCE_FILES src/OgreFreeImageCodec.cpp)
-  list(APPEND LIBRARIES    "${ORKIGE_FREEIMAGE_TARGET}")
+  list(APPEND LIBRARIES    "${FreeImage_LIBRARIES}")
 endif()
 
 if (OGRE_CONFIG_ENABLE_DDS)
@@ -702,8 +675,8 @@ endif ()
 if (OGRE_CONFIG_ENABLE_ZIP)
   list(APPEND HEADER_FILES include/OgreZip.h)
   list(APPEND SOURCE_FILES src/OgreZip.cpp)
-  list(APPEND LIBRARIES "${ORKIGE_ZZIP_TARGET}")
-  list(APPEND LIBRARIES "${ORKIGE_ZLIB_TARGET}")
+  list(APPEND LIBRARIES "${ZZip_LIBRARIES}")
+  list(APPEND LIBRARIES "${ZLIB_LIBRARIES}")
 endif ()
 
 if (OGRE_CONFIG_ENABLE_GLES2_GLSL_OPTIMISER)
