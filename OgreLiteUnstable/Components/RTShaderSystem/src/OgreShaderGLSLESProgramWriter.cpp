@@ -259,9 +259,10 @@ namespace Ogre {
                     "GLSLESProgramWriter::writeSourceCode" );	
             }
 
-            // Clear out old input params
-            mFragInputParams.clear();
-            
+            // Clear out old varying params
+            mVaryingParams.clear();
+            mOutVaryingParams.clear();
+			
             const ShaderFunctionList& functionList = program->getFunctions();
             ShaderFunctionConstIterator itFunction;
 
@@ -374,37 +375,35 @@ namespace Ogre {
                         Parameter::Content content = op.getParameter()->getContent();
 
                         // Check if we write to a varying because the are only readable in fragment programs 
-                        if (opSemantic == Operand::OPS_OUT || opSemantic == Operand::OPS_INOUT)
+                        if (opSemantic == Operand::OPS_OUT)
                         {	
                             // Is the written parameter a varying 
                             bool isVarying = false;
 
-                            // Check if we write to a varying because the are only readable in fragment programs 
-                            if (gpuType == GPT_FRAGMENT_PROGRAM)
-                            {	
-                                StringVector::iterator itFound = std::find(mFragInputParams.begin(), mFragInputParams.end(), paramName);	
-                                if(itFound != mFragInputParams.end())
-                                {						
-                                    // Declare the copy variable
-                                    String newVar = "local_" + paramName;
-                                    String tempVar = paramName;
-                                    isVarying = true;
+							StringVector::iterator itFound = std::find(mVaryingParams.begin(), mVaryingParams.end(), paramName);	
+							if(itFound != mVaryingParams.end())
+							{						
+								// Declare the copy variable
+								String newVar = "local_" + paramName;
+								String tempVar = paramName;
+								isVarying = true;
 
-                                    // We stored the original values in the mFragInputParams thats why we have to replace the first var with o
-                                    // because all vertex output vars are prefixed with o in glsl the name has to match in the fragment program.
-                                    tempVar.replace(tempVar.begin(), tempVar.begin() + 1, "o");
+								// We stored the original values in the mVaryingParams thats why we have to replace the first var with o
+								// because all vertex output vars are prefixed with o in glsl the name has to match in the fragment program.
+								tempVar.replace(tempVar.begin(), tempVar.begin() + 1, "o");
 
-                                    // Declare the copy variable and assign the original
-                                    os << "\t" << mGpuConstTypeMap[op.getParameter()->getType()] << " " << newVar << " = " << tempVar << ";\n" << ENDL;	
+								// Declare the copy variable and assign the original
+								os << "\t" << mGpuConstTypeMap[op.getParameter()->getType()] << " " << newVar << " = " << tempVar << ";\n" << ENDL;	
 
-                                    // From now on we replace it automatic 
-                                    mInputToGLStatesMap[paramName] = newVar;
+								// From now on we replace it automatic 
+								mInputToGLStatesMap[paramName] = newVar;
 
-                                    // Remove the param because now it is replaced automatic with the local variable
-                                    // (which could be written).
-                                    mFragInputParams.erase(itFound++);
-                                }
-                            }
+								// Remove the param because now it is replaced automatic with the local variable
+								// (which could be written).
+								mVaryingParams.erase(itFound++);
+								// Hold the param to remember to set its value in the end of the shader
+								mOutVaryingParams.push_back(paramName);
+							}
                             
                             // If its not a varying param check if a uniform is written
                             if(!isVarying)
@@ -538,9 +537,11 @@ namespace Ogre {
                     os << "\tgl_FragColor = outputColor;" << ENDL;
                 }
                 else if (gpuType == GPT_VERTEX_PROGRAM)
-                {
-                    os << "\tgl_Position = outputPosition;" << ENDL;
-                }
+				{
+					os << "\tgl_Position=outputPosition;" << ENDL;
+					for (StringVector::iterator it = mOutVaryingParams.begin(); it != mOutVaryingParams.end(); it++)
+							os << "\t" << *it << "=" << mInputToGLStatesMap[*it] << ";" << ENDL;
+				}
 
                 os << "}" << ENDL;
             }
@@ -572,7 +573,7 @@ namespace Ogre {
                 {					
                     // push fragment inputs they all could be written (in glsl you can not write
                     // input params in the fragment program)
-                    mFragInputParams.push_back(paramName);
+                    mVaryingParams.push_back(paramName);
 
                     // In the vertex and fragment program the variable names must match.
                     // Unfortunately now the input params are prefixed with an 'i' and output params with 'o'.
@@ -662,6 +663,7 @@ namespace Ogre {
 							os << "[" << pParam->getSize() << "]";	
 						}
 						os << ";" << ENDL;	
+						mVaryingParams.push_back(pParam->getName());
                     }
                 }
                 else if(gpuType == GPT_FRAGMENT_PROGRAM &&

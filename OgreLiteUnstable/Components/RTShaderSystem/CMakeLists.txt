@@ -77,15 +77,10 @@ set (SOURCE_FILES
   src/OgreShaderScriptTranslator.cpp
   src/OgreShaderMaterialSerializerListener.cpp
   src/OgreShaderProgramProcessor.cpp
-  src/OgreShaderCGProgramProcessor.cpp
-  src/OgreShaderCGProgramWriter.cpp
-  src/OgreShaderGLSLProgramProcessor.cpp
-  src/OgreShaderGLSLProgramWriter.cpp
+  
   src/OgreShaderGLSLESProgramProcessor.cpp
   src/OgreShaderGLSLESProgramWriter.cpp
   src/OgreShaderProgramWriterManager.cpp
-  src/OgreShaderHLSLProgramProcessor.cpp
-  src/OgreShaderHLSLProgramWriter.cpp
   src/OgreShaderExLayeredBlending.cpp
   src/OgreShaderExHardwareSkinning.cpp
   src/OgreShaderExHardwareSkinningTechnique.cpp
@@ -94,6 +89,16 @@ set (SOURCE_FILES
   src/OgreShaderExTextureAtlasSampler.cpp
 )
 
+if (NOT ORKIGE_BUILD_ANDROID)
+  list(APPEND SOURCE_FILES
+    src/OgreShaderGLSLProgramProcessor.cpp
+    src/OgreShaderGLSLProgramWriter.cpp  
+    src/OgreShaderCGProgramProcessor.cpp
+    src/OgreShaderCGProgramWriter.cpp
+    src/OgreShaderHLSLProgramProcessor.cpp
+    src/OgreShaderHLSLProgramWriter.cpp
+  )
+endif()  
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 

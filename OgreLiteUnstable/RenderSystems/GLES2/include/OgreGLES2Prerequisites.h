@@ -48,7 +48,7 @@ THE SOFTWARE.
 #ifndef GL_GLEXT_PROTOTYPES
 #  define  GL_GLEXT_PROTOTYPES
 #endif
-
+#		define GL_OES_vertex_array_object 0
 #if (OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS)
 #   include <OpenGLES/ES2/gl.h>
 #   include <OpenGLES/ES2/glext.h>
@@ -56,6 +56,9 @@ THE SOFTWARE.
 #       include <OpenGLES/EAGL.h>
 #   endif
 #elif (OGRE_PLATFORM == OGRE_PLATFORM_ANDROID) || (OGRE_PLATFORM == OGRE_PLATFORM_NACL)
+#	if __ANDROID_API__ <= 8
+#		define GL_OES_vertex_array_object 0
+#	endif
 #	ifndef GL_GLEXT_PROTOTYPES
 #		define  GL_GLEXT_PROTOTYPES
 #	endif

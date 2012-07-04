@@ -105,6 +105,21 @@ elseif (APPLE)
   include_directories(src/EAGL include/EAGL)
   link_directories(${OPENGLES_LIBRARY_PATH})
   set(PLATFORM_HEADER_INSTALL "APPLE")
+elseif (ORKIGE_BUILD_ANDROID)
+  set(PLATFORM_HEADERS
+    include/Android/OgreAndroidGLESContext.h
+    include/Android/OgreAndroidGLESSupport.h
+    include/Android/OgreAndroidGLESWindow.h
+    include/Android/OgreAndroidGLESUtil.h
+  )
+  set(PLATFORM_SOURCES
+    src/Android/OgreAndroidGLESContext.cpp
+    src/Android/OgreAndroidGLESSupport.cpp
+    src/Android/OgreAndroidGLESWindow.cpp
+  )
+  include_directories(src/Android include/Android)
+  set(PLATFORM_HEADER_INSTALL "Android")
+  set(PLATFORM_LIBS )
 elseif (UNIX)
   set(PLATFORM_HEADERS
     include/EGL/X11/OgreX11EGLContext.h

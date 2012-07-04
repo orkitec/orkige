@@ -147,7 +147,8 @@ protected:
     StringMap                   mDefinesMap;                    // Map of #defines and the function library that contains them
 	ParamContentToStringMap		mContentToPerVertexAttributes;	// Map parameter content to vertex attributes
 	int							mGLSLVersion;					// Holds the current glsl es version
-	StringVector				mFragInputParams;				// Holds the fragment input params 
+	StringVector				mVaryingParams;					// Holds the varying params 
+	StringVector				mOutVaryingParams;				// Holds the varying params whic are used as out paramater
     StringMap                   mCachedFunctionLibraries;       // Holds the cached function libraries
 };
 
