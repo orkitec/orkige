@@ -187,7 +187,9 @@ macro (ConfigureOrkige)
 		add_definitions(-DTHEORAVIDEO_STATIC)
 		add_definitions(-DOGREVIDEO_STATIC=1)
 	endif()
-
+	if (ORKIGE_ENABLE_TESTFLIGHT)
+		add_definitions(-DORKIGE_ENABLE_TESTFLIGHT)
+	endif()
 	
 
 	set(ORKIGE_ZLIB_TARGET ZLib)

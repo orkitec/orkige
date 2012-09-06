@@ -214,7 +214,6 @@ macro(ConfigureOrkigeDependencies)
 		link_libraries(
 			${ORKIGE_DEP_DIR}/TestFlightSDK1/libTestFlight.a
 		)
-		add_definitions(-DORKIGE_ENABLE_TESTFLIGHT)
 	endif()
 endmacro(ConfigureOrkigeDependencies)
 
