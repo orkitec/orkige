@@ -205,5 +205,16 @@ macro(ConfigureOrkigeDependencies)
 		)
 		add_definitions(-DORKIGE_ENABLE_FLURRYANALYTICS)
 	endif()
+	
+	if (ORKIGE_ENABLE_TESTFLIGHT)		
+		include_directories(
+			${ORKIGE_DEP_DIR}/TestFlightSDK1
+		)
+
+		link_libraries(
+			${ORKIGE_DEP_DIR}/TestFlightSDK1/libTestFlight.a
+		)
+		add_definitions(-DORKIGE_ENABLE_TESTFLIGHT)
+	endif()
 endmacro(ConfigureOrkigeDependencies)
 

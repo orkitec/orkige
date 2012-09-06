@@ -41,6 +41,7 @@ macro (ConfigureOrkige)
 
 	if(ORKIGE_BUILD_IPHONE)
 		option(ORKIGE_ENABLE_FLURRYANALYTICS "Use FlurryAnalytics" OFF)
+		option(ORKIGE_ENABLE_TESTFLIGHT "Use FlurryAnalytics" OFF)
 	endif()
 	if(NOT ORKIGE_NOSCRIPT)
 		option(ORKIGE_USE_LUA			"Use Lua script bindings"						OFF)
