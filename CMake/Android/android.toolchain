@@ -87,7 +87,7 @@ if(${NDK_STL} STREQUAL "gnu-libstdc++")
 MESSAGE("Use exceptions, rtti")
 SET (NDK_BUILD_FLAGS "-fexceptions -frtti" CACHE TYPE STRING)
 link_libraries(
-	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/libs/${NDK_TARGET}/libgnustl_static.a
+	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/${NDK_TOOLCHAIN_VERSION}/libs/${NDK_TARGET}/libgnustl_static.a
 )
 endif(${NDK_STL} STREQUAL "gnu-libstdc++")
 
@@ -100,12 +100,12 @@ link_libraries(
 endif(${NDK_STL} STREQUAL "stlport")
 
 include_directories(
-	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/libs/${NDK_TARGET}/include
-	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/include
+	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/${NDK_TOOLCHAIN_VERSION}/libs/${NDK_TARGET}/include
+	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/${NDK_TOOLCHAIN_VERSION}/include
 )
 
 link_directories(
-	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/libs/${NDK_TARGET}
+	$ENV{NDK}/sources/cxx-stl/${NDK_STL}/${NDK_TOOLCHAIN_VERSION}/libs/${NDK_TARGET}
 )
 
 ########################################################################################
