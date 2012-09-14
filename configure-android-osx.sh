@@ -37,6 +37,10 @@ export NDK_BIN=$NDK/toolchains/arm-linux-androideabi-4.4.3/prebuilt/darwin-x86/b
 export PATH=$PATH:$NDK_BIN
 
 
+if [ ! -d ../../build ]; 
+then
+	mkdir ../../build
+fi
 
 if [ ! -d $1 ]; 
 then
