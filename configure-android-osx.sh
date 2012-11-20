@@ -11,7 +11,7 @@ export OPTIONS=("$MAINFOLDER" -G "Unix Makefiles"
 
 if [ "" = "$1" ]; 
 then
-	echo "Use: $0 <build target directory> [ debug|release|clean ]"
+	echo "Use: $0 <build target directory> [ debug|release|clean ] [ install ]"
 	exit 1
 fi
 
@@ -29,8 +29,15 @@ fi
 if [ "" = "${NDK}" ]; 
 then
 	echo "NDK Path is empty."
-#export NDK=/Users/Steffen/Development/rost/android-ndk-r8b
+    echo export NDK=/Users/User/Development/android-ndk-r8b
 	exit 1
+fi
+
+if [ "" = "${ANDROID_HOME}" ]; 
+then
+    echo "ANDROID_HOME Path is empty."
+    echo export ANDROID_HOME=/Users/User/android-sdks
+    exit 1
 fi
 
 export NDK_BIN=$NDK/toolchains/arm-linux-androideabi-4.4.3/prebuilt/darwin-x86/bin
@@ -72,10 +79,10 @@ cd $MAINFOLDER/../game/Android
 ./create_assets.sh
 ant clean
 
-if [ "debug" = "$2" ];
+if [ "install" = "$3" ];
 then
-ant debug
+    ant debug install
 else
-ant release
+    ant debug
 fi
 

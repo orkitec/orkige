@@ -237,6 +237,7 @@ namespace Orkige
             {
                 Ogre::RTShader::ShaderGenerator::getSingletonPtr()->addSceneManager(this->sceneManager);
             }
+            Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
 #endif // USE_RTSHADER_SYSTEM
 
 		// Set default mipmap level (NB some APIs ignore this)

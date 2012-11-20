@@ -1127,7 +1127,7 @@ namespace Gorilla
 		bool force = false;
         
 		// force == true if viewport size changed.
-#ifdef ORKIGE_IPHONE
+#if defined(ORKIGE_IPHONE) || defined(__ANDORID__)
         bool renderOrientFix = false;
         switch (mViewport->getOrientationMode())
         {
@@ -1153,7 +1153,7 @@ namespace Gorilla
 #endif
 			)
 		{
-#ifdef ORKIGE_IPHONE
+#if defined(ORKIGE_IPHONE) || defined(__ANDORID__)
 			switch (mViewport->getOrientationMode())
             {
                 case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
