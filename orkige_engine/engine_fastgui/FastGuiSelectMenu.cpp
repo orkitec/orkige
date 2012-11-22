@@ -121,7 +121,7 @@ namespace Orkige
 	//---------------------------------------------------------------
 	void FastGuiSelectMenu::selectItemIndex(std::size_t index, bool throwEvent)
 	{
-		if (index >= 0 && index < this->items.size())
+		if (index < this->items.size())
 		{
 			if (this->selectedIndex != index)
 			{

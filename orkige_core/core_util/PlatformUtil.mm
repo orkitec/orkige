@@ -13,6 +13,7 @@
 #import <UIKit/UIKit.h>
 #endif //ORKIGE_IPHONE
 #endif
+#include "core_util/StringUtil.h"
 
 namespace Orkige
 {
@@ -89,7 +90,7 @@ namespace Orkige
 			static String path = String([applicationSupportFolder UTF8String]);			
 			return path;
 #else //ORKIGE_IPHONE
-			return nil;
+			return Orkige::StringUtil::BLANK;
 #endif //ORKIGE_IPHONE
 		}
 		//---------------------------------------------------------

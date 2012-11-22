@@ -265,8 +265,6 @@ namespace Orkige
 		Ogre::WindowEventUtilities::messagePump();
 		unsigned long currentFrameTime = Timer::getMilliseconds();
 		unsigned long timeDiff = currentFrameTime - this->lastFrameTime;
-		if(timeDiff < 0)
-			timeDiff = 0;
 		this->lastFrameTime = currentFrameTime;
 		Ogre::Real delta = Ogre::Real(timeDiff) / 1000.f;
 		this->data->timeSinceLastFrame = delta;
@@ -329,12 +327,16 @@ namespace Orkige
 	{
 		static const double aspectRatioFactors[] = { 5.0/4.0, 4.0/3.0, 16.0/10.0, 16.0/9.0 };
 		double aspectFactor = double(this->getViewport(0)->getActualWidth()) / double(this->getViewport(0)->getActualHeight());
-		for(std::size_t i = Engine::AspectRatio_Unknown-1; i >= 0; i--)
+		for(std::size_t i = Engine::AspectRatio_Unknown-1; true; i--)
 		{
 			if(aspectFactor - aspectRatioFactors[i] < maxErrorDist)
 			{
 				return Engine::AspectRatio(i);
 			}
+            if(i == 0)
+            {
+                break;
+            }
 		}
 		return Engine::AspectRatio_Unknown;
 	}

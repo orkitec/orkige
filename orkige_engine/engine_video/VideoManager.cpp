@@ -31,7 +31,7 @@ static bool g_StopCalledFromInsideVideoManager = false;
 }
 
 - (id)initWithPath:(NSString *)moviePath;
-- (void)readyPlayer;
+- (void)readyPlayer:(bool) loop showVideoControls: (bool) showui;
  
 @end
 
