@@ -248,7 +248,7 @@ macro (ConfigureOrkige)
 				include_directories("${OGREPATH}/OgreMain/include/iPhone")
 			endif(ORKIGE_USE_OGRE_UNSTABLE)
 			# Set build variables
-			set(CMAKE_OSX_SYSROOT iphoneos5.1)
+			set(CMAKE_OSX_SYSROOT iphoneos)
 			set(CMAKE_OSX_DEPLOYMENT_TARGET "")
 			set(CMAKE_EXE_LINKER_FLAGS "-framework Foundation -framework CoreGraphics -framework QuartzCore -framework UIKit -framework AudioToolbox -framework MediaPlayer -framework SystemConfiguration -weak_framework GameKit -weak_framework iAd")
 			set(XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "iPhone Developer: Steffen Roemer")
