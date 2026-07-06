@@ -3,6 +3,8 @@
   "version-string": "2.0.0-dev",
   "description": "Orkige - the orkitec game engine",
   "dependencies": [
-    "tinyxml2"
+    "tinyxml2",
+    "ogre",
+    "sdl3"
   ]
 }

@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(cmake --preset *)",
+      "Bash(cmake --build *)",
+      "Bash(ctest *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git rm *)",
+      "Bash(git push origin *)",
+      "Bash(mkdir *)"
+    ]
+  }
+}
