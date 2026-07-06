@@ -9,12 +9,10 @@
 #ifndef __foreach_h__19_8_2010__23_14_02__
 #define __foreach_h__19_8_2010__23_14_02__
 
-#include <boost/foreach.hpp>
-
-//!	@brief For iterating over collections. 
+//!	@brief For iterating over collections.
 //!
 //!	Collections can be
-//!	arrays, null-terminated strings, or STL containers.
+//!	arrays or STL containers.
 //!	The loop variable can be a value or reference. For
 //!	example:
 //!
@@ -23,17 +21,6 @@
 //!	{
 //!		...
 //!	}
-//!
-//!	Alternately, you can declare the loop variable first,
-//!	so you can access it after the loop finishes. Obviously,
-//!	if you do it this way, then the loop variable cannot be
-//!	a reference.
-//!
-//!	int i;
-//!	foreach(i, int_list)
-//!	{ 
-//!		... 
-//!	}
-#define foreach BOOST_FOREACH
+#define foreach(VAR, COL) for (VAR : COL)
 
 #endif //__foreach_h__19_8_2010__23_14_02__

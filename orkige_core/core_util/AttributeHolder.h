@@ -11,9 +11,7 @@
 
 #include "core_serialization/ISerializeable.h"
 
-#include <boost/utility/enable_if.hpp>
-#include <boost/type_traits/is_base_of.hpp>
-#include <boost/type_traits/is_same.hpp>
+#include <type_traits>
 
 namespace Orkige
 {
@@ -109,9 +107,9 @@ namespace Orkige
 		//!			type gets internally wrapped
 		template<class Type> 
 		inline void setAttribute(OwnedAttributeTypeIdType const & id, Type const & attribute,
-			typename boost::disable_if< is_optr< Type> >::type * = 0,
-			typename boost::disable_if< boost::is_base_of< OwnedAttributeType, Type> >::type * = 0,
-			typename boost::disable_if< boost::is_same< OwnedAttributeType, Type> >::type * = 0)
+			typename std::enable_if<!is_optr< Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_base_of< OwnedAttributeType, Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_same< OwnedAttributeType, Type>::value>::type * = 0)
 		{
 			optr<AttributeWrapper<Type> > wrappedAttribute = onew(new AttributeWrapper<Type>(attribute));
 			oAssert(wrappedAttribute);
@@ -131,10 +129,10 @@ namespace Orkige
 		//! @note	if the Attribute doesn't exist or isn't convertible to the specified ReturnType this asserts in _DEBUG mode
 		template<typename ReturnAttributeType> 
 		inline optr<ReturnAttributeType> getAttribute(OwnedAttributeTypeIdType const & id,
-			typename boost::disable_if< is_optr< ReturnAttributeType> >::type * = 0,
-			typename boost::enable_if< boost::is_base_of< OwnedAttributeType, ReturnAttributeType> >::type * = 0)
+			typename std::enable_if<!is_optr< ReturnAttributeType>::value>::type * = 0,
+			typename std::enable_if<std::is_base_of< OwnedAttributeType, ReturnAttributeType>::value>::type * = 0)
 		{
-			optr<ReturnAttributeType> attribute = boost::dynamic_pointer_cast<ReturnAttributeType>(this->getAttribute(id));
+			optr<ReturnAttributeType> attribute = std::dynamic_pointer_cast<ReturnAttributeType>(this->getAttribute(id));
 			oAssert(attribute);
 			return attribute;
 		}
@@ -143,8 +141,8 @@ namespace Orkige
 		//! @note	if the Attribute doesn't exist or isn't convertible to the specified ReturnType this asserts in _DEBUG mode
 		template<typename ReturnAttributeType> 
 		inline ReturnAttributeType getAttribute(OwnedAttributeTypeIdType const & id,
-			typename boost::disable_if< is_optr< ReturnAttributeType> >::type * = 0,
-			typename boost::disable_if< boost::is_base_of< AttributeHolder< OwnedAttributeTypeIdType, OwnedAttributeType>, ReturnAttributeType> >::type * = 0)
+			typename std::enable_if<!is_optr< ReturnAttributeType>::value>::type * = 0,
+			typename std::enable_if<!std::is_base_of< AttributeHolder< OwnedAttributeTypeIdType, OwnedAttributeType>, ReturnAttributeType>::value>::type * = 0)
 		{
 			optr<AttributeWrapper<ReturnAttributeType> > attribute = this->getAttribute<AttributeWrapper<ReturnAttributeType> >(id);
 			oAssert(attribute);
@@ -216,7 +214,7 @@ namespace Orkige
 	OTYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
 	bp::scope AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																					\
 	typedef AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> ExposedClassType;																															\
-	bp::class_<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>/*, bp::bases<OParent>,boost::shared_ptr<ExposedClassType>*/ > py_class("bla");	\
+	bp::class_<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>/*, bp::bases<OParent>,std::shared_ptr<ExposedClassType>*/ > py_class("bla");	\
 	/*OCONSTRUCTOR1(WrappedType)*/																																																					\
 	/*OVAR(value)*/																																																									\
 	/*OFUNCCR(getValue)*/																																																							\
@@ -236,7 +234,7 @@ namespace Orkige
 	OTYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
 	void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																						\
 	typedef AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> ExposedClassType;																															\
-	bp::class_<ExposedClassType, bp::bases<OParent>,boost::shared_ptr<ExposedClassType> > py_class(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName().c_str(),bp::no_init);	\
+	bp::class_<ExposedClassType, bp::bases<OParent>,std::shared_ptr<ExposedClassType> > py_class(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName().c_str(),bp::no_init);	\
 	OCONSTRUCTOR1(WrappedType)																																																						\
 	OVAR(value)																																																										\
 	OFUNCCR(getValue)																																																								\

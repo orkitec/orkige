@@ -10,11 +10,22 @@
 #include <tinyxml2.h>
 #include "core_game/GameObject.h"
 #include "core_game/GameObjectManager.h"
-#include <boost/lexical_cast.hpp>
 #include <core_debug/ProfileManager.h>
+#include <string>
+#include <stdexcept>
 
 namespace Orkige
 {
+	//---------------------------------------------------------
+	//! convert a "1"/"0" attribute string to bool (replacement for the old lexical_cast<bool>)
+	static bool GameObjectStringToBool(String const & value)
+	{
+		if(value == "1")
+			return true;
+		if(value == "0")
+			return false;
+		throw std::invalid_argument("GameObject: invalid bool attribute value: " + value);
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -67,17 +78,17 @@ namespace Orkige
 					oAssert(value);
 					if(attributeTypeName == "int")
 					{
-						int i = boost::lexical_cast<int>(value);
+						int i = std::stoi(String(value));
 						this->setAttribute(id,i);
 					}
 					else if(attributeTypeName == "bool")
 					{
-						bool b = boost::lexical_cast<bool>(value);
+						bool b = GameObjectStringToBool(value);
 						this->setAttribute(id,b);
 					}
 					else if(attributeTypeName == "float")
 					{
-						float f = boost::lexical_cast<float>(value);
+						float f = std::stof(String(value));
 						this->setAttribute(id,f);
 					}
 					else if(attributeTypeName == "string")
@@ -119,17 +130,17 @@ namespace Orkige
 										oAssert(value);
 										if(attributeTypeName == "int")
 										{
-											int i = boost::lexical_cast<int>(value);
+											int i = std::stoi(String(value));
 											component->setAttribute(id,i);
 										}
 										else if(attributeTypeName == "bool")
 										{
-											bool b = boost::lexical_cast<bool>(value);
+											bool b = GameObjectStringToBool(value);
 											component->setAttribute(id,b);
 										}
 										else if(attributeTypeName == "float")
 										{
-											float f = boost::lexical_cast<float>(value);
+											float f = std::stof(String(value));
 											component->setAttribute(id,f);
 										}
 										else if(attributeTypeName == "string")
@@ -165,7 +176,7 @@ namespace Orkige
 					if(document->Error())
 					{
 						oDebugMsg("gameobject",0,"Error while parsing file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
-						document->SetError(tinyxml2::XML_NO_ERROR, "", "");
+						document->ClearError();
 						retval = false;
 					}
 				}
@@ -292,7 +303,7 @@ namespace Orkige
 		if(document->Error())
 		{
 			oDebugMsg("gameobject",0,"Error while saving file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
-			document->SetError(tinyxml2::XML_NO_ERROR, "", "");
+			document->ClearError();
 			retval = false;
 		}
 

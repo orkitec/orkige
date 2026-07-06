@@ -80,11 +80,11 @@ namespace Orkige
 		//! read a ISerializeable derived from archive
 		template<class Type> 
 		void read(Type & obj,
-			typename boost::enable_if<boost::is_base_of<ISerializeable,Type> >::type * = 0,
-			typename boost::disable_if<is_optr<Type> >::type * = 0,
-			typename boost::disable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<std::is_base_of<ISerializeable,Type>::value>::type * = 0,
+			typename std::enable_if<!is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(readMode);
 			oAssert(!writeMode);
@@ -97,11 +97,11 @@ namespace Orkige
 		//! read a enum value from archive
 		template<class Type> 
 		void read(Type & obj,
-			typename boost::enable_if<boost::is_enum<Type> >::type * = 0,
-			typename boost::disable_if<is_optr<Type> >::type * = 0,
-			typename boost::disable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<std::is_enum<Type>::value>::type * = 0,
+			typename std::enable_if<!is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(readMode);
 			oAssert(!writeMode);
@@ -142,17 +142,17 @@ namespace Orkige
 		//! read a ISerializeable derived pointer from archive
 		template<typename Type> 
 		void read(Type & obj,
-			typename boost::enable_if<is_optr<Type> >::type * = 0,
-			typename boost::enable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(readMode);
 			oAssert(!writeMode);
 			optr<ISerializeable> s;
 			this->read(s);
 			oAssert(s.get());
-			obj = boost::static_pointer_cast<typename Type::value_type>(s);
+			obj = std::static_pointer_cast<typename Type::element_type>(s);
 			oAssert(obj.get());
 		}
 
@@ -189,11 +189,11 @@ namespace Orkige
 		//! write a ISerializeable derived object to archive
 		template<class Type> 
 		void write(Type & obj,
-			typename boost::enable_if<boost::is_base_of<ISerializeable,Type> >::type * = 0,
-			typename boost::disable_if<is_optr<Type> >::type * = 0,
-			typename boost::disable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<std::is_base_of<ISerializeable,Type>::value>::type * = 0,
+			typename std::enable_if<!is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(writeMode);
 			oAssert(!readMode);
@@ -203,11 +203,11 @@ namespace Orkige
 		//! write a enum to archive
 		template<class Type> 
 		void write(Type & obj,
-			typename boost::enable_if<boost::is_enum<Type> >::type * = 0,
-			typename boost::disable_if<is_optr<Type> >::type * = 0,
-			typename boost::disable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<std::is_enum<Type>::value>::type * = 0,
+			typename std::enable_if<!is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<!std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(writeMode);
 			oAssert(!readMode);
@@ -247,14 +247,14 @@ namespace Orkige
 		//! write a ISerializeable derived pointer to archive
 		template<class Type> 
 		void write(Type & obj,
-			typename boost::enable_if<is_optr<Type> >::type * = 0,
-			typename boost::enable_if<boost::is_convertible<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,optr<ISerializeable> > >::type * = 0,
-			typename boost::disable_if<boost::is_same<Type,ISerializeable> >::type * = 0)
+			typename std::enable_if<is_optr<Type>::value>::type * = 0,
+			typename std::enable_if<std::is_convertible<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,optr<ISerializeable> >::value>::type * = 0,
+			typename std::enable_if<!std::is_same<Type,ISerializeable>::value>::type * = 0)
 		{
 			oAssert(writeMode);
 			oAssert(!readMode);
-			optr<ISerializeable> s = boost::static_pointer_cast<ISerializeable>(obj);
+			optr<ISerializeable> s = std::static_pointer_cast<ISerializeable>(obj);
 			oAssert(s.get());
 			this->write(s);
 		}

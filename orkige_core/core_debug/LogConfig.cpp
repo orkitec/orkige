@@ -11,7 +11,7 @@
 #include "core_util/String.h"
 #include "core_debug/LogConfig.h"
 #include "core_debug/LogManager.h"
-#include <boost/scoped_ptr.hpp>
+#include <memory>
 #include "core_util/PlatformUtil.h"
 #include <tinyxml2.h>
 
@@ -22,7 +22,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool LogConfig::readConfig(const char* configFileName)
 	{
-		boost::scoped_ptr<tinyxml2::XMLDocument> config(new ::tinyxml2::XMLDocument(true));
+		std::unique_ptr<tinyxml2::XMLDocument> config(new ::tinyxml2::XMLDocument(true));
 		config->LoadFile(configFileName);
 
 		if(config->Error())

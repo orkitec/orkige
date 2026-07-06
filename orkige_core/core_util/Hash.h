@@ -9,13 +9,13 @@
 #ifndef __Hash_h__19_8_2010__23_20_06__
 #define __Hash_h__19_8_2010__23_20_06__
 
-#include <boost/functional/hash.hpp>
+#include <functional>
 #include "core_util/String.h"
 
 namespace Orkige
 {
 	//! create a hash from a String
-	static const boost::hash<String> BoostHashFromString = boost::hash<String>();
+	static const std::hash<String> BoostHashFromString = std::hash<String>();
 }
 
 #endif //__Hash_h__19_8_2010__23_20_06__

@@ -260,7 +260,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	MemoryManager::MemoryManager()
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 		OutputDebugStringA("\n\t...MemoryManager created!...\n\n");
 		doCleanupLogOnFirstRun();
 		
@@ -268,7 +268,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	MemoryManager::~MemoryManager()
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 		staticDeinitTime = true; 
 		dumpLeakReport();
 		OutputDebugStringA("\n\t...MemoryManager destroyed!...\n\n");
@@ -365,7 +365,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_p(size_t reportedSize)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new");
 #endif
@@ -422,7 +422,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_a(size_t reportedSize)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new[]");
 #endif
@@ -479,7 +479,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_p(size_t reportedSize, const char *sourceFile, int sourceLine)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new");
 #endif
@@ -530,7 +530,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	*MemoryManager::operator_new_a(size_t reportedSize, const char *sourceFile, int sourceLine)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: new[]");
 #endif
@@ -581,7 +581,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	MemoryManager::operator_delete_p(void *reportedAddress)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: delete");
 #endif
@@ -603,7 +603,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void	MemoryManager::operator_delete_a(void *reportedAddress)
 	{
-		boost::mutex::scoped_lock scoped_lock(this->memoryMutex);
+		std::lock_guard<std::mutex> scoped_lock(this->memoryMutex);
 #ifdef TEST_MEMORY_MANAGER
 		log("[D] ENTER: delete[]");
 #endif

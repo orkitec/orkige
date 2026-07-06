@@ -10,8 +10,7 @@
 #define __ComponentHolder_h__19_8_2010__23_00_22__
 
 #include "core_util/Component.h"
-#include <boost/utility/enable_if.hpp>
-#include <boost/type_traits/is_base_of.hpp>
+#include <type_traits>
 #include "core_util/foreach.h"
 
 namespace Orkige
@@ -46,7 +45,7 @@ namespace Orkige
 
 		//! register a component to the manager (don't add it)
 		template<class ComponentType> 
-		static bool registerComponent(typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		static bool registerComponent(typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 			oAssert(componentFactory);
@@ -57,7 +56,7 @@ namespace Orkige
 
 		//! unregister a component to the manager (don't add it)
 		template<class ComponentType> 
-		static bool unregisterComponent(typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		static bool unregisterComponent(typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
 			oAssert(componentFactory);
@@ -71,7 +70,7 @@ namespace Orkige
 
 		//! add a registered component by type
 		template<typename ComponentType> 
-		inline bool addComponent(typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+		inline bool addComponent(typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			TypeInfo const & componentType = ComponentType::getClassTypeInfo();
 			return this->addComponent(componentType);
@@ -86,11 +85,11 @@ namespace Orkige
 		//! get attached component by type
 		template<typename ComponentType> 
 		inline woptr<ComponentType> getComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			optr<BaseComponentType> baseComponent = this->getComponent(componentType).lock();
 			oAssert(baseComponent);
-			optr<ComponentType> component = boost::dynamic_pointer_cast<ComponentType>(baseComponent);
+			optr<ComponentType> component = std::dynamic_pointer_cast<ComponentType>(baseComponent);
 			oAssert(component);
 			return component;
 		}
@@ -101,7 +100,7 @@ namespace Orkige
 		//! get attached component by type
 		template<typename ComponentType> 
 		inline ComponentType* getComponentPtr(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			BaseComponentType* baseComponent = this->getComponentPtr(componentType);
 			oAssert(baseComponent);
@@ -119,7 +118,7 @@ namespace Orkige
 		//! remove a component
 		template<typename ComponentType> 
 		inline bool removeComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			return this->removeComponent(componentType);
 		}
@@ -133,7 +132,7 @@ namespace Orkige
 		//! is given component attached?
 		template<typename ComponentType> 
 		inline bool hasComponent(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			return this->hasComponent(componentType);
 		}
@@ -147,7 +146,7 @@ namespace Orkige
 		//! is given component registered?
 		template<typename ComponentType> 
 		static inline bool isComponentRegistered(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<BaseComponentType, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			return isComponentRegistered(componentType);
 		}

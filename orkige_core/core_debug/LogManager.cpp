@@ -18,15 +18,6 @@
 #include <time.h>//is this standard c?
 #include <stdio.h>
 
-#ifdef ORKIGE_NOSCRIPT
-
-#elif ORKIGE_LUA
-
-#else
-#include <boost/python/detail/wrap_python.hpp>
-#include <boost/python.hpp>
-#endif
-
 namespace Orkige
 {
         IMPL_OSINGLETON_GETCREATE(LogManager);

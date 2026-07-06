@@ -9,10 +9,8 @@
 #ifndef __optr_h__12_9_2010__0_00_30__
 #define __optr_h__12_9_2010__0_00_30__
 
-#include <boost/shared_ptr.hpp>
-#include <boost/weak_ptr.hpp>
-#include <boost/type_traits.hpp>
-#include <boost/utility.hpp>
+#include <memory>
+#include <type_traits>
 
 namespace Orkige
 {
@@ -26,30 +24,30 @@ namespace Orkige
 		}
 	};
 
-	//#define	oBadPointer(type,cpointer) boost::shared_ptr<type>(cpointer,NullDeleter())
-	template<class Type> 
-	static boost::shared_ptr<Type> oBadPointer(Type * t)
+	//#define	oBadPointer(type,cpointer) std::shared_ptr<type>(cpointer,NullDeleter())
+	template<class Type>
+	static std::shared_ptr<Type> oBadPointer(Type * t)
 	{
-		return boost::shared_ptr<Type>(t,NullDeleter());
+		return std::shared_ptr<Type>(t,NullDeleter());
 	}
 
 	//! defines a shared pointer
-#define optr boost::shared_ptr
+#define optr std::shared_ptr
 	//! defines a weak shared pointer
-#define woptr boost::weak_ptr
+#define woptr std::weak_ptr
 
 	//! alloc optr
-	template<class Type> 
-	static boost::shared_ptr<Type> onew(Type * t)
+	template<class Type>
+	static std::shared_ptr<Type> onew(Type * t)
 	{
-		return boost::shared_ptr<Type>(t);
+		return std::shared_ptr<Type>(t);
 	}
 
 	//! create and empty optr
-	template<class Type> 
-	static boost::shared_ptr<Type> oNull()
+	template<class Type>
+	static std::shared_ptr<Type> oNull()
 	{
-		return boost::shared_ptr<Type>((Type*)NULL);
+		return std::shared_ptr<Type>((Type*)NULL);
 	}
 
 	//! create and empty optr

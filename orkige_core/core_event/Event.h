@@ -101,7 +101,7 @@ namespace Orkige
 	template<typename Type>
 	inline optr<Type> Event::getDataPtr() const
 	{
-		return boost::static_pointer_cast<Type>(this->data);
+		return std::static_pointer_cast<Type>(this->data);
 	}
 }
 

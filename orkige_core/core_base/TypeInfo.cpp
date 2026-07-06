@@ -9,7 +9,7 @@
 
 #include "core_base/TypeInfo.h"
 #include "core_base/Meta.h"
-#include <boost/shared_ptr.hpp>
+#include <memory>
 
 namespace Orkige
 {
@@ -33,7 +33,7 @@ namespace Orkige
 	bp::scope  TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
 	{
 		typedef TypeInfo ExposedClassType;
-		bp::class_< TypeInfo , boost::shared_ptr<TypeInfo> > py_class( "TypeInfo");
+		bp::class_< TypeInfo , std::shared_ptr<TypeInfo> > py_class( "TypeInfo");
 		OCONSTRUCTOR1(String)
 			OFUNCCR(getId)
 			OFUNCCR(getName)
@@ -44,7 +44,7 @@ namespace Orkige
 	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
 	{
 		typedef TypeInfo ExposedClassType;
-		bp::class_< TypeInfo , boost::noncopyable, boost::shared_ptr<TypeInfo>> py_class( "TypeInfo" , bp::no_init );
+		bp::class_< TypeInfo , std::shared_ptr<TypeInfo>> py_class( "TypeInfo" , bp::no_init );
 		OCONSTRUCTOR1(String)
 			OFUNCCR(getId)
 			OFUNCCR(getName)

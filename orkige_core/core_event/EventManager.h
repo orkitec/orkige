@@ -12,7 +12,7 @@
 #include "core_event/EventListener.h"
 #include "core_event/EventType.h"
 #include "core_event/Event.h"
-#include <boost/function.hpp>
+#include <functional>
 
 namespace Orkige
 {

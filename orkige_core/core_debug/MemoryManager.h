@@ -64,8 +64,7 @@ purpose:	Memory manager & tracking software
 #include <iostream>
 #include <iomanip>
 #include <sstream>
-#include <boost/type_traits/has_new_operator.hpp>
-#include <boost/thread/mutex.hpp>
+#include <mutex>
 
 extern "C" {
 
@@ -160,7 +159,7 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		boost::mutex memoryMutex;
+		std::mutex memoryMutex;
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor

@@ -12,14 +12,15 @@
 #include "core_event/Event.h"
 #include "core_util/FastDelegate.h"
 #include "core_debug/Profile.h"
+#include <functional>
 
 namespace Orkige
 {
 
 	//! definition of a event handling function
 #ifdef ORKIGE_USE_BOOST_FOR_EVENTDELEGATION
-	typedef boost::function1<bool,Event const>	EventHandlerFunction;
-#	define MakeEventHandlerFunction(handlerClass, handlerFunction) boost::bind(handlerFunction,handlerClass,_1)
+	typedef std::function<bool(Event const)>	EventHandlerFunction;
+#	define MakeEventHandlerFunction(handlerClass, handlerFunction) std::bind(handlerFunction,handlerClass,std::placeholders::_1)
 #else
 	typedef fastdelegate::FastDelegate1<Event const &, bool> EventHandlerFunction;
 #	define MakeEventHandlerFunction(handlerClass, handlerFunction) fastdelegate::MakeDelegate(handlerClass, handlerFunction)

@@ -12,11 +12,7 @@
 #include <string>
 #include <list>
 #include <vector>
-#ifndef ORKIGE_NDS
-#include <boost/algorithm/string/case_conv.hpp>
-#else
 #include <ctype.h>
-#endif
 
 namespace Orkige
 {

@@ -1,1 +1,2 @@
-OgreBuildSettings.h
+build/
+.DS_Store

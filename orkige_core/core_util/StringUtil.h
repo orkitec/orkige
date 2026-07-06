@@ -12,6 +12,7 @@
 #include "core_debug/MemoryManager.h"
 #include "core_util/String.h"
 #include "core_base/Value.h"
+#include <algorithm>
 
 namespace Orkige
 {
@@ -44,14 +45,10 @@ namespace Orkige
 
 		//! converts a utf-8 multi byte char to a wide char
 		std::size_t ORKIGE_CORE_DLL multibyteCharStringToWideCharString(wchar_t* wideCharString, const char* multiByteCharString, std::size_t searchLength);
-#ifdef ORKIGE_NDS
 		//! convert in String to lowercase
 		inline void to_lower(String & in)
 		{
-			for(int i = 0; i < in.length(); i++)
-			{
-				in[i] = tolower(in[i]);
-			}
+			std::transform(in.begin(), in.end(), in.begin(), [](unsigned char c) { return static_cast<char>(::tolower(c)); });
 		}
 		//! @return in String copy in lowercase
 		inline String to_lower_copy(String const & in)
@@ -60,12 +57,6 @@ namespace Orkige
 			to_lower(copy);
 			return copy;
 		}
-#else
-		//! convert in String to lowercase
-		using boost::to_lower;
-		//! @return in String copy in lowercase
-		using boost::to_lower_copy;
-#endif
 	};
 	//---------------------------------------------------------------
 }

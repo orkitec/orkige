@@ -11,8 +11,7 @@
 
 #include "core_util/ObjectFactory.h"
 #include "core_base/Object.h"
-#include <boost/utility/enable_if.hpp>
-#include <boost/type_traits/is_base_of.hpp>
+#include <type_traits>
 
 namespace Orkige
 {
@@ -59,7 +58,7 @@ namespace Orkige
 		//! add a dependency to the dependency list
 		template<typename ComponentType> 
 		inline void addDependency(TypeInfo const & componentType = ComponentType::getClassTypeInfo(),
-			typename boost::enable_if<boost::is_base_of<Component<OwnerType>, ComponentType> >::type * = 0)
+			typename std::enable_if<std::is_base_of<Component<OwnerType>, ComponentType>::value>::type * = 0)
 		{
 			this->addDependency(componentType);	
 		}

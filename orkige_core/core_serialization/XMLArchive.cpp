@@ -12,10 +12,46 @@
 #include "core_serialization/XMLArchive.h"
 #include "core_serialization/ISerializeable.h"
 
-#include <boost/lexical_cast.hpp>
+#include <sstream>
+#include <typeinfo>
 
 namespace Orkige
 {
+	//---------------------------------------------------------
+	//! convert a c-string attribute value to the given ValueType (replacement for the old lexical_cast)
+	template<typename ValueType>
+	static ValueType XMLArchiveFromString(const char * str)
+	{
+		std::istringstream stream(str);
+		ValueType value;
+		stream >> value;
+		if(stream.fail())
+			throw std::bad_cast();
+		return value;
+	}
+	//---------------------------------------------------------
+	template<>
+	String XMLArchiveFromString<String>(const char * str)
+	{
+		return String(str);
+	}
+	//---------------------------------------------------------
+	template<>
+	wchar_t XMLArchiveFromString<wchar_t>(const char * str)
+	{
+		if(!str || !str[0])
+			throw std::bad_cast();
+		return (wchar_t)str[0];
+	}
+	//---------------------------------------------------------
+	//! convert a value to a String (replacement for the old lexical_cast<String>)
+	template<typename ValueType>
+	static String XMLArchiveToString(ValueType const & value)
+	{
+		std::ostringstream stream;
+		stream << value;
+		return stream.str();
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -104,7 +140,7 @@ namespace Orkige
 		oAssert(this->currentElement);
 		const char * attr_version = this->currentElement->Attribute("Version");
 		oAssert(attr_version);
-		int version =  boost::lexical_cast<int>(attr_version);
+		int version =  XMLArchiveFromString<int>(attr_version);
 		this->currentElement = this->currentElement->FirstChildElement();
 		return true;
 	}
@@ -129,7 +165,7 @@ namespace Orkige
 		const char * attr_value = element->Attribute("value");
 		oAssert(attr_type);
 		oAssert(attr_value);
-		String temp = boost::lexical_cast<String>(attr_value);
+		String temp = XMLArchiveFromString<String>(attr_value);
 		std::basic_string<wchar_t> widestr = std::basic_string<wchar_t>(temp.begin(), temp.end());
 		const wchar_t* widecstr = widestr.c_str();
 		t = *widecstr;
@@ -149,7 +185,7 @@ namespace Orkige
 		const char * attr_value = element->Attribute("value");
 		oAssert(attr_type);
 		oAssert(attr_value);
-		t = boost::lexical_cast<ValueType>(attr_value);
+		t = XMLArchiveFromString<ValueType>(attr_value);
 		tinyxml2::XMLNode* node = element->NextSibling();
 		if(node)
 			element = static_cast<tinyxml2::XMLElement*>(node);
@@ -166,16 +202,16 @@ namespace Orkige
 		oAssert(attr_type);
 		if(attr_ref)
 		{
-			int ref_id = boost::lexical_cast<int>(attr_ref);
+			int ref_id = XMLArchiveFromString<int>(attr_ref);
 			oAssert(ar->isRegistered(ref_id));
-			t = boost::static_pointer_cast<ValueType>(oBadPointer(registry[ref_id])); 
+			t = std::static_pointer_cast<ValueType>(oBadPointer(registry[ref_id])); 
 			oAssert(t.get());
 		}
 		else
 		{
 			const char * attr_ref_id	= element->Attribute("ref_id");
 			oAssert(attr_ref_id);
-			int ref_id = boost::lexical_cast<int>(attr_ref_id);
+			int ref_id = XMLArchiveFromString<int>(attr_ref_id);
 			tinyxml2::XMLElement* oldElement = element;
 			element = element->FirstChildElement();
 			t = onew(new ValueType());//me doez teh magic =)
@@ -268,13 +304,13 @@ namespace Orkige
 		const char * create	= this->currentElement->Attribute("create");
 		oAssert(attr_type);
 		oAssert(create);
-		bool createBeforeLoad = boost::lexical_cast<bool>(create);
+		bool createBeforeLoad = XMLArchiveFromString<bool>(create);
 		tinyxml2::XMLElement* oldElement = this->currentElement;
 		this->currentElement = this->currentElement->FirstChildElement();
 
 		if(createBeforeLoad)
 		{
-			String type = boost::lexical_cast<String>(attr_type) + "()";
+			String type = String(attr_type) + "()";
 			//t = bp::extract<ISerializeable>(PythonInterpreter::getSingleton().eval(type));
 			Interface* tempCreatedObject = TypeManager::getSingleton().create(attr_type);
 			t = (*static_cast<ISerializeable*>(tempCreatedObject));
@@ -282,8 +318,6 @@ namespace Orkige
 		}
 
 		t.load(oBadPointer(this));
-		//boost::python::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.load");
-		//bp::call<void>(fkt.ptr(),boost::ref(obj)/*self*/,boost::ref(*this)/*archive*/);		
 		tinyxml2::XMLNode* node = oldElement->NextSibling();
 		if(node)
 			this->currentElement = static_cast<tinyxml2::XMLElement*>(node);
@@ -298,13 +332,11 @@ namespace Orkige
 		const char * create	= this->currentElement->Attribute("create");
 		oAssert(attr_type);
 		oAssert(create);
-		bool createBeforeLoad = boost::lexical_cast<bool>(create);
+		bool createBeforeLoad = XMLArchiveFromString<bool>(create);
 		tinyxml2::XMLElement* oldElement = this->currentElement;
 		this->currentElement = this->currentElement->FirstChildElement();
 
 		t.load(oBadPointer(this));
-		//boost::python::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.load");
-		//bp::call<void>(fkt.ptr(),boost::ref(obj)/*self*/,boost::ref(*this)/*archive*/);		
 		tinyxml2::XMLNode* node = oldElement->NextSibling();
 		if(node)
 			this->currentElement = static_cast<tinyxml2::XMLElement*>(node);
@@ -390,8 +422,8 @@ namespace Orkige
 		oAssert(attr_type);
 		if(attr_ref)
 		{
-			int ref_id = boost::lexical_cast<int>(attr_ref);
-			t = boost::static_pointer_cast<ISerializeable>(oBadPointer(this->registryIntOptr[ref_id]));
+			int ref_id = XMLArchiveFromString<int>(attr_ref);
+			t = std::static_pointer_cast<ISerializeable>(oBadPointer(this->registryIntOptr[ref_id]));
 		}
 		else
 		{
@@ -399,14 +431,14 @@ namespace Orkige
 			const char * create	= this->currentElement->Attribute("create");
 			oAssert(attr_ref_id);
 			oAssert(create);
-			bool createBeforeLoad = boost::lexical_cast<bool>(create);
-			int ref_id = boost::lexical_cast<int>(attr_ref_id);
+			bool createBeforeLoad = XMLArchiveFromString<bool>(create);
+			int ref_id = XMLArchiveFromString<int>(attr_ref_id);
 			tinyxml2::XMLElement* oldElement = this->currentElement;
 			this->currentElement = this->currentElement->FirstChildElement();
 			
 			if(createBeforeLoad)
 			{
-				String type = boost::lexical_cast<String>(attr_type) + "()";
+				String type = String(attr_type) + "()";
 				//t = PythonInterpreter::getSingleton().eval<optr<ISerializeable>>(type);
 				t= onew(static_cast<ISerializeable*>(TypeManager::getSingleton().create(attr_type)));
 			}
@@ -430,7 +462,7 @@ namespace Orkige
 		oAssert(!type.empty());
 		oAssert(currentElement);
 		tinyxml2::XMLElement* element = currentElement->GetDocument()->NewElement(type.c_str());
-		element->SetAttribute("value",(boost::lexical_cast<String>(value)).c_str());
+		element->SetAttribute("value",(XMLArchiveToString(value)).c_str());
 		currentElement->InsertEndChild(element);
 	}
 	//---------------------------------------------------------
@@ -536,18 +568,12 @@ namespace Orkige
 		oAssert(writeMode);
 		oAssert(!readMode);
 		tinyxml2::XMLElement* oldElement = this->currentElement;
-		/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
-		const char * className = bp::call<const char *>(fkta.ptr(),boost::ref(*t));*/
 		const char * className = t.getTypeInfo().getName().c_str();
 		oAssert(className);
 		bool createBeforeLoad = t.createBeforeLoad();
 		this->currentElement = this->file->NewElement(className);
-		this->currentElement->SetAttribute("create",(boost::lexical_cast<String>(createBeforeLoad)).c_str());
+		this->currentElement->SetAttribute("create",(XMLArchiveToString(createBeforeLoad)).c_str());
 		t.save(oBadPointer(this));
-/*
-		bp::api::object fkt = PythonInterpreter::getSingleton().eval("ISerializeable.save");
-		bp::call<void>(fkt.ptr(),boost::ref(t),boost::ref(*this));*/
-
 		oldElement->InsertEndChild(this->currentElement);
 		this->currentElement = oldElement;
 	}
@@ -629,8 +655,6 @@ namespace Orkige
 		oAssert(this->currentElement);
 		if(this->isRegistered(t))
 		{
-			/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
-			const char * className = bp::call<const char *>(fkta.ptr(),boost::ref(*t));*/
 			const char * className = t->getTypeInfo().getName().c_str();
 			oAssert(className);
 
@@ -643,14 +667,12 @@ namespace Orkige
 			unsigned int ref_id = (int)this->registryOptrInt.size();
 			this->registryOptrInt[t.get()] = ref_id;
 			tinyxml2::XMLElement* oldElement = this->currentElement;
-			/*bp::api::object fkta = PythonInterpreter::getSingleton().eval("XMLArchiveGetClassName");
-			const char * className = bp::call<const char *>(fkta.ptr(),boost::ref(*t));*/
 			const char * className = t->getTypeInfo().getName().c_str();
 			oAssert(className);
 			this->currentElement = this->file->NewElement(className);
 			this->currentElement->SetAttribute("ref_id",ref_id);
 			bool createBeforeLoad = t->createBeforeLoad();
-			this->currentElement->SetAttribute("create",(boost::lexical_cast<String>(createBeforeLoad)).c_str());
+			this->currentElement->SetAttribute("create",(XMLArchiveToString(createBeforeLoad)).c_str());
 			this->write(*t);
 			oldElement->InsertEndChild(this->currentElement);
 			this->currentElement = oldElement;

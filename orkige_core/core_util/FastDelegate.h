@@ -110,7 +110,7 @@
 #define FASTDELEGATE_ALLOW_FUNCTION_TYPE_SYNTAX
 #endif
 
-// It works on Metrowerks MWCC 3.2.2. From boost.Config it should work on earlier ones too.
+// It works on Metrowerks MWCC 3.2.2. From Boost.Config it should work on earlier ones too.
 #if defined (__MWERKS__)
 #define FASTDELEGATE_ALLOW_FUNCTION_TYPE_SYNTAX
 #endif
@@ -1619,7 +1619,7 @@ private:	// Invoker for static functions
 //						Fast Delegates, part 4:
 // 
 //				FastDelegate<> class (Original author: Jody Hagins)
-//	Allows boost::function style syntax like:
+//	Allows std::function style syntax like:
 //			FastDelegate< double (int, long) >
 // instead of:
 //			FastDelegate2< int, long, double >
