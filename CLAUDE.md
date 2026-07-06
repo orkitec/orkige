@@ -25,9 +25,15 @@ cmake --build --preset macos-debug                              # build
 
 Presets: `macos-debug`, `macos-release`. Output in `build/<preset>/`.
 Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
-into the tree and never rely on system-installed libraries (a stale boost in
-`/usr/local/include` on this machine has masked missing includes before; a clean build
-must not use it).
+into the tree and never rely on system-installed libraries.
+
+Hermeticity: this machine hosts a second (Intel-layout) Homebrew at `/usr/local`, plus
+loose orphaned headers from ~2016 (e.g. an ancient zlib.h), and clang searches
+`/usr/local/include` by default. The presets force `CMAKE_OSX_SYSROOT` +
+`CMAKE_IGNORE_PREFIX_PATH=/usr/local`, and `triplets/arm64-osx.cmake` (via
+`VCPKG_OVERLAY_TRIPLETS`) does the same for vcpkg port builds. If a build ever reports
+headers/symbols from `/usr/local`, that isolation has regressed — fix it, don't work
+around it.
 
 ## Modernization ground rules
 
