@@ -18,6 +18,7 @@
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_input/InputManager.h>
+#include <engine_util/NodeUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_util/StringUtil.h>
@@ -124,6 +125,60 @@ bool createCubeGameObject(Orkige::GameObjectManager& gameObjectManager,
 		gameObject->getComponentPtr<Orkige::TransformComponent>();
 	transform->attachObject(buildColoredCube(sceneManager, id + "_mesh", 0.8f));
 	transform->setPosition(position);
+	return true;
+}
+
+// viewport click-picking: cast a camera ray through the click point and
+// select the nearest hit that belongs to a GameObject (a TransformComponent
+// tags its scene nodes, NodeUtil walks a hit back to the owner). AABB-level
+// picking is right for the editor bootstrap; polygon-accurate picking via
+// CollisionTools comes when entities with real meshes arrive.
+bool pickObjectAtCursor(EditorState& state, Ogre::Camera* camera,
+	Ogre::SceneManager* sceneManager, float normalizedX, float normalizedY)
+{
+	const Ogre::Ray ray =
+		camera->getCameraToViewportRay(normalizedX, normalizedY);
+	Ogre::RaySceneQuery* query = sceneManager->createRayQuery(ray);
+	query->setSortByDistance(true);
+	bool picked = false;
+	for (Ogre::RaySceneQueryResultEntry const& hit : query->execute())
+	{
+		if (!hit.movable || !hit.movable->getParentSceneNode())
+		{
+			continue;
+		}
+		Orkige::GameObject* gameObject = Orkige::NodeUtil::getGameObjectFromNode(
+			hit.movable->getParentSceneNode());
+		if (gameObject)
+		{
+			state.selectedObjectId = gameObject->getObjectID();
+			picked = true;
+			break;
+		}
+	}
+	sceneManager->destroyQuery(query);
+	if (!picked)
+	{
+		// clicking empty space deselects, like Unity
+		state.selectedObjectId.clear();
+	}
+	return picked;
+}
+
+// project a world position to SDL window coordinates (for the picking
+// self-check); returns false if the position is behind the camera
+bool worldToWindowPoint(Ogre::Camera* camera, Ogre::Vector3 const& worldPos,
+	float windowWidth, float windowHeight, float& outX, float& outY)
+{
+	const Ogre::Vector4 clip = camera->getProjectionMatrix() *
+		(camera->getViewMatrix() * Ogre::Vector4(worldPos.x, worldPos.y,
+			worldPos.z, 1.0f));
+	if (clip.w <= 0.0f)
+	{
+		return false;
+	}
+	outX = (clip.x / clip.w * 0.5f + 0.5f) * windowWidth;
+	outY = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * windowHeight;
 	return true;
 }
 
@@ -537,6 +592,22 @@ int main(int, char**)
 				// input pipeline what ImGui does not capture
 				if (!imguiInput.processEvent(event))
 				{
+					// left click in the 3D viewport selects the GameObject
+					// under the cursor (or deselects on empty space)
+					if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+						event.button.button == SDL_BUTTON_LEFT)
+					{
+						int windowW = 0;
+						int windowH = 0;
+						SDL_GetWindowSize(window, &windowW, &windowH);
+						if (windowW > 0 && windowH > 0)
+						{
+							pickObjectAtCursor(state, engine.getCamera(),
+								sceneManager,
+								event.button.x / static_cast<float>(windowW),
+								event.button.y / static_cast<float>(windowH));
+						}
+					}
 					inputManager.injectEvent(event);
 				}
 			}
@@ -600,6 +671,51 @@ int main(int, char**)
 				if (!objectsOk || imguiVertices <= 0)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 45 && selfCheck)
+			{
+				// self-check: viewport picking - clear the selection, then
+				// push a real SDL click at Cube1's projected screen position;
+				// it travels the exact user path (SDL queue -> ImGui capture
+				// test -> pickObjectAtCursor)
+				state.selectedObjectId.clear();
+				optr<Orkige::GameObject> cube1 =
+					gameObjectManager.getGameObject("Cube1").lock();
+				int windowW = 0;
+				int windowH = 0;
+				SDL_GetWindowSize(window, &windowW, &windowH);
+				float clickX = 0.0f;
+				float clickY = 0.0f;
+				if (cube1 && worldToWindowPoint(engine.getCamera(),
+					cube1->getComponentPtr<Orkige::TransformComponent>()
+						->getPosition(),
+					static_cast<float>(windowW), static_cast<float>(windowH),
+					clickX, clickY))
+				{
+					SDL_Event clickEvent{};
+					clickEvent.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					clickEvent.button.button = SDL_BUTTON_LEFT;
+					clickEvent.button.x = clickX;
+					clickEvent.button.y = clickY;
+					SDL_PushEvent(&clickEvent);
+				}
+				else
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (pick projection)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 50 && selfCheck)
+			{
+				SDL_Log("orkige_editor: selfcheck frame 50 - picked '%s' via "
+					"viewport click", state.selectedObjectId.c_str());
+				if (state.selectedObjectId != "Cube1")
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (viewport pick)");
 					exitCode = 2;
 					running = false;
 				}
