@@ -37,9 +37,10 @@ namespace Orkige
 		bool hasAnims = false;
 		if(this->animationStates)
 		{
-			hasAnims = this->animationStates->getAnimationStateIterator().hasMoreElements();
+			// OGRE 14: getAnimationStateIterator() is gone, getAnimationStates() returns the map
+			hasAnims = !this->animationStates->getAnimationStates().empty();
 		}
-		return hasAnims;	
+		return hasAnims;
 	}
 	//---------------------------------------------------------
 	bool AnimationComponent::hasPlayingAnimations()
@@ -106,15 +107,13 @@ namespace Orkige
 	void AnimationComponent::updateAnimations(float timeDelta)
 	{
 		oAssert(this->animationStates);
-		Ogre::ConstEnabledAnimationStateIterator it = this->animationStates->getEnabledAnimationStateIterator();
 		std::vector<Ogre::AnimationState*> endedAnimations;
-		while(it.hasMoreElements())
+		// OGRE 14: getEnabledAnimationStateIterator() is gone, range-for over the list
+		for(Ogre::AnimationState * state : this->animationStates->getEnabledAnimationStates())
 		{
-			Ogre::AnimationState * state = it.peekNext();
-
 			if(state->hasEnded())
 			{
-				endedAnimations.push_back(state);	
+				endedAnimations.push_back(state);
 			}
 			else
 			{
@@ -125,8 +124,6 @@ namespace Orkige
 
 				state->addTime(timeDelta * this->speed);
 			}
-			
-			it.moveNext();
 		}
 		
 		foreach(Ogre::AnimationState* state, endedAnimations)
@@ -216,28 +213,26 @@ namespace Orkige
 			this->animationStates = model->getAllAnimationStates();
 			if(this->animationStates)
 			{
-				Ogre::AnimationStateIterator it = this->animationStates->getAnimationStateIterator();
-				while(it.hasMoreElements())
+				// OGRE 14: getAnimationStateIterator() is gone, range-for over the map
+				for(Ogre::AnimationStateMap::value_type const & animEntry : this->animationStates->getAnimationStates())
 				{
-					String animationName = it.peekNextKey();
+					String const & animationName = animEntry.first;
 					if(this->defaultAnimation.empty())
 						this->defaultAnimation = animationName;
 
-					Ogre::AnimationState* animationState = it.peekNextValue();
+					Ogre::AnimationState* animationState = animEntry.second;
 					animationState->setEnabled(false);
 					animationState->setTimePosition(0.f);
 					this->availableAnimations.push_back(animationName);
-					it.moveNext();
 				}
 				this->getComponentOwner()->triggerEvent(Event(AnimationsLoaded));
 			}
 			Ogre::Skeleton* skeleton = model->getSkeleton();
 			if(skeleton)
 			{
-				Ogre::Skeleton::BoneIterator boneIt = skeleton->getBoneIterator();
-				while(boneIt.hasMoreElements())
+				// OGRE 14: getBoneIterator() is gone, range-for over getBones()
+				for(Ogre::Bone* bone : skeleton->getBones())
 				{
-					Ogre::Bone* bone = boneIt.getNext();
 					this->boneNames.push_back(bone->getName());
 					if(this->motionBone.empty())
 						this->motionBone = bone->getName();
@@ -299,7 +294,7 @@ namespace Orkige
 								transform->setOrientation(initialTransform.rotation * /*bone->getInitialOrientation() * */interPolatedKeyframe.getRotation());
 							transform->setPosition(initialTransform.translate + /*bone->getInitialPosition() + */(interPolatedKeyframe.getTranslate()-startKf->getTranslate()));
 						}
-						for(int i = 0 ; i <track->getNumKeyFrames(); i++)
+						for(unsigned short i = 0 ; i <track->getNumKeyFrames(); i++)
 						{
 							Ogre::TransformKeyFrame* kf = track->getNodeKeyFrame(i);
 							this->backuppedKeyframes[animationName][bonehandle].push_back(KeyFrameBackup(i, kf));

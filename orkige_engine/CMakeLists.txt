@@ -1,7 +1,8 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
-# listed. Unported modules (engine_fastgui, engine_gocomponent,
-# engine_mygui) join as they are ported.
+# listed. Unported modules (engine_fastgui, engine_mygui) join as they are
+# ported. engine_gocomponent/PythonScriptComponent stays out for good
+# (ORKIGE_NOSCRIPT) - Lua script components return on sol2 in Phase 2.
 
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
@@ -18,6 +19,9 @@ set(ORKIGE_ENGINE_SOURCES
     engine_util/StringUtil.h
     engine_util/ResourceUtil.h
     engine_util/ResourceUtil.cpp
+    engine_util/NodeUtil.h
+    engine_util/SceneNodeGuard.h
+    engine_util/SceneNodeGuard.cpp
     engine_graphic/FrameEventData.h
     engine_graphic/FrameEventData.cpp
     engine_graphic/Engine.h
@@ -50,6 +54,17 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/InputManager.cpp
     engine_physic/CollisionTools.h
     engine_physic/CollisionTools.cpp
+    engine_gocomponent/TransformComponent.h
+    engine_gocomponent/TransformComponent.cpp
+    engine_gocomponent/ModelComponent.h
+    engine_gocomponent/ModelComponent.cpp
+    engine_gocomponent/AnimationComponent.h
+    engine_gocomponent/AnimationComponent.cpp
+    engine_gocomponent/CameraComponent.h
+    engine_gocomponent/CameraComponent.cpp
+    engine_gocomponent/CameraDefaultModes.h
+    engine_gocomponent/SoundComponent.h
+    engine_gocomponent/SoundComponent.cpp
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h
@@ -78,9 +93,13 @@ target_include_directories(orkige_engine PUBLIC
 # ORKIGE_OPENAL_SOUND: engine_sound compiles against OpenAL Soft (vcpkg
 # openal-soft) on every platform; without the define the sound classes
 # degrade to inert stubs (the historical no-sound configuration).
+# ORKIGE_ENGINE_HAS_GOCOMPONENT: engine_gocomponent is ported; enables the
+# TransformComponent/ModelComponent code paths guarded in engine_util/NodeUtil.h
+# and engine_base/Localisation.cpp.
 target_compile_definitions(orkige_engine PUBLIC
     USE_RTSHADER_SYSTEM
     ORKIGE_OPENAL_SOUND
+    ORKIGE_ENGINE_HAS_GOCOMPONENT
 )
 
 target_link_libraries(orkige_engine

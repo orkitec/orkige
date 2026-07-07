@@ -4,9 +4,11 @@
 // exercises the whole RTSS shader pipeline without needing any asset files.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_gocomponent/TransformComponent.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
+#include <core_game/GameObjectManager.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
@@ -173,6 +175,41 @@ int main(int, char**)
 			sceneManager->getRootSceneNode()->createChildSceneNode();
 		cubeNode->attachObject(cube);
 
+		// --- GameObject component bridge: a second, smaller cube that is not
+		// placed through raw Ogre scene calls but through a GameObject with a
+		// TransformComponent (engine_gocomponent), orbiting the main cube.
+		// OEXPORT in engine_module/module.cpp registers the component
+		// factories; GameObjectManager is the singleton owning the objects.
+		init_module_orkige_engine();
+		Orkige::GameObjectManager gameObjectManager;
+		optr<Orkige::GameObject> orbiter =
+			gameObjectManager.createGameObject("orbiter").lock();
+		if (!orbiter || !orbiter->addComponent<Orkige::TransformComponent>())
+		{
+			SDL_Log("hello_orkige: FAILED - GameObject/TransformComponent "
+				"creation failed");
+			return 1;
+		}
+		Orkige::TransformComponent* orbiterTransform =
+			orbiter->getComponentPtr<Orkige::TransformComponent>();
+
+		Ogre::ManualObject* smallCube =
+			sceneManager->createManualObject("smallCube");
+		smallCube->begin("VertexColour", Ogre::RenderOperation::OT_TRIANGLE_LIST);
+		const float smallScale = 0.35f;
+		for (int i = 0; i < 8; ++i)
+		{
+			smallCube->position(corners[i] * smallScale);
+			smallCube->colour(colors[7 - i]);
+		}
+		for (const int* q : quads)
+		{
+			smallCube->quad(q[0], q[1], q[2], q[3]);
+		}
+		smallCube->end();
+		// attach to the TransformComponent's scene node (SceneNodeGuard API)
+		orbiterTransform->attachObject(smallCube);
+
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.0f, 6.0f);
 		engine.getCamera()->getParentSceneNode()->lookAt(
 			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
@@ -204,6 +241,13 @@ int main(int, char**)
 			}
 			cubeNode->yaw(Ogre::Degree(0.4f));
 			cubeNode->pitch(Ogre::Degree(0.13f));
+			// orbit the small cube around the main cube purely through the
+			// TransformComponent API - proves the component bridge end-to-end
+			const float orbitAngle = static_cast<float>(frameCount) * 0.02f;
+			orbiterTransform->setPosition(Ogre::Vector3(
+				3.0f * std::cos(orbitAngle), 0.8f, 3.0f * std::sin(orbitAngle)));
+			orbiterTransform->setOrientation(Ogre::Quaternion(
+				Ogre::Radian(-orbitAngle), Ogre::Vector3::UNIT_Y));
 			if (!engine.renderOneFrame())
 			{
 				running = false;
@@ -234,7 +278,8 @@ int main(int, char**)
 			}
 			if (frameCount == 10)
 			{
-				// verification that the cube actually got drawn, not just a black window
+				// verification that both cubes actually got drawn (12 triangles
+				// each), not just a black window
 				const size_t triangleCount =
 					engine.getRenderWindow()->getStatistics().triangleCount;
 				Ogre::LogManager::getSingleton().logMessage(
@@ -242,9 +287,10 @@ int main(int, char**)
 					Ogre::StringConverter::toString(triangleCount));
 				SDL_Log("hello_orkige: triangle count after 10 frames: %zu",
 					triangleCount);
-				if (triangleCount == 0)
+				if (triangleCount < 24)
 				{
-					SDL_Log("hello_orkige: FAILED - nothing was rendered");
+					SDL_Log("hello_orkige: FAILED - expected both cubes "
+						"(>= 24 triangles)");
 					return 1;
 				}
 			}

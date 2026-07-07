@@ -137,10 +137,9 @@ namespace Orkige
 		inline Ogre::Node* getChild(unsigned short index) const;    
 		//! @copydoc Ogre::Node::getChild
 		inline Ogre::Node* getChild(String const & name) const;
-		//! @copydoc Ogre::Node::getChildIterator
-		inline Ogre::Node::ChildNodeIterator getChildIterator(void);
-		//! @copydoc Ogre::Node::getChildIterator
-		inline Ogre::Node::ConstChildNodeIterator getChildIterator() const;
+		//! @copydoc Ogre::Node::getChildren
+		//! OGRE 14: replaces the removed getChildIterator()
+		inline Ogre::Node::ChildNodeMap const & getChildren() const;
 		//! @copydoc Ogre::Node::removeChild
 		inline Ogre::Node* removeChild(unsigned short index);
 		//! @copydoc Ogre::Node::removeChild
@@ -156,9 +155,9 @@ namespace Orkige
 		//! @copydoc Ogre::SceneNode::attachObject
 		inline void attachObject(Ogre::MovableObject* obj);
 		//! @copydoc Ogre::SceneNode::numAttachedObjects
-		inline unsigned short numAttachedObjects() const;
+		inline size_t numAttachedObjects() const;
 		//! @copydoc Ogre::SceneNode::getAttachedObject
-		inline Ogre::MovableObject* getAttachedObject(unsigned short index);
+		inline Ogre::MovableObject* getAttachedObject(size_t index);
 		//! @copydoc Ogre::SceneNode::getAttachedObject
 		inline Ogre::MovableObject* getAttachedObject(String const & name);
 		//! @copydoc Ogre::SceneNode::detachObject
@@ -173,10 +172,9 @@ namespace Orkige
 		inline const Ogre::AxisAlignedBox& getWorldAABB() const;
 		//! @copydoc Ogre::SceneNode::_updateBounds
 		inline void updateBounds();
-		//! @copydoc Ogre::SceneNode::getAttachedObjectIterator
-		inline Ogre::SceneNode::ObjectIterator getAttachedObjectIterator();
-		//! @copydoc Ogre::SceneNode::getAttachedObjectIterator
-		inline Ogre::SceneNode::ConstObjectIterator getAttachedObjectIterator() const;
+		//! @copydoc Ogre::SceneNode::getAttachedObjects
+		//! OGRE 14: replaces the removed getAttachedObjectIterator()
+		inline Ogre::SceneNode::ObjectMap const & getAttachedObjects() const;
 		//! @copydoc Ogre::SceneNode::getCreator
 		inline Ogre::SceneManager* getSceneManager() const;
 		//! @copydoc Ogre::SceneNode::removeAndDestroyChild
@@ -186,9 +184,8 @@ namespace Orkige
 		//! @copydoc Ogre::SceneNode::removeAndDestroyAllChildren
 		inline void removeAndDestroyAllChildren();
 		//! @copydoc Ogre::SceneNode::showBoundingBox
+		//! OGRE 14: hideBoundingBox() is gone, showBoundingBox(false) covers it
 		inline void showBoundingBox(bool bShow);
-		//! @copydoc Ogre::SceneNode::hideBoundingBox
-		inline void hideBoundingBox(bool bHide);
 		//! @copydoc Ogre::SceneNode::getShowBoundingBox
 		inline bool getShowBoundingBox() const;
 		//! @copydoc Ogre::SceneNode::createChildSceneNode
@@ -214,9 +211,8 @@ namespace Orkige
 		//! @copydoc Ogre::SceneNode::flipVisibility
 		inline void flipVisibility(bool cascade = true);
 		//! @copydoc Ogre::SceneNode::setDebugDisplayEnabled
+		//! OGRE 14: Node::DebugRenderable/getDebugRenderable() are gone for good
 		inline void setDebugDisplayEnabled(bool enabled, bool cascade = true);
-		//! @copydoc Ogre::SceneNode::getDebugRenderable
-		inline Ogre::Node::DebugRenderable* getDebugRenderable();
 		//! attach to given node and detach from current parent node
 		inline void attachToNode(Ogre::Node* node);
 		//! enable triggering of NodeUpdateEvent
@@ -386,14 +382,9 @@ namespace Orkige
 		return this->sceneNode->getChild(name);
 	}
 	//---------------------------------------------------------
-	inline Ogre::Node::ChildNodeIterator SceneNodeGuard::getChildIterator()
+	inline Ogre::Node::ChildNodeMap const & SceneNodeGuard::getChildren() const
 	{
-		return this->sceneNode->getChildIterator();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node::ConstChildNodeIterator SceneNodeGuard::getChildIterator() const
-	{
-		return this->getSceneNode()->getChildIterator();
+		return this->sceneNode->getChildren();
 	}
 	//---------------------------------------------------------
 	inline Ogre::Node* SceneNodeGuard::removeChild(unsigned short index)
@@ -431,12 +422,12 @@ namespace Orkige
 		this->sceneNode->attachObject(obj);
 	}
 	//---------------------------------------------------------
-	inline unsigned short SceneNodeGuard::numAttachedObjects() const
+	inline size_t SceneNodeGuard::numAttachedObjects() const
 	{
 		return this->sceneNode->numAttachedObjects();
 	}
 	//---------------------------------------------------------
-	inline Ogre::MovableObject* SceneNodeGuard::getAttachedObject(unsigned short index)
+	inline Ogre::MovableObject* SceneNodeGuard::getAttachedObject(size_t index)
 	{
 		return this->sceneNode->getAttachedObject(index);
 	}
@@ -476,14 +467,9 @@ namespace Orkige
 		this->sceneNode->_updateBounds();
 	}
 	//---------------------------------------------------------
-	inline Ogre::SceneNode::ObjectIterator SceneNodeGuard::getAttachedObjectIterator()
+	inline Ogre::SceneNode::ObjectMap const & SceneNodeGuard::getAttachedObjects() const
 	{
-		return this->sceneNode->getAttachedObjectIterator();
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneNode::ConstObjectIterator SceneNodeGuard::getAttachedObjectIterator() const
-	{
-		return this->getSceneNode()->getAttachedObjectIterator();
+		return this->sceneNode->getAttachedObjects();
 	}
 	//---------------------------------------------------------
 	inline Ogre::SceneManager* SceneNodeGuard::getSceneManager() const
@@ -509,11 +495,6 @@ namespace Orkige
 	inline void SceneNodeGuard::showBoundingBox(bool show)
 	{
 		this->sceneNode->showBoundingBox(show);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::hideBoundingBox(bool hide)
-	{
-		this->sceneNode->hideBoundingBox(hide);
 	}
 	//---------------------------------------------------------
 	inline bool SceneNodeGuard::getShowBoundingBox() const
@@ -579,11 +560,6 @@ namespace Orkige
 	inline void SceneNodeGuard::setDebugDisplayEnabled(bool enabled, bool cascade)
 	{
 		this->sceneNode->setDebugDisplayEnabled(enabled, cascade);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node::DebugRenderable* SceneNodeGuard::getDebugRenderable()
-	{
-		return this->sceneNode->getDebugRenderable();
 	}
 	//---------------------------------------------------------
 	inline void SceneNodeGuard::attachToNode(Ogre::Node* node)

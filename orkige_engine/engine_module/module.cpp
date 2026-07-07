@@ -7,17 +7,30 @@
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 
-// Only the modules already ported to OGRE 14 are registered here; the other
-// exports (gocomponents, fastgui, ...) return as their modules
-// are ported.
+// Only the modules already ported to OGRE 14 are registered here; the
+// fastgui exports return when engine_fastgui is ported.
+// PythonScriptComponent is gone for good (ORKIGE_NOSCRIPT); a Lua script
+// component returns on sol2 in Phase 2.
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/IngameConsole.h"
+#include "engine_gocomponent/SoundComponent.h"
+#include "engine_gocomponent/CameraComponent.h"
+#include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/AnimationComponent.h"
 #include "engine_input/InputManager.h"
 #include "engine_sound/SoundManager.h"
 
 using namespace Orkige;
 
 ORKIGE_MODULE(orkige_engine)
+	OEXPORT(TransformComponent)
+	OEXPORT(ModelComponent)
+	OEXPORT(AnimationComponent)
+	OEXPORT(CameraComponent)
+	OEXPORT(SoundComponent)
+	OEXPORTMAP(StringGameObjectMap,Orkige::String,optr<Orkige::GameObject>)
+
 	OEXPORT(Engine)
 	OEXPORT(FrameEventData)
 	OEXPORT(IngameConsole)

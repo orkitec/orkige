@@ -56,7 +56,8 @@ namespace Orkige
 		TransformComponent *tc = NULL;
 
 		Ogre::Any const & any = node->getUserObjectBindings().getUserAny(TransformComponent::USEROBJECT_BINDING_KEY);
-		if(!any.isEmpty())
+		// OGRE 14: Any::isEmpty() is deprecated in favour of std::any style has_value()
+		if(any.has_value())
 		{
 			tc = Ogre::any_cast<TransformComponent*>(any);
 		}
