@@ -132,6 +132,8 @@ protected:
 		optr<Ogre::Root>			root;
 		//! statically linked render system plugin - must outlive the root (OGRE 14 static build)
 		optr<Ogre::Plugin>			renderSystemPlugin;
+		//! statically linked assimp mesh codec plugin (glTF/glb etc.) - same lifetime rule
+		optr<Ogre::Plugin>			assimpCodecPlugin;
 		optr<BigZipArchiveFactory>  bigZipArchiveFactory;
 		Ogre::RenderWindow*			renderWindow[MAX_MUMBER_OF_WINDOWS];
 		Ogre::SceneManager*			sceneManager;

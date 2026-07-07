@@ -31,6 +31,8 @@
 #include <OgreOverlaySystem.h>
 #include <OgreOverlayManager.h>
 #include <OgreImGuiOverlay.h>
+#include <OgreEntity.h>
+#include <OgreMeshManager.h>
 #include <imgui.h>
 
 #include "ImGuiSDL3Input.h"
@@ -69,6 +71,7 @@ struct EditorState
 	bool quitRequested = false;
 	std::string selectedObjectId;
 	int cubeCounter = 0;
+	int meshCounter = 0;
 	char luaInput[4096] =
 		"-- Lua console (sol2). Example:\n"
 		"return Engine.getSingleton():getTopLevelWindowHandle()";
@@ -124,6 +127,57 @@ bool createCubeGameObject(Orkige::GameObjectManager& gameObjectManager,
 	Orkige::TransformComponent* transform =
 		gameObject->getComponentPtr<Orkige::TransformComponent>();
 	transform->attachObject(buildColoredCube(sceneManager, id + "_mesh", 0.8f));
+	transform->setPosition(position);
+	return true;
+}
+
+// create an Ogre::Entity from the generated glTF test asset (loaded through
+// the statically linked Codec_Assimp plugin; the .glb comes from
+// Util/make_test_mesh.py). Codec_Assimp already sets TVC_DIFFUSE on the
+// synthesized material because the mesh carries COLOR_0 vertex colours, but
+// it also generates normals (aiProcess_GenNormals), which keeps lighting
+// enabled - under the editor's ambient-only light the colours would drown.
+// Render it unlit, exactly like the manual cubes.
+Ogre::Entity* createTestMeshEntity(Ogre::SceneManager* sceneManager,
+	std::string const& entityName)
+{
+	Ogre::Entity* entity =
+		sceneManager->createEntity(entityName, "test_mesh.glb");
+	for (unsigned int i = 0; i < entity->getNumSubEntities(); ++i)
+	{
+		Ogre::Pass* pass = entity->getSubEntity(i)->getMaterial()
+			->getTechnique(0)->getPass(0);
+		pass->setLightingEnabled(false);
+		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
+	}
+	return entity;
+}
+
+// create a GameObject with a TransformComponent carrying the glTF test mesh
+bool createTestMeshGameObject(Orkige::GameObjectManager& gameObjectManager,
+	Ogre::SceneManager* sceneManager, std::string const& id,
+	Ogre::Vector3 const& position)
+{
+	Ogre::Entity* entity = nullptr;
+	try
+	{
+		entity = createTestMeshEntity(sceneManager, id + "_entity");
+	}
+	catch (Ogre::Exception const& e)
+	{
+		SDL_Log("orkige_editor: test mesh load failed: %s",
+			e.getDescription().c_str());
+		return false;
+	}
+	optr<Orkige::GameObject> gameObject =
+		gameObjectManager.createGameObject(id).lock();
+	if (!gameObject || !gameObject->addComponent<Orkige::TransformComponent>())
+	{
+		return false;
+	}
+	Orkige::TransformComponent* transform =
+		gameObject->getComponentPtr<Orkige::TransformComponent>();
+	transform->attachObject(entity);
 	transform->setPosition(position);
 	return true;
 }
@@ -200,6 +254,55 @@ void createCubeFromMenu(EditorState& state,
 	}
 }
 
+// GameObject > Create Test Mesh: auto-named, at origin
+void createTestMeshFromMenu(EditorState& state,
+	Orkige::GameObjectManager& gameObjectManager,
+	Ogre::SceneManager* sceneManager)
+{
+	std::string id;
+	do
+	{
+		++state.meshCounter;
+		id = "TestMesh" + std::to_string(state.meshCounter);
+	} while (gameObjectManager.objectExists(id));
+	if (createTestMeshGameObject(gameObjectManager, sceneManager, id,
+		Ogre::Vector3::ZERO))
+	{
+		state.selectedObjectId = id;
+	}
+}
+
+// push a real SDL left-click at a GameObject's projected screen position;
+// the click travels the exact user path (SDL queue -> ImGui capture test ->
+// pickObjectAtCursor). Selfcheck helper; returns false if the object is
+// missing or behind the camera.
+bool pushClickOnGameObject(Orkige::GameObjectManager& gameObjectManager,
+	Ogre::Camera* camera, SDL_Window* window, std::string const& id)
+{
+	optr<Orkige::GameObject> gameObject =
+		gameObjectManager.getGameObject(id).lock();
+	int windowW = 0;
+	int windowH = 0;
+	SDL_GetWindowSize(window, &windowW, &windowH);
+	float clickX = 0.0f;
+	float clickY = 0.0f;
+	if (!gameObject || !worldToWindowPoint(camera,
+		gameObject->getComponentPtr<Orkige::TransformComponent>()
+			->getPosition(),
+		static_cast<float>(windowW), static_cast<float>(windowH),
+		clickX, clickY))
+	{
+		return false;
+	}
+	SDL_Event clickEvent{};
+	clickEvent.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+	clickEvent.button.button = SDL_BUTTON_LEFT;
+	clickEvent.button.x = clickX;
+	clickEvent.button.y = clickY;
+	SDL_PushEvent(&clickEvent);
+	return true;
+}
+
 #ifdef ORKIGE_LUA
 // run the console buffer through the ScriptManager, capture returns/errors
 void runLuaConsoleInput(EditorState& state, Orkige::ScriptManager& scriptManager)
@@ -257,6 +360,10 @@ void drawMenuBar(EditorState& state,
 			if (ImGui::MenuItem("Create Cube"))
 			{
 				createCubeFromMenu(state, gameObjectManager, sceneManager);
+			}
+			if (ImGui::MenuItem("Create Test Mesh"))
+			{
+				createTestMeshFromMenu(state, gameObjectManager, sceneManager);
 			}
 			ImGui::EndMenu();
 		}
@@ -488,6 +595,10 @@ int main(int, char**)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_EDITOR_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+		// sample assets (test_mesh.glb from Util/make_test_mesh.py) in the
+		// default group; meshes load lazily via Codec_Assimp on createEntity
+		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
+			ORKIGE_EDITOR_ASSET_DIR, "FileSystem");
 
 		if (!engine.setup("Orkige Editor", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
@@ -560,6 +671,17 @@ int main(int, char**)
 				return 1;
 			}
 		}
+		// ... plus one glTF test mesh above the cubes: proves the Codec_Assimp
+		// import path (registered in Engine.cpp's static-plugin block) at boot
+		++state.meshCounter;
+		if (!createTestMeshGameObject(gameObjectManager, sceneManager,
+			"TestMesh" + std::to_string(state.meshCounter),
+			Ogre::Vector3(0.0f, 2.2f, 0.0f)))
+		{
+			SDL_Log("orkige_editor: FAILED - boot test mesh GameObject "
+				"creation failed");
+			return 1;
+		}
 		state.selectedObjectId = "Cube2";
 
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.5f, 9.0f);
@@ -569,7 +691,8 @@ int main(int, char**)
 		// automation hooks (same env-hook style as the demo):
 		// ORKIGE_DEMO_FRAMES=N exit 0 after N frames,
 		// ORKIGE_DEMO_SCREENSHOT=path framebuffer dump at frame 60,
-		// ORKIGE_EDITOR_SELFCHECK=1 boot-state assertions at frame 30
+		// ORKIGE_EDITOR_SELFCHECK=1 boot-state assertions at frame 30 and
+		// viewport-picking checks at frames 45-70 (needs >= 70 frames)
 		unsigned long frameLimit = 0;
 		if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
 		{
@@ -662,13 +785,24 @@ int main(int, char**)
 				const bool objectsOk =
 					gameObjectManager.objectExists("Cube1") &&
 					gameObjectManager.objectExists("Cube2") &&
-					gameObjectManager.objectExists("Cube3");
+					gameObjectManager.objectExists("Cube3") &&
+					gameObjectManager.objectExists("TestMesh1");
+				// ... and the glTF asset really became an Ogre mesh resource
+				// (Codec_Assimp decoded it during boot createEntity)
+				const Ogre::MeshPtr testMesh =
+					Ogre::MeshManager::getSingleton().getByName(
+						"test_mesh.glb",
+						Ogre::ResourceGroupManager::
+							AUTODETECT_RESOURCE_GROUP_NAME);
+				const bool meshResourceOk = testMesh && testMesh->isLoaded();
 				const int imguiVertices = ImGui::GetIO().MetricsRenderVertices;
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
-					"(boot cubes %s), imgui vertices=%d",
+					"(boot cubes + test mesh %s), test_mesh.glb resource %s, "
+					"imgui vertices=%d",
 					gameObjectManager.getGameObjects().size(),
-					objectsOk ? "present" : "MISSING", imguiVertices);
-				if (!objectsOk || imguiVertices <= 0)
+					objectsOk ? "present" : "MISSING",
+					meshResourceOk ? "loaded" : "NOT LOADED", imguiVertices);
+				if (!objectsOk || !meshResourceOk || imguiVertices <= 0)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck");
 					exitCode = 2;
@@ -678,31 +812,10 @@ int main(int, char**)
 			if (frameCount == 45 && selfCheck)
 			{
 				// self-check: viewport picking - clear the selection, then
-				// push a real SDL click at Cube1's projected screen position;
-				// it travels the exact user path (SDL queue -> ImGui capture
-				// test -> pickObjectAtCursor)
+				// push a real SDL click at Cube1's projected screen position
 				state.selectedObjectId.clear();
-				optr<Orkige::GameObject> cube1 =
-					gameObjectManager.getGameObject("Cube1").lock();
-				int windowW = 0;
-				int windowH = 0;
-				SDL_GetWindowSize(window, &windowW, &windowH);
-				float clickX = 0.0f;
-				float clickY = 0.0f;
-				if (cube1 && worldToWindowPoint(engine.getCamera(),
-					cube1->getComponentPtr<Orkige::TransformComponent>()
-						->getPosition(),
-					static_cast<float>(windowW), static_cast<float>(windowH),
-					clickX, clickY))
-				{
-					SDL_Event clickEvent{};
-					clickEvent.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
-					clickEvent.button.button = SDL_BUTTON_LEFT;
-					clickEvent.button.x = clickX;
-					clickEvent.button.y = clickY;
-					SDL_PushEvent(&clickEvent);
-				}
-				else
+				if (!pushClickOnGameObject(gameObjectManager,
+					engine.getCamera(), window, "Cube1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (pick projection)");
 					exitCode = 2;
@@ -716,6 +829,33 @@ int main(int, char**)
 				if (state.selectedObjectId != "Cube1")
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (viewport pick)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 65 && selfCheck)
+			{
+				// self-check: same viewport-picking path, this time on the
+				// glTF test mesh (its Entity goes through the identical
+				// TransformComponent scene-node tagging as the cubes)
+				state.selectedObjectId.clear();
+				if (!pushClickOnGameObject(gameObjectManager,
+					engine.getCamera(), window, "TestMesh1"))
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (test mesh pick "
+						"projection)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 70 && selfCheck)
+			{
+				SDL_Log("orkige_editor: selfcheck frame 70 - picked '%s' via "
+					"viewport click", state.selectedObjectId.c_str());
+				if (state.selectedObjectId != "TestMesh1")
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (test mesh "
+						"viewport pick)");
 					exitCode = 2;
 					running = false;
 				}

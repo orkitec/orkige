@@ -146,6 +146,7 @@ target_link_libraries(orkige_engine
         # via Root::installPlugin / codec startup (see Engine.cpp)
         RenderSystem_GL3Plus
         Codec_STBI
+        Codec_Assimp # mesh import (glTF/glb, obj, ...); pulls in libassimp
         SDL3::SDL3
         OpenAL::OpenAL
 )

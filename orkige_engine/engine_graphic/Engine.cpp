@@ -16,6 +16,7 @@
 // static build: render systems are linked in and registered via installPlugin
 #include <OgreGL3PlusPlugin.h>
 #include <OgreSTBICodec.h>
+#include <OgreAssimpLoader.h>
 #endif
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
@@ -99,6 +100,10 @@ namespace Orkige
 		this->renderSystemPlugin = onew(new Ogre::GL3PlusPlugin());
 		this->root->installPlugin(this->renderSystemPlugin.get());
 		Ogre::STBIImageCodec::startup(); // png/jpg image codecs
+		// assimp mesh codecs (glTF/glb, obj, ...) - AssimpPlugin::install
+		// registers one Ogre::Codec per assimp file extension
+		this->assimpCodecPlugin = onew(new Ogre::AssimpPlugin());
+		this->root->installPlugin(this->assimpCodecPlugin.get());
 #else
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
 #endif
@@ -130,7 +135,8 @@ namespace Orkige
 #endif // USE_RTSHADER_SYSTEM
 		this->root.reset();
 		this->bigZipArchiveFactory.reset();
-		// the render system plugin has to outlive the root
+		// the plugins have to outlive the root
+		this->assimpCodecPlugin.reset();
 		this->renderSystemPlugin.reset();
 	}
 	//---------------------------------------------------------

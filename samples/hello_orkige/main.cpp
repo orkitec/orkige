@@ -102,6 +102,17 @@ int main(int, char**)
 			ORKIGE_DEMO_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
 
+		// ORKIGE_DEMO_MESH=1: also load the generated glTF test asset
+		// (samples/hello_orkige/media/test_mesh.glb, built by
+		// Util/make_test_mesh.py) through the statically linked Codec_Assimp
+		// plugin. Unconditional runs stay asset-free.
+		const bool demoMesh = (std::getenv("ORKIGE_DEMO_MESH") != nullptr);
+		if (demoMesh)
+		{
+			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
+				ORKIGE_DEMO_ASSET_DIR, "FileSystem");
+		}
+
 		if (!engine.setup("hello orkige", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
 				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
@@ -236,6 +247,35 @@ int main(int, char**)
 		smallCube->end();
 		// attach to the TransformComponent's scene node (SceneNodeGuard API)
 		orbiterTransform->attachObject(smallCube);
+
+		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the manual geometry -
+		// createEntity("test_mesh.glb") pulls the .glb through Codec_Assimp
+		// (registered in Engine.cpp's static-plugin block). The codec sets
+		// TVC_DIFFUSE on the synthesized material because the mesh carries
+		// COLOR_0 vertex colours, but it also generates normals
+		// (aiProcess_GenNormals) so lighting stays on; under this scene's
+		// ambient-only light the colours would drown. Render it unlit,
+		// the same treatment the cubes get.
+		if (demoMesh)
+		{
+			Ogre::Entity* testMesh =
+				sceneManager->createEntity("testMesh", "test_mesh.glb");
+			for (unsigned int i = 0; i < testMesh->getNumSubEntities(); ++i)
+			{
+				Ogre::Pass* pass = testMesh->getSubEntity(i)->getMaterial()
+					->getTechnique(0)->getPass(0);
+				pass->setLightingEnabled(false);
+				pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
+			}
+			Ogre::SceneNode* testMeshNode = sceneManager->getRootSceneNode()
+				->createChildSceneNode("testMeshNode");
+			testMeshNode->setPosition(0.0f, 2.5f, 0.0f);
+			testMeshNode->attachObject(testMesh);
+			SDL_Log("hello_orkige: test_mesh.glb loaded via Codec_Assimp "
+				"(%zu vertices in submesh 0)",
+				static_cast<size_t>(testMesh->getMesh()->getSubMesh(0)
+					->vertexData->vertexCount));
+		}
 
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.0f, 6.0f);
 		engine.getCamera()->getParentSceneNode()->lookAt(
@@ -410,7 +450,9 @@ int main(int, char**)
 			if (frameCount == 10)
 			{
 				// verification that both cubes actually got drawn (12 triangles
-				// each), not just a black window
+				// each), not just a black window; with ORKIGE_DEMO_MESH the
+				// glTF octahedron adds 8 more
+				const size_t expectedTriangles = demoMesh ? 32 : 24;
 				const size_t triangleCount =
 					engine.getRenderWindow()->getStatistics().triangleCount;
 				Ogre::LogManager::getSingleton().logMessage(
@@ -418,10 +460,12 @@ int main(int, char**)
 					Ogre::StringConverter::toString(triangleCount));
 				SDL_Log("hello_orkige: triangle count after 10 frames: %zu",
 					triangleCount);
-				if (triangleCount < 24)
+				if (triangleCount < expectedTriangles)
 				{
-					SDL_Log("hello_orkige: FAILED - expected both cubes "
-						"(>= 24 triangles)");
+					SDL_Log("hello_orkige: FAILED - expected %s "
+						"(>= %zu triangles)", demoMesh ?
+						"both cubes and the test mesh" : "both cubes",
+						expectedTriangles);
 					return 1;
 				}
 			}
