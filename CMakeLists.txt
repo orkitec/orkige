@@ -17,7 +17,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
-option(ORKIGE_BUILD_TOOLS  "Build the tool executables" OFF)
+# The tools (currently the editor) sit on top of the engine, so they follow
+# ORKIGE_BUILD_ENGINE by default; override with -DORKIGE_BUILD_TOOLS=ON/OFF.
+option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
 
 # Scripting backend: LUA (sol2-based Meta_Lua.h backend, the default) or OFF
 # (Meta_None.h, no script bindings compiled).
@@ -39,4 +41,11 @@ add_subdirectory(orkige_core)
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
     add_subdirectory(samples/hello_orkige)
+endif()
+
+if(ORKIGE_BUILD_TOOLS)
+    if(NOT ORKIGE_BUILD_ENGINE)
+        message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
+    endif()
+    add_subdirectory(tools/editor)
 endif()
