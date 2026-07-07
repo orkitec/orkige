@@ -28,11 +28,7 @@ THE SOFTWARE.
 #include "core_util/StringUtil.h"
 
 #pragma warning ( disable : 4244 )
-#if OGRE_VERSION_MINOR >= 8
-		template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::msSingleton = 0;
-#else
-		template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::ms_Singleton = 0;
-#endif
+template<> Gorilla::Silverback* Ogre::Singleton<Gorilla::Silverback>::msSingleton = 0;
 
 
 #define PUSH_VERTEX(VERTICES, VERTEX, X, Y, UV, COLOUR)   \
@@ -164,7 +160,7 @@ namespace Gorilla
 
 	void TextureAtlas::replaceTexture(const Ogre::String& texture)
 	{
-		oAssertDesc(!mTexture.isNull(), "replaceTexture: no texture to replace present");
+		oAssertDesc(mTexture, "replaceTexture: no texture to replace present");
 
 		if (texture != mTexture->getName())
 		{
@@ -177,7 +173,7 @@ namespace Gorilla
 			settings.insert(Ogre::ConfigFile::SettingsMultiMap::value_type(Ogre::String("file"), texture));
 			_loadTexture(&settings);
 
-			oAssertDesc(!mTexture.isNull(), "replaceTexture: texture replacement not loaded");
+			oAssertDesc(mTexture, "replaceTexture: texture replacement not loaded");
 			oAssertDesc(w == mTexture->getWidth() && h == mTexture->getHeight(), "replaceTexture: replaced atlas texture has different size");
 
 			// apply texture
@@ -222,33 +218,12 @@ namespace Gorilla
 					Ogre::StringUtil::trim(textureName);
 					Ogre::StringUtil::trim(groupName);
 				}
-#if OGRE_VERSION <= 67077 // If the version is less than or equal to 1.6.5
-				mTexture = Ogre::TextureManager::getSingletonPtr()->getByName(data);
-#else
 				mTexture = Ogre::TextureManager::getSingletonPtr()->getByName(data, groupName);
-#endif
-				if (mTexture.isNull())
+				if (!mTexture)
 				{
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-					if(textureName.find(".pvr") == Ogre::String::npos)
-					{
-						Ogre::String textureNamePvr = textureName.substr(0, textureName.find_last_of(".")) + ".pvr"; 
-						if(Ogre::ResourceGroupManager::getSingletonPtr()->resourceExists(groupName, textureNamePvr))
-						{
-							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureNamePvr, groupName, Ogre::TEX_TYPE_2D, 0);
-						}
-						else
-						{
-							mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
-						}
-					}
-					else
-					{
-						mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
-					}
-#else
+					// OGRE 14: the old iPhone .pvr fallback is gone with the OGRE 1.7 iOS
+					// platform; mobile texture formats get revisited in Phase 3.
 					mTexture = Ogre::TextureManager::getSingletonPtr()->load(textureName, groupName, Ogre::TEX_TYPE_2D, 0);
-#endif
 				}
 
 				mInverseTextureSize.x = 1.0f / mTexture->getWidth();
@@ -466,7 +441,7 @@ namespace Gorilla
 	Ogre::MaterialPtr TextureAtlas::createOrGet2DMasterMaterial()
 	{
 		Ogre::MaterialPtr d2Material = Ogre::MaterialManager::getSingletonPtr()->getByName("Gorilla2D");
-		if (d2Material.isNull() == false)
+		if (d2Material)
 		{
 	  Ogre::Pass* pass = d2Material->getTechnique(0)->getPass(0);
 
@@ -504,7 +479,7 @@ namespace Gorilla
 	{
 
 		Ogre::MaterialPtr d3Material = Ogre::MaterialManager::getSingletonPtr()->getByName("Gorilla3D");
-		if (d3Material.isNull() == false)
+		if (d3Material)
 		  {
 	  Ogre::Pass* pass = d3Material->getTechnique(0)->getPass(0);
 
@@ -541,35 +516,45 @@ namespace Gorilla
 
 	void  TextureAtlas::_create2DMaterial()
 	{
-		oAssertDesc(!mTexture.isNull(), "Gorilla: texture not loaded");
+		oAssertDesc(mTexture, "Gorilla: texture not loaded");
 
 		std::string matName = "Gorilla2D." + mTexture->getName();
 		m2DMaterial = Ogre::MaterialManager::getSingletonPtr()->getByName(matName);
 
-		if (m2DMaterial.isNull() == false)
+		if (m2DMaterial)
+		{
+			m2DPass = m2DMaterial->getTechnique(0)->getPass(0);
 			return;
+		}
 
 
 		m2DMaterial = createOrGet2DMasterMaterial()->clone(matName);
 		m2DPass = m2DMaterial->getTechnique(0)->getPass(0);
 		m2DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+		// OGRE 14: compile/load the clone up front so the RTSS can generate its
+		// shader-based technique for it when the screen first renders.
+		m2DMaterial->load();
 
 	}
 
 	void  TextureAtlas::_create3DMaterial()
 	{
-		oAssertDesc(!mTexture.isNull(), "Gorilla: texture not loaded");
+		oAssertDesc(mTexture, "Gorilla: texture not loaded");
 
 		std::string matName = "Gorilla3D." + mTexture->getName();
 		m3DMaterial = Ogre::MaterialManager::getSingletonPtr()->getByName(matName);
 
-		if (m3DMaterial.isNull() == false)
+		if (m3DMaterial)
+		{
+			m3DPass = m3DMaterial->getTechnique(0)->getPass(0);
 			return;
+		}
 
 
 		m3DMaterial = createOrGet3DMasterMaterial()->clone(matName);
 		m3DPass = m3DMaterial->getTechnique(0)->getPass(0);
 		m3DPass->getTextureUnitState(0)->setTextureName(mTexture->getName());
+		m3DMaterial->load();
 
 	}
 
@@ -887,7 +872,7 @@ namespace Gorilla
 	{
 		OGRE_DELETE mRenderOpPtr->vertexData;
 		mRenderOpPtr->vertexData = 0;
-		mVertexBuffer.setNull();
+		mVertexBuffer.reset();
 		mVertexBufferSize = 0;
 	}
 
@@ -1063,32 +1048,9 @@ namespace Gorilla
 
 		mRenderSystem = Ogre::Root::getSingletonPtr()->getRenderSystem();
 
-#ifdef ORKIGE_IPHONE
-        switch (mViewport->getOrientationMode())
-        {
-			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
-            case Ogre::OR_DEGREE_180:
-            {
-                mHeight = mViewport->getActualHeight();
-                mWidth = mViewport->getActualWidth();
-            }	break;
-			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
-            case Ogre::OR_DEGREE_270:
-            {
-                mHeight = mViewport->getActualWidth();
-                mWidth = mViewport->getActualHeight();
-            }break;
-        }
-#else
+		// OGRE 14: viewport orientation modes are gone; screens render unrotated.
 		mWidth = mViewport->getActualWidth();
 		mHeight = mViewport->getActualHeight();
-#endif
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
-		mOrientation = mViewport->getOrientationMode();
-#else
-		mOrientation = Ogre::OR_DEGREE_0;
-		mOrientationChanged = false;
-#endif
 
 		mInvWidth = 1.0f / mWidth;
 		mInvHeight = 1.0f / mHeight;
@@ -1114,88 +1076,22 @@ namespace Gorilla
 			renderOnce();
 	}
 
-	void Screen::_prepareRenderSystem()
-	{
-		mRenderSystem->_setWorldMatrix( Ogre::Matrix4::IDENTITY );
-		mRenderSystem->_setProjectionMatrix( Ogre::Matrix4::IDENTITY );
-		mRenderSystem->_setViewMatrix( Ogre::Matrix4::IDENTITY );
-		mSceneMgr->_setPass(mAtlas->get2DPass());
-	}
-
 	void Screen::renderOnce()
 	{
 		bool force = false;
-        
+
 		// force == true if viewport size changed.
-#if defined(ORKIGE_IPHONE) || defined(__ANDORID__)
-        bool renderOrientFix = false;
-        switch (mViewport->getOrientationMode())
-        {
-			case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
-            case Ogre::OR_DEGREE_180:
-            {
-                renderOrientFix = (mHeight != mViewport->getActualHeight() || mWidth != mViewport->getActualWidth());
-            }	break;
-			case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
-            case Ogre::OR_DEGREE_270:
-            {
-                renderOrientFix = (mHeight != mViewport->getActualWidth() || mWidth != mViewport->getActualHeight());
-            }break;
-        }
-		if (renderOrientFix 
-#else
-		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight() 
-#endif
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
-			|| mOrientation != mViewport->getOrientationMode()
-#else
-			|| mOrientationChanged
-#endif
-			)
+		// OGRE 14: the 1.7-era iOS/Android viewport orientation handling is gone;
+		// only the plain size check remains.
+		if (mWidth != mViewport->getActualWidth() || mHeight != mViewport->getActualHeight())
 		{
-#if defined(ORKIGE_IPHONE) || defined(__ANDORID__)
-			switch (mViewport->getOrientationMode())
-            {
-                case Ogre::OR_DEGREE_0:   //OR_PORTRAIT
-                case Ogre::OR_DEGREE_180:
-                {
-                    mHeight = mViewport->getActualHeight();
-                    mWidth = mViewport->getActualWidth();
-                }	break;
-                case Ogre::OR_DEGREE_90:  //OR_LANDSCAPERIGHT
-                case Ogre::OR_DEGREE_270:
-                {
-                    mHeight = mViewport->getActualWidth();
-                    mWidth = mViewport->getActualHeight();
-                }break;
-            }
-#else
 			mWidth = mViewport->getActualWidth();
 			mHeight = mViewport->getActualHeight();
-#endif
+
 			mInvWidth = 1.0f / mWidth;
 			mInvHeight = 1.0f / mHeight;
 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 1
-			mOrientation = mViewport->getOrientationMode();
-#else
-			if (mOrientation == Ogre::OR_DEGREE_90 || mOrientation == Ogre::OR_DEGREE_270)
-			{
-				std::swap(mWidth, mHeight);
-				std::swap(mInvWidth, mInvHeight);
-			}
-			mOrientationChanged = false;
-#endif
-
-			if (mOrientation == Ogre::OR_DEGREE_90)
-				mVertexTransform.makeTransform(Ogre::Vector3::ZERO, mScale, Ogre::Quaternion(Ogre::Degree(90), Ogre::Vector3::UNIT_Z));
-			else if (mOrientation == Ogre::OR_DEGREE_180)
-				mVertexTransform.makeTransform(Ogre::Vector3::ZERO, mScale, Ogre::Quaternion(Ogre::Degree(180), Ogre::Vector3::UNIT_Z));
-			else if (mOrientation == Ogre::OR_DEGREE_270)
-				mVertexTransform.makeTransform(Ogre::Vector3::ZERO, mScale, Ogre::Quaternion(Ogre::Degree(270), Ogre::Vector3::UNIT_Z));
-			else
-				mVertexTransform.makeTransform(Ogre::Vector3::ZERO, mScale, Ogre::Quaternion(1,0,0,0));
-
+			mVertexTransform.makeTransform(Ogre::Vector3::ZERO, mScale, Ogre::Quaternion(1,0,0,0));
 
 			force = true;
 		}
@@ -1203,8 +1099,14 @@ namespace Gorilla
 		_renderVertices(force);
 		if (mRenderOp.vertexData->vertexCount)
 		{
-			_prepareRenderSystem();
-			mRenderSystem->_render(mRenderOp);
+			// OGRE 14: there is no fixed-function pipeline any more, so the old
+			// _setWorldMatrix/_setPass/_render sequence is gone. getBestTechnique()
+			// resolves the RTSS-generated (shader-based) technique for the atlas
+			// material, and manualRender binds the pass state and the GPU auto
+			// params (worldviewproj etc.) before issuing the draw call.
+			Ogre::Pass* pass = mAtlas->get2DMaterial()->getBestTechnique()->getPass(0);
+			mSceneMgr->manualRender(&mRenderOp, pass, mViewport,
+				Ogre::Affine3::IDENTITY, Ogre::Affine3::IDENTITY, Ogre::Matrix4::IDENTITY);
 		}
 	}
 
@@ -1234,7 +1136,8 @@ namespace Gorilla
 		mRenderOpPtr = &mRenderOp;
 
 		mBox.setInfinite();
-		setMaterial(mAtlas->get3DMaterialName());
+		// OGRE 14: SimpleRenderable::setMaterial takes the MaterialPtr, not the name
+		setMaterial(mAtlas->get3DMaterial());
 
 		_createVertexBuffer();
 	}
@@ -1762,7 +1665,7 @@ namespace Gorilla
 			}
 			else
 			{
-				Ogre::Vector2 uv = uv = mLayer->_getSolidUV();
+				Ogre::Vector2 uv = mLayer->_getSolidUV();
 
 				for (size_t i=0;i < mSides;i++)
 				{

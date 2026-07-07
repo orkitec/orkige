@@ -5,6 +5,7 @@
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_fastgui/FastGuiManager.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
@@ -213,6 +214,50 @@ int main(int, char**)
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.0f, 6.0f);
 		engine.getCamera()->getParentSceneNode()->lookAt(
 			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+
+		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test. No .ogui texture
+		// atlas exists anywhere in the repo or its git history (the 2012 game
+		// assets were never checked in), so FastGui has nothing it could render
+		// yet and fabricating an atlas by hand is off the table. What this
+		// verifies instead: the module links, the Gorilla render backend
+		// (Silverback) starts up, survives a rendered frame and tears down
+		// cleanly, and FastGuiManager - which loads its default atlas in the
+		// constructor by design - fails that construction with the documented
+		// Ogre resource error instead of crashing.
+		if (std::getenv("ORKIGE_DEMO_GUI"))
+		{
+			{
+				// Gorilla backend alone: frame listener registration, an empty
+				// rendered frame, and teardown all work without an atlas.
+				Gorilla::Silverback silverback;
+				if (!engine.renderOneFrame())
+				{
+					SDL_Log("hello_orkige: FAILED - frame with Gorilla "
+						"Silverback alive did not render");
+					return 1;
+				}
+			}
+			bool guiRefusedCleanly = false;
+			try
+			{
+				Orkige::FastGuiManager guiManager(
+					Orkige::onew(new Orkige::FastGuiFactory()));
+			}
+			catch (Ogre::Exception const& e)
+			{
+				guiRefusedCleanly = true;
+				SDL_Log("hello_orkige: FastGuiManager without atlas failed "
+					"cleanly as designed: %s", e.getDescription().c_str());
+			}
+			if (!guiRefusedCleanly)
+			{
+				SDL_Log("hello_orkige: FAILED - FastGuiManager constructed "
+					"without its default atlas; expected a resource error");
+				return 1;
+			}
+			SDL_Log("hello_orkige: FastGui smoke test passed (Silverback "
+				"lifecycle + clean no-atlas constructor failure)");
+		}
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs
 		// (0/unset = run until the window is closed).

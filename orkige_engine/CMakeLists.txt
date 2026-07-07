@@ -1,7 +1,7 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
-# listed. Unported modules (engine_fastgui, engine_mygui) join as they are
-# ported. engine_gocomponent/PythonScriptComponent stays out for good
+# listed. Unported modules (engine_mygui) join as they are ported.
+# engine_gocomponent/PythonScriptComponent stays out for good
 # (ORKIGE_NOSCRIPT) - Lua script components return on sol2 in Phase 2.
 
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
@@ -74,6 +74,40 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
+    engine_fastgui/Gorilla.h
+    engine_fastgui/Gorilla.cpp
+    engine_fastgui/IGuiObject.h
+    engine_fastgui/IGuiObject.cpp
+    engine_fastgui/DragEventData.h
+    engine_fastgui/DragEventData.cpp
+    engine_fastgui/FastGuiWidget.h
+    engine_fastgui/FastGuiWidget.cpp
+    engine_fastgui/FastGuiView.h
+    engine_fastgui/FastGuiView.cpp
+    engine_fastgui/FastGuiTextbox.h
+    engine_fastgui/FastGuiTextbox.cpp
+    engine_fastgui/FastGuiSlider.h
+    engine_fastgui/FastGuiSlider.cpp
+    engine_fastgui/FastGuiSelectMenu.h
+    engine_fastgui/FastGuiSelectMenu.cpp
+    engine_fastgui/FastGuiProgressBar.h
+    engine_fastgui/FastGuiProgressBar.cpp
+    engine_fastgui/FastGuiManager.h
+    engine_fastgui/FastGuiManager.cpp
+    engine_fastgui/FastGuiLabel.h
+    engine_fastgui/FastGuiLabel.cpp
+    engine_fastgui/FastGuiFactory.h
+    engine_fastgui/FastGuiFactory.cpp
+    engine_fastgui/FastGuiDragDropButton.h
+    engine_fastgui/FastGuiDragDropButton.cpp
+    engine_fastgui/FastGuiDecorWidget.h
+    engine_fastgui/FastGuiDecorWidget.cpp
+    engine_fastgui/FastGuiCheckBox.h
+    engine_fastgui/FastGuiCheckBox.cpp
+    engine_fastgui/FastGuiButtonBlink.h
+    engine_fastgui/FastGuiButtonBlink.cpp
+    engine_fastgui/FastGuiButton.h
+    engine_fastgui/FastGuiButton.cpp
 )
 
 if(APPLE)

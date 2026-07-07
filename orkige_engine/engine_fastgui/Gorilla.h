@@ -56,11 +56,8 @@ namespace Gorilla
 
 	template<typename T> struct VectorType
 	{
-#if OGRE_VERSION <= 67077 // If the version is less than or equal to 1.6.5
+		// OGRE 14: the Ogre::vector<T>::type STL wrappers are gone; plain std::vector.
 		typedef std::vector<T> type;
-#else
-		typedef typename Ogre::vector<T>::type type;
-#endif
 	};
 
 	namespace Colours
@@ -265,17 +262,11 @@ namespace Gorilla
 
 			if (mUsed != 0)
 			{
-#ifdef WIN32
-				if (mUsed < new_capacity)  // Copy all
-					std::copy(mBuffer, mBuffer + mUsed, stdext::checked_array_iterator<T*>( new_buffer, mUsed ));
-				else if (mUsed >= new_capacity) // Copy some
-					std::copy(mBuffer, mBuffer + new_capacity, stdext::checked_array_iterator<T*>( new_buffer, new_capacity ));
-#else
+				// stdext::checked_array_iterator is gone from modern MSVC; plain std::copy everywhere.
 				if (mUsed < new_capacity)  // Copy all
 					std::copy(mBuffer, mBuffer + mUsed, new_buffer);
 				else if (mUsed >= new_capacity) // Copy some
 					std::copy(mBuffer, mBuffer + new_capacity, new_buffer);
-#endif
 			}
 
 			OGRE_FREE(mBuffer, Ogre::MEMCATEGORY_GEOMETRY);
@@ -953,18 +944,8 @@ namespace Gorilla
 		*/
 		inline void show() { mIsVisible = true;}
 
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-		inline void setOrientation(Ogre::OrientationMode o)
-		{
-			mOrientation = o; mOrientationChanged = true;
-
-			if (mOrientation == Ogre::OR_DEGREE_90 || mOrientation == Ogre::OR_DEGREE_270)
-			{
-				std::swap(mWidth, mHeight);
-				std::swap(mInvWidth, mInvHeight);
-			}
-		}
-#endif
+		// OGRE 14: viewport orientation modes (the 1.7-era iOS rotation feature) are
+		// gone from OGRE; screens always render unrotated now.
 	protected:
 
 		/*! constructor. Screen
@@ -985,9 +966,6 @@ namespace Gorilla
 		// Internal -- Called by Ogre to render the screen.
 		void renderQueueEnded(Ogre::uint8 queueGroupId, const Ogre::String& invocation, bool& repeatThisInvocation);
 
-		// Internal -- Prepares RenderSystem for rendering.
-		void _prepareRenderSystem();
-
 		// Internal -- Renders mVertexData to screen.
 		void renderOnce();
 
@@ -999,10 +977,6 @@ namespace Gorilla
 		Ogre::RenderSystem*   mRenderSystem;
 		Ogre::Viewport*       mViewport;
 		Ogre::Real            mWidth, mHeight, mInvWidth, mInvHeight;
-		Ogre::OrientationMode mOrientation;
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-		bool                  mOrientationChanged;
-#endif
 		Ogre::Vector3         mScale;
 		bool                  mIsVisible;
 		Ogre::Matrix4         mVertexTransform;

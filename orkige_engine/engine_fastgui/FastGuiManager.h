@@ -213,7 +213,7 @@ namespace Orkige
 		optr<FastGuiWidget> widget = weak_widget.lock();
 		oAssert(widget);
 		oAssertDesc(widget->getTypeInfo() == WidgetType::getClassTypeInfo(), "Widget: " << id << " is of type: " << widget->getTypeInfo().getName() << " and not of type: " << WidgetType::getClassTypeInfo().getName() << " !");
-		optr<WidgetType> casted_widget = boost::static_pointer_cast<WidgetType>(widget);
+		optr<WidgetType> casted_widget = std::static_pointer_cast<WidgetType>(widget);
 		oAssert(casted_widget);
 		return casted_widget;
 	}

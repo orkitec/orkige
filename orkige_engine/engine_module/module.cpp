@@ -7,8 +7,7 @@
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 
-// Only the modules already ported to OGRE 14 are registered here; the
-// fastgui exports return when engine_fastgui is ported.
+// Only the modules already ported to OGRE 14 are registered here.
 // PythonScriptComponent is gone for good (ORKIGE_NOSCRIPT); a Lua script
 // component returns on sol2 in Phase 2.
 #include "engine_graphic/Engine.h"
@@ -20,6 +19,8 @@
 #include "engine_gocomponent/AnimationComponent.h"
 #include "engine_input/InputManager.h"
 #include "engine_sound/SoundManager.h"
+#include "engine_fastgui/IGuiObject.h"
+#include "engine_fastgui/FastGuiManager.h"
 
 using namespace Orkige;
 
@@ -44,6 +45,22 @@ ORKIGE_MODULE(orkige_engine)
 
 	OEXPORT(SoundManager)
 	OEXPORT(SoundSource)
+
+	OEXPORT(IGuiObject)
+	OEXPORT(FastGuiWidget)
+	OEXPORT(FastGuiView)
+	OEXPORT(FastGuiTextbox)
+	OEXPORT(FastGuiSlider)
+	OEXPORT(FastGuiSelectMenu)
+	OEXPORT(FastGuiProgressBar)
+	OEXPORT(FastGuiManager)
+	OEXPORT(FastGuiLabel)
+	OEXPORT(FastGuiDragDropButton)
+	OEXPORT(FastGuiDecorWidget)
+	OEXPORT(FastGuiCheckBox)
+	OEXPORT(FastGuiButtonBlink)
+	OEXPORT(FastGuiButton)
+	OEXPORT(DragEventData)
 
 	//Exposing some Ogre internals
 	OSIMPLEEXPORT(Ogre::SceneNode,SceneNode)

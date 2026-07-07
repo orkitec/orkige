@@ -29,7 +29,7 @@ namespace Orkige
 			Orkige::String idBack = id + "_decor_back";
 			if (FastGuiManager::getSingleton().widgetExists(idBack))
 			{
-				this->decor = boost::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idBack).lock() );
+				this->decor = std::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idBack).lock() );
 			}
 			else
 			{
@@ -40,7 +40,7 @@ namespace Orkige
 			Orkige::String idLabel = id + "_text";
 			if (FastGuiManager::getSingleton().widgetExists(idLabel))
 			{
-				this->label = boost::static_pointer_cast<Orkige::FastGuiLabel>( FastGuiManager::getSingleton().getWidget(idLabel).lock() );
+				this->label = std::static_pointer_cast<Orkige::FastGuiLabel>( FastGuiManager::getSingleton().getWidget(idLabel).lock() );
 			}
 			else
 			{
@@ -55,8 +55,8 @@ namespace Orkige
 			if (FastGuiManager::getSingleton().widgetExists(idArrowLeft) &&
 				FastGuiManager::getSingleton().widgetExists(idArrowRight))
 			{
-				this->leftArrow = boost::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idArrowLeft).lock() );
-				this->rightArrow = boost::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idArrowRight).lock() );
+				this->leftArrow = std::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idArrowLeft).lock() );
+				this->rightArrow = std::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idArrowRight).lock() );
 			}
 			else
 			{
@@ -81,7 +81,7 @@ namespace Orkige
 			Orkige::String idMain = id + "_button";
 			if (FastGuiManager::getSingleton().widgetExists(idMain))
 			{
-				this->buttonMainSelection = boost::static_pointer_cast<Orkige::FastGuiButton>( FastGuiManager::getSingleton().getWidget(idMain).lock() );
+				this->buttonMainSelection = std::static_pointer_cast<Orkige::FastGuiButton>( FastGuiManager::getSingleton().getWidget(idMain).lock() );
 			}
 			else
 			{
@@ -99,7 +99,7 @@ namespace Orkige
 			Orkige::String idPinArea = id + "_pin_area";
 			if (FastGuiManager::getSingleton().widgetExists(idPinArea))
 			{
-				this->pin_area = boost::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idPinArea).lock() );
+				this->pin_area = std::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idPinArea).lock() );
 			}
 			else
 			{
@@ -110,7 +110,7 @@ namespace Orkige
 			Orkige::String idPin = id + "_pin";
 			if (FastGuiManager::getSingleton().widgetExists(idPin))
 			{
-				this->pin = boost::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idPin).lock() );
+				this->pin = std::static_pointer_cast<Orkige::FastGuiDecorWidget>( FastGuiManager::getSingleton().getWidget(idPin).lock() );
 			}
 			else
 			{

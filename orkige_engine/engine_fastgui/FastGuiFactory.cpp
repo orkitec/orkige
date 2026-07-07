@@ -12,7 +12,7 @@
 #include "engine_util/StringUtil.h"
 #include <core_util/PlatformUtil.h>
 #include <core_util/foreach.h>
-#include <boost/algorithm/string.hpp>
+// boost string algorithms replaced by core_util/StringUtil.h + Ogre::StringUtil (no-boost rule)
 #include "engine_base/Localisation.h"
 
 
@@ -188,10 +188,10 @@ namespace Orkige
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
 			
-			String key = boost::to_lower_copy(vt.first);
+			String key = StringUtil::to_lower_copy(vt.first);
 			if(key != "resourcegroup")
 			{
-				String value = boost::to_lower_copy(vt.second);
+				String value = StringUtil::to_lower_copy(vt.second);
 				optr<FastGuiView> view = FastGuiManager::getSingleton().getCreateView(vt.first, this->resourceGroup).lock();
 				if(!view)
 				{
@@ -207,10 +207,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadWidget(String const & widgetType, SettingsMultiMap* settings)
 	{
-		Ogre::vector<String>::type widgetSpecifier = Ogre::StringUtil::split(widgetType);
+		Ogre::StringVector widgetSpecifier = Ogre::StringUtil::split(widgetType);
 		oAssertDesc(widgetSpecifier.size() == 2, "Invalid Widget Specifier: " << widgetType);
 		String widgetTypeName = widgetSpecifier[0];
-		boost::to_lower(widgetTypeName);
+		StringUtil::to_lower(widgetTypeName);
 		String widgetId = widgetSpecifier[1];
 		oAssertDesc(!widgetId.empty(), "[" << widgetTypeName << "] Empty id is not allowed!")
 		oAssertDesc(!FastGuiManager::getSingleton().widgetExists(widgetId), "Widget with given id already exists! id: " << widgetId);
@@ -269,8 +269,8 @@ namespace Orkige
 		bool snapSubpixel = false;
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 
 			if(key == "atlas")
 			{
@@ -283,7 +283,7 @@ namespace Orkige
 			else if(key == "text")
 			{
 				baseSettings.text = Localisation::getSingleton().getLocalized(vt.second);
-				boost::replace_all(baseSettings.text, "\\n", "\n");
+				baseSettings.text = Ogre::StringUtil::replaceAll(baseSettings.text, "\\n", "\n");
 			}
 			else if(key == "font")
 			{
@@ -298,7 +298,7 @@ namespace Orkige
 				if(value.find('%') != String::npos)
 				{
 					// Split on space
-					Ogre::vector<String>::type vec = Ogre::StringUtil::split(value);
+					Ogre::StringVector vec = Ogre::StringUtil::split(value);
 					Ogre::Real w = StringUtil::Converter::parseReal(vec[0]);
 					Ogre::Real h = StringUtil::Converter::parseReal(vec[1]);
 					relPosition.x = w;
@@ -314,7 +314,7 @@ namespace Orkige
 				if(value.find('%') != String::npos)
 				{
 					// Split on space
-					Ogre::vector<String>::type vec = Ogre::StringUtil::split(value);
+					Ogre::StringVector vec = Ogre::StringUtil::split(value);
 					Ogre::Real w = StringUtil::Converter::parseReal(vec[0]);
 					Ogre::Real h = StringUtil::Converter::parseReal(vec[1]);
 					relSize.x = w;
@@ -437,8 +437,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textcolor")
 			{
 				if(value == "black")
@@ -527,8 +527,8 @@ namespace Orkige
 		bool scaled = true;
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if (key == "scaled")
 			{
 				scaled = Ogre::StringConverter::parseBool(value, scaled);
@@ -547,8 +547,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textalignment")
 			{
 				if(value == "topleft")
@@ -658,8 +658,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textcolor")
 			{
 				if(value == "black")
@@ -706,8 +706,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textalignment")
 			{
 				if(value == "topleft")
@@ -767,8 +767,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textcolor")
 			{
 				if(value == "black")
@@ -855,8 +855,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textcolor")
 			{
 				if(value == "black")
@@ -944,8 +944,8 @@ namespace Orkige
 
 		foreach(SettingsMultiMap::value_type const & vt, *settings)
 		{
-			String key = boost::to_lower_copy(vt.first);
-			String value = boost::to_lower_copy(vt.second);
+			String key = StringUtil::to_lower_copy(vt.first);
+			String value = StringUtil::to_lower_copy(vt.second);
 			if(key == "textcolor")
 			{
 				if(value == "black")

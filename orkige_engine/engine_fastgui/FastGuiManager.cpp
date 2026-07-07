@@ -97,16 +97,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiManager::refreshCursor()
 	{
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-		// TODO:
-		// the position should be based on the orientation, for now simply return
-		return;
-#endif
-#if OGRE_PLATFORM == OGRE_PLATFORM_IPHONE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
-		/*		std::vector<OIS::MultiTouchState> states = InputManager::getSingleton().getMouse()->getMultiTouchStates();
-		if(states.size() > 0)
-		this->cursor->setPosition(states[0].X.abs, states[0].Y.abs);
-		*/
+		// OGRE 14: viewport orientation modes are gone, so the old "skip while
+		// orientation handling is missing" early-out is gone with them.
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 		if(this->cursor)
 		{
 			this->cursor->setPosition((Ogre::Real)InputManager::getSingleton().getLastTouchData()->absX, (Ogre::Real)InputManager::getSingleton().getLastTouchData()->absY);
@@ -127,9 +120,7 @@ namespace Orkige
 		oAssert(viewport);
 		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
 		oAssert(screen);
-#if OGRE_NO_VIEWPORT_ORIENTATIONMODE == 0
-		screen->setOrientation(viewport->getOrientationMode());
-#endif
+		// OGRE 14: viewport orientation modes are gone; screens render unrotated.
 		optr<FastGuiView> view = onew(new FastGuiView(screen));
 		this->views[atlas] = view;
 		return view;

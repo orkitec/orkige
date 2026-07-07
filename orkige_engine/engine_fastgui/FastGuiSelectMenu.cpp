@@ -10,7 +10,7 @@
 #include "engine_fastgui/FastGuiSelectMenu.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_event/GlobalEventManager.h>
-#include <boost/algorithm/string/replace.hpp>
+// boost string algorithms dropped (no-boost rule); the only use below is commented out
 
 namespace Orkige 
 {
