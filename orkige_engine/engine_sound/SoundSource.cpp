@@ -6,7 +6,6 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-#ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundSource.h"
 #include "engine_sound/SoundError.h"
 
@@ -16,9 +15,15 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	SoundSource::SoundSource(String const & id, String const & file, bool loop, Ogre::Vector3 const & pos)
-		: Object(id), fileName(file), looped(loop), position(pos), initialized(false), data(NULL)
+		: Object(id), data(NULL), position(pos), fileName(file), looped(loop), initialized(false)
 	{
-
+#ifdef ORKIGE_OPENAL_SOUND
+		this->source = 0;
+		this->buffer = 0;
+		this->format = 0;
+		this->size = 0;
+		this->freq = 0;
+#endif //ORKIGE_OPENAL_SOUND
 	}
 	//---------------------------------------------------------
 	SoundSource::~SoundSource()
@@ -61,20 +66,24 @@ namespace Orkige
 			{
 				this->data = SoundUtil::loadSoundData(this->fileName, &size, &format, &freq);
 			}
-			if(alwaysFreeData)
-			{
-				free(this->data);
-				this->data = NULL;
-			}
 			oAssert(this->data);
 			SoundUtil::alBufferDataPlatform(this->buffer, format, data, size, freq);
 
 			error = alGetError();
 			SoundError::call(error == AL_NO_ERROR, "Error loading sound: " + this->fileName + "!", error);
+
+			// alBufferData copied the samples into the al buffer so the data
+			// can be freed right after the upload (with alBufferDataStatic it
+			// had to stay alive as long as the buffer)
+			if(alwaysFreeData)
+			{
+				free(this->data);
+				this->data = NULL;
+			}
 		}
 		catch(SoundError const & e)
 		{
-			if(this->buffer != NULL) 
+			if(this->buffer != 0)
 			{
 				if (alIsBuffer(this->buffer) == AL_TRUE)
 				{
@@ -85,7 +94,7 @@ namespace Orkige
 			}
 
 			// Prevent the ~Sound() destructor from double-freeing.
-			this->buffer = NULL;
+			this->buffer = 0;
 			// Propagate.
 			throw (e);
 		}
@@ -113,14 +122,51 @@ namespace Orkige
 		// attach OpenAL Buffer to OpenAL Source
 		alSourcei(this->source, AL_BUFFER, this->buffer);
 
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error attaching buffer to source: " << this->fileName << "!");
 			return false;
 		}
-		
+
 		this->initialized = true;
 		return true;
+#else //ORKIGE_OPENAL_SOUND
+		return false;
+#endif //ORKIGE_OPENAL_SOUND
+	}
+	//---------------------------------------------------------
+	bool SoundSource::initFromPCM(void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate)
+	{
+#ifdef ORKIGE_OPENAL_SOUND
+		oAssertDesc(!this->initialized, "Already initialized you have to call deinit first!");
+		oAssertDesc(pcmData != NULL && dataSize > 0, "No PCM data given!");
+		oAssertDesc(channels == 1 || channels == 2, "Only mono and stereo PCM supported!");
+		oAssertDesc(bitsPerSample == 8 || bitsPerSample == 16, "Only 8 and 16 bit PCM supported!");
+
+		if(channels == 1)
+		{
+			this->format = (bitsPerSample == 8) ? AL_FORMAT_MONO8 : AL_FORMAT_MONO16;
+		}
+		else
+		{
+			this->format = (bitsPerSample == 8) ? AL_FORMAT_STEREO8 : AL_FORMAT_STEREO16;
+		}
+		this->size = static_cast<ALsizei>(dataSize);
+		this->freq = static_cast<ALsizei>(sampleRate);
+
+		// keep an own copy like the file loaders do so init() can reupload it
+		// e.g. after an interruption
+		if(this->data)
+		{
+			free(this->data);
+			this->data = NULL;
+		}
+		this->data = malloc(dataSize);
+		memcpy(this->data, pcmData, dataSize);
+
+		// data is already loaded here so init() only creates the al objects
+		// and uploads it
+		return this->init();
 #else //ORKIGE_OPENAL_SOUND
 		return false;
 #endif //ORKIGE_OPENAL_SOUND
@@ -141,7 +187,7 @@ namespace Orkige
 		// Delete the Sources
 		alDeleteSources(1, &this->source);
 
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error deleting source: " << this->fileName << "!");
 			ret = false;
@@ -150,7 +196,7 @@ namespace Orkige
 		// Delete the Buffers
 		alDeleteBuffers(1, &this->buffer);
 
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error deleting buffer: " << this->fileName << "!");
 			ret = false;
@@ -178,7 +224,7 @@ namespace Orkige
 
 		// Begin playing our source file
 		alSourcePlay(this->source);
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error starting source for " << this->fileName << "!");
 			return false;
@@ -199,7 +245,7 @@ namespace Orkige
 		ALenum error = AL_NO_ERROR;
 
 		alSourceStop(this->source);
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error stopping source for " << this->fileName << "!");
 			return false;
@@ -220,7 +266,7 @@ namespace Orkige
 		ALenum error = AL_NO_ERROR;
 
 		alSourcePause(this->source);
-		if((error = alGetError()) != AL_NO_ERROR) 
+		if((error = alGetError()) != AL_NO_ERROR)
 		{
 			oDebugMsg("sound",0,"Error pausing source for " << this->fileName << "!");
 			return false;
@@ -338,4 +384,3 @@ namespace Orkige
 	OABSTRACT_IMPL(SoundSource)
 	OOBJECT_END
 }
-#endif //ORKIGE_OGGSOUNDMANAGER

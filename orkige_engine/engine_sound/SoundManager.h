@@ -14,35 +14,27 @@
 namespace Orkige
 {
 	//! @brief Sound Management
-	//! @remarks if ORKIGE_OGGSOUNDMANAGER is not used then there is no ogg support and no dynamic source sharing/reusing, streaming, priorities, etc and only AL_MAX_SOURCES concurrent SoundSources can be active
+	//! @remarks simple registry of fully buffered OpenAL (Soft) SoundSources;
+	//! there is no dynamic source sharing/reusing, streaming or priorities and
+	//! only AL_MAX_SOURCES concurrent SoundSources can be active
+	//! (the old OgreOggSound backend is gone together with its dependency)
 	class ORKIGE_ENGINE_DLL SoundManager : public Singleton<SoundManager>, public Interface
-#ifdef ORKIGE_OGGSOUNDMANAGER
-		, public OgreOggSound::OgreOggSoundManager
-#endif
 	{
 		OOBJECT(SoundManager,Interface);
 		DECL_OSINGLETON(SoundManager)
 		//--- Types -------------------------------------------------
 	public:
 	protected:
-#ifdef ORKIGE_OGGSOUNDMANAGER
-#if OGREOGGSOUND_STATIC
-		OgreOggSound::OgreOggSoundPlugin* plugin;
-#endif
-#else
 		typedef std::map<String, optr<SoundSource> > SoundRegistry;		//!< registry of sound sources with id's
 		typedef std::map<String, float>	InterruptedSoundRegistry;		//!< interrupted sound ids and play offset
-#endif
 	private:
 		//--- Variables ---------------------------------------------
 	public:
-		
+
 	protected:
 		bool isInitialized;
-#ifndef ORKIGE_OGGSOUNDMANAGER
 		SoundRegistry				sounds;				//!< created SoundSource collection
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
-#endif
 #ifdef ORKIGE_OPENAL_SOUND
 		ALCcontext*					context;			//!< OpenAL context
 #endif //ORKIGE_OPENAL_SOUND
@@ -63,14 +55,20 @@ namespace Orkige
 		bool deinit();
 		//! create a SoundSource
 		SoundSourcePtr createSound(String const & id, String const & fileName, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO,  bool stream = false, bool preBuffer=false);
-#ifndef ORKIGE_OGGSOUNDMANAGER
+		//! @brief create a SoundSource from a raw PCM buffer (no sound file needed)
+		//! @remarks the samples get copied, see SoundSource::initFromPCM
+		//! @param pcmData raw interleaved PCM samples (8 bit unsigned or 16 bit signed)
+		//! @param dataSize size of pcmData in bytes
+		//! @param channels channel count: 1 (mono) or 2 (stereo)
+		//! @param bitsPerSample bits per sample: 8 or 16
+		//! @param sampleRate SampleRate in Hz e.g. 44100
+		SoundSourcePtr createSoundFromPCM(String const & id, void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO);
 		//! destroy a SoundSource
 		bool destroySound(String const & id);
 		//! does sound with given id exist
 		bool hasSound(String const & id);
 		//! get SoundSource with given id
 		SoundSourcePtr getSound(String const & id);
-#endif
 		//! play sound
 		bool playSound(String const & id);
 		//! stop sound
@@ -91,7 +89,7 @@ namespace Orkige
 		bool initOpenAl();
 		//! deinit openAl
 		bool deinitOpenAl();
-		
+
 	private:
 	};
 	//---------------------------------------------------------------

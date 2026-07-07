@@ -5,7 +5,7 @@
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
-	
+
 	purpose:	Platform specific sound handling
 *********************************************************************/
 
@@ -15,40 +15,33 @@
 #include "engine_module/EnginePrerequisites.h"
 #ifdef ORKIGE_OPENAL_SOUND
 
-#ifdef ORKIGE_IPHONE
-#include <OpenAL/al.h>
-#include <OpenAL/alc.h>
-#else
-#include <al.h>
-#include <alc.h>
-#endif
-#include <boost/algorithm/string.hpp>
+// OpenAL Soft (vcpkg openal-soft) is the OpenAL implementation on every
+// platform now, so the Apple framework layout <OpenAL/al.h> is gone for good.
+#include <AL/al.h>
+#include <AL/alc.h>
+#include <core_util/StringUtil.h>
 
-#ifdef ORKIGE_OGGSOUNDMANAGER
-#include <OgreOggSound.h>
-#include <OgreOggSoundPlugin.h>
-#else
 namespace Orkige
 {
 	//! sound utilities
 	namespace SoundUtil
 	{
 		//!platform specific alBufferData method
-		ALvoid  alBufferDataPlatform(const ALint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq);
-		//! load caf audio only work on OSX/iPhone returns NULL on other platforms
+		ALvoid  alBufferDataPlatform(const ALuint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq);
+		//! load caf audio only works on OSX/iOS returns NULL on other platforms
 		void* loadCafData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate);
 		//! load wav audio data
 		void* loadWavData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate);
 		//! load audio data depending on fileName extension
 		static inline void* loadSoundData(Orkige::String const & fileName, ALsizei *dataSize, ALenum *dataFormat, ALsizei* sampleRate)
 		{
-			if(boost::ends_with(boost::to_lower_copy(fileName), ".wav"))
+			if(StringUtil::to_lower_copy(fileName).ends_with(".wav"))
 			{
 				return loadWavData(fileName, dataSize, dataFormat, sampleRate);
 			}
-			else if(boost::ends_with(boost::to_lower_copy(fileName), ".caf"))
+			else if(StringUtil::to_lower_copy(fileName).ends_with(".caf"))
 			{
-#ifndef ORKIGE_IPHONE
+#ifndef __APPLE__
 				return NULL;
 #else
 				return loadCafData(fileName, dataSize, dataFormat, sampleRate);
@@ -63,7 +56,5 @@ namespace Orkige
 	}
 	//---------------------------------------------------------------
 }
-#endif //ORKIGE_OGGSOUNDMANAGER
 #endif //ORKIGE_OPENAL_SOUND
 #endif //__SoundPlatform_h__6_9_2010__16_19_22__
-

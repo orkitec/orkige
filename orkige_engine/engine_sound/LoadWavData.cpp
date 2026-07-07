@@ -6,7 +6,6 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-#ifndef ORKIGE_OGGSOUNDMANAGER
 #ifdef ORKIGE_OPENAL_SOUND
 #include "engine_sound/SoundPlatform.h"
 #include "engine_sound/SoundError.h"
@@ -45,7 +44,7 @@ namespace Orkige
 				// Read up to a buffer's worth of decoded sound data
 				bytes = soundData->read(array, bufferSize);
 
-				if (bytes <= 0)
+				if (bytes == 0)
 					break;
 
 				if (data.size() + bytes > size)
@@ -84,7 +83,7 @@ namespace Orkige
 			case 2:
 				if(bits == 8)
 				{
-					*format = AL_FORMAT_STEREO16;
+					*format = AL_FORMAT_STEREO8;
 					// Set BufferSize to 250ms (Frequency * 2 (8bit stereo) divided by 4 (quarter of a second))
 					*bufferSize = freq >> 1;
 					// IMPORTANT : The Buffer Size must be an exact multiple of the BlockAlignment ...
@@ -145,7 +144,6 @@ namespace Orkige
 			ALsizei bits;
 			ALsizei channels;
 			int bufferSize;
-			ALsizei size;
 
 			Ogre::ResourceGroupManager *groupManager = Ogre::ResourceGroupManager::getSingletonPtr();
 			Ogre::String group = groupManager->findGroupContainingResource(fileName);
@@ -163,7 +161,6 @@ namespace Orkige
 
 			// The next 4 bytes are the file size, we can skip this since we get the size from the DataStream
 			soundData->skip(4);
-			size = static_cast<ALsizei>(soundData->size());
 
 			// check file format
 			SoundError::call(soundData->read(magic, 4) == 4, "Cannot read wav file " + fileName);
@@ -229,4 +226,3 @@ namespace Orkige
 	//---------------------------------------------------------
 }
 #endif //ORKIGE_OPENAL_SOUND
-#endif //ORKIGE_OGGSOUNDMANAGER

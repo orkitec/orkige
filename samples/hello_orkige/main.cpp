@@ -5,11 +5,15 @@
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_input/InputManager.h>
+#include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <vector>
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
@@ -87,6 +91,45 @@ int main(int, char**)
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyPressedEvent,
 				&QuitOnEscape::onKeyPressed, &quitOnEscape);
+
+		// ORKIGE_DEMO_SOUND=1: play a synthesized beep through the engine_sound
+		// OpenAL Soft path at demo start; normal runs stay silent (the manager
+		// is only initialized when the env var is set).
+		Orkige::SoundManager soundManager;
+		if (std::getenv("ORKIGE_DEMO_SOUND"))
+		{
+			if (!soundManager.init())
+			{
+				SDL_Log("hello_orkige: FAILED - SoundManager::init "
+					"(OpenAL device/context) failed");
+				return 1;
+			}
+			// 0.2s of 440Hz 16-bit mono PCM synthesized in code - the raw-PCM
+			// path (SoundManager::createSoundFromPCM) needs no asset file
+			const int sampleRate = 44100;
+			const int sampleCount = sampleRate / 5;
+			std::vector<int16_t> samples(sampleCount);
+			for (int i = 0; i < sampleCount; ++i)
+			{
+				const float t = static_cast<float>(i) / sampleRate;
+				const float fadeOut =
+					1.0f - static_cast<float>(i) / sampleCount;
+				samples[i] = static_cast<int16_t>(30000.0f * fadeOut *
+					std::sin(2.0f * 3.14159265f * 440.0f * t));
+			}
+			soundManager.createSoundFromPCM("beep", samples.data(),
+				static_cast<int>(samples.size() * sizeof(int16_t)),
+				1, 16, sampleRate);
+			if (soundManager.playSound("beep"))
+			{
+				SDL_Log("hello_orkige: beep playing (440Hz via OpenAL Soft)");
+			}
+			else
+			{
+				SDL_Log("hello_orkige: FAILED - beep did not start");
+				return 1;
+			}
+		}
 
 		Ogre::SceneManager* sceneManager = engine.getSceneManager();
 		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
@@ -210,6 +253,8 @@ int main(int, char**)
 				running = false;
 			}
 		}
+
+		soundManager.deinit();
 	}
 
 	SDL_DestroyWindow(window);

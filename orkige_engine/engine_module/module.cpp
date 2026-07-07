@@ -8,11 +8,12 @@
 *********************************************************************/
 
 // Only the modules already ported to OGRE 14 are registered here; the other
-// exports (gocomponents, sound, fastgui, ...) return as their modules
+// exports (gocomponents, fastgui, ...) return as their modules
 // are ported.
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/IngameConsole.h"
 #include "engine_input/InputManager.h"
+#include "engine_sound/SoundManager.h"
 
 using namespace Orkige;
 
@@ -27,6 +28,9 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TouchEventData)
 	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
+
+	OEXPORT(SoundManager)
+	OEXPORT(SoundSource)
 
 	//Exposing some Ogre internals
 	OSIMPLEEXPORT(Ogre::SceneNode,SceneNode)

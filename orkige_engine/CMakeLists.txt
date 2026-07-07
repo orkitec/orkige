@@ -1,10 +1,11 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
-# listed. Unported modules (engine_fastgui, engine_gocomponent, engine_sound,
+# listed. Unported modules (engine_fastgui, engine_gocomponent,
 # engine_mygui) join as they are ported.
 
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
+find_package(OpenAL CONFIG REQUIRED)
 
 set(ORKIGE_ENGINE_SOURCES
     engine_module/EnginePrerequisites.h
@@ -15,6 +16,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_filesystem/BigZipArchiveFactory.cpp
     engine_util/StringConverter.h
     engine_util/StringUtil.h
+    engine_util/ResourceUtil.h
+    engine_util/ResourceUtil.cpp
     engine_graphic/FrameEventData.h
     engine_graphic/FrameEventData.cpp
     engine_graphic/Engine.h
@@ -47,7 +50,21 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/InputManager.cpp
     engine_physic/CollisionTools.h
     engine_physic/CollisionTools.cpp
+    engine_sound/SoundPlatform.h
+    engine_sound/SoundPlatform.cpp
+    engine_sound/SoundError.h
+    engine_sound/SoundError.cpp
+    engine_sound/SoundSource.h
+    engine_sound/SoundSource.cpp
+    engine_sound/SoundManager.h
+    engine_sound/SoundManager.cpp
+    engine_sound/LoadWavData.cpp
 )
+
+if(APPLE)
+    # AudioToolbox-backed .caf decoding (Apple platforms only)
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_sound/LoadCafData.mm)
+endif()
 
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
 add_library(Orkige::Engine ALIAS orkige_engine)
@@ -58,7 +75,13 @@ target_include_directories(orkige_engine PUBLIC
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.
-target_compile_definitions(orkige_engine PUBLIC USE_RTSHADER_SYSTEM)
+# ORKIGE_OPENAL_SOUND: engine_sound compiles against OpenAL Soft (vcpkg
+# openal-soft) on every platform; without the define the sound classes
+# degrade to inert stubs (the historical no-sound configuration).
+target_compile_definitions(orkige_engine PUBLIC
+    USE_RTSHADER_SYSTEM
+    ORKIGE_OPENAL_SOUND
+)
 
 target_link_libraries(orkige_engine
     PUBLIC
@@ -71,4 +94,13 @@ target_link_libraries(orkige_engine
         RenderSystem_GL3Plus
         Codec_STBI
         SDL3::SDL3
+        OpenAL::OpenAL
 )
+
+if(APPLE)
+    # LoadCafData.mm decodes .caf through AudioToolbox
+    target_link_libraries(orkige_engine PUBLIC
+        "-framework AudioToolbox"
+        "-framework CoreFoundation"
+    )
+endif()

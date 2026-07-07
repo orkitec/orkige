@@ -6,7 +6,6 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-#ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundError.h"
 
 namespace Orkige
@@ -14,7 +13,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	SoundError::SoundError(String const & msg, SoundError::SoundErrorCode code) : std::runtime_error(msg), errorCode(code) 
+	SoundError::SoundError(String const & msg, SoundError::SoundErrorCode code) : std::runtime_error(msg), errorCode(code)
 	{
 
 	}
@@ -69,4 +68,3 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 }
-#endif //ORKIGE_OGGSOUNDMANAGER

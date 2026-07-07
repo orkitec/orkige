@@ -6,38 +6,23 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-#ifndef ORKIGE_OGGSOUNDMANAGER
 #include "engine_sound/SoundPlatform.h"
 
 #ifdef ORKIGE_OPENAL_SOUND
-
-#ifdef ORKIGE_IPHONE
-typedef ALvoid	AL_APIENTRY	(*alBufferDataStaticProcPtr) (const ALint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq);
-#endif
 
 namespace Orkige
 {
 	namespace SoundUtil
 	{
-		ALvoid  alBufferDataPlatform(const ALint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq)
+		ALvoid  alBufferDataPlatform(const ALuint bid, ALenum format, ALvoid* data, ALsizei size, ALsizei freq)
 		{
-#ifdef ORKIGE_IPHONE
-			static	alBufferDataStaticProcPtr	proc = NULL;
-
-			if (proc == NULL) {
-				proc = (alBufferDataStaticProcPtr) alcGetProcAddress(NULL, (const ALCchar*) "alBufferDataStatic");
-			}
-
-			if (proc)
-				proc(bid, format, data, size, freq);
-
-			return;
-#else
+			// OpenAL Soft everywhere: plain alBufferData copies the samples
+			// into the buffer, so callers may free their data afterwards.
+			// The Apple-only alBufferDataStatic extension (which required the
+			// caller to keep the data alive) does not exist in OpenAL Soft.
 			alBufferData(bid, format, data, size, freq);
-#endif
 		}
 	}
 }
 
 #endif //ORKIGE_OPENAL_SOUND
-#endif //ORKIGE_OGGSOUNDMANAGER

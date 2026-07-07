@@ -6,7 +6,6 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
-#ifndef ORKIGE_OGGSOUNDMANAGER
 #ifndef __SoundError_h__6_9_2010__16_30_32__
 #define __SoundError_h__6_9_2010__16_30_32__
 
@@ -18,7 +17,7 @@ typedef int ALenum;
 namespace Orkige
 {
 	//! error that gets thrown on errors regarding Sounds
-	class ORKIGE_ENGINE_DLL SoundError : public std::runtime_error 
+	class ORKIGE_ENGINE_DLL SoundError : public std::runtime_error
 	{
 		//-Types--------------------------------------------
 	public:
@@ -52,4 +51,3 @@ namespace Orkige
 }
 
 #endif //__SoundError_h__6_9_2010__16_30_32__
-#endif //ORKIGE_OGGSOUNDMANAGER

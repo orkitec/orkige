@@ -35,13 +35,13 @@ namespace Orkige
 		void removeUnusedResources()
 		{
 			//FastGuiManager::getSingleton().destroyAllViews();
-			Ogre::ResourceGroupManager::ResourceManagerIterator resMgrs = Ogre::ResourceGroupManager::getSingleton().getResourceManagerIterator();
-			while (resMgrs.hasMoreElements())
+			// OGRE 14: getResourceManagerIterator() is deprecated, iterate the map
+			Ogre::ResourceGroupManager::ResourceManagerMap const & resMgrs = Ogre::ResourceGroupManager::getSingleton().getResourceManagers();
+			foreach(Ogre::ResourceGroupManager::ResourceManagerMap::value_type const & vt, resMgrs)
 			{
-				Ogre::ResourceManager* m = resMgrs.getNext();
-				m->unloadUnreferencedResources();
+				vt.second->unloadUnreferencedResources();
 			}
 		}
 
 	};
-}	
+}

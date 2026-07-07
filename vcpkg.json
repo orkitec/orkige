@@ -5,6 +5,7 @@
   "dependencies": [
     "tinyxml2",
     "ogre",
-    "sdl3"
+    "sdl3",
+    "openal-soft"
   ]
 }
