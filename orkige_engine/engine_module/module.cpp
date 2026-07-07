@@ -7,36 +7,14 @@
 	copyright:	(c) 2009-2011 orkitec
 *********************************************************************/
 
-#include "engine_graphic/IngameConsole.h"
-#include "engine_gocomponent/PythonScriptComponent.h"
-#include "engine_gocomponent/SoundComponent.h"
-
-#include "engine_gocomponent/CameraComponent.h"
-#include "engine_gocomponent/TransformComponent.h"
-
-#include "engine_gocomponent/ModelComponent.h"
-#include "engine_gocomponent/AnimationComponent.h"
-#include "engine_input/InputManager.h"
-#include "engine_sound/SoundManager.h"
-#include "engine_sound/SoundSource.h"
+// Only the modules already ported to OGRE 14 are registered here; the other
+// exports (gocomponents, input, sound, fastgui, ...) return as their modules
+// are ported.
 #include "engine_graphic/Engine.h"
-#include "engine_graphic/ColoredBoundingBox.h"
-#include "engine_fastgui/IGuiObject.h"
-#include "engine_fastgui/FastGuiManager.h"
 
 using namespace Orkige;
 
 ORKIGE_MODULE(orkige_engine)
-	OEXPORT(TransformComponent)
-	OEXPORT(ModelComponent)
-	OEXPORT(AnimationComponent)
-#ifndef ORKIGE_NOSCRIPT
-	OEXPORT(PythonScriptComponent)
-#endif
-	OEXPORT(CameraComponent)
-	OEXPORT(SoundComponent)
-	OEXPORT(IngameConsole)
-	OEXPORTMAP(StringGameObjectMap,Orkige::String,optr<Orkige::GameObject>)
 	OEXPORT(Engine)
 	OEXPORT(FrameEventData)
 
@@ -50,32 +28,4 @@ ORKIGE_MODULE(orkige_engine)
 
 	OSIMPLEEXPORT(Ogre::Camera,Camera)
 	OSIMPLEEXPORT_END
-	
-	OEXPORT(SoundManager)
-#ifndef ORKIGE_OGGSOUNDMANAGER
-	OEXPORT(::Orkige::SoundSource)
-#endif
-	
-	OEXPORT(KeyEventData)
-	OEXPORT(MouseEventData)
-	OEXPORT(AccelerationEventData)
-	OEXPORT(TouchEventData)
-	OEXPORT(GestureEventData)
-	OEXPORT(InputManager)
-
-	OEXPORT(IGuiObject)
-	OEXPORT(FastGuiWidget)
-	OEXPORT(FastGuiView)
-	OEXPORT(FastGuiTextbox)
-	OEXPORT(FastGuiSlider)
-	OEXPORT(FastGuiSelectMenu)
-	OEXPORT(FastGuiProgressBar)
-	OEXPORT(FastGuiManager)
-	OEXPORT(FastGuiLabel)
-	OEXPORT(FastGuiDragDropButton)
-	OEXPORT(FastGuiDecorWidget)
-	OEXPORT(FastGuiCheckBox)
-	OEXPORT(FastGuiButtonBlink)
-	OEXPORT(FastGuiButton)
-	OEXPORT(DragEventData)
 ORKIGE_MODULE_END

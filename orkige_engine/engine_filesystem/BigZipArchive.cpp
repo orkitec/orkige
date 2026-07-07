@@ -98,7 +98,7 @@ namespace Orkige
 		return dstr;
 	}
 	//---------------------------------------------------------------------
-	Ogre::DataStreamPtr BigZipArchive::create(const Ogre::String& filename) const
+	Ogre::DataStreamPtr BigZipArchive::create(const Ogre::String& filename)
 	{
 		OGRE_EXCEPT(Ogre::Exception::ERR_NOT_IMPLEMENTED, 
 			"Modification of zipped archives is not supported", 
@@ -106,16 +106,16 @@ namespace Orkige
 
 	}
 	//---------------------------------------------------------------------
-	void BigZipArchive::remove(const Ogre::String& filename) const
+	void BigZipArchive::remove(const Ogre::String& filename)
 	{
 	}
 	//-----------------------------------------------------------------------
-	Ogre::StringVectorPtr BigZipArchive::list(bool recursive, bool dirs)
+	Ogre::StringVectorPtr BigZipArchive::list(bool recursive, bool dirs) const
 	{
 		OGRE_LOCK_AUTO_MUTEX
-			Ogre::StringVectorPtr ret = Ogre::StringVectorPtr(OGRE_NEW_T(Ogre::StringVector, Ogre::MEMCATEGORY_GENERAL)(), Ogre::SPFM_DELETE_T);
+			Ogre::StringVectorPtr ret = std::make_shared<Ogre::StringVector>();
 
-		Ogre::FileInfoList::iterator i, iend;
+		Ogre::FileInfoList::const_iterator i, iend;
 		iend = mFileList.end();
 		for (i = mFileList.begin(); i != iend; ++i)
 			if ((dirs == (i->compressedSize == size_t (-1))) &&
@@ -125,10 +125,10 @@ namespace Orkige
 		return ret;
 	}
 	//-----------------------------------------------------------------------
-	Ogre::FileInfoListPtr BigZipArchive::listFileInfo(bool recursive, bool dirs)
+	Ogre::FileInfoListPtr BigZipArchive::listFileInfo(bool recursive, bool dirs) const
 	{
 		OGRE_LOCK_AUTO_MUTEX
-			Ogre::FileInfoList* fil = OGRE_NEW_T(Ogre::FileInfoList, Ogre::MEMCATEGORY_GENERAL)();
+			Ogre::FileInfoListPtr fil = std::make_shared<Ogre::FileInfoList>();
 		Ogre::FileInfoList::const_iterator i, iend;
 		iend = mFileList.end();
 		for (i = mFileList.begin(); i != iend; ++i)
@@ -136,18 +136,18 @@ namespace Orkige
 				(recursive || i->path.empty()))
 				fil->push_back(*i);
 
-		return Ogre::FileInfoListPtr(fil, Ogre::SPFM_DELETE_T);
+		return fil;
 	}
 	//-----------------------------------------------------------------------
-	Ogre::StringVectorPtr BigZipArchive::find(const Ogre::String& pattern, bool recursive, bool dirs)
+	Ogre::StringVectorPtr BigZipArchive::find(const Ogre::String& pattern, bool recursive, bool dirs) const
 	{
 		OGRE_LOCK_AUTO_MUTEX
-			Ogre::StringVectorPtr ret = Ogre::StringVectorPtr(OGRE_NEW_T(Ogre::StringVector, Ogre::MEMCATEGORY_GENERAL)(), Ogre::SPFM_DELETE_T);
+			Ogre::StringVectorPtr ret = std::make_shared<Ogre::StringVector>();
 		// If pattern contains a directory name, do a full match
 		bool full_match = (pattern.find ('/') != Ogre::String::npos) ||
 			(pattern.find ('\\') != Ogre::String::npos);
 
-		Ogre::FileInfoList::iterator i, iend;
+		Ogre::FileInfoList::const_iterator i, iend;
 		iend = mFileList.end();
 		for (i = mFileList.begin(); i != iend; ++i)
 			if ((dirs == (i->compressedSize == size_t (-1))) &&
@@ -159,14 +159,10 @@ namespace Orkige
 		return ret;
 	}
 	//-----------------------------------------------------------------------
-#if OGRE_VERSION_MINOR >= 8
 	Ogre::FileInfoListPtr BigZipArchive::findFileInfo(const Ogre::String& pattern, bool recursive, bool dirs) const
-#else
-	Ogre::FileInfoListPtr BigZipArchive::findFileInfo(const Ogre::String& pattern, bool recursive, bool dirs)
-#endif
 	{
 		OGRE_LOCK_AUTO_MUTEX
-			Ogre::FileInfoListPtr ret = Ogre::FileInfoListPtr(OGRE_NEW_T(Ogre::FileInfoList, Ogre::MEMCATEGORY_GENERAL)(), Ogre::SPFM_DELETE_T);
+			Ogre::FileInfoListPtr ret = std::make_shared<Ogre::FileInfoList>();
 		// If pattern contains a directory name, do a full match
 		bool full_match = (pattern.find ('/') != Ogre::String::npos) ||
 			(pattern.find ('\\') != Ogre::String::npos);
@@ -183,14 +179,14 @@ namespace Orkige
 		return ret;
 	}
 	//-----------------------------------------------------------------------
-	bool BigZipArchive::exists(const Ogre::String& filename)
+	bool BigZipArchive::exists(const Ogre::String& filename) const
 	{
 		// zziplib is not threadsafe
 		OGRE_LOCK_AUTO_MUTEX
 		return BigZipArchiveFactory::getSingleton().exists(this->mName + filename);
 	}
 	//---------------------------------------------------------------------
-	time_t BigZipArchive::getModifiedTime(const Ogre::String& filename)
+	time_t BigZipArchive::getModifiedTime(const Ogre::String& filename) const
 	{
 		// Zziplib doesn't yet support getting the modification time of individual files
 		// so just check the mod time of the zip itself

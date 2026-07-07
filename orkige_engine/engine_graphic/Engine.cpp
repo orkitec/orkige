@@ -12,7 +12,11 @@
 #include "engine_util/StringUtil.h"
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
-#include <boost/algorithm/string.hpp>
+#ifdef OGRE_STATIC_LIB
+// static build: render systems are linked in and registered via installPlugin
+#include <OgreGL3PlusPlugin.h>
+#include <OgreSTBICodec.h>
+#endif
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
 #       import <UIKit/UIKit.h>
@@ -24,15 +28,9 @@ namespace Orkige
 #ifdef ORKIGE_DEBUG
 	struct LogListener : public Ogre::LogListener
 	{
-		virtual void messageLogged( const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName
-#if OGRE_VERSION_MINOR >= 8
-			, bool& skipThisMessage
-#endif	
-			)
+		virtual void messageLogged( const Ogre::String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName, bool& skipThisMessage )
 		{
-#if OGRE_VERSION_MINOR >= 8
 			if(skipThisMessage) return;
-#endif	
 			if(lml < Ogre::LML_CRITICAL)
 			{
 				OutputDebugStringA(("Ogre Info: " + message + "\n").c_str());
@@ -52,11 +50,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	Engine::Engine(Ogre::SceneType st, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows, String const & zipFileName, String const & zipInternalPathPrefix) 
-		: frameStartedEvent(Engine::FrameStartedEvent), 
+	Engine::Engine(Ogre::String const & smTypeName, String const & resourceCfgFileName, String const & pluginCfgFileName, String const & renderCfgFileName, String const & engineLogFileName, unsigned int _numberOfWindows, String const & zipFileName, String const & zipInternalPathPrefix)
+		: frameStartedEvent(Engine::FrameStartedEvent),
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
-		sceneType(st),
+		sceneManagerTypeName(smTypeName),
 		eventManager(NULL),
 		sceneManager(NULL),
 		defaultLocationType("FileSystem"),
@@ -94,8 +92,16 @@ namespace Orkige
 		this->frameRenderingQueuedEvent.setData(this->data);
 		this->frameEndedEvent.setData(this->data);
 		//create the ogre root Master of Disaster
-		
+
+#ifdef OGRE_STATIC_LIB
+		// static build: no plugin config file, render systems are registered below
+		this->root = optr<Ogre::Root>(new Ogre::Root(Ogre::BLANKSTRING, renderCfgPlatformFileName, engineLogFileName));
+		this->renderSystemPlugin = onew(new Ogre::GL3PlusPlugin());
+		this->root->installPlugin(this->renderSystemPlugin.get());
+		Ogre::STBIImageCodec::startup(); // png/jpg image codecs
+#else
 		this->root = optr<Ogre::Root>(new Ogre::Root(pluginCfgFileName, renderCfgPlatformFileName, engineLogFileName));
+#endif
 		if(!zipFileName.empty())
 		{
 			this->bigZipArchiveFactory = onew(new BigZipArchiveFactory(zipFileName, zipInternalPathPrefix));
@@ -117,12 +123,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
-		this->root.reset();
-		this->bigZipArchiveFactory.reset();
 #ifdef USE_RTSHADER_SYSTEM
-		// Finalize the RT Shader System.
+		// Finalize the RT Shader System while the root (and its render system)
+		// is still alive - OGRE 14 crashes on the reverse order.
 		this->finalizeRTShaderSystem();
 #endif // USE_RTSHADER_SYSTEM
+		this->root.reset();
+		this->bigZipArchiveFactory.reset();
+		// the render system plugin has to outlive the root
+		this->renderSystemPlugin.reset();
 	}
 	//---------------------------------------------------------
 	String Engine::getPlatformSpecificConfig(String const & cfgFileName)
@@ -138,7 +147,14 @@ namespace Orkige
 			iPad = ((UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) == YES);
 //#endif
 			std::vector<std::string> strs;
-			boost::split(strs, cfgFileName, boost::is_any_of(";"));
+			{
+				std::istringstream splitStream(cfgFileName);
+				std::string part;
+				while(std::getline(splitStream, part, ';'))
+				{
+					strs.push_back(part);
+				}
+			}
 			oAssert(strs.size() == 3);
 			if (iPad) 
 			{
@@ -188,55 +204,21 @@ namespace Orkige
 			return false;
 
 		// Create the SceneManager
-		this->sceneManager = root->createSceneManager(this->sceneType, "OrkigeSceneManager");
+		this->sceneManager = root->createSceneManager(this->sceneManagerTypeName, "OrkigeSceneManager");
 		oAssert(this->sceneManager);
 #ifdef USE_RTSHADER_SYSTEM
 			// Initialize shader generator.
 			// Must be before resource loading in order to allow parsing extended material attributes.
+			// The old "clone the BaseWhite/BaseWhiteNoLighting technique programs" block is gone:
+			// since OGRE 13 the RTSS generates techniques for the base materials on demand
+			// through the material manager listener (see OgreBites::SGTechniqueResolverListener).
 			bool success = initializeRTShaderSystem(this->sceneManager);
-			if (!success) 
+			if (!success)
 			{
-				OGRE_EXCEPT(Ogre::Exception::ERR_FILE_NOT_FOUND, 
-					"Shader Generator Initialization failed - Core shader libs path not found", 
+				OGRE_EXCEPT(Ogre::Exception::ERR_FILE_NOT_FOUND,
+					"Shader Generator Initialization failed - Core shader libs path not found",
 					"Sample::_setup");
 			}
-			if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
-			{
-				//newViewport->setMaterialScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-				
-				// creates shaders for base material BaseWhite using the RTSS
-				Ogre::MaterialPtr baseWhite = Ogre::MaterialManager::getSingleton().getByName("BaseWhite", Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);				
-				baseWhite->setLightingEnabled(false);
-				mShaderGenerator->createShaderBasedTechnique(
-					"BaseWhite", 
-					Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
-					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);	
-			    mShaderGenerator->validateMaterial(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, 
-					"BaseWhite");
-				baseWhite->getTechnique(0)->getPass(0)->setVertexProgram(
-				baseWhite->getTechnique(1)->getPass(0)->getVertexProgram()->getName());
-				baseWhite->getTechnique(0)->getPass(0)->setFragmentProgram(
-				baseWhite->getTechnique(1)->getPass(0)->getFragmentProgram()->getName());
-
-				// creates shaders for base material BaseWhiteNoLighting using the RTSS
-				mShaderGenerator->createShaderBasedTechnique(
-					"BaseWhiteNoLighting", 
-					Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
-					Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);	
-			    mShaderGenerator->validateMaterial(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, 
-					"BaseWhiteNoLighting");
-				Ogre::MaterialPtr baseWhiteNoLighting = Ogre::MaterialManager::getSingleton().getByName("BaseWhiteNoLighting", Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
-				baseWhiteNoLighting->getTechnique(0)->getPass(0)->setVertexProgram(
-				baseWhiteNoLighting->getTechnique(1)->getPass(0)->getVertexProgram()->getName());
-				baseWhiteNoLighting->getTechnique(0)->getPass(0)->setFragmentProgram(
-				baseWhiteNoLighting->getTechnique(1)->getPass(0)->getFragmentProgram()->getName());
-			}
-#endif // USE_RTSHADER_SYSTEM
-#ifdef USE_RTSHADER_SYSTEM
-            if(this->root->getRenderSystem()->getCapabilities()->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
-            {
-                Ogre::RTShader::ShaderGenerator::getSingletonPtr()->addSceneManager(this->sceneManager);
-            }
             Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
 #endif // USE_RTSHADER_SYSTEM
 
@@ -254,15 +236,14 @@ namespace Orkige
 	bool Engine::renderOneFrame()
 	{
 		OPROFILEFUNC();
-		Ogre::WindowEventUtilities::messagePump();
-		
+		// OGRE 14: WindowEventUtilities moved to OgreBites - SDL owns the event loop now
+
 		return this->root->renderOneFrame();
 	}
 	//---------------------------------------------------------
 	bool Engine::renderOneFrameFast()
 	{
 		OPROFILEFUNC();
-		Ogre::WindowEventUtilities::messagePump();
 		unsigned long currentFrameTime = Timer::getMilliseconds();
 		unsigned long timeDiff = currentFrameTime - this->lastFrameTime;
 		this->lastFrameTime = currentFrameTime;
@@ -270,19 +251,19 @@ namespace Orkige
 		this->data->timeSinceLastFrame = delta;
 		this->data->timeSinceLastEvent = delta;
 		this->eventManager->trigger(this->frameStartedEvent);
-		//this->viewport->update();
-		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
-		{
-			this->renderWindow[each]->_updateViewport(this->viewport[each], true);
-		}
-		
-		this->eventManager->trigger(this->frameRenderingQueuedEvent);
-		
+		// OGRE 14: _updateViewport must be called between _beginUpdate and _endUpdate
 		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
 		{
 			this->renderWindow[each]->_beginUpdate();
-			this->renderWindow[each]->swapBuffers();
+			this->renderWindow[each]->_updateViewport(this->viewport[each], true);
 			this->renderWindow[each]->_endUpdate();
+		}
+
+		this->eventManager->trigger(this->frameRenderingQueuedEvent);
+
+		for (unsigned int each = 0; each < this->numberOfWindows; ++each)
+		{
+			this->renderWindow[each]->swapBuffers();
 		}
 		this->eventManager->trigger(this->frameEndedEvent);
 		return true;
@@ -301,6 +282,9 @@ namespace Orkige
 			this->camera[each] = this->sceneManager->createCamera(name);
 			this->camera[each]->setNearClipDistance(1.0f);
 			this->camera[each]->setFarClipDistance(100000.0f);
+			// OGRE 14: cameras have to be attached to a SceneNode to be placed in the scene
+			Ogre::SceneNode* cameraNode = this->sceneManager->getRootSceneNode()->createChildSceneNode(name + "Node");
+			cameraNode->attachObject(this->camera[each]);
 			// Create one viewport, entire window
 			this->viewport[each] = this->renderWindow[each]->addViewport(this->camera[each]);
 			this->viewport[each]->setBackgroundColour(Ogre::ColourValue::Blue);
@@ -343,11 +327,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-	Engine::Engine(Ogre::Root* _root, Ogre::SceneManager* _sceneManager, Ogre::RenderWindow* _window, Ogre::Viewport* _viewport, Ogre::Camera* _camera) 
-		: frameStartedEvent(Engine::FrameStartedEvent), 
+	Engine::Engine(Ogre::Root* _root, Ogre::SceneManager* _sceneManager, Ogre::RenderWindow* _window, Ogre::Viewport* _viewport, Ogre::Camera* _camera)
+		: frameStartedEvent(Engine::FrameStartedEvent),
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
-		sceneType(Ogre::ST_GENERIC),
+		sceneManagerTypeName(Ogre::SMT_DEFAULT),
 		eventManager(NULL),
 		sceneManager(NULL),
 		defaultLocationType("FileSystem"),
@@ -391,49 +375,47 @@ namespace Orkige
 
 				mShaderGenerator->addSceneManager(sceneMgr);
 
-#if OGRE_PLATFORM != OGRE_PLATFORM_ANDROID && OGRE_PLATFORM != OGRE_PLATFORM_NACL
+#if OGRE_PLATFORM != OGRE_PLATFORM_ANDROID
 				// Setup core libraries and shader cache path.
+				// OGRE 14 resolves the RTSS core shader libs through the resource system at
+				// runtime; this only sanity checks that a "RTShaderLib" location was added.
 				Ogre::StringVector groupVector = Ogre::ResourceGroupManager::getSingleton().getResourceGroups();
-				Ogre::StringVector::iterator itGroup = groupVector.begin();
-				Ogre::StringVector::iterator itGroupEnd = groupVector.end();
 				Ogre::String shaderCoreLibsPath;
 				Ogre::String shaderCachePath;
-			
-				for (; itGroup != itGroupEnd; ++itGroup)
+
+				for (Ogre::String const & group : groupVector)
 				{
-					Ogre::ResourceGroupManager::LocationList resLocationsList = Ogre::ResourceGroupManager::getSingleton().getResourceLocationList(*itGroup);
-					Ogre::ResourceGroupManager::LocationList::iterator it = resLocationsList.begin();
-					Ogre::ResourceGroupManager::LocationList::iterator itEnd = resLocationsList.end();
+					Ogre::ResourceGroupManager::LocationList const & resLocationsList = Ogre::ResourceGroupManager::getSingleton().getResourceLocationList(group);
 					bool coreLibsFound = false;
 
 					// Try to find the location of the core shader lib functions and use it
 					// as shader cache path as well - this will reduce the number of generated files
 					// when running from different directories.
-					for (; it != itEnd; ++it)
+					for (Ogre::ResourceGroupManager::ResourceLocation const & location : resLocationsList)
 					{
-						if ((*it)->archive->getName().find("RTShaderLib") != Ogre::String::npos)
+						if (location.archive->getName().find("RTShaderLib") != Ogre::String::npos)
 						{
-							shaderCoreLibsPath = (*it)->archive->getName() + "/cache/";
+							shaderCoreLibsPath = location.archive->getName() + "/cache/";
 							shaderCachePath = shaderCoreLibsPath;
 							coreLibsFound = true;
 							break;
 						}
 					}
 					// Core libs path found in the current group.
-					if (coreLibsFound) 
-						break; 
+					if (coreLibsFound)
+						break;
 				}
 
 				// Core shader libs not found -> shader generating will fail.
-				if (shaderCoreLibsPath.empty())			
-					return false;			
-								
+				if (shaderCoreLibsPath.empty())
+					return false;
+
 #ifdef _RTSS_WRITE_SHADERS_TO_DISK
 				// Set shader cache path.
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
                 shaderCachePath = Ogre::macCachePath();
 #endif
-				mShaderGenerator->setShaderCachePath(shaderCachePath);		
+				mShaderGenerator->setShaderCachePath(shaderCachePath);
 #endif
 #endif
 				// Create and register the material manager listener if it doesn't exist yet.
@@ -468,12 +450,12 @@ namespace Orkige
 				mMaterialMgrListener = NULL;
 			}
 
-			// Finalize RTShader system.
+			// Finalize RTShader system (OGRE 14 renamed finalize() to destroy()).
 			if (mShaderGenerator != NULL)
 			{
 				if(Ogre::MaterialManager::getSingletonPtr())
 				{
-					Ogre::RTShader::ShaderGenerator::finalize();
+					Ogre::RTShader::ShaderGenerator::destroy();
 				}
 				mShaderGenerator = NULL;
 			}
@@ -486,18 +468,15 @@ namespace Orkige
 		cf.load(resourceCfgFileName);
 
 		// Go through all sections & settings in the file
-		Ogre::ConfigFile::SectionIterator seci = cf.getSectionIterator();
-
-		Ogre::String secName, typeName, archName;
-		while (seci.hasMoreElements())
+		// (OGRE 14: ConfigFile::SectionIterator became getSettingsBySection())
+		Ogre::String typeName, archName;
+		for (auto const & section : cf.getSettingsBySection())
 		{
-			secName = seci.peekNextKey();	
-			Ogre::ConfigFile::SettingsMultiMap *settings = seci.getNext();
-			Ogre::ConfigFile::SettingsMultiMap::iterator i;
-			for (i = settings->begin(); i != settings->end(); ++i)
+			Ogre::String const & secName = section.first;
+			for (auto const & setting : section.second)
 			{
-				typeName = i->first;
-				archName = i->second;
+				typeName = setting.first;
+				archName = setting.second;
 				if(typeName == "FileSystem")
 				{
 					archName = PlatformUtil::getResourceDirectory() + archName;
@@ -509,16 +488,62 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior)
 	{
-		// Show the configuration dialog and initialise the system
-		if( (showConfigBehavior != SHOW_ALWAYS && this->root->restoreConfig()) || this->root->showConfigDialog())
+		// OGRE 14 removed the built in config dialog (Root::showConfigDialog now wants an
+		// externally supplied ConfigDialog) so configuration is restoreConfig() plus
+		// programmatic defaults. ShowConfigBehavior survives for API compatibility:
+		// SHOW_ALWAYS ignores a stored config, everything else just falls back to the
+		// defaults below when no stored config exists.
+		// note: restoreConfig() returns true (without selecting a RenderSystem)
+		// when the render config filename is empty, so double-check a renderer
+		// is actually active before trusting it
+		bool configRestored = (showConfigBehavior != SHOW_ALWAYS) && this->root->restoreConfig()
+			&& (this->root->getRenderSystem() != NULL);
+		if(!configRestored)
 		{
-			// If returned true, user clicked OK so initialise
+			const Ogre::RenderSystemList& renderers = this->root->getAvailableRenderers();
+			if(renderers.empty())
+			{
+				oDebugMsg("core", 0, "No RenderSystem available - Engine configuration failed.");
+				return false;
+			}
+			Ogre::RenderSystem* renderSystem = renderers.front();
+			oDebugMsg("core", 0, "No stored config - picking RenderSystem: " << renderSystem->getName());
+
+			// sane defaults: windowed, size from windowParams if provided
+			int width = 800;
+			int height = 600;
+			if(this->windowParams[0].find("width") != this->windowParams[0].end())
+			{
+				width = Orkige::StringUtil::Converter::fromString<int>(this->windowParams[0]["width"]);
+			}
+			if(this->windowParams[0].find("height") != this->windowParams[0].end())
+			{
+				height = Orkige::StringUtil::Converter::fromString<int>(this->windowParams[0]["height"]);
+			}
+			const Ogre::ConfigOptionMap& options = renderSystem->getConfigOptions();
+			if(options.find("Full Screen") != options.end())
+			{
+				renderSystem->setConfigOption("Full Screen", "No");
+			}
+			if(options.find("FSAA") != options.end())
+			{
+				renderSystem->setConfigOption("FSAA", "0");
+			}
+			if(options.find("Video Mode") != options.end())
+			{
+				std::stringstream videoMode;
+				videoMode << width << " x " << height;
+				renderSystem->setConfigOption("Video Mode", videoMode.str());
+			}
+			this->root->setRenderSystem(renderSystem);
+		}
+		{
 			// Here we choose to let the system create a default rendering window or a embedded window in externalhandle
 			if(this->externalWindowHandle.empty())
 			{
 				try
 				{
-					//if there are no params for window 0 we úse the auto create window
+					//if there are no params for window 0 we use the auto create window
 					bool autoCreateWindow = this->windowParams[0].empty();
 
 					this->renderWindow[0] = this->root->initialise(autoCreateWindow, windowTitle);
@@ -558,56 +583,37 @@ namespace Orkige
 				}
 				catch (Ogre::Exception const & e)
 				{
-					oDebugMsg("core", 0, "Exception: " << e.what());
-					if (showConfigBehavior != SHOW_NEVER)
-					{
-						this->root->showConfigDialog();
-					}
-					else
-					{
-						oDebugMsg("core", 0, "Not allowed to show config dialog. using fallback config values.");
-
-						// fallback values
-						Ogre::RenderSystem* renderSystem = Ogre::Root::getSingleton().getRenderSystem();
-						renderSystem->setConfigOption("Video Mode", "640 x 480 @ 32-bit colour");
-						//renderSystem->setConfigOption("VSync", "No");
-						renderSystem->setConfigOption("Full Screen", "No");
-						//renderSystem->setConfigOption("Resource Creation Policy", "Create on all devices");
-						renderSystem->setConfigOption("FSAA", "0");
-
-						// fallback device, this may set video mode and anti-aliasing settings
-						const Ogre::ConfigOptionMap& options = renderSystem->getConfigOptions();
-						Ogre::ConfigOptionMap::const_iterator optIt = options.find( "Rendering Device" );
-						if( optIt != options.end() )
-						{
-							Ogre::StringVector possibleVideoModes = optIt->second.possibleValues;
-							if (!possibleVideoModes.empty())
-							{
-								renderSystem->setConfigOption("Rendering Device", possibleVideoModes.at(0)); 
-							}
-						}
-					}
-					this->renderWindow[0] = root->initialise(true, windowTitle);
+					// no config dialog to fall back to anymore - fail configuration honestly
+					oDebugMsg("core", 0, "Exception while creating RenderWindow: " << e.what());
+					return false;
 				}
 				oAssert(this->renderWindow[0]);
 			}
 			else
 			{
 				this->renderWindow[0] = this->root->initialise(false/*, windowTitle*/);
-				
+
 				unsigned int width = 640;
 				unsigned int height = 480;
-				unsigned int depth; 
 				int left = 0;
 				int top = 0;
 				if(this->renderWindow[0])
 				{
-					this->renderWindow[0]->getMetrics(width, height, depth, left, top);
+					// OGRE 14: getMetrics lost the colour depth out parameter
+					this->renderWindow[0]->getMetrics(width, height, left, top);
 				}
 
-				Ogre::NameValuePairList params;
+				Ogre::NameValuePairList params = this->windowParams[0];
 				params["parentWindowHandle"] = this->topLevelWindowHandle;
 				params["externalWindowHandle"] = this->externalWindowHandle;
+				if(params.find("width") != params.end())
+				{
+					width = Orkige::StringUtil::Converter::fromString<unsigned int>(params["width"]);
+				}
+				if(params.find("height") != params.end())
+				{
+					height = Orkige::StringUtil::Converter::fromString<unsigned int>(params["height"]);
+				}
 
 				try
 				{
@@ -621,22 +627,17 @@ namespace Orkige
 
 					this->renderWindow[0]->windowMovedOrResized();
 				}
-				catch (...)
+				catch (Ogre::Exception const & e)
 				{
-					oDebugMsg("core", 0, "Error while creating external RenderWindow showing config");
-					this->root->showConfigDialog();
-					oDebugMsg("core", 0, "Trying to create external window with handle: " << this->externalWindowHandle);
-					this->renderWindow[0] = this->root->createRenderWindow(windowTitle, width, height, false, &params);
+					// no config dialog to fall back to anymore - fail configuration honestly
+					oDebugMsg("core", 0, "Error while creating external RenderWindow: " << e.what());
+					return false;
 				}
 				oAssert(this->renderWindow[0]);
-				this->renderWindow[0]->getMetrics( width, height, depth, left, top );
-				oDebugMsg("core", 0, "external RenderWindow initialized! width, height, depth, left, top: " << width <<", "<< height<<", "<< depth<<", "<< left<<", "<< top);
+				this->renderWindow[0]->getMetrics( width, height, left, top );
+				oDebugMsg("core", 0, "external RenderWindow initialized! width, height, left, top: " << width <<", "<< height<<", "<< left<<", "<< top);
 			}
 			return true;
-		}
-		else
-		{
-			return false;
 		}
 	}
 	//---------------------------------------------------------

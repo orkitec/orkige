@@ -25,7 +25,9 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		optr<Ogre::ZipArchive> zipFile;
+		//! OGRE 14 made ZipArchive private - instances only come from ZipArchiveFactory
+		Ogre::ZipArchiveFactory zipArchiveFactory;
+		optr<Ogre::Archive> zipFile;
 		Ogre::FileInfoListPtr fileInfo;
 		Ogre::String fileName;
 		Ogre::String pathPrefix;
@@ -35,11 +37,11 @@ namespace Orkige
 		BigZipArchiveFactory(Ogre::String const & fileName, Ogre::String const & pathPrefix);
 		virtual ~BigZipArchiveFactory();
 		/// @copydoc FactoryObj::getType
-		const Ogre::String& getType(void) const;
+		const Ogre::String& getType(void) const override;
 		/// @copydoc FactoryObj::createInstance
-		Ogre::Archive *createInstance( const Ogre::String& name );
+		Ogre::Archive *createInstance( const Ogre::String& name, bool readOnly ) override;
 		/// @copydoc FactoryObj::destroyInstance
-		void destroyInstance( Ogre::Archive* arch) { OGRE_DELETE arch; }
+		void destroyInstance( Ogre::Archive* arch) override { OGRE_DELETE arch; }
 
 		inline Ogre::String getPathPrefix();
 		//! @copydoc Archive::open
@@ -50,7 +52,7 @@ namespace Orkige
 		//! @copydoc Archive::findFileInfo
 		Ogre::FileInfoListPtr getFileInfoList(const Ogre::String& path);
 		/// get big zipfile
-		Ogre::ZipArchive const & getZipFile();
+		Ogre::Archive const & getZipFile();
 	protected:
 	private:
 	};

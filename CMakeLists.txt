@@ -29,4 +29,5 @@ add_subdirectory(orkige_core)
 
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
+    add_subdirectory(samples/hello_orkige)
 endif()

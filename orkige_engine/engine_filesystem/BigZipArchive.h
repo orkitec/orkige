@@ -22,13 +22,14 @@ namespace Orkige
 	This archive format supports all archives compressed in the standard
 	zip format, including iD pk3 files.
 	*/
-	class ORKIGE_ENGINE_DLL BigZipArchive : public Ogre::Archive 
+	class ORKIGE_ENGINE_DLL BigZipArchive : public Ogre::Archive
 	{
 		//--- Types -------------------------------------------------
 	public:
 	protected:
 		//! File list (since zziplib seems to only allow scanning of dir tree once)
 		Ogre::FileInfoList mFileList;
+		OGRE_AUTO_MUTEX;
 	private:
 		//--- Variables ---------------------------------------------
 	public:
@@ -39,42 +40,39 @@ namespace Orkige
 		BigZipArchive(const Ogre::String& name, const Ogre::String& archType );
 		~BigZipArchive();
 		//! @copydoc Archive::isCaseSensitive
-		bool isCaseSensitive(void) const { return false; }
+		bool isCaseSensitive(void) const override { return false; }
 
 		//! @copydoc Archive::load
-		void load();
+		void load() override;
 		//! @copydoc Archive::unload
-		void unload();
+		void unload() override;
 
 		//! @copydoc Archive::open
-		Ogre::DataStreamPtr open(const Ogre::String& filename, bool readOnly = true) const;
+		Ogre::DataStreamPtr open(const Ogre::String& filename, bool readOnly = true) const override;
 
 		//! @copydoc Archive::create
-		Ogre::DataStreamPtr create(const Ogre::String& filename) const;
+		Ogre::DataStreamPtr create(const Ogre::String& filename) override;
 
 		//! @copydoc Archive::remove
-		void remove(const String& filename) const;
+		void remove(const String& filename) override;
 
 		//! @copydoc Archive::list
-		Ogre::StringVectorPtr list(bool recursive = true, bool dirs = false);
+		Ogre::StringVectorPtr list(bool recursive = true, bool dirs = false) const override;
 
 		//! @copydoc Archive::listFileInfo
-		Ogre::FileInfoListPtr listFileInfo(bool recursive = true, bool dirs = false);
+		Ogre::FileInfoListPtr listFileInfo(bool recursive = true, bool dirs = false) const override;
 
 		//! @copydoc Archive::find
-		Ogre::StringVectorPtr find(const String& pattern, bool recursive = true, bool dirs = false);
-#if OGRE_VERSION_MINOR >= 8
+		Ogre::StringVectorPtr find(const String& pattern, bool recursive = true, bool dirs = false) const override;
+
 		//! @copydoc Archive::findFileInfo
-		Ogre::FileInfoListPtr findFileInfo(const Ogre::String& pattern, bool recursive = true, bool dirs = false) const;
-#else
-		//! @copydoc Archive::findFileInfo
-		Ogre::FileInfoListPtr findFileInfo(const Ogre::String& pattern, bool recursive = true, bool dirs = false);
-#endif
+		Ogre::FileInfoListPtr findFileInfo(const Ogre::String& pattern, bool recursive = true, bool dirs = false) const override;
+
 		//! @copydoc Archive::exists
-		bool exists(const Ogre::String& filename);
+		bool exists(const Ogre::String& filename) const override;
 
 		//! @copydoc Archive::getModifiedTime
-		time_t getModifiedTime(const Ogre::String& filename);
+		time_t getModifiedTime(const Ogre::String& filename) const override;
 	protected:
 	private:
 	};

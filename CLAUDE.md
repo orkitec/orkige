@@ -49,6 +49,9 @@ around it.
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
   Doxygen-style comments, `#ifndef` include guards with date suffixes.
+- Most legacy files use CRLF line endings — preserve them when editing (a flip to LF
+  turns the whole file into one unreviewable diff). New files use LF.
+- Commit messages: no `Co-Authored-By` trailers.
 
 ## Architecture
 

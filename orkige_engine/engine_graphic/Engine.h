@@ -46,12 +46,12 @@ public:
 	/** This is the hook point where shader based technique will be created.
 	It will be called whenever the material manager won't find appropriate technique
 	that satisfy the target scheme name. If the scheme name is out target RT Shader System
-	scheme name we will try to create shader generated technique for it. 
+	scheme name we will try to create shader generated technique for it.
 	*/
-	virtual Ogre::Technique* handleSchemeNotFound(unsigned short schemeIndex, 
-		const Ogre::String& schemeName, Ogre::Material* originalMaterial, unsigned short lodIndex, 
-		const Ogre::Renderable* rend)
-	{	
+	virtual Ogre::Technique* handleSchemeNotFound(unsigned short schemeIndex,
+		const Ogre::String& schemeName, Ogre::Material* originalMaterial, unsigned short lodIndex,
+		const Ogre::Renderable* rend) override
+	{
 		Ogre::Technique* generatedTech = NULL;
 
 		// Case this is the default shader generator scheme.
@@ -61,29 +61,25 @@ public:
 
 			// Create shader generated technique for this material.
 			techniqueCreated = mShaderGenerator->createShaderBasedTechnique(
-				originalMaterial->getName(), 
-				Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
-				schemeName);	
+				*originalMaterial,
+				Ogre::MaterialManager::DEFAULT_SCHEME_NAME,
+				schemeName);
 
 			// Case technique registration succeeded.
 			if (techniqueCreated)
 			{
 				// Force creating the shaders for the generated technique.
-				mShaderGenerator->validateMaterial(schemeName, originalMaterial->getName());
-				
+				mShaderGenerator->validateMaterial(schemeName, *originalMaterial);
+
 				// Grab the generated technique.
-				Ogre::Material::TechniqueIterator itTech = originalMaterial->getTechniqueIterator();
-
-				while (itTech.hasMoreElements())
+				for (Ogre::Technique* curTech : originalMaterial->getTechniques())
 				{
-					Ogre::Technique* curTech = itTech.getNext();
-
 					if (curTech->getSchemeName() == schemeName)
 					{
 						generatedTech = curTech;
 						break;
 					}
-				}				
+				}
 			}
 		}
 
@@ -134,10 +130,13 @@ protected:
 	protected:
 	private:
 		optr<Ogre::Root>			root;
+		//! statically linked render system plugin - must outlive the root (OGRE 14 static build)
+		optr<Ogre::Plugin>			renderSystemPlugin;
 		optr<BigZipArchiveFactory>  bigZipArchiveFactory;
 		Ogre::RenderWindow*			renderWindow[MAX_MUMBER_OF_WINDOWS];
 		Ogre::SceneManager*			sceneManager;
-		Ogre::SceneType				sceneType;
+		//! OGRE 14 dropped Ogre::SceneType - scene managers are selected by type name now
+		Ogre::String				sceneManagerTypeName;
 		Ogre::Camera*				camera[MAX_MUMBER_OF_WINDOWS];
 		Ogre::Viewport*				viewport[MAX_MUMBER_OF_WINDOWS];
 		Ogre::NameValuePairList		windowParams[MAX_MUMBER_OF_WINDOWS];
@@ -158,7 +157,7 @@ protected:
 		//--- Methods -----------------------------------------------
 	public:
 		//! construct Engine and set basic parameters
-		Engine(Ogre::SceneType st = Ogre::ST_GENERIC, 
+		Engine(Ogre::String const & smTypeName = Ogre::SMT_DEFAULT,
 #ifdef ORKIGE_IPHONE
 			String const & resourceCfgFileName =  Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone.cfg;" 
 												+ Orkige::PlatformUtil::getResourceDirectory() + "data/Config/resources_iphone4.cfg;" 
@@ -195,7 +194,7 @@ protected:
 
 		//! @brief setup Engine
 		//! @copydoc Engine::configure
-		//! @param alwaysShowConfigDialog show config dialog on every startup or just on the first start?
+		//! @param showConfigBehavior see Engine::configure - OGRE 14 has no built in config dialog anymore
 		//! @param windowTitle for tray and windowed mode
 		//! @param externalHandle can be used for embedding Engine into custom created window
 		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
@@ -239,7 +238,10 @@ protected:
 		Engine(Ogre::Root* _root, Ogre::SceneManager* _sceneManager, Ogre::RenderWindow* _window, Ogre::Viewport* _viewport, Ogre::Camera* _camera);
 		//! define the source of resources (other than current folder) but doesn't load them
 		void setupResources(String const & resourceCfgFileName);
-		//! Configures the Engine shows dialog on first configuration - returns false if the user chooses to abandon configuration.
+		//! @brief Configures the Engine - returns false if no usable render system configuration was found.
+		//! OGRE 14 removed the built in config dialog, so this restores a stored config
+		//! (skipped for SHOW_ALWAYS) and otherwise picks the first available render system
+		//! with sane windowed defaults programmatically.
 		bool configure(String const & windowTitle, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR);
 		//! @see Ogre::FrameListener::frameStarted
 		virtual bool frameStarted(const Ogre::FrameEvent& evt);

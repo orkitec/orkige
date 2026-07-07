@@ -18,7 +18,8 @@ namespace Orkige
         //---------------------------------------------------------
         BigZipArchiveFactory::BigZipArchiveFactory(Ogre::String const & _fileName, Ogre::String const & _pathPrefix) : fileName(_fileName), pathPrefix(_pathPrefix)
         {
-                this->zipFile = onew(new Ogre::ZipArchive(fileName, "Zip"));
+                // OGRE 14: ZipArchive is no longer public - create through the factory
+                this->zipFile = optr<Ogre::Archive>(this->zipArchiveFactory.createInstance(fileName, true));
                 oDebugMsg("steffen", 0, "Loading BigZip: " << this->fileName);
                 this->zipFile->load();
                 this->fileInfo = this->zipFile->listFileInfo();
@@ -34,8 +35,9 @@ namespace Orkige
                 return name;
         }
         //-----------------------------------------------------------------------
-        Ogre::Archive * BigZipArchiveFactory::createInstance( const Ogre::String& name )
+        Ogre::Archive * BigZipArchiveFactory::createInstance( const Ogre::String& name, bool readOnly )
         {
+                (void)readOnly; // BigZip archives are always read only
                 Ogre::String _name = name;
                 if(name.substr(0, 2) == "./")
                 {
@@ -69,7 +71,7 @@ namespace Orkige
                 return this->zipFile->listFileInfo(/*searchPattern + "*"*/true, false);
         }
         //-----------------------------------------------------------------------
-        Ogre::ZipArchive const & BigZipArchiveFactory::getZipFile()
+        Ogre::Archive const & BigZipArchiveFactory::getZipFile()
         {
                 return (*this->zipFile);
         }
