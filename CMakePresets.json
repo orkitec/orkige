@@ -9,7 +9,8 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
       "environment": {
         "VCPKG_ROOT": "$penv{HOME}/Development/vcpkg",
-        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets"
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/ports"
       },
       "cacheVariables": {
         "CMAKE_OSX_SYSROOT": "macosx",

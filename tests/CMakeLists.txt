@@ -10,6 +10,11 @@
 
 add_subdirectory(core)
 
+if(TARGET orkige_engine)
+    # pure-logic engine unit tests (no window/GPU)
+    add_subdirectory(engine)
+endif()
+
 if(TARGET hello_orkige)
     # frame-capped demo runs; 120 frames ~= 2s
     add_test(NAME demo_plain COMMAND hello_orkige
@@ -92,10 +97,51 @@ if(TARGET orkige_player)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 endif()
 
+# --- Metal render system runs (macOS) - registered but DISABLED ------------
+# The Metal RS is linked, statically registered and runtime-selectable
+# (ORKIGE_RENDERSYSTEM=Metal -> Engine::setPreferredRenderSystem; the matching
+# rule is unit-tested in tests/engine), and it initializes fully on the
+# SDL-provided NSWindow (Metal device up, CAMetalLayer view attached).
+# Rendering, however, cannot work yet: OGRE 14.5's Metal RS has no RTSS
+# backend - the RTSS emits glsl/glsles/hlsl/glslang only (no MSL writer),
+# the Metal RS accepts only the "metal" shader profile and claims
+# RSC_FIXED_FUNCTION ("FIXME: hack to get past RTSS" in
+# OgreMetalRenderSystem.mm) so everything renders through its built-in
+# Media/Main/DefaultShaders.metal (MVP transform + one texture sample, no
+# vertex colours, no lighting). That default vertex shader requires a
+# TEXCOORD0 attribute, so Orkige's vertex-colour geometry aborts PSO creation
+# with "Vertex attribute uv(8) is missing from the vertex descriptor"
+# (MetalRenderSystem::getPipelineState). These runs stay DISABLED until OGRE
+# grows a real RTSS-on-Metal path or Orkige ships "metal" programs for its
+# materials (Phase 3 work); flip DISABLED off to re-check a new OGRE version.
+if(APPLE AND TARGET hello_orkige)
+    add_test(NAME demo_plain_metal COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_plain_metal PROPERTIES
+        ENVIRONMENT "ORKIGE_RENDERSYSTEM=Metal;ORKIGE_DEMO_FRAMES=120"
+        DISABLED TRUE)
+endif()
+if(APPLE AND TARGET orkige_player)
+    add_test(NAME player_example_scene_metal
+        COMMAND orkige_player samples/scenes/example.oscene
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_example_scene_metal PROPERTIES
+        ENVIRONMENT "ORKIGE_RENDERSYSTEM=Metal;ORKIGE_DEMO_FRAMES=90"
+        DISABLED TRUE)
+endif()
+if(APPLE AND TARGET orkige_editor)
+    add_test(NAME editor_selfcheck_metal COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_selfcheck_metal PROPERTIES
+        ENVIRONMENT "ORKIGE_RENDERSYSTEM=Metal;ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck_metal.oscene"
+        DISABLED TRUE)
+endif()
+
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         demo_synth_esc editor_selfcheck editor_resize player_example_scene
-        player_debug_pause editor_play_stop editor_play_crash)
+        player_debug_pause editor_play_stop editor_play_crash
+        demo_plain_metal player_example_scene_metal editor_selfcheck_metal)
     if(TEST ${integration_test})
         set_tests_properties(${integration_test} PROPERTIES
             LABELS integration TIMEOUT 60)

@@ -170,4 +170,9 @@ if(APPLE)
         "-framework AudioToolbox"
         "-framework CoreFoundation"
     )
+    # Metal render system (selectable at runtime via
+    # Engine::setPreferredRenderSystem / ORKIGE_RENDERSYSTEM; GL3Plus stays the
+    # default). The RS itself needs the Metal/AppKit/QuartzCore frameworks -
+    # they come through the exported OgreTargets link interface.
+    target_link_libraries(orkige_engine PUBLIC RenderSystem_Metal)
 endif()

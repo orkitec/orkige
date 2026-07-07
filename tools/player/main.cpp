@@ -482,6 +482,16 @@ int main(int argc, char** argv)
 		engine.setCustomWindowParam("width", "1280");
 		engine.setCustomWindowParam("height", "720");
 
+		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Metal",
+		// "GL3Plus", "GL" - see Engine::matchRenderSystemName); unset keeps
+		// the default (first available, i.e. GL3Plus). OGRE 14.5's Metal RS
+		// has no RTSS/MSL backend - scenes render through OGRE's built-in
+		// default shaders (no vertex colours, no lighting) on Metal.
+		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
+		{
+			engine.setPreferredRenderSystem(renderSystemEnv);
+		}
+
 		// RTSS shader library + OgreUnifiedShader.h, same locations
 		// OgreBites::ApplicationContext registers (see CMakeLists.txt)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(

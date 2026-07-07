@@ -15,9 +15,13 @@
 #ifdef OGRE_STATIC_LIB
 // static build: render systems are linked in and registered via installPlugin
 #include <OgreGL3PlusPlugin.h>
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+#include <OgreMetalPlugin.h>
+#endif
 #include <OgreSTBICodec.h>
 #include <OgreAssimpLoader.h>
 #endif
+#include <cctype>
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
 #       import <UIKit/UIKit.h>
@@ -99,6 +103,13 @@ namespace Orkige
 		this->root = optr<Ogre::Root>(new Ogre::Root(Ogre::BLANKSTRING, renderCfgPlatformFileName, engineLogFileName));
 		this->renderSystemPlugin = onew(new Ogre::GL3PlusPlugin());
 		this->root->installPlugin(this->renderSystemPlugin.get());
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
+		// Metal render system (OGRE 14.5): selectable via setPreferredRenderSystem
+		// but NOT the default - the RTShaderSystem has no MSL backend, so Metal
+		// runs on OGRE's built-in default shaders only (see configure())
+		this->metalRenderSystemPlugin = onew(new Ogre::MetalPlugin());
+		this->root->installPlugin(this->metalRenderSystemPlugin.get());
+#endif
 		Ogre::STBIImageCodec::startup(); // png/jpg image codecs
 		// assimp mesh codecs (glTF/glb, obj, ...) - AssimpPlugin::install
 		// registers one Ogre::Codec per assimp file extension
@@ -137,6 +148,7 @@ namespace Orkige
 		this->bigZipArchiveFactory.reset();
 		// the plugins have to outlive the root
 		this->assimpCodecPlugin.reset();
+		this->metalRenderSystemPlugin.reset();
 		this->renderSystemPlugin.reset();
 	}
 	//---------------------------------------------------------
@@ -192,6 +204,35 @@ namespace Orkige
 	void Engine::setCustomWindowParam(Orkige::String paramName, Orkige::String paramValue, unsigned int windowNumber)
 	{
 		this->windowParams[windowNumber][paramName] = paramValue;
+	}
+	//---------------------------------------------------------
+	bool Engine::matchRenderSystemName(String const & renderSystemName, String const & nameHint)
+	{
+		// normalized, case-insensitive substring match: spaces are dropped and
+		// '+' is spelled out, so "GL3Plus" (and "GL3+") finds
+		// "OpenGL 3+ Rendering Subsystem", "Metal" finds
+		// "Metal Rendering Subsystem" and "GL" any OpenGL flavour
+		auto normalize = [](String const & value) -> String
+		{
+			String normalized;
+			normalized.reserve(value.size());
+			for (char character : value)
+			{
+				if(character == ' ')
+					continue;
+				if(character == '+')
+				{
+					normalized += "plus";
+					continue;
+				}
+				normalized += static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+			}
+			return normalized;
+		};
+		String const normalizedHint = normalize(nameHint);
+		if(normalizedHint.empty())
+			return false;
+		return normalize(renderSystemName).find(normalizedHint) != String::npos;
 	}
 	//---------------------------------------------------------
 	bool Engine::setup(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle)
@@ -502,7 +543,10 @@ namespace Orkige
 		// note: restoreConfig() returns true (without selecting a RenderSystem)
 		// when the render config filename is empty, so double-check a renderer
 		// is actually active before trusting it
-		bool configRestored = (showConfigBehavior != SHOW_ALWAYS) && this->root->restoreConfig()
+		// an explicit render system preference (setPreferredRenderSystem) wins
+		// over a stored config - callers that set it expect exactly that system
+		bool configRestored = this->preferredRenderSystem.empty()
+			&& (showConfigBehavior != SHOW_ALWAYS) && this->root->restoreConfig()
 			&& (this->root->getRenderSystem() != NULL);
 		if(!configRestored)
 		{
@@ -512,8 +556,36 @@ namespace Orkige
 				oDebugMsg("core", 0, "No RenderSystem available - Engine configuration failed.");
 				return false;
 			}
-			Ogre::RenderSystem* renderSystem = renderers.front();
-			oDebugMsg("core", 0, "No stored config - picking RenderSystem: " << renderSystem->getName());
+			Ogre::RenderSystem* renderSystem = NULL;
+			if(this->preferredRenderSystem.empty())
+			{
+				// historical default: first available render system
+				renderSystem = renderers.front();
+				oDebugMsg("core", 0, "No stored config - picking RenderSystem: " << renderSystem->getName());
+			}
+			else
+			{
+				for (Ogre::RenderSystem* each : renderers)
+				{
+					if(Engine::matchRenderSystemName(each->getName(), this->preferredRenderSystem))
+					{
+						renderSystem = each;
+						break;
+					}
+				}
+				if(renderSystem == NULL)
+				{
+					// fail instead of silently rendering through another API -
+					// automated runs rely on getting exactly what they asked for
+					oDebugMsg("core", 0, "Preferred RenderSystem '" << this->preferredRenderSystem << "' not available - Engine configuration failed. Available RenderSystems:");
+					for (Ogre::RenderSystem* each : renderers)
+					{
+						oDebugMsg("core", 0, "    " << each->getName());
+					}
+					return false;
+				}
+				oDebugMsg("core", 0, "Picking preferred RenderSystem: " << renderSystem->getName());
+			}
 
 			// sane defaults: windowed, size from windowParams if provided
 			int width = 800;

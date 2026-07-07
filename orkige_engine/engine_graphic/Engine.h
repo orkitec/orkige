@@ -132,6 +132,8 @@ protected:
 		optr<Ogre::Root>			root;
 		//! statically linked render system plugin - must outlive the root (OGRE 14 static build)
 		optr<Ogre::Plugin>			renderSystemPlugin;
+		//! statically linked Metal render system plugin (Apple platforms) - same lifetime rule
+		optr<Ogre::Plugin>			metalRenderSystemPlugin;
 		//! statically linked assimp mesh codec plugin (glTF/glb etc.) - same lifetime rule
 		optr<Ogre::Plugin>			assimpCodecPlugin;
 		optr<BigZipArchiveFactory>  bigZipArchiveFactory;
@@ -152,6 +154,8 @@ protected:
 		unsigned long				lastFrameTime;
 		unsigned int				numberOfWindows;
 		String						defaultLocationType;
+		//! name hint for the render system configure() should pick (empty = first available)
+		String						preferredRenderSystem;
 #ifdef USE_RTSHADER_SYSTEM
 		Ogre::RTShader::ShaderGenerator*			mShaderGenerator;			// The Shader generator instance.
 		ShaderGeneratorTechniqueResolverListener*	mMaterialMgrListener;		// Shader generator material manager listener.	
@@ -193,6 +197,20 @@ protected:
 		//! set custom window properties (has to be called before calling setup(...) to take effect
 		//! @see Ogre::RenderSystem::_createRenderWindow for parameters
 		void setCustomWindowParam(Orkige::String paramName, Orkige::String paramValue, unsigned int windowNumber = 0);
+
+		//! @brief prefer a specific render system when configure() picks one (call before setup(...))
+		//! @param nameHint matched against Ogre::RenderSystem::getName() by
+		//! Engine::matchRenderSystemName, so "Metal", "GL3Plus", "GL3+" and "GL"
+		//! all work. An empty hint (the default) keeps the historical
+		//! first-available behavior. A non-empty hint overrides a stored render
+		//! config; if it matches no available render system, configure() fails
+		//! instead of silently rendering through another API.
+		inline void setPreferredRenderSystem(String const & nameHint);
+		//! @brief the pure matching rule behind setPreferredRenderSystem (unit tested)
+		//! Case-insensitive substring match after dropping spaces and spelling
+		//! '+' as "plus": "GL3Plus" finds "OpenGL 3+ Rendering Subsystem",
+		//! "Metal" finds "Metal Rendering Subsystem". Empty hints match nothing.
+		static bool matchRenderSystemName(String const & renderSystemName, String const & nameHint);
 
 		//! @brief setup Engine
 		//! @copydoc Engine::configure
@@ -305,6 +323,11 @@ protected:
 	inline String const & Engine::getDefaultLocationType()
 	{
 		return this->defaultLocationType;
+	}
+	//---------------------------------------------------------------
+	inline void Engine::setPreferredRenderSystem(String const & nameHint)
+	{
+		this->preferredRenderSystem = nameHint;
 	}
 }
 

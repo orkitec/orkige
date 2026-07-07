@@ -4,7 +4,15 @@
   "description": "Orkige - the orkitec game engine",
   "dependencies": [
     "tinyxml2",
-    "ogre",
+    {
+      "name": "ogre",
+      "features": [
+        {
+          "name": "metal",
+          "platform": "osx | ios"
+        }
+      ]
+    },
     "sdl3",
     "openal-soft",
     "lua",
