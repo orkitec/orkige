@@ -8,6 +8,7 @@ add_executable(orkige_core_tests
     TestComponents.h
     TestComponents.cpp
     XMLArchiveTests.cpp
+    DebugProtocolTests.cpp
     EventTests.cpp
     ComponentTests.cpp
     TypeManagerTests.cpp

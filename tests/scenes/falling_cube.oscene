@@ -1,0 +1,45 @@
+<?1.0, UTF-8, yes?>
+<XMLArchive Version="0">
+    <String value="orkige.oscene"/>
+    <int value="1"/>
+    <unsigned_int value="1"/>
+    <String value="FallCube"/>
+    <unsigned_int value="3"/>
+    <String value="ModelComponent"/>
+    <ModelComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <String value="EditorCube.mesh"/>
+    </ModelComponent>
+    <String value="RigidBodyComponent"/>
+    <RigidBodyComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <int value="2"/>
+        <int value="0"/>
+        <float value="0.5"/>
+        <float value="0.5"/>
+        <float value="0.5"/>
+        <float value="0.5"/>
+        <float value="0.5"/>
+        <float value="1"/>
+        <float value="0.5"/>
+        <float value="0"/>
+        <bool value="0"/>
+    </RigidBodyComponent>
+    <String value="TransformComponent"/>
+    <TransformComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <float value="0"/>
+        <float value="5"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+    </TransformComponent>
+</XMLArchive>

@@ -29,4 +29,9 @@ target_compile_definitions(orkige_editor PRIVATE
     # default directory the Scene Path modal offers for .oscene files
     ORKIGE_EDITOR_SCENE_DIR="${CMAKE_SOURCE_DIR}/samples/scenes"
     ORKIGE_EDITOR_VERSION="${PROJECT_VERSION}"
+    # play mode spawns this binary (Play toolbar button / playtest hooks)
+    ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"
 )
+
+# play mode needs the player binary present at runtime
+add_dependencies(orkige_editor orkige_player)

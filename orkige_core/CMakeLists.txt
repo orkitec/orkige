@@ -4,6 +4,7 @@
 set(ORKIGE_CORE_MODULES
     core_base
     core_debug
+    core_debugnet
     core_event
     core_game
     core_module

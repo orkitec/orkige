@@ -29,6 +29,8 @@
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
+#include <core_debugnet/DebugClient.h>
+#include <core_debugnet/DebugServer.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
@@ -51,12 +53,21 @@
 #include "ImGuiSDL3Input.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <map>
+#include <sstream>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <signal.h> // ORKIGE_EDITOR_PLAYTEST=crash kills the player with SIGKILL
+#endif
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
@@ -118,6 +129,354 @@ struct EditorState
 	float orbitDistance = 9.3408f;
 	bool orbitActive = false;
 };
+
+//--- play mode (remote debugging) -----------------------------------------
+
+namespace Protocol = Orkige::DebugProtocol;
+
+// panel titles: the text before ### changes with the mode ("(Remote)" while
+// playing), the id after ### keeps the window/docking identity stable
+const char* const HIERARCHY_WINDOW_EDIT = "Scene Hierarchy###SceneHierarchy";
+const char* const HIERARCHY_WINDOW_REMOTE =
+	"Scene Hierarchy (Remote)###SceneHierarchy";
+const char* const INSPECTOR_WINDOW_EDIT = "Inspector###Inspector";
+const char* const INSPECTOR_WINDOW_REMOTE = "Inspector (Remote)###Inspector";
+
+// The editor's play mode, Godot-style: Play saves the CURRENT scene to a
+// temp file (never the user's file), spawns ./orkige_player <tempScene>
+// --debug-port <freeport> (SDL_CreateProcess - the editor already lives on
+// SDL3, so no extra platform code) and connects a core_debugnet DebugClient.
+// While the session is active the Hierarchy/Inspector panels show the REMOTE
+// scene streamed by the player; Stop sends quit and kills the process after
+// a grace timeout; a crashed/vanished player is detected via the connection
+// drop / process exit and reverts the editor to edit mode. The editor scene
+// is never touched by any of this.
+struct PlaySession
+{
+	enum class Mode { Edit, Launching, Playing, Paused, Stopping };
+	Mode mode = Mode::Edit;
+	SDL_Process* process = nullptr;
+	Orkige::DebugClient client;
+	unsigned short port = 0;
+	std::string tempScenePath;
+	//! remote state streamed by the player
+	std::string remoteScenePath;
+	bool helloReceived = false;
+	bool hierarchyReceived = false;
+	Orkige::StringVector remoteHierarchy;
+	std::string remoteSelectedId;
+	std::string stateObjectId;					//!< object of the latest object_state
+	Orkige::StringVector stateComponents;		//!< its component type names
+	std::map<std::string, std::string> stateProperties;	//!< "<Comp>.<prop>" -> value
+	//! timing
+	std::chrono::steady_clock::time_point launchStart;
+	std::chrono::steady_clock::time_point lastConnectAttempt;
+	std::chrono::steady_clock::time_point stopRequestTime;
+
+	bool isActive() const { return this->mode != Mode::Edit; }
+};
+
+//! seconds the editor keeps re-connecting while the player engine boots
+const int PLAY_CONNECT_TIMEOUT_SECONDS = 30;
+//! milliseconds between connect attempts while launching
+const int PLAY_CONNECT_RETRY_MS = 250;
+//! milliseconds a stopped player gets before it is killed
+const int PLAY_STOP_GRACE_MS = 3000;
+
+//! parse exactly count whitespace-separated floats; false on any junk
+bool parsePlayFloats(std::string const& text, float* out, int count)
+{
+	std::istringstream stream(text);
+	for (int i = 0; i < count; ++i)
+	{
+		if (!(stream >> out[i]))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+//! format floats with round-trip precision (the wire format for values)
+std::string formatPlayFloats(const float* values, int count)
+{
+	std::string out;
+	for (int i = 0; i < count; ++i)
+	{
+		char buffer[64];
+		std::snprintf(buffer, sizeof(buffer), "%.9g", values[i]);
+		if (i > 0)
+		{
+			out += ' ';
+		}
+		out += buffer;
+	}
+	return out;
+}
+
+//! forget everything streamed by the (previous) player
+void clearRemoteState(PlaySession& session)
+{
+	session.remoteScenePath.clear();
+	session.helloReceived = false;
+	session.hierarchyReceived = false;
+	session.remoteHierarchy.clear();
+	session.remoteSelectedId.clear();
+	session.stateObjectId.clear();
+	session.stateComponents.clear();
+	session.stateProperties.clear();
+}
+
+//! @brief tear the session down (reap/kill the player, drop the link,
+//! delete the temp scene) and revert to edit mode - the single exit path
+//! for Stop, crash detection and editor shutdown
+void endPlaySession(PlaySession& session, std::string const& reason)
+{
+	if (session.process)
+	{
+		int exitCode = 0;
+		if (!SDL_WaitProcess(session.process, false, &exitCode))
+		{
+			SDL_KillProcess(session.process, true);
+			SDL_WaitProcess(session.process, true, &exitCode);
+		}
+		SDL_DestroyProcess(session.process);
+		session.process = nullptr;
+	}
+	session.client.disconnect();
+	if (!session.tempScenePath.empty())
+	{
+		std::error_code ignored;
+		std::filesystem::remove(session.tempScenePath, ignored);
+		session.tempScenePath.clear();
+	}
+	clearRemoteState(session);
+	session.mode = PlaySession::Mode::Edit;
+	SDL_Log("orkige_editor: play mode ended (%s)", reason.c_str());
+}
+
+//! @brief Play: save the current scene to a temp play file, spawn the
+//! player with --debug-port on a probed free port and start connecting.
+//! The user's scene file and the editor world stay untouched.
+bool startPlay(PlaySession& session,
+	Orkige::GameObjectManager& gameObjectManager)
+{
+	if (session.isActive())
+	{
+		return false;
+	}
+	// temp play file (never the user's file - saveScene is called directly,
+	// EditorState::currentScenePath/sceneDirty are not involved)
+	const std::string tempName = "orkige_play_" + std::to_string(
+		std::chrono::steady_clock::now().time_since_epoch().count()) +
+		".oscene";
+	session.tempScenePath =
+		(std::filesystem::temp_directory_path() / tempName).string();
+	if (!Orkige::SceneSerializer::saveScene(session.tempScenePath,
+		gameObjectManager))
+	{
+		SDL_Log("orkige_editor: play failed - could not save temp scene '%s'",
+			session.tempScenePath.c_str());
+		session.tempScenePath.clear();
+		return false;
+	}
+	// free localhost port: bind an ephemeral DebugServer, read the port
+	// back, close it again (tiny race until the player re-binds it -
+	// acceptable for a local dev loop)
+	{
+		Orkige::DebugServer portProbe;
+		if (!portProbe.start(0))
+		{
+			SDL_Log("orkige_editor: play failed - no free debug port");
+			endPlaySession(session, "port probe failed");
+			return false;
+		}
+		session.port = portProbe.getPort();
+	}
+	// spawn the player next to this build (ORKIGE_EDITOR_PLAYER_PATH is
+	// baked in by CMake as $<TARGET_FILE:orkige_player>). SDL's process API
+	// keeps the editor free of platform spawn code; stdio stays inherited so
+	// the player log shows up in the editor console. The automation env
+	// hooks aimed at THIS editor process (frame caps, screenshot paths) must
+	// not leak into the player - it honours the same variables and would
+	// e.g. exit after N frames or overwrite the requested screenshot.
+	const std::string portString = std::to_string(session.port);
+	const char* args[] = { ORKIGE_EDITOR_PLAYER_PATH,
+		session.tempScenePath.c_str(), "--debug-port", portString.c_str(),
+		nullptr };
+	SDL_Environment* playerEnvironment = SDL_CreateEnvironment(true);
+	SDL_UnsetEnvironmentVariable(playerEnvironment, "ORKIGE_DEMO_FRAMES");
+	SDL_UnsetEnvironmentVariable(playerEnvironment, "ORKIGE_DEMO_SCREENSHOT");
+	SDL_PropertiesID spawnProperties = SDL_CreateProperties();
+	SDL_SetPointerProperty(spawnProperties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
+		const_cast<char**>(args));
+	SDL_SetPointerProperty(spawnProperties,
+		SDL_PROP_PROCESS_CREATE_ENVIRONMENT_POINTER, playerEnvironment);
+	session.process = SDL_CreateProcessWithProperties(spawnProperties);
+	SDL_DestroyProperties(spawnProperties);
+	SDL_DestroyEnvironment(playerEnvironment);
+	if (!session.process)
+	{
+		SDL_Log("orkige_editor: play failed - SDL_CreateProcess '%s': %s",
+			ORKIGE_EDITOR_PLAYER_PATH, SDL_GetError());
+		endPlaySession(session, "spawn failed");
+		return false;
+	}
+	clearRemoteState(session);
+	session.mode = PlaySession::Mode::Launching;
+	session.launchStart = std::chrono::steady_clock::now();
+	session.lastConnectAttempt = std::chrono::steady_clock::time_point();
+	SDL_Log("orkige_editor: play - spawned player (scene '%s', port %u)",
+		session.tempScenePath.c_str(), static_cast<unsigned>(session.port));
+	return true;
+}
+
+//! Stop: ask the player to quit; updatePlaySession reaps it (or kills it
+//! after the grace timeout)
+void requestStopPlay(PlaySession& session)
+{
+	if (!session.isActive() || session.mode == PlaySession::Mode::Stopping)
+	{
+		return;
+	}
+	if (session.client.isConnected())
+	{
+		session.client.send(Orkige::DebugMessage(Protocol::MSG_QUIT));
+	}
+	session.mode = PlaySession::Mode::Stopping;
+	session.stopRequestTime = std::chrono::steady_clock::now();
+	SDL_Log("orkige_editor: play - stop requested");
+}
+
+//! remote selection: remember it and tell the player what to stream
+void selectRemoteObject(PlaySession& session, std::string const& id)
+{
+	session.remoteSelectedId = id;
+	Orkige::DebugMessage select(Protocol::MSG_SELECT);
+	select.set(Protocol::FIELD_ID, id);
+	session.client.send(select);
+}
+
+//! per-frame play session pump: complete the connect, drain streamed
+//! messages, watch the process and the link, enforce the stop grace timeout
+void updatePlaySession(PlaySession& session)
+{
+	if (!session.isActive())
+	{
+		return;
+	}
+	session.client.update();
+	Orkige::DebugMessage message;
+	while (session.client.receive(message))
+	{
+		if (message.type == Protocol::MSG_HELLO)
+		{
+			session.helloReceived = true;
+			session.remoteScenePath = message.get(Protocol::FIELD_SCENE);
+			if (message.version != Protocol::VERSION)
+			{
+				SDL_Log("orkige_editor: play - protocol version mismatch "
+					"(player %d, editor %d)", message.version,
+					Protocol::VERSION);
+			}
+		}
+		else if (message.type == Protocol::MSG_HIERARCHY)
+		{
+			session.remoteHierarchy = message.getList(Protocol::LIST_IDS);
+			session.hierarchyReceived = true;
+		}
+		else if (message.type == Protocol::MSG_OBJECT_STATE)
+		{
+			session.stateObjectId = message.get(Protocol::FIELD_ID);
+			session.stateComponents = message.getList(Protocol::LIST_COMPONENTS);
+			session.stateProperties.clear();
+			for (auto const& [key, value] : message.fields)
+			{
+				if (key != Protocol::FIELD_ID)
+				{
+					session.stateProperties[key] = value;
+				}
+			}
+		}
+		else if (message.type == Protocol::MSG_LOG ||
+			message.type == Protocol::MSG_ERROR)
+		{
+			SDL_Log("orkige_editor: play - remote %s: %s",
+				message.type.c_str(),
+				message.get(Protocol::FIELD_MESSAGE).c_str());
+		}
+		else if (message.type == Protocol::MSG_BYE)
+		{
+			SDL_Log("orkige_editor: play - player said bye");
+		}
+	}
+	int exitCode = 0;
+	const bool processExited = session.process &&
+		SDL_WaitProcess(session.process, false, &exitCode);
+	const std::chrono::steady_clock::time_point now =
+		std::chrono::steady_clock::now();
+	switch (session.mode)
+	{
+	case PlaySession::Mode::Launching:
+		if (processExited)
+		{
+			endPlaySession(session, "player exited during launch (code " +
+				std::to_string(exitCode) + ")");
+			return;
+		}
+		if (session.client.isConnected())
+		{
+			session.mode = PlaySession::Mode::Playing;
+			SDL_Log("orkige_editor: play - connected to the player");
+			return;
+		}
+		// the player needs a few seconds to boot before it listens: keep
+		// re-connecting (a refused attempt ends in Failed, not Connecting)
+		if (!session.client.isConnecting() &&
+			now - session.lastConnectAttempt >
+				std::chrono::milliseconds(PLAY_CONNECT_RETRY_MS))
+		{
+			session.client.connect("127.0.0.1", session.port);
+			session.lastConnectAttempt = now;
+		}
+		if (now - session.launchStart >
+			std::chrono::seconds(PLAY_CONNECT_TIMEOUT_SECONDS))
+		{
+			endPlaySession(session, "could not connect to the player");
+		}
+		return;
+	case PlaySession::Mode::Playing:
+	case PlaySession::Mode::Paused:
+		// crash resilience: a vanished process or a dropped link reverts
+		// the editor to edit mode cleanly
+		if (processExited)
+		{
+			endPlaySession(session, "player process exited unexpectedly "
+				"(code " + std::to_string(exitCode) + ")");
+			return;
+		}
+		if (!session.client.isConnected())
+		{
+			endPlaySession(session, "debug link dropped unexpectedly");
+		}
+		return;
+	case PlaySession::Mode::Stopping:
+		if (processExited)
+		{
+			endPlaySession(session, "stopped");
+			return;
+		}
+		if (now - session.stopRequestTime >
+			std::chrono::milliseconds(PLAY_STOP_GRACE_MS))
+		{
+			SDL_Log("orkige_editor: play - player ignored quit, killing it");
+			endPlaySession(session, "stopped (killed after grace timeout)");
+		}
+		return;
+	case PlaySession::Mode::Edit:
+		return;
+	}
+}
 
 // The offscreen scene render target: the editor's scene camera renders into a
 // manual RENDER_TARGET texture whose viewport replaces the old whole-window
@@ -603,20 +962,125 @@ void drawMenuBar(EditorState& state,
 	}
 }
 
-// Fullscreen dockspace over the main viewport (below the main menu bar,
-// which claims its part of the work area first). The first run builds the
-// default layout programmatically with the DockBuilder: Hierarchy left,
-// Inspector right, Lua Console + Stats tabbed at the bottom, Scene panel
-// filling the centre. Afterwards the layout persists through imgui.ini
-// (stored next to the executable, see main()) and the builder stays out of
-// the way.
-void drawDockspace(EditorState& state)
+// The play toolbar strip: a fixed window at the top of the work area (under
+// the main menu bar, above the dockspace) carrying Play/Pause(Resume)/Step/
+// Stop with state-appropriate enabling plus a session status line. Returns
+// the height the dockspace below must leave free.
+float drawToolbar(EditorState& state, PlaySession& session,
+	Orkige::GameObjectManager& gameObjectManager)
 {
 	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
-	const ImGuiID dockspaceId =
-		ImGui::DockSpaceOverViewport(0, mainViewport);
+	const float toolbarHeight = ImGui::GetFrameHeight() +
+		ImGui::GetStyle().WindowPadding.y * 2.0f;
+	ImGui::SetNextWindowPos(mainViewport->WorkPos);
+	ImGui::SetNextWindowSize(ImVec2(mainViewport->WorkSize.x, toolbarHeight));
+	if (ImGui::Begin("##PlayToolbar", nullptr,
+		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+		ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus))
+	{
+		const PlaySession::Mode mode = session.mode;
+		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit);
+		if (ImGui::Button("Play"))
+		{
+			startPlay(session, gameObjectManager);
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (mode == PlaySession::Mode::Paused)
+		{
+			if (ImGui::Button("Resume"))
+			{
+				session.client.send(
+					Orkige::DebugMessage(Protocol::MSG_RESUME));
+				session.mode = PlaySession::Mode::Playing;
+			}
+		}
+		else
+		{
+			ImGui::BeginDisabled(mode != PlaySession::Mode::Playing);
+			if (ImGui::Button("Pause"))
+			{
+				session.client.send(Orkige::DebugMessage(Protocol::MSG_PAUSE));
+				session.mode = PlaySession::Mode::Paused;
+			}
+			ImGui::EndDisabled();
+		}
+		ImGui::SameLine();
+		ImGui::BeginDisabled(mode != PlaySession::Mode::Paused);
+		if (ImGui::Button("Step"))
+		{
+			session.client.send(Orkige::DebugMessage(Protocol::MSG_STEP));
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!session.isActive() ||
+			mode == PlaySession::Mode::Stopping);
+		if (ImGui::Button("Stop"))
+		{
+			requestStopPlay(session);
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+		ImGui::SameLine();
+		switch (mode)
+		{
+		case PlaySession::Mode::Edit:
+			ImGui::TextDisabled("editing");
+			break;
+		case PlaySession::Mode::Launching:
+			ImGui::TextUnformatted("launching player...");
+			break;
+		case PlaySession::Mode::Playing:
+			ImGui::Text("PLAYING (remote: %zu objects)",
+				session.remoteHierarchy.size());
+			break;
+		case PlaySession::Mode::Paused:
+			ImGui::Text("PAUSED (remote: %zu objects)",
+				session.remoteHierarchy.size());
+			break;
+		case PlaySession::Mode::Stopping:
+			ImGui::TextUnformatted("stopping...");
+			break;
+		}
+	}
+	ImGui::End();
+	(void)state;
+	return toolbarHeight;
+}
+
+// Dockspace filling the work area below the toolbar strip. The first run
+// builds the default layout programmatically with the DockBuilder:
+// Hierarchy left, Inspector right, Lua Console + Stats tabbed at the
+// bottom, Scene panel filling the centre. Afterwards the layout persists
+// through imgui.ini (stored next to the executable, see main()) and the
+// builder stays out of the way.
+void drawDockspace(EditorState& state, float toolbarHeight)
+{
+	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x,
+		mainViewport->WorkPos.y + toolbarHeight));
+	const ImVec2 hostSize(mainViewport->WorkSize.x,
+		mainViewport->WorkSize.y - toolbarHeight);
+	ImGui::SetNextWindowSize(hostSize);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	ImGui::Begin("##EditorDockHost", nullptr,
+		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+		ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+		ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+		ImGuiWindowFlags_NoBackground);
+	ImGui::PopStyleVar(3);
+	const ImGuiID dockspaceId = ImGui::GetID("OrkigeEditorDockspace");
+	ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+	ImGui::End();
 	if (state.dockLayoutChecked ||
-		mainViewport->WorkSize.x <= 0.0f || mainViewport->WorkSize.y <= 0.0f)
+		hostSize.x <= 0.0f || hostSize.y <= 0.0f)
 	{
 		// the very first frame has no display size yet (ImGuiOverlay derives
 		// it from the not-yet-rendered overlay viewport) - try again next
@@ -631,8 +1095,7 @@ void drawDockspace(EditorState& state)
 	}
 	ImGui::DockBuilderRemoveNode(dockspaceId);
 	ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-	ImGui::DockBuilderSetNodeSize(dockspaceId,
-		ImGui::GetMainViewport()->WorkSize);
+	ImGui::DockBuilderSetNodeSize(dockspaceId, hostSize);
 	ImGuiID centerId = dockspaceId;
 	ImGuiID leftId = 0;
 	ImGuiID rightId = 0;
@@ -643,8 +1106,8 @@ void drawDockspace(EditorState& state)
 		&rightId, &centerId);
 	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Down, 0.30f,
 		&bottomId, &centerId);
-	ImGui::DockBuilderDockWindow("Scene Hierarchy", leftId);
-	ImGui::DockBuilderDockWindow("Inspector", rightId);
+	ImGui::DockBuilderDockWindow(HIERARCHY_WINDOW_EDIT, leftId);
+	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Lua Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
 	ImGui::DockBuilderDockWindow("Scene", centerId);
@@ -717,17 +1180,46 @@ void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
 	ImGui::End();
 }
 
-void drawHierarchyPanel(EditorState& state,
+// Hierarchy panel: the local scene while editing; during play it switches to
+// the REMOTE hierarchy streamed by the player ("(Remote)" in the title) and
+// clicking an entry sends select so the player streams that object's state.
+void drawHierarchyPanel(EditorState& state, PlaySession& session,
 	Orkige::GameObjectManager& gameObjectManager)
 {
-	if (ImGui::Begin("Scene Hierarchy"))
+	const bool remote = session.isActive();
+	if (ImGui::Begin(remote ? HIERARCHY_WINDOW_REMOTE : HIERARCHY_WINDOW_EDIT))
 	{
-		for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
+		if (remote)
 		{
-			const bool selected = (state.selectedObjectId == id);
-			if (ImGui::Selectable(id.c_str(), selected))
+			if (!session.hierarchyReceived)
 			{
-				state.selectedObjectId = id;
+				ImGui::TextDisabled("waiting for the player...");
+			}
+			else
+			{
+				ImGui::TextDisabled("remote: %s",
+					session.remoteScenePath.c_str());
+				ImGui::Separator();
+				for (std::string const& id : session.remoteHierarchy)
+				{
+					const bool selected = (session.remoteSelectedId == id);
+					if (ImGui::Selectable(id.c_str(), selected) && !selected)
+					{
+						selectRemoteObject(session, id);
+					}
+				}
+			}
+		}
+		else
+		{
+			for (auto const& [id, gameObject] :
+				gameObjectManager.getGameObjects())
+			{
+				const bool selected = (state.selectedObjectId == id);
+				if (ImGui::Selectable(id.c_str(), selected))
+				{
+					state.selectedObjectId = id;
+				}
 			}
 		}
 	}
@@ -763,11 +1255,119 @@ void drawTransformComponentUI(EditorState& state,
 	}
 }
 
-void drawInspectorPanel(EditorState& state,
+// remote inspector helpers: a Drag editor bound to a streamed property that
+// sends set_property on change (only used for the set_property-backed
+// properties; everything else renders read-only)
+void drawRemoteDragProperty(PlaySession& session, char const* label,
+	std::string const& component, std::string const& property, int floatCount)
+{
+	const std::string key = component + "." + property;
+	std::map<std::string, std::string>::const_iterator it =
+		session.stateProperties.find(key);
+	if (it == session.stateProperties.end())
+	{
+		return;
+	}
+	float values[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	if (!parsePlayFloats(it->second, values, floatCount))
+	{
+		ImGui::TextDisabled("%s: %s", label, it->second.c_str());
+		return;
+	}
+	const bool edited = (floatCount == 4)
+		? ImGui::DragFloat4(label, values, 0.05f)
+		: ImGui::DragFloat3(label, values, 0.05f);
+	if (edited)
+	{
+		Orkige::DebugMessage set(Protocol::MSG_SET_PROPERTY);
+		set.set(Protocol::FIELD_ID, session.stateObjectId);
+		set.set(Protocol::FIELD_COMPONENT, component);
+		set.set(Protocol::FIELD_PROPERTY, property);
+		set.set(Protocol::FIELD_VALUE, formatPlayFloats(values, floatCount));
+		session.client.send(set);
+	}
+}
+
+// Inspector content during play: the streamed object_state of the selected
+// remote object. The set_property-backed properties (TransformComponent
+// position/orientation/scale, RigidBodyComponent linear/angular velocity)
+// are editable drags, everything else is read-only.
+void drawRemoteInspector(PlaySession& session)
+{
+	if (session.remoteSelectedId.empty())
+	{
+		ImGui::TextDisabled("nothing selected (remote)");
+		return;
+	}
+	if (session.stateObjectId != session.remoteSelectedId)
+	{
+		ImGui::TextDisabled("waiting for '%s' state...",
+			session.remoteSelectedId.c_str());
+		return;
+	}
+	ImGui::Text("%s", session.stateObjectId.c_str());
+	ImGui::TextDisabled("remote object (live)");
+	ImGui::Separator();
+	for (std::string const& component : session.stateComponents)
+	{
+		if (!ImGui::CollapsingHeader(component.c_str(),
+			ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			continue;
+		}
+		if (component == "TransformComponent")
+		{
+			drawRemoteDragProperty(session, "Position", component,
+				"position", 3);
+			drawRemoteDragProperty(session, "Orientation (wxyz)", component,
+				"orientation", 4);
+			drawRemoteDragProperty(session, "Scale", component, "scale", 3);
+		}
+		else if (component == "RigidBodyComponent")
+		{
+			ImGui::TextDisabled("body: %s%s",
+				session.stateProperties["RigidBodyComponent.body_type"].c_str(),
+				session.stateProperties["RigidBodyComponent.has_body"] == "1"
+					? "" : " (not created yet)");
+			drawRemoteDragProperty(session, "Linear velocity", component,
+				"linear_velocity", 3);
+			drawRemoteDragProperty(session, "Angular velocity", component,
+				"angular_velocity", 3);
+		}
+		else
+		{
+			// generic read-only dump of whatever the player streamed
+			bool any = false;
+			const std::string prefix = component + ".";
+			for (auto const& [key, value] : session.stateProperties)
+			{
+				if (key.rfind(prefix, 0) == 0)
+				{
+					ImGui::Text("%s: %s", key.c_str() + prefix.size(),
+						value.c_str());
+					any = true;
+				}
+			}
+			if (!any)
+			{
+				ImGui::TextDisabled("(no properties streamed)");
+			}
+		}
+	}
+}
+
+void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::GameObjectManager& gameObjectManager)
 {
-	if (ImGui::Begin("Inspector"))
+	const bool remote = session.isActive();
+	if (ImGui::Begin(remote ? INSPECTOR_WINDOW_REMOTE : INSPECTOR_WINDOW_EDIT))
 	{
+		if (remote)
+		{
+			drawRemoteInspector(session);
+			ImGui::End();
+			return;
+		}
 		optr<Orkige::GameObject> gameObject;
 		if (!state.selectedObjectId.empty() &&
 			gameObjectManager.objectExists(state.selectedObjectId))
@@ -1021,6 +1621,9 @@ int main(int, char**)
 		init_module_orkige_engine();
 		Orkige::GameObjectManager gameObjectManager;
 
+		// play mode session (idle until the Play button / playtest hook)
+		PlaySession playSession;
+
 		// boot scene: three sample cubes so the panels have content
 		EditorState state;
 		const Ogre::Vector3 bootPositions[3] = {
@@ -1073,6 +1676,26 @@ int main(int, char**)
 		const bool selfCheck = (std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr);
 		const bool resizeTest =
 			(std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr);
+
+		// ORKIGE_EDITOR_PLAYTEST=stop|crash: scripted play-mode run (used by
+		// the editor_play_stop / editor_play_crash ctest tests) - press Play
+		// at frame 40, require the remote hierarchy (count must match the
+		// local scene) and a streamed object_state, then Stop (or SIGKILL
+		// the player) and require a clean revert to edit mode with the
+		// editor scene untouched. Exits non-zero on any missed deadline.
+		const char* playtestEnv = std::getenv("ORKIGE_EDITOR_PLAYTEST");
+		const bool playtest = (playtestEnv != nullptr);
+		const bool playtestCrash =
+			playtest && (std::strcmp(playtestEnv, "crash") == 0);
+		enum class PlaytestPhase
+		{
+			Idle, WaitRemote, WaitState, Interfere, WaitRevert, Done
+		};
+		PlaytestPhase playtestPhase = PlaytestPhase::Idle;
+		std::chrono::steady_clock::time_point playtestDeadline;
+		size_t playtestLocalObjects = 0;
+		unsigned long playtestScreenshotFrame = 0;
+		unsigned long playtestInterfereFrame = 0;
 
 		bool running = true;
 		unsigned long frameCount = 0;
@@ -1153,16 +1776,22 @@ int main(int, char**)
 				}
 			}
 
+			// play mode: pump the debug link, watch the player process,
+			// handle crash/stop transitions - before the UI reads the state
+			updatePlaySession(playSession);
+
 			imguiInput.newFrame(
 				static_cast<float>(engine.getRenderWindow()->getWidth()),
 				static_cast<float>(engine.getRenderWindow()->getHeight()));
 			Ogre::ImGuiOverlay::NewFrame();
 
 			drawMenuBar(state, gameObjectManager);
-			drawDockspace(state);
+			const float toolbarHeight =
+				drawToolbar(state, playSession, gameObjectManager);
+			drawDockspace(state, toolbarHeight);
 			drawScenePanel(state, sceneTarget, sceneManager, sceneCameraNode);
-			drawHierarchyPanel(state, gameObjectManager);
-			drawInspectorPanel(state, gameObjectManager);
+			drawHierarchyPanel(state, playSession, gameObjectManager);
+			drawInspectorPanel(state, playSession, gameObjectManager);
 			drawStatsPanel(engine.getRenderWindow());
 #ifdef ORKIGE_LUA
 			drawLuaConsolePanel(state, scriptManager);
@@ -1329,11 +1958,207 @@ int main(int, char**)
 					}
 				}
 			}
-			if (frameCount == 60)
+			if (frameCount == 60 && !playtest)
 			{
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
 					engine.getRenderWindow()->writeContentsToFile(shotPath);
+				}
+			}
+
+			// --- scripted play-mode test (ORKIGE_EDITOR_PLAYTEST) ---
+			if (playtest)
+			{
+				const std::chrono::steady_clock::time_point playtestNow =
+					std::chrono::steady_clock::now();
+				bool playtestFailed = false;
+				std::string playtestFailure;
+				if (playtestPhase == PlaytestPhase::Idle && frameCount == 40)
+				{
+					playtestLocalObjects =
+						gameObjectManager.getGameObjects().size();
+					// the exact function the Play button calls
+					if (!startPlay(playSession, gameObjectManager))
+					{
+						playtestFailed = true;
+						playtestFailure = "startPlay failed";
+					}
+					else
+					{
+						playtestPhase = PlaytestPhase::WaitRemote;
+						playtestDeadline = playtestNow +
+							std::chrono::seconds(60);
+					}
+				}
+				else if (playtestPhase == PlaytestPhase::WaitRemote)
+				{
+					if (playSession.mode == PlaySession::Mode::Playing &&
+						playSession.helloReceived &&
+						playSession.hierarchyReceived)
+					{
+						if (playSession.remoteHierarchy.size() !=
+							playtestLocalObjects)
+						{
+							playtestFailed = true;
+							playtestFailure = "remote hierarchy has " +
+								std::to_string(
+									playSession.remoteHierarchy.size()) +
+								" objects, local scene has " +
+								std::to_string(playtestLocalObjects);
+						}
+						else
+						{
+							// select the first remote object like a click in
+							// the remote hierarchy panel would
+							selectRemoteObject(playSession,
+								playSession.remoteHierarchy.front());
+							SDL_Log("orkige_editor: playtest - remote "
+								"hierarchy verified (%zu objects), selected "
+								"'%s'", playSession.remoteHierarchy.size(),
+								playSession.remoteSelectedId.c_str());
+							playtestPhase = PlaytestPhase::WaitState;
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						playtestFailed = true;
+						playtestFailure =
+							"play session ended before the remote hierarchy "
+							"arrived";
+					}
+				}
+				else if (playtestPhase == PlaytestPhase::WaitState)
+				{
+					if (playSession.stateObjectId ==
+							playSession.remoteSelectedId &&
+						!playSession.remoteSelectedId.empty() &&
+						playSession.stateProperties.count(
+							"TransformComponent.position") != 0)
+					{
+						SDL_Log("orkige_editor: playtest - object_state for "
+							"'%s' streams (position %s)",
+							playSession.stateObjectId.c_str(),
+							playSession.stateProperties
+								["TransformComponent.position"].c_str());
+						// give the UI a few frames to draw the remote panels
+						// before the screenshot / the interference step
+						playtestScreenshotFrame = frameCount + 5;
+						playtestInterfereFrame = frameCount + 20;
+						playtestPhase = PlaytestPhase::Interfere;
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						playtestFailed = true;
+						playtestFailure =
+							"play session ended before object_state arrived";
+					}
+				}
+				else if (playtestPhase == PlaytestPhase::Interfere)
+				{
+					if (frameCount == playtestScreenshotFrame)
+					{
+						if (const char* shotPath =
+							std::getenv("ORKIGE_DEMO_SCREENSHOT"))
+						{
+							engine.getRenderWindow()->writeContentsToFile(
+								shotPath);
+							SDL_Log("orkige_editor: playtest - screenshot "
+								"with active remote session -> %s", shotPath);
+						}
+					}
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						playtestFailed = true;
+						playtestFailure = "play session ended before the "
+							"stop/crash step";
+					}
+					else if (frameCount >= playtestInterfereFrame)
+					{
+						if (playtestCrash)
+						{
+#ifndef _WIN32
+							// simulate a player crash: SIGKILL, not Stop -
+							// the editor must recover via the link drop
+							const Sint64 playerPid = SDL_GetNumberProperty(
+								SDL_GetProcessProperties(playSession.process),
+								SDL_PROP_PROCESS_PID_NUMBER, 0);
+							if (playerPid <= 0)
+							{
+								playtestFailed = true;
+								playtestFailure = "could not get player pid";
+							}
+							else
+							{
+								::kill(static_cast<pid_t>(playerPid), SIGKILL);
+								SDL_Log("orkige_editor: playtest - SIGKILLed "
+									"player pid %lld",
+									static_cast<long long>(playerPid));
+							}
+#else
+							playtestFailed = true;
+							playtestFailure =
+								"crash playtest not supported on this platform";
+#endif
+						}
+						else
+						{
+							// the exact function the Stop button calls
+							requestStopPlay(playSession);
+						}
+						if (!playtestFailed)
+						{
+							playtestPhase = PlaytestPhase::WaitRevert;
+							playtestDeadline = playtestNow +
+								std::chrono::seconds(30);
+						}
+					}
+				}
+				else if (playtestPhase == PlaytestPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						// clean revert: session gone, panels back on the edit
+						// scene, editor world untouched
+						if (gameObjectManager.getGameObjects().size() !=
+							playtestLocalObjects)
+						{
+							playtestFailed = true;
+							playtestFailure = "editor scene was modified by "
+								"the play session";
+						}
+						else if (playSession.process != nullptr ||
+							playSession.client.isConnected())
+						{
+							playtestFailed = true;
+							playtestFailure =
+								"session not fully torn down after revert";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: playtest PASSED (%s "
+								"path): clean revert to edit mode, %zu "
+								"objects intact", playtestCrash ? "crash"
+								: "stop", playtestLocalObjects);
+							playtestPhase = PlaytestPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!playtestFailed &&
+					playtestPhase != PlaytestPhase::Idle &&
+					playtestPhase != PlaytestPhase::Done &&
+					playtestNow >= playtestDeadline)
+				{
+					playtestFailed = true;
+					playtestFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(playtestPhase));
+				}
+				if (playtestFailed)
+				{
+					SDL_Log("orkige_editor: playtest FAILED - %s",
+						playtestFailure.c_str());
+					exitCode = 2;
+					running = false;
 				}
 			}
 			if (frameCount == 90 && selfCheck)
@@ -1447,6 +2272,29 @@ int main(int, char**)
 			{
 				running = false;
 			}
+		}
+
+		// editor shutdown while a play session is live: ask the player to
+		// quit, give it a short moment, then endPlaySession reaps/kills it
+		if (playSession.isActive())
+		{
+			if (playSession.client.isConnected())
+			{
+				playSession.client.send(
+					Orkige::DebugMessage(Protocol::MSG_QUIT));
+				const std::chrono::steady_clock::time_point quitDeadline =
+					std::chrono::steady_clock::now() +
+					std::chrono::milliseconds(PLAY_STOP_GRACE_MS);
+				int playerExitCode = 0;
+				while (std::chrono::steady_clock::now() < quitDeadline &&
+					!SDL_WaitProcess(playSession.process, false,
+						&playerExitCode))
+				{
+					playSession.client.update();
+					SDL_Delay(10);
+				}
+			}
+			endPlaySession(playSession, "editor shutdown");
 		}
 
 		sceneManager->removeRenderQueueListener(&overlaySystem);
