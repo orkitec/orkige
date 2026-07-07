@@ -243,6 +243,46 @@ namespace Orkige
 		this->mBodyId = PhysicsWorld::INVALID_BODY_ID;
 	}
 	//---------------------------------------------------------
+	void RigidBodyComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		// only the creation parameters (BodyDesc) round-trip: a scene stores
+		// the initial state, so runtime simulation state (velocities, applied
+		// forces, sleep state) of an already-created body is NOT serialized
+		if (this->hasBody() && this->mBodyDesc.bodyType == PhysicsWorld::BT_DYNAMIC)
+		{
+			oDebugMsg("scene",0,"RigidBodyComponent: saving live dynamic body - runtime velocities are not serialized");
+		}
+		int bodyType = static_cast<int>(this->mBodyDesc.bodyType);
+		int shapeType = static_cast<int>(this->mBodyDesc.shapeType);
+		ar << bodyType << shapeType;
+		ar << this->mBodyDesc.halfExtents.x << this->mBodyDesc.halfExtents.y << this->mBodyDesc.halfExtents.z;
+		ar << this->mBodyDesc.radius << this->mBodyDesc.halfHeight;
+		ar << this->mBodyDesc.mass << this->mBodyDesc.friction << this->mBodyDesc.restitution;
+		ar << this->mBodyDesc.planar;
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+		int bodyType = 0;
+		int shapeType = 0;
+		ar >> bodyType >> shapeType;
+		this->mBodyDesc.bodyType = static_cast<PhysicsWorld::BodyType>(bodyType);
+		this->mBodyDesc.shapeType = static_cast<PhysicsWorld::ShapeType>(shapeType);
+		ar >> this->mBodyDesc.halfExtents.x >> this->mBodyDesc.halfExtents.y >> this->mBodyDesc.halfExtents.z;
+		ar >> this->mBodyDesc.radius >> this->mBodyDesc.halfHeight;
+		ar >> this->mBodyDesc.mass >> this->mBodyDesc.friction >> this->mBodyDesc.restitution;
+		ar >> this->mBodyDesc.planar;
+		if (this->hasBody())
+		{
+			// the body is created lazily on the first update, so a load right
+			// after addComponent (the SceneSerializer path) lands here before
+			// creation; recreate defensively if someone loads into a live one
+			this->destroyBody();
+		}
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OOBJECT_IMPL(RigidBodyComponent)

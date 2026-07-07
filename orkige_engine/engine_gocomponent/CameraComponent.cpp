@@ -92,6 +92,20 @@ namespace Orkige
 		this->camera = NULL;
 	}
 	//---------------------------------------------------------
+	// @TODO(scene format v2): serialize the camera mode and the camera/sight
+	// node offsets - until then a saved scene only restores an empty
+	// CameraComponent at its default pose
+	void CameraComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		oDebugMsg("scene",0,"CameraComponent: camera mode and node offsets are not serialized yet");
+	}
+	//---------------------------------------------------------
+	void CameraComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OOBJECT_IMPL(CameraComponent)

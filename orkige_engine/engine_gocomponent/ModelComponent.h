@@ -58,6 +58,11 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//--- SERIALIZATION ---
+		//! save the model file name to Archive
+		virtual void save(optr<IArchive> const & ar);
+		//! load the model file name from Archive and load the model
+		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
 	//---------------------------------------------------------------

@@ -310,6 +310,20 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	// @TODO(scene format v2): serialize the enabled animations, weights,
+	// time positions and speed - until then a saved scene only restores an
+	// empty AnimationComponent (the sibling ModelComponent restores the model)
+	void AnimationComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		oDebugMsg("scene",0,"AnimationComponent: animation runtime state (enabled animations, weights, time positions) is not serialized yet");
+	}
+	//---------------------------------------------------------
+	void AnimationComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(AnimationComponent)
 		GAMEOBJECTCOMPONENT()	
 		OFUNCIR(getAvailableAnimations)

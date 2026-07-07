@@ -71,6 +71,11 @@ namespace Orkige
 		virtual void onAdd();
 		//! Component override gets called before the Component is removed from a GameObject
 		virtual void onRemove();
+		//--- SERIALIZATION ---
+		//! @warning camera mode/node state does not round-trip yet (logs a warning)
+		virtual void save(optr<IArchive> const & ar);
+		//! @warning camera mode/node state does not round-trip yet
+		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
 	//---------------------------------------------------------

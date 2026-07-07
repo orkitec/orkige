@@ -53,6 +53,11 @@ namespace Orkige
 		virtual EventManager* getEventManager();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime) {};
+		//--- SERIALIZATION ---
+		//! @brief components are created through the ComponentHolder factory
+		//! (GameObject::addComponent) before their state is loaded, never by
+		//! the TypeManager - @see ISerializeable::createBeforeLoad
+		virtual bool createBeforeLoad();
 		//! does this component wants updates?
 		inline bool getWantsUpdates();
 		//! set if this component should receive updates

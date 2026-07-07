@@ -129,6 +129,11 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//--- SERIALIZATION ---
+		//! @warning animation runtime state does not round-trip yet (logs a warning)
+		virtual void save(optr<IArchive> const & ar);
+		//! @warning animation runtime state does not round-trip yet
+		virtual void load(optr<IArchive> const & ar);
 	private:
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);

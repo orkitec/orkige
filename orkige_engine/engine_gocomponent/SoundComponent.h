@@ -49,6 +49,11 @@ namespace Orkige
 		virtual void onRemove();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
+		//--- SERIALIZATION ---
+		//! @warning attached sounds do not round-trip yet (logs a warning)
+		virtual void save(optr<IArchive> const & ar);
+		//! @warning attached sounds do not round-trip yet
+		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
 	//---------------------------------------------------------------

@@ -44,6 +44,11 @@ namespace Orkige
 		virtual void onRemove();
 		//! detaches all TransformComponents that are attached to my SceneNode
 		void detachTransformComponents(const Ogre::Node* node, bool traverseChildren = true);
+		//--- SERIALIZATION ---
+		//! save position/orientation/scale to Archive
+		virtual void save(optr<IArchive> const & ar);
+		//! load position/orientation/scale from Archive
+		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
 

@@ -1,5 +1,8 @@
 // Bridges an SDL3 window to the native NSWindow pointer OGRE's macOS render
 // systems expect as "externalWindowHandle".
+// Shared by every SDL-hosted Orkige app (hello_orkige, editor, player) -
+// formerly duplicated per app, folded here when the player became the third
+// caller. Apps declare: extern "C" void* orkige_native_window_handle(SDL_Window*).
 #import <Cocoa/Cocoa.h>
 #include <SDL3/SDL.h>
 

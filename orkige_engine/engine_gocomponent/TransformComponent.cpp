@@ -100,6 +100,34 @@ namespace Orkige
 
 	}
 	//---------------------------------------------------------
+	void TransformComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		// the node hierarchy below this transform (child nodes, attached
+		// MovableObjects) is owned by other components (e.g. ModelComponent)
+		// which serialize their own state - only the local transform is saved
+		Ogre::Vector3 position = this->getPosition();
+		Ogre::Quaternion orientation = this->getOrientation();
+		Ogre::Vector3 scale = this->getScale();
+		ar << position.x << position.y << position.z;
+		ar << orientation.w << orientation.x << orientation.y << orientation.z;
+		ar << scale.x << scale.y << scale.z;
+	}
+	//---------------------------------------------------------
+	void TransformComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+		Ogre::Vector3 position;
+		Ogre::Quaternion orientation;
+		Ogre::Vector3 scale;
+		ar >> position.x >> position.y >> position.z;
+		ar >> orientation.w >> orientation.x >> orientation.y >> orientation.z;
+		ar >> scale.x >> scale.y >> scale.z;
+		this->setPosition(position);
+		this->setOrientation(orientation);
+		this->setScale(scale);
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OOBJECT_IMPL(TransformComponent)

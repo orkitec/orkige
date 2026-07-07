@@ -22,6 +22,7 @@ set(ORKIGE_ENGINE_SOURCES
     engine_util/ResourceUtil.h
     engine_util/ResourceUtil.cpp
     engine_util/NodeUtil.h
+    engine_util/PrimitiveUtil.h
     engine_util/SceneNodeGuard.h
     engine_util/SceneNodeGuard.cpp
     engine_graphic/FrameEventData.h
@@ -119,6 +120,8 @@ set(ORKIGE_ENGINE_SOURCES
 if(APPLE)
     # AudioToolbox-backed .caf decoding (Apple platforms only)
     list(APPEND ORKIGE_ENGINE_SOURCES engine_sound/LoadCafData.mm)
+    # SDL window -> NSWindow handle bridge for the SDL-hosted apps
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindow.mm)
 endif()
 
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})

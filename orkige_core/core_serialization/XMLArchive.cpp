@@ -129,13 +129,9 @@ namespace Orkige
 			oDebugMsg("serialize",0,this->file->GetErrorStr1());
 			return false;
 		}
-		this->file->LoadFile(this->file->Value());
-		if(!this->file || this->file->Error())
-		{
-			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->GetErrorStr1());
-			return false;
-		}
+		// (tinyxml1 heritage: a second LoadFile(file->Value()) used to live
+		// here - in tinyxml2 a document's Value() is null and LoadFile(null)
+		// asserts, and the file is already fully parsed anyway)
 		this->currentElement = this->file->RootElement();
 		oAssert(this->currentElement);
 		const char * attr_version = this->currentElement->Attribute("Version");
@@ -156,7 +152,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--WRITING------------------------------------------------
 #if defined(ORKIGE_NDS) || defined(__ANDROID__)
-	void XMLArchiveReadElementWCT(XMLArchive * ar, tinyxml2::XMLElement* element, wchar_t &t)
+	void XMLArchiveReadElementWCT(XMLArchive * ar, tinyxml2::XMLElement* & element, wchar_t &t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
@@ -175,8 +171,11 @@ namespace Orkige
 	}
 #endif
 	//---------------------------------------------------------
+	// note: element is passed by reference on purpose - it aliases the
+	// archive's currentElement and reading must advance it to the next
+	// sibling, otherwise consecutive reads would re-read the same element
 	template<typename ValueType>
-	void XMLArchiveReadElement(XMLArchive * ar, tinyxml2::XMLElement* element, ValueType &t)
+	void XMLArchiveReadElement(XMLArchive * ar, tinyxml2::XMLElement* & element, ValueType &t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
@@ -191,8 +190,9 @@ namespace Orkige
 			element = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
+	// note: element is passed by reference on purpose (see XMLArchiveReadElement)
 	template<typename ValueType>
-	void XMLArchiveReadPtrElement(XMLArchive * ar, std::map<unsigned int,void*> & registry, tinyxml2::XMLElement* element, optr<ValueType> & t)
+	void XMLArchiveReadPtrElement(XMLArchive * ar, std::map<unsigned int,void*> & registry, tinyxml2::XMLElement* & element, optr<ValueType> & t)
 	{
 		oAssert(ar->isReading());
 		oAssert(!ar->isWriting());
@@ -204,7 +204,7 @@ namespace Orkige
 		{
 			int ref_id = XMLArchiveFromString<int>(attr_ref);
 			oAssert(ar->isRegistered(ref_id));
-			t = std::static_pointer_cast<ValueType>(oBadPointer(registry[ref_id])); 
+			t = std::static_pointer_cast<ValueType>(oBadPointer(registry[ref_id]));
 			oAssert(t.get());
 		}
 		else
@@ -217,8 +217,11 @@ namespace Orkige
 			t = onew(new ValueType());//me doez teh magic =)
 			registry[ref_id] = t.get();
 			ar->read(*t);
-			element = oldElement;	
+			element = oldElement;
 		}
+		tinyxml2::XMLNode* node = element->NextSibling();
+		if(node)
+			element = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
 	void XMLArchive::read(bool & t)

@@ -32,6 +32,11 @@ namespace Orkige
 		return eventManager;
 	}
 	//---------------------------------------------------------
+	bool GameObjectComponent::createBeforeLoad()
+	{
+		return false;
+	}
+	//---------------------------------------------------------
 	void GameObjectComponent::setWantsUpdates(bool wantsUpdates)
 	{
 		this->wantsUpdates = wantsUpdates;

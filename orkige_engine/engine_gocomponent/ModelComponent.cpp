@@ -151,6 +151,26 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
+	void ModelComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		// only the mesh resource name round-trips; runtime tweaks applied to
+		// the entity/material after loadModel (material scheme changes,
+		// shared skeleton instances, ...) are NOT serialized yet
+		ar << this->modelFileName;
+	}
+	//---------------------------------------------------------
+	void ModelComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+		String fileName;
+		ar >> fileName;
+		if(!fileName.empty())
+		{
+			this->loadModel(fileName);
+		}
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OOBJECT_IMPL(ModelComponent)

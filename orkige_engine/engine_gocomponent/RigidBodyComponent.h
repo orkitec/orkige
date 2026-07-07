@@ -88,6 +88,11 @@ namespace Orkige
 		void createBody();
 		//! destroy the rigid body
 		void destroyBody();
+		//--- SERIALIZATION ---
+		//! save the body creation parameters (BodyDesc) to Archive
+		virtual void save(optr<IArchive> const & ar);
+		//! load the body creation parameters (BodyDesc) from Archive
+		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
 	//---------------------------------------------------------

@@ -22,10 +22,13 @@
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/ModelComponent.h>
 #include <engine_input/InputManager.h>
 #include <engine_util/NodeUtil.h>
+#include <engine_util/PrimitiveUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/SceneSerializer.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
@@ -84,6 +87,16 @@ struct EditorState
 	std::string selectedObjectId;
 	int cubeCounter = 0;
 	int meshCounter = 0;
+	//! current scene file (empty = unsaved "untitled" scene) + dirty marker;
+	//! both are reflected in the window title from the frame loop
+	std::string currentScenePath;
+	bool sceneDirty = false;
+	//! "Scene Path" modal (native file dialogs are out of scope for now):
+	//! which action the path input confirms
+	enum class ScenePathAction { None, SaveAs, Open };
+	ScenePathAction scenePathAction = ScenePathAction::None;
+	bool openScenePathPopup = false;
+	char scenePathInput[1024] = "";
 	char luaInput[4096] =
 		"-- Lua console (sol2). Example:\n"
 		"return Engine.getSingleton():getTopLevelWindowHandle()";
@@ -173,107 +186,78 @@ void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
 	cameraNode->lookAt(Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
 }
 
-// vertex-coloured unit cube as a ManualObject (same technique as the
-// hello_orkige demo: exercises the RTSS pipeline without any asset files)
-Ogre::ManualObject* buildColoredCube(Ogre::SceneManager* sceneManager,
-	std::string const& meshName, float halfExtent)
-{
-	Ogre::ManualObject* cube = sceneManager->createManualObject(meshName);
-	cube->begin("VertexColour", Ogre::RenderOperation::OT_TRIANGLE_LIST);
-	const float s = halfExtent;
-	const Ogre::Vector3 corners[8] = {
-		{-s,-s,-s}, { s,-s,-s}, { s, s,-s}, {-s, s,-s},
-		{-s,-s, s}, { s,-s, s}, { s, s, s}, {-s, s, s},
-	};
-	const Ogre::ColourValue colors[8] = {
-		Ogre::ColourValue(1, 0, 0), Ogre::ColourValue(0, 1, 0),
-		Ogre::ColourValue(0, 0, 1), Ogre::ColourValue(1, 1, 0),
-		Ogre::ColourValue(1, 0, 1), Ogre::ColourValue(0, 1, 1),
-		Ogre::ColourValue(1, 1, 1), Ogre::ColourValue(0.5f, 0.5f, 0.5f),
-	};
-	for (int i = 0; i < 8; ++i)
-	{
-		cube->position(corners[i]);
-		cube->colour(colors[i]);
-	}
-	const int quads[6][4] = {
-		{0,1,2,3}, {5,4,7,6}, {4,0,3,7}, {1,5,6,2}, {3,2,6,7}, {4,5,1,0},
-	};
-	for (const int* q : quads)
-	{
-		cube->quad(q[0], q[1], q[2], q[3]);
-	}
-	cube->end();
-	return cube;
-}
-
-// create a GameObject with a TransformComponent carrying a coloured cube
-bool createCubeGameObject(Orkige::GameObjectManager& gameObjectManager,
-	Ogre::SceneManager* sceneManager, std::string const& id,
+// create a GameObject carrying a mesh through TransformComponent +
+// ModelComponent. Everything the editor creates goes through ModelComponent
+// on purpose: it serializes its mesh name, so the object round-trips through
+// scene files (a raw ManualObject attached to a TransformComponent would
+// not). The cube mesh is a real in-memory resource built once at startup by
+// PrimitiveUtil::createVertexColourCubeMesh; the test mesh is the glTF asset
+// loaded through the statically linked Codec_Assimp plugin (the .glb comes
+// from Util/make_test_mesh.py).
+bool createModelGameObject(Orkige::GameObjectManager& gameObjectManager,
+	std::string const& id, std::string const& meshName,
 	Ogre::Vector3 const& position)
 {
 	optr<Orkige::GameObject> gameObject =
 		gameObjectManager.createGameObject(id).lock();
-	if (!gameObject || !gameObject->addComponent<Orkige::TransformComponent>())
+	// ModelComponent depends on TransformComponent - added automatically
+	if (!gameObject || !gameObject->addComponent<Orkige::ModelComponent>())
 	{
 		return false;
 	}
-	Orkige::TransformComponent* transform =
-		gameObject->getComponentPtr<Orkige::TransformComponent>();
-	transform->attachObject(buildColoredCube(sceneManager, id + "_mesh", 0.8f));
-	transform->setPosition(position);
-	return true;
-}
-
-// create an Ogre::Entity from the generated glTF test asset (loaded through
-// the statically linked Codec_Assimp plugin; the .glb comes from
-// Util/make_test_mesh.py). Codec_Assimp already sets TVC_DIFFUSE on the
-// synthesized material because the mesh carries COLOR_0 vertex colours, but
-// it also generates normals (aiProcess_GenNormals), which keeps lighting
-// enabled - under the editor's ambient-only light the colours would drown.
-// Render it unlit, exactly like the manual cubes.
-Ogre::Entity* createTestMeshEntity(Ogre::SceneManager* sceneManager,
-	std::string const& entityName)
-{
-	Ogre::Entity* entity =
-		sceneManager->createEntity(entityName, "test_mesh.glb");
-	for (unsigned int i = 0; i < entity->getNumSubEntities(); ++i)
-	{
-		Ogre::Pass* pass = entity->getSubEntity(i)->getMaterial()
-			->getTechnique(0)->getPass(0);
-		pass->setLightingEnabled(false);
-		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
-	}
-	return entity;
-}
-
-// create a GameObject with a TransformComponent carrying the glTF test mesh
-bool createTestMeshGameObject(Orkige::GameObjectManager& gameObjectManager,
-	Ogre::SceneManager* sceneManager, std::string const& id,
-	Ogre::Vector3 const& position)
-{
-	Ogre::Entity* entity = nullptr;
 	try
 	{
-		entity = createTestMeshEntity(sceneManager, id + "_entity");
+		gameObject->getComponentPtr<Orkige::ModelComponent>()
+			->loadModel(meshName);
 	}
 	catch (Ogre::Exception const& e)
 	{
-		SDL_Log("orkige_editor: test mesh load failed: %s",
+		SDL_Log("orkige_editor: mesh '%s' load failed: %s", meshName.c_str(),
 			e.getDescription().c_str());
+		gameObjectManager.delGameObject(id);
 		return false;
 	}
-	optr<Orkige::GameObject> gameObject =
-		gameObjectManager.createGameObject(id).lock();
-	if (!gameObject || !gameObject->addComponent<Orkige::TransformComponent>())
-	{
-		return false;
-	}
-	Orkige::TransformComponent* transform =
-		gameObject->getComponentPtr<Orkige::TransformComponent>();
-	transform->attachObject(entity);
-	transform->setPosition(position);
+	// Codec_Assimp-imported materials keep lighting enabled (generated
+	// normals) - under the editor's ambient-only light the vertex colours
+	// would drown; render everything unlit like the cube material
+	Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(
+		gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel());
+	gameObject->getComponentPtr<Orkige::TransformComponent>()
+		->setPosition(position);
 	return true;
+}
+
+bool createCubeGameObject(Orkige::GameObjectManager& gameObjectManager,
+	std::string const& id, Ogre::Vector3 const& position)
+{
+	return createModelGameObject(gameObjectManager, id,
+		Orkige::PrimitiveUtil::CUBE_MESH_NAME, position);
+}
+
+bool createTestMeshGameObject(Orkige::GameObjectManager& gameObjectManager,
+	std::string const& id, Ogre::Vector3 const& position)
+{
+	return createModelGameObject(gameObjectManager, id, "test_mesh.glb",
+		position);
+}
+
+// ModelComponent does not serialize material tweaks (yet), so re-apply the
+// unlit vertex-colour render state to every model after a scene load
+void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
+{
+	for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
+	{
+		if (!gameObject->hasComponent<Orkige::ModelComponent>())
+		{
+			continue;
+		}
+		Ogre::Entity* model =
+			gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
+		if (model)
+		{
+			Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model);
+		}
+	}
 }
 
 // viewport click-picking: cast a camera ray through the click point and
@@ -333,8 +317,7 @@ bool worldToViewportNormalized(Ogre::Camera* camera,
 
 // GameObject > Create Cube: auto-named, at origin
 void createCubeFromMenu(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager,
-	Ogre::SceneManager* sceneManager)
+	Orkige::GameObjectManager& gameObjectManager)
 {
 	std::string id;
 	do
@@ -342,17 +325,16 @@ void createCubeFromMenu(EditorState& state,
 		++state.cubeCounter;
 		id = "Cube" + std::to_string(state.cubeCounter);
 	} while (gameObjectManager.objectExists(id));
-	if (createCubeGameObject(gameObjectManager, sceneManager, id,
-		Ogre::Vector3::ZERO))
+	if (createCubeGameObject(gameObjectManager, id, Ogre::Vector3::ZERO))
 	{
 		state.selectedObjectId = id;
+		state.sceneDirty = true;
 	}
 }
 
 // GameObject > Create Test Mesh: auto-named, at origin
 void createTestMeshFromMenu(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager,
-	Ogre::SceneManager* sceneManager)
+	Orkige::GameObjectManager& gameObjectManager)
 {
 	std::string id;
 	do
@@ -360,11 +342,59 @@ void createTestMeshFromMenu(EditorState& state,
 		++state.meshCounter;
 		id = "TestMesh" + std::to_string(state.meshCounter);
 	} while (gameObjectManager.objectExists(id));
-	if (createTestMeshGameObject(gameObjectManager, sceneManager, id,
-		Ogre::Vector3::ZERO))
+	if (createTestMeshGameObject(gameObjectManager, id, Ogre::Vector3::ZERO))
 	{
 		state.selectedObjectId = id;
+		state.sceneDirty = true;
 	}
+}
+
+// File > New Scene: clear all GameObjects - removing the components tears
+// down their scene nodes (TransformComponent::onRemove wipes via NodeUtil)
+void newScene(EditorState& state, Orkige::GameObjectManager& gameObjectManager)
+{
+	gameObjectManager.clear();
+	state.selectedObjectId.clear();
+	state.cubeCounter = 0;
+	state.meshCounter = 0;
+	state.currentScenePath.clear();
+	state.sceneDirty = false;
+}
+
+bool saveSceneToPath(EditorState& state,
+	Orkige::GameObjectManager& gameObjectManager, std::string const& path)
+{
+	if (!Orkige::SceneSerializer::saveScene(path, gameObjectManager))
+	{
+		SDL_Log("orkige_editor: saving scene '%s' failed", path.c_str());
+		return false;
+	}
+	SDL_Log("orkige_editor: scene saved to '%s' (%zu GameObjects)",
+		path.c_str(), gameObjectManager.getGameObjects().size());
+	state.currentScenePath = path;
+	state.sceneDirty = false;
+	return true;
+}
+
+bool openSceneFromPath(EditorState& state,
+	Orkige::GameObjectManager& gameObjectManager, std::string const& path)
+{
+	state.selectedObjectId.clear();
+	// loadScene replaces the current world (clears the manager first)
+	if (!Orkige::SceneSerializer::loadScene(path, gameObjectManager))
+	{
+		SDL_Log("orkige_editor: opening scene '%s' failed", path.c_str());
+		return false;
+	}
+	applyUnlitFixToLoadedModels(gameObjectManager);
+	SDL_Log("orkige_editor: scene opened from '%s' (%zu GameObjects)",
+		path.c_str(), gameObjectManager.getGameObjects().size());
+	// the auto-name counters restart; the do/while loops skip taken ids
+	state.cubeCounter = 0;
+	state.meshCounter = 0;
+	state.currentScenePath = path;
+	state.sceneDirty = false;
+	return true;
 }
 
 // selfcheck helper: compute the viewport-normalized Scene-panel position of
@@ -429,15 +459,57 @@ void runLuaConsoleInput(EditorState& state, Orkige::ScriptManager& scriptManager
 }
 #endif
 
+// open the "Scene Path" modal preloaded with a sensible path (the current
+// scene, or a default inside samples/scenes/)
+void requestScenePathPopup(EditorState& state,
+	EditorState::ScenePathAction action)
+{
+	state.scenePathAction = action;
+	state.openScenePathPopup = true;
+	const std::string defaultPath = state.currentScenePath.empty()
+		? std::string(ORKIGE_EDITOR_SCENE_DIR "/scene.oscene")
+		: state.currentScenePath;
+	SDL_strlcpy(state.scenePathInput, defaultPath.c_str(),
+		sizeof(state.scenePathInput));
+}
+
 void drawMenuBar(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager,
-	Ogre::SceneManager* sceneManager)
+	Orkige::GameObjectManager& gameObjectManager)
 {
 	bool openAbout = false;
 	if (ImGui::BeginMainMenuBar())
 	{
 		if (ImGui::BeginMenu("File"))
 		{
+			if (ImGui::MenuItem("New Scene"))
+			{
+				newScene(state, gameObjectManager);
+			}
+			if (ImGui::MenuItem("Open Scene..."))
+			{
+				requestScenePathPopup(state,
+					EditorState::ScenePathAction::Open);
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Save Scene"))
+			{
+				if (state.currentScenePath.empty())
+				{
+					requestScenePathPopup(state,
+						EditorState::ScenePathAction::SaveAs);
+				}
+				else
+				{
+					saveSceneToPath(state, gameObjectManager,
+						state.currentScenePath);
+				}
+			}
+			if (ImGui::MenuItem("Save Scene As..."))
+			{
+				requestScenePathPopup(state,
+					EditorState::ScenePathAction::SaveAs);
+			}
+			ImGui::Separator();
 			if (ImGui::MenuItem("Quit", "Esc"))
 			{
 				state.quitRequested = true;
@@ -448,11 +520,11 @@ void drawMenuBar(EditorState& state,
 		{
 			if (ImGui::MenuItem("Create Cube"))
 			{
-				createCubeFromMenu(state, gameObjectManager, sceneManager);
+				createCubeFromMenu(state, gameObjectManager);
 			}
 			if (ImGui::MenuItem("Create Test Mesh"))
 			{
-				createTestMeshFromMenu(state, gameObjectManager, sceneManager);
+				createTestMeshFromMenu(state, gameObjectManager);
 			}
 			ImGui::EndMenu();
 		}
@@ -483,6 +555,48 @@ void drawMenuBar(EditorState& state,
 		ImGui::Spacing();
 		if (ImGui::Button("Close"))
 		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+	// "Scene Path" modal: a plain path input standing in for a native file
+	// dialog (out of scope for now); confirms the pending SaveAs/Open action
+	if (state.openScenePathPopup)
+	{
+		ImGui::OpenPopup("Scene Path");
+		state.openScenePathPopup = false;
+	}
+	if (ImGui::BeginPopupModal("Scene Path", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const bool saving =
+			(state.scenePathAction == EditorState::ScenePathAction::SaveAs);
+		ImGui::TextUnformatted(saving ? "Save scene as (.oscene):"
+			: "Open scene (.oscene):");
+		ImGui::SetNextItemWidth(620.0f);
+		ImGui::InputText("##scenepath", state.scenePathInput,
+			sizeof(state.scenePathInput));
+		if (ImGui::Button(saving ? "Save" : "Open"))
+		{
+			const std::string path(state.scenePathInput);
+			if (!path.empty())
+			{
+				if (saving)
+				{
+					saveSceneToPath(state, gameObjectManager, path);
+				}
+				else
+				{
+					openSceneFromPath(state, gameObjectManager, path);
+				}
+			}
+			state.scenePathAction = EditorState::ScenePathAction::None;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+		{
+			state.scenePathAction = EditorState::ScenePathAction::None;
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
@@ -620,7 +734,8 @@ void drawHierarchyPanel(EditorState& state,
 	ImGui::End();
 }
 
-void drawTransformComponentUI(Orkige::TransformComponent* transform)
+void drawTransformComponentUI(EditorState& state,
+	Orkige::TransformComponent* transform)
 {
 	const Ogre::Vector3 p = transform->getPosition();
 	float position[3] = { p.x, p.y, p.z };
@@ -628,6 +743,7 @@ void drawTransformComponentUI(Orkige::TransformComponent* transform)
 	{
 		transform->setPosition(
 			Ogre::Vector3(position[0], position[1], position[2]));
+		state.sceneDirty = true;
 	}
 	const Ogre::Quaternion q = transform->getOrientation();
 	float yawPitchRoll[3] = {
@@ -643,6 +759,7 @@ void drawTransformComponentUI(Orkige::TransformComponent* transform)
 			Ogre::Degree(yawPitchRoll[1]),
 			Ogre::Degree(yawPitchRoll[2]));
 		transform->setOrientation(Ogre::Quaternion(rotation));
+		state.sceneDirty = true;
 	}
 }
 
@@ -679,7 +796,13 @@ void drawInspectorPanel(EditorState& state,
 				if (auto* transform =
 					dynamic_cast<Orkige::TransformComponent*>(component.get()))
 				{
-					drawTransformComponentUI(transform);
+					drawTransformComponentUI(state, transform);
+				}
+				else if (auto* model =
+					dynamic_cast<Orkige::ModelComponent*>(component.get()))
+				{
+					ImGui::Text("mesh: %s",
+						model->getCurrentModelFileName().c_str());
 				}
 				else
 				{
@@ -888,13 +1011,11 @@ int main(int, char**)
 				Orkige::InputManager::KeyPressedEvent,
 				&QuitOnEscape::onKeyPressed, &quitOnEscape);
 
-		// unlit vertex-colour material shared by all editor cubes
-		Ogre::MaterialPtr cubeMaterial =
-			Ogre::MaterialManager::getSingleton().create("VertexColour",
-				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-		Ogre::Pass* cubePass = cubeMaterial->getTechnique(0)->getPass(0);
-		cubePass->setLightingEnabled(false);
-		cubePass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
+		// unlit vertex-colour material + the shared "EditorCube.mesh" resource
+		// (a real mesh, so cubes go through ModelComponent and round-trip
+		// through scene files - the player builds the identical resource)
+		Orkige::PrimitiveUtil::createVertexColourMaterial();
+		Orkige::PrimitiveUtil::createVertexColourCubeMesh(sceneManager);
 
 		// GameObject/component bridge (registers the component factories)
 		init_module_orkige_engine();
@@ -909,8 +1030,7 @@ int main(int, char**)
 		{
 			++state.cubeCounter;
 			const std::string id = "Cube" + std::to_string(state.cubeCounter);
-			if (!createCubeGameObject(gameObjectManager, sceneManager, id,
-				position))
+			if (!createCubeGameObject(gameObjectManager, id, position))
 			{
 				SDL_Log("orkige_editor: FAILED - boot GameObject '%s' "
 					"creation failed", id.c_str());
@@ -920,7 +1040,7 @@ int main(int, char**)
 		// ... plus one glTF test mesh above the cubes: proves the Codec_Assimp
 		// import path (registered in Engine.cpp's static-plugin block) at boot
 		++state.meshCounter;
-		if (!createTestMeshGameObject(gameObjectManager, sceneManager,
+		if (!createTestMeshGameObject(gameObjectManager,
 			"TestMesh" + std::to_string(state.meshCounter),
 			Ogre::Vector3(0.0f, 2.2f, 0.0f)))
 		{
@@ -936,8 +1056,13 @@ int main(int, char**)
 		// automation hooks (same env-hook style as the demo):
 		// ORKIGE_DEMO_FRAMES=N exit 0 after N frames,
 		// ORKIGE_DEMO_SCREENSHOT=path framebuffer dump at frame 60,
-		// ORKIGE_EDITOR_SELFCHECK=1 boot-state assertions at frame 30 and
-		// Scene-panel-picking checks at frames 45/65 (needs >= 65 frames),
+		// ORKIGE_EDITOR_SELFCHECK=1 boot-state assertions at frame 30,
+		// Scene-panel-picking checks at frames 45/65 and the scene round-trip
+		// check (save/clear/reload/compare) at frame 90 (needs >= 90 frames;
+		// ORKIGE_EDITOR_SELFCHECK_SCENE overrides the round-trip file path),
+		// ORKIGE_EDITOR_EXPORT_EXAMPLE=path arrange the boot objects into the
+		// shipped example layout at frame 20 and save it through the
+		// serializer (produces samples/scenes/example.oscene),
 		// ORKIGE_EDITOR_RESIZE_TEST=1 programmatic SDL_SetWindowSize at
 		// frame 80 (resize robustness; needs >= 90 frames)
 		unsigned long frameLimit = 0;
@@ -951,8 +1076,20 @@ int main(int, char**)
 
 		bool running = true;
 		unsigned long frameCount = 0;
+		std::string lastWindowTitle;
 		while (running)
 		{
+			// window title reflects the scene path + dirty marker
+			const std::string windowTitle = "Orkige Editor - " +
+				(state.currentScenePath.empty() ? std::string("untitled")
+					: state.currentScenePath) +
+				(state.sceneDirty ? " *" : "");
+			if (windowTitle != lastWindowTitle)
+			{
+				SDL_SetWindowTitle(window, windowTitle.c_str());
+				lastWindowTitle = windowTitle;
+			}
+
 			SDL_Event event;
 			while (SDL_PollEvent(&event))
 			{
@@ -1021,7 +1158,7 @@ int main(int, char**)
 				static_cast<float>(engine.getRenderWindow()->getHeight()));
 			Ogre::ImGuiOverlay::NewFrame();
 
-			drawMenuBar(state, gameObjectManager, sceneManager);
+			drawMenuBar(state, gameObjectManager);
 			drawDockspace(state);
 			drawScenePanel(state, sceneTarget, sceneManager, sceneCameraNode);
 			drawHierarchyPanel(state, gameObjectManager);
@@ -1144,11 +1281,149 @@ int main(int, char**)
 					running = false;
 				}
 			}
+			if (frameCount == 20)
+			{
+				// example scene export: arrange the boot objects (plus two
+				// extra cubes) into an interesting layout and save it through
+				// the serializer - the committed samples/scenes/example.oscene
+				// is produced by exactly this path
+				if (const char* examplePath =
+					std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE"))
+				{
+					auto setPose = [&](std::string const& id,
+						Ogre::Vector3 const& position, float yawDegrees,
+						float uniformScale) -> bool
+					{
+						optr<Orkige::GameObject> gameObject =
+							gameObjectManager.getGameObject(id).lock();
+						if (!gameObject)
+						{
+							return false;
+						}
+						Orkige::TransformComponent* transform = gameObject
+							->getComponentPtr<Orkige::TransformComponent>();
+						transform->setPosition(position);
+						transform->setOrientation(Ogre::Quaternion(
+							Ogre::Radian(Ogre::Degree(yawDegrees)),
+							Ogre::Vector3::UNIT_Y));
+						transform->setScale(Ogre::Vector3(uniformScale));
+						return true;
+					};
+					createCubeFromMenu(state, gameObjectManager); // Cube4
+					createCubeFromMenu(state, gameObjectManager); // Cube5
+					const bool arranged =
+						setPose("Cube1", { -3.0f, 0.0f, -1.5f }, 30.0f, 1.0f) &&
+						setPose("Cube2", { 0.0f, -0.4f, 0.0f }, 0.0f, 1.4f) &&
+						setPose("Cube3", { 3.0f, 0.2f, -1.0f }, -25.0f, 1.0f) &&
+						setPose("Cube4", { -1.6f, 1.5f, 1.2f }, 45.0f, 0.6f) &&
+						setPose("Cube5", { 1.8f, 1.7f, 1.4f }, -60.0f, 0.5f) &&
+						setPose("TestMesh1", { 0.0f, 2.8f, 0.0f }, 15.0f, 1.2f);
+					const bool exported = arranged && saveSceneToPath(state,
+						gameObjectManager, examplePath);
+					SDL_Log("orkige_editor: example scene export to '%s' %s",
+						examplePath, exported ? "succeeded" : "FAILED");
+					if (!exported)
+					{
+						exitCode = 2;
+						running = false;
+					}
+				}
+			}
 			if (frameCount == 60)
 			{
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
 					engine.getRenderWindow()->writeContentsToFile(shotPath);
+				}
+			}
+			if (frameCount == 90 && selfCheck)
+			{
+				// self-check: full scene round-trip through the serializer -
+				// snapshot the world, save it, clear it (scene nodes go with
+				// the components), reload it and require identical GameObjects
+				// and transforms plus a sane scene node count
+				const char* selfCheckSceneEnv =
+					std::getenv("ORKIGE_EDITOR_SELFCHECK_SCENE");
+				const std::string selfCheckScene = selfCheckSceneEnv
+					? selfCheckSceneEnv : "selfcheck.oscene";
+				struct ObjectSnapshot
+				{
+					std::string id;
+					Ogre::Vector3 position;
+					Ogre::Quaternion orientation;
+				};
+				std::vector<ObjectSnapshot> before;
+				for (auto const& [id, gameObject] :
+					gameObjectManager.getGameObjects())
+				{
+					if (gameObject->hasComponent<Orkige::TransformComponent>())
+					{
+						Orkige::TransformComponent* transform = gameObject
+							->getComponentPtr<Orkige::TransformComponent>();
+						before.push_back({ id, transform->getPosition(),
+							transform->getOrientation() });
+					}
+				}
+				const unsigned short nodesBefore =
+					sceneManager->getRootSceneNode()->numChildren();
+				bool roundTripOk = !before.empty() &&
+					Orkige::SceneSerializer::saveScene(selfCheckScene,
+						gameObjectManager);
+				gameObjectManager.clear();
+				const unsigned short nodesCleared =
+					sceneManager->getRootSceneNode()->numChildren();
+				roundTripOk = roundTripOk &&
+					gameObjectManager.getGameObjects().empty() &&
+					nodesCleared < nodesBefore;
+				roundTripOk = roundTripOk &&
+					Orkige::SceneSerializer::loadScene(selfCheckScene,
+						gameObjectManager);
+				applyUnlitFixToLoadedModels(gameObjectManager);
+				const unsigned short nodesAfter =
+					sceneManager->getRootSceneNode()->numChildren();
+				roundTripOk = roundTripOk &&
+					gameObjectManager.getGameObjects().size() == before.size() &&
+					nodesAfter == nodesBefore;
+				for (ObjectSnapshot const& snapshot : before)
+				{
+					optr<Orkige::GameObject> gameObject =
+						gameObjectManager.getGameObject(snapshot.id).lock();
+					if (!gameObject || !gameObject
+						->hasComponent<Orkige::TransformComponent>())
+					{
+						SDL_Log("orkige_editor: selfcheck frame 90 - '%s' "
+							"missing after reload", snapshot.id.c_str());
+						roundTripOk = false;
+						continue;
+					}
+					Orkige::TransformComponent* transform = gameObject
+						->getComponentPtr<Orkige::TransformComponent>();
+					const Ogre::Vector3 position = transform->getPosition();
+					const Ogre::Quaternion orientation =
+						transform->getOrientation();
+					SDL_Log("orkige_editor: selfcheck frame 90 - '%s' pos "
+						"before (%.3f, %.3f, %.3f) after (%.3f, %.3f, %.3f)",
+						snapshot.id.c_str(), snapshot.position.x,
+						snapshot.position.y, snapshot.position.z,
+						position.x, position.y, position.z);
+					const bool positionOk =
+						position.positionEquals(snapshot.position, 1e-4f);
+					const bool orientationOk = std::abs(
+						orientation.Dot(snapshot.orientation)) > 0.9999f;
+					roundTripOk = roundTripOk && positionOk && orientationOk;
+				}
+				SDL_Log("orkige_editor: selfcheck frame 90 - scene round-trip "
+					"via '%s': %zu objects, root nodes %u -> %u -> %u: %s",
+					selfCheckScene.c_str(), before.size(),
+					static_cast<unsigned>(nodesBefore),
+					static_cast<unsigned>(nodesCleared),
+					static_cast<unsigned>(nodesAfter),
+					roundTripOk ? "OK" : "FAILED");
+				if (!roundTripOk)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (scene round-trip)");
+					exitCode = 2;
+					running = false;
 				}
 			}
 			if (frameCount == 80 && resizeTest)

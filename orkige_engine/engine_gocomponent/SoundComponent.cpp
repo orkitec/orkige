@@ -189,6 +189,19 @@ namespace Orkige
 #endif //ORKIGE_OGGSOUNDMANAGER
         }
         //---------------------------------------------------------
+        // @TODO(scene format v2): serialize the attached sound names - until
+        // then a saved scene only restores an empty SoundComponent
+        void SoundComponent::save(optr<IArchive> const & ar)
+        {
+                OParent::save(ar);
+                oDebugMsg("scene",0,"SoundComponent: attached sounds are not serialized yet");
+        }
+        //---------------------------------------------------------
+        void SoundComponent::load(optr<IArchive> const & ar)
+        {
+                OParent::load(ar);
+        }
+        //---------------------------------------------------------
         //--- private: --------------------------------------------
         //---------------------------------------------------------
         OOBJECT_IMPL(SoundComponent)
