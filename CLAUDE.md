@@ -69,6 +69,12 @@ pass before committing.
 - Most legacy files use CRLF line endings — preserve them when editing (a flip to LF
   turns the whole file into one unreviewable diff). New files use LF.
 - Commit messages: no `Co-Authored-By` trailers.
+- Renderer containment (decided 2026-07: classic OGRE stays, Ogre-Next is the pre-planned
+  migration target if mobile forces it): new code above `engine_graphic` must not take
+  `Ogre::` types in public signatures — route through engine-owned wrappers (see how
+  `engine_physic/PhysicsWorld` hides Jolt). Reduce existing `Ogre::` leakage
+  opportunistically when touching a file. Don't add reliance on features Ogre-Next
+  dropped (OGRE material scripts especially — keep materials simple/generated).
 
 ## Architecture
 
