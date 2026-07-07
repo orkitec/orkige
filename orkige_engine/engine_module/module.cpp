@@ -17,6 +17,8 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/AnimationComponent.h"
+#include "engine_gocomponent/RigidBodyComponent.h"
+#include "engine_physic/PhysicsWorld.h"
 #include "engine_input/InputManager.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_fastgui/IGuiObject.h"
@@ -30,6 +32,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(AnimationComponent)
 	OEXPORT(CameraComponent)
 	OEXPORT(SoundComponent)
+	OEXPORT(RigidBodyComponent)
 	OEXPORTMAP(StringGameObjectMap,Orkige::String,optr<Orkige::GameObject>)
 
 	OEXPORT(Engine)
@@ -43,6 +46,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
 
+	OEXPORT(PhysicsWorld)
 	OEXPORT(SoundManager)
 	OEXPORT(SoundSource)
 

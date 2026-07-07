@@ -7,6 +7,8 @@
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
+# vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
+find_package(Jolt CONFIG REQUIRED)
 
 set(ORKIGE_ENGINE_SOURCES
     engine_module/EnginePrerequisites.h
@@ -54,6 +56,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/InputManager.cpp
     engine_physic/CollisionTools.h
     engine_physic/CollisionTools.cpp
+    engine_physic/PhysicsWorld.h
+    engine_physic/PhysicsWorld.cpp
     engine_gocomponent/TransformComponent.h
     engine_gocomponent/TransformComponent.cpp
     engine_gocomponent/ModelComponent.h
@@ -65,6 +69,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/CameraDefaultModes.h
     engine_gocomponent/SoundComponent.h
     engine_gocomponent/SoundComponent.cpp
+    engine_gocomponent/RigidBodyComponent.h
+    engine_gocomponent/RigidBodyComponent.cpp
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h
@@ -149,6 +155,10 @@ target_link_libraries(orkige_engine
         Codec_Assimp # mesh import (glTF/glb, obj, ...); pulls in libassimp
         SDL3::SDL3
         OpenAL::OpenAL
+    PRIVATE
+        # backend-agnostic physics: Jolt types never leave the engine_physic
+        # translation units, so the dependency stays private
+        Jolt::Jolt
 )
 
 if(APPLE)

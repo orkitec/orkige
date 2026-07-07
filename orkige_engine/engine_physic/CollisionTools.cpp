@@ -87,7 +87,8 @@ namespace Orkige
 
 		// OGRE 14 removed world geometry scene queries (WorldFragment is only a
 		// forward declaration now), so the old TSM terrain height lookup is gone.
-		// Terrain height checks return with the physics rework (Jolt, Phase 2).
+		// Successor: cast a downward ray through PhysicsWorld::castRay (Jolt)
+		// against the physics representation of the ground instead.
 		(void)x;
 		(void)z;
 		return y;

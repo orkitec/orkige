@@ -5,6 +5,8 @@
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/RigidBodyComponent.h>
+#include <engine_physic/PhysicsWorld.h>
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
@@ -16,10 +18,13 @@
 #ifdef ORKIGE_LUA
 #include <core_script/ScriptManager.h>
 #endif
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
@@ -281,6 +286,158 @@ int main(int, char**)
 		engine.getCamera()->getParentSceneNode()->lookAt(
 			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
 
+		// --- ORKIGE_DEMO_PHYSICS=1: Jolt dynamics through the engine_physic /
+		// engine_gocomponent bridge. A static floor body, a pile of dynamic
+		// cubes dropped from height, and two plane-locked cubes
+		// (setPlanarMode: translation locked to X/Y, rotation to Z) shoved
+		// sideways with an impulse. The world is stepped from this app loop
+		// with the measured frame dt (engine-loop integration via
+		// FrameStartedEvent is a Phase 2 TODO); self-checks run at frame 120.
+		const bool demoPhysics = (std::getenv("ORKIGE_DEMO_PHYSICS") != nullptr);
+		Orkige::PhysicsWorld physicsWorld; // inert until init()
+		const float floorTopY = -2.0f;
+		const float cubeHalf = 0.5f;
+		std::vector<Orkige::TransformComponent*> dropTransforms;
+		std::vector<Orkige::RigidBodyComponent*> dropBodies;
+		std::vector<float> dropStartY;
+		std::vector<Orkige::TransformComponent*> planarTransforms;
+		std::vector<Orkige::RigidBodyComponent*> planarBodies;
+		std::vector<float> planarStartX;
+		const float planarStartZ = 0.0f;
+		if (demoPhysics)
+		{
+			physicsWorld.init();
+
+			// vertex-colored box visual with given half extents (reuses the
+			// unit cube corner/color/quad tables from above)
+			auto makeBoxVisual = [&](std::string const& name,
+				Ogre::Vector3 const& halfExtents) -> Ogre::ManualObject*
+			{
+				Ogre::ManualObject* box = sceneManager->createManualObject(name);
+				box->begin("VertexColour",
+					Ogre::RenderOperation::OT_TRIANGLE_LIST);
+				for (int i = 0; i < 8; ++i)
+				{
+					box->position(corners[i] * halfExtents);
+					box->colour(colors[i]);
+				}
+				for (const int* q : quads)
+				{
+					box->quad(q[0], q[1], q[2], q[3]);
+				}
+				box->end();
+				return box;
+			};
+
+			// GameObject with TransformComponent + RigidBodyComponent and a
+			// box visual attached; the rigid body is created at the
+			// transform's pose on the first component update
+			auto makePhysicsBox = [&](std::string const& name,
+				Ogre::Vector3 const& pos, Ogre::Vector3 const& halfExtents,
+				Orkige::PhysicsWorld::BodyType bodyType, bool planar)
+				-> std::pair<Orkige::TransformComponent*,
+					Orkige::RigidBodyComponent*>
+			{
+				optr<Orkige::GameObject> gameObject =
+					gameObjectManager.createGameObject(name).lock();
+				if (!gameObject ||
+					!gameObject->addComponent<Orkige::TransformComponent>() ||
+					!gameObject->addComponent<Orkige::RigidBodyComponent>())
+				{
+					return {nullptr, nullptr};
+				}
+				Orkige::TransformComponent* transform =
+					gameObject->getComponentPtr<Orkige::TransformComponent>();
+				Orkige::RigidBodyComponent* rigidBody =
+					gameObject->getComponentPtr<Orkige::RigidBodyComponent>();
+				transform->setPosition(pos);
+				transform->attachObject(
+					makeBoxVisual(name + "Visual", halfExtents));
+				rigidBody->setBodyType(bodyType);
+				rigidBody->setBoxShape(halfExtents);
+				rigidBody->setMass(1.0f);
+				rigidBody->setPlanarMode(planar);
+				return {transform, rigidBody};
+			};
+
+			// static floor, top surface at floorTopY
+			if (!makePhysicsBox("physicsFloor",
+				Ogre::Vector3(0.0f, floorTopY - 0.5f, 0.0f),
+				Ogre::Vector3(12.0f, 0.5f, 12.0f),
+				Orkige::PhysicsWorld::BT_STATIC, false).first)
+			{
+				SDL_Log("hello_orkige: FAILED - physics floor creation");
+				return 1;
+			}
+
+			// dynamic cubes dropped from height (spread so each lands on the
+			// floor instead of on a sibling)
+			const Ogre::Vector3 dropPositions[4] = {
+				{ 1.2f, 3.0f, -0.6f }, { 2.4f, 4.5f, -0.6f },
+				{ 1.2f, 6.0f,  0.6f }, { 2.4f, 7.5f,  0.6f },
+			};
+			for (int i = 0; i < 4; ++i)
+			{
+				auto [transform, rigidBody] = makePhysicsBox(
+					"physicsCube" + std::to_string(i), dropPositions[i],
+					Ogre::Vector3(cubeHalf),
+					Orkige::PhysicsWorld::BT_DYNAMIC, false);
+				if (!transform)
+				{
+					SDL_Log("hello_orkige: FAILED - physics cube creation");
+					return 1;
+				}
+				dropTransforms.push_back(transform);
+				dropBodies.push_back(rigidBody);
+				dropStartY.push_back(dropPositions[i].y);
+			}
+
+			// two plane-locked cubes (the 2D mode)
+			const Ogre::Vector3 planarPositions[2] = {
+				{ -3.5f, 2.0f, planarStartZ }, { -5.0f, 3.0f, planarStartZ },
+			};
+			for (int i = 0; i < 2; ++i)
+			{
+				auto [transform, rigidBody] = makePhysicsBox(
+					"planarCube" + std::to_string(i), planarPositions[i],
+					Ogre::Vector3(cubeHalf),
+					Orkige::PhysicsWorld::BT_DYNAMIC, true);
+				if (!transform)
+				{
+					SDL_Log("hello_orkige: FAILED - planar cube creation");
+					return 1;
+				}
+				planarTransforms.push_back(transform);
+				planarBodies.push_back(rigidBody);
+				planarStartX.push_back(planarPositions[i].x);
+			}
+
+			// a zero-dt component update creates all bodies at their initial
+			// poses (no simulation step runs) so the impulse has a body to
+			// push on: 1 kg * 1.5 m/s sideways along +x
+			gameObjectManager.update(0.0f);
+			for (Orkige::RigidBodyComponent* rigidBody : planarBodies)
+			{
+				if (!rigidBody->hasBody())
+				{
+					SDL_Log("hello_orkige: FAILED - rigid body not created");
+					return 1;
+				}
+				rigidBody->applyImpulse(Ogre::Vector3(1.5f, 0.0f, 0.0f));
+			}
+			SDL_Log("hello_orkige: physics world up - gravity (%.2f, %.2f, "
+				"%.2f), %zu dynamic + %zu planar cubes",
+				physicsWorld.getGravity().x, physicsWorld.getGravity().y,
+				physicsWorld.getGravity().z, dropTransforms.size(),
+				planarTransforms.size());
+
+			// pull the camera back so floor and falling cubes stay in view
+			engine.getCamera()->getParentSceneNode()->setPosition(
+				0.0f, 3.0f, 20.0f);
+			engine.getCamera()->getParentSceneNode()->lookAt(
+				Ogre::Vector3(0.0f, -1.0f, 0.0f), Ogre::Node::TS_WORLD);
+		}
+
 #ifdef ORKIGE_LUA
 		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
 		// script pulls the Engine singleton, calls registered methods on it,
@@ -395,6 +552,8 @@ int main(int, char**)
 
 		bool running = true;
 		unsigned long frameCount = 0;
+		std::chrono::steady_clock::time_point lastFrameTime =
+			std::chrono::steady_clock::now();
 		while (running)
 		{
 			SDL_Event event;
@@ -409,6 +568,24 @@ int main(int, char**)
 			if (quitOnEscape.quitRequested)
 			{
 				running = false;
+			}
+			if (demoPhysics)
+			{
+				// measured frame dt for the physics step, clamped to
+				// [1/60, 0.1]: the floor keeps headless runs (which render
+				// far faster than 60 fps) accumulating enough simulated time
+				// for the frame-based self-checks below, the cap avoids the
+				// catch-up spiral after a stall
+				const std::chrono::steady_clock::time_point frameTime =
+					std::chrono::steady_clock::now();
+				float deltaTime = std::chrono::duration<float>(
+					frameTime - lastFrameTime).count();
+				lastFrameTime = frameTime;
+				deltaTime = std::clamp(deltaTime, 1.0f / 60.0f, 0.1f);
+				physicsWorld.update(deltaTime);
+				// component updates create the bodies and sync poses
+				// (simulation -> TransformComponent for dynamic bodies)
+				gameObjectManager.update(deltaTime);
 			}
 			cubeNode->yaw(Ogre::Degree(0.4f));
 			cubeNode->pitch(Ogre::Degree(0.13f));
@@ -468,6 +645,57 @@ int main(int, char**)
 						expectedTriangles);
 					return 1;
 				}
+			}
+			if (demoPhysics && frameCount == 110)
+			{
+				// physics screenshot (cubes resting on the floor) through the
+				// existing ORKIGE_DEMO_SCREENSHOT hook, later than the
+				// frame-60 shot so the pile has settled
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
+				{
+					engine.getRenderWindow()->writeContentsToFile(shotPath);
+				}
+			}
+			if (demoPhysics && frameCount == 120)
+			{
+				// physics self-checks: (a) the dropped cubes fell and rest on
+				// the floor (not below it), (b) the plane-locked cubes moved
+				// in x but kept their z (DOF locks work)
+				bool physicsOk = true;
+				const float restY = floorTopY + cubeHalf;
+				for (size_t i = 0; i < dropTransforms.size(); ++i)
+				{
+					const Ogre::Vector3 pos = dropTransforms[i]->getPosition();
+					const float speed = dropBodies[i]->getLinearVelocity().length();
+					const bool fell = (dropStartY[i] - pos.y) > 2.0f;
+					const bool atRest = std::abs(pos.y - restY) < 0.3f &&
+						pos.y > floorTopY && speed < 0.5f;
+					SDL_Log("hello_orkige: physics cube %zu y=%.3f (start "
+						"%.1f, rest %.1f) |v|=%.3f fell=%d atRest=%d",
+						i, pos.y, dropStartY[i], restY, speed,
+						static_cast<int>(fell), static_cast<int>(atRest));
+					physicsOk = physicsOk && fell && atRest;
+				}
+				for (size_t i = 0; i < planarTransforms.size(); ++i)
+				{
+					const Ogre::Vector3 pos = planarTransforms[i]->getPosition();
+					const bool zLocked =
+						std::abs(pos.z - planarStartZ) < 1e-3f;
+					const bool xMoved =
+						std::abs(pos.x - planarStartX[i]) > 0.5f;
+					SDL_Log("hello_orkige: planar cube %zu x=%.3f (start "
+						"%.1f) z=%.6f (start %.1f) zLocked=%d xMoved=%d",
+						i, pos.x, planarStartX[i], pos.z, planarStartZ,
+						static_cast<int>(zLocked), static_cast<int>(xMoved));
+					physicsOk = physicsOk && zLocked && xMoved;
+				}
+				if (!physicsOk)
+				{
+					SDL_Log("hello_orkige: FAILED - physics self-checks");
+					return 1;
+				}
+				SDL_Log("hello_orkige: physics self-checks passed (fall + "
+					"rest on floor, planar DOF locks)");
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
