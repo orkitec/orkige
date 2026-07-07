@@ -13,12 +13,31 @@
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
+#ifdef ORKIGE_LUA
+#include <core_script/ScriptManager.h>
+#endif
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
+
+#ifdef ORKIGE_LUA
+// C++-side receiver for the event the Lua smoke-test script triggers -
+// proves the Lua -> GlobalEventManager -> C++ listener path end-to-end
+struct LuaEventProbe
+{
+	bool received = false;
+	bool onLuaEvent(Orkige::Event const& event)
+	{
+		received = event.getData() &&
+			event.getData()->getObjectID() == "lua_payload";
+		return false;
+	}
+};
+#endif
 
 // quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
 // GlobalEventManager -> listener) instead of a raw SDL keycode check
@@ -55,6 +74,13 @@ int main(int, char**)
 		// boots just the ones Engine::setup depends on
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
+#ifdef ORKIGE_LUA
+		// Phase 2 Lua scripting: the ScriptManager must exist before the
+		// module init functions run so OrkigeMetaExport reaches the real
+		// Lua state (otherwise it targets the throwaway fallback state)
+		Orkige::ScriptManager scriptManager;
+#endif
+		init_module_orkige_core();
 
 		// no resources.cfg / plugins.cfg / ogre.cfg: the demo wires its single
 		// resource location manually and lets Engine::configure pick defaults.
@@ -173,7 +199,7 @@ int main(int, char**)
 		cube->end();
 
 		Ogre::SceneNode* cubeNode =
-			sceneManager->getRootSceneNode()->createChildSceneNode();
+			sceneManager->getRootSceneNode()->createChildSceneNode("cubeNode");
 		cubeNode->attachObject(cube);
 
 		// --- GameObject component bridge: a second, smaller cube that is not
@@ -214,6 +240,66 @@ int main(int, char**)
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.0f, 6.0f);
 		engine.getCamera()->getParentSceneNode()->lookAt(
 			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+
+#ifdef ORKIGE_LUA
+		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
+		// script pulls the Engine singleton, calls registered methods on it,
+		// walks into the exposed Ogre types, constructs core objects through
+		// their registered factories, triggers an event a C++ listener
+		// receives, and sets a global the C++ side reads back.
+		LuaEventProbe luaProbe;
+		optr<Orkige::EventListener> luaListener =
+			Orkige::GlobalEventManager::getSingleton().bind(
+				Orkige::EventType("lua_event"),
+				&LuaEventProbe::onLuaEvent, &luaProbe);
+		sol::state& lua = scriptManager.state();
+		sol::protected_function_result luaResult = lua.safe_script(R"lua(
+			local engine = Engine.getSingleton()
+			assert(engine ~= nil, 'Engine.getSingleton() returned nil')
+
+			-- call registered Engine methods
+			demo_window_handle = engine:getTopLevelWindowHandle()
+			local sceneManager = engine:getSceneManager()
+			assert(sceneManager ~= nil, 'engine:getSceneManager() returned nil')
+
+			-- exposed Ogre internals (OSIMPLEEXPORT SceneManager/SceneNode)
+			local cubeNode = sceneManager:getSceneNode('cubeNode', true)
+			assert(cubeNode ~= nil, 'cube SceneNode not reachable from Lua')
+
+			-- construct registered core objects: Object through its factory,
+			-- Event through the Lua call syntax (first registered constructor)
+			local payload = Object.new1('lua_payload')
+			assert(payload:getObjectID() == 'lua_payload')
+			local ev = Event('lua_event')
+			ev:setData(payload)
+			assert(ev:getData():getObjectID() == 'lua_payload')
+
+			-- fire it into the engine event system; a C++ listener verifies it
+			GlobalEventManager.getSingleton():trigger(ev)
+
+			demo_lua_ok = 42
+		)lua", sol::script_pass_on_error);
+		if (!luaResult.valid())
+		{
+			const sol::error luaError = luaResult;
+			SDL_Log("hello_orkige: FAILED - Lua script error: %s",
+				luaError.what());
+			return 1;
+		}
+		const int luaOk = lua["demo_lua_ok"].get_or(0);
+		const std::string luaHandle =
+			lua["demo_window_handle"].get_or(std::string());
+		if (luaOk != 42 || !luaProbe.received)
+		{
+			SDL_Log("hello_orkige: FAILED - Lua verification (demo_lua_ok=%d, "
+				"event received=%d)", luaOk,
+				static_cast<int>(luaProbe.received));
+			return 1;
+		}
+		SDL_Log("hello_orkige: Lua scripting OK - demo_lua_ok=%d, C++ listener "
+			"got the Lua-triggered event, window handle via Lua='%s'",
+			luaOk, luaHandle.c_str());
+#endif
 
 		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test. No .ogui texture
 		// atlas exists anywhere in the repo or its git history (the 2012 game

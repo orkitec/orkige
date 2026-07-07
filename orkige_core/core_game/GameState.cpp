@@ -165,17 +165,17 @@ namespace Orkige
 	OWRAPPER_START(GameState)
 		OWRAPPER_CONSTRUCTOR0()
 		OWRAPPER_CONSTRUCTOR1(String const &)
-		OWRAPPER_FUNC(void,OnEnter)
-		OWRAPPER_FUNC(void,OnReturn)
-		OWRAPPER_FUNC(void,OnLeave)
-		OWRAPPER_FUNC(void,OnExit)
+		OWRAPPER_FUNC(void,onEnter)
+		OWRAPPER_FUNC(void,onReturn)
+		OWRAPPER_FUNC(void,onLeave)
+		OWRAPPER_FUNC(void,onExit)
 	OWRAPPER_END
 
 	OVIRTUAL_OBJECT_IMPL(GameState)
 		OVIRTUAL_CONSTRUCTOR1(String)
-		OVIRTUAL_FUNC(OnEnter)
-		OVIRTUAL_FUNC(OnReturn)
-		OVIRTUAL_FUNC(OnLeave)
-		OVIRTUAL_FUNC(OnExit)
+		OVIRTUAL_FUNC(onEnter)
+		OVIRTUAL_FUNC(onReturn)
+		OVIRTUAL_FUNC(onLeave)
+		OVIRTUAL_FUNC(onExit)
 	OOBJECT_END
 }

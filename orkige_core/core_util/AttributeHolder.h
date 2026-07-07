@@ -211,23 +211,21 @@ namespace Orkige
 	OOBJECT_END
 #elif ORKIGE_LUA
 #define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
-	OTYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
-	bp::scope AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																					\
-	typedef AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> ExposedClassType;																															\
-	bp::class_<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>/*, bp::bases<OParent>,std::shared_ptr<ExposedClassType>*/ > py_class("bla");	\
-	/*OCONSTRUCTOR1(WrappedType)*/																																																					\
-	/*OVAR(value)*/																																																									\
-	/*OFUNCCR(getValue)*/																																																							\
+	OSTRANGEGCC_TEMPLATE_TYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)										\
+	template <> template <> void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																\
+	ORKIGE_LUA_USERTYPE_BASED((AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName()), OwnedAttributeType, AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>)	\
+	OCONSTRUCTOR1(WrappedType)																																																						\
+	OVAR(value)																																																										\
+	OFUNCCR(getValue)																																																								\
 	OOBJECT_END
 
 #define IMPLEMENT_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType)				\
 	OOBJECT_TEMPLATE_IMPL2(AttributeHolder, OwnedAttributeTypeIdType, OwnedAttributeType)	\
-	/*OFUNC(getAttribute)*/																	\
-	/*OFUNC(setAttribute)*/																	\
+	/*OFUNC(getAttribute) and OFUNC(setAttribute) are template overload sets - not exposable generically*/	\
+	/*OVAR(attributes) disabled: binding the OwnedAttributeMap trips a compile bug in vcpkg's sol2 3.3.0 associative container support*/	\
 	OFUNC(hasAttribute)																	\
 	OFUNC(clearAttributes)																\
 	OFUNC(delAttribute)																	\
-	OVAR(attributes)																	\
 	OOBJECT_END
 #else
 #define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\

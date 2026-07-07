@@ -38,11 +38,7 @@ namespace Orkige
                 virtual Orkige::TypeInfo const & getTypeInfo() const;
 
                 /** Export and init ClassName meta information */
-#ifdef ORKIGE_LUA
-                static bp::scope OrkigeMetaExport(const char * currentOrkigeModuleName);
-#else
                 static void OrkigeMetaExport(const char * currentOrkigeModuleName);
-#endif
                 DECL_OSINGLETON(LogManager)
                 //--- Types -------------------------------------------------
         public:

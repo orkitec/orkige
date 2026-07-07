@@ -157,6 +157,7 @@ namespace Orkige
 		OFUNC(createGameObject)
 		OFUNC(enableEvent)
 		OFUNC(disableEvent)
-		OVAR(objects)
+		//OVAR(objects) disabled: binding the GameObjectMap trips a compile
+		//bug in vcpkg's sol2 3.3.0 associative container support
 	OOBJECT_END
 }

@@ -18,7 +18,7 @@
 #include "core_event/EventManager.h"
 #include "core_event/EventListener.h"
 #include "core_event/GlobalEventManager.h"
-#ifndef ORKIGE_NOSCRIPT
+#if !defined(ORKIGE_NOSCRIPT) && !defined(ORKIGE_LUA)
 #include "core_python/PythonFunction.hpp"
 #endif
 

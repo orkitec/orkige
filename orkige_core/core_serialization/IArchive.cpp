@@ -24,6 +24,13 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(IArchive)
+#ifdef ORKIGE_LUA
+		//sol2 cannot bind the out-parameter overloads (non-const lvalue
+		//references to value types); only the ISerializeable overloads are
+		//reachable from Lua
+		OFUNC_OVERL1(void,read,ISerializeable &)
+		OFUNC_OVERL1(void,write,ISerializeable &)
+#else
 		OFUNC_OVERL1(void,read,bool &)
 		OFUNC_OVERL1(void,read,char &)
 		OFUNC_OVERL1(void,read,signed char &)
@@ -90,6 +97,7 @@ namespace Orkige
 		OFUNC_OVERL1(void,write,optr<double> const &)
 		OFUNC_OVERL1(void,write,optr<String> const &)
 		OFUNC_OVERL1(void,write,optr<ISerializeable> const &)
+#endif
 
 		OFUNC(isReading)
 		OFUNC(isWriting)

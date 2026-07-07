@@ -162,8 +162,7 @@ namespace Orkige
 		OFUNC(getCurrent)
 		OFUNC(getCurrentStateID)
 		OFUNC(getStatePathString)
-#ifndef ORKIGE_NDS
-		OFUNC(bind)
-#endif
+		//historical OFUNC(bind) removed: GameStateManager has no bind member
+		//(it derives from Object) - dead registration from the luabind era
 	OOBJECT_END
 }

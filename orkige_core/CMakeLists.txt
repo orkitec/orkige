@@ -11,6 +11,11 @@ set(ORKIGE_CORE_MODULES
     core_util
 )
 
+if(ORKIGE_SCRIPTING STREQUAL "LUA")
+    # core_script owns the sol2 Lua state used by the Meta_Lua.h backend
+    list(APPEND ORKIGE_CORE_MODULES core_script)
+endif()
+
 set(ORKIGE_CORE_SOURCES "")
 foreach(module IN LISTS ORKIGE_CORE_MODULES)
     file(GLOB module_sources CONFIGURE_DEPENDS
@@ -36,3 +41,12 @@ target_include_directories(orkige_core PUBLIC
 
 find_package(tinyxml2 CONFIG REQUIRED)
 target_link_libraries(orkige_core PRIVATE tinyxml2::tinyxml2)
+
+if(ORKIGE_SCRIPTING STREQUAL "LUA")
+    # PUBLIC: the Meta_Lua.h macros (and thus sol2/lua headers) surface in
+    # the headers of every dependent target
+    find_package(Lua REQUIRED)
+    find_package(sol2 CONFIG REQUIRED)
+    target_include_directories(orkige_core PUBLIC ${LUA_INCLUDE_DIR})
+    target_link_libraries(orkige_core PUBLIC sol2::sol2 ${LUA_LIBRARIES})
+endif()

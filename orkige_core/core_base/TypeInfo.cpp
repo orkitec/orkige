@@ -30,16 +30,15 @@ namespace Orkige
 		typedef TypeInfo ExposedClassType;
 	}
 #elif ORKIGE_LUA
-	bp::scope  TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
+	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
 	{
-		typedef TypeInfo ExposedClassType;
-		bp::class_< TypeInfo , std::shared_ptr<TypeInfo> > py_class( "TypeInfo");
+		ORKIGE_LUA_USERTYPE("TypeInfo", TypeInfo)
 		OCONSTRUCTOR1(String)
-			OFUNCCR(getId)
-			OFUNCCR(getName)
-			OFUNC(isEqual)
-			OFUNC(isNotEqual)
-			OOBJECT_END
+		OFUNCCR(getId)
+		OFUNCCR(getName)
+		OFUNC(isEqual)
+		OFUNC(isNotEqual)
+	}
 #else
 	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
 	{

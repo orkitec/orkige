@@ -19,11 +19,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
 option(ORKIGE_BUILD_TOOLS  "Build the tool executables" OFF)
 
+# Scripting backend: LUA (sol2-based Meta_Lua.h backend, the default) or OFF
+# (Meta_None.h, no script bindings compiled).
+set(ORKIGE_SCRIPTING "LUA" CACHE STRING "Scripting backend (LUA or OFF)")
+set_property(CACHE ORKIGE_SCRIPTING PROPERTY STRINGS "LUA" "OFF")
+
 # Everything is built statically during the modernization; shared-library
 # packaging is revisited once the engine runs again.
-# ORKIGE_NOSCRIPT: the old Lua meta backend depends on the abandoned luabind
-# library; script bindings return on sol2 in a later phase.
-add_compile_definitions(ORKIGE_STATIC ORKIGE_NOSCRIPT)
+if(ORKIGE_SCRIPTING STREQUAL "LUA")
+    add_compile_definitions(ORKIGE_STATIC ORKIGE_LUA)
+elseif(ORKIGE_SCRIPTING STREQUAL "OFF")
+    add_compile_definitions(ORKIGE_STATIC ORKIGE_NOSCRIPT)
+else()
+    message(FATAL_ERROR "ORKIGE_SCRIPTING must be LUA or OFF (got '${ORKIGE_SCRIPTING}')")
+endif()
 
 add_subdirectory(orkige_core)
 

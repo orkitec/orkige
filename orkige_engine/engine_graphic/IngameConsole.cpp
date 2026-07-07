@@ -8,7 +8,9 @@
 ***************************************************************/
 
 #include "engine_graphic/IngameConsole.h"
-#ifndef ORKIGE_NOSCRIPT
+#ifdef ORKIGE_LUA
+#include <core_script/ScriptManager.h>
+#elif !defined(ORKIGE_NOSCRIPT)
 #include <core_python/PythonInterpreter.h>
 #endif
 #include <core_util/foreach.h>
@@ -217,7 +219,10 @@ namespace Orkige
 			}
 			else if(this->pythonMode)
 			{
-#ifndef ORKIGE_NOSCRIPT
+#ifdef ORKIGE_LUA
+				if(ScriptManager::getSingletonPtr() != NULL)
+					ScriptManager::getSingleton().state().safe_script(this->prompt, sol::script_pass_on_error);
+#elif !defined(ORKIGE_NOSCRIPT)
 				PythonInterpreter::getSingleton().exec(this->prompt);
 #endif
 			}

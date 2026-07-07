@@ -157,11 +157,5 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 		OFUNC(loadModel)
 		OFUNCCR(getCurrentModelFileName)
-		OFUNCIR(getLocalPosition)
-		OFUNCIR(getLocalScale)
-		OFUNCIR(getLocalOrientation)
-		OFUNC(setLocalPosition)
-		OFUNC(setLocalScale)
-		OFUNC(setLocalOrientation)
 	OOBJECT_END
 }

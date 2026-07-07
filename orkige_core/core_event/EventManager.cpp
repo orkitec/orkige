@@ -414,11 +414,8 @@ namespace Orkige
 		OFUNC(addListener)
 		OFUNC(delListener)
 		OFUNC(trigger)
-#ifdef ORKIGE_NDS
-		OFUNCOVERL(bind,optr<EventListener>(EventManager::*)(String const &,EventHandlerFunction const &))
-#else
-		OFUNC(bind)	
-#endif
+		//bind is an overload set (plain + template member) - needs the explicit cast
+		OFUNCOVERL(bind,optr<EventListener>(EventManager::*)(EventType const &,EventHandlerFunction const &))
 
 	OOBJECT_END
 }

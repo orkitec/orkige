@@ -14,10 +14,6 @@
 #include "core_util/Hash.h"
 #include "core_util/String.h"
 #include <list>
-#ifdef ORKIGE_LUA
-#include <luabind/luabind.hpp>
-namespace bp = luabind;
-#endif
 
 namespace Orkige
 {
@@ -26,11 +22,7 @@ namespace Orkige
 	{
 	public:
 		//! TypeInfo Meta Data
-#ifdef ORKIGE_LUA
-		static bp::scope OrkigeMetaExport(const char * currentOrkigeModuleName);
-#else
 		static void OrkigeMetaExport(const char * currentOrkigeModuleName);
-#endif
 		//--- Types -------------------------------------------------
 	public:
 		typedef std::size_t TypeId;	//!< used HashType

@@ -422,9 +422,9 @@ namespace Orkige
 	OOBJECT_TEMPLATE_IMPL(ComponentHolder,BaseComponentType)																	\
 	OCONSTRUCTOR1(String)																										\
 	OFUNC(addComponents)																										\
-	OFUNCCR(getComponents)																										\
-	OFUNC(removeComponent)																										\
-	OFUNC(hasComponent)																											\
+	/*OFUNCCR(getComponents) disabled: binding the ComponentMap trips a compile bug in vcpkg's sol2 3.3.0 associative container support*/		\
+	OFUNCOVERL(removeComponent, bool (ExposedClassType::*)(TypeInfo const &))																										\
+	OFUNCOVERL(hasComponent, bool (ExposedClassType::*)(TypeInfo const &))																											\
 	OFUNC(getAttachedComponentTypes)																							\
 	OSTATICFUNC(isComponentRegistered)																							\
 	OSTATICFUNC(getRegisteredComponentTypes)																					\

@@ -6,6 +6,8 @@
     "tinyxml2",
     "ogre",
     "sdl3",
-    "openal-soft"
+    "openal-soft",
+    "lua",
+    "sol2"
   ]
 }

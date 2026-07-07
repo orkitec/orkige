@@ -7,6 +7,8 @@
 ***************************************************************/
 
 #include "engine_fastgui/DragEventData.h"
+//complete type needed to expose the button member to Lua
+#include "engine_fastgui/FastGuiDragDropButton.h"
 
 namespace Orkige
 {
