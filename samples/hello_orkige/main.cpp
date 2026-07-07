@@ -4,6 +4,7 @@
 // exercises the whole RTSS shader pipeline without needing any asset files.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_input/InputManager.h>
 #include <engine_util/StringUtil.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
@@ -11,6 +12,22 @@
 #include <cstdlib>
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
+
+// quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
+// GlobalEventManager -> listener) instead of a raw SDL keycode check
+struct QuitOnEscape
+{
+	bool quitRequested = false;
+	bool onKeyPressed(Orkige::Event const& event)
+	{
+		if (event.getDataPtr<Orkige::KeyEventData>()->key ==
+			Orkige::KeyEventData::KC_ESCAPE)
+		{
+			quitRequested = true;
+		}
+		return false;
+	}
+};
 
 int main(int, char**)
 {
@@ -61,6 +78,15 @@ int main(int, char**)
 		}
 		engine.createDefaultCameraAndViewport();
 		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
+
+		// input pipeline: the poll loop below feeds every SDL event into the
+		// InputManager, which triggers Orkige input events globally
+		Orkige::InputManager inputManager;
+		QuitOnEscape quitOnEscape;
+		optr<Orkige::EventListener> escapeListener =
+			Orkige::GlobalEventManager::getSingleton().bind(
+				Orkige::InputManager::KeyPressedEvent,
+				&QuitOnEscape::onKeyPressed, &quitOnEscape);
 
 		Ogre::SceneManager* sceneManager = engine.getSceneManager();
 		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
@@ -123,11 +149,15 @@ int main(int, char**)
 			SDL_Event event;
 			while (SDL_PollEvent(&event))
 			{
-				if (event.type == SDL_EVENT_QUIT ||
-					(event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE))
+				if (event.type == SDL_EVENT_QUIT)
 				{
 					running = false;
 				}
+				inputManager.injectEvent(event);
+			}
+			if (quitOnEscape.quitRequested)
+			{
+				running = false;
 			}
 			cubeNode->yaw(Ogre::Degree(0.4f));
 			cubeNode->pitch(Ogre::Degree(0.13f));
@@ -144,6 +174,20 @@ int main(int, char**)
 				{
 					engine.getRenderWindow()->writeContentsToFile(shotPath);
 				}
+			}
+			// ORKIGE_DEMO_SYNTH_ESC: push a synthetic ESC key press through the
+			// SDL event queue after 60 frames to prove the quit path (SDL event
+			// -> InputManager::injectEvent -> KeyPressedEvent -> listener) in
+			// automated runs; OS-level synthetic key events would need macOS
+			// accessibility permissions, this stays inside SDL instead.
+			if (frameCount == 60 && std::getenv("ORKIGE_DEMO_SYNTH_ESC"))
+			{
+				SDL_Event escEvent{};
+				escEvent.type = SDL_EVENT_KEY_DOWN;
+				escEvent.key.scancode = SDL_SCANCODE_ESCAPE;
+				escEvent.key.key = SDLK_ESCAPE;
+				escEvent.key.down = true;
+				SDL_PushEvent(&escEvent);
 			}
 			if (frameCount == 10)
 			{

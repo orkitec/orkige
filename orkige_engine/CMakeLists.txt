@@ -1,7 +1,7 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
 # listed. Unported modules (engine_fastgui, engine_gocomponent, engine_sound,
-# engine_input, engine_mygui, engine_physic) join as they are ported.
+# engine_mygui) join as they are ported.
 
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
@@ -33,6 +33,18 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/LightMap.cpp
     engine_base/Localisation.h
     engine_base/Localisation.cpp
+    engine_input/KeyEventData.h
+    engine_input/KeyEventData.cpp
+    engine_input/MouseEventData.h
+    engine_input/MouseEventData.cpp
+    engine_input/TouchEventData.h
+    engine_input/TouchEventData.cpp
+    engine_input/GestureEventData.h
+    engine_input/GestureEventData.cpp
+    engine_input/AccelerationEventData.h
+    engine_input/AccelerationEventData.cpp
+    engine_input/InputManager.h
+    engine_input/InputManager.cpp
     engine_physic/CollisionTools.h
     engine_physic/CollisionTools.cpp
 )

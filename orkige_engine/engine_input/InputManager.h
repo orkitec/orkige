@@ -16,15 +16,18 @@
 #include "engine_input/TouchEventData.h"
 #include "engine_input/AccelerationEventData.h"
 #include "engine_input/GestureEventData.h"
-#ifdef ORKIGE_IPHONE
-#   ifdef __OBJC__
-#       import <UIKit/UIKit.h>
-#   endif
-#endif
+
+// forward declaration of the SDL3 event union (SDL3 declares it as
+// "typedef union SDL_Event SDL_Event;" so this stays compatible)
+union SDL_Event;
 
 namespace Orkige
 {
-	//! Keyboard, Mouse and Multitouch Input Managemenet
+	//! Keyboard, Mouse and Multitouch Input Management.
+	//! Since the OIS to SDL3 port the InputManager no longer polls devices
+	//! itself: the application owns the SDL event loop and feeds every
+	//! polled event into injectEvent(), which translates it to the Orkige
+	//! input events below and triggers them through the GlobalEventManager.
 	class ORKIGE_ENGINE_DLL InputManager : public Singleton<InputManager>, public Interface
 	{
 		OOBJECT(InputManager,Interface);
@@ -63,6 +66,7 @@ namespace Orkige
 	protected:
 	private:
 		bool sharedMouse;
+		bool enabled;
 		optr<EventListener>	frameListener;
 		class InputManagerImpl* impl;
 		//--- Variables ---------------------------------------
@@ -71,7 +75,10 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------
 	public:
-		//! construct InputManager if shareMouse is true mouse input will be not exclusive to RenderWindow (for EditorMode etc.)
+		//! construct InputManager. Both parameters are kept for API compatibility
+		//! with the OIS era: SDL3 never grabs the mouse exclusively, so shareMouse
+		//! is implicit, and enableNativeInput only controls whether the window
+		//! extents get read from the Engine RenderWindow on construction.
 		InputManager(bool shareMouse = false, bool enableNativeInput = true);
 		//! destructor
 		virtual ~InputManager();
@@ -79,7 +86,12 @@ namespace Orkige
 		bool enable();
 		//! disable input updates
 		bool disable();
-		//!	Translates KeyCode to String representation. For example, KC_ENTER will be "Enter" - Locale	specific of course.
+		//! Translates one SDL event into the matching Orkige input event(s) and
+		//! triggers them through the GlobalEventManager. Feed every event of the
+		//! applications SDL poll loop in here.
+		//! @returns true if the event was translated, false if it was ignored
+		bool injectEvent(SDL_Event const & event);
+		//!	Translates KeyCode to String representation. For example, KC_RETURN will be "Return" - Locale	specific of course.
 		//! @param kc KeyCode to convert
 		//! @returns The String as determined from the current locale
 		String const & getAsString(KeyEventData::KeyCode kc);
@@ -89,13 +101,8 @@ namespace Orkige
 		optr<MouseEventData> const & getMouseData() const;
 		//! get last touch event data
 		optr<TouchEventData> const & getLastTouchData() const;
-		//! Set mouse region (if window resizes, we should alter this to reflect as well)
+		//! Set mouse region / touch scaling (if window resizes, we should alter this to reflect as well)
 		void setWindowExtents( int width, int height );
-#ifdef ORKIGE_IPHONE
-#   ifdef __OBJC__
-		UIView* getInputDelegate();
-#	endif
-#endif
 	protected:
 	private:
 		bool onFrameStarted(Event const & event);
