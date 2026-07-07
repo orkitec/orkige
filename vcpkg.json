@@ -9,6 +9,10 @@
     "openal-soft",
     "lua",
     "sol2",
-    "joltphysics"
+    "joltphysics",
+    {
+      "name": "imgui",
+      "features": ["docking-experimental"]
+    }
   ]
 }

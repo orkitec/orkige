@@ -14,6 +14,11 @@
 // - Input goes to ImGui first (ImGuiSDL3Input); events ImGui wants captured
 //   are NOT forwarded to the engine InputManager, everything else follows the
 //   same injectEvent flow as the demo.
+// - The UI is a full-window dockspace (docking-enabled imgui): the 3D scene
+//   renders offscreen into a RENDER_TARGET texture shown by the "Scene"
+//   panel via ImGui::Image, the window itself only carries a UI viewport
+//   (dark grey, visibility mask 0). Picking and camera orbit/zoom happen
+//   through the Scene panel (drawScenePanel).
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
@@ -33,10 +38,17 @@
 #include <OgreImGuiOverlay.h>
 #include <OgreEntity.h>
 #include <OgreMeshManager.h>
+#include <OgreTextureManager.h>
+#include <OgreHardwarePixelBuffer.h>
+#include <OgreRenderTexture.h>
+#include <OgreRoot.h>
 #include <imgui.h>
+#include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
 #include "ImGuiSDL3Input.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -77,7 +89,89 @@ struct EditorState
 		"return Engine.getSingleton():getTopLevelWindowHandle()";
 	std::vector<std::string> luaHistory;
 	bool luaScrollToBottom = false;
+	//! first-frame guard for the DockBuilder default layout
+	bool dockLayoutChecked = false;
+	//! content size the Scene panel wants for the RTT (recorded while drawing)
+	int scenePanelWidth = 0;
+	int scenePanelHeight = 0;
+	//! RTT resize hysteresis bookkeeping (see the frame loop)
+	int pendingRttWidth = 0;
+	int pendingRttHeight = 0;
+	int pendingRttFrames = 0;
+	//! orbit camera: spherical coordinates around the scene origin; defaults
+	//! reproduce the old fixed camera at (0, 2.5, 9) looking at the origin
+	float orbitYawDeg = 0.0f;
+	float orbitPitchDeg = 15.524f;
+	float orbitDistance = 9.3408f;
+	bool orbitActive = false;
 };
+
+// The offscreen scene render target: the editor's scene camera renders into a
+// manual RENDER_TARGET texture whose viewport replaces the old whole-window
+// scene viewport, and the Scene panel displays that texture via ImGui::Image.
+// OGRE's ImGuiOverlay resolves any nonzero ImTextureID through
+// TextureManager::getByHandle (OgreImGuiOverlay.cpp, ImGUIRenderable::
+// preRender), so the texture's resource handle doubles as the ImGui texture
+// id - the same pattern as the font atlas SetTexID in main().
+struct SceneRenderTarget
+{
+	Ogre::TexturePtr texture;
+	Ogre::Camera* camera = nullptr;
+	int width = 0;
+	int height = 0;
+};
+
+// (re)create the scene RTT at the given size; the old texture (if any) is
+// destroyed first - the ImGui overlay resolves texture ids per draw call, so
+// a vanished handle degrades gracefully for the frame it could still be seen
+void createSceneRenderTexture(SceneRenderTarget& target, int width, int height)
+{
+	if (target.texture)
+	{
+		target.texture->getBuffer()->getRenderTarget()->removeAllViewports();
+		Ogre::TextureManager::getSingleton().remove(target.texture);
+		target.texture.reset();
+	}
+	target.texture = Ogre::TextureManager::getSingleton().createManual(
+		"EditorSceneRT", Ogre::RGN_INTERNAL, Ogre::TEX_TYPE_2D,
+		static_cast<Ogre::uint>(width), static_cast<Ogre::uint>(height), 0,
+		Ogre::PF_BYTE_RGB, Ogre::TU_RENDERTARGET);
+	Ogre::RenderTarget* renderTarget =
+		target.texture->getBuffer()->getRenderTarget();
+	Ogre::Viewport* viewport = renderTarget->addViewport(target.camera);
+	viewport->setBackgroundColour(Ogre::ColourValue::Blue);
+	viewport->setShadowsEnabled(true);
+	// the ImGui overlay must only ever render into the window, not the RTT
+	// (OverlaySystem also skips RTT passes on its own, this is belt+braces)
+	viewport->setOverlaysEnabled(false);
+#ifdef USE_RTSHADER_SYSTEM
+	// same RTSS wiring Engine::createDefaultCameraAndViewport applied to the
+	// old window viewport - without it nothing renders on GL3+ (no FFP)
+	if (!Ogre::Root::getSingleton().getRenderSystem()->getCapabilities()
+		->hasCapability(Ogre::RSC_FIXED_FUNCTION))
+	{
+		viewport->setMaterialScheme(
+			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+	}
+#endif
+	target.camera->setAspectRatio(
+		static_cast<Ogre::Real>(width) / static_cast<Ogre::Real>(height));
+	target.width = width;
+	target.height = height;
+}
+
+// place the scene camera on its orbit sphere around the scene origin
+void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
+{
+	const Ogre::Radian yaw(Ogre::Degree(state.orbitYawDeg));
+	const Ogre::Radian pitch(Ogre::Degree(state.orbitPitchDeg));
+	const Ogre::Vector3 offset(
+		Ogre::Math::Cos(pitch) * Ogre::Math::Sin(yaw),
+		Ogre::Math::Sin(pitch),
+		Ogre::Math::Cos(pitch) * Ogre::Math::Cos(yaw));
+	cameraNode->setPosition(offset * state.orbitDistance);
+	cameraNode->lookAt(Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+}
 
 // vertex-coloured unit cube as a ManualObject (same technique as the
 // hello_orkige demo: exercises the RTSS pipeline without any asset files)
@@ -219,10 +313,11 @@ bool pickObjectAtCursor(EditorState& state, Ogre::Camera* camera,
 	return picked;
 }
 
-// project a world position to SDL window coordinates (for the picking
-// self-check); returns false if the position is behind the camera
-bool worldToWindowPoint(Ogre::Camera* camera, Ogre::Vector3 const& worldPos,
-	float windowWidth, float windowHeight, float& outX, float& outY)
+// project a world position to viewport-normalized coordinates (0..1,
+// top-left origin - what getCameraToViewportRay expects); returns false if
+// the position is behind the camera
+bool worldToViewportNormalized(Ogre::Camera* camera,
+	Ogre::Vector3 const& worldPos, float& outX, float& outY)
 {
 	const Ogre::Vector4 clip = camera->getProjectionMatrix() *
 		(camera->getViewMatrix() * Ogre::Vector4(worldPos.x, worldPos.y,
@@ -231,8 +326,8 @@ bool worldToWindowPoint(Ogre::Camera* camera, Ogre::Vector3 const& worldPos,
 	{
 		return false;
 	}
-	outX = (clip.x / clip.w * 0.5f + 0.5f) * windowWidth;
-	outY = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * windowHeight;
+	outX = clip.x / clip.w * 0.5f + 0.5f;
+	outY = 1.0f - (clip.y / clip.w * 0.5f + 0.5f);
 	return true;
 }
 
@@ -272,34 +367,28 @@ void createTestMeshFromMenu(EditorState& state,
 	}
 }
 
-// push a real SDL left-click at a GameObject's projected screen position;
-// the click travels the exact user path (SDL queue -> ImGui capture test ->
-// pickObjectAtCursor). Selfcheck helper; returns false if the object is
-// missing or behind the camera.
-bool pushClickOnGameObject(Orkige::GameObjectManager& gameObjectManager,
-	Ogre::Camera* camera, SDL_Window* window, std::string const& id)
+// selfcheck helper: compute the viewport-normalized Scene-panel position of
+// a GameObject from the RTT camera and run it through pickObjectAtCursor -
+// the same function the Scene panel's mouse path calls (the panel image
+// fills the panel content region, so panel-relative and viewport-normalized
+// coordinates coincide). Returns false if the object is missing or behind
+// the camera.
+bool pickGameObjectThroughScenePanel(EditorState& state,
+	Orkige::GameObjectManager& gameObjectManager, Ogre::Camera* camera,
+	Ogre::SceneManager* sceneManager, std::string const& id)
 {
 	optr<Orkige::GameObject> gameObject =
 		gameObjectManager.getGameObject(id).lock();
-	int windowW = 0;
-	int windowH = 0;
-	SDL_GetWindowSize(window, &windowW, &windowH);
-	float clickX = 0.0f;
-	float clickY = 0.0f;
-	if (!gameObject || !worldToWindowPoint(camera,
+	float normalizedX = 0.0f;
+	float normalizedY = 0.0f;
+	if (!gameObject || !worldToViewportNormalized(camera,
 		gameObject->getComponentPtr<Orkige::TransformComponent>()
 			->getPosition(),
-		static_cast<float>(windowW), static_cast<float>(windowH),
-		clickX, clickY))
+		normalizedX, normalizedY))
 	{
 		return false;
 	}
-	SDL_Event clickEvent{};
-	clickEvent.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
-	clickEvent.button.button = SDL_BUTTON_LEFT;
-	clickEvent.button.x = clickX;
-	clickEvent.button.y = clickY;
-	SDL_PushEvent(&clickEvent);
+	pickObjectAtCursor(state, camera, sceneManager, normalizedX, normalizedY);
 	return true;
 }
 
@@ -400,11 +489,123 @@ void drawMenuBar(EditorState& state,
 	}
 }
 
+// Fullscreen dockspace over the main viewport (below the main menu bar,
+// which claims its part of the work area first). The first run builds the
+// default layout programmatically with the DockBuilder: Hierarchy left,
+// Inspector right, Lua Console + Stats tabbed at the bottom, Scene panel
+// filling the centre. Afterwards the layout persists through imgui.ini
+// (stored next to the executable, see main()) and the builder stays out of
+// the way.
+void drawDockspace(EditorState& state)
+{
+	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
+	const ImGuiID dockspaceId =
+		ImGui::DockSpaceOverViewport(0, mainViewport);
+	if (state.dockLayoutChecked ||
+		mainViewport->WorkSize.x <= 0.0f || mainViewport->WorkSize.y <= 0.0f)
+	{
+		// the very first frame has no display size yet (ImGuiOverlay derives
+		// it from the not-yet-rendered overlay viewport) - try again next
+		// frame, DockBuilderSetNodeSize needs a real size
+		return;
+	}
+	state.dockLayoutChecked = true;
+	ImGuiDockNode* rootNode = ImGui::DockBuilderGetNode(dockspaceId);
+	if (rootNode && rootNode->IsSplitNode())
+	{
+		return; // imgui.ini restored a layout - keep it
+	}
+	ImGui::DockBuilderRemoveNode(dockspaceId);
+	ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+	ImGui::DockBuilderSetNodeSize(dockspaceId,
+		ImGui::GetMainViewport()->WorkSize);
+	ImGuiID centerId = dockspaceId;
+	ImGuiID leftId = 0;
+	ImGuiID rightId = 0;
+	ImGuiID bottomId = 0;
+	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Left, 0.20f,
+		&leftId, &centerId);
+	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Right, 0.30f,
+		&rightId, &centerId);
+	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Down, 0.30f,
+		&bottomId, &centerId);
+	ImGui::DockBuilderDockWindow("Scene Hierarchy", leftId);
+	ImGui::DockBuilderDockWindow("Inspector", rightId);
+	ImGui::DockBuilderDockWindow("Lua Console", bottomId);
+	ImGui::DockBuilderDockWindow("Stats", bottomId);
+	ImGui::DockBuilderDockWindow("Scene", centerId);
+	ImGui::DockBuilderFinish(dockspaceId);
+}
+
+// The Scene panel: displays the offscreen scene texture, records the size
+// the RTT should have (applied with hysteresis in the frame loop) and hosts
+// the in-panel interactions - left click picks (panel-relative mouse coords
+// map 1:1 to viewport-normalized coords because the image always fills the
+// content region), right-drag orbits, scroll zooms.
+void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
+	Ogre::SceneManager* sceneManager, Ogre::SceneNode* cameraNode)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	const bool open = ImGui::Begin("Scene");
+	ImGui::PopStyleVar();
+	if (open)
+	{
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		state.scenePanelWidth = static_cast<int>(avail.x);
+		state.scenePanelHeight = static_cast<int>(avail.y);
+		if (sceneTarget.texture && avail.x >= 1.0f && avail.y >= 1.0f)
+		{
+			// the texture handle is the ImGui texture id (resolved back via
+			// TextureManager::getByHandle inside Ogre::ImGuiOverlay)
+			ImGui::Image(
+				static_cast<ImTextureID>(sceneTarget.texture->getHandle()),
+				avail);
+			ImGuiIO& io = ImGui::GetIO();
+			if (ImGui::IsItemHovered())
+			{
+				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+				{
+					const ImVec2 rectMin = ImGui::GetItemRectMin();
+					pickObjectAtCursor(state, sceneTarget.camera, sceneManager,
+						(io.MousePos.x - rectMin.x) / avail.x,
+						(io.MousePos.y - rectMin.y) / avail.y);
+				}
+				if (io.MouseWheel != 0.0f)
+				{
+					// scroll up zooms in
+					state.orbitDistance = std::clamp(state.orbitDistance *
+						std::pow(0.9f, io.MouseWheel), 2.0f, 200.0f);
+				}
+				if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+				{
+					state.orbitActive = true;
+				}
+			}
+			// an orbit drag keeps going while the button is held, even when
+			// the cursor leaves the panel mid-drag
+			if (state.orbitActive)
+			{
+				if (!ImGui::IsMouseDown(ImGuiMouseButton_Right))
+				{
+					state.orbitActive = false;
+				}
+				else
+				{
+					state.orbitYawDeg -= io.MouseDelta.x * 0.4f;
+					state.orbitPitchDeg = std::clamp(
+						state.orbitPitchDeg + io.MouseDelta.y * 0.4f,
+						-85.0f, 85.0f);
+				}
+			}
+			applyOrbitCamera(state, cameraNode);
+		}
+	}
+	ImGui::End();
+}
+
 void drawHierarchyPanel(EditorState& state,
 	Orkige::GameObjectManager& gameObjectManager)
 {
-	ImGui::SetNextWindowPos(ImVec2(10, 35), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(250, 330), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Scene Hierarchy"))
 	{
 		for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
@@ -448,8 +649,6 @@ void drawTransformComponentUI(Orkige::TransformComponent* transform)
 void drawInspectorPanel(EditorState& state,
 	Orkige::GameObjectManager& gameObjectManager)
 {
-	ImGui::SetNextWindowPos(ImVec2(950, 35), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(320, 420), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Inspector"))
 	{
 		optr<Orkige::GameObject> gameObject;
@@ -494,8 +693,6 @@ void drawInspectorPanel(EditorState& state,
 
 void drawStatsPanel(Ogre::RenderWindow* renderWindow)
 {
-	ImGui::SetNextWindowPos(ImVec2(10, 375), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(250, 130), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Stats"))
 	{
 		Ogre::RenderTarget::FrameStats const& stats =
@@ -511,8 +708,6 @@ void drawStatsPanel(Ogre::RenderWindow* renderWindow)
 void drawLuaConsolePanel(EditorState& state,
 	Orkige::ScriptManager& scriptManager)
 {
-	ImGui::SetNextWindowPos(ImVec2(270, 460), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(670, 250), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Lua Console"))
 	{
 		const float footerHeight = ImGui::GetFrameHeightWithSpacing() * 4.0f;
@@ -607,10 +802,43 @@ int main(int, char**)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		engine.createDefaultCameraAndViewport();
-		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
-
 		Ogre::SceneManager* sceneManager = engine.getSceneManager();
+
+		// The scene no longer renders into the window (that was
+		// Engine::createDefaultCameraAndViewport): the editor's scene camera
+		// draws into the offscreen RTT created below and the window keeps a
+		// single UI-only viewport for the ImGui overlay - visibility mask 0
+		// hides all scene content, leaving a dark grey backdrop around the
+		// docked panels.
+		Ogre::Camera* sceneCamera =
+			sceneManager->createCamera("EditorSceneCamera");
+		sceneCamera->setNearClipDistance(1.0f);
+		sceneCamera->setFarClipDistance(100000.0f);
+		Ogre::SceneNode* sceneCameraNode = sceneManager->getRootSceneNode()
+			->createChildSceneNode("EditorSceneCameraNode");
+		sceneCameraNode->attachObject(sceneCamera);
+
+		Ogre::Camera* uiCamera = sceneManager->createCamera("EditorUICamera");
+		sceneManager->getRootSceneNode()
+			->createChildSceneNode("EditorUICameraNode")
+			->attachObject(uiCamera);
+		Ogre::Viewport* uiViewport =
+			engine.getRenderWindow()->addViewport(uiCamera);
+		uiViewport->setBackgroundColour(
+			Ogre::ColourValue(0.16f, 0.16f, 0.16f));
+		uiViewport->setVisibilityMask(0); // overlay only - no scene objects
+		uiViewport->setShadowsEnabled(false);
+#ifdef USE_RTSHADER_SYSTEM
+		// the ImGui overlay material renders through the RTSS scheme, same
+		// as it did on the old scene viewport (GL3+ has no fixed function)
+		if (!Ogre::Root::getSingleton().getRenderSystem()->getCapabilities()
+			->hasCapability(Ogre::RSC_FIXED_FUNCTION))
+		{
+			uiViewport->setMaterialScheme(
+				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+		}
+#endif
+		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
 		// overlays render as a RenderQueueListener on the SceneManager
 		sceneManager->addRenderQueueListener(&overlaySystem);
 		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
@@ -632,6 +860,24 @@ int main(int, char**)
 		OgreAssert(imguiFontTex, "ImGui font texture missing after overlay init");
 		ImGui::GetIO().Fonts->SetTexID(
 			static_cast<ImTextureID>(imguiFontTex->getHandle()));
+
+		// docking UI: full-window dockspace (drawDockspace). The panel layout
+		// persists through imgui.ini stored NEXT TO THE EXECUTABLE
+		// (SDL_GetBasePath), so it works no matter which cwd the editor is
+		// launched from. Static so the path outlives the ImGui context - the
+		// ini gets written during ImGui::DestroyContext (~ImGuiOverlay).
+		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+		const char* sdlBasePath = SDL_GetBasePath();
+		static const std::string imguiIniPath =
+			std::string(sdlBasePath ? sdlBasePath : "") +
+			"orkige_editor_imgui.ini";
+		ImGui::GetIO().IniFilename = imguiIniPath.c_str();
+
+		// offscreen scene viewport: initial size is a placeholder, the Scene
+		// panel drives resizes from its content region (with hysteresis)
+		SceneRenderTarget sceneTarget;
+		sceneTarget.camera = sceneCamera;
+		createSceneRenderTexture(sceneTarget, 960, 540);
 
 		// input: ImGui first, engine InputManager for whatever is left
 		Orkige::InputManager inputManager;
@@ -684,21 +930,24 @@ int main(int, char**)
 		}
 		state.selectedObjectId = "Cube2";
 
-		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.5f, 9.0f);
-		engine.getCamera()->getParentSceneNode()->lookAt(
-			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+		// initial orbit pose reproduces the old fixed camera at (0, 2.5, 9)
+		applyOrbitCamera(state, sceneCameraNode);
 
 		// automation hooks (same env-hook style as the demo):
 		// ORKIGE_DEMO_FRAMES=N exit 0 after N frames,
 		// ORKIGE_DEMO_SCREENSHOT=path framebuffer dump at frame 60,
 		// ORKIGE_EDITOR_SELFCHECK=1 boot-state assertions at frame 30 and
-		// viewport-picking checks at frames 45-70 (needs >= 70 frames)
+		// Scene-panel-picking checks at frames 45/65 (needs >= 65 frames),
+		// ORKIGE_EDITOR_RESIZE_TEST=1 programmatic SDL_SetWindowSize at
+		// frame 80 (resize robustness; needs >= 90 frames)
 		unsigned long frameLimit = 0;
 		if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
 		{
 			frameLimit = std::strtoul(demoFrames, nullptr, 10);
 		}
 		const bool selfCheck = (std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr);
+		const bool resizeTest =
+			(std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr);
 
 		bool running = true;
 		unsigned long frameCount = 0;
@@ -711,26 +960,19 @@ int main(int, char**)
 				{
 					running = false;
 				}
+				if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
+				{
+					// keep the OGRE window in sync with the SDL window (the
+					// ORKIGE_EDITOR_RESIZE_TEST hook below exercises this)
+					engine.getRenderWindow()->windowMovedOrResized();
+				}
 				// ImGui gets every event first; only forward into the engine
-				// input pipeline what ImGui does not capture
+				// input pipeline what ImGui does not capture. The dockspace
+				// covers the whole window, so ImGui now captures all mouse
+				// input - scene picking happens inside the Scene panel
+				// (drawScenePanel), not here.
 				if (!imguiInput.processEvent(event))
 				{
-					// left click in the 3D viewport selects the GameObject
-					// under the cursor (or deselects on empty space)
-					if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-						event.button.button == SDL_BUTTON_LEFT)
-					{
-						int windowW = 0;
-						int windowH = 0;
-						SDL_GetWindowSize(window, &windowW, &windowH);
-						if (windowW > 0 && windowH > 0)
-						{
-							pickObjectAtCursor(state, engine.getCamera(),
-								sceneManager,
-								event.button.x / static_cast<float>(windowW),
-								event.button.y / static_cast<float>(windowH));
-						}
-					}
 					inputManager.injectEvent(event);
 				}
 			}
@@ -739,12 +981,49 @@ int main(int, char**)
 				running = false;
 			}
 
+			// apply Scene-panel-driven RTT resizes with hysteresis: only
+			// recreate the texture once the requested size held still for a
+			// few frames (avoids recreation thrash while a dock splitter or
+			// the window is dragged - the image stretches in the meantime)
+			{
+				const int desiredW = std::max(state.scenePanelWidth, 32);
+				const int desiredH = std::max(state.scenePanelHeight, 32);
+				if (state.scenePanelWidth > 0 && state.scenePanelHeight > 0 &&
+					(desiredW != sceneTarget.width ||
+						desiredH != sceneTarget.height))
+				{
+					if (desiredW == state.pendingRttWidth &&
+						desiredH == state.pendingRttHeight)
+					{
+						++state.pendingRttFrames;
+					}
+					else
+					{
+						state.pendingRttWidth = desiredW;
+						state.pendingRttHeight = desiredH;
+						state.pendingRttFrames = 1;
+					}
+					if (state.pendingRttFrames >= 4)
+					{
+						createSceneRenderTexture(sceneTarget,
+							desiredW, desiredH);
+						state.pendingRttFrames = 0;
+					}
+				}
+				else
+				{
+					state.pendingRttFrames = 0;
+				}
+			}
+
 			imguiInput.newFrame(
 				static_cast<float>(engine.getRenderWindow()->getWidth()),
 				static_cast<float>(engine.getRenderWindow()->getHeight()));
 			Ogre::ImGuiOverlay::NewFrame();
 
 			drawMenuBar(state, gameObjectManager, sceneManager);
+			drawDockspace(state);
+			drawScenePanel(state, sceneTarget, sceneManager, sceneCameraNode);
 			drawHierarchyPanel(state, gameObjectManager);
 			drawInspectorPanel(state, gameObjectManager);
 			drawStatsPanel(engine.getRenderWindow());
@@ -796,13 +1075,23 @@ int main(int, char**)
 							AUTODETECT_RESOURCE_GROUP_NAME);
 				const bool meshResourceOk = testMesh && testMesh->isLoaded();
 				const int imguiVertices = ImGui::GetIO().MetricsRenderVertices;
+				// ... and the offscreen scene RTT exists and follows the
+				// Scene panel size (the panel recorded its wish by now, so
+				// after the hysteresis window the sizes must match)
+				const bool rttOk = sceneTarget.texture &&
+					sceneTarget.width > 0 && sceneTarget.height > 0 &&
+					sceneTarget.width == std::max(state.scenePanelWidth, 32) &&
+					sceneTarget.height == std::max(state.scenePanelHeight, 32);
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
 					"(boot cubes + test mesh %s), test_mesh.glb resource %s, "
-					"imgui vertices=%d",
+					"imgui vertices=%d, scene RTT %dx%d (panel wants %dx%d)",
 					gameObjectManager.getGameObjects().size(),
 					objectsOk ? "present" : "MISSING",
-					meshResourceOk ? "loaded" : "NOT LOADED", imguiVertices);
-				if (!objectsOk || !meshResourceOk || imguiVertices <= 0)
+					meshResourceOk ? "loaded" : "NOT LOADED", imguiVertices,
+					sceneTarget.width, sceneTarget.height,
+					state.scenePanelWidth, state.scenePanelHeight);
+				if (!objectsOk || !meshResourceOk || imguiVertices <= 0 ||
+					!rttOk)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck");
 					exitCode = 2;
@@ -811,51 +1100,46 @@ int main(int, char**)
 			}
 			if (frameCount == 45 && selfCheck)
 			{
-				// self-check: viewport picking - clear the selection, then
-				// push a real SDL click at Cube1's projected screen position
+				// self-check: Scene panel picking - project Cube1 through the
+				// RTT camera into viewport-normalized panel coordinates and
+				// run the exact pick function the panel's mouse path uses
 				state.selectedObjectId.clear();
-				if (!pushClickOnGameObject(gameObjectManager,
-					engine.getCamera(), window, "Cube1"))
+				if (!pickGameObjectThroughScenePanel(state, gameObjectManager,
+					sceneTarget.camera, sceneManager, "Cube1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (pick projection)");
 					exitCode = 2;
 					running = false;
 				}
-			}
-			if (frameCount == 50 && selfCheck)
-			{
-				SDL_Log("orkige_editor: selfcheck frame 50 - picked '%s' via "
-					"viewport click", state.selectedObjectId.c_str());
+				SDL_Log("orkige_editor: selfcheck frame 45 - picked '%s' via "
+					"scene panel pick", state.selectedObjectId.c_str());
 				if (state.selectedObjectId != "Cube1")
 				{
-					SDL_Log("orkige_editor: FAILED selfcheck (viewport pick)");
+					SDL_Log("orkige_editor: FAILED selfcheck (scene panel pick)");
 					exitCode = 2;
 					running = false;
 				}
 			}
 			if (frameCount == 65 && selfCheck)
 			{
-				// self-check: same viewport-picking path, this time on the
-				// glTF test mesh (its Entity goes through the identical
+				// self-check: same panel-picking path, this time on the glTF
+				// test mesh (its Entity goes through the identical
 				// TransformComponent scene-node tagging as the cubes)
 				state.selectedObjectId.clear();
-				if (!pushClickOnGameObject(gameObjectManager,
-					engine.getCamera(), window, "TestMesh1"))
+				if (!pickGameObjectThroughScenePanel(state, gameObjectManager,
+					sceneTarget.camera, sceneManager, "TestMesh1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (test mesh pick "
 						"projection)");
 					exitCode = 2;
 					running = false;
 				}
-			}
-			if (frameCount == 70 && selfCheck)
-			{
-				SDL_Log("orkige_editor: selfcheck frame 70 - picked '%s' via "
-					"viewport click", state.selectedObjectId.c_str());
+				SDL_Log("orkige_editor: selfcheck frame 65 - picked '%s' via "
+					"scene panel pick", state.selectedObjectId.c_str());
 				if (state.selectedObjectId != "TestMesh1")
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (test mesh "
-						"viewport pick)");
+						"scene panel pick)");
 					exitCode = 2;
 					running = false;
 				}
@@ -866,6 +1150,23 @@ int main(int, char**)
 				{
 					engine.getRenderWindow()->writeContentsToFile(shotPath);
 				}
+			}
+			if (frameCount == 80 && resizeTest)
+			{
+				// resize robustness: shrink the window mid-run; the SDL
+				// resize events keep the OGRE window and (via the Scene
+				// panel + hysteresis) the RTT in sync - must not crash
+				SDL_SetWindowSize(window, 1000, 640);
+				SDL_Log("orkige_editor: resize test - SDL_SetWindowSize"
+					"(1000, 640) issued at frame 80");
+			}
+			if (frameCount == 100 && resizeTest)
+			{
+				SDL_Log("orkige_editor: resize test frame 100 - render window "
+					"%ux%u, scene RTT %dx%d",
+					engine.getRenderWindow()->getWidth(),
+					engine.getRenderWindow()->getHeight(),
+					sceneTarget.width, sceneTarget.height);
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
