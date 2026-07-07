@@ -14,10 +14,11 @@
 #include <core_util/foreach.h>
 #include <core_event/GlobalEventManager.h>
 #include "engine_module/EnginePrerequisites.h"
+#include <OgreOverlay.h>
+#include <OgreOverlayManager.h>
 #include "engine_graphic/Engine.h"
 #include "engine_input/InputManager.h"
 #include "engine_util/StringUtil.h"
-#include <boost/algorithm/string.hpp>
 
 //@TODO: cleanup
 namespace Orkige
@@ -55,7 +56,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	void IngameConsole::init()
 	{
-		if(!Ogre::Root::getSingleton().getSceneManagerIterator().hasMoreElements())
+		// OGRE 14: getSceneManagerIterator() became getSceneManagers()
+		if(Ogre::Root::getSingleton().getSceneManagers().empty())
 			OGRE_EXCEPT( Ogre::Exception::ERR_INTERNAL_ERROR, "No this->scene manager found!", "init" );
 
 		if(this->initialized)
@@ -75,12 +77,13 @@ namespace Orkige
 			this->history_pos = this->history.size();
 		}
 
-		this->scene=Ogre::Root::getSingleton().getSceneManagerIterator().getNext();
+		this->scene=Ogre::Root::getSingleton().getSceneManagers().begin()->second;
 
 		// Create background rectangle covering the whole screen
 		this->rect = new Ogre::Rectangle2D(true);
 		this->rect->setCorners(-1, 1, 1, 1-this->height);
-		this->rect->setMaterial("console/background");
+		// OGRE 14: SimpleRenderable::setMaterial takes the MaterialPtr directly
+		this->rect->setMaterial(Ogre::MaterialManager::getSingleton().getByName("console/background"));
 		this->rect->setRenderQueueGroup(Ogre::RENDER_QUEUE_OVERLAY);
 		this->rect->setBoundingBox(Ogre::AxisAlignedBox(-100000.0*Ogre::Vector3::UNIT_SCALE, 100000.0*Ogre::Vector3::UNIT_SCALE));
 		node = this->scene->getRootSceneNode()->createChildSceneNode("#Console");
@@ -199,9 +202,8 @@ namespace Orkige
 		{
 			this->print(this->prompt);
 
-			//split the parameter list
-			Orkige::StringVector params;
-			boost::split(params, this->prompt, boost::is_any_of("\t "));
+			//split the parameter list (no boost: Ogre::StringUtil does the job)
+			Orkige::StringVector params = Ogre::StringUtil::split(this->prompt, "\t ");
 
 			if(this->pythonMode == false && params[0] == "python")
 			{
@@ -327,7 +329,7 @@ namespace Orkige
 		{
 			static String legalchars ="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+!\"#%&/()=?[]\\*-_.:,; ";
 			String input = InputManager::getSingleton().getAsString(data->key);
-			boost::to_lower(input);
+			StringUtil::to_lower(input);
 			if(legalchars.find(input) != String::npos)
 			{
 				if(this->prompt.length() > 0)
@@ -431,15 +433,9 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	void IngameConsole::messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName
-#if OGRE_VERSION_MINOR >= 8
-, bool& skipThisMessage
-#endif	
-	)
+	void IngameConsole::messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName, bool& skipThisMessage)
 	{
-#if OGRE_VERSION_MINOR >= 8
 		if(skipThisMessage) return;
-#endif	
 		this->print(logName + ": " + message);
 	}
 	//---------------------------------------------------------

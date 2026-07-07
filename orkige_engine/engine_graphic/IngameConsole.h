@@ -90,11 +90,7 @@ namespace Orkige
 		//! react on key press to capture text
 		bool onKeyPressed(Event const & event);
 		//! capture Ogre::LogListener output
-		virtual void messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName
-#if OGRE_VERSION_MINOR >= 8
-, bool& skipThisMessage
-#endif	
-		);
+		virtual void messageLogged(const String& message, Ogre::LogMessageLevel lml, bool maskDebug, const String &logName, bool& skipThisMessage);
 	private:
 	};
 	/** @} End of "addtogroup Gui"*/

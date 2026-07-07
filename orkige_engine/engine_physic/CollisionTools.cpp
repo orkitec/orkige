@@ -85,19 +85,11 @@ namespace Orkige
 	{
 		float y = 0.0f;
 
-		static Ogre::Ray updateRay;
-
-		updateRay.setOrigin(Ogre::Vector3(x,9999,z));
-		updateRay.setDirection(Ogre::Vector3::NEGATIVE_UNIT_Y);
-
-		this->terrainRaySceneQuery->setRay(updateRay);
-		Ogre::RaySceneQueryResult& qryResult = this->terrainRaySceneQuery->execute();
-
-		Ogre::RaySceneQueryResult::iterator i = qryResult.begin();
-		if (i != qryResult.end() && i->worldFragment)
-		{
-			y = i->worldFragment->singleIntersection.y;
-		}
+		// OGRE 14 removed world geometry scene queries (WorldFragment is only a
+		// forward declaration now), so the old TSM terrain height lookup is gone.
+		// Terrain height checks return with the physics rework (Jolt, Phase 2).
+		(void)x;
+		(void)z;
 		return y;
 	}
 	//---------------------------------------------------------
@@ -222,7 +214,8 @@ namespace Orkige
 		//Ogre::Ogre::Real closest_distance = -1.0f;
 		closest_distance = -1.0f;
 		Ogre::Vector3 closest_result;
-		Ogre::RaySceneQueryResult &query_result = this->raySceneQuery->getLastResults();
+		// OGRE 14: getLastResults() returns a const reference
+		Ogre::RaySceneQueryResult const &query_result = this->raySceneQuery->getLastResults();
 		foreach (Ogre::RaySceneQueryResultEntry const & res, query_result)
 		{
 			// stop checking if we have found a raycast hit that is closer

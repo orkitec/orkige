@@ -19,6 +19,22 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/FrameEventData.cpp
     engine_graphic/Engine.h
     engine_graphic/Engine.cpp
+    engine_graphic/DynamicRenderable.h
+    engine_graphic/DynamicRenderable.cpp
+    engine_graphic/DynamicLines.h
+    engine_graphic/DynamicLines.cpp
+    engine_graphic/MovableText.h
+    engine_graphic/MovableText.cpp
+    engine_graphic/ColoredBoundingBox.h
+    engine_graphic/ColoredBoundingBox.cpp
+    engine_graphic/IngameConsole.h
+    engine_graphic/IngameConsole.cpp
+    engine_graphic/LightMap.h
+    engine_graphic/LightMap.cpp
+    engine_base/Localisation.h
+    engine_base/Localisation.cpp
+    engine_physic/CollisionTools.h
+    engine_physic/CollisionTools.cpp
 )
 
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})

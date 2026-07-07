@@ -23,7 +23,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	MovableText::MovableText(const Ogre::String & _name, const Ogre::UTFString & _caption,
+	MovableText::MovableText(const Ogre::String & _name, const Ogre::DisplayString & _caption,
 		const Ogre::String & _fontName, int _charHeight, const Ogre::ColourValue & _color)
 		: camera(NULL)
 		, renderWindow(NULL)
@@ -93,7 +93,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void MovableText::setCaption(const Ogre::UTFString & caption)
+	void MovableText::setCaption(const Ogre::DisplayString & caption)
 	{
 		if (caption != this->caption)
 		{
@@ -243,7 +243,9 @@ namespace Orkige
 		bool first = true;
 
 		// Use iterator
-		Ogre::UTFString::iterator i, iend;
+		// OGRE 14: DisplayString is a plain UTF-8 String, so this walks bytes;
+		// like the old UTFString version it only handles single-unit characters
+		Ogre::DisplayString::const_iterator i, iend;
 		iend = this->caption.end();
 		bool newLine = true;
 		float len = 0.0f;
@@ -266,9 +268,9 @@ namespace Orkige
 			if( newLine )
 			{
 				float len = 0.0f;
-				for( Ogre::UTFString::iterator j = i; j != iend; j++ )
+				for( Ogre::DisplayString::const_iterator j = i; j != iend; j++ )
 				{
-					Ogre::Font::CodePoint character = j.getCharacter();
+					Ogre::Font::CodePoint character = static_cast<unsigned char>(*j);
 					if (character == 0x000D // CR
 						|| character == 0x0085) // NEL
 					{
@@ -292,7 +294,7 @@ namespace Orkige
 				newLine = false;
 			}
 
-			Ogre::Font::CodePoint character = i.getCharacter();
+			Ogre::Font::CodePoint character = static_cast<unsigned char>(*i);
 			if (character == 0x000D // CR
 				|| character == 0x0085) // NEL
 			{

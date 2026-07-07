@@ -40,7 +40,8 @@ namespace Orkige
 		Ogre::String			fontName;
 		Ogre::String			type;
 		Ogre::String			name;
-		Ogre::UTFString			caption;
+		// OGRE 14 dropped Ogre::UTFString; DisplayString is a plain (UTF-8) String now
+		Ogre::DisplayString		caption;
 		HorizontalAlignment		horizontalAlignment;
 		VerticalAlignment		verticalAlignment;
 
@@ -69,7 +70,7 @@ namespace Orkige
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor
-		MovableText(const Ogre::String & name, const Ogre::UTFString & caption,
+		MovableText(const Ogre::String & name, const Ogre::DisplayString & caption,
 			const Ogre::String & fontName = "BlueHighway", int charHeight = 32,
 			const Ogre::ColourValue & color = Ogre::ColourValue::White);
 		//! destructor
@@ -78,7 +79,7 @@ namespace Orkige
 		//! set font
 		void setFontName(Ogre::String const & fontName);
 		//! set text
-		void setCaption(Ogre::UTFString const & caption);
+		void setCaption(Ogre::DisplayString const & caption);
 		//! set text color
 		void setColor(Ogre::ColourValue const & color);
 		//! set char size
@@ -95,7 +96,7 @@ namespace Orkige
 		//! get font name
 		inline Ogre::String const & getFontName() const;
 		//! get text
-		inline Ogre::UTFString const & getCaption() const;
+		inline Ogre::DisplayString const & getCaption() const;
 		//! get text color
 		inline Ogre::ColourValue const & getColor() const;
 		//! get text char height
@@ -139,7 +140,7 @@ namespace Orkige
 		return this->fontName;
 	}
 	//---------------------------------------------------------
-	inline Ogre::UTFString const & MovableText::getCaption() const 
+	inline Ogre::DisplayString const & MovableText::getCaption() const
 	{
 		return this->caption;
 	}

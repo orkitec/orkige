@@ -159,9 +159,10 @@ namespace Orkige
 		this->initialize(opType,false); 
 		static int matIndex = 0; 
 		String matName = "DL" + Ogre::StringConverter::toString(matIndex++); 
-		Ogre::MaterialPtr materialPtr = Ogre::MaterialManager::getSingleton().create(matName, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME); 
-		materialPtr->setAmbient(colour); 
-		this->setMaterial(matName); 
+		Ogre::MaterialPtr materialPtr = Ogre::MaterialManager::getSingleton().create(matName, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		materialPtr->setAmbient(colour);
+		// OGRE 14: SimpleRenderable::setMaterial takes the MaterialPtr directly
+		this->setMaterial(materialPtr);
 
 		this->isDirty = true; 
 	} 

@@ -11,13 +11,15 @@
 #include "engine_base/Localisation.h"
 #include <core_util/PlatformUtil.h>
 #include <core_util/foreach.h>
-#include <boost/static_assert.hpp>
-#include <boost/algorithm/string.hpp>
 #include "engine_graphic/Engine.h"
+// TODO(Phase 1): engine_gocomponent is not ported yet; the ModelComponent reload
+// in setupResources() returns with it (see ORKIGE_ENGINE_HAS_GOCOMPONENT below).
+#ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
 #include <core_game/GameObjectManager.h>
 #include <engine_gocomponent/ModelComponent.h>
+#endif
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && defined(__OBJC__)
 #import <Foundation/NSString.h>
 #import <Foundation/NSPathUtilities.h>
 #import <Foundation/NSBundle.h>
@@ -46,7 +48,7 @@ namespace Orkige
 
 		this->clear();
 		this->currentLocale = currentLocale;
-		boost::split(this->supportedLocales, validLocales, boost::is_any_of(Orkige::String(",")));
+		this->supportedLocales = Ogre::StringUtil::split(validLocales, ",");
 		
 		oAssertDesc(!defaultLocale.empty(), "Localization: no default language set");
 		oAssertDesc(!this->supportedLocales.empty(), "Localization: no supported language found");
@@ -159,7 +161,7 @@ namespace Orkige
 			
 #endif //__OBJC__
 #else
-			//BOOST_STATIC_ASSERT(false && "UNKNOWN SYSTEM FOR LOCALE!");
+			//static_assert(false && "UNKNOWN SYSTEM FOR LOCALE!");
 			this->currentLocale = defaultLocale;	//FIXME: find the right locale here (pe)
 
 #endif
@@ -177,9 +179,10 @@ namespace Orkige
 
 		this->loadFromResourceSystem(this->currentLocale + "/locale.cfg", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
-		SettingsBySection::const_iterator languageSectionIterator = this->mSettings.find("Language");
+		// OGRE 14: ConfigFile::mSettings stores the SettingsMultiMap by value now
+		SettingsBySection_::iterator languageSectionIterator = this->mSettings.find("Language");
 		oAssert(languageSectionIterator != this->mSettings.end());
-		this->languageSettings = languageSectionIterator->second;
+		this->languageSettings = &languageSectionIterator->second;
 		oAssert(this->languageSettings);
 	}
 	//---------------------------------------------------------
@@ -192,8 +195,7 @@ namespace Orkige
 		}
 
 		Ogre::ResourceGroupManager::getSingleton().createResourceGroup("Language");
-		Orkige::StringVector dirs;
-		boost::split(dirs, this->directories, boost::is_any_of(","));
+		Orkige::StringVector dirs = Ogre::StringUtil::split(this->directories, ",");
 		foreach(Orkige::String const & dir, dirs)
 		{
 			Orkige::String archName = "language/" + this->currentLocale + "/" + dir;
@@ -204,14 +206,16 @@ namespace Orkige
 			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(archName, locType, "Language");
 		}
 		Ogre::ResourceGroupManager::getSingleton().initialiseResourceGroup("Language");
-		Ogre::SceneManager::MovableObjectIterator iterator = Engine::getSingleton().getSceneManager()->getMovableObjectIterator(Ogre::EntityFactory::FACTORY_TYPE_NAME);
-		while(iterator.hasMoreElements())
+		// OGRE 14: getMovableObjectIterator() became getMovableObjects(),
+		// EntityFactory::FACTORY_TYPE_NAME became MOT_ENTITY
+		for(auto const & vt : Engine::getSingleton().getSceneManager()->getMovableObjects(Ogre::MOT_ENTITY))
 		{
-			Ogre::Entity* e = static_cast<Ogre::Entity*>(iterator.getNext());
+			Ogre::Entity* e = static_cast<Ogre::Entity*>(vt.second);
 			oAssert(e);
 			e->_deinitialise();
 		}
 
+#ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
 		GameObjectManager::GameObjectMap gos = GameObjectManager::getSingleton().getGameObjects();
 		foreach(GameObjectManager::GameObjectMap::value_type const & vt, gos)
 		{
@@ -221,6 +225,7 @@ namespace Orkige
 				go->getComponentPtr<ModelComponent>()->loadModel(go->getComponentPtr<ModelComponent>()->getCurrentModelFileName());
 			}
 		}
+#endif //ORKIGE_ENGINE_HAS_GOCOMPONENT
 	}
 	//---------------------------------------------------------
 	void Localisation::setupResourcesDelayed(String const & directories)
@@ -236,7 +241,12 @@ namespace Orkige
 		{
 			std::stringstream sstr;
 			sstr << "%%" << i << "%%";
-			boost::replace_all( localized, sstr.str(), args[i]);
+			// no boost: plain std::string replace-all
+			const Orkige::String placeholder = sstr.str();
+			for(std::size_t pos = localized.find(placeholder); pos != Orkige::String::npos; pos = localized.find(placeholder, pos + args[i].length()))
+			{
+				localized.replace(pos, placeholder.length(), args[i]);
+			}
 		}
 		return localized;
 	}

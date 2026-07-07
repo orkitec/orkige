@@ -10,7 +10,11 @@
 #define __NodeUtil_h__31_8_2010__0_23_43__
 
 #include "engine_module/EnginePrerequisites.h"
+// TODO(Phase 1): engine_gocomponent is not ported yet; getGameObjectFromNode()
+// returns together with TransformComponent (see ORKIGE_ENGINE_HAS_GOCOMPONENT below).
+#ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
 #include "engine_gocomponent/TransformComponent.h"
+#endif
 
 namespace Orkige
 {
@@ -34,15 +38,12 @@ namespace Orkige
 				}
 
 			}
-			Ogre::Node::ChildNodeIterator it = sceneNode->getChildIterator();
-
-			while(it.hasMoreElements())
+			// OGRE 14: getChildIterator() is gone, getChildren() returns the child list
+			for(Ogre::Node* child : sceneNode->getChildren())
 			{
-				Ogre::SceneNode* sn = static_cast<Ogre::SceneNode*>(it.peekNextValue());
+				Ogre::SceneNode* sn = static_cast<Ogre::SceneNode*>(child);
 				if(sn)
 					cleanSceneNode(sn);
-
-				it.moveNext();
 			}
 		}
 		//---------------------------------------------------------
@@ -58,6 +59,7 @@ namespace Orkige
 			sceneNode = NULL;
 		}
 		//---------------------------------------------------------
+#ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
 		//! get game object from given scene node
 		//! only works for GameObjects with a TransformComponent
 		//! @see TransformComponent::getComponentFromNode
@@ -72,6 +74,7 @@ namespace Orkige
 			}
 			return go;
 		}
+#endif //ORKIGE_ENGINE_HAS_GOCOMPONENT
 	}
 }
 

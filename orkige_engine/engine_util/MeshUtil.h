@@ -10,6 +10,7 @@
 #define __MeshUtil_h__31_8_2010__0_20_13__
 
 #include "engine_module/EnginePrerequisites.h"
+#include <OgreLodStrategy.h>
 
 namespace Orkige
 {
@@ -47,8 +48,17 @@ namespace Orkige
 					{
 						mesh->_setBounds(lodMesh->getBounds(), false);
 					}
-					
-					mesh->createManualLodLevel(distance, lodMeshFileName, groupName);
+
+					// OGRE 14: createManualLodLevel() is gone; register the manual
+					// LOD level the way the mesh serializer does
+					Ogre::MeshLodUsage lodUsage;
+					lodUsage.userValue = distance;
+					lodUsage.value = mesh->getLodStrategy()->transformUserValue(distance);
+					lodUsage.manualName = lodMeshFileName;
+					lodUsage.manualMesh = lodMesh;
+					lodUsage.edgeData = NULL;
+					mesh->_setLodInfo(2);
+					mesh->_setLodUsage(1, lodUsage);
 
 					return true;
 				}
@@ -668,7 +678,8 @@ namespace Orkige
 						for( size_t j = 0; j < vertex_data->vertexCount; ++j, vertex += vbuf->getVertexSize())
 						{
 							tgElm->baseVertexPointerToElement(vertex, &pReal5);
-							tangents[current_offset + j] = *pReal5;
+							// OGRE 14: Vector3 lost its scalar assignment operator
+							tangents[current_offset + j] = Ogre::Vector3(pReal5[0], pReal5[1], pReal5[2]);
 						}
 
 						vbuf->unlock();
