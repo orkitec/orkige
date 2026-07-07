@@ -204,6 +204,8 @@ namespace Orkige
 #define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
 	OSTRANGEGCC_TEMPLATE_TYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
 	template <> template <> void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																						\
+	/*register in the TypeManager so IArchive::read(optr<ISerializeable>&) can recreate wrapped attributes by their TypeInfo name*/																																		\
+	Orkige::TypeManager::getSingleton().registerType<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> >(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName());	\
 	OOBJECT_END
 
 #define IMPLEMENT_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType)				\
@@ -213,6 +215,8 @@ namespace Orkige
 #define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
 	OSTRANGEGCC_TEMPLATE_TYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)										\
 	template <> template <> void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																\
+	/*register in the TypeManager so IArchive::read(optr<ISerializeable>&) can recreate wrapped attributes by their TypeInfo name*/																														\
+	Orkige::TypeManager::getSingleton().registerType<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> >(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName());	\
 	ORKIGE_LUA_USERTYPE_BASED((AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName()), OwnedAttributeType, AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>)	\
 	OCONSTRUCTOR1(WrappedType)																																																						\
 	OVAR(value)																																																										\

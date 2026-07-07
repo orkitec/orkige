@@ -35,6 +35,23 @@ loose orphaned headers from ~2016 (e.g. an ancient zlib.h), and clang searches
 headers/symbols from `/usr/local`, that isolation has regressed — fix it, don't work
 around it.
 
+## Testing
+
+```sh
+ctest --preset unit    # headless Catch2 unit tests (~3s) — safe to run anytime
+ctest --preset all     # + integration runs (open real windows on this machine)
+```
+
+Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
+boots the app singleton set headlessly via `CoreTestEnvironment`). The integration
+tests (label `integration`, registered in `tests/CMakeLists.txt`) reuse the
+self-checking apps — hello_orkige demos, editor self-check/resize, player — which
+verify themselves and exit non-zero on failure; that exit code is the contract.
+
+The rule: every change ships with tests that verify it — unit tests for core
+logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
+pass before committing.
+
 ## Modernization ground rules
 
 - C++20, no boost. Old code being touched gets moved to std equivalents

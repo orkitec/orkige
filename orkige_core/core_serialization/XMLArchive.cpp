@@ -469,8 +469,12 @@ namespace Orkige
 		currentElement->InsertEndChild(element);
 	}
 	//---------------------------------------------------------
+	// note: currentElement is passed by reference on purpose - it aliases the
+	// archive's currentElement so the nested ar->write(*value) call below
+	// writes the pointee INSIDE the ref_id element (where the read side
+	// expects it), not as a sibling in the parent element
 	template<typename ValueType>
-	void XMLArchiveWritePtrElement(XMLArchive * ar,std::map<void*,unsigned int> & registry, tinyxml2::XMLElement* currentElement, ValueType const & value, String const & type)
+	void XMLArchiveWritePtrElement(XMLArchive * ar,std::map<void*,unsigned int> & registry, tinyxml2::XMLElement* & currentElement, ValueType const & value, String const & type)
 	{
 		oAssert(ar);
 		oAssert(!ar->isReading());
@@ -633,7 +637,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void XMLArchive::write(optr<unsigned long> const & t)
 	{
-		XMLArchiveWritePtrElement(this, this->registryOptrInt, this->currentElement, t, "unsigned long");
+		XMLArchiveWritePtrElement(this, this->registryOptrInt, this->currentElement, t, "unsigned_long");
 	}
 	//---------------------------------------------------------
 	void XMLArchive::write(optr<float> const & t)

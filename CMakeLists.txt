@@ -20,6 +20,7 @@ option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
 # The tools (currently the editor) sit on top of the engine, so they follow
 # ORKIGE_BUILD_ENGINE by default; override with -DORKIGE_BUILD_TOOLS=ON/OFF.
 option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
+option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" ON)
 
 # Scripting backend: LUA (sol2-based Meta_Lua.h backend, the default) or OFF
 # (Meta_None.h, no script bindings compiled).
@@ -49,4 +50,9 @@ if(ORKIGE_BUILD_TOOLS)
     endif()
     add_subdirectory(tools/editor)
     add_subdirectory(tools/player)
+endif()
+
+if(ORKIGE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()

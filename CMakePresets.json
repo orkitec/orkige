@@ -42,5 +42,28 @@
       "name": "macos-release",
       "configurePreset": "macos-release"
     }
+  ],
+  "testPresets": [
+    {
+      "name": "unit",
+      "displayName": "Unit tests (headless, fast)",
+      "configurePreset": "macos-debug",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "all",
+      "displayName": "Full suite (unit + integration; opens real windows)",
+      "configurePreset": "macos-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
   ]
 }

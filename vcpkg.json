@@ -13,6 +13,7 @@
     {
       "name": "imgui",
       "features": ["docking-experimental"]
-    }
+    },
+    "catch2"
   ]
 }

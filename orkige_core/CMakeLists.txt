@@ -42,6 +42,16 @@ target_include_directories(orkige_core PUBLIC
 find_package(tinyxml2 CONFIG REQUIRED)
 target_link_libraries(orkige_core PRIVATE tinyxml2::tinyxml2)
 
+if(APPLE)
+    # core_util/PlatformUtil.mm uses Foundation (NSFileManager & co) and
+    # CoreServices (FSFindFolder); PUBLIC because static-lib consumers must
+    # link the frameworks themselves
+    target_link_libraries(orkige_core PUBLIC
+        "-framework Foundation"
+        "-framework CoreServices"
+    )
+endif()
+
 if(ORKIGE_SCRIPTING STREQUAL "LUA")
     # PUBLIC: the Meta_Lua.h macros (and thus sol2/lua headers) surface in
     # the headers of every dependent target
