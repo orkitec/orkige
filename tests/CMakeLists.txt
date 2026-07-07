@@ -15,6 +15,11 @@ if(TARGET orkige_engine)
     add_subdirectory(engine)
 endif()
 
+if(TARGET orkige_editor_core)
+    # UI-independent editor logic: command stack, naming, object snapshots
+    add_subdirectory(editor_core)
+endif()
+
 if(TARGET hello_orkige)
     # frame-capped demo runs; 120 frames ~= 2s
     add_test(NAME demo_plain COMMAND hello_orkige
@@ -58,6 +63,15 @@ if(TARGET orkige_editor)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_resize PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_RESIZE_TEST=1;ORKIGE_DEMO_FRAMES=120")
+
+    # scripted editing run against EditorCore: tool switching, undoable
+    # transform command (do/undo/redo), duplicate with offset, delete +
+    # undo restoring the full component state (transform + mesh), rename
+    # + validation, drag-merge (one undo step) and save/reload persistence
+    add_test(NAME editor_edittest COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_edittest PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
 endif()
 
 if(TARGET orkige_editor AND TARGET orkige_player)
@@ -139,9 +153,10 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
-        demo_synth_esc editor_selfcheck editor_resize player_example_scene
-        player_debug_pause editor_play_stop editor_play_crash
-        demo_plain_metal player_example_scene_metal editor_selfcheck_metal)
+        demo_synth_esc editor_selfcheck editor_resize editor_edittest
+        player_example_scene player_debug_pause editor_play_stop
+        editor_play_crash demo_plain_metal player_example_scene_metal
+        editor_selfcheck_metal)
     if(TEST ${integration_test})
         set_tests_properties(${integration_test} PROPERTIES
             LABELS integration TIMEOUT 60)

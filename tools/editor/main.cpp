@@ -49,7 +49,9 @@
 #include <OgreRoot.h>
 #include <imgui.h>
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
+#include <ImGuizmo.h>
 
+#include "EditorCore.h"
 #include "ImGuiSDL3Input.h"
 
 #include <algorithm>
@@ -74,34 +76,40 @@ extern "C" void* orkige_native_window_handle(SDL_Window* window);
 namespace
 {
 
-// quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
+// ESC through the engine input pipeline (SDL event -> InputManager ->
 // GlobalEventManager -> listener) - also proves that non-ImGui input still
-// reaches the engine
+// reaches the engine. Unity-style: a first ESC clears the selection, ESC
+// with nothing selected quits the editor.
 struct QuitOnEscape
 {
 	bool quitRequested = false;
+	Orkige::EditorCore* editorCore = nullptr;
 	bool onKeyPressed(Orkige::Event const& event)
 	{
 		if (event.getDataPtr<Orkige::KeyEventData>()->key ==
 			Orkige::KeyEventData::KC_ESCAPE)
 		{
-			quitRequested = true;
+			if (editorCore && editorCore->hasSelection())
+			{
+				editorCore->clearSelection();
+			}
+			else
+			{
+				quitRequested = true;
+			}
 		}
 		return false;
 	}
 };
 
-// Editor UI state that lives across frames.
+// Editor UI state that lives across frames. Everything UI-independent
+// (selection, dirty flag, tools, undo/redo) lives in EditorCore instead.
 struct EditorState
 {
 	bool quitRequested = false;
-	std::string selectedObjectId;
-	int cubeCounter = 0;
-	int meshCounter = 0;
-	//! current scene file (empty = unsaved "untitled" scene) + dirty marker;
-	//! both are reflected in the window title from the frame loop
+	//! current scene file (empty = unsaved "untitled" scene); the dirty
+	//! marker lives in EditorCore, both are reflected in the window title
 	std::string currentScenePath;
-	bool sceneDirty = false;
 	//! "Scene Path" modal (native file dialogs are out of scope for now):
 	//! which action the path input confirms
 	enum class ScenePathAction { None, SaveAs, Open };
@@ -122,12 +130,29 @@ struct EditorState
 	int pendingRttWidth = 0;
 	int pendingRttHeight = 0;
 	int pendingRttFrames = 0;
-	//! orbit camera: spherical coordinates around the scene origin; defaults
-	//! reproduce the old fixed camera at (0, 2.5, 9) looking at the origin
+	//! orbit camera: spherical coordinates around orbitTarget; defaults
+	//! reproduce the old fixed camera at (0, 2.5, 9) looking at the origin.
+	//! F (frame selected) retargets, middle-mouse drag pans the target.
 	float orbitYawDeg = 0.0f;
 	float orbitPitchDeg = 15.524f;
 	float orbitDistance = 9.3408f;
 	bool orbitActive = false;
+	bool panActive = false;
+	Ogre::Vector3 orbitTarget = Ogre::Vector3::ZERO;
+	//! Scene panel interaction state recorded while drawing (gates the tool
+	//! shortcuts to "Scene panel hovered/focused")
+	bool scenePanelHovered = false;
+	bool scenePanelFocused = false;
+	bool hierarchyFocused = false;
+	//! gizmo drag bracketing: the whole drag merges into ONE undo command
+	bool gizmoWasUsing = false;
+	unsigned int gizmoMergeSession = 0;
+	//! inspector drag bracketing (only one drag widget is active at a time)
+	unsigned int inspectorMergeSession = 0;
+	//! inline rename in the Hierarchy (F2 / double-click / context menu)
+	std::string renamingObjectId;
+	char renameBuffer[256] = "";
+	bool renameFocusPending = false;
 };
 
 //--- play mode (remote debugging) -----------------------------------------
@@ -532,7 +557,7 @@ void createSceneRenderTexture(SceneRenderTarget& target, int width, int height)
 	target.height = height;
 }
 
-// place the scene camera on its orbit sphere around the scene origin
+// place the scene camera on its orbit sphere around the orbit target
 void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
 {
 	const Ogre::Radian yaw(Ogre::Degree(state.orbitYawDeg));
@@ -541,81 +566,51 @@ void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
 		Ogre::Math::Cos(pitch) * Ogre::Math::Sin(yaw),
 		Ogre::Math::Sin(pitch),
 		Ogre::Math::Cos(pitch) * Ogre::Math::Cos(yaw));
-	cameraNode->setPosition(offset * state.orbitDistance);
-	cameraNode->lookAt(Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+	cameraNode->setPosition(state.orbitTarget + offset * state.orbitDistance);
+	cameraNode->lookAt(state.orbitTarget, Ogre::Node::TS_WORLD);
 }
 
-// create a GameObject carrying a mesh through TransformComponent +
-// ModelComponent. Everything the editor creates goes through ModelComponent
-// on purpose: it serializes its mesh name, so the object round-trips through
-// scene files (a raw ManualObject attached to a TransformComponent would
-// not). The cube mesh is a real in-memory resource built once at startup by
-// PrimitiveUtil::createVertexColourCubeMesh; the test mesh is the glTF asset
-// loaded through the statically linked Codec_Assimp plugin (the .glb comes
-// from Util/make_test_mesh.py).
-bool createModelGameObject(Orkige::GameObjectManager& gameObjectManager,
-	std::string const& id, std::string const& meshName,
-	Ogre::Vector3 const& position)
+// F: frame the selected object - retarget the orbit to the object's world
+// bounds centre and fit the orbit distance to its bounding radius
+void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
+	Ogre::Camera* camera)
 {
-	optr<Orkige::GameObject> gameObject =
-		gameObjectManager.createGameObject(id).lock();
-	// ModelComponent depends on TransformComponent - added automatically
-	if (!gameObject || !gameObject->addComponent<Orkige::ModelComponent>())
+	if (!core.hasSelection())
 	{
-		return false;
+		return;
 	}
-	try
+	optr<Orkige::GameObject> gameObject = core.getGameObjectManager()
+		.getGameObject(core.getSelectedObjectId()).lock();
+	if (!gameObject ||
+		!gameObject->hasComponent<Orkige::TransformComponent>())
 	{
-		gameObject->getComponentPtr<Orkige::ModelComponent>()
-			->loadModel(meshName);
+		return;
 	}
-	catch (Ogre::Exception const& e)
+	Orkige::TransformComponent* transform =
+		gameObject->getComponentPtr<Orkige::TransformComponent>();
+	Ogre::Vector3 center = transform->getWorldPosition();
+	float radius = 1.0f;
+	const Ogre::AxisAlignedBox& box = transform->getWorldAABB();
+	if (box.isFinite() && !box.isNull())
 	{
-		SDL_Log("orkige_editor: mesh '%s' load failed: %s", meshName.c_str(),
-			e.getDescription().c_str());
-		gameObjectManager.delGameObject(id);
-		return false;
+		center = box.getCenter();
+		radius = std::max(box.getHalfSize().length(), 0.25f);
 	}
-	// Codec_Assimp-imported materials keep lighting enabled (generated
-	// normals) - under the editor's ambient-only light the vertex colours
-	// would drown; render everything unlit like the cube material
-	Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(
-		gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel());
-	gameObject->getComponentPtr<Orkige::TransformComponent>()
-		->setPosition(position);
-	return true;
-}
-
-bool createCubeGameObject(Orkige::GameObjectManager& gameObjectManager,
-	std::string const& id, Ogre::Vector3 const& position)
-{
-	return createModelGameObject(gameObjectManager, id,
-		Orkige::PrimitiveUtil::CUBE_MESH_NAME, position);
-}
-
-bool createTestMeshGameObject(Orkige::GameObjectManager& gameObjectManager,
-	std::string const& id, Ogre::Vector3 const& position)
-{
-	return createModelGameObject(gameObjectManager, id, "test_mesh.glb",
-		position);
+	state.orbitTarget = center;
+	const float halfFov = std::min(
+		camera->getFOVy().valueRadians() * 0.5f, 1.2f);
+	state.orbitDistance = std::clamp(
+		radius / std::sin(halfFov) * 1.25f, 2.0f, 200.0f);
 }
 
 // ModelComponent does not serialize material tweaks (yet), so re-apply the
 // unlit vertex-colour render state to every model after a scene load
-void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
+void applyUnlitFixToLoadedModels(Orkige::EditorCore& core)
 {
-	for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
+	for (auto const& [id, gameObject] :
+		core.getGameObjectManager().getGameObjects())
 	{
-		if (!gameObject->hasComponent<Orkige::ModelComponent>())
-		{
-			continue;
-		}
-		Ogre::Entity* model =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
-		if (model)
-		{
-			Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model);
-		}
+		core.applyModelFixups(id);
 	}
 }
 
@@ -624,7 +619,7 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 // tags its scene nodes, NodeUtil walks a hit back to the owner). AABB-level
 // picking is right for the editor bootstrap; polygon-accurate picking via
 // CollisionTools comes when entities with real meshes arrive.
-bool pickObjectAtCursor(EditorState& state, Ogre::Camera* camera,
+bool pickObjectAtCursor(Orkige::EditorCore& core, Ogre::Camera* camera,
 	Ogre::SceneManager* sceneManager, float normalizedX, float normalizedY)
 {
 	const Ogre::Ray ray =
@@ -642,7 +637,7 @@ bool pickObjectAtCursor(EditorState& state, Ogre::Camera* camera,
 			hit.movable->getParentSceneNode());
 		if (gameObject)
 		{
-			state.selectedObjectId = gameObject->getObjectID();
+			core.selectObject(gameObject->getObjectID());
 			picked = true;
 			break;
 		}
@@ -651,7 +646,7 @@ bool pickObjectAtCursor(EditorState& state, Ogre::Camera* camera,
 	if (!picked)
 	{
 		// clicking empty space deselects, like Unity
-		state.selectedObjectId.clear();
+		core.clearSelection();
 	}
 	return picked;
 }
@@ -674,55 +669,19 @@ bool worldToViewportNormalized(Ogre::Camera* camera,
 	return true;
 }
 
-// GameObject > Create Cube: auto-named, at origin
-void createCubeFromMenu(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager)
-{
-	std::string id;
-	do
-	{
-		++state.cubeCounter;
-		id = "Cube" + std::to_string(state.cubeCounter);
-	} while (gameObjectManager.objectExists(id));
-	if (createCubeGameObject(gameObjectManager, id, Ogre::Vector3::ZERO))
-	{
-		state.selectedObjectId = id;
-		state.sceneDirty = true;
-	}
-}
-
-// GameObject > Create Test Mesh: auto-named, at origin
-void createTestMeshFromMenu(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager)
-{
-	std::string id;
-	do
-	{
-		++state.meshCounter;
-		id = "TestMesh" + std::to_string(state.meshCounter);
-	} while (gameObjectManager.objectExists(id));
-	if (createTestMeshGameObject(gameObjectManager, id, Ogre::Vector3::ZERO))
-	{
-		state.selectedObjectId = id;
-		state.sceneDirty = true;
-	}
-}
-
 // File > New Scene: clear all GameObjects - removing the components tears
 // down their scene nodes (TransformComponent::onRemove wipes via NodeUtil)
-void newScene(EditorState& state, Orkige::GameObjectManager& gameObjectManager)
+void newScene(EditorState& state, Orkige::EditorCore& core)
 {
-	gameObjectManager.clear();
-	state.selectedObjectId.clear();
-	state.cubeCounter = 0;
-	state.meshCounter = 0;
+	core.getGameObjectManager().clear();
+	core.resetForScene();
 	state.currentScenePath.clear();
-	state.sceneDirty = false;
 }
 
-bool saveSceneToPath(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager, std::string const& path)
+bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
+	std::string const& path)
 {
+	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
 	if (!Orkige::SceneSerializer::saveScene(path, gameObjectManager))
 	{
 		SDL_Log("orkige_editor: saving scene '%s' failed", path.c_str());
@@ -731,28 +690,26 @@ bool saveSceneToPath(EditorState& state,
 	SDL_Log("orkige_editor: scene saved to '%s' (%zu GameObjects)",
 		path.c_str(), gameObjectManager.getGameObjects().size());
 	state.currentScenePath = path;
-	state.sceneDirty = false;
+	core.clearSceneDirty();
 	return true;
 }
 
-bool openSceneFromPath(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager, std::string const& path)
+bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
+	std::string const& path)
 {
-	state.selectedObjectId.clear();
-	// loadScene replaces the current world (clears the manager first)
+	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
+	// loadScene replaces the current world (clears the manager first); the
+	// undo history refers to the old world, so it goes too
+	core.resetForScene();
 	if (!Orkige::SceneSerializer::loadScene(path, gameObjectManager))
 	{
 		SDL_Log("orkige_editor: opening scene '%s' failed", path.c_str());
 		return false;
 	}
-	applyUnlitFixToLoadedModels(gameObjectManager);
+	applyUnlitFixToLoadedModels(core);
 	SDL_Log("orkige_editor: scene opened from '%s' (%zu GameObjects)",
 		path.c_str(), gameObjectManager.getGameObjects().size());
-	// the auto-name counters restart; the do/while loops skip taken ids
-	state.cubeCounter = 0;
-	state.meshCounter = 0;
 	state.currentScenePath = path;
-	state.sceneDirty = false;
 	return true;
 }
 
@@ -762,7 +719,7 @@ bool openSceneFromPath(EditorState& state,
 // fills the panel content region, so panel-relative and viewport-normalized
 // coordinates coincide). Returns false if the object is missing or behind
 // the camera.
-bool pickGameObjectThroughScenePanel(EditorState& state,
+bool pickGameObjectThroughScenePanel(Orkige::EditorCore& core,
 	Orkige::GameObjectManager& gameObjectManager, Ogre::Camera* camera,
 	Ogre::SceneManager* sceneManager, std::string const& id)
 {
@@ -777,7 +734,7 @@ bool pickGameObjectThroughScenePanel(EditorState& state,
 	{
 		return false;
 	}
-	pickObjectAtCursor(state, camera, sceneManager, normalizedX, normalizedY);
+	pickObjectAtCursor(core, camera, sceneManager, normalizedX, normalizedY);
 	return true;
 }
 
@@ -832,8 +789,27 @@ void requestScenePathPopup(EditorState& state,
 		sizeof(state.scenePathInput));
 }
 
-void drawMenuBar(EditorState& state,
-	Orkige::GameObjectManager& gameObjectManager)
+// modifier label for the menu shortcut column (the handler accepts both
+// Super and Ctrl either way)
+#ifdef __APPLE__
+#define ORKIGE_EDITOR_MOD_LABEL "Cmd"
+#else
+#define ORKIGE_EDITOR_MOD_LABEL "Ctrl"
+#endif
+
+void startRenameSelected(EditorState& state, Orkige::EditorCore& core)
+{
+	if (!core.hasSelection())
+	{
+		return;
+	}
+	state.renamingObjectId = core.getSelectedObjectId();
+	SDL_strlcpy(state.renameBuffer, state.renamingObjectId.c_str(),
+		sizeof(state.renameBuffer));
+	state.renameFocusPending = true;
+}
+
+void drawMenuBar(EditorState& state, Orkige::EditorCore& core)
 {
 	bool openAbout = false;
 	if (ImGui::BeginMainMenuBar())
@@ -842,7 +818,7 @@ void drawMenuBar(EditorState& state,
 		{
 			if (ImGui::MenuItem("New Scene"))
 			{
-				newScene(state, gameObjectManager);
+				newScene(state, core);
 			}
 			if (ImGui::MenuItem("Open Scene..."))
 			{
@@ -859,8 +835,7 @@ void drawMenuBar(EditorState& state,
 				}
 				else
 				{
-					saveSceneToPath(state, gameObjectManager,
-						state.currentScenePath);
+					saveSceneToPath(state, core, state.currentScenePath);
 				}
 			}
 			if (ImGui::MenuItem("Save Scene As..."))
@@ -875,15 +850,49 @@ void drawMenuBar(EditorState& state,
 			}
 			ImGui::EndMenu();
 		}
+		if (ImGui::BeginMenu("Edit"))
+		{
+			// undo/redo labels carry the description of the command they
+			// would apply ("Undo Delete Cube1")
+			const std::string undoLabel = core.canUndo()
+				? "Undo " + core.getUndoDescription() : std::string("Undo");
+			if (ImGui::MenuItem(undoLabel.c_str(),
+				ORKIGE_EDITOR_MOD_LABEL "+Z", false, core.canUndo()))
+			{
+				core.undo();
+			}
+			const std::string redoLabel = core.canRedo()
+				? "Redo " + core.getRedoDescription() : std::string("Redo");
+			if (ImGui::MenuItem(redoLabel.c_str(),
+				"Shift+" ORKIGE_EDITOR_MOD_LABEL "+Z", false, core.canRedo()))
+			{
+				core.redo();
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Duplicate", ORKIGE_EDITOR_MOD_LABEL "+D",
+				false, core.hasSelection()))
+			{
+				core.duplicateSelected();
+			}
+			if (ImGui::MenuItem("Rename", "F2", false, core.hasSelection()))
+			{
+				startRenameSelected(state, core);
+			}
+			if (ImGui::MenuItem("Delete", "Del", false, core.hasSelection()))
+			{
+				core.deleteSelected();
+			}
+			ImGui::EndMenu();
+		}
 		if (ImGui::BeginMenu("GameObject"))
 		{
 			if (ImGui::MenuItem("Create Cube"))
 			{
-				createCubeFromMenu(state, gameObjectManager);
+				core.createCube();
 			}
 			if (ImGui::MenuItem("Create Test Mesh"))
 			{
-				createTestMeshFromMenu(state, gameObjectManager);
+				core.createTestMesh();
 			}
 			ImGui::EndMenu();
 		}
@@ -942,11 +951,11 @@ void drawMenuBar(EditorState& state,
 			{
 				if (saving)
 				{
-					saveSceneToPath(state, gameObjectManager, path);
+					saveSceneToPath(state, core, path);
 				}
 				else
 				{
-					openSceneFromPath(state, gameObjectManager, path);
+					openSceneFromPath(state, core, path);
 				}
 			}
 			state.scenePathAction = EditorState::ScenePathAction::None;
@@ -967,8 +976,9 @@ void drawMenuBar(EditorState& state,
 // Stop with state-appropriate enabling plus a session status line. Returns
 // the height the dockspace below must leave free.
 float drawToolbar(EditorState& state, PlaySession& session,
-	Orkige::GameObjectManager& gameObjectManager)
+	Orkige::EditorCore& core)
 {
+	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
 	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
 	const float toolbarHeight = ImGui::GetFrameHeight() +
 		ImGui::GetStyle().WindowPadding.y * 2.0f;
@@ -1022,6 +1032,51 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		{
 			requestStopPlay(session);
 		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
+		ImGui::SameLine();
+		// the tool strip: Q/W/E/R, world/local space, snap toggle - the
+		// buttons call the exact functions the keyboard shortcuts invoke
+		ImGui::BeginDisabled(session.isActive());
+		auto toolButton = [&core](char const* label, Orkige::EditorTool tool)
+		{
+			const bool active = (core.getActiveTool() == tool);
+			if (active)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button,
+					ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+			}
+			if (ImGui::Button(label))
+			{
+				core.setActiveTool(tool);
+			}
+			if (active)
+			{
+				ImGui::PopStyleColor();
+			}
+			ImGui::SameLine();
+		};
+		toolButton("Q", Orkige::EditorTool::Select);
+		toolButton("W", Orkige::EditorTool::Translate);
+		toolButton("E", Orkige::EditorTool::Rotate);
+		toolButton("R", Orkige::EditorTool::Scale);
+		if (ImGui::Button(core.getTransformSpace() ==
+			Orkige::EditorTransformSpace::World ? "World" : "Local"))
+		{
+			core.toggleTransformSpace();
+		}
+		ImGui::SameLine();
+		bool snapEnabled = core.isSnapEnabled();
+		if (ImGui::Checkbox("Snap", &snapEnabled))
+		{
+			core.setSnapEnabled(snapEnabled);
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("(%.1f / %.0f\xC2\xB0 / %.1f)",
+			Orkige::EditorCore::SNAP_TRANSLATE,
+			Orkige::EditorCore::SNAP_ROTATE_DEGREES,
+			Orkige::EditorCore::SNAP_SCALE);
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
@@ -1114,17 +1169,131 @@ void drawDockspace(EditorState& state, float toolbarHeight)
 	ImGui::DockBuilderFinish(dockspaceId);
 }
 
+// OGRE Matrix4 stores row-major (m[row][col]); ImGuizmo expects the usual
+// OpenGL-style column-major float16 - copying transposed converts between
+// the two (both directions).
+void ogreToImGuizmo(Ogre::Matrix4 const& matrix, float* out16)
+{
+	for (int row = 0; row < 4; ++row)
+	{
+		for (int col = 0; col < 4; ++col)
+		{
+			out16[col * 4 + row] = matrix[row][col];
+		}
+	}
+}
+
+Ogre::Matrix4 imGuizmoToOgre(const float* in16)
+{
+	Ogre::Matrix4 matrix;
+	for (int row = 0; row < 4; ++row)
+	{
+		for (int col = 0; col < 4; ++col)
+		{
+			matrix[row][col] = in16[col * 4 + row];
+		}
+	}
+	return matrix;
+}
+
+// The transform gizmo over the Scene panel image: ImGuizmo draws into the
+// panel's drawlist (SetDrawlist/SetRect on the image screen rect) with the
+// RTT camera's view/projection. A whole drag collapses into ONE undo command
+// (merge session opened on drag start, closed on release). Returns true if
+// the gizmo owns the mouse (hovered or dragging) - the click-to-pick path
+// must stand down then.
+bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
+	Ogre::Camera* camera, ImVec2 const& rectMin, ImVec2 const& rectSize)
+{
+	const Orkige::EditorTool tool = core.getActiveTool();
+	Orkige::EditorTransform current;
+	if (tool == Orkige::EditorTool::Select || !core.hasSelection() ||
+		!core.getObjectTransform(core.getSelectedObjectId(), current))
+	{
+		state.gizmoWasUsing = false;
+		return false;
+	}
+	ImGuizmo::SetOrthographic(false);
+	ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
+	ImGuizmo::SetRect(rectMin.x, rectMin.y, rectSize.x, rectSize.y);
+
+	float view[16];
+	float projection[16];
+	float model[16];
+	ogreToImGuizmo(camera->getViewMatrix(), view);
+	ogreToImGuizmo(camera->getProjectionMatrix(), projection);
+	Ogre::Matrix4 modelMatrix;
+	modelMatrix.makeTransform(current.position, current.scale,
+		current.orientation);
+	ogreToImGuizmo(modelMatrix, model);
+
+	ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
+	float snapValues[3] = { Orkige::EditorCore::SNAP_TRANSLATE,
+		Orkige::EditorCore::SNAP_TRANSLATE,
+		Orkige::EditorCore::SNAP_TRANSLATE };
+	if (tool == Orkige::EditorTool::Rotate)
+	{
+		operation = ImGuizmo::ROTATE;
+		snapValues[0] = snapValues[1] = snapValues[2] =
+			Orkige::EditorCore::SNAP_ROTATE_DEGREES;
+	}
+	else if (tool == Orkige::EditorTool::Scale)
+	{
+		operation = ImGuizmo::SCALE;
+		snapValues[0] = snapValues[1] = snapValues[2] =
+			Orkige::EditorCore::SNAP_SCALE;
+	}
+	// scale is always object-local; translate/rotate follow the X toggle
+	const ImGuizmo::MODE mode = (operation != ImGuizmo::SCALE &&
+		core.getTransformSpace() == Orkige::EditorTransformSpace::World)
+		? ImGuizmo::WORLD : ImGuizmo::LOCAL;
+	// snap: toolbar toggle, or held Cmd/Ctrl while dragging
+	ImGuiIO& io = ImGui::GetIO();
+	const bool snapActive = core.isSnapEnabled() || io.KeySuper || io.KeyCtrl;
+
+	const bool changed = ImGuizmo::Manipulate(view, projection, operation,
+		mode, model, nullptr, snapActive ? snapValues : nullptr);
+	if (ImGuizmo::IsUsing())
+	{
+		if (!state.gizmoWasUsing)
+		{
+			// drag start: everything until release merges into one command
+			state.gizmoMergeSession = core.beginMergeSession();
+			state.gizmoWasUsing = true;
+		}
+		if (changed)
+		{
+			Orkige::EditorTransform after;
+			// gizmo output is affine (no shear) - decompose back to
+			// position/scale/orientation (Affine3 extracts the 3x4 part)
+			Ogre::Affine3(imGuizmoToOgre(model)).decomposition(
+				after.position, after.scale, after.orientation);
+			core.applyTransformChange(core.getSelectedObjectId(), current,
+				after, state.gizmoMergeSession);
+		}
+	}
+	else if (state.gizmoWasUsing)
+	{
+		state.gizmoWasUsing = false; // drag ended - next drag = new undo step
+	}
+	return ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+}
+
 // The Scene panel: displays the offscreen scene texture, records the size
 // the RTT should have (applied with hysteresis in the frame loop) and hosts
-// the in-panel interactions - left click picks (panel-relative mouse coords
-// map 1:1 to viewport-normalized coords because the image always fills the
-// content region), right-drag orbits, scroll zooms.
-void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
+// the in-panel interactions - the transform gizmo (input priority), left
+// click picks (panel-relative mouse coords map 1:1 to viewport-normalized
+// coords because the image always fills the content region), right-drag
+// orbits, middle-drag pans, scroll zooms.
+void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
+	bool editMode, SceneRenderTarget& sceneTarget,
 	Ogre::SceneManager* sceneManager, Ogre::SceneNode* cameraNode)
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 	const bool open = ImGui::Begin("Scene");
 	ImGui::PopStyleVar();
+	state.scenePanelHovered = false;
+	state.scenePanelFocused = open && ImGui::IsWindowFocused();
 	if (open)
 	{
 		const ImVec2 avail = ImGui::GetContentRegionAvail();
@@ -1137,13 +1306,19 @@ void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
 			ImGui::Image(
 				static_cast<ImTextureID>(sceneTarget.texture->getHandle()),
 				avail);
+			const ImVec2 rectMin = ImGui::GetItemRectMin();
+			state.scenePanelHovered = ImGui::IsItemHovered();
+			// gizmo first: while it is hovered/dragged the click-pick and
+			// the camera drags stand down (input priority). Editing the
+			// local scene is pointless while the panels show the remote one.
+			const bool gizmoOwnsMouse = editMode &&
+				drawSceneGizmo(state, core, sceneTarget.camera, rectMin, avail);
 			ImGuiIO& io = ImGui::GetIO();
-			if (ImGui::IsItemHovered())
+			if (state.scenePanelHovered && !gizmoOwnsMouse)
 			{
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 				{
-					const ImVec2 rectMin = ImGui::GetItemRectMin();
-					pickObjectAtCursor(state, sceneTarget.camera, sceneManager,
+					pickObjectAtCursor(core, sceneTarget.camera, sceneManager,
 						(io.MousePos.x - rectMin.x) / avail.x,
 						(io.MousePos.y - rectMin.y) / avail.y);
 				}
@@ -1157,8 +1332,12 @@ void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
 				{
 					state.orbitActive = true;
 				}
+				if (ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+				{
+					state.panActive = true;
+				}
 			}
-			// an orbit drag keeps going while the button is held, even when
+			// orbit/pan drags keep going while the button is held, even when
 			// the cursor leaves the panel mid-drag
 			if (state.orbitActive)
 			{
@@ -1174,20 +1353,84 @@ void drawScenePanel(EditorState& state, SceneRenderTarget& sceneTarget,
 						-85.0f, 85.0f);
 				}
 			}
+			if (state.panActive)
+			{
+				if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+				{
+					state.panActive = false;
+				}
+				else
+				{
+					// slide the orbit target along the camera plane; the
+					// factor scales with distance so a screen-pixel drag
+					// moves the scene about the same visual amount
+					const float panScale = state.orbitDistance * 0.0015f;
+					state.orbitTarget += cameraNode->getOrientation() *
+						Ogre::Vector3(-io.MouseDelta.x * panScale,
+							io.MouseDelta.y * panScale, 0.0f);
+				}
+			}
 			applyOrbitCamera(state, cameraNode);
 		}
 	}
 	ImGui::End();
 }
 
+// commit/cancel handling for the inline rename field in the Hierarchy
+void drawHierarchyRenameField(EditorState& state, Orkige::EditorCore& core,
+	std::string const& id)
+{
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	if (state.renameFocusPending)
+	{
+		ImGui::SetKeyboardFocusHere();
+		state.renameFocusPending = false;
+	}
+	const bool commit = ImGui::InputText("##rename", state.renameBuffer,
+		sizeof(state.renameBuffer),
+		ImGuiInputTextFlags_EnterReturnsTrue |
+		ImGuiInputTextFlags_AutoSelectAll);
+	if (commit)
+	{
+		const Orkige::EditorCore::NameValidation validation =
+			core.validateRename(id, state.renameBuffer);
+		if (validation == Orkige::EditorCore::NameValidation::Ok)
+		{
+			core.renameObject(id, state.renameBuffer);
+			state.renamingObjectId.clear();
+		}
+		else if (validation ==
+			Orkige::EditorCore::NameValidation::Unchanged)
+		{
+			state.renamingObjectId.clear(); // no-op rename = cancel
+		}
+		else
+		{
+			// empty/duplicate rejected: stay in edit so the user can fix it
+			state.renameFocusPending = true;
+		}
+	}
+	else if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+		ImGui::IsItemDeactivated())
+	{
+		state.renamingObjectId.clear(); // focus lost / ESC cancels
+	}
+}
+
 // Hierarchy panel: the local scene while editing; during play it switches to
 // the REMOTE hierarchy streamed by the player ("(Remote)" in the title) and
 // clicking an entry sends select so the player streams that object's state.
+// Edit mode extras: double-click (or F2/context menu) renames inline,
+// right-click opens Duplicate/Rename/Delete (per object) or Create Cube/
+// Create Test Mesh (empty space), up/down arrows move the selection.
 void drawHierarchyPanel(EditorState& state, PlaySession& session,
-	Orkige::GameObjectManager& gameObjectManager)
+	Orkige::EditorCore& core)
 {
 	const bool remote = session.isActive();
-	if (ImGui::Begin(remote ? HIERARCHY_WINDOW_REMOTE : HIERARCHY_WINDOW_EDIT))
+	const bool open =
+		ImGui::Begin(remote ? HIERARCHY_WINDOW_REMOTE : HIERARCHY_WINDOW_EDIT);
+	state.hierarchyFocused = open && !remote && ImGui::IsWindowFocused();
+	if (open)
 	{
 		if (remote)
 		{
@@ -1212,13 +1455,91 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 		}
 		else
 		{
+			std::vector<std::string> orderedIds;
 			for (auto const& [id, gameObject] :
-				gameObjectManager.getGameObjects())
+				core.getGameObjectManager().getGameObjects())
 			{
-				const bool selected = (state.selectedObjectId == id);
-				if (ImGui::Selectable(id.c_str(), selected))
+				orderedIds.push_back(id);
+				ImGui::PushID(id.c_str());
+				if (state.renamingObjectId == id)
 				{
-					state.selectedObjectId = id;
+					drawHierarchyRenameField(state, core, id);
+					ImGui::PopID();
+					continue;
+				}
+				if (ImGui::Selectable(id.c_str(), core.isSelected(id),
+					ImGuiSelectableFlags_AllowDoubleClick))
+				{
+					core.selectObject(id);
+					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						startRenameSelected(state, core);
+					}
+				}
+				// right-click selects, then offers the object operations
+				if (ImGui::BeginPopupContextItem("##objectmenu"))
+				{
+					core.selectObject(id);
+					if (ImGui::MenuItem("Duplicate"))
+					{
+						core.duplicateSelected();
+					}
+					if (ImGui::MenuItem("Rename"))
+					{
+						startRenameSelected(state, core);
+					}
+					if (ImGui::MenuItem("Delete"))
+					{
+						core.deleteSelected();
+					}
+					ImGui::EndPopup();
+				}
+				ImGui::PopID();
+			}
+			// right-click on empty space: creation menu
+			if (ImGui::BeginPopupContextWindow("##createmenu",
+				ImGuiPopupFlags_MouseButtonRight |
+				ImGuiPopupFlags_NoOpenOverItems))
+			{
+				if (ImGui::MenuItem("Create Cube"))
+				{
+					core.createCube();
+				}
+				if (ImGui::MenuItem("Create Test Mesh"))
+				{
+					core.createTestMesh();
+				}
+				ImGui::EndPopup();
+			}
+			// keyboard: up/down moves the selection through the (sorted) list
+			if (state.hierarchyFocused && !ImGui::GetIO().WantTextInput &&
+				state.renamingObjectId.empty() && !orderedIds.empty())
+			{
+				int step = 0;
+				if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+				{
+					step = -1;
+				}
+				else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+				{
+					step = 1;
+				}
+				if (step != 0)
+				{
+					int index = -1;
+					for (std::size_t i = 0; i < orderedIds.size(); ++i)
+					{
+						if (core.isSelected(orderedIds[i]))
+						{
+							index = static_cast<int>(i);
+							break;
+						}
+					}
+					index = (index < 0) ? (step > 0 ? 0 : static_cast<int>(
+						orderedIds.size()) - 1)
+						: std::clamp(index + step, 0,
+							static_cast<int>(orderedIds.size()) - 1);
+					core.selectObject(orderedIds[index]);
 				}
 			}
 		}
@@ -1226,32 +1547,70 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 	ImGui::End();
 }
 
-void drawTransformComponentUI(EditorState& state,
-	Orkige::TransformComponent* transform)
+// Inspector transform editors: every edit goes through the command stack
+// (undoable); while a drag widget stays active the per-frame edits merge
+// into ONE undo step, exactly like a gizmo drag.
+void drawTransformComponentUI(EditorState& state, Orkige::EditorCore& core,
+	std::string const& objectId)
 {
-	const Ogre::Vector3 p = transform->getPosition();
-	float position[3] = { p.x, p.y, p.z };
-	if (ImGui::DragFloat3("Position", position, 0.05f))
+	Orkige::EditorTransform before;
+	if (!core.getObjectTransform(objectId, before))
 	{
-		transform->setPosition(
-			Ogre::Vector3(position[0], position[1], position[2]));
-		state.sceneDirty = true;
+		return;
 	}
-	const Ogre::Quaternion q = transform->getOrientation();
+	Orkige::EditorTransform after = before;
+	bool edited = false;
+
+	float position[3] = { before.position.x, before.position.y,
+		before.position.z };
+	bool changed = ImGui::DragFloat3("Position", position, 0.05f);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
+	{
+		after.position = Ogre::Vector3(position[0], position[1], position[2]);
+		edited = true;
+	}
+
 	float yawPitchRoll[3] = {
-		q.getYaw().valueDegrees(),
-		q.getPitch().valueDegrees(),
-		q.getRoll().valueDegrees(),
+		before.orientation.getYaw().valueDegrees(),
+		before.orientation.getPitch().valueDegrees(),
+		before.orientation.getRoll().valueDegrees(),
 	};
-	if (ImGui::DragFloat3("Yaw/Pitch/Roll", yawPitchRoll, 0.5f))
+	changed = ImGui::DragFloat3("Yaw/Pitch/Roll", yawPitchRoll, 0.5f);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
 	{
 		Ogre::Matrix3 rotation;
 		rotation.FromEulerAnglesYXZ(
 			Ogre::Degree(yawPitchRoll[0]),
 			Ogre::Degree(yawPitchRoll[1]),
 			Ogre::Degree(yawPitchRoll[2]));
-		transform->setOrientation(Ogre::Quaternion(rotation));
-		state.sceneDirty = true;
+		after.orientation = Ogre::Quaternion(rotation);
+		edited = true;
+	}
+
+	float scale[3] = { before.scale.x, before.scale.y, before.scale.z };
+	changed = ImGui::DragFloat3("Scale", scale, 0.02f);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
+	{
+		after.scale = Ogre::Vector3(scale[0], scale[1], scale[2]);
+		edited = true;
+	}
+
+	if (edited)
+	{
+		core.applyTransformChange(objectId, before, after,
+			state.inspectorMergeSession);
 	}
 }
 
@@ -1357,7 +1716,7 @@ void drawRemoteInspector(PlaySession& session)
 }
 
 void drawInspectorPanel(EditorState& state, PlaySession& session,
-	Orkige::GameObjectManager& gameObjectManager)
+	Orkige::EditorCore& core)
 {
 	const bool remote = session.isActive();
 	if (ImGui::Begin(remote ? INSPECTOR_WINDOW_REMOTE : INSPECTOR_WINDOW_EDIT))
@@ -1369,11 +1728,10 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			return;
 		}
 		optr<Orkige::GameObject> gameObject;
-		if (!state.selectedObjectId.empty() &&
-			gameObjectManager.objectExists(state.selectedObjectId))
+		if (core.hasSelection())
 		{
-			gameObject =
-				gameObjectManager.getGameObject(state.selectedObjectId).lock();
+			gameObject = core.getGameObjectManager()
+				.getGameObject(core.getSelectedObjectId()).lock();
 		}
 		if (!gameObject)
 		{
@@ -1393,10 +1751,10 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				{
 					continue;
 				}
-				if (auto* transform =
-					dynamic_cast<Orkige::TransformComponent*>(component.get()))
+				if (dynamic_cast<Orkige::TransformComponent*>(component.get()))
 				{
-					drawTransformComponentUI(state, transform);
+					drawTransformComponentUI(state, core,
+						gameObject->getObjectID());
 				}
 				else if (auto* model =
 					dynamic_cast<Orkige::ModelComponent*>(component.get()))
@@ -1412,6 +1770,81 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		}
 	}
 	ImGui::End();
+}
+
+// The keyboard shortcut map (checked once per frame, after the panels have
+// recorded their hover/focus state; inactive while a text field is being
+// edited or a play session runs):
+//   global: Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z redo
+//   Scene panel hovered/focused: Q select, W translate, E rotate, R scale,
+//   X world/local, F frame selected, F2 rename, Delete/Backspace delete,
+//   Cmd/Ctrl+D duplicate
+void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
+	PlaySession& session, Ogre::Camera* sceneCamera)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	if (io.WantTextInput || session.isActive())
+	{
+		return;
+	}
+	const bool commandDown = io.KeySuper || io.KeyCtrl;
+	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_Z, false))
+	{
+		if (io.KeyShift)
+		{
+			core.redo();
+		}
+		else
+		{
+			core.undo();
+		}
+		return;
+	}
+	if (!state.scenePanelHovered && !state.scenePanelFocused)
+	{
+		return;
+	}
+	if (commandDown)
+	{
+		if (ImGui::IsKeyPressed(ImGuiKey_D, false))
+		{
+			core.duplicateSelected();
+		}
+		return;
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
+	{
+		core.setActiveTool(Orkige::EditorTool::Select);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+	{
+		core.setActiveTool(Orkige::EditorTool::Translate);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+	{
+		core.setActiveTool(Orkige::EditorTool::Rotate);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+	{
+		core.setActiveTool(Orkige::EditorTool::Scale);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+	{
+		core.toggleTransformSpace();
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+	{
+		frameSelectedObject(state, core, sceneCamera);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
+	{
+		startRenameSelected(state, core);
+	}
+	if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
+		ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+	{
+		core.deleteSelected();
+	}
 }
 
 void drawStatsPanel(Ogre::RenderWindow* renderWindow)
@@ -1631,19 +2064,27 @@ int main(int, char**)
 		init_module_orkige_engine();
 		Orkige::GameObjectManager gameObjectManager;
 
+		// the UI-independent editor logic (selection, tools, undo/redo,
+		// object operations) - everything below drives THIS layer
+		Orkige::EditorCore editorCore(gameObjectManager);
+		quitOnEscape.editorCore = &editorCore;
+
 		// play mode session (idle until the Play button / playtest hook)
 		PlaySession playSession;
 
-		// boot scene: three sample cubes so the panels have content
+		// boot scene: three sample cubes so the panels have content (created
+		// directly, not through undoable commands - a fresh editor starts
+		// with an empty undo history and a clean scene)
 		EditorState state;
 		const Ogre::Vector3 bootPositions[3] = {
 			{ -2.5f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f }, { 2.5f, 0.0f, 0.0f },
 		};
+		int bootCubeCounter = 0;
 		for (Ogre::Vector3 const& position : bootPositions)
 		{
-			++state.cubeCounter;
-			const std::string id = "Cube" + std::to_string(state.cubeCounter);
-			if (!createCubeGameObject(gameObjectManager, id, position))
+			const std::string id = "Cube" + std::to_string(++bootCubeCounter);
+			if (!editorCore.instantiateModelObject(id,
+				Orkige::PrimitiveUtil::CUBE_MESH_NAME, position))
 			{
 				SDL_Log("orkige_editor: FAILED - boot GameObject '%s' "
 					"creation failed", id.c_str());
@@ -1652,16 +2093,14 @@ int main(int, char**)
 		}
 		// ... plus one glTF test mesh above the cubes: proves the Codec_Assimp
 		// import path (registered in Engine.cpp's static-plugin block) at boot
-		++state.meshCounter;
-		if (!createTestMeshGameObject(gameObjectManager,
-			"TestMesh" + std::to_string(state.meshCounter),
+		if (!editorCore.instantiateModelObject("TestMesh1", "test_mesh.glb",
 			Ogre::Vector3(0.0f, 2.2f, 0.0f)))
 		{
 			SDL_Log("orkige_editor: FAILED - boot test mesh GameObject "
 				"creation failed");
 			return 1;
 		}
-		state.selectedObjectId = "Cube2";
+		editorCore.selectObject("Cube2");
 
 		// initial orbit pose reproduces the old fixed camera at (0, 2.5, 9)
 		applyOrbitCamera(state, sceneCameraNode);
@@ -1686,6 +2125,10 @@ int main(int, char**)
 		const bool selfCheck = (std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr);
 		const bool resizeTest =
 			(std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr);
+		// ORKIGE_EDITOR_EDITTEST=1: scripted editing run (tools, command
+		// stack, duplicate, delete+undo, rename, merge, save/reload) - the
+		// editor_edittest ctest test; asserts fire at fixed frames below
+		const bool editTest = (std::getenv("ORKIGE_EDITOR_EDITTEST") != nullptr);
 
 		// ORKIGE_EDITOR_PLAYTEST=stop|crash: scripted play-mode run (used by
 		// the editor_play_stop / editor_play_crash ctest tests) - press Play
@@ -1697,6 +2140,13 @@ int main(int, char**)
 		const bool playtest = (playtestEnv != nullptr);
 		const bool playtestCrash =
 			playtest && (std::strcmp(playtestEnv, "crash") == 0);
+		// edittest state that spans frames
+		Orkige::EditorTransform editTestCube1Before;
+		Orkige::EditorTransform editTestCube1Moved;
+		Orkige::EditorTransform editTestDeletedTransform;
+		std::string editTestDeletedMesh;
+		std::string editTestDuplicateId;
+
 		enum class PlaytestPhase
 		{
 			Idle, WaitRemote, WaitState, Interfere, WaitRevert, Done
@@ -1716,7 +2166,7 @@ int main(int, char**)
 			const std::string windowTitle = "Orkige Editor - " +
 				(state.currentScenePath.empty() ? std::string("untitled")
 					: state.currentScenePath) +
-				(state.sceneDirty ? " *" : "");
+				(editorCore.isSceneDirty() ? " *" : "");
 			if (windowTitle != lastWindowTitle)
 			{
 				SDL_SetWindowTitle(window, windowTitle.c_str());
@@ -1794,18 +2244,24 @@ int main(int, char**)
 				static_cast<float>(engine.getRenderWindow()->getWidth()),
 				static_cast<float>(engine.getRenderWindow()->getHeight()));
 			Ogre::ImGuiOverlay::NewFrame();
+			ImGuizmo::BeginFrame();
 
-			drawMenuBar(state, gameObjectManager);
+			drawMenuBar(state, editorCore);
 			const float toolbarHeight =
-				drawToolbar(state, playSession, gameObjectManager);
+				drawToolbar(state, playSession, editorCore);
 			drawDockspace(state, toolbarHeight);
-			drawScenePanel(state, sceneTarget, sceneManager, sceneCameraNode);
-			drawHierarchyPanel(state, playSession, gameObjectManager);
-			drawInspectorPanel(state, playSession, gameObjectManager);
+			drawScenePanel(state, editorCore, !playSession.isActive(),
+				sceneTarget, sceneManager, sceneCameraNode);
+			drawHierarchyPanel(state, playSession, editorCore);
+			drawInspectorPanel(state, playSession, editorCore);
 			drawStatsPanel(engine.getRenderWindow());
 #ifdef ORKIGE_LUA
 			drawLuaConsolePanel(state, scriptManager);
 #endif
+			// keyboard shortcuts, gated by the hover/focus state the panels
+			// just recorded (Q/W/E/R, undo/redo, duplicate, delete, ...)
+			handleEditorShortcuts(state, editorCore, playSession,
+				sceneTarget.camera);
 
 			if (!engine.renderOneFrame())
 			{
@@ -1879,17 +2335,19 @@ int main(int, char**)
 				// self-check: Scene panel picking - project Cube1 through the
 				// RTT camera into viewport-normalized panel coordinates and
 				// run the exact pick function the panel's mouse path uses
-				state.selectedObjectId.clear();
-				if (!pickGameObjectThroughScenePanel(state, gameObjectManager,
-					sceneTarget.camera, sceneManager, "Cube1"))
+				editorCore.clearSelection();
+				if (!pickGameObjectThroughScenePanel(editorCore,
+					gameObjectManager, sceneTarget.camera, sceneManager,
+					"Cube1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (pick projection)");
 					exitCode = 2;
 					running = false;
 				}
 				SDL_Log("orkige_editor: selfcheck frame 45 - picked '%s' via "
-					"scene panel pick", state.selectedObjectId.c_str());
-				if (state.selectedObjectId != "Cube1")
+					"scene panel pick",
+					editorCore.getSelectedObjectId().c_str());
+				if (editorCore.getSelectedObjectId() != "Cube1")
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (scene panel pick)");
 					exitCode = 2;
@@ -1901,9 +2359,10 @@ int main(int, char**)
 				// self-check: same panel-picking path, this time on the glTF
 				// test mesh (its Entity goes through the identical
 				// TransformComponent scene-node tagging as the cubes)
-				state.selectedObjectId.clear();
-				if (!pickGameObjectThroughScenePanel(state, gameObjectManager,
-					sceneTarget.camera, sceneManager, "TestMesh1"))
+				editorCore.clearSelection();
+				if (!pickGameObjectThroughScenePanel(editorCore,
+					gameObjectManager, sceneTarget.camera, sceneManager,
+					"TestMesh1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (test mesh pick "
 						"projection)");
@@ -1911,11 +2370,293 @@ int main(int, char**)
 					running = false;
 				}
 				SDL_Log("orkige_editor: selfcheck frame 65 - picked '%s' via "
-					"scene panel pick", state.selectedObjectId.c_str());
-				if (state.selectedObjectId != "TestMesh1")
+					"scene panel pick",
+					editorCore.getSelectedObjectId().c_str());
+				if (editorCore.getSelectedObjectId() != "TestMesh1")
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (test mesh "
 						"scene panel pick)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			// --- scripted editing test (ORKIGE_EDITOR_EDITTEST=1) ---
+			// drives the SAME EditorCore functions the shortcuts/menus/gizmo
+			// invoke and asserts the outcomes at fixed frames
+			if (editTest)
+			{
+				bool editOk = true;
+				std::string editFailure;
+				auto require = [&](bool condition, char const* what)
+				{
+					if (!condition && editOk)
+					{
+						editOk = false;
+						editFailure = what;
+					}
+				};
+				auto positionsEqual = [](Ogre::Vector3 const& a,
+					Ogre::Vector3 const& b)
+				{
+					return a.positionEquals(b, 1e-3f);
+				};
+				auto orientationsEqual = [](Ogre::Quaternion const& a,
+					Ogre::Quaternion const& b)
+				{
+					return std::abs(a.Dot(b)) > 0.9999f;
+				};
+				if (frameCount == 30)
+				{
+					// tool switching through the functions the Q/W/E/R/X
+					// shortcuts call
+					require(editorCore.getActiveTool() ==
+						Orkige::EditorTool::Translate, "default tool");
+					editorCore.setActiveTool(Orkige::EditorTool::Select);
+					require(editorCore.getActiveTool() ==
+						Orkige::EditorTool::Select, "Q tool");
+					editorCore.setActiveTool(Orkige::EditorTool::Rotate);
+					require(editorCore.getActiveTool() ==
+						Orkige::EditorTool::Rotate, "E tool");
+					editorCore.setActiveTool(Orkige::EditorTool::Scale);
+					require(editorCore.getActiveTool() ==
+						Orkige::EditorTool::Scale, "R tool");
+					editorCore.setActiveTool(Orkige::EditorTool::Translate);
+					require(editorCore.getTransformSpace() ==
+						Orkige::EditorTransformSpace::World, "default space");
+					editorCore.toggleTransformSpace();
+					require(editorCore.getTransformSpace() ==
+						Orkige::EditorTransformSpace::Local, "X toggle");
+					editorCore.toggleTransformSpace();
+					require(!editorCore.isSnapEnabled(), "default snap");
+					editorCore.setSnapEnabled(true);
+					require(editorCore.isSnapEnabled(), "snap toggle");
+					editorCore.setSnapEnabled(false);
+					require(!editorCore.isSceneDirty(),
+						"tool changes must not dirty the scene");
+					SDL_Log("orkige_editor: edittest frame 30 - tool "
+						"switching OK");
+				}
+				if (frameCount == 35)
+				{
+					// scripted TransformChange through the command stack
+					require(editorCore.getObjectTransform("Cube1",
+						editTestCube1Before), "Cube1 transform");
+					editTestCube1Moved = editTestCube1Before;
+					editTestCube1Moved.position =
+						Ogre::Vector3(1.5f, 0.75f, -2.0f);
+					editTestCube1Moved.orientation = Ogre::Quaternion(
+						Ogre::Degree(45.0f), Ogre::Vector3::UNIT_Y);
+					require(editorCore.applyTransformChange("Cube1",
+						editTestCube1Before, editTestCube1Moved),
+						"applyTransformChange");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube1", now) &&
+						positionsEqual(now.position,
+							editTestCube1Moved.position) &&
+						orientationsEqual(now.orientation,
+							editTestCube1Moved.orientation),
+						"object moved");
+					require(editorCore.canUndo() && editorCore.isSceneDirty(),
+						"undoable + dirty");
+					require(editorCore.getUndoDescription() ==
+						"Transform Cube1", "undo description");
+					SDL_Log("orkige_editor: edittest frame 35 - transform "
+						"command OK");
+				}
+				if (frameCount == 40)
+				{
+					require(editorCore.undo(), "undo");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube1", now) &&
+						positionsEqual(now.position,
+							editTestCube1Before.position) &&
+						orientationsEqual(now.orientation,
+							editTestCube1Before.orientation),
+						"undo restored the transform");
+					require(editorCore.canRedo(), "redoable");
+					SDL_Log("orkige_editor: edittest frame 40 - undo OK");
+				}
+				if (frameCount == 45)
+				{
+					require(editorCore.redo(), "redo");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube1", now) &&
+						positionsEqual(now.position,
+							editTestCube1Moved.position),
+						"redo re-applied the transform");
+					SDL_Log("orkige_editor: edittest frame 45 - redo OK");
+				}
+				if (frameCount == 50)
+				{
+					// duplicate: clone via serialize/deserialize, offset,
+					// select the copy
+					editorCore.selectObject("Cube1");
+					editTestDuplicateId = editorCore.makeDuplicateId("Cube1");
+					require(editTestDuplicateId == "Cube1 Copy",
+						"duplicate id");
+					require(editorCore.duplicateSelected(), "duplicate");
+					require(gameObjectManager.objectExists(
+						editTestDuplicateId), "copy exists");
+					require(editorCore.getSelectedObjectId() ==
+						editTestDuplicateId, "copy selected");
+					Orkige::EditorTransform source;
+					Orkige::EditorTransform copy;
+					require(editorCore.getObjectTransform("Cube1", source) &&
+						editorCore.getObjectTransform(editTestDuplicateId,
+							copy) &&
+						positionsEqual(copy.position, source.position +
+							Orkige::EditorCore::DUPLICATE_OFFSET),
+						"copy offset");
+					optr<Orkige::GameObject> copyObject = gameObjectManager
+						.getGameObject(editTestDuplicateId).lock();
+					require(copyObject && copyObject
+						->hasComponent<Orkige::ModelComponent>() &&
+						copyObject->getComponentPtr<Orkige::ModelComponent>()
+							->getCurrentModelFileName() ==
+						Orkige::PrimitiveUtil::CUBE_MESH_NAME,
+						"copy mesh");
+					SDL_Log("orkige_editor: edittest frame 50 - duplicate OK "
+						"('%s')", editTestDuplicateId.c_str());
+				}
+				if (frameCount == 55)
+				{
+					// delete stores the full serialized state for undo
+					require(editorCore.getObjectTransform("Cube2",
+						editTestDeletedTransform), "Cube2 transform");
+					optr<Orkige::GameObject> cube2 =
+						gameObjectManager.getGameObject("Cube2").lock();
+					require(cube2 && cube2
+						->hasComponent<Orkige::ModelComponent>(),
+						"Cube2 model");
+					if (cube2)
+					{
+						editTestDeletedMesh = cube2
+							->getComponentPtr<Orkige::ModelComponent>()
+							->getCurrentModelFileName();
+					}
+					editorCore.selectObject("Cube2");
+					require(editorCore.deleteSelected(), "delete");
+					require(!gameObjectManager.objectExists("Cube2"),
+						"Cube2 gone");
+					require(!editorCore.hasSelection(), "selection cleared");
+					require(editorCore.getUndoDescription() == "Delete Cube2",
+						"delete description");
+					SDL_Log("orkige_editor: edittest frame 55 - delete OK");
+				}
+				if (frameCount == 60)
+				{
+					require(editorCore.undo(), "undo delete");
+					require(gameObjectManager.objectExists("Cube2"),
+						"Cube2 restored");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube2", now) &&
+						positionsEqual(now.position,
+							editTestDeletedTransform.position) &&
+						orientationsEqual(now.orientation,
+							editTestDeletedTransform.orientation) &&
+						positionsEqual(now.scale,
+							editTestDeletedTransform.scale),
+						"restored transform");
+					optr<Orkige::GameObject> cube2 =
+						gameObjectManager.getGameObject("Cube2").lock();
+					require(cube2 && cube2
+						->hasComponent<Orkige::ModelComponent>() &&
+						cube2->getComponentPtr<Orkige::ModelComponent>()
+							->getCurrentModelFileName() ==
+							editTestDeletedMesh &&
+						cube2->getComponentPtr<Orkige::ModelComponent>()
+							->getModel() != nullptr,
+						"restored mesh");
+					require(editorCore.getSelectedObjectId() == "Cube2",
+						"restored selection");
+					SDL_Log("orkige_editor: edittest frame 60 - delete+undo "
+						"restored the full object state");
+				}
+				if (frameCount == 70)
+				{
+					// rename + validation rules
+					require(editorCore.renameObject("Cube3", "Tower"),
+						"rename");
+					require(gameObjectManager.objectExists("Tower") &&
+						!gameObjectManager.objectExists("Cube3"),
+						"renamed");
+					require(editorCore.validateRename("Tower", "") ==
+						Orkige::EditorCore::NameValidation::Empty,
+						"empty rejected");
+					require(editorCore.validateRename("Tower", "Cube1") ==
+						Orkige::EditorCore::NameValidation::Exists,
+						"duplicate rejected");
+					require(!editorCore.renameObject("Tower", "Cube1"),
+						"invalid rename refused");
+					require(editorCore.undo(), "undo rename");
+					require(gameObjectManager.objectExists("Cube3") &&
+						!gameObjectManager.objectExists("Tower"),
+						"rename undone");
+					SDL_Log("orkige_editor: edittest frame 70 - rename OK");
+				}
+				if (frameCount == 80)
+				{
+					// merge session: a simulated 3-step drag = ONE undo step
+					const std::size_t depthBefore =
+						editorCore.getUndoStackSize();
+					Orkige::EditorTransform dragStart;
+					require(editorCore.getObjectTransform("Cube1", dragStart),
+						"drag start transform");
+					const unsigned int session =
+						editorCore.beginMergeSession();
+					Orkige::EditorTransform step = dragStart;
+					for (int i = 0; i < 3; ++i)
+					{
+						Orkige::EditorTransform stepBefore = step;
+						step.position += Ogre::Vector3(0.0f, 0.5f, 0.0f);
+						require(editorCore.applyTransformChange("Cube1",
+							stepBefore, step, session), "drag step");
+					}
+					require(editorCore.getUndoStackSize() == depthBefore + 1,
+						"drag merged into one undo step");
+					require(editorCore.undo(), "undo drag");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube1", now) &&
+						positionsEqual(now.position, dragStart.position),
+						"single undo reverts the whole drag");
+					SDL_Log("orkige_editor: edittest frame 80 - merge OK");
+				}
+				if (frameCount == 90)
+				{
+					// persistence: save, reload, edits survive
+					const char* editScene =
+						std::getenv("ORKIGE_EDITOR_EDITTEST_SCENE");
+					const std::string scenePath =
+						editScene ? editScene : "edittest.oscene";
+					const std::size_t objectCount =
+						gameObjectManager.getGameObjects().size();
+					Orkige::EditorTransform cube1Saved;
+					require(editorCore.getObjectTransform("Cube1",
+						cube1Saved), "Cube1 before save");
+					require(saveSceneToPath(state, editorCore, scenePath),
+						"save");
+					require(!editorCore.isSceneDirty(), "clean after save");
+					require(openSceneFromPath(state, editorCore, scenePath),
+						"reload");
+					require(gameObjectManager.getGameObjects().size() ==
+						objectCount, "object count after reload");
+					require(gameObjectManager.objectExists(
+						editTestDuplicateId), "copy persisted");
+					Orkige::EditorTransform reloaded;
+					require(editorCore.getObjectTransform("Cube1",
+						reloaded) &&
+						positionsEqual(reloaded.position,
+							cube1Saved.position) &&
+						orientationsEqual(reloaded.orientation,
+							cube1Saved.orientation),
+						"Cube1 edits persisted");
+					SDL_Log("orkige_editor: edittest frame 90 - save/reload "
+						"persistence OK -> edittest PASSED");
+				}
+				if (!editOk)
+				{
+					SDL_Log("orkige_editor: edittest FAILED at frame %lu - %s",
+						frameCount, editFailure.c_str());
 					exitCode = 2;
 					running = false;
 				}
@@ -1948,8 +2689,8 @@ int main(int, char**)
 						transform->setScale(Ogre::Vector3(uniformScale));
 						return true;
 					};
-					createCubeFromMenu(state, gameObjectManager); // Cube4
-					createCubeFromMenu(state, gameObjectManager); // Cube5
+					editorCore.createCube(); // Cube4
+					editorCore.createCube(); // Cube5
 					const bool arranged =
 						setPose("Cube1", { -3.0f, 0.0f, -1.5f }, 30.0f, 1.0f) &&
 						setPose("Cube2", { 0.0f, -0.4f, 0.0f }, 0.0f, 1.4f) &&
@@ -1958,7 +2699,7 @@ int main(int, char**)
 						setPose("Cube5", { 1.8f, 1.7f, 1.4f }, -60.0f, 0.5f) &&
 						setPose("TestMesh1", { 0.0f, 2.8f, 0.0f }, 15.0f, 1.2f);
 					const bool exported = arranged && saveSceneToPath(state,
-						gameObjectManager, examplePath);
+						editorCore, examplePath);
 					SDL_Log("orkige_editor: example scene export to '%s' %s",
 						examplePath, exported ? "succeeded" : "FAILED");
 					if (!exported)
@@ -2213,7 +2954,7 @@ int main(int, char**)
 				roundTripOk = roundTripOk &&
 					Orkige::SceneSerializer::loadScene(selfCheckScene,
 						gameObjectManager);
-				applyUnlitFixToLoadedModels(gameObjectManager);
+				applyUnlitFixToLoadedModels(editorCore);
 				const unsigned short nodesAfter =
 					sceneManager->getRootSceneNode()->numChildren();
 				roundTripOk = roundTripOk &&

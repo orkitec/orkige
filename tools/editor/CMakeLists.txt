@@ -7,6 +7,18 @@
 # link is $<LINK_ONLY:...>, so the editor needs its own find_package to get
 # the imgui include directories for direct ImGui:: calls.
 find_package(imgui CONFIG REQUIRED)
+# transform gizmos in the Scene panel (built against the same docking imgui)
+find_package(imguizmo CONFIG REQUIRED)
+
+# EditorCore: the UI-independent editor logic (selection, undo/redo command
+# stack, object operations). Split into its own library so the headless unit
+# tests (tests/editor_core) exercise exactly what the editor links.
+add_library(orkige_editor_core STATIC
+    EditorCore.h
+    EditorCore.cpp
+)
+target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)
 
 add_executable(orkige_editor
     main.cpp
@@ -15,8 +27,9 @@ add_executable(orkige_editor
 )
 
 target_link_libraries(orkige_editor PRIVATE
-    Orkige::Engine
+    orkige_editor_core
     imgui::imgui
+    imguizmo::imguizmo
 )
 
 # Editor-only: point at the RTSS shader library shipping with the
