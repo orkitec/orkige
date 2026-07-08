@@ -515,10 +515,29 @@ the test suite, unchanged:
 
 ### A2 — Ogre-Next backend
 
-- **WP-A2.1 dependency + flavor**: vcpkg manifest feature for `ogre-next` (port
-  exists, 3.0.0), `ORKIGE_RENDER_BACKEND=next` wiring (find_package/link/impl-dir
-  swap), `macos-debug-next` preset, build-only CI check. Expect overlay-port work
-  (the `ports/` + `Docs/ports.md` discipline applies).
+- **WP-A2.1 dependency + flavor** *(DELIVERED 2026-07-08 — aka phase B0/B1)*:
+  vcpkg manifest feature for `ogre-next` (locally authored overlay port,
+  3.0.0 - see Docs/ports.md), `ORKIGE_RENDER_BACKEND=next` wiring
+  (find_package/link/impl-dir swap), `macos-debug-next` preset,
+  `desktop-next` test preset. DELIVERED BEYOND build-only: the flavor
+  configures + builds + `engine_render_next/` is a SKELETON with a REAL boot
+  (`RenderBackend::createRenderSystem(NextBootOptions)` - on Next the
+  RenderSystem facade IS the boot, there is no Engine; Root + Metal RS +
+  SDL-hosted window via externalWindowHandle + CompositorManager2 clear
+  workspace + window screenshots via the manual-swap-release recipe +
+  resource locations + full RenderNode/RenderCamera). Content classes
+  (MeshInstance/SpriteQuad/RenderLight/RenderTexture/queryRay/cube-mesh)
+  are honest stubs: safe defaults + one "not implemented on the next
+  backend yet" log per feature. Tests: `render_next_smoke` (boot, clear to
+  a colour, non-black facade screenshot, exit 0) passes on `desktop-next`;
+  `render_facade_selfcheck` builds on the flavor (bootstrap_next.cpp) but
+  is registered DISABLED until WP-A2.2/A2.3 fill the stubs. Flavor gates:
+  hello_orkige/jumper/editor/player stay classic-only (they boot through
+  the classic Engine; B2 ports the B-phase apps). Deviations recorded:
+  `RenderMath.h` grew a per-backend `Affine3` alias (Ogre-Next has no
+  Affine3; Matrix4 carries the affine helpers - only the classic-only
+  editor gizmo consumes it) and `RenderCamera::setWireframe` is a stub on
+  Next (the v2 Camera lost the polygon-mode toggle; B2 revisits).
 - **WP-A2.2 core scene**: `engine_render_next/` RenderSystem/World/Node/Camera/Light
   (workspace bootstrap, v2 scene manager, hemisphere ambient). Gate: facade selfcheck
   renders a cube on Next (needs the WP-A2.3 mesh piece for the cube — coordinate).

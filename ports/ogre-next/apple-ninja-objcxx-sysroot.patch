@@ -1,0 +1,53 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 93ec6f4..43a7b2a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -56,6 +56,14 @@ else()
+ endif()
+ 
+ project(OGRE-Next)
++
++# Ninja/Makefiles on Apple: the Objective-C++ sources (OgreMain/src/OSX,
++# RenderSystem_Metal) rely on Xcode inferring the language from the .mm
++# extension; single-config generators need the languages enabled explicitly.
++if(APPLE)
++	enable_language(OBJC OBJCXX)
++endif()
++
+ # capture ogre location, and at the same time hide legacy cache variables
+ set(OGRE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+ set(OGRE_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+@@ -172,6 +180,14 @@ if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_COMPILER_IS_CLANGXX)
+   set(CMAKE_CXX_FLAGS "${OGRE_WARNING_FLAGS} ${CMAKE_CXX_FLAGS}")
+ 
+   set( CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG=1" )
++  if(APPLE)
++	# the Objective-C++ sources (OgreMain/src/OSX, RenderSystem_Metal) must
++	# agree with the C++ sources on OGRE_DEBUG_MODE - it is ABI-relevant
++	# (generateAbiCookie) and derived from DEBUG/_DEBUG/NDEBUG when
++	# OGRE_EMBED_DEBUG_MODE is "never"
++	set( CMAKE_OBJCXX_FLAGS_DEBUG "${CMAKE_OBJCXX_FLAGS_DEBUG} -DDEBUG=1" )
++	set( CMAKE_OBJC_FLAGS_DEBUG "${CMAKE_OBJC_FLAGS_DEBUG} -DDEBUG=1" )
++  endif()
+ endif ()
+ if (MSVC)
+   if (CMAKE_BUILD_TOOL STREQUAL "nmake")
+@@ -387,11 +403,14 @@ elseif(EMSCRIPTEN)
+ elseif (APPLE AND NOT OGRE_BUILD_PLATFORM_APPLE_IOS)
+ 
+   set(XCODE_ATTRIBUTE_SDKROOT macosx)
+-  if(CMAKE_GENERATOR STREQUAL "Unix Makefiles")
+-    execute_process(COMMAND xcodebuild -version -sdk "${XCODE_ATTRIBUTE_SDKROOT}" Path | head -n 1 OUTPUT_VARIABLE CMAKE_OSX_SYSROOT)
+-    string(REGEX REPLACE "(\r?\n)+$" "" CMAKE_OSX_SYSROOT "${CMAKE_OSX_SYSROOT}")
+-  else()
++  if(CMAKE_GENERATOR STREQUAL "Xcode")
++    # Xcode resolves the symbolic "macosx" SDK name itself
+     set(CMAKE_OSX_SYSROOT macosx)
++  elseif(NOT CMAKE_OSX_SYSROOT OR CMAKE_OSX_SYSROOT STREQUAL "macosx")
++    # single-config generators pass -isysroot verbatim - resolve the SDK
++    # name to a real path instead of clobbering a caller-provided value
++    execute_process(COMMAND xcodebuild -version -sdk "${XCODE_ATTRIBUTE_SDKROOT}" Path OUTPUT_VARIABLE CMAKE_OSX_SYSROOT)
++    string(REGEX REPLACE "(\r?\n)+$" "" CMAKE_OSX_SYSROOT "${CMAKE_OSX_SYSROOT}")
+   endif()
+ 
+   set( CMAKE_XCODE_ATTRIBUTE_CLANG_ENABLE_OBJC_ARC YES )

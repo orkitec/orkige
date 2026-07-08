@@ -1,0 +1,22 @@
+diff --git a/OgreMain/CMakeLists.txt b/OgreMain/CMakeLists.txt
+index d4ad520..851b482 100644
+--- a/OgreMain/CMakeLists.txt
++++ b/OgreMain/CMakeLists.txt
+@@ -425,7 +425,8 @@ if (APPLE)
+     )
+ 
+     set(OGRE_OSX_BUILD_CONFIGURATION "$(PLATFORM_NAME)/$(CONFIGURATION)")
+-  
++
++    if (OGRE_BUILD_LIBS_AS_FRAMEWORKS)
+ 	add_custom_command(TARGET ${OGRE_NEXT}Main POST_BUILD
+ 		COMMAND mkdir ARGS -p ${OGRE_BINARY_DIR}/lib/${OGRE_OSX_BUILD_CONFIGURATION}/Ogre.framework/Headers/Threading
+         COMMAND ditto 
+@@ -451,6 +452,7 @@ if (APPLE)
+             COMMAND rm -f ${FWK_HEADER_PATH}
+             )
+     endforeach()
++    endif ()
+ 
+     ogre_config_framework(${OGRE_NEXT}Main)
+   endif ()

@@ -22,8 +22,12 @@ set_tests_properties(render_containment_lint PROPERTIES
     LABELS unit TIMEOUT 30)
 
 if(TARGET orkige_engine)
-    # pure-logic engine unit tests (no window/GPU)
-    add_subdirectory(engine)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        # pure-logic engine unit tests (no window/GPU); classic-only: they
+        # exercise components/fastgui/runtime, which the B1 next flavor
+        # does not compile (see orkige_engine/CMakeLists.txt flavor gate)
+        add_subdirectory(engine)
+    endif()
 
     # render_facade_selfcheck - THE backend conformance suite of the
     # engine_render facade (Docs/render-abstraction.md): one headed run
@@ -38,12 +42,23 @@ if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         list(APPEND RENDER_FACADE_SELFCHECK_SOURCES
             render_facade/bootstrap_classic.cpp)
+    elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        list(APPEND RENDER_FACADE_SELFCHECK_SOURCES
+            render_facade/bootstrap_next.cpp)
     endif()
     add_executable(render_facade_selfcheck ${RENDER_FACADE_SELFCHECK_SOURCES})
     target_link_libraries(render_facade_selfcheck PRIVATE Orkige::Engine)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        target_compile_definitions(render_facade_selfcheck PRIVATE
+            # backend-internal media the classic bootstrap registers (RTSS libs)
+            ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media")
+    elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        target_compile_definitions(render_facade_selfcheck PRIVATE
+            # backend-internal media the next bootstrap registers (the HLMS
+            # shader templates the ogre-next overlay port ships)
+            ORKIGE_SELFCHECK_NEXT_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media")
+    endif()
     target_compile_definitions(render_facade_selfcheck PRIVATE
-        # backend-internal media the classic bootstrap registers (RTSS libs)
-        ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
         # facade-registered test assets: a vertex-coloured glb + a textured
         # glb/png (reused from the committed sample media)
         ORKIGE_SELFCHECK_MESH_DIR="${Orkige_SOURCE_DIR}/samples/hello_orkige/media"
@@ -52,6 +67,29 @@ if(TARGET orkige_engine)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(render_facade_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        # EXPECTED at B1: the next backend is a boot/clear skeleton - the
+        # content half of the conformance suite (mesh/sprite/light/RTT/
+        # queryRay) is stubbed. B2 (WP-A2.2/A2.3, Docs/render-abstraction.md)
+        # fills the stubs and flips this back on; the B1 bar is covered by
+        # render_next_smoke below.
+        set_tests_properties(render_facade_selfcheck PROPERTIES DISABLED TRUE)
+
+        # render_next_smoke - the B1 flavor bar: window opens, clears to a
+        # colour, the facade screenshot is non-black, clean exit 0
+        add_executable(render_next_smoke
+            render_facade/smoke_main.cpp
+            render_facade/SelfcheckBootstrap.h
+            render_facade/bootstrap_next.cpp)
+        target_link_libraries(render_next_smoke PRIVATE Orkige::Engine)
+        target_compile_definitions(render_next_smoke PRIVATE
+            ORKIGE_SELFCHECK_NEXT_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media")
+        add_test(NAME render_next_smoke COMMAND render_next_smoke
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(render_next_smoke PROPERTIES
+            ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade"
+            LABELS integration TIMEOUT 60)
+    endif()
 endif()
 
 if(TARGET orkige_editor_core)

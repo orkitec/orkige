@@ -89,7 +89,16 @@ set_property(CACHE ORKIGE_RENDER_BACKEND PROPERTY STRINGS "classic" "next")
 if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
-    message(FATAL_ERROR "ORKIGE_RENDER_BACKEND=next is designed but not implemented yet - phase A2 of Docs/render-abstraction.md brings the Ogre-Next backend up")
+    # B1 skeleton flavor (preset macos-debug-next; needs the render-next
+    # vcpkg manifest feature): orkige_engine compiles the engine_render
+    # facade + engine_render_next only. Everything that includes the
+    # classic <Ogre.h> umbrella (EnginePrerequisites.h - i.e. Engine,
+    # fastgui, components, sound, input, runtime AND every app on the
+    # classic Engine boot) is excluded until B2 ports it; see the flavor
+    # gates below and in orkige_engine/tests CMakeLists.
+    message(STATUS "Orkige render backend: next (B1 skeleton - boot/clear/"
+        "screenshot real, content classes stubbed; classic-only targets "
+        "excluded: hello_orkige, jumper, editor, player)")
 else()
     message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
 endif()
@@ -113,8 +122,11 @@ add_subdirectory(orkige_core)
 
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
-    if(NOT ORKIGE_MOBILE)
-        # desktop-only SDL samples (plain executables, host asset paths)
+    if(NOT ORKIGE_MOBILE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        # desktop-only SDL samples (plain executables, host asset paths).
+        # Classic-only: they boot through the classic Engine (the sanctioned
+        # classic boot block) - the next flavor's boot path is
+        # RenderBackend::createRenderSystem; the samples move over in B2.
         add_subdirectory(samples/hello_orkige)
         add_subdirectory(samples/jumper)
     endif()
@@ -123,6 +135,11 @@ endif()
 if(ORKIGE_BUILD_TOOLS)
     if(NOT ORKIGE_BUILD_ENGINE)
         message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
+    endif()
+    if(NOT ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        # editor: classic by decision (#3, Docs/render-abstraction.md);
+        # player: classic Engine boot + fastgui + Lua module - B2 targets
+        message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires the classic render backend for now (editor is classic by decision #3; the player follows in phase B2) - configure the next flavor with ORKIGE_BUILD_TOOLS=OFF")
     endif()
     if(NOT ORKIGE_MOBILE)
         # the editor is desktop-only (imgui/imguizmo are not built for mobile)

@@ -11,7 +11,8 @@
   ],
   "allowed_dirs": [
     "orkige_engine/engine_graphic",
-    "orkige_engine/engine_render_classic"
+    "orkige_engine/engine_render_classic",
+    "orkige_engine/engine_render_next"
   ],
   "allowed_files": [
     "orkige_engine/engine_render/RenderMath.h"
@@ -42,6 +43,7 @@
     "samples/jumper/JumperLogic.h": "math-only residue (pure gameplay math, unit-tested headlessly) - alias vocabulary pending",
     "samples/jumper/JumperHud.h": "one spelling: the resource-group default parameter forwarded to fastgui (classic-only zone consumer, documented in WP-A1.3)",
     "tests/render_facade/bootstrap_classic.cpp": "the classic backend's bootstrap TU of the render_facade selfcheck - per-backend by design",
+    "tests/render_facade/bootstrap_next.cpp": "the Ogre-Next backend's bootstrap TU of the render_facade selfcheck/smoke - per-backend by design",
     "tests/engine/FastGuiAtlasTests.cpp": "parses .ogui atlases through Ogre::ConfigFile, following FastGuiFactory (classic-only zone)",
     "tests/engine/TwoDSupportTests.cpp": "math values + render-queue id constants (RENDER_QUEUE_MAIN) asserted against the pure helpers",
     "tests/jumper/JumperLogicTests.cpp": "math values (JumperLogic surface) - alias vocabulary pending",

@@ -4,6 +4,74 @@
 # engine_gocomponent/PythonScriptComponent stays out for good; its successor
 # is the sol2-based engine_gocomponent/ScriptComponent.
 
+# ---------------------------------------------------------------------------
+# Ogre-Next flavor (ORKIGE_RENDER_BACKEND=next, phase B1 skeleton).
+# HONEST GATING: every module above the facade includes the classic <Ogre.h>
+# umbrella through engine_module/EnginePrerequisites.h (Engine, fastgui,
+# IngameConsole, components, sound, input, runtime, filesystem, util) - so at
+# B1 the next-flavor orkige_engine is exactly the backend-free facade
+# (engine_render/) + the Ogre-Next backend (engine_render_next/) + the SDL
+# native-window bridge. Modules join this list as B2 ports them off the
+# classic umbrella. The classic flavor below stays untouched.
+# ---------------------------------------------------------------------------
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    # the overlay port ships this config (share/ogre-next); targets are
+    # namespaced OgreNext::* so nothing collides with classic's OgreMain
+    find_package(OGRE-Next CONFIG REQUIRED)
+    find_package(SDL3 CONFIG REQUIRED)
+
+    set(ORKIGE_ENGINE_SOURCES
+        engine_render/RenderPrerequisites.h
+        engine_render/RenderMath.h
+        engine_render/RenderSystem.h
+        engine_render/RenderWorld.h
+        engine_render/RenderNode.h
+        engine_render/MeshInstance.h
+        engine_render/SpriteQuad.h
+        engine_render/RenderCamera.h
+        engine_render/RenderLight.h
+        engine_render/RenderTexture.h
+        engine_render/RenderFacadeCheck.cpp
+        engine_render_next/NextBackend.h
+        engine_render_next/NextBackend.cpp
+        engine_render_next/RenderSystemNext.cpp
+        engine_render_next/RenderWorldNext.cpp
+        engine_render_next/RenderNodeNext.cpp
+        engine_render_next/MeshInstanceNext.cpp
+        engine_render_next/SpriteQuadNext.cpp
+        engine_render_next/RenderCameraNext.cpp
+        engine_render_next/RenderLightNext.cpp
+        engine_render_next/RenderTextureNext.cpp
+    )
+    if(APPLE)
+        # SDL window -> NSWindow handle bridge for the SDL-hosted apps
+        list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindow.mm)
+    endif()
+
+    add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
+    add_library(Orkige::Engine ALIAS orkige_engine)
+    target_include_directories(orkige_engine PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    # exactly one ORKIGE_RENDER_* define per build - engine_render's
+    # compile check enforces that invariant
+    target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)
+    target_link_libraries(orkige_engine
+        PUBLIC
+            Orkige::Core
+            OgreNext::Main
+            OgreNext::HlmsPbs
+            OgreNext::HlmsUnlit
+            OgreNext::RenderSystem_Metal
+            SDL3::SDL3
+    )
+    return()
+endif()
+
+# ---------------------------------------------------------------------------
+# classic flavor (the shipping backend) - everything below is the
+# pre-flavor-split target, unchanged
+# ---------------------------------------------------------------------------
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)

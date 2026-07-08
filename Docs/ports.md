@@ -50,6 +50,67 @@ Local additions:
   port (plus `VCPKG_OSX_ARCHITECTURES arm64`, because OGRE pre-seeds
   `CMAKE_OSX_ARCHITECTURES=x86_64` before `project()`).
 
+## ports/ogre-next
+
+Locally authored port (3.0.0, pinned tag `v3.0.0` - the latest stable of
+OGRECave/ogre-next; no upstream vcpkg port exists). The Ogre-Next backend of
+the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
+`render-next` manifest feature (root vcpkg.json), so classic-only development
+never builds it. Static, `supports: osx & arm64` for now (widened when the
+Phase-3 mobile evaluation decides backends).
+
+**Coexistence with classic `ogre` in one installed tree** is a hard
+requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives
+`include/OGRE-Next/` headers and `libOgreNext*Static.a` /
+`libRenderSystem_MetalStatic.a` lib names (classic: `include/OGRE/`,
+`libOgre*.a`, `libRenderSystem_Metal.a` - file-disjoint even for the Metal
+RS), CMake config + HLMS media live under `share/ogre-next/`
+(classic: `share/ogre/`). Verified live: the `macos-debug-next` preset
+installs both into one `vcpkg_installed` tree.
+
+Configuration: Metal render system only (first-class on Ogre-Next; the legacy
+GL3+ 4.1 path buys nothing on macOS) plus the NULL render system (headless
+option), Hlms PBS + Unlit components, FreeImage codec (the ogre-next STBI
+codec is decode-only - screenshots need an encoder), rapidjson (a hard
+OgreMain 3.0 dependency: OgreRootLayout.cpp includes it unconditionally).
+Overlay/samples/tools and all other components OFF until a phase needs them;
+zip archives OFF (would add zziplib - revisit in B2 when content work needs
+`addResourceLocation(LT_ZIP)`).
+
+Upstream installs **no CMake package config** (only pkg-config templates
+whose static .pc unconditionally `Requires: gl` - removed); the port ships
+its own `OGRE-NextConfig.cmake` with namespaced imported targets
+(`OgreNext::Main`, `OgreNext::HlmsPbs`, `OgreNext::HlmsUnlit`,
+`OgreNext::RenderSystem_Metal`, `OgreNext::RenderSystem_NULL`) plus
+`OGRE_NEXT_MEDIA_DIR` (the shipped `Media/Hlms` shader templates every
+Ogre-Next app must register).
+
+Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
+
+- `apple-ninja-objcxx-sysroot.patch` - upstream assumes Xcode on Apple:
+  (a) enable OBJC/OBJCXX so the `.mm` sources (OgreMain/src/OSX,
+  RenderSystem_Metal) compile under single-config generators; (b) do not
+  clobber `CMAKE_OSX_SYSROOT` with the symbolic "macosx" after `project()`
+  (Ninja passes `-isysroot` verbatim; resolve via xcodebuild only when
+  unset); (c) mirror upstream's `-DDEBUG=1` debug flag into the
+  OBJCXX/OBJC debug flags - `OGRE_DEBUG_MODE` is ABI-relevant
+  (`generateAbiCookie`) and the Metal plugin's ObjC++ TUs must agree with
+  OgreMain's C++ TUs.
+- `apple-ninja-no-framework-postbuild.patch` - macOS: OgreMain's
+  framework-header POST_BUILD step uses Xcode `$(PLATFORM_NAME)` variables
+  (literal `$(...)` under Ninja); guard it behind
+  `OGRE_BUILD_LIBS_AS_FRAMEWORKS`.
+
+Debug/release note: vcpkg ships ONE header tree for both configs, but
+ogre-next's generated `OgreBuildSettings.h` bakes `OGRE_DEBUG_MODE` per build
+type under single-config generators - a debug consumer compiling against the
+release header while linking the debug lib is a REAL ABI break (v2 debug
+bookkeeping changes struct layouts; observed as a scene-node crash). The port
+builds with `OGRE_EMBED_DEBUG_MODE=never` (level derived from
+`_DEBUG`/`DEBUG`/`NDEBUG` at compile time) and the shipped config propagates
+`$<$<CONFIG:Debug>:DEBUG=1;_DEBUG=1>` on `OgreNext::Main` so consumers always
+match the libs.
+
 ## ports/sol2
 
 Overlay of the upstream vcpkg `sol2` port (3.5.0#1). Delete this overlay once

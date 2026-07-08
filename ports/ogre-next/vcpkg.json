@@ -1,0 +1,17 @@
+{
+  "name": "ogre-next",
+  "version": "3.0.0",
+  "description": "OGRE-Next (ogre v2.x line) - scene-oriented, flexible 3D engine with AZDO renderer, Hlms material system and first-class Metal support",
+  "homepage": "https://github.com/OGRECave/ogre-next",
+  "license": "MIT",
+  "supports": "osx & arm64",
+  "dependencies": [
+    "freeimage",
+    "rapidjson",
+    "zlib",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

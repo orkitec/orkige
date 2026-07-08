@@ -34,6 +34,19 @@
       }
     },
     {
+      "name": "macos-debug-next",
+      "displayName": "macOS Debug (Ogre-Next render backend, B1 skeleton)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "OFF",
+        "ORKIGE_BUILD_TESTS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
       "name": "ios-simulator-debug",
       "displayName": "iOS Simulator Debug (arm64)",
       "inherits": "base",
@@ -79,6 +92,10 @@
       "configurePreset": "macos-release"
     },
     {
+      "name": "macos-debug-next",
+      "configurePreset": "macos-debug-next"
+    },
+    {
       "name": "ios-simulator-debug",
       "configurePreset": "ios-simulator-debug"
     },
@@ -108,6 +125,22 @@
       "name": "desktop",
       "displayName": "Unit + desktop integration (no simulator/emulator boots)",
       "configurePreset": "macos-debug",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 6
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-next",
+      "displayName": "Next-flavor suite (unit + the render_next_smoke window run; the facade selfcheck is registered DISABLED until B2)",
+      "configurePreset": "macos-debug-next",
       "filter": {
         "exclude": {
           "label": "device"
