@@ -52,6 +52,7 @@ namespace Orkige
 	protected:
 		optr<SpriteQuad>	mQuad;			//!< the facade sprite quad or NULL
 		String				mTextureName;	//!< texture resource name or empty
+		String				mTextureAssetId;	//!< stable asset id of the texture ("" = none/engine media)
 		float				mWidth;			//!< world-units width (<= 0 = derive from texture aspect)
 		float				mHeight;		//!< world-units height (<= 0 = derive from texture aspect)
 		float				mTexelWidth;	//!< loaded texture width in texels (0 before load)
@@ -82,6 +83,8 @@ namespace Orkige
 		void removeSprite();
 		//! @see SpriteComponent::mTextureName
 		inline String const & getTextureName() const;
+		//! @see SpriteComponent::mTextureAssetId
+		inline String const & getTextureAssetId() const;
 		//! is a sprite quad currently showing
 		inline bool hasSprite() const;
 
@@ -141,9 +144,12 @@ namespace Orkige
 		//! push the stored sprite state onto the facade quad (needs a quad)
 		void applyStateToQuad();
 		//--- SERIALIZATION ---
-		//! save texture name, size, UV rect, tint, flips and zOrder to Archive
+		//! save texture name (plus its stable asset id as the assetId
+		//! attribute), size, UV rect, tint, flips and zOrder to Archive
 		virtual void save(optr<IArchive> const & ar);
-		//! load the sprite state from Archive (and load the sprite when attached)
+		//! @brief load the sprite state from Archive (and load the sprite when
+		//! attached); a texture asset id that resolves in the open project's
+		//! AssetDatabase wins over a stale texture name (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
@@ -151,6 +157,11 @@ namespace Orkige
 	inline String const & SpriteComponent::getTextureName() const
 	{
 		return this->mTextureName;
+	}
+	//---------------------------------------------------------------
+	inline String const & SpriteComponent::getTextureAssetId() const
+	{
+		return this->mTextureAssetId;
 	}
 	//---------------------------------------------------------------
 	inline bool SpriteComponent::hasSprite() const

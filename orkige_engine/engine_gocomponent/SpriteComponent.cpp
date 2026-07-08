@@ -12,6 +12,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
+#include <core_project/AssetDatabase.h>
 
 #include <algorithm>
 
@@ -31,6 +32,7 @@ namespace Orkige
 	SpriteComponent::SpriteComponent()
 	{
 		this->mTextureName = "";
+		this->mTextureAssetId = "";
 		this->mWidth = 0.0f;	// derive both dimensions from the texture
 		this->mHeight = 0.0f;
 		this->mTexelWidth = 0.0f;
@@ -76,6 +78,10 @@ namespace Orkige
 
 		this->mQuad = quad;
 		this->mTextureName = textureName;
+		// the asset id tracks the texture: the open project's database knows
+		// it ("" without a project, or for engine media - honest either way)
+		this->mTextureAssetId = AssetDatabase::referenceIdForValue(
+			textureName, "", AssetDatabase::REF_FILE_NAME);
 		this->mQuad->getTextureSize(this->mTexelWidth, this->mTexelHeight);
 		this->applyStateToQuad();
 		this->mQuad->attachTo(this->getNode());
@@ -96,6 +102,7 @@ namespace Orkige
 		this->mEventData->setValue(this->mTextureName);
 		componentOwner->triggerEvent(Event(SpriteComponent::SpriteRemovedEvent, this->mEventData));
 		this->mTextureName = "";
+		this->mTextureAssetId = "";
 		this->mTexelWidth = 0.0f;
 		this->mTexelHeight = 0.0f;
 	}
@@ -253,6 +260,7 @@ namespace Orkige
 		// content first, then the node (a node must outlive its content)
 		this->mQuad.reset();
 		this->mTextureName = "";
+		this->mTextureAssetId = "";
 		this->mTexelWidth = 0.0f;
 		this->mTexelHeight = 0.0f;
 		this->deinitSceneNodeGuard();
@@ -271,7 +279,12 @@ namespace Orkige
 	void SpriteComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		ar << this->mTextureName;
+		// the stable asset id rides as an attribute NEXT TO the legacy
+		// texture name - old builds/scenes stay mutually loadable
+		ar->writeAttributed(this->mTextureName,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
+			AssetDatabase::referenceIdForValue(this->mTextureName,
+				this->mTextureAssetId, AssetDatabase::REF_FILE_NAME));
 		ar << this->mWidth << this->mHeight;
 		ar << this->mU0 << this->mV0 << this->mU1 << this->mV1;
 		ar << this->mTint.r << this->mTint.g << this->mTint.b << this->mTint.a;
@@ -284,13 +297,19 @@ namespace Orkige
 	{
 		OParent::load(ar);
 		String textureName;
-		ar >> textureName;
+		String textureAssetId;
+		ar->readAttributed(textureName,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE, textureAssetId);
 		ar >> this->mWidth >> this->mHeight;
 		ar >> this->mU0 >> this->mV0 >> this->mU1 >> this->mV1;
 		ar >> this->mTint.r >> this->mTint.g >> this->mTint.b >> this->mTint.a;
 		ar >> this->mFlipX >> this->mFlipY;
 		ar >> this->mZOrder;
 		ar >> this->mVisible;
+		// a resolving asset id wins over a stale texture name (rename
+		// survival); legacy scenes without ids keep loading via the name
+		AssetDatabase::resolveReference(textureName, textureAssetId,
+			AssetDatabase::REF_FILE_NAME);
 		// a detached load (unit tests, tooling) only restores the state; the
 		// quad needs the scene node the component gets on attachment
 		if(!textureName.empty() && this->mNode)
@@ -301,6 +320,9 @@ namespace Orkige
 		{
 			this->mTextureName = textureName;
 		}
+		// keep the serialized id even when no database could verify it (a
+		// standalone scene load must not strip ids on a re-save)
+		this->mTextureAssetId = textureAssetId;
 		if(this->mNode)
 		{
 			this->setVisible(this->mVisible);

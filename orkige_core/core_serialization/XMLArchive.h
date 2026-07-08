@@ -58,6 +58,9 @@ namespace Orkige
 		virtual void read(float & t);
 		virtual void read(double & t);
 		virtual void read(String & t);
+		//! read a String element plus its (optional) named side attribute
+		virtual void readAttributed(String & t, String const & attributeName,
+			String & attributeValue);
 		virtual void read(ISerializeable & t);
 		//! read (existing) but don't create
 		virtual void readx(ISerializeable & t);
@@ -92,6 +95,10 @@ namespace Orkige
 		virtual void write(float const & t);
 		virtual void write(double const & t);
 		virtual void write(String const & t);
+		//! write a String element carrying an extra named attribute (skipped
+		//! when the attribute value is empty)
+		virtual void writeAttributed(String const & t,
+			String const & attributeName, String const & attributeValue);
 		virtual void write(ISerializeable & t);
 
 		virtual void write(optr<bool> const & t);

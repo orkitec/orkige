@@ -51,6 +51,7 @@
 #include <core_game/SceneSerializer.h>
 #include <core_project/Project.h>
 #include <core_project/NativeModule.h>
+#include <core_project/AssetDatabase.h>
 #include <core_debugnet/DebugClient.h>
 #include <core_debugnet/DebugServer.h>
 #include <core_util/StringUtil.h>
@@ -2607,6 +2608,10 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	}
 	newScene(state, core);
 	unregisterProjectResources();
+	// the editor is the authoring tool: import the project's assets (mint
+	// sidecar .orkmeta ids for sidecar-less assets, drop orphaned sidecars) -
+	// runtimes only READ the sidecars (Project::load)
+	project.importAssets();
 	state.project = project;
 	registerProjectResources(state.project);
 	recordRecentProject(state.project.getRootDirectory());
@@ -2739,6 +2744,13 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 		render->addResourceLocation(destDir,
 			Orkige::RenderSystem::LT_FILESYSTEM,
 			Orkige::Project::RESOURCE_GROUP_NAME);
+		// editor-side asset creation mints the stable id right away, so the
+		// ModelComponent created below serializes it with the scene
+		if (optr<Orkige::AssetDatabase> const& assetDatabase =
+			state.project.getAssetDatabase())
+		{
+			assetDatabase->importAsset(destPath);
+		}
 	}
 	else if (state.importResourceDirs.insert(destDir).second)
 	{

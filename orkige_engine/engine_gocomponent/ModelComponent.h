@@ -41,6 +41,7 @@ namespace Orkige
 	protected:
 		optr<MeshInstance>	mesh;					//!< the current mesh instance or NULL
 		String				modelFileName;			//!< filename of the current model or empty String
+		String				modelAssetId;			//!< stable asset id of the mesh ("" = none/engine media)
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
 		//--- Methods -----------------------------------------------
@@ -57,6 +58,8 @@ namespace Orkige
 
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName();
+		//! @see ModelComponent::modelAssetId
+		inline String const & getModelAssetId() const;
 		//! the facade mesh instance or NULL (@see ModelComponent::mesh)
 		inline optr<MeshInstance> const & getMeshInstance() const;
 
@@ -66,9 +69,12 @@ namespace Orkige
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
 		//--- SERIALIZATION ---
-		//! save the model file name to Archive
+		//! save the model file name (plus its stable asset id as the assetId
+		//! attribute) to Archive
 		virtual void save(optr<IArchive> const & ar);
-		//! load the model file name from Archive and load the model
+		//! @brief load the model file name from Archive and load the model; a
+		//! mesh asset id that resolves in the open project's AssetDatabase
+		//! wins over a stale file name (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
@@ -76,6 +82,11 @@ namespace Orkige
 	inline String const & ModelComponent::getCurrentModelFileName()
 	{
 		return this->modelFileName;
+	}
+	//---------------------------------------------------------------
+	inline String const & ModelComponent::getModelAssetId() const
+	{
+		return this->modelAssetId;
 	}
 	//---------------------------------------------------------------
 	inline optr<MeshInstance> const & ModelComponent::getMeshInstance() const

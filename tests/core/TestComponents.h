@@ -11,6 +11,7 @@
 
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectComponent.h>
+#include <core_project/AssetDatabase.h>
 
 namespace Orkige
 {
@@ -77,7 +78,51 @@ namespace Orkige
 		}
 	};
 
-	//! register both test components once per process (component factory,
+	//! @brief test component that references an asset by project-relative
+	//! path + stable asset id - the same serialization pattern the engine
+	//! components (Model/Sprite/ScriptComponent) use, headless-testable:
+	//! the id rides as the assetId attribute next to the path value and a
+	//! resolving id wins over a stale path on load (rename survival)
+	class TestAssetRefComponent : public GameObjectComponent
+	{
+		OOBJECT(TestAssetRefComponent, GameObjectComponent)
+		//--- Variables ---------------------------------------
+	private:
+		String assetPath;		//!< project-relative asset path ("" = none)
+		String assetId;		//!< stable asset id ("" = none/unknown)
+		//--- Methods -----------------------------------------
+	public:
+		TestAssetRefComponent() {}
+		virtual ~TestAssetRefComponent() {}
+		String const & getAssetPath() const { return this->assetPath; }
+		String const & getAssetId() const { return this->assetId; }
+		//! set the referenced asset (id tracked via the active database)
+		void setAssetReference(String const & path)
+		{
+			this->assetPath = path;
+			this->assetId = AssetDatabase::referenceIdForValue(path, "",
+				AssetDatabase::REF_PROJECT_PATH);
+		}
+		//--- SERIALIZATION ---
+		virtual void save(optr<IArchive> const & ar)
+		{
+			OParent::save(ar);
+			ar->writeAttributed(this->assetPath,
+				AssetDatabase::REFERENCE_ID_ATTRIBUTE,
+				AssetDatabase::referenceIdForValue(this->assetPath,
+					this->assetId, AssetDatabase::REF_PROJECT_PATH));
+		}
+		virtual void load(optr<IArchive> const & ar)
+		{
+			OParent::load(ar);
+			ar->readAttributed(this->assetPath,
+				AssetDatabase::REFERENCE_ID_ATTRIBUTE, this->assetId);
+			AssetDatabase::resolveReference(this->assetPath, this->assetId,
+				AssetDatabase::REF_PROJECT_PATH);
+		}
+	};
+
+	//! register the test components once per process (component factory,
 	//! TypeManager and Lua usertype - exactly what a module init does)
 	void registerOrkigeTestComponents();
 }

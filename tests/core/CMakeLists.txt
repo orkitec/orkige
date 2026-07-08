@@ -16,6 +16,7 @@ add_executable(orkige_core_tests
     ScriptRuntimeTests.cpp
     SceneSerializerTests.cpp
     ProjectTests.cpp
+    AssetDatabaseTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

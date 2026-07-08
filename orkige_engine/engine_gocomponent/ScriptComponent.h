@@ -71,6 +71,7 @@ namespace Orkige
 	public:
 	protected:
 		String	mScriptFile;		//!< project-relative script path ("" = none)
+		String	mScriptAssetId;	//!< stable asset id of the script ("" = none)
 		bool	mScriptEnabled;	//!< update(self, dt) only runs while enabled
 		bool	mStarted;			//!< script loaded and init(self) ran
 		bool	mFailed;			//!< a script error disabled this instance
@@ -88,6 +89,8 @@ namespace Orkige
 		void setScriptFile(String const & scriptFile);
 		//! @see ScriptComponent::mScriptFile
 		inline String const & getScriptFile() const;
+		//! @see ScriptComponent::mScriptAssetId
+		inline String const & getScriptAssetId() const;
 		//! enable/disable the per-frame update calls (init state is kept)
 		void setScriptEnabled(bool enabled);
 		//! @see ScriptComponent::mScriptEnabled
@@ -109,9 +112,12 @@ namespace Orkige
 		//! lazy first load + init(self), then update(self, dt) per frame
 		virtual void onUpdateComponent(float deltaTime);
 		//--- SERIALIZATION ---
-		//! save the script file path and the enabled flag to Archive
+		//! save the script file path (plus its stable asset id as the
+		//! assetId attribute) and the enabled flag to Archive
 		virtual void save(optr<IArchive> const & ar);
-		//! load the script file path and the enabled flag from Archive
+		//! @brief load the script file path and the enabled flag from
+		//! Archive; a script asset id that resolves in the open project's
+		//! AssetDatabase wins over a stale path (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
 		//! resolve, load and init the script; false (+failScript) on any error
@@ -127,6 +133,11 @@ namespace Orkige
 	inline String const & ScriptComponent::getScriptFile() const
 	{
 		return this->mScriptFile;
+	}
+	//---------------------------------------------------------
+	inline String const & ScriptComponent::getScriptAssetId() const
+	{
+		return this->mScriptAssetId;
 	}
 	//---------------------------------------------------------
 	inline bool ScriptComponent::isScriptEnabled() const

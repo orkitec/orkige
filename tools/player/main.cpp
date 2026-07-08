@@ -454,12 +454,22 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_ROLLER_SCREENSHOT_DIR");
 		const std::string rollerShotDir =
 			rollerShotDirEnv ? rollerShotDirEnv : "";
+		// ORKIGE_ASSETID_SELFCHECK=<expected texture> verifies asset-id
+		// rename survival end to end (run with --project
+		// tests/projects/asset_rename): the scene's "Sprite" object carries a
+		// STALE texture name plus the sidecar asset id of the real file - the
+		// sprite must come up under the CURRENT name, resolved via the
+		// project's AssetDatabase (core_project/AssetDatabase.h)
+		const char* assetIdCheckEnv =
+			std::getenv("ORKIGE_ASSETID_SELFCHECK");
+		const std::string assetIdCheckTexture =
+			assetIdCheckEnv ? assetIdCheckEnv : "";
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
 		const bool automatedRun = jumperLuaCheck || rollerCheck ||
-			frameLimit != 0;
+			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
@@ -636,6 +646,39 @@ int main(int argc, char** argv)
 		applyUnlitFixToLoadedModels(gameObjectManager);
 		SDL_Log("orkige_player: scene '%s' loaded (%zu GameObjects)",
 			scenePath.c_str(), gameObjectManager.getGameObjects().size());
+
+		// --- ORKIGE_ASSETID_SELFCHECK: prove the rename survived - the
+		// scene's stale texture name must have been replaced by the expected
+		// current one (resolved through the sidecar id) and the sprite must
+		// actually be showing it
+		if (!assetIdCheckTexture.empty())
+		{
+			optr<Orkige::GameObject> spriteObject =
+				gameObjectManager.getGameObject("Sprite").lock();
+			Orkige::SpriteComponent* sprite = (spriteObject &&
+				spriteObject->hasComponent<Orkige::SpriteComponent>())
+				? spriteObject->getComponentPtr<Orkige::SpriteComponent>()
+				: nullptr;
+			if (!sprite || !sprite->hasSprite() ||
+				sprite->getTextureName() != assetIdCheckTexture ||
+				sprite->getTextureAssetId().empty())
+			{
+				SDL_Log("orkige_player: ASSETID SELFCHECK FAILED - "
+					"texture='%s' assetId='%s' hasSprite=%d (expected the "
+					"stale scene reference to resolve to '%s' via its "
+					"sidecar id)",
+					sprite ? sprite->getTextureName().c_str() : "<no sprite "
+					"component>",
+					sprite ? sprite->getTextureAssetId().c_str() : "",
+					sprite ? (sprite->hasSprite() ? 1 : 0) : 0,
+					assetIdCheckTexture.c_str());
+				return 1;
+			}
+			SDL_Log("orkige_player: ASSETID SELFCHECK PASSED - stale "
+				"reference resolved to '%s' (id %s)",
+				sprite->getTextureName().c_str(),
+				sprite->getTextureAssetId().c_str());
+		}
 
 		// remote debugging server (editor play mode): localhost only; the
 		// editor keeps re-connecting until this point is reached, so the

@@ -75,6 +75,18 @@ namespace Orkige
 		virtual void read(double & t)=0;
 		//! read a String value from archive
 		virtual void read(String & t)=0;
+		//! @brief read a String value that MAY carry a named side attribute
+		//! (see writeAttributed); attributeValue becomes "" when the value
+		//! was written without one - which is exactly how legacy archives
+		//! stay loadable. Backends without attribute support read the plain
+		//! value.
+		virtual void readAttributed(String & t, String const & attributeName,
+			String & attributeValue)
+		{
+			(void)attributeName;
+			attributeValue.clear();
+			this->read(t);
+		}
 		//! read a ISerializeable object from archive
 		virtual void read(ISerializeable & t)=0;
 		//! read a ISerializeable derived from archive
@@ -184,6 +196,20 @@ namespace Orkige
 		virtual void write(double const & t)=0;
 		//! write a String to archive
 		virtual void write(String const & t)=0;
+		//! @brief write a String value carrying a named side attribute - the
+		//! archive-positional-compatible way to attach optional metadata to a
+		//! value (asset ids next to legacy resource names/paths): readers
+		//! that don't know the attribute read the plain value, readAttributed
+		//! sees "" for values written without it. An empty attributeValue
+		//! writes the plain value. Backends without attribute support just
+		//! write the value.
+		virtual void writeAttributed(String const & t,
+			String const & attributeName, String const & attributeValue)
+		{
+			(void)attributeName;
+			(void)attributeValue;
+			this->write(t);
+		}
 		//! write a ISerializeable to archive
 		virtual void write(ISerializeable & t)=0;
 		//! write a ISerializeable derived object to archive

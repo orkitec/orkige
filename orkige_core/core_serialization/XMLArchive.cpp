@@ -298,6 +298,20 @@ namespace Orkige
 		XMLArchiveReadElement(this, this->currentElement, t);
 	}
 	//---------------------------------------------------------
+	void XMLArchive::readAttributed(String & t, String const & attributeName,
+		String & attributeValue)
+	{
+		oAssert(this->isReading());
+		oAssert(!this->isWriting());
+		oAssert(this->currentElement);
+		// the side attribute must be taken BEFORE the element read advances
+		// the cursor; a value written without one honestly reads as ""
+		const char * attribute =
+			this->currentElement->Attribute(attributeName.c_str());
+		attributeValue = attribute ? attribute : "";
+		XMLArchiveReadElement(this, this->currentElement, t);
+	}
+	//---------------------------------------------------------
 	void XMLArchive::read(ISerializeable & t)
 	{
 		oAssert(this->isReading());
@@ -568,6 +582,25 @@ namespace Orkige
 	void XMLArchive::write(String const & t)
 	{
 		XMLArchiveWriteElement(this, this->currentElement, t, "String");
+	}
+	//---------------------------------------------------------
+	void XMLArchive::writeAttributed(String const & t,
+		String const & attributeName, String const & attributeValue)
+	{
+		oAssert(!this->isReading());
+		oAssert(this->isWriting());
+		oAssert(this->currentElement);
+		// same "String" element as write(String) so readers that don't know
+		// the attribute (older builds) keep loading the value untouched
+		tinyxml2::XMLElement* element =
+			this->currentElement->GetDocument()->NewElement("String");
+		element->SetAttribute("value", t.c_str());
+		if (!attributeValue.empty())
+		{
+			element->SetAttribute(attributeName.c_str(),
+				attributeValue.c_str());
+		}
+		this->currentElement->InsertEndChild(element);
 	}
 	//---------------------------------------------------------
 	void XMLArchive::write(ISerializeable & t)

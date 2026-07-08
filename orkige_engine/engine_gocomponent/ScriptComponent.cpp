@@ -15,6 +15,7 @@
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 
 namespace Orkige
@@ -79,6 +80,10 @@ namespace Orkige
 		}
 		this->resetScriptState();
 		this->mScriptFile = scriptFile;
+		// the asset id tracks the script file: the open project's database
+		// knows it ("" without a project - honest either way)
+		this->mScriptAssetId = AssetDatabase::referenceIdForValue(
+			scriptFile, "", AssetDatabase::REF_PROJECT_PATH);
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::setScriptEnabled(bool enabled)
@@ -125,17 +130,28 @@ namespace Orkige
 	void ScriptComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// only the authoring state round-trips: the script path and the
-		// enabled flag; runtime state (loaded/failed, the Lua environment)
-		// is rebuilt from the script file on the next play run
-		ar << this->mScriptFile << this->mScriptEnabled;
+		// only the authoring state round-trips: the script path (its stable
+		// asset id rides as an attribute next to it) and the enabled flag;
+		// runtime state (loaded/failed, the Lua environment) is rebuilt from
+		// the script file on the next play run
+		ar->writeAttributed(this->mScriptFile,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
+			AssetDatabase::referenceIdForValue(this->mScriptFile,
+				this->mScriptAssetId, AssetDatabase::REF_PROJECT_PATH));
+		ar << this->mScriptEnabled;
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
 		this->resetScriptState();
-		ar >> this->mScriptFile >> this->mScriptEnabled;
+		ar->readAttributed(this->mScriptFile,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE, this->mScriptAssetId);
+		ar >> this->mScriptEnabled;
+		// a resolving asset id wins over a stale path (rename survival);
+		// legacy scenes without ids keep loading via the path
+		AssetDatabase::resolveReference(this->mScriptFile,
+			this->mScriptAssetId, AssetDatabase::REF_PROJECT_PATH);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

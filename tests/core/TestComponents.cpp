@@ -26,6 +26,13 @@ namespace Orkige
 		OFUNC(setArmor)
 	OOBJECT_END
 	//---------------------------------------------------------
+	OOBJECT_IMPL(TestAssetRefComponent)
+		GAMEOBJECTCOMPONENT()
+		OFUNCCR(getAssetPath)
+		OFUNCCR(getAssetId)
+		OFUNC(setAssetReference)
+	OOBJECT_END
+	//---------------------------------------------------------
 	void registerOrkigeTestComponents()
 	{
 		static bool registered = false;
@@ -34,6 +41,7 @@ namespace Orkige
 			registered = true;
 			TestHealthComponent::OrkigeMetaExport("orkige_core_tests");
 			TestArmorComponent::OrkigeMetaExport("orkige_core_tests");
+			TestAssetRefComponent::OrkigeMetaExport("orkige_core_tests");
 		}
 	}
 }

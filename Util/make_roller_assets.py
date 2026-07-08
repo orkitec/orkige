@@ -45,6 +45,7 @@ Defaults to projects/roller/ next to this repo. (The fastgui atlas the HUD
 uses is generated separately: Util/make_fastgui_atlas.py <assets_dir>.)
 """
 
+import hashlib
 import math
 import struct
 import sys
@@ -52,6 +53,25 @@ import zlib
 from pathlib import Path
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def write_meta(project_dir, asset_path):
+    """Emit the asset's sidecar .orkmeta (core_project/AssetDatabase) so the
+    generated project carries stable asset ids from the start.
+
+    An existing sidecar is PRESERVED (its id is the asset's identity - the
+    whole point of the database); a missing one gets a deterministic id
+    (md5 of the project-relative path under a fixed namespace), so
+    regenerating the project never churns ids in version control."""
+    meta_path = Path(str(asset_path) + ".orkmeta")
+    if meta_path.exists():
+        return
+    relative = Path(asset_path).resolve().relative_to(
+        Path(project_dir).resolve()).as_posix()
+    asset_id = hashlib.md5(
+        ("orkige.roller:" + relative).encode("utf-8")).hexdigest()
+    meta_path.write_text('<orkmeta id="%s"/>\n' % asset_id)
+    print("wrote %s (id %s)" % (meta_path, asset_id))
 
 
 # ---------------------------------------------------------------------------
@@ -440,6 +460,7 @@ def main():
         data = encode_png_rgba(len(rows[0]), len(rows), rows)
         (assets / name).write_bytes(data)
         print("wrote %s (%d bytes)" % (assets / name, len(data)))
+        write_meta(project_dir, assets / name)
 
     scene = build_scene()
     scene.write(scenes / "main.oscene")

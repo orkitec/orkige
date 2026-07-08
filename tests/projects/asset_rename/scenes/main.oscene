@@ -1,0 +1,43 @@
+<?1.0, UTF-8, yes?>
+<XMLArchive Version="0">
+    <String value="orkige.oscene"/>
+    <int value="1"/>
+    <unsigned_int value="1"/>
+    <String value="Sprite"/>
+    <unsigned_int value="2"/>
+    <String value="SpriteComponent"/>
+    <SpriteComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <String value="ball.png" assetId="f1e2d3c4b5a697880123456789abcdef"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+        <bool value="0"/>
+        <bool value="0"/>
+        <int value="0"/>
+        <bool value="1"/>
+    </SpriteComponent>
+    <String value="TransformComponent"/>
+    <TransformComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="1"/>
+        <float value="1"/>
+    </TransformComponent>
+</XMLArchive>

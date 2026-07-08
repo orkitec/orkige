@@ -12,6 +12,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
+#include <core_project/AssetDatabase.h>
 
 namespace Orkige
 {
@@ -23,6 +24,7 @@ namespace Orkige
 	ModelComponent::ModelComponent()
 	{
 		this->modelFileName = "";
+		this->modelAssetId = "";
 		this->addDependency<TransformComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -58,6 +60,10 @@ namespace Orkige
 
 		this->mesh = loaded;
 		this->modelFileName = modelFileName;
+		// the asset id tracks the mesh: the open project's database knows it
+		// ("" without a project, or for engine media - honest either way)
+		this->modelAssetId = AssetDatabase::referenceIdForValue(
+			modelFileName, "", AssetDatabase::REF_FILE_NAME);
 		this->mesh->attachTo(this->getNode());
 		this->eventData->setValue(modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
@@ -75,6 +81,7 @@ namespace Orkige
 		this->eventData->setValue(this->modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent, this->eventData));
 		this->modelFileName = "";
+		this->modelAssetId = "";
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -98,27 +105,41 @@ namespace Orkige
 		// content first, then the node (a node must outlive its content)
 		this->mesh.reset();
 		this->modelFileName = "";
+		this->modelAssetId = "";
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
 	void ModelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// only the mesh resource name round-trips; runtime tweaks applied to
-		// the mesh instance after loadModel (unlit fixup, visibility, ...)
-		// are NOT serialized yet
-		ar << this->modelFileName;
+		// only the mesh resource name round-trips (its stable asset id rides
+		// as an attribute next to it); runtime tweaks applied to the mesh
+		// instance after loadModel (unlit fixup, visibility, ...) are NOT
+		// serialized yet
+		ar->writeAttributed(this->modelFileName,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
+			AssetDatabase::referenceIdForValue(this->modelFileName,
+				this->modelAssetId, AssetDatabase::REF_FILE_NAME));
 	}
 	//---------------------------------------------------------
 	void ModelComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
 		String fileName;
-		ar >> fileName;
+		String assetId;
+		ar->readAttributed(fileName,
+			AssetDatabase::REFERENCE_ID_ATTRIBUTE, assetId);
+		// a resolving asset id wins over a stale file name (rename
+		// survival); legacy scenes without ids keep loading via the name
+		AssetDatabase::resolveReference(fileName, assetId,
+			AssetDatabase::REF_FILE_NAME);
 		if(!fileName.empty())
 		{
 			this->loadModel(fileName);
 		}
+		// keep the serialized id even when no database could verify it (a
+		// standalone scene load must not strip ids on a re-save)
+		this->modelAssetId = assetId;
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

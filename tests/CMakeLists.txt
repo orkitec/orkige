@@ -399,6 +399,18 @@ if(TARGET orkige_player)
             ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1")
     endif()
 
+    # asset-id rename survival end to end (the asset database): the fixture
+    # scene in tests/projects/asset_rename references its sprite texture by a
+    # STALE name ("ball.png") plus the sidecar asset id of the renamed file
+    # (assets/ball_renamed.png + .orkmeta) - the player must resolve the id
+    # through the project's AssetDatabase and show the renamed texture (see
+    # the ORKIGE_ASSETID_SELFCHECK block in tools/player/main.cpp)
+    add_test(NAME player_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+        COMMAND orkige_player --project tests/projects/asset_rename
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_ASSETID_SELFCHECK=ball_renamed.png;ORKIGE_DEMO_FRAMES=60")
+
     # --- project export (milestone 4, Util/orkige_export.py) ---------------
     # Classic-only: the exporter bundles the classic media set (RTSS libs)
     # and the exported-app contract is classic-verified. The export
@@ -517,6 +529,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         player_example_scene player_example_project player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_assetid_selfcheck player_assetid_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
         editor_play_script_error
         editor_play_stop_next editor_play_crash_next editor_project_play_next

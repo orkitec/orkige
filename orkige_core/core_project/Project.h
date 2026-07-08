@@ -11,11 +11,14 @@
 
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/String.h"
+#include "core_util/optr.h"
 
 #include <map>
 
 namespace Orkige
 {
+	class AssetDatabase;
+
 	//! @brief a game project on disk - the Unity-style "open a project, not a
 	//! scene" unit the editor and player work in.
 	//! @remarks A project is a folder with a project.orkproj manifest plus the
@@ -62,6 +65,9 @@ namespace Orkige
 		String						mName;				//!< human-readable project name
 		String						mMainScene;		//!< project-relative main scene path ("" = none yet)
 		std::map<String, String>	mSettings;			//!< free-form forward-compat settings
+		//! the project's asset id database (created and made the process-wide
+		//! active one by load(); shared between copies of this Project)
+		optr<AssetDatabase>		mAssetDatabase;
 		//--- Methods -----------------------------------------
 	public:
 		//! @brief the manifest file a project path names: a directory maps to
@@ -123,6 +129,18 @@ namespace Orkige
 		//! project-relative paths ("scenes/main.oscene"); empty when the
 		//! directory does not exist (yet)
 		StringVector listScenes() const;
+
+		//--- assets (stable asset ids, see core_project/AssetDatabase.h) ---
+		//! @brief the project's asset database. load() creates it with a
+		//! READ-ONLY refresh (runtimes never write into a project - mobile
+		//! bundles may be read-only) and makes it the process-wide active
+		//! database asset references resolve against; close() deactivates it.
+		//! NULL for an unloaded (or created-but-never-loaded) project.
+		optr<AssetDatabase> const & getAssetDatabase() const { return mAssetDatabase; }
+		//! @brief the EDITOR's import pass: re-scan assets/ and scripts/,
+		//! minting sidecar .orkmeta files for sidecar-less assets and dropping
+		//! orphaned ones. Call after load() in authoring tools only.
+		void importAssets();
 
 		//--- settings (string key/values, forward-compat) ----
 		String getSetting(String const & key, String const & defaultValue = "") const;

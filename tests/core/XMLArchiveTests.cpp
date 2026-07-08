@@ -192,3 +192,63 @@ TEST_CASE("XMLArchive startReading fails cleanly on a missing file", "[xmlarchiv
 		(std::filesystem::temp_directory_path() /
 			"orkige_test_does_not_exist.xml").string()));
 }
+
+// The asset-database serialization contract (core_project/AssetDatabase):
+// a String value may carry a named side ATTRIBUTE next to it - positionally
+// invisible, so archives stay loadable in BOTH directions across the format
+// change (old scenes have no attribute, old readers ignore it).
+TEST_CASE("XMLArchive attributed String values round-trip and stay "
+	"legacy-compatible", "[xmlarchive]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempFile file("orkige_test_attributed.xml");
+
+	{
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startWriting(file.path));
+		// attributed, attributed-with-empty (writes plain), plain
+		ar->writeAttributed("ball.png", "assetId", "0123456789abcdef");
+		ar->writeAttributed("plain.png", "assetId", "");
+		Orkige::String legacy = "legacy.png";
+		ar << legacy;
+		int sentinel = 7;
+		ar << sentinel;
+		REQUIRE(ar->stopWriting());
+	}
+
+	SECTION("readAttributed sees the attribute (and \"\" where none is)")
+	{
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startReading(file.path));
+		Orkige::String value, attribute;
+		ar->readAttributed(value, "assetId", attribute);
+		CHECK(value == "ball.png");
+		CHECK(attribute == "0123456789abcdef");
+		ar->readAttributed(value, "assetId", attribute);
+		CHECK(value == "plain.png");
+		CHECK(attribute.empty());
+		// a LEGACY value (plain write) reads with an empty attribute
+		ar->readAttributed(value, "assetId", attribute);
+		CHECK(value == "legacy.png");
+		CHECK(attribute.empty());
+		// the cursor advanced correctly through all three
+		int sentinel = 0;
+		ar >> sentinel;
+		CHECK(sentinel == 7);
+		REQUIRE(ar->stopReading());
+	}
+	SECTION("an attribute-unaware reader (old build) reads the plain values")
+	{
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startReading(file.path));
+		Orkige::String first, second, third;
+		ar >> first >> second >> third;
+		CHECK(first == "ball.png");
+		CHECK(second == "plain.png");
+		CHECK(third == "legacy.png");
+		int sentinel = 0;
+		ar >> sentinel;
+		CHECK(sentinel == 7);
+		REQUIRE(ar->stopReading());
+	}
+}

@@ -10,6 +10,7 @@
 #include <tinyxml2.h>
 
 #include "core_project/Project.h"
+#include "core_project/AssetDatabase.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -201,6 +202,13 @@ namespace Orkige
 		mName = name;
 		mMainScene = mainScene;
 		mSettings = std::move(settings);
+		// asset ids: scan the project's sidecar .orkmeta files (read-only -
+		// runtimes must never write into a project; the editor additionally
+		// runs importAssets()) and make this the database asset references
+		// resolve against - "the database refreshes on project open"
+		mAssetDatabase = onew(new AssetDatabase());
+		mAssetDatabase->refresh(mRootDirectory, false);
+		AssetDatabase::setActive(mAssetDatabase);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -263,6 +271,25 @@ namespace Orkige
 		mName.clear();
 		mMainScene.clear();
 		mSettings.clear();
+		if (mAssetDatabase && AssetDatabase::getActive() == mAssetDatabase)
+		{
+			AssetDatabase::setActive(optr<AssetDatabase>());
+		}
+		mAssetDatabase.reset();
+	}
+	//---------------------------------------------------------
+	void Project::importAssets()
+	{
+		if (!isLoaded())
+		{
+			return;
+		}
+		if (!mAssetDatabase)
+		{
+			mAssetDatabase = onew(new AssetDatabase());
+			AssetDatabase::setActive(mAssetDatabase);
+		}
+		mAssetDatabase->refresh(mRootDirectory, true);
 	}
 	//---------------------------------------------------------
 	String Project::getMainScenePath() const
