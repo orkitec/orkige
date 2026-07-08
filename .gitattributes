@@ -1,0 +1,22 @@
+# Line endings: everything text is LF, in the repo and in checkouts.
+# (Normalized 2026-07-08 in a dedicated whitespace-only commit; before that,
+# 2012-era files were CRLF and modern files LF.)
+* text=auto eol=lf
+
+# Explicit binaries (git usually detects these, but explicit is safe)
+*.png binary
+*.glb binary
+*.gltf text
+*.dds binary
+*.mesh binary
+*.apk binary
+*.jar binary
+*.a binary
+*.dylib binary
+*.so binary
+*.exe binary
+*.dll binary
+*.ttf binary
+*.wav binary
+*.ogg binary
+*.icns binary

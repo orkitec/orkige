@@ -127,8 +127,8 @@ pass before committing.
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
   Doxygen-style comments, `#ifndef` include guards with date suffixes.
-- Most legacy files use CRLF line endings — preserve them when editing (a flip to LF
-  turns the whole file into one unreviewable diff). New files use LF.
+- Line endings are LF everywhere, enforced by `.gitattributes` (the tree was normalized
+  in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
 - Commit messages: no `Co-Authored-By` trailers.
 - Renderer containment (decided 2026-07: classic OGRE stays, Ogre-Next is the pre-planned
   migration target if mobile forces it): new code above `engine_graphic` must not take
