@@ -13,6 +13,20 @@ find_package(Jolt CONFIG REQUIRED)
 set(ORKIGE_ENGINE_SOURCES
     engine_module/EnginePrerequisites.h
     engine_module/module.cpp
+    # engine_render: the renderer-agnostic facade (Docs/render-abstraction.md).
+    # Phase A0: interface headers + compile check only; the classic backend
+    # implementation lands in phase A1 under engine_render_classic/.
+    engine_render/RenderPrerequisites.h
+    engine_render/RenderMath.h
+    engine_render/RenderSystem.h
+    engine_render/RenderWorld.h
+    engine_render/RenderNode.h
+    engine_render/MeshInstance.h
+    engine_render/SpriteQuad.h
+    engine_render/RenderCamera.h
+    engine_render/RenderLight.h
+    engine_render/RenderTexture.h
+    engine_render/RenderFacadeCheck.cpp
     engine_filesystem/BigZipArchive.h
     engine_filesystem/BigZipArchive.cpp
     engine_filesystem/BigZipArchiveFactory.h
@@ -173,6 +187,11 @@ if(ORKIGE_SCRIPTING STREQUAL "LUA")
 endif()
 orkige_pch_ccache_compat(orkige_engine)
 
+# The facade compile check must prove the engine_render headers are
+# self-contained (no Ogre.h umbrella) - the target PCH would mask that.
+set_source_files_properties(engine_render/RenderFacadeCheck.cpp
+    PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.
 # ORKIGE_OPENAL_SOUND: engine_sound compiles against OpenAL Soft (vcpkg
@@ -186,6 +205,15 @@ target_compile_definitions(orkige_engine PUBLIC
     ORKIGE_OPENAL_SOUND
     ORKIGE_ENGINE_HAS_GOCOMPONENT
 )
+
+# Render backend flavor (see ORKIGE_RENDER_BACKEND in the root CMakeLists):
+# exactly one ORKIGE_RENDER_* define is set per build - engine_render's
+# compile check enforces that invariant.
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_CLASSIC)
+elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)
+endif()
 
 target_link_libraries(orkige_engine
     PUBLIC

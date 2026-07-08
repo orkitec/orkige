@@ -78,6 +78,22 @@ option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
 option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
 option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" ON)
 
+# Render backend: which renderer implements the engine_render facade
+# (Docs/render-abstraction.md). BUILD-time selection only - classic OGRE and
+# Ogre-Next share the Ogre:: symbol names, so linking both into one binary
+# violates the ODR; there is deliberately NO runtime switch. Distinct from
+# the ORKIGE_RENDERSYSTEM env var, which stays the runtime graphics-API pick
+# (GL3Plus/Metal/Vulkan/GLES2) WITHIN the classic backend.
+set(ORKIGE_RENDER_BACKEND "classic" CACHE STRING "Render backend implementing the engine_render facade (classic or next)")
+set_property(CACHE ORKIGE_RENDER_BACKEND PROPERTY STRINGS "classic" "next")
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
+elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    message(FATAL_ERROR "ORKIGE_RENDER_BACKEND=next is designed but not implemented yet - phase A2 of Docs/render-abstraction.md brings the Ogre-Next backend up")
+else()
+    message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
+endif()
+
 # Scripting backend: LUA (sol2-based Meta_Lua.h backend, the default) or OFF
 # (Meta_None.h, no script bindings compiled).
 set(ORKIGE_SCRIPTING "LUA" CACHE STRING "Scripting backend (LUA or OFF)")
