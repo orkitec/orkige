@@ -56,6 +56,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/IngameConsole.cpp
     engine_base/Localisation.h
     engine_base/Localisation.cpp
+    engine_base/EngineLog.h
+    engine_base/EngineLog.cpp
     engine_input/KeyEventData.h
     engine_input/KeyEventData.cpp
     engine_input/MouseEventData.h

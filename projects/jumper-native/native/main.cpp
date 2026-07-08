@@ -37,6 +37,11 @@
 // ctest sets it, so the spawned play process proves the HUD along the way.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_render/RenderSystem.h>
+#include <engine_render/RenderWorld.h>
+#include <engine_render/RenderNode.h>
+#include <engine_render/RenderCamera.h>
+#include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
@@ -44,7 +49,6 @@
 #include <engine_input/InputManager.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
-#include <engine_util/PrimitiveUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
@@ -165,7 +169,8 @@ public:
 	static constexpr float CAPSULE_RADIUS = 0.35f;
 
 	JumperGame(Orkige::GameObjectManager& gameObjectManager,
-		Orkige::PhysicsWorld& physicsWorld, Ogre::SceneNode* cameraNode)
+		Orkige::PhysicsWorld& physicsWorld,
+		optr<Orkige::RenderNode> const& cameraNode)
 		: mGameObjectManager(gameObjectManager), mPhysicsWorld(physicsWorld),
 		mCameraNode(cameraNode)
 	{
@@ -229,14 +234,14 @@ public:
 		{
 			return;	// body is created lazily on the first component update
 		}
-		const Ogre::Vector3 position = mPlayerTransform->getPosition();
+		const Orkige::Vec3 position = mPlayerTransform->getPosition();
 
 		// grounded: short ray just below the capsule (see JumperLogic for
 		// why it must start OUTSIDE the capsule); never accept a self-hit
 		const Orkige::JumperLogic::GroundProbe probe =
 			Orkige::JumperLogic::makeGroundProbe(position,
 				CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS);
-		Ogre::Vector3 hitPosition;
+		Orkige::Vec3 hitPosition;
 		Orkige::PhysicsWorld::BodyId hitBodyId =
 			Orkige::PhysicsWorld::INVALID_BODY_ID;
 		mGrounded = mPhysicsWorld.castRay(probe.origin, probe.direction,
@@ -247,7 +252,7 @@ public:
 		// same in the air (full air control - tight, forgiving feel)
 		const float inputX = (input.right ? 1.0f : 0.0f) - (input.left ? 1.0f : 0.0f);
 		const float inputZ = (input.back ? 1.0f : 0.0f) - (input.forward ? 1.0f : 0.0f);
-		Ogre::Vector3 velocity = mPlayerBody->getLinearVelocity();
+		Orkige::Vec3 velocity = mPlayerBody->getLinearVelocity();
 		velocity.x = Orkige::JumperLogic::approach(velocity.x,
 			inputX * MOVE_SPEED, ACCEL_RATE, deltaTime);
 		velocity.z = Orkige::JumperLogic::approach(velocity.z,
@@ -264,12 +269,12 @@ public:
 		mPlayerBody->setLinearVelocity(velocity);
 
 		// keep the capsule upright (no rotation-lock DOFs exposed yet)
-		mPlayerBody->setAngularVelocity(Ogre::Vector3::ZERO);
-		const Ogre::Quaternion orientation = mPlayerTransform->getOrientation();
+		mPlayerBody->setAngularVelocity(Orkige::Vec3::ZERO);
+		const Orkige::Quat orientation = mPlayerTransform->getOrientation();
 		if (std::abs(orientation.w) < 0.9995f)
 		{
 			mPhysicsWorld.setBodyTransform(mPlayerBody->getBodyId(), position,
-				Ogre::Quaternion::IDENTITY);
+				Orkige::Quat::IDENTITY);
 		}
 
 		// fell out of the level?
@@ -291,8 +296,8 @@ public:
 		}
 
 		// smooth camera follow, looking slightly ahead of the player
-		const Ogre::Vector3 cameraTarget = position + CAMERA_OFFSET;
-		Ogre::Vector3 cameraPosition = mCameraNode->getPosition();
+		const Orkige::Vec3 cameraTarget = position + CAMERA_OFFSET;
+		Orkige::Vec3 cameraPosition = mCameraNode->getPosition();
 		cameraPosition.x = Orkige::JumperLogic::approach(cameraPosition.x,
 			cameraTarget.x, CAMERA_RATE, deltaTime);
 		cameraPosition.y = Orkige::JumperLogic::approach(cameraPosition.y,
@@ -300,7 +305,8 @@ public:
 		cameraPosition.z = Orkige::JumperLogic::approach(cameraPosition.z,
 			cameraTarget.z, CAMERA_RATE, deltaTime);
 		mCameraNode->setPosition(cameraPosition);
-		mCameraNode->lookAt(position + CAMERA_LOOK_AHEAD, Ogre::Node::TS_WORLD);
+		mCameraNode->lookAt(position + CAMERA_LOOK_AHEAD,
+			Orkige::RenderNode::TS_WORLD);
 	}
 
 	//! put the player back at the start (teleport + kill all momentum)
@@ -312,17 +318,17 @@ public:
 			return;
 		}
 		mPhysicsWorld.setBodyTransform(mPlayerBody->getBodyId(),
-			mSpawnPosition, Ogre::Quaternion::IDENTITY);
-		mPlayerBody->setLinearVelocity(Ogre::Vector3::ZERO);
-		mPlayerBody->setAngularVelocity(Ogre::Vector3::ZERO);
+			mSpawnPosition, Orkige::Quat::IDENTITY);
+		mPlayerBody->setLinearVelocity(Orkige::Vec3::ZERO);
+		mPlayerBody->setAngularVelocity(Orkige::Vec3::ZERO);
 		mPlayerTransform->setPosition(mSpawnPosition);
 	}
 
-	Ogre::Vector3 const& getSpawnPosition() const { return mSpawnPosition; }
-	Ogre::Vector3 getPlayerPosition() const
+	Orkige::Vec3 const& getSpawnPosition() const { return mSpawnPosition; }
+	Orkige::Vec3 getPlayerPosition() const
 	{
 		return mPlayerTransform ? mPlayerTransform->getPosition()
-			: Ogre::Vector3::ZERO;
+			: Orkige::Vec3::ZERO;
 	}
 	int getWinCount() const { return mWinCount; }
 	//! progress toward the goal along the level axis (0 = spawn, 1 = goal) -
@@ -338,18 +344,18 @@ public:
 	}
 
 private:
-	static inline const Ogre::Vector3 CAMERA_OFFSET =
-		Ogre::Vector3(0.0f, 2.2f, 8.0f);
-	static inline const Ogre::Vector3 CAMERA_LOOK_AHEAD =
-		Ogre::Vector3(1.5f, 0.8f, 0.0f);
+	static inline const Orkige::Vec3 CAMERA_OFFSET =
+		Orkige::Vec3(0.0f, 2.2f, 8.0f);
+	static inline const Orkige::Vec3 CAMERA_LOOK_AHEAD =
+		Orkige::Vec3(1.5f, 0.8f, 0.0f);
 
 	Orkige::GameObjectManager&		mGameObjectManager;
 	Orkige::PhysicsWorld&			mPhysicsWorld;
-	Ogre::SceneNode*				mCameraNode = nullptr;
+	optr<Orkige::RenderNode>		mCameraNode;
 	Orkige::TransformComponent*		mPlayerTransform = nullptr;
 	Orkige::RigidBodyComponent*		mPlayerBody = nullptr;
-	Ogre::Vector3					mSpawnPosition = Ogre::Vector3(0.0f, 1.0f, 0.0f);
-	Ogre::Vector3					mGoalPosition = Ogre::Vector3::ZERO;
+	Orkige::Vec3					mSpawnPosition = Orkige::Vec3(0.0f, 1.0f, 0.0f);
+	Orkige::Vec3					mGoalPosition = Orkige::Vec3::ZERO;
 	bool							mHasGoal = false;
 	bool							mGrounded = false;
 	int								mRespawnCount = 0;
@@ -473,6 +479,10 @@ int main(int argc, char** argv)
 			(std::getenv("ORKIGE_JUMPER_NATIVE_SELFCHECK") != nullptr);
 		const bool automatedRun = frameLimit != 0 || hudSelfCheck;
 
+		// --- classic boot block (sanctioned raw-Ogre corner, see
+		// Docs/render-abstraction.md "App boot"): Engine construction/config
+		// and the RTSS-internal media registration stay classic plumbing;
+		// everything after Engine::setup talks to the engine_render facade.
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, engineLogPath);
@@ -498,6 +508,19 @@ int main(int argc, char** argv)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			moduleMediaDir + "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+
+		if (!engine.setup("Orkige Jumper Native", Orkige::Engine::SHOW_NEVER,
+			Orkige::StringUtil::Converter::toString(
+				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
+		{
+			SDL_Log("Engine::setup failed");
+			return 1;
+		}
+		// --- end of the classic boot block: from here on the module talks to
+		// the renderer through the engine_render facade exclusively
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		Orkige::RenderWorld* world = render->getWorld();
+
 		// the project's assets/ and scenes/ (meshes referenced by the scene)
 		if (project.isLoaded())
 		{
@@ -507,32 +530,32 @@ int main(int argc, char** argv)
 				std::error_code ignored;
 				if (std::filesystem::is_directory(projectDir, ignored))
 				{
-					Ogre::ResourceGroupManager::getSingleton()
-						.addResourceLocation(projectDir, "FileSystem",
-							Orkige::Project::RESOURCE_GROUP_NAME);
+					render->addResourceLocation(projectDir,
+						Orkige::RenderSystem::LT_FILESYSTEM,
+						Orkige::Project::RESOURCE_GROUP_NAME);
 				}
 			}
 		}
+		render->initialiseResourceGroups();
 
-		if (!engine.setup("Orkige Jumper Native", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
-		{
-			SDL_Log("Engine::setup failed");
-			return 1;
-		}
-		engine.createDefaultCameraAndViewport();
-		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
+		// the window camera on a facade rig (createDefaultCameraAndViewport
+		// successor); the fixed yaw axis keeps the per-frame follow-camera
+		// lookAt roll-free
+		optr<Orkige::RenderCamera> camera =
+			world->createCamera("jumper_native.camera");
+		optr<Orkige::RenderNode> cameraNode =
+			world->createNode("jumper_native.cameraNode");
+		cameraNode->setFixedYawAxis(true);
+		camera->attachTo(cameraNode);
+		render->showCameraOnWindow(camera);
 
-		Ogre::SceneManager* sceneManager = engine.getSceneManager();
-		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
+		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 		// a friendly sky instead of the void
-		engine.getViewport()->setBackgroundColour(
-			Ogre::ColourValue(0.53f, 0.75f, 0.94f));
+		render->setWindowBackgroundColour(Orkige::Color(0.53f, 0.75f, 0.94f));
 
-		// shared primitives scenes may reference (same as player/editor)
-		Orkige::PrimitiveUtil::createVertexColourMaterial();
-		Orkige::PrimitiveUtil::createVertexColourCubeMesh(sceneManager);
+		// shared primitives scenes may reference (same as player/editor):
+		// the procedural cube mesh + its unlit "VertexColour" material
+		world->createVertexColourCubeMesh();
 
 		// input pipeline: the poll loop feeds every SDL event into the
 		// InputManager - gameplay code never sees raw SDL
@@ -567,9 +590,8 @@ int main(int argc, char** argv)
 			return 1;
 		}
 		physicsWorld.setGravity(
-			Ogre::Vector3(0.0f, JumperGame::GRAVITY_Y, 0.0f));
+			Orkige::Vec3(0.0f, JumperGame::GRAVITY_Y, 0.0f));
 
-		Ogre::SceneNode* cameraNode = engine.getCamera()->getParentSceneNode();
 		JumperGame game(gameObjectManager, physicsWorld, cameraNode);
 		if (!game.spawnPlayer())
 		{
@@ -578,8 +600,9 @@ int main(int argc, char** argv)
 		}
 		game.findGoal();
 		cameraNode->setPosition(game.getSpawnPosition() +
-			Ogre::Vector3(0.0f, 2.2f, 8.0f));
-		cameraNode->lookAt(game.getSpawnPosition(), Ogre::Node::TS_WORLD);
+			Orkige::Vec3(0.0f, 2.2f, 8.0f));
+		cameraNode->lookAt(game.getSpawnPosition(),
+			Orkige::RenderNode::TS_WORLD);
 
 		// the HUD (the shared samples/jumper/JumperHud.h): title splash,
 		// controls hint, win banner, distance-to-goal progress bar. The atlas
@@ -591,9 +614,11 @@ int main(int argc, char** argv)
 		optr<Orkige::JumperHud> hud;
 		if (project.isLoaded())
 		{
-			hud = onew(new Orkige::JumperHud(
-				engine.getViewport()->getActualWidth(),
-				engine.getViewport()->getActualHeight(),
+			unsigned int hudWidth = 0;
+			unsigned int hudHeight = 0;
+			render->getWindowSize(hudWidth, hudHeight);
+			hud = onew(new Orkige::JumperHud(static_cast<int>(hudWidth),
+				static_cast<int>(hudHeight),
 				"fastgui_default", Orkige::Project::RESOURCE_GROUP_NAME));
 		}
 		else
@@ -691,7 +716,7 @@ int main(int argc, char** argv)
 			// streaming AFTER stepping - also while paused
 			debugLink.stream(gameObjectManager, frameCount);
 
-			if (!engine.renderOneFrame())
+			if (!render->renderOneFrame())
 			{
 				running = false;
 			}
@@ -704,7 +729,7 @@ int main(int argc, char** argv)
 				// progress bar) - same hook as the sample
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
-					engine.getRenderWindow()->writeContentsToFile(shotPath);
+					render->saveWindowContents(shotPath);
 				}
 			}
 

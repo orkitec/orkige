@@ -109,7 +109,7 @@ abstracted): see per-file table below.
 | `engine_graphic/ColoredBoundingBox`, `LightMap` | **unbuild (question #6)** | Zero callers. |
 | `engine_util/SceneNodeGuard` | **superseded by `RenderNode`** | The facade carries only the used ~40% of its mirror. WP-A1.2 reshaped the guard into the components' facade-node-owner base (holds `optr<RenderNode>`, forwards ~15 used methods); deleted at the end of A1 (WP-A1.5) when components hold the optr directly. |
 | `engine_util/MeshUtil` | **backend-private** | Raw vertex/index buffer extraction; only caller is CollisionTools' triangle raycast (being superseded by PhysicsWorld) + unbuilt sceneoptimizer. Moves behind the classic seam; Ogre-Next equivalent only if triangle-accurate *render-mesh* picking is ever needed there. |
-| `engine_util/PrimitiveUtil` | **split** | "EditorCube" mesh + vertex-colour-unlit fixup are wanted on every backend → facade (`MeshInstance::setVertexColourUnlit`; cube-mesh factory becomes a backend service in A1). ManualObject guts stay backend-private. |
+| `engine_util/PrimitiveUtil` | **split** | "EditorCube" mesh + vertex-colour-unlit fixup are wanted on every backend → facade (`MeshInstance::setVertexColourUnlit`; cube-mesh factory becomes a backend service in A1 — DONE in WP-A1.3: `RenderWorld::createVertexColourCubeMesh`, classic impl calls PrimitiveUtil). ManualObject guts stay backend-private; direct PrimitiveUtil callers left are the classic backend + the classic-only editor (WP-A1.4 decides its final home). |
 | `engine_util/StringConverter` | **keep (math-adjacent)** | Converts math types + scalars; follows whatever the math decision says (aliases keep it working on both Ogre backends; own-types rewrite it). |
 | `engine_util/CameraUtil.h`, `OverlayUtil.h`, `SerializationUtil.*` | **unbuild (question #6)** | Zero callers; SerializationUtil's Light/Entity round-trip is superseded by component save/load. |
 | `engine_util/NodeUtil` | **absorbed by facade RAII** | Its recursive destroy dance exists because raw SceneNodes have no ownership; `RenderNode`/`MeshInstance` handles are RAII. `getGameObjectFromNode` → `RenderNode::setUserPointer`/`findUserPointerUpwards` (used by picking). |
@@ -134,7 +134,7 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 | `RenderPrerequisites.h` | — | export macro, facade forward decls, backend/ODR ground rules |
 | `RenderMath.h` | — | the math vocabulary + THE swap point (see math decision) |
 | `RenderSystem.h` | `RenderSystem` | frame loop, main-window camera/background/resize/size (`showCameraOnWindow` + `getWindowCamera` - the latter added in WP-A1.2 so CameraComponent can take over the window camera while apps still set it up through Engine), screenshots, `FrameStats` (fps/triangles/batches), resource locations (FileSystem/Zip/BigZip), `createRenderTexture`, `getWorld` |
-| `RenderWorld.h` | `RenderWorld` | root node, node/content factories, ambient light, `queryRay` AABB picking (`RayQueryHit`: distance/node/userPointer) |
+| `RenderWorld.h` | `RenderWorld` | root node, node/content factories, ambient light, `queryRay` AABB picking (`RayQueryHit`: distance/node/userPointer), `createVertexColourCubeMesh` (the WP-A1.3 backend cube-mesh service - the editor's "Create Cube" resource every scene-loading app needs; classic impl reuses PrimitiveUtil) |
 | `RenderNode.h` | `RenderNode` | transform get/set (local + world), translate/yaw/pitch/roll/lookAt/setDirection/fixedYawAxis, child creation/re-parenting/navigation, visibility, world bounds, user-pointer back-mapping |
 | `MeshInstance.h` | `MeshInstance` | ModelComponent needs (load/attach/visible/shadows/bounds/query flags), vertex-colour-unlit fixup + sub-mesh introspection (self-checks), AnimationComponent's AnimationState control surface (names/enable/loop/time/length/ended) |
 | `SpriteQuad.h` | `SpriteQuad` | SpriteComponent needs: texture + texel size, size, UV rect, tint, flips, zOrder (painter's sorting), visibility |
@@ -339,12 +339,53 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   - hello_orkige still attaches raw ManualObjects; it reaches the component's
     backend node by its deterministic name ("<id>.TransformComponent") until
     WP-A1.3 migrates demo content onto facade types.
-- **WP-A1.3 apps + services**: player, hello_orkige, jumper, jumper-native onto
+- **WP-A1.3 apps + services** *(DELIVERED 2026-07-08)*: player, hello_orkige, jumper, jumper-native onto
   `RenderSystem` services (resource locations, ambient, background, screenshots,
   stats, window size) + `SoundManager::setListener` seam + PlayerRuntime/editor log
   forwarding into one engine service. Files: `tools/player/main.cpp`,
   `samples/*/main.cpp`, `projects/jumper-native/native/main.cpp`,
   `engine_sound/SoundManager.{h,cpp}`, `engine_runtime/PlayerRuntime.cpp`.
+  Implementation notes:
+  - **The sanctioned classic boot block**: every app keeps a marked raw-Ogre
+    corner covering exactly (a) the `Engine` constructor/window params
+    (`Ogre::SMT_DEFAULT`), (b) the RTSS-internal media registration into
+    `RGN_INTERNAL` (must precede `Engine::setup`; same rule as
+    `tests/render_facade/bootstrap_classic.cpp`), (c) `ORKIGE_RENDERSYSTEM`
+    handling via `Engine::setPreferredRenderSystem` (classic-internal runtime
+    graphics-API pick, see "Build flavors"). Everything after `Engine::setup`
+    is facade-only.
+  - **Window camera**: hello_orkige, jumper and jumper-native replaced
+    `createDefaultCameraAndViewport` with a facade rig (`createCamera` +
+    `createNode` + `setFixedYawAxis` + `showCameraOnWindow`). tools/player
+    KEEPS the Engine-path camera (documented residue): the project scripts
+    drive it through the Lua bindings (`engine:getCamera(0)`,
+    `setCameraOrthographic`, `getViewport`) which WP-A1.5 re-targets - only
+    then can the player switch rigs. `Engine::getViewport` grew a classic
+    migration bridge: it falls back to the window's viewport 0 when apps boot
+    the camera through the facade, so fastgui (classic-only, reads
+    `Engine::getViewport`) works on both boot paths until WP-A1.5.
+  - **hello_orkige content**: the raw ManualObject cubes became instances of
+    the facade cube-mesh service (`createVertexColourCubeMesh("HelloCube.mesh",
+    1.0)` + `createMeshInstance`), physics-box visuals are per-axis-scaled
+    child nodes; the "reach the component's backend node by name" transition
+    hack from WP-A1.2 is gone (visuals attach via
+    `TransformComponent::createChildNode`). Cosmetic delta: the orbiter cube
+    reuses the shared vertex-colour order (the reversed palette is gone).
+    Triangle self-checks read `RenderSystem::getFrameStats`.
+  - **Log service**: `engine_base/EngineLog.h` (`EngineLogCapture`) is the
+    engine-service home for log capture/forwarding - pimpl over the logging
+    backend (OGRE LogManager, also present in Next), bounded backlog,
+    `drain()` per frame, static `logMessage`. `PlayerDebugLink` uses it; the
+    editor's duplicated console listener migrates in WP-A1.4.
+  - **SoundManager seam**: the listener is now an `optr<RenderNode>` (ctor +
+    `setListener`); forward/up derive from the node's world orientation
+    (-Z/+Y). No live caller existed - the seam is for the camera-node rigs.
+  - `engine_util/FrameStatsUtil` needed NO change: it is a frame-TIME
+    (wall-clock dt) collector with zero renderer coupling; the renderer
+    stats consumers (triangle counts) moved to `RenderSystem::getFrameStats`.
+  - JumperHud (fastgui, classic-only per decision #2) kept exactly one Ogre
+    spelling: the resource-group default parameter it forwards to
+    FastGuiManager; its math went to the alias vocabulary.
 - **WP-A1.4 editor**: RTT panel → `RenderTexture`; picking → `queryRay` +
   `findUserPointerUpwards`; gizmo → `RenderCamera` matrices/project; stats panel;
   grid via backend service; ImGuiOverlay glue isolated behind an editor-local seam.

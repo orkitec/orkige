@@ -311,6 +311,19 @@ protected:
 	//---------------------------------------------------------------
 	inline Ogre::Viewport* Engine::getViewport( unsigned int num )
 	{
+		// classic migration bridge (A1, Docs/render-abstraction.md): when the
+		// window camera was set up through the facade
+		// (RenderSystem::showCameraOnWindow) instead of
+		// createDefaultCameraAndViewport, this->viewport[num] stays NULL but
+		// the window carries the viewport - hand that one out so the
+		// classic-only consumers (fastgui, the Lua getViewport binding) keep
+		// working on the facade boot path. Goes away with the deprecated
+		// accessors in WP-A1.5.
+		if(!this->viewport[num] && this->renderWindow[num] &&
+			this->renderWindow[num]->getNumViewports() > 0)
+		{
+			return this->renderWindow[num]->getViewport(0);
+		}
 		return this->viewport[num];
 	}
 	//---------------------------------------------------------------

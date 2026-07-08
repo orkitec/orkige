@@ -13,6 +13,7 @@
 //! owning it during the A1 migration window)
 
 #include "engine_render_classic/ClassicBackend.h"
+#include "engine_util/PrimitiveUtil.h"
 
 #include <algorithm>
 
@@ -80,6 +81,16 @@ namespace Orkige
 	optr<RenderLight> RenderWorld::createLight()
 	{
 		return RenderBackend::createLight(this->mImpl->sceneManager);
+	}
+	//---------------------------------------------------------
+	void RenderWorld::createVertexColourCubeMesh(String const & meshName,
+		Real halfExtent)
+	{
+		// one source of truth: the editor's PrimitiveUtil recipe (ManualObject
+		// guts stay backend-private per Docs/render-abstraction.md); it also
+		// creates the shared unlit "VertexColour" material, both idempotent
+		PrimitiveUtil::createVertexColourCubeMesh(this->mImpl->sceneManager,
+			meshName, halfExtent);
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)

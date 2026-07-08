@@ -24,7 +24,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	SoundManager::SoundManager(Ogre::Camera* soundListener) : isInitialized(false)
+	SoundManager::SoundManager(optr<RenderNode> const & soundListener) : isInitialized(false)
 #ifdef ORKIGE_OPENAL_SOUND
 	, context(0)
 #endif //ORKIGE_OPENAL_SOUND
@@ -70,11 +70,14 @@ namespace Orkige
 		if(this->listener)
 		{
 #ifdef ORKIGE_OPENAL_SOUND
-			Ogre::Vector3 const & pos = this->listener->getDerivedPosition();
+			// the listener node's world pose: forward = -Z, up = +Y (the
+			// same convention cameras attach with)
+			const Vec3 pos = this->listener->getWorldPosition();
 			alListener3f(AL_POSITION, pos.x, pos.y, pos.z);
 
-			Ogre::Vector3 dir = this->listener->getDerivedDirection();
-			Ogre::Vector3 up = this->listener->getDerivedUp();
+			const Quat pose = this->listener->getWorldOrientation();
+			Vec3 dir = pose * Vec3::NEGATIVE_UNIT_Z;
+			Vec3 up = pose * Vec3::UNIT_Y;
 
 			ALfloat orientation[6];
 			orientation[0]= dir.x; // Forward.x
@@ -113,7 +116,7 @@ namespace Orkige
 
 	}
 	//---------------------------------------------------------
-	SoundSourcePtr SoundManager::createSound(String const & id, String const & fileName, bool loop, Ogre::Vector3 const & pos, bool stream, bool preBuffer)
+	SoundSourcePtr SoundManager::createSound(String const & id, String const & fileName, bool loop, Vec3 const & pos, bool stream, bool preBuffer)
 	{
 		SoundRegistry::const_iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())
@@ -127,7 +130,7 @@ namespace Orkige
 		return it->second;
 	}
 	//---------------------------------------------------------
-	SoundSourcePtr SoundManager::createSoundFromPCM(String const & id, void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate, bool loop, Ogre::Vector3 const & pos)
+	SoundSourcePtr SoundManager::createSoundFromPCM(String const & id, void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate, bool loop, Vec3 const & pos)
 	{
 		SoundRegistry::const_iterator it = this->sounds.find(id);
 		if(it == this->sounds.end())

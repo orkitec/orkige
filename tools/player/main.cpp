@@ -28,6 +28,10 @@
 // on iOS it wraps main() in SDL's UIKit application bootstrap
 #include <SDL3/SDL_main.h>
 #include <engine_graphic/Engine.h>
+#include <engine_render/RenderSystem.h>
+#include <engine_render/RenderWorld.h>
+#include <engine_render/RenderCamera.h>
+#include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
@@ -38,7 +42,6 @@
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
-#include <engine_util/PrimitiveUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
@@ -49,8 +52,6 @@
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
-
-#include <OgreLogManager.h>
 
 #include <algorithm>
 #include <chrono>
@@ -457,6 +458,13 @@ int main(int argc, char** argv)
 		const bool automatedRun = jumperLuaCheck || rollerCheck ||
 			frameLimit != 0;
 
+		// --- classic boot block (sanctioned raw-Ogre corner, see
+		// Docs/render-abstraction.md "App boot"): Engine construction/config
+		// and the RTSS-internal media registration stay classic plumbing;
+		// after Engine::setup the player talks to the engine_render facade -
+		// EXCEPT the window camera, which stays on the Engine path until
+		// WP-A1.5 because the project scripts drive it through the Lua
+		// bindings (engine:getCamera/setCameraOrthographic/...).
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, engineLogPath);
@@ -505,12 +513,30 @@ int main(int argc, char** argv)
 		const std::string playerJumperAssetDir = ORKIGE_PLAYER_JUMPER_ASSET_DIR;
 #endif
 		// RTSS shader library + OgreUnifiedShader.h, same locations
-		// OgreBites::ApplicationContext registers (see CMakeLists.txt)
+		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
+		// backend-internal media, needed before setup: classic bootstrap
+		// business, not a facade call
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			playerMediaDir + "/Main", "FileSystem", Ogre::RGN_INTERNAL);
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			playerMediaDir + "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+
+		if (!engine.setup("Orkige Player", Orkige::Engine::SHOW_NEVER,
+			Orkige::StringUtil::Converter::toString(
+				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
+		{
+			SDL_Log("Engine::setup failed");
+			return 1;
+		}
+		// the Engine-path window camera (see the boot-block note above); the
+		// facade wraps it via RenderSystem::getWindowCamera where needed
+		engine.createDefaultCameraAndViewport();
+		// --- end of the classic boot block: from here on (camera placement
+		// aside) the player talks to the engine_render facade
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		Orkige::RenderWorld* world = render->getWorld();
+
 		// sample assets (test_mesh.glb; scene meshes load lazily via
 		// Codec_Assimp) and the jumper sample assets, so the editor's play
 		// mode works on samples/* scenes too. Registered only when present:
@@ -522,8 +548,7 @@ int main(int argc, char** argv)
 			std::error_code sampleDirError;
 			if (std::filesystem::is_directory(sampleAssetDir, sampleDirError))
 			{
-				Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-					sampleAssetDir, "FileSystem");
+				render->addResourceLocation(sampleAssetDir);
 			}
 		}
 		// --project: the project's assets/ and scenes/ become resource
@@ -537,9 +562,9 @@ int main(int argc, char** argv)
 				std::error_code ignored;
 				if (std::filesystem::is_directory(projectDir, ignored))
 				{
-					Ogre::ResourceGroupManager::getSingleton()
-						.addResourceLocation(projectDir, "FileSystem",
-							Orkige::Project::RESOURCE_GROUP_NAME);
+					render->addResourceLocation(projectDir,
+						Orkige::RenderSystem::LT_FILESYSTEM,
+						Orkige::Project::RESOURCE_GROUP_NAME);
 				}
 				else
 				{
@@ -551,25 +576,14 @@ int main(int argc, char** argv)
 				"resource locations", project.getName().c_str(),
 				project.getRootDirectory().c_str());
 		}
+		render->initialiseResourceGroups();
 
-		if (!engine.setup("Orkige Player", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
-		{
-			SDL_Log("Engine::setup failed");
-			return 1;
-		}
-		engine.createDefaultCameraAndViewport();
-		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
-
-		Ogre::SceneManager* sceneManager = engine.getSceneManager();
-		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
+		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
 		// the same shared resources the editor sets up before creating
-		// objects: the unlit "VertexColour" material and the in-memory
-		// "EditorCube.mesh" that saved scenes reference by name
-		Orkige::PrimitiveUtil::createVertexColourMaterial();
-		Orkige::PrimitiveUtil::createVertexColourCubeMesh(sceneManager);
+		// objects: the in-memory "EditorCube.mesh" (plus its unlit
+		// "VertexColour" material) that saved scenes reference by name
+		world->createVertexColourCubeMesh();
 
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
@@ -628,10 +642,12 @@ int main(int argc, char** argv)
 		}
 
 		// default view: matches the editor's initial orbit camera pose so a
-		// scene looks the same in the player as in a fresh editor viewport
+		// scene looks the same in the player as in a fresh editor viewport.
+		// Engine-path camera placement (sanctioned residue): the Lua camera
+		// bindings own this camera until WP-A1.5 re-targets them at the facade
 		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.5f, 9.0f);
 		engine.getCamera()->getParentSceneNode()->lookAt(
-			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+			Orkige::Vec3::ZERO, Ogre::Node::TS_WORLD);
 
 		// frame-time statistics: the ORKIGE_DEMO_FPS_LOG measurement hook and
 		// the one-time "this build is too slow to play" hint
@@ -756,7 +772,7 @@ int main(int argc, char** argv)
 		// teleport the player body between check phases (the same pose reset
 		// the jumper sample's selfcheck uses)
 		auto jumperTeleport = [&gameObjectManager, &physicsWorld,
-			&jumperPlayerTransform](Ogre::Vector3 const& position)
+			&jumperPlayerTransform](Orkige::Vec3 const& position)
 		{
 			optr<Orkige::GameObject> player =
 				gameObjectManager.getGameObject("Player").lock();
@@ -771,16 +787,16 @@ int main(int argc, char** argv)
 				return;
 			}
 			physicsWorld.setBodyTransform(body->getBodyId(), position,
-				Ogre::Quaternion::IDENTITY);
-			body->setLinearVelocity(Ogre::Vector3::ZERO);
-			body->setAngularVelocity(Ogre::Vector3::ZERO);
+				Orkige::Quat::IDENTITY);
+			body->setLinearVelocity(Orkige::Vec3::ZERO);
+			body->setAngularVelocity(Orkige::Vec3::ZERO);
 			jumperPlayerTransform()->setPosition(position);
 		};
 		auto jumperFail = [&](std::string const& what)
 		{
 			Orkige::TransformComponent* transform = jumperPlayerTransform();
-			const Ogre::Vector3 position = transform ?
-				transform->getPosition() : Ogre::Vector3::ZERO;
+			const Orkige::Vec3 position = transform ?
+				transform->getPosition() : Orkige::Vec3::ZERO;
 			SDL_Log("orkige_player: JUMPER-LUA SELFCHECK FAILED - %s "
 				"(pos %.2f/%.2f/%.2f grounded=%d respawns=%.0f wins=%.0f)",
 				what.c_str(), position.x, position.y, position.z,
@@ -895,19 +911,19 @@ int main(int argc, char** argv)
 		//! move" check for the tile slide
 		auto rollerProbeHit = [&physicsWorld](float x, float y) -> bool
 		{
-			Ogre::Vector3 hitPosition;
+			Orkige::Vec3 hitPosition;
 			Orkige::PhysicsWorld::BodyId hitBody;
-			return physicsWorld.castRay(Ogre::Vector3(x, y, -3.0f),
-				Ogre::Vector3(0.0f, 0.0f, 1.0f), 6.0f, hitPosition, hitBody);
+			return physicsWorld.castRay(Orkige::Vec3(x, y, -3.0f),
+				Orkige::Vec3(0.0f, 0.0f, 1.0f), 6.0f, hitPosition, hitBody);
 		};
-		auto rollerScreenshot = [&engine, &rollerShotDir](const char* name)
+		auto rollerScreenshot = [&render, &rollerShotDir](const char* name)
 		{
 			if (rollerShotDir.empty())
 			{
 				return;
 			}
 			const std::string path = rollerShotDir + "/" + name;
-			engine.getRenderWindow()->writeContentsToFile(path);
+			render->saveWindowContents(path);
 			SDL_Log("orkige_player: roller selfcheck - screenshot %s",
 				path.c_str());
 		};
@@ -989,7 +1005,7 @@ int main(int argc, char** argv)
 			// paused
 			debugLink.stream(gameObjectManager, frameCount);
 
-			if (!engine.renderOneFrame())
+			if (!render->renderOneFrame())
 			{
 				running = false;
 			}
@@ -1165,7 +1181,7 @@ int main(int argc, char** argv)
 						// drop into the first gap: the script's kill plane
 						// must respawn the player at the start
 						jumperBaseRespawns = jumperStat("respawns", 0.0);
-						jumperTeleport(Ogre::Vector3(2.75f, 1.5f, 0.0f));
+						jumperTeleport(Orkige::Vec3(2.75f, 1.5f, 0.0f));
 						jumperPhase = JumperCheckPhase::WaitRespawn;
 						jumperPhaseDeadline = frameCount + 300;
 					}
@@ -1182,7 +1198,7 @@ int main(int argc, char** argv)
 				{
 					const float spawnDistance = jumperPlayerTransform()
 						->getPosition().distance(
-							Ogre::Vector3(0.0f, 1.0f, 0.0f));
+							Orkige::Vec3(0.0f, 1.0f, 0.0f));
 					SDL_Log("orkige_player: jumper-lua selfcheck - kill "
 						"plane respawned the player %.3f m from the spawn",
 						spawnDistance);
@@ -1195,7 +1211,7 @@ int main(int argc, char** argv)
 						// walk-in test of the win path: drop just before the
 						// buddy on the goal platform
 						jumperBaseWins = jumperStat("wins", 0.0);
-						jumperTeleport(Ogre::Vector3(36.0f, 3.0f, 0.0f));
+						jumperTeleport(Orkige::Vec3(36.0f, 3.0f, 0.0f));
 						jumperPhase = JumperCheckPhase::WaitWin;
 						jumperPhaseDeadline = frameCount + 300;
 					}
@@ -1257,7 +1273,9 @@ int main(int argc, char** argv)
 					// camera-roll regression: the Lua follow camera lookAt's
 					// the engine camera node every frame of this session -
 					// the engine's fixed yaw axis must have kept it roll-free
-					// (the old shortest-arc lookAt slowly tilted the horizon)
+					// (the old shortest-arc lookAt slowly tilted the horizon).
+					// Engine-path camera probe (sanctioned residue, see the
+					// boot-block note) until WP-A1.5 re-targets the Lua camera
 					const float cameraRollDegrees = std::abs(
 						engine.getCamera()->getParentSceneNode()
 							->getOrientation().getRoll().valueDegrees());
@@ -1329,8 +1347,8 @@ int main(int argc, char** argv)
 					{
 						rollerFail("the Ball has no loaded SpriteComponent");
 					}
-					else if (engine.getCamera()->getProjectionType() !=
-						Ogre::PT_ORTHOGRAPHIC)
+					else if (render->getWindowCamera()->getProjectionType() !=
+						Orkige::RenderCamera::PT_ORTHOGRAPHIC)
 					{
 						rollerFail("ball.lua did not switch the camera to "
 							"orthographic projection");
@@ -1370,7 +1388,7 @@ int main(int argc, char** argv)
 				}
 				rollerMovedX = static_cast<float>(rollerStat("x", 0.0)) -
 					rollerStartX;
-				const Ogre::Vector3 tilt = inputManager.getTilt();
+				const Orkige::Vec3 tilt = inputManager.getTilt();
 				if (tilt.x <= -0.35f && rollerMovedX <= -0.4f)
 				{
 					pushKeyEvent(SDL_SCANCODE_LEFT, SDLK_LEFT, false);
@@ -1571,7 +1589,7 @@ int main(int argc, char** argv)
 				// visual verification
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
-					engine.getRenderWindow()->writeContentsToFile(shotPath);
+					render->saveWindowContents(shotPath);
 				}
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)

@@ -12,6 +12,7 @@
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_fastgui/FastGuiLabel.h>
 #include <engine_fastgui/FastGuiProgressBar.h>
+#include <engine_render/RenderMath.h>
 #include <core_util/optr.h>
 #include <core_util/StringUtil.h>
 
@@ -48,6 +49,9 @@ namespace Orkige
 
 		JumperHud(int screenWidth, int screenHeight,
 			String const & atlas = "fastgui_default",
+			// fastgui is classic-only (decision #2 in
+			// Docs/render-abstraction.md) - its resource-group default is
+			// the one sanctioned Ogre spelling left in this header
 			String const & resourceGroup =
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
 		{
@@ -59,18 +63,18 @@ namespace Orkige
 			optr<FastGuiFactory> factory = mFactory;
 			// whole-pixel positions only - Caption asserts on subpixel coords
 			mTitle = factory->createLabel("HudTitle", FONT_TITLE, "ORKIGE JUMPER",
-				Ogre::Vector2(0.0f, std::floor(screenHeight * 0.22f)),
+				Vec2(0.0f, std::floor(screenHeight * 0.22f)),
 				StringUtil::BLANK, Z_TITLE, false);
 			mTitle.lock()->centerHorizontal();
 
 			mHint = factory->createLabel("HudHint", FONT_HUD,
 				"WASD move - SPACE jump",
-				Ogre::Vector2(0.0f, static_cast<float>(screenHeight - 34)),
+				Vec2(0.0f, static_cast<float>(screenHeight - 34)),
 				StringUtil::BLANK, Z_HUD, false);
 			mHint.lock()->centerHorizontal();
 
 			mWinBanner = factory->createLabel("HudWinBanner", FONT_TITLE,
-				"YOU WIN!", Ogre::Vector2(0.0f, std::floor(screenHeight * 0.35f)),
+				"YOU WIN!", Vec2(0.0f, std::floor(screenHeight * 0.35f)),
 				StringUtil::BLANK, Z_WIN, false);
 			mWinBanner.lock()->centerHorizontal();
 			mWinBanner.lock()->getLayer()->hide();	// hidden until the goal
@@ -78,8 +82,8 @@ namespace Orkige
 			// distance-to-goal indicator, top-left ("progressbar" frame sprite +
 			// the "progressbar_bar" fill sprite FastGuiProgressBar hardcodes)
 			mProgress = factory->createProgressBar("HudProgress", "progressbar",
-				FONT_HUD, "", Ogre::Vector2(16.0f, 16.0f),
-				FastGuiLabel::LA_CENTER, Ogre::Vector2(192.0f, 20.0f),
+				FONT_HUD, "", Vec2(16.0f, 16.0f),
+				FastGuiLabel::LA_CENTER, Vec2(192.0f, 20.0f),
 				StringUtil::BLANK, Z_HUD);
 			mProgress.lock()->setProgress(0.0f);
 		}

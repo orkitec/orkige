@@ -13,14 +13,18 @@
 
 namespace Orkige
 {
-	//! @brief helpers for the built-in vertex-coloured primitives shared by
-	//! the editor, the player and the demos.
+	//! @brief helpers for the built-in vertex-coloured primitives (the
+	//! classic-backend recipe behind the facade cube-mesh service).
 	//! @remarks the editor's "Create Cube" produces a real in-memory mesh
 	//! resource (ManualObject::convertToMesh) instead of a per-object
 	//! ManualObject, so cubes go through ModelComponent and round-trip through
 	//! scene files as a plain mesh name. Every app that loads such a scene
-	//! must call createVertexColourCubeMesh() with the same mesh name before
-	//! SceneSerializer::loadScene runs.
+	//! must create the mesh under the same name before
+	//! SceneSerializer::loadScene runs - APPS do that through the facade
+	//! (RenderWorld::createVertexColourCubeMesh, whose classic impl calls
+	//! down here; A1, Docs/render-abstraction.md); the ManualObject guts stay
+	//! backend-private. Direct callers left: the classic backend and the
+	//! (classic-only) editor.
 	namespace PrimitiveUtil
 	{
 		//! mesh resource name used by the editor's "Create Cube"

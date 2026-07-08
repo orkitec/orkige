@@ -10,6 +10,8 @@
 #define __SoundManager_h__31_8_2010__13_58_35__
 
 #include "engine_sound/SoundSource.h"
+#include "engine_render/RenderMath.h"
+#include "engine_render/RenderNode.h"
 
 namespace Orkige
 {
@@ -38,15 +40,20 @@ namespace Orkige
 #ifdef ORKIGE_OPENAL_SOUND
 		ALCcontext*					context;			//!< OpenAL context
 #endif //ORKIGE_OPENAL_SOUND
-		Ogre::Camera*				listener;			//!< optional sound listener
+		//! optional sound listener: the node the "ears" sit on (usually the
+		//! camera's node) - facade-typed since A1 (Docs/render-abstraction.md);
+		//! forward = the node's -Z, up = its +Y
+		optr<RenderNode>			listener;
 
 	private:
 		//--- Methods -----------------------------------------------
 	public:
-		//! create SoundManager with optional listener
-		SoundManager(Ogre::Camera* soundListener = NULL);
+		//! create SoundManager with optional listener node
+		SoundManager(optr<RenderNode> const & soundListener = optr<RenderNode>());
 		//! destructor
 		virtual ~SoundManager();
+		//! set/replace the listener node (NULL keeps the listener static)
+		inline void setListener(optr<RenderNode> const & soundListener);
 		//! init sound system
 		bool init();
 		//! update sounds and listener position
@@ -54,7 +61,7 @@ namespace Orkige
 		//! deinit sound system
 		bool deinit();
 		//! create a SoundSource
-		SoundSourcePtr createSound(String const & id, String const & fileName, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO,  bool stream = false, bool preBuffer=false);
+		SoundSourcePtr createSound(String const & id, String const & fileName, bool loop = false, Vec3 const & pos = Vec3::ZERO,  bool stream = false, bool preBuffer=false);
 		//! @brief create a SoundSource from a raw PCM buffer (no sound file needed)
 		//! @remarks the samples get copied, see SoundSource::initFromPCM
 		//! @param pcmData raw interleaved PCM samples (8 bit unsigned or 16 bit signed)
@@ -62,7 +69,7 @@ namespace Orkige
 		//! @param channels channel count: 1 (mono) or 2 (stereo)
 		//! @param bitsPerSample bits per sample: 8 or 16
 		//! @param sampleRate SampleRate in Hz e.g. 44100
-		SoundSourcePtr createSoundFromPCM(String const & id, void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate, bool loop = false, Ogre::Vector3 const & pos = Ogre::Vector3::ZERO);
+		SoundSourcePtr createSoundFromPCM(String const & id, void const * pcmData, int dataSize, int channels, int bitsPerSample, int sampleRate, bool loop = false, Vec3 const & pos = Vec3::ZERO);
 		//! destroy a SoundSource
 		bool destroySound(String const & id);
 		//! does sound with given id exist
@@ -92,6 +99,11 @@ namespace Orkige
 
 	private:
 	};
+	//---------------------------------------------------------------
+	inline void SoundManager::setListener(optr<RenderNode> const & soundListener)
+	{
+		this->listener = soundListener;
+	}
 	//---------------------------------------------------------------
 }
 

@@ -82,6 +82,19 @@ namespace Orkige
 		//! map: classic/next=SceneManager::createLight | filament=LightManager::Builder
 		optr<RenderLight> createLight();
 
+		//--- procedural built-in meshes ---
+		//! @brief ensure the shared vertex-coloured cube MESH RESOURCE exists
+		//! (idempotent) - the editor's "Create Cube" content. Scenes reference
+		//! it by name through ModelComponent, so every app that loads such
+		//! scenes calls this before the scene load; afterwards the cube loads
+		//! like any mesh via createMeshInstance. Defaults mirror the editor's
+		//! PrimitiveUtil constants (CUBE_MESH_NAME / CUBE_MESH_HALF_EXTENT).
+		//! Creates the shared unlit "VertexColour" vertex-colour-tracking
+		//! material along the way (@see MeshInstance::setVertexColourUnlit).
+		//! map: classic=ManualObject::convertToMesh (engine_util/PrimitiveUtil recipe, backend-private) | next=v2 mesh built from the same vertex data + HlmsUnlit | filament=prebuilt vertex/index buffers + unlit filamat
+		void createVertexColourCubeMesh(String const & meshName = "EditorCube.mesh",
+			Real halfExtent = Real(0.8));
+
 		//--- global lighting ---
 		//! @brief the ambient light minimum every app sets today
 		//! map: classic/next=SceneManager::setAmbientLight (next takes hemisphere upper/lower - impl passes colour twice) | filament=IndirectLight intensity or ambient term in material

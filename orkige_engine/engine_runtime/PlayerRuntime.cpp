@@ -15,22 +15,20 @@
 #include "engine_runtime/PlayerRuntime.h"
 
 #include "core_game/GameObjectManager.h"
+#include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
-
-#include <OgreLogManager.h>
+#include "engine_render/RenderMath.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
 #include <SDL3/SDL_filesystem.h>
 
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <sstream>
 #include <system_error>
 #include <thread>
@@ -41,74 +39,6 @@ namespace Orkige
 
 	const unsigned long PlayerDebugLink::HIERARCHY_CHECK_INTERVAL = 15;
 	const int PlayerDebugLink::OBJECT_STATE_INTERVAL_MS = 66;
-	//---------------------------------------------------------
-	//! @brief captures the runtime's Ogre log (the engine's own log lines)
-	//! and forwards it over the debug link as MSG_LOG messages - the editor
-	//! Console shows them tagged "[remote]". Lines logged before the editor
-	//! connects are kept in a bounded backlog and flushed on connect; on
-	//! overflow the OLDEST lines drop (the newest context is the interesting
-	//! one).
-	//! @remarks messageLogged may in principle fire off the main thread, so
-	//! the queue is mutex-guarded; the flush happens once per frame.
-	class PlayerLogForwarder : public Ogre::LogListener
-	{
-	public:
-		//! one captured log line: severity ("info"/"warning"/"error") + text
-		struct Line
-		{
-			String level;
-			String text;
-		};
-		//! backlog cap - protects the link from unbounded buffering
-		static const std::size_t MAX_PENDING_LINES = 200;
-
-		std::mutex mutex;
-		std::deque<Line> pending;
-
-		virtual void messageLogged(Ogre::String const & message,
-			Ogre::LogMessageLevel lml, bool maskDebug,
-			Ogre::String const & logName, bool & skipThisMessage) override
-		{
-			(void)maskDebug;
-			(void)logName;
-			if (skipThisMessage)
-			{
-				return;
-			}
-			const char * level = "info";
-			if (lml == Ogre::LML_WARNING)
-			{
-				level = "warning";
-			}
-			else if (lml >= Ogre::LML_CRITICAL)
-			{
-				level = "error";
-			}
-			std::lock_guard<std::mutex> lock(this->mutex);
-			if (this->pending.size() >= MAX_PENDING_LINES)
-			{
-				this->pending.pop_front();
-			}
-			this->pending.push_back({ level, message });
-		}
-
-		//! send the queued lines to the connected editor (once per frame)
-		void flush(DebugServer & server)
-		{
-			std::deque<Line> lines;
-			{
-				std::lock_guard<std::mutex> lock(this->mutex);
-				lines.swap(this->pending);
-			}
-			for (Line const & line : lines)
-			{
-				DebugMessage log(Protocol::MSG_LOG);
-				log.set(Protocol::FIELD_MESSAGE, line.text);
-				log.set(Protocol::FIELD_LEVEL, line.level);
-				server.send(log);
-			}
-		}
-	};
 	//---------------------------------------------------------
 	namespace
 	{
@@ -121,13 +51,13 @@ namespace Orkige
 			return buffer;
 		}
 
-		String formatVector3(Ogre::Vector3 const & v)
+		String formatVector3(Vec3 const & v)
 		{
 			return formatFloat(v.x) + " " + formatFloat(v.y) + " " +
 				formatFloat(v.z);
 		}
 
-		String formatQuaternion(Ogre::Quaternion const & q)
+		String formatQuaternion(Quat const & q)
 		{
 			return formatFloat(q.w) + " " + formatFloat(q.x) + " " +
 				formatFloat(q.y) + " " + formatFloat(q.z);
@@ -339,11 +269,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	PlayerDebugLink::~PlayerDebugLink()
 	{
-		// belt-and-braces: a still-attached listener would dangle
-		if (mActive && mLogForwarder && Ogre::LogManager::getSingletonPtr())
+		// belt-and-braces: a still-attached capture would dangle (the
+		// capture's own dtor detaches too - shutdown() is the orderly path)
+		if (mLogCapture)
 		{
-			Ogre::LogManager::getSingleton().getDefaultLog()
-				->removeListener(mLogForwarder.get());
+			mLogCapture->detach();
 		}
 	}
 	//---------------------------------------------------------
@@ -354,11 +284,10 @@ namespace Orkige
 			return false;
 		}
 		mActive = true;
-		// forward the runtime's Ogre log to the editor Console ([remote]
+		// forward the runtime's engine log to the editor Console ([remote]
 		// lines); lines logged from here on queue up and flush per frame
-		mLogForwarder = std::make_unique<PlayerLogForwarder>();
-		Ogre::LogManager::getSingleton().getDefaultLog()
-			->addListener(mLogForwarder.get());
+		mLogCapture = std::make_unique<EngineLogCapture>();
+		mLogCapture->attach();
 		return true;
 	}
 	//---------------------------------------------------------
@@ -386,9 +315,9 @@ namespace Orkige
 			hello.set(Protocol::FIELD_SCENE, scenePath);
 			mServer.send(hello);
 			sendHierarchyIfChanged(gameObjectManager, true);
-			// goes through the log forwarder - guarantees the editor Console
+			// goes through the log capture - guarantees the editor Console
 			// receives at least one [remote] line per session
-			Ogre::LogManager::getSingleton().logMessage(
+			EngineLogCapture::logMessage(
 				"orkige runtime: debug link up - forwarding the runtime log "
 				"to the editor");
 		}
@@ -418,7 +347,14 @@ namespace Orkige
 			sendNewScriptErrors(gameObjectManager);
 		}
 		streamObjectState(gameObjectManager);
-		mLogForwarder->flush(mServer);
+		// forward the engine-log lines captured since the last frame
+		for (EngineLogCapture::Line const & line : mLogCapture->drain())
+		{
+			DebugMessage log(Protocol::MSG_LOG);
+			log.set(Protocol::FIELD_MESSAGE, line.text);
+			log.set(Protocol::FIELD_LEVEL, line.level);
+			mServer.send(log);
+		}
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::shutdown()
@@ -427,12 +363,11 @@ namespace Orkige
 		{
 			return;
 		}
-		// the forwarder may outlive the engine otherwise - detach it from
-		// the Ogre log first
-		if (mLogForwarder && Ogre::LogManager::getSingletonPtr())
+		// the capture may outlive the engine otherwise - detach it from
+		// the engine log first
+		if (mLogCapture)
 		{
-			Ogre::LogManager::getSingleton().getDefaultLog()
-				->removeListener(mLogForwarder.get());
+			mLogCapture->detach();
 		}
 		// orderly protocol shutdown: tell the editor we are going down (the
 		// quit path already sent bye) and give the socket a moment to flush
@@ -535,12 +470,12 @@ namespace Orkige
 			if (property == "position" && parseFloats(value, floats, 3))
 			{
 				transform->setPosition(
-					Ogre::Vector3(floats[0], floats[1], floats[2]));
+					Vec3(floats[0], floats[1], floats[2]));
 				return;
 			}
 			if (property == "orientation" && parseFloats(value, floats, 4))
 			{
-				Ogre::Quaternion orientation(floats[0], floats[1], floats[2],
+				Quat orientation(floats[0], floats[1], floats[2],
 					floats[3]);
 				orientation.normalise();
 				transform->setOrientation(orientation);
@@ -549,7 +484,7 @@ namespace Orkige
 			if (property == "scale" && parseFloats(value, floats, 3))
 			{
 				transform->setScale(
-					Ogre::Vector3(floats[0], floats[1], floats[2]));
+					Vec3(floats[0], floats[1], floats[2]));
 				return;
 			}
 		}
@@ -569,7 +504,7 @@ namespace Orkige
 						"' has no created rigid body yet");
 					return;
 				}
-				const Ogre::Vector3 velocity(floats[0], floats[1], floats[2]);
+				const Vec3 velocity(floats[0], floats[1], floats[2]);
 				if (property == "linear_velocity")
 				{
 					rigidBody->setLinearVelocity(velocity);

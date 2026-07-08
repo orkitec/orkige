@@ -1,9 +1,16 @@
 // hello_orkige - Phase 1 milestone demo.
-// SDL3 owns the window and event loop; Orkige::Engine renders into it via the
-// externalWindowHandle path. Scene: a spinning vertex-colored cube, which
-// exercises the whole RTSS shader pipeline without needing any asset files.
+// SDL3 owns the window and event loop; Orkige::Engine boots the renderer into
+// it via the externalWindowHandle path, everything AFTER boot goes through the
+// engine_render facade (A1, Docs/render-abstraction.md). Scene: a spinning
+// vertex-colored cube (the shared procedural cube mesh), which exercises the
+// whole RTSS shader pipeline without needing any asset files.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_render/RenderSystem.h>
+#include <engine_render/RenderWorld.h>
+#include <engine_render/RenderNode.h>
+#include <engine_render/RenderCamera.h>
+#include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
@@ -16,6 +23,8 @@
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
+
+#include <exception>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -81,8 +90,13 @@ int main(int, char**)
 		Orkige::ScriptRuntime scriptRuntime;
 		init_module_orkige_core();
 
-		// no resources.cfg / plugins.cfg / ogre.cfg: the demo wires its single
-		// resource location manually and lets Engine::configure pick defaults.
+		// --- classic boot block (sanctioned raw-Ogre corner, see
+		// Docs/render-abstraction.md "App boot"): Engine is the classic
+		// backend's bootstrapper - constructing/configuring it and feeding
+		// the RTSS its internal media stays classic plumbing; everything
+		// after Engine::setup talks to the engine_render facade.
+		// No resources.cfg / plugins.cfg / ogre.cfg: the demo wires its
+		// resource locations manually and lets Engine::configure pick defaults.
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, "hello_orkige.log");
@@ -103,7 +117,9 @@ int main(int, char**)
 
 		// The RTSS needs its shader library (and OgreUnifiedShader.h from
 		// Media/Main) in the OgreInternal group before Engine::setup runs -
-		// same locations OgreBites::ApplicationContext registers.
+		// same locations OgreBites::ApplicationContext registers. Backend-
+		// internal media = classic bootstrap business, not a facade call
+		// (the same rule tests/render_facade/bootstrap_classic.cpp follows).
 		// ORKIGE_DEMO_MEDIA_DIR is a demo-only compile definition pointing into
 		// the vcpkg-installed OGRE media (see CMakeLists.txt).
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
@@ -113,17 +129,6 @@ int main(int, char**)
 			ORKIGE_DEMO_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
 
-		// ORKIGE_DEMO_MESH=1: also load the generated glTF test asset
-		// (samples/hello_orkige/media/test_mesh.glb, built by
-		// Util/make_test_mesh.py) through the statically linked Codec_Assimp
-		// plugin. Unconditional runs stay asset-free.
-		const bool demoMesh = (std::getenv("ORKIGE_DEMO_MESH") != nullptr);
-		if (demoMesh)
-		{
-			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-				ORKIGE_DEMO_ASSET_DIR, "FileSystem");
-		}
-
 		if (!engine.setup("hello orkige", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
 				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
@@ -131,8 +136,32 @@ int main(int, char**)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		engine.createDefaultCameraAndViewport();
-		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
+		// --- end of the classic boot block: from here on the demo talks to
+		// the renderer through the engine_render facade exclusively
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		Orkige::RenderWorld* world = render->getWorld();
+
+		// ORKIGE_DEMO_MESH=1: also load the generated glTF test asset
+		// (samples/hello_orkige/media/test_mesh.glb, built by
+		// Util/make_test_mesh.py) through the statically linked Codec_Assimp
+		// plugin. Unconditional runs stay asset-free.
+		const bool demoMesh = (std::getenv("ORKIGE_DEMO_MESH") != nullptr);
+		if (demoMesh)
+		{
+			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+		}
+		render->initialiseResourceGroups();
+
+		// the window camera on a facade rig (the createDefaultCameraAndViewport
+		// successor): perspective defaults match the old Engine camera, the
+		// fixed yaw axis keeps per-frame lookAt calls roll-free
+		optr<Orkige::RenderCamera> camera = world->createCamera("hello.camera");
+		optr<Orkige::RenderNode> cameraNode = world->createNode("hello.cameraNode");
+		cameraNode->setFixedYawAxis(true);
+		camera->attachTo(cameraNode);
+		render->showCameraOnWindow(camera);
+		// the historical Engine default viewport colour
+		render->setWindowBackgroundColour(Orkige::Color(0.0f, 0.0f, 1.0f));
 
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
@@ -182,47 +211,17 @@ int main(int, char**)
 			}
 		}
 
-		Ogre::SceneManager* sceneManager = engine.getSceneManager();
-		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
+		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
-		// unlit material that takes its colour from the vertices (the RTSS only
-		// reads vertex colours when the pass tracks them)
-		Ogre::MaterialPtr cubeMaterial = Ogre::MaterialManager::getSingleton().create(
-			"VertexColour", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-		Ogre::Pass* cubePass = cubeMaterial->getTechnique(0)->getPass(0);
-		cubePass->setLightingEnabled(false);
-		cubePass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
-
-		Ogre::ManualObject* cube = sceneManager->createManualObject("cube");
-		cube->begin("VertexColour", Ogre::RenderOperation::OT_TRIANGLE_LIST);
-		const float s = 1.0f;
-		const Ogre::Vector3 corners[8] = {
-			{-s,-s,-s}, { s,-s,-s}, { s, s,-s}, {-s, s,-s},
-			{-s,-s, s}, { s,-s, s}, { s, s, s}, {-s, s, s},
-		};
-		const Ogre::ColourValue colors[8] = {
-			Ogre::ColourValue(1, 0, 0), Ogre::ColourValue(0, 1, 0),
-			Ogre::ColourValue(0, 0, 1), Ogre::ColourValue(1, 1, 0),
-			Ogre::ColourValue(1, 0, 1), Ogre::ColourValue(0, 1, 1),
-			Ogre::ColourValue(1, 1, 1), Ogre::ColourValue(0.5f, 0.5f, 0.5f),
-		};
-		for (int i = 0; i < 8; ++i)
-		{
-			cube->position(corners[i]);
-			cube->colour(colors[i]);
-		}
-		const int quads[6][4] = {
-			{0,1,2,3}, {5,4,7,6}, {4,0,3,7}, {1,5,6,2}, {3,2,6,7}, {4,5,1,0},
-		};
-		for (const int* q : quads)
-		{
-			cube->quad(q[0], q[1], q[2], q[3]);
-		}
-		cube->end();
-
-		Ogre::SceneNode* cubeNode =
-			sceneManager->getRootSceneNode()->createChildSceneNode("cubeNode");
-		cubeNode->attachObject(cube);
+		// the demo geometry: the shared procedural vertex-coloured cube mesh
+		// (facade service; also creates the unlit "VertexColour" material the
+		// RTSS reads vertex colours through). The 12-triangle count per cube
+		// feeds the frame-stats self-check below.
+		world->createVertexColourCubeMesh("HelloCube.mesh", 1.0f);
+		optr<Orkige::RenderNode> cubeNode = world->createNode("cubeNode");
+		optr<Orkige::MeshInstance> cube =
+			world->createMeshInstance("HelloCube.mesh");
+		cube->attachTo(cubeNode);
 
 		// --- GameObject component bridge: a second, smaller cube that is not
 		// placed through raw Ogre scene calls but through a GameObject with a
@@ -242,62 +241,40 @@ int main(int, char**)
 		Orkige::TransformComponent* orbiterTransform =
 			orbiter->getComponentPtr<Orkige::TransformComponent>();
 
-		Ogre::ManualObject* smallCube =
-			sceneManager->createManualObject("smallCube");
-		smallCube->begin("VertexColour", Ogre::RenderOperation::OT_TRIANGLE_LIST);
-		const float smallScale = 0.35f;
-		for (int i = 0; i < 8; ++i)
-		{
-			smallCube->position(corners[i] * smallScale);
-			smallCube->colour(colors[7 - i]);
-		}
-		for (const int* q : quads)
-		{
-			smallCube->quad(q[0], q[1], q[2], q[3]);
-		}
-		smallCube->end();
-		// attach to the TransformComponent's node. The component only hands
-		// out a facade RenderNode now (WP-A1.2); this demo still builds raw
-		// Ogre ManualObjects, so it reaches the backend node by its
-		// deterministic name until WP-A1.3 migrates the demo content onto
-		// facade types ("<objectId>.TransformComponent", see
-		// TransformComponent::onAdd)
-		(void)orbiterTransform;
-		sceneManager->getSceneNode("orbiter.TransformComponent")
-			->attachObject(smallCube);
+		// a smaller cube instance of the same mesh, attached to the
+		// TransformComponent's facade node through a scaled child (WP-A1.3:
+		// the demo content sits on facade types - no more reaching the
+		// backend node by its deterministic name)
+		optr<Orkige::RenderNode> smallCubeNode =
+			orbiterTransform->createChildNode("orbiterVisual");
+		smallCubeNode->setScale(Orkige::Vec3(0.35f, 0.35f, 0.35f));
+		optr<Orkige::MeshInstance> smallCube =
+			world->createMeshInstance("HelloCube.mesh");
+		smallCube->attachTo(smallCubeNode);
 
-		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the manual geometry -
-		// createEntity("test_mesh.glb") pulls the .glb through Codec_Assimp
-		// (registered in Engine.cpp's static-plugin block). The codec sets
-		// TVC_DIFFUSE on the synthesized material because the mesh carries
-		// COLOR_0 vertex colours, but it also generates normals
-		// (aiProcess_GenNormals) so lighting stays on; under this scene's
-		// ambient-only light the colours would drown. Render it unlit,
+		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the procedural cubes -
+		// createMeshInstance("test_mesh.glb") pulls the .glb through
+		// Codec_Assimp (registered in Engine.cpp's static-plugin block). The
+		// codec sets vertex-colour tracking on the synthesized material because
+		// the mesh carries COLOR_0 vertex colours, but it also generates
+		// normals (aiProcess_GenNormals) so lighting stays on; under this
+		// scene's ambient-only light the colours would drown. Render it unlit,
 		// the same treatment the cubes get.
+		optr<Orkige::RenderNode> testMeshNode;
+		optr<Orkige::MeshInstance> testMesh;
 		if (demoMesh)
 		{
-			Ogre::Entity* testMesh =
-				sceneManager->createEntity("testMesh", "test_mesh.glb");
-			for (unsigned int i = 0; i < testMesh->getNumSubEntities(); ++i)
-			{
-				Ogre::Pass* pass = testMesh->getSubEntity(i)->getMaterial()
-					->getTechnique(0)->getPass(0);
-				pass->setLightingEnabled(false);
-				pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
-			}
-			Ogre::SceneNode* testMeshNode = sceneManager->getRootSceneNode()
-				->createChildSceneNode("testMeshNode");
-			testMeshNode->setPosition(0.0f, 2.5f, 0.0f);
-			testMeshNode->attachObject(testMesh);
+			testMesh = world->createMeshInstance("test_mesh.glb");
+			testMesh->setVertexColourUnlit();
+			testMeshNode = world->createNode("testMeshNode");
+			testMeshNode->setPosition(Orkige::Vec3(0.0f, 2.5f, 0.0f));
+			testMesh->attachTo(testMeshNode);
 			SDL_Log("hello_orkige: test_mesh.glb loaded via Codec_Assimp "
-				"(%zu vertices in submesh 0)",
-				static_cast<size_t>(testMesh->getMesh()->getSubMesh(0)
-					->vertexData->vertexCount));
+				"(%zu sub-meshes)", testMesh->getNumSubMeshes());
 		}
 
-		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.0f, 6.0f);
-		engine.getCamera()->getParentSceneNode()->lookAt(
-			Ogre::Vector3::ZERO, Ogre::Node::TS_WORLD);
+		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
+		cameraNode->lookAt(Orkige::Vec3::ZERO, Orkige::RenderNode::TS_WORLD);
 
 		// --- ORKIGE_DEMO_PHYSICS=1: Jolt dynamics through the engine_physic /
 		// engine_gocomponent bridge. A static floor body, a pile of dynamic
@@ -316,37 +293,22 @@ int main(int, char**)
 		std::vector<Orkige::TransformComponent*> planarTransforms;
 		std::vector<Orkige::RigidBodyComponent*> planarBodies;
 		std::vector<float> planarStartX;
+		// the physics boxes' visuals: cube-mesh instances on scaled child
+		// nodes of the components' facade nodes - the app holds the handles
+		// (RAII; released before the GameObjectManager by declaration order)
+		std::vector<optr<Orkige::RenderNode>> physicsVisualNodes;
+		std::vector<optr<Orkige::MeshInstance>> physicsVisuals;
 		const float planarStartZ = 0.0f;
 		if (demoPhysics)
 		{
 			physicsWorld.init();
 
-			// vertex-colored box visual with given half extents (reuses the
-			// unit cube corner/color/quad tables from above)
-			auto makeBoxVisual = [&](std::string const& name,
-				Ogre::Vector3 const& halfExtents) -> Ogre::ManualObject*
-			{
-				Ogre::ManualObject* box = sceneManager->createManualObject(name);
-				box->begin("VertexColour",
-					Ogre::RenderOperation::OT_TRIANGLE_LIST);
-				for (int i = 0; i < 8; ++i)
-				{
-					box->position(corners[i] * halfExtents);
-					box->colour(colors[i]);
-				}
-				for (const int* q : quads)
-				{
-					box->quad(q[0], q[1], q[2], q[3]);
-				}
-				box->end();
-				return box;
-			};
-
 			// GameObject with TransformComponent + RigidBodyComponent and a
-			// box visual attached; the rigid body is created at the
+			// cube-mesh visual attached (the unit cube scaled per axis to the
+			// box's half extents); the rigid body is created at the
 			// transform's pose on the first component update
 			auto makePhysicsBox = [&](std::string const& name,
-				Ogre::Vector3 const& pos, Ogre::Vector3 const& halfExtents,
+				Orkige::Vec3 const& pos, Orkige::Vec3 const& halfExtents,
 				Orkige::PhysicsWorld::BodyType bodyType, bool planar)
 				-> std::pair<Orkige::TransformComponent*,
 					Orkige::RigidBodyComponent*>
@@ -364,10 +326,14 @@ int main(int, char**)
 				Orkige::RigidBodyComponent* rigidBody =
 					gameObject->getComponentPtr<Orkige::RigidBodyComponent>();
 				transform->setPosition(pos);
-				// raw-Ogre visual on the component's backend node - same
-				// WP-A1.3 migration note as the orbiter cube above
-				sceneManager->getSceneNode(name + ".TransformComponent")
-					->attachObject(makeBoxVisual(name + "Visual", halfExtents));
+				optr<Orkige::RenderNode> visualNode =
+					transform->createChildNode(name + "Visual");
+				visualNode->setScale(halfExtents);
+				optr<Orkige::MeshInstance> visual =
+					world->createMeshInstance("HelloCube.mesh");
+				visual->attachTo(visualNode);
+				physicsVisualNodes.push_back(visualNode);
+				physicsVisuals.push_back(visual);
 				rigidBody->setBodyType(bodyType);
 				rigidBody->setBoxShape(halfExtents);
 				rigidBody->setMass(1.0f);
@@ -377,8 +343,8 @@ int main(int, char**)
 
 			// static floor, top surface at floorTopY
 			if (!makePhysicsBox("physicsFloor",
-				Ogre::Vector3(0.0f, floorTopY - 0.5f, 0.0f),
-				Ogre::Vector3(12.0f, 0.5f, 12.0f),
+				Orkige::Vec3(0.0f, floorTopY - 0.5f, 0.0f),
+				Orkige::Vec3(12.0f, 0.5f, 12.0f),
 				Orkige::PhysicsWorld::BT_STATIC, false).first)
 			{
 				SDL_Log("hello_orkige: FAILED - physics floor creation");
@@ -387,7 +353,7 @@ int main(int, char**)
 
 			// dynamic cubes dropped from height (spread so each lands on the
 			// floor instead of on a sibling)
-			const Ogre::Vector3 dropPositions[4] = {
+			const Orkige::Vec3 dropPositions[4] = {
 				{ 1.2f, 3.0f, -0.6f }, { 2.4f, 4.5f, -0.6f },
 				{ 1.2f, 6.0f,  0.6f }, { 2.4f, 7.5f,  0.6f },
 			};
@@ -395,7 +361,7 @@ int main(int, char**)
 			{
 				auto [transform, rigidBody] = makePhysicsBox(
 					"physicsCube" + std::to_string(i), dropPositions[i],
-					Ogre::Vector3(cubeHalf),
+					Orkige::Vec3(cubeHalf),
 					Orkige::PhysicsWorld::BT_DYNAMIC, false);
 				if (!transform)
 				{
@@ -408,14 +374,14 @@ int main(int, char**)
 			}
 
 			// two plane-locked cubes (the 2D mode)
-			const Ogre::Vector3 planarPositions[2] = {
+			const Orkige::Vec3 planarPositions[2] = {
 				{ -3.5f, 2.0f, planarStartZ }, { -5.0f, 3.0f, planarStartZ },
 			};
 			for (int i = 0; i < 2; ++i)
 			{
 				auto [transform, rigidBody] = makePhysicsBox(
 					"planarCube" + std::to_string(i), planarPositions[i],
-					Ogre::Vector3(cubeHalf),
+					Orkige::Vec3(cubeHalf),
 					Orkige::PhysicsWorld::BT_DYNAMIC, true);
 				if (!transform)
 				{
@@ -438,7 +404,7 @@ int main(int, char**)
 					SDL_Log("hello_orkige: FAILED - rigid body not created");
 					return 1;
 				}
-				rigidBody->applyImpulse(Ogre::Vector3(1.5f, 0.0f, 0.0f));
+				rigidBody->applyImpulse(Orkige::Vec3(1.5f, 0.0f, 0.0f));
 			}
 			SDL_Log("hello_orkige: physics world up - gravity (%.2f, %.2f, "
 				"%.2f), %zu dynamic + %zu planar cubes",
@@ -447,10 +413,9 @@ int main(int, char**)
 				planarTransforms.size());
 
 			// pull the camera back so floor and falling cubes stay in view
-			engine.getCamera()->getParentSceneNode()->setPosition(
-				0.0f, 3.0f, 20.0f);
-			engine.getCamera()->getParentSceneNode()->lookAt(
-				Ogre::Vector3(0.0f, -1.0f, 0.0f), Ogre::Node::TS_WORLD);
+			cameraNode->setPosition(Orkige::Vec3(0.0f, 3.0f, 20.0f));
+			cameraNode->lookAt(Orkige::Vec3(0.0f, -1.0f, 0.0f),
+				Orkige::RenderNode::TS_WORLD);
 		}
 
 		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
@@ -535,7 +500,7 @@ int main(int, char**)
 				// Gorilla backend alone: frame listener registration, an empty
 				// rendered frame, and teardown all work without an atlas.
 				Gorilla::Silverback silverback;
-				if (!engine.renderOneFrame())
+				if (!render->renderOneFrame())
 				{
 					SDL_Log("hello_orkige: FAILED - frame with Gorilla "
 						"Silverback alive did not render");
@@ -548,11 +513,14 @@ int main(int, char**)
 				Orkige::FastGuiManager guiManager(
 					Orkige::onew(new Orkige::FastGuiFactory()));
 			}
-			catch (Ogre::Exception const& e)
+			catch (std::exception const& e)
 			{
+				// the classic backend surfaces the missing atlas as a resource
+				// exception (derives from std::exception - no renderer types
+				// needed to catch it)
 				guiRefusedCleanly = true;
 				SDL_Log("hello_orkige: FastGuiManager without atlas failed "
-					"cleanly as designed: %s", e.getDescription().c_str());
+					"cleanly as designed: %s", e.what());
 			}
 			if (!guiRefusedCleanly)
 			{
@@ -609,16 +577,16 @@ int main(int, char**)
 				// (simulation -> TransformComponent for dynamic bodies)
 				gameObjectManager.update(deltaTime);
 			}
-			cubeNode->yaw(Ogre::Degree(0.4f));
-			cubeNode->pitch(Ogre::Degree(0.13f));
+			cubeNode->yaw(Orkige::Degree(0.4f));
+			cubeNode->pitch(Orkige::Degree(0.13f));
 			// orbit the small cube around the main cube purely through the
 			// TransformComponent API - proves the component bridge end-to-end
 			const float orbitAngle = static_cast<float>(frameCount) * 0.02f;
-			orbiterTransform->setPosition(Ogre::Vector3(
+			orbiterTransform->setPosition(Orkige::Vec3(
 				3.0f * std::cos(orbitAngle), 0.8f, 3.0f * std::sin(orbitAngle)));
-			orbiterTransform->setOrientation(Ogre::Quaternion(
-				Ogre::Radian(-orbitAngle), Ogre::Vector3::UNIT_Y));
-			if (!engine.renderOneFrame())
+			orbiterTransform->setOrientation(Orkige::Quat(
+				Orkige::Radian(-orbitAngle), Orkige::Vec3::UNIT_Y));
+			if (!render->renderOneFrame())
 			{
 				running = false;
 			}
@@ -629,7 +597,7 @@ int main(int, char**)
 				// visual verification
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
-					engine.getRenderWindow()->writeContentsToFile(shotPath);
+					render->saveWindowContents(shotPath);
 				}
 			}
 			// ORKIGE_DEMO_SYNTH_ESC: push a synthetic ESC key press through the
@@ -650,13 +618,10 @@ int main(int, char**)
 			{
 				// verification that both cubes actually got drawn (12 triangles
 				// each), not just a black window; with ORKIGE_DEMO_MESH the
-				// glTF octahedron adds 8 more
+				// glTF octahedron adds 8 more - read through the facade stats
 				const size_t expectedTriangles = demoMesh ? 32 : 24;
 				const size_t triangleCount =
-					engine.getRenderWindow()->getStatistics().triangleCount;
-				Ogre::LogManager::getSingleton().logMessage(
-					"hello_orkige: triangle count after 10 frames: " +
-					Ogre::StringConverter::toString(triangleCount));
+					render->getFrameStats().triangleCount;
 				SDL_Log("hello_orkige: triangle count after 10 frames: %zu",
 					triangleCount);
 				if (triangleCount < expectedTriangles)
@@ -675,7 +640,7 @@ int main(int, char**)
 				// frame-60 shot so the pile has settled
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
-					engine.getRenderWindow()->writeContentsToFile(shotPath);
+					render->saveWindowContents(shotPath);
 				}
 			}
 			if (demoPhysics && frameCount == 120)
@@ -687,7 +652,7 @@ int main(int, char**)
 				const float restY = floorTopY + cubeHalf;
 				for (size_t i = 0; i < dropTransforms.size(); ++i)
 				{
-					const Ogre::Vector3 pos = dropTransforms[i]->getPosition();
+					const Orkige::Vec3 pos = dropTransforms[i]->getPosition();
 					const float speed = dropBodies[i]->getLinearVelocity().length();
 					const bool fell = (dropStartY[i] - pos.y) > 2.0f;
 					const bool atRest = std::abs(pos.y - restY) < 0.3f &&
@@ -700,7 +665,7 @@ int main(int, char**)
 				}
 				for (size_t i = 0; i < planarTransforms.size(); ++i)
 				{
-					const Ogre::Vector3 pos = planarTransforms[i]->getPosition();
+					const Orkige::Vec3 pos = planarTransforms[i]->getPosition();
 					const bool zLocked =
 						std::abs(pos.z - planarStartZ) < 1e-3f;
 					const bool xMoved =

@@ -19,7 +19,7 @@
 namespace Orkige
 {
 	class GameObjectManager;
-	class PlayerLogForwarder;
+	class EngineLogCapture;
 
 	//! @brief THE player CLI contract, parsed: every runtime the editor's
 	//! play mode can launch (tools/player, a project's native module built
@@ -84,15 +84,16 @@ namespace Orkige
 	//! object's state at ~15Hz, pushes a script_error message for every
 	//! GameObject whose ScriptComponent fails (once per object per
 	//! connection - failures on never-selected objects must not stay
-	//! invisible), and forwards the runtime's Ogre log to the editor Console
-	//! ("[remote]" lines).
+	//! invisible), and forwards the runtime's engine log to the editor
+	//! Console ("[remote]" lines) via the shared EngineLogCapture service
+	//! (engine_base/EngineLog.h).
 	//! @remarks Call update() once per frame BEFORE stepping the world (so
 	//! pause/step/set_property apply to the frame) and stream() AFTER it.
 	//! The world-advance gate for a frame is
 	//!   !isActive() || !isPaused() || step   with step = consumePendingStep()
 	//! and a consumed step must advance exactly one fixed physics tick.
 	//! Public signatures stay free of renderer types (renderer containment);
-	//! the Ogre log listener is an implementation detail.
+	//! the log capture hides the logging backend entirely.
 	class PlayerDebugLink
 	{
 		//--- Types -------------------------------------------
@@ -120,15 +121,15 @@ namespace Orkige
 		std::set<String>	mReportedScriptErrors;
 		//! default-constructed = clock epoch, so the first send never waits
 		std::chrono::steady_clock::time_point mLastStateSend;
-		//! Ogre-log -> editor-Console forwarder (attached while active)
-		std::unique_ptr<PlayerLogForwarder> mLogForwarder;
+		//! engine-log -> editor-Console capture (attached while active)
+		std::unique_ptr<EngineLogCapture> mLogCapture;
 		//--- Methods -----------------------------------------
 	public:
 		PlayerDebugLink();
-		~PlayerDebugLink();	//!< detaches the log forwarder (see shutdown)
+		~PlayerDebugLink();	//!< detaches the log capture (see shutdown)
 
-		//! @brief listen on 127.0.0.1:port and start forwarding the default
-		//! Ogre log to the (future) editor client; false when the port
+		//! @brief listen on 127.0.0.1:port and start forwarding the engine
+		//! log to the (future) editor client; false when the port
 		//! cannot be bound. Call after the engine is up (the log must exist).
 		bool start(unsigned short port);
 
