@@ -3,98 +3,49 @@
 # listed. Unported modules (engine_mygui) join as they are ported.
 # engine_gocomponent/PythonScriptComponent stays out for good; its successor
 # is the sol2-based engine_gocomponent/ScriptComponent.
-
+#
 # ---------------------------------------------------------------------------
-# Ogre-Next flavor (ORKIGE_RENDER_BACKEND=next). Since B2 the whole
-# engine_render facade is implemented on this backend (conformance suite
-# render_facade_selfcheck passes on desktop-next).
-# HONEST GATING: every module above the facade includes the classic <Ogre.h>
-# umbrella through engine_module/EnginePrerequisites.h (Engine, fastgui,
-# IngameConsole, components, sound, input, runtime, filesystem, util) - so
-# the next-flavor orkige_engine is exactly the backend-free facade
-# (engine_render/) + the Ogre-Next backend (engine_render_next/) + the SDL
-# native-window bridge. Modules join this list as WP-A2.4 ports them off the
-# classic umbrella. The classic flavor below stays untouched.
+# Render flavors (ORKIGE_RENDER_BACKEND, Docs/render-abstraction.md):
+# since B3 the SHARED source list below is backend-neutral - the modules
+# talk to the renderer through engine_render/ and include the neutral
+# engine_module/EnginePrerequisites.h umbrella. Per flavor this target adds:
+#   classic: the classic Engine bootstrapper + backend
+#            (engine_render_classic/), fastgui (decision #2), the BigZip
+#            Ogre::Archive plumbing, Localisation, the overlay console and
+#            debug renderables - everything on the classic umbrella
+#            (engine_module/EnginePrerequisitesClassic.h).
+#   next:    the Ogre-Next backend (engine_render_next/) + the flavor's
+#            Engine sibling (engine_graphic/EngineNext.*). No fastgui, no
+#            BigZip (the facade's LT_ZIP/LT_BIGZIP stay honest
+#            notImplementedOnce gaps), no Localisation/ResourceUtil (their
+#            consumers are the classic-only fastgui zone).
 # ---------------------------------------------------------------------------
-if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-    # the overlay port ships this config (share/ogre-next); targets are
-    # namespaced OgreNext::* so nothing collides with classic's OgreMain
-    find_package(OGRE-Next CONFIG REQUIRED)
-    find_package(SDL3 CONFIG REQUIRED)
-    # Ogre-Next has no assimp codec - the backend's mesh import path
-    # (engine_render_next/MeshLoaderNext.cpp) drives assimp directly;
-    # the library is already in the tree via classic ogre's assimp feature
-    find_package(assimp CONFIG REQUIRED)
 
-    set(ORKIGE_ENGINE_SOURCES
-        engine_render/RenderPrerequisites.h
-        engine_render/RenderMath.h
-        engine_render/RenderSystem.h
-        engine_render/RenderWorld.h
-        engine_render/RenderNode.h
-        engine_render/MeshInstance.h
-        engine_render/SpriteQuad.h
-        engine_render/RenderCamera.h
-        engine_render/RenderLight.h
-        engine_render/RenderTexture.h
-        engine_render/RenderFacadeCheck.cpp
-        engine_render_next/NextBackend.h
-        engine_render_next/NextBackend.cpp
-        engine_render_next/RenderSystemNext.cpp
-        engine_render_next/RenderWorldNext.cpp
-        engine_render_next/RenderNodeNext.cpp
-        engine_render_next/MeshInstanceNext.cpp
-        engine_render_next/MeshLoaderNext.cpp
-        engine_render_next/SpriteQuadNext.cpp
-        engine_render_next/RenderCameraNext.cpp
-        engine_render_next/RenderLightNext.cpp
-        engine_render_next/RenderTextureNext.cpp
-    )
-    if(APPLE)
-        # SDL window -> NSWindow handle bridge for the SDL-hosted apps
-        list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindow.mm)
-    endif()
-
-    add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
-    add_library(Orkige::Engine ALIAS orkige_engine)
-    target_include_directories(orkige_engine PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-    # exactly one ORKIGE_RENDER_* define per build - engine_render's
-    # compile check enforces that invariant
-    target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)
-    target_link_libraries(orkige_engine
-        PUBLIC
-            Orkige::Core
-            OgreNext::Main
-            OgreNext::HlmsPbs
-            OgreNext::HlmsUnlit
-            OgreNext::RenderSystem_Metal
-            SDL3::SDL3
-        PRIVATE
-            # backend-internal mesh import; assimp types never leave the
-            # MeshLoaderNext translation unit
-            assimp::assimp
-    )
-    return()
-endif()
-
-# ---------------------------------------------------------------------------
-# classic flavor (the shipping backend) - everything below is the
-# pre-flavor-split target, unchanged
-# ---------------------------------------------------------------------------
-find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
+# --- dependencies shared by both flavors ------------------------------------
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
 find_package(Jolt CONFIG REQUIRED)
 
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    # the overlay port ships this config (share/ogre-next); targets are
+    # namespaced OgreNext::* so nothing collides with classic's OgreMain
+    find_package(OGRE-Next CONFIG REQUIRED)
+    # Ogre-Next has no assimp codec - the backend's mesh import path
+    # (engine_render_next/MeshLoaderNext.cpp) drives assimp directly;
+    # the library is already in the tree via classic ogre's assimp feature
+    find_package(assimp CONFIG REQUIRED)
+else()
+    find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
+endif()
+
+# --- backend-neutral sources (both flavors) ---------------------------------
 set(ORKIGE_ENGINE_SOURCES
     engine_module/EnginePrerequisites.h
     engine_module/module.cpp
     # engine_render: the renderer-agnostic facade (Docs/render-abstraction.md).
     # Interface headers + compile check; the backend implementation directory
-    # is appended below per ORKIGE_RENDER_BACKEND (classic today, next in A2).
+    # is appended below per ORKIGE_RENDER_BACKEND.
     engine_render/RenderPrerequisites.h
     engine_render/RenderMath.h
     engine_render/RenderSystem.h
@@ -106,35 +57,19 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/RenderLight.h
     engine_render/RenderTexture.h
     engine_render/RenderFacadeCheck.cpp
-    engine_filesystem/BigZipArchive.h
-    engine_filesystem/BigZipArchive.cpp
-    engine_filesystem/BigZipArchiveFactory.h
-    engine_filesystem/BigZipArchiveFactory.cpp
     engine_util/StringConverter.h
     engine_util/StringUtil.h
     engine_util/ResourceUtil.h
     engine_util/ResourceUtil.cpp
     engine_util/NodeUtil.h
-    engine_util/PrimitiveUtil.h
+    engine_util/FrameStatsUtil.h
     engine_util/SceneNodeGuard.h
     engine_util/SceneNodeGuard.cpp
+    # Engine.h dispatches per flavor: the classic bootstrapper below or the
+    # facade-only EngineNext sibling - apps/scripts see ONE Engine surface
+    engine_graphic/Engine.h
     engine_graphic/FrameEventData.h
     engine_graphic/FrameEventData.cpp
-    engine_graphic/Engine.h
-    engine_graphic/Engine.cpp
-    # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted in
-    # phase A1 (zero callers - decided question #6 in Docs/render-abstraction.md;
-    # recoverable from git). DynamicRenderable/DynamicLines stay compiled: the
-    # editor-era debug-line drawing is expected back, but they are now
-    # caller-less too - candidates for the same treatment if A2 says so.
-    engine_graphic/DynamicRenderable.h
-    engine_graphic/DynamicRenderable.cpp
-    engine_graphic/DynamicLines.h
-    engine_graphic/DynamicLines.cpp
-    engine_graphic/IngameConsole.h
-    engine_graphic/IngameConsole.cpp
-    engine_base/Localisation.h
-    engine_base/Localisation.cpp
     engine_base/EngineLog.h
     engine_base/EngineLog.cpp
     engine_input/KeyEventData.h
@@ -179,41 +114,97 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
-    engine_fastgui/Gorilla.h
-    engine_fastgui/Gorilla.cpp
-    engine_fastgui/IGuiObject.h
-    engine_fastgui/IGuiObject.cpp
-    engine_fastgui/DragEventData.h
-    engine_fastgui/DragEventData.cpp
-    engine_fastgui/FastGuiWidget.h
-    engine_fastgui/FastGuiWidget.cpp
-    engine_fastgui/FastGuiView.h
-    engine_fastgui/FastGuiView.cpp
-    engine_fastgui/FastGuiTextbox.h
-    engine_fastgui/FastGuiTextbox.cpp
-    engine_fastgui/FastGuiSlider.h
-    engine_fastgui/FastGuiSlider.cpp
-    engine_fastgui/FastGuiSelectMenu.h
-    engine_fastgui/FastGuiSelectMenu.cpp
-    engine_fastgui/FastGuiProgressBar.h
-    engine_fastgui/FastGuiProgressBar.cpp
-    engine_fastgui/FastGuiManager.h
-    engine_fastgui/FastGuiManager.cpp
-    engine_fastgui/FastGuiLabel.h
-    engine_fastgui/FastGuiLabel.cpp
-    engine_fastgui/FastGuiFactory.h
-    engine_fastgui/FastGuiFactory.cpp
-    engine_fastgui/FastGuiDragDropButton.h
-    engine_fastgui/FastGuiDragDropButton.cpp
-    engine_fastgui/FastGuiDecorWidget.h
-    engine_fastgui/FastGuiDecorWidget.cpp
-    engine_fastgui/FastGuiCheckBox.h
-    engine_fastgui/FastGuiCheckBox.cpp
-    engine_fastgui/FastGuiButtonBlink.h
-    engine_fastgui/FastGuiButtonBlink.cpp
-    engine_fastgui/FastGuiButton.h
-    engine_fastgui/FastGuiButton.cpp
 )
+
+# --- classic-only sources (the classic umbrella zone) -----------------------
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    list(APPEND ORKIGE_ENGINE_SOURCES
+        engine_module/EnginePrerequisitesClassic.h
+        engine_filesystem/BigZipArchive.h
+        engine_filesystem/BigZipArchive.cpp
+        engine_filesystem/BigZipArchiveFactory.h
+        engine_filesystem/BigZipArchiveFactory.cpp
+        engine_util/PrimitiveUtil.h
+        engine_graphic/Engine.cpp
+        # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted in
+        # phase A1 (zero callers - decided question #6 in Docs/render-abstraction.md;
+        # recoverable from git). DynamicRenderable/DynamicLines stay compiled: the
+        # editor-era debug-line drawing is expected back, but they are now
+        # caller-less too - candidates for the same treatment if A2 says so.
+        engine_graphic/DynamicRenderable.h
+        engine_graphic/DynamicRenderable.cpp
+        engine_graphic/DynamicLines.h
+        engine_graphic/DynamicLines.cpp
+        engine_graphic/IngameConsole.h
+        engine_graphic/IngameConsole.cpp
+        engine_base/Localisation.h
+        engine_base/Localisation.cpp
+        engine_fastgui/Gorilla.h
+        engine_fastgui/Gorilla.cpp
+        engine_fastgui/IGuiObject.h
+        engine_fastgui/IGuiObject.cpp
+        engine_fastgui/DragEventData.h
+        engine_fastgui/DragEventData.cpp
+        engine_fastgui/FastGuiWidget.h
+        engine_fastgui/FastGuiWidget.cpp
+        engine_fastgui/FastGuiView.h
+        engine_fastgui/FastGuiView.cpp
+        engine_fastgui/FastGuiTextbox.h
+        engine_fastgui/FastGuiTextbox.cpp
+        engine_fastgui/FastGuiSlider.h
+        engine_fastgui/FastGuiSlider.cpp
+        engine_fastgui/FastGuiSelectMenu.h
+        engine_fastgui/FastGuiSelectMenu.cpp
+        engine_fastgui/FastGuiProgressBar.h
+        engine_fastgui/FastGuiProgressBar.cpp
+        engine_fastgui/FastGuiManager.h
+        engine_fastgui/FastGuiManager.cpp
+        engine_fastgui/FastGuiLabel.h
+        engine_fastgui/FastGuiLabel.cpp
+        engine_fastgui/FastGuiFactory.h
+        engine_fastgui/FastGuiFactory.cpp
+        engine_fastgui/FastGuiDragDropButton.h
+        engine_fastgui/FastGuiDragDropButton.cpp
+        engine_fastgui/FastGuiDecorWidget.h
+        engine_fastgui/FastGuiDecorWidget.cpp
+        engine_fastgui/FastGuiCheckBox.h
+        engine_fastgui/FastGuiCheckBox.cpp
+        engine_fastgui/FastGuiButtonBlink.h
+        engine_fastgui/FastGuiButtonBlink.cpp
+        engine_fastgui/FastGuiButton.h
+        engine_fastgui/FastGuiButton.cpp
+        # the classic backend implementing the engine_render facade
+        engine_render_classic/ClassicBackend.h
+        engine_render_classic/ClassicBackend.cpp
+        engine_render_classic/RenderSystemClassic.cpp
+        engine_render_classic/RenderWorldClassic.cpp
+        engine_render_classic/RenderNodeClassic.cpp
+        engine_render_classic/MeshInstanceClassic.cpp
+        engine_render_classic/SpriteQuadClassic.cpp
+        engine_render_classic/RenderCameraClassic.cpp
+        engine_render_classic/RenderLightClassic.cpp
+        engine_render_classic/RenderTextureClassic.cpp
+    )
+endif()
+
+# --- next-only sources (the Ogre-Next backend + its Engine sibling) ---------
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    list(APPEND ORKIGE_ENGINE_SOURCES
+        engine_graphic/EngineNext.h
+        engine_graphic/EngineNext.cpp
+        engine_render_next/NextBackend.h
+        engine_render_next/NextBackend.cpp
+        engine_render_next/RenderSystemNext.cpp
+        engine_render_next/RenderWorldNext.cpp
+        engine_render_next/RenderNodeNext.cpp
+        engine_render_next/MeshInstanceNext.cpp
+        engine_render_next/MeshLoaderNext.cpp
+        engine_render_next/SpriteQuadNext.cpp
+        engine_render_next/RenderCameraNext.cpp
+        engine_render_next/RenderLightNext.cpp
+        engine_render_next/RenderTextureNext.cpp
+    )
+endif()
 
 if(APPLE)
     # AudioToolbox-backed .caf decoding (Apple platforms only)
@@ -242,13 +233,17 @@ target_include_directories(orkige_engine PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-# PCH: every engine TU compiles against OGRE (and, with the Lua backend,
-# sol2 via the core Meta macros) - precompile both. CXX-only guard: the
-# target has ObjC++ sources on Apple platforms, and on iOS Engine.cpp itself
-# is compiled as OBJCXX (see below).
-target_precompile_headers(orkige_engine PRIVATE
-    "$<$<COMPILE_LANGUAGE:CXX>:<Ogre.h$<ANGLE-R>>"
-)
+# PCH: every engine TU compiles against Ogre math (and, with the Lua backend,
+# sol2 via the core Meta macros). The classic flavor precompiles the whole
+# <Ogre.h> umbrella (its backend + fastgui zone includes it everywhere); the
+# next flavor precompiles only sol2 - its TUs include exactly what they need.
+# CXX-only guard: the target has ObjC++ sources on Apple platforms, and on
+# iOS Engine.cpp itself is compiled as OBJCXX (see above).
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    target_precompile_headers(orkige_engine PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:<Ogre.h$<ANGLE-R>>"
+    )
+endif()
 if(ORKIGE_SCRIPTING STREQUAL "LUA")
     target_precompile_headers(orkige_engine PRIVATE
         "$<$<COMPILE_LANGUAGE:CXX>:<sol/sol.hpp$<ANGLE-R>>"
@@ -270,7 +265,6 @@ set_source_files_properties(engine_render/RenderFacadeCheck.cpp
 # TransformComponent/ModelComponent code paths guarded in engine_util/NodeUtil.h
 # and engine_base/Localisation.cpp.
 target_compile_definitions(orkige_engine PUBLIC
-    USE_RTSHADER_SYSTEM
     ORKIGE_OPENAL_SOUND
     ORKIGE_ENGINE_HAS_GOCOMPONENT
 )
@@ -279,44 +273,55 @@ target_compile_definitions(orkige_engine PUBLIC
 # exactly one ORKIGE_RENDER_* define is set per build - engine_render's
 # compile check enforces that invariant.
 if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-    target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_CLASSIC)
+    target_compile_definitions(orkige_engine PUBLIC
+        ORKIGE_RENDER_CLASSIC
+        USE_RTSHADER_SYSTEM
+    )
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
     target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)
-endif()
-
-# The backend implementation of the engine_render facade: exactly one impl
-# directory compiles per build (the A2 'next' flavor swaps in
-# engine_render_next/ here; the root CMakeLists FATAL_ERRORs on 'next' until
-# that backend exists).
-if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-    target_sources(orkige_engine PRIVATE
-        engine_render_classic/ClassicBackend.h
-        engine_render_classic/ClassicBackend.cpp
-        engine_render_classic/RenderSystemClassic.cpp
-        engine_render_classic/RenderWorldClassic.cpp
-        engine_render_classic/RenderNodeClassic.cpp
-        engine_render_classic/MeshInstanceClassic.cpp
-        engine_render_classic/SpriteQuadClassic.cpp
-        engine_render_classic/RenderCameraClassic.cpp
-        engine_render_classic/RenderLightClassic.cpp
-        engine_render_classic/RenderTextureClassic.cpp
+    target_compile_definitions(orkige_engine PRIVATE
+        # dev-tree default for EngineNext's Hlms shader-template registration
+        # (bundled apps override via Engine::setHlmsMediaDir once next-flavor
+        # export exists)
+        ORKIGE_NEXT_HLMS_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media"
     )
 endif()
 
 target_link_libraries(orkige_engine
     PUBLIC
         Orkige::Core
-        OgreMain
-        OgreOverlay
-        OgreRTShaderSystem
-        Codec_STBI
-        Codec_Assimp # mesh import (glTF/glb, obj, ...); pulls in libassimp
         SDL3::SDL3
         OpenAL::OpenAL
     PRIVATE
         # backend-agnostic physics: Jolt types never leave the engine_physic
         # translation units, so the dependency stays private
         Jolt::Jolt
+)
+
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    target_link_libraries(orkige_engine
+        PUBLIC
+            OgreNext::Main
+            OgreNext::HlmsPbs
+            OgreNext::HlmsUnlit
+            OgreNext::RenderSystem_Metal
+        PRIVATE
+            # backend-internal mesh import; assimp types never leave the
+            # MeshLoaderNext translation unit
+            assimp::assimp
+    )
+    # everything below is classic-backend plumbing (render system plugins,
+    # codecs, Vulkan loader wiring)
+    return()
+endif()
+
+target_link_libraries(orkige_engine
+    PUBLIC
+        OgreMain
+        OgreOverlay
+        OgreRTShaderSystem
+        Codec_STBI
+        Codec_Assimp # mesh import (glTF/glb, obj, ...); pulls in libassimp
 )
 
 # static build: render systems and codecs are linked in and registered via

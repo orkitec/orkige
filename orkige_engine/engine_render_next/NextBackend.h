@@ -13,9 +13,11 @@
 //! @brief PRIVATE plumbing of the Ogre-Next engine_render backend
 //! @remarks The Ogre-Next counterpart of engine_render_classic/
 //! ClassicBackend.h: the one place that pairs the backend-free facade
-//! headers with Ogre-Next types. Only the engine_render_next/*.cpp TUs
-//! and the per-backend test bootstraps (tests/render_facade/
-//! bootstrap_next.cpp, the render_next_smoke main) may include it.
+//! headers with Ogre-Next types. Only the engine_render_next/*.cpp TUs,
+//! the flavor's app-layer boot bridge (engine_graphic/EngineNext.cpp -
+//! this flavor's Engine.cpp counterpart) and the per-backend test
+//! bootstraps (tests/render_facade/bootstrap_next.cpp, the
+//! render_next_smoke main) may include it.
 //!
 //! B2 STATE (Docs/render-abstraction.md phase A2/WP-A2.2+A2.3): the
 //! whole facade is implemented - boot (Root + Metal RS + SDL-hosted

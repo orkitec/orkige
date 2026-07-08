@@ -21,9 +21,16 @@
 -- Widget visibility rides on the shared per-z Gorilla layers (widgets of one
 -- screen share a z), exactly like the C++ jumper sample's HUD: hiding layer
 -- Z_TITLE hides the whole title screen without touching the HUD widgets.
+--
+-- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the
+-- facade HUD replaces it in phase A3). engine:hasUISystem() answers which
+-- world we are in - without a UI system this script skips every widget and
+-- runs the same state machine on ENTER alone (title -> playing -> win).
 
 local KC = KeyEventData.KeyCode
-local LA = FastGuiLabel.LabelAlignment
+-- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
+-- system (engine:hasUISystem(), see init) - LA is only read on that path
+local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
 
 local FONT_HUD   = 9	-- 10x14 px glyphs in the atlas
 local FONT_TITLE = 24	-- 20x28 px glyphs
@@ -35,7 +42,8 @@ local PROJECT_RESOURCE_GROUP = "OrkigeProject"
 
 --- per-instance state ---------------------------------------------------
 local input                    -- InputManager singleton
-local gui, factory             -- the Lua-booted UI system
+local hasUI = false            -- engine:hasUISystem() (false = HUD-less flavor)
+local gui, factory             -- the Lua-booted UI system (nil when HUD-less)
 local layers = {}              -- the three screen layers: hud/title/win
 local hud = {}                 -- progress, wins, hint
 local title = {}               -- name, prompt, start (button)
@@ -71,12 +79,15 @@ local function publishButtonCenter(button, keyX, keyY)
 	shared.game[keyY] = pos.y + size.y / 2
 end
 
--- one state, three layers: show exactly what the state needs
+-- one state, three layers: show exactly what the state needs (the layers
+-- only exist with a UI system; the state machine itself always runs)
 local function setState(newState)
 	state = newState
-	layers.title:setVisible(state == "title")
-	layers.hud:setVisible(state ~= "title")
-	layers.win:setVisible(state == "win")
+	if hasUI then
+		layers.title:setVisible(state == "title")
+		layers.hud:setVisible(state ~= "title")
+		layers.win:setVisible(state == "win")
+	end
 	shared.game.state = state
 end
 
@@ -93,6 +104,25 @@ end
 function init(self)
 	input = InputManager.getSingleton()
 
+	local engine = Engine.getSingleton()
+	hasUI = engine:hasUISystem()
+
+	-- progress range: scene = data, the goal marker position IS the level
+	local goalTransform = world.getTransform("Goal")
+	if goalTransform ~= nil then
+		goalX = goalTransform:getPosition().x
+	end
+
+	if not hasUI then
+		-- HUD-less flavor (Ogre-Next until the A3 facade HUD): no widgets,
+		-- the game flow runs on ENTER alone
+		shared.game = {}
+		setState("title")
+		print("game.lua: no UI system on this flavor - HUD skipped, "
+			.. "ENTER drives the game flow")
+		return
+	end
+
 	-- boot the UI: the factory builds widgets, the manager owns the Gorilla
 	-- screen for the project's atlas and (enableInputEvents) feeds engine
 	-- mouse events to the widgets - that is what makes buttons clickable
@@ -100,15 +130,8 @@ function init(self)
 	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
 	gui:enableInputEvents()
 
-	local engine = Engine.getSingleton()
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 	layers.screenWidth = w
-
-	-- progress range: scene = data, the goal marker position IS the level
-	local goalTransform = world.getTransform("Goal")
-	if goalTransform ~= nil then
-		goalX = goalTransform:getPosition().x
-	end
 
 	-- HUD (z 12): progress to the goal, wins counter, controls hint
 	hud.progress = factory:createProgressBar("hud.progress", "progressbar",
@@ -150,8 +173,12 @@ function init(self)
 end
 
 function update(self, dt)
+	-- sample ENTER every frame regardless of state: edge detection needs a
+	-- fresh enterWasDown, or an ENTER held into "playing" (the HUD-less
+	-- title flow) reads as still-down when the win screen shows
+	local enter = enterPressed()
 	if state == "title" then
-		if enterPressed() or title.start:wasClicked() then
+		if enter or (hasUI and title.start:wasClicked()) then
 			setState("playing")
 		end
 	elseif state == "playing" then
@@ -159,19 +186,23 @@ function update(self, dt)
 		local jumper = shared.jumper
 		if jumper ~= nil then
 			local span = goalX - startX
-			if span > 0 then
+			if hasUI and span > 0 then
 				hud.progress:setProgress(
 					(jumper.x - startX) / span * 100.0)
 			end
 			if jumper.wins ~= winsSeen then
 				winsSeen = jumper.wins
-				hud.wins:setText("WINS: " .. winsSeen)
+				if hasUI then
+					hud.wins:setText("WINS: " .. winsSeen)
+				end
 				setState("win")	-- player.lua already respawned the player
 			end
 		end
 	elseif state == "win" then
-		if enterPressed() or win.again:wasClicked() then
-			hud.progress:setProgress(0)
+		if enter or (hasUI and win.again:wasClicked()) then
+			if hasUI then
+				hud.progress:setProgress(0)
+			end
 			setState("playing")
 		end
 	end

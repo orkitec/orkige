@@ -11,7 +11,14 @@
 // PythonScriptComponent is gone for good (ORKIGE_NOSCRIPT); its successor is
 // the sol2-based ScriptComponent.
 #include "engine_graphic/Engine.h"
+#ifdef ORKIGE_RENDER_CLASSIC
+// classic-only exports (B3): the fastgui UI system (decision #2 - the A3
+// facade HUD is its cross-backend successor) and the overlay-based ingame
+// console. On the next flavor these usertypes simply do not exist; scripts
+// probe engine:hasUISystem() before touching UI (an unguarded FastGui call
+// then fails with an honest "attempt to call a nil value" Lua error).
 #include "engine_graphic/IngameConsole.h"
+#endif
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
@@ -23,8 +30,10 @@
 #include "engine_physic/PhysicsWorld.h"
 #include "engine_input/InputManager.h"
 #include "engine_sound/SoundManager.h"
+#ifdef ORKIGE_RENDER_CLASSIC
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiManager.h"
+#endif
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderNode.h"
@@ -45,7 +54,9 @@ ORKIGE_MODULE(orkige_engine)
 
 	OEXPORT(Engine)
 	OEXPORT(FrameEventData)
+#ifdef ORKIGE_RENDER_CLASSIC
 	OEXPORT(IngameConsole)
+#endif
 
 	OEXPORT(KeyEventData)
 	OEXPORT(MouseEventData)
@@ -65,6 +76,7 @@ ORKIGE_MODULE(orkige_engine)
 		OCONSTVAR(bodyId)
 	OSIMPLEEXPORT_END
 
+#ifdef ORKIGE_RENDER_CLASSIC
 	// FastGuiFactory is not an OOBJECT (it derives Ogre::ConfigFile), so its
 	// Lua face lives here: scripts construct one, hand it to FastGuiManager
 	// and create the widgets the game needs. The create* functions return
@@ -106,16 +118,22 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(FastGuiButtonBlink)
 	OEXPORT(FastGuiButton)
 	OEXPORT(DragEventData)
+#endif //ORKIGE_RENDER_CLASSIC (fastgui exports)
 
 	// the math value types scripts actually compute with (the engine math
 	// vocabulary - Ogre spellings per the RenderMath.h alias decision);
 	// construction is Vector3(x,y,z) / Quaternion(w,x,y,z), members are
-	// plain fields. x/y/z (and cross/dot) physically live on Ogre's
-	// VectorBase - the base must be registered for sol2 to resolve them (see
-	// OSIMPLEEXPORT_BASED); the typedef exists because macro arguments
-	// cannot carry the comma
+	// plain fields. CLASSIC: x/y/z (and cross/dot) physically live on
+	// Ogre's VectorBase - the base must be registered for sol2 to resolve
+	// them (see OSIMPLEEXPORT_BASED); the typedef exists because macro
+	// arguments cannot carry the comma. NEXT: Ogre-Next's vectors have no
+	// VectorBase split - everything sits on the type itself.
+#ifdef ORKIGE_RENDER_CLASSIC
 	using OgreVector3Base [[maybe_unused]] = Ogre::VectorBase<3, Ogre::Real>;
 	OSIMPLEEXPORT_BASED(Ogre::Vector3,OgreVector3Base,Vector3)
+#else
+	OSIMPLEEXPORT(Ogre::Vector3,Vector3)
+#endif
 		OCONSTRUCTOR3(float,float,float)
 		OVAR(x)
 		OVAR(y)
@@ -129,9 +147,13 @@ ORKIGE_MODULE(orkige_engine)
 	OSIMPLEEXPORT_END
 
 	// the 2D sibling for UI work (positions/sizes in screen pixels); like
-	// Vector3, x/y live on the VectorBase - registered as the base class
+	// Vector3, x/y live on the VectorBase on classic only
+#ifdef ORKIGE_RENDER_CLASSIC
 	using OgreVector2Base [[maybe_unused]] = Ogre::VectorBase<2, Ogre::Real>;
 	OSIMPLEEXPORT_BASED(Ogre::Vector2,OgreVector2Base,Vector2)
+#else
+	OSIMPLEEXPORT(Ogre::Vector2,Vector2)
+#endif
 		OCONSTRUCTOR2(float,float)
 		OVAR(x)
 		OVAR(y)

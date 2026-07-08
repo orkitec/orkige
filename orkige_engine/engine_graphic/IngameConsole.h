@@ -15,7 +15,7 @@
 #include <core_util/FastDelegate.h>
 #include <core_util/String.h>
 #include <core_util/foreach.h>
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include <list>
 #include <vector>
 

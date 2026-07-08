@@ -8,7 +8,7 @@
 ***************************************************************/
 
 #include "engine_graphic/DynamicLines.h"
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 namespace Orkige
 {

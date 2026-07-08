@@ -220,11 +220,17 @@ namespace Orkige
 		outCorners[3] = Vec2(u0, v1);	// bottom-left
 	}
 	//---------------------------------------------------------
-	Ogre::uint8 SpriteComponent::renderQueueForZOrder(int zOrder)
+	unsigned char SpriteComponent::renderQueueForZOrder(int zOrder)
 	{
-		const int queue = static_cast<int>(Ogre::RENDER_QUEUE_MAIN) +
+		// 50 = classic Ogre::RENDER_QUEUE_MAIN = the base of Ogre-Next's
+		// default-FAST v2 queue window (0..99): the shared painter's base
+		// both backends sort sprites from. Spelled as a literal so this
+		// pure helper stays backend-free (B3); the live mapping sits in the
+		// backends (RenderBackend sprite queue services).
+		const int RENDER_QUEUE_MAIN = 50;
+		const int queue = RENDER_QUEUE_MAIN +
 			std::clamp(zOrder, ZORDER_MIN, ZORDER_MAX);
-		return static_cast<Ogre::uint8>(queue);
+		return static_cast<unsigned char>(queue);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

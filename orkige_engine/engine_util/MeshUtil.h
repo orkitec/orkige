@@ -9,7 +9,7 @@
 #ifndef __MeshUtil_h__31_8_2010__0_20_13__
 #define __MeshUtil_h__31_8_2010__0_20_13__
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include <OgreLodStrategy.h>
 
 namespace Orkige

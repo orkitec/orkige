@@ -90,17 +90,15 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
     # Next flavor (preset macos-debug-next; needs the render-next vcpkg
-    # manifest feature): orkige_engine compiles the engine_render facade
-    # + engine_render_next only. Since B2 the WHOLE facade is implemented
-    # (render_facade_selfcheck passes on desktop-next); everything that
-    # includes the classic <Ogre.h> umbrella (EnginePrerequisites.h -
-    # i.e. Engine, fastgui, components, sound, input, runtime AND every
-    # app on the classic Engine boot) stays excluded until the module
-    # ports land (WP-A2.4); see the flavor gates below and in
-    # orkige_engine/tests CMakeLists.
-    message(STATUS "Orkige render backend: next (B2 - full facade incl. "
-        "mesh/sprite/light/RTT/queryRay, conformance selfcheck enabled; "
-        "classic-only targets excluded: hello_orkige, jumper, editor, player)")
+    # manifest feature). Since B3 games RUN on it: the engine modules
+    # (components incl. scripting, input, sound, physics, runtime), the
+    # player and hello_orkige build against the Ogre-Next backend - only
+    # the classic-only zones stay excluded (fastgui/HUD per decision #2,
+    # the editor per decision #3, jumper's fastgui HUD, BigZip). See the
+    # flavor capability matrix in Docs/render-abstraction.md.
+    message(STATUS "Orkige render backend: next (B3 - games run: player + "
+        "hello_orkige + components/sound/input/physics/scripting; "
+        "classic-only excluded: editor, fastgui, jumper sample, BigZip)")
 else()
     message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
 endif()
@@ -124,13 +122,15 @@ add_subdirectory(orkige_core)
 
 if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
-    if(NOT ORKIGE_MOBILE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    if(NOT ORKIGE_MOBILE)
         # desktop-only SDL samples (plain executables, host asset paths).
-        # Classic-only: they boot through the classic Engine (the sanctioned
-        # classic boot block) - the next flavor's boot path is
-        # RenderBackend::createRenderSystem; the samples move over in B2.
+        # hello_orkige builds on both render flavors (B3: per-flavor boot
+        # block); jumper stays classic-only - its HUD is fastgui (decision
+        # #2, migrates with the A3 facade HUD).
         add_subdirectory(samples/hello_orkige)
-        add_subdirectory(samples/jumper)
+        if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+            add_subdirectory(samples/jumper)
+        endif()
     endif()
 endif()
 
@@ -138,15 +138,14 @@ if(ORKIGE_BUILD_TOOLS)
     if(NOT ORKIGE_BUILD_ENGINE)
         message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
     endif()
-    if(NOT ORKIGE_RENDER_BACKEND STREQUAL "classic")
-        # editor: classic by decision (#3, Docs/render-abstraction.md);
-        # player: classic Engine boot + fastgui + Lua module - B2 targets
-        message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires the classic render backend for now (editor is classic by decision #3; the player follows in phase B2) - configure the next flavor with ORKIGE_BUILD_TOOLS=OFF")
-    endif()
-    if(NOT ORKIGE_MOBILE)
-        # the editor is desktop-only (imgui/imguizmo are not built for mobile)
+    if(NOT ORKIGE_MOBILE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        # the editor is desktop-only (imgui/imguizmo are not built for
+        # mobile) and stays a classic-backend app (decision #3,
+        # Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
     endif()
+    # the player builds on both render flavors since B3 (per-flavor boot
+    # block; games choose their backend)
     add_subdirectory(tools/player)
 endif()
 

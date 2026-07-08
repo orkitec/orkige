@@ -14,7 +14,11 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
+#ifdef ORKIGE_RENDER_CLASSIC
+// fastgui is classic-only (decision #2) - the ORKIGE_DEMO_GUI smoke test
+// below only exists on that flavor
 #include <engine_fastgui/FastGuiManager.h>
+#endif
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
@@ -91,19 +95,27 @@ int main(int, char**)
 		init_module_orkige_core();
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- classic boot block (sanctioned raw-Ogre corner, see
-		// Docs/render-abstraction.md "App boot"): Engine is the classic
-		// backend's bootstrapper - constructing/configuring it and feeding
-		// the RTSS its internal media stays classic plumbing; everything
-		// after Engine::setup talks to the engine_render facade.
+		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
+		// boot"): on classic, Engine is the backend's bootstrapper -
+		// constructing/configuring it and feeding the RTSS its internal
+		// media stays classic plumbing. On the next flavor the Engine
+		// sibling (engine_graphic/EngineNext.h) carries the same parameters
+		// into RenderBackend::createRenderSystem (Hlms media is a built-in
+		// dev-tree default there). Everything after Engine::setup talks to
+		// the engine_render facade on BOTH flavors.
 		// No resources.cfg / plugins.cfg / ogre.cfg: the demo wires its
-		// resource locations manually and lets Engine::configure pick defaults.
+		// resource locations manually and lets the backend pick defaults.
+#ifdef ORKIGE_RENDER_CLASSIC
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, "hello_orkige.log");
+#else
+		Orkige::Engine engine("hello_orkige.log");
+#endif
 		engine.setCustomWindowParam("width", "1280");
 		engine.setCustomWindowParam("height", "720");
 
+#ifdef ORKIGE_RENDER_CLASSIC
 		// ORKIGE_RENDERSYSTEM: explicit render system choice for this run
 		// ("Vulkan", "Metal", "GL3Plus", "GL" - see
 		// Engine::matchRenderSystemName); unset keeps the default (first
@@ -111,6 +123,8 @@ int main(int, char**)
 		// support. OGRE 14.5's Metal RS has no RTSS/MSL backend: it renders
 		// through OGRE's built-in default shaders (no vertex colours, no
 		// lighting), so this demo's cubes come out untinted on Metal.
+		// (The next flavor boots Ogre-Next's Metal RS unconditionally -
+		// the classic runtime graphics-API pick does not apply there.)
 		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
 		{
 			engine.setPreferredRenderSystem(renderSystemEnv);
@@ -129,6 +143,7 @@ int main(int, char**)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_DEMO_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+#endif
 
 		if (!engine.setup("hello orkige", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
@@ -138,8 +153,8 @@ int main(int, char**)
 			return 1;
 		}
 		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the classic boot block: from here on the demo talks to
-		// the renderer through the engine_render facade exclusively
+		// --- end of the boot block: from here on the demo talks to the
+		// renderer through the engine_render facade exclusively
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
 
@@ -501,6 +516,7 @@ int main(int, char**)
 				"smoke test skipped", Orkige::ScriptRuntime::backendName());
 		}
 
+#ifdef ORKIGE_RENDER_CLASSIC
 		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test. No .ogui texture
 		// atlas exists anywhere in the repo or its git history (the 2012 game
 		// assets were never checked in), so FastGui has nothing it could render
@@ -547,6 +563,15 @@ int main(int, char**)
 			SDL_Log("hello_orkige: FastGui smoke test passed (Silverback "
 				"lifecycle + clean no-atlas constructor failure)");
 		}
+#else
+		// fastgui is classic-only (decision #2) - honest skip on this flavor
+		if (std::getenv("ORKIGE_DEMO_GUI"))
+		{
+			SDL_Log("hello_orkige: ORKIGE_DEMO_GUI skipped - no UI system on "
+				"the %s render flavor (engine.hasUISystem()=%d)",
+				"next", static_cast<int>(engine.hasUISystem()));
+		}
+#endif //ORKIGE_RENDER_CLASSIC
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs
 		// (0/unset = run until the window is closed).

@@ -40,7 +40,12 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#ifdef ORKIGE_RENDER_CLASSIC
+// fastgui is classic-only (decision #2, Docs/render-abstraction.md): the
+// game selfchecks below only assert the Lua-booted UI on that flavor - on
+// next the games run HUD-less (scripts probe engine:hasUISystem())
 #include <engine_fastgui/FastGuiManager.h>
+#endif
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -460,13 +465,20 @@ int main(int argc, char** argv)
 			frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- classic boot block (sanctioned raw-Ogre corner, see
-		// Docs/render-abstraction.md "App boot"): Engine construction/config
-		// and the RTSS-internal media registration stay classic plumbing;
-		// after Engine::setup the player talks to the engine_render facade.
+		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
+		// boot"): on classic, Engine construction/config and the
+		// RTSS-internal media registration stay classic plumbing; on the
+		// next flavor the Engine sibling (engine_graphic/EngineNext.h)
+		// carries the same parameters into RenderBackend::createRenderSystem.
+		// After Engine::setup the player talks to the engine_render facade
+		// on BOTH flavors.
+#ifdef ORKIGE_RENDER_CLASSIC
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, engineLogPath);
+#else
+		Orkige::Engine engine(engineLogPath);
+#endif
 		engine.setCustomWindowParam("width",
 			Orkige::StringUtil::Converter::toString(windowWidth));
 		engine.setCustomWindowParam("height",
@@ -476,15 +488,18 @@ int main(int argc, char** argv)
 			engine.setCustomWindowParam("vsync", "true");
 		}
 
+#ifdef ORKIGE_RENDER_CLASSIC
 		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Vulkan",
 		// "Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
 		// unset keeps the default (first available, i.e. GL3Plus). Vulkan
 		// (MoltenVK on macOS) has full RTSS support; OGRE 14.5's Metal RS
 		// does not (no MSL backend - built-in default shaders only).
+		// (The next flavor boots Ogre-Next's Metal RS unconditionally.)
 		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
 		{
 			engine.setPreferredRenderSystem(renderSystemEnv);
 		}
+#endif
 
 #ifdef ORKIGE_IPHONE
 		// iOS: everything was copied into the app bundle by the CMake
@@ -511,15 +526,22 @@ int main(int argc, char** argv)
 		const std::string playerAssetDir = ORKIGE_PLAYER_ASSET_DIR;
 		const std::string playerJumperAssetDir = ORKIGE_PLAYER_JUMPER_ASSET_DIR;
 #endif
+#ifdef ORKIGE_RENDER_CLASSIC
 		// RTSS shader library + OgreUnifiedShader.h, same locations
 		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
 		// backend-internal media, needed before setup: classic bootstrap
-		// business, not a facade call
+		// business, not a facade call. (The next flavor's Hlms media is a
+		// built-in default of its Engine sibling.)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			playerMediaDir + "/Main", "FileSystem", Ogre::RGN_INTERNAL);
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			playerMediaDir + "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+#else
+		// keep the exported-app media resolution alive on this flavor too
+		// (unused until next-flavor export exists)
+		(void)playerMediaDir;
+#endif
 
 		if (!engine.setup("Orkige Player", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
@@ -529,8 +551,8 @@ int main(int argc, char** argv)
 			return 1;
 		}
 		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the classic boot block: from here on the player talks
-		// to the engine_render facade exclusively
+		// --- end of the boot block: from here on the player talks to the
+		// engine_render facade exclusively (both flavors)
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
 
@@ -734,7 +756,14 @@ int main(int argc, char** argv)
 				{"shared", "game", key}, -1.0);
 		};
 		// the Lua-booted UI, seen through the FastGuiManager singleton: does
-		// the widget exist, and is its screen (= its shared z layer) visible
+		// the widget exist, and is its screen (= its shared z layer) visible.
+		// UI-GATED (B3): fastgui is classic-only (decision #2) - on the next
+		// flavor the games run HUD-less (game.lua probes engine:hasUISystem())
+		// and every UI assertion below is skipped via uiChecksEnabled; the
+		// GAMEPLAY assertions (script state, movement, physics, win flow)
+		// stay identical on both flavors.
+#ifdef ORKIGE_RENDER_CLASSIC
+		constexpr bool uiChecksEnabled = true;
 		auto jumperWidgetExists = [](const char* id) -> bool
 		{
 			Orkige::FastGuiManager* ui =
@@ -763,6 +792,12 @@ int main(int argc, char** argv)
 					.lock();
 			return progressBar ? progressBar->getProgress() : -1.0f;
 		};
+#else
+		constexpr bool uiChecksEnabled = false;
+		auto jumperWidgetExists = [](const char*) -> bool { return false; };
+		auto jumperWidgetVisible = [](const char*) -> bool { return false; };
+		auto jumperHudProgress = []() -> float { return -1.0f; };
+#endif
 		// player object access through the world - what the script drives
 		auto jumperPlayerTransform = [&gameObjectManager]()
 			-> Orkige::TransformComponent*
@@ -885,6 +920,8 @@ int main(int argc, char** argv)
 			}
 			return gameObject->getComponentPtr<Orkige::TransformComponent>();
 		};
+		// UI-GATED (B3): same rule as the jumper lambdas above
+#ifdef ORKIGE_RENDER_CLASSIC
 		auto rollerWidgetExists = [](const char* id) -> bool
 		{
 			Orkige::FastGuiManager* ui =
@@ -901,6 +938,10 @@ int main(int argc, char** argv)
 				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
 			return widget && widget->getLayer()->isVisible();
 		};
+#else
+		auto rollerWidgetExists = [](const char*) -> bool { return false; };
+		auto rollerWidgetVisible = [](const char*) -> bool { return false; };
+#endif
 		//! is the cursor sprite (the move-mode highlight) currently showing
 		auto rollerCursorVisible = [&gameObjectManager]() -> bool
 		{
@@ -1050,14 +1091,15 @@ int main(int argc, char** argv)
 					// the UI game.lua booted from Lua: every widget of the
 					// three screens exists, the game sits on the visible
 					// title screen and the HUD layer is still hidden
-					else if (!jumperWidgetExists("title.name") ||
+					// (UI-gated: skipped on the next flavor - HUD-less)
+					else if (uiChecksEnabled && (!jumperWidgetExists("title.name") ||
 						!jumperWidgetExists("title.prompt") ||
 						!jumperWidgetExists("title.start") ||
 						!jumperWidgetExists("hud.progress") ||
 						!jumperWidgetExists("hud.wins") ||
 						!jumperWidgetExists("hud.hint") ||
 						!jumperWidgetExists("win.banner") ||
-						!jumperWidgetExists("win.again"))
+						!jumperWidgetExists("win.again")))
 					{
 						jumperFail("the Lua-booted fastgui widgets are "
 							"missing");
@@ -1067,35 +1109,54 @@ int main(int argc, char** argv)
 						jumperFail("game did not start on the title screen "
 							"(state '" + jumperGameState() + "')");
 					}
-					else if (!jumperWidgetVisible("title.name") ||
+					else if (uiChecksEnabled && (!jumperWidgetVisible("title.name") ||
 						jumperWidgetVisible("hud.progress") ||
-						jumperWidgetVisible("win.banner"))
+						jumperWidgetVisible("win.banner")))
 					{
 						jumperFail("title-screen layer visibility is wrong");
 					}
 					else
 					{
 						SDL_Log("orkige_player: jumper-lua selfcheck - "
-							"'%s' loaded, UI up, title screen showing",
-							script->getScriptFile().c_str());
+							"'%s' loaded, %s, title state reached",
+							script->getScriptFile().c_str(),
+							uiChecksEnabled ? "UI up + title screen showing"
+								: "HUD-less flavor (UI checks skipped)");
 					}
 				}
-				// synthetic mouse click on the START button (center published
-				// by game.lua): move -> hover, press -> down, release -> hit
+				// starting the game: with UI, a synthetic mouse click on the
+				// START button (center published by game.lua): move -> hover,
+				// press -> down, release -> hit. HUD-less (next flavor),
+				// game.lua only listens for ENTER - push that instead (the
+				// click path stays classic-verified).
 				if (frameCount == 10)
 				{
-					pushMouseMove(
-						static_cast<float>(jumperGameStat("startButtonX")),
-						static_cast<float>(jumperGameStat("startButtonY")));
+					if (uiChecksEnabled)
+					{
+						pushMouseMove(
+							static_cast<float>(jumperGameStat("startButtonX")),
+							static_cast<float>(jumperGameStat("startButtonY")));
+					}
+					else
+					{
+						pushKeyEvent(SDL_SCANCODE_RETURN, SDLK_RETURN, true);
+					}
 				}
 				if (frameCount == 12)
 				{
-					pushMouseButton(
-						static_cast<float>(jumperGameStat("startButtonX")),
-						static_cast<float>(jumperGameStat("startButtonY")),
-						true);
+					if (uiChecksEnabled)
+					{
+						pushMouseButton(
+							static_cast<float>(jumperGameStat("startButtonX")),
+							static_cast<float>(jumperGameStat("startButtonY")),
+							true);
+					}
+					else
+					{
+						pushKeyEvent(SDL_SCANCODE_RETURN, SDLK_RETURN, false);
+					}
 				}
-				if (frameCount == 14)
+				if (frameCount == 14 && uiChecksEnabled)
 				{
 					pushMouseButton(
 						static_cast<float>(jumperGameStat("startButtonX")),
@@ -1106,19 +1167,21 @@ int main(int argc, char** argv)
 				{
 					if (jumperGameState() != "playing")
 					{
-						jumperFail("clicking START did not start the game "
-							"(state '" + jumperGameState() + "')");
+						jumperFail("starting the game did not switch to "
+							"playing (state '" + jumperGameState() + "')");
 					}
-					else if (jumperWidgetVisible("title.name") ||
-						!jumperWidgetVisible("hud.progress"))
+					else if (uiChecksEnabled && (jumperWidgetVisible("title.name") ||
+						!jumperWidgetVisible("hud.progress")))
 					{
 						jumperFail("start click did not swap title for HUD");
 					}
 					else
 					{
-						SDL_Log("orkige_player: jumper-lua selfcheck - START "
-							"button clicked via synthetic mouse events, HUD "
-							"up");
+						SDL_Log("orkige_player: jumper-lua selfcheck - game "
+							"started (%s)", uiChecksEnabled
+								? "START button clicked via synthetic mouse "
+								"events, HUD up"
+								: "ENTER on the HUD-less flavor");
 					}
 				}
 				if (frameCount == 30)
@@ -1142,7 +1205,7 @@ int main(int argc, char** argv)
 						jumperFail("player did not move right under "
 							"scripted input");
 					}
-					else if (jumperHudProgress() <= 0.0f)
+					else if (uiChecksEnabled && jumperHudProgress() <= 0.0f)
 					{
 						jumperFail("HUD progress bar did not advance with x");
 					}
@@ -1250,9 +1313,10 @@ int main(int argc, char** argv)
 				jumperPhase == JumperCheckPhase::WaitWinUi)
 			{
 				// the win overlay: game.lua switched to "win" and showed the
-				// banner layer - then ENTER restarts the game
+				// banner layer - then ENTER restarts the game (banner
+				// visibility is UI-gated; the state machine runs HUD-less too)
 				if (jumperGameState() == "win" &&
-					jumperWidgetVisible("win.banner"))
+					(!uiChecksEnabled || jumperWidgetVisible("win.banner")))
 				{
 					SDL_Log("orkige_player: jumper-lua selfcheck - win "
 						"screen up, pressing ENTER to restart");
@@ -1275,7 +1339,7 @@ int main(int argc, char** argv)
 					pushKeyEvent(SDL_SCANCODE_RETURN, SDLK_RETURN, false);
 				}
 				if (jumperGameState() == "playing" &&
-					!jumperWidgetVisible("win.banner"))
+					(!uiChecksEnabled || !jumperWidgetVisible("win.banner")))
 				{
 					// camera-roll regression: the Lua follow camera lookAt's
 					// the camera rig node every frame of this session - the
@@ -1294,12 +1358,15 @@ int main(int argc, char** argv)
 					else
 					{
 						SDL_Log("orkige_player: jumper-lua selfcheck complete "
-							"- script+UI boot, START click, movement "
-							"(+%.2f m) with HUD progress, jump (+%.2f m), "
-							"kill-plane respawn, the goal, the win screen, "
+							"- %s, movement (+%.2f m)%s, jump (+%.2f m), "
+							"kill-plane respawn, the goal, the win flow, "
 							"the ENTER restart and the roll-free camera all "
 							"verified (respawns=%.0f wins=%.0f)",
-							jumperMovedX, jumperMaxRise,
+							uiChecksEnabled ? "script+UI boot, START click"
+								: "script boot (HUD-less flavor)",
+							jumperMovedX,
+							uiChecksEnabled ? " with HUD progress" : "",
+							jumperMaxRise,
 							jumperStat("respawns", -1.0),
 							jumperStat("wins", -1.0));
 						jumperPhase = JumperCheckPhase::Done;
@@ -1358,11 +1425,12 @@ int main(int argc, char** argv)
 						rollerFail("ball.lua did not switch the camera to "
 							"orthographic projection");
 					}
-					else if (!rollerWidgetExists("hud.mode") ||
+					// UI-gated: skipped on the HUD-less next flavor
+					else if (uiChecksEnabled && (!rollerWidgetExists("hud.mode") ||
 						!rollerWidgetExists("hud.wins") ||
 						!rollerWidgetExists("hud.hint") ||
 						!rollerWidgetExists("warn.label") ||
-						!rollerWidgetExists("win.banner"))
+						!rollerWidgetExists("win.banner")))
 					{
 						rollerFail("the Lua-booted HUD widgets are missing");
 					}
@@ -1374,7 +1442,9 @@ int main(int argc, char** argv)
 					else
 					{
 						SDL_Log("orkige_player: roller selfcheck - scripts "
-							"up, ortho camera, sprites loaded, HUD showing");
+							"up, ortho camera, sprites loaded%s",
+							uiChecksEnabled ? ", HUD showing"
+								: " (HUD-less flavor, UI checks skipped)");
 						rollerPhase = RollerCheckPhase::TiltRoll;
 						rollerStepFrame = 0;
 					}
@@ -1568,12 +1638,13 @@ int main(int argc, char** argv)
 			else if (rollerCheck && !rollerCheckFailed &&
 				rollerPhase == RollerCheckPhase::WaitWinUi)
 			{
-				if (rollerWidgetVisible("win.banner"))
+				if (!uiChecksEnabled || rollerWidgetVisible("win.banner"))
 				{
 					SDL_Log("orkige_player: roller selfcheck complete - "
 						"tilt roll (%.2f m), move mode (pause+cursor), tile "
 						"slide (sprite+body+goal), resume and the win path "
-						"all verified", rollerMovedX);
+						"all verified%s", rollerMovedX, uiChecksEnabled
+							? "" : " (win banner check skipped - HUD-less)");
 					rollerPhase = RollerCheckPhase::Done;
 					running = false;
 				}

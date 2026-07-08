@@ -34,7 +34,7 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 #include <vector>
 

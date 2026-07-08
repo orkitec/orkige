@@ -11,7 +11,7 @@
 #include <core_script/ScriptRuntime.h>
 #include <core_util/foreach.h>
 #include <core_event/GlobalEventManager.h>
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include <OgreOverlay.h>
 #include <OgreOverlayManager.h>
 #include "engine_graphic/Engine.h"

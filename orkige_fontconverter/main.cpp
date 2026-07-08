@@ -2,7 +2,7 @@
 #define cimg_use_png
 #include <engine_util/CImg.h>      // Open source image library (http://cimg.sourceforge.net/)
 
-#include <engine_module/EnginePrerequisites.h>
+#include <engine_module/EnginePrerequisitesClassic.h>
 #include <core_tinyxml/tinyxml.h>
 #include <engine_util/StringUtil.h>
 #include <conio.h>

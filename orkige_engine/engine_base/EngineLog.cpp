@@ -47,6 +47,13 @@ namespace Orkige
 				return;
 			}
 			const char * level = "info";
+#ifdef ORKIGE_RENDER_NEXT
+			// Ogre-Next's level enum has no LML_WARNING slot
+			if (lml >= Ogre::LML_CRITICAL)
+			{
+				level = "error";
+			}
+#else
 			if (lml == Ogre::LML_WARNING)
 			{
 				level = "warning";
@@ -55,6 +62,7 @@ namespace Orkige
 			{
 				level = "error";
 			}
+#endif
 			std::lock_guard<std::mutex> lock(this->mutex);
 			if (this->pending.size() >= this->backlogLineCap)
 			{
@@ -135,7 +143,13 @@ namespace Orkige
 	{
 		if (Ogre::LogManager::getSingletonPtr())
 		{
+#ifdef ORKIGE_RENDER_NEXT
+			// Ogre-Next's LogManager has no logError shorthand
+			Ogre::LogManager::getSingleton().logMessage(text,
+				Ogre::LML_CRITICAL);
+#else
 			Ogre::LogManager::getSingleton().logError(text);
+#endif
 		}
 		else
 		{

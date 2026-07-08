@@ -8,7 +8,7 @@
 *********************************************************************/
 #ifndef __FastGuiButton_h__29_10_2010__18_16_18__
 #define __FastGuiButton_h__29_10_2010__18_16_18__
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include "engine_fastgui/FastGuiDecorWidget.h"
 #include "engine_fastgui/FastGuiLabel.h"
 

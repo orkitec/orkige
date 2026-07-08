@@ -22,9 +22,16 @@
 -- Coordination with ball.lua through `shared.roller`:
 --   mode, slides, refusals, emptySlot, gameReady   written HERE
 --   x, y, wins, respawns, ballReady                written by ball.lua
+--
+-- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the
+-- facade HUD replaces it in phase A3). engine:hasUISystem() answers which
+-- world we are in - without a UI system this script skips the HUD/banners;
+-- modes, tile slides, cursor sprite and the win flow work identically.
 
 local KC = KeyEventData.KeyCode
-local LA = FastGuiLabel.LabelAlignment
+-- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
+-- system (engine:hasUISystem(), see init) - LA is only read on that path
+local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
 
 local FONT_HUD   = 9	-- 10x14 px glyphs in the atlas
 local FONT_TITLE = 24	-- 20x28 px glyphs
@@ -46,7 +53,8 @@ local WIN_BANNER_SECONDS = 2.5
 --- per-instance state --------------------------------------------------------
 local input                  -- InputManager singleton
 local physics                -- PhysicsWorld singleton
-local gui, factory           -- the Lua-booted UI system
+local hasUI = false          -- engine:hasUISystem() (false = HUD-less flavor)
+local gui, factory           -- the Lua-booted UI system (nil when HUD-less)
 local layers = {}            -- hud/warn/win layers
 local hud = {}               -- mode, wins, hint labels
 local mode = "play"
@@ -132,13 +140,17 @@ local function setMode(newMode)
 	setCursorVisible(moving)
 	if moving then
 		moveCursorToEmpty()
-		hud.mode:setText("MOVE WORLD - arrows slide tiles - TAB back")
+		if hasUI then
+			hud.mode:setText("MOVE WORLD - arrows slide tiles - TAB back")
+		end
 	else
 		-- the arrows meant "slide tiles" in move mode - reset the simulated
 		-- tilt so play resumes with gravity straight down (desktop only;
 		-- a real accelerometer is not resettable, and needs no reset)
 		input:setTiltAngle(0)
-		hud.mode:setText("PLAY - LEFT/RIGHT tilt the world - TAB move mode")
+		if hasUI then
+			hud.mode:setText("PLAY - LEFT/RIGHT tilt the world - TAB move mode")
+		end
 	end
 	publishState()
 end
@@ -172,7 +184,9 @@ local function trySlide(dx, dy)
 		-- v1 rule: the ball must not ride a moving tile - refuse + flash
 		refusals = refusals + 1
 		warnTimer = WARN_SECONDS
-		layers.warn:setVisible(true)
+		if hasUI then
+			layers.warn:setVisible(true)
+		end
 		publishState()
 		return
 	end
@@ -208,10 +222,23 @@ function init(self)
 	input = InputManager.getSingleton()
 	physics = PhysicsWorld.getSingleton()
 
+	local engine = Engine.getSingleton()
+	hasUI = engine:hasUISystem()
+
+	if not hasUI then
+		-- HUD-less flavor (Ogre-Next until the A3 facade HUD): no widgets;
+		-- modes, slides and wins still run and publish through shared.roller
+		shared.roller = shared.roller or {}
+		shared.roller.gameReady = true
+		setMode("play")
+		print("game.lua: no UI system on this flavor - HUD skipped, "
+			.. "TAB still moves the world")
+		return
+	end
+
 	factory = FastGuiFactory()
 	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
 
-	local engine = Engine.getSingleton()
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 
 	-- HUD (z 12): mode indicator, wins counter, controls hint
@@ -263,7 +290,7 @@ function update(self, dt)
 	-- warning flash timeout
 	if warnTimer > 0.0 then
 		warnTimer = warnTimer - dt
-		if warnTimer <= 0.0 then
+		if warnTimer <= 0.0 and hasUI then
 			layers.warn:setVisible(false)
 		end
 	end
@@ -272,13 +299,15 @@ function update(self, dt)
 	local ballWins = shared.roller.wins or 0
 	if ballWins ~= winsSeen then
 		winsSeen = ballWins
-		hud.wins:setText("WINS: " .. winsSeen)
-		winTimer = WIN_BANNER_SECONDS
-		layers.win:setVisible(true)
+		if hasUI then
+			hud.wins:setText("WINS: " .. winsSeen)
+			winTimer = WIN_BANNER_SECONDS
+			layers.win:setVisible(true)
+		end
 	end
 	if winTimer > 0.0 then
 		winTimer = winTimer - dt
-		if winTimer <= 0.0 then
+		if winTimer <= 0.0 and hasUI then
 			layers.win:setVisible(false)
 		end
 	end

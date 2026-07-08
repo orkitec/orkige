@@ -609,10 +609,81 @@ the test suite, unchanged:
   - Honest gaps (each `notImplementedOnce`): `LT_ZIP`/`LT_BIGZIP` resource
     locations (zziplib port feature + engine_filesystem port pending), skeletal
     glb import (above).
-- **WP-A2.4 parity run**: demo scenes + player scene loading green on
-  `desktop-next` minus fastgui-dependent tests (explicit skip list documented; HUD
-  arrives in A3). Requires porting the B-phase apps/modules off the classic
-  `<Ogre.h>` umbrella (the flavor gate in orkige_engine/CMakeLists.txt).
+- **WP-A2.4 parity run** *(DELIVERED 2026-07-08 — aka phase B3, closes phase B)*:
+  real games run on the Next flavor. What landed:
+  - **EnginePrerequisites de-classicified**: `engine_module/EnginePrerequisites.h`
+    is backend-NEUTRAL (core prerequisites + Meta + the `RenderMath.h` alias
+    vocabulary — no `<Ogre.h>`). Classic-only TUs include the new
+    `engine_module/EnginePrerequisitesClassic.h` (neutral umbrella + the classic
+    OGRE/Overlay headers; hard `#error` on the next flavor): engine_graphic's
+    classic files, fastgui, BigZip, Localisation, PrimitiveUtil/MeshUtil,
+    ClassicBackend.h, the unbuilt legacy tools. Neutral-side fallout fixed with
+    explicit includes (StringConverter → Ogre string headers, LoadWavData →
+    DataStream/ResourceGroupManager, StringUtil's `convertToUTF` classic-gated —
+    Next has no DisplayString; `SpriteComponent::renderQueueForZOrder` became
+    backend-free (literal 50); `InputManager::initialise` reads
+    `RenderSystem::getWindowSize` instead of the classic RenderWindow metrics).
+  - **Engine exists on BOTH flavors**: `engine_graphic/Engine.h` dispatches per
+    flavor. Classic keeps the bootstrapper unchanged; the next flavor compiles
+    the facade-only sibling `engine_graphic/EngineNext.{h,cpp}` — same
+    OOBJECT name, same Lua/app surface (getCamera/getRenderSystem/window size/
+    projection switches/background), setup() wraps
+    `RenderBackend::createRenderSystem` (Hlms media dir = compile-time dev
+    default `ORKIGE_NEXT_HLMS_MEDIA_DIR`, `setHlmsMediaDir` for bundles later),
+    and the frame events (FrameStarted/RenderingQueued/Ended) fire from an
+    Ogre-Next FrameListener bridge so InputManager's tilt simulation and game
+    code stay flavor-blind. EngineNext.cpp is the flavor's ONE sanctioned
+    NextBackend.h consumer above the backend.
+  - **UI capability probe (the HUD decision, implemented)**:
+    `Engine::hasUISystem()` — true on classic, false on next — registered to
+    Lua on both flavors. `projects/jumper-lua` + `projects/roller` `game.lua`
+    probe it and skip their fastgui HUD honestly (state machines, tile slides,
+    win flow run identically; jumper's title/win advance on ENTER). module.cpp's
+    fastgui/IngameConsole exports are `#ifdef ORKIGE_RENDER_CLASSIC` — an
+    unguarded FastGui call on next fails with an honest Lua nil error. The
+    player selfchecks compile their UI assertions per flavor
+    (`uiChecksEnabled`); gameplay assertions are identical. Drive-by fix:
+    game.lua's ENTER edge detection samples every frame now (a held ENTER
+    entering "playing" used to read as still-down at the win screen).
+  - **Flavor gates opened**: orkige_engine builds ONE shared backend-neutral
+    module list (components incl. ScriptComponent, input, sound incl. .caf via
+    ResourceUtil::findPath, physics, runtime, EngineLog, module.cpp) plus
+    per-flavor additions; `tools/player` + `samples/hello_orkige` build on next
+    (per-flavor `#if` inside the sanctioned boot blocks — classic keeps
+    Engine-ctor/RTSS-media/ORKIGE_RENDERSYSTEM, next constructs
+    `Engine(logFile)`); the `macos-debug-next` preset builds tools; editor +
+    samples/jumper stay classic-gated.
+  - **Tests**: `desktop-next` runs the core unit suite + lint +
+    `render_facade_selfcheck` + `render_next_smoke` + all five hello demo runs
+    (mesh/physics/sound/synth-esc incl. the Lua smoke test) + player runs
+    (example scene/project, debug protocol) + **`player_roller_selfcheck_next`
+    and `player_jumper_lua_selfcheck_next`** (the flavor-suffixed game
+    selfchecks). Classic `ctest --preset desktop` stays fully green (139).
+    Export tests + Vulkan runs are classic-gated (the runtime graphics-API pick
+    and the exporter's media bundling are classic-backend concerns).
+
+### B phase status: COMPLETE (2026-07-08)
+
+B0 (dependency/flavor) + B1 (boot skeleton) + B2 (full facade conformance)
++ B3 (games run) are delivered. **Flavor capability matrix**:
+
+| Capability | classic (`macos-debug`) | next (`macos-debug-next`) |
+|---|---|---|
+| engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
+| components/game objects/serialization | yes | yes |
+| Lua scripting (sol2 module surface) | yes | yes (minus fastgui usertypes) |
+| input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
+| player + hello_orkige + games (jumper-lua, roller) | yes | yes (HUD-less: `engine:hasUISystem()` = false) |
+| fastgui/Gorilla HUD, IngameConsole | yes | no — classic-only until the A3 facade HUD (decision #2) |
+| editor | yes | no — classic by decision #3 |
+| jumper sample (C++ fastgui HUD) | yes | no (follows the A3 HUD migration) |
+| BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
+| export pipeline, Vulkan/GL runtime RS pick | yes | no (classic-backend concerns; next boots Metal) |
+| root-motion animation backdoor | yes | no (decision #1) |
+
+Remaining known gaps on next (unchanged from B2, all logged once at runtime):
+LT_ZIP/LT_BIGZIP locations, skeletal glb import, sRGB-swapchain colour
+difference vs classic (content-phase refinement).
 
 ### A3 — cross-backend HUD + closure
 

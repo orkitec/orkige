@@ -8,7 +8,7 @@
 *********************************************************************/
 
 #include "engine_graphic/Engine.h"
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 // phase A1 (Docs/render-abstraction.md): Engine is the classic backend's
 // bootstrapper - it creates/destroys the engine_render facade around the
 // root/window/scene-manager plumbing it already owns
@@ -904,5 +904,9 @@ namespace Orkige
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
+		// UI capability probe (B3): true here - the classic flavor carries
+		// fastgui; the next flavor's Engine sibling answers false and
+		// scripts skip their HUD honestly
+		OFUNC(hasUISystem)
 	OOBJECT_END
 }

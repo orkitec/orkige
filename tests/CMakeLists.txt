@@ -23,9 +23,12 @@ set_tests_properties(render_containment_lint PROPERTIES
 
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-        # pure-logic engine unit tests (no window/GPU); classic-only: they
-        # exercise components/fastgui/runtime, which the B1 next flavor
-        # does not compile (see orkige_engine/CMakeLists.txt flavor gate)
+        # pure-logic engine unit tests (no window/GPU); still classic-only:
+        # two of the five suites are classic-bound (FastGuiAtlasTests =
+        # fastgui zone, RenderSystemSelectionTests = the classic Engine's
+        # graphics-API pick) - splitting the executable per flavor buys
+        # little while the desktop-next preset runs the same logic through
+        # the game selfchecks
         add_subdirectory(engine)
     endif()
 
@@ -319,10 +322,19 @@ if(TARGET orkige_player)
     # the Player object's transform and the stats the script publishes
     # (see the ORKIGE_JUMPER_LUA_SELFCHECK block in tools/player/main.cpp)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
-        add_test(NAME player_jumper_lua_selfcheck
+        # B3: the game selfchecks run on BOTH flavors - the next flavor's
+        # registrations carry a _next suffix and the UI assertions are
+        # compile-time-skipped there (fastgui is classic-only, decision #2;
+        # game.lua probes engine:hasUISystem() and runs HUD-less)
+        if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+            set(ORKIGE_GAME_TEST_SUFFIX "_next")
+        else()
+            set(ORKIGE_GAME_TEST_SUFFIX "")
+        endif()
+        add_test(NAME player_jumper_lua_selfcheck${ORKIGE_GAME_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_jumper_lua_selfcheck PROPERTIES
+        set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_GAME_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
 
         # the 2D tier, end to end: projects/roller (Continuity x Rolando
@@ -331,65 +343,70 @@ if(TARGET orkige_player)
         # arrow/TAB keys through the real input path and asserts the tilt
         # roll, the paused tile slide (sprite AND body probed) and the win
         # (see the ORKIGE_ROLLER_SELFCHECK block in tools/player/main.cpp)
-        add_test(NAME player_roller_selfcheck
+        add_test(NAME player_roller_selfcheck${ORKIGE_GAME_TEST_SUFFIX}
             COMMAND orkige_player --project projects/roller
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_roller_selfcheck PROPERTIES
+        set_tests_properties(player_roller_selfcheck${ORKIGE_GAME_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1")
     endif()
 
     # --- project export (milestone 4, Util/orkige_export.py) ---------------
-    # The driver (integration_driver/run_export_test.py) runs the exporter,
-    # asserts the artifact's structure and self-containment, and - on macOS -
-    # RUNS the exported app from a NEUTRAL cwd (the output dir, never the
-    # source tree, whose files could mask a missing bundled resource): a
-    # clean frame-capped exit proves the bundle genuinely stands alone.
-    set(ORKIGE_EXPORT_DRIVER
-        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_test.py")
+    # Classic-only: the exporter bundles the classic media set (RTSS libs)
+    # and the exported-app contract is classic-verified; a next-flavor
+    # export path is future work (needs the Hlms media in the bundle).
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        # The driver (integration_driver/run_export_test.py) runs the exporter,
+        # asserts the artifact's structure and self-containment, and - on macOS -
+        # RUNS the exported app from a NEUTRAL cwd (the output dir, never the
+        # source tree, whose files could mask a missing bundled resource): a
+        # clean frame-capped exit proves the bundle genuinely stands alone.
+        set(ORKIGE_EXPORT_DRIVER
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_export_test.py")
 
-    # the pure-Lua jumper as a double-clickable macOS .app (release player
-    # when build/macos-release carries one, else debug + warning)
-    add_test(NAME export_macos_lua
-        COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-            --repo "${Orkige_SOURCE_DIR}"
-            --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
-            --platform macos --engine-build "${CMAKE_BINARY_DIR}"
-            --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-lua"
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        # the pure-Lua jumper as a double-clickable macOS .app (release player
+        # when build/macos-release carries one, else debug + warning)
+        add_test(NAME export_macos_lua
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform macos --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 
-    # the native-module jumper: the exporter builds the module executable
-    # (arch-pinned, into native/build-export - separate from the editor's
-    # compile-on-Play tree) and ships IT instead of the generic player
-    add_test(NAME export_macos_native
-        COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-            --repo "${Orkige_SOURCE_DIR}"
-            --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
-            --platform macos --engine-build "${CMAKE_BINARY_DIR}"
-            --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        # the native-module jumper: the exporter builds the module executable
+        # (arch-pinned, into native/build-export - separate from the editor's
+        # compile-on-Play tree) and ships IT instead of the generic player
+        add_test(NAME export_macos_native
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+                --platform macos --engine-build "${CMAKE_BINARY_DIR}"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 
-    # mobile exports: structural assertions only (no simulator/emulator
-    # boots, so these stay desktop-runnable); SKIPPED (exit 77) when the
-    # platform's preset tree (or the Android build-tools) is absent
-    add_test(NAME export_ios_simulator
-        COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-            --repo "${Orkige_SOURCE_DIR}"
-            --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
-            --platform ios-simulator
-            --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug"
-            --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-lua"
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(export_ios_simulator PROPERTIES SKIP_RETURN_CODE 77)
+        # mobile exports: structural assertions only (no simulator/emulator
+        # boots, so these stay desktop-runnable); SKIPPED (exit 77) when the
+        # platform's preset tree (or the Android build-tools) is absent
+        add_test(NAME export_ios_simulator
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform ios-simulator
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_ios_simulator PROPERTIES SKIP_RETURN_CODE 77)
 
-    add_test(NAME export_android
-        COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-            --repo "${Orkige_SOURCE_DIR}"
-            --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
-            --platform android
-            --engine-build "${Orkige_SOURCE_DIR}/build/android-debug"
-            --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-lua"
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(export_android PROPERTIES SKIP_RETURN_CODE 77)
+        add_test(NAME export_android
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform android
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
 
     # remote-debug contract: the driver spawns a real player on the falling
     # cube scene and asserts hello/hierarchy/select/pause/resume/step/
@@ -415,13 +432,13 @@ endif()
 # MoltenVK via the VK_EXT_metal_surface port patch (ports/ogre). MoltenVK is
 # driver-tier ('brew install molten-vk'); Engine points the Khronos loader at
 # the brew ICD manifest when VK_DRIVER_FILES/VK_ICD_FILENAMES are unset.
-if(APPLE AND TARGET hello_orkige)
+if(APPLE AND TARGET hello_orkige AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
     add_test(NAME demo_plain_vulkan COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_plain_vulkan PROPERTIES
         ENVIRONMENT "ORKIGE_RENDERSYSTEM=Vulkan;ORKIGE_DEMO_FRAMES=120")
 endif()
-if(APPLE AND TARGET orkige_player)
+if(APPLE AND TARGET orkige_player AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
     add_test(NAME player_example_scene_vulkan
         COMMAND orkige_player samples/scenes/example.oscene
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -440,6 +457,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         player_example_scene player_example_project player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
+        player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
         editor_play_script_error
         editor_project_native_play editor_project_native_play_break
@@ -463,6 +481,7 @@ foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_project_play editor_play_script_error
         editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
+        player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2
         export_macos_lua export_ios_simulator export_android)

@@ -27,7 +27,7 @@ THE SOFTWARE.
 #ifndef GORILLA_H
 #define GORILLA_H
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 #define GORILLA_USES_EXCEPTIONS 0
 

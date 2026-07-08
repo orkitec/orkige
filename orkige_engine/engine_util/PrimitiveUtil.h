@@ -9,7 +9,7 @@
 #ifndef __PrimitiveUtil_h__7_7_2026__22_20_00__
 #define __PrimitiveUtil_h__7_7_2026__22_20_00__
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 namespace Orkige
 {

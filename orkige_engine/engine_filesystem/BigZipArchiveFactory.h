@@ -9,7 +9,7 @@
 #ifndef __BigZipArchiveFactory_h__21_2_2012__20_16_58__
 #define __BigZipArchiveFactory_h__21_2_2012__20_16_58__
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include <OgreArchiveFactory.h>
 #include <OgreZip.h>
 

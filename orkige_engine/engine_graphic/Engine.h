@@ -9,10 +9,21 @@
 #ifndef __Engine_h__7_9_2010__16_34_16__
 #define __Engine_h__7_9_2010__16_34_16__
 
+// Engine is the app/Lua singleton on BOTH render flavors (phase B3,
+// Docs/render-abstraction.md): apps and scripts spell
+// "engine_graphic/Engine.h" / Engine.getSingleton() regardless of the
+// backend. On the classic flavor Engine below IS the classic bootstrapper
+// (Ogre::Root/RTSS/window plumbing); the Ogre-Next flavor compiles the
+// facade-only sibling from EngineNext.h instead (same name, same script/app
+// surface, boot via RenderBackend::createRenderSystem).
+#ifdef ORKIGE_RENDER_NEXT
+#	include "engine_graphic/EngineNext.h"
+#else
+
 #include <core_event/Event.h>
 #include <core_event/EventManager.h>
 #include "engine_graphic/FrameEventData.h"
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 // facade forward declarations only - Engine's Lua/app-facing camera and
 // window surface answers facade types since WP-A1.5 (Docs/render-abstraction.md)
 #include "engine_render/RenderPrerequisites.h"
@@ -273,6 +284,12 @@ protected:
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
+		//! @brief does this build carry the fastgui UI system? (B3)
+		//! @remarks true on the classic flavor; the Ogre-Next flavor has no
+		//! fastgui until the A3 facade HUD lands (decision #2) and answers
+		//! false - scripts probe engine:hasUISystem() and skip their HUD
+		//! honestly instead of crashing on missing usertypes
+		bool hasUISystem() const { return true; }
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
@@ -380,4 +397,5 @@ protected:
 	}
 }
 
+#endif //ORKIGE_RENDER_NEXT (classic Engine)
 #endif //__Engine_h__7_9_2010__16_34_16__

@@ -2,7 +2,7 @@
 #define DOT_SCENELOADER_H
 
 // Includes
-#include <engine_module/EnginePrerequisites.h>
+#include <engine_module/EnginePrerequisitesClassic.h>
 #include <vector>
 
 #include "rapidxml.hpp"

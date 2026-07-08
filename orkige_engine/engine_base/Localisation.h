@@ -9,7 +9,7 @@
 #ifndef __Localisation_h__11_11_2010__15_17_25__
 #define __Localisation_h__11_11_2010__15_17_25__
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include <core_util/Singleton.h>
 #include "engine_util/StringUtil.h"
 #include <core_event/EventHandler.h>

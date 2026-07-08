@@ -23,8 +23,16 @@ VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug   # configure (run
 cmake --build --preset macos-debug                              # build
 ```
 
-Presets: `macos-debug`, `macos-release`, `ios-simulator-debug`, `android-debug`.
-Output in `build/<preset>/`.
+Presets: `macos-debug`, `macos-release`, `macos-debug-next`, `ios-simulator-debug`,
+`android-debug`. Output in `build/<preset>/`.
+`macos-debug-next` is the **Ogre-Next render-backend flavor**
+(`ORKIGE_RENDER_BACKEND=next`, vcpkg feature `render-next`): same source tree,
+the `engine_render` facade implemented by `engine_render_next/` instead of the
+classic backend. Games (player, hello_orkige, projects/) run on both flavors;
+editor/fastgui/exports are classic-only — see the flavor capability matrix in
+`Docs/render-abstraction.md` ("B phase status"). Its test preset is
+`ctest --preset desktop-next` (54 tests incl. the facade conformance selfcheck
+and the flavor-suffixed roller/jumper-lua game selfchecks).
 The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
 (GLES2 render system, SDL3 UIKit main, media bundled in) for the arm64
 simulator via `triplets/arm64-ios-simulator.cmake`; deploy with
@@ -91,9 +99,10 @@ the Vulkan *loader* and headers stay vcpkg-provided.
 ## Testing
 
 ```sh
-ctest --preset unit     # headless Catch2 unit tests (~3s) — safe to run anytime
-ctest --preset desktop  # + desktop integration (~30s; no simulator/emulator boots)
-ctest --preset all      # everything incl. device tests (boots simulators/emulators)
+ctest --preset unit         # headless Catch2 unit tests (~3s) — safe to run anytime
+ctest --preset desktop      # + desktop integration (~30s; no simulator/emulator boots)
+ctest --preset desktop-next # the Ogre-Next flavor's suite (build macos-debug-next first)
+ctest --preset all          # everything incl. device tests (boots simulators/emulators)
 ```
 
 Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
@@ -167,10 +176,15 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
 
 **`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated
 behind `ORKIGE_BUILD_ENGINE`, ON for all app work). Umbrella: `engine_module/
-EnginePrerequisites.h`. `engine_graphic/Engine.h` is the central engine object (render
+EnginePrerequisites.h` — backend-NEUTRAL since B3 (core prerequisites + Meta + the
+`RenderMath.h` alias vocabulary); classic-only TUs use
+`engine_module/EnginePrerequisitesClassic.h` (adds the `<Ogre.h>` umbrella).
+`engine_graphic/Engine.h` is the central engine object on BOTH render flavors (it
+dispatches: classic bootstrapper vs. the facade-only `EngineNext.h` sibling; scripts
+probe `engine:hasUISystem()` for the fastgui-less next flavor). Classic render
 system selection via `ORKIGE_RENDERSYSTEM` env: GL3Plus default; Vulkan renders via
 MoltenVK on macOS; GLES2 on iOS/Android; Metal builds but can't render RTSS content —
-see Docs/ports.md). `engine_gocomponent` bridges core game objects to the scene
+see Docs/ports.md. The next flavor boots Ogre-Next's Metal RS. `engine_gocomponent` bridges core game objects to the scene
 (`TransformComponent`, `ModelComponent`, `SpriteComponent` — the 2D building block: a
 textured alpha-blended quad in the XY plane, per-texture generated `Sprite/<tex>`
 material, zOrder → render-queue painter's sorting (its header documents the

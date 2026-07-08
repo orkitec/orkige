@@ -9,6 +9,18 @@
 #ifndef __EnginePrerequisites_h__8_9_2010__20_40_50__
 #define __EnginePrerequisites_h__8_9_2010__20_40_50__
 
+//! @file EnginePrerequisites.h
+//! @brief the BACKEND-NEUTRAL engine umbrella (phase B3, Docs/render-abstraction.md)
+//! @remarks Until B3 this header included the classic <Ogre.h> umbrella,
+//! which chained every engine module to the classic render backend. It is
+//! now backend-neutral: core prerequisites + the Meta/type system + the
+//! facade math vocabulary (engine_render/RenderMath.h - Ogre math types on
+//! both Ogre backends, the documented swap point before a non-Ogre backend).
+//! Classic-only translation units (engine_graphic, engine_fastgui,
+//! engine_filesystem's Ogre::Archive plumbing, the classic render backend)
+//! include engine_module/EnginePrerequisitesClassic.h instead, which layers
+//! the classic OGRE umbrella on top of this one.
+
 #ifdef WIN32
 #	if defined( ORKIGE_STATIC )
 #   	define ORKIGE_ENGINE_DLL
@@ -32,26 +44,13 @@
 #include "core_base/Meta.h"
 #include <core_debug/DisableMemoryManager.h>
 
-#include <Ogre.h>
-#include <OgreFontManager.h>
-#include <OgreBorderPanelOverlayElement.h>
-#include <OgreTextAreaOverlayElement.h>
-#include <OgreExternalTextureSourceManager.h>
-#include <OgreWireBoundingBox.h>
-
-#ifdef ORKIGE_ENABLE_MYGUI
-#	include <MyGUI.h>
-#	include <MyGUI_OgrePlatform.h>
-#	include <Common/MessageBox/MessageBox.h>
-	namespace MyGUI
-	{
-		typedef Message* MessagePtr;
-	}
-#endif //ORKIGE_ENABLE_MYGUI
+// the engine math vocabulary (Orkige::Vec3 & friends over the Ogre math
+// headers, identical on the classic and next backend - see the math
+// decision in Docs/render-abstraction.md)
+#include "engine_render/RenderMath.h"
 
 void ORKIGE_ENGINE_DLL init_module_orkige_engine(void);
 
 #include <core_debug/EnableMemoryManager.h>
 #include <core_debug/Profile.h>
 #endif //__EnginePrerequisites_h__8_9_2010__20_40_50__
-

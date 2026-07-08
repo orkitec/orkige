@@ -19,6 +19,7 @@
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
 #include "engine_graphic/FrameEventData.h"
+#include "engine_render/RenderSystem.h"
 #include "engine_util/StringUtil.h"
 
 #include <algorithm>
@@ -719,11 +720,12 @@ namespace Orkige
 	{
 		// SDL3 feeds us events through injectEvent() - all that is left to set
 		// up is the window extents used to scale normalized touch coordinates
-		if(Engine::getSingletonPtr() && Engine::getSingleton().getRenderWindow())
+		// (facade-routed since B3, so this works on every render flavor)
+		if(RenderSystem::get())
 		{
-			unsigned int width, height;
-			int left, top;
-			Engine::getSingleton().getRenderWindow()->getMetrics( width, height, left, top );
+			unsigned int width = 0;
+			unsigned int height = 0;
+			RenderSystem::get()->getWindowSize(width, height);
 			this->setWindowExtents( static_cast<int>(width), static_cast<int>(height) );
 			oDebugMsg("core", 0, "Input initialized! width, height: " << width << ", " << height);
 		}

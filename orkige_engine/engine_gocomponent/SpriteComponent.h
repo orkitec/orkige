@@ -128,10 +128,11 @@ namespace Orkige
 		//! bottom-right, bottom-left - flips swap the respective coordinates
 		static void computeUVCorners(float u0, float v0, float u1, float v1,
 			bool flipX, bool flipY, Vec2 outCorners[4]);
-		//! the classic render queue id a zOrder maps to (clamped)
+		//! the render queue id a zOrder maps to (clamped; base queue 50 on
+		//! both Ogre backends)
 		//! @remarks pure math kept for the unit tests; the live mapping is
 		//! SpriteQuad::setZOrder inside the render backend
-		static Ogre::uint8 renderQueueForZOrder(int zOrder);
+		static unsigned char renderQueueForZOrder(int zOrder);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

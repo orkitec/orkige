@@ -10,7 +10,7 @@
 #include "engine_graphic/DynamicRenderable.h"
 #include <limits>
 #include <algorithm>
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 namespace Orkige
 {

@@ -41,7 +41,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "ORKIGE_RENDER_BACKEND": "next",
         "ORKIGE_BUILD_ENGINE": "ON",
-        "ORKIGE_BUILD_TOOLS": "OFF",
+        "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "ON",
         "VCPKG_MANIFEST_FEATURES": "render-next"
       }
@@ -139,7 +139,7 @@
     },
     {
       "name": "desktop-next",
-      "displayName": "Next-flavor suite (unit + render_next_smoke + the render_facade_selfcheck conformance run, enabled since B2)",
+      "displayName": "Next-flavor suite (unit + conformance selfcheck/smoke + hello demos + player runs incl. the roller/jumper-lua game selfchecks, B3)",
       "configurePreset": "macos-debug-next",
       "filter": {
         "exclude": {

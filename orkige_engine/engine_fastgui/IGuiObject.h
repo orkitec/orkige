@@ -10,7 +10,7 @@
 #define __IGuiObject_h__7_8_2010__3_29_30__
 
 #include <core_base/Object.h>
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 #include "engine_input/KeyEventData.h"
 #include "engine_graphic/FrameEventData.h"
 

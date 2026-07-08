@@ -8,6 +8,10 @@
 ***************************************************************/
 
 #include "engine_util/ResourceUtil.h"
+// explicit since B3 (the neutral umbrella carries math only): the resource
+// subsystem exists identically in classic OGRE 14 and Ogre-Next
+#include <OgreResourceGroupManager.h>
+#include <OgreArchive.h>
 #include <core_util/foreach.h>
 
 namespace Orkige
@@ -32,6 +36,9 @@ namespace Orkige
 			return path;
 		}
 		//---------------------------------------------------------
+#ifndef ORKIGE_RENDER_NEXT
+		// classic-only (B3): Ogre-Next dropped getResourceManagers(); the
+		// single caller is the classic-only fastgui zone
 		void removeUnusedResources()
 		{
 			//FastGuiManager::getSingleton().destroyAllViews();
@@ -42,6 +49,7 @@ namespace Orkige
 				vt.second->unloadUnreferencedResources();
 			}
 		}
+#endif //ORKIGE_RENDER_NEXT
 
 	};
 }

@@ -9,7 +9,7 @@
 #ifndef __DynamicRenderable_h__7_9_2010__2_48_31__
 #define __DynamicRenderable_h__7_9_2010__2_48_31__
 
-#include "engine_module/EnginePrerequisites.h"
+#include "engine_module/EnginePrerequisitesClassic.h"
 
 namespace Orkige
 {

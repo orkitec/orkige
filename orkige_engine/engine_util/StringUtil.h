@@ -12,15 +12,24 @@
 #include "engine_module/EnginePrerequisites.h"
 #include <core_util/StringUtil.h>
 #include "engine_util/StringConverter.h"
+#ifndef ORKIGE_RENDER_NEXT
+// Ogre::DisplayString (typedef'd by the classic Overlay component) for the
+// classic-only convertToUTF below - fastgui text is its sole consumer
+#include <OgreOverlayElement.h>
+#endif
 
 namespace Orkige
 {
 	namespace StringUtil
 	{
+#ifndef ORKIGE_RENDER_NEXT
 		//! convert given String to Ogre::DisplayString
 		//! OGRE 14 dropped Ogre::UTFString; display strings are plain UTF-8 now,
 		//! so this encodes every input byte (treated as Latin-1, as the old
 		//! UTFString version did) as an UTF-8 code point.
+		//! @remarks classic-only (B3): the sole consumer is fastgui text
+		//! (classic-only zone, decision #2) and Ogre-Next has no
+		//! DisplayString typedef
 		static inline Ogre::DisplayString convertToUTF(String const & text)
 		{
 			Ogre::DisplayString utfString;
@@ -39,6 +48,7 @@ namespace Orkige
 			}
 			return utfString;
 		}
+#endif //ORKIGE_RENDER_NEXT
 		//! check if given string has given ending
 		static inline bool hasEnding (String const & fullString, String const & ending)
 		{
