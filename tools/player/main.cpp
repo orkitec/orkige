@@ -30,6 +30,7 @@
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
@@ -439,11 +440,21 @@ int main(int argc, char** argv)
 		}
 		const bool jumperLuaCheck =
 			(std::getenv("ORKIGE_JUMPER_LUA_SELFCHECK") != nullptr);
+		// ORKIGE_ROLLER_SELFCHECK verifies the 2D tier end to end against
+		// projects/roller; ORKIGE_ROLLER_SCREENSHOT_DIR (optional) additionally
+		// dumps roller_play.png / roller_move_mode.png there
+		const bool rollerCheck =
+			(std::getenv("ORKIGE_ROLLER_SELFCHECK") != nullptr);
+		const char* rollerShotDirEnv =
+			std::getenv("ORKIGE_ROLLER_SCREENSHOT_DIR");
+		const std::string rollerShotDir =
+			rollerShotDirEnv ? rollerShotDirEnv : "";
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
-		const bool automatedRun = jumperLuaCheck || frameLimit != 0;
+		const bool automatedRun = jumperLuaCheck || rollerCheck ||
+			frameLimit != 0;
 
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
@@ -775,6 +786,139 @@ int main(int argc, char** argv)
 				static_cast<int>(jumperGrounded()),
 				jumperStat("respawns", -1.0), jumperStat("wins", -1.0));
 			jumperCheckFailed = true;
+		};
+
+		// --- ORKIGE_ROLLER_SELFCHECK=1: the 2D tier (SpriteComponent, ortho
+		// camera, tilt input, physics pause + kinematic tile teleports),
+		// verified end to end against projects/roller (run with
+		// --project projects/roller). Same rules as the jumper selfcheck:
+		// synthetic SDL key events take the real input path, the C++ side
+		// observes only shared.roller, components through the world and the
+		// fastgui widgets. Frame-scripted:
+		//   frame  5  both scripts booted, HUD up, mode "play", sim running
+		//   10..70    hold LEFT -> the simulated tilt turns gravity left and
+		//             the ball rolls -x (position sampled)
+		//   ~80       screenshot roller_play.png (when the env dir is set)
+		//   85..95    TAB -> mode "move": physics PAUSED, cursor visible
+		//             over the empty slot; collision probed at tile B's
+		//             future wall location (must be free)
+		//   100..112  DOWN -> tile B slides into the empty slot: its frame
+		//             SPRITE moved -6 in y, the GOAL rode along, and a ray
+		//             probe proves the wall BODY collides at the new spot
+		//             (and no longer at the old one) - while still paused
+		//   115..125  TAB -> back to "play", sim unpaused
+		//   130..     hold RIGHT -> gravity swings right, the ball rolls
+		//             through tile A's right opening into the slid-down
+		//             tile B onto the goal star -> shared.roller.wins fires
+		//             -> the win banner shows
+		// Any missed deadline exits non-zero; measured values are logged.
+		// note: the tilt SIMULATION advances on wall-clock frame time (the
+		// human-facing behavior) while headless automated runs floor the game
+		// dt at 1/60 - so the tilt phases below are CONDITION-driven with fat
+		// frame deadlines instead of fixed frame numbers
+		enum class RollerCheckPhase
+		{
+			Boot,		// scripts/HUD/camera/mode checks at frame 5
+			TiltRoll,	// hold LEFT until the tilt built up and the ball rolled
+			MoveWorld,	// TAB, probe, DOWN-slide, probe, TAB (frame-scripted)
+			WaitWin,	// rolling right until the script reports the win
+			WaitWinUi,	// until the win banner layer is visible
+			Done
+		};
+		RollerCheckPhase rollerPhase = RollerCheckPhase::Boot;
+		unsigned long rollerStepFrame = 0;	// current phase's anchor frame
+		float rollerStartX = 0.0f;
+		float rollerMovedX = 0.0f;
+		float rollerTileBStartY = 0.0f;
+		float rollerGoalStartY = 0.0f;
+		unsigned long rollerRollFrame = 0;
+		unsigned long rollerPhaseDeadline = 0;
+		bool rollerCheckFailed = false;
+		auto rollerStat = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "roller", key}, fallback);
+		};
+		auto rollerFlag = [](const char* key) -> bool
+		{
+			return Orkige::ScriptRuntime::getSingleton().getBool(
+				{"shared", "roller", key}, false);
+		};
+		auto rollerMode = []() -> std::string
+		{
+			return Orkige::ScriptRuntime::getSingleton().getString(
+				{"shared", "roller", "mode"}, "");
+		};
+		auto rollerTransform = [&gameObjectManager](const char* id)
+			-> Orkige::TransformComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject(id).lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::TransformComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->getComponentPtr<Orkige::TransformComponent>();
+		};
+		auto rollerWidgetExists = [](const char* id) -> bool
+		{
+			Orkige::FastGuiManager* ui =
+				Orkige::FastGuiManager::getSingletonPtr();
+			return ui && ui->widgetExists(id);
+		};
+		auto rollerWidgetVisible = [&rollerWidgetExists](const char* id) -> bool
+		{
+			if (!rollerWidgetExists(id))
+			{
+				return false;
+			}
+			optr<Orkige::FastGuiWidget> widget =
+				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
+			return widget && widget->getLayer()->isVisible();
+		};
+		//! is the cursor sprite (the move-mode highlight) currently showing
+		auto rollerCursorVisible = [&gameObjectManager]() -> bool
+		{
+			optr<Orkige::GameObject> cursor =
+				gameObjectManager.getGameObject("Cursor").lock();
+			if (!cursor || !cursor->hasComponent<Orkige::SpriteComponent>())
+			{
+				return false;
+			}
+			return cursor->getComponentPtr<Orkige::SpriteComponent>()
+				->isSpriteVisible();
+		};
+		//! probe the physics world for collision geometry at (x, y): a ray
+		//! along +z through the tile plane - the honest "did the BODY really
+		//! move" check for the tile slide
+		auto rollerProbeHit = [&physicsWorld](float x, float y) -> bool
+		{
+			Ogre::Vector3 hitPosition;
+			Orkige::PhysicsWorld::BodyId hitBody;
+			return physicsWorld.castRay(Ogre::Vector3(x, y, -3.0f),
+				Ogre::Vector3(0.0f, 0.0f, 1.0f), 6.0f, hitPosition, hitBody);
+		};
+		auto rollerScreenshot = [&engine, &rollerShotDir](const char* name)
+		{
+			if (rollerShotDir.empty())
+			{
+				return;
+			}
+			const std::string path = rollerShotDir + "/" + name;
+			engine.getRenderWindow()->writeContentsToFile(path);
+			SDL_Log("orkige_player: roller selfcheck - screenshot %s",
+				path.c_str());
+		};
+		auto rollerFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: ROLLER SELFCHECK FAILED - %s "
+				"(ball %.2f/%.2f mode '%s' slides=%.0f wins=%.0f "
+				"respawns=%.0f)", what.c_str(),
+				rollerStat("x", -999.0), rollerStat("y", -999.0),
+				rollerMode().c_str(), rollerStat("slides", -1.0),
+				rollerStat("wins", -1.0), rollerStat("respawns", -1.0));
+			rollerCheckFailed = true;
 		};
 
 		bool running = true;
@@ -1150,6 +1294,276 @@ int main(int argc, char** argv)
 				running = false;
 			}
 
+			// --- roller selfcheck script (see the block above the loop) -----
+			if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::Boot)
+			{
+				if (frameCount == 5)
+				{
+					// boot: both scripts up, state published, HUD widgets
+					// exist, mode "play" with a running simulation
+					optr<Orkige::GameObject> ball =
+						gameObjectManager.getGameObject("Ball").lock();
+					Orkige::ScriptComponent* ballScript = (ball &&
+						ball->hasComponent<Orkige::ScriptComponent>()) ?
+						ball->getComponentPtr<Orkige::ScriptComponent>() :
+						nullptr;
+					if (!ballScript)
+					{
+						rollerFail("no Ball object with a ScriptComponent");
+					}
+					else if (ballScript->hasScriptError())
+					{
+						rollerFail("ball script error: " +
+							ballScript->getScriptError());
+					}
+					else if (!rollerFlag("gameReady") ||
+						!rollerFlag("ballReady"))
+					{
+						rollerFail("scripts did not publish shared.roller");
+					}
+					else if (!ball->hasComponent<Orkige::SpriteComponent>() ||
+						!ball->getComponentPtr<Orkige::SpriteComponent>()
+							->hasSprite())
+					{
+						rollerFail("the Ball has no loaded SpriteComponent");
+					}
+					else if (engine.getCamera()->getProjectionType() !=
+						Ogre::PT_ORTHOGRAPHIC)
+					{
+						rollerFail("ball.lua did not switch the camera to "
+							"orthographic projection");
+					}
+					else if (!rollerWidgetExists("hud.mode") ||
+						!rollerWidgetExists("hud.wins") ||
+						!rollerWidgetExists("hud.hint") ||
+						!rollerWidgetExists("warn.label") ||
+						!rollerWidgetExists("win.banner"))
+					{
+						rollerFail("the Lua-booted HUD widgets are missing");
+					}
+					else if (rollerMode() != "play" ||
+						physicsWorld.isPaused() || rollerCursorVisible())
+					{
+						rollerFail("did not boot into running play mode");
+					}
+					else
+					{
+						SDL_Log("orkige_player: roller selfcheck - scripts "
+							"up, ortho camera, sprites loaded, HUD showing");
+						rollerPhase = RollerCheckPhase::TiltRoll;
+						rollerStepFrame = 0;
+					}
+				}
+			}
+			// tilt roll: hold LEFT until the (wall-clock paced) simulated
+			// tilt built up AND the ball visibly rolled -x
+			else if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::TiltRoll)
+			{
+				if (rollerStepFrame == 0)
+				{
+					rollerStepFrame = frameCount;
+					rollerStartX = static_cast<float>(rollerStat("x", 0.0));
+					pushKeyEvent(SDL_SCANCODE_LEFT, SDLK_LEFT, true);
+				}
+				rollerMovedX = static_cast<float>(rollerStat("x", 0.0)) -
+					rollerStartX;
+				const Ogre::Vector3 tilt = inputManager.getTilt();
+				if (tilt.x <= -0.35f && rollerMovedX <= -0.4f)
+				{
+					pushKeyEvent(SDL_SCANCODE_LEFT, SDLK_LEFT, false);
+					SDL_Log("orkige_player: roller selfcheck - tilt %.2f/%.2f "
+						"rolled the ball %.3f m left (%lu frames of LEFT)",
+						tilt.x, tilt.y, rollerMovedX,
+						frameCount - rollerStepFrame);
+					rollerScreenshot("roller_play.png");
+					rollerPhase = RollerCheckPhase::MoveWorld;
+					rollerStepFrame = 0;
+				}
+				else if (frameCount >= rollerStepFrame + 1800)
+				{
+					rollerFail("holding LEFT never tilted gravity/rolled the "
+						"ball (tilt " + std::to_string(tilt.x) + ", moved " +
+						std::to_string(rollerMovedX) + ")");
+				}
+			}
+			// move-world mode: TAB pauses, probes verify the tile slide
+			// moves sprite AND body, TAB resumes (frame-scripted relative
+			// to the phase anchor - no tilt dependency in here)
+			else if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::MoveWorld)
+			{
+				if (rollerStepFrame == 0)
+				{
+					rollerStepFrame = frameCount;
+				}
+				const unsigned long step = frameCount - rollerStepFrame;
+				// TAB: move-world mode - physics pauses, the cursor shows
+				if (step == 5)
+				{
+					pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, true);
+				}
+				if (step == 7)
+				{
+					pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, false);
+				}
+				if (step == 15)
+				{
+					Orkige::TransformComponent* tileB =
+						rollerTransform("TileB_Frame");
+					if (rollerMode() != "move" || !physicsWorld.isPaused())
+					{
+						rollerFail("TAB did not pause into move-world mode");
+					}
+					else if (!rollerCursorVisible())
+					{
+						rollerFail("move mode did not show the slot cursor");
+					}
+					else if (!tileB)
+					{
+						rollerFail("no TileB_Frame object in the scene");
+					}
+					else if (rollerProbeHit(3.0f, -5.75f))
+					{
+						rollerFail("the empty slot already has collision "
+							"geometry before the slide");
+					}
+					else if (!rollerProbeHit(3.0f, 0.25f))
+					{
+						rollerFail("tile B's bottom wall body is missing at "
+							"its starting location");
+					}
+					else
+					{
+						rollerTileBStartY = tileB->getPosition().y;
+						Orkige::TransformComponent* goal =
+							rollerTransform("Goal");
+						rollerGoalStartY = goal ?
+							goal->getPosition().y : 0.0f;
+						SDL_Log("orkige_player: roller selfcheck - move "
+							"mode up (paused, cursor on), tile B at y=%.2f",
+							rollerTileBStartY);
+						rollerScreenshot("roller_move_mode.png");
+					}
+				}
+				// DOWN: slide tile B (above the empty slot) down into it
+				if (step == 20)
+				{
+					pushKeyEvent(SDL_SCANCODE_DOWN, SDLK_DOWN, true);
+				}
+				if (step == 22)
+				{
+					pushKeyEvent(SDL_SCANCODE_DOWN, SDLK_DOWN, false);
+				}
+				if (step == 32)
+				{
+					Orkige::TransformComponent* tileB =
+						rollerTransform("TileB_Frame");
+					Orkige::TransformComponent* goal =
+						rollerTransform("Goal");
+					const float tileBMovedY = tileB ?
+						tileB->getPosition().y - rollerTileBStartY : 0.0f;
+					if (rollerStat("slides", 0.0) < 1.0)
+					{
+						rollerFail("DOWN in move mode did not slide a tile");
+					}
+					else if (std::abs(tileBMovedY + 6.0f) > 0.01f)
+					{
+						rollerFail("tile B's frame sprite did not move one "
+							"slot down");
+					}
+					else if (!goal || std::abs(goal->getPosition().y -
+						(rollerGoalStartY - 6.0f)) > 0.01f)
+					{
+						rollerFail("the goal star did not ride its tile");
+					}
+					else if (!rollerProbeHit(3.0f, -5.75f))
+					{
+						rollerFail("tile B's wall BODY does not collide at "
+							"the new location (sprite moved, body did not)");
+					}
+					else if (rollerProbeHit(3.0f, 0.25f))
+					{
+						rollerFail("tile B's wall body still collides at "
+							"the OLD location");
+					}
+					else
+					{
+						SDL_Log("orkige_player: roller selfcheck - tile B "
+							"slid %.2f in y while paused; wall body probes "
+							"old=free new=hit, goal rode along", tileBMovedY);
+					}
+				}
+				// TAB: back to play; then roll right into the goal tile
+				if (step == 35)
+				{
+					pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, true);
+				}
+				if (step == 37)
+				{
+					pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, false);
+				}
+				if (step == 45)
+				{
+					if (rollerMode() != "play" || physicsWorld.isPaused() ||
+						rollerCursorVisible())
+					{
+						rollerFail("TAB did not resume play mode");
+					}
+				}
+				if (step == 50)
+				{
+					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
+					rollerRollFrame = frameCount;
+					rollerPhase = RollerCheckPhase::WaitWin;
+					// fat deadline: the tilt swing is wall-clock paced while
+					// headless sim frames run faster than real time
+					rollerPhaseDeadline = frameCount + 3600;
+				}
+			}
+			else if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::WaitWin)
+			{
+				if (rollerStat("wins", 0.0) >= 1.0)
+				{
+					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
+					SDL_Log("orkige_player: roller selfcheck - rolled into "
+						"the goal %lu frames after tilting right (wins=%.0f "
+						"respawns=%.0f)", frameCount - rollerRollFrame,
+						rollerStat("wins", -1.0), rollerStat("respawns", -1.0));
+					rollerPhase = RollerCheckPhase::WaitWinUi;
+					rollerPhaseDeadline = frameCount + 90;
+				}
+				else if (frameCount >= rollerPhaseDeadline)
+				{
+					rollerFail("rolling right never reached the goal in the "
+						"slid tile");
+				}
+			}
+			else if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::WaitWinUi)
+			{
+				if (rollerWidgetVisible("win.banner"))
+				{
+					SDL_Log("orkige_player: roller selfcheck complete - "
+						"tilt roll (%.2f m), move mode (pause+cursor), tile "
+						"slide (sprite+body+goal), resume and the win path "
+						"all verified", rollerMovedX);
+					rollerPhase = RollerCheckPhase::Done;
+					running = false;
+				}
+				else if (frameCount >= rollerPhaseDeadline)
+				{
+					rollerFail("the win never showed the win banner");
+				}
+			}
+			if (rollerCheck && rollerCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -1170,6 +1584,13 @@ int main(int argc, char** argv)
 		{
 			SDL_Log("orkige_player: JUMPER-LUA SELFCHECK FAILED - run ended "
 				"in phase %d", static_cast<int>(jumperPhase));
+			exitCode = 1;
+		}
+		if (rollerCheck && !rollerCheckFailed &&
+			rollerPhase != RollerCheckPhase::Done)
+		{
+			SDL_Log("orkige_player: ROLLER SELFCHECK FAILED - run ended in "
+				"phase %d", static_cast<int>(rollerPhase));
 			exitCode = 1;
 		}
 

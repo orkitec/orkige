@@ -232,6 +232,18 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_jumper_lua_selfcheck PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
+
+        # the 2D tier, end to end: projects/roller (Continuity x Rolando
+        # prototype - SpriteComponents, ortho camera, tilt gravity, physics
+        # pause + kinematic tile-group teleports). The selfcheck injects
+        # arrow/TAB keys through the real input path and asserts the tilt
+        # roll, the paused tile slide (sprite AND body probed) and the win
+        # (see the ORKIGE_ROLLER_SELFCHECK block in tools/player/main.cpp)
+        add_test(NAME player_roller_selfcheck
+            COMMAND orkige_player --project projects/roller
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_roller_selfcheck PROPERTIES
+            ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1")
     endif()
 
     # --- project export (milestone 4, Util/orkige_export.py) ---------------
@@ -335,7 +347,7 @@ endif()
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         player_example_scene player_example_project player_debug_pause
-        player_jumper_lua_selfcheck
+        player_jumper_lua_selfcheck player_roller_selfcheck
         editor_play_stop editor_play_crash editor_project_play
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
@@ -356,7 +368,7 @@ endforeach()
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_project_play editor_play_simulator editor_play_android
-        jumper_selfcheck player_jumper_lua_selfcheck
+        jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2
         export_macos_lua export_ios_simulator export_android)

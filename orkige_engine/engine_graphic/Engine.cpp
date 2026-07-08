@@ -807,6 +807,31 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	void Engine::setCameraOrthographic(unsigned int num, float verticalHalfExtent)
+	{
+		Ogre::Camera* orthoCamera = this->getCamera(num);
+		oAssert(orthoCamera);
+		orthoCamera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);
+		// height only - the width follows the camera's aspect ratio
+		orthoCamera->setOrthoWindowHeight(std::max(verticalHalfExtent, 0.001f) * 2.0f);
+	}
+	//---------------------------------------------------------
+	void Engine::setCameraPerspective(unsigned int num)
+	{
+		Ogre::Camera* perspectiveCamera = this->getCamera(num);
+		oAssert(perspectiveCamera);
+		perspectiveCamera->setProjectionType(Ogre::PT_PERSPECTIVE);
+	}
+	//---------------------------------------------------------
+	void Engine::setViewportBackgroundColour(unsigned int num, float red,
+		float green, float blue)
+	{
+		Ogre::Viewport* backgroundViewport = this->getViewport(num);
+		oAssert(backgroundViewport);
+		backgroundViewport->setBackgroundColour(
+			Ogre::ColourValue(red, green, blue));
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
@@ -822,5 +847,9 @@ namespace Orkige
 		OFUNC(getCamera)
 		// viewport access for UI layout: getViewport(0):getActualWidth()
 		OFUNC(getViewport)
+		// 2D projection switches: engine:setCameraOrthographic(0, orthoSize)
+		OFUNC(setCameraOrthographic)
+		OFUNC(setCameraPerspective)
+		OFUNC(setViewportBackgroundColour)
 	OOBJECT_END
 }

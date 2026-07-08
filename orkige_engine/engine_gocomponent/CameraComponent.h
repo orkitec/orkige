@@ -24,6 +24,12 @@ namespace Orkige
 		OOBJECT(CameraComponent,GameObjectComponent)
 		//--- Types -------------------------------------------
 	public:
+		//! camera projection selection (2D games use PM_ORTHOGRAPHIC)
+		enum ProjectionMode
+		{
+			PM_PERSPECTIVE = 0,		//!< the classic 3D frustum (default)
+			PM_ORTHOGRAPHIC = 1		//!< parallel projection sized by orthoSize
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -37,6 +43,8 @@ namespace Orkige
 		Ogre::SceneNode*		attachNode;	//!< the node the camera gets attached to
 		Ogre::Camera*			camera;			//!< Ogre camera
 		CameraModeFunction		cameraFunction;	//!< function that handles camera control (called once per frame)
+		ProjectionMode			projectionMode;	//!< perspective (default) or orthographic
+		float					orthoSize;		//!< orthographic vertical HALF-extent in world units
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -64,7 +72,20 @@ namespace Orkige
 		inline void instantSetCamera(Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition);
 		//! set camera with delta smoothing
 		inline void setCamera(Ogre::Real timeSinceLastFrame, Ogre::Vector3 const & cameraPosition, Ogre::Vector3 const & targetPosition, Ogre::Real tightness);
+		//! @brief select perspective or orthographic projection
+		//! @remarks state is kept (and serialized) even while no camera is
+		//! attached; applied to the engine camera on attach/load
+		void setProjectionMode(ProjectionMode mode);
+		//! @see CameraComponent::projectionMode
+		inline ProjectionMode getProjectionMode() const;
+		//! @brief orthographic vertical half-extent in world units (the camera
+		//! sees 2*orthoSize world units of height; width follows the aspect)
+		void setOrthoSize(float verticalHalfExtent);
+		//! @see CameraComponent::orthoSize
+		inline float getOrthoSize() const;
 	protected:
+		//! push projectionMode/orthoSize onto the Ogre camera (if one is attached)
+		void applyProjection();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
 		//! Component override gets called after the Component is attached to a GameObject
@@ -72,12 +93,24 @@ namespace Orkige
 		//! Component override gets called before the Component is removed from a GameObject
 		virtual void onRemove();
 		//--- SERIALIZATION ---
-		//! @warning camera mode/node state does not round-trip yet (logs a warning)
+		//! @brief save projection mode + orthoSize
+		//! @warning the camera MODE FUNCTION and node offsets do not round-trip
+		//! yet (logs a note)
 		virtual void save(optr<IArchive> const & ar);
-		//! @warning camera mode/node state does not round-trip yet
+		//! load projection mode + orthoSize (applied when a camera is attached)
 		virtual void load(optr<IArchive> const & ar);
 	private:
 	};
+	//---------------------------------------------------------
+	inline CameraComponent::ProjectionMode CameraComponent::getProjectionMode() const
+	{
+		return this->projectionMode;
+	}
+	//---------------------------------------------------------
+	inline float CameraComponent::getOrthoSize() const
+	{
+		return this->orthoSize;
+	}
 	//---------------------------------------------------------
 	inline Ogre::SceneNode* CameraComponent::getControlNode() 
 	{

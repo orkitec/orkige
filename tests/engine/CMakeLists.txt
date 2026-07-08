@@ -10,6 +10,7 @@ add_executable(orkige_engine_tests
     FastGuiAtlasTests.cpp
     ScriptComponentTests.cpp
     PlayerBundleTests.cpp
+    TwoDSupportTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE

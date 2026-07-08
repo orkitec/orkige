@@ -18,7 +18,11 @@
 #include <SDL3/SDL.h>
 #include "engine_module/EnginePrerequisites.h"
 #include "engine_graphic/Engine.h"
+#include "engine_graphic/FrameEventData.h"
 #include "engine_util/StringUtil.h"
+
+#include <algorithm>
+#include <cmath>
 
 //! maximum number of simultaneously tracked touch sequences (OIS tracked 4)
 #define ORKIGE_MAX_NUM_TOUCHES 10
@@ -40,6 +44,11 @@ namespace Orkige
 	IMPL_OWNED_EVENTTYPE(InputManager, AccelerationEvent);
 
 	IMPL_OSINGLETON(InputManager);
+
+	// simulated tilt tuning: a held steer key sweeps from upright to the
+	// clamp in ~0.7s; the clamp keeps "gravity" from ever pointing upward
+	const float InputManager::TILT_SIM_RATE = 1.6f;			// rad/s
+	const float InputManager::TILT_SIM_MAX_ANGLE = 1.2f;	// ~69 degrees
 
 	//---------------------------------------------------------
 	//! translates a SDL3 scancode to the legacy KeyEventData::KeyCode
@@ -246,6 +255,12 @@ namespace Orkige
 		//! event through injectEvent, so this covers hardware input AND
 		//! synthetic SDL_PushEvent input (selfchecks, scripted test runs) alike
 		bool keyDownState[SDL_SCANCODE_COUNT];
+		//--- tilt state (see InputManager::getTilt) -----------
+		float tiltAngle;				//!< simulated tilt angle in radians
+		bool tiltSensorAvailable;		//!< a real accelerometer is open
+		SDL_Sensor* accelSensor;		//!< the opened SDL accelerometer or NULL
+		SDL_SensorID accelSensorId;		//!< instance id matched in injectEvent
+		float sensorAccel[3];			//!< latest raw accelerometer sample (m/s^2)
 
 		InputManagerImpl()
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -296,9 +311,53 @@ namespace Orkige
 			{
 				this->keyDownState[each] = false;
 			}
+			this->tiltAngle = 0.0f;
+			this->tiltSensorAvailable = false;
+			this->accelSensor = NULL;
+			this->accelSensorId = 0;
+			this->sensorAccel[0] = 0.0f;
+			this->sensorAccel[1] = 0.0f;
+			this->sensorAccel[2] = 0.0f;
 		}
 		~InputManagerImpl()
 		{
+			if (this->accelSensor)
+			{
+				SDL_CloseSensor(this->accelSensor);
+				this->accelSensor = NULL;
+			}
+		}
+		//! open the first accelerometer, if the machine has one (phones/tablets;
+		//! desktops usually have none and getTilt falls back to the simulation)
+		void openTiltSensor()
+		{
+			if (this->accelSensor || !SDL_InitSubSystem(SDL_INIT_SENSOR))
+			{
+				return;
+			}
+			int sensorCount = 0;
+			SDL_SensorID* sensorIds = SDL_GetSensors(&sensorCount);
+			if (!sensorIds)
+			{
+				return;
+			}
+			for (int each = 0; each < sensorCount; each++)
+			{
+				if (SDL_GetSensorTypeForID(sensorIds[each]) == SDL_SENSOR_ACCEL)
+				{
+					this->accelSensor = SDL_OpenSensor(sensorIds[each]);
+					if (this->accelSensor)
+					{
+						this->accelSensorId = sensorIds[each];
+						this->tiltSensorAvailable = true;
+						oDebugMsg("core", 0, "InputManager: accelerometer '"
+							<< SDL_GetSensorNameForID(sensorIds[each])
+							<< "' drives getTilt()");
+						break;
+					}
+				}
+			}
+			SDL_free(sensorIds);
 		}
 		//! find the slot of a tracked finger, -1 if unknown
 		inline int findTouchSequenceId(SDL_FingerID fingerId) const
@@ -503,6 +562,27 @@ namespace Orkige
 			this->impl->sdlTouchToOrkige(event.tfinger, this->impl->releaseTouchSequenceId(event.tfinger.fingerID));
 			GlobalEventManager::getSingleton().trigger(this->impl->touchCancelledEvent);
 			return true;
+		case SDL_EVENT_SENSOR_UPDATE:
+			// the accelerometer opened in openTiltSensor: feed the classic
+			// (2012) AccelerationEventData AND the getTilt() sample
+			if (this->impl->accelSensor &&
+				event.sensor.which == this->impl->accelSensorId)
+			{
+				optr<AccelerationEventData> const & acceleration =
+					this->impl->accelerationData;
+				acceleration->relX = event.sensor.data[0] - acceleration->absX;
+				acceleration->relY = event.sensor.data[1] - acceleration->absY;
+				acceleration->relZ = event.sensor.data[2] - acceleration->absZ;
+				acceleration->absX = event.sensor.data[0];
+				acceleration->absY = event.sensor.data[1];
+				acceleration->absZ = event.sensor.data[2];
+				this->impl->sensorAccel[0] = event.sensor.data[0];
+				this->impl->sensorAccel[1] = event.sensor.data[1];
+				this->impl->sensorAccel[2] = event.sensor.data[2];
+				GlobalEventManager::getSingleton().trigger(this->impl->accelerationEvent);
+				return true;
+			}
+			return false;
 		default:
 			return false;
 		}
@@ -548,6 +628,66 @@ namespace Orkige
 	{
 		return impl->touchData;
 	}
+	//---------------------------------------------------------
+	Ogre::Vector3 InputManager::getTilt() const
+	{
+		if(this->impl->tiltSensorAvailable)
+		{
+			// SDL accelerometers report the reaction to gravity (device at
+			// rest, screen up: ~(0, 0, +9.81); held upright: y ~ +9.81) - the
+			// on-screen gravity direction is the NEGATED x/y, z projected out
+			Ogre::Vector3 tilt(-this->impl->sensorAccel[0],
+				-this->impl->sensorAccel[1], 0.0f);
+			// a device in free fall (or no sample yet) has no usable gravity
+			// direction - report "upright" instead of a garbage normalization
+			if(tilt.length() < 0.5f)
+			{
+				return Ogre::Vector3(0.0f, -1.0f, 0.0f);
+			}
+			return tilt.normalisedCopy();
+		}
+		return tiltVectorFromAngle(this->impl->tiltAngle);
+	}
+	//---------------------------------------------------------
+	bool InputManager::isTiltSensorAvailable() const
+	{
+		return this->impl->tiltSensorAvailable;
+	}
+	//---------------------------------------------------------
+	void InputManager::setTiltAngle(float radians)
+	{
+		this->impl->tiltAngle = std::clamp(radians,
+			-InputManager::TILT_SIM_MAX_ANGLE, InputManager::TILT_SIM_MAX_ANGLE);
+	}
+	//---------------------------------------------------------
+	float InputManager::getTiltAngle() const
+	{
+		return this->impl->tiltAngle;
+	}
+	//---------------------------------------------------------
+	float InputManager::advanceTiltAngle(float angleRadians, bool steerLeft,
+		bool steerRight, float deltaTime)
+	{
+		float steer = 0.0f;
+		if(steerLeft)
+		{
+			steer -= 1.0f;
+		}
+		if(steerRight)
+		{
+			steer += 1.0f;
+		}
+		// no auto-centering: a tilted phone stays tilted until tilted back
+		return std::clamp(angleRadians + steer * InputManager::TILT_SIM_RATE * deltaTime,
+			-InputManager::TILT_SIM_MAX_ANGLE, InputManager::TILT_SIM_MAX_ANGLE);
+	}
+	//---------------------------------------------------------
+	Ogre::Vector3 InputManager::tiltVectorFromAngle(float angleRadians)
+	{
+		// already normalized by construction; positive angles = gravity
+		// swings toward +X (tilting the "device" to the right)
+		return Ogre::Vector3(std::sin(angleRadians), -std::cos(angleRadians), 0.0f);
+	}
 
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -559,6 +699,19 @@ namespace Orkige
 	bool InputManager::onFrameStarted(Event const & event)
 	{
 		this->capture();
+		// advance the desktop tilt simulation once per frame; with a real
+		// accelerometer the sensor stream drives the tilt instead
+		if(!this->impl->tiltSensorAvailable)
+		{
+			optr<FrameEventData> frameData = event.getDataPtr<FrameEventData>();
+			if(frameData)
+			{
+				this->impl->tiltAngle = advanceTiltAngle(this->impl->tiltAngle,
+					this->isKeyDown(KeyEventData::KC_LEFT) || this->isKeyDown(KeyEventData::KC_A),
+					this->isKeyDown(KeyEventData::KC_RIGHT) || this->isKeyDown(KeyEventData::KC_D),
+					frameData->timeSinceLastFrame);
+			}
+		}
 		return false;
 	}
 	//---------------------------------------------------------
@@ -574,6 +727,8 @@ namespace Orkige
 			this->setWindowExtents( static_cast<int>(width), static_cast<int>(height) );
 			oDebugMsg("core", 0, "Input initialized! width, height: " << width << ", " << height);
 		}
+		// tilt: open the accelerometer where one exists (phones/tablets)
+		this->impl->openTiltSensor();
 	}
 	//---------------------------------------------------------
 	void InputManager::capture( void )
@@ -589,5 +744,11 @@ namespace Orkige
 		OFUNC(enable)
 		OFUNC(disable)
 		OFUNC(isKeyDown)
+		// tilt input (sensor-backed on devices, key simulation on desktops):
+		// input:getTilt() answers the normalized gravity direction
+		OFUNC(getTilt)
+		OFUNC(isTiltSensorAvailable)
+		OFUNC(setTiltAngle)
+		OFUNC(getTiltAngle)
 	OOBJECT_END
 }

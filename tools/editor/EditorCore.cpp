@@ -4,6 +4,8 @@
 
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_util/PrimitiveUtil.h>
@@ -689,6 +691,78 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- CameraChangeCommand ----------------------------------
+	//---------------------------------------------------------
+	CameraChangeCommand::CameraChangeCommand(String const& objectId,
+		EditorCameraSettings const& before, EditorCameraSettings const& after)
+		: mObjectId(objectId), mBefore(before), mAfter(after)
+	{
+	}
+	//---------------------------------------------------------
+	bool CameraChangeCommand::execute(EditorCore& core)
+	{
+		return core.setCameraSettings(mObjectId, mAfter);
+	}
+	//---------------------------------------------------------
+	bool CameraChangeCommand::unexecute(EditorCore& core)
+	{
+		return core.setCameraSettings(mObjectId, mBefore);
+	}
+	//---------------------------------------------------------
+	String CameraChangeCommand::getDescription() const
+	{
+		return "Edit Camera " + mObjectId;
+	}
+	//---------------------------------------------------------
+	bool CameraChangeCommand::mergeWith(EditorCommand const& next)
+	{
+		CameraChangeCommand const* other =
+			dynamic_cast<CameraChangeCommand const*>(&next);
+		if (!other || other->mObjectId != mObjectId)
+		{
+			return false;
+		}
+		mAfter = other->mAfter;
+		return true;
+	}
+
+	//---------------------------------------------------------
+	//--- SpriteChangeCommand ----------------------------------
+	//---------------------------------------------------------
+	SpriteChangeCommand::SpriteChangeCommand(String const& objectId,
+		EditorSpriteSettings const& before, EditorSpriteSettings const& after)
+		: mObjectId(objectId), mBefore(before), mAfter(after)
+	{
+	}
+	//---------------------------------------------------------
+	bool SpriteChangeCommand::execute(EditorCore& core)
+	{
+		return core.setSpriteSettings(mObjectId, mAfter);
+	}
+	//---------------------------------------------------------
+	bool SpriteChangeCommand::unexecute(EditorCore& core)
+	{
+		return core.setSpriteSettings(mObjectId, mBefore);
+	}
+	//---------------------------------------------------------
+	String SpriteChangeCommand::getDescription() const
+	{
+		return "Edit Sprite " + mObjectId;
+	}
+	//---------------------------------------------------------
+	bool SpriteChangeCommand::mergeWith(EditorCommand const& next)
+	{
+		SpriteChangeCommand const* other =
+			dynamic_cast<SpriteChangeCommand const*>(&next);
+		if (!other || other->mObjectId != mObjectId)
+		{
+			return false;
+		}
+		mAfter = other->mAfter;
+		return true;
+	}
+
+	//---------------------------------------------------------
 	//--- EditorCore -------------------------------------------
 	//---------------------------------------------------------
 	const float EditorCore::SNAP_TRANSLATE = 0.5f;
@@ -1084,6 +1158,117 @@ namespace Orkige
 		rigidBody->setFriction(desc.friction);
 		rigidBody->setRestitution(desc.restitution);
 		rigidBody->setPlanarMode(desc.planar);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::applyCameraChange(String const& id,
+		EditorCameraSettings const& before,
+		EditorCameraSettings const& after, unsigned int mergeSession)
+	{
+		optr<EditorCommand> command =
+			onew(new CameraChangeCommand(id, before, after));
+		command->setMergeSession(mergeSession);
+		return executeCommand(command);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::getCameraSettings(String const& id,
+		EditorCameraSettings& out) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<CameraComponent>())
+		{
+			return false;
+		}
+		CameraComponent* camera = gameObject->getComponentPtr<CameraComponent>();
+		out.projectionMode = static_cast<int>(camera->getProjectionMode());
+		out.orthoSize = camera->getOrthoSize();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setCameraSettings(String const& id,
+		EditorCameraSettings const& settings)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<CameraComponent>())
+		{
+			return false;
+		}
+		CameraComponent* camera = gameObject->getComponentPtr<CameraComponent>();
+		camera->setProjectionMode(static_cast<CameraComponent::ProjectionMode>(
+			settings.projectionMode));
+		camera->setOrthoSize(settings.orthoSize);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::applySpriteChange(String const& id,
+		EditorSpriteSettings const& before,
+		EditorSpriteSettings const& after, unsigned int mergeSession)
+	{
+		optr<EditorCommand> command =
+			onew(new SpriteChangeCommand(id, before, after));
+		command->setMergeSession(mergeSession);
+		return executeCommand(command);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::getSpriteSettings(String const& id,
+		EditorSpriteSettings& out) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<SpriteComponent>())
+		{
+			return false;
+		}
+		SpriteComponent* sprite = gameObject->getComponentPtr<SpriteComponent>();
+		out.textureName = sprite->getTextureName();
+		out.width = sprite->getWidth();
+		out.height = sprite->getHeight();
+		Ogre::ColourValue const& tint = sprite->getTint();
+		out.tint[0] = tint.r;
+		out.tint[1] = tint.g;
+		out.tint[2] = tint.b;
+		out.tint[3] = tint.a;
+		out.flipX = sprite->getFlipX();
+		out.flipY = sprite->getFlipY();
+		out.zOrder = sprite->getZOrder();
+		out.visible = sprite->isSpriteVisible();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setSpriteSettings(String const& id,
+		EditorSpriteSettings const& settings)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<SpriteComponent>())
+		{
+			return false;
+		}
+		SpriteComponent* sprite = gameObject->getComponentPtr<SpriteComponent>();
+		sprite->setSize(settings.width, settings.height);
+		sprite->setTint(settings.tint[0], settings.tint[1], settings.tint[2],
+			settings.tint[3]);
+		sprite->setFlip(settings.flipX, settings.flipY);
+		sprite->setZOrder(settings.zOrder);
+		sprite->setSpriteVisible(settings.visible);
+		if (settings.textureName != sprite->getTextureName())
+		{
+			if (settings.textureName.empty())
+			{
+				if (sprite->hasSprite())
+				{
+					sprite->removeSprite();
+				}
+			}
+			else
+			{
+				// loadSprite logs (not throws) on a missing texture; the
+				// sprite keeps the old texture name only on a hard failure
+				sprite->loadSprite(settings.textureName);
+			}
+		}
 		return true;
 	}
 	//---------------------------------------------------------

@@ -161,6 +161,28 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void RigidBodyComponent::teleport(Ogre::Vector3 const & position,
+		Ogre::Quaternion const & orientation)
+	{
+		GameObject* componentOwner = this->getComponentOwner();
+		oAssert(componentOwner);
+		optr<TransformComponent> transformComponent =
+			componentOwner->getComponent<TransformComponent>().lock();
+		oAssert(transformComponent);
+		if (this->hasBody())
+		{
+			PhysicsWorld & physicsWorld = PhysicsWorld::getSingleton();
+			physicsWorld.setBodyTransform(this->mBodyId, position, orientation);
+			if (this->mBodyDesc.bodyType != PhysicsWorld::BT_STATIC)
+			{
+				physicsWorld.setLinearVelocity(this->mBodyId, Ogre::Vector3::ZERO);
+				physicsWorld.setAngularVelocity(this->mBodyId, Ogre::Vector3::ZERO);
+			}
+		}
+		transformComponent->setPosition(position);
+		transformComponent->setOrientation(orientation);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void RigidBodyComponent::onAdd()
@@ -302,6 +324,7 @@ namespace Orkige
 		OFUNC(getAngularVelocity)
 		OFUNC(applyImpulse)
 		OFUNC(applyForce)
+		OFUNC(teleport)
 		OFUNC(hasBody)
 		OFUNC(getBodyId)
 	OOBJECT_END

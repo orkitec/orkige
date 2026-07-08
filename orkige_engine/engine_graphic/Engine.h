@@ -240,6 +240,16 @@ protected:
 		inline Ogre::Camera* getCamera( unsigned int num = 0 );
 		//! get Engine default Viewport if it was created through Engine::createDefaultCameraAndViewport
 		inline Ogre::Viewport* getViewport( unsigned int num = 0 );
+		//! @brief switch a default camera to ORTHOGRAPHIC projection (2D games)
+		//! @param num camera index (@see Engine::getCamera)
+		//! @param verticalHalfExtent world units from the view center to the
+		//! top edge (the camera sees 2x this height; width follows the aspect)
+		void setCameraOrthographic(unsigned int num, float verticalHalfExtent);
+		//! switch a default camera back to PERSPECTIVE projection
+		void setCameraPerspective(unsigned int num);
+		//! set a default viewport's clear colour (games pick their sky/void)
+		void setViewportBackgroundColour(unsigned int num, float red,
+			float green, float blue);
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app

@@ -83,6 +83,7 @@ namespace Orkige
 	protected:
 		PhysicsWorldImpl*	mImpl;					//!< Jolt guts, NULL until init()
 		float				mAccumulator;			//!< fixed-timestep accumulator
+		bool				mPaused;				//!< update() no-ops while true
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -101,8 +102,16 @@ namespace Orkige
 		inline bool isInitialized() const;
 		//! @brief advance the simulation by deltaTime (seconds)
 		//! @remarks steps the world in FIXED_TIMESTEP increments, at most
-		//! MAX_STEPS_PER_UPDATE per call; the remainder carries over
+		//! MAX_STEPS_PER_UPDATE per call; the remainder carries over.
+		//! A no-op while paused (@see setPaused).
 		void update(float deltaTime);
+		//! @brief pause/resume the simulation: update() becomes a no-op
+		//! @remarks bodies keep their velocities and can still be teleported
+		//! (setBodyTransform) while paused - the "move the world" mode of
+		//! sliding-tile games pauses the sim and teleports whole tile groups
+		void setPaused(bool paused);
+		//! is the simulation paused
+		inline bool isPaused() const;
 		//! set world gravity (default (0, -9.81, 0))
 		void setGravity(Ogre::Vector3 const & gravity);
 		//! get world gravity
@@ -156,6 +165,11 @@ namespace Orkige
 	inline bool PhysicsWorld::isInitialized() const
 	{
 		return this->mImpl != NULL;
+	}
+	//---------------------------------------------------------
+	inline bool PhysicsWorld::isPaused() const
+	{
+		return this->mPaused;
 	}
 	//---------------------------------------------------------
 }

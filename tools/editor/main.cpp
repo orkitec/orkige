@@ -23,6 +23,8 @@
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_input/InputManager.h>
@@ -734,6 +736,10 @@ struct EditorState
 	char scriptEditBuffer[512] = "";
 	std::string scriptEditObjectId;
 	std::string scriptEditCurrentScript;
+	//! SpriteComponent texture field edit buffer (same rebuild rules)
+	char spriteEditBuffer[512] = "";
+	std::string spriteEditObjectId;
+	std::string spriteEditCurrentTexture;
 };
 
 //--- play mode (remote debugging) -----------------------------------------
@@ -4549,6 +4555,169 @@ void drawRigidBodyComponentUI(EditorState& state, Orkige::EditorCore& core,
 	}
 }
 
+// CameraComponent editor: projection mode combo + ortho size drag - one
+// undoable CameraChangeCommand per edit, drags merge like the transforms
+void drawCameraComponentUI(EditorState& state, Orkige::EditorCore& core,
+	std::string const& objectId)
+{
+	Orkige::EditorCameraSettings before;
+	if (!core.getCameraSettings(objectId, before))
+	{
+		return;
+	}
+	Orkige::EditorCameraSettings after = before;
+	bool edited = false;
+
+	static const char* const projectionNames[] =
+		{ "Perspective", "Orthographic" };
+	int projection = before.projectionMode;
+	if (ImGui::Combo("Projection", &projection, projectionNames, 2))
+	{
+		after.projectionMode = projection;
+		state.inspectorMergeSession = core.beginMergeSession();
+		edited = true;
+	}
+	ImGui::SetItemTooltip("orthographic = 2D projection (applies to the "
+		"engine camera in Play mode; the editor viewport stays perspective)");
+
+	if (before.projectionMode ==
+		static_cast<int>(Orkige::CameraComponent::PM_ORTHOGRAPHIC))
+	{
+		float orthoSize = before.orthoSize;
+		const bool changed = ImGui::DragFloat("Ortho Size", &orthoSize,
+			0.1f, 0.01f, 10000.0f, "%.2f wu");
+		if (ImGui::IsItemActivated())
+		{
+			state.inspectorMergeSession = core.beginMergeSession();
+		}
+		if (changed)
+		{
+			after.orthoSize = orthoSize;
+			edited = true;
+		}
+		ImGui::SetItemTooltip("world units from the view center to the top "
+			"edge (the camera sees 2x this height)");
+	}
+
+	if (edited)
+	{
+		core.applyCameraChange(objectId, before, after,
+			state.inspectorMergeSession);
+	}
+}
+
+// SpriteComponent editor: texture name (Enter applies), size/tint/flip/
+// z-order/visibility - one undoable SpriteChangeCommand per edit
+void drawSpriteComponentUI(EditorState& state, Orkige::EditorCore& core,
+	std::string const& objectId)
+{
+	Orkige::EditorSpriteSettings before;
+	if (!core.getSpriteSettings(objectId, before))
+	{
+		return;
+	}
+	Orkige::EditorSpriteSettings after = before;
+	bool edited = false;
+
+	// texture field: rebuild the buffer when the selection or the texture
+	// changed behind the field (undo/redo, another panel)
+	if (state.spriteEditObjectId != objectId ||
+		state.spriteEditCurrentTexture != before.textureName)
+	{
+		state.spriteEditObjectId = objectId;
+		state.spriteEditCurrentTexture = before.textureName;
+		SDL_strlcpy(state.spriteEditBuffer, before.textureName.c_str(),
+			sizeof(state.spriteEditBuffer));
+	}
+	if (ImGui::InputText("Texture", state.spriteEditBuffer,
+		sizeof(state.spriteEditBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
+	{
+		after.textureName = state.spriteEditBuffer;
+		state.inspectorMergeSession = core.beginMergeSession();
+		edited = true;
+	}
+	ImGui::SetItemTooltip("texture resource name, e.g. ball.png from the "
+		"project's assets/ (Enter reloads the sprite)");
+
+	float size[2] = { before.width, before.height };
+	bool changed = ImGui::DragFloat2("Size", size, 0.05f, 0.0f, 10000.0f);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
+	{
+		after.width = size[0];
+		after.height = size[1];
+		edited = true;
+	}
+	ImGui::SetItemTooltip("world units; 0 derives the dimension from the "
+		"texture aspect ratio");
+
+	float tint[4] = { before.tint[0], before.tint[1], before.tint[2],
+		before.tint[3] };
+	changed = ImGui::ColorEdit4("Tint", tint);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
+	{
+		for (int each = 0; each < 4; ++each)
+		{
+			after.tint[each] = tint[each];
+		}
+		edited = true;
+	}
+
+	bool flipX = before.flipX;
+	if (ImGui::Checkbox("Flip X", &flipX))
+	{
+		after.flipX = flipX;
+		state.inspectorMergeSession = core.beginMergeSession();
+		edited = true;
+	}
+	ImGui::SameLine();
+	bool flipY = before.flipY;
+	if (ImGui::Checkbox("Flip Y", &flipY))
+	{
+		after.flipY = flipY;
+		state.inspectorMergeSession = core.beginMergeSession();
+		edited = true;
+	}
+
+	int zOrder = before.zOrder;
+	changed = ImGui::DragInt("Z-Order", &zOrder, 0.1f,
+		Orkige::SpriteComponent::ZORDER_MIN,
+		Orkige::SpriteComponent::ZORDER_MAX);
+	if (ImGui::IsItemActivated())
+	{
+		state.inspectorMergeSession = core.beginMergeSession();
+	}
+	if (changed)
+	{
+		after.zOrder = zOrder;
+		edited = true;
+	}
+	ImGui::SetItemTooltip("higher renders on top; overlapping sprites should "
+		"use distinct values (alpha sorting within one value is by camera "
+		"distance)");
+
+	bool visible = before.visible;
+	if (ImGui::Checkbox("Visible", &visible))
+	{
+		after.visible = visible;
+		state.inspectorMergeSession = core.beginMergeSession();
+		edited = true;
+	}
+
+	if (edited)
+	{
+		core.applySpriteChange(objectId, before, after,
+			state.inspectorMergeSession);
+	}
+}
+
 //! case-insensitive substring match for the Add Component search box
 bool containsIgnoreCase(std::string const& haystack, std::string const& needle)
 {
@@ -4854,6 +5023,14 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 				else if (dynamic_cast<Orkige::RigidBodyComponent*>(component))
 				{
 					drawRigidBodyComponentUI(state, core, objectId);
+				}
+				else if (dynamic_cast<Orkige::SpriteComponent*>(component))
+				{
+					drawSpriteComponentUI(state, core, objectId);
+				}
+				else if (dynamic_cast<Orkige::CameraComponent*>(component))
+				{
+					drawCameraComponentUI(state, core, objectId);
 				}
 				else if (auto* script =
 					dynamic_cast<Orkige::ScriptComponent*>(component))

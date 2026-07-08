@@ -16,6 +16,7 @@
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/AnimationComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
@@ -30,6 +31,7 @@ using namespace Orkige;
 ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TransformComponent)
 	OEXPORT(ModelComponent)
+	OEXPORT(SpriteComponent)
 	OEXPORT(AnimationComponent)
 	OEXPORT(CameraComponent)
 	OEXPORT(SoundComponent)

@@ -73,6 +73,14 @@ namespace Orkige
 		void applyImpulse(Ogre::Vector3 const & impulse);
 		//! apply a force (N) at the center of mass for the next step (needs the created body)
 		void applyForce(Ogre::Vector3 const & force);
+		//! @brief teleport the body AND the sibling TransformComponent to the
+		//! pose, killing all momentum
+		//! @remarks unlike moving the TransformComponent (which kinematic
+		//! bodies follow only while the simulation steps), this also works
+		//! while PhysicsWorld is PAUSED - the collision geometry moves
+		//! immediately. This is the API for sliding whole tile groups in
+		//! "move the world" modes and for respawns.
+		void teleport(Ogre::Vector3 const & position, Ogre::Quaternion const & orientation);
 		//! has the rigid body been created in the PhysicsWorld yet
 		inline bool hasBody() const;
 		//! get the PhysicsWorld body handle (INVALID_BODY_ID before creation)

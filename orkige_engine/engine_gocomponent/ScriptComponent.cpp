@@ -11,6 +11,7 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
+#include "engine_gocomponent/SpriteComponent.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
 #include <core_script/ScriptRuntime.h>
@@ -190,6 +191,11 @@ namespace Orkige
 			this->mInstance->setSelfValue("model",
 				componentOwner->getComponentPtr<ModelComponent>());
 		}
+		if (componentOwner->hasComponent<SpriteComponent>())
+		{
+			this->mInstance->setSelfValue("sprite",
+				componentOwner->getComponentPtr<SpriteComponent>());
+		}
 
 		this->mStarted = true;
 		if (!this->mInstance->callInit(&error))
@@ -225,6 +231,8 @@ namespace Orkige
 			&worldGetComponent<RigidBodyComponent>);
 		runtime.registerFunction("world", "getModel",
 			&worldGetComponent<ModelComponent>);
+		runtime.registerFunction("world", "getSprite",
+			&worldGetComponent<SpriteComponent>);
 		runtime.registerFunction("world", "getScript",
 			&worldGetComponent<ScriptComponent>);
 	}

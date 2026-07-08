@@ -194,7 +194,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	PhysicsWorld::PhysicsWorld() : mImpl(NULL), mAccumulator(0.0f)
+	PhysicsWorld::PhysicsWorld() : mImpl(NULL), mAccumulator(0.0f), mPaused(false)
 	{
 	}
 	//---------------------------------------------------------
@@ -233,7 +233,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void PhysicsWorld::update(float deltaTime)
 	{
-		if (!this->mImpl || deltaTime <= 0.0f)
+		if (!this->mImpl || deltaTime <= 0.0f || this->mPaused)
 		{
 			return;
 		}
@@ -249,6 +249,13 @@ namespace Orkige
 		}
 		// after a long stall drop the excess instead of trying to catch up
 		this->mAccumulator = std::min(this->mAccumulator, PhysicsWorld::FIXED_TIMESTEP);
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::setPaused(bool paused)
+	{
+		this->mPaused = paused;
+		// no stale catch-up burst on resume
+		this->mAccumulator = 0.0f;
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::setGravity(Ogre::Vector3 const & gravity)
@@ -347,9 +354,15 @@ namespace Orkige
 		Ogre::Quaternion const & orientation)
 	{
 		oAssert(this->mImpl);
-		this->mImpl->mPhysicsSystem.GetBodyInterface().SetPositionAndRotation(
-			JPH::BodyID(bodyId), toJolt(position), toJolt(orientation),
-			JPH::EActivation::Activate);
+		JPH::BodyInterface & bodyInterface = this->mImpl->mPhysicsSystem.GetBodyInterface();
+		const JPH::BodyID id(bodyId);
+		// static bodies must not be activated (Jolt asserts); their broadphase
+		// entry still moves, so a teleported static body collides at the new pose
+		const JPH::EActivation activation =
+			bodyInterface.GetMotionType(id) == JPH::EMotionType::Static ?
+			JPH::EActivation::DontActivate : JPH::EActivation::Activate;
+		bodyInterface.SetPositionAndRotation(id, toJolt(position),
+			toJolt(orientation), activation);
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::moveKinematic(BodyId bodyId, Ogre::Vector3 const & targetPosition,
@@ -484,6 +497,8 @@ namespace Orkige
 	OOBJECT_IMPL(PhysicsWorld)
 		OSINGLETON()
 		OFUNC(update)
+		OFUNC(setPaused)
+		OFUNC(isPaused)
 		OFUNC(setGravity)
 		OFUNC(getGravity)
 		OFUNC(setBodyTransform)
