@@ -10,6 +10,7 @@
 #define __StringConverter_h__31_8_2010__0_31_04__
 
 #include "engine_module/EnginePrerequisites.h"
+#include <cstdlib>
 #include <type_traits>
 
 namespace Orkige
@@ -109,14 +110,16 @@ namespace Orkige
 			static Type fromString(const String& val,
 				typename std::enable_if<std::is_same<Type, long>::value>::type * = 0)
 			{
-				return parseLong(val);
+				// OGRE 14 deprecated parseLong
+				return std::strtol(val.c_str(), 0, 10);
 			}
 			//! convert String to unsigned long
 			template<class Type>
 			static Type fromString(const String& val,
 				typename std::enable_if<std::is_same<Type, unsigned long>::value>::type * = 0)
 			{
-				return parseUnsignedLong(val);
+				// OGRE 14 deprecated parseUnsignedLong
+				return std::strtoul(val.c_str(), 0, 10);
 			}
 			//! convert String to bool
 			template<class Type>
@@ -179,7 +182,8 @@ namespace Orkige
 			static Type fromString(const String& val,
 				typename std::enable_if<std::is_same<Type, Ogre::StringVector>::value>::type * = 0)
 			{
-				return parseStringVector(val);
+				// OGRE 14 deprecated parseStringVector in favour of split
+				return Ogre::StringUtil::split(val);
 			}
 		protected:
 		private:

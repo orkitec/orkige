@@ -1,0 +1,6 @@
+# Native game modules are standalone CMake projects - they are NOT in the
+# engine's compilation database. Point clangd at the module's own build dir
+# (created on first compile-on-Play / export; diagnostics are meaningless
+# before that first build).
+CompileFlags:
+  CompilationDatabase: build

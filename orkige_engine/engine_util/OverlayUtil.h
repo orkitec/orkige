@@ -70,7 +70,7 @@ namespace Orkige
 		//! utility method used to get the width of a caption in a text area.
 		inline Ogre::Real getCaptionWidth(const Ogre::DisplayString& caption, Ogre::TextAreaOverlayElement* area)
 		{
-			Ogre::Font* font = (Ogre::Font*)Ogre::FontManager::getSingleton().getByName(area->getFontName()).getPointer();
+			Ogre::Font* font = (Ogre::Font*)Ogre::FontManager::getSingleton().getByName(area->getFontName()).get();
 			Ogre::String current = caption.asUTF8();
 			Ogre::Real lineWidth = 0;
 
@@ -93,7 +93,7 @@ namespace Orkige
 		//! utility method to cut off a string to fit in a text area.
 		inline void fitCaptionToArea(const Ogre::DisplayString& caption, Ogre::TextAreaOverlayElement* area, Ogre::Real maxWidth)
 		{
-			Ogre::Font* f = (Ogre::Font*)Ogre::FontManager::getSingleton().getByName(area->getFontName()).getPointer();
+			Ogre::Font* f = (Ogre::Font*)Ogre::FontManager::getSingleton().getByName(area->getFontName()).get();
 			Ogre::String s = caption.asUTF8();
 
 			int nl = s.find('\n');

@@ -162,20 +162,21 @@ namespace Orkige
 	{
 		Ogre::ConfigFile::load(filename, Ogre::ResourceGroupManager::getSingleton().findGroupContainingResource(filename), "\t:=", true);
 		this->resourceGroup = this->getSetting("ResourceGroup", StringUtil::BLANK, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-		FastGuiFactory::SectionIterator it = this->getSectionIterator();
-		while(it.hasMoreElements())
+		// OGRE 14: ConfigFile::SectionIterator became getSettingsBySection()
+		// (same migration as Engine::setupResources); the per-section copy
+		// keeps the historical mutable-pointer handler signatures untouched
+		for (auto const & section : this->getSettingsBySection())
 		{
-			String const & widgetType = it.peekNextKey();
-			SettingsMultiMap* settings = it.peekNextValue();
+			String const & widgetType = section.first;
+			SettingsMultiMap sectionSettings = section.second;
 			if(widgetType.empty())
 			{
-				this->onLoadGlobalSettings(settings);
+				this->onLoadGlobalSettings(&sectionSettings);
 			}
 			else
 			{
-				this->onLoadWidget(widgetType, settings);
+				this->onLoadWidget(widgetType, &sectionSettings);
 			}
-			it.moveNext();
 		}
 		FastGuiManager::getSingleton().reorderViews();
 	}

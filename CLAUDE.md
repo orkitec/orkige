@@ -23,7 +23,28 @@ VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug   # configure (run
 cmake --build --preset macos-debug                              # build
 ```
 
-Presets: `macos-debug`, `macos-release`. Output in `build/<preset>/`.
+Presets: `macos-debug`, `macos-release`, `ios-simulator-debug`, `android-debug`.
+Output in `build/<preset>/`.
+The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
+(GLES2 render system, SDL3 UIKit main, media bundled in) for the arm64
+simulator via `triplets/arm64-ios-simulator.cmake`; deploy with
+`xcrun simctl boot/install/launch`.
+The Android preset (`triplets/arm64-android.cmake`, NDK 27 via
+`ANDROID_NDK_HOME`, API 28+) builds the player as `tools/player/libmain.so`
+(GLES2 render system, everything incl. SDL3 statically linked);
+`tools/player/android/package_apk.sh` assembles + signs
+`build/android-debug/apk/OrkigePlayer.apk` directly with javac/d8/aapt2/
+apksigner (no Gradle - the machine's JDK 26 predates Gradle support; SDL3's
+Java glue is taken from the vcpkg SDL source). Media rides in APK assets/
+and is extracted to the app files dir on first launch. Deploy with
+`adb install`; emulator AVD `orkige_test` (android-35, arm64) exists.
+The editor's Play toolbar has a target picker (Desktop / iOS simulators -
+booted or shutdown, Play boots a shutdown one via simctl + Simulator.app
+and auto-installs the built player app / adb devices+emulators - physical
+Android phones use the same adb flow; iOS hardware is enumerated but gated
+until signed deploys land). `editor_play_simulator` /
+`editor_play_simulator_boot` / `editor_play_android` ctests cover the
+flows, skipping when no prepared device is available.
 Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
 into the tree and never rely on system-installed libraries.
 
@@ -33,13 +54,46 @@ loose orphaned headers from ~2016 (e.g. an ancient zlib.h), and clang searches
 `CMAKE_IGNORE_PREFIX_PATH=/usr/local`, and `triplets/arm64-osx.cmake` (via
 `VCPKG_OVERLAY_TRIPLETS`) does the same for vcpkg port builds. If a build ever reports
 headers/symbols from `/usr/local`, that isolation has regressed — fix it, don't work
-around it.
+around it. One deliberate exception: MoltenVK is treated as the platform's Vulkan
+*driver* (system-tier, like GPU drivers on Windows/Linux) and comes from Apple-Silicon
+Homebrew (`brew install molten-vk`, found via its ICD manifest under `/opt/homebrew`);
+the Vulkan *loader* and headers stay vcpkg-provided.
+
+## Build speed / iteration discipline
+
+- Scope builds to what you're working on: `cmake --build --preset macos-debug
+  --target orkige_engine_tests` (or `orkige_editor`, `jumper`, ...) instead of
+  the full preset build.
+- During development run `ctest --preset unit` (~3s, headless); use
+  `ctest --preset desktop` (~30s, excludes the `device`-labeled
+  simulator/emulator tests) as the standard verification pass, and the full
+  `ctest --preset all` when deploy/device code changed or before handing over.
+- USING the editor or playing samples (as opposed to developing them): build
+  and run the `macos-release` preset — the Debug editor runs ~19x slower
+  (measured 237 vs ~4500 fps) because of -O0 plus assert-heavy debug
+  OGRE/Jolt. Debug is for development and tests; Release is for actually
+  working in the tool.
+- ccache is wired in automatically (root CMakeLists `find_program`). PCH
+  targets add `-Xclang -fno-pch-timestamp` via `orkige_pch_ccache_compat()`;
+  the machine's ccache carries the matching one-time setting
+  `sloppiness=pch_defines,time_macros,include_file_mtime,include_file_ctime`
+  — without both, PCH-using TUs never hit the cache.
+- Port dirs are hashed byte-for-byte into the vcpkg ABI hash: ANY edit under
+  `ports/<name>/` (even a README typo) forces that port to rebuild on all
+  three triplets (macOS, iOS, Android). Batch port edits, keep in-port
+  READMEs to the single pointer line, and put all prose in `Docs/ports.md`.
+- New fat targets (many TUs including Ogre.h / sol2 / imgui) get
+  `target_precompile_headers` with every entry wrapped in
+  `$<$<COMPILE_LANGUAGE:CXX>:...>` (the targets contain .mm files, and PCHs
+  must not leak across languages) plus a `orkige_pch_ccache_compat()` call.
+  Tiny targets (one or two TUs) aren't worth a PCH.
 
 ## Testing
 
 ```sh
-ctest --preset unit    # headless Catch2 unit tests (~3s) — safe to run anytime
-ctest --preset all     # + integration runs (open real windows on this machine)
+ctest --preset unit     # headless Catch2 unit tests (~3s) — safe to run anytime
+ctest --preset desktop  # + desktop integration (~30s; no simulator/emulator boots)
+ctest --preset all      # everything incl. device tests (boots simulators/emulators)
 ```
 
 Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
@@ -58,10 +112,17 @@ pass before committing.
   (`std::shared_ptr`, `<type_traits>`, range-for, `std::function`, `std::mutex`).
 - Renderer target is OGRE 14.x from vcpkg (port from the historical OGRE 1.7 API).
   Window/input target is SDL3 (replaces the abandoned OIS).
-- Scripting is Lua-first and currently DISABLED via the global `ORKIGE_NOSCRIPT` define:
-  the old Lua meta backend (`core_base/Meta_Lua.h`) depends on the dead luabind library
-  and the Python backend (`Meta_Python.h`, `core_python/`) on boost::python. Neither is
-  compiled; the plan is to rebuild Lua bindings on sol2. Don't "fix" these files in passing.
+- Scripting is Lua-first and LIVE, behind a backend-neutral seam: application code talks
+  ONLY to `core_script/ScriptRuntime` (always compiled; `available()` is false and errors
+  are honest in `ORKIGE_SCRIPTING=OFF` builds — both configs must keep building). The sol2
+  backend (`ScriptManager` + `Meta_Lua.h`) is an implementation detail selected in
+  `Meta.h`. NEVER write raw `#ifdef ORKIGE_LUA` outside Meta.h/Meta_Lua.h/Meta_None.h and
+  the ScriptRuntime implementation — the meta macro vocabulary (incl. `OUSERTYPE*`) is
+  complete in both backends by design. Game behavior lives in project scripts via
+  `engine_gocomponent/ScriptComponent` (per-instance sandbox, init/update/shutdown, `self`
+  + the global `world`/`shared` tables); `projects/jumper-lua/scripts/player.lua` is the
+  reference script. The dead Python backend (`Meta_Python.h`, `core_python/`) stays
+  uncompiled — don't "fix" it in passing.
 - Everything builds statically during the revival (`ORKIGE_STATIC` is defined globally);
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
@@ -100,25 +161,55 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   `LogManager` configured from XML.
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
-**`orkige_engine/`** — the OGRE-facing layer (NOT yet building; Phase 1 of the revival
-ports it, gated behind the `ORKIGE_BUILD_ENGINE` CMake option). Modules follow the same
-pattern with `engine_module/EnginePrerequisites.h` as umbrella. `engine_graphic/Engine.h`
-is the central engine object; `engine_gocomponent` bridges core game objects to rendered
-scene (`TransformComponent` etc.); `engine_fastgui` is the homegrown UI system;
-`engine_mygui`, `engine_sound` (OpenAL), `engine_input`, `engine_physic` wrap subsystems.
-All of it currently targets the OGRE 1.7 API and old platforms — expect every file to
-need porting work when it gets re-enabled.
+**`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated
+behind `ORKIGE_BUILD_ENGINE`, ON for all app work). Umbrella: `engine_module/
+EnginePrerequisites.h`. `engine_graphic/Engine.h` is the central engine object (render
+system selection via `ORKIGE_RENDERSYSTEM` env: GL3Plus default; Vulkan renders via
+MoltenVK on macOS; GLES2 on iOS/Android; Metal builds but can't render RTSS content —
+see Docs/ports.md). `engine_gocomponent` bridges core game objects to the scene
+(`TransformComponent`, `ModelComponent`, `RigidBodyComponent` on Jolt via the
+backend-agnostic `engine_physic/PhysicsWorld`, `SoundComponent` on OpenAL Soft,
+`AnimationComponent`, `CameraComponent`, the Lua `ScriptComponent` — dormant unless a
+runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
+(KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic
+SDL events work); `engine_fastgui` (+ vendored Gorilla renderer) is the runtime UI system with
+atlases generated by `Util/make_fastgui_atlas.py`; `engine_filesystem` wraps archives;
+`core_debugnet` (in core) carries the editor<->player debug protocol.
 
-**Tools** (`orkige_fontconverter`, `orkige_menuviewer`, `orkige_sceneoptimizer`): legacy
-utility sources, not built (`ORKIGE_BUILD_TOOLS` option exists but nothing is wired yet).
-`Util/` holds legacy asset-pipeline scripts/binaries from the 2012 era.
+**Tools & apps**: `tools/editor` — the Orkige editor (docked ImGui UI, RTT scene panel,
+gizmos, undo/redo in the UI-agnostic `orkige_editor_core`, native macOS menu + file
+dialogs, play/pause/step/stop spawning `tools/player` with live remote
+hierarchy/inspector over the debug protocol; Play targets: desktop, iOS simulators,
+adb devices). `tools/player` — the standalone runtime (scene/project loader, debug
+server). The player CLI contract (`[scene.oscene] [--project <dir>] [--debug-port N]`)
+and the runtime side of the debug protocol live in `engine_runtime/PlayerRuntime.h`
+(`PlayerArguments` + `PlayerDebugLink`) — the player and native game modules share them.
+`samples/`: hello_orkige (feature demo with env-hooked self-checks), jumper
+(textured jump-and-run with fastgui HUD). `projects/` holds .orkproj project folders —
+`projects/jumper-lua/` is the jumper reimplemented in pure Lua (ScriptComponent, zero
+compiled game code; verified by the player_jumper_lua_selfcheck ctest);
+`projects/jumper-native/` is the jumper as a **native project module**: manifest
+Settings `native.target`/`native.cmakeDir`/`native.buildDir`
+(`core_project/NativeModule.h`) mark a project as carrying compiled C++ game code
+under `native/`, built as a standalone CMake project against the engine build tree
+via `cmake/OrkigeGameModule.cmake` (no installed SDK yet — the helper file IS the
+interim contract). In the editor, Play on such a project becomes compile-on-Play:
+async incremental cmake build with `[build]` lines streamed into the Console (Stop
+cancels, a failed build stays in edit mode and launches nothing), then the project's
+own executable runs as the play process (desktop target only; covered by the
+editor_project_native_play / _break ctests — their build tree persists under
+`projects/jumper-native/native/build`, gitignored, so re-runs build incrementally).
+**Project export** (`Util/orkige_export.py`, editor Build menu): packages a project as a
+distributable macOS .app (self-contained: player/module binary + dylib closure + engine
+media + project payload; a marker file makes the app boot its bundled project with no
+arguments — `PlayerBundle` in `engine_runtime/PlayerRuntime.h`), an iOS-simulator .app or
+an Android APK (via `package_apk.sh`; native-module projects are desktop-only). Output:
+`<project>/builds/<platform>/`; bundle/package ids come from the manifest Settings
+`export.macos.bundleId` / `export.android.package`. Covered by the `export_*` ctests
+(the macOS ones RUN the exported app from a neutral cwd).
+Legacy tool sources (`orkige_fontconverter` etc.) and `Util/`'s 2012 binaries remain
+unbuilt reference material; `Util/*.py` are the live asset generators.
 
-**Docs/** contains the historical generated API docs (`OrkigeAPI`, `LuaAPI`) — useful as
-reference for how the Lua-facing API looked when rebuilding bindings.
+**Docs/**: historical API docs (`OrkigeAPI`, `LuaAPI`), `Docs/ports.md` (overlay-port
+rationale), `Docs/upstream/` (OGRE PR package — submitted as OGRECave/ogre #3667-3669).
 
-## Roadmap context
-
-Phased revival (decided 2026-07): Phase 0 core foundation (done — core builds), Phase 1
-OGRE 14 + SDL3 port of `orkige_engine` with a minimal demo on desktop, Phase 2 subsystems
-(sol2 Lua bindings, UI decision, Jolt physics), Phase 3 mobile (Android arm64 + iOS/Metal),
-Phase 4 asset pipeline (glTF) and a custom in-engine editor (Ogitor is gone for good).

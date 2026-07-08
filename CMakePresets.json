@@ -32,6 +32,41 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "ios-simulator-debug",
+      "displayName": "iOS Simulator Debug (arm64)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "android-debug",
+      "displayName": "Android Debug (arm64-v8a, API 28+)",
+      "inherits": "base",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{HOME}/Library/Android/sdk/ndk/27.2.12479018"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": null,
+        "VCPKG_TARGET_TRIPLET": "arm64-android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -42,6 +77,14 @@
     {
       "name": "macos-release",
       "configurePreset": "macos-release"
+    },
+    {
+      "name": "ios-simulator-debug",
+      "configurePreset": "ios-simulator-debug"
+    },
+    {
+      "name": "android-debug",
+      "configurePreset": "android-debug"
     }
   ],
   "testPresets": [
@@ -54,14 +97,36 @@
           "label": "unit"
         }
       },
+      "execution": {
+        "jobs": 10
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop",
+      "displayName": "Unit + desktop integration (no simulator/emulator boots)",
+      "configurePreset": "macos-debug",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 6
+      },
       "output": {
         "outputOnFailure": true
       }
     },
     {
       "name": "all",
-      "displayName": "Full suite (unit + integration; opens real windows)",
+      "displayName": "Full suite (unit + integration incl. device tests)",
       "configurePreset": "macos-debug",
+      "execution": {
+        "jobs": 6
+      },
       "output": {
         "outputOnFailure": true
       }

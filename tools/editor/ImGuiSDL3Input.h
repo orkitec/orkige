@@ -41,9 +41,37 @@ namespace Orkige
 		//! the engine input pipeline.
 		bool processEvent(SDL_Event const& event);
 
+		//! @brief mouse capture for the Scene panel's fly mode.
+		//! true: switch the window into SDL relative mouse mode (cursor
+		//! hidden + captured, motion arrives as raw xrel/yrel counts which
+		//! accumulate here - see consumeRelativeDelta) and remember the
+		//! cursor position; ImGui stops receiving absolute mouse positions
+		//! so the UI cursor state stays frozen instead of fighting the
+		//! capture. false: restore the cursor to the remembered pre-capture
+		//! position (SDL_WarpMouseInWindow, warp-before-disable per the SDL
+		//! docs) and re-sync ImGui's mouse position. Idempotent; main
+		//! thread only (SDL requirement). If SDL cannot enter relative mode
+		//! (logged), the deltas still accumulate from the motion events'
+		//! xrel/yrel - the look keeps working, only the cursor stays
+		//! visible/unconstrained.
+		void setRelativeMode(bool enabled);
+
+		//! is the window in fly-mode relative mouse capture?
+		bool isRelativeMode() const { return mRelativeMode; }
+
+		//! @brief fetch-and-clear the relative motion accumulated since the
+		//! last call (raw SDL counts - NOT scaled by the render-target/
+		//! backing-store factor, unlike the absolute positions ImGui gets).
+		void consumeRelativeDelta(float& deltaX, float& deltaY);
+
 	private:
 		SDL_Window* mWindow;
 		float mMouseScaleX = 1.0f;
 		float mMouseScaleY = 1.0f;
+		bool mRelativeMode = false;		//!< fly-mode capture active?
+		float mRelativeDeltaX = 0.0f;	//!< accumulated xrel (raw counts)
+		float mRelativeDeltaY = 0.0f;	//!< accumulated yrel (raw counts)
+		float mRestoreMouseX = 0.0f;	//!< cursor position (window points)
+		float mRestoreMouseY = 0.0f;	//!< remembered for capture exit
 	};
 }

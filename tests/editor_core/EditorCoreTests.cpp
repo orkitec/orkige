@@ -22,6 +22,9 @@
 #include "TestComponents.h"
 
 #include <EditorCore.h>
+#include <engine_gocomponent/ScriptComponent.h>
+
+#include <algorithm>
 
 namespace
 {
@@ -95,6 +98,19 @@ namespace
 		REQUIRE(gameObject->addComponent<Orkige::TestHealthComponent>());
 		gameObject->getComponentPtr<Orkige::TestHealthComponent>()
 			->setHealth(health);
+	}
+
+	//! register the (headless-safe) ScriptComponent once per test process -
+	//! the same registration init_module_orkige_engine performs
+	void registerScriptComponent()
+	{
+		static bool registered = false;
+		if (!registered)
+		{
+			registered = true;
+			Orkige::ScriptComponent::OrkigeMetaExport(
+				"orkige_editor_core_tests");
+		}
 	}
 }
 
@@ -409,6 +425,285 @@ TEST_CASE("EditorCore marks the scene dirty on every stack operation and "
 	manager.clear();
 }
 
+TEST_CASE("EditorCore selection set: primary rules, toggle, clear",
+	"[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "A", 1);
+	makeHealthObject(manager, "B", 2);
+	makeHealthObject(manager, "C", 3);
+
+	CHECK_FALSE(core.hasSelection());
+	CHECK(core.getSelectedObjectId().empty());
+	CHECK(core.getSelectionCount() == 0);
+
+	core.selectObject("A");
+	CHECK(core.hasSelection());
+	CHECK(core.getSelectedObjectId() == "A");
+	CHECK(core.getSelectionCount() == 1);
+
+	// toggle adds - the newest member is the primary
+	core.toggleSelection("B");
+	CHECK(core.getSelectionCount() == 2);
+	CHECK(core.getSelectedObjectId() == "B");
+	CHECK(core.isSelected("A"));
+	CHECK(core.isSelected("B"));
+	CHECK_FALSE(core.isSelected("C"));
+
+	// toggling a member removes it - the primary falls back
+	core.toggleSelection("B");
+	CHECK(core.getSelectionCount() == 1);
+	CHECK(core.getSelectedObjectId() == "A");
+
+	// a plain select replaces the whole set
+	core.toggleSelection("C");
+	core.selectObject("B");
+	CHECK(core.getSelectionCount() == 1);
+	CHECK(core.getSelectedObjectId() == "B");
+
+	// addToSelection is idempotent
+	core.addToSelection("A");
+	core.addToSelection("A");
+	CHECK(core.getSelectionCount() == 2);
+	CHECK(core.getSelectedObjectId() == "A");
+
+	// deselect removes exactly one id, clear removes all
+	core.deselectObject("A");
+	CHECK(core.getSelectionCount() == 1);
+	CHECK(core.getSelectedObjectId() == "B");
+	core.clearSelection();
+	CHECK_FALSE(core.hasSelection());
+	CHECK(core.getSelectionCount() == 0);
+
+	// hasSelection requires the primary to actually exist
+	core.selectObject("Missing");
+	CHECK_FALSE(core.hasSelection());
+	CHECK(core.getSelectionCount() == 1);
+
+	manager.clear();
+}
+
+TEST_CASE("CompositeCommand executes in order, undoes in reverse and rolls "
+	"back a refused batch", "[editor]")
+{
+	Orkige::EditorCore core(freshWorld());
+	std::vector<std::string> log;
+
+	// an empty composite refuses (nothing enters the stack)
+	CHECK_FALSE(core.executeCommand(
+		Orkige::onew(new Orkige::CompositeCommand("Empty"))));
+	CHECK_FALSE(core.canUndo());
+
+	optr<Orkige::CompositeCommand> batch =
+		Orkige::onew(new Orkige::CompositeCommand("Batch"));
+	batch->addCommand(Orkige::onew(new ProbeCommand(log, "A")));
+	batch->addCommand(Orkige::onew(new ProbeCommand(log, "B")));
+	CHECK(batch->size() == 2);
+	REQUIRE(core.executeCommand(batch));
+	CHECK(log == std::vector<std::string>{ "A:do", "B:do" });
+	CHECK(core.getUndoStackSize() == 1); // the batch is ONE undo step
+	CHECK(core.getUndoDescription() == "Batch");
+
+	REQUIRE(core.undo());
+	CHECK(log == std::vector<std::string>{
+		"A:do", "B:do", "B:undo", "A:undo" }); // reverse order
+	REQUIRE(core.redo());
+	CHECK(log == std::vector<std::string>{
+		"A:do", "B:do", "B:undo", "A:undo", "A:do", "B:do" });
+	REQUIRE(core.undo());
+	log.clear();
+
+	// a failing member rolls the executed prefix back; the batch is refused
+	optr<Orkige::CompositeCommand> failing =
+		Orkige::onew(new Orkige::CompositeCommand("Failing"));
+	failing->addCommand(Orkige::onew(new ProbeCommand(log, "A")));
+	failing->addCommand(Orkige::onew(new FailingCommand()));
+	failing->addCommand(Orkige::onew(new ProbeCommand(log, "C")));
+	core.clearSceneDirty();
+	CHECK_FALSE(core.executeCommand(failing));
+	CHECK(log == std::vector<std::string>{ "A:do", "A:undo" });
+	CHECK_FALSE(core.canUndo());
+	CHECK_FALSE(core.isSceneDirty());
+}
+
+TEST_CASE("EditorCore add component pulls dependencies in and undo removes "
+	"exactly what was added", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	optr<Orkige::GameObject> object =
+		manager.createGameObject("Obj").lock();
+	REQUIRE(object);
+
+	// refusals: unknown type, missing object - nothing enters the stack
+	CHECK_FALSE(core.addComponentToObject("Obj", "NoSuchComponent"));
+	CHECK_FALSE(core.addComponentToObject("Missing", "TestHealthComponent"));
+	CHECK_FALSE(core.canUndo());
+
+	// the registry lists the test components
+	Orkige::StringVector addable = core.getAddableComponentTypes();
+	CHECK(std::find(addable.begin(), addable.end(),
+		"TestArmorComponent") != addable.end());
+	CHECK(std::find(addable.begin(), addable.end(),
+		"TestHealthComponent") != addable.end());
+
+	// armor depends on health: BOTH arrive through one command
+	REQUIRE(core.addComponentToObject("Obj", "TestArmorComponent"));
+	CHECK(object->hasComponent<Orkige::TestArmorComponent>());
+	CHECK(object->hasComponent<Orkige::TestHealthComponent>());
+	CHECK(core.getUndoDescription() == "Add TestArmorComponent to Obj");
+
+	// already attached refuses
+	CHECK_FALSE(core.addComponentToObject("Obj", "TestArmorComponent"));
+
+	// undo removes the component AND the dependency it brought in
+	REQUIRE(core.undo());
+	CHECK_FALSE(object->hasComponent<Orkige::TestArmorComponent>());
+	CHECK_FALSE(object->hasComponent<Orkige::TestHealthComponent>());
+
+	REQUIRE(core.redo());
+	CHECK(object->hasComponent<Orkige::TestArmorComponent>());
+	CHECK(object->hasComponent<Orkige::TestHealthComponent>());
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore add-component undo keeps pre-existing dependencies",
+	"[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Obj", 55); // health exists BEFORE the command
+
+	REQUIRE(core.addComponentToObject("Obj", "TestArmorComponent"));
+	REQUIRE(core.undo());
+	// health was not added by the command - it survives with its state
+	optr<Orkige::GameObject> object = manager.getGameObject("Obj").lock();
+	REQUIRE(object);
+	CHECK_FALSE(object->hasComponent<Orkige::TestArmorComponent>());
+	REQUIRE(object->hasComponent<Orkige::TestHealthComponent>());
+	CHECK(object->getComponentPtr<Orkige::TestHealthComponent>()
+		->getHealth() == 55);
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore remove component honours the dependency rule and "
+	"restores the exact state on undo", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	optr<Orkige::GameObject> object =
+		manager.createGameObject("Obj").lock();
+	REQUIRE(object);
+	REQUIRE(object->addComponent<Orkige::TestArmorComponent>());
+	object->getComponentPtr<Orkige::TestHealthComponent>()->setHealth(42);
+	object->getComponentPtr<Orkige::TestArmorComponent>()->setArmor(7);
+
+	// health is a dependency of the attached armor - removal is BLOCKED
+	// (the holder would cascade-remove armor; the editor refuses instead)
+	Orkige::String blockedBy;
+	CHECK_FALSE(core.canRemoveComponent("Obj", "TestHealthComponent",
+		&blockedBy));
+	CHECK(blockedBy == "TestArmorComponent");
+	CHECK_FALSE(core.removeComponentFromObject("Obj", "TestHealthComponent"));
+	CHECK_FALSE(core.canUndo());
+	CHECK(object->hasComponent<Orkige::TestHealthComponent>());
+	CHECK(object->hasComponent<Orkige::TestArmorComponent>());
+
+	// the dependent itself is removable; the dependency stays untouched
+	REQUIRE(core.canRemoveComponent("Obj", "TestArmorComponent"));
+	REQUIRE(core.removeComponentFromObject("Obj", "TestArmorComponent"));
+	CHECK_FALSE(object->hasComponent<Orkige::TestArmorComponent>());
+	REQUIRE(object->hasComponent<Orkige::TestHealthComponent>());
+	CHECK(object->getComponentPtr<Orkige::TestHealthComponent>()
+		->getHealth() == 42);
+	CHECK(core.getUndoDescription() ==
+		"Remove TestArmorComponent from Obj");
+
+	// undo restores the component WITH its serialized state
+	REQUIRE(core.undo());
+	REQUIRE(object->hasComponent<Orkige::TestArmorComponent>());
+	CHECK(object->getComponentPtr<Orkige::TestArmorComponent>()
+		->getArmor() == 7);
+	CHECK(object->getComponentPtr<Orkige::TestHealthComponent>()
+		->getHealth() == 42);
+
+	// redo removes again
+	REQUIRE(core.redo());
+	CHECK_FALSE(object->hasComponent<Orkige::TestArmorComponent>());
+
+	// with the dependent gone, health becomes removable
+	REQUIRE(core.canRemoveComponent("Obj", "TestHealthComponent"));
+	REQUIRE(core.removeComponentFromObject("Obj", "TestHealthComponent"));
+	CHECK_FALSE(object->hasComponent<Orkige::TestHealthComponent>());
+	REQUIRE(core.undo());
+	CHECK(object->getComponentPtr<Orkige::TestHealthComponent>()
+		->getHealth() == 42);
+
+	// refusals: unknown component / missing object
+	CHECK_FALSE(core.canRemoveComponent("Obj", "NoSuchComponent"));
+	CHECK_FALSE(core.canRemoveComponent("Missing", "TestHealthComponent"));
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore multi-select delete and duplicate batch into ONE undo "
+	"step", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "A", 1);
+	makeHealthObject(manager, "B", 2);
+	makeHealthObject(manager, "C", 3);
+
+	// delete both selected objects; C stays
+	core.selectObject("A");
+	core.toggleSelection("B");
+	REQUIRE(core.deleteSelected());
+	CHECK_FALSE(manager.objectExists("A"));
+	CHECK_FALSE(manager.objectExists("B"));
+	CHECK(manager.objectExists("C"));
+	CHECK(core.getUndoStackSize() == 1);
+	CHECK(core.getUndoDescription() == "Delete 2 Objects");
+	CHECK(core.getSelectionCount() == 0);
+
+	// ONE undo restores the whole batch (state included) and the selection
+	REQUIRE(core.undo());
+	REQUIRE(manager.objectExists("A"));
+	REQUIRE(manager.objectExists("B"));
+	CHECK(manager.getGameObject("A").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 1);
+	CHECK(manager.getGameObject("B").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 2);
+	CHECK(core.isSelected("A"));
+	CHECK(core.isSelected("B"));
+
+	// duplicate both: all copies exist, are selected, ONE undo step
+	core.selectObject("A");
+	core.toggleSelection("B");
+	const std::size_t depthBefore = core.getUndoStackSize();
+	REQUIRE(core.duplicateSelected());
+	REQUIRE(manager.objectExists("A Copy"));
+	REQUIRE(manager.objectExists("B Copy"));
+	CHECK(manager.getGameObject("A Copy").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 1);
+	CHECK(core.getSelectionCount() == 2);
+	CHECK(core.isSelected("A Copy"));
+	CHECK(core.isSelected("B Copy"));
+	CHECK(core.getUndoStackSize() == depthBefore + 1);
+	CHECK(core.getUndoDescription() == "Duplicate 2 Objects");
+
+	REQUIRE(core.undo());
+	CHECK_FALSE(manager.objectExists("A Copy"));
+	CHECK_FALSE(manager.objectExists("B Copy"));
+	CHECK(core.isSelected("A"));
+	CHECK(core.isSelected("B"));
+
+	manager.clear();
+}
+
 TEST_CASE("EditorObjectSnapshot round-trips a single object", "[editor]")
 {
 	Orkige::GameObjectManager& manager = freshWorld();
@@ -431,6 +726,50 @@ TEST_CASE("EditorObjectSnapshot round-trips a single object", "[editor]")
 	// capture of a missing object fails
 	Orkige::EditorObjectSnapshot missing;
 	CHECK_FALSE(missing.capture(manager, "NoSuchObject"));
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore changes ScriptComponent path + enabled undoably",
+	"[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	registerScriptComponent();
+	Orkige::EditorCore core(manager);
+	optr<Orkige::GameObject> object =
+		manager.createGameObject("Scripted").lock();
+	REQUIRE(object);
+
+	// refusals: no ScriptComponent attached / missing object
+	CHECK_FALSE(core.changeObjectScript("Scripted", "scripts/a.lua", true));
+	CHECK_FALSE(core.changeObjectScript("Missing", "scripts/a.lua", true));
+	CHECK_FALSE(core.canUndo());
+
+	REQUIRE(object->addComponent<Orkige::ScriptComponent>());
+	Orkige::ScriptComponent* script =
+		object->getComponentPtr<Orkige::ScriptComponent>();
+
+	// a no-op change must not enter the undo stack
+	CHECK_FALSE(core.changeObjectScript("Scripted", "", true));
+	CHECK_FALSE(core.canUndo());
+
+	// path change (one undo step)
+	REQUIRE(core.changeObjectScript("Scripted", "scripts/player.lua", true));
+	CHECK(script->getScriptFile() == "scripts/player.lua");
+	CHECK(core.getUndoDescription() == "Change Script of Scripted");
+
+	// enabled change (a second undo step, same command type)
+	REQUIRE(core.changeObjectScript("Scripted", "scripts/player.lua", false));
+	CHECK_FALSE(script->isScriptEnabled());
+
+	REQUIRE(core.undo());
+	CHECK(script->isScriptEnabled());
+	CHECK(script->getScriptFile() == "scripts/player.lua");
+	REQUIRE(core.undo());
+	CHECK(script->getScriptFile().empty());
+	REQUIRE(core.redo());
+	CHECK(script->getScriptFile() == "scripts/player.lua");
+	CHECK(script->isScriptEnabled());
 
 	manager.clear();
 }

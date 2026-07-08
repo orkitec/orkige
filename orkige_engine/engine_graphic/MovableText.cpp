@@ -67,18 +67,18 @@ namespace Orkige
 			Ogre::MaterialManager::getSingleton().remove(this->name + "Material"); 
 		}
 
-		if (this->fontName != fontName || this->material.isNull() || !this->font)
+		if (this->fontName != fontName || !this->material || !this->font)
 		{
 			this->fontName = fontName;
-			this->font = (Ogre::Font *)Ogre::FontManager::getSingleton().getByName(this->fontName).getPointer();
+			this->font = (Ogre::Font *)Ogre::FontManager::getSingleton().getByName(this->fontName).get();
 			if (!this->font)
 				Ogre::Exception(Ogre::Exception::ERR_ITEM_NOT_FOUND, "Could not find font " + fontName, "MovableText::setFontName");
 
 			this->font->load();
-			if (!this->material.isNull())
+			if (this->material)
 			{
 				Ogre::MaterialManager::getSingletonPtr()->remove(this->material->getName());
-				this->material.setNull();
+				this->material.reset();
 			}
 
 			this->material = this->font->getMaterial()->clone(this->name + "Material");
@@ -154,7 +154,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void MovableText::showOnTop(bool show)
 	{
-		if( this->onTop != show && !this->material.isNull() )
+		if( this->onTop != show && this->material )
 		{
 			this->onTop = show;
 			this->material->setDepthBias(!this->onTop, 0);
@@ -172,7 +172,7 @@ namespace Orkige
 	void MovableText::_setupGeometry()
 	{
 		oAssert(this->font);
-		oAssert(!this->material.isNull());
+		oAssert(this->material);
 
 		unsigned int vertexCount = static_cast<unsigned int>(this->caption.size() * 6);
 
@@ -407,11 +407,11 @@ namespace Orkige
 	void MovableText::_updateColors(void)
 	{
 		oAssert(this->font);
-		oAssert(!this->material.isNull());
+		oAssert(this->material);
 
 		// Convert to system-specific
 		Ogre::RGBA color;
-		Ogre::Root::getSingleton().convertColourValue(this->color, & color);
+		color = this->color.getAsBYTE();	// OGRE 14: Root::convertColourValue is deprecated
 		Ogre::HardwareVertexBufferSharedPtr vbuf = this->renderOperation.vertexData->vertexBufferBinding->getBuffer(COLOUR_BINDING);
 		Ogre::RGBA *pDest = static_cast<Ogre::RGBA*>(vbuf->lock(Ogre::HardwareBuffer::HBL_DISCARD));
 		for (unsigned int i = 0; i < this->renderOperation.vertexData->vertexCount; ++i)
@@ -513,7 +513,7 @@ namespace Orkige
 	//---------------------------------------------------------	
 	Ogre::MaterialPtr const & MovableText::getMaterial(void) const 
 	{
-		oAssert(!this->material.isNull());
+		oAssert(this->material);
 		return this->material;
 	};
 	//---------------------------------------------------------	

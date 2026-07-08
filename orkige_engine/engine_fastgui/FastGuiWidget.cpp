@@ -33,7 +33,8 @@ namespace Orkige
 		Ogre::Vector2 size = this->getSize();
 		Ogre::Vector2 pos = this->getPosition();
 		int screenWidth = Engine::getSingleton().getViewport()->getActualWidth();
-		pos.x = (screenWidth/2.f)-(size.x/2.f);
+		// floor to a whole pixel - Caption asserts on subpixel positions
+		pos.x = Ogre::Math::Floor((screenWidth/2.f)-(size.x/2.f));
 		this->setPosition(pos.x, pos.y);
 	}
 	//---------------------------------------------------------

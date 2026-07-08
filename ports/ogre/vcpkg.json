@@ -101,6 +101,14 @@
       "description": "Build tools",
       "supports": "!android & !emscripten"
     },
+    "vulkan": {
+      "description": "Build Vulkan RenderSystem and the glslang program manager plugin. On Apple platforms the driver is MoltenVK, deliberately installed system-side (brew install molten-vk) - it is driver-tier, like GPU drivers elsewhere. TODO(iOS phase): link MoltenVK statically into the app bundle instead.",
+      "dependencies": [
+        "glslang",
+        "vulkan-headers",
+        "vulkan-loader"
+      ]
+    },
     "zip": {
       "description": "Build ZIP archive support"
     },

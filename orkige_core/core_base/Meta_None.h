@@ -10,6 +10,13 @@
 #define __Meta_None_h__9_9_2010__18_38_06__
 
 
+//! backend-neutral usertype openers for hand-written OrkigeMetaExport bodies
+//! (TypeInfo.cpp, AttributeHolder.h) - no scripting: nothing to register.
+//! The exposed type is passed as __VA_ARGS__ so template arguments containing
+//! commas survive macro expansion; ExportName may be a runtime expression.
+#define OUSERTYPE(ExportName, ...)
+#define OUSERTYPE_BASED(ExportName, BaseClassName, ...)
+
 #define OMETACLASS(ClassName)															\
 	public:																				\
 		/** @brief Export and init ClassName meta information */						\
@@ -93,6 +100,7 @@
 //class that inherits from 2 base classes an has default constructor
 #define OOBJECT_IMPL2(ClassName)
 #define OSIMPLEEXPORT(ClassName,ExportName)
+#define OSIMPLEEXPORT_BASED(ClassName,BaseClassName,ExportName)
 #define OSIMPLEEXPORT_END
 
 #define OWRAPPER_START(ClassName)

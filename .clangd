@@ -1,0 +1,10 @@
+# clangd configuration: point the language server at the macOS debug build's
+# compilation database (CMAKE_EXPORT_COMPILE_COMMANDS is ON in the root
+# CMakeLists). Without this, clangd guesses flags and floods the IDE with
+# false "file not found" / "unknown type" diagnostics for every engine header.
+#
+# Note: brand-new source files show stale diagnostics until the next CMake
+# configure regenerates the database (clangd falls back to a sibling file's
+# flags, which usually suffices).
+CompileFlags:
+  CompilationDatabase: build/macos-debug

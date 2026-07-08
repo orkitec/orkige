@@ -303,5 +303,6 @@ namespace Orkige
 		OFUNC(applyImpulse)
 		OFUNC(applyForce)
 		OFUNC(hasBody)
+		OFUNC(getBodyId)
 	OOBJECT_END
 }

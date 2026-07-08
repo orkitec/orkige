@@ -1,0 +1,212 @@
+#!/bin/bash
+# package_apk.sh - assemble + sign the Orkige Player APK from the
+# android-debug CMake build, WITHOUT Gradle.
+#
+# Why no Gradle: the only JDK on this machine is Homebrew OpenJDK 26, which
+# Gradle/AGP do not support yet, and everything Gradle would do for this app
+# (compile ~12 Java files, dex, pack, sign) maps 1:1 onto the SDK's own
+# tools - so the APK is built directly with javac + d8 + aapt2 + zipalign +
+# apksigner. Deterministic, no daemon, no downloads. Revisit Gradle when a
+# store release needs it.
+#
+# What goes in:
+#   lib/arm64-v8a/libmain.so  <- build/android-debug/tools/player/libmain.so
+#                                (stripped copy; SDL3+OGRE+engine statically
+#                                linked, built by 'cmake --build --preset
+#                                android-debug')
+#   classes.dex               <- SDL3's Java glue (taken from the exact SDL
+#                                source vcpkg built, see sdl_java_sources) +
+#                                OrkigeActivity
+#   assets/                   <- same media set as the iOS bundle: OGRE RTSS
+#                                shader lib, sample assets, jumper media,
+#                                example.oscene + orkige_assets.txt manifest
+#                                (the player extracts them at first launch,
+#                                see tools/player/main.cpp)
+#
+# Usage: tools/player/android/package_apk.sh [options] [build-dir]
+#   build-dir defaults to build/android-debug. Output:
+#   <build-dir>/apk/OrkigePlayer.apk
+#
+# Project-export options (Util/orkige_export.py drives these):
+#   --project-payload <dir>  bundle a staged project payload as assets/project
+#                            plus the assets/orkige_project.txt marker the
+#                            player's PlayerBundle reads after extraction (the
+#                            no-args default-project mechanism)
+#   --package <name>         manifest package name (default
+#                            com.orkitec.orkigeplayer; the Java classes keep
+#                            their package - the manifest names them fully
+#                            qualified for exactly this reason)
+#   --label <text>           app label (default "Orkige Player")
+#   --output <apk>           output APK path (intermediates go to
+#                            <dir-of-apk>/apk-work instead of <build-dir>/apk)
+set -euo pipefail
+
+fail() { echo "package_apk.sh: ERROR: $*" >&2; exit 1; }
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+PROJECT_PAYLOAD=""
+PACKAGE=""
+LABEL=""
+OUTPUT=""
+BUILD_DIR=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --project-payload) PROJECT_PAYLOAD="$2"; shift 2 ;;
+        --package)         PACKAGE="$2"; shift 2 ;;
+        --label)           LABEL="$2"; shift 2 ;;
+        --output)          OUTPUT="$2"; shift 2 ;;
+        -*)                fail "unknown option '$1'" ;;
+        *)                 BUILD_DIR="$1"; shift ;;
+    esac
+done
+BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build/android-debug}"
+
+SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+BUILD_TOOLS="$SDK/build-tools/35.0.0"
+PLATFORM_JAR="$SDK/platforms/android-35/android.jar"
+NDK="${ANDROID_NDK_HOME:-$SDK/ndk/27.2.12479018}"
+STRIP="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
+JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"
+VCPKG_ROOT="${VCPKG_ROOT:-$HOME/Development/vcpkg}"
+VCPKG_INSTALLED="$BUILD_DIR/vcpkg_installed/arm64-android"
+
+NATIVE_LIB="$BUILD_DIR/tools/player/libmain.so"
+if [ -n "$OUTPUT" ]; then
+    mkdir -p "$(dirname "$OUTPUT")"
+    APK="$(cd "$(dirname "$OUTPUT")" && pwd)/$(basename "$OUTPUT")"
+    OUT_DIR="$(dirname "$APK")/apk-work"
+else
+    OUT_DIR="$BUILD_DIR/apk"
+    APK="$OUT_DIR/OrkigePlayer.apk"
+fi
+STAGE="$OUT_DIR/stage"
+
+[ -f "$NATIVE_LIB" ] || fail "no $NATIVE_LIB - build it first: cmake --build --preset android-debug"
+[ -f "$PLATFORM_JAR" ] || fail "no android-35 platform jar at $PLATFORM_JAR"
+[ -x "$BUILD_TOOLS/aapt2" ] || fail "no build-tools 35.0.0 at $BUILD_TOOLS"
+[ -x "$STRIP" ] || fail "no llvm-strip at $STRIP"
+
+# --- SDL3's Java side ---------------------------------------------------
+# vcpkg's sdl3 port only builds/installs the native library; the Java glue
+# (SDLActivity & co) lives in the SDL source tree's android-project. Take it
+# from the exact source vcpkg built: buildtrees when present, else re-extract
+# the verified source archive from vcpkg's downloads cache.
+sdl_java_sources() {
+    local src
+    src=$(ls -d "$VCPKG_ROOT"/buildtrees/sdl3/src/*.clean 2>/dev/null | head -1 || true)
+    if [ -n "$src" ] && [ -d "$src/android-project/app/src/main/java/org/libsdl/app" ]; then
+        echo "$src/android-project/app/src/main/java/org/libsdl/app"
+        return
+    fi
+    local tarball
+    tarball=$(ls "$VCPKG_ROOT"/downloads/libsdl-org-SDL-release-3.*.tar.gz 2>/dev/null | sort | tail -1 || true)
+    [ -n "$tarball" ] || fail "SDL3 source not found (neither vcpkg buildtrees nor downloads) - run the android-debug configure once"
+    local extract="$OUT_DIR/sdl3-java-src"
+    rm -rf "$extract" && mkdir -p "$extract"
+    tar -xzf "$tarball" -C "$extract" --strip-components=1 \
+        "*/android-project/app/src/main/java/org/libsdl/app" 2>/dev/null \
+        || tar -xzf "$tarball" -C "$extract" --strip-components=1
+    echo "$extract/android-project/app/src/main/java/org/libsdl/app"
+}
+
+SDL_JAVA_DIR="$(sdl_java_sources)"
+[ -f "$SDL_JAVA_DIR/SDLActivity.java" ] || fail "SDLActivity.java not found under $SDL_JAVA_DIR"
+echo "== SDL3 Java glue: $SDL_JAVA_DIR"
+
+rm -rf "$STAGE" "$OUT_DIR/classes" "$OUT_DIR/dex"
+mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/assets" "$OUT_DIR/classes" "$OUT_DIR/dex"
+
+# --- native lib (stripped - the debug .so carries hundreds of MB of DWARF;
+# symbols stay available in the build tree for ndk-stack) ------------------
+echo "== stripping libmain.so"
+"$STRIP" --strip-unneeded -o "$STAGE/lib/arm64-v8a/libmain.so" "$NATIVE_LIB"
+
+# --- Java -> dex ----------------------------------------------------------
+echo "== compiling Java (SDL glue + OrkigeActivity)"
+# -source/-target 8 + -bootclasspath: the only combo javac still accepts a
+# custom bootclasspath for - which is what keeps java.* resolving against
+# android.jar instead of the host JDK. d8 happily consumes Java 8 bytecode.
+"$JAVA_HOME/bin/javac" \
+    -source 8 -target 8 -encoding UTF-8 \
+    -bootclasspath "$PLATFORM_JAR" \
+    -d "$OUT_DIR/classes" \
+    -nowarn \
+    "$SDL_JAVA_DIR"/*.java \
+    "$SCRIPT_DIR/java/com/orkitec/orkigeplayer/OrkigeActivity.java" \
+    2>&1 | (grep -v "deprecat\|source value 8\|target value 8" || true)
+
+echo "== dexing"
+find "$OUT_DIR/classes" -name '*.class' > "$OUT_DIR/classlist.txt"
+"$JAVA_HOME/bin/java" -cp "$BUILD_TOOLS/lib/d8.jar" com.android.tools.r8.D8 \
+    --release --min-api 28 --lib "$PLATFORM_JAR" \
+    --output "$OUT_DIR/dex" \
+    @"$OUT_DIR/classlist.txt"
+cp "$OUT_DIR/dex/classes.dex" "$STAGE/classes.dex"
+
+# --- assets (mirror of the iOS bundle layout) -----------------------------
+echo "== staging assets"
+cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media_Main_tmp"
+mkdir -p "$STAGE/assets/Media"
+mv "$STAGE/assets/Media_Main_tmp" "$STAGE/assets/Media/Main"
+cp -R "$VCPKG_INSTALLED/share/ogre/Media/RTShaderLib" "$STAGE/assets/Media/RTShaderLib"
+cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
+cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
+cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"
+# project export: the payload (manifest, scenes/, assets/, scripts/ - staged
+# by Util/orkige_export.py) plus the default-project marker; both extract
+# with the rest of the assets, PlayerBundle then finds the marker at the
+# extracted root and boots the project without any arguments
+if [ -n "$PROJECT_PAYLOAD" ]; then
+    [ -d "$PROJECT_PAYLOAD" ] || fail "no project payload dir at $PROJECT_PAYLOAD"
+    echo "== staging project payload"
+    cp -R "$PROJECT_PAYLOAD" "$STAGE/assets/project"
+    printf 'project\n' > "$STAGE/assets/orkige_project.txt"
+fi
+# the extraction manifest the player reads at launch (paths relative to the
+# assets root = relative to the extracted <files>/bundle/ root)
+(cd "$STAGE/assets" && find . -type f ! -name orkige_assets.txt | sed 's|^\./||' | LC_ALL=C sort) \
+    > "$STAGE/assets/orkige_assets.txt"
+echo "   $(wc -l < "$STAGE/assets/orkige_assets.txt" | tr -d ' ') bundled files"
+
+# --- link + pack ----------------------------------------------------------
+# project export: package name / app label overrides go through a substituted
+# manifest copy (the activity is named fully qualified in the template, so a
+# renamed package cannot break the component resolution)
+MANIFEST="$SCRIPT_DIR/AndroidManifest.xml"
+if [ -n "$PACKAGE" ] || [ -n "$LABEL" ]; then
+    MANIFEST="$OUT_DIR/AndroidManifest.xml"
+    sed -e "s|package=\"com.orkitec.orkigeplayer\"|package=\"${PACKAGE:-com.orkitec.orkigeplayer}\"|" \
+        -e "s|android:label=\"Orkige Player\"|android:label=\"${LABEL:-Orkige Player}\"|" \
+        "$SCRIPT_DIR/AndroidManifest.xml" > "$MANIFEST"
+    echo "== manifest: package ${PACKAGE:-com.orkitec.orkigeplayer}, label '${LABEL:-Orkige Player}'"
+fi
+echo "== aapt2 link"
+"$BUILD_TOOLS/aapt2" link \
+    --manifest "$MANIFEST" \
+    -I "$PLATFORM_JAR" \
+    -o "$OUT_DIR/unaligned.apk"
+echo "== packing"
+(cd "$STAGE" && zip -q -r -X "$OUT_DIR/unaligned.apk" classes.dex lib assets)
+
+echo "== zipalign"
+"$BUILD_TOOLS/zipalign" -f 4 "$OUT_DIR/unaligned.apk" "$APK"
+
+# --- sign (shared Android debug keystore; created on demand) --------------
+DEBUG_KEYSTORE="$HOME/.android/debug.keystore"
+if [ ! -f "$DEBUG_KEYSTORE" ]; then
+    echo "== creating debug keystore"
+    mkdir -p "$HOME/.android"
+    "$JAVA_HOME/bin/keytool" -genkeypair -v \
+        -keystore "$DEBUG_KEYSTORE" -storepass android -keypass android \
+        -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" \
+        -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
+fi
+echo "== signing"
+"$JAVA_HOME/bin/java" -jar "$BUILD_TOOLS/lib/apksigner.jar" sign \
+    --ks "$DEBUG_KEYSTORE" --ks-pass pass:android --key-pass pass:android \
+    "$APK"
+
+echo "== done: $APK ($(du -h "$APK" | cut -f1 | tr -d ' '))"
+echo "   install: $SDK/platform-tools/adb install -r $APK"

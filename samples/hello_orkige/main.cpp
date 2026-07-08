@@ -15,9 +15,7 @@
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
-#ifdef ORKIGE_LUA
-#include <core_script/ScriptManager.h>
-#endif
+#include <core_script/ScriptRuntime.h>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -29,7 +27,6 @@
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
-#ifdef ORKIGE_LUA
 // C++-side receiver for the event the Lua smoke-test script triggers -
 // proves the Lua -> GlobalEventManager -> C++ listener path end-to-end
 struct LuaEventProbe
@@ -42,7 +39,6 @@ struct LuaEventProbe
 		return false;
 	}
 };
-#endif
 
 // quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
 // GlobalEventManager -> listener) instead of a raw SDL keycode check
@@ -79,12 +75,10 @@ int main(int, char**)
 		// boots just the ones Engine::setup depends on
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
-#ifdef ORKIGE_LUA
-		// Phase 2 Lua scripting: the ScriptManager must exist before the
-		// module init functions run so OrkigeMetaExport reaches the real
-		// Lua state (otherwise it targets the throwaway fallback state)
-		Orkige::ScriptManager scriptManager;
-#endif
+		// the scripting seam must exist before the module init functions run
+		// so OrkigeMetaExport reaches the real backend state (otherwise it
+		// targets the throwaway fallback state)
+		Orkige::ScriptRuntime scriptRuntime;
 		init_module_orkige_core();
 
 		// no resources.cfg / plugins.cfg / ogre.cfg: the demo wires its single
@@ -96,11 +90,12 @@ int main(int, char**)
 		engine.setCustomWindowParam("height", "720");
 
 		// ORKIGE_RENDERSYSTEM: explicit render system choice for this run
-		// ("Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
-		// unset keeps the default (first available, i.e. GL3Plus). Note that
-		// OGRE 14.5's Metal RS has no RTSS/MSL backend: it renders through
-		// OGRE's built-in default shaders (no vertex colours, no lighting),
-		// so this demo's cubes come out untinted on Metal.
+		// ("Vulkan", "Metal", "GL3Plus", "GL" - see
+		// Engine::matchRenderSystemName); unset keeps the default (first
+		// available, i.e. GL3Plus). Vulkan (MoltenVK on macOS) has full RTSS
+		// support. OGRE 14.5's Metal RS has no RTSS/MSL backend: it renders
+		// through OGRE's built-in default shaders (no vertex colours, no
+		// lighting), so this demo's cubes come out untinted on Metal.
 		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
 		{
 			engine.setPreferredRenderSystem(renderSystemEnv);
@@ -449,65 +444,72 @@ int main(int, char**)
 				Ogre::Vector3(0.0f, -1.0f, 0.0f), Ogre::Node::TS_WORLD);
 		}
 
-#ifdef ORKIGE_LUA
 		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
 		// script pulls the Engine singleton, calls registered methods on it,
 		// walks into the exposed Ogre types, constructs core objects through
 		// their registered factories, triggers an event a C++ listener
-		// receives, and sets a global the C++ side reads back.
-		LuaEventProbe luaProbe;
-		optr<Orkige::EventListener> luaListener =
-			Orkige::GlobalEventManager::getSingleton().bind(
-				Orkige::EventType("lua_event"),
-				&LuaEventProbe::onLuaEvent, &luaProbe);
-		sol::state& lua = scriptManager.state();
-		sol::protected_function_result luaResult = lua.safe_script(R"lua(
-			local engine = Engine.getSingleton()
-			assert(engine ~= nil, 'Engine.getSingleton() returned nil')
-
-			-- call registered Engine methods
-			demo_window_handle = engine:getTopLevelWindowHandle()
-			local sceneManager = engine:getSceneManager()
-			assert(sceneManager ~= nil, 'engine:getSceneManager() returned nil')
-
-			-- exposed Ogre internals (OSIMPLEEXPORT SceneManager/SceneNode)
-			local cubeNode = sceneManager:getSceneNode('cubeNode', true)
-			assert(cubeNode ~= nil, 'cube SceneNode not reachable from Lua')
-
-			-- construct registered core objects: Object through its factory,
-			-- Event through the Lua call syntax (first registered constructor)
-			local payload = Object.new1('lua_payload')
-			assert(payload:getObjectID() == 'lua_payload')
-			local ev = Event('lua_event')
-			ev:setData(payload)
-			assert(ev:getData():getObjectID() == 'lua_payload')
-
-			-- fire it into the engine event system; a C++ listener verifies it
-			GlobalEventManager.getSingleton():trigger(ev)
-
-			demo_lua_ok = 42
-		)lua", sol::script_pass_on_error);
-		if (!luaResult.valid())
+		// receives, and sets a global the C++ side reads back. Runs through
+		// the neutral ScriptRuntime seam; skipped in no-scripting builds.
+		if (Orkige::ScriptRuntime::available())
 		{
-			const sol::error luaError = luaResult;
-			SDL_Log("hello_orkige: FAILED - Lua script error: %s",
-				luaError.what());
-			return 1;
+			LuaEventProbe luaProbe;
+			optr<Orkige::EventListener> luaListener =
+				Orkige::GlobalEventManager::getSingleton().bind(
+					Orkige::EventType("lua_event"),
+					&LuaEventProbe::onLuaEvent, &luaProbe);
+			const Orkige::ScriptRuntime::Result luaResult =
+				scriptRuntime.runString(R"lua(
+				local engine = Engine.getSingleton()
+				assert(engine ~= nil, 'Engine.getSingleton() returned nil')
+
+				-- call registered Engine methods
+				demo_window_handle = engine:getTopLevelWindowHandle()
+				local sceneManager = engine:getSceneManager()
+				assert(sceneManager ~= nil, 'engine:getSceneManager() returned nil')
+
+				-- exposed Ogre internals (OSIMPLEEXPORT SceneManager/SceneNode)
+				local cubeNode = sceneManager:getSceneNode('cubeNode', true)
+				assert(cubeNode ~= nil, 'cube SceneNode not reachable from Lua')
+
+				-- construct registered core objects: Object through its factory,
+				-- Event through the Lua call syntax (first registered constructor)
+				local payload = Object.new1('lua_payload')
+				assert(payload:getObjectID() == 'lua_payload')
+				local ev = Event('lua_event')
+				ev:setData(payload)
+				assert(ev:getData():getObjectID() == 'lua_payload')
+
+				-- fire it into the engine event system; a C++ listener verifies it
+				GlobalEventManager.getSingleton():trigger(ev)
+
+				demo_lua_ok = 42
+			)lua");
+			if (!luaResult.success)
+			{
+				SDL_Log("hello_orkige: FAILED - Lua script error: %s",
+					luaResult.error.c_str());
+				return 1;
+			}
+			const int luaOk = static_cast<int>(
+				scriptRuntime.getNumber({"demo_lua_ok"}, 0.0));
+			const std::string luaHandle =
+				scriptRuntime.getString({"demo_window_handle"}, "");
+			if (luaOk != 42 || !luaProbe.received)
+			{
+				SDL_Log("hello_orkige: FAILED - Lua verification (demo_lua_ok=%d, "
+					"event received=%d)", luaOk,
+					static_cast<int>(luaProbe.received));
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua scripting OK - demo_lua_ok=%d, C++ listener "
+				"got the Lua-triggered event, window handle via Lua='%s'",
+				luaOk, luaHandle.c_str());
 		}
-		const int luaOk = lua["demo_lua_ok"].get_or(0);
-		const std::string luaHandle =
-			lua["demo_window_handle"].get_or(std::string());
-		if (luaOk != 42 || !luaProbe.received)
+		else
 		{
-			SDL_Log("hello_orkige: FAILED - Lua verification (demo_lua_ok=%d, "
-				"event received=%d)", luaOk,
-				static_cast<int>(luaProbe.received));
-			return 1;
+			SDL_Log("hello_orkige: scripting disabled (backend '%s') - Lua "
+				"smoke test skipped", Orkige::ScriptRuntime::backendName());
 		}
-		SDL_Log("hello_orkige: Lua scripting OK - demo_lua_ok=%d, C++ listener "
-			"got the Lua-triggered event, window handle via Lua='%s'",
-			luaOk, luaHandle.c_str());
-#endif
 
 		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test. No .ogui texture
 		// atlas exists anywhere in the repo or its git history (the 2012 game

@@ -1,0 +1,296 @@
+From c6ebd5121c7c886033da302d065a8945e121e0ad Mon Sep 17 00:00:00 2001
+From: Steffen <steffen.roemer@orkitec.com>
+Date: Tue, 7 Jul 2026 15:45:04 +0200
+Subject: [PATCH 1/3] Vulkan: add VK_EXT_metal_surface window support (macOS
+ via MoltenVK)
+
+VulkanWindow::createSurface() covered Xlib, Win32, Android and Wayland,
+but had no Apple branch, so the Vulkan RenderSystem could not create a
+swapchain on macOS/iOS even though MoltenVK provides Vulkan there.
+
+- OgreVulkanWindowApple.mm (new, ObjC++): resolves the incoming
+  "externalWindowHandle" to a CAMetalLayer. Accepts a CAMetalLayer*
+  directly (any Apple platform) and, on macOS, an NSWindow* or NSView*
+  as well - mirroring what the Metal RenderSystem accepts. If the view
+  is not CAMetalLayer-backed yet, one is attached as its hosted layer
+  (so it tracks the view size) at point resolution; a HiDPI-aware host
+  can pass its own CAMetalLayer with a higher contentsScale instead.
+- VulkanWindow: create the VkSurfaceKHR from that layer with
+  vkCreateMetalSurfaceEXT and report VK_EXT_METAL_SURFACE_EXTENSION_NAME
+  as the required instance extension.
+- createSwapchain(): honour VkSurfaceCapabilitiesKHR::currentExtent
+  when the window system defines it. On MoltenVK min/maxImageExtent
+  leave room, so the previous clamp could keep a size the surface no
+  longer has - after a window resize every recreated swapchain was
+  immediately VK_ERROR_OUT_OF_DATE_KHR again and the recreation
+  recursion in acquireNextImage() overflowed the stack. Behaviour is
+  unchanged on platforms where min == max == currentExtent, and the
+  clamp path still handles the "extent defined by swapchain" case
+  (currentExtent == 0xFFFFFFFF, e.g. Wayland).
+- Portability handling, needed because MoltenVK is a portability
+  implementation: enable VK_KHR_portability_enumeration (+ the
+  VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR flag) when the
+  loader offers it, otherwise vkEnumeratePhysicalDevices() returns no
+  devices; enable the VK_KHR_portability_subset device extension when
+  the physical device advertises it, as the spec requires.
+- CMake: define VK_USE_PLATFORM_METAL_EXT on APPLE, compile the .mm
+  with ARC and link QuartzCore (+ AppKit on macOS).
+
+The guards (VK_USE_PLATFORM_METAL_EXT + TARGET_OS_OSX inside the .mm)
+keep the path iOS-extensible; only the NSWindow/NSView resolution is
+macOS specific.
+
+Tested on macOS 15 (Apple Silicon) with MoltenVK 1.4.1 through the
+Khronos loader: RTSS-generated glslang shaders, textured and
+vertex-coloured geometry, window resize with swapchain recreation,
+screenshots via writeContentsToFile.
+---
+ RenderSystems/Vulkan/CMakeLists.txt           | 14 ++++
+ RenderSystems/Vulkan/src/OgreVulkanDevice.cpp |  8 ++
+ .../Vulkan/src/OgreVulkanRenderSystem.cpp     | 11 +++
+ RenderSystems/Vulkan/src/OgreVulkanWindow.cpp | 40 +++++++++-
+ .../Vulkan/src/OgreVulkanWindowApple.mm       | 80 +++++++++++++++++++
+ 5 files changed, 149 insertions(+), 4 deletions(-)
+ create mode 100644 RenderSystems/Vulkan/src/OgreVulkanWindowApple.mm
+
+diff --git a/RenderSystems/Vulkan/CMakeLists.txt b/RenderSystems/Vulkan/CMakeLists.txt
+index ae9340b..b5924f1 100644
+--- a/RenderSystems/Vulkan/CMakeLists.txt
++++ b/RenderSystems/Vulkan/CMakeLists.txt
+@@ -12,6 +12,9 @@
+ file(GLOB HEADER_FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/*.h")
+ list(APPEND HEADER_FILES ${PROJECT_BINARY_DIR}/include/OgreVulkanExports.h)
+ file(GLOB SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/volk.c")
++if(APPLE)
++    list(APPEND SOURCE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/OgreVulkanWindowApple.mm")
++endif()
+ 
+ set( HEADER_FILES ${HEADER_FILES})
+ set( SOURCE_FILES ${SOURCE_FILES})
+@@ -27,6 +30,17 @@ if(WIN32)
+     target_compile_definitions(RenderSystem_Vulkan PRIVATE VK_USE_PLATFORM_WIN32_KHR)
+ elseif(ANDROID)
+     target_compile_definitions(RenderSystem_Vulkan PRIVATE VK_USE_PLATFORM_ANDROID_KHR)
++elseif(APPLE)
++    # VK_EXT_metal_surface: the surface is created from a CAMetalLayer, which
++    # OgreVulkanWindowApple.mm resolves from the supplied window handle.
++    # Vulkan itself is provided by MoltenVK (found by the Khronos loader
++    # through its ICD manifest, or dlopened directly by volk).
++    target_compile_definitions(RenderSystem_Vulkan PRIVATE VK_USE_PLATFORM_METAL_EXT)
++    set_source_files_properties(src/OgreVulkanWindowApple.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
++    target_link_libraries(RenderSystem_Vulkan PRIVATE "-framework QuartzCore")
++    if(NOT APPLE_IOS)
++        target_link_libraries(RenderSystem_Vulkan PRIVATE "-framework AppKit")
++    endif()
+ elseif(OGRE_USE_WAYLAND)
+     target_compile_definitions(RenderSystem_Vulkan PRIVATE VK_USE_PLATFORM_WAYLAND_KHR)
+ else()
+diff --git a/RenderSystems/Vulkan/src/OgreVulkanDevice.cpp b/RenderSystems/Vulkan/src/OgreVulkanDevice.cpp
+index f74e9da..a9a32de 100644
+--- a/RenderSystems/Vulkan/src/OgreVulkanDevice.cpp
++++ b/RenderSystems/Vulkan/src/OgreVulkanDevice.cpp
+@@ -96,6 +96,14 @@ namespace Ogre
+         createInfo.enabledExtensionCount = extensions.size();
+         createInfo.ppEnabledExtensionNames = extensions.data();
+ 
++#ifdef VK_KHR_portability_enumeration
++        for( const char *extension : extensions )
++        {
++            if( String( extension ) == VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME )
++                createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++        }
++#endif
++
+ #if 1 //OGRE_DEBUG_MODE
+         VkDebugReportCallbackCreateInfoEXT debugCb = {VK_STRUCTURE_TYPE_DEBUG_REPORT_CREATE_INFO_EXT};
+         debugCb.pfnCallback = debugCallback;
+diff --git a/RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp b/RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp
+index 7c64e33..ecb1b1a 100644
+--- a/RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp
++++ b/RenderSystems/Vulkan/src/OgreVulkanRenderSystem.cpp
+@@ -679,6 +679,13 @@ namespace Ogre
+ 
+             if (debugEnabled && extensionName == "VK_EXT_debug_report")
+                 reqInstanceExtensions.push_back("VK_EXT_debug_report");
++
++#ifdef VK_KHR_portability_enumeration
++            // portability (non fully conformant) implementations like MoltenVK are
++            // only enumerated when VK_KHR_portability_enumeration is enabled
++            if (extensionName == VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)
++                reqInstanceExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
++#endif
+         }
+ 
+         reqInstanceExtensions.push_back("VK_KHR_surface"); // required for window surface
+@@ -761,6 +768,10 @@ namespace Ogre
+                     }
+                     else if( extensionName == VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME )
+                         deviceExtensions.push_back( VK_EXT_SHADER_SUBGROUP_VOTE_EXTENSION_NAME );
++                    else if( extensionName == "VK_KHR_portability_subset" )
++                        // required by the spec whenever the implementation
++                        // advertises it (e.g. MoltenVK)
++                        deviceExtensions.push_back( "VK_KHR_portability_subset" );
+                     else if( extensionName == VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME )
+                     {
+                         deviceExtensions.push_back( VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME );
+diff --git a/RenderSystems/Vulkan/src/OgreVulkanWindow.cpp b/RenderSystems/Vulkan/src/OgreVulkanWindow.cpp
+index 48ab399..2e0cdc2 100644
+--- a/RenderSystems/Vulkan/src/OgreVulkanWindow.cpp
++++ b/RenderSystems/Vulkan/src/OgreVulkanWindow.cpp
+@@ -49,6 +49,12 @@ THE SOFTWARE.
+ 
+ namespace Ogre
+ {
++#if defined( VK_USE_PLATFORM_METAL_EXT )
++    // OgreVulkanWindowApple.mm - resolves an NSWindow*/NSView*/CAMetalLayer*
++    // handle to the CAMetalLayer required by VK_EXT_metal_surface
++    void *getCAMetalLayer( size_t windowHandle );
++#endif
++
+     VulkanWindow::VulkanWindow( const String &title, uint32 width, uint32 height, bool fullscreenMode ) :
+         mLowestLatencyVSync( false ),
+         mHdrDisplay( false ),
+@@ -128,10 +134,22 @@ namespace Ogre
+         VkSurfaceCapabilitiesKHR surfaceCaps;
+         OGRE_VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(mDevice->mPhysicalDevice, mSurfaceKHR, &surfaceCaps));
+ 
+-        // Swapchain may be smaller/bigger than requested
+-        mWidth = Math::Clamp(mWidth, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
+-        mHeight =
+-            Math::Clamp(mHeight, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
++        if (surfaceCaps.currentExtent.width != 0xFFFFFFFFu)
++        {
++            // surface size is defined by the window system - the swapchain must
++            // match it. Notably on MoltenVK, where min/maxImageExtent leave room,
++            // any other size makes vkAcquireNextImageKHR return
++            // VK_ERROR_OUT_OF_DATE_KHR forever (-> swapchain recreation loop)
++            mWidth = surfaceCaps.currentExtent.width;
++            mHeight = surfaceCaps.currentExtent.height;
++        }
++        else
++        {
++            // Swapchain may be smaller/bigger than requested
++            mWidth = Math::Clamp(mWidth, surfaceCaps.minImageExtent.width, surfaceCaps.maxImageExtent.width);
++            mHeight =
++                Math::Clamp(mHeight, surfaceCaps.minImageExtent.height, surfaceCaps.maxImageExtent.height);
++        }
+ 
+         mTexture->setWidth(mWidth);
+         mTexture->setHeight(mHeight);
+@@ -407,6 +425,18 @@ namespace Ogre
+         surfCreateInfo.window = (ANativeWindow*)windowHandle;
+ 
+         OGRE_VK_CHECK(vkCreateAndroidSurfaceKHR(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
++#elif defined(VK_USE_PLATFORM_METAL_EXT)
++        CAMetalLayer* layer = (CAMetalLayer*)getCAMetalLayer(windowHandle);
++        if (!layer)
++        {
++            OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR,
++                        "windowHandle does not resolve to a CAMetalLayer");
++        }
++
++        VkMetalSurfaceCreateInfoEXT surfCreateInfo = {VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
++        surfCreateInfo.pLayer = layer;
++
++        OGRE_VK_CHECK(vkCreateMetalSurfaceEXT(mDevice->mInstance, &surfCreateInfo, 0, &mSurfaceKHR));
+ #else
+         OGRE_EXCEPT(Exception::ERR_RENDERINGAPI_ERROR, "Unsupported Vulkan platform");
+ #endif
+@@ -435,6 +465,8 @@ namespace Ogre
+         return VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+ #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
+         return VK_KHR_ANDROID_SURFACE_EXTENSION_NAME;
++#elif defined(VK_USE_PLATFORM_METAL_EXT)
++        return VK_EXT_METAL_SURFACE_EXTENSION_NAME;
+ #endif
+         return "";
+     }
+diff --git a/RenderSystems/Vulkan/src/OgreVulkanWindowApple.mm b/RenderSystems/Vulkan/src/OgreVulkanWindowApple.mm
+new file mode 100644
+index 0000000..114a044
+--- /dev/null
++++ b/RenderSystems/Vulkan/src/OgreVulkanWindowApple.mm
+@@ -0,0 +1,80 @@
++/*
++-----------------------------------------------------------------------------
++This source file is part of OGRE
++    (Object-oriented Graphics Rendering Engine)
++For the latest info, see http://www.ogre3d.org/
++
++Copyright (c) 2000-2014 Torus Knot Software Ltd
++
++Permission is hereby granted, free of charge, to any person obtaining a copy
++of this software and associated documentation files (the "Software"), to deal
++in the Software without restriction, including without limitation the rights
++to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++copies of the Software, and to permit persons to whom the Software is
++furnished to do so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in
++all copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++THE SOFTWARE.
++-----------------------------------------------------------------------------
++*/
++
++#import <Foundation/Foundation.h>
++#import <QuartzCore/CAMetalLayer.h>
++#include <TargetConditionals.h>
++
++#if TARGET_OS_OSX
++#import <AppKit/AppKit.h>
++#endif
++
++namespace Ogre
++{
++    /** Resolves the "externalWindowHandle" passed to VulkanWindow to the
++        CAMetalLayer that VK_EXT_metal_surface needs.
++
++        Accepted handles are a CAMetalLayer* (any Apple platform) and, on
++        macOS, additionally an NSWindow* or NSView* - mirroring what the Metal
++        RenderSystem accepts. If the view is not backed by a CAMetalLayer yet,
++        one is attached; hosted by the view it then tracks the view size
++        automatically. The attached layer renders at point resolution
++        (contentsScale 1.0), consistent with the sizes the windowing toolkit
++        reports for an external window; a HiDPI-aware host can instead pass
++        its own CAMetalLayer with a higher contentsScale.
++
++        Returns NULL if no CAMetalLayer could be derived from the handle. */
++    void *getCAMetalLayer( size_t windowHandle )
++    {
++        id handle = (__bridge id)reinterpret_cast<void *>( windowHandle );
++
++        if( [handle isKindOfClass:[CAMetalLayer class]] )
++            return (__bridge void *)handle;
++
++#if TARGET_OS_OSX
++        NSView *view = nil;
++        if( [handle isKindOfClass:[NSWindow class]] )
++            view = ( (NSWindow *)handle ).contentView;
++        else if( [handle isKindOfClass:[NSView class]] )
++            view = (NSView *)handle;
++
++        if( view )
++        {
++            if( ![view.layer isKindOfClass:[CAMetalLayer class]] )
++            {
++                // setLayer before wantsLayer makes the view layer-hosting:
++                // AppKit leaves the layer's contentsScale alone
++                [view setLayer:[CAMetalLayer layer]];
++                [view setWantsLayer:YES];
++            }
++            return (__bridge void *)view.layer;
++        }
++#endif
++        return NULL;
++    }
++}  // namespace Ogre
+-- 
+2.50.1 (Apple Git-155)
+

@@ -144,7 +144,7 @@
                 #define	oPopup(f)			oInfo(f);oAssert(!f)
                 #define	oPopupTrace(msg,trc)	oInfo(msg);oTrace(trc);oAssert(!msg)
         #else	// !_DEBUG
-                #define oTrace (void)
+                #define oTrace(...) ((void)0)	//!< args are NOT evaluated in non-debug builds
                 #define oPopup(msg)			((void)(msg))
                 #define oPopupTrace(msg,trc)	((void)(msg))
                 #define	oVerify(f)			((void)(f))

@@ -16,6 +16,7 @@
 #pragma once
 
 #include <core_game/GameObjectManager.h>
+#include <engine_physic/PhysicsWorld.h>
 
 #include <OgreVector.h>
 #include <OgreQuaternion.h>
@@ -70,6 +71,25 @@ namespace Orkige
 
 	private:
 		String mXml;	//!< the captured archive content
+	};
+
+	//! @brief serialized state of ONE component of one GameObject, captured
+	//! through the same archive path EditorObjectSnapshot uses.
+	//! RemoveComponentCommand restores the exact component state from this.
+	class EditorComponentSnapshot
+	{
+	public:
+		//! serialize the given component of the given object; false if missing
+		bool capture(GameObjectManager& gameObjectManager, String const& id,
+			String const& componentTypeName);
+		//! re-add the captured component to the (existing) object and restore
+		//! its serialized state (fails if the component is already attached)
+		bool restore(GameObjectManager& gameObjectManager, String const& id) const;
+		bool empty() const { return mXml.empty(); }
+
+	private:
+		String mXml;				//!< the captured archive content
+		String mComponentTypeName;	//!< which component was captured
 	};
 
 	//! @brief base class of every undoable editor operation.
@@ -188,6 +208,126 @@ namespace Orkige
 		String mNewId;
 	};
 
+	//! @brief a batch of commands that does/undoes as ONE undo step
+	//! (multi-select delete/duplicate). Execute runs the children in order
+	//! and rolls the already-executed prefix back if one refuses; unexecute
+	//! runs in reverse order.
+	class CompositeCommand : public EditorCommand
+	{
+	public:
+		explicit CompositeCommand(String const& description);
+		//! append a child (call before the composite is executed)
+		void addCommand(optr<EditorCommand> const& command);
+		bool empty() const { return mCommands.empty(); }
+		std::size_t size() const { return mCommands.size(); }
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mDescription;
+		std::vector<optr<EditorCommand>> mCommands;
+	};
+
+	//! @brief add a component (by type name) to an object. Dependencies the
+	//! component pulls in (ComponentHolder's addDependency machinery) are
+	//! added automatically by the holder; undo removes the component AND the
+	//! dependencies that were added along with it.
+	class AddComponentCommand : public EditorCommand
+	{
+	public:
+		AddComponentCommand(String const& objectId,
+			String const& componentTypeName);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mComponentTypeName;
+		//! every component type execute actually added (requested type first,
+		//! then the auto-added dependencies) - undo removes exactly these
+		StringVector mAddedTypeNames;
+	};
+
+	//! @brief remove a component from an object; refused while another
+	//! attached component depends on it (EditorCore::canRemoveComponent -
+	//! the holder would cascade-remove dependents, the editor blocks instead,
+	//! like Unity). Undo re-adds the component and restores its serialized
+	//! state from the snapshot.
+	class RemoveComponentCommand : public EditorCommand
+	{
+	public:
+		RemoveComponentCommand(String const& objectId,
+			String const& componentTypeName);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mComponentTypeName;
+		EditorComponentSnapshot mSnapshot;	//!< captured fresh on every execute
+	};
+
+	//! @brief swap the mesh of a ModelComponent (Inspector mesh field);
+	//! execute/unexecute reload the entity through ModelComponent::loadModel
+	class ChangeMeshCommand : public EditorCommand
+	{
+	public:
+		ChangeMeshCommand(String const& objectId, String const& beforeMesh,
+			String const& afterMesh);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mBeforeMesh;
+		String mAfterMesh;
+	};
+
+	//! @brief edit a ScriptComponent from the Inspector: the script file path
+	//! and the enabled flag change as ONE undoable command (the ChangeMesh
+	//! pattern; both values travel together so a single command type covers
+	//! the path field and the checkbox)
+	class ChangeScriptCommand : public EditorCommand
+	{
+	public:
+		ChangeScriptCommand(String const& objectId,
+			String const& beforeScript, bool beforeEnabled,
+			String const& afterScript, bool afterEnabled);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mBeforeScript;
+		bool mBeforeEnabled;
+		String mAfterScript;
+		bool mAfterEnabled;
+	};
+
+	//! before/after RigidBodyComponent creation-parameter (BodyDesc) change -
+	//! mergeable within one interactive session like a transform drag
+	class RigidBodyChangeCommand : public EditorCommand
+	{
+	public:
+		RigidBodyChangeCommand(String const& objectId,
+			PhysicsWorld::BodyDesc const& before,
+			PhysicsWorld::BodyDesc const& after);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+		virtual bool mergeWith(EditorCommand const& next) override;
+
+	private:
+		String mObjectId;
+		PhysicsWorld::BodyDesc mBefore;
+		PhysicsWorld::BodyDesc mAfter;
+	};
+
 	//! @brief UI-independent editor state and operations.
 	//! All mutating object operations go through the command stack so they
 	//! are undoable; every executed/undone/redone command marks the scene
@@ -216,12 +356,28 @@ namespace Orkige
 		GameObjectManager& getGameObjectManager() { return mGameObjectManager; }
 
 		//--- selection ---------------------------------------
-		String const& getSelectedObjectId() const { return mSelectedObjectId; }
-		//! true if something is selected AND it still exists
+		// The selection is an ordered set with a PRIMARY (the most recently
+		// selected id = the back of the list). The Inspector and the gizmo
+		// operate on the primary; delete/duplicate operate on the whole set.
+		//! the primary selection ("" if nothing is selected)
+		String getSelectedObjectId() const;
+		//! true if something is selected AND the primary still exists
 		bool hasSelection() const;
-		bool isSelected(String const& id) const { return mSelectedObjectId == id; }
-		void selectObject(String const& id) { mSelectedObjectId = id; }
-		void clearSelection() { mSelectedObjectId.clear(); }
+		//! is the id part of the selection set
+		bool isSelected(String const& id) const;
+		//! replace the whole selection with this one id
+		void selectObject(String const& id);
+		//! Cmd/Ctrl+click: add the id (it becomes primary) or, if it is
+		//! already selected, remove it from the set
+		void toggleSelection(String const& id);
+		//! add to the selection set without clearing (id becomes primary)
+		void addToSelection(String const& id);
+		//! remove one id from the selection set (no-op if not selected)
+		void deselectObject(String const& id);
+		void clearSelection() { mSelection.clear(); }
+		//! the ordered selection set (oldest first, primary last)
+		StringVector const& getSelection() const { return mSelection; }
+		std::size_t getSelectionCount() const { return mSelection.size(); }
 
 		//--- tool state --------------------------------------
 		EditorTool getActiveTool() const { return mActiveTool; }
@@ -251,9 +407,11 @@ namespace Orkige
 		bool createCube();
 		//! auto-named glTF test mesh at the origin, selected afterwards
 		bool createTestMesh();
-		//! clone the selected object (slightly offset, copy selected)
+		//! clone ALL selected objects (slightly offset, copies selected);
+		//! multiple clones batch into one undo step (CompositeCommand)
 		bool duplicateSelected();
-		//! delete the selected object (undo restores full component state)
+		//! delete ALL selected objects (undo restores full component state);
+		//! multiple deletes batch into one undo step (CompositeCommand)
 		bool deleteSelected();
 		//! rename an object (validateRename rules apply)
 		bool renameObject(String const& id, String const& newId);
@@ -262,6 +420,58 @@ namespace Orkige
 		bool applyTransformChange(String const& id,
 			EditorTransform const& before, EditorTransform const& after,
 			unsigned int mergeSession = 0);
+
+		//--- component operations (undoable) ------------------
+		//! all component type names the Add Component popup may offer
+		//! (everything registered in the GameObjectComponent factory), sorted
+		StringVector getAddableComponentTypes() const;
+		//! add a component by type name (undoable; dependencies are pulled in
+		//! automatically and removed again on undo)
+		bool addComponentToObject(String const& id,
+			String const& componentTypeName);
+		//! remove a component by type name (undoable; refused while another
+		//! attached component depends on it - see canRemoveComponent)
+		bool removeComponentFromObject(String const& id,
+			String const& componentTypeName);
+		//! @brief may the component be removed right now? False while another
+		//! ATTACHED component of the object lists it as a dependency (the
+		//! dependency info addDependency registered); blockedBy (optional)
+		//! receives the name of the first dependent component.
+		bool canRemoveComponent(String const& id,
+			String const& componentTypeName, String* blockedBy = nullptr) const;
+		//! swap a ModelComponent's mesh (undoable; entity reloads); refused
+		//! if the object has no ModelComponent or the mesh fails to load
+		bool changeObjectMesh(String const& id, String const& meshName);
+		//! @brief change a ScriptComponent's script path and/or enabled flag
+		//! (one undoable command); refused if the object has no
+		//! ScriptComponent or nothing changed. The editor never RUNS scripts
+		//! (it does not tick components) - the path is not validated here,
+		//! the playing runtime reports load errors.
+		bool changeObjectScript(String const& id, String const& scriptFile,
+			bool enabled);
+		//! record a before/after RigidBodyComponent BodyDesc change as one
+		//! undoable command (merge session = one drag, like transforms)
+		bool applyRigidBodyChange(String const& id,
+			PhysicsWorld::BodyDesc const& before,
+			PhysicsWorld::BodyDesc const& after,
+			unsigned int mergeSession = 0);
+
+		//--- component access (helpers the commands share) ----
+		//! read the RigidBodyComponent's creation parameters; false if missing
+		bool getRigidBodyDesc(String const& id,
+			PhysicsWorld::BodyDesc& out) const;
+		//! raw BodyDesc apply WITHOUT a command (commands call this)
+		bool setRigidBodyDesc(String const& id,
+			PhysicsWorld::BodyDesc const& desc);
+		//! raw mesh (re)load WITHOUT a command (commands call this); reloads
+		//! the old mesh and returns false if the new one fails to load
+		bool setObjectMesh(String const& id, String const& meshName);
+		//! read the ScriptComponent's script path + enabled flag; false if missing
+		bool getObjectScript(String const& id, String& scriptFile,
+			bool& enabled) const;
+		//! raw script path/enabled apply WITHOUT a command (commands call this)
+		bool setObjectScript(String const& id, String const& scriptFile,
+			bool enabled);
 
 		//--- transform access (engine-touching helpers) ------
 		//! read the object's TransformComponent; false if object/component missing
@@ -291,8 +501,8 @@ namespace Orkige
 
 		//--- internals shared with the commands --------------
 		//! create a GameObject carrying a mesh through TransformComponent +
-		//! ModelComponent (NOT undoable - boot code and CreateObjectCommand
-		//! use it). Requires a booted engine.
+		//! ModelComponent (NOT undoable - the scripted-test fixture setup
+		//! and CreateObjectCommand use it). Requires a booted engine.
 		bool instantiateModelObject(String const& id, String const& meshName,
 			Ogre::Vector3 const& position);
 		//! re-apply the unlit vertex-colour render state after a (re)load -
@@ -304,7 +514,7 @@ namespace Orkige
 
 	private:
 		GameObjectManager& mGameObjectManager;
-		String mSelectedObjectId;
+		StringVector mSelection;	//!< ordered selection set, primary = back
 		EditorTool mActiveTool = EditorTool::Translate;
 		EditorTransformSpace mTransformSpace = EditorTransformSpace::World;
 		bool mSnapEnabled = false;

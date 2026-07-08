@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Orkige Player APK manifest (packaged by package_apk.sh, no Gradle).
+     debuggable stays true on purpose: the editor's play mode delivers the
+     temp scene via 'adb push + run-as' (the standard debuggable-app file
+     drop) and the whole revival ships debug builds only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.orkitec.orkigeplayer"
+    android:versionCode="1"
+    android:versionName="2.0.0-dev">
+
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35" />
+
+    <!-- sockets need INTERNET even for the 127.0.0.1-only debug link -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+    <application
+        android:label="Orkige Player"
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <!-- fully qualified on purpose: project exports rewrite the manifest
+             package (export.android.package) while the compiled Java classes
+             keep living in com.orkitec.orkigeplayer - a relative
+             ".OrkigeActivity" would resolve against the renamed package -->
+        <activity
+            android:name="com.orkitec.orkigeplayer.OrkigeActivity"
+            android:exported="true"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

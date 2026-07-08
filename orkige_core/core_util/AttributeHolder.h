@@ -200,24 +200,15 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------
-#ifdef ORKIGE_NOSCRIPT
-#define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
-	OSTRANGEGCC_TEMPLATE_TYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
-	template <> template <> void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																						\
-	/*register in the TypeManager so IArchive::read(optr<ISerializeable>&) can recreate wrapped attributes by their TypeInfo name*/																																		\
-	Orkige::TypeManager::getSingleton().registerType<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> >(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName());	\
-	OOBJECT_END
-
-#define IMPLEMENT_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType)				\
-	OOBJECT_TEMPLATE_IMPL2(AttributeHolder, OwnedAttributeTypeIdType, OwnedAttributeType)	\
-	OOBJECT_END
-#elif ORKIGE_LUA
+	//backend-neutral (OUSERTYPE_BASED and the nested macros are no-ops
+	//without a scripting backend); the boost::python-era variants died with
+	//that backend
 #define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
 	OSTRANGEGCC_TEMPLATE_TYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)										\
 	template <> template <> void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																\
 	/*register in the TypeManager so IArchive::read(optr<ISerializeable>&) can recreate wrapped attributes by their TypeInfo name*/																														\
 	Orkige::TypeManager::getSingleton().registerType<AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> >(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName());	\
-	ORKIGE_LUA_USERTYPE_BASED((AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName()), OwnedAttributeType, AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>)	\
+	OUSERTYPE_BASED((AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName()), OwnedAttributeType, AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>)	\
 	OCONSTRUCTOR1(WrappedType)																																																						\
 	OVAR(value)																																																										\
 	OFUNCCR(getValue)																																																								\
@@ -231,27 +222,6 @@ namespace Orkige
 	OFUNC(clearAttributes)																\
 	OFUNC(delAttribute)																	\
 	OOBJECT_END
-#else
-#define IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType, WrappedType)																																				\
-	OTYPE_INFO_IMPL(AttributeHolder<OwnedAttributeTypeIdType OMACRO_COMMA_SEPERATOR OwnedAttributeType>::AttributeWrapper<WrappedType>,WrappedType##OwnedAttributeType##AttributeWrapper)															\
-	void AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::OrkigeMetaExport(const char * currentOrkigeModuleName) {																						\
-	typedef AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType> ExposedClassType;																															\
-	bp::class_<ExposedClassType, bp::bases<OParent>,std::shared_ptr<ExposedClassType> > py_class(AttributeHolder<OwnedAttributeTypeIdType, OwnedAttributeType>::AttributeWrapper<WrappedType>::getClassTypeInfo().getName().c_str(),bp::no_init);	\
-	OCONSTRUCTOR1(WrappedType)																																																						\
-	OVAR(value)																																																										\
-	OFUNCCR(getValue)																																																								\
-	OOBJECT_END
-
-#define IMPLEMENT_ATTRIBUTEHOLDER(OwnedAttributeTypeIdType, OwnedAttributeType)				\
-	OOBJECT_TEMPLATE_IMPL2(AttributeHolder, OwnedAttributeTypeIdType, OwnedAttributeType)	\
-	OFUNC(getAttribute)																		\
-	OFUNC(setAttribute)																	\
-	OFUNC(hasAttribute)																	\
-	OFUNC(clearAttributes)																\
-	OFUNC(delAttribute)																	\
-	OVAR(attributes)																	\
-	OOBJECT_END
-#endif
 }
 
 #endif //__AttributeHolder_h__19_8_2010__21_56_34__

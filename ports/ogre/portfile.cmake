@@ -22,8 +22,12 @@ vcpkg_from_github(
         swig-python-polyfill.patch
         pkgconfig.patch
         same-install-rules-all-platforms.patch
+        ios-ninja-and-install-paths.patch # iOS: no Xcode $(PLATFORM_NAME) in Ninja files, no lib/Release install split
         cmake4.patch
         metal-export-include-dirs.patch
+        vulkan-metal-surface.patch    # upstream candidate: VK_EXT_metal_surface window path for Apple/MoltenVK (see Docs/upstream)
+        vulkan-shutdown-call-base.patch # upstream candidate: Vulkan RS must call RenderSystem::shutdown() like every other RS
+        vulkan-vcpkg-deps.patch       # vcpkg-only: resolve vulkan-headers/glslang through their CMake configs
 )
 
 file(REMOVE "${SOURCE_PATH}/CMake/Packages/FindOpenEXR.cmake")
@@ -52,6 +56,8 @@ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
         strict   OGRE_RESOURCEMANAGER_STRICT
         tools    OGRE_BUILD_TOOLS
         tools    OGRE_INSTALL_TOOLS
+        vulkan   OGRE_BUILD_RENDERSYSTEM_VULKAN
+        vulkan   OGRE_BUILD_PLUGIN_GLSLANG
     INVERTED_FEATURES
         assimp   CMAKE_DISABLE_FIND_PACKAGE_assimp
         bullet   CMAKE_DISABLE_FIND_PACKAGE_Bullet

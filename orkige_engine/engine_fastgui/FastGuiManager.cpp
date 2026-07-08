@@ -10,6 +10,7 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_input/InputManager.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_game/GameStateManager.h>

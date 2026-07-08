@@ -1,0 +1,61 @@
+diff --git a/CMake/Templates/OGREConfig.cmake.in b/CMake/Templates/OGREConfig.cmake.in
+index a5c7cd0..999f0e5 100644
+--- a/CMake/Templates/OGREConfig.cmake.in
++++ b/CMake/Templates/OGREConfig.cmake.in
+@@ -53,6 +53,12 @@ if(@OGRE_BUILD_PLUGIN_EXRCODEC@)
+     find_dependency(Imath CONFIG)
+     find_dependency(OpenEXR CONFIG)
+ endif()
++if(@OGRE_BUILD_PLUGIN_GLSLANG@)
++    find_dependency(glslang CONFIG)
++endif()
++if(@OGRE_BUILD_RENDERSYSTEM_VULKAN@)
++    find_dependency(VulkanHeaders CONFIG)
++endif()
+ 
+ if(@OGRE_THREAD_PROVIDER@ EQUAL 1)
+     list(APPEND OGRE_INCLUDE_DIRS @Boost_INCLUDE_DIRS@)
+diff --git a/PlugIns/GLSLang/CMakeLists.txt b/PlugIns/GLSLang/CMakeLists.txt
+index 1784460..5aef44a 100644
+--- a/PlugIns/GLSLang/CMakeLists.txt
++++ b/PlugIns/GLSLang/CMakeLists.txt
+@@ -19,6 +19,13 @@ elseif(DEFINED ENV{VULKAN_SDK})
+     target_link_directories(Plugin_GLSLangProgramManager PUBLIC $ENV{VULKAN_SDK}/lib)
+     target_link_libraries(Plugin_GLSLangProgramManager PUBLIC OgreMain shaderc_combined)
+ else()
++  # vcpkg provides glslang through its CMake config; the imported targets
++  # carry the remaining glslang libraries transitively, so the find_library
++  # fallbacks below must be skipped entirely in that case
++  find_package(glslang CONFIG QUIET)
++  if(TARGET glslang::SPIRV)
++    set(GLSLANG_LIBS glslang::glslang glslang::SPIRV)
++  else()
+   set(GLSLANG_LIBS glslang SPIRV SPIRV-Tools-opt SPIRV-Tools)
+   find_library(GLSLANG_OSDependent OSDependent)
+   if(GLSLANG_OSDependent)
+@@ -36,6 +43,7 @@ else()
+   if(GLSLANG_MI)
+       set(GLSLANG_LIBS ${GLSLANG_MI} GenericCodeGen ${GLSLANG_LIBS})
+   endif()
++  endif()
+   target_link_libraries(Plugin_GLSLangProgramManager PUBLIC OgreMain ${GLSLANG_LIBS})
+ endif()
+ ogre_config_framework(Plugin_GLSLangProgramManager)
+diff --git a/RenderSystems/Vulkan/CMakeLists.txt b/RenderSystems/Vulkan/CMakeLists.txt
+index b5924f1..4714ed5 100755
+--- a/RenderSystems/Vulkan/CMakeLists.txt
++++ b/RenderSystems/Vulkan/CMakeLists.txt
+@@ -26,6 +26,13 @@ if(DEFINED ENV{VULKAN_SDK})
+     target_link_directories(RenderSystem_Vulkan PUBLIC $ENV{VULKAN_SDK}/lib)
+ endif()
+ 
++# vcpkg provides the Vulkan headers through the VulkanHeaders CMake config
++# (volk dlopens the actual loader at runtime, so headers are all we need)
++find_package(VulkanHeaders CONFIG QUIET)
++if(TARGET Vulkan::Headers)
++    target_link_libraries(RenderSystem_Vulkan PRIVATE Vulkan::Headers)
++endif()
++
+ if(WIN32)
+     target_compile_definitions(RenderSystem_Vulkan PRIVATE VK_USE_PLATFORM_WIN32_KHR)
+ elseif(ANDROID)

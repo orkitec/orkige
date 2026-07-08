@@ -5,8 +5,12 @@
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
+	This file tests the sol2/Lua META BACKEND itself (Meta_Lua.h and
+	ScriptManager), so unlike the rest of the suite it talks to sol2
+	directly; it is only compiled into the test binary when
+	ORKIGE_SCRIPTING=LUA (see CMakeLists.txt). Backend-neutral scripting
+	behavior belongs in ScriptRuntimeTests.cpp instead.
 ***************************************************************/
-#ifdef ORKIGE_LUA
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -72,13 +76,14 @@ namespace
 
 TEST_CASE("ScriptManager boots a working Lua state", "[lua]")
 {
-	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
+	Orkige::CoreTestEnvironment::get();
+	// the ScriptRuntime member booted the Lua backend singleton
 	REQUIRE(Orkige::ScriptManager::getSingletonPtr() != nullptr);
 	// the meta export state IS the booted singleton state (not the fallback)
 	CHECK(&Orkige::ScriptManager::metaExportState() ==
-		&env.scriptManager.state());
+		&Orkige::ScriptManager::getSingleton().state());
 
-	sol::state & lua = env.scriptManager.state();
+	sol::state & lua = Orkige::ScriptManager::getSingleton().state();
 	const sol::protected_function_result result =
 		lua.safe_script("return 6 * 7", sol::script_pass_on_error);
 	REQUIRE(result.valid());
@@ -87,8 +92,8 @@ TEST_CASE("ScriptManager boots a working Lua state", "[lua]")
 
 TEST_CASE("Module-exported core types are constructible and callable from Lua", "[lua]")
 {
-	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
-	sol::state & lua = env.scriptManager.state();
+	Orkige::CoreTestEnvironment::get();
+	sol::state & lua = Orkige::ScriptManager::getSingleton().state();
 
 	const sol::protected_function_result result = lua.safe_script(R"lua(
 		local o = Object.new1('from_lua')
@@ -100,13 +105,13 @@ TEST_CASE("Module-exported core types are constructible and callable from Lua", 
 
 TEST_CASE("A registered test type's methods and members work from Lua", "[lua]")
 {
-	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
+	Orkige::CoreTestEnvironment::get();
 	Orkige::exportLuaMathThing();
 
 	// registering also put the type into the TypeManager
 	CHECK(Orkige::TypeManager::getSingleton().isRegistered("LuaMathThing"));
 
-	sol::state & lua = env.scriptManager.state();
+	sol::state & lua = Orkige::ScriptManager::getSingleton().state();
 	const sol::protected_function_result result = lua.safe_script(R"lua(
 		local thing = LuaMathThing.new0()
 		thing:addTo(40)
@@ -123,7 +128,7 @@ TEST_CASE("A registered test type's methods and members work from Lua", "[lua]")
 
 TEST_CASE("Lua-triggered events reach C++ listeners with their payload", "[lua]")
 {
-	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
+	Orkige::CoreTestEnvironment::get();
 
 	LuaEventProbe probe;
 	const Orkige::EventType type("lua_unit_event");
@@ -131,7 +136,7 @@ TEST_CASE("Lua-triggered events reach C++ listeners with their payload", "[lua]"
 		Orkige::GlobalEventManager::getSingleton().bind(
 			type, &LuaEventProbe::onLuaEvent, &probe);
 
-	sol::state & lua = env.scriptManager.state();
+	sol::state & lua = Orkige::ScriptManager::getSingleton().state();
 	const sol::protected_function_result result = lua.safe_script(R"lua(
 		local payload = Object.new1('lua_payload')
 		local ev = Event('lua_unit_event')
@@ -145,5 +150,3 @@ TEST_CASE("Lua-triggered events reach C++ listeners with their payload", "[lua]"
 	REQUIRE(Orkige::GlobalEventManager::getSingleton().delListener(
 		listener, type));
 }
-
-#endif //ORKIGE_LUA

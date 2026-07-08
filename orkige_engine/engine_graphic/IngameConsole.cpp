@@ -8,11 +8,7 @@
 ***************************************************************/
 
 #include "engine_graphic/IngameConsole.h"
-#ifdef ORKIGE_LUA
-#include <core_script/ScriptManager.h>
-#elif !defined(ORKIGE_NOSCRIPT)
-#include <core_python/PythonInterpreter.h>
-#endif
+#include <core_script/ScriptRuntime.h>
 #include <core_util/foreach.h>
 #include <core_event/GlobalEventManager.h>
 #include "engine_module/EnginePrerequisites.h"
@@ -207,11 +203,11 @@ namespace Orkige
 			//split the parameter list (no boost: Ogre::StringUtil does the job)
 			Orkige::StringVector params = Ogre::StringUtil::split(this->prompt, "\t ");
 
-			if(this->pythonMode == false && params[0] == "python")
+			if(this->pythonMode == false && (params[0] == "script" || params[0] == "python"))
 			{
-#ifndef ORKIGE_NOSCRIPT
-				this->pythonMode = true;
-#endif
+				//script mode only opens when a scripting runtime is live
+				if(ScriptRuntime::available())
+					this->pythonMode = true;
 			}
 			else if(this->pythonMode == true && params[0] == "exit")
 			{
@@ -219,12 +215,12 @@ namespace Orkige
 			}
 			else if(this->pythonMode)
 			{
-#ifdef ORKIGE_LUA
-				if(ScriptManager::getSingletonPtr() != NULL)
-					ScriptManager::getSingleton().state().safe_script(this->prompt, sol::script_pass_on_error);
-#elif !defined(ORKIGE_NOSCRIPT)
-				PythonInterpreter::getSingleton().exec(this->prompt);
-#endif
+				const ScriptRuntime::Result result =
+					ScriptRuntime::getSingleton().runString(this->prompt);
+				if(!result.success)
+					this->print("error: " + result.error);
+				else foreach(String const & value, result.returnValues)
+					this->print(value);
 			}
 			else
 			{
@@ -427,7 +423,7 @@ namespace Orkige
 			String prefix = ":]";
 
 			if(this->pythonMode)
-				prefix = "python:>";
+				prefix = String(ScriptRuntime::backendName()) + ":>";
 
 			text += prefix+tempPrompt;
 

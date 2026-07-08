@@ -40,6 +40,7 @@ namespace Orkige
 		const String FIELD_VALUE			= "value";
 		const String FIELD_SCENE			= "scene";
 		const String FIELD_MESSAGE			= "message";
+		const String FIELD_LEVEL			= "level";
 		const String LIST_IDS				= "ids";
 		const String LIST_COMPONENTS		= "components";
 	}

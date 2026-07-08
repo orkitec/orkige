@@ -503,7 +503,7 @@ namespace Gorilla
 		inline Glyph* getGlyph(Ogre::uint character) const
 		{
 			Ogre::uint safe_character = character - mRangeBegin;
-			if (safe_character <= mGlyphs.size())
+			if (safe_character < mGlyphs.size())
 				return mGlyphs[safe_character];
 			return 0;
 		}
@@ -1671,7 +1671,7 @@ namespace Gorilla
 				mUV[0].x = mUV[3].x = sprite->uvLeft - texelOffsetX;
 				mUV[0].y = mUV[1].y = sprite->uvTop - texelOffsetY;
 				mUV[1].x = mUV[2].x = sprite->uvRight + texelOffsetX;
-				mUV[2].y = mUV[3].y = sprite->uvBottom + texelOffsetX;
+				mUV[2].y = mUV[3].y = sprite->uvBottom + texelOffsetY;
 			}
 			mDirty = true;
 			mLayer->_markDirty();

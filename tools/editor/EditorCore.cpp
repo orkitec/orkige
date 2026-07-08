@@ -4,12 +4,15 @@
 
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/RigidBodyComponent.h>
+#include <engine_gocomponent/ScriptComponent.h>
 #include <engine_util/PrimitiveUtil.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <OgreEntity.h>
 #include <OgreException.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -155,6 +158,91 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- EditorComponentSnapshot ------------------------------
+	//---------------------------------------------------------
+	bool EditorComponentSnapshot::capture(GameObjectManager& gameObjectManager,
+		String const& id, String const& componentTypeName)
+	{
+		optr<GameObject> gameObject =
+			gameObjectManager.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		TypeInfo componentType(componentTypeName);
+		if (!gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		GameObjectComponent* component =
+			gameObject->getComponentPtr(componentType);
+		oAssert(component);
+		TempFileGuard tempFile{ makeSnapshotTempPath() };
+		{
+			optr<XMLArchive> ar = onew(new XMLArchive());
+			if (!ar->startWriting(tempFile.path))
+			{
+				return false;
+			}
+			ar->write(static_cast<ISerializeable&>(*component));
+			if (!ar->stopWriting())
+			{
+				return false;
+			}
+		}
+		std::ifstream file(tempFile.path, std::ios::binary);
+		std::ostringstream content;
+		content << file.rdbuf();
+		mXml = content.str();
+		mComponentTypeName = componentTypeName;
+		return !mXml.empty();
+	}
+	//---------------------------------------------------------
+	bool EditorComponentSnapshot::restore(GameObjectManager& gameObjectManager,
+		String const& id) const
+	{
+		if (mXml.empty())
+		{
+			return false;
+		}
+		optr<GameObject> gameObject =
+			gameObjectManager.getGameObject(id).lock();
+		TypeInfo componentType(mComponentTypeName);
+		if (!gameObject || gameObject->hasComponent(componentType) ||
+			!GameObject::isComponentRegistered(componentType))
+		{
+			return false;
+		}
+		TempFileGuard tempFile{ makeSnapshotTempPath() };
+		{
+			std::ofstream file(tempFile.path, std::ios::binary);
+			file << mXml;
+			if (!file.good())
+			{
+				return false;
+			}
+		}
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if (!ar->startReading(tempFile.path))
+		{
+			return false;
+		}
+		// the component's own dependencies are still attached (they were
+		// there when it was captured); addComponent re-adds any missing ones
+		if (!gameObject->addComponent(componentType))
+		{
+			ar->stopReading();
+			return false;
+		}
+		GameObjectComponent* component =
+			gameObject->getComponentPtr(componentType);
+		oAssert(component);
+		ar->read(static_cast<ISerializeable&>(*component));
+		ar->stopReading();
+		return true;
+	}
+
+	//---------------------------------------------------------
 	//--- TransformChangeCommand -------------------------------
 	//---------------------------------------------------------
 	TransformChangeCommand::TransformChangeCommand(String const& objectId,
@@ -212,10 +300,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool CreateObjectCommand::unexecute(EditorCore& core)
 	{
-		if (core.isSelected(mObjectId))
-		{
-			core.clearSelection();
-		}
+		core.deselectObject(mObjectId);
 		return core.getGameObjectManager().delGameObject(mObjectId);
 	}
 	//---------------------------------------------------------
@@ -245,10 +330,7 @@ namespace Orkige
 		{
 			return false;
 		}
-		if (mWasSelected)
-		{
-			core.clearSelection();
-		}
+		core.deselectObject(mObjectId);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -261,7 +343,7 @@ namespace Orkige
 		core.applyModelFixups(mObjectId);
 		if (mWasSelected)
 		{
-			core.selectObject(mObjectId);
+			core.addToSelection(mObjectId);
 		}
 		return true;
 	}
@@ -320,7 +402,10 @@ namespace Orkige
 			transform.position += EditorCore::DUPLICATE_OFFSET;
 			core.setObjectTransform(mNewId, transform);
 		}
-		core.selectObject(mNewId);
+		// selection moves from the source to its copy (a multi-select batch
+		// thereby ends up with ALL copies selected)
+		core.deselectObject(mSourceId);
+		core.addToSelection(mNewId);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -332,7 +417,8 @@ namespace Orkige
 		}
 		if (core.isSelected(mNewId))
 		{
-			core.selectObject(mSourceId);
+			core.deselectObject(mNewId);
+			core.addToSelection(mSourceId);
 		}
 		return true;
 	}
@@ -340,6 +426,266 @@ namespace Orkige
 	String DuplicateObjectCommand::getDescription() const
 	{
 		return "Duplicate " + mSourceId;
+	}
+
+	//---------------------------------------------------------
+	//--- CompositeCommand -------------------------------------
+	//---------------------------------------------------------
+	CompositeCommand::CompositeCommand(String const& description)
+		: mDescription(description)
+	{
+	}
+	//---------------------------------------------------------
+	void CompositeCommand::addCommand(optr<EditorCommand> const& command)
+	{
+		oAssert(command);
+		mCommands.push_back(command);
+	}
+	//---------------------------------------------------------
+	bool CompositeCommand::execute(EditorCore& core)
+	{
+		if (mCommands.empty())
+		{
+			return false;
+		}
+		for (std::size_t i = 0; i < mCommands.size(); ++i)
+		{
+			if (!mCommands[i]->execute(core))
+			{
+				// roll the already-executed prefix back so a refused batch
+				// leaves the scene untouched
+				for (std::size_t j = i; j-- > 0;)
+				{
+					mCommands[j]->unexecute(core);
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool CompositeCommand::unexecute(EditorCore& core)
+	{
+		bool undone = true;
+		for (std::size_t i = mCommands.size(); i-- > 0;)
+		{
+			undone = mCommands[i]->unexecute(core) && undone;
+		}
+		return undone;
+	}
+	//---------------------------------------------------------
+	String CompositeCommand::getDescription() const
+	{
+		return mDescription;
+	}
+
+	//---------------------------------------------------------
+	//--- AddComponentCommand ----------------------------------
+	//---------------------------------------------------------
+	AddComponentCommand::AddComponentCommand(String const& objectId,
+		String const& componentTypeName)
+		: mObjectId(objectId), mComponentTypeName(componentTypeName)
+	{
+	}
+	//---------------------------------------------------------
+	bool AddComponentCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject =
+			core.getGameObjectManager().getGameObject(mObjectId).lock();
+		TypeInfo componentType(mComponentTypeName);
+		if (!gameObject || !GameObject::isComponentRegistered(componentType) ||
+			gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		// the holder auto-adds missing dependencies - diff the attached set
+		// so undo can take exactly the components this command brought in
+		const TypeInfoList before = gameObject->getAttachedComponentTypes();
+		if (!gameObject->addComponent(componentType))
+		{
+			return false;
+		}
+		mAddedTypeNames.clear();
+		mAddedTypeNames.push_back(mComponentTypeName);
+		for (TypeInfo const& attached : gameObject->getAttachedComponentTypes())
+		{
+			if (!(attached == componentType) &&
+				std::find(before.begin(), before.end(), attached) ==
+					before.end())
+			{
+				mAddedTypeNames.push_back(attached.getName());
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool AddComponentCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject =
+			core.getGameObjectManager().getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		// the requested type goes first; removeComponent cascade-removes
+		// dependents, so later entries may already be gone - check each time
+		for (String const& typeName : mAddedTypeNames)
+		{
+			TypeInfo componentType(typeName);
+			if (gameObject->hasComponent(componentType))
+			{
+				gameObject->removeComponent(componentType);
+			}
+		}
+		for (String const& typeName : mAddedTypeNames)
+		{
+			if (gameObject->hasComponent(TypeInfo(typeName)))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String AddComponentCommand::getDescription() const
+	{
+		return "Add " + mComponentTypeName + " to " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- RemoveComponentCommand -------------------------------
+	//---------------------------------------------------------
+	RemoveComponentCommand::RemoveComponentCommand(String const& objectId,
+		String const& componentTypeName)
+		: mObjectId(objectId), mComponentTypeName(componentTypeName)
+	{
+	}
+	//---------------------------------------------------------
+	bool RemoveComponentCommand::execute(EditorCore& core)
+	{
+		// refuse while another attached component depends on this one (the
+		// holder would cascade-remove the dependents; the editor blocks the
+		// operation instead, like Unity does)
+		if (!core.canRemoveComponent(mObjectId, mComponentTypeName))
+		{
+			return false;
+		}
+		// captured fresh on every execute so redo removes the state the
+		// component had when it was removed again
+		if (!mSnapshot.capture(core.getGameObjectManager(), mObjectId,
+			mComponentTypeName))
+		{
+			return false;
+		}
+		optr<GameObject> gameObject =
+			core.getGameObjectManager().getGameObject(mObjectId).lock();
+		oAssert(gameObject);
+		return gameObject->removeComponent(TypeInfo(mComponentTypeName));
+	}
+	//---------------------------------------------------------
+	bool RemoveComponentCommand::unexecute(EditorCore& core)
+	{
+		if (!mSnapshot.restore(core.getGameObjectManager(), mObjectId))
+		{
+			return false;
+		}
+		// a restored ModelComponent reloaded its entity through load()
+		core.applyModelFixups(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	String RemoveComponentCommand::getDescription() const
+	{
+		return "Remove " + mComponentTypeName + " from " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- ChangeMeshCommand ------------------------------------
+	//---------------------------------------------------------
+	ChangeMeshCommand::ChangeMeshCommand(String const& objectId,
+		String const& beforeMesh, String const& afterMesh)
+		: mObjectId(objectId), mBeforeMesh(beforeMesh), mAfterMesh(afterMesh)
+	{
+	}
+	//---------------------------------------------------------
+	bool ChangeMeshCommand::execute(EditorCore& core)
+	{
+		return core.setObjectMesh(mObjectId, mAfterMesh);
+	}
+	//---------------------------------------------------------
+	bool ChangeMeshCommand::unexecute(EditorCore& core)
+	{
+		return core.setObjectMesh(mObjectId, mBeforeMesh);
+	}
+	//---------------------------------------------------------
+	String ChangeMeshCommand::getDescription() const
+	{
+		return "Change Mesh of " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- ChangeScriptCommand ----------------------------------
+	//---------------------------------------------------------
+	ChangeScriptCommand::ChangeScriptCommand(String const& objectId,
+		String const& beforeScript, bool beforeEnabled,
+		String const& afterScript, bool afterEnabled)
+		: mObjectId(objectId), mBeforeScript(beforeScript),
+		mBeforeEnabled(beforeEnabled), mAfterScript(afterScript),
+		mAfterEnabled(afterEnabled)
+	{
+	}
+	//---------------------------------------------------------
+	bool ChangeScriptCommand::execute(EditorCore& core)
+	{
+		return core.setObjectScript(mObjectId, mAfterScript, mAfterEnabled);
+	}
+	//---------------------------------------------------------
+	bool ChangeScriptCommand::unexecute(EditorCore& core)
+	{
+		return core.setObjectScript(mObjectId, mBeforeScript, mBeforeEnabled);
+	}
+	//---------------------------------------------------------
+	String ChangeScriptCommand::getDescription() const
+	{
+		return "Change Script of " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- RigidBodyChangeCommand -------------------------------
+	//---------------------------------------------------------
+	RigidBodyChangeCommand::RigidBodyChangeCommand(String const& objectId,
+		PhysicsWorld::BodyDesc const& before,
+		PhysicsWorld::BodyDesc const& after)
+		: mObjectId(objectId), mBefore(before), mAfter(after)
+	{
+	}
+	//---------------------------------------------------------
+	bool RigidBodyChangeCommand::execute(EditorCore& core)
+	{
+		return core.setRigidBodyDesc(mObjectId, mAfter);
+	}
+	//---------------------------------------------------------
+	bool RigidBodyChangeCommand::unexecute(EditorCore& core)
+	{
+		return core.setRigidBodyDesc(mObjectId, mBefore);
+	}
+	//---------------------------------------------------------
+	String RigidBodyChangeCommand::getDescription() const
+	{
+		return "Edit RigidBody " + mObjectId;
+	}
+	//---------------------------------------------------------
+	bool RigidBodyChangeCommand::mergeWith(EditorCommand const& next)
+	{
+		RigidBodyChangeCommand const* other =
+			dynamic_cast<RigidBodyChangeCommand const*>(&next);
+		if (!other || other->mObjectId != mObjectId)
+		{
+			return false;
+		}
+		// keep my drag-start "before", absorb the newest "after"
+		mAfter = other->mAfter;
+		return true;
 	}
 
 	//---------------------------------------------------------
@@ -355,10 +701,54 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
+	String EditorCore::getSelectedObjectId() const
+	{
+		return mSelection.empty() ? String() : mSelection.back();
+	}
+	//---------------------------------------------------------
 	bool EditorCore::hasSelection() const
 	{
-		return !mSelectedObjectId.empty() &&
-			mGameObjectManager.objectExists(mSelectedObjectId);
+		return !mSelection.empty() &&
+			mGameObjectManager.objectExists(mSelection.back());
+	}
+	//---------------------------------------------------------
+	bool EditorCore::isSelected(String const& id) const
+	{
+		return std::find(mSelection.begin(), mSelection.end(), id) !=
+			mSelection.end();
+	}
+	//---------------------------------------------------------
+	void EditorCore::selectObject(String const& id)
+	{
+		mSelection.clear();
+		mSelection.push_back(id);
+	}
+	//---------------------------------------------------------
+	void EditorCore::toggleSelection(String const& id)
+	{
+		if (isSelected(id))
+		{
+			deselectObject(id);
+		}
+		else
+		{
+			mSelection.push_back(id); // newest member becomes the primary
+		}
+	}
+	//---------------------------------------------------------
+	void EditorCore::addToSelection(String const& id)
+	{
+		if (!isSelected(id))
+		{
+			mSelection.push_back(id);
+		}
+	}
+	//---------------------------------------------------------
+	void EditorCore::deselectObject(String const& id)
+	{
+		mSelection.erase(
+			std::remove(mSelection.begin(), mSelection.end(), id),
+			mSelection.end());
 	}
 	//---------------------------------------------------------
 	void EditorCore::toggleTransformSpace()
@@ -430,22 +820,62 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EditorCore::duplicateSelected()
 	{
-		if (!hasSelection())
+		// only selected ids that still exist take part (the set may carry
+		// stale ids of objects that vanished outside the command stack)
+		StringVector sourceIds;
+		for (String const& id : mSelection)
+		{
+			if (mGameObjectManager.objectExists(id))
+			{
+				sourceIds.push_back(id);
+			}
+		}
+		if (sourceIds.empty())
 		{
 			return false;
 		}
-		const String sourceId = mSelectedObjectId;
-		return executeCommand(onew(new DuplicateObjectCommand(sourceId,
-			makeDuplicateId(sourceId))));
+		if (sourceIds.size() == 1)
+		{
+			return executeCommand(onew(new DuplicateObjectCommand(sourceIds[0],
+				makeDuplicateId(sourceIds[0]))));
+		}
+		// multi-select: ONE undo step for the whole batch
+		optr<CompositeCommand> batch = onew(new CompositeCommand(
+			"Duplicate " + std::to_string(sourceIds.size()) + " Objects"));
+		for (String const& id : sourceIds)
+		{
+			batch->addCommand(onew(new DuplicateObjectCommand(id,
+				makeDuplicateId(id))));
+		}
+		return executeCommand(batch);
 	}
 	//---------------------------------------------------------
 	bool EditorCore::deleteSelected()
 	{
-		if (!hasSelection())
+		StringVector doomedIds;
+		for (String const& id : mSelection)
+		{
+			if (mGameObjectManager.objectExists(id))
+			{
+				doomedIds.push_back(id);
+			}
+		}
+		if (doomedIds.empty())
 		{
 			return false;
 		}
-		return executeCommand(onew(new DeleteObjectCommand(mSelectedObjectId)));
+		if (doomedIds.size() == 1)
+		{
+			return executeCommand(onew(new DeleteObjectCommand(doomedIds[0])));
+		}
+		// multi-select: ONE undo step restores the whole batch
+		optr<CompositeCommand> batch = onew(new CompositeCommand(
+			"Delete " + std::to_string(doomedIds.size()) + " Objects"));
+		for (String const& id : doomedIds)
+		{
+			batch->addCommand(onew(new DeleteObjectCommand(id)));
+		}
+		return executeCommand(batch);
 	}
 	//---------------------------------------------------------
 	bool EditorCore::renameObject(String const& id, String const& newId)
@@ -466,6 +896,232 @@ namespace Orkige
 			onew(new TransformChangeCommand(id, before, after));
 		command->setMergeSession(mergeSession);
 		return executeCommand(command);
+	}
+	//---------------------------------------------------------
+	StringVector EditorCore::getAddableComponentTypes() const
+	{
+		StringVector typeNames;
+		for (TypeInfo const& componentType :
+			GameObject::getRegisteredComponentTypes())
+		{
+			typeNames.push_back(componentType.getName());
+		}
+		std::sort(typeNames.begin(), typeNames.end());
+		return typeNames;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::addComponentToObject(String const& id,
+		String const& componentTypeName)
+	{
+		return executeCommand(onew(new AddComponentCommand(id,
+			componentTypeName)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::removeComponentFromObject(String const& id,
+		String const& componentTypeName)
+	{
+		return executeCommand(onew(new RemoveComponentCommand(id,
+			componentTypeName)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::canRemoveComponent(String const& id,
+		String const& componentTypeName, String* blockedBy) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		TypeInfo componentType(componentTypeName);
+		if (!gameObject || !gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		// blocked while any OTHER attached component lists the type as a
+		// dependency (the exact info the components' addDependency calls
+		// registered - the same data addComponent uses to auto-add them)
+		for (auto const& [attachedType, component] :
+			gameObject->getComponents())
+		{
+			if (attachedType == componentType)
+			{
+				continue;
+			}
+			TypeInfoList const& dependencies = component->getDependencies();
+			if (std::find(dependencies.begin(), dependencies.end(),
+				componentType) != dependencies.end())
+			{
+				if (blockedBy)
+				{
+					*blockedBy = attachedType.getName();
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::changeObjectMesh(String const& id, String const& meshName)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<ModelComponent>() ||
+			meshName.empty())
+		{
+			return false;
+		}
+		const String currentMesh = gameObject
+			->getComponentPtr<ModelComponent>()->getCurrentModelFileName();
+		if (meshName == currentMesh)
+		{
+			return false; // a no-op must not pollute the undo stack
+		}
+		return executeCommand(onew(new ChangeMeshCommand(id, currentMesh,
+			meshName)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::changeObjectScript(String const& id,
+		String const& scriptFile, bool enabled)
+	{
+		String currentScript;
+		bool currentEnabled = true;
+		if (!getObjectScript(id, currentScript, currentEnabled))
+		{
+			return false;
+		}
+		if (scriptFile == currentScript && enabled == currentEnabled)
+		{
+			return false; // a no-op must not pollute the undo stack
+		}
+		return executeCommand(onew(new ChangeScriptCommand(id,
+			currentScript, currentEnabled, scriptFile, enabled)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::getObjectScript(String const& id, String& scriptFile,
+		bool& enabled) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<ScriptComponent>())
+		{
+			return false;
+		}
+		ScriptComponent* script =
+			gameObject->getComponentPtr<ScriptComponent>();
+		scriptFile = script->getScriptFile();
+		enabled = script->isScriptEnabled();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectScript(String const& id,
+		String const& scriptFile, bool enabled)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<ScriptComponent>())
+		{
+			return false;
+		}
+		ScriptComponent* script =
+			gameObject->getComponentPtr<ScriptComponent>();
+		script->setScriptFile(scriptFile);
+		script->setScriptEnabled(enabled);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::applyRigidBodyChange(String const& id,
+		PhysicsWorld::BodyDesc const& before,
+		PhysicsWorld::BodyDesc const& after, unsigned int mergeSession)
+	{
+		optr<EditorCommand> command =
+			onew(new RigidBodyChangeCommand(id, before, after));
+		command->setMergeSession(mergeSession);
+		return executeCommand(command);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::getRigidBodyDesc(String const& id,
+		PhysicsWorld::BodyDesc& out) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<RigidBodyComponent>())
+		{
+			return false;
+		}
+		out = gameObject->getComponentPtr<RigidBodyComponent>()->getBodyDesc();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setRigidBodyDesc(String const& id,
+		PhysicsWorld::BodyDesc const& desc)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<RigidBodyComponent>())
+		{
+			return false;
+		}
+		RigidBodyComponent* rigidBody =
+			gameObject->getComponentPtr<RigidBodyComponent>();
+		if (rigidBody->hasBody())
+		{
+			// the editor only edits CREATION parameters; a live body exists
+			// in play/runtime contexts the editor never edits locally
+			return false;
+		}
+		rigidBody->setBodyType(desc.bodyType);
+		switch (desc.shapeType)
+		{
+		case PhysicsWorld::ST_SPHERE:
+			rigidBody->setSphereShape(desc.radius);
+			break;
+		case PhysicsWorld::ST_CAPSULE:
+			rigidBody->setCapsuleShape(desc.halfHeight, desc.radius);
+			break;
+		case PhysicsWorld::ST_BOX:
+		default:
+			rigidBody->setBoxShape(desc.halfExtents);
+			break;
+		}
+		rigidBody->setMass(desc.mass);
+		rigidBody->setFriction(desc.friction);
+		rigidBody->setRestitution(desc.restitution);
+		rigidBody->setPlanarMode(desc.planar);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectMesh(String const& id, String const& meshName)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<ModelComponent>() ||
+			meshName.empty())
+		{
+			return false;
+		}
+		ModelComponent* model = gameObject->getComponentPtr<ModelComponent>();
+		const String previousMesh = model->getCurrentModelFileName();
+		try
+		{
+			model->loadModel(meshName);
+		}
+		catch (Ogre::Exception const& e)
+		{
+			oDebugMsg("editor", 0, "EditorCore: mesh '" << meshName
+				<< "' load failed: " << e.getDescription());
+			// try not to lose the entity: reload the previous mesh
+			if (!previousMesh.empty() && previousMesh != meshName)
+			{
+				try
+				{
+					model->loadModel(previousMesh);
+					applyModelFixups(id);
+				}
+				catch (Ogre::Exception const&)
+				{
+				}
+			}
+			return false;
+		}
+		applyModelFixups(id);
+		return true;
 	}
 	//---------------------------------------------------------
 	bool EditorCore::getObjectTransform(String const& id,
@@ -657,7 +1313,8 @@ namespace Orkige
 		applyModelFixups(newId);
 		if (wasSelected)
 		{
-			selectObject(newId);
+			deselectObject(oldId);
+			addToSelection(newId);
 		}
 		return true;
 	}

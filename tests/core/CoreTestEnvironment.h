@@ -13,9 +13,7 @@
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_game/GameObjectManager.h>
-#ifdef ORKIGE_LUA
-#include <core_script/ScriptManager.h>
-#endif
+#include <core_script/ScriptRuntime.h>
 
 namespace Orkige
 {
@@ -23,20 +21,18 @@ namespace Orkige
 	//! (mirrors samples/hello_orkige and tools/player) once per test process,
 	//! completely headless. Every test case calls CoreTestEnvironment::get()
 	//! first; the singletons stay alive for the rest of the process.
-	//! @remarks the ScriptManager member is constructed BEFORE the ctor body
+	//! @remarks the ScriptRuntime member is constructed BEFORE the ctor body
 	//! runs init_module_orkige_core(), so the OrkigeMetaExport macros target
-	//! the real Lua state (with no ScriptManager they would still work against
-	//! the ScriptManager::metaExportState() fallback - TypeManager and
-	//! component factory registration do not depend on the Lua state - but the
-	//! Lua-facing tests need the real one).
+	//! the real backend state (without it they would still work against the
+	//! metaExportState() fallback - TypeManager and component factory
+	//! registration do not depend on the scripting state - but the
+	//! script-facing tests need the real one).
 	class CoreTestEnvironment
 	{
 		//--- Variables ---------------------------------------
 	public:
 		GlobalEventManager	globalEventManager;	//!< global event singleton
-#ifdef ORKIGE_LUA
-		ScriptManager		scriptManager;		//!< Lua scripting singleton
-#endif
+		ScriptRuntime		scriptRuntime;		//!< scripting seam singleton
 		GameObjectManager	gameObjectManager;	//!< game object singleton
 		//--- Methods -----------------------------------------
 	public:

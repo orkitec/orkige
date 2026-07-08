@@ -145,6 +145,16 @@ namespace Orkige
 		switch (event.type)
 		{
 		case SDL_EVENT_MOUSE_MOTION:
+			// fly-mode capture: accumulate the raw relative counts for the
+			// camera and keep the absolute position away from ImGui (in
+			// relative mode x/y are frozen anyway; feeding them would fight
+			// the capture, see setRelativeMode)
+			if (mRelativeMode)
+			{
+				mRelativeDeltaX += event.motion.xrel;
+				mRelativeDeltaY += event.motion.yrel;
+				return io.WantCaptureMouse;
+			}
 			io.AddMousePosEvent(event.motion.x * mMouseScaleX,
 				event.motion.y * mMouseScaleY);
 			return io.WantCaptureMouse;
@@ -155,8 +165,14 @@ namespace Orkige
 			const int button = translateMouseButton(event.button.button);
 			if (button >= 0)
 			{
-				io.AddMousePosEvent(event.button.x * mMouseScaleX,
-					event.button.y * mMouseScaleY);
+				// same absolute-position suppression while captured (the
+				// right-button release ending a fly arrives in relative
+				// mode - its x/y carry the frozen capture point)
+				if (!mRelativeMode)
+				{
+					io.AddMousePosEvent(event.button.x * mMouseScaleX,
+						event.button.y * mMouseScaleY);
+				}
 				io.AddMouseButtonEvent(button,
 					event.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
 			}
@@ -207,5 +223,48 @@ namespace Orkige
 		default:
 			return false;
 		}
+	}
+	//---------------------------------------------------------
+	void ImGuiSDL3Input::setRelativeMode(bool enabled)
+	{
+		if (enabled == mRelativeMode)
+		{
+			return;
+		}
+		mRelativeMode = enabled;
+		mRelativeDeltaX = 0.0f;
+		mRelativeDeltaY = 0.0f;
+		if (enabled)
+		{
+			// remember where the fly began so the cursor comes back there
+			SDL_GetMouseState(&mRestoreMouseX, &mRestoreMouseY);
+			if (!SDL_SetWindowRelativeMouseMode(mWindow, true))
+			{
+				// degraded but usable: motion events still carry xrel/yrel
+				// (window points), only the cursor stays visible and can
+				// hit the screen edge
+				SDL_Log("ImGuiSDL3Input: relative mouse mode unavailable "
+					"(%s) - fly look falls back to unconstrained deltas",
+					SDL_GetError());
+			}
+		}
+		else
+		{
+			// SDL_mouse.h: warp to the desired exit position BEFORE
+			// disabling relative mode, then hand ImGui the restored
+			// position (it saw no absolute motion during the capture)
+			SDL_WarpMouseInWindow(mWindow, mRestoreMouseX, mRestoreMouseY);
+			SDL_SetWindowRelativeMouseMode(mWindow, false);
+			ImGui::GetIO().AddMousePosEvent(mRestoreMouseX * mMouseScaleX,
+				mRestoreMouseY * mMouseScaleY);
+		}
+	}
+	//---------------------------------------------------------
+	void ImGuiSDL3Input::consumeRelativeDelta(float& deltaX, float& deltaY)
+	{
+		deltaX = mRelativeDeltaX;
+		deltaY = mRelativeDeltaY;
+		mRelativeDeltaX = 0.0f;
+		mRelativeDeltaY = 0.0f;
 	}
 }

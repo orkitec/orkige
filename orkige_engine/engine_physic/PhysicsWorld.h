@@ -45,6 +45,16 @@ namespace Orkige
 			ST_SPHERE = 1,		//!< sphere from radius
 			ST_CAPSULE = 2		//!< capsule from halfHeight (cylinder part) + radius
 		};
+		//! @brief result of a castRayHit query - plain data, so scripting
+		//! languages get the whole answer as one value (castRay's C++ out
+		//! parameters do not translate to Lua)
+		struct ORKIGE_ENGINE_DLL RayHit
+		{
+			bool			hit;			//!< did the ray hit a body
+			Ogre::Vector3	position;		//!< world hit position (ZERO on miss)
+			BodyId			bodyId;			//!< hit body handle (INVALID_BODY_ID on miss)
+			RayHit();						// defined in the .cpp (needs INVALID_BODY_ID)
+		};
 		//! everything needed to create a rigid body (plain data, no backend types)
 		struct ORKIGE_ENGINE_DLL BodyDesc
 		{
@@ -135,6 +145,10 @@ namespace Orkige
 		//! @return true on hit; hitPosition/hitBodyId only written on hit
 		bool castRay(Ogre::Vector3 const & origin, Ogre::Vector3 const & direction,
 			float maxDistance, Ogre::Vector3 & hitPosition, BodyId & hitBodyId) const;
+		//! @brief castRay variant returning the result as one RayHit value -
+		//! the form the Lua bindings expose (out parameters stay C++-only)
+		RayHit castRayHit(Ogre::Vector3 const & origin,
+			Ogre::Vector3 const & direction, float maxDistance) const;
 	protected:
 	private:
 	};

@@ -55,16 +55,10 @@ namespace Orkige
 		OCONSTRUCTOR0()
 		OCONSTRUCTOR1(String)
 		OFUNCCR(getObjectID)
-		//OFUNC(setAttribute)
-#ifndef ORKIGE_LUA
-		OTPLFUNCDEFARGS(double,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(float,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(bool,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(long,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(uint,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(int,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-		OTPLFUNCDEFARGS(String,setAttribute,(OARG(id),OARG(value),OARGNONE(check1),OARGNONE(check2),OARGNONE(check3)))
-#endif
+		//setAttribute/getAttribute are template overload sets - not exposable
+		//generically (the luabind-era per-type OTPLFUNCDEFARGS exports died
+		//with that backend); attribute access from scripts goes through the
+		//AttributeWrapper usertypes
 	OOBJECT_END
 }
 

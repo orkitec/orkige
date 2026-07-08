@@ -80,13 +80,16 @@ diff --git a/CMake/Templates/OGREConfig.cmake.in b/CMake/Templates/OGREConfig.cm
 index 2047f66..a5c7cd0 100644
 --- a/CMake/Templates/OGREConfig.cmake.in
 +++ b/CMake/Templates/OGREConfig.cmake.in
-@@ -35,6 +35,25 @@ set(OGRE_LIBRARIES)
+@@ -35,6 +35,28 @@ set(OGRE_LIBRARIES)
  cmake_policy(PUSH)
  cmake_policy(SET CMP0012 NEW)
  
 +include(CMakeFindDependencyMacro)
 +find_dependency(pugixml CONFIG)
-+find_dependency(SDL2 CONFIG)
++if(NOT "@ANDROID@" AND NOT "@EMSCRIPTEN@")
++    # same condition as the build: OGRE does not use SDL2 on Android/Emscripten
++    find_dependency(SDL2 CONFIG)
++endif()
 +find_dependency(ZLIB)
 +find_dependency(freetype CONFIG)
 +if (@OGRE_BUILD_COMPONENT_OVERLAY_IMGUI@)

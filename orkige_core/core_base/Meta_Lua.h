@@ -72,6 +72,11 @@
 			py_class[sol::call_constructor] = sol::factories(orkigeLuaFactory);		\
 		}
 
+//! backend-neutral usertype openers for hand-written OrkigeMetaExport bodies
+//! (TypeInfo.cpp, AttributeHolder.h) - every backend defines this pair
+#define OUSERTYPE(ExportName, ...)									ORKIGE_LUA_USERTYPE(ExportName, __VA_ARGS__)
+#define OUSERTYPE_BASED(ExportName, BaseClassName, ...)				ORKIGE_LUA_USERTYPE_BASED(ExportName, BaseClassName, __VA_ARGS__)
+
 #define OMETACLASS(ClassName)															\
 	public:																				\
 		/** @brief Export and init ClassName meta information */						\
@@ -165,6 +170,15 @@
 #define OSIMPLEEXPORT(ClassName,ExportName)																	\
 	{																										\
 		ORKIGE_LUA_USERTYPE(#ExportName, ClassName)
+
+//like OSIMPLEEXPORT but registers a base class too - REQUIRED whenever a
+//bound member (variable or function) is physically declared on that base:
+//sol2 resolves base member pointers only through the registered base list.
+//Base types containing commas (templates) go through a typedef at the call
+//site (macro arguments cannot carry bare commas).
+#define OSIMPLEEXPORT_BASED(ClassName,BaseClassName,ExportName)												\
+	{																										\
+		ORKIGE_LUA_USERTYPE_BASED(#ExportName, BaseClassName, ClassName)
 
 #define OSIMPLEEXPORT_END																					\
 	}

@@ -460,6 +460,21 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	PhysicsWorld::RayHit::RayHit()
+		: hit(false), position(Ogre::Vector3::ZERO),
+		bodyId(PhysicsWorld::INVALID_BODY_ID)
+	{
+	}
+	//---------------------------------------------------------
+	PhysicsWorld::RayHit PhysicsWorld::castRayHit(Ogre::Vector3 const & origin,
+		Ogre::Vector3 const & direction, float maxDistance) const
+	{
+		RayHit result;
+		result.hit = this->castRay(origin, direction, maxDistance,
+			result.position, result.bodyId);
+		return result;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -471,6 +486,7 @@ namespace Orkige
 		OFUNC(update)
 		OFUNC(setGravity)
 		OFUNC(getGravity)
+		OFUNC(setBodyTransform)
 		OFUNC(setBodyPlanarMode)
 		OFUNC(setLinearVelocity)
 		OFUNC(getLinearVelocity)
@@ -479,5 +495,6 @@ namespace Orkige
 		OFUNC(applyImpulse)
 		OFUNC(applyForce)
 		OFUNC(isBodyActive)
+		OFUNC(castRayHit)
 	OOBJECT_END
 }

@@ -24,31 +24,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
-#ifdef ORKIGE_NOSCRIPT
-	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
+	//hand-written export (TypeInfo has no OOBJECT block); the backend-neutral
+	//OUSERTYPE vocabulary keeps this free of backend #ifdefs
+	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName)
 	{
-		typedef TypeInfo ExposedClassType;
-	}
-#elif ORKIGE_LUA
-	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
-	{
-		ORKIGE_LUA_USERTYPE("TypeInfo", TypeInfo)
+		OUSERTYPE("TypeInfo", TypeInfo)
 		OCONSTRUCTOR1(String)
 		OFUNCCR(getId)
 		OFUNCCR(getName)
 		OFUNC(isEqual)
 		OFUNC(isNotEqual)
 	}
-#else
-	void TypeInfo::OrkigeMetaExport(const char * currentOrkigeModuleName) 
-	{
-		typedef TypeInfo ExposedClassType;
-		bp::class_< TypeInfo , std::shared_ptr<TypeInfo>> py_class( "TypeInfo" , bp::no_init );
-		OCONSTRUCTOR1(String)
-			OFUNCCR(getId)
-			OFUNCCR(getName)
-			OFUNC(isEqual)
-			OFUNC(isNotEqual)
-	}
-#endif
 }

@@ -14,14 +14,26 @@
 #include <core_debug/Profile.h>
 #ifdef OGRE_STATIC_LIB
 // static build: render systems are linked in and registered via installPlugin
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+#include <OgreGLES2Plugin.h>
+#else
 #include <OgreGL3PlusPlugin.h>
+#endif
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 #include <OgreMetalPlugin.h>
+#endif
+#ifdef ORKIGE_HAVE_VULKAN
+#include <OgreVulkanPlugin.h>
+#include <OgreGLSLangProgramManager.h>
 #endif
 #include <OgreSTBICodec.h>
 #include <OgreAssimpLoader.h>
 #endif
 #include <cctype>
+#ifdef ORKIGE_HAVE_VULKAN
+#include <cstdlib>
+#include <filesystem>
+#endif
 #ifdef ORKIGE_IPHONE
 #   ifdef __OBJC__
 #       import <UIKit/UIKit.h>
@@ -101,7 +113,15 @@ namespace Orkige
 #ifdef OGRE_STATIC_LIB
 		// static build: no plugin config file, render systems are registered below
 		this->root = optr<Ogre::Root>(new Ogre::Root(Ogre::BLANKSTRING, renderCfgPlatformFileName, engineLogFileName));
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS || OGRE_PLATFORM == OGRE_PLATFORM_ANDROID
+		// iOS/Android: the GLES2 render system (OGRE forces GLES2 on for
+		// APPLE_IOS/ANDROID; deprecated by Apple but works incl. the simulator
+		// and emulator and has a full RTSS path - the Metal RS below does not,
+		// see the comment there)
+		this->renderSystemPlugin = onew(new Ogre::GLES2Plugin());
+#else
 		this->renderSystemPlugin = onew(new Ogre::GL3PlusPlugin());
+#endif
 		this->root->installPlugin(this->renderSystemPlugin.get());
 #if OGRE_PLATFORM == OGRE_PLATFORM_APPLE || OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS
 		// Metal render system (OGRE 14.5): selectable via setPreferredRenderSystem
@@ -109,6 +129,34 @@ namespace Orkige
 		// runs on OGRE's built-in default shaders only (see configure())
 		this->metalRenderSystemPlugin = onew(new Ogre::MetalPlugin());
 		this->root->installPlugin(this->metalRenderSystemPlugin.get());
+#endif
+#ifdef ORKIGE_HAVE_VULKAN
+		// Vulkan render system (OGRE 14.5 + Orkige's VK_EXT_metal_surface port
+		// patch): selectable via setPreferredRenderSystem("Vulkan"), NOT the
+		// default. Unlike Metal it has a full RTSS path - the glslang plugin
+		// below compiles the RTSS-generated GLSL to SPIR-V ("glslang" language,
+		// "spirv" profile), which MoltenVK translates to MSL on Apple platforms.
+#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE
+		// MoltenVK is treated as the platform's Vulkan DRIVER (system-tier,
+		// installed via 'brew install molten-vk' - the documented exception to
+		// the vcpkg-only dependency rule; the loader itself is vcpkg's).
+		// Point the Khronos loader at the brew ICD manifest unless the caller
+		// already configured driver discovery.
+		if(std::getenv("VK_ICD_FILENAMES") == NULL && std::getenv("VK_DRIVER_FILES") == NULL)
+		{
+			static char const * const moltenVkIcdManifest = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json";
+			if(std::filesystem::exists(moltenVkIcdManifest))
+			{
+				setenv("VK_DRIVER_FILES", moltenVkIcdManifest, 0);
+			}
+		}
+#endif
+		this->vulkanRenderSystemPlugin = onew(new Ogre::VulkanPlugin());
+		this->root->installPlugin(this->vulkanRenderSystemPlugin.get());
+		// registers the "glslang" program factory once the selected render
+		// system reports SPIR-V support (deferred to Root initialisation)
+		this->glslangProgramPlugin = onew(new Ogre::GLSLangPlugin());
+		this->root->installPlugin(this->glslangProgramPlugin.get());
 #endif
 		Ogre::STBIImageCodec::startup(); // png/jpg image codecs
 		// assimp mesh codecs (glTF/glb, obj, ...) - AssimpPlugin::install
@@ -148,6 +196,8 @@ namespace Orkige
 		this->bigZipArchiveFactory.reset();
 		// the plugins have to outlive the root
 		this->assimpCodecPlugin.reset();
+		this->glslangProgramPlugin.reset();
+		this->vulkanRenderSystemPlugin.reset();
 		this->metalRenderSystemPlugin.reset();
 		this->renderSystemPlugin.reset();
 	}
@@ -332,6 +382,11 @@ namespace Orkige
 			// OGRE 14: cameras have to be attached to a SceneNode to be placed in the scene
 			Ogre::SceneNode* cameraNode = this->sceneManager->getRootSceneNode()->createChildSceneNode(name + "Node");
 			cameraNode->attachObject(this->camera[each]);
+			// Fixed world-up yaw axis: Node::lookAt/setDirection rotate by the shortest arc
+			// from the CURRENT orientation - calling them every frame (follow cameras)
+			// accumulates roll. With a fixed yaw axis Ogre keeps lookAt roll-free by
+			// construction, so game cameras cannot tilt the horizon.
+			cameraNode->setFixedYawAxis(true, Ogre::Vector3::UNIT_Y);
 			// Create one viewport, entire window
 			this->viewport[each] = this->renderWindow[each]->addViewport(this->camera[each]);
 			this->viewport[each]->setBackgroundColour(Ogre::ColourValue::Blue);
@@ -762,5 +817,8 @@ namespace Orkige
 		OFUNC(renderOneFrame)
 		OFUNC(enableWireframeMode)
 		OFUNC(disableWireframeMode)
+		// camera access for scripts (Lua passes the index - no default args
+		// across the binding): Engine.getSingleton():getCamera(0)
+		OFUNC(getCamera)
 	OOBJECT_END
 }

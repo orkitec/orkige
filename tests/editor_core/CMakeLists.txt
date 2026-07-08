@@ -1,13 +1,17 @@
 # EditorCore unit tests - the UI-independent editor logic (undo/redo command
-# stack, naming/rename validation, snapshot-based object commands), fully
+# stack, naming/rename validation, snapshot-based object commands, fly-camera
+# math, mesh-import path handling, file-dialog result marshaling), fully
 # headless with the core-only test components. The engine-component paths
-# (TransformComponent apply, gizmo drags) need live scene nodes and run in
-# the editor_edittest integration test instead.
+# (TransformComponent apply, gizmo drags, the full import flow) need live
+# scene nodes and run in the editor_edittest integration test instead.
 
 find_package(Catch2 3 CONFIG REQUIRED)
 
 add_executable(orkige_editor_core_tests
     EditorCoreTests.cpp
+    EditorCameraTests.cpp
+    FileDialogTests.cpp
+    MeshImportTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../core/TestComponents.cpp
 )
 

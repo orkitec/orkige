@@ -6,10 +6,22 @@
     "tinyxml2",
     {
       "name": "ogre",
+      "default-features": false,
       "features": [
+        "assimp",
+        "overlay",
+        "zip",
+        {
+          "name": "freeimage",
+          "platform": "!ios & !android"
+        },
         {
           "name": "metal",
           "platform": "osx | ios"
+        },
+        {
+          "name": "vulkan",
+          "platform": "osx"
         }
       ]
     },
@@ -20,9 +32,16 @@
     "joltphysics",
     {
       "name": "imgui",
-      "features": ["docking-experimental"]
+      "features": ["docking-experimental"],
+      "platform": "!ios & !android"
     },
-    "imguizmo",
-    "catch2"
+    {
+      "name": "imguizmo",
+      "platform": "!ios & !android"
+    },
+    {
+      "name": "catch2",
+      "platform": "!ios & !android"
+    }
   ]
 }

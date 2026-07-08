@@ -1,0 +1,41 @@
+From e7ca7447b6a36aed49411b1a10772bdf12eee61c Mon Sep 17 00:00:00 2001
+From: Steffen <steffen.roemer@orkitec.com>
+Date: Tue, 7 Jul 2026 15:45:24 +0200
+Subject: [PATCH 3/3] Metal: export the RenderSystem include directories on the
+ target
+
+Mirror what RenderSystem_GL3Plus (and the other render systems) already
+do: declare the include directories with BUILD_INTERFACE /
+INSTALL_INTERFACE generator expressions on the RenderSystem_Metal
+target.
+
+Without this the installed OgreTargets.cmake carries no
+INTERFACE_INCLUDE_DIRECTORIES for RenderSystem_Metal, so static-build
+consumers that link the exported target cannot
+    #include <OgreMetalPlugin.h>
+to register the plugin via Root::installPlugin().
+
+Both include/ and include/Windowing/${OS} are exported, matching the
+directories the render system itself compiles against.
+---
+ RenderSystems/Metal/CMakeLists.txt | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/RenderSystems/Metal/CMakeLists.txt b/RenderSystems/Metal/CMakeLists.txt
+index c595f65..48a2fc4 100644
+--- a/RenderSystems/Metal/CMakeLists.txt
++++ b/RenderSystems/Metal/CMakeLists.txt
+@@ -26,6 +26,10 @@ include_directories(
+ 
+ add_definitions(${OGRE_VISIBILITY_FLAGS})
+ add_library(RenderSystem_Metal ${OGRE_LIB_TYPE} ${HEADER_FILES} ${SOURCE_FILES})
++target_include_directories(RenderSystem_Metal PUBLIC
++    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
++    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/Windowing/${OS}>"
++    $<INSTALL_INTERFACE:include/OGRE/RenderSystems/Metal>)
+ if (APPLE_IOS)
+ target_link_libraries(RenderSystem_Metal OgreMain "-framework Metal" "-framework QuartzCore")
+ else()
+-- 
+2.50.1 (Apple Git-155)
+

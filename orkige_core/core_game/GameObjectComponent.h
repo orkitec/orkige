@@ -10,8 +10,8 @@
 #define __GameObjectComponent_h__15_8_2010__15_16_42__
 
 #include "core_util/ComponentHolder.h"
-#include "core_event/EventType.h"
-#include "core_event/EventListener.h"
+// EventHandler.h (the EventHandler base class) already provides the
+// EventManager/EventListener/EventType surface this header's users need
 #include "core_event/EventHandler.h"
 
 namespace tinyxml2

@@ -241,6 +241,11 @@ namespace Orkige
 		//! active touch sequences: SDL finger id per slot, slot index = sequenceId
 		SDL_FingerID touchSequences[ORKIGE_MAX_NUM_TOUCHES];
 		bool touchSequenceUsed[ORKIGE_MAX_NUM_TOUCHES];
+		//! @brief key-down state per SDL scancode, fed from the INJECTED event
+		//! stream (not SDL_GetKeyboardState): the application pumps every SDL
+		//! event through injectEvent, so this covers hardware input AND
+		//! synthetic SDL_PushEvent input (selfchecks, scripted test runs) alike
+		bool keyDownState[SDL_SCANCODE_COUNT];
 
 		InputManagerImpl()
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -286,6 +291,10 @@ namespace Orkige
 			{
 				this->touchSequences[each] = 0;
 				this->touchSequenceUsed[each] = false;
+			}
+			for (int each = 0; each < SDL_SCANCODE_COUNT; each++)
+			{
+				this->keyDownState[each] = false;
 			}
 		}
 		~InputManagerImpl()
@@ -447,10 +456,18 @@ namespace Orkige
 		case SDL_EVENT_KEY_DOWN:
 			// note: unlike OIS, SDL3 also delivers OS key repeats
 			// (event.key.repeat) - they are forwarded on purpose
+			if (event.key.scancode < SDL_SCANCODE_COUNT)
+			{
+				this->impl->keyDownState[event.key.scancode] = true;
+			}
 			this->impl->sdlKeyToOrkige(event.key);
 			GlobalEventManager::getSingleton().trigger(this->impl->keyPressedEvent);
 			return true;
 		case SDL_EVENT_KEY_UP:
+			if (event.key.scancode < SDL_SCANCODE_COUNT)
+			{
+				this->impl->keyDownState[event.key.scancode] = false;
+			}
 			this->impl->sdlKeyToOrkige(event.key);
 			GlobalEventManager::getSingleton().trigger(this->impl->keyReleasedEvent);
 			return true;
@@ -509,8 +526,10 @@ namespace Orkige
 		{
 			return false;
 		}
-		const bool* keyboardState = SDL_GetKeyboardState(NULL);
-		return keyboardState != NULL && keyboardState[scancode];
+		// read the injectEvent-fed state, NOT SDL_GetKeyboardState: the SDL
+		// state array ignores application-pushed events, which would make
+		// scripted/synthetic input (selfchecks) invisible here
+		return this->impl->keyDownState[scancode];
 	}
 	//---------------------------------------------------------
 	void InputManager::setWindowExtents( int width, int height )
@@ -569,5 +588,6 @@ namespace Orkige
 		OSINGLETON()
 		OFUNC(enable)
 		OFUNC(disable)
+		OFUNC(isKeyDown)
 	OOBJECT_END
 }

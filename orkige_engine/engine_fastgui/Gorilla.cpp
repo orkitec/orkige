@@ -127,13 +127,16 @@ namespace Gorilla
 
 		Ogre::ConfigFile f;
 		f.loadFromResourceSystem(gorillaFile, groupName, " ", true);
-		Ogre::ConfigFile::SectionIterator seci = f.getSectionIterator();
 
+		// OGRE 14: ConfigFile::SectionIterator became getSettingsBySection()
+		// (same migration as Engine::setupResources); the per-section copy
+		// keeps the historical mutable-pointer loader signatures untouched
 		Ogre::String secName;
-		while (seci.hasMoreElements())
+		for (auto const & section : f.getSettingsBySection())
 		{
-			secName = seci.peekNextKey();
-			Ogre::ConfigFile::SettingsMultiMap *settings = seci.getNext();
+			secName = section.first;
+			Ogre::ConfigFile::SettingsMultiMap sectionSettings = section.second;
+			Ogre::ConfigFile::SettingsMultiMap *settings = &sectionSettings;
 
 			Ogre::StringUtil::toLowerCase(secName);
 
@@ -371,7 +374,7 @@ namespace Gorilla
 			data = i->second;
 			Ogre::StringUtil::toLowerCase(left_name);
 
-			if (left_name.substr(0,6) != "kerning_")
+			if (left_name.substr(0,8) != "kerning_")
 				continue;
 
 			size_t comment = data.find_first_of('#');
@@ -770,7 +773,7 @@ namespace Gorilla
 
 
 	LayerContainer::LayerContainer(TextureAtlas* atlas)
-		: mAtlas(atlas), mIndexRedrawAll(false)
+		: mAtlas(atlas), mIndexRedrawNeeded(false), mIndexRedrawAll(false)
 	{
 	}
 

@@ -1,0 +1,76 @@
+--- a/include/sol/function_types_stateless.hpp	2026-07-07 19:34:28
++++ b/include/sol/function_types_stateless.hpp	2026-07-07 19:34:28
+@@ -304,7 +304,7 @@
+ 	struct upvalue_this_member_variable {
+ 		typedef std::remove_pointer_t<std::decay_t<Function>> function_type;
+ 
+-		static int real_call(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		static int real_call(lua_State* L) {
+ 			// Layout:
+ 			// idx 1...n: verbatim data of member variable pointer
+ 			auto memberdata = stack::stack_detail::get_as_upvalues<function_type>(L);
+@@ -320,7 +320,7 @@
+ 		}
+ 
+ 		template <bool is_yielding, bool no_trampoline>
+-		static int call(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		static int call(lua_State* L) {
+ 			int nr;
+ 			if constexpr (no_trampoline) {
+ 				nr = real_call(L);
+@@ -336,7 +336,7 @@
+ 			}
+ 		}
+ 
+-		int operator()(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		int operator()(lua_State* L) {
+ 			return call(L);
+ 		}
+ 	};
+@@ -346,7 +346,7 @@
+ 		typedef std::remove_pointer_t<std::decay_t<Function>> function_type;
+ 		typedef lua_bind_traits<function_type> traits_type;
+ 
+-		static int real_call(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		static int real_call(lua_State* L) {
+ 			// Layout:
+ 			// idx 1...n: verbatim data of member variable pointer
+ 			auto memberdata = stack::stack_detail::get_as_upvalues<function_type>(L);
+@@ -360,7 +360,7 @@
+ 		}
+ 
+ 		template <bool is_yielding, bool no_trampoline>
+-		static int call(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		static int call(lua_State* L) {
+ 			int nr;
+ 			if constexpr (no_trampoline) {
+ 				nr = real_call(L);
+@@ -376,7 +376,7 @@
+ 			}
+ 		}
+ 
+-		int operator()(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		int operator()(lua_State* L) {
+ 			return call(L);
+ 		}
+ 	};
+--- a/include/sol/function_types_stateful.hpp	2026-07-07 19:34:28
++++ b/include/sol/function_types_stateful.hpp	2026-07-07 19:34:28
+@@ -120,7 +120,7 @@
+ 		: var(std::move(v)), member(std::forward<Args>(args)...) {
+ 		}
+ 
+-		static int call(lua_State* L, member_variable& self) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		static int call(lua_State* L, member_variable& self) {
+ 			int nr;
+ 			{
+ 				M mem = detail::unwrap(detail::deref(self.member));
+@@ -144,7 +144,7 @@
+ 			}
+ 		}
+ 
+-		int operator()(lua_State* L) noexcept(std::is_nothrow_copy_assignable_v<T>) {
++		int operator()(lua_State* L) {
+ 			if constexpr (no_trampoline) {
+ 				return call(L, *this);
+ 			}

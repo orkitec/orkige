@@ -27,7 +27,7 @@ namespace Orkige
 		static inline bool setupCustomLodMesh(String const & meshFileName, Ogre::Real distance, bool useLodBoundingBoxAsDefault = false, String const & lodMeshFileNameSuffix = "_lod", bool onlyApplyToMeshWithNoLod = true, String const & groupName = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
 		{
 			Ogre::MeshPtr mesh = Ogre::MeshManager::getSingleton().load(meshFileName, groupName);
-			if(!mesh.isNull())
+			if(mesh)
 			{
 				if(onlyApplyToMeshWithNoLod && mesh->getNumLodLevels() > 1)
 				{
@@ -42,7 +42,7 @@ namespace Orkige
 				}
 
 				Ogre::MeshPtr lodMesh = Ogre::MeshManager::getSingleton().load(lodMeshFileName, groupName);
-				if(!lodMesh.isNull())
+				if(lodMesh)
 				{
 					if(useLodBoundingBoxAsDefault)
 					{

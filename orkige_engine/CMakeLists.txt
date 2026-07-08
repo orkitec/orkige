@@ -1,8 +1,8 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
 # listed. Unported modules (engine_mygui) join as they are ported.
-# engine_gocomponent/PythonScriptComponent stays out for good
-# (ORKIGE_NOSCRIPT) - Lua script components return on sol2 in Phase 2.
+# engine_gocomponent/PythonScriptComponent stays out for good; its successor
+# is the sol2-based engine_gocomponent/ScriptComponent.
 
 find_package(OGRE CONFIG REQUIRED COMPONENTS Bites RTShaderSystem Overlay)
 find_package(SDL3 CONFIG REQUIRED)
@@ -72,6 +72,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/SoundComponent.cpp
     engine_gocomponent/RigidBodyComponent.h
     engine_gocomponent/RigidBodyComponent.cpp
+    engine_gocomponent/ScriptComponent.h
+    engine_gocomponent/ScriptComponent.cpp
+    engine_runtime/PlayerRuntime.h
+    engine_runtime/PlayerRuntime.cpp
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h
@@ -124,12 +128,48 @@ if(APPLE)
     list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindow.mm)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # Engine.cpp's ORKIGE_IPHONE blocks (iPhone/iPad config selection) use
+    # Objective-C UIKit calls - the file was always ObjC++ on iOS
+    set_source_files_properties(engine_graphic/Engine.cpp
+        PROPERTIES LANGUAGE OBJCXX)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # LightMap is an offline lightmap-baking utility built on CImg, which
+    # calls std::system() - a desktop-tooling path that has no business in
+    # the mobile runtime (and is unavailable on iOS). Nothing else uses it.
+    list(REMOVE_ITEM ORKIGE_ENGINE_SOURCES
+        engine_graphic/LightMap.h
+        engine_graphic/LightMap.cpp)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # SDL window -> ANativeWindow handle bridge (the Android counterpart of
+    # engine_util/SDLNativeWindow.mm below)
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowAndroid.cpp)
+endif()
+
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
 add_library(Orkige::Engine ALIAS orkige_engine)
 
 target_include_directories(orkige_engine PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+# PCH: every engine TU compiles against OGRE (and, with the Lua backend,
+# sol2 via the core Meta macros) - precompile both. CXX-only guard: the
+# target has ObjC++ sources on Apple platforms, and on iOS Engine.cpp itself
+# is compiled as OBJCXX (see below).
+target_precompile_headers(orkige_engine PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:<Ogre.h$<ANGLE-R>>"
+)
+if(ORKIGE_SCRIPTING STREQUAL "LUA")
+    target_precompile_headers(orkige_engine PRIVATE
+        "$<$<COMPILE_LANGUAGE:CXX>:<sol/sol.hpp$<ANGLE-R>>"
+    )
+endif()
+orkige_pch_ccache_compat(orkige_engine)
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.
@@ -151,9 +191,6 @@ target_link_libraries(orkige_engine
         OgreMain
         OgreOverlay
         OgreRTShaderSystem
-        # static build: render systems and codecs are linked in and registered
-        # via Root::installPlugin / codec startup (see Engine.cpp)
-        RenderSystem_GL3Plus
         Codec_STBI
         Codec_Assimp # mesh import (glTF/glb, obj, ...); pulls in libassimp
         SDL3::SDL3
@@ -163,6 +200,34 @@ target_link_libraries(orkige_engine
         # translation units, so the dependency stays private
         Jolt::Jolt
 )
+
+# static build: render systems and codecs are linked in and registered via
+# Root::installPlugin / codec startup (see Engine.cpp). Desktop default is
+# GL3Plus; iOS and Android use the GLES2 render system (OGRE forces it on for
+# APPLE_IOS/ANDROID, and it is the only RS with a full RTSS path there -
+# Metal has none yet, Vulkan-on-Android is a later phase).
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
+    target_link_libraries(orkige_engine PUBLIC RenderSystem_GLES2)
+else()
+    target_link_libraries(orkige_engine PUBLIC RenderSystem_GL3Plus)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # NDK system libs the static OGRE libs use but the vcpkg-exported
+    # OgreTargets do not carry on their link interface: android/log
+    # (OgreMain's Android platform code) and EGL/GLESv2 (RenderSystem_GLES2)
+    target_link_libraries(orkige_engine PUBLIC android log EGL GLESv2)
+    # OgrePlatformInformation calls android_getCpuFamily/Features from the
+    # NDK's source-only 'cpufeatures' module; the installed static OgreMain
+    # cannot carry it, so compile it here (exactly what OGRE's own Android
+    # apps do). The one C source in the whole build.
+    enable_language(C)
+    add_library(orkige_ndk_cpufeatures STATIC
+        "${CMAKE_ANDROID_NDK}/sources/android/cpufeatures/cpu-features.c")
+    target_include_directories(orkige_ndk_cpufeatures PUBLIC
+        "${CMAKE_ANDROID_NDK}/sources/android/cpufeatures")
+    target_link_libraries(orkige_engine PUBLIC orkige_ndk_cpufeatures)
+endif()
 
 if(APPLE)
     # LoadCafData.mm decodes .caf through AudioToolbox
@@ -175,4 +240,26 @@ if(APPLE)
     # default). The RS itself needs the Metal/AppKit/QuartzCore frameworks -
     # they come through the exported OgreTargets link interface.
     target_link_libraries(orkige_engine PUBLIC RenderSystem_Metal)
+endif()
+
+# Vulkan render system - present when the ogre 'vulkan' vcpkg feature is on
+# (see vcpkg.json; currently osx, later android/ios). Runtime-selectable via
+# ORKIGE_RENDERSYSTEM=Vulkan; full RTSS support through the glslang plugin,
+# which compiles the RTSS-generated GLSL to SPIR-V. On Apple platforms the
+# driver is MoltenVK (system-tier, see CLAUDE.md hermeticity note); the
+# SPIR-V is translated to MSL by MoltenVK at pipeline creation time.
+if(TARGET RenderSystem_Vulkan)
+    target_compile_definitions(orkige_engine PUBLIC ORKIGE_HAVE_VULKAN)
+    target_link_libraries(orkige_engine PUBLIC
+        RenderSystem_Vulkan
+        Plugin_GLSLangProgramManager
+    )
+    # OGRE's bundled volk dlopens the Khronos loader ("libvulkan.dylib") at
+    # runtime. Linking vcpkg's loader here (a) keeps the loader a vcpkg
+    # dependency per the hermeticity rule and (b) puts its directory on the
+    # executables' rpath, where dyld's leaf-name dlopen search finds it.
+    if(APPLE)
+        find_library(ORKIGE_VULKAN_LOADER_LIBRARY NAMES vulkan REQUIRED)
+        target_link_libraries(orkige_engine PUBLIC ${ORKIGE_VULKAN_LOADER_LIBRARY})
+    endif()
 endif()

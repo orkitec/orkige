@@ -134,6 +134,10 @@ protected:
 		optr<Ogre::Plugin>			renderSystemPlugin;
 		//! statically linked Metal render system plugin (Apple platforms) - same lifetime rule
 		optr<Ogre::Plugin>			metalRenderSystemPlugin;
+		//! statically linked Vulkan render system plugin (driver: MoltenVK on Apple) - same lifetime rule
+		optr<Ogre::Plugin>			vulkanRenderSystemPlugin;
+		//! statically linked glslang program manager plugin - compiles the RTSS GLSL output to SPIR-V for Vulkan
+		optr<Ogre::Plugin>			glslangProgramPlugin;
 		//! statically linked assimp mesh codec plugin (glTF/glb etc.) - same lifetime rule
 		optr<Ogre::Plugin>			assimpCodecPlugin;
 		optr<BigZipArchiveFactory>  bigZipArchiveFactory;

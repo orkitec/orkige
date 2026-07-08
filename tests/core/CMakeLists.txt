@@ -12,9 +12,17 @@ add_executable(orkige_core_tests
     EventTests.cpp
     ComponentTests.cpp
     TypeManagerTests.cpp
-    MetaLuaTests.cpp
+    ScriptRuntimeTests.cpp
     SceneSerializerTests.cpp
+    ProjectTests.cpp
 )
+
+if(ORKIGE_SCRIPTING STREQUAL "LUA")
+    # backend-specific tests (Meta_Lua.h / ScriptManager / raw sol2); the
+    # backend-neutral scripting tests live in ScriptRuntimeTests.cpp and
+    # compile in every configuration
+    target_sources(orkige_core_tests PRIVATE MetaLuaTests.cpp)
+endif()
 
 target_link_libraries(orkige_core_tests PRIVATE
     Orkige::Core

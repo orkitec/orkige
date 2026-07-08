@@ -11,6 +11,7 @@
 
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/Singleton.h"
+#include "core_util/String.h"
 
 #include <sol/sol.hpp>
 
@@ -18,10 +19,12 @@ namespace Orkige
 {
 	/** \addtogroup Script
 	*  @{ */
-	//! owner of the global Lua scripting state (sol2 backed).
-	//! Create one instance (like the other engine singletons) before the
-	//! ORKIGE_MODULE init functions run to expose the registered meta types
-	//! to Lua; applications that never create a ScriptManager still get the
+	//! owner of the global Lua scripting state (sol2 backed) - the Lua
+	//! BACKEND behind the neutral core_script/ScriptRuntime.h seam; only the
+	//! Meta_Lua.h macros, the seam implementation and backend-specific tests
+	//! touch this class directly. A ScriptRuntime instance creates one before
+	//! the ORKIGE_MODULE init functions run to expose the registered meta
+	//! types to Lua; applications that never boot scripting still get the
 	//! non-scripting parts of the meta export (see metaExportState()).
 	class ORKIGE_CORE_DLL ScriptManager : public Singleton<ScriptManager>
 	{
@@ -30,7 +33,7 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		sol::state luaState;	//!< the owned Lua state
+		sol::state luaState;		//!< the owned Lua state
 		//--- Methods -----------------------------------------
 	public:
 		//! constructor - creates the Lua state and opens the base libraries

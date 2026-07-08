@@ -77,6 +77,8 @@ namespace Orkige
 		inline bool hasBody() const;
 		//! get the PhysicsWorld body handle (INVALID_BODY_ID before creation)
 		inline PhysicsWorld::BodyId getBodyId() const;
+		//! get the body creation parameters (what the editor inspects/edits)
+		inline PhysicsWorld::BodyDesc const & getBodyDesc() const;
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -114,6 +116,11 @@ namespace Orkige
 	inline PhysicsWorld::BodyId RigidBodyComponent::getBodyId() const
 	{
 		return this->mBodyId;
+	}
+	//---------------------------------------------------------
+	inline PhysicsWorld::BodyDesc const & RigidBodyComponent::getBodyDesc() const
+	{
+		return this->mBodyDesc;
 	}
 	//---------------------------------------------------------
 }

@@ -1,0 +1,30 @@
+iOS + Ninja fixes (applies on top of same-install-rules-all-platforms.patch):
+1. OGRE's iOS branch injects the Xcode generator variable "$(PLATFORM_NAME)"
+   into the library output directories; with the Ninja generator that leaks a
+   literal "$(...)" into build.ninja, which Ninja rejects ("bad $-escape").
+2. The iOS branch installs release static libs into lib/Release, breaking the
+   vcpkg layout (and the exported OgreTargets import paths) - same install
+   rules on all platforms, like the base patch establishes.
+--- a/CMake/Utils/OgreConfigTargets.cmake
++++ b/CMake/Utils/OgreConfigTargets.cmake
+@@ -16,7 +16,9 @@
+   if(NOT OGRE_BUILD_PLATFORM_ANDROID AND NOT APPLE_IOS)
+     set(PLATFORM_NAME "macosx")
+   elseif(APPLE_IOS)
+-    set(PLATFORM_NAME "$(PLATFORM_NAME)")
++    # vcpkg: "$(PLATFORM_NAME)" is an Xcode generator variable - it leaks a
++    # literal "$(...)" into Ninja build files, which Ninja rejects
++    set(PLATFORM_NAME "iphone")
+   endif()
+ endif()
+
+@@ -56,9 +58,6 @@
+   set(OGRE_LIB_RELEASE_PATH "")
+   set(OGRE_LIB_RELWDBG_PATH "")
+   set(OGRE_LIB_DEBUG_PATH "")
+-  if(APPLE AND APPLE_IOS)
+-    set(OGRE_LIB_RELEASE_PATH "/Release")
+-  endif(APPLE AND APPLE_IOS)
+ endif ()
+
+ set(OGRE_SAMPLE_PATH "/OGRE/Samples")

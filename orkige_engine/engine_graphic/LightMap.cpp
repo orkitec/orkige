@@ -8,7 +8,15 @@
 *********************************************************************/
 //#include <core_debug/DisableMemoryManager.h>
 #define cimg_OS 0
-#include "engine_util/CImg.h"      // Open source image library (http://cimg.sourceforge.net/)
+// Open source image library (http://cimg.sourceforge.net/) - vendored
+// 2012-era third-party header; silence its internal warnings, they are
+// not ours to fix
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#pragma clang diagnostic ignored "-Wdeprecated-volatile"
+#pragma clang diagnostic ignored "-Wempty-body"
+#include "engine_util/CImg.h"
+#pragma clang diagnostic pop
 //#include <core_debug/EnableMemoryManager.h>
 #include "engine_graphic/LightMap.h"
 #include "engine_physic/CollisionTools.h"
@@ -54,15 +62,15 @@ namespace Orkige
 	LightMap::~LightMap(void)
 	{
 		// PROBLEM: THIS CAUSES CRASHES, FIND OUT WHY AND PUT IT BACK
-		if (!this->material.isNull())
+		if (this->material)
 		{
 			Ogre::MaterialManager::getSingleton().remove((Ogre::ResourcePtr&)this->material);
-			this->material.setNull();
+			this->material.reset();
 		}
-		if (!this->texture.isNull())
+		if (this->texture)
 		{
 			Ogre::TextureManager::getSingleton().remove((Ogre::ResourcePtr&)this->texture);
-			this->texture.setNull();
+			this->texture.reset();
 		}
 	}
 	//---------------------------------------------------------
@@ -167,7 +175,7 @@ namespace Orkige
 		}
 
 		// Get vertex normals
-		Ogre::Quaternion Rotation = WorldTransform.extractQuaternion();
+		Ogre::Quaternion Rotation(WorldTransform.linear());	// OGRE 14: extractQuaternion is deprecated
 		std::vector<Ogre::Vector3> MeshNormals;
 		{
 			Ogre::VertexData* vertex_data = submesh->useSharedVertices ? submesh->parent->sharedVertexData : submesh->vertexData;
@@ -235,7 +243,7 @@ namespace Orkige
 		void* pBuffer = ibuf->lock(Ogre::HardwareBuffer::HBL_READ_ONLY);
 
 		// Calculate the lightmap texture size
-		if (this->pixelsPerUnit && this->texture.isNull())
+		if (this->pixelsPerUnit && !this->texture)
 		{
 			Ogre::Real SurfaceArea = 0;
 			for ( size_t k = 0; k < numTris*3; k+=3)
@@ -286,7 +294,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void LightMap::createTexture()
 	{
-		if (!this->texture.isNull())
+		if (this->texture)
 			return;
 		this->lightMap.reset(new cimg_library::CImg<unsigned char>(this->texSize, this->texSize, 1, 2, 0));
 		if (Ogre::TextureManager::getSingleton().resourceExists(this->lightMapName))
@@ -305,13 +313,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void LightMap::assignMaterial()
 	{
-		if (!this->material.isNull())
+		if (this->material)
 			return;
 		if (Ogre::MaterialManager::getSingleton().resourceExists(this->lightMapName))
 			Ogre::MaterialManager::getSingleton().remove(this->lightMapName);
 		if (this->debugLightmaps)
 		{
-			this->material = Ogre::MaterialManager::getSingleton().create(this->lightMapName, Ogre::StringUtil::BLANK, true);
+			this->material = Ogre::MaterialManager::getSingleton().create(this->lightMapName, Ogre::BLANKSTRING, true);
 		}
 		else
 		{

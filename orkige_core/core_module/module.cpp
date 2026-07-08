@@ -18,9 +18,6 @@
 #include "core_event/EventManager.h"
 #include "core_event/EventListener.h"
 #include "core_event/GlobalEventManager.h"
-#if !defined(ORKIGE_NOSCRIPT) && !defined(ORKIGE_LUA)
-#include "core_python/PythonFunction.hpp"
-#endif
 
 #include "core_game/GameObject.h"
 #include "core_game/GameObjectComponent.h"
@@ -31,11 +28,6 @@
 using namespace Orkige;
 
 ORKIGE_MODULE(orkige_core)
-#ifndef ORKIGE_LUA
-#ifndef ORKIGE_NOSCRIPT
-VLDDisable ();
-#endif
-#endif
 	OEXPORT(TypeInfo)
 	OEXPORT(Interface)
 	OEXPORT(ISerializeable)
@@ -61,21 +53,10 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORTMAPTYPE(ObjectMap)
 	OEXPORTLISTTYPE(StringList)
 	OEXPORTLIST(ObjectPtrList,Object*)
-#ifndef ORKIGE_LUA
-#ifndef ORKIGE_NOSCRIPT
-	//event
-	Orkige::function::export_function< Orkige::EventHandlerFunction >( "Function" ) ;
-#endif
-#endif
 	OEXPORT(Event)
 	OEXPORT(EventType)
 	OEXPORT(EventManager)
 	OEXPORT(GlobalEventManager)
-#ifndef ORKIGE_LUA
-#ifndef ORKIGE_NOSCRIPT
-	Orkige::function::register_pyobject_to_function< Orkige::EventHandlerFunction >() ;
-#endif
-#endif
 
 	OEXPORT(Component<Orkige::GameObject>)
 	OEXPORT(GameObjectComponent)
@@ -85,9 +66,4 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORT(GameObjectManager)
 	OEXPORT(GameState)
 	OEXPORT(GameStateManager)
-#ifndef ORKIGE_LUA
-#ifndef ORKIGE_NOSCRIPT
-VLDEnable ();
-#endif
-#endif
 ORKIGE_MODULE_END

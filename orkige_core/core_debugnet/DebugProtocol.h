@@ -59,6 +59,7 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_VALUE;			//!< property value (floats space-separated)
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
+		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
 		extern ORKIGE_CORE_DLL const String LIST_IDS;				//!< hierarchy: GameObject id list
 		extern ORKIGE_CORE_DLL const String LIST_COMPONENTS;		//!< object_state: component type name list
 	}
