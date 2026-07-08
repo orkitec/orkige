@@ -138,6 +138,19 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_project_native_play_break PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK=1")
 
+    # loud script failures: the hook copies projects/jumper-lua to a temp dir
+    # (the real project is never touched), overwrites scripts/player.lua with
+    # garbage and presses Play - the player must PUSH a script_error protocol
+    # message (no selection involved - never-selected objects fail loudly
+    # too), which must surface as a RED "[remote] SCRIPT ERROR on 'Player'"
+    # Console line plus the toolbar marker state; Stop must clear both. Works
+    # in ORKIGE_SCRIPTING=OFF builds too (the honest "scripting disabled"
+    # failure travels the same path).
+    add_test(NAME editor_play_script_error COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_script_error PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-lua")
+
     # play mode on an iOS simulator: same stop flow, but the player is the
     # OrkigePlayer.app launched on a simulator via simctl (temp scene read
     # straight off the host filesystem, debug link over the shared loopback).
@@ -349,6 +362,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         player_example_scene player_example_project player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         editor_play_stop editor_play_crash editor_project_play
+        editor_play_script_error
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android
@@ -367,7 +381,8 @@ endforeach()
 # selfcheck simulates a whole scripted play session (jump flight, fall past
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
-        editor_project_play editor_play_simulator editor_play_android
+        editor_project_play editor_play_script_error
+        editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2

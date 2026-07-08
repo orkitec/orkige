@@ -399,6 +399,8 @@ namespace Orkige
 			mPendingSteps = 0;
 			mSelectedObjectId.clear();
 			mHierarchySent = false;
+			// a NEW editor session must learn about existing failures again
+			mReportedScriptErrors.clear();
 		}
 		processMessages(gameObjectManager);
 	}
@@ -413,6 +415,7 @@ namespace Orkige
 		if (frameCount % HIERARCHY_CHECK_INTERVAL == 0)
 		{
 			sendHierarchyIfChanged(gameObjectManager, false);
+			sendNewScriptErrors(gameObjectManager);
 		}
 		streamObjectState(gameObjectManager);
 		mLogForwarder->flush(mServer);
@@ -473,6 +476,35 @@ namespace Orkige
 		mServer.send(hierarchy);
 		mLastSentHierarchy = std::move(ids);
 		mHierarchySent = true;
+	}
+	//---------------------------------------------------------
+	//! @brief push a script_error message for every GameObject whose
+	//! ScriptComponent has failed and was not reported to THIS client yet -
+	//! script failures must be loud in the editor even for objects the user
+	//! never selects (object_state only streams the selected one)
+	void PlayerDebugLink::sendNewScriptErrors(
+		GameObjectManager & gameObjectManager)
+	{
+		for (auto const & [id, gameObject] :
+			gameObjectManager.getGameObjects())
+		{
+			if (!gameObject->hasComponent<ScriptComponent>())
+			{
+				continue;
+			}
+			ScriptComponent * script =
+				gameObject->getComponentPtr<ScriptComponent>();
+			if (!script->hasScriptError() ||
+				mReportedScriptErrors.count(id) != 0)
+			{
+				continue;
+			}
+			DebugMessage error(Protocol::MSG_SCRIPT_ERROR);
+			error.set(Protocol::FIELD_ID, id);
+			error.set(Protocol::FIELD_MESSAGE, script->getScriptError());
+			mServer.send(error);
+			mReportedScriptErrors.insert(id);
+		}
 	}
 	//---------------------------------------------------------
 	//! set_property v1: TransformComponent position ("x y z"), orientation

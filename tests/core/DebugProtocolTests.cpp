@@ -133,6 +133,17 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 			"unknown property 'colour' on 'TransformComponent'");
 		roundTrip(error);
 	}
+	SECTION("script_error (pushed per failed ScriptComponent)")
+	{
+		DebugMessage scriptError(Protocol::MSG_SCRIPT_ERROR);
+		scriptError.set(Protocol::FIELD_ID, "Player");
+		scriptError.set(Protocol::FIELD_MESSAGE,
+			"init: scripts/player.lua:12: attempt to index a nil value "
+			"(global 'engin')");
+		const DebugMessage out = roundTrip(scriptError);
+		CHECK(out.type == "script_error");
+		CHECK(out.get(Protocol::FIELD_ID) == "Player");
+	}
 }
 
 TEST_CASE("DebugMessage escapes and restores edge-case values", "[debugnet]")

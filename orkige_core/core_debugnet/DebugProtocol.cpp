@@ -32,6 +32,7 @@ namespace Orkige
 		const String MSG_OBJECT_STATE		= "object_state";
 		const String MSG_LOG				= "log";
 		const String MSG_ERROR				= "error";
+		const String MSG_SCRIPT_ERROR		= "script_error";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";

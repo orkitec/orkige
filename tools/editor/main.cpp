@@ -884,6 +884,11 @@ struct PlaySession
 	bool hierarchyReceived = false;
 	bool remoteLogSeen = false;		//!< at least one remote log line arrived
 	Orkige::StringVector remoteHierarchy;
+	//! objects whose ScriptComponent reported a failure (script_error
+	//! messages, deduped per object per session): feeds the RED Console
+	//! line, the toolbar warning marker and the remote hierarchy tint;
+	//! cleared on Stop / a new session (clearRemoteState)
+	std::set<std::string> scriptErrorIds;
 	std::string remoteSelectedId;
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
@@ -1267,6 +1272,7 @@ void clearRemoteState(PlaySession& session)
 	session.hierarchyReceived = false;
 	session.remoteLogSeen = false;
 	session.remoteHierarchy.clear();
+	session.scriptErrorIds.clear();
 	session.remoteSelectedId.clear();
 	session.stateObjectId.clear();
 	session.stateComponents.clear();
@@ -2052,10 +2058,26 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				"[remote] " + message.get(Protocol::FIELD_MESSAGE));
 			session.remoteLogSeen = true;
 		}
+		else if (message.type == Protocol::MSG_SCRIPT_ERROR)
+		{
+			// a ScriptComponent failed in the player - make it LOUD: one RED
+			// Console line per object per session (the player already dedupes
+			// per connection; the set guards against reconnect repeats), plus
+			// the toolbar marker and the hierarchy tint fed by scriptErrorIds
+			const std::string id = message.get(Protocol::FIELD_ID);
+			if (session.scriptErrorIds.insert(id).second)
+			{
+				console.addLine(ConsoleLevel::Error,
+					"[remote] SCRIPT ERROR on '" + id + "': " +
+					message.get(Protocol::FIELD_MESSAGE));
+			}
+		}
 		else if (message.type == Protocol::MSG_BYE)
 		{
 			SDL_Log("orkige_editor: play - player said bye");
 		}
+		// unknown message types fall through silently on purpose: newer
+		// players may add message types (the protocol grows additively)
 	}
 	int exitCode = 0;
 	const bool processExited = session.process &&
@@ -3744,6 +3766,17 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			ImGui::TextUnformatted("stopping...");
 			break;
 		}
+		// script failures must be loud: a red marker next to the play status
+		// while any script error is known in the current session (fed by the
+		// player's script_error messages; cleared on Stop / a new session)
+		if (session.isActive() && !session.scriptErrorIds.empty())
+		{
+			ImGui::SameLine();
+			ImGui::TextColored(ImVec4(0.94f, 0.35f, 0.35f, 1.0f),
+				"%zu script error%s - see Console",
+				session.scriptErrorIds.size(),
+				session.scriptErrorIds.size() == 1 ? "" : "s");
+		}
 	}
 	ImGui::End();
 	(void)state;
@@ -4263,10 +4296,24 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 					{
 						continue;
 					}
+					// objects with a reported script error show in red - the
+					// cheap always-visible cue (details are in the Console)
+					const bool scriptError =
+						session.scriptErrorIds.count(id) != 0;
+					if (scriptError)
+					{
+						ImGui::PushStyleColor(ImGuiCol_Text,
+							ImVec4(0.94f, 0.35f, 0.35f, 1.0f));
+					}
 					const bool selected = (session.remoteSelectedId == id);
 					if (ImGui::Selectable(id.c_str(), selected) && !selected)
 					{
 						selectRemoteObject(session, id);
+					}
+					if (scriptError)
+					{
+						ImGui::PopStyleColor();
+						ImGui::SetItemTooltip("script error - see Console");
 					}
 				}
 			}
@@ -5497,7 +5544,8 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr;
+			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr;
 
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
@@ -6019,6 +6067,19 @@ int main(int, char**)
 		const bool nativePlaytestBreak =
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK") != nullptr;
 
+		// ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST=path: scripted "loud script
+		// failure" run (the editor_play_script_error ctest test on
+		// projects/jumper-lua). The project is COPIED to a temp dir (the
+		// real one is never touched) and its scripts/player.lua is
+		// overwritten with garbage; frame 10 opens the copy, frame 40
+		// presses Play. The player's script_error protocol message must
+		// surface WITHOUT selecting anything: the RED "[remote] SCRIPT
+		// ERROR on 'Player'" Console line plus the session error set that
+		// feeds the toolbar marker and the hierarchy tint. Stop must revert
+		// cleanly with the error state cleared.
+		const char* scriptErrorPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST");
+
 		// Unity behavior: a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
@@ -6079,6 +6140,31 @@ int main(int, char**)
 			{
 				if (line.text.rfind("[build]", 0) == 0 &&
 					(!errorsOnly || line.level == ConsoleLevel::Error))
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+
+		// script-error playtest state that spans frames
+		enum class ScriptErrorPlaytestPhase
+		{
+			Idle, WaitError, WaitRevert, Done
+		};
+		ScriptErrorPlaytestPhase scriptErrorPhase =
+			ScriptErrorPlaytestPhase::Idle;
+		std::chrono::steady_clock::time_point scriptErrorDeadline;
+		std::string scriptErrorTempRoot;	//!< the broken temp project copy
+		// does the Console hold the RED "[remote] SCRIPT ERROR" line? - the
+		// honest probe that the failure reached the UI loudly
+		auto consoleHasScriptErrorLine = [&console]()
+		{
+			std::lock_guard<std::mutex> lock(console.mutex);
+			for (ConsoleLine const& line : console.lines)
+			{
+				if (line.text.rfind("[remote] SCRIPT ERROR on ", 0) == 0 &&
+					line.level == ConsoleLevel::Error)
 				{
 					return true;
 				}
@@ -7990,6 +8076,162 @@ int main(int, char**)
 					SDL_Log("orkige_editor: playtest FAILED - %s",
 						playtestFailure.c_str());
 					exitCode = 2;
+					running = false;
+				}
+			}
+
+			// --- scripted script-error playtest -----------------------------
+			// (ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST, see the env block above)
+			if (scriptErrorPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point scriptErrorNow =
+					std::chrono::steady_clock::now();
+				bool scriptErrorFailed = false;
+				std::string scriptErrorFailure;
+				if (frameCount == 10 &&
+					scriptErrorPhase == ScriptErrorPlaytestPhase::Idle)
+				{
+					// work on a temp COPY - the real project is never touched
+					scriptErrorTempRoot =
+						(std::filesystem::temp_directory_path() /
+						("orkige_script_error_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(scriptErrorPlaytestEnv,
+						scriptErrorTempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					// the stale-player scenario: a script whose content the
+					// runtime cannot load - the load failure must be LOUD in
+					// the editor without selecting the object
+					std::ofstream breakFile(
+						std::filesystem::path(scriptErrorTempRoot) /
+						"scripts" / "player.lua",
+						std::ios::binary | std::ios::trunc);
+					breakFile << "this is not valid lua ((\n";
+					const bool breakOk = breakFile.good();
+					breakFile.close();
+					if (copyError || !breakOk)
+					{
+						scriptErrorFailed = true;
+						scriptErrorFailure = "could not prepare the broken "
+							"temp copy at " + scriptErrorTempRoot;
+					}
+					else if (!openProjectFromPath(state, editorCore,
+						scriptErrorTempRoot))
+					{
+						scriptErrorFailed = true;
+						scriptErrorFailure = "could not open the project "
+							"copy '" + scriptErrorTempRoot + "'";
+					}
+				}
+				if (frameCount == 40 && !scriptErrorFailed &&
+					scriptErrorPhase == ScriptErrorPlaytestPhase::Idle)
+				{
+					// the exact function the Play button calls
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						scriptErrorFailed = true;
+						scriptErrorFailure = "startPlay failed";
+					}
+					else
+					{
+						scriptErrorPhase = ScriptErrorPlaytestPhase::WaitError;
+						scriptErrorDeadline =
+							scriptErrorNow + std::chrono::seconds(60);
+						SDL_Log("orkige_editor: script-error playtest - Play "
+							"pressed on the broken copy");
+					}
+				}
+				else if (scriptErrorPhase == ScriptErrorPlaytestPhase::WaitError)
+				{
+					// NOTHING is selected on purpose: the failure must arrive
+					// through the pushed script_error message, not through the
+					// selected object's state stream
+					if (playSession.scriptErrorIds.count("Player") != 0)
+					{
+						// scriptErrorIds non-empty IS the toolbar marker's
+						// draw condition - checking the id checks the marker
+						if (!consoleHasScriptErrorLine())
+						{
+							scriptErrorFailed = true;
+							scriptErrorFailure = "the script error never "
+								"reached the Console as a [remote] SCRIPT "
+								"ERROR error line";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: script-error playtest - "
+								"SCRIPT ERROR on 'Player' surfaced (Console "
+								"line + %zu-entry toolbar marker state), "
+								"stopping", playSession.scriptErrorIds.size());
+							// the exact function the Stop button calls
+							requestStopPlay(playSession);
+							scriptErrorPhase =
+								ScriptErrorPlaytestPhase::WaitRevert;
+							scriptErrorDeadline =
+								scriptErrorNow + std::chrono::seconds(30);
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						scriptErrorFailed = true;
+						scriptErrorFailure = "play session ended before the "
+							"script error arrived";
+					}
+				}
+				else if (scriptErrorPhase == ScriptErrorPlaytestPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						if (!playSession.scriptErrorIds.empty())
+						{
+							scriptErrorFailed = true;
+							scriptErrorFailure = "the script-error marker "
+								"state survived Stop";
+						}
+						else if (playSession.process != nullptr ||
+							playSession.client.isConnected())
+						{
+							scriptErrorFailed = true;
+							scriptErrorFailure = "session not fully torn "
+								"down after revert";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: script-error playtest "
+								"PASSED: broken script -> script_error message "
+								"-> Console line + marker state -> clean Stop "
+								"cleared it");
+							std::error_code ignored;
+							std::filesystem::remove_all(scriptErrorTempRoot,
+								ignored);
+							scriptErrorPhase = ScriptErrorPlaytestPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!scriptErrorFailed &&
+					scriptErrorPhase != ScriptErrorPlaytestPhase::Idle &&
+					scriptErrorPhase != ScriptErrorPlaytestPhase::Done &&
+					scriptErrorNow >= scriptErrorDeadline)
+				{
+					scriptErrorFailed = true;
+					scriptErrorFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(scriptErrorPhase));
+				}
+				if (scriptErrorFailed)
+				{
+					SDL_Log("orkige_editor: script-error playtest FAILED - %s",
+						scriptErrorFailure.c_str());
+					if (!scriptErrorTempRoot.empty())
+					{
+						std::error_code ignored;
+						std::filesystem::remove_all(scriptErrorTempRoot,
+							ignored);
+					}
+					exitCode = 7;
 					running = false;
 				}
 			}

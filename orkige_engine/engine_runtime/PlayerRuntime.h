@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <memory>
+#include <set>
 
 namespace Orkige
 {
@@ -80,8 +81,11 @@ namespace Orkige
 	//! shared by tools/player and native game modules: owns the DebugServer,
 	//! answers editor commands (pause/resume/step/quit/select/set_property/
 	//! request_hierarchy), streams the hierarchy on change and the selected
-	//! object's state at ~15Hz, and forwards the runtime's Ogre log to the
-	//! editor Console ("[remote]" lines).
+	//! object's state at ~15Hz, pushes a script_error message for every
+	//! GameObject whose ScriptComponent fails (once per object per
+	//! connection - failures on never-selected objects must not stay
+	//! invisible), and forwards the runtime's Ogre log to the editor Console
+	//! ("[remote]" lines).
 	//! @remarks Call update() once per frame BEFORE stepping the world (so
 	//! pause/step/set_property apply to the frame) and stream() AFTER it.
 	//! The world-advance gate for a frame is
@@ -111,6 +115,9 @@ namespace Orkige
 		String			mSelectedObjectId;		//!< object whose state is streamed
 		StringVector	mLastSentHierarchy;
 		bool			mHierarchySent = false;	//!< has any hierarchy gone out yet
+		//! ids already reported via script_error (cleared on client loss so
+		//! a re-connecting editor session learns about them again)
+		std::set<String>	mReportedScriptErrors;
 		//! default-constructed = clock epoch, so the first send never waits
 		std::chrono::steady_clock::time_point mLastStateSend;
 		//! Ogre-log -> editor-Console forwarder (attached while active)
@@ -139,9 +146,9 @@ namespace Orkige
 		void update(GameObjectManager & gameObjectManager,
 			String const & scenePath);
 
-		//! @brief per-frame streaming AFTER stepping: hierarchy on change
-		//! (checked every HIERARCHY_CHECK_INTERVAL frames), selected object
-		//! state at ~15Hz, queued log lines - also while paused
+		//! @brief per-frame streaming AFTER stepping: hierarchy on change and
+		//! new script errors (checked every HIERARCHY_CHECK_INTERVAL frames),
+		//! selected object state at ~15Hz, queued log lines - also while paused
 		void stream(GameObjectManager & gameObjectManager,
 			unsigned long frameCount);
 
@@ -154,6 +161,7 @@ namespace Orkige
 		void sendError(String const & text);
 		void sendHierarchyIfChanged(GameObjectManager & gameObjectManager,
 			bool force);
+		void sendNewScriptErrors(GameObjectManager & gameObjectManager);
 		void handleSetProperty(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
 		void processMessages(GameObjectManager & gameObjectManager);

@@ -50,6 +50,13 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String MSG_OBJECT_STATE;		//!< FIELD_ID + LIST_COMPONENTS + "<Component>.<property>" fields
 		extern ORKIGE_CORE_DLL const String MSG_LOG;				//!< FIELD_MESSAGE: a runtime log line
 		extern ORKIGE_CORE_DLL const String MSG_ERROR;				//!< FIELD_MESSAGE: command failed (never fatal)
+		//! @brief FIELD_ID + FIELD_MESSAGE: a ScriptComponent on the given
+		//! GameObject failed and disabled itself - pushed ONCE per object per
+		//! connection, independent of the object_state stream (which only
+		//! covers the SELECTED object, so never-selected objects would fail
+		//! silently otherwise). Additive since protocol v1: old editors ignore
+		//! unknown message types.
+		extern ORKIGE_CORE_DLL const String MSG_SCRIPT_ERROR;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
