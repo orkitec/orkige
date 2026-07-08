@@ -50,6 +50,7 @@ namespace Orkige
 	typedef Ogre::Quaternion	Quat;		//!< rotation
 	typedef Ogre::Matrix3		Mat3;		//!< 3x3 rotation/axes matrix
 	typedef Ogre::Matrix4		Mat4;		//!< 4x4 transform matrix
+	typedef Ogre::Affine3		Affine3;	//!< affine 3x4 transform (TRS decomposition - editor gizmo)
 	typedef Ogre::ColourValue	Color;		//!< RGBA colour, components 0..1
 	typedef Ogre::Radian		Radian;		//!< angle in radians (explicit unit type)
 	typedef Ogre::Degree		Degree;		//!< angle in degrees (explicit unit type)

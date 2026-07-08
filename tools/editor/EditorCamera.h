@@ -11,13 +11,14 @@
 //   releasing the right button drops straight back into sane orbit behavior
 //   and the ViewManipulate corner gizmo keeps working off the same numbers.
 //
-// Pure Ogre-math functions, no ImGui/SDL/scene dependencies - the unit tests
-// (tests/editor_core) exercise them headlessly.
+// Pure math functions (engine math vocabulary, engine_render/RenderMath.h),
+// no ImGui/SDL/scene dependencies - the unit tests (tests/editor_core)
+// exercise them headlessly.
 //
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #pragma once
 
-#include <OgreVector.h>
+#include <engine_render/RenderMath.h>
 
 namespace Orkige
 {
@@ -28,13 +29,13 @@ namespace Orkige
 		float yawDeg = 0.0f;			//!< orbit yaw (degrees)
 		float pitchDeg = 15.524f;		//!< orbit pitch (degrees, clamped +-85)
 		float distance = 9.3408f;		//!< camera distance from the target
-		Ogre::Vector3 target = Ogre::Vector3::ZERO;	//!< orbit pivot
+		Vec3 target = Vec3::ZERO;		//!< orbit pivot
 	};
 
 	//! world position of the camera on its orbit sphere
-	Ogre::Vector3 editorCameraPosition(EditorCameraState const& camera);
+	Vec3 editorCameraPosition(EditorCameraState const& camera);
 	//! unit view direction (camera towards target)
-	Ogre::Vector3 editorCameraForward(EditorCameraState const& camera);
+	Vec3 editorCameraForward(EditorCameraState const& camera);
 
 	//! one frame of fly-mode input (sampled while the right button is held)
 	struct FlyInput

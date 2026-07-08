@@ -177,6 +177,49 @@ namespace Orkige
 		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
 	}
 	//---------------------------------------------------------
+	void RenderSystem::removeResourceLocation(String const & path,
+		String const & groupName)
+	{
+		// idempotent by contract: probing first keeps the facade free of the
+		// backend's ItemIdentityException on unknown locations
+		Ogre::ResourceGroupManager& resourceGroups =
+			Ogre::ResourceGroupManager::getSingleton();
+		const String group = groupName.empty()
+			? String(Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
+			: groupName;
+		if(resourceGroups.resourceGroupExists(group) &&
+			resourceGroups.resourceLocationExists(path, group))
+		{
+			resourceGroups.removeResourceLocation(path, group);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::resourceGroupExists(String const & groupName) const
+	{
+		return Ogre::ResourceGroupManager::getSingleton()
+			.resourceGroupExists(groupName);
+	}
+	//---------------------------------------------------------
+	void RenderSystem::destroyResourceGroup(String const & groupName)
+	{
+		Ogre::ResourceGroupManager& resourceGroups =
+			Ogre::ResourceGroupManager::getSingleton();
+		if(resourceGroups.resourceGroupExists(groupName))
+		{
+			resourceGroups.destroyResourceGroup(groupName);
+		}
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::resourceExists(String const & resourceName,
+		String const & groupName) const
+	{
+		return Ogre::ResourceGroupManager::getSingleton().resourceExists(
+			groupName.empty()
+				? Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME
+				: groupName,
+			resourceName);
+	}
+	//---------------------------------------------------------
 	RenderSystem::FrameStats RenderSystem::getFrameStats() const
 	{
 		Ogre::RenderTarget::FrameStats const & backendStats =

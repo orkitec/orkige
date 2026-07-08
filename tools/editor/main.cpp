@@ -5,6 +5,14 @@
 // boot sequence as samples/hello_orkige), and the UI is Dear ImGui drawn by
 // OGRE's own Overlay integration (Ogre::ImGuiOverlay).
 //
+// Renderer coupling (Docs/render-abstraction.md, decision #3 + WP-A1.4): the
+// editor is a CLASSIC-BACKEND app. Everything scene-facing goes through the
+// engine_render facade (RTT panel, picking, camera rig, stats, resources,
+// screenshots); the raw-Ogre corners that remain are classic editor glue by
+// design and each carries a "classic editor glue" / "classic boot block"
+// marker: the Engine boot, the ImGuiOverlay/OverlaySystem wiring (incl. the
+// UI-only window viewport), and the grid ManualObject build.
+//
 // Wiring choices:
 // - Ogre::OverlaySystem is owned editor-side: constructed after the Engine
 //   (Ogre::Root exists) but before Engine::setup() (Root not yet initialised,
@@ -15,12 +23,19 @@
 //   are NOT forwarded to the engine InputManager, everything else follows the
 //   same injectEvent flow as the demo.
 // - The UI is a full-window dockspace (docking-enabled imgui): the 3D scene
-//   renders offscreen into a RENDER_TARGET texture shown by the "Scene"
+//   renders offscreen into a facade RenderTexture shown by the "Scene"
 //   panel via ImGui::Image, the window itself only carries a UI viewport
 //   (dark grey, visibility mask 0). Picking and camera orbit/zoom happen
 //   through the Scene panel (drawScenePanel).
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
+#include <engine_render/RenderSystem.h>
+#include <engine_render/RenderWorld.h>
+#include <engine_render/RenderNode.h>
+#include <engine_render/RenderCamera.h>
+#include <engine_render/RenderTexture.h>
+#include <engine_render/MeshInstance.h>
+#include <engine_base/EngineLog.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
@@ -28,7 +43,6 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_input/InputManager.h>
-#include <engine_util/NodeUtil.h>
 #include <engine_util/PrimitiveUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
@@ -42,16 +56,14 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 
+// classic editor glue (decision #3): the ImGuiOverlay/OverlaySystem wiring,
+// the UI-only window viewport and the grid ManualObject are raw classic OGRE
+// by design - these includes serve ONLY the marked classic blocks below
 #include <OgreOverlaySystem.h>
 #include <OgreOverlayManager.h>
 #include <OgreImGuiOverlay.h>
-#include <OgreEntity.h>
-#include <OgreLogManager.h>
 #include <OgreManualObject.h>
-#include <OgreMeshManager.h>
 #include <OgreTextureManager.h>
-#include <OgreHardwarePixelBuffer.h>
-#include <OgreRenderTexture.h>
 #include <OgreRoot.h>
 #include <imgui.h>
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
@@ -137,11 +149,12 @@ struct ConsoleLine
 	std::string text;
 };
 
-// The editor Console's line store: the engine's Ogre log (via the editor's
-// Ogre::LogListener), the editor's own SDL_Log lines (via the SDL log output
-// hook) and, during play mode, the "[remote]" lines the player streams over
-// the debug protocol all land here. Log callbacks may in principle fire off
-// the main thread, so the store is mutex-guarded.
+// The editor Console's line store: the engine log (via the engine_base
+// EngineLogCapture service, drained once per frame), the editor's own SDL_Log
+// lines (via the SDL log output hook) and, during play mode, the "[remote]"
+// lines the player streams over the debug protocol all land here. Log
+// callbacks may in principle fire off the main thread, so the store is
+// mutex-guarded.
 struct EditorConsole
 {
 	//! line cap: when reached, the OLDEST half is dropped in one go
@@ -172,34 +185,27 @@ struct EditorConsole
 	}
 };
 
-//! streams the engine's Ogre log lines into the Console (the editor-side
-//! twin of the WIN32 LogListener in Engine.cpp)
-struct ConsoleOgreLogListener : public Ogre::LogListener
+//! per-frame pump: move the engine log lines the EngineLogCapture service
+//! collected since the last frame into the Console (severity string ->
+//! Console level; the service replaced the editor's own Ogre::LogListener,
+//! sharing one capture implementation with PlayerDebugLink)
+void drainEngineLogIntoConsole(Orkige::EngineLogCapture& capture,
+	EditorConsole& console)
 {
-	EditorConsole* console = nullptr;
-
-	virtual void messageLogged(Ogre::String const& message,
-		Ogre::LogMessageLevel lml, bool maskDebug,
-		Ogre::String const& logName, bool& skipThisMessage) override
+	for (Orkige::EngineLogCapture::Line const& line : capture.drain())
 	{
-		(void)maskDebug;
-		(void)logName;
-		if (skipThisMessage || !this->console)
-		{
-			return;
-		}
 		ConsoleLevel level = ConsoleLevel::Info;
-		if (lml == Ogre::LML_WARNING)
+		if (line.level == "warning")
 		{
 			level = ConsoleLevel::Warning;
 		}
-		else if (lml >= Ogre::LML_CRITICAL)
+		else if (line.level == "error")
 		{
 			level = ConsoleLevel::Error;
 		}
-		this->console->addLine(level, message);
+		console.addLine(level, line.text);
 	}
-};
+}
 
 //! SDL log output hook state: the editor's own SDL_Log lines go into the
 //! Console AND to the previous (default) output so the terminal keeps them
@@ -2209,63 +2215,55 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 }
 
 // The offscreen scene render target: the editor's scene camera renders into a
-// manual RENDER_TARGET texture whose viewport replaces the old whole-window
-// scene viewport, and the Scene panel displays that texture via ImGui::Image.
-// OGRE's ImGuiOverlay resolves any nonzero ImTextureID through
-// TextureManager::getByHandle (OgreImGuiOverlay.cpp, ImGUIRenderable::
-// preRender), so the texture's resource handle doubles as the ImGui texture
-// id - the same pattern as the font atlas SetTexID in main().
+// facade RenderTexture (WP-A1.4; the old manual TU_RENDERTARGET pattern moved
+// behind engine_render), and the Scene panel displays that texture via
+// ImGui::Image. getNativeTextureId doubles as the ImTextureID - on the
+// classic backend OGRE's ImGuiOverlay resolves any nonzero id through
+// TextureManager::getByHandle, the same pattern as the font atlas SetTexID
+// in main(). Resize invalidates the id, so it is re-fetched every frame.
 struct SceneRenderTarget
 {
-	Ogre::TexturePtr texture;
-	Ogre::Camera* camera = nullptr;
+	optr<Orkige::RenderTexture> texture;
+	optr<Orkige::RenderCamera> camera;
 	int width = 0;
 	int height = 0;
 };
 
-// (re)create the scene RTT at the given size; the old texture (if any) is
-// destroyed first - the ImGui overlay resolves texture ids per draw call, so
-// a vanished handle degrades gracefully for the frame it could still be seen
+// (re)size the scene RTT: first call creates it (camera + editor viewport
+// state), later calls resize-by-recreate behind the facade - the ImGui
+// overlay resolves texture ids per draw call, so the one frame that could
+// still show the vanished old texture degrades gracefully
 void createSceneRenderTexture(SceneRenderTarget& target, int width, int height)
 {
-	if (target.texture)
+	if (!target.texture)
 	{
-		target.texture->getBuffer()->getRenderTarget()->removeAllViewports();
-		Ogre::TextureManager::getSingleton().remove(target.texture);
-		target.texture.reset();
+		target.texture = Orkige::RenderSystem::get()->createRenderTexture(
+			"EditorSceneRT", static_cast<unsigned int>(width),
+			static_cast<unsigned int>(height));
+		target.texture->setCamera(target.camera);
+		// dark neutral backdrop, in tune with the macOS-dark editor theme
+		target.texture->setBackgroundColour(
+			Orkige::Color(0.09f, 0.10f, 0.12f));
+		target.texture->setShadowsEnabled(true);
+		// the ImGui overlay must only ever render into the window, not the
+		// RTT (OverlaySystem also skips RTT passes, this is belt+braces)
+		target.texture->setOverlaysEnabled(false);
 	}
-	target.texture = Ogre::TextureManager::getSingleton().createManual(
-		"EditorSceneRT", Ogre::RGN_INTERNAL, Ogre::TEX_TYPE_2D,
-		static_cast<Ogre::uint>(width), static_cast<Ogre::uint>(height), 0,
-		Ogre::PF_BYTE_RGB, Ogre::TU_RENDERTARGET);
-	Ogre::RenderTarget* renderTarget =
-		target.texture->getBuffer()->getRenderTarget();
-	Ogre::Viewport* viewport = renderTarget->addViewport(target.camera);
-	// dark neutral backdrop, in tune with the macOS-dark editor theme
-	viewport->setBackgroundColour(Ogre::ColourValue(0.09f, 0.10f, 0.12f));
-	viewport->setShadowsEnabled(true);
-	// the ImGui overlay must only ever render into the window, not the RTT
-	// (OverlaySystem also skips RTT passes on its own, this is belt+braces)
-	viewport->setOverlaysEnabled(false);
-#ifdef USE_RTSHADER_SYSTEM
-	// same RTSS wiring Engine::createDefaultCameraAndViewport applied to the
-	// old window viewport - without it nothing renders on GL3+ (no FFP)
-	if (!Ogre::Root::getSingleton().getRenderSystem()->getCapabilities()
-		->hasCapability(Ogre::RSC_FIXED_FUNCTION))
+	else
 	{
-		viewport->setMaterialScheme(
-			Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+		// recreates the backend texture, keeps camera + viewport state and
+		// re-derives the camera aspect
+		target.texture->resize(static_cast<unsigned int>(width),
+			static_cast<unsigned int>(height));
 	}
-#endif
-	target.camera->setAspectRatio(
-		static_cast<Ogre::Real>(width) / static_cast<Ogre::Real>(height));
 	target.width = width;
 	target.height = height;
 }
 
 // place the scene camera on its orbit sphere around the orbit target
 // (the position math lives in EditorCamera.h, shared with the fly mode)
-void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
+void applyOrbitCamera(EditorState const& state,
+	optr<Orkige::RenderNode> const& cameraNode)
 {
 	cameraNode->setPosition(Orkige::editorCameraPosition(state.camera));
 	// Orientation is built EXPLICITLY from the same yaw/pitch that place the
@@ -2275,17 +2273,21 @@ void applyOrbitCamera(EditorState const& state, Ogre::SceneNode* cameraNode)
 	// yaw about world Y, then pitch about local X; -pitch because positive
 	// orbit pitch raises the camera, which must look DOWN at the target.
 	cameraNode->setOrientation(
-		Ogre::Quaternion(Ogre::Degree(state.camera.yawDeg),
-			Ogre::Vector3::UNIT_Y) *
-		Ogre::Quaternion(Ogre::Degree(-state.camera.pitchDeg),
-			Ogre::Vector3::UNIT_X));
+		Orkige::Quat(Orkige::Degree(state.camera.yawDeg),
+			Orkige::Vec3::UNIT_Y) *
+		Orkige::Quat(Orkige::Degree(-state.camera.pitchDeg),
+			Orkige::Vec3::UNIT_X));
 }
 
 // The ground-plane reference grid: built ONCE as a ManualObject line list
 // through the shared unlit "VertexColour" material (created before this
 // runs). Lives on its own root child node; the View menu toggles visibility.
-// Query flags 0 keep it invisible to the click-picking ray queries. Only the
-// scene RTT renders it - the window's UI viewport has visibility mask 0.
+// Query flags 0 keep it invisible to the click-picking ray queries (facade
+// queryRay masks against them). Only the scene RTT renders it - the window's
+// UI viewport has visibility mask 0.
+// CLASSIC EDITOR GLUE (decision #3 / WP-A1.4): hand-built ManualObject line
+// geometry stays raw classic OGRE by design - the facade deliberately has no
+// line-list primitive; port alongside an editor-on-Next effort, not before.
 Ogre::SceneNode* createEditorGrid(Ogre::SceneManager* sceneManager)
 {
 	const int halfLineCount = 10;		// lines each side of the axes
@@ -2324,7 +2326,7 @@ Ogre::SceneNode* createEditorGrid(Ogre::SceneManager* sceneManager)
 // F: frame the selected object - retarget the orbit to the object's world
 // bounds centre and fit the orbit distance to its bounding radius
 void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
-	Ogre::Camera* camera)
+	optr<Orkige::RenderCamera> const& camera)
 {
 	if (!core.hasSelection())
 	{
@@ -2339,9 +2341,9 @@ void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
 	}
 	Orkige::TransformComponent* transform =
 		gameObject->getComponentPtr<Orkige::TransformComponent>();
-	Ogre::Vector3 center = transform->getWorldPosition();
+	Orkige::Vec3 center = transform->getWorldPosition();
 	float radius = 1.0f;
-	const Ogre::AxisAlignedBox& box = transform->getWorldAABB();
+	const Orkige::AABB box = transform->getWorldAABB();
 	if (box.isFinite() && !box.isNull())
 	{
 		center = box.getCenter();
@@ -2359,7 +2361,7 @@ void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
 // object AND frame it - the same orbit retarget/refit the F shortcut does.
 // The edittest drives this exact function.
 void focusObjectFromDoubleClick(EditorState& state, Orkige::EditorCore& core,
-	Ogre::Camera* camera, std::string const& id)
+	optr<Orkige::RenderCamera> const& camera, std::string const& id)
 {
 	core.selectObject(id);
 	frameSelectedObject(state, core, camera);
@@ -2376,30 +2378,33 @@ void applyUnlitFixToLoadedModels(Orkige::EditorCore& core)
 	}
 }
 
-// viewport click-picking: cast a camera ray through the click point and
-// select the nearest hit that belongs to a GameObject (a TransformComponent
-// tags its scene nodes, NodeUtil walks a hit back to the owner). A Cmd/Ctrl
-// click (additive) toggles the hit's selection-set membership instead of
-// replacing the selection. AABB-level picking is right for the editor
-// bootstrap; polygon-accurate picking via CollisionTools comes when entities
-// with real meshes arrive.
-bool pickObjectAtCursor(Orkige::EditorCore& core, Ogre::Camera* camera,
-	Ogre::SceneManager* sceneManager, float normalizedX, float normalizedY,
-	bool additive = false)
+// viewport click-picking: cast a camera ray through the click point (facade
+// RenderWorld::queryRay, AABB-level, nearest first) and select the nearest
+// hit that belongs to a GameObject - a TransformComponent tags its node with
+// itself as the user pointer, queryRay walks hits back up to the first tag.
+// A Cmd/Ctrl click (additive) toggles the hit's selection-set membership
+// instead of replacing the selection. AABB-level picking is right for the
+// editor bootstrap; polygon-accurate picking is PhysicsWorld::castRay
+// territory (against collision shapes) when the need arrives.
+bool pickObjectAtCursor(Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera,
+	float normalizedX, float normalizedY, bool additive = false)
 {
-	const Ogre::Ray ray =
-		camera->getCameraToViewportRay(normalizedX, normalizedY);
-	Ogre::RaySceneQuery* query = sceneManager->createRayQuery(ray);
-	query->setSortByDistance(true);
+	const Orkige::Ray3 ray =
+		camera->viewportPointToRay(normalizedX, normalizedY);
 	bool picked = false;
-	for (Ogre::RaySceneQueryResultEntry const& hit : query->execute())
+	for (Orkige::RenderWorld::RayQueryHit const& hit :
+		Orkige::RenderSystem::get()->getWorld()->queryRay(ray))
 	{
-		if (!hit.movable || !hit.movable->getParentSceneNode())
+		if (!hit.userPointer)
 		{
-			continue;
+			continue; // not GameObject content (grid opts out via query flags)
 		}
-		Orkige::GameObject* gameObject = Orkige::NodeUtil::getGameObjectFromNode(
-			hit.movable->getParentSceneNode());
+		// within the engine only TransformComponent tags scene nodes
+		// (@see TransformComponent::getComponentFromNode)
+		Orkige::GameObject* gameObject =
+			static_cast<Orkige::TransformComponent*>(hit.userPointer)
+				->getComponentOwner();
 		if (gameObject)
 		{
 			if (additive)
@@ -2414,31 +2419,12 @@ bool pickObjectAtCursor(Orkige::EditorCore& core, Ogre::Camera* camera,
 			break;
 		}
 	}
-	sceneManager->destroyQuery(query);
 	if (!picked && !additive)
 	{
 		// clicking empty space deselects, like Unity
 		core.clearSelection();
 	}
 	return picked;
-}
-
-// project a world position to viewport-normalized coordinates (0..1,
-// top-left origin - what getCameraToViewportRay expects); returns false if
-// the position is behind the camera
-bool worldToViewportNormalized(Ogre::Camera* camera,
-	Ogre::Vector3 const& worldPos, float& outX, float& outY)
-{
-	const Ogre::Vector4 clip = camera->getProjectionMatrix() *
-		(camera->getViewMatrix() * Ogre::Vector4(worldPos.x, worldPos.y,
-			worldPos.z, 1.0f));
-	if (clip.w <= 0.0f)
-	{
-		return false;
-	}
-	outX = clip.x / clip.w * 0.5f + 0.5f;
-	outY = 1.0f - (clip.y / clip.w * 0.5f + 0.5f);
-	return true;
 }
 
 // File > New Scene: clear all GameObjects - removing the components tears
@@ -2489,7 +2475,7 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 
 //--- project handling (Unity-style "open a project, not a scene") ----------
 
-// A loaded project registers its assets/ and scenes/ directories as Ogre
+// A loaded project registers its assets/ and scenes/ directories as engine
 // resource locations in the DEDICATED "OrkigeProject" group (the player's
 // --project mode registers the identical set). The dedicated group is what
 // makes switching projects clean: destroyResourceGroup unloads and
@@ -2500,14 +2486,8 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 //! already cleared - entities referencing those meshes must be gone)
 void unregisterProjectResources()
 {
-	Ogre::ResourceGroupManager& resourceGroups =
-		Ogre::ResourceGroupManager::getSingleton();
-	if (resourceGroups.resourceGroupExists(
-		Orkige::Project::RESOURCE_GROUP_NAME))
-	{
-		resourceGroups.destroyResourceGroup(
-			Orkige::Project::RESOURCE_GROUP_NAME);
-	}
+	Orkige::RenderSystem::get()->destroyResourceGroup(
+		Orkige::Project::RESOURCE_GROUP_NAME);
 }
 
 //! register the project's assets/ and scenes/ in the project group;
@@ -2520,8 +2500,8 @@ void registerProjectResources(Orkige::Project const& project)
 		std::error_code ignored;
 		if (std::filesystem::is_directory(projectDir, ignored))
 		{
-			Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-				projectDir, "FileSystem",
+			Orkige::RenderSystem::get()->addResourceLocation(projectDir,
+				Orkige::RenderSystem::LT_FILESYSTEM,
 				Orkige::Project::RESOURCE_GROUP_NAME);
 		}
 		else
@@ -2675,24 +2655,20 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 		// the assets/ location index was built when the project opened -
 		// re-register it in the project group so the just-copied file is
 		// findable by bare filename right away (also covers an assets/ that
-		// was missing at open time and got created by this copy)
-		Ogre::ResourceGroupManager& resourceGroups =
-			Ogre::ResourceGroupManager::getSingleton();
-		if (resourceGroups.resourceLocationExists(destDir,
-			Orkige::Project::RESOURCE_GROUP_NAME))
-		{
-			resourceGroups.removeResourceLocation(destDir,
-				Orkige::Project::RESOURCE_GROUP_NAME);
-		}
-		resourceGroups.addResourceLocation(destDir, "FileSystem",
+		// was missing at open time and got created by this copy);
+		// removeResourceLocation is idempotent by facade contract
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		render->removeResourceLocation(destDir,
+			Orkige::Project::RESOURCE_GROUP_NAME);
+		render->addResourceLocation(destDir,
+			Orkige::RenderSystem::LT_FILESYSTEM,
 			Orkige::Project::RESOURCE_GROUP_NAME);
 	}
 	else if (state.importResourceDirs.insert(destDir).second)
 	{
 		// indexes the directory contents immediately - the mesh is loadable
 		// by bare filename right after this
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			destDir, "FileSystem");
+		Orkige::RenderSystem::get()->addResourceLocation(destDir);
 	}
 	const std::string meshName =
 		std::filesystem::path(destPath).filename().string();
@@ -2714,7 +2690,7 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	}
 	// undoable create at the origin; execute selects the new object
 	if (!core.executeCommand(Orkige::onew(new Orkige::CreateObjectCommand(
-		objectId, meshName, Ogre::Vector3::ZERO))))
+		objectId, meshName, Orkige::Vec3::ZERO))))
 	{
 		SDL_Log("orkige_editor: import of '%s' failed - mesh '%s' did not "
 			"load (see the log above)", sourcePath.c_str(), meshName.c_str());
@@ -2726,27 +2702,28 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 }
 
 // selfcheck helper: compute the viewport-normalized Scene-panel position of
-// a GameObject from the RTT camera and run it through pickObjectAtCursor -
-// the same function the Scene panel's mouse path calls (the panel image
-// fills the panel content region, so panel-relative and viewport-normalized
-// coordinates coincide). Returns false if the object is missing or behind
-// the camera.
+// a GameObject from the RTT camera (facade projectPoint - the old
+// worldToViewportNormalized moved behind RenderCamera) and run it through
+// pickObjectAtCursor - the same function the Scene panel's mouse path calls
+// (the panel image fills the panel content region, so panel-relative and
+// viewport-normalized coordinates coincide). Returns false if the object is
+// missing or behind the camera.
 bool pickGameObjectThroughScenePanel(Orkige::EditorCore& core,
-	Orkige::GameObjectManager& gameObjectManager, Ogre::Camera* camera,
-	Ogre::SceneManager* sceneManager, std::string const& id)
+	Orkige::GameObjectManager& gameObjectManager,
+	optr<Orkige::RenderCamera> const& camera, std::string const& id)
 {
 	optr<Orkige::GameObject> gameObject =
 		gameObjectManager.getGameObject(id).lock();
-	float normalizedX = 0.0f;
-	float normalizedY = 0.0f;
-	if (!gameObject || !worldToViewportNormalized(camera,
+	Orkige::Real normalizedX = 0.0f;
+	Orkige::Real normalizedY = 0.0f;
+	if (!gameObject || !camera->projectPoint(
 		gameObject->getComponentPtr<Orkige::TransformComponent>()
 			->getPosition(),
 		normalizedX, normalizedY))
 	{
 		return false;
 	}
-	pickObjectAtCursor(core, camera, sceneManager, normalizedX, normalizedY);
+	pickObjectAtCursor(core, camera, normalizedX, normalizedY);
 	return true;
 }
 
@@ -3055,7 +3032,7 @@ bool drawPanelToggleItems(ViewSettings& viewSettings)
 // Settings" window the native menu opens on mac; true when anything changed
 // (caller persists)
 bool drawViewSettingsWidgets(ViewSettings& viewSettings,
-	Ogre::Camera* sceneCamera)
+	optr<Orkige::RenderCamera> const& sceneCamera)
 {
 	bool settingsChanged = false;
 	settingsChanged |= ImGui::Checkbox("Show Grid", &viewSettings.showGrid);
@@ -3087,14 +3064,14 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 	if (ImGui::SliderFloat("FOV", &viewSettings.fovDeg, 20.0f, 120.0f,
 		"%.0f\xC2\xB0"))
 	{
-		sceneCamera->setFOVy(Ogre::Degree(viewSettings.fovDeg));
+		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
 		settingsChanged = true;
 	}
 	ImGui::Separator();
 	if (ImGui::MenuItem("Reset View Settings"))
 	{
 		viewSettings.resetCameraAndDisplayDefaults();
-		sceneCamera->setFOVy(Ogre::Degree(viewSettings.fovDeg));
+		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
 		settingsChanged = true;
 	}
 	return settingsChanged;
@@ -3104,7 +3081,7 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 // ImGui menu bar that used to host these widgets, so View > View Settings...
 // opens them here instead (available on every platform)
 void drawViewSettingsWindow(EditorState& state, ViewSettings& viewSettings,
-	Ogre::Camera* sceneCamera)
+	optr<Orkige::RenderCamera> const& sceneCamera)
 {
 	if (!state.showViewSettingsWindow)
 	{
@@ -3125,7 +3102,8 @@ void drawViewSettingsWindow(EditorState& state, ViewSettings& viewSettings,
 // (MacMenu.mm) mirrors this structure there and routes into the exact same
 // functions; keeping both would duplicate every menu.
 void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
-	ViewSettings& viewSettings, Ogre::Camera* sceneCamera, SDL_Window* window)
+	ViewSettings& viewSettings, optr<Orkige::RenderCamera> const& sceneCamera,
+	SDL_Window* window)
 {
 	if (ImGui::BeginMainMenuBar())
 	{
@@ -3861,10 +3839,14 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderFinish(dockspaceId);
 }
 
-// OGRE Matrix4 stores row-major (m[row][col]); ImGuizmo expects the usual
-// OpenGL-style column-major float16 - copying transposed converts between
-// the two (both directions).
-void ogreToImGuizmo(Ogre::Matrix4 const& matrix, float* out16)
+// The engine Mat4 (Ogre-layout math per RenderMath.h) stores row-major
+// (m[row][col]); ImGuizmo expects the usual OpenGL-style column-major
+// float16 - copying transposed converts between the two (both directions).
+// The facade camera matrices (RenderCamera::getViewMatrix/
+// getProjectionMatrix) return the same row-major Mat4 the raw camera did,
+// so the transpose convention is unchanged - the gizmo/picking selfchecks
+// cover it.
+void matrixToImGuizmo(Orkige::Mat4 const& matrix, float* out16)
 {
 	for (int row = 0; row < 4; ++row)
 	{
@@ -3875,9 +3857,9 @@ void ogreToImGuizmo(Ogre::Matrix4 const& matrix, float* out16)
 	}
 }
 
-Ogre::Matrix4 imGuizmoToOgre(const float* in16)
+Orkige::Mat4 imGuizmoToMatrix(const float* in16)
 {
-	Ogre::Matrix4 matrix;
+	Orkige::Mat4 matrix;
 	for (int row = 0; row < 4; ++row)
 	{
 		for (int col = 0; col < 4; ++col)
@@ -3895,7 +3877,8 @@ Ogre::Matrix4 imGuizmoToOgre(const float* in16)
 // the gizmo owns the mouse (hovered or dragging) - the click-to-pick path
 // must stand down then.
 bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
-	Ogre::Camera* camera, ImVec2 const& rectMin, ImVec2 const& rectSize)
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize)
 {
 	const Orkige::EditorTool tool = core.getActiveTool();
 	Orkige::EditorTransform current;
@@ -3912,12 +3895,12 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	float view[16];
 	float projection[16];
 	float model[16];
-	ogreToImGuizmo(camera->getViewMatrix(), view);
-	ogreToImGuizmo(camera->getProjectionMatrix(), projection);
-	Ogre::Matrix4 modelMatrix;
+	matrixToImGuizmo(camera->getViewMatrix(), view);
+	matrixToImGuizmo(camera->getProjectionMatrix(), projection);
+	Orkige::Mat4 modelMatrix;
 	modelMatrix.makeTransform(current.position, current.scale,
 		current.orientation);
-	ogreToImGuizmo(modelMatrix, model);
+	matrixToImGuizmo(modelMatrix, model);
 
 	ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
 	// the editable snap steps from the toolbar popover (default to the
@@ -3960,7 +3943,7 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 			Orkige::EditorTransform after;
 			// gizmo output is affine (no shear) - decompose back to
 			// position/scale/orientation (Affine3 extracts the 3x4 part)
-			Ogre::Affine3(imGuizmoToOgre(model)).decomposition(
+			Orkige::Affine3(imGuizmoToMatrix(model)).decomposition(
 				after.position, after.scale, after.orientation);
 			core.applyTransformChange(core.getSelectedObjectId(), current,
 				after, state.gizmoMergeSession);
@@ -3985,7 +3968,7 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 // the look, cursor restored on release).
 void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	bool editMode, SceneRenderTarget& sceneTarget,
-	Ogre::SceneManager* sceneManager, Ogre::SceneNode* cameraNode,
+	optr<Orkige::RenderNode> const& cameraNode,
 	ViewSettings& viewSettings, float contentScale,
 	Orkige::ImGuiSDL3Input& imguiInput)
 {
@@ -4001,10 +3984,13 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 		state.scenePanelHeight = static_cast<int>(avail.y);
 		if (sceneTarget.texture && avail.x >= 1.0f && avail.y >= 1.0f)
 		{
-			// the texture handle is the ImGui texture id (resolved back via
-			// TextureManager::getByHandle inside Ogre::ImGuiOverlay)
+			// the facade's native texture id is the ImGui texture id
+			// (re-fetched every frame - resize invalidates it; the classic
+			// backend hands out the resource handle Ogre::ImGuiOverlay
+			// resolves via TextureManager::getByHandle)
 			ImGui::Image(
-				static_cast<ImTextureID>(sceneTarget.texture->getHandle()),
+				static_cast<ImTextureID>(
+					sceneTarget.texture->getNativeTextureId()),
 				avail);
 			const ImVec2 rectMin = ImGui::GetItemRectMin();
 			state.scenePanelHovered = ImGui::IsItemHovered();
@@ -4033,7 +4019,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				{
 					ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
 					float view[16];
-					ogreToImGuizmo(sceneTarget.camera->getViewMatrix(), view);
+					matrixToImGuizmo(sceneTarget.camera->getViewMatrix(),
+						view);
 					float viewBefore[16];
 					std::memcpy(viewBefore, view, sizeof(view));
 					ImGuizmo::ViewManipulate(view, state.camera.distance,
@@ -4046,20 +4033,21 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					{
 						// decompose the manipulated view back into the orbit
 						// spherical coordinates (distance stays fixed)
-						const Ogre::Matrix4 inverseView =
-							imGuizmoToOgre(view).inverse();
-						const Ogre::Vector3 cameraPos(inverseView[0][3],
+						const Orkige::Mat4 inverseView =
+							imGuizmoToMatrix(view).inverse();
+						const Orkige::Vec3 cameraPos(inverseView[0][3],
 							inverseView[1][3], inverseView[2][3]);
-						const Ogre::Vector3 offset =
+						const Orkige::Vec3 offset =
 							cameraPos - state.camera.target;
 						const float distance = offset.length();
 						if (distance > 1e-3f)
 						{
 							state.camera.pitchDeg = std::clamp(
-								Ogre::Math::ASin(offset.y / distance)
-									.valueDegrees(), -85.0f, 85.0f);
-							state.camera.yawDeg = Ogre::Math::ATan2(offset.x,
-								offset.z).valueDegrees();
+								Orkige::Radian(std::asin(
+									offset.y / distance)).valueDegrees(),
+								-85.0f, 85.0f);
+							state.camera.yawDeg = Orkige::Radian(std::atan2(
+								offset.x, offset.z)).valueDegrees();
 						}
 					}
 				}
@@ -4072,7 +4060,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 				{
 					// Cmd/Ctrl+click toggles selection-set membership
-					pickObjectAtCursor(core, sceneTarget.camera, sceneManager,
+					pickObjectAtCursor(core, sceneTarget.camera,
 						(io.MousePos.x - rectMin.x) / avail.x,
 						(io.MousePos.y - rectMin.y) / avail.y,
 						io.KeySuper || io.KeyCtrl);
@@ -4199,7 +4187,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					// moves the scene about the same visual amount
 					const float panScale = state.camera.distance * 0.003f;
 					state.camera.target += cameraNode->getOrientation() *
-						Ogre::Vector3(
+						Orkige::Vec3(
 							-io.MouseDelta.x / contentScale * panScale,
 							io.MouseDelta.y / contentScale * panScale, 0.0f);
 				}
@@ -4259,7 +4247,8 @@ void drawHierarchyRenameField(EditorState& state, Orkige::EditorCore& core,
 // right-click opens Duplicate/Rename/Delete (per object) or Create Cube/
 // Create Test Mesh (empty space), up/down arrows move the selection.
 void drawHierarchyPanel(EditorState& state, PlaySession& session,
-	Orkige::EditorCore& core, Ogre::Camera* sceneCamera, bool* visible)
+	Orkige::EditorCore& core, optr<Orkige::RenderCamera> const& sceneCamera,
+	bool* visible)
 {
 	const bool remote = session.isActive();
 	const bool open =
@@ -4462,7 +4451,7 @@ void drawTransformComponentUI(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (changed)
 	{
-		after.position = Ogre::Vector3(position[0], position[1], position[2]);
+		after.position = Orkige::Vec3(position[0], position[1], position[2]);
 		edited = true;
 	}
 
@@ -4478,12 +4467,12 @@ void drawTransformComponentUI(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (changed)
 	{
-		Ogre::Matrix3 rotation;
+		Orkige::Mat3 rotation;
 		rotation.FromEulerAnglesYXZ(
-			Ogre::Degree(yawPitchRoll[0]),
-			Ogre::Degree(yawPitchRoll[1]),
-			Ogre::Degree(yawPitchRoll[2]));
-		after.orientation = Ogre::Quaternion(rotation);
+			Orkige::Degree(yawPitchRoll[0]),
+			Orkige::Degree(yawPitchRoll[1]),
+			Orkige::Degree(yawPitchRoll[2]));
+		after.orientation = Orkige::Quat(rotation);
 		edited = true;
 	}
 
@@ -4495,7 +4484,7 @@ void drawTransformComponentUI(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (changed)
 	{
-		after.scale = Ogre::Vector3(scale[0], scale[1], scale[2]);
+		after.scale = Orkige::Vec3(scale[0], scale[1], scale[2]);
 		edited = true;
 	}
 
@@ -4638,7 +4627,7 @@ void drawRigidBodyComponentUI(EditorState& state, Orkige::EditorCore& core,
 		}
 		if (changed)
 		{
-			after.halfExtents = Ogre::Vector3(halfExtents[0], halfExtents[1],
+			after.halfExtents = Orkige::Vec3(halfExtents[0], halfExtents[1],
 				halfExtents[2]);
 			edited = true;
 		}
@@ -5239,7 +5228,8 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 // before SDL sees them - the ImGui-side bindings below cover the non-mac
 // and headless-fallback cases with the same keys, no double execution.
 void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
-	PlaySession& session, Ogre::Camera* sceneCamera, SDL_Window* window)
+	PlaySession& session, optr<Orkige::RenderCamera> const& sceneCamera,
+	SDL_Window* window)
 {
 	ImGuiIO& io = ImGui::GetIO();
 	if (io.WantTextInput)
@@ -5365,12 +5355,12 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	}
 }
 
-void drawStatsPanel(Ogre::RenderWindow* renderWindow, bool* visible)
+void drawStatsPanel(bool* visible)
 {
 	if (ImGui::Begin("Stats", visible))
 	{
-		Ogre::RenderTarget::FrameStats const& stats =
-			renderWindow->getStatistics();
+		const Orkige::RenderSystem::FrameStats stats =
+			Orkige::RenderSystem::get()->getFrameStats();
 		ImGui::Text("FPS: %.1f (avg %.1f)", stats.lastFPS, stats.avgFPS);
 		ImGui::Text("Triangles: %zu", stats.triangleCount);
 		ImGui::Text("Batches: %zu", stats.batchCount);
@@ -5547,6 +5537,12 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr;
 
+		// --- classic boot block (sanctioned raw-Ogre corner, decision #3 +
+		// the WP-A1.3 app rule in Docs/render-abstraction.md): Engine is the
+		// classic backend's bootstrapper - constructing/configuring it,
+		// feeding the RTSS its internal media and the ORKIGE_RENDERSYSTEM
+		// pick stay classic plumbing; everything scene-facing after
+		// Engine::setup talks to the engine_render facade.
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, "orkige_editor.log");
@@ -5571,35 +5567,35 @@ int main(int, char**)
 			engine.setPreferredRenderSystem(renderSystemEnv);
 		}
 
-		// engine log -> Console: Ogre's default log exists once the Root
-		// does (Engine ctor); everything from Engine::setup on streams live
-		// into the editor's Console panel (detached before shutdown)
-		ConsoleOgreLogListener ogreLogListener;
-		ogreLogListener.console = &console;
-		Ogre::LogManager::getSingleton().getDefaultLog()
-			->addListener(&ogreLogListener);
+		// engine log -> Console: the engine_base log-capture service (shared
+		// with PlayerDebugLink) queues every line from here on; the frame
+		// loop drains it into the Console once per frame. The engine log
+		// exists once the Engine ctor ran, so attach cannot fail here. Sized
+		// to the Console cap - the OGRE boot easily exceeds the default
+		// backlog and the Console wants those lines.
+		Orkige::EngineLogCapture engineLogCapture(EditorConsole::MAX_LINES);
+		if (!engineLogCapture.attach())
+		{
+			SDL_Log("orkige_editor: engine log capture failed to attach - "
+				"the Console will miss the engine log");
+		}
 
 		// OverlaySystem: Root exists (Engine ctor), Root::initialise has not
 		// run yet (that happens inside Engine::setup) - exactly the window
 		// OgreOverlaySystem.h documents. Declared after `engine` so it is
-		// destroyed before the Root goes down.
+		// destroyed before the Root goes down. CLASSIC EDITOR GLUE
+		// (decision #3): the ImGuiOverlay integration is a classic-OGRE
+		// component - it does not go through the facade.
 		Ogre::OverlaySystem overlaySystem;
 
 		// RTSS shader library + OgreUnifiedShader.h, same locations
-		// OgreBites::ApplicationContext registers (see CMakeLists.txt)
+		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
+		// backend-internal media, must precede Engine::setup
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_EDITOR_MEDIA_DIR "/Main", "FileSystem", Ogre::RGN_INTERNAL);
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_EDITOR_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
-		// sample assets (test_mesh.glb from Util/make_test_mesh.py) in the
-		// default group; meshes load lazily via Codec_Assimp on createEntity
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_EDITOR_ASSET_DIR, "FileSystem");
-		// jumper sample assets (textured .glb meshes from
-		// Util/make_jumper_assets.py) so samples/jumper/level1.oscene opens
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_EDITOR_JUMPER_ASSET_DIR, "FileSystem");
 
 		if (!engine.setup("Orkige Editor", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
@@ -5608,22 +5604,37 @@ int main(int, char**)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		Ogre::SceneManager* sceneManager = engine.getSceneManager();
+		// --- end of the classic boot block: from here on the editor talks
+		// to the renderer through the engine_render facade - except for the
+		// marked classic editor glue (overlay wiring, UI viewport, grid)
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		Orkige::RenderWorld* world = render->getWorld();
+
+		// sample assets (test_mesh.glb from Util/make_test_mesh.py) in the
+		// default group; meshes load lazily via Codec_Assimp on mesh load
+		render->addResourceLocation(ORKIGE_EDITOR_ASSET_DIR);
+		// jumper sample assets (textured .glb meshes from
+		// Util/make_jumper_assets.py) so samples/jumper/level1.oscene opens
+		render->addResourceLocation(ORKIGE_EDITOR_JUMPER_ASSET_DIR);
 
 		// The scene no longer renders into the window (that was
 		// Engine::createDefaultCameraAndViewport): the editor's scene camera
-		// draws into the offscreen RTT created below and the window keeps a
-		// single UI-only viewport for the ImGui overlay - visibility mask 0
-		// hides all scene content, leaving a dark grey backdrop around the
-		// docked panels.
-		Ogre::Camera* sceneCamera =
-			sceneManager->createCamera("EditorSceneCamera");
-		sceneCamera->setNearClipDistance(1.0f);
-		sceneCamera->setFarClipDistance(100000.0f);
-		Ogre::SceneNode* sceneCameraNode = sceneManager->getRootSceneNode()
-			->createChildSceneNode("EditorSceneCameraNode");
-		sceneCameraNode->attachObject(sceneCamera);
+		// draws into the offscreen facade RenderTexture created below on a
+		// facade camera rig (near/far defaults 1/100000 match the historical
+		// editor camera).
+		optr<Orkige::RenderCamera> sceneCamera =
+			world->createCamera("EditorSceneCamera");
+		optr<Orkige::RenderNode> sceneCameraNode =
+			world->createNode("EditorSceneCameraNode");
+		sceneCamera->attachTo(sceneCameraNode);
 
+		// CLASSIC EDITOR GLUE (decision #3): the window keeps a single
+		// UI-only viewport for the ImGui overlay - visibility mask 0 hides
+		// all scene content, leaving a dark grey backdrop around the docked
+		// panels. Per-viewport visibility masks are deliberately NOT facade
+		// API (single-window/single-viewport is frozen, decision #7); this
+		// viewport is part of the overlay wiring and stays raw classic OGRE.
+		Ogre::SceneManager* sceneManager = engine.getSceneManager();
 		Ogre::Camera* uiCamera = sceneManager->createCamera("EditorUICamera");
 		sceneManager->getRootSceneNode()
 			->createChildSceneNode("EditorUICameraNode")
@@ -5645,14 +5656,17 @@ int main(int, char**)
 				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
 		}
 #endif
-		Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
+		render->initialiseResourceGroups();
 		// overlays render as a RenderQueueListener on the SceneManager
+		// (classic editor glue, see the OverlaySystem note above)
 		sceneManager->addRenderQueueListener(&overlaySystem);
-		sceneManager->setAmbientLight(Ogre::ColourValue(0.2f, 0.2f, 0.2f));
+		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
 		// Dear ImGui overlay: OGRE's own integration; the overlay renders
 		// through the Overlay render queue hook above. Ownership goes to the
-		// OverlayManager (destroyed with the OverlaySystem).
+		// OverlayManager (destroyed with the OverlaySystem). CLASSIC EDITOR
+		// GLUE (decision #3): imgui integration is per-backend by nature and
+		// deliberately not part of engine_render.
 		Ogre::ImGuiOverlay* imguiOverlay = new Ogre::ImGuiOverlay();
 		imguiOverlay->setZOrder(300);
 		// Theme + system font BEFORE show(): ImGuiOverlay::initialise (run by
@@ -5668,10 +5682,13 @@ int main(int, char**)
 			int sdlWindowWidth = 0;
 			int sdlWindowHeight = 0;
 			SDL_GetWindowSize(window, &sdlWindowWidth, &sdlWindowHeight);
-			if (sdlWindowWidth > 0 && engine.getRenderWindow()->getWidth() > 0)
+			unsigned int drawableWidth = 0;
+			unsigned int drawableHeight = 0;
+			render->getWindowSize(drawableWidth, drawableHeight);
+			if (sdlWindowWidth > 0 && drawableWidth > 0)
 			{
 				editorContentScale =
-					static_cast<float>(engine.getRenderWindow()->getWidth()) /
+					static_cast<float>(drawableWidth) /
 					static_cast<float>(sdlWindowWidth);
 			}
 		}
@@ -5717,7 +5734,7 @@ int main(int, char**)
 		gViewSettings = &viewSettings;
 		// scripted runs must not rewrite the user's recents (see gRecordRecents)
 		gRecordRecents = !automatedRun;
-		sceneCamera->setFOVy(Ogre::Degree(viewSettings.fovDeg));
+		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
 
 		// offscreen scene viewport: initial size is a placeholder, the Scene
 		// panel drives resizes from its content region (with hysteresis)
@@ -5734,14 +5751,16 @@ int main(int, char**)
 				Orkige::InputManager::KeyPressedEvent,
 				&QuitOnEscape::onKeyPressed, &quitOnEscape);
 
-		// unlit vertex-colour material + the shared "EditorCube.mesh" resource
-		// (a real mesh, so cubes go through ModelComponent and round-trip
-		// through scene files - the player builds the identical resource)
-		Orkige::PrimitiveUtil::createVertexColourMaterial();
-		Orkige::PrimitiveUtil::createVertexColourCubeMesh(sceneManager);
+		// unlit vertex-colour material + the shared "EditorCube.mesh"
+		// resource through the facade cube-mesh service (a real mesh, so
+		// cubes go through ModelComponent and round-trip through scene
+		// files - the player builds the identical resource); the defaults
+		// ARE PrimitiveUtil::CUBE_MESH_NAME/CUBE_MESH_HALF_EXTENT
+		world->createVertexColourCubeMesh();
 
 		// ground-plane reference grid (editor-only, toggled via View menu,
-		// invisible to picking, not part of the GameObject world)
+		// invisible to picking, not part of the GameObject world) - classic
+		// editor glue, see createEditorGrid
 		Ogre::SceneNode* gridNode = createEditorGrid(sceneManager);
 		gridNode->setVisible(viewSettings.showGrid);
 
@@ -6230,9 +6249,9 @@ int main(int, char**)
 				}
 				if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED)
 				{
-					// keep the OGRE window in sync with the SDL window (the
+					// keep the render window in sync with the SDL window (the
 					// ORKIGE_EDITOR_RESIZE_TEST hook below exercises this)
-					engine.getRenderWindow()->windowMovedOrResized();
+					render->notifyWindowResized();
 				}
 				if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
 				{
@@ -6319,9 +6338,15 @@ int main(int, char**)
 			}
 			updateExportJob(exportJob, console);
 
+			// engine log lines captured since the last frame -> Console
+			drainEngineLogIntoConsole(engineLogCapture, console);
+
+			unsigned int drawableWidth = 0;
+			unsigned int drawableHeight = 0;
+			render->getWindowSize(drawableWidth, drawableHeight);
 			imguiInput.newFrame(
-				static_cast<float>(engine.getRenderWindow()->getWidth()),
-				static_cast<float>(engine.getRenderWindow()->getHeight()));
+				static_cast<float>(drawableWidth),
+				static_cast<float>(drawableHeight));
 			Ogre::ImGuiOverlay::NewFrame();
 			ImGuizmo::BeginFrame();
 
@@ -6354,7 +6379,7 @@ int main(int, char**)
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
-					sceneTarget, sceneManager, sceneCameraNode, viewSettings,
+					sceneTarget, sceneCameraNode, viewSettings,
 					editorContentScale, imguiInput);
 			}
 			else
@@ -6388,8 +6413,7 @@ int main(int, char**)
 			}
 			if (viewSettings.showStatsPanel)
 			{
-				drawStatsPanel(engine.getRenderWindow(),
-					&viewSettings.showStatsPanel);
+				drawStatsPanel(&viewSettings.showStatsPanel);
 			}
 			if (viewSettings.showConsolePanel)
 			{
@@ -6480,13 +6504,13 @@ int main(int, char**)
 				// instantiate function the boot scene used - directly, not via
 				// undoable commands, so the run still starts with an empty
 				// undo history and a clean (non-dirty) scene
-				const Ogre::Vector3 fixturePositions[3] = {
+				const Orkige::Vec3 fixturePositions[3] = {
 					{ -2.5f, 0.0f, 0.0f }, { 0.0f, 0.0f, 0.0f },
 					{ 2.5f, 0.0f, 0.0f },
 				};
 				int fixtureCubeCounter = 0;
 				bool fixturesOk = true;
-				for (Ogre::Vector3 const& position : fixturePositions)
+				for (Orkige::Vec3 const& position : fixturePositions)
 				{
 					const std::string id =
 						"Cube" + std::to_string(++fixtureCubeCounter);
@@ -6496,7 +6520,7 @@ int main(int, char**)
 				}
 				fixturesOk = fixturesOk && editorCore.instantiateModelObject(
 					"TestMesh1", "test_mesh.glb",
-					Ogre::Vector3(0.0f, 2.2f, 0.0f));
+					Orkige::Vec3(0.0f, 2.2f, 0.0f));
 				if (!fixturesOk)
 				{
 					SDL_Log("orkige_editor: FAILED - fixture creation for the "
@@ -6543,14 +6567,20 @@ int main(int, char**)
 					gameObjectManager.objectExists("Cube2") &&
 					gameObjectManager.objectExists("Cube3") &&
 					gameObjectManager.objectExists("TestMesh1");
-				// ... and the glTF asset really became an Ogre mesh resource
-				// (Codec_Assimp decoded it during the fixture createEntity)
-				const Ogre::MeshPtr testMesh =
-					Ogre::MeshManager::getSingleton().getByName(
-						"test_mesh.glb",
-						Ogre::ResourceGroupManager::
-							AUTODETECT_RESOURCE_GROUP_NAME);
-				const bool meshResourceOk = testMesh && testMesh->isLoaded();
+				// ... and the glTF asset really became a loaded mesh
+				// (Codec_Assimp decoded it during the fixture's facade mesh
+				// load - the loaded MeshInstance with sub-meshes IS the proof)
+				optr<Orkige::GameObject> testMeshObject =
+					gameObjectManager.getGameObject("TestMesh1").lock();
+				optr<Orkige::MeshInstance> testMesh =
+					(testMeshObject &&
+						testMeshObject->hasComponent<Orkige::ModelComponent>())
+					? testMeshObject
+						->getComponentPtr<Orkige::ModelComponent>()
+						->getMeshInstance()
+					: optr<Orkige::MeshInstance>();
+				const bool meshResourceOk =
+					testMesh && testMesh->getNumSubMeshes() > 0;
 				const int imguiVertices = ImGui::GetIO().MetricsRenderVertices;
 				// ... and the offscreen scene RTT exists and follows the
 				// Scene panel size (the panel recorded its wish by now, so
@@ -6595,7 +6625,7 @@ int main(int, char**)
 				// run the exact pick function the panel's mouse path uses
 				editorCore.clearSelection();
 				if (!pickGameObjectThroughScenePanel(editorCore,
-					gameObjectManager, sceneTarget.camera, sceneManager,
+					gameObjectManager, sceneTarget.camera,
 					"Cube1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (pick projection)");
@@ -6619,7 +6649,7 @@ int main(int, char**)
 				// TransformComponent scene-node tagging as the cubes)
 				editorCore.clearSelection();
 				if (!pickGameObjectThroughScenePanel(editorCore,
-					gameObjectManager, sceneTarget.camera, sceneManager,
+					gameObjectManager, sceneTarget.camera,
 					"TestMesh1"))
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (test mesh pick "
@@ -6727,7 +6757,7 @@ int main(int, char**)
 					openSceneOk = openSceneOk &&
 						editorCore.getObjectTransform(probeId, before);
 					Orkige::EditorTransform after = before;
-					after.position += Ogre::Vector3(0.0f, 0.5f, 0.0f);
+					after.position += Orkige::Vec3(0.0f, 0.5f, 0.0f);
 					openSceneOk = openSceneOk &&
 						editorCore.applyTransformChange(probeId, before, after);
 					Orkige::EditorTransform now;
@@ -6773,13 +6803,13 @@ int main(int, char**)
 						editFailure = what;
 					}
 				};
-				auto positionsEqual = [](Ogre::Vector3 const& a,
-					Ogre::Vector3 const& b)
+				auto positionsEqual = [](Orkige::Vec3 const& a,
+					Orkige::Vec3 const& b)
 				{
 					return a.positionEquals(b, 1e-3f);
 				};
-				auto orientationsEqual = [](Ogre::Quaternion const& a,
-					Ogre::Quaternion const& b)
+				auto orientationsEqual = [](Orkige::Quat const& a,
+					Orkige::Quat const& b)
 				{
 					return std::abs(a.Dot(b)) > 0.9999f;
 				};
@@ -6821,9 +6851,9 @@ int main(int, char**)
 						editTestCube1Before), "Cube1 transform");
 					editTestCube1Moved = editTestCube1Before;
 					editTestCube1Moved.position =
-						Ogre::Vector3(1.5f, 0.75f, -2.0f);
-					editTestCube1Moved.orientation = Ogre::Quaternion(
-						Ogre::Degree(45.0f), Ogre::Vector3::UNIT_Y);
+						Orkige::Vec3(1.5f, 0.75f, -2.0f);
+					editTestCube1Moved.orientation = Orkige::Quat(
+						Orkige::Degree(45.0f), Orkige::Vec3::UNIT_Y);
 					require(editorCore.applyTransformChange("Cube1",
 						editTestCube1Before, editTestCube1Moved),
 						"applyTransformChange");
@@ -6986,7 +7016,7 @@ int main(int, char**)
 					for (int i = 0; i < 3; ++i)
 					{
 						Orkige::EditorTransform stepBefore = step;
-						step.position += Ogre::Vector3(0.0f, 0.5f, 0.0f);
+						step.position += Orkige::Vec3(0.0f, 0.5f, 0.0f);
 						require(editorCore.applyTransformChange("Cube1",
 							stepBefore, step, session), "drag step");
 					}
@@ -7269,7 +7299,7 @@ int main(int, char**)
 					// WASD through the real event pipeline is not doable
 					// deterministically in this harness, so the step function
 					// is called directly and the camera node checked)
-					const Ogre::Vector3 positionBefore =
+					const Orkige::Vec3 positionBefore =
 						Orkige::editorCameraPosition(state.camera);
 					const float distanceBefore = state.camera.distance;
 					float flySpeed = 6.0f;
@@ -7277,7 +7307,7 @@ int main(int, char**)
 					forward.moveForward = true;
 					Orkige::flyCameraStep(state.camera, forward, 0.5f, 0.4f,
 						flySpeed);
-					const Ogre::Vector3 positionAfter =
+					const Orkige::Vec3 positionAfter =
 						Orkige::editorCameraPosition(state.camera);
 					require((positionAfter - positionBefore).length() > 2.9f,
 						"fly moved the camera");
@@ -7310,7 +7340,7 @@ int main(int, char**)
 								0.016f, 0.4f, flySpeed);
 							applyOrbitCamera(state, sceneCameraNode);
 						}
-						const Ogre::Radian roll =
+						const Orkige::Radian roll =
 							sceneCameraNode->getOrientation().getRoll();
 						require(std::abs(roll.valueDegrees()) < 0.01f,
 							"jiggle accumulates no camera roll");
@@ -7351,7 +7381,7 @@ int main(int, char**)
 					// frame the object; the inline rename stays reachable
 					// through its own function (the F2/context-menu path)
 					editorCore.selectObject("Cube2");
-					state.camera.target = Ogre::Vector3(50.0f, 0.0f, 0.0f);
+					state.camera.target = Orkige::Vec3(50.0f, 0.0f, 0.0f);
 					state.camera.distance = 150.0f;
 					applyOrbitCamera(state, sceneCameraNode);
 					Orkige::EditorTransform cube1Now;
@@ -7396,7 +7426,7 @@ int main(int, char**)
 				if (const char* examplePath = exportExampleEnv)
 				{
 					auto setPose = [&](std::string const& id,
-						Ogre::Vector3 const& position, float yawDegrees,
+						Orkige::Vec3 const& position, float yawDegrees,
 						float uniformScale) -> bool
 					{
 						optr<Orkige::GameObject> gameObject =
@@ -7408,10 +7438,10 @@ int main(int, char**)
 						Orkige::TransformComponent* transform = gameObject
 							->getComponentPtr<Orkige::TransformComponent>();
 						transform->setPosition(position);
-						transform->setOrientation(Ogre::Quaternion(
-							Ogre::Radian(Ogre::Degree(yawDegrees)),
-							Ogre::Vector3::UNIT_Y));
-						transform->setScale(Ogre::Vector3(uniformScale));
+						transform->setOrientation(Orkige::Quat(
+							Orkige::Radian(Orkige::Degree(yawDegrees)),
+							Orkige::Vec3::UNIT_Y));
+						transform->setScale(Orkige::Vec3(uniformScale));
 						return true;
 					};
 					editorCore.createCube(); // Cube4
@@ -7438,7 +7468,7 @@ int main(int, char**)
 			{
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
-					engine.getRenderWindow()->writeContentsToFile(shotPath);
+					render->saveWindowContents(shotPath);
 				}
 			}
 
@@ -7523,17 +7553,16 @@ int main(int, char**)
 					std::string("scenes/main.oscene")) != scenes.end(),
 					"scene list discovery");
 				// resource roots: the dedicated group exists and serves the
-				// project's assets/ and scenes/
-				Ogre::ResourceGroupManager& resourceGroups =
-					Ogre::ResourceGroupManager::getSingleton();
-				require(resourceGroups.resourceGroupExists(
+				// project's assets/ and scenes/ (probed through the same
+				// facade the registration used)
+				require(render->resourceGroupExists(
 					Orkige::Project::RESOURCE_GROUP_NAME),
 					"project resource group");
-				require(resourceGroups.resourceExists(
-					Orkige::Project::RESOURCE_GROUP_NAME, "test_mesh.glb"),
+				require(render->resourceExists("test_mesh.glb",
+					Orkige::Project::RESOURCE_GROUP_NAME),
 					"project asset indexed");
-				require(resourceGroups.resourceExists(
-					Orkige::Project::RESOURCE_GROUP_NAME, "main.oscene"),
+				require(render->resourceExists("main.oscene",
+					Orkige::Project::RESOURCE_GROUP_NAME),
 					"project scene indexed");
 				// imports are rooted into the project's assets/
 				require(meshImportDestination(state) ==
@@ -7957,8 +7986,7 @@ int main(int, char**)
 						if (const char* shotPath =
 							std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 						{
-							engine.getRenderWindow()->writeContentsToFile(
-								shotPath);
+							render->saveWindowContents(shotPath);
 							SDL_Log("orkige_editor: playtest - screenshot "
 								"with active remote session -> %s", shotPath);
 						}
@@ -8248,8 +8276,8 @@ int main(int, char**)
 				struct ObjectSnapshot
 				{
 					std::string id;
-					Ogre::Vector3 position;
-					Ogre::Quaternion orientation;
+					Orkige::Vec3 position;
+					Orkige::Quat orientation;
 				};
 				std::vector<ObjectSnapshot> before;
 				for (auto const& [id, gameObject] :
@@ -8263,14 +8291,17 @@ int main(int, char**)
 							transform->getOrientation() });
 					}
 				}
-				const unsigned short nodesBefore =
-					sceneManager->getRootSceneNode()->numChildren();
+				// facade-graph child count of the world root: every
+				// TransformComponent node lives there, so clear must shrink
+				// it and reload must restore it exactly
+				const size_t nodesBefore =
+					world->getRootNode()->numChildren();
 				bool roundTripOk = !before.empty() &&
 					Orkige::SceneSerializer::saveScene(selfCheckScene,
 						gameObjectManager);
 				gameObjectManager.clear();
-				const unsigned short nodesCleared =
-					sceneManager->getRootSceneNode()->numChildren();
+				const size_t nodesCleared =
+					world->getRootNode()->numChildren();
 				roundTripOk = roundTripOk &&
 					gameObjectManager.getGameObjects().empty() &&
 					nodesCleared < nodesBefore;
@@ -8278,8 +8309,8 @@ int main(int, char**)
 					Orkige::SceneSerializer::loadScene(selfCheckScene,
 						gameObjectManager);
 				applyUnlitFixToLoadedModels(editorCore);
-				const unsigned short nodesAfter =
-					sceneManager->getRootSceneNode()->numChildren();
+				const size_t nodesAfter =
+					world->getRootNode()->numChildren();
 				roundTripOk = roundTripOk &&
 					gameObjectManager.getGameObjects().size() == before.size() &&
 					nodesAfter == nodesBefore;
@@ -8297,8 +8328,8 @@ int main(int, char**)
 					}
 					Orkige::TransformComponent* transform = gameObject
 						->getComponentPtr<Orkige::TransformComponent>();
-					const Ogre::Vector3 position = transform->getPosition();
-					const Ogre::Quaternion orientation =
+					const Orkige::Vec3 position = transform->getPosition();
+					const Orkige::Quat orientation =
 						transform->getOrientation();
 					SDL_Log("orkige_editor: selfcheck frame 90 - '%s' pos "
 						"before (%.3f, %.3f, %.3f) after (%.3f, %.3f, %.3f)",
@@ -8336,10 +8367,12 @@ int main(int, char**)
 			}
 			if (frameCount == 100 && resizeTest)
 			{
+				unsigned int resizedWidth = 0;
+				unsigned int resizedHeight = 0;
+				render->getWindowSize(resizedWidth, resizedHeight);
 				SDL_Log("orkige_editor: resize test frame 100 - render window "
 					"%ux%u, scene RTT %dx%d",
-					engine.getRenderWindow()->getWidth(),
-					engine.getRenderWindow()->getHeight(),
+					resizedWidth, resizedHeight,
 					sceneTarget.width, sceneTarget.height);
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
@@ -8380,10 +8413,11 @@ int main(int, char**)
 			exportJob.process = nullptr;
 		}
 
+		// classic editor glue teardown (mirrors the marked setup block)
 		sceneManager->removeRenderQueueListener(&overlaySystem);
 		// the console dies with this scope - detach the log hooks first
-		Ogre::LogManager::getSingleton().getDefaultLog()
-			->removeListener(&ogreLogListener);
+		// (the engine log capture detaches itself in its destructor)
+		engineLogCapture.detach();
 		SDL_SetLogOutputFunction(sdlLogHook.previous,
 			sdlLogHook.previousUserdata);
 	}

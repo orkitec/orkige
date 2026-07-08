@@ -386,11 +386,54 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   - JumperHud (fastgui, classic-only per decision #2) kept exactly one Ogre
     spelling: the resource-group default parameter it forwards to
     FastGuiManager; its math went to the alias vocabulary.
-- **WP-A1.4 editor**: RTT panel → `RenderTexture`; picking → `queryRay` +
+- **WP-A1.4 editor** *(DELIVERED 2026-07-08)*: RTT panel → `RenderTexture`; picking → `queryRay` +
   `findUserPointerUpwards`; gizmo → `RenderCamera` matrices/project; stats panel;
   grid via backend service; ImGuiOverlay glue isolated behind an editor-local seam.
   Files: `tools/editor/main.cpp`, `EditorCore.{h,cpp}`. CollisionTools retired
   (removed from build with the question-#6 dead files).
+  Implementation notes:
+  - **Dual-tagging DELETED** as planned: `TransformComponent::onAdd` no longer
+    sets the legacy `Ogre::Any` user binding (facade `setUserPointer` only),
+    and the classic-only `Ogre::Node*` overloads of
+    `TransformComponent::getComponentFromNode` / `NodeUtil::getGameObjectFromNode`
+    (+ `USEROBJECT_BINDING_KEY`) are gone. Editor picking resolves
+    `RayQueryHit::userPointer` straight to the tagging TransformComponent.
+  - **CollisionTools deleted** (files + build entry; recoverable from git).
+    `engine_util/MeshUtil.h` stays: its remaining reference is the unbuilt
+    sceneoptimizer.
+  - **Facade API added**: `RenderSystem::removeResourceLocation` (idempotent),
+    `resourceGroupExists`, `destroyResourceGroup`, `resourceExists` - the
+    editor's project switch/import needed the teardown half of the resource
+    surface (the player only ever registers). `RenderMath.h` grew the
+    `Orkige::Affine3` alias (gizmo TRS decomposition).
+  - **Camera rig**: the scene camera is a facade `createCamera` +
+    `createNode` rig; orbit/fly/pan write facade node transforms. ImGuizmo
+    still receives the row-major->column-major transpose (`matrixToImGuizmo`)
+    - facade matrices are byte-identical to the raw camera's, verified by the
+    selfcheck pick/gizmo frames. `Ogre::Math::ASin/ATan2/Cos/Sin` spellings
+    became `std::` on alias radians. Editor math is alias-vocabulary
+    throughout (EditorCore/EditorCamera headers include `RenderMath.h`;
+    `Ogre::Exception` catches became `std::exception`).
+  - **Console**: the editor's own `Ogre::LogListener` twin is deleted;
+    `EngineLogCapture` (sized to the Console's 5000-line cap - the OGRE boot
+    overflows the 200-line default) is drained into the Console once per
+    frame.
+  - **Selfcheck deltas** (behavior-neutral probes): the frame-30
+    "test_mesh.glb became a resource" check now asserts the loaded facade
+    `MeshInstance` has sub-meshes (was `MeshManager::getByName`); the
+    frame-90 round-trip counts facade-graph root children
+    (`RenderWorld::getRootNode()->numChildren()`) instead of raw
+    `SceneManager` root children.
+  - **Sanctioned classic blocks left in the editor** (each marked in
+    main.cpp): (a) the app-standard classic boot block (Engine ctor,
+    ORKIGE_RENDERSYSTEM, RTSS internal media); (b) the
+    OverlaySystem/ImGuiOverlay wiring incl. the font-texture SetTexID
+    bridge; (c) the UI-only window viewport (visibility mask 0 + RTSS
+    scheme - per-viewport masks are deliberately not facade API);
+    (d) `createEditorGrid`'s ManualObject line list. Residual `Ogre::` in
+    tools/editor: 33 spellings in main.cpp (all in those blocks or
+    comments), plus 5 comment-only mentions across
+    ImGuiSDL3Input/EditorTheme; down from the audit's 211.
 - **WP-A1.5 Lua + cleanup**: `module.cpp` usertypes re-targeted at facade classes
   (script-facing names preserved; `projects/jumper-lua` must run unchanged);
   SceneNodeGuard deleted; Engine scene accessors deprecated; sweep that no file above

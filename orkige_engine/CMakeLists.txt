@@ -70,8 +70,6 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/AccelerationEventData.cpp
     engine_input/InputManager.h
     engine_input/InputManager.cpp
-    engine_physic/CollisionTools.h
-    engine_physic/CollisionTools.cpp
     engine_physic/PhysicsWorld.h
     engine_physic/PhysicsWorld.cpp
     engine_gocomponent/TransformComponent.h

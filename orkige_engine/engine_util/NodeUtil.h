@@ -42,25 +42,6 @@ namespace Orkige
 			}
 			return go;
 		}
-		//---------------------------------------------------------
-#ifdef ORKIGE_RENDER_CLASSIC
-		//! @brief TRANSITIONAL classic-only overload for raw Ogre nodes
-		//! @remarks kept for the editor's own Ogre ray query (dual-tagging,
-		//! see TransformComponent::onAdd); WP-A1.4 migrates the editor onto
-		//! RenderWorld::queryRay + findUserPointerUpwards and DELETES this
-		//! overload together with the Ogre-side user bindings.
-		static inline GameObject* getGameObjectFromNode(Ogre::Node const * node, bool traverseParents = true)
-		{
-			oAssert(node);
-			GameObject* go = NULL;
-			TransformComponent* tc = TransformComponent::getComponentFromNode(node, traverseParents);
-			if(tc)
-			{
-				go = tc->getComponentOwner();
-			}
-			return go;
-		}
-#endif //ORKIGE_RENDER_CLASSIC
 #endif //ORKIGE_ENGINE_HAS_GOCOMPONENT
 	}
 }

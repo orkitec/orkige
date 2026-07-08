@@ -2,8 +2,6 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorCamera.h"
 
-#include <OgreMath.h>
-
 #include <algorithm>
 #include <cmath>
 
@@ -12,24 +10,24 @@ namespace Orkige
 	namespace
 	{
 		//! unit offset from the target towards the camera for the given angles
-		Ogre::Vector3 orbitOffset(float yawDeg, float pitchDeg)
+		Vec3 orbitOffset(float yawDeg, float pitchDeg)
 		{
-			const Ogre::Radian yaw = Ogre::Degree(yawDeg);
-			const Ogre::Radian pitch = Ogre::Degree(pitchDeg);
-			return Ogre::Vector3(
-				Ogre::Math::Cos(pitch) * Ogre::Math::Sin(yaw),
-				Ogre::Math::Sin(pitch),
-				Ogre::Math::Cos(pitch) * Ogre::Math::Cos(yaw));
+			const float yaw = Radian(Degree(yawDeg)).valueRadians();
+			const float pitch = Radian(Degree(pitchDeg)).valueRadians();
+			return Vec3(
+				std::cos(pitch) * std::sin(yaw),
+				std::sin(pitch),
+				std::cos(pitch) * std::cos(yaw));
 		}
 	}
 	//---------------------------------------------------------
-	Ogre::Vector3 editorCameraPosition(EditorCameraState const& camera)
+	Vec3 editorCameraPosition(EditorCameraState const& camera)
 	{
 		return camera.target +
 			orbitOffset(camera.yawDeg, camera.pitchDeg) * camera.distance;
 	}
 	//---------------------------------------------------------
-	Ogre::Vector3 editorCameraForward(EditorCameraState const& camera)
+	Vec3 editorCameraForward(EditorCameraState const& camera)
 	{
 		return -orbitOffset(camera.yawDeg, camera.pitchDeg);
 	}
@@ -49,7 +47,7 @@ namespace Orkige
 		// mouselook: pivot around the camera position - remember it, turn the
 		// angles, then re-derive the orbit target "distance" units ahead so
 		// the position solves back to exactly where it was
-		const Ogre::Vector3 position = editorCameraPosition(camera);
+		const Vec3 position = editorCameraPosition(camera);
 		camera.yawDeg -= input.lookDeltaX * lookSpeedDegPerPixel;
 		camera.pitchDeg = std::clamp(
 			camera.pitchDeg + input.lookDeltaY * lookSpeedDegPerPixel,
@@ -58,22 +56,22 @@ namespace Orkige
 
 		// WASD/QE: translate camera and target together (position is derived,
 		// so moving the target IS moving the camera)
-		const Ogre::Vector3 forward = editorCameraForward(camera);
-		Ogre::Vector3 right = forward.crossProduct(Ogre::Vector3::UNIT_Y);
+		const Vec3 forward = editorCameraForward(camera);
+		Vec3 right = forward.crossProduct(Vec3::UNIT_Y);
 		if (right.squaredLength() < 1e-8f)
 		{
-			right = Ogre::Vector3::UNIT_X; // looking straight up/down
+			right = Vec3::UNIT_X; // looking straight up/down
 		}
 		else
 		{
 			right.normalise();
 		}
-		Ogre::Vector3 move =
+		Vec3 move =
 			forward * (static_cast<float>(input.moveForward) -
 				static_cast<float>(input.moveBack)) +
 			right * (static_cast<float>(input.moveRight) -
 				static_cast<float>(input.moveLeft)) +
-			Ogre::Vector3::UNIT_Y * (static_cast<float>(input.moveUp) -
+			Vec3::UNIT_Y * (static_cast<float>(input.moveUp) -
 				static_cast<float>(input.moveDown));
 		if (move.squaredLength() > 0.0f)
 		{

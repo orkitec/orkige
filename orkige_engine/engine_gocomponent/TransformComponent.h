@@ -30,8 +30,6 @@ namespace Orkige
 	private:
 		//--- Variables ---------------------------------------
 	public:
-		//! key of the TRANSITIONAL Ogre-side user binding (@see the dual-tagging note in onAdd)
-		static const String USEROBJECT_BINDING_KEY;
 	protected:
 	private:
 		//--- Methods -----------------------------------------
@@ -45,13 +43,6 @@ namespace Orkige
 		//! @remarks resolves through the RenderNode user pointer - within the
 		//! engine ONLY TransformComponent tags scene nodes, so the cast is safe
 		static TransformComponent* getComponentFromNode(optr<RenderNode> const & node, bool traverseParents = true);
-#ifdef ORKIGE_RENDER_CLASSIC
-		//! @brief TRANSITIONAL classic-only overload for raw Ogre nodes
-		//! @remarks resolves through the legacy Ogre::Any user binding the
-		//! dual-tagging in onAdd still sets; the editor's own Ogre ray query
-		//! is the last caller. DELETED in WP-A1.4 with the dual-tagging.
-		static TransformComponent* getComponentFromNode(Ogre::Node const * node, bool traverseParents = true);
-#endif //ORKIGE_RENDER_CLASSIC
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

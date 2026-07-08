@@ -9,17 +9,15 @@
 // Testability split: the command stack, naming/rename validation and the
 // serialization-based object commands (delete/rename/duplicate restore) are
 // pure GameObjectManager + archive logic and run headless (tests/editor_core).
-// Anything that touches TransformComponent/ModelComponent needs live Ogre
-// scene nodes and is exercised by the editor_edittest integration run.
+// Anything that touches TransformComponent/ModelComponent needs a live render
+// scene and is exercised by the editor_edittest integration run.
 //
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #pragma once
 
 #include <core_game/GameObjectManager.h>
 #include <engine_physic/PhysicsWorld.h>
-
-#include <OgreVector.h>
-#include <OgreQuaternion.h>
+#include <engine_render/RenderMath.h>
 
 #include <map>
 #include <vector>
@@ -48,9 +46,9 @@ namespace Orkige
 	//! TransformChangeCommand stores as before/after state)
 	struct EditorTransform
 	{
-		Ogre::Vector3 position = Ogre::Vector3::ZERO;
-		Ogre::Quaternion orientation = Ogre::Quaternion::IDENTITY;
-		Ogre::Vector3 scale = Ogre::Vector3::UNIT_SCALE;
+		Vec3 position = Vec3::ZERO;
+		Quat orientation = Quat::IDENTITY;
+		Vec3 scale = Vec3::UNIT_SCALE;
 	};
 
 	//! @brief full serialized state of one GameObject, captured through the
@@ -150,7 +148,7 @@ namespace Orkige
 	{
 	public:
 		CreateObjectCommand(String const& objectId, String const& meshName,
-			Ogre::Vector3 const& position);
+			Vec3 const& position);
 		virtual bool execute(EditorCore& core) override;
 		virtual bool unexecute(EditorCore& core) override;
 		virtual String getDescription() const override;
@@ -158,7 +156,7 @@ namespace Orkige
 	private:
 		String mObjectId;
 		String mMeshName;
-		Ogre::Vector3 mPosition;
+		Vec3 mPosition;
 	};
 
 	//! delete an object; undo restores the full serialized component state
@@ -406,7 +404,7 @@ namespace Orkige
 		static const float SNAP_ROTATE_DEGREES;	//!< degrees
 		static const float SNAP_SCALE;				//!< scale step
 		//! duplicated objects appear next to the source, not inside it
-		static const Ogre::Vector3 DUPLICATE_OFFSET;
+		static const Vec3 DUPLICATE_OFFSET;
 
 		explicit EditorCore(GameObjectManager& gameObjectManager);
 
@@ -592,7 +590,7 @@ namespace Orkige
 		//! ModelComponent (NOT undoable - the scripted-test fixture setup
 		//! and CreateObjectCommand use it). Requires a booted engine.
 		bool instantiateModelObject(String const& id, String const& meshName,
-			Ogre::Vector3 const& position);
+			Vec3 const& position);
 		//! re-apply the unlit vertex-colour render state after a (re)load -
 		//! ModelComponent does not serialize material tweaks yet. Safe to
 		//! call on objects without a ModelComponent (does nothing).

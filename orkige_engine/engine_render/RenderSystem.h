@@ -129,6 +129,26 @@ namespace Orkige
 		//! @brief parse scripts/indices of everything registered so far
 		//! map: classic/next=ResourceGroupManager::initialiseAllResourceGroups | filament=no-op
 		void initialiseResourceGroups();
+		//! @brief unregister a resource location again (idempotent - a
+		//! location that was never registered is a no-op). The editor's mesh
+		//! import re-registers a directory to re-index a just-copied file.
+		//! map: classic/next=ResourceGroupManager::removeResourceLocation | filament=drop from the impl search path list
+		void removeResourceLocation(String const & path,
+			String const & groupName = "");
+		//! @brief does the resource group exist (was anything registered
+		//! under it)? Project switching probes before tearing down.
+		//! map: classic/next=ResourceGroupManager::resourceGroupExists | filament=impl-side group table
+		bool resourceGroupExists(String const & groupName) const;
+		//! @brief unload and unregister EVERYTHING in the group (the editor's
+		//! clean project switch - name-cached resources must not leak into
+		//! the next project); no-op when the group does not exist
+		//! map: classic/next=ResourceGroupManager::destroyResourceGroup | filament=drop the impl group + its paths
+		void destroyResourceGroup(String const & groupName);
+		//! @brief is a resource of that name indexed (loadable) in the group?
+		//! @param groupName empty = the default/general group
+		//! map: classic/next=ResourceGroupManager::resourceExists | filament=impl VFS lookup
+		bool resourceExists(String const & resourceName,
+			String const & groupName = "") const;
 
 		//--- stats ---
 		//! @see RenderSystem::FrameStats

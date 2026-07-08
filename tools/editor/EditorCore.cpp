@@ -11,10 +11,8 @@
 #include <engine_util/PrimitiveUtil.h>
 #include <core_serialization/XMLArchive.h>
 
-#include <OgreEntity.h>
-#include <OgreException.h>
-
 #include <algorithm>
+#include <exception>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -302,7 +300,7 @@ namespace Orkige
 	//--- CreateObjectCommand ----------------------------------
 	//---------------------------------------------------------
 	CreateObjectCommand::CreateObjectCommand(String const& objectId,
-		String const& meshName, Ogre::Vector3 const& position)
+		String const& meshName, Vec3 const& position)
 		: mObjectId(objectId), mMeshName(meshName), mPosition(position)
 	{
 	}
@@ -785,7 +783,7 @@ namespace Orkige
 	const float EditorCore::SNAP_TRANSLATE = 0.5f;
 	const float EditorCore::SNAP_ROTATE_DEGREES = 15.0f;
 	const float EditorCore::SNAP_SCALE = 0.1f;
-	const Ogre::Vector3 EditorCore::DUPLICATE_OFFSET(0.5f, 0.0f, 0.5f);
+	const Vec3 EditorCore::DUPLICATE_OFFSET(0.5f, 0.0f, 0.5f);
 	//---------------------------------------------------------
 	EditorCore::EditorCore(GameObjectManager& gameObjectManager)
 		: mGameObjectManager(gameObjectManager),
@@ -912,14 +910,14 @@ namespace Orkige
 	{
 		const String id = generateObjectId("Cube");
 		return executeCommand(onew(new CreateObjectCommand(id,
-			PrimitiveUtil::CUBE_MESH_NAME, Ogre::Vector3::ZERO)));
+			PrimitiveUtil::CUBE_MESH_NAME, Vec3::ZERO)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::createTestMesh()
 	{
 		const String id = generateObjectId("TestMesh");
 		return executeCommand(onew(new CreateObjectCommand(id,
-			"test_mesh.glb", Ogre::Vector3::ZERO)));
+			"test_mesh.glb", Vec3::ZERO)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::duplicateSelected()
@@ -1255,7 +1253,7 @@ namespace Orkige
 		out.textureName = sprite->getTextureName();
 		out.width = sprite->getWidth();
 		out.height = sprite->getHeight();
-		Ogre::ColourValue const& tint = sprite->getTint();
+		Color const& tint = sprite->getTint();
 		out.tint[0] = tint.r;
 		out.tint[1] = tint.g;
 		out.tint[2] = tint.b;
@@ -1317,10 +1315,10 @@ namespace Orkige
 		{
 			model->loadModel(meshName);
 		}
-		catch (Ogre::Exception const& e)
+		catch (std::exception const& e)
 		{
 			oDebugMsg("editor", 0, "EditorCore: mesh '" << meshName
-				<< "' load failed: " << e.getDescription());
+				<< "' load failed: " << e.what());
 			// try not to lose the entity: reload the previous mesh
 			if (!previousMesh.empty() && previousMesh != meshName)
 			{
@@ -1329,7 +1327,7 @@ namespace Orkige
 					model->loadModel(previousMesh);
 					applyModelFixups(id);
 				}
-				catch (Ogre::Exception const&)
+				catch (std::exception const&)
 				{
 				}
 			}
@@ -1457,7 +1455,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	bool EditorCore::instantiateModelObject(String const& id,
-		String const& meshName, Ogre::Vector3 const& position)
+		String const& meshName, Vec3 const& position)
 	{
 		optr<GameObject> gameObject =
 			mGameObjectManager.createGameObject(id).lock();
@@ -1470,10 +1468,10 @@ namespace Orkige
 		{
 			gameObject->getComponentPtr<ModelComponent>()->loadModel(meshName);
 		}
-		catch (Ogre::Exception const& e)
+		catch (std::exception const& e)
 		{
 			oDebugMsg("editor", 0, "EditorCore: mesh '" << meshName
-				<< "' load failed: " << e.getDescription());
+				<< "' load failed: " << e.what());
 			mGameObjectManager.delGameObject(id);
 			return false;
 		}
