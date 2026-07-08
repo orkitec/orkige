@@ -1158,6 +1158,48 @@ bool simulatorPlayerInstalled(std::string const& udid)
 	return runProcessCaptured(args, output, exitCode) && exitCode == 0;
 }
 
+//! @brief true when the player installed on the (BOOTED) simulator is at
+//! least as new as the locally built one, so launching it is honest. A STALE
+//! install must be replaced, never launched: it silently runs days-old
+//! engine code (seen in the wild as a pre-project-system player rejecting
+//! '--project' - black screen, instant exit). Compares the app binaries'
+//! mtimes via the host filesystem (simulator containers live there); with
+//! no local build to compare against the installed app counts as current.
+bool simulatorPlayerUpToDate(std::string const& udid)
+{
+	const char* args[] = { "/usr/bin/xcrun", "simctl", "get_app_container",
+		udid.c_str(), PLAY_SIMULATOR_BUNDLE_ID, "app", nullptr };
+	std::string output;
+	int exitCode = 0;
+	if (!runProcessCaptured(args, output, exitCode) || exitCode != 0)
+	{
+		return false; // not installed at all
+	}
+	while (!output.empty() &&
+		(output.back() == '\n' || output.back() == '\r' ||
+			output.back() == ' '))
+	{
+		output.pop_back();
+	}
+	std::error_code error;
+	const std::filesystem::file_time_type builtTime =
+		std::filesystem::last_write_time(
+			std::filesystem::path(ORKIGE_EDITOR_IOS_PLAYER_APP) /
+				"OrkigePlayer", error);
+	if (error)
+	{
+		return true; // nothing newer to offer - keep the install
+	}
+	const std::filesystem::file_time_type installedTime =
+		std::filesystem::last_write_time(
+			std::filesystem::path(output) / "OrkigePlayer", error);
+	if (error)
+	{
+		return false; // container exists but the binary is gone - reinstall
+	}
+	return installedTime >= builtTime;
+}
+
 //--- iOS hardware (task: physical-device tooling, honestly gated) ----------
 
 //! @brief is a codesigning identity available? Deploying to iOS HARDWARE
@@ -1507,8 +1549,9 @@ void advanceSimulatorPrep(PlaySession& session)
 		{
 			return; // still coming up
 		}
-		// booted - is the player app on it?
-		if (simulatorPlayerInstalled(session.simulatorUdid))
+		// booted - is a CURRENT player app on it? (a stale install is
+		// replaced, not launched - see simulatorPlayerUpToDate)
+		if (simulatorPlayerUpToDate(session.simulatorUdid))
 		{
 			launchPlayerOnSimulator(session);
 			return;
@@ -3594,7 +3637,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			for (SimulatorDevice const& device : availableSimulators)
 			{
 				const std::string entryLabel = device.booted
-					? device.name : device.name + "  (shutdown)";
+					? device.name
+					: device.name + "  (not running - Play boots it)";
 				if (ImGui::Selectable(
 					(entryLabel + "##" + device.udid).c_str(),
 					session.simulatorUdid == device.udid))
