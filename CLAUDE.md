@@ -129,6 +129,15 @@ The rule: every change ships with tests that verify it — unit tests for core
 logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
 pass before committing.
 
+CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds + tests the
+Linux classic flavor (required) and Linux next (experimental). A `pre-push` git
+hook (install once per clone: `Util/install_git_hooks.sh`) spawns
+`Util/watch_ci.sh` detached, which polls the push's runs and reports via macOS
+notification + `~/.orkige/ci-watch-<sha>.log` (failure = failing steps' log
+tail included). Skip once with `ORKIGE_NO_CI_WATCH=1 git push`. When a CI
+failure lands, look into fixing it promptly — a red required job blocks
+everyone's confidence in the suite.
+
 ## Modernization ground rules
 
 - C++20, no boost. Old code being touched gets moved to std equivalents
