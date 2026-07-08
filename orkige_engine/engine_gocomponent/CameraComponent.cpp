@@ -4,13 +4,14 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include <core_game/GameObject.h>
-#include "engine_graphic/Engine.h"
+#include "engine_render/RenderSystem.h"
+#include "engine_render/RenderWorld.h"
 #include "engine_gocomponent/CameraDefaultModes.h"
 
 #include <algorithm>
@@ -22,13 +23,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	CameraComponent::CameraComponent()
 	{
-		this->actorNode = NULL;
-		this->controlNode = NULL;
-		this->sightNode = NULL;
-		this->cameraNode = NULL;
-		this->targetNode = NULL;
-		this->attachNode = NULL;
-		this->camera = NULL;
 		this->projectionMode = CameraComponent::PM_PERSPECTIVE;
 		this->orthoSize = 5.0f;
 		this->addDependency<TransformComponent>();
@@ -44,6 +38,10 @@ namespace Orkige
 	void CameraComponent::onUpdateComponent(float deltaTime)
 	{
 		this->cameraFunction(this,deltaTime,1.0f);
+		// the historical Ogre auto-tracking, spelled out: the camera node
+		// always looks at the target node (fixed yaw axis keeps it roll-free)
+		this->attachNode->lookAt(this->targetNode->getWorldPosition(),
+			RenderNode::TS_WORLD);
 	}
 	//---------------------------------------------------------
 	void CameraComponent::onAdd()
@@ -52,55 +50,57 @@ namespace Orkige
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode const * sceneNode = transformComponent->getSceneNode();
-		oAssert(sceneNode);
 
-		this->actorNode = sceneNode;
+		this->actorNode = transformComponent->getNode();
 		oAssert(this->actorNode);
 
 		String const & componentOwnerObjectId = componentOwner->getObjectID();
 		oAssert(!componentOwnerObjectId.empty());
 
-		this->controlNode = transformComponent->createChildSceneNode (componentOwnerObjectId + "_control", Ogre::Vector3 (0, 1, 0)); //probably somewhe in the head
-		this->sightNode = this->controlNode->createChildSceneNode (componentOwnerObjectId + "_sight", Ogre::Vector3 (0, 0, 1));
-		this->cameraNode = this->controlNode->createChildSceneNode (componentOwnerObjectId + "_camera", Ogre::Vector3 (0, 0, -85));
-		this->attachNode = this->actorNode->getCreator()->getRootSceneNode()->createChildSceneNode(componentOwnerObjectId + "_attach");
-		this->targetNode = this->actorNode->getCreator()->getRootSceneNode()->createChildSceneNode(componentOwnerObjectId + "_target");
+		RenderWorld* world = RenderSystem::get()->getWorld();
 
-		this->attachNode->setAutoTracking (true, this->targetNode); // The camera will always look at the camera target
-		this->attachNode->setFixedYawAxis (true); // Needed because of auto tracking
+		this->controlNode = transformComponent->createChildNode(componentOwnerObjectId + "_control");
+		this->controlNode->setPosition(Vec3(0, 1, 0)); //probably somewhere in the head
+		this->sightNode = this->controlNode->createChild(componentOwnerObjectId + "_sight");
+		this->sightNode->setPosition(Vec3(0, 0, 1));
+		this->cameraNode = this->controlNode->createChild(componentOwnerObjectId + "_camera");
+		this->cameraNode->setPosition(Vec3(0, 0, -85));
+		this->attachNode = world->createNode(componentOwnerObjectId + "_attach");
+		this->targetNode = world->createNode(componentOwnerObjectId + "_target");
 
-		this->camera = Engine::getSingleton().getCamera();
+		this->attachNode->setFixedYawAxis(true); // keeps the per-update lookAt roll-free
 
-		this->camera->detachFromParent();
-		this->attachNode->attachObject(this->camera);
+		// take over the window camera (the Engine default camera until
+		// WP-A1.3 - getWindowCamera wraps it into a facade handle)
+		this->camera = RenderSystem::get()->getWindowCamera();
+		oAssert(this->camera);
+
+		this->camera->attachTo(this->attachNode);
 		this->setMode(CameraDefaultModes::ThirdPersonChaseCamera);
 		this->applyProjection();
 	}
 	//---------------------------------------------------------
 	void CameraComponent::onRemove()
 	{
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
-		oAssert(transformComponent);
-		// hand the engine camera back the way we found it
-		if(this->camera && this->projectionMode != CameraComponent::PM_PERSPECTIVE)
+		// hand the window camera back the way we found it
+		if(this->camera)
 		{
-			this->camera->setProjectionType(Ogre::PT_PERSPECTIVE);
+			if(this->projectionMode != CameraComponent::PM_PERSPECTIVE)
+			{
+				this->camera->setPerspective(this->camera->getFOVy(),
+					this->camera->getNearClip(), this->camera->getFarClip());
+			}
+			this->camera->detach();
 		}
-		this->controlNode->removeAndDestroyAllChildren();
-		transformComponent->removeChild(this->controlNode->getName());
-		this->actorNode->getCreator()->destroySceneNode(this->controlNode->getName());
-		this->attachNode->detachAllObjects();
-		this->actorNode->getCreator()->destroySceneNode(this->attachNode->getName());
-		this->actorNode->getCreator()->destroySceneNode(this->targetNode->getName());
-		this->actorNode = NULL;
-		this->controlNode = NULL;
-		this->sightNode = NULL;
-		this->cameraNode = NULL;
-		this->targetNode = NULL;
-		this->camera = NULL;
+		// RAII: dropping the handles detaches and destroys the rig nodes -
+		// children before their parent (sight/camera hang off control)
+		this->camera.reset();
+		this->sightNode.reset();
+		this->cameraNode.reset();
+		this->controlNode.reset();
+		this->attachNode.reset();
+		this->targetNode.reset();
+		this->actorNode.reset();
 	}
 	//---------------------------------------------------------
 	void CameraComponent::setProjectionMode(ProjectionMode mode)
@@ -123,16 +123,19 @@ namespace Orkige
 		{
 			return;	// detached: the state applies on onAdd/load
 		}
+		// the clip planes are read back so switching the projection type
+		// never alters them (the historical behavior)
 		if(this->projectionMode == CameraComponent::PM_ORTHOGRAPHIC)
 		{
-			this->camera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);
-			// setOrthoWindowHeight keeps the camera's aspect ratio - the
+			// the ortho half-extent keeps the camera's aspect ratio - the
 			// window width follows the viewport automatically
-			this->camera->setOrthoWindowHeight(this->orthoSize * 2.0f);
+			this->camera->setOrthographic(this->orthoSize,
+				this->camera->getNearClip(), this->camera->getFarClip());
 		}
 		else
 		{
-			this->camera->setProjectionType(Ogre::PT_PERSPECTIVE);
+			this->camera->setPerspective(this->camera->getFOVy(),
+				this->camera->getNearClip(), this->camera->getFarClip());
 		}
 	}
 	//---------------------------------------------------------

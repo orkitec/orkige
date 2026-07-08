@@ -4,12 +4,13 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 #ifndef __NodeUtil_h__31_8_2010__0_23_43__
 #define __NodeUtil_h__31_8_2010__0_23_43__
 
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_render/RenderNode.h"
 // TODO(Phase 1): engine_gocomponent is not ported yet; getGameObjectFromNode()
 // returns together with TransformComponent (see ORKIGE_ENGINE_HAS_GOCOMPONENT below).
 #ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
@@ -18,62 +19,48 @@
 
 namespace Orkige
 {
-	//! node utilities
+	//! @brief node utilities - the node -> GameObject back-mapping
+	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): the historical
+	//! cleanSceneNode/wipeSceneNode destroy chains are GONE - facade
+	//! RenderNode/MeshInstance/SpriteQuad handles are RAII, dropping the optr
+	//! detaches and destroys the backend object (recoverable from git).
 	namespace NodeUtil
 	{
-		//! recursively removes and destroys all attached objects on a SceneNode and its children
-		static inline void cleanSceneNode(Ogre::SceneNode* sceneNode)
-		{
-			oAssert(sceneNode);
-			for(unsigned short i = sceneNode->numAttachedObjects(); i > 0; --i )
-			{
-				try
-				{
-					Ogre::MovableObject* mo = sceneNode->detachObject(i-1);
-					sceneNode->getCreator()->destroyMovableObject(mo);
-				}
-				catch (...)
-				{
-
-				}
-
-			}
-			// OGRE 14: getChildIterator() is gone, getChildren() returns the child list
-			for(Ogre::Node* child : sceneNode->getChildren())
-			{
-				Ogre::SceneNode* sn = static_cast<Ogre::SceneNode*>(child);
-				if(sn)
-					cleanSceneNode(sn);
-			}
-		}
-		//---------------------------------------------------------
-		//! completely destroys a SceneNode and all its attached childs and MovableOject's
-		static inline void wipeSceneNode(Ogre::SceneNode* &sceneNode)
-		{
-			oAssert(sceneNode);
-			cleanSceneNode(sceneNode);
-			sceneNode->removeAndDestroyAllChildren();
-			Ogre::SceneManager* sceneManager = sceneNode->getCreator();
-			oAssert(sceneManager);
-			sceneManager->destroySceneNode(sceneNode);
-			sceneNode = NULL;
-		}
-		//---------------------------------------------------------
 #ifdef ORKIGE_ENGINE_HAS_GOCOMPONENT
-		//! get game object from given scene node
+		//! get the GameObject a facade node belongs to (via the node
+		//! user pointer a TransformComponent tags its node with)
 		//! only works for GameObjects with a TransformComponent
 		//! @see TransformComponent::getComponentFromNode
-		static inline GameObject* getGameObjectFromNode(Ogre::Node const * node,  bool traverseParents = true)
+		static inline GameObject* getGameObjectFromNode(optr<RenderNode> const & node, bool traverseParents = true)
 		{
 			oAssert(node);
 			GameObject* go = NULL;
-			TransformComponent *tc = TransformComponent::getComponentFromNode(node, traverseParents);
+			TransformComponent* tc = TransformComponent::getComponentFromNode(node, traverseParents);
 			if(tc)
 			{
 				go = tc->getComponentOwner();
 			}
 			return go;
 		}
+		//---------------------------------------------------------
+#ifdef ORKIGE_RENDER_CLASSIC
+		//! @brief TRANSITIONAL classic-only overload for raw Ogre nodes
+		//! @remarks kept for the editor's own Ogre ray query (dual-tagging,
+		//! see TransformComponent::onAdd); WP-A1.4 migrates the editor onto
+		//! RenderWorld::queryRay + findUserPointerUpwards and DELETES this
+		//! overload together with the Ogre-side user bindings.
+		static inline GameObject* getGameObjectFromNode(Ogre::Node const * node, bool traverseParents = true)
+		{
+			oAssert(node);
+			GameObject* go = NULL;
+			TransformComponent* tc = TransformComponent::getComponentFromNode(node, traverseParents);
+			if(tc)
+			{
+				go = tc->getComponentOwner();
+			}
+			return go;
+		}
+#endif //ORKIGE_RENDER_CLASSIC
 #endif //ORKIGE_ENGINE_HAS_GOCOMPONENT
 	}
 }

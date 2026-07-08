@@ -155,11 +155,12 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 		{
 			continue;
 		}
-		Ogre::Entity* model =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
-		if (model)
+		optr<Orkige::MeshInstance> mesh =
+			gameObject->getComponentPtr<Orkige::ModelComponent>()
+				->getMeshInstance();
+		if (mesh)
 		{
-			Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model);
+			mesh->setVertexColourUnlit();
 		}
 	}
 }
@@ -206,11 +207,11 @@ public:
 		Orkige::ModelComponent* model =
 			player->getComponentPtr<Orkige::ModelComponent>();
 		model->loadModel("jumper_player.glb");
-		if (!model->getModel())
+		if (!model->getMeshInstance())
 		{
 			return false;
 		}
-		Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model->getModel());
+		model->getMeshInstance()->setVertexColourUnlit();
 		mPlayerTransform->setPosition(mSpawnPosition);
 		mPlayerBody->setBodyType(Orkige::PhysicsWorld::BT_DYNAMIC);
 		mPlayerBody->setCapsuleShape(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS);
@@ -481,8 +482,9 @@ bool buildLevel(Orkige::GameObjectManager& gameObjectManager)
 		false, Orkige::PhysicsWorld::BT_STATIC, 0.0f);
 }
 
-//! number of texture units on subentity 0 of a ModelComponent's entity
-//! (the selfcheck's "the textures actually loaded" probe)
+//! does sub-mesh 0 of a ModelComponent's mesh sample a texture - 1/0, or -1
+//! when there is no loaded model (the selfcheck's "the textures actually
+//! loaded" probe, now through the facade MeshInstance)
 int textureUnitCount(Orkige::GameObjectManager& gameObjectManager,
 	std::string const& id)
 {
@@ -492,14 +494,14 @@ int textureUnitCount(Orkige::GameObjectManager& gameObjectManager,
 	{
 		return -1;
 	}
-	Ogre::Entity* entity =
-		gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
-	if (!entity || entity->getNumSubEntities() == 0)
+	optr<Orkige::MeshInstance> mesh =
+		gameObject->getComponentPtr<Orkige::ModelComponent>()
+			->getMeshInstance();
+	if (!mesh || mesh->getNumSubMeshes() == 0)
 	{
 		return -1;
 	}
-	return static_cast<int>(entity->getSubEntity(0)->getMaterial()
-		->getTechnique(0)->getPass(0)->getNumTextureUnitStates());
+	return mesh->subMeshHasTexture(0) ? 1 : 0;
 }
 
 //! push a synthetic key event through the SDL queue (same pattern as the

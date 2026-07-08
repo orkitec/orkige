@@ -135,11 +135,12 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 		{
 			continue;
 		}
-		Ogre::Entity* model =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
-		if (model)
+		optr<Orkige::MeshInstance> mesh =
+			gameObject->getComponentPtr<Orkige::ModelComponent>()
+				->getMeshInstance();
+		if (mesh)
 		{
-			Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model);
+			mesh->setVertexColourUnlit();
 		}
 	}
 }
@@ -187,11 +188,11 @@ public:
 		Orkige::ModelComponent* model =
 			player->getComponentPtr<Orkige::ModelComponent>();
 		model->loadModel("jumper_player.glb");
-		if (!model->getModel())
+		if (!model->getMeshInstance())
 		{
 			return false;
 		}
-		Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model->getModel());
+		model->getMeshInstance()->setVertexColourUnlit();
 		mPlayerTransform->setPosition(mSpawnPosition);
 		mPlayerBody->setBodyType(Orkige::PhysicsWorld::BT_DYNAMIC);
 		mPlayerBody->setCapsuleShape(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS);

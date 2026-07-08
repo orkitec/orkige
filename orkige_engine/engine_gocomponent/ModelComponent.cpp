@@ -4,14 +4,14 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 
 #include "engine_gocomponent/ModelComponent.h"
-#include "engine_gocomponent/AnimationComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
-#include "engine_util/NodeUtil.h"
-#include <core_game/GameObjectManager.h>
+#include "engine_render/RenderSystem.h"
+#include "engine_render/RenderWorld.h"
+#include <core_game/GameObject.h>
 
 namespace Orkige
 {
@@ -22,8 +22,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	ModelComponent::ModelComponent()
 	{
-		this->model = NULL;
-		this->sceneNode = NULL;
 		this->modelFileName = "";
 		this->addDependency<TransformComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
@@ -33,19 +31,14 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------
-	void ModelComponent::loadModel(String const & modelFileName, bool shareSkeletonInstance)
+	void ModelComponent::loadModel(String const & modelFileName)
 	{
 		oAssert(!modelFileName.empty());
-
-		this->modelFileName = modelFileName;
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
-		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
-		oAssert(transformComponent);
-		Ogre::SceneNode const * parentSceneNode = transformComponent->getSceneNode();
-		oAssert(parentSceneNode);
+		oAssert(this->mNode);
 
-		if(this->sceneNode)
+		if(this->mesh)
 		{
 			this->removeModel();
 		}
@@ -53,47 +46,19 @@ namespace Orkige
 		if(modelFileName.empty())
 			return;
 
-		this->modelFileName = modelFileName;
-		this->model = parentSceneNode->getCreator()->createEntity(componentOwner->getObjectID() + ".ModelComponent." + modelFileName, modelFileName);
-		oAssert(this->model);
-
-		if(shareSkeletonInstance)
+		// the facade resolves the mesh through every resource group
+		// (engine media AND project assets); a load failure was already
+		// logged - the component honestly stays empty then
+		optr<MeshInstance> loaded =
+			RenderSystem::get()->getWorld()->createMeshInstance(modelFileName);
+		if(!loaded)
 		{
-			if(this->model->hasSkeleton())
-			{
-				foreach(GameObjectManager::GameObjectMap::value_type const & vt, GameObjectManager::getSingleton().getGameObjects())
-				{
-					optr<GameObject> go = vt.second;
-					if(go.get() != this->getGameObject())
-					{
-						if(go->hasComponent<ModelComponent>())
-						{
-							ModelComponent* mc = go->getComponentPtr<ModelComponent>();
-							Ogre::Entity* ent = mc->getModel();
-							String fileName = mc->getCurrentModelFileName();
-							if(fileName == modelFileName)
-							{
-
-								try
-								{
-									this->getModel()->shareSkeletonInstanceWith(ent);
-									if(this->getGameObject()->hasComponent<AnimationComponent>())
-									{
-										this->getGameObject()->removeComponent<AnimationComponent>();
-									}
-								}
-								catch(...)
-								{
-								}
-
-							}
-						}
-					}
-				}
-			}
+			return;
 		}
 
-		this->sceneNode->attachObject(model);
+		this->mesh = loaded;
+		this->modelFileName = modelFileName;
+		this->mesh->attachTo(this->getNode());
 		this->eventData->setValue(modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
@@ -102,14 +67,13 @@ namespace Orkige
 	{
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
-		
-		NodeUtil::cleanSceneNode(this->sceneNode);
-		this->sceneNode->removeAndDestroyAllChildren();
+
+		// RAII: dropping the handle detaches and destroys the backend entity
+		// (the historical NodeUtil wipe chain)
+		this->mesh.reset();
 
 		this->eventData->setValue(this->modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelRemovedEvent, this->eventData));
-		this->model = NULL;
-		//this->sceneNode = NULL;
 		this->modelFileName = "";
 	}
 	//---------------------------------------------------------
@@ -118,35 +82,21 @@ namespace Orkige
 	void ModelComponent::onAdd()
 	{
 		oAssert(this->modelFileName.empty());
-		oAssert(!this->model);
-		oAssert(!this->sceneNode);
+		oAssert(!this->mesh);
+		oAssert(!this->mNode);
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
 		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		Ogre::SceneNode* node = transformComponent->createChildSceneNode(componentOwner->getObjectID() + ".ModelComponent.sceneNode");
+		optr<RenderNode> node = transformComponent->createChildNode(componentOwner->getObjectID() + ".ModelComponent.sceneNode");
 		oAssert(node);
 		this->initSceneNodeGuard(node, componentOwner->getEventManager(), this);
 	}
 	//---------------------------------------------------------
 	void ModelComponent::onRemove()
 	{
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
-		oAssert(transformComponent);
-
-		this->nodeListener->nodeCanBeDestroyed = true;
-		
-		if(this->sceneNode)
-		{
-			NodeUtil::cleanSceneNode(this->sceneNode);
-			this->sceneNode->removeAndDestroyAllChildren();
-			transformComponent->removeAndDestroyChild(this->sceneNode->getName());		
-		}
-
-		this->model = NULL;
-		this->sceneNode = NULL;
+		// content first, then the node (a node must outlive its content)
+		this->mesh.reset();
 		this->modelFileName = "";
 		this->deinitSceneNodeGuard();
 	}
@@ -155,8 +105,8 @@ namespace Orkige
 	{
 		OParent::save(ar);
 		// only the mesh resource name round-trips; runtime tweaks applied to
-		// the entity/material after loadModel (material scheme changes,
-		// shared skeleton instances, ...) are NOT serialized yet
+		// the mesh instance after loadModel (unlit fixup, visibility, ...)
+		// are NOT serialized yet
 		ar << this->modelFileName;
 	}
 	//---------------------------------------------------------

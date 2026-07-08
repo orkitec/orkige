@@ -1491,13 +1491,13 @@ namespace Orkige
 		{
 			return;
 		}
-		Ogre::Entity* model =
-			gameObject->getComponentPtr<ModelComponent>()->getModel();
-		if (model)
+		optr<MeshInstance> mesh =
+			gameObject->getComponentPtr<ModelComponent>()->getMeshInstance();
+		if (mesh)
 		{
 			// imported materials keep lighting enabled - under the editor's
 			// ambient-only light the vertex colours would drown
-			PrimitiveUtil::makeEntityVertexColourUnlit(model);
+			mesh->setVertexColourUnlit();
 		}
 	}
 	//---------------------------------------------------------

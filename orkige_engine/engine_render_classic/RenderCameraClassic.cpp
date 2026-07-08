@@ -35,6 +35,17 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
+	optr<RenderCamera> RenderBackend::wrapCamera(Ogre::Camera* camera,
+		bool owned)
+	{
+		oAssert(camera);
+		optr<RenderCamera> handle(new RenderCamera());
+		handle->mImpl->camera = camera;
+		handle->mImpl->creator = camera->getSceneManager();
+		handle->mImpl->owned = owned;
+		return handle;
+	}
+	//---------------------------------------------------------
 	RenderCamera::RenderCamera()
 		: mImpl(new Impl())
 	{
@@ -42,7 +53,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderCamera::~RenderCamera()
 	{
-		if(this->mImpl->camera)
+		if(this->mImpl->camera && this->mImpl->owned)
 		{
 			if(this->mImpl->camera->isAttached())
 			{
@@ -113,6 +124,16 @@ namespace Orkige
 	void RenderCamera::setAspectRatio(Real aspect)
 	{
 		this->mImpl->camera->setAspectRatio(aspect);
+	}
+	//---------------------------------------------------------
+	Real RenderCamera::getNearClip() const
+	{
+		return this->mImpl->camera->getNearClipDistance();
+	}
+	//---------------------------------------------------------
+	Real RenderCamera::getFarClip() const
+	{
+		return this->mImpl->camera->getFarClipDistance();
 	}
 	//---------------------------------------------------------
 	Ray3 RenderCamera::viewportPointToRay(Real nx, Real ny) const

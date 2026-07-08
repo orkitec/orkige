@@ -92,11 +92,12 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 		{
 			continue;
 		}
-		Ogre::Entity* model =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()->getModel();
-		if (model)
+		optr<Orkige::MeshInstance> mesh =
+			gameObject->getComponentPtr<Orkige::ModelComponent>()
+				->getMeshInstance();
+		if (mesh)
 		{
-			Orkige::PrimitiveUtil::makeEntityVertexColourUnlit(model);
+			mesh->setVertexColourUnlit();
 		}
 	}
 }

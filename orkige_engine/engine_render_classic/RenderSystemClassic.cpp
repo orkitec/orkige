@@ -72,6 +72,33 @@ namespace Orkige
 		this->mImpl->windowCamera = camera;
 	}
 	//---------------------------------------------------------
+	optr<RenderCamera> RenderSystem::getWindowCamera() const
+	{
+		if(this->mImpl->windowCamera)
+		{
+			return this->mImpl->windowCamera;	// the facade path
+		}
+		// the Engine path (every app until WP-A1.3): wrap the camera the
+		// window viewport shows - non-owning, Engine keeps destroying it
+		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
+		if(window->getNumViewports() == 0)
+		{
+			return optr<RenderCamera>();	// no camera shown yet
+		}
+		Ogre::Camera* backendCamera = window->getViewport(0)->getCamera();
+		if(!backendCamera)
+		{
+			return optr<RenderCamera>();
+		}
+		if(RenderBackend::ogreCamera(this->mImpl->engineWindowCamera)
+			!= backendCamera)
+		{
+			this->mImpl->engineWindowCamera =
+				RenderBackend::wrapCamera(backendCamera, false /*owned*/);
+		}
+		return this->mImpl->engineWindowCamera;
+	}
+	//---------------------------------------------------------
 	void RenderSystem::setWindowBackgroundColour(Color const & colour)
 	{
 		this->mImpl->windowBackground = colour;

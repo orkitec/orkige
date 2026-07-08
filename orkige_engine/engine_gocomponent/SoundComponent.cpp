@@ -24,9 +24,7 @@ namespace Orkige
         SoundComponent::SoundComponent()
         {
                 this->addDependency<TransformComponent>();
-#ifndef ORKIGE_OGGSOUNDMANAGER
                 this->setWantsUpdates(true);
-#endif
         }
         //---------------------------------------------------------
         SoundComponent::~SoundComponent()
@@ -45,24 +43,11 @@ namespace Orkige
                         oAssert(componentOwner);
                         optr<TransformComponent> transformComponent = componentOwner->getComponent<TransformComponent>().lock();
                         oAssert(transformComponent);
+                        // the source follows the transform via onUpdateComponent; no3D
+                        // sources simply never move (the historical OgreOggSound-era
+                        // attachObject path is gone with the facade node reshape)
                         Orkige::SoundSourcePtr sound = SoundManager::getSingleton().createSound( id, fileName, loop, transformComponent->getPosition() );
-
-#ifdef ORKIGE_OGGSOUNDMANAGER
-                        sound->setRolloffFactor(20.0);
-                        //sound->setVolume(50);
-                        sound->setReferenceDistance(200);
-                        sound->setMaxDistance(250);
-
-
-                        sound->disable3D(no3D);
-#endif
                         this->attachedSoundObjects[id] = sound;
-                        if (!no3D)
-                        {
-#ifdef ORKIGE_OGGSOUNDMANAGER
-                                transformComponent->attachObject(sound);
-#endif
-                        }
                         return true;
                 }
                 return false;
@@ -154,7 +139,6 @@ namespace Orkige
                 {
                         return ;
                 }
-#ifndef ORKIGE_OGGSOUNDMANAGER
                 if(!this->attachedSoundObjects.empty())
                 {
                         GameObject* componentOwner = this->getComponentOwner();
@@ -186,7 +170,6 @@ namespace Orkige
                                 }
                         }
                 }
-#endif //ORKIGE_OGGSOUNDMANAGER
         }
         //---------------------------------------------------------
         // @TODO(scene format v2): serialize the attached sound names - until

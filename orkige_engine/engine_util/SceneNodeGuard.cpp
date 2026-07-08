@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 
 #include "engine_util/SceneNodeGuard.h"
@@ -17,79 +17,50 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	SceneNodeGuard::SceneNodeGuard() : sceneNode(NULL), nodeListener(NULL)
+	SceneNodeGuard::SceneNodeGuard()
+		: mEventManager(NULL)
+		, mEventData(NULL)
 	{
 	}
 	//---------------------------------------------------------
 	SceneNodeGuard::~SceneNodeGuard()
 	{
-		if(nodeListener)
+		// the handle is RAII - if a component forgot deinitSceneNodeGuard,
+		// dropping mNode still detaches and destroys the backend node
+	}
+	//---------------------------------------------------------
+	void SceneNodeGuard::attachToNode(optr<RenderNode> const & parent)
+	{
+		oAssert(this->mNode);
+		oAssert(parent);
+		if(this->mEventManager)
 		{
-			delete nodeListener;
+			this->mEventManager->trigger(Event(SceneNodeGuard::NodeDetachedEvent,
+				oBadPointer(this->mEventData)));
 		}
-	}
-	//---------------------------------------------------------
-	SceneNodeGuard::SceneNodeListener::SceneNodeListener(EventManager* em, Object* eventData) 
-		: enableNodeUpdatedEvent(false), 
-		nodeCanBeDestroyed(false), 
-		nodeUpdatedEvent(SceneNodeGuard::NodeUpdatedEvent,		oBadPointer(eventData)),
-		nodeAttachedEvent(SceneNodeGuard::NodeAttachedEvent,	oBadPointer(eventData)),
-		nodeDetachedEvent(SceneNodeGuard::NodeDetachedEvent,	oBadPointer(eventData)),
-		eventManager(em)
-	{
-	}
-	//---------------------------------------------------------
-	SceneNodeGuard::SceneNodeListener::~SceneNodeListener()
-	{
-
-	}
-	//---------------------------------------------------------
-	void SceneNodeGuard::SceneNodeListener::nodeUpdated(const Ogre::Node*)
-	{
-		OPROFILEFUNC();
-		if(this->enableNodeUpdatedEvent && this->eventManager)
+		this->mNode->setParent(parent);
+		if(this->mEventManager)
 		{
-			this->eventManager->trigger(this->nodeUpdatedEvent);
-		}
-	}
-	//---------------------------------------------------------
-	void SceneNodeGuard::SceneNodeListener::nodeDestroyed(const Ogre::Node* node)
-	{
-		oAssertDesc(this->nodeCanBeDestroyed, "It's not valid to destroy SceneNode: \"" << node->getName() << "\"!");
-	}
-	//---------------------------------------------------------
-	void SceneNodeGuard::SceneNodeListener::nodeAttached(const Ogre::Node* node)
-	{
-		OPROFILEFUNC();
-		if(this->eventManager)
-		{
-			this->eventManager->trigger(nodeAttachedEvent);
-		}
-	}
-	//---------------------------------------------------------
-	void SceneNodeGuard::SceneNodeListener::nodeDetached(const Ogre::Node* node)
-	{
-		OPROFILEFUNC();
-		if(this->eventManager)
-		{
-			this->eventManager->trigger(nodeDetachedEvent);
+			this->mEventManager->trigger(Event(SceneNodeGuard::NodeAttachedEvent,
+				oBadPointer(this->mEventData)));
 		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-	void SceneNodeGuard::initSceneNodeGuard(Ogre::SceneNode* node, EventManager* eventManager, Object* eventData)
+	void SceneNodeGuard::initSceneNodeGuard(optr<RenderNode> const & node, EventManager* eventManager, Object* eventData)
 	{
 		oAssert(node);
-		this->nodeListener = new SceneNodeListener(eventManager, eventData);
-		node->setListener(nodeListener);
-		this->sceneNode = node;
+		this->mNode = node;
+		this->mEventManager = eventManager;
+		this->mEventData = eventData;
 	}
 	//---------------------------------------------------------
 	void SceneNodeGuard::deinitSceneNodeGuard()
 	{
-		delete this->nodeListener;
-		this->nodeListener = NULL;
+		this->mNode.reset();
+		this->mEventManager = NULL;
+		this->mEventData = NULL;
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

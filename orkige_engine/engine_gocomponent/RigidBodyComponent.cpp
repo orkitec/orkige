@@ -38,7 +38,7 @@ namespace Orkige
 		this->mBodyDesc.bodyType = bodyType;
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::setBoxShape(Ogre::Vector3 const & halfExtents)
+	void RigidBodyComponent::setBoxShape(Vec3 const & halfExtents)
 	{
 		if (this->hasBody())
 		{
@@ -111,7 +111,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::setLinearVelocity(Ogre::Vector3 const & velocity)
+	void RigidBodyComponent::setLinearVelocity(Vec3 const & velocity)
 	{
 		if (this->hasBody())
 		{
@@ -119,16 +119,16 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	Ogre::Vector3 RigidBodyComponent::getLinearVelocity() const
+	Vec3 RigidBodyComponent::getLinearVelocity() const
 	{
 		if (!this->hasBody())
 		{
-			return Ogre::Vector3::ZERO;
+			return Vec3::ZERO;
 		}
 		return PhysicsWorld::getSingleton().getLinearVelocity(this->mBodyId);
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::setAngularVelocity(Ogre::Vector3 const & velocity)
+	void RigidBodyComponent::setAngularVelocity(Vec3 const & velocity)
 	{
 		if (this->hasBody())
 		{
@@ -136,16 +136,16 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	Ogre::Vector3 RigidBodyComponent::getAngularVelocity() const
+	Vec3 RigidBodyComponent::getAngularVelocity() const
 	{
 		if (!this->hasBody())
 		{
-			return Ogre::Vector3::ZERO;
+			return Vec3::ZERO;
 		}
 		return PhysicsWorld::getSingleton().getAngularVelocity(this->mBodyId);
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::applyImpulse(Ogre::Vector3 const & impulse)
+	void RigidBodyComponent::applyImpulse(Vec3 const & impulse)
 	{
 		if (this->hasBody())
 		{
@@ -153,7 +153,7 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::applyForce(Ogre::Vector3 const & force)
+	void RigidBodyComponent::applyForce(Vec3 const & force)
 	{
 		if (this->hasBody())
 		{
@@ -161,8 +161,8 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void RigidBodyComponent::teleport(Ogre::Vector3 const & position,
-		Ogre::Quaternion const & orientation)
+	void RigidBodyComponent::teleport(Vec3 const & position,
+		Quat const & orientation)
 	{
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
@@ -175,8 +175,8 @@ namespace Orkige
 			physicsWorld.setBodyTransform(this->mBodyId, position, orientation);
 			if (this->mBodyDesc.bodyType != PhysicsWorld::BT_STATIC)
 			{
-				physicsWorld.setLinearVelocity(this->mBodyId, Ogre::Vector3::ZERO);
-				physicsWorld.setAngularVelocity(this->mBodyId, Ogre::Vector3::ZERO);
+				physicsWorld.setLinearVelocity(this->mBodyId, Vec3::ZERO);
+				physicsWorld.setAngularVelocity(this->mBodyId, Vec3::ZERO);
 			}
 		}
 		transformComponent->setPosition(position);
@@ -218,8 +218,8 @@ namespace Orkige
 		case PhysicsWorld::BT_DYNAMIC:
 			{
 				// simulation -> scene
-				Ogre::Vector3 position;
-				Ogre::Quaternion orientation;
+				Vec3 position;
+				Quat orientation;
 				if (physicsWorld->getBodyTransform(this->mBodyId, position, orientation))
 				{
 					transformComponent->setPosition(position);

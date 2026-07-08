@@ -79,6 +79,12 @@ namespace Orkige
 		//! set it automatically on (re)size - call only for special cases
 		//! map: classic/next=Camera::setAspectRatio | filament=recompute projection
 		void setAspectRatio(Real aspect);
+		//! near clip distance (projection switchers preserve the clips with these)
+		//! map: classic/next=Camera::getNearClipDistance | filament=cached facade value
+		Real getNearClip() const;
+		//! far clip distance
+		//! map: classic/next=Camera::getFarClipDistance | filament=cached facade value
+		Real getFarClip() const;
 
 		//--- screen <-> world (picking, gizmos, HUD anchoring) ---
 		//! @brief world ray through a viewport point (normalized 0..1, y down)

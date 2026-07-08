@@ -4,584 +4,201 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec	
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 #ifndef __SceneNodeGuard_h__18_11_2010__19_04_10__
 #define __SceneNodeGuard_h__18_11_2010__19_04_10__
 
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_render/RenderNode.h"
+#include "engine_render/RenderMath.h"
 #include <core_event/EventManager.h>
 
 namespace Orkige
 {
-	//! utility wrapper around Ogre::SceneNode to prevent accidental destruction and to receive of events on Node changes 
+	//! @brief the components' node-owner base: holds ONE owned facade
+	//! RenderNode and forwards the transform surface components expose
+	//! @remarks Phase A1 reshape (Docs/render-abstraction.md, WP-A1.2): the
+	//! historical class mirrored ~60 Ogre::SceneNode methods around a raw
+	//! node pointer plus an Ogre::Node::Listener; components hand-rolled
+	//! NodeUtil wipe chains in onRemove. The facade handle is RAII - the
+	//! guard now only carries the ~15 methods components and their callers
+	//! actually use (audit in the doc) and dropping the handle detaches and
+	//! destroys the backend node. The whole class is scheduled for deletion
+	//! in WP-A1.5, when components hold their optr<RenderNode> directly.
 	class ORKIGE_ENGINE_DLL SceneNodeGuard
 	{
 		//--- Types -------------------------------------------------
 	public:
-		//! @brief Note that this happens when the node's derived update happens, not every time a method altering it's state occurs. 
-		//! There may be several state-changing calls but only one of these calls, when the node graph is fully updated.
-		//! @see Ogre::Node::Listener::nodeUpdated
+		//! @brief historical per-frame "node graph updated" notification
+		//! @warning NOT emitted since the A1 facade reshape: the render
+		//! facade has no per-node update callback (and no consumer ever
+		//! registered for this event). Declared so registrations keep
+		//! compiling; wire a facade node listener if a consumer appears.
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeUpdatedEvent);
-		//! triggered when sceneNode is attached to another SceneNode
+		//! triggered when the node is attached to another node (attachToNode)
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeAttachedEvent);
-		//! triggered when sceneNode is detached from its parent SceneNode
+		//! triggered when the node is detached from its parent (attachToNode)
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(NodeDetachedEvent);
 	protected:
-		//! listener for Ogre::Node Events 
-		class SceneNodeListener : public Ogre::Node::Listener
-		{
-			//--- Variables ---------------------------------------
-		public:
-			bool enableNodeUpdatedEvent;			//!< enable triggering of the NodeUpdatedEvent
-			bool nodeCanBeDestroyed;				//!< flag to mark if its valid to destroy the sceneNode
-		protected:
-			const Event nodeUpdatedEvent;
-			const Event nodeAttachedEvent;
-			const Event nodeDetachedEvent;
-			EventManager* eventManager;
-			Object*	eventData;
-		private:
-			//--- Methods -----------------------------------------
-		public:
-			//! constructor
-			SceneNodeListener(EventManager* em, Object* eventData);
-			//! destructor
-			virtual ~SceneNodeListener();
-			//! @copydoc Ogre::Node::Listener::nodeUpdated
-			virtual void nodeUpdated(const Ogre::Node* node);
-			//! @copydoc Ogre::Node::Listener::nodeDestroyed
-			virtual void nodeDestroyed(const Ogre::Node* node);
-			//! @copydoc Ogre::Node::Listener::nodeAttached
-			virtual void nodeAttached(const Ogre::Node* node);
-			//! @copydoc Ogre::Node::Listener::nodeDetached
-			virtual void nodeDetached(const Ogre::Node* node);
-		protected:
-		private:
-		};
 	private:
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Ogre::SceneNode*	sceneNode;		//!< transform SceneNode
-		SceneNodeListener*	nodeListener;	//!< listens on events for the transform node
+		optr<RenderNode>	mNode;			//!< the owned transform node (NULL while detached)
+		EventManager*		mEventManager;	//!< receives the node events or NULL
+		Object*				mEventData;		//!< payload of the node events (the owning component)
 	private:
 		//--- Methods -----------------------------------------------
 	public:
 		//! constructor
 		SceneNodeGuard();
-		//! destructor
+		//! destructor - drops the handle (RAII destroys the backend node)
 		virtual ~SceneNodeGuard();
-		//! get the Transform SceneNode
-		inline Ogre::SceneNode const * getSceneNode() const;
-		//! get position relative to the rootSceneNode
-		inline Ogre::Vector3 const & getPosition() const;
+		//! the owned facade node (NULL while the component is detached)
+		inline optr<RenderNode> const & getNode() const;
+		//! get position relative to the parent node
+		inline Vec3 const & getPosition() const;
 		//! get position in the world
-		inline Ogre::Vector3 const & getWorldPosition() const;
-		//! get position relative to the rootSceneNode
-		inline Ogre::Quaternion const & getOrientation() const;
-		//! get the orientation independent from root
-		inline Ogre::Quaternion const & getWorldOrientation() const;
+		inline Vec3 getWorldPosition() const;
+		//! get orientation relative to the parent node
+		inline Quat const & getOrientation() const;
+		//! get the orientation in the world
+		inline Quat getWorldOrientation() const;
 		//! get scale
-		inline Ogre::Vector3 const & getScale() const;
+		inline Vec3 const & getScale() const;
 		//! set position
-		inline void setPosition(Ogre::Vector3 const & position);
+		inline void setPosition(Vec3 const & position);
 		//! set scale
-		inline void setScale(Ogre::Vector3 const & scale);
+		inline void setScale(Vec3 const & scale);
 		//! set orientation
-		inline void setOrientation(Ogre::Quaternion const & orientation);
-		//! @copydoc Ogre::Node::setInheritOrientation
-		inline void setInheritOrientation(bool inherit);
-		//! @copydoc Ogre::Node::getInheritOrientation
-		inline bool getInheritOrientation() const;
-		//! @copydoc Ogre::Node::setInheritScale
-		inline void setInheritScale(bool inherit);
-		//! @copydoc Ogre::Node::getInheritScale
-		inline bool getInheritScale() const;
-		//! @copydoc Ogre::Node::scale
-		inline void scale(Ogre::Vector3 const & scale);
-		//! @copydoc Ogre::Node::scale
-		inline void scale(Ogre::Real x, Ogre::Real y, Ogre::Real z);
-		//! @copydoc Ogre::Node::translate
-		inline void translate(Ogre::Vector3 const & d, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_PARENT);
-		//! @copydoc Ogre::Node::translate
-		inline void translate(Ogre::Real x, Ogre::Real y, Ogre::Real z, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_PARENT);
-		//! @copydoc Ogre::Node::translate
-		inline void translate(Ogre::Matrix3 const & axes, Ogre::Vector3 const & move, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_PARENT);
-		//! @copydoc Ogre::Node::translate
-		inline void translate(Ogre::Matrix3 const & axes, Ogre::Real x, Ogre::Real y, Ogre::Real z, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_PARENT);
-		//! @copydoc Ogre::Node::roll
-		inline void roll(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL);
-		//! @copydoc Ogre::Node::pitch
-		inline void pitch(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL);
-		//! @copydoc Ogre::Node::yaw
-		inline void yaw(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL);
-		//! @copydoc Ogre::Node::rotate
-		inline void rotate(Ogre::Vector3 const & axis, Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL);
-		//! @copydoc Ogre::Node::rotate
-		inline void rotate(Ogre::Quaternion const & q, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL);
-		//! @copydoc Ogre::Node::getLocalAxes
-		inline Ogre::Matrix3 getLocalAxes() const;
-		//! @copydoc Ogre::Node::createChild
-		inline Ogre::Node* createChild(Ogre::Vector3 const & translate = Ogre::Vector3::ZERO, Ogre::Quaternion const & rotate = Ogre::Quaternion::IDENTITY );
-		//! @copydoc Ogre::Node::createChild
-		inline Ogre::Node* createChild(String const & name, Ogre::Vector3 const & translate = Ogre::Vector3::ZERO, Ogre::Quaternion const & rotate = Ogre::Quaternion::IDENTITY);
-		//! @copydoc Ogre::Node::addChild
-		inline void addChild(Ogre::Node* child);
-		//! @copydoc Ogre::Node::numChildren
-		inline unsigned short numChildren(void) const;
-		//! @copydoc Ogre::Node::getChild
-		inline Ogre::Node* getChild(unsigned short index) const;    
-		//! @copydoc Ogre::Node::getChild
-		inline Ogre::Node* getChild(String const & name) const;
-		//! @copydoc Ogre::Node::getChildren
-		//! OGRE 14: replaces the removed getChildIterator()
-		inline Ogre::Node::ChildNodeMap const & getChildren() const;
-		//! @copydoc Ogre::Node::removeChild
-		inline Ogre::Node* removeChild(unsigned short index);
-		//! @copydoc Ogre::Node::removeChild
-		inline Ogre::Node* removeChild(Ogre::Node* child);
-		//! @copydoc Ogre::Node::removeChild
-		inline Ogre::Node* removeChild(String const & name);
-		//! @copydoc Ogre::Node::removeAllChildren
-		inline void removeAllChildren();
-		//! @copydoc Ogre::Node::getParent
-		inline Ogre::Node* getParent() const;
-		//! @copydoc Ogre::SceneNode::getParentSceneNode
-		inline Ogre::SceneNode* getParentSceneNode(void) const;
-		//! @copydoc Ogre::SceneNode::attachObject
-		inline void attachObject(Ogre::MovableObject* obj);
-		//! @copydoc Ogre::SceneNode::numAttachedObjects
-		inline size_t numAttachedObjects() const;
-		//! @copydoc Ogre::SceneNode::getAttachedObject
-		inline Ogre::MovableObject* getAttachedObject(size_t index);
-		//! @copydoc Ogre::SceneNode::getAttachedObject
-		inline Ogre::MovableObject* getAttachedObject(String const & name);
-		//! @copydoc Ogre::SceneNode::detachObject
-		inline Ogre::MovableObject* detachObject(unsigned short index);
-		//! @copydoc Ogre::SceneNode::detachObject
-		inline void detachObject(Ogre::MovableObject* obj);
-		//! @copydoc Ogre::SceneNode::detachObject
-		inline Ogre::MovableObject* detachObject(String const & name);
-		//! @copydoc Ogre::SceneNode::detachAllObjects
-		inline void detachAllObjects();
-		//! @copydoc Ogre::SceneNode::_getWorldAABB
-		inline const Ogre::AxisAlignedBox& getWorldAABB() const;
-		//! @copydoc Ogre::SceneNode::_updateBounds
-		inline void updateBounds();
-		//! @copydoc Ogre::SceneNode::getAttachedObjects
-		//! OGRE 14: replaces the removed getAttachedObjectIterator()
-		inline Ogre::SceneNode::ObjectMap const & getAttachedObjects() const;
-		//! @copydoc Ogre::SceneNode::getCreator
-		inline Ogre::SceneManager* getSceneManager() const;
-		//! @copydoc Ogre::SceneNode::removeAndDestroyChild
-		inline void removeAndDestroyChild(String const & name);
-		//! @copydoc Ogre::SceneNode::removeAndDestroyChild
-		inline void removeAndDestroyChild(unsigned short index);
-		//! @copydoc Ogre::SceneNode::removeAndDestroyAllChildren
-		inline void removeAndDestroyAllChildren();
-		//! @copydoc Ogre::SceneNode::showBoundingBox
-		//! OGRE 14: hideBoundingBox() is gone, showBoundingBox(false) covers it
-		inline void showBoundingBox(bool bShow);
-		//! @copydoc Ogre::SceneNode::getShowBoundingBox
-		inline bool getShowBoundingBox() const;
-		//! @copydoc Ogre::SceneNode::createChildSceneNode
-		inline Ogre::SceneNode* createChildSceneNode(String const & name, Ogre::Vector3 const & translate = Ogre::Vector3::ZERO, Ogre::Quaternion const & rotate = Ogre::Quaternion::IDENTITY);
-		//! @copydoc Ogre::SceneNode::findLights
-		inline void findLights(Ogre::LightList& destList, Ogre::Real radius, Ogre::uint32 lightMask = 0xFFFFFFFF) const;
-		//! @copydoc Ogre::SceneNode::setFixedYawAxis
-		inline void setFixedYawAxis( bool useFixed, Ogre::Vector3 const & fixedAxis = Ogre::Vector3::UNIT_Y );
-		//! @copydoc Ogre::SceneNode::setDirection
-		inline void setDirection(Ogre::Vector3 const & vec, Ogre::Node::TransformSpace relativeTo = Ogre::Node::TS_LOCAL, Ogre::Vector3 const & localDirectionVector = Ogre::Vector3::NEGATIVE_UNIT_Z);
-		//! @copydoc Ogre::SceneNode::lookAt
-		inline void lookAt( Ogre::Vector3 const & targetPoint, Ogre::Node::TransformSpace relativeTo, Ogre::Vector3 const & localDirectionVector = Ogre::Vector3::NEGATIVE_UNIT_Z);
-		//! @copydoc Ogre::SceneNode::setAutoTracking
-		inline void setAutoTracking(bool enabled, Ogre::SceneNode const * target = 0, Ogre::Vector3 const & localDirectionVector = Ogre::Vector3::NEGATIVE_UNIT_Z, Ogre::Vector3 const & offset = Ogre::Vector3::ZERO);
-		//! @copydoc Ogre::SceneNode::getAutoTrackTarget
-		inline Ogre::SceneNode const * getAutoTrackTarget();
-		//! @copydoc Ogre::SceneNode::getAutoTrackOffset
-		inline Ogre::Vector3 const & getAutoTrackOffset();
-		//! @copydoc Ogre::SceneNode::getAutoTrackLocalDirection
-		inline Ogre::Vector3 const & getAutoTrackLocalDirection();
-		//! @copydoc Ogre::SceneNode::setVisible
+		inline void setOrientation(Quat const & orientation);
+		//! @see RenderNode::translate
+		inline void translate(Vec3 const & delta, RenderNode::TransformSpace relativeTo = RenderNode::TS_PARENT);
+		//! @see RenderNode::yaw
+		inline void yaw(Radian const & angle, RenderNode::TransformSpace relativeTo = RenderNode::TS_LOCAL);
+		//! @see RenderNode::pitch
+		inline void pitch(Radian const & angle, RenderNode::TransformSpace relativeTo = RenderNode::TS_LOCAL);
+		//! @see RenderNode::roll
+		inline void roll(Radian const & angle, RenderNode::TransformSpace relativeTo = RenderNode::TS_LOCAL);
+		//! @see RenderNode::lookAt
+		inline void lookAt(Vec3 const & targetPoint, RenderNode::TransformSpace relativeTo, Vec3 const & localDirection = Vec3::NEGATIVE_UNIT_Z);
+		//! @see RenderNode::setDirection
+		inline void setDirection(Vec3 const & direction, RenderNode::TransformSpace relativeTo = RenderNode::TS_LOCAL, Vec3 const & localDirection = Vec3::NEGATIVE_UNIT_Z);
+		//! @see RenderNode::setFixedYawAxis
+		inline void setFixedYawAxis(bool useFixed, Vec3 const & fixedAxis = Vec3::UNIT_Y);
+		//! @see RenderNode::setVisible
 		inline void setVisible(bool visible, bool cascade = true);
-		//! @copydoc Ogre::SceneNode::flipVisibility
-		inline void flipVisibility(bool cascade = true);
-		//! @copydoc Ogre::SceneNode::setDebugDisplayEnabled
-		//! OGRE 14: Node::DebugRenderable/getDebugRenderable() are gone for good
-		inline void setDebugDisplayEnabled(bool enabled, bool cascade = true);
-		//! attach to given node and detach from current parent node
-		inline void attachToNode(Ogre::Node* node);
-		//! enable triggering of NodeUpdateEvent
-		inline void setEnableNodeUpdateEvent(bool enable);
-		//! is NodeUpdateEvent triggering enabled
-		inline bool isNodeUpdateEventEnabled();
+		//! world-space bounds of everything attached at and below the node
+		inline AABB getWorldAABB() const;
+		//! create a child node of the owned node (empty name = generated)
+		inline optr<RenderNode> createChildNode(String const & name = "");
+		//! re-parent the owned node (triggers NodeDetachedEvent + NodeAttachedEvent)
+		void attachToNode(optr<RenderNode> const & parent);
 	protected:
-		//! init wrapper from a SceneNode and optional EventManager and eventData
-		void initSceneNodeGuard(Ogre::SceneNode* node, EventManager* eventManager = NULL, Object* eventData = NULL);
-		//! deinit wrapper
+		//! adopt an owned facade node and the optional event wiring
+		void initSceneNodeGuard(optr<RenderNode> const & node, EventManager* eventManager = NULL, Object* eventData = NULL);
+		//! drop the handle (destroys the backend node) and the event wiring
 		void deinitSceneNodeGuard();
 	private:
 	};
 	//---------------------------------------------------------
-	inline Ogre::SceneNode const * SceneNodeGuard::getSceneNode() const
+	inline optr<RenderNode> const & SceneNodeGuard::getNode() const
 	{
-		return this->sceneNode;
+		return this->mNode;
 	}
 	//---------------------------------------------------------
-	inline Ogre::Vector3 const & SceneNodeGuard::getPosition() const
+	inline Vec3 const & SceneNodeGuard::getPosition() const
 	{
-		return this->sceneNode->getPosition();
+		return this->mNode->getPosition();
 	}
 	//---------------------------------------------------------
-	inline Ogre::Vector3 const & SceneNodeGuard::getWorldPosition() const
+	inline Vec3 SceneNodeGuard::getWorldPosition() const
 	{
-		return this->sceneNode->_getDerivedPosition();
+		return this->mNode->getWorldPosition();
 	}
 	//---------------------------------------------------------
-	inline Ogre::Quaternion const & SceneNodeGuard::getOrientation() const
+	inline Quat const & SceneNodeGuard::getOrientation() const
 	{
-		return this->sceneNode->getOrientation();
+		return this->mNode->getOrientation();
 	}
 	//---------------------------------------------------------
-	inline Ogre::Quaternion const & SceneNodeGuard::getWorldOrientation() const
+	inline Quat SceneNodeGuard::getWorldOrientation() const
 	{
-		return this->sceneNode->_getDerivedOrientation();
+		return this->mNode->getWorldOrientation();
 	}
 	//---------------------------------------------------------
-	inline Ogre::Vector3 const & SceneNodeGuard::getScale() const
+	inline Vec3 const & SceneNodeGuard::getScale() const
 	{
-		return this->sceneNode->getScale();
+		return this->mNode->getScale();
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setPosition(Ogre::Vector3 const & position)
+	inline void SceneNodeGuard::setPosition(Vec3 const & position)
 	{
-		this->sceneNode->setPosition(position);
+		this->mNode->setPosition(position);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setScale(Ogre::Vector3 const & scale)
+	inline void SceneNodeGuard::setScale(Vec3 const & scale)
 	{
-		this->sceneNode->setScale(scale);
+		this->mNode->setScale(scale);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setOrientation(Ogre::Quaternion const & orientation)
+	inline void SceneNodeGuard::setOrientation(Quat const & orientation)
 	{
-		this->sceneNode->setOrientation(orientation);
+		this->mNode->setOrientation(orientation);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setInheritOrientation(bool inherit)
+	inline void SceneNodeGuard::translate(Vec3 const & delta, RenderNode::TransformSpace relativeTo)
 	{
-		this->sceneNode->setInheritOrientation(inherit);
+		this->mNode->translate(delta, relativeTo);
 	}
 	//---------------------------------------------------------
-	inline bool SceneNodeGuard::getInheritOrientation() const
+	inline void SceneNodeGuard::yaw(Radian const & angle, RenderNode::TransformSpace relativeTo)
 	{
-		return this->sceneNode->getInheritOrientation();
+		this->mNode->yaw(angle, relativeTo);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setInheritScale(bool inherit)
+	inline void SceneNodeGuard::pitch(Radian const & angle, RenderNode::TransformSpace relativeTo)
 	{
-		this->sceneNode->setInheritScale(inherit);
+		this->mNode->pitch(angle, relativeTo);
 	}
 	//---------------------------------------------------------
-	inline bool SceneNodeGuard::getInheritScale() const
+	inline void SceneNodeGuard::roll(Radian const & angle, RenderNode::TransformSpace relativeTo)
 	{
-		return this->sceneNode->getInheritScale();
+		this->mNode->roll(angle, relativeTo);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::scale(Ogre::Vector3 const & scale)
+	inline void SceneNodeGuard::lookAt(Vec3 const & targetPoint, RenderNode::TransformSpace relativeTo, Vec3 const & localDirection)
 	{
-		this->sceneNode->scale(scale);
+		this->mNode->lookAt(targetPoint, relativeTo, localDirection);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::scale(Ogre::Real x, Ogre::Real y, Ogre::Real z)
+	inline void SceneNodeGuard::setDirection(Vec3 const & direction, RenderNode::TransformSpace relativeTo, Vec3 const & localDirection)
 	{
-		this->sceneNode->scale(x, y, z);
+		this->mNode->setDirection(direction, relativeTo, localDirection);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::translate(Ogre::Vector3 const & d, Ogre::Node::TransformSpace relativeTo)
+	inline void SceneNodeGuard::setFixedYawAxis(bool useFixed, Vec3 const & fixedAxis)
 	{
-		this->sceneNode->translate(d, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::translate(Ogre::Real x, Ogre::Real y, Ogre::Real z, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->translate(x, y, z, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::translate(Ogre::Matrix3 const & axes, Ogre::Vector3 const & move, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->translate(axes, move, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::translate(Ogre::Matrix3 const & axes, Ogre::Real x, Ogre::Real y, Ogre::Real z, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->translate(axes, x, y, z, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::roll(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->roll(angle, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::pitch(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->pitch(angle, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::yaw(Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->yaw(angle, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::rotate(Ogre::Vector3 const & axis, Ogre::Radian const & angle, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->rotate(axis, angle, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::rotate(Ogre::Quaternion const & q, Ogre::Node::TransformSpace relativeTo)
-	{
-		this->sceneNode->rotate(q, relativeTo);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Matrix3 SceneNodeGuard::getLocalAxes() const
-	{
-		return this->sceneNode->getLocalAxes();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::createChild(Ogre::Vector3 const & translate, Ogre::Quaternion const & rotate)
-	{
-		return this->sceneNode->createChild(translate, rotate);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::createChild(String const & name, Ogre::Vector3 const & translate, Ogre::Quaternion const & rotate)
-	{
-		return this->sceneNode->createChild(name, translate, rotate);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::addChild(Ogre::Node* child)
-	{
-		this->sceneNode->addChild(child);
-	}
-	//---------------------------------------------------------
-	inline unsigned short SceneNodeGuard::numChildren() const
-	{
-		return this->sceneNode->numChildren();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::getChild(unsigned short index) const
-	{
-		return this->sceneNode->getChild(index);
-	}
-	//---------------------------------------------------------    
-	inline Ogre::Node* SceneNodeGuard::getChild(String const & name) const
-	{
-		return this->sceneNode->getChild(name);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node::ChildNodeMap const & SceneNodeGuard::getChildren() const
-	{
-		return this->sceneNode->getChildren();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::removeChild(unsigned short index)
-	{
-		return this->sceneNode->removeChild(index);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::removeChild(Ogre::Node* child)
-	{
-		return this->sceneNode->removeChild(child);
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::removeChild(String const & name)
-	{
-		return this->sceneNode->removeChild(name);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::removeAllChildren()
-	{
-		this->sceneNode->removeAllChildren();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Node* SceneNodeGuard::getParent() const
-	{
-		return this->sceneNode->getParent();
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneNode* SceneNodeGuard::getParentSceneNode() const
-	{
-		return this->sceneNode->getParentSceneNode();
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::attachObject(Ogre::MovableObject* obj)
-	{
-		this->sceneNode->attachObject(obj);
-	}
-	//---------------------------------------------------------
-	inline size_t SceneNodeGuard::numAttachedObjects() const
-	{
-		return this->sceneNode->numAttachedObjects();
-	}
-	//---------------------------------------------------------
-	inline Ogre::MovableObject* SceneNodeGuard::getAttachedObject(size_t index)
-	{
-		return this->sceneNode->getAttachedObject(index);
-	}
-	//---------------------------------------------------------
-	inline Ogre::MovableObject* SceneNodeGuard::getAttachedObject(String const & name)
-	{
-		return this->sceneNode->getAttachedObject(name);
-	}
-	//---------------------------------------------------------
-	inline Ogre::MovableObject* SceneNodeGuard::detachObject(unsigned short index)
-	{
-		return this->sceneNode->detachObject(index);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::detachObject(Ogre::MovableObject* obj)
-	{
-		this->sceneNode->detachObject(obj);
-	}
-	//---------------------------------------------------------
-	inline Ogre::MovableObject* SceneNodeGuard::detachObject(String const & name)
-	{
-		return this->sceneNode->detachObject(name);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::detachAllObjects()
-	{
-		this->sceneNode->detachAllObjects();
-	}
-	//---------------------------------------------------------
-	inline const Ogre::AxisAlignedBox& SceneNodeGuard::getWorldAABB() const
-	{
-		return this->sceneNode->_getWorldAABB();
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::updateBounds()
-	{
-		this->sceneNode->_updateBounds();
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneNode::ObjectMap const & SceneNodeGuard::getAttachedObjects() const
-	{
-		return this->sceneNode->getAttachedObjects();
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneManager* SceneNodeGuard::getSceneManager() const
-	{
-		return this->sceneNode->getCreator();
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::removeAndDestroyChild(String const & name)
-	{
-		this->sceneNode->removeAndDestroyChild(name);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::removeAndDestroyChild(unsigned short index)
-	{
-		this->sceneNode->removeAndDestroyChild(index);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::removeAndDestroyAllChildren()
-	{
-		this->sceneNode->removeAndDestroyAllChildren();
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::showBoundingBox(bool show)
-	{
-		this->sceneNode->showBoundingBox(show);
-	}
-	//---------------------------------------------------------
-	inline bool SceneNodeGuard::getShowBoundingBox() const
-	{
-		return this->sceneNode->getShowBoundingBox();
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneNode* SceneNodeGuard::createChildSceneNode(String const & name, Ogre::Vector3 const & translate, Ogre::Quaternion const & rotate)
-	{
-		return this->sceneNode->createChildSceneNode(name, translate, rotate);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::findLights(Ogre::LightList& destList, Ogre::Real radius, Ogre::uint32 lightMask) const
-	{
-		this->sceneNode->findLights(destList, radius, lightMask);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::setFixedYawAxis( bool useFixed, Ogre::Vector3 const & fixedAxis)
-	{
-		this->sceneNode->setFixedYawAxis(useFixed, fixedAxis);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::setDirection(Ogre::Vector3 const & vec, Ogre::Node::TransformSpace relativeTo, Ogre::Vector3 const & localDirectionVector)
-	{
-		this->sceneNode->setDirection(vec, relativeTo, localDirectionVector);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::lookAt( Ogre::Vector3 const & targetPoint, Ogre::Node::TransformSpace relativeTo, Ogre::Vector3 const & localDirectionVector)
-	{
-		this->sceneNode->lookAt(targetPoint, relativeTo, localDirectionVector);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::setAutoTracking(bool enabled, Ogre::SceneNode const * target, Ogre::Vector3 const & localDirectionVector, Ogre::Vector3 const & offset)
-	{
-		this->sceneNode->setAutoTracking(enabled, const_cast<Ogre::SceneNode*>(target), localDirectionVector, offset);
-	}
-	//---------------------------------------------------------
-	inline Ogre::SceneNode const * SceneNodeGuard::getAutoTrackTarget()
-	{
-		return this->sceneNode->getAutoTrackTarget();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Vector3 const & SceneNodeGuard::getAutoTrackOffset()
-	{
-		return this->sceneNode->getAutoTrackOffset();
-	}
-	//---------------------------------------------------------
-	inline Ogre::Vector3 const & SceneNodeGuard::getAutoTrackLocalDirection()
-	{
-		return this->sceneNode->getAutoTrackLocalDirection();
+		this->mNode->setFixedYawAxis(useFixed, fixedAxis);
 	}
 	//---------------------------------------------------------
 	inline void SceneNodeGuard::setVisible(bool visible, bool cascade)
 	{
-		this->sceneNode->setVisible(visible, cascade);
+		this->mNode->setVisible(visible, cascade);
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::flipVisibility(bool cascade)
+	inline AABB SceneNodeGuard::getWorldAABB() const
 	{
-		this->sceneNode->flipVisibility(cascade);
+		return this->mNode->getWorldBounds();
 	}
 	//---------------------------------------------------------
-	inline void SceneNodeGuard::setDebugDisplayEnabled(bool enabled, bool cascade)
+	inline optr<RenderNode> SceneNodeGuard::createChildNode(String const & name)
 	{
-		this->sceneNode->setDebugDisplayEnabled(enabled, cascade);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::attachToNode(Ogre::Node* node)
-	{
-		//if node already has a parent detach it first
-		Ogre::Node* parent = this->sceneNode->getParent();
-		if(parent)
-		{
-			parent->removeChild(this->sceneNode);
-		}
-		//set the new parent
-		node->addChild(this->sceneNode);
-	}
-	//---------------------------------------------------------
-	inline void SceneNodeGuard::setEnableNodeUpdateEvent(bool enable)
-	{
-		this->nodeListener->enableNodeUpdatedEvent = enable;
-	}
-	//---------------------------------------------------------
-	inline bool SceneNodeGuard::isNodeUpdateEventEnabled()
-	{
-		return this->nodeListener->enableNodeUpdatedEvent;
+		return this->mNode->createChild(name);
 	}
 	//---------------------------------------------------------
 }

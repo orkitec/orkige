@@ -256,8 +256,15 @@ int main(int, char**)
 			smallCube->quad(q[0], q[1], q[2], q[3]);
 		}
 		smallCube->end();
-		// attach to the TransformComponent's scene node (SceneNodeGuard API)
-		orbiterTransform->attachObject(smallCube);
+		// attach to the TransformComponent's node. The component only hands
+		// out a facade RenderNode now (WP-A1.2); this demo still builds raw
+		// Ogre ManualObjects, so it reaches the backend node by its
+		// deterministic name until WP-A1.3 migrates the demo content onto
+		// facade types ("<objectId>.TransformComponent", see
+		// TransformComponent::onAdd)
+		(void)orbiterTransform;
+		sceneManager->getSceneNode("orbiter.TransformComponent")
+			->attachObject(smallCube);
 
 		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the manual geometry -
 		// createEntity("test_mesh.glb") pulls the .glb through Codec_Assimp
@@ -357,8 +364,10 @@ int main(int, char**)
 				Orkige::RigidBodyComponent* rigidBody =
 					gameObject->getComponentPtr<Orkige::RigidBodyComponent>();
 				transform->setPosition(pos);
-				transform->attachObject(
-					makeBoxVisual(name + "Visual", halfExtents));
+				// raw-Ogre visual on the component's backend node - same
+				// WP-A1.3 migration note as the orbiter cube above
+				sceneManager->getSceneNode(name + ".TransformComponent")
+					->attachObject(makeBoxVisual(name + "Visual", halfExtents));
 				rigidBody->setBodyType(bodyType);
 				rigidBody->setBoxShape(halfExtents);
 				rigidBody->setMass(1.0f);

@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 #ifndef __TransformComponent_h__31_8_2010__10_41_33__
 #define __TransformComponent_h__31_8_2010__10_41_33__
@@ -15,17 +15,23 @@
 
 namespace Orkige
 {
-	//! basic Transformation component for all GameObjects in 3D Space
-	class ORKIGE_ENGINE_DLL TransformComponent : public GameObjectComponent, public Ogre::Any, public SceneNodeGuard
+	//! @brief basic Transformation component for all GameObjects in 3D Space
+	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): owns a facade
+	//! RenderNode (via the reshaped SceneNodeGuard base) instead of a raw
+	//! Ogre::SceneNode. The node carries `this` as its user pointer - ray
+	//! query hits and editors resolve a node back to its component through
+	//! RenderNode::findUserPointerUpwards (@see getComponentFromNode).
+	class ORKIGE_ENGINE_DLL TransformComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(TransformComponent,GameObjectComponent)
 		//--- Types -------------------------------------------
 	public:
-	protected:	
+	protected:
 	private:
 		//--- Variables ---------------------------------------
 	public:
-		static const String USEROBJECT_BINDING_KEY;	//!< @see Ogre::UserObjectBindings
+		//! key of the TRANSITIONAL Ogre-side user binding (@see the dual-tagging note in onAdd)
+		static const String USEROBJECT_BINDING_KEY;
 	protected:
 	private:
 		//--- Methods -----------------------------------------
@@ -34,16 +40,25 @@ namespace Orkige
 		TransformComponent();
 		//! destructor
 		virtual ~TransformComponent();
-		//! get TransFormComponent from given Node* or NULL if this Node isn't associated with a TransformComponent
-		//! if traverseParents is true also parents will be checked until a TransformComponent is found or the RootNode is reached
+		//! get the TransformComponent a facade node belongs to, or NULL
+		//! if traverseParents is true parents will be checked until a TransformComponent is found or the root is reached
+		//! @remarks resolves through the RenderNode user pointer - within the
+		//! engine ONLY TransformComponent tags scene nodes, so the cast is safe
+		static TransformComponent* getComponentFromNode(optr<RenderNode> const & node, bool traverseParents = true);
+#ifdef ORKIGE_RENDER_CLASSIC
+		//! @brief TRANSITIONAL classic-only overload for raw Ogre nodes
+		//! @remarks resolves through the legacy Ogre::Any user binding the
+		//! dual-tagging in onAdd still sets; the editor's own Ogre ray query
+		//! is the last caller. DELETED in WP-A1.4 with the dual-tagging.
 		static TransformComponent* getComponentFromNode(Ogre::Node const * node, bool traverseParents = true);
+#endif //ORKIGE_RENDER_CLASSIC
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
-		//! detaches all TransformComponents that are attached to my SceneNode
-		void detachTransformComponents(const Ogre::Node* node, bool traverseChildren = true);
+		//! re-parents all TransformComponents attached below my node to the world root
+		void detachTransformComponents(optr<RenderNode> const & node, bool traverseChildren = true);
 		//--- SERIALIZATION ---
 		//! save position/orientation/scale to Archive
 		virtual void save(optr<IArchive> const & ar);

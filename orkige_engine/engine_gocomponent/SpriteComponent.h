@@ -11,6 +11,7 @@
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_render/SpriteQuad.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/StringUtil.h"
 
@@ -22,22 +23,13 @@ namespace Orkige
 	//! by name (project assets resolve through the AUTODETECT resource group)
 	//! and shows it on a unit-thin quad centered on the node.
 	//!
-	//! RENDERING/SORTING (the honest v1 rules):
-	//! * The material is generated programmatically per texture
-	//!   ("Sprite/<texture>", see createSpriteMaterial) - unlit, alpha-BLENDED
-	//!   (SBT_TRANSPARENT_ALPHA), depth-CHECKED but not depth-written,
-	//!   two-sided. Transparent PNGs therefore work with soft edges, and 3D
-	//!   geometry in front of a sprite still occludes it. Alpha-REJECT
-	//!   (cutout) rendering is not offered yet; if hard-edged sprites that
-	//!   write depth become necessary, add it as a per-sprite material flag.
-	//! * zOrder maps to the Ogre render queue (RENDER_QUEUE_MAIN + zOrder,
-	//!   clamped, see renderQueueForZOrder): higher zOrder renders LATER =
-	//!   on top, a painter's algorithm across sprites. Within ONE zOrder Ogre
-	//!   sorts alpha-blended renderables by camera distance - which is
-	//!   degenerate when 2D sprites share the same Z plane, so overlapping
-	//!   sprites should use distinct zOrder values (or distinct Z positions).
-	//! * Tint and flips live in the quad's vertex data (colour / swapped UVs),
-	//!   so all sprites of one texture share one material.
+	//! Phase A1 (Docs/render-abstraction.md, WP-A1.2): renders through the
+	//! facade SpriteQuad, which carries the honest v1 rendering rules the
+	//! component pioneered - unlit, alpha-BLENDED, depth-checked/not-written,
+	//! two-sided, one generated material per texture (tint/flips live in the
+	//! vertex data), zOrder = painter's-algorithm sorting (higher renders
+	//! later = on top; overlapping sprites should use distinct zOrders).
+	//! The pure helpers below stay static and headless-testable.
 	class ORKIGE_ENGINE_DLL SpriteComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(SpriteComponent, GameObjectComponent)
@@ -53,11 +45,12 @@ namespace Orkige
 	private:
 		//--- Variables ---------------------------------------------
 	public:
-		//! zOrder 0 renders in Ogre::RENDER_QUEUE_MAIN; the clamp range below
+		//! zOrder 0 renders in the middle of the sprite queue window; the
+		//! clamp range mirrors SpriteQuad::ZORDER_MIN/MAX
 		static const int ZORDER_MIN;	//!< lowest accepted zOrder (-40)
 		static const int ZORDER_MAX;	//!< highest accepted zOrder (+40)
 	protected:
-		Ogre::ManualObject*	mQuad;			//!< the sprite quad or NULL
+		optr<SpriteQuad>	mQuad;			//!< the facade sprite quad or NULL
 		String				mTextureName;	//!< texture resource name or empty
 		float				mWidth;			//!< world-units width (<= 0 = derive from texture aspect)
 		float				mHeight;		//!< world-units height (<= 0 = derive from texture aspect)
@@ -65,7 +58,7 @@ namespace Orkige
 		float				mTexelHeight;	//!< loaded texture height in texels (0 before load)
 		float				mU0, mV0;		//!< UV rect top-left (atlas region), default 0/0
 		float				mU1, mV1;		//!< UV rect bottom-right, default 1/1
-		Ogre::ColourValue	mTint;			//!< colour tint (vertex colour), default white
+		Color				mTint;			//!< colour tint (vertex colour), default white
 		bool				mFlipX;			//!< mirror horizontally
 		bool				mFlipY;			//!< mirror vertically
 		int					mZOrder;		//!< sprite sort order (see class remarks)
@@ -104,12 +97,12 @@ namespace Orkige
 		//! the actually rendered height in world units (after aspect derivation)
 		float getRenderedHeight() const;
 		//! @brief the shown texture region (for atlas sprites); defaults to the
-		//! full texture (0,0)-(1,1). v runs top-down (Ogre texture convention).
+		//! full texture (0,0)-(1,1). v runs top-down (texture convention).
 		void setUVRect(float u0, float v0, float u1, float v1);
 		//! colour tint, multiplied with the texture (default 1,1,1,1)
 		void setTint(float red, float green, float blue, float alpha);
 		//! current tint
-		inline Ogre::ColourValue const & getTint() const;
+		inline Color const & getTint() const;
 		//! mirror the sprite on the X and/or Y axis
 		void setFlip(bool flipX, bool flipY);
 		//! @see SpriteComponent::mFlipX
@@ -134,19 +127,18 @@ namespace Orkige
 		//! @brief the quad's UV corners in vertex order top-left, top-right,
 		//! bottom-right, bottom-left - flips swap the respective coordinates
 		static void computeUVCorners(float u0, float v0, float u1, float v1,
-			bool flipX, bool flipY, Ogre::Vector2 outCorners[4]);
-		//! the Ogre render queue id a zOrder maps to (clamped)
+			bool flipX, bool flipY, Vec2 outCorners[4]);
+		//! the classic render queue id a zOrder maps to (clamped)
+		//! @remarks pure math kept for the unit tests; the live mapping is
+		//! SpriteQuad::setZOrder inside the render backend
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
-		//! @brief get or create the shared unlit alpha-blended sprite material
-		//! for a LOADED texture (idempotent; name "Sprite/<texture>")
-		static Ogre::MaterialPtr createSpriteMaterial(Ogre::TexturePtr const & texture);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
-		//! (re)build the quad geometry from the current state (needs a texture)
-		void rebuildQuad();
+		//! push the stored sprite state onto the facade quad (needs a quad)
+		void applyStateToQuad();
 		//--- SERIALIZATION ---
 		//! save texture name, size, UV rect, tint, flips and zOrder to Archive
 		virtual void save(optr<IArchive> const & ar);
@@ -162,7 +154,7 @@ namespace Orkige
 	//---------------------------------------------------------------
 	inline bool SpriteComponent::hasSprite() const
 	{
-		return this->mQuad != NULL;
+		return this->mQuad != nullptr;
 	}
 	//---------------------------------------------------------------
 	inline float SpriteComponent::getWidth() const
@@ -175,7 +167,7 @@ namespace Orkige
 		return this->mHeight;
 	}
 	//---------------------------------------------------------------
-	inline Ogre::ColourValue const & SpriteComponent::getTint() const
+	inline Color const & SpriteComponent::getTint() const
 	{
 		return this->mTint;
 	}

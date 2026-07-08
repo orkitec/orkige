@@ -6699,15 +6699,15 @@ int main(int, char**)
 					{
 						continue;
 					}
-					Ogre::Entity* model = gameObject->getComponentPtr<
-						Orkige::ModelComponent>()->getModel();
-					if (!model || model->getNumSubEntities() == 0)
+					optr<Orkige::MeshInstance> mesh = gameObject
+						->getComponentPtr<Orkige::ModelComponent>()
+						->getMeshInstance();
+					if (!mesh || mesh->getNumSubMeshes() == 0)
 					{
 						continue;
 					}
 					++modelCount;
-					if (model->getSubEntity(0)->getMaterial()->getTechnique(0)
-						->getPass(0)->getNumTextureUnitStates() > 0)
+					if (mesh->subMeshHasTexture(0))
 					{
 						++texturedCount;
 					}
@@ -6943,7 +6943,7 @@ int main(int, char**)
 							->getCurrentModelFileName() ==
 							editTestDeletedMesh &&
 						cube2->getComponentPtr<Orkige::ModelComponent>()
-							->getModel() != nullptr,
+							->getMeshInstance() != nullptr,
 						"restored mesh");
 					require(editorCore.getSelectedObjectId() == "Cube2",
 						"restored selection");
@@ -7144,12 +7144,12 @@ int main(int, char**)
 					Orkige::ModelComponent* model = cube2
 						->getComponentPtr<Orkige::ModelComponent>();
 					require(model->getCurrentModelFileName() ==
-						"test_mesh.glb" && model->getModel() != nullptr,
+						"test_mesh.glb" && model->getMeshInstance() != nullptr,
 						"mesh swapped + entity loaded");
 					require(editorCore.undo(), "undo mesh change");
 					require(model->getCurrentModelFileName() ==
 						Orkige::PrimitiveUtil::CUBE_MESH_NAME &&
-						model->getModel() != nullptr,
+						model->getMeshInstance() != nullptr,
 						"mesh change undone");
 					SDL_Log("orkige_editor: edittest frame 105 - mesh change "
 						"OK");
@@ -7237,7 +7237,7 @@ int main(int, char**)
 					require(imported && imported
 						->hasComponent<Orkige::ModelComponent>() &&
 						imported->getComponentPtr<Orkige::ModelComponent>()
-							->getModel() != nullptr,
+							->getMeshInstance() != nullptr,
 						"imported model entity loaded");
 					require(editorCore.getSelectedObjectId() == importedId,
 						"imported object selected");

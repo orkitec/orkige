@@ -4,18 +4,26 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 #ifndef __AnimationComponent_h__30_8_2010__15_58_30__
 #define __AnimationComponent_h__30_8_2010__15_58_30__
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_render/MeshInstance.h"
 #include "engine_util/StringUtil.h"
 
 namespace Orkige
 {
-	//! component which can manage Animation Playback on GameObject's
+	//! @brief component which can manage Animation Playback on GameObject's
+	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): playback runs
+	//! on the facade MeshInstance animation surface of the sibling
+	//! ModelComponent. The root-motion extraction (handleMotion/handleRotation
+	//! + motionBone) digs into skeleton bones and keyframes - that stays a
+	//! CLASSIC-ONLY backdoor per decided design question #1: on other
+	//! backends those switches are inert no-ops (and boneNames stays empty)
+	//! until a real cross-backend root-motion need adds a facade bone API.
 	class ORKIGE_ENGINE_DLL AnimationComponent : public GameObjectComponent
 	{
 		OOBJECT(AnimationComponent, GameObjectComponent)
@@ -24,7 +32,7 @@ namespace Orkige
 		//! @brief triggered when a playing animation has reached the end and is not looping
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(AnimationEndedEvent);
-		//! @brief triggered when the animations set is loaded means that the model is loaded 
+		//! @brief triggered when the animations set is loaded means that the model is loaded
 		//! @ingroup EngineEvents
 		DECL_EVENTTYPE(AnimationsLoaded);
 	protected:
@@ -33,14 +41,14 @@ namespace Orkige
 		{
 			inline SimpleTransform();
 			inline SimpleTransform(SimpleTransform const & other);
-			inline SimpleTransform(Ogre::Vector3 const & _translate, Ogre::Quaternion const & _rotation, Ogre::Vector3 const & _scale);
-			Ogre::Vector3 translate;
-			Ogre::Quaternion rotation;
-			Ogre::Vector3 scale;
+			inline SimpleTransform(Vec3 const & _translate, Quat const & _rotation, Vec3 const & _scale);
+			Vec3 translate;
+			Quat rotation;
+			Vec3 scale;
 		};
 		struct KeyFrameBackup : public SimpleTransform
 		{
-			inline KeyFrameBackup(unsigned short _index, Ogre::TransformKeyFrame * kf);
+			inline KeyFrameBackup(unsigned short _index, Vec3 const & _translate, Quat const & _rotation, Vec3 const & _scale);
 			unsigned short index;
 		};
 		typedef std::vector<KeyFrameBackup> KeyFrameBackupVector;
@@ -54,7 +62,6 @@ namespace Orkige
 		StringList						boneNames;
 		String							defaultAnimation;
 		String							motionBone;
-		Ogre::AnimationStateSet*		animationStates;
 		bool							handleMotion;
 		bool							handleRotation;
 		bool							extractMotion;
@@ -72,12 +79,10 @@ namespace Orkige
 
 		//! get list of available animation names
 		inline StringList const & getAvailableAnimations();
-		//! get list of bone names
+		//! get list of bone names (classic backend only - empty elsewhere)
 		inline StringList const & getBoneNames();
 		//! get default anim name
 		inline String const & getDefaultAnimation();
-		//! get animation states
-		inline Ogre::AnimationStateSet const * getAnimationStates() const;
 		//! set default anim name
 		void setDefaultAnimation(String const & anim);
 		//! are animations available
@@ -117,7 +122,7 @@ namespace Orkige
 		inline void pause();
 		//! resume playing animations
 		inline void resume();
-		//! is the AnimationComponent is paused 
+		//! is the AnimationComponent is paused
 		inline bool isPaused();
 
 		//! set animations speed
@@ -142,8 +147,12 @@ namespace Orkige
 		bool onModelSet(Event const & event);
 
 		void getAnimationsFromModel();
-		Ogre::Entity const * getAnimableModel();
-		void handleMotionRotation(Ogre::AnimationState * state, float timeDelta);
+		//! the sibling ModelComponent's mesh instance or NULL
+		optr<MeshInstance> getAnimableMesh();
+		//! @brief the root-motion backdoor: moves the owning transform by the
+		//! motion bone's keyframe track and neutralizes the track in-place
+		//! @remarks classic-only (design question #1) - a no-op elsewhere
+		void handleMotionRotation(String const & animationName, float timeDelta);
 	};
 	//---------------------------------------------------------------
 	inline AnimationComponent::SimpleTransform::SimpleTransform()
@@ -155,13 +164,13 @@ namespace Orkige
 	{
 	}
 	//---------------------------------------------------------------
-	inline AnimationComponent::SimpleTransform::SimpleTransform(Ogre::Vector3 const & _translate, Ogre::Quaternion const & _rotation, Ogre::Vector3 const & _scale)
+	inline AnimationComponent::SimpleTransform::SimpleTransform(Vec3 const & _translate, Quat const & _rotation, Vec3 const & _scale)
 		: translate(_translate), rotation(_rotation), scale(_scale)
 	{
 	}
 	//---------------------------------------------------------------
-	inline AnimationComponent::KeyFrameBackup::KeyFrameBackup(unsigned short _index, Ogre::TransformKeyFrame * kf)
-		: AnimationComponent::SimpleTransform(kf->getTranslate(), kf->getRotation(), kf->getScale()), index(_index)
+	inline AnimationComponent::KeyFrameBackup::KeyFrameBackup(unsigned short _index, Vec3 const & _translate, Quat const & _rotation, Vec3 const & _scale)
+		: AnimationComponent::SimpleTransform(_translate, _rotation, _scale), index(_index)
 	{
 	}
 	//---------------------------------------------------------------
@@ -178,11 +187,6 @@ namespace Orkige
 	inline String const & AnimationComponent::getDefaultAnimation()
 	{
 		return this->defaultAnimation;
-	}
-	//---------------------------------------------------------------
-	inline Ogre::AnimationStateSet const * AnimationComponent::getAnimationStates() const 
-	{
-		return this->animationStates;
 	}
 	//---------------------------------------------------------------
 	inline bool AnimationComponent::getHandleMotion()

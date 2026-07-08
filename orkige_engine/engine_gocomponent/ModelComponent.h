@@ -4,19 +4,25 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec	
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 #ifndef __ModelComponent_h__30_8_2010__17_37_08__
 #define __ModelComponent_h__30_8_2010__17_37_08__
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "engine_render/MeshInstance.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/StringUtil.h"
 
 namespace Orkige
 {
-	//! handles 1 Model attached to a GameObject
+	//! @brief handles 1 Model attached to a GameObject
+	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): owns a facade
+	//! MeshInstance on an owned child node of the sibling TransformComponent.
+	//! The historical shareSkeletonInstance flag of loadModel was dropped -
+	//! Ogre skeleton-instance sharing has no facade shape and no caller
+	//! (recoverable from git if a real need returns).
 	class ORKIGE_ENGINE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
@@ -33,7 +39,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Ogre::Entity*		model;					//!< the current model entity instance or NULL
+		optr<MeshInstance>	mesh;					//!< the current mesh instance or NULL
 		String				modelFileName;			//!< filename of the current model or empty String
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
@@ -43,15 +49,16 @@ namespace Orkige
 		ModelComponent();
 		//! destructor
 		virtual ~ModelComponent();
-		//! loads a model into the componentn and triggers ModelSetEvent (removes old model if there is one)
-		void loadModel(String const & modelFileName, bool shareSkeletonInstance = false);
+		//! loads a model into the component and triggers ModelSetEvent (removes old model if there is one)
+		//! @remarks a mesh that fails to load logs an error and leaves the component empty
+		void loadModel(String const & modelFileName);
 		//! removes model and triggers ModelRemovedEvent
 		void removeModel();
-		
+
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName();
-		//! @see ModelComponent::model
-		inline Ogre::Entity * getModel() const;
+		//! the facade mesh instance or NULL (@see ModelComponent::mesh)
+		inline optr<MeshInstance> const & getMeshInstance() const;
 
 	protected:
 		//! component override gets called after the component is attached to a GameObject
@@ -71,9 +78,9 @@ namespace Orkige
 		return this->modelFileName;
 	}
 	//---------------------------------------------------------------
-	inline Ogre::Entity * ModelComponent::getModel() const 
+	inline optr<MeshInstance> const & ModelComponent::getMeshInstance() const
 	{
-		return this->model;
+		return this->mesh;
 	}
 	//---------------------------------------------------------------
 }

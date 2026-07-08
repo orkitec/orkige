@@ -16,7 +16,11 @@
 //! engine_render_classic/*.cpp TUs and engine_graphic/Engine.cpp (the
 //! classic bootstrapper, which creates/destroys the RenderSystem) may
 //! include it - application code and everything above engine_graphic
-//! talk to the facade headers exclusively. In phase A2 an
+//! talk to the facade headers exclusively. ONE sanctioned exception
+//! (decided question #1 in Docs/render-abstraction.md): the root-motion
+//! backdoor in engine_gocomponent/AnimationComponent.cpp includes this
+//! inside its documented #if ORKIGE_RENDER_CLASSIC block to reach
+//! RenderBackend::ogreEntity. In phase A2 an
 //! engine_render_next/ClassicBackend counterpart mirrors this file
 //! against Ogre-Next (Docs/render-abstraction.md, "Directory layout").
 
@@ -52,6 +56,7 @@ namespace Orkige
 		Engine*				engine = NULL;			//!< the classic bootstrapper (Engine singleton, not owned)
 		RenderWorld*		world = NULL;			//!< the one scene world (owned, deleted in ~RenderSystem)
 		optr<RenderCamera>	windowCamera;			//!< camera currently shown full-window (keeps it alive)
+		optr<RenderCamera>	engineWindowCamera;		//!< lazy non-owning wrap of Engine's default camera (getWindowCamera on the Engine path)
 		Ogre::ColourValue	windowBackground = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
 	};
 
@@ -104,6 +109,7 @@ namespace Orkige
 	{
 		Ogre::Camera*		camera = NULL;
 		Ogre::SceneManager*	creator = NULL;
+		bool				owned = true;			//!< false for wraps of Engine-owned cameras (never destroyed by the handle)
 		optr<RenderNode>	attachedTo;
 	};
 
@@ -166,6 +172,10 @@ namespace Orkige
 			Ogre::SceneManager* sceneManager, String const & textureName);
 		static optr<RenderCamera> createCamera(
 			Ogre::SceneManager* sceneManager, String const & name);
+		//! wrap an EXISTING backend camera into a facade handle (owned=false
+		//! leaves destruction with the creator - the Engine-default-camera
+		//! bridge behind RenderSystem::getWindowCamera)
+		static optr<RenderCamera> wrapCamera(Ogre::Camera* camera, bool owned);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
@@ -173,6 +183,9 @@ namespace Orkige
 		//--- guts accessors (NULL-safe) ---------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
+		//! the wrapped entity - ONLY for AnimationComponent's root-motion
+		//! backdoor (decided question #1; see the file remarks above)
+		static Ogre::Entity* ogreEntity(optr<MeshInstance> const & mesh);
 
 		//--- node registry (Ogre::SceneNode* -> facade handle) ----------
 		static void registerNode(Ogre::SceneNode* node,

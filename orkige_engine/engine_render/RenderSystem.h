@@ -85,6 +85,14 @@ namespace Orkige
 		//! successor); replaces the previous window camera
 		//! map: classic=RenderWindow::addViewport | next=compositor workspace on the window | filament=main View::setCamera
 		void showCameraOnWindow(optr<RenderCamera> const & camera);
+		//! @brief the camera currently shown on the main window, or NULL when
+		//! none is - what CameraComponent takes over when it attaches
+		//! @remarks classic migration note: when the window camera was set up
+		//! through Engine::createDefaultCameraAndViewport (every app until
+		//! WP-A1.3), this wraps that camera into a facade handle, so component
+		//! code stays backend-free while the Engine path is still live
+		//! map: classic=facade handle over the window viewport's camera | next=workspace camera | filament=main View camera
+		optr<RenderCamera> getWindowCamera() const;
 		//! window clear colour (Engine::setViewportBackgroundColour successor)
 		//! map: classic=Viewport::setBackgroundColour | next=workspace clear colour | filament=Renderer::setClearOptions
 		void setWindowBackgroundColour(Color const & colour);

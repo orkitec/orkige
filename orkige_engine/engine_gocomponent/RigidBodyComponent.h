@@ -11,6 +11,7 @@
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_physic/PhysicsWorld.h"
+#include "engine_render/RenderMath.h"
 
 namespace Orkige
 {
@@ -45,7 +46,7 @@ namespace Orkige
 		//! get the motion type
 		inline PhysicsWorld::BodyType getBodyType() const;
 		//! use a box collision shape (before body creation; default 0.5^3 halfExtents box)
-		void setBoxShape(Ogre::Vector3 const & halfExtents);
+		void setBoxShape(Vec3 const & halfExtents);
 		//! use a sphere collision shape (before body creation)
 		void setSphereShape(float radius);
 		//! use a capsule collision shape (before body creation)
@@ -62,17 +63,17 @@ namespace Orkige
 		//! is 2D mode enabled
 		inline bool getPlanarMode() const;
 		//! set linear velocity in m/s (needs the created body)
-		void setLinearVelocity(Ogre::Vector3 const & velocity);
+		void setLinearVelocity(Vec3 const & velocity);
 		//! get linear velocity in m/s (ZERO before body creation)
-		Ogre::Vector3 getLinearVelocity() const;
+		Vec3 getLinearVelocity() const;
 		//! set angular velocity in rad/s (needs the created body)
-		void setAngularVelocity(Ogre::Vector3 const & velocity);
+		void setAngularVelocity(Vec3 const & velocity);
 		//! get angular velocity in rad/s (ZERO before body creation)
-		Ogre::Vector3 getAngularVelocity() const;
+		Vec3 getAngularVelocity() const;
 		//! apply an impulse (kg*m/s) at the center of mass (needs the created body)
-		void applyImpulse(Ogre::Vector3 const & impulse);
+		void applyImpulse(Vec3 const & impulse);
 		//! apply a force (N) at the center of mass for the next step (needs the created body)
-		void applyForce(Ogre::Vector3 const & force);
+		void applyForce(Vec3 const & force);
 		//! @brief teleport the body AND the sibling TransformComponent to the
 		//! pose, killing all momentum
 		//! @remarks unlike moving the TransformComponent (which kinematic
@@ -80,7 +81,7 @@ namespace Orkige
 		//! while PhysicsWorld is PAUSED - the collision geometry moves
 		//! immediately. This is the API for sliding whole tile groups in
 		//! "move the world" modes and for respawns.
-		void teleport(Ogre::Vector3 const & position, Ogre::Quaternion const & orientation);
+		void teleport(Vec3 const & position, Quat const & orientation);
 		//! has the rigid body been created in the PhysicsWorld yet
 		inline bool hasBody() const;
 		//! get the PhysicsWorld body handle (INVALID_BODY_ID before creation)

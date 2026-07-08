@@ -81,6 +81,11 @@ namespace Orkige
 		return camera ? camera->mImpl->camera : NULL;
 	}
 	//---------------------------------------------------------
+	Ogre::Entity* RenderBackend::ogreEntity(optr<MeshInstance> const & mesh)
+	{
+		return mesh ? mesh->mImpl->entity : NULL;
+	}
+	//---------------------------------------------------------
 	void RenderBackend::registerNode(Ogre::SceneNode* node,
 		optr<RenderNode> const & handle)
 	{
