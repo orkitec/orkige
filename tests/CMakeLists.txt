@@ -10,6 +10,15 @@
 
 add_subdirectory(core)
 
+# Flavor suffix for test registrations that exist on BOTH render flavors
+# (game selfchecks since B3, editor tests since the editor-on-Next port):
+# the _next names keep the two presets' reports distinguishable.
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    set(ORKIGE_FLAVOR_TEST_SUFFIX "_next")
+else()
+    set(ORKIGE_FLAVOR_TEST_SUFFIX "")
+endif()
+
 # renderer containment lint (WP-A1.5, Docs/render-abstraction.md): fails
 # when an Ogre:: spelling appears in code outside the backend directories,
 # the RenderMath.h alias header and the sanctioned files/blocks maintained
@@ -89,6 +98,25 @@ if(TARGET orkige_engine)
         set_tests_properties(render_next_smoke PROPERTIES
             ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade"
             LABELS integration TIMEOUT 60)
+
+        # render_backend_parity - the WYSIWYG gate: run the selfcheck on
+        # BOTH backends and pixel-compare the screenshots within tolerance
+        # (Docs/render-abstraction.md, colour parity). Registered on the
+        # NEXT preset only - next is the flavor that must match classic's
+        # established output. Cross-preset by nature: the classic binary
+        # lives in the classic build tree; when it is absent the driver
+        # SKIPs (exit 77) instead of failing - build the macos-debug preset
+        # to arm the comparison.
+        add_test(NAME render_backend_parity
+            COMMAND python3
+                "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/compare_backend_screenshots.py"
+                --next-binary $<TARGET_FILE:render_facade_selfcheck>
+                --classic-binary "${Orkige_SOURCE_DIR}/build/macos-debug/tests/render_facade_selfcheck"
+                --out "${CMAKE_CURRENT_BINARY_DIR}/render_backend_parity"
+                --repo "${Orkige_SOURCE_DIR}"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(render_backend_parity PROPERTIES
+            LABELS integration TIMEOUT 180 SKIP_RETURN_CODE 77)
     endif()
 endif()
 
@@ -137,18 +165,20 @@ if(TARGET hello_orkige)
 endif()
 
 if(TARGET orkige_editor)
+    # the editor builds/runs on BOTH render flavors since the ImGui-on-
+    # DrawLayer2D port; the next preset registers these as *_next
     # empty-start assertion at frame 1 (the editor must open with an empty
     # untitled scene), fixture creation at frame 2, picking checks at frames
     # 45/65, scene round-trip self-check at frame 90
-    add_test(NAME editor_selfcheck COMMAND orkige_editor
+    add_test(NAME editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_selfcheck PROPERTIES
+    set_tests_properties(editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck.oscene")
 
     # programmatic SDL_SetWindowSize at frame 80 (resize robustness)
-    add_test(NAME editor_resize COMMAND orkige_editor
+    add_test(NAME editor_resize${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_resize PROPERTIES
+    set_tests_properties(editor_resize${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_RESIZE_TEST=1;ORKIGE_DEMO_FRAMES=120")
 
     # scripted editing run against EditorCore: tool switching, undoable
@@ -159,9 +189,9 @@ if(TARGET orkige_editor)
     # multi-select delete/duplicate batches (one undo step each), mesh
     # import (copy into the scene media dir + undoable create + refusal
     # of non-mesh files) and the fly-mode camera step
-    add_test(NAME editor_edittest COMMAND orkige_editor
+    add_test(NAME editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_edittest PROPERTIES
+    set_tests_properties(editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=140;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
 endif()
 
@@ -169,16 +199,16 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # editor play mode: press Play programmatically, require the remote
     # hierarchy to arrive (streamed from the spawned player over the debug
     # protocol), then Stop and require a clean revert to edit mode
-    add_test(NAME editor_play_stop COMMAND orkige_editor
+    add_test(NAME editor_play_stop${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_play_stop PROPERTIES
+    set_tests_properties(editor_play_stop${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PLAYTEST=stop")
 
     # crash resilience: same flow, but the player is SIGKILLed instead of
     # stopped - the editor must notice the drop and revert cleanly
-    add_test(NAME editor_play_crash COMMAND orkige_editor
+    add_test(NAME editor_play_crash${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_play_crash PROPERTIES
+    set_tests_properties(editor_play_crash${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PLAYTEST=crash")
 
     # the project system end to end: open projects/example programmatically
@@ -188,9 +218,9 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # then run the full Play/Stop cycle against it - the spawned player
     # receives --project (see the ORKIGE_EDITOR_PROJECT_TEST block in
     # tools/editor/main.cpp)
-    add_test(NAME editor_project_play COMMAND orkige_editor
+    add_test(NAME editor_project_play${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_project_play PROPERTIES
+    set_tests_properties(editor_project_play${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PROJECT_TEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_EDITOR_PLAYTEST=stop")
 
     # native project modules, compile-on-Play (milestone 3): open
@@ -207,6 +237,11 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # module from scratch (the build tree under
     # projects/jumper-native/native/build persists across runs, so re-runs
     # are an incremental no-op build) - hence the fat TIMEOUT.
+    # classic-only: the module's persistent build tree (native/build)
+    # configures against ONE engine build tree - flip-flopping it between
+    # flavors would poison the cmake cache (the break variant builds in a
+    # temp copy, but shares the RESOURCE_LOCK/serialization story)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     add_test(NAME editor_project_native_play COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_project_native_play PROPERTIES
@@ -222,6 +257,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_project_native_play_break PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK=1")
+    endif()
 
     # loud script failures: the hook copies projects/jumper-lua to a temp dir
     # (the real project is never touched), overwrites scripts/player.lua with
@@ -231,9 +267,9 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # Console line plus the toolbar marker state; Stop must clear both. Works
     # in ORKIGE_SCRIPTING=OFF builds too (the honest "scripting disabled"
     # failure travels the same path).
-    add_test(NAME editor_play_script_error COMMAND orkige_editor
+    add_test(NAME editor_play_script_error${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_play_script_error PROPERTIES
+    set_tests_properties(editor_play_script_error${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-lua")
 
     # play mode on an iOS simulator: same stop flow, but the player is the
@@ -242,7 +278,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # "auto" prefers a booted simulator with the app installed and falls back
     # to booting a shutdown one (auto-installing the built app). SKIPPED
     # (exit 77) when neither exists - build the ios-simulator-debug preset.
-    if(APPLE)
+    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
         add_test(NAME editor_play_simulator COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_simulator PROPERTIES
@@ -270,12 +306,14 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # SKIPPED (exit 77) when no adb device has the APK installed - build
     # (android-debug preset), package (tools/player/android/package_apk.sh)
     # and adb install it.
-    add_test(NAME editor_play_android COMMAND orkige_editor
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_play_android PROPERTIES
-        ENVIRONMENT
-            "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_ANDROID=auto"
-        SKIP_RETURN_CODE 77)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        add_test(NAME editor_play_android COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_play_android PROPERTIES
+            ENVIRONMENT
+                "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_ANDROID=auto"
+            SKIP_RETURN_CODE 77)
+    endif()
 endif()
 
 if(TARGET jumper)
@@ -329,15 +367,10 @@ if(TARGET orkige_player)
         # registrations carry a _next suffix and the UI assertions are
         # compile-time-skipped there (fastgui is classic-only, decision #2;
         # game.lua probes engine:hasUISystem() and runs HUD-less)
-        if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-            set(ORKIGE_GAME_TEST_SUFFIX "_next")
-        else()
-            set(ORKIGE_GAME_TEST_SUFFIX "")
-        endif()
-        add_test(NAME player_jumper_lua_selfcheck${ORKIGE_GAME_TEST_SUFFIX}
+        add_test(NAME player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_GAME_TEST_SUFFIX} PROPERTIES
+        set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
 
         # the 2D tier, end to end: projects/roller (Continuity x Rolando
@@ -346,10 +379,10 @@ if(TARGET orkige_player)
         # arrow/TAB keys through the real input path and asserts the tilt
         # roll, the paused tile slide (sprite AND body probed) and the win
         # (see the ORKIGE_ROLLER_SELFCHECK block in tools/player/main.cpp)
-        add_test(NAME player_roller_selfcheck${ORKIGE_GAME_TEST_SUFFIX}
+        add_test(NAME player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/roller
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-        set_tests_properties(player_roller_selfcheck${ORKIGE_GAME_TEST_SUFFIX} PROPERTIES
+        set_tests_properties(player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1")
     endif()
 
@@ -448,7 +481,7 @@ if(APPLE AND TARGET orkige_player AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
     set_tests_properties(player_example_scene_vulkan PROPERTIES
         ENVIRONMENT "ORKIGE_RENDERSYSTEM=Vulkan;ORKIGE_DEMO_FRAMES=90")
 endif()
-if(APPLE AND TARGET orkige_editor)
+if(APPLE AND TARGET orkige_editor AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
     add_test(NAME editor_selfcheck_vulkan COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_selfcheck_vulkan PROPERTIES
@@ -458,11 +491,14 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
+        editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
         editor_play_script_error
+        editor_play_stop_next editor_play_crash_next editor_project_play_next
+        editor_play_script_error_next
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android
@@ -482,6 +518,8 @@ endforeach()
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_project_play editor_play_script_error
+        editor_play_stop_next editor_play_crash_next editor_project_play_next
+        editor_play_script_error_next
         editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next

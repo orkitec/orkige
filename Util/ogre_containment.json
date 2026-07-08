@@ -55,6 +55,6 @@
   "samples/jumper/main.cpp": "app-standard classic boot block",
   "projects/jumper-native/native/main.cpp": "app-standard classic boot block",
   "tools/player/main.cpp": "app-standard classic boot block",
-  "tools/editor/main.cpp": "classic boot block + the WP-A1.4 editor glue (OverlaySystem/ImGuiOverlay wiring, UI-only window viewport, grid ManualObject)"
+  "tools/editor/main.cpp": "app-standard classic boot block only (Engine ctor, ORKIGE_RENDERSYSTEM, RTSS internal media) - the WP-A1.4 editor glue (ImGuiOverlay/OverlaySystem, UI viewport, grid ManualObject) was replaced by facade API in the editor-on-Next port (ImGuiFacadeRenderer/showUIOnlyWindow/createLineListMesh)"
  }
 }

@@ -68,21 +68,21 @@ namespace Orkige
 		std::set<String> gFailedTextures;
 
 		//--- generated materials --------------------------------------
-		//! the shared master: unlit, alpha-blended, depth-ignored,
-		//! two-sided - Gorilla's 2D master material, texture-less (the
-		//! untextured/vertex-colour batches draw with it directly)
-		Ogre::MaterialPtr getOrCreateMasterMaterial()
+		//! @brief create one 2D layer material FROM SCRATCH: unlit,
+		//! alpha-blended, depth-ignored, two-sided (Gorilla's 2D recipe)
+		//! @remarks deliberately NOT a clone of the master: cloning also
+		//! copies an already-RTSS-GENERATED technique, whose shaders were
+		//! built for the SOURCE's texture-unit layout - a textured clone
+		//! of the untextured master rendered its texture as flat white
+		//! (the copied generated pixel shader had no sampler). Fresh
+		//! materials get their own RTSS technique on first use, built for
+		//! exactly the units they carry.
+		Ogre::MaterialPtr createLayerMaterial(String const & materialName)
 		{
-			Ogre::MaterialPtr master = Ogre::MaterialManager::getSingleton()
-				.getByName("DrawLayer2D/Master");
-			if(master)
-			{
-				return master;
-			}
-			master = Ogre::MaterialManager::getSingleton().create(
-				"DrawLayer2D/Master",
-				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-			Ogre::Pass* pass = master->getTechnique(0)->getPass(0);
+			Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+				.create(materialName,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 			pass->setCullingMode(Ogre::CULL_NONE);
 			pass->setDepthCheckEnabled(false);
 			pass->setDepthWriteEnabled(false);
@@ -93,6 +93,20 @@ namespace Orkige
 			// render systems its vertex colours silently went white)
 			pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
 			pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
+			return material;
+		}
+
+		//! the shared master material of the untextured/vertex-colour
+		//! batches (also the honest fallback for missing textures)
+		Ogre::MaterialPtr getOrCreateMasterMaterial()
+		{
+			Ogre::MaterialPtr master = Ogre::MaterialManager::getSingleton()
+				.getByName("DrawLayer2D/Master");
+			if(master)
+			{
+				return master;
+			}
+			master = createLayerMaterial("DrawLayer2D/Master");
 			master->load();
 			return master;
 		}
@@ -113,15 +127,24 @@ namespace Orkige
 			{
 				return material;
 			}
-			Ogre::TexturePtr texture;
-			try
+			// backend-object textures first (RenderSystem::createTexture2D
+			// uploads - e.g. an ImGui font atlas - live in the default group
+			// but never in a resource-group index, so AUTODETECT cannot see
+			// them), then the resource system across all groups
+			Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
+				.getByName(textureName,
+					Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			if(!texture)
 			{
-				texture = Ogre::TextureManager::getSingleton().load(
-					textureName,
-					Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
-			}
-			catch(Ogre::Exception const &)
-			{
+				try
+				{
+					texture = Ogre::TextureManager::getSingleton().load(
+						textureName,
+						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				}
+				catch(Ogre::Exception const &)
+				{
+				}
 			}
 			if(!texture)
 			{
@@ -133,7 +156,7 @@ namespace Orkige
 				}
 				return getOrCreateMasterMaterial();
 			}
-			material = getOrCreateMasterMaterial()->clone(materialName);
+			material = createLayerMaterial(materialName);
 			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
 			Ogre::TextureUnitState* unit = pass->createTextureUnitState();
 			unit->setTextureName(texture->getName());
@@ -142,6 +165,43 @@ namespace Orkige
 				Ogre::FO_NONE);
 			// load up front so the RTSS can generate the shader technique
 			material->load();
+			return material;
+		}
+
+		//! the ONE shared binder material for RenderTexture batches: its
+		//! texture unit is re-pointed at the target's CURRENT texture right
+		//! before each manualRender (immediate draw - sequential mutation
+		//! is safe), so resize-by-recreate never leaves a stale binding
+		Ogre::MaterialPtr getOrCreateRenderTextureMaterial(
+			optr<RenderTexture> const & renderTexture)
+		{
+			Ogre::TexturePtr current = RenderBackend::ogreTexture(renderTexture);
+			if(!current)
+			{
+				return getOrCreateMasterMaterial();	// honest untextured fallback
+			}
+			const String materialName = "DrawLayer2D/RenderTextureBinder";
+			Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+				.getByName(materialName);
+			if(!material)
+			{
+				material = createLayerMaterial(materialName);
+				Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+				Ogre::TextureUnitState* unit = pass->createTextureUnitState();
+				unit->setTexture(current);
+				unit->setTextureAddressingMode(
+					Ogre::TextureUnitState::TAM_CLAMP);
+				unit->setTextureFiltering(Ogre::FO_NONE, Ogre::FO_NONE,
+					Ogre::FO_NONE);
+				material->load();
+				return material;
+			}
+			Ogre::TextureUnitState* unit =
+				material->getTechnique(0)->getPass(0)->getTextureUnitState(0);
+			if(unit->_getTexturePtr() != current)
+			{
+				unit->setTexture(current);
+			}
 			return material;
 		}
 	}
@@ -203,8 +263,10 @@ namespace Orkige
 				{
 					continue;
 				}
-				Ogre::MaterialPtr material = getOrCreateLayerMaterial(
-					impl->batches[each].textureName);
+				DrawLayer2D::Impl::Batch const & batch = impl->batches[each];
+				Ogre::MaterialPtr material = batch.renderTexture
+					? getOrCreateRenderTextureMaterial(batch.renderTexture)
+					: getOrCreateLayerMaterial(batch.textureName);
 				if(!material)
 				{
 					continue;	// texture missing - logged once
@@ -236,6 +298,20 @@ namespace Orkige
 			gRenderer->mSceneManager->addRenderQueueListener(gRenderer);
 		}
 		return handle;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::invalidateDrawLayer2DTexture(String const & textureName)
+	{
+		// a replaced texture (createTexture2D under an existing name at a
+		// new size) invalidates the cached per-texture material and any
+		// remembered load failure - both re-resolve lazily
+		Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+			.getByName("DrawLayer2D/" + textureName);
+		if(material)
+		{
+			Ogre::MaterialManager::getSingleton().remove(material);
+		}
+		gFailedTextures.erase(textureName);
 	}
 	//---------------------------------------------------------
 	void RenderBackend::unregisterDrawLayer2D(DrawLayer2D* layer)
@@ -398,6 +474,19 @@ namespace Orkige
 	{
 		Impl::Batch batch;
 		batch.textureName = textureName;
+		DrawLayer2DDetail::appendTriangles(batch.triangles, vertices,
+			vertexCount, indices, indexCount, scissor);
+		this->mImpl->batches.push_back(std::move(batch));
+		this->mImpl->dirty = true;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::addTriangles(optr<RenderTexture> const & texture,
+		Vertex2D const * vertices, size_t vertexCount,
+		unsigned short const * indices, size_t indexCount,
+		ScissorRect const * scissor)
+	{
+		Impl::Batch batch;
+		batch.renderTexture = texture;	// kept alive until clear()
 		DrawLayer2DDetail::appendTriangles(batch.triangles, vertices,
 			vertexCount, indices, indexCount, scissor);
 		this->mImpl->batches.push_back(std::move(batch));

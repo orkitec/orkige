@@ -93,6 +93,32 @@ namespace Orkige
 			meshName, halfExtent);
 	}
 	//---------------------------------------------------------
+	void RenderWorld::createLineListMesh(String const & meshName,
+		Vec3 const * points, Color const * colours, size_t pointCount)
+	{
+		oAssert(!meshName.empty());
+		oAssert(points && colours && pointCount >= 2 && pointCount % 2 == 0);
+		Ogre::MeshManager & meshManager = Ogre::MeshManager::getSingleton();
+		if(meshManager.resourceExists(meshName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			return;	// idempotent, same contract as the cube service
+		}
+		// same shared unlit vertex-colour look as the cube service
+		PrimitiveUtil::createVertexColourMaterial();
+		Ogre::ManualObject* lines =
+			this->mImpl->sceneManager->createManualObject(meshName + ".manual");
+		lines->begin("VertexColour", Ogre::RenderOperation::OT_LINE_LIST);
+		for(size_t each = 0; each < pointCount; ++each)
+		{
+			lines->position(points[each]);
+			lines->colour(colours[each]);
+		}
+		lines->end();
+		lines->convertToMesh(meshName);
+		this->mImpl->sceneManager->destroyManualObject(lines);
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
 		this->mImpl->sceneManager->setAmbientLight(colour);

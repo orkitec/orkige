@@ -59,6 +59,8 @@ namespace Orkige
 		optr<RenderCamera>	windowCamera;			//!< camera currently shown full-window (keeps it alive)
 		optr<RenderCamera>	engineWindowCamera;		//!< lazy non-owning wrap of Engine's default camera (getWindowCamera on the Engine path)
 		Ogre::ColourValue	windowBackground = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
+		bool				uiOnlyWindow = false;	//!< showUIOnlyWindow mode: the window shows only 2D layers (getWindowCamera answers NULL)
+		Ogre::Camera*		uiOnlyCamera = NULL;	//!< internal camera feeding the UI-only viewport (owned by the scene manager)
 	};
 
 	struct RenderWorld::Impl
@@ -128,6 +130,9 @@ namespace Orkige
 		struct Batch
 		{
 			String								textureName;
+			//! offscreen-target binding (the addTriangles RenderTexture
+			//! overload); the batch keeps the target alive until clear()
+			optr<RenderTexture>					renderTexture;
 			std::vector<DrawLayer2D::Vertex2D>	triangles;
 		};
 
@@ -222,10 +227,17 @@ namespace Orkige
 		//! the facade Impl state): composite all layers into the CURRENT
 		//! viewport IF it is the main window's (@see DrawLayer2DClassic.cpp)
 		static void renderDrawLayers2D(Ogre::SceneManager* sceneManager);
+		//! drop the cached "DrawLayer2D/<texture>" material again - called
+		//! when RenderSystem::createTexture2D REPLACES a texture under an
+		//! existing name (the material would keep the dead incarnation)
+		static void invalidateDrawLayer2DTexture(String const & textureName);
 
 		//--- guts accessors (NULL-safe) ---------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
+		//! the target's CURRENT backend texture (changes across resizes) -
+		//! the 2D layer binds render-texture batches through this per draw
+		static Ogre::TexturePtr ogreTexture(optr<RenderTexture> const & texture);
 		//! the wrapped entity - ONLY for AnimationComponent's root-motion
 		//! backdoor (decided question #1; see the file remarks above)
 		static Ogre::Entity* ogreEntity(optr<MeshInstance> const & mesh);

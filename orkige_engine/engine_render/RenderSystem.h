@@ -96,6 +96,15 @@ namespace Orkige
 		//! code stays backend-free while the Engine path is still live
 		//! map: classic=facade handle over the window viewport's camera | next=workspace camera | filament=main View camera
 		optr<RenderCamera> getWindowCamera() const;
+		//! @brief switch the main window into UI-ONLY mode: it stops
+		//! rendering the 3D scene and composites nothing but 2D layers
+		//! (DrawLayer2D) over the window background colour - the editor
+		//! shell's mode (its scene renders offscreen into a RenderTexture
+		//! shown inside the ImGui layer). Replaces any window camera;
+		//! getWindowCamera answers NULL while this mode is active
+		//! (a later showCameraOnWindow switches back).
+		//! map: classic=window viewport with visibility mask 0 (an internal camera feeds it - viewports need one) | next=window workspace with a clear + 2D-queue-only pass | filament=main View without a scene
+		void showUIOnlyWindow();
 		//! window clear colour (Engine::setViewportBackgroundColour successor)
 		//! map: classic=Viewport::setBackgroundColour | next=workspace clear colour | filament=Renderer::setClearOptions
 		void setWindowBackgroundColour(Color const & colour);
@@ -129,6 +138,23 @@ namespace Orkige
 		//! map: classic=TextureManager::load + getWidth/Height | next=TextureGpuManager createOrRetrieve + waitForMetadata | filament=impl decode + Texture dims
 		bool getTextureSize(String const & textureName,
 			unsigned int & outWidth, unsigned int & outHeight) const;
+		//! @brief create (or replace) a 2D texture from raw RGBA8 pixels
+		//! under a name the 2D layer batches can bind (the ImGui font
+		//! atlas service anticipated in DrawLayer2D.h). Pixels are tightly
+		//! packed rows of width*4 bytes (R,G,B,A order), straight alpha,
+		//! copied on the call. Re-uploading under an existing name
+		//! replaces the contents (atlas rebuilds).
+		//! @return false + a log line when the backend refuses the upload
+		//! map: classic=TextureManager::createManual + blitFromMemory | next=TextureGpu + Image2 raw upload | filament=Texture::setImage
+		bool createTexture2D(String const & name,
+			unsigned char const * rgbaPixels,
+			unsigned int width, unsigned int height);
+		//! @brief destroy a createTexture2D upload again (idempotent; the
+		//! owner calls this before the render system goes down - manual
+		//! textures are not resource-group content, so nothing else frees
+		//! their GPU memory in time for strict backends like Vulkan)
+		//! map: classic=TextureManager::remove (+ drop the cached 2D-layer material) | next=TextureGpuManager::destroyTexture (+ datablock detach) | filament=Engine::destroy(texture)
+		void destroyTexture2D(String const & name);
 
 		//--- the scene ---
 		//! the one world (multiple worlds stay a facade-compatible extension)

@@ -366,4 +366,47 @@ namespace Orkige
 			v2Mesh->getSubMesh(0)->setMaterialName("VertexColour");
 		}
 	}
+	//---------------------------------------------------------
+	void RenderBackend::createVertexColourLineListMesh(
+		Ogre::SceneManager* sceneManager, String const & meshName,
+		Vec3 const * points, Color const * colours, size_t pointCount)
+	{
+		oAssert(sceneManager);
+		oAssert(!meshName.empty());
+		oAssert(points && colours && pointCount >= 2 && pointCount % 2 == 0);
+		Ogre::MeshManager & meshManager2 = Ogre::MeshManager::getSingleton();
+		if(meshManager2.getByName(meshName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			return;	// idempotent, same contract as the cube service
+		}
+		// the shared unlit vertex-colour look, same as the cube service
+		RenderBackend::getOrCreateVertexColourUnlitDatablock("VertexColour",
+			NULL);
+		// the cube-service recipe on line primitives: v1 ManualObject
+		// (OT_LINE_LIST survives convertToMesh AND importV1 - the sub-mesh
+		// keeps its operation type) -> v2 mesh + the shared datablock
+		Ogre::v1::ManualObject builder(
+			Ogre::Id::generateNewId<Ogre::MovableObject>(),
+			&sceneManager->_getEntityMemoryManager(Ogre::SCENE_DYNAMIC),
+			sceneManager);
+		builder.setReadable(true);
+		builder.begin("BaseWhite", Ogre::OT_LINE_LIST,
+			Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME);
+		for(size_t each = 0; each < pointCount; ++each)
+		{
+			builder.position(points[each]);
+			builder.colour(colours[each]);
+			builder.index(static_cast<Ogre::uint32>(each));
+		}
+		builder.end();
+		Ogre::v1::MeshPtr v1Mesh = builder.convertToMesh(
+			meshName + "/v1import",
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+			false /*buildShadowMapBuffers*/);
+		if(Ogre::MeshPtr v2Mesh = importV1Mesh(v1Mesh, meshName))
+		{
+			v2Mesh->getSubMesh(0)->setMaterialName("VertexColour");
+		}
+	}
 }

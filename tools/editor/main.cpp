@@ -2,31 +2,33 @@
 //
 // A Unity-like editor built as a regular Orkige app: SDL3 owns the window and
 // event loop, Orkige::Engine renders into it (externalWindowHandle path, same
-// boot sequence as samples/hello_orkige), and the UI is Dear ImGui drawn by
-// OGRE's own Overlay integration (Ogre::ImGuiOverlay).
+// boot sequence as samples/hello_orkige), and the UI is Dear ImGui drawn
+// through the engine_render facade (ImGuiFacadeRenderer on DrawLayer2D).
 //
-// Renderer coupling (Docs/render-abstraction.md, decision #3 + WP-A1.4): the
-// editor is a CLASSIC-BACKEND app. Everything scene-facing goes through the
-// engine_render facade (RTT panel, picking, camera rig, stats, resources,
-// screenshots); the raw-Ogre corners that remain are classic editor glue by
-// design and each carries a "classic editor glue" / "classic boot block"
-// marker: the Engine boot, the ImGuiOverlay/OverlaySystem wiring (incl. the
-// UI-only window viewport), and the grid ManualObject build.
+// Renderer coupling (Docs/render-abstraction.md; decision #3 was REVISITED
+// after the DrawLayer2D port): the editor builds and runs on BOTH render
+// flavors. Everything scene-facing goes through the engine_render facade
+// (RTT panel, picking, camera rig, grid, stats, resources, screenshots,
+// ImGui itself); the one raw-Ogre corner left is the app-standard classic
+// boot block (Engine ctor, ORKIGE_RENDERSYSTEM, RTSS internal media) with
+// the EngineNext sibling behind #else, same as tools/player.
 //
 // Wiring choices:
-// - Ogre::OverlaySystem is owned editor-side: constructed after the Engine
-//   (Ogre::Root exists) but before Engine::setup() (Root not yet initialised,
-//   as OgreOverlaySystem.h requires), then registered as RenderQueueListener
-//   on the Engine SceneManager. The Engine class stays untouched; if a game
-//   ever needs overlays this moves into Engine behind an option.
+// - ImGui renders as ONE facade 2D layer: ImGui draw data = textured
+//   triangles + scissor rects = exactly the DrawLayer2D contract. The
+//   editor owns the ImGui context; ImGuiFacadeRenderer uploads the font
+//   atlas (RenderSystem::createTexture2D) and resubmits the draw data per
+//   frame (see ImGuiFacadeRenderer.h).
 // - Input goes to ImGui first (ImGuiSDL3Input); events ImGui wants captured
 //   are NOT forwarded to the engine InputManager, everything else follows the
 //   same injectEvent flow as the demo.
 // - The UI is a full-window dockspace (docking-enabled imgui): the 3D scene
 //   renders offscreen into a facade RenderTexture shown by the "Scene"
-//   panel via ImGui::Image, the window itself only carries a UI viewport
-//   (dark grey, visibility mask 0). Picking and camera orbit/zoom happen
-//   through the Scene panel (drawScenePanel).
+//   panel via ImGui::Image (the RTT handle binds through the DrawLayer2D
+//   RenderTexture overload), the window itself is UI-only
+//   (RenderSystem::showUIOnlyWindow - dark grey + the ImGui layer).
+//   Picking and camera orbit/zoom happen through the Scene panel
+//   (drawScenePanel).
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_render/RenderSystem.h>
@@ -43,7 +45,7 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_input/InputManager.h>
-#include <engine_util/PrimitiveUtil.h>
+#include <engine_render/DrawLayer2D.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
@@ -56,15 +58,6 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 
-// classic editor glue (decision #3): the ImGuiOverlay/OverlaySystem wiring,
-// the UI-only window viewport and the grid ManualObject are raw classic OGRE
-// by design - these includes serve ONLY the marked classic blocks below
-#include <OgreOverlaySystem.h>
-#include <OgreOverlayManager.h>
-#include <OgreImGuiOverlay.h>
-#include <OgreManualObject.h>
-#include <OgreTextureManager.h>
-#include <OgreRoot.h>
 #include <imgui.h>
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 #include <ImGuizmo.h>
@@ -73,6 +66,7 @@
 #include "EditorCore.h"
 #include "EditorTheme.h"
 #include "FileDialog.h"
+#include "ImGuiFacadeRenderer.h"
 #include "ImGuiSDL3Input.h"
 #include "MeshImport.h"
 #ifdef __APPLE__
@@ -673,6 +667,11 @@ struct ViewSettings
 // open/save functions so every successful open/save feeds File > Open Recent
 // without threading a ViewSettings& through all their call sites.
 ViewSettings* gViewSettings = nullptr;
+
+// the ImGui-on-facade renderer (owned by main; global so drawScenePanel can
+// register the scene RTT for ImGui::Image without threading it through every
+// draw* signature - same pattern as gViewSettings)
+Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 // false during automated runs: the scripted tests open temp scenes/projects
 // through the same functions a user does, and those must never pollute the
 // interactive Open Recent lists (or become the reopened "last project")
@@ -841,6 +840,14 @@ struct PlaySession
 	//! passed to the player as --project so its assets/scenes (and, from
 	//! milestone 2 on, scripts) resolve against the same roots as the editor
 	std::string projectRoot;
+	//! desktop play flavor picked in the toolbar: empty = this editor
+	//! build's own player (ORKIGE_EDITOR_PLAYER_PATH), otherwise the
+	//! OTHER render flavor's player binary (the debug protocol is
+	//! flavor-agnostic, so a next-flavor editor can play on the classic
+	//! player and vice versa - the entry greys out while that flavor's
+	//! build tree has no player binary)
+	std::string desktopPlayerPath;
+	std::string desktopLabel;		//!< display name of the picked desktop flavor
 	//! play target picked in the toolbar: empty = local desktop player,
 	//! otherwise the UDID of a booted iOS simulator (launched via simctl;
 	//! OrkigePlayer.app must have been installed on it once - see the
@@ -1734,6 +1741,17 @@ bool startPlay(PlaySession& session,
 			project.getName().c_str(), nativeConfig.target.c_str());
 		return false;
 	}
+	if (nativeConfig.enabled && !session.desktopPlayerPath.empty())
+	{
+		// same honesty for the cross-flavor desktop target: the module
+		// compiles and links against THIS editor's build tree - it cannot
+		// play on the other render flavor's runtime
+		SDL_Log("orkige_editor: play refused - project '%s' has a native "
+			"module ('%s'), which plays its own executable built against "
+			"this editor's render flavor (pick the plain Desktop target)",
+			project.getName().c_str(), nativeConfig.target.c_str());
+		return false;
+	}
 	session.projectRoot = projectRoot;
 	// temp play file (never the user's file - saveScene is called directly,
 	// EditorState::currentScenePath/sceneDirty are not involved)
@@ -1963,11 +1981,14 @@ bool startPlay(PlaySession& session,
 		return true;
 	}
 #endif
-	// spawn the generic player next to this build (ORKIGE_EDITOR_PLAYER_PATH
-	// is baked in by CMake as $<TARGET_FILE:orkige_player>). SDL's process
-	// API keeps the editor free of platform spawn code; stdio stays
-	// inherited so the player log shows up in the editor console.
-	return spawnDesktopPlayProcess(session, ORKIGE_EDITOR_PLAYER_PATH);
+	// spawn the generic player: this build's own (ORKIGE_EDITOR_PLAYER_PATH,
+	// baked in by CMake as $<TARGET_FILE:orkige_player>) or the OTHER render
+	// flavor's binary when the toolbar picked it (the debug protocol is
+	// flavor-agnostic). SDL's process API keeps the editor free of platform
+	// spawn code; stdio stays inherited so the player log shows up in the
+	// editor console.
+	return spawnDesktopPlayProcess(session, session.desktopPlayerPath.empty()
+		? ORKIGE_EDITOR_PLAYER_PATH : session.desktopPlayerPath);
 }
 
 //! Stop: ask the player to quit; updatePlaySession reaps it (or kills it
@@ -2217,10 +2238,10 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 // The offscreen scene render target: the editor's scene camera renders into a
 // facade RenderTexture (WP-A1.4; the old manual TU_RENDERTARGET pattern moved
 // behind engine_render), and the Scene panel displays that texture via
-// ImGui::Image. getNativeTextureId doubles as the ImTextureID - on the
-// classic backend OGRE's ImGuiOverlay resolves any nonzero id through
-// TextureManager::getByHandle, the same pattern as the font atlas SetTexID
-// in main(). Resize invalidates the id, so it is re-fetched every frame.
+// ImGui::Image. The ImTextureID comes from ImGuiFacadeRenderer::textureIdFor:
+// it registers the facade HANDLE, and DrawLayer2D binds the target's CURRENT
+// backend texture per draw - so the id is stable across resizes on every
+// render flavor.
 struct SceneRenderTarget
 {
 	optr<Orkige::RenderTexture> texture;
@@ -2245,8 +2266,8 @@ void createSceneRenderTexture(SceneRenderTarget& target, int width, int height)
 		target.texture->setBackgroundColour(
 			Orkige::Color(0.09f, 0.10f, 0.12f));
 		target.texture->setShadowsEnabled(true);
-		// the ImGui overlay must only ever render into the window, not the
-		// RTT (OverlaySystem also skips RTT passes, this is belt+braces)
+		// no 2D overlays in the scene panel (DrawLayer2D never renders
+		// into RTTs by contract anyway - this is belt+braces)
 		target.texture->setOverlaysEnabled(false);
 	}
 	else
@@ -2279,51 +2300,58 @@ void applyOrbitCamera(EditorState const& state,
 			Orkige::Vec3::UNIT_X));
 }
 
-// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-grid) - lint gate, see Util/ogre_containment.json
-// The ground-plane reference grid: built ONCE as a ManualObject line list
-// through the shared unlit "VertexColour" material (created before this
-// runs). Lives on its own root child node; the View menu toggles visibility.
-// Query flags 0 keep it invisible to the click-picking ray queries (facade
-// queryRay masks against them). Only the scene RTT renders it - the window's
-// UI viewport has visibility mask 0.
-// CLASSIC EDITOR GLUE (decision #3 / WP-A1.4): hand-built ManualObject line
-// geometry stays raw classic OGRE by design - the facade deliberately has no
-// line-list primitive; port alongside an editor-on-Next effort, not before.
-Ogre::SceneNode* createEditorGrid(Ogre::SceneManager* sceneManager)
+// The ground-plane reference grid, all facade: the line list becomes a mesh
+// resource through RenderWorld::createLineListMesh (the WP-A1.3 cube-service
+// pattern - shared unlit "VertexColour" look, works on every render flavor)
+// and instantiates onto its own root child node; the View menu toggles
+// visibility. Query flags 0 keep it invisible to the click-picking ray
+// queries (facade queryRay masks against them). Only the scene RTT renders
+// it - the window is UI-only (showUIOnlyWindow).
+// The returned mesh handle must stay alive with the node (RAII).
+optr<Orkige::MeshInstance> createEditorGrid(Orkige::RenderWorld* world,
+	optr<Orkige::RenderNode> const& gridNode)
 {
 	const int halfLineCount = 10;		// lines each side of the axes
 	const float spacing = 1.0f;			// one world unit per cell
 	const float extent = halfLineCount * spacing;
-	const Ogre::ColourValue minorColour(0.32f, 0.32f, 0.32f);
-	const Ogre::ColourValue axisXColour(0.75f, 0.30f, 0.30f);	// X axis line
-	const Ogre::ColourValue axisZColour(0.30f, 0.45f, 0.85f);	// Z axis line
+	const Orkige::Color minorColour(0.32f, 0.32f, 0.32f);
+	const Orkige::Color axisXColour(0.75f, 0.30f, 0.30f);	// X axis line
+	const Orkige::Color axisZColour(0.30f, 0.45f, 0.85f);	// Z axis line
 
-	Ogre::ManualObject* grid = sceneManager->createManualObject("EditorGrid");
-	grid->begin("VertexColour", Ogre::RenderOperation::OT_LINE_LIST);
+	std::vector<Orkige::Vec3> points;
+	std::vector<Orkige::Color> colours;
+	auto addSegment = [&](Orkige::Vec3 const& from, Orkige::Vec3 const& to,
+		Orkige::Color const& colour)
+	{
+		points.push_back(from);
+		points.push_back(to);
+		colours.push_back(colour);
+		colours.push_back(colour);
+	};
 	for (int i = -halfLineCount; i <= halfLineCount; ++i)
 	{
 		const float d = i * spacing;
 		// line parallel to the X axis (constant z); the z=0 one IS the X axis
-		const Ogre::ColourValue& xColour = (i == 0) ? axisXColour : minorColour;
-		grid->position(-extent, 0.0f, d);
-		grid->colour(xColour);
-		grid->position(extent, 0.0f, d);
-		grid->colour(xColour);
+		addSegment(Orkige::Vec3(-extent, 0.0f, d),
+			Orkige::Vec3(extent, 0.0f, d),
+			(i == 0) ? axisXColour : minorColour);
 		// line parallel to the Z axis (constant x); the x=0 one IS the Z axis
-		const Ogre::ColourValue& zColour = (i == 0) ? axisZColour : minorColour;
-		grid->position(d, 0.0f, -extent);
-		grid->colour(zColour);
-		grid->position(d, 0.0f, extent);
-		grid->colour(zColour);
+		addSegment(Orkige::Vec3(d, 0.0f, -extent),
+			Orkige::Vec3(d, 0.0f, extent),
+			(i == 0) ? axisZColour : minorColour);
 	}
-	grid->end();
-	grid->setQueryFlags(0); // never a picking hit
-	Ogre::SceneNode* gridNode = sceneManager->getRootSceneNode()
-		->createChildSceneNode("EditorGridNode");
-	gridNode->attachObject(grid);
-	return gridNode;
+	world->createLineListMesh("EditorGrid.mesh", points.data(),
+		colours.data(), points.size());
+	optr<Orkige::MeshInstance> grid =
+		world->createMeshInstance("EditorGrid.mesh");
+	if (grid)
+	{
+		grid->setCastShadows(false);
+		grid->setQueryFlags(0); // never a picking hit
+		grid->attachTo(gridNode);
+	}
+	return grid;
 }
-// ORKIGE_SANCTIONED_OGRE_END
 
 // F: frame the selected object - retarget the orbit to the object's world
 // bounds centre and fit the orbit distance to its bounding radius
@@ -3473,10 +3501,15 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		static bool codesignIdentityPresent = false;
 #endif
 		static std::vector<AndroidDevice> androidDevices;
+		static bool otherFlavorPlayerPresent = false;
 		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit);
 		ImGui::SetNextItemWidth(150.0f);
 		const char* targetPreview = "Desktop";
-		if (!session.simulatorUdid.empty())
+		if (!session.desktopLabel.empty())
+		{
+			targetPreview = session.desktopLabel.c_str();
+		}
+		else if (!session.simulatorUdid.empty())
 		{
 			targetPreview = session.simulatorLabel.c_str();
 		}
@@ -3484,6 +3517,21 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		{
 			targetPreview = session.androidLabel.c_str();
 		}
+		// the two desktop flavors: this build's own player and the OTHER
+		// render flavor's (conventional preset build tree - baked in by
+		// CMake). The debug protocol is flavor-agnostic; the visual result
+		// must be identical (the WYSIWYG backend-parity rule).
+#ifdef ORKIGE_RENDER_NEXT
+		const char* const ownFlavorLabel = "Desktop (Ogre-Next)";
+		const char* const otherFlavorLabel = "Desktop (classic OGRE)";
+		const char* const otherFlavorPlayerPath =
+			ORKIGE_EDITOR_PLAYER_PATH_CLASSIC;
+#else
+		const char* const ownFlavorLabel = "Desktop (classic OGRE)";
+		const char* const otherFlavorLabel = "Desktop (Ogre-Next)";
+		const char* const otherFlavorPlayerPath =
+			ORKIGE_EDITOR_PLAYER_PATH_NEXT;
+#endif
 		if (ImGui::BeginCombo("##PlayTarget", targetPreview))
 		{
 			if (ImGui::IsWindowAppearing())
@@ -3499,14 +3547,43 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					: std::vector<IosHardwareDevice>();
 #endif
 				androidDevices = listAdbDevices();
+				std::error_code ignored;
+				otherFlavorPlayerPresent = std::filesystem::exists(
+					otherFlavorPlayerPath, ignored);
 			}
-			if (ImGui::Selectable("Desktop",
-				session.simulatorUdid.empty() && session.androidSerial.empty()))
+			const bool desktopSelected = session.simulatorUdid.empty() &&
+				session.androidSerial.empty();
+			if (ImGui::Selectable(ownFlavorLabel,
+				desktopSelected && session.desktopPlayerPath.empty()))
 			{
+				session.desktopPlayerPath.clear();
+				session.desktopLabel.clear();
 				session.simulatorUdid.clear();
 				session.simulatorLabel.clear();
 				session.androidSerial.clear();
 				session.androidLabel.clear();
+			}
+			// the other flavor's player: selectable only when its build
+			// tree carries the binary (grey + tooltip otherwise - honest
+			// gating over a Play that cannot work)
+			ImGui::BeginDisabled(!otherFlavorPlayerPresent);
+			if (ImGui::Selectable(otherFlavorLabel,
+				desktopSelected && !session.desktopPlayerPath.empty()))
+			{
+				session.desktopPlayerPath = otherFlavorPlayerPath;
+				session.desktopLabel = otherFlavorLabel;
+				session.simulatorUdid.clear();
+				session.simulatorLabel.clear();
+				session.androidSerial.clear();
+				session.androidLabel.clear();
+			}
+			ImGui::EndDisabled();
+			if (!otherFlavorPlayerPresent &&
+				ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				ImGui::SetTooltip("that flavor's player is not built - "
+					"configure + build its preset first (%s)",
+					otherFlavorPlayerPath);
 			}
 #ifdef __APPLE__
 			// every AVAILABLE simulator is a valid target: Play boots a
@@ -3523,6 +3600,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.simulatorLabel = device.name;
 					session.androidSerial.clear();
 					session.androidLabel.clear();
+					session.desktopPlayerPath.clear();
+					session.desktopLabel.clear();
 				}
 				if (!device.booted && ImGui::IsItemHovered())
 				{
@@ -3541,6 +3620,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.androidLabel = device.label;
 					session.simulatorUdid.clear();
 					session.simulatorLabel.clear();
+					session.desktopPlayerPath.clear();
+					session.desktopLabel.clear();
 				}
 			}
 #ifdef __APPLE__
@@ -3797,10 +3878,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	if ((state.dockLayoutChecked && !resetRequested) ||
 		hostSize.x <= 0.0f || hostSize.y <= 0.0f)
 	{
-		// the very first frame has no display size yet (ImGuiOverlay derives
-		// it from the not-yet-rendered overlay viewport) - try again next
-		// frame, DockBuilderSetNodeSize needs a real size (a pending reset
-		// request also survives until a frame with a real size)
+		// the very first frame may have no display size yet - try again
+		// next frame, DockBuilderSetNodeSize needs a real size (a pending
+		// reset request also survives until a frame with a real size)
 		return;
 	}
 	state.dockLayoutChecked = true;
@@ -3986,13 +4066,10 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 		state.scenePanelHeight = static_cast<int>(avail.y);
 		if (sceneTarget.texture && avail.x >= 1.0f && avail.y >= 1.0f)
 		{
-			// the facade's native texture id is the ImGui texture id
-			// (re-fetched every frame - resize invalidates it; the classic
-			// backend hands out the resource handle Ogre::ImGuiOverlay
-			// resolves via TextureManager::getByHandle)
-			ImGui::Image(
-				static_cast<ImTextureID>(
-					sceneTarget.texture->getNativeTextureId()),
+			// the RTT binds by facade HANDLE (ImGuiFacadeRenderer registry;
+			// DrawLayer2D re-resolves the current backend texture per draw,
+			// so the id is stable across resizes on every render flavor)
+			ImGui::Image(gImGuiRenderer->textureIdFor(sceneTarget.texture),
 				avail);
 			const ImVec2 rectMin = ImGui::GetItemRectMin();
 			state.scenePanelHovered = ImGui::IsItemHovered();
@@ -5540,15 +5617,21 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- classic boot block (sanctioned raw-Ogre corner, decision #3 +
-		// the WP-A1.3 app rule in Docs/render-abstraction.md): Engine is the
-		// classic backend's bootstrapper - constructing/configuring it,
-		// feeding the RTSS its internal media and the ORKIGE_RENDERSYSTEM
-		// pick stay classic plumbing; everything scene-facing after
-		// Engine::setup talks to the engine_render facade.
+		// --- per-flavor boot block (the WP-A1.3 app rule + B3 flavor split,
+		// Docs/render-abstraction.md - same shape as tools/player): on
+		// classic, Engine construction/config, the RTSS-internal media and
+		// the ORKIGE_RENDERSYSTEM pick stay classic plumbing; on the next
+		// flavor the Engine sibling (engine_graphic/EngineNext.h) carries
+		// the same parameters into RenderBackend::createRenderSystem. After
+		// Engine::setup the editor talks to the engine_render facade on
+		// BOTH flavors.
+#ifdef ORKIGE_RENDER_CLASSIC
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, "orkige_editor.log");
+#else
+		Orkige::Engine engine("orkige_editor.log");
+#endif
 		engine.setCustomWindowParam("width", "1280");
 		engine.setCustomWindowParam("height", "720");
 		if (!automatedRun)
@@ -5560,15 +5643,19 @@ int main(int, char**)
 			engine.setCustomWindowParam("vsync", "true");
 		}
 
+#ifdef ORKIGE_RENDER_CLASSIC
 		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Vulkan",
 		// "Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
 		// unset keeps the default (first available, i.e. GL3Plus). Vulkan
 		// (MoltenVK on macOS) has full RTSS support; OGRE 14.5's Metal RS
 		// does not (no MSL backend - built-in default shaders only).
+		// (The next flavor boots Ogre-Next's Metal RS unconditionally -
+		// the graphics-API pick is a classic-backend concern.)
 		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
 		{
 			engine.setPreferredRenderSystem(renderSystemEnv);
 		}
+#endif
 
 		// engine log -> Console: the engine_base log-capture service (shared
 		// with PlayerDebugLink) queues every line from here on; the frame
@@ -5583,22 +5670,17 @@ int main(int, char**)
 				"the Console will miss the engine log");
 		}
 
-		// OverlaySystem: Root exists (Engine ctor), Root::initialise has not
-		// run yet (that happens inside Engine::setup) - exactly the window
-		// OgreOverlaySystem.h documents. Declared after `engine` so it is
-		// destroyed before the Root goes down. CLASSIC EDITOR GLUE
-		// (decision #3): the ImGuiOverlay integration is a classic-OGRE
-		// component - it does not go through the facade.
-		Ogre::OverlaySystem overlaySystem;
-
+#ifdef ORKIGE_RENDER_CLASSIC
 		// RTSS shader library + OgreUnifiedShader.h, same locations
 		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
-		// backend-internal media, must precede Engine::setup
+		// backend-internal media, must precede Engine::setup. (The next
+		// flavor's Hlms media is a built-in default of its Engine sibling.)
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_EDITOR_MEDIA_DIR "/Main", "FileSystem", Ogre::RGN_INTERNAL);
 		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
 			ORKIGE_EDITOR_MEDIA_DIR "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
+#endif
 
 		if (!engine.setup("Orkige Editor", Orkige::Engine::SHOW_NEVER,
 			Orkige::StringUtil::Converter::toString(
@@ -5608,9 +5690,8 @@ int main(int, char**)
 			return 1;
 		}
 		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the classic boot block: from here on the editor talks
-		// to the renderer through the engine_render facade - except for the
-		// marked classic editor glue (overlay wiring, UI viewport, grid)
+		// --- end of the boot block: from here on the editor talks to the
+		// renderer through the engine_render facade on BOTH flavors
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
 
@@ -5632,54 +5713,25 @@ int main(int, char**)
 			world->createNode("EditorSceneCameraNode");
 		sceneCamera->attachTo(sceneCameraNode);
 
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-ui-viewport) - lint gate, see Util/ogre_containment.json
-		// CLASSIC EDITOR GLUE (decision #3): the window keeps a single
-		// UI-only viewport for the ImGui overlay - visibility mask 0 hides
-		// all scene content, leaving a dark grey backdrop around the docked
-		// panels. Per-viewport visibility masks are deliberately NOT facade
-		// API (single-window/single-viewport is frozen, decision #7); this
-		// viewport is part of the overlay wiring and stays raw classic OGRE.
-		Ogre::SceneManager* sceneManager = engine.getSceneManager();
-		Ogre::Camera* uiCamera = sceneManager->createCamera("EditorUICamera");
-		sceneManager->getRootSceneNode()
-			->createChildSceneNode("EditorUICameraNode")
-			->attachObject(uiCamera);
-		Ogre::Viewport* uiViewport =
-			engine.getRenderWindow()->addViewport(uiCamera);
-		// matches the theme's dockspace background (EditorTheme DOCKSPACE_BG)
-		uiViewport->setBackgroundColour(
-			Ogre::ColourValue(0.102f, 0.102f, 0.102f));
-		uiViewport->setVisibilityMask(0); // overlay only - no scene objects
-		uiViewport->setShadowsEnabled(false);
-#ifdef USE_RTSHADER_SYSTEM
-		// the ImGui overlay material renders through the RTSS scheme, same
-		// as it did on the old scene viewport (GL3+ has no fixed function)
-		if (!Ogre::Root::getSingleton().getRenderSystem()->getCapabilities()
-			->hasCapability(Ogre::RSC_FIXED_FUNCTION))
-		{
-			uiViewport->setMaterialScheme(
-				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
-		}
-#endif
+		// UI-only main window (facade): only the window background colour
+		// and the ImGui 2D layer reach the screen - all scene content
+		// renders offscreen into the Scene panel's RenderTexture. The
+		// colour matches the theme's dockspace background (EditorTheme
+		// DOCKSPACE_BG).
+		render->setWindowBackgroundColour(
+			Orkige::Color(0.102f, 0.102f, 0.102f));
+		render->showUIOnlyWindow();
 		render->initialiseResourceGroups();
-		// overlays render as a RenderQueueListener on the SceneManager
-		// (classic editor glue, see the OverlaySystem note above)
-		sceneManager->addRenderQueueListener(&overlaySystem);
-		// ORKIGE_SANCTIONED_OGRE_END
 		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-imgui-overlay) - lint gate, see Util/ogre_containment.json
-		// Dear ImGui overlay: OGRE's own integration; the overlay renders
-		// through the Overlay render queue hook above. Ownership goes to the
-		// OverlayManager (destroyed with the OverlaySystem). CLASSIC EDITOR
-		// GLUE (decision #3): imgui integration is per-backend by nature and
-		// deliberately not part of engine_render.
-		Ogre::ImGuiOverlay* imguiOverlay = new Ogre::ImGuiOverlay();
-		imguiOverlay->setZOrder(300);
-		// Theme + system font BEFORE show(): ImGuiOverlay::initialise (run by
-		// the first show()) builds the font atlas exactly once and uploads it
-		// as "ImGui/FontTex" (createFontTexture) - fonts added later would
-		// need an atlas re-upload OGRE 14.5 has no code path for. The San
+		// Dear ImGui through the engine_render facade: the editor owns the
+		// context; ImGuiFacadeRenderer draws it as one DrawLayer2D (works
+		// identically on both render flavors - see ImGuiFacadeRenderer.h).
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		// Theme + system font BEFORE ImGuiFacadeRenderer::initialise: it
+		// builds + uploads the font atlas exactly once - fonts added later
+		// would need an atlas re-upload nothing triggers. The San
 		// Francisco font is loaded from the OS at runtime (never
 		// redistributed); if it is unavailable the ImGui default font stays.
 		// contentScale maps window points to render-target pixels (the space
@@ -5706,25 +5758,19 @@ int main(int, char**)
 			SDL_Log("orkige_editor: system font unavailable - using the "
 				"ImGui default font");
 		}
-		imguiOverlay->show(); // initialises the renderable: font atlas + "ImGui/FontTex"
-		Ogre::OverlayManager::getSingleton().addOverlay(imguiOverlay);
-		// OGRE 14.5 predates imgui 1.92's texture update protocol and never
-		// calls SetTexID after uploading the font atlas, which trips
-		// ImDrawCmd::GetTexID's "texture wasn't uploaded" assert. Register the
-		// uploaded Ogre texture through the legacy path; OGRE's renderable
-		// resolves the id via TextureManager::getByHandle.
-		Ogre::TexturePtr imguiFontTex = Ogre::TextureManager::getSingleton()
-			.getByName("ImGui/FontTex", Ogre::RGN_INTERNAL);
-		OgreAssert(imguiFontTex, "ImGui font texture missing after overlay init");
-		ImGui::GetIO().Fonts->SetTexID(
-			static_cast<ImTextureID>(imguiFontTex->getHandle()));
-		// ORKIGE_SANCTIONED_OGRE_END
+		Orkige::ImGuiFacadeRenderer imguiRenderer;
+		if (!imguiRenderer.initialise(300 /*layer zOrder*/))
+		{
+			SDL_Log("orkige_editor: ImGui facade renderer failed to initialise");
+			return 1;
+		}
+		gImGuiRenderer = &imguiRenderer;
 
 		// docking UI: full-window dockspace (drawDockspace). The panel layout
 		// persists through imgui.ini stored NEXT TO THE EXECUTABLE
 		// (SDL_GetBasePath), so it works no matter which cwd the editor is
 		// launched from. Static so the path outlives the ImGui context - the
-		// ini gets written during ImGui::DestroyContext (~ImGuiOverlay).
+		// ini gets written during ImGui::DestroyContext (teardown below).
 		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 		const char* sdlBasePath = SDL_GetBasePath();
 		static const std::string imguiIniPath =
@@ -5762,16 +5808,16 @@ int main(int, char**)
 		// unlit vertex-colour material + the shared "EditorCube.mesh"
 		// resource through the facade cube-mesh service (a real mesh, so
 		// cubes go through ModelComponent and round-trip through scene
-		// files - the player builds the identical resource); the defaults
-		// ARE PrimitiveUtil::CUBE_MESH_NAME/CUBE_MESH_HALF_EXTENT
+		// files - the player builds the identical resource); the default
+		// name IS RenderWorld::CUBE_MESH_NAME
 		world->createVertexColourCubeMesh();
 
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-grid) - lint gate, see Util/ogre_containment.json
 		// ground-plane reference grid (editor-only, toggled via View menu,
-		// invisible to picking, not part of the GameObject world) - classic
-		// editor glue, see createEditorGrid
-		Ogre::SceneNode* gridNode = createEditorGrid(sceneManager);
-		// ORKIGE_SANCTIONED_OGRE_END
+		// invisible to picking, not part of the GameObject world) - a
+		// facade line-list mesh since the editor-on-Next port, see
+		// createEditorGrid
+		optr<Orkige::RenderNode> gridNode = world->createNode("EditorGridNode");
+		optr<Orkige::MeshInstance> gridMesh = createEditorGrid(world, gridNode);
 		gridNode->setVisible(viewSettings.showGrid);
 
 		// GameObject/component bridge (registers the component factories)
@@ -6357,9 +6403,7 @@ int main(int, char**)
 			imguiInput.newFrame(
 				static_cast<float>(drawableWidth),
 				static_cast<float>(drawableHeight));
-			// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-imgui-overlay) - lint gate, see Util/ogre_containment.json
-			Ogre::ImGuiOverlay::NewFrame();
-			// ORKIGE_SANCTIONED_OGRE_END
+			ImGui::NewFrame();
 			ImGuizmo::BeginFrame();
 
 			// snapshot the panel visibility: a close-button click (the x in
@@ -6476,6 +6520,12 @@ int main(int, char**)
 			handleEditorShortcuts(state, editorCore, playSession,
 				sceneTarget.camera, window);
 
+			// finalize the ImGui frame and resubmit its draw data as the
+			// facade 2D layer; renderOneFrame then composites it over the
+			// UI-only window (both flavors - see ImGuiFacadeRenderer.h)
+			ImGui::Render();
+			imguiRenderer.render(ImGui::GetDrawData());
+
 			if (!engine.renderOneFrame())
 			{
 				running = false;
@@ -6528,7 +6578,7 @@ int main(int, char**)
 						"Cube" + std::to_string(++fixtureCubeCounter);
 					fixturesOk = fixturesOk &&
 						editorCore.instantiateModelObject(id,
-							Orkige::PrimitiveUtil::CUBE_MESH_NAME, position);
+							Orkige::RenderWorld::CUBE_MESH_NAME, position);
 				}
 				fixturesOk = fixturesOk && editorCore.instantiateModelObject(
 					"TestMesh1", "test_mesh.glb",
@@ -6933,7 +6983,7 @@ int main(int, char**)
 						->hasComponent<Orkige::ModelComponent>() &&
 						copyObject->getComponentPtr<Orkige::ModelComponent>()
 							->getCurrentModelFileName() ==
-						Orkige::PrimitiveUtil::CUBE_MESH_NAME,
+						Orkige::RenderWorld::CUBE_MESH_NAME,
 						"copy mesh");
 					SDL_Log("orkige_editor: edittest frame 50 - duplicate OK "
 						"('%s')", editTestDuplicateId.c_str());
@@ -7177,9 +7227,9 @@ int main(int, char**)
 					require(cube2 && cube2
 						->getComponentPtr<Orkige::ModelComponent>()
 						->getCurrentModelFileName() ==
-						Orkige::PrimitiveUtil::CUBE_MESH_NAME, "Cube2 mesh");
+						Orkige::RenderWorld::CUBE_MESH_NAME, "Cube2 mesh");
 					require(!editorCore.changeObjectMesh("Cube2",
-						Orkige::PrimitiveUtil::CUBE_MESH_NAME),
+						Orkige::RenderWorld::CUBE_MESH_NAME),
 						"no-op mesh change refused");
 					require(editorCore.changeObjectMesh("Cube2",
 						"test_mesh.glb"), "mesh change");
@@ -7190,7 +7240,7 @@ int main(int, char**)
 						"mesh swapped + entity loaded");
 					require(editorCore.undo(), "undo mesh change");
 					require(model->getCurrentModelFileName() ==
-						Orkige::PrimitiveUtil::CUBE_MESH_NAME &&
+						Orkige::RenderWorld::CUBE_MESH_NAME &&
 						model->getMeshInstance() != nullptr,
 						"mesh change undone");
 					SDL_Log("orkige_editor: edittest frame 105 - mesh change "
@@ -8425,8 +8475,10 @@ int main(int, char**)
 			exportJob.process = nullptr;
 		}
 
-		// classic editor glue teardown (mirrors the marked setup block)
-		sceneManager->removeRenderQueueListener(&overlaySystem);
+		// ImGui teardown: destroying the context writes the ini; the facade
+		// 2D layer + font texture die with the renderer/engine afterwards
+		gImGuiRenderer = nullptr;
+		ImGui::DestroyContext();
 		// the console dies with this scope - detach the log hooks first
 		// (the engine log capture detaches itself in its destructor)
 		engineLogCapture.detach();

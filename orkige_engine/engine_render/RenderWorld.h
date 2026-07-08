@@ -83,6 +83,9 @@ namespace Orkige
 		optr<RenderLight> createLight();
 
 		//--- procedural built-in meshes ---
+		//! the editor's "Create Cube" mesh resource name (the facade home of
+		//! PrimitiveUtil::CUBE_MESH_NAME - flavor-neutral callers spell THIS)
+		static constexpr char const * CUBE_MESH_NAME = "EditorCube.mesh";
 		//! @brief ensure the shared vertex-coloured cube MESH RESOURCE exists
 		//! (idempotent) - the editor's "Create Cube" content. Scenes reference
 		//! it by name through ModelComponent, so every app that loads such
@@ -92,8 +95,17 @@ namespace Orkige
 		//! Creates the shared unlit "VertexColour" vertex-colour-tracking
 		//! material along the way (@see MeshInstance::setVertexColourUnlit).
 		//! map: classic=ManualObject::convertToMesh (engine_util/PrimitiveUtil recipe, backend-private) | next=v2 mesh built from the same vertex data + HlmsUnlit | filament=prebuilt vertex/index buffers + unlit filamat
-		void createVertexColourCubeMesh(String const & meshName = "EditorCube.mesh",
+		void createVertexColourCubeMesh(String const & meshName = CUBE_MESH_NAME,
 			Real halfExtent = Real(0.8));
+		//! @brief ensure a vertex-coloured LINE-LIST mesh resource exists
+		//! (idempotent per name) - editor helper geometry (the reference
+		//! grid). Consecutive point PAIRS form one world-space segment
+		//! (pointCount must be even); colours are per point and render
+		//! through the same shared unlit "VertexColour" look as the cube
+		//! service. Instantiate it like any mesh via createMeshInstance.
+		//! map: classic=ManualObject OT_LINE_LIST -> convertToMesh | next=v1 ManualObject line list -> createByImportingV1 (the cube-service recipe) | filament=RenderableManager PRIMITIVE_TYPE LINES + unlit filamat
+		void createLineListMesh(String const & meshName,
+			Vec3 const * points, Color const * colours, size_t pointCount);
 
 		//--- global lighting ---
 		//! @brief the ambient light minimum every app sets today

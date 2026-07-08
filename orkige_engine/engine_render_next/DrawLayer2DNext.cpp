@@ -21,13 +21,10 @@
 //! sort back to front by camera depth - so every batch node gets a
 //! unique depth from the global (layer zOrder, creation order,
 //! submission order) walk, reassigned whenever content changes.
-//! Colour parity note: the Next swapchain is sRGB, so vertex colours
-//! are pre-converted to sRGB space at build time - textures round-trip
-//! (sRGB decode in sampling, encode on write) and vertex colours would
-//! otherwise render brighter than the classic backend's non-sRGB path.
-//! Semi-transparent BLENDING still happens in linear space here vs
-//! gamma space on classic (a hardware property of the sRGB target) -
-//! edge pixels of text/alpha gradients may differ by a hair.
+//! Colour parity note: since the backend went gamma-space passthrough
+//! (non-sRGB swapchain/textures, see the boot's "gamma" note in
+//! NextBackend.cpp) vertex colours upload RAW - values, blending and
+//! screenshots byte-match the classic backend.
 //! Scissors/indices never reach this backend: DrawLayer2DClip.h
 //! resolves both into flat triangle lists at submission time.
 
@@ -74,18 +71,6 @@ namespace Orkige
 		//! clip, so the painter order can never collapse into one key
 		const Ogre::Real BATCH_DEPTH_SPACING = Ogre::Real(8.0);
 		const Ogre::Real UI_CAMERA_FAR_CLIP = Ogre::Real(20000.0);
-
-		//! sRGB EOTF (decode): pre-darken vertex colours so the sRGB
-		//! swapchain's encode restores exactly the classic output
-		inline float srgbDecode(float channel)
-		{
-			if(channel <= 0.04045f)
-			{
-				return channel / 12.92f;
-			}
-			return std::pow((channel + 0.055f) / 1.055f, 2.4f);
-		}
-
 	}
 
 	//---------------------------------------------------------
@@ -259,6 +244,62 @@ namespace Orkige
 		RenderBackend::registerContentDatablock(datablock);
 		return datablock;
 	}
+	//---------------------------------------------------------
+	Ogre::HlmsDatablock* RenderBackend::getOrCreateDrawLayer2DRTTDatablock(
+		optr<RenderTexture> const & renderTexture)
+	{
+		oAssert(renderTexture);
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		const String name =
+			"DrawLayer2D/RTT/" + RenderBackend::renderTextureName(renderTexture);
+		Ogre::TextureGpu* current =
+			RenderBackend::renderTextureGpu(renderTexture);
+		if(Ogre::HlmsDatablock* existing =
+			hlmsManager->getDatablockNoDefault(name))
+		{
+			// re-point at the target's current incarnation when it changed
+			Ogre::HlmsUnlitDatablock* unlitBlock =
+				static_cast<Ogre::HlmsUnlitDatablock*>(existing);
+			if(unlitBlock->getTexture(0u) != current)
+			{
+				unlitBlock->setTexture(0u, current);
+			}
+			return existing;
+		}
+		// the 2D render contract minus the blending: RenderTexture batches
+		// composite OPAQUE. Classic parity reasoning: classic RTTs carry no
+		// alpha channel (PF_BYTE_RGB - sampling answers alpha 1), so its
+		// alpha blend degenerates to a plain replace; this backend's RTTs
+		// are RGBA whose alpha is a rendering BYPRODUCT (content is free to
+		// write 0 - vertex-colour meshes do), and blending with it would
+		// punch holes into the scene panel. Opaque = classic's exact
+		// result. setForceTransparentRenderOrder keeps the batch in the
+		// render queue's back-to-front TRANSPARENT path regardless - the
+		// whole 2D painter order rides on that sorting (an opaque-path
+		// object would jump before every blended UI batch).
+		Ogre::HlmsUnlit* unlit = static_cast<Ogre::HlmsUnlit*>(
+			hlmsManager->getHlms(Ogre::HLMS_UNLIT));
+		Ogre::HlmsMacroblock macroblock;
+		macroblock.mDepthCheck = false;
+		macroblock.mDepthWrite = false;
+		macroblock.mCullMode = Ogre::CULL_NONE;
+		Ogre::HlmsBlendblock blendblock;
+		blendblock.setForceTransparentRenderOrder(true);
+		Ogre::HlmsUnlitDatablock* datablock =
+			static_cast<Ogre::HlmsUnlitDatablock*>(unlit->createDatablock(
+				name, name, macroblock, blendblock,
+				Ogre::HlmsParamVec()));
+		if(current)
+		{
+			Ogre::HlmsSamplerblock samplerblock;
+			samplerblock.setFiltering(Ogre::TFO_NONE);
+			samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
+			datablock->setTexture(0u, current, &samplerblock);
+		}
+		RenderBackend::registerContentDatablock(datablock);
+		return datablock;
+	}
 
 	//---------------------------------------------------------
 	//--- Impl batch objects -----------------------------------
@@ -271,40 +312,54 @@ namespace Orkige
 		{
 			return;	// nothing to draw - no backend objects
 		}
-		String datablockTexture = batch.textureName;
-		Ogre::HlmsDatablock* datablock =
-			RenderBackend::getOrCreateDrawLayer2DDatablock(datablockTexture);
-		if(!datablock && !datablockTexture.empty())
+		String datablockName;
+		if(batch.renderTexture)
 		{
-			if(gFailedTextures.insert(datablockTexture).second)
-			{
-				Ogre::LogManager::getSingleton().logMessage(
-					"Orkige next backend: DrawLayer2D texture '" +
-					datablockTexture + "' not found - batch draws untextured");
-			}
-			datablockTexture.clear();
-			datablock = RenderBackend::getOrCreateDrawLayer2DDatablock(
-				datablockTexture);
+			// offscreen-target batch: a per-target datablock re-pointed at
+			// the target's CURRENT texture (resize-by-recreate safe; the
+			// dying incarnation detaches itself, RenderTextureNext.cpp)
+			Ogre::HlmsDatablock* datablock =
+				RenderBackend::getOrCreateDrawLayer2DRTTDatablock(
+					batch.renderTexture);
+			oAssert(datablock);
+			datablockName = "DrawLayer2D/RTT/" +
+				RenderBackend::renderTextureName(batch.renderTexture);
 		}
-		oAssert(datablock);
+		else
+		{
+			String datablockTexture = batch.textureName;
+			Ogre::HlmsDatablock* datablock =
+				RenderBackend::getOrCreateDrawLayer2DDatablock(datablockTexture);
+			if(!datablock && !datablockTexture.empty())
+			{
+				if(gFailedTextures.insert(datablockTexture).second)
+				{
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige next backend: DrawLayer2D texture '" +
+						datablockTexture + "' not found - batch draws untextured");
+				}
+				datablockTexture.clear();
+				datablock = RenderBackend::getOrCreateDrawLayer2DDatablock(
+					datablockTexture);
+			}
+			oAssert(datablock);
+			datablockName = "DrawLayer2D/" + datablockTexture;
+		}
 		batch.object = sceneManager->createManualObject(Ogre::SCENE_DYNAMIC);
 		batch.object->setName(
 			RenderBackend::generateName("RenderFacade/DrawLayer2D"));
 		batch.object->setQueryFlags(0);	// UI never answers scene ray queries
 		batch.object->estimateVertexCount(batch.triangles.size());
-		batch.object->begin("DrawLayer2D/" + datablockTexture,
-			Ogre::OT_TRIANGLE_LIST);
+		batch.object->begin(datablockName, Ogre::OT_TRIANGLE_LIST);
 		Ogre::uint32 index = 0;
 		for(DrawLayer2D::Vertex2D const & vertex : batch.triangles)
 		{
 			// pixel space -> world: +y down becomes -y (the UI camera sits
-			// over the negated rect); depth rides on the node
+			// over the negated rect); depth rides on the node. Colours go
+			// RAW (gamma-space passthrough - classic parity)
 			batch.object->position(vertex.x, -vertex.y, 0.0f);
-			batch.object->colour(Ogre::ColourValue(
-				srgbDecode(vertex.colour.r),
-				srgbDecode(vertex.colour.g),
-				srgbDecode(vertex.colour.b),
-				vertex.colour.a));
+			batch.object->colour(Ogre::ColourValue(vertex.colour.r,
+				vertex.colour.g, vertex.colour.b, vertex.colour.a));
 			batch.object->textureCoord(vertex.u, vertex.v);
 			batch.object->index(index++);
 		}
@@ -410,6 +465,19 @@ namespace Orkige
 		this->mImpl->batches.emplace_back();
 		Impl::Batch & batch = this->mImpl->batches.back();
 		batch.textureName = textureName;
+		DrawLayer2DDetail::appendTriangles(batch.triangles, vertices,
+			vertexCount, indices, indexCount, scissor);
+		this->mImpl->buildBatchObject(batch);
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::addTriangles(optr<RenderTexture> const & texture,
+		Vertex2D const * vertices, size_t vertexCount,
+		unsigned short const * indices, size_t indexCount,
+		ScissorRect const * scissor)
+	{
+		this->mImpl->batches.emplace_back();
+		Impl::Batch & batch = this->mImpl->batches.back();
+		batch.renderTexture = texture;	// kept alive until clear()
 		DrawLayer2DDetail::appendTriangles(batch.triangles, vertices,
 			vertexCount, indices, indexCount, scissor);
 		this->mImpl->buildBatchObject(batch);

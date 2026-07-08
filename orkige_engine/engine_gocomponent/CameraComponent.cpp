@@ -71,9 +71,16 @@ namespace Orkige
 		this->attachNode->setFixedYawAxis(true); // keeps the per-update lookAt roll-free
 
 		// take over the window camera (the Engine default camera until
-		// WP-A1.3 - getWindowCamera wraps it into a facade handle)
+		// WP-A1.3 - getWindowCamera wraps it into a facade handle).
+		// A UI-only window (showUIOnlyWindow - the editor shell) has NO
+		// window camera by contract: the component then stays inactive
+		// (rig nodes exist, nothing drives the view) instead of asserting -
+		// the editor legitimately loads scenes that carry a CameraComponent.
 		this->camera = RenderSystem::get()->getWindowCamera();
-		oAssert(this->camera);
+		if(!this->camera)
+		{
+			return;
+		}
 
 		this->camera->attachTo(this->attachNode);
 		this->setMode(CameraDefaultModes::ThirdPersonChaseCamera);

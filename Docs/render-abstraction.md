@@ -678,15 +678,16 @@ B0 (dependency/flavor) + B1 (boot skeleton) + B2 (full facade conformance)
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
 | fastgui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
 | IngameConsole | yes | no — classic Overlay zone (rebuild on fastgui/DrawLayer2D when wanted) |
-| editor | yes | no — classic by decision #3 |
+| editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (decision #3 superseded, see the post-A3 section) |
+| pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
 | jumper sample (C++ fastgui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
 | BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
 | export pipeline, Vulkan/GL runtime RS pick | yes | no (classic-backend concerns; next boots Metal) |
 | root-motion animation backdoor | yes | no (decision #1) |
 
-Remaining known gaps on next (unchanged from B2, all logged once at runtime):
-LT_ZIP/LT_BIGZIP locations, skeletal glb import, sRGB-swapchain colour
-difference vs classic (content-phase refinement).
+Remaining known gaps on next (all logged once at runtime):
+LT_ZIP/LT_BIGZIP locations, skeletal glb import. (The B2 "sRGB-swapchain
+colour difference" is GONE — see the colour-parity work below.)
 
 ### A3 — cross-backend HUD + closure
 
@@ -732,6 +733,100 @@ difference vs classic (content-phase refinement).
   utilities present in both backends); editor-backend decision
   (question #3) revisited with real Next numbers, math-swap readiness review
   (question #4), mobile backend evaluation input for Phase 3.
+
+### Editor on both flavors + WYSIWYG colour parity *(DELIVERED 2026-07-08, post-A3)*
+
+Owner decisions: the editor must build/run on BOTH backends (compile
+option), backends must render THE SAME image (WYSIWYG), Ogre-Next becomes
+the default-next candidate. **Decision #3 ("the editor stays a
+classic-backend app") is SUPERSEDED.** What landed:
+
+- **ImGui on the facade** (`tools/editor/ImGuiFacadeRenderer.{h,cpp}`): the
+  classic-only `Ogre::ImGuiOverlay`/OverlaySystem integration is GONE. ImGui
+  draw data = textured triangles + scissor rects = exactly the DrawLayer2D
+  contract, so the editor UI is now ONE facade 2D layer resubmitted per
+  frame (per `ImDrawCmd`: registered texture + pixel scissor into
+  `addTriangles`). The editor owns the ImGui context; `ImGuiSDL3Input`
+  gained the `io.DeltaTime` bookkeeping `ImGuiOverlay::NewFrame` used to do.
+  Facade API grown for it (design in the headers):
+  - `RenderSystem::createTexture2D(name, rgbaPixels, w, h)` +
+    `destroyTexture2D(name)` — raw-RGBA-under-a-resource-name uploads (the
+    font atlas service DrawLayer2D.h anticipated); both backends resolve
+    such backend-object textures BEFORE the resource system when binding 2D
+    batches. Explicit destroy exists because manual textures are not
+    resource-group content — Vulkan asserts on GPU memory outliving
+    teardown (found by `editor_selfcheck_vulkan`).
+  - `DrawLayer2D::addTriangles(optr<RenderTexture>, ...)` — the Scene
+    panel's RTT binds by facade HANDLE, not name/id: the backend re-resolves
+    the target's CURRENT texture per draw (classic: one binder material
+    re-pointed per batch; next: per-target `DrawLayer2D/RTT/<name>` Unlit
+    datablock re-pointed on build + detached by the dying incarnation), so
+    resize-by-recreate can never dangle and the ImTextureID is STABLE.
+    RenderTexture batches composite OPAQUE by contract (a target's alpha is
+    a rendering byproduct - classic RTTs don't even have an alpha channel);
+    on next the opaque blendblock carries
+    `setForceTransparentRenderOrder(true)` so the batch stays in the
+    back-to-front path the whole 2D painter order rides on.
+  - `RenderSystem::showUIOnlyWindow()` — the editor-shell window mode: the
+    main window composites ONLY 2D layers over the background colour, and
+    `getWindowCamera()` answers NULL (CameraComponent now skips gracefully
+    instead of asserting - editors legally load scenes carrying one).
+    Classic = mask-0 viewport fed by an internal camera; next = a one-pass
+    (clear + UI-queue) window workspace. Replaces the sanctioned
+    "editor-ui-viewport" block.
+  - `RenderWorld::createLineListMesh(name, points, colours, count)` — the
+    editor grid is a facade line-list mesh now (classic: ManualObject
+    OT_LINE_LIST -> convertToMesh; next: the cube-service v1->importV1
+    recipe with OT_LINE_LIST — the operation type survives both
+    conversions), instantiated like any mesh, query flags 0. Replaces the
+    sanctioned "editor-grid" block. `RenderWorld::CUBE_MESH_NAME` is the
+    flavor-neutral home of PrimitiveUtil's constant.
+  - Fixed in passing (classic): per-texture 2D layer materials were CLONES
+    of the master — cloning copies an already-RTSS-generated technique
+    built for the SOURCE's (empty) texture-unit layout, so textured batches
+    rendered flat white whenever an untextured batch had drawn first (the
+    selfcheck's "textured batch" probe was too weak to catch white).
+    Materials are now built from scratch and get their own RTSS technique.
+- **Editor builds/runs on next**: root CMake gate opened; the boot block is
+  per-flavor like tools/player (classic: Engine ctor + RTSS media +
+  ORKIGE_RENDERSYSTEM env — the Vulkan/GL pick stays `#ifdef
+  ORKIGE_RENDER_CLASSIC`, next boots Metal unconditionally); EngineNext
+  gained classic's topLevelHandle-falls-back-to-externalHandle rule.
+  Tests: `editor_selfcheck_next`, `editor_resize_next`,
+  `editor_edittest_next`, `editor_play_stop/crash_next`,
+  `editor_project_play_next`, `editor_play_script_error_next` all green in
+  `desktop-next` (`ORKIGE_FLAVOR_TEST_SUFFIX` now covers editor + game
+  registrations). Classic-gated: the native compile-on-Play tests (the
+  module's persistent build tree configures against ONE engine tree),
+  simulator/Android playtests (single device suite), Vulkan runs, exports.
+- **Colour parity (the sRGB fix)**: root cause was colour management, not
+  content: classic runs a fully gamma-space pipeline (non-sRGB swapchain,
+  textures sampled raw), while Next defaulted to an sRGB swapchain
+  (re-encoding on write = brighter) with sRGB-preferring texture loads.
+  Fix at the source instead of per-path compensation: the Next backend is
+  now gamma-space passthrough end to end — window created with
+  `gamma=false`, `loadTexture2D` loads UNORM (no
+  `PrefersLoadingFromFileAsSRGB`), RTTs are `PFG_RGBA8_UNORM`, and the
+  DrawLayer2D vertex-colour pre-decode hack from B2 is DELETED (colours
+  upload raw; blending now also matches classic exactly). Next screenshots
+  additionally force alpha opaque (readback alpha is a byproduct; classic
+  screenshots are opaque). Residual difference: PBS-vs-RTSS-Phong shading
+  on LIT content only (mean diff 0.65/255, 0.73% outlier pixels on the
+  selfcheck window shot; unlit/vertex-colour/textured/2D content is
+  byte-identical, the RTT capture matches with mean 0.00).
+- **`render_backend_parity`** (next preset): runs the facade selfcheck on
+  BOTH backends and pixel-compares `selfcheck_window/drawlayer2d/rtt.png`
+  (stdlib-only PNG decode, `tests/integration_driver/
+  compare_backend_screenshots.py`; mean ≤ 6/255, ≤ 2% pixels off by > 48).
+  Cross-preset honestly: it runs the classic tree's selfcheck binary when
+  present and SKIPs (exit 77) when that preset was never built.
+- **Cross-flavor Play targets**: the editor toolbar picker now offers
+  "Desktop (classic OGRE)" and "Desktop (Ogre-Next)" — its own flavor's
+  player is the TARGET_FILE, the other flavor's binary path is baked in
+  from the conventional preset tree and the entry greys out (tooltip) while
+  it is not built. The debug protocol is flavor-agnostic; native-module
+  projects refuse the cross-flavor pick honestly (the module links against
+  THIS editor's tree).
 
 ---
 

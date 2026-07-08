@@ -112,7 +112,11 @@ namespace Orkige
 	bool Engine::setup(String const & windowTitle, ShowConfigBehavior /*showConfigBehavior*/, String const & externalHandle, String const & topLevelHandle)
 	{
 		this->externalWindowHandle = externalHandle;
-		this->topLevelWindowHandle = topLevelHandle;
+		// same fallback as the classic Engine: an embedded single-window app
+		// reports its host window as the top-level one
+		this->topLevelWindowHandle =
+			(topLevelHandle.empty() && !externalHandle.empty())
+			? externalHandle : topLevelHandle;
 
 		RenderBackend::NextBootOptions options;
 		options.windowTitle = windowTitle;

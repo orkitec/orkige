@@ -121,11 +121,22 @@ namespace Orkige
 	void ImGuiSDL3Input::newFrame(float renderTargetWidth, float renderTargetHeight)
 	{
 		ImGuiIO& io = ImGui::GetIO();
-		// Note: Ogre::ImGuiOverlay::NewFrame() re-derives io.DisplaySize from
-		// the OverlayManager viewport, so this mainly keeps the first frame
-		// (before anything rendered) and the mouse scale coherent.
 		io.DisplaySize = ImVec2(renderTargetWidth, renderTargetHeight);
 		io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+
+		// frame delta (previously Ogre::ImGuiOverlay::NewFrame's job);
+		// ImGui asserts DeltaTime > 0
+		const Uint64 now = SDL_GetPerformanceCounter();
+		const Uint64 frequency = SDL_GetPerformanceFrequency();
+		float deltaSeconds = 1.0f / 60.0f;
+		if (mLastFrameCounter != 0 && frequency != 0 && now > mLastFrameCounter)
+		{
+			deltaSeconds = static_cast<float>(
+				static_cast<double>(now - mLastFrameCounter) /
+				static_cast<double>(frequency));
+		}
+		io.DeltaTime = deltaSeconds > 0.0f ? deltaSeconds : 1.0f / 60.0f;
+		mLastFrameCounter = now;
 
 		// SDL mouse coordinates are in window points; ImGui works in render
 		// target pixels (what the overlay projects with). Identical on

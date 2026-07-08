@@ -90,15 +90,15 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
     # Next flavor (preset macos-debug-next; needs the render-next vcpkg
-    # manifest feature). Since B3 games RUN on it: the engine modules
-    # (components incl. scripting, input, sound, physics, runtime), the
-    # player and hello_orkige build against the Ogre-Next backend - only
-    # the classic-only zones stay excluded (fastgui/HUD per decision #2,
-    # the editor per decision #3, jumper's fastgui HUD, BigZip). See the
-    # flavor capability matrix in Docs/render-abstraction.md.
-    message(STATUS "Orkige render backend: next (B3 - games run: player + "
-        "hello_orkige + components/sound/input/physics/scripting; "
-        "classic-only excluded: editor, fastgui, jumper sample, BigZip)")
+    # manifest feature). Since B3 games RUN on it (engine modules incl.
+    # scripting/input/sound/physics/runtime, player, hello_orkige); since
+    # the A3 DrawLayer2D port fastgui is flavor-neutral, and the EDITOR
+    # builds/runs too (ImGui on the facade). Classic-only leftovers:
+    # jumper sample (classic boot block only), BigZip, export pipeline,
+    # Vulkan/GL runtime RS pick. See the flavor capability matrix in
+    # Docs/render-abstraction.md.
+    message(STATUS "Orkige render backend: next (games + editor run; "
+        "classic-only excluded: jumper sample, BigZip, export pipeline)")
 else()
     message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
 endif()
@@ -138,10 +138,10 @@ if(ORKIGE_BUILD_TOOLS)
     if(NOT ORKIGE_BUILD_ENGINE)
         message(FATAL_ERROR "ORKIGE_BUILD_TOOLS requires ORKIGE_BUILD_ENGINE=ON (the editor is an Orkige engine app)")
     endif()
-    if(NOT ORKIGE_MOBILE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    if(NOT ORKIGE_MOBILE)
         # the editor is desktop-only (imgui/imguizmo are not built for
-        # mobile) and stays a classic-backend app (decision #3,
-        # Docs/render-abstraction.md)
+        # mobile) and builds on BOTH render flavors since the ImGui-on-
+        # DrawLayer2D port (decision #3 revisited, Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
     endif()
     # the player builds on both render flavors since B3 (per-flavor boot

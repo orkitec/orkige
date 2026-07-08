@@ -8,7 +8,7 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
-#include <engine_util/PrimitiveUtil.h>
+#include <engine_render/RenderWorld.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <algorithm>
@@ -910,7 +910,7 @@ namespace Orkige
 	{
 		const String id = generateObjectId("Cube");
 		return executeCommand(onew(new CreateObjectCommand(id,
-			PrimitiveUtil::CUBE_MESH_NAME, Vec3::ZERO)));
+			RenderWorld::CUBE_MESH_NAME, Vec3::ZERO)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::createTestMesh()

@@ -74,10 +74,47 @@ namespace Orkige
 			Ogre::Real(viewport->getActualWidth()) /
 			Ogre::Real(viewport->getActualHeight()));
 		this->mImpl->windowCamera = camera;
+		this->mImpl->uiOnlyWindow = false;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::showUIOnlyWindow()
+	{
+		// the editor-shell mode: the window carries one full-window viewport
+		// whose visibility mask hides ALL scene content - only the clear
+		// colour and the DrawLayer2D composition (a RenderQueueListener,
+		// mask-independent) reach the screen. A viewport needs a camera, so
+		// an internal one feeds it; it never sees content and is never
+		// handed out (getWindowCamera answers NULL in this mode).
+		Ogre::SceneManager* sceneManager =
+			this->mImpl->engine->getSceneManager();
+		if(!this->mImpl->uiOnlyCamera)
+		{
+			this->mImpl->uiOnlyCamera = sceneManager->createCamera(
+				RenderBackend::generateName("Orkige/UIOnlyCamera"));
+			sceneManager->getRootSceneNode()->createChildSceneNode()
+				->attachObject(this->mImpl->uiOnlyCamera);
+		}
+		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
+		window->removeAllViewports();
+		Ogre::Viewport* viewport =
+			window->addViewport(this->mImpl->uiOnlyCamera);
+		viewport->setBackgroundColour(this->mImpl->windowBackground);
+		viewport->setVisibilityMask(0);	// 2D layers only - no scene objects
+		viewport->setShadowsEnabled(false);
+		RenderBackend::applyRTSSScheme(viewport);
+		this->mImpl->windowCamera.reset();
+		this->mImpl->engineWindowCamera.reset();
+		this->mImpl->uiOnlyWindow = true;
 	}
 	//---------------------------------------------------------
 	optr<RenderCamera> RenderSystem::getWindowCamera() const
 	{
+		if(this->mImpl->uiOnlyWindow)
+		{
+			// UI-only mode shows no scene camera by contract (the internal
+			// viewport camera is plumbing, not scene surface)
+			return optr<RenderCamera>();
+		}
 		if(this->mImpl->windowCamera)
 		{
 			return this->mImpl->windowCamera;	// the facade path
@@ -189,6 +226,57 @@ namespace Orkige
 		outWidth = static_cast<unsigned int>(texture->getWidth());
 		outHeight = static_cast<unsigned int>(texture->getHeight());
 		return true;
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::createTexture2D(String const & name,
+		unsigned char const * rgbaPixels,
+		unsigned int width, unsigned int height)
+	{
+		if(name.empty() || !rgbaPixels || width == 0 || height == 0)
+		{
+			oDebugError("engine", 0, "RenderSystem::createTexture2D('" << name
+				<< "'): refused (empty name/pixels/size)");
+			return false;
+		}
+		Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
+			.getByName(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(texture && (texture->getWidth() != width ||
+			texture->getHeight() != height))
+		{
+			// replace-by-recreate: a size change cannot blit in place; the
+			// cached 2D-layer material would keep the dead incarnation
+			Ogre::TextureManager::getSingleton().remove(texture);
+			texture.reset();
+			RenderBackend::invalidateDrawLayer2DTexture(name);
+		}
+		if(!texture)
+		{
+			// no mipmaps: 2D-layer batches sample point-filtered at 1:1
+			texture = Ogre::TextureManager::getSingleton().createManual(
+				name, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+				Ogre::TEX_TYPE_2D, width, height, 0 /*numMipmaps*/,
+				Ogre::PF_BYTE_RGBA, Ogre::TU_DEFAULT);
+		}
+		const Ogre::PixelBox source(width, height, 1, Ogre::PF_BYTE_RGBA,
+			const_cast<unsigned char*>(rgbaPixels));
+		texture->getBuffer()->blitFromMemory(source);
+		return true;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::destroyTexture2D(String const & name)
+	{
+		Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
+			.getByName(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(!texture)
+		{
+			return;	// idempotent
+		}
+		// the cached 2D-layer material would keep the texture (and its GPU
+		// memory) alive past the render system - drop it first
+		RenderBackend::invalidateDrawLayer2DTexture(name);
+		Ogre::TextureManager::getSingleton().remove(texture);
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const

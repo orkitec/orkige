@@ -74,6 +74,7 @@ namespace Ogre
 	class Light;
 	class TextureGpu;
 	class HlmsDatablock;
+	class Image2;
 }
 
 namespace Orkige
@@ -88,6 +89,7 @@ namespace Orkige
 		optr<RenderCamera>	windowCamera;			//!< camera shown full-window (keeps it alive)
 		Ogre::ColourValue	windowBackground = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
 		Ogre::CompositorWorkspace*	workspace = NULL;	//!< the window clear/render workspace (owned by CompositorManager2)
+		bool				uiOnlyWindow = false;	//!< showUIOnlyWindow mode: the window workspace clears + draws ONLY the 2D layer queue (getWindowCamera answers NULL)
 		//--- frame timing (FrameStats on a backend without per-target stats)
 		std::chrono::steady_clock::time_point	lastFrameTime;
 		bool				haveLastFrameTime = false;
@@ -174,6 +176,9 @@ namespace Orkige
 		struct Batch
 		{
 			String								textureName;
+			//! offscreen-target binding (the addTriangles RenderTexture
+			//! overload); the batch keeps the target alive until clear()
+			optr<RenderTexture>					renderTexture;
 			std::vector<DrawLayer2D::Vertex2D>	triangles;
 			Ogre::ManualObject*					object = NULL;
 			Ogre::SceneNode*					node = NULL;
@@ -305,6 +310,12 @@ namespace Orkige
 		//! unlit datablock; same recipe/palette as classic PrimitiveUtil)
 		static void createVertexColourCubeMesh(Ogre::SceneManager* sceneManager,
 			String const & meshName, Real halfExtent);
+		//! the backend line-list mesh service (RenderWorld::createLineListMesh:
+		//! v1 ManualObject OT_LINE_LIST -> importV1, shared "VertexColour"
+		//! unlit datablock - the cube-service recipe on line primitives)
+		static void createVertexColourLineListMesh(
+			Ogre::SceneManager* sceneManager, String const & meshName,
+			Vec3 const * points, Color const * colours, size_t pointCount);
 
 		//--- texture / datablock services (the material surface) -----
 		//! load a 2D texture through the resource system (any group);
@@ -314,6 +325,17 @@ namespace Orkige
 		//! bytes - glb-embedded textures); idempotent per name
 		static Ogre::TextureGpu* createTexture2DFromMemory(String const & name,
 			void const * bytes, size_t sizeBytes, String const & formatHint);
+		//! create/replace a 2D texture from RAW RGBA8 pixels (the facade
+		//! RenderSystem::createTexture2D - ImGui font atlas service);
+		//! replacing under an existing name re-uploads (2D-layer datablocks
+		//! bound to the name are re-pointed at the new incarnation)
+		static Ogre::TextureGpu* createTexture2DFromPixels(String const & name,
+			unsigned char const * rgbaPixels,
+			unsigned int width, unsigned int height);
+		//! destroy a created 2D texture again (idempotent; detaches it from
+		//! the generated 2D-layer datablock first - the replace path and
+		//! RenderSystem::destroyTexture2D share this)
+		static void destroyTexture2DByName(String const & name);
 		//! the shared per-texture "Sprite/<tex>" HlmsUnlit datablock
 		//! (unlit, alpha-blended, depth-checked/not-written, two-sided;
 		//! idempotent - all sprites of one texture share it)
@@ -331,6 +353,11 @@ namespace Orkige
 		//! @return NULL + one log line when the texture cannot be loaded
 		static Ogre::HlmsDatablock* getOrCreateDrawLayer2DDatablock(
 			String const & textureName);
+		//! the per-target "DrawLayer2D/RTT/<name>" datablock of an
+		//! offscreen-target 2D batch (same render contract), re-pointed at
+		//! the target's CURRENT texture on every call (resize safe)
+		static Ogre::HlmsDatablock* getOrCreateDrawLayer2DRTTDatablock(
+			optr<RenderTexture> const & renderTexture);
 		//! the diffuse texture of a backend datablock or NULL (PBS
 		//! diffuse slot / Unlit slot 0 - the subMeshHasTexture probe)
 		static Ogre::TextureGpu* datablockDiffuseTexture(
@@ -352,6 +379,12 @@ namespace Orkige
 		//--- guts accessors (NULL-safe) ------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
+		//! the target's CURRENT backend texture (changes across resizes) -
+		//! the 2D layer binds render-texture batches through this
+		static Ogre::TextureGpu* renderTextureGpu(
+			optr<RenderTexture> const & texture);
+		//! the target's stable facade name (per-target datablock identity)
+		static String renderTextureName(optr<RenderTexture> const & texture);
 		//! the booted Ogre root / the one world's scene manager, or NULL
 		//! (nested Impl structs cannot reach OTHER facade classes' mImpl -
 		//! cross-class plumbing goes through these)
@@ -371,6 +404,10 @@ namespace Orkige
 		//! (re)build the window workspace from the stored camera +
 		//! background colour (Next renders NOTHING without a workspace)
 		static void recreateWindowWorkspace();
+		//! force a readback image's alpha channel opaque before saving:
+		//! render targets carry alpha as a rendering byproduct (content
+		//! legally writes 0), classic screenshots are opaque - parity
+		static void makeImageAlphaOpaque(Ogre::Image2 & image);
 		//! honest-gap discipline: log the missing feature ONCE, stay
 		//! silent afterwards - callers then return their safe default
 		//! (B2 residual: LT_ZIP/LT_BIGZIP locations, skeletal import)

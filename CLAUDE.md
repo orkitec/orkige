@@ -28,11 +28,14 @@ Presets: `macos-debug`, `macos-release`, `macos-debug-next`, `ios-simulator-debu
 `macos-debug-next` is the **Ogre-Next render-backend flavor**
 (`ORKIGE_RENDER_BACKEND=next`, vcpkg feature `render-next`): same source tree,
 the `engine_render` facade implemented by `engine_render_next/` instead of the
-classic backend. Games (player, hello_orkige, projects/) run on both flavors;
-editor/fastgui/exports are classic-only — see the flavor capability matrix in
-`Docs/render-abstraction.md` ("B phase status"). Its test preset is
-`ctest --preset desktop-next` (54 tests incl. the facade conformance selfcheck
-and the flavor-suffixed roller/jumper-lua game selfchecks).
+classic backend. Games (player, hello_orkige, projects/), fastgui AND the
+editor (ImGui on DrawLayer2D) run on both flavors and must render the SAME
+image (WYSIWYG — enforced by the `render_backend_parity` pixel test);
+exports/BigZip/Vulkan-RS-pick stay classic-only — see the flavor capability
+matrix in `Docs/render-abstraction.md` ("B phase status"). Its test preset is
+`ctest --preset desktop-next` (99 tests incl. the facade conformance
+selfcheck, the flavor-suffixed editor/game selfchecks and the cross-backend
+parity comparison, which SKIPs unless `macos-debug` is also built).
 The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
 (GLES2 render system, SDL3 UIKit main, media bundled in) for the arm64
 simulator via `triplets/arm64-ios-simulator.cmake`; deploy with

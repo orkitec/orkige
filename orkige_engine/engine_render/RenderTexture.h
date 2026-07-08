@@ -71,9 +71,11 @@ namespace Orkige
 		unsigned int getHeight() const;
 
 		//--- consumption ---
-		//! @brief renderer-API texture id for handing to ImGui::Image
-		//! (invalidated by resize - re-fetch per frame)
-		//! map: classic=Ogre resource handle (resolved by ImGuiOverlay via getByHandle) | next=the TextureGpu* (an ImGui-on-Next backend resolves the API texture via getCustomAttribute; editor is classic-only today) | filament=filament::Texture* (ImGui filament backend)
+		//! @brief opaque renderer-API texture id (invalidated by resize -
+		//! re-fetch per frame). NOTE: showing an RTT inside ImGui no longer
+		//! needs this - DrawLayer2D::addTriangles binds the facade HANDLE
+		//! (resize-safe); this id stays for external integrations.
+		//! map: classic=Ogre resource handle (TextureManager::getByHandle) | next=the TextureGpu* (API texture via getCustomAttribute) | filament=filament::Texture*
 		unsigned long long getNativeTextureId() const;
 		//! @brief write the current contents to an image file
 		//! map: classic=RenderTarget::writeContentsToFile | next=TextureGpu readback (TextureBox download) + save | filament=Renderer::readPixels + encode

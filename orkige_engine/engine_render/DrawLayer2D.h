@@ -49,10 +49,15 @@ namespace Orkige
 	//!
 	//! Textures bind per batch BY RESOURCE NAME (resolved through the
 	//! resource system across all groups, like SpriteQuad); an empty name
-	//! draws untextured vertex colours. ImGui note (next task): its font
-	//! atlas needs a "create texture from raw RGBA pixels under a name"
-	//! service - that joins RenderSystem when ImGui lands, and batches
-	//! keep binding by name.
+	//! draws untextured vertex colours. Textures that exist only as
+	//! backend objects under a name - RenderSystem::createTexture2D's
+	//! raw-pixel uploads (the ImGui font atlas) - resolve too: the
+	//! backends probe the texture registry before the resource system.
+	//! Offscreen RenderTextures bind through the dedicated addTriangles
+	//! overload taking the facade handle (the editor's Scene panel inside
+	//! ImGui): the backend re-resolves the target's CURRENT texture, so
+	//! resize-by-recreate never leaves a batch pointing at a dead
+	//! incarnation.
 	//!
 	//! Backend mapping (whole class): classic = RenderQueueListener after
 	//! RENDER_QUEUE_OVERLAY + SceneManager::manualRender of dynamic
@@ -122,6 +127,23 @@ namespace Orkige
 		//! treats vertices as a plain triangle list (vertexCount % 3 == 0)
 		//! @param scissor optional pixel clip rect; NULL = no clipping
 		void addTriangles(String const & textureName,
+			Vertex2D const * vertices, size_t vertexCount,
+			unsigned short const * indices = NULL, size_t indexCount = 0,
+			ScissorRect const * scissor = NULL);
+		//! @brief append one batch textured by an offscreen RenderTexture
+		//! (the editor's Scene panel: the RTT drawn inside the ImGui layer)
+		//! @param texture the facade target to sample; the batch keeps it
+		//! ALIVE until clear()/layer destruction (immediate-mode consumers
+		//! resubmit per frame, so nothing outlives its use). The backend
+		//! binds the target's CURRENT texture at render time - resizes are
+		//! safe. NULL draws untextured vertex colours.
+		//! @remarks RenderTexture batches composite OPAQUE, as an exception
+		//! to the alpha-blend contract: a target's alpha channel is a
+		//! rendering byproduct (content legally writes 0), not transparency
+		//! - classic RTTs have no alpha channel at all, so its "blend" is a
+		//! replace. Identical rule on every backend.
+		//! map: classic=material bound to the live Ogre::TexturePtr per draw | next=per-target HlmsUnlit datablock re-pointed at the live TextureGpu | filament=per-target unlit MaterialInstance
+		void addTriangles(optr<RenderTexture> const & texture,
 			Vertex2D const * vertices, size_t vertexCount,
 			unsigned short const * indices = NULL, size_t indexCount = 0,
 			ScissorRect const * scissor = NULL);

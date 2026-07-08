@@ -33,10 +33,32 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
+	Ogre::TexturePtr RenderBackend::ogreTexture(
+		optr<RenderTexture> const & texture)
+	{
+		return texture ? texture->mImpl->texture : Ogre::TexturePtr();
+	}
+	//---------------------------------------------------------
 	void RenderTexture::Impl::destroyTexture()
 	{
 		if(this->texture)
 		{
+			// the 2D layer's RenderTexture binder material may hold a
+			// TexturePtr to this incarnation - drop the material so nothing
+			// keeps the dead texture's GPU memory alive (it is recreated
+			// lazily against the next incarnation; strict backends like
+			// Vulkan assert on allocations outliving the render system)
+			Ogre::MaterialPtr binder = Ogre::MaterialManager::getSingleton()
+				.getByName("DrawLayer2D/RenderTextureBinder");
+			if(binder)
+			{
+				Ogre::TextureUnitState* unit = binder->getTechnique(0)
+					->getPass(0)->getTextureUnitState(0);
+				if(unit && unit->_getTexturePtr() == this->texture)
+				{
+					Ogre::MaterialManager::getSingleton().remove(binder);
+				}
+			}
 			this->texture->getBuffer()->getRenderTarget()->removeAllViewports();
 			Ogre::TextureManager::getSingleton().remove(this->texture);
 			this->texture.reset();

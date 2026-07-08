@@ -101,6 +101,17 @@ namespace Orkige
 	{
 		oAssert(RenderBackend::ogreCamera(camera));
 		this->mImpl->windowCamera = camera;
+		this->mImpl->uiOnlyWindow = false;
+		RenderBackend::recreateWindowWorkspace();
+	}
+	//---------------------------------------------------------
+	void RenderSystem::showUIOnlyWindow()
+	{
+		// the editor-shell mode: the window workspace becomes one clear +
+		// 2D-layer pass (see recreateWindowWorkspace) - no scene camera,
+		// getWindowCamera answers NULL by contract
+		this->mImpl->windowCamera.reset();
+		this->mImpl->uiOnlyWindow = true;
 		RenderBackend::recreateWindowWorkspace();
 	}
 	//---------------------------------------------------------
@@ -163,6 +174,7 @@ namespace Orkige
 		image.convertFromTexture(texture, 0, texture->getNumMipmaps() - 1);
 		window->performManualRelease();
 		window->setManualSwapRelease(false);
+		RenderBackend::makeImageAlphaOpaque(image);
 		image.save(fileName, 0, image.getNumMipmaps());
 	}
 	//---------------------------------------------------------
@@ -189,6 +201,19 @@ namespace Orkige
 		outWidth = texture->getWidth();
 		outHeight = texture->getHeight();
 		return true;
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::createTexture2D(String const & name,
+		unsigned char const * rgbaPixels,
+		unsigned int width, unsigned int height)
+	{
+		return RenderBackend::createTexture2DFromPixels(name, rgbaPixels,
+			width, height) != NULL;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::destroyTexture2D(String const & name)
+	{
+		RenderBackend::destroyTexture2DByName(name);
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const

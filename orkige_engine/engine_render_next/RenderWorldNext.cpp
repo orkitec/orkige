@@ -98,6 +98,13 @@ namespace Orkige
 			meshName, halfExtent);
 	}
 	//---------------------------------------------------------
+	void RenderWorld::createLineListMesh(String const & meshName,
+		Vec3 const * points, Color const * colours, size_t pointCount)
+	{
+		RenderBackend::createVertexColourLineListMesh(
+			this->mImpl->sceneManager, meshName, points, colours, pointCount);
+	}
+	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
 		this->mImpl->ambient = colour;

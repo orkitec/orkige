@@ -3,7 +3,7 @@
 // Deliberately hand-rolled instead of imgui's own SDL3 platform backend:
 // pulling the imgui[sdl3-binding] vcpkg feature would make the OGRE port
 // build depend on SDL3 and break it. Only the platform side is needed anyway,
-// rendering is done by Ogre::ImGuiOverlay.
+// rendering is done by ImGuiFacadeRenderer (DrawLayer2D on either backend).
 //
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #pragma once
@@ -21,17 +21,17 @@ namespace Orkige
 	class ImGuiSDL3Input
 	{
 	public:
-		//! requires a live ImGui context (create the Ogre::ImGuiOverlay first)
+		//! requires a live ImGui context (ImGui::CreateContext first)
 		explicit ImGuiSDL3Input(SDL_Window* window);
 		~ImGuiSDL3Input();
 
 		ImGuiSDL3Input(ImGuiSDL3Input const&) = delete;
 		ImGuiSDL3Input& operator=(ImGuiSDL3Input const&) = delete;
 
-		//! Call once per frame before Ogre::ImGuiOverlay::NewFrame().
-		//! Refreshes io.DisplaySize / io.DisplayFramebufferScale and the
-		//! SDL-window-points -> render-target-pixels mouse scale from the
-		//! current render target size (in pixels).
+		//! Call once per frame before ImGui::NewFrame(). Refreshes
+		//! io.DisplaySize / io.DisplayFramebufferScale / io.DeltaTime and
+		//! the SDL-window-points -> render-target-pixels mouse scale from
+		//! the current render target size (in pixels).
 		void newFrame(float renderTargetWidth, float renderTargetHeight);
 
 		//! Translate one SDL event into ImGui IO events.
@@ -68,6 +68,7 @@ namespace Orkige
 		SDL_Window* mWindow;
 		float mMouseScaleX = 1.0f;
 		float mMouseScaleY = 1.0f;
+		unsigned long long mLastFrameCounter = 0;	//!< SDL performance counter of the last newFrame (io.DeltaTime)
 		bool mRelativeMode = false;		//!< fly-mode capture active?
 		float mRelativeDeltaX = 0.0f;	//!< accumulated xrel (raw counts)
 		float mRelativeDeltaY = 0.0f;	//!< accumulated yrel (raw counts)

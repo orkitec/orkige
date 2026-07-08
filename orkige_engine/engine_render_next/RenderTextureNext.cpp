@@ -31,6 +31,8 @@
 #include <OgreImage2.h>
 #include <OgrePixelFormatGpuUtils.h>
 #include <OgreRenderSystem.h>
+#include <OgreHlmsManager.h>
+#include <OgreHlmsUnlitDatablock.h>
 #include <Compositor/OgreCompositorManager2.h>
 #include <Compositor/OgreCompositorNodeDef.h>
 #include <Compositor/OgreCompositorWorkspaceDef.h>
@@ -52,6 +54,17 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
+	Ogre::TextureGpu* RenderBackend::renderTextureGpu(
+		optr<RenderTexture> const & texture)
+	{
+		return texture ? texture->mImpl->texture : NULL;
+	}
+	//---------------------------------------------------------
+	String RenderBackend::renderTextureName(optr<RenderTexture> const & texture)
+	{
+		return texture ? texture->mImpl->name : String();
+	}
+	//---------------------------------------------------------
 	void RenderTexture::Impl::destroyTarget()
 	{
 		Ogre::Root* root = RenderBackend::ogreRoot();
@@ -66,6 +79,19 @@ namespace Orkige
 		}
 		if(this->texture)
 		{
+			// a 2D-layer batch may have bound this incarnation into the
+			// per-target "DrawLayer2D/RTT/<name>" datablock - detach before
+			// the texture dies (the next batch build re-points it)
+			if(Ogre::HlmsDatablock* datablock = root->getHlmsManager()
+				->getDatablockNoDefault("DrawLayer2D/RTT/" + this->name))
+			{
+				Ogre::HlmsUnlitDatablock* unlitBlock =
+					static_cast<Ogre::HlmsUnlitDatablock*>(datablock);
+				if(unlitBlock->getTexture(0u) == this->texture)
+				{
+					unlitBlock->setTexture(0u, (Ogre::TextureGpu*)NULL);
+				}
+			}
 			root->getRenderSystem()->getTextureGpuManager()
 				->destroyTexture(this->texture);
 			this->texture = NULL;
@@ -86,7 +112,9 @@ namespace Orkige
 			Ogre::GpuPageOutStrategy::Discard,
 			Ogre::TextureFlags::RenderToTexture, Ogre::TextureTypes::Type2D);
 		this->texture->setResolution(this->width, this->height);
-		this->texture->setPixelFormat(Ogre::PFG_RGBA8_UNORM_SRGB);
+		// non-sRGB, like every surface of this backend (classic colour
+		// parity - see the boot's "gamma" note in NextBackend.cpp)
+		this->texture->setPixelFormat(Ogre::PFG_RGBA8_UNORM);
 		this->texture->setNumMipmaps(1u);
 		this->texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
 
@@ -209,6 +237,7 @@ namespace Orkige
 		oAssert(this->mImpl->texture);
 		Ogre::Image2 image;
 		image.convertFromTexture(this->mImpl->texture, 0u, 0u);
+		RenderBackend::makeImageAlphaOpaque(image);
 		image.save(fileName, 0u, 1u);
 	}
 }

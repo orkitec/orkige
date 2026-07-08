@@ -33,6 +33,8 @@
 #include <OgreMetalPlugin.h>
 #include <OgreRenderSystem.h>
 #include <OgreTextureGpuManager.h>
+#include <OgreTextureFilters.h>
+#include <OgreTextureBox.h>
 #include <OgreImage2.h>
 #include <OgreDataStream.h>
 #include <OgrePixelFormatGpuUtils.h>
@@ -173,6 +175,16 @@ namespace Orkige
 			// OgreMetalView into the NSWindow's content view)
 			windowParams["externalWindowHandle"] = options.nativeWindowHandle;
 		}
+		// CLASSIC COLOUR PARITY (the WYSIWYG rule - backends must render
+		// the same image): the classic backend runs a gamma-space pipeline
+		// with no hardware sRGB conversion anywhere (non-sRGB swapchain,
+		// textures sampled raw). Ogre-Next defaults the window to an sRGB
+		// swapchain, which re-encodes on write and rendered everything
+		// brighter than classic. Opt out - together with the non-sRGB
+		// texture loads (loadTexture2D) and the non-sRGB RTT format this
+		// makes the whole Next pipeline gamma-space passthrough, byte-
+		// matching classic for unlit/vertex-colour/textured content.
+		windowParams["gamma"] = "false";
 		Ogre::Window* window = root->createRenderWindow(options.windowTitle,
 			options.width, options.height, false /*fullScreen*/,
 			&windowParams);
@@ -304,7 +316,7 @@ namespace Orkige
 		}
 		Ogre::Camera* backendCamera =
 			RenderBackend::ogreCamera(impl->windowCamera);
-		if(!backendCamera)
+		if(!backendCamera && !impl->uiOnlyWindow)
 		{
 			return;	// nothing shown on the window yet
 		}
@@ -316,7 +328,9 @@ namespace Orkige
 		// composites the 2D layers - the UI render queue only - through the
 		// pixel-space UI camera (referenced by name; created up front so
 		// the pass can resolve it whether or not any layer exists yet).
-		RenderBackend::ensureDrawLayer2DCamera();
+		// UI-ONLY mode (showUIOnlyWindow, the editor shell) drops pass 1:
+		// the whole workspace is one clear + UI-queue pass on the UI camera.
+		Ogre::Camera* uiCamera = RenderBackend::ensureDrawLayer2DCamera();
 		const String definitionName =
 			RenderBackend::generateName("Orkige/WindowWorkspace");
 		Ogre::CompositorNodeDef* nodeDefinition =
@@ -326,7 +340,8 @@ namespace Orkige
 		nodeDefinition->setNumTargetPass(1);
 		Ogre::CompositorTargetDef* targetDefinition =
 			nodeDefinition->addTargetPass("WindowRT");
-		targetDefinition->setNumPasses(2);
+		targetDefinition->setNumPasses(impl->uiOnlyWindow ? 1 : 2);
+		if(!impl->uiOnlyWindow)
 		{
 			Ogre::CompositorPassSceneDef* scenePass =
 				static_cast<Ogre::CompositorPassSceneDef*>(
@@ -340,7 +355,15 @@ namespace Orkige
 			Ogre::CompositorPassSceneDef* uiPass =
 				static_cast<Ogre::CompositorPassSceneDef*>(
 					targetDefinition->addPass(Ogre::PASS_SCENE));
-			uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+			if(impl->uiOnlyWindow)
+			{
+				uiPass->setAllLoadActions(Ogre::LoadAction::Clear);
+				uiPass->setAllClearColours(impl->windowBackground);
+			}
+			else
+			{
+				uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+			}
 			uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
 			uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
 			uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
@@ -350,9 +373,10 @@ namespace Orkige
 		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
 		impl->workspace = compositorManager->addWorkspace(
 			gRenderSystem->getWorld()->mImpl->sceneManager,
-			impl->window->getTexture(), backendCamera, definitionName,
+			impl->window->getTexture(),
+			backendCamera ? backendCamera : uiCamera, definitionName,
 			true /*enabled*/);
-		if(impl->window->getHeight() > 0)
+		if(backendCamera && impl->window->getHeight() > 0)
 		{
 			backendCamera->setAspectRatio(
 				Ogre::Real(impl->window->getWidth()) /
@@ -365,6 +389,13 @@ namespace Orkige
 		oAssert(gRenderSystem);
 		Ogre::TextureGpuManager* textureManager = gRenderSystem->mImpl->root
 			->getRenderSystem()->getTextureGpuManager();
+		// backend-object textures first (createTexture2DFromPixels uploads -
+		// e.g. an ImGui font atlas - have no resource-group entry)
+		if(Ogre::TextureGpu* existing =
+			textureManager->findTextureNoThrow(textureName))
+		{
+			return existing;
+		}
 		try
 		{
 			// resolve through EVERY resource group, same rule as classic:
@@ -373,9 +404,15 @@ namespace Orkige
 				Ogre::ResourceGroupManager::getSingleton();
 			const String group =
 				resourceGroups.findGroupContainingResource(textureName);
+			// NOT CommonTextureTypes::Diffuse: that would add
+			// PrefersLoadingFromFileAsSRGB, decoding texels in the shader -
+			// the classic pipeline samples texels raw (colour parity rule,
+			// see the boot's "gamma" note); mipmaps stay
 			Ogre::TextureGpu* texture = textureManager->createOrRetrieveTexture(
-				textureName, Ogre::GpuPageOutStrategy::Discard,
-				Ogre::CommonTextureTypes::Diffuse, group);
+				textureName, textureName, Ogre::GpuPageOutStrategy::Discard,
+				Ogre::TextureFlags::AutomaticBatching,
+				Ogre::TextureTypes::Type2D, group,
+				Ogre::TextureFilter::TypeGenerateDefaultMipmaps);
 			if(texture->getResidencyStatus() == Ogre::GpuResidency::OnStorage)
 			{
 				texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
@@ -432,6 +469,87 @@ namespace Orkige
 				"' failed to decode: " + e.getDescription());
 			return NULL;
 		}
+	}
+	//---------------------------------------------------------
+	Ogre::TextureGpu* RenderBackend::createTexture2DFromPixels(
+		String const & name, unsigned char const * rgbaPixels,
+		unsigned int width, unsigned int height)
+	{
+		oAssert(gRenderSystem);
+		if(name.empty() || !rgbaPixels || width == 0 || height == 0)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: createTexture2DFromPixels('" + name +
+				"') refused (empty name/pixels/size)");
+			return NULL;
+		}
+		Ogre::TextureGpuManager* textureManager = gRenderSystem->mImpl->root
+			->getRenderSystem()->getTextureGpuManager();
+		// replace-by-recreate (atlas rebuilds): drop any existing
+		// incarnation, then re-point the 2D-layer datablock below
+		RenderBackend::destroyTexture2DByName(name);
+		// hand a SIMD-allocated copy to Image2 (it owns + frees it)
+		const size_t sizeBytes = Ogre::PixelFormatGpuUtils::getSizeBytes(
+			width, height, 1u, 1u, Ogre::PFG_RGBA8_UNORM, 4u);
+		void* pixelCopy = OGRE_MALLOC_SIMD(sizeBytes, Ogre::MEMCATEGORY_RESOURCE);
+		memcpy(pixelCopy, rgbaPixels, size_t(width) * size_t(height) * 4u);
+		Ogre::Image2* image = OGRE_NEW Ogre::Image2();
+		image->loadDynamicImage(pixelCopy, width, height, 1u,
+			Ogre::TextureTypes::Type2D, Ogre::PFG_RGBA8_UNORM,
+			true /*autoDelete*/, 1u);
+		Ogre::TextureGpu* texture = textureManager->createTexture(name,
+			Ogre::GpuPageOutStrategy::Discard,
+			Ogre::TextureFlags::AutomaticBatching,
+			Ogre::TextureTypes::Type2D);
+		texture->setResolution(width, height);
+		texture->setPixelFormat(Ogre::PFG_RGBA8_UNORM);
+		texture->setNumMipmaps(1u);
+		texture->scheduleTransitionTo(Ogre::GpuResidency::Resident, image,
+			true /*autoDeleteImage*/);
+		texture->waitForMetadata();
+		// a replaced texture must reach batches that already resolved the
+		// old one: re-point the 2D-layer datablock (created lazily otherwise)
+		{
+			Ogre::HlmsManager* hlmsManager =
+				RenderBackend::ogreRoot()->getHlmsManager();
+			if(Ogre::HlmsDatablock* datablock =
+				hlmsManager->getDatablockNoDefault("DrawLayer2D/" + name))
+			{
+				static_cast<Ogre::HlmsUnlitDatablock*>(datablock)
+					->setTexture(0u, texture);
+			}
+		}
+		return texture;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::destroyTexture2DByName(String const & name)
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		Ogre::TextureGpuManager* textureManager = gRenderSystem->mImpl->root
+			->getRenderSystem()->getTextureGpuManager();
+		Ogre::TextureGpu* existing = textureManager->findTextureNoThrow(name);
+		if(!existing)
+		{
+			return;	// idempotent
+		}
+		// detach from the generated 2D-layer datablock first (it would
+		// otherwise reference a destroyed texture)
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		if(Ogre::HlmsDatablock* datablock =
+			hlmsManager->getDatablockNoDefault("DrawLayer2D/" + name))
+		{
+			Ogre::HlmsUnlitDatablock* unlitBlock =
+				static_cast<Ogre::HlmsUnlitDatablock*>(datablock);
+			if(unlitBlock->getTexture(0u) == existing)
+			{
+				unlitBlock->setTexture(0u, (Ogre::TextureGpu*)NULL);
+			}
+		}
+		textureManager->destroyTexture(existing);
 	}
 	//---------------------------------------------------------
 	Ogre::HlmsDatablock* RenderBackend::getOrCreateSpriteDatablock(
@@ -547,6 +665,32 @@ namespace Orkige
 		const int clamped = std::clamp(zOrder,
 			SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
 		return static_cast<unsigned char>(50 + clamped);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::makeImageAlphaOpaque(Ogre::Image2 & image)
+	{
+		// screenshots are OPAQUE images (classic parity): render targets
+		// carry alpha only as a rendering byproduct. Rewrite the alpha of
+		// the 4-byte-per-pixel formats; anything else stays untouched.
+		const Ogre::PixelFormatGpu format = image.getPixelFormat();
+		if(Ogre::PixelFormatGpuUtils::getBytesPerPixel(format) != 4u ||
+			!Ogre::PixelFormatGpuUtils::hasAlpha(format))
+		{
+			return;
+		}
+		for(Ogre::uint8 mip = 0; mip < image.getNumMipmaps(); ++mip)
+		{
+			Ogre::TextureBox box = image.getData(mip);
+			for(Ogre::uint32 y = 0; y < box.height; ++y)
+			{
+				Ogre::uint8* row = reinterpret_cast<Ogre::uint8*>(
+					box.at(0, y, 0));
+				for(Ogre::uint32 x = 0; x < box.width; ++x)
+				{
+					row[x * 4u + 3u] = 0xFF;	// RGBA8/BGRA8: alpha is byte 3
+				}
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void RenderBackend::notImplementedOnce(char const * feature)
