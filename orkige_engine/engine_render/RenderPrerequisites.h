@@ -54,6 +54,16 @@ namespace Orkige
 	class RenderCamera;
 	class RenderLight;
 	class RenderTexture;
+
+	//--- the backend door ----------------------------------------------
+	//! Every backend defines exactly ONE RenderBackend struct as its
+	//! private factory/plumbing hub (classic: engine_render_classic/
+	//! ClassicBackend.h; next: engine_render_next/ mirror in A2). The
+	//! facade classes befriend this name so the selected backend can call
+	//! the protected constructors and reach Impl state - application code
+	//! never uses it (it is not part of the facade API and its definition
+	//! lives outside engine_render/ by design).
+	struct RenderBackend;
 }
 
 #endif //__RenderPrerequisites_h__8_7_2026__12_00_00__

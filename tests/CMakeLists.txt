@@ -13,6 +13,34 @@ add_subdirectory(core)
 if(TARGET orkige_engine)
     # pure-logic engine unit tests (no window/GPU)
     add_subdirectory(engine)
+
+    # render_facade_selfcheck - THE backend conformance suite of the
+    # engine_render facade (Docs/render-abstraction.md): one headed run
+    # exercising window + world/nodes + mesh + sprite + ortho/perspective
+    # cameras + light + RTT + ray query + stats + non-black screenshots.
+    # The checks TU is backend-agnostic (facade includes only); each
+    # backend contributes one bootstrap TU - every future backend
+    # (ORKIGE_RENDER_BACKEND=next in A2) must pass this test UNCHANGED.
+    set(RENDER_FACADE_SELFCHECK_SOURCES
+        render_facade/selfcheck_main.cpp
+        render_facade/SelfcheckBootstrap.h)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        list(APPEND RENDER_FACADE_SELFCHECK_SOURCES
+            render_facade/bootstrap_classic.cpp)
+    endif()
+    add_executable(render_facade_selfcheck ${RENDER_FACADE_SELFCHECK_SOURCES})
+    target_link_libraries(render_facade_selfcheck PRIVATE Orkige::Engine)
+    target_compile_definitions(render_facade_selfcheck PRIVATE
+        # backend-internal media the classic bootstrap registers (RTSS libs)
+        ORKIGE_SELFCHECK_OGRE_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
+        # facade-registered test assets: a vertex-coloured glb + a textured
+        # glb/png (reused from the committed sample media)
+        ORKIGE_SELFCHECK_MESH_DIR="${Orkige_SOURCE_DIR}/samples/hello_orkige/media"
+        ORKIGE_SELFCHECK_TEXTURE_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media")
+    add_test(NAME render_facade_selfcheck COMMAND render_facade_selfcheck
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(render_facade_selfcheck PROPERTIES
+        ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
 endif()
 
 if(TARGET orkige_editor_core)
@@ -374,7 +402,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         export_macos_lua export_macos_native
         export_ios_simulator export_android
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
-        jumper_selfcheck editor_open_jumper_level)
+        jumper_selfcheck editor_open_jumper_level render_facade_selfcheck)
     if(TEST ${integration_test})
         set_tests_properties(${integration_test} PROPERTIES
             LABELS integration TIMEOUT 60)

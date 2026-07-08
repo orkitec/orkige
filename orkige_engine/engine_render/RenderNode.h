@@ -45,6 +45,8 @@ namespace Orkige
 	protected:
 		//! backend state - defined only inside the selected backend
 		struct Impl;
+		//! the selected backend's plumbing (@see RenderPrerequisites.h)
+		friend struct RenderBackend;
 	private:
 		//--- Variables ---------------------------------------------
 	public:

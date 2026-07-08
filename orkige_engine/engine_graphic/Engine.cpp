@@ -9,6 +9,10 @@
 
 #include "engine_graphic/Engine.h"
 #include "engine_module/EnginePrerequisites.h"
+// phase A1 (Docs/render-abstraction.md): Engine is the classic backend's
+// bootstrapper - it creates/destroys the engine_render facade around the
+// root/window/scene-manager plumbing it already owns
+#include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/StringUtil.h"
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
@@ -187,6 +191,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	Engine::~Engine()
 	{
+		// facade first: RenderSystem/RenderWorld wrap the scene manager and
+		// window, which die with the root below (idempotent when setup never
+		// ran; facade HANDLES held by the app must be gone before this)
+		RenderBackend::destroyRenderSystem();
 #ifdef USE_RTSHADER_SYSTEM
 		// Finalize the RT Shader System while the root (and its render system)
 		// is still alive - OGRE 14 crashes on the reverse order.
@@ -325,6 +333,11 @@ namespace Orkige
 		this->eventManager = GlobalEventManager::getSingletonPtr();
 		oAssert(this->eventManager);
 		this->root->addFrameListener(this);
+
+		// bring up the engine_render facade over the scene manager and main
+		// window created above - RenderSystem::get() is live from here on
+		// (phase A1, Docs/render-abstraction.md)
+		RenderBackend::createRenderSystem(this);
 
 		this->lastFrameTime = Timer::getMilliseconds();
 		return true;

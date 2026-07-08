@@ -14,8 +14,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_module/EnginePrerequisites.h
     engine_module/module.cpp
     # engine_render: the renderer-agnostic facade (Docs/render-abstraction.md).
-    # Phase A0: interface headers + compile check only; the classic backend
-    # implementation lands in phase A1 under engine_render_classic/.
+    # Interface headers + compile check; the backend implementation directory
+    # is appended below per ORKIGE_RENDER_BACKEND (classic today, next in A2).
     engine_render/RenderPrerequisites.h
     engine_render/RenderMath.h
     engine_render/RenderSystem.h
@@ -43,18 +43,17 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/FrameEventData.cpp
     engine_graphic/Engine.h
     engine_graphic/Engine.cpp
+    # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted in
+    # phase A1 (zero callers - decided question #6 in Docs/render-abstraction.md;
+    # recoverable from git). DynamicRenderable/DynamicLines stay compiled: the
+    # editor-era debug-line drawing is expected back, but they are now
+    # caller-less too - candidates for the same treatment if A2 says so.
     engine_graphic/DynamicRenderable.h
     engine_graphic/DynamicRenderable.cpp
     engine_graphic/DynamicLines.h
     engine_graphic/DynamicLines.cpp
-    engine_graphic/MovableText.h
-    engine_graphic/MovableText.cpp
-    engine_graphic/ColoredBoundingBox.h
-    engine_graphic/ColoredBoundingBox.cpp
     engine_graphic/IngameConsole.h
     engine_graphic/IngameConsole.cpp
-    engine_graphic/LightMap.h
-    engine_graphic/LightMap.cpp
     engine_base/Localisation.h
     engine_base/Localisation.cpp
     engine_input/KeyEventData.h
@@ -151,15 +150,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         PROPERTIES LANGUAGE OBJCXX)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
-    # LightMap is an offline lightmap-baking utility built on CImg, which
-    # calls std::system() - a desktop-tooling path that has no business in
-    # the mobile runtime (and is unavailable on iOS). Nothing else uses it.
-    list(REMOVE_ITEM ORKIGE_ENGINE_SOURCES
-        engine_graphic/LightMap.h
-        engine_graphic/LightMap.cpp)
-endif()
-
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # SDL window -> ANativeWindow handle bridge (the Android counterpart of
     # engine_util/SDLNativeWindow.mm below)
@@ -213,6 +203,25 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_CLASSIC)
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
     target_compile_definitions(orkige_engine PUBLIC ORKIGE_RENDER_NEXT)
+endif()
+
+# The backend implementation of the engine_render facade: exactly one impl
+# directory compiles per build (the A2 'next' flavor swaps in
+# engine_render_next/ here; the root CMakeLists FATAL_ERRORs on 'next' until
+# that backend exists).
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    target_sources(orkige_engine PRIVATE
+        engine_render_classic/ClassicBackend.h
+        engine_render_classic/ClassicBackend.cpp
+        engine_render_classic/RenderSystemClassic.cpp
+        engine_render_classic/RenderWorldClassic.cpp
+        engine_render_classic/RenderNodeClassic.cpp
+        engine_render_classic/MeshInstanceClassic.cpp
+        engine_render_classic/SpriteQuadClassic.cpp
+        engine_render_classic/RenderCameraClassic.cpp
+        engine_render_classic/RenderLightClassic.cpp
+        engine_render_classic/RenderTextureClassic.cpp
+    )
 endif()
 
 target_link_libraries(orkige_engine

@@ -11,7 +11,7 @@ This phase produced the facade **interface headers** in `orkige_engine/engine_re
 
 ---
 
-## Open design questions (decide before/during A1)
+## Open design questions — all DECIDED (owner sign-off 2026-07-08)
 
 1. **AnimationComponent root-motion extraction** digs into `Ogre::Bone` /
    `NodeAnimationTrack` / `TransformKeyFrame` (backing up and restoring keyframes of the
@@ -19,27 +19,34 @@ This phase produced the facade **interface headers** in `orkige_engine/engine_re
    shape. Proposal: keep it a **classic-only backdoor** inside the classic backend and
    add a facade `getBoneWorldTransform(name)`-style API only when a game actually needs
    root motion on another backend. Accept?
+   **DECIDED: yes — root motion stays a classic-only backdoor; no facade bone API until a real cross-backend need.**
 2. **HUD strategy** (detail in the mapping table): recommendation is **Gorilla stays
    classic-only**; the future cross-backend HUD is built on facade `SpriteQuad` +
    screen-space camera. That means fastgui HUDs (jumper, roller) do not run on the
    Ogre-Next backend until the facade HUD exists (A3). Acceptable sequencing?
+   **DECIDED: yes — Gorilla/fastgui HUDs are classic-only until the A3 facade HUD lands.**
 3. **Which backend runs the editor?** ImGuiOverlay, RTSS probes and the OverlaySystem
    wiring are classic glue. Cheapest path: the editor stays a classic-backend app
    indefinitely; games choose their backend; RenderTexture/picking still go through the
    facade so an eventual editor-on-Next is unblocked but unscheduled. Confirm.
+   **DECIDED: confirmed — the editor stays a classic-backend app; games pick their backend.**
 4. **Math alias tradeoff**: with "Orkige math = Ogre math" the facade headers
    transitively include Ogre *math* headers (only math — no scene/render types). Zero
    churn for classic+Next; must be swapped to engine-owned types before Filament.
    Accept the deferred cost? (Recommended yes — see "Math types".)
+   **DECIDED: yes — alias now (`RenderMath.h` is the swap point), engine-owned types before any Filament work starts.**
 5. **`RenderCamera::setWireframe`** (Engine wireframe debug mode) has no Filament
    equivalent (Filament has no polygon-mode toggle). Documented no-op there?
+   **DECIDED: yes — documented no-op on Filament; classic/Next keep the polygon-mode toggle.**
 6. **Dead legacy renderables**: `ColoredBoundingBox`, `LightMap`, `CameraUtil.h`,
    `OverlayUtil.h`, `SerializationUtil.*` have **zero callers** (MovableText's only
    caller is the unbuilt sceneoptimizer). Proposal: drop them from the build in A1
    instead of dragging them through the abstraction (recoverable from git).
+   **DECIDED: yes — unbuilt AND deleted in A1 (incl. MovableText; recoverable from git). Done in WP-A1.1.**
 7. **Multi-window**: Engine carries an 8-window array; every call site uses window 0.
    The facade models exactly one main window. OK to freeze that until a real
    multi-window need appears?
+   **DECIDED: yes — single main window frozen; the facade models exactly one until a real need appears.**
 
 ---
 
@@ -270,12 +277,17 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
 
 ### A1 — classic backend implements the facade; call sites migrate (behavior-neutral)
 
-- **WP-A1.1 backend skeleton**: `engine_render_classic/` implementing all 8 classes
-  against OGRE 14 (Impl structs; `RenderSystem::get` wired from `Engine::setup`;
-  query-flag defaults; user-pointer bookkeeping). Files: new
+- **WP-A1.1 backend skeleton** *(DELIVERED 2026-07-08)*: `engine_render_classic/`
+  implementing all 8 classes against OGRE 14 (Impl structs; `RenderSystem::get` wired
+  from `Engine::setup`; query-flag defaults; user-pointer bookkeeping). Files: new
   `engine_render_classic/*.cpp` (~8), `orkige_engine/CMakeLists.txt`, small hooks in
   `engine_graphic/Engine.{h,cpp}`. Plus the `render_facade_selfcheck` app + ctest
   registration. Deliverable: facade fully usable next to the old paths.
+  Implementation notes: the backend's private door is `struct RenderBackend`
+  (`engine_render_classic/ClassicBackend.h`, befriended by the facade classes via
+  `RenderPrerequisites.h`); the question-#6 dead files were deleted; the selfcheck
+  lives in `tests/render_facade/` (backend-agnostic main + per-backend bootstrap TU)
+  and IS the conformance suite every future backend must pass.
 - **WP-A1.2 components**: `TransformComponent` (drops the SceneNodeGuard base for an
   owned `optr<RenderNode>`; keeps its event surface), `ModelComponent`
   (`MeshInstance`), `SpriteComponent` (`SpriteQuad`; pure helpers stay),

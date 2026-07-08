@@ -1,0 +1,188 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 18:00
+	filename: 	ClassicBackend.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
+
+//! @file ClassicBackend.cpp
+//! @brief backend hub: lifecycle, node registry and shared services
+//! @remarks the per-class facade method bodies live in the sibling
+//! *Classic.cpp TUs; this TU owns the process-wide backend state
+
+#include "engine_render_classic/ClassicBackend.h"
+#include "engine_graphic/Engine.h"
+#include "engine_util/StringUtil.h"
+
+#include <algorithm>
+#include <unordered_map>
+
+namespace Orkige
+{
+	namespace
+	{
+		//! the live render system behind RenderSystem::get (one per
+		//! process - the build-time backend rule, no runtime switch)
+		RenderSystem* gRenderSystem = NULL;
+		//! back-mapping registry: every facade-created node registers
+		//! here so ray query hits / getParent / user-pointer walks can
+		//! resolve backend nodes to facade handles
+		std::unordered_map<Ogre::SceneNode*, woptr<RenderNode>> gNodeRegistry;
+		//! monotonic counter behind RenderBackend::generateName
+		unsigned long gNameCounter = 0;
+	}
+	//---------------------------------------------------------
+	RenderSystem* RenderBackend::createRenderSystem(Engine* engine)
+	{
+		oAssert(engine);
+		oAssert(engine->getSceneManager());
+		oAssert(engine->getRenderWindow(0));
+		if(gRenderSystem)
+		{
+			return gRenderSystem;	// Engine::setup runs once; be idempotent anyway
+		}
+		RenderSystem* system = new RenderSystem();
+		system->mImpl->engine = engine;
+		RenderWorld* world = new RenderWorld();
+		world->mImpl->sceneManager = engine->getSceneManager();
+		system->mImpl->world = world;
+		gRenderSystem = system;
+		return gRenderSystem;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::destroyRenderSystem()
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		delete gRenderSystem;	// ~RenderSystem deletes the world
+		gRenderSystem = NULL;
+		// any handle still alive now is an application bug (handles must
+		// not outlive the render system) - drop the mappings so late
+		// lookups at least resolve to NULL instead of dangling
+		gNodeRegistry.clear();
+	}
+	//---------------------------------------------------------
+	RenderSystem* RenderBackend::system()
+	{
+		return gRenderSystem;
+	}
+	//---------------------------------------------------------
+	Ogre::SceneNode* RenderBackend::sceneNode(optr<RenderNode> const & node)
+	{
+		return node ? node->mImpl->node : NULL;
+	}
+	//---------------------------------------------------------
+	Ogre::Camera* RenderBackend::ogreCamera(optr<RenderCamera> const & camera)
+	{
+		return camera ? camera->mImpl->camera : NULL;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::registerNode(Ogre::SceneNode* node,
+		optr<RenderNode> const & handle)
+	{
+		oAssert(node);
+		gNodeRegistry[node] = handle;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::unregisterNode(Ogre::SceneNode* node)
+	{
+		gNodeRegistry.erase(node);
+	}
+	//---------------------------------------------------------
+	optr<RenderNode> RenderBackend::findNode(Ogre::SceneNode* node)
+	{
+		if(!node)
+		{
+			return optr<RenderNode>();
+		}
+		auto found = gNodeRegistry.find(node);
+		if(found == gNodeRegistry.end())
+		{
+			return optr<RenderNode>();
+		}
+		return found->second.lock();
+	}
+	//---------------------------------------------------------
+	void* RenderBackend::findUserPointerUpwards(Ogre::SceneNode* node)
+	{
+		// walk the BACKEND parent chain (not the facade graph) so the walk
+		// also crosses nodes that were never wrapped into facade handles
+		for(Ogre::Node* each = node; each != NULL; each = each->getParent())
+		{
+			optr<RenderNode> handle =
+				findNode(static_cast<Ogre::SceneNode*>(each));
+			if(handle && handle->mImpl->userPointer)
+			{
+				return handle->mImpl->userPointer;
+			}
+		}
+		return NULL;
+	}
+	//---------------------------------------------------------
+	String RenderBackend::generateName(String const & prefix)
+	{
+		return prefix + "." + StringUtil::Converter::toString(++gNameCounter);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyRTSSScheme(Ogre::Viewport* viewport)
+	{
+		oAssert(viewport);
+#ifdef USE_RTSHADER_SYSTEM
+		// same wiring Engine::createDefaultCameraAndViewport and the
+		// editor's RTT apply: without the RTSS scheme nothing renders on
+		// the shader-only render systems (no fixed function)
+		if(Ogre::Root::getSingleton().getRenderSystem()->getCapabilities()
+			->hasCapability(Ogre::RSC_FIXED_FUNCTION) == false)
+		{
+			viewport->setMaterialScheme(
+				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+		}
+#endif
+	}
+	//---------------------------------------------------------
+	Ogre::MaterialPtr RenderBackend::getOrCreateSpriteMaterial(
+		Ogre::TexturePtr const & texture)
+	{
+		oAssert(texture);
+		// identical recipe (and name) to SpriteComponent::createSpriteMaterial
+		// so facade sprites and component sprites share one material per
+		// texture until WP-A1.2 retargets the component onto SpriteQuad:
+		// unlit, vertex colours tracked (the tint), alpha-BLENDED,
+		// depth-checked/not-written, two-sided; generated - material
+		// scripts stay banned (Ogre-Next has no material scripts)
+		const String materialName = "Sprite/" + texture->getName();
+		Ogre::MaterialManager & materialManager =
+			Ogre::MaterialManager::getSingleton();
+		if(materialManager.resourceExists(materialName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+		{
+			return materialManager.getByName(materialName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		}
+		Ogre::MaterialPtr material = materialManager.create(materialName,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+		pass->setLightingEnabled(false);
+		pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
+		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
+		pass->setDepthWriteEnabled(false);
+		pass->setCullingMode(Ogre::CULL_NONE);
+		Ogre::TextureUnitState* textureUnit = pass->createTextureUnitState();
+		textureUnit->setTexture(texture);
+		textureUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
+		return material;
+	}
+	//---------------------------------------------------------
+	Ogre::uint8 RenderBackend::renderQueueForZOrder(int zOrder)
+	{
+		// RENDER_QUEUE_MAIN (50) +- 40 keeps sprites inside the valid
+		// render queue range and clear of the overlay queues (>= 95)
+		const int queue = static_cast<int>(Ogre::RENDER_QUEUE_MAIN) +
+			std::clamp(zOrder, SpriteQuad::ZORDER_MIN, SpriteQuad::ZORDER_MAX);
+		return static_cast<Ogre::uint8>(queue);
+	}
+}
