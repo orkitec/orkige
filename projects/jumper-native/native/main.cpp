@@ -15,16 +15,26 @@
 //
 // Gameplay: the jumper jump-and-run. The pure math (ground probe, approach,
 // kill plane, goal check) is INCLUDED from samples/jumper/JumperLogic.h (one
-// source of truth, unit-tested in tests/jumper); the JumperInput/JumperGame
-// glue below is duplicated from samples/jumper/main.cpp on purpose - trimmed
-// to the project shape (no HUD, no --write-level, scene/assets come from the
-// PROJECT via --project instead of baked sample paths). The scene holds only
-// the level data (scenes/main.oscene = platforms/crates/goal); the player
-// object is spawned by THIS code at runtime - scene = data, module = behavior.
+// source of truth, unit-tested in tests/jumper) and the fastgui HUD (title
+// splash, controls hint, win banner, progress bar) from the equally shared
+// samples/jumper/JumperHud.h - the atlas rides in the PROJECT
+// (assets/fastgui_default.{ogui,png}, loaded from the "OrkigeProject"
+// resource group, exactly like jumper-lua's game.lua does it). The
+// JumperInput/JumperGame glue below is duplicated from
+// samples/jumper/main.cpp on purpose - trimmed to the project shape (no
+// --write-level, scene/assets come from the PROJECT via --project instead of
+// baked sample paths). The scene holds only the level data (scenes/
+// main.oscene = platforms/crates/goal); the player object is spawned by THIS
+// code at runtime - scene = data, module = behavior.
 //
 // Automation hooks (the standard set): ORKIGE_DEMO_FRAMES=N exits 0 after N
 // frames, ORKIGE_RENDERSYSTEM picks the render system, ORKIGE_DEMO_FPS_LOG=1
-// logs frame count / avg / p95 ms at exit.
+// logs frame count / avg / p95 ms at exit, ORKIGE_DEMO_SCREENSHOT=path dumps
+// the framebuffer at frame 55 (HUD title splash still up), and
+// ORKIGE_JUMPER_NATIVE_SELFCHECK=1 asserts at frame 5 that the fastgui HUD
+// booted from the project atlas (widgets exist, title splash showing, win
+// banner hidden) - exits non-zero on failure; the editor_project_native_play
+// ctest sets it, so the spawned play process proves the HUD along the way.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_gocomponent/TransformComponent.h>
@@ -45,6 +55,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 
+#include <JumperHud.h>   // samples/jumper - the shared fastgui HUD
 #include <JumperLogic.h> // samples/jumper - the shared pure gameplay math
 
 #include <algorithm>
@@ -133,10 +144,10 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 	}
 }
 
-//! the jump-and-run gameplay (duplicated from samples/jumper/main.cpp, HUD
-//! stripped): owns the player object and the per-frame rules - movement,
-//! jump, respawn, win, camera follow. Reads scene data (the goal marker)
-//! from the loaded level but never stores behavior in it.
+//! the jump-and-run gameplay (duplicated from samples/jumper/main.cpp):
+//! owns the player object and the per-frame rules - movement, jump,
+//! respawn, win, camera follow. Reads scene data (the goal marker) from
+//! the loaded level but never stores behavior in it.
 class JumperGame
 {
 public:
@@ -307,6 +318,23 @@ public:
 	}
 
 	Ogre::Vector3 const& getSpawnPosition() const { return mSpawnPosition; }
+	Ogre::Vector3 getPlayerPosition() const
+	{
+		return mPlayerTransform ? mPlayerTransform->getPosition()
+			: Ogre::Vector3::ZERO;
+	}
+	int getWinCount() const { return mWinCount; }
+	//! progress toward the goal along the level axis (0 = spawn, 1 = goal) -
+	//! feeds the HUD progress bar, same math as the sample
+	float getGoalProgress() const
+	{
+		if (!mHasGoal || mGoalPosition.x <= mSpawnPosition.x)
+		{
+			return 0.0f;
+		}
+		return (getPlayerPosition().x - mSpawnPosition.x) /
+			(mGoalPosition.x - mSpawnPosition.x);
+	}
 
 private:
 	static inline const Ogre::Vector3 CAMERA_OFFSET =
@@ -436,7 +464,13 @@ int main(int argc, char** argv)
 		{
 			frameLimit = std::strtoul(demoFrames, nullptr, 10);
 		}
-		const bool automatedRun = frameLimit != 0;
+		// ORKIGE_JUMPER_NATIVE_SELFCHECK=1: assert at frame 5 that the fastgui
+		// HUD booted from the project atlas; exits non-zero on failure (the
+		// editor_project_native_play ctest sets it - a failed HUD boot drops
+		// the play process and fails the editor-side hierarchy wait)
+		const bool hudSelfCheck =
+			(std::getenv("ORKIGE_JUMPER_NATIVE_SELFCHECK") != nullptr);
+		const bool automatedRun = frameLimit != 0 || hudSelfCheck;
 
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
@@ -546,6 +580,28 @@ int main(int argc, char** argv)
 			Ogre::Vector3(0.0f, 2.2f, 8.0f));
 		cameraNode->lookAt(game.getSpawnPosition(), Ogre::Node::TS_WORLD);
 
+		// the HUD (the shared samples/jumper/JumperHud.h): title splash,
+		// controls hint, win banner, distance-to-goal progress bar. The atlas
+		// lives in the PROJECT (assets/fastgui_default.{ogui,png}) and loads
+		// from the "OrkigeProject" resource group registered above - the same
+		// arrangement as jumper-lua's game.lua. Without a project there is no
+		// atlas to load, so bare-scene dev runs stay HUD-less (honestly
+		// logged); every real path (editor Play, exported .app) has one.
+		optr<Orkige::JumperHud> hud;
+		if (project.isLoaded())
+		{
+			hud = onew(new Orkige::JumperHud(
+				engine.getViewport()->getActualWidth(),
+				engine.getViewport()->getActualHeight(),
+				"fastgui_default", Orkige::Project::RESOURCE_GROUP_NAME));
+		}
+		else
+		{
+			SDL_Log("jumper_native: no --project - the HUD atlas is a project "
+				"asset, running without the HUD");
+		}
+		int hudLastWinCount = game.getWinCount();
+
 		// remote debugging server (editor play mode) - the shared link
 		Orkige::PlayerDebugLink debugLink;
 		if (arguments.debugRequested)
@@ -617,6 +673,18 @@ int main(int argc, char** argv)
 				physicsWorld.update(deltaTime);
 				gameObjectManager.update(deltaTime); // body creation + pose sync
 				game.update(deltaTime, input);		// the gameplay rules
+
+				// HUD: win banner on a new win, then timers + progress bar
+				// (frozen with the world while the editor has us paused)
+				if (hud)
+				{
+					if (game.getWinCount() > hudLastWinCount)
+					{
+						hudLastWinCount = game.getWinCount();
+						hud->showWinBanner();
+					}
+					hud->update(deltaTime, game.getGoalProgress());
+				}
 			}
 
 			// streaming AFTER stepping - also while paused
@@ -627,6 +695,46 @@ int main(int argc, char** argv)
 				running = false;
 			}
 			++frameCount;
+
+			if (frameCount == 55)
+			{
+				// ORKIGE_DEMO_SCREENSHOT: the player stands on the textured
+				// start platform with the HUD up (title splash, hint,
+				// progress bar) - same hook as the sample
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
+				{
+					engine.getRenderWindow()->writeContentsToFile(shotPath);
+				}
+			}
+
+			// --- ORKIGE_JUMPER_NATIVE_SELFCHECK=1: the HUD boot assert -----
+			// mirrors the frame-5 HUD block of the jumper sample's selfcheck:
+			// FastGuiManager loaded the PROJECT'S atlas and all four widgets
+			// exist, the title splash is showing, the win banner is not
+			if (hudSelfCheck && frameCount == 5)
+			{
+				const bool widgets = hud && hud->widgetsExist();
+				SDL_Log("jumper_native: hud selfcheck - created=%d widgets=%d "
+					"title=%d banner=%d progress=%.0f%%",
+					static_cast<int>(hud != nullptr),
+					static_cast<int>(widgets),
+					static_cast<int>(widgets && hud->isTitleVisible()),
+					static_cast<int>(widgets && hud->isWinBannerVisible()),
+					widgets ? hud->getProgress() : -1.0f);
+				if (!widgets || !hud->isTitleVisible() ||
+					hud->isWinBannerVisible())
+				{
+					SDL_Log("jumper_native: HUD SELFCHECK FAILED - the "
+						"fastgui HUD did not boot from the project atlas");
+					exitCode = 1;
+					running = false;
+				}
+				else
+				{
+					SDL_Log("jumper_native: hud selfcheck passed - fastgui "
+						"HUD up from the project's fastgui_default atlas");
+				}
+			}
 
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{

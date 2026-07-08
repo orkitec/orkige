@@ -119,13 +119,18 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # configure+build of the module (output as [build] Console lines),
     # launch the PROJECT'S OWN executable and receive its remote hierarchy
     # (incl. the module-spawned "Player" object), then Stop and revert
-    # cleanly. The first run compiles the module from scratch (the build
-    # tree under projects/jumper-native/native/build persists across runs,
-    # so re-runs are an incremental no-op build) - hence the fat TIMEOUT.
+    # cleanly. The spawned module inherits ORKIGE_JUMPER_NATIVE_SELFCHECK
+    # from the editor's environment and asserts its fastgui HUD booted from
+    # the project atlas at frame 5 (exiting non-zero otherwise, which drops
+    # the play process before the hierarchy wait completes - see the hook in
+    # projects/jumper-native/native/main.cpp). The first run compiles the
+    # module from scratch (the build tree under
+    # projects/jumper-native/native/build persists across runs, so re-runs
+    # are an incremental no-op build) - hence the fat TIMEOUT.
     add_test(NAME editor_project_native_play COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_project_native_play PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native")
+        ENVIRONMENT "ORKIGE_EDITOR_NATIVE_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-native;ORKIGE_JUMPER_NATIVE_SELFCHECK=1")
 
     # the deliberate-breakage variant: the hook copies jumper-native to a
     # TEMP directory (the real project is never touched), injects a syntax

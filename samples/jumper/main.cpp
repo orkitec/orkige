@@ -50,8 +50,8 @@
 //                                frames after the win, HUD banner visible
 //
 // HUD: engine_fastgui (the engine's own Gorilla-based UI) with the generated
-// atlas media/fastgui_default.{ogui,png} - see JumperHud below and
-// Util/make_fastgui_atlas.py.
+// atlas media/fastgui_default.{ogui,png} - see the shared JumperHud.h (also
+// compiled by the jumper-native project module) and Util/make_fastgui_atlas.py.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_fastgui/FastGuiManager.h>
@@ -72,6 +72,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 
+#include "JumperHud.h"
 #include "JumperLogic.h"
 
 #include <algorithm>
@@ -162,113 +163,6 @@ void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
 		}
 	}
 }
-
-//! the in-game HUD, built on the engine's own UI system (engine_fastgui /
-//! Gorilla): boots FastGuiManager with the generated fastgui_default atlas
-//! (Util/make_fastgui_atlas.py -> media/fastgui_default.{ogui,png}) and owns
-//! four widgets - a title splash, the persistent controls hint, the hidden
-//! win banner and a distance-to-goal progress bar. Widget groups live on
-//! their own z-layers (Gorilla layers are shared per z), so the title/banner
-//! can be shown/hidden without touching the persistent widgets.
-class JumperHud
-{
-public:
-	static constexpr float TITLE_SECONDS = 3.0f;		//!< title splash time
-	static constexpr float WIN_BANNER_SECONDS = 2.0f;	//!< "YOU WIN!" time
-	static constexpr Orkige::uint FONT_HUD = 9;		//!< 10x14 px glyphs
-	static constexpr Orkige::uint FONT_TITLE = 24;	//!< 20x28 px glyphs
-	// z-layers: 12 persistent HUD, 13 title splash, 14 win banner
-	static constexpr Orkige::uint Z_HUD = 12;
-	static constexpr Orkige::uint Z_TITLE = 13;
-	static constexpr Orkige::uint Z_WIN = 14;
-
-	JumperHud(int screenWidth, int screenHeight)
-	{
-		// FastGuiManager loads "fastgui_default.ogui" (+ texture) from the
-		// default resource group and creates the Gorilla screen on viewport 0
-		mFactory = onew(new Orkige::FastGuiFactory());
-		mManager = onew(new Orkige::FastGuiManager(mFactory));
-
-		optr<Orkige::FastGuiFactory> factory = mFactory;
-		// whole-pixel positions only - Caption asserts on subpixel coords
-		mTitle = factory->createLabel("HudTitle", FONT_TITLE, "ORKIGE JUMPER",
-			Ogre::Vector2(0.0f, std::floor(screenHeight * 0.22f)),
-			Orkige::StringUtil::BLANK, Z_TITLE, false);
-		mTitle.lock()->centerHorizontal();
-
-		mHint = factory->createLabel("HudHint", FONT_HUD,
-			"WASD move - SPACE jump",
-			Ogre::Vector2(0.0f, static_cast<float>(screenHeight - 34)),
-			Orkige::StringUtil::BLANK, Z_HUD, false);
-		mHint.lock()->centerHorizontal();
-
-		mWinBanner = factory->createLabel("HudWinBanner", FONT_TITLE,
-			"YOU WIN!", Ogre::Vector2(0.0f, std::floor(screenHeight * 0.35f)),
-			Orkige::StringUtil::BLANK, Z_WIN, false);
-		mWinBanner.lock()->centerHorizontal();
-		mWinBanner.lock()->getLayer()->hide();	// hidden until the goal
-
-		// distance-to-goal indicator, top-left ("progressbar" frame sprite +
-		// the "progressbar_bar" fill sprite FastGuiProgressBar hardcodes)
-		mProgress = factory->createProgressBar("HudProgress", "progressbar",
-			FONT_HUD, "", Ogre::Vector2(16.0f, 16.0f),
-			Orkige::FastGuiLabel::LA_CENTER, Ogre::Vector2(192.0f, 20.0f),
-			Orkige::StringUtil::BLANK, Z_HUD);
-		mProgress.lock()->setProgress(0.0f);
-	}
-
-	//! per-frame: timed title/banner hiding + progress bar value (0..1)
-	void update(float deltaTime, float progressToGoal)
-	{
-		if (mTitleTimer > 0.0f)
-		{
-			mTitleTimer -= deltaTime;
-			if (mTitleTimer <= 0.0f)
-			{
-				mTitle.lock()->getLayer()->hide();
-			}
-		}
-		if (mWinTimer > 0.0f)
-		{
-			mWinTimer -= deltaTime;
-			if (mWinTimer <= 0.0f)
-			{
-				mWinBanner.lock()->getLayer()->hide();
-			}
-		}
-		mProgress.lock()->setProgress(
-			std::clamp(progressToGoal, 0.0f, 1.0f) * 100.0f);
-	}
-
-	//! the goal was reached - flash the win banner for WIN_BANNER_SECONDS
-	void showWinBanner()
-	{
-		mWinBanner.lock()->getLayer()->show();
-		mWinTimer = WIN_BANNER_SECONDS;
-	}
-
-	// state queries (used by the selfcheck)
-	bool isTitleVisible() const { return mTitle.lock()->getLayer()->isVisible(); }
-	bool isWinBannerVisible() const { return mWinBanner.lock()->getLayer()->isVisible(); }
-	float getProgress() const { return mProgress.lock()->getProgress(); }
-	bool widgetsExist() const
-	{
-		return mManager->widgetExists("HudTitle") &&
-			mManager->widgetExists("HudHint") &&
-			mManager->widgetExists("HudWinBanner") &&
-			mManager->widgetExists("HudProgress");
-	}
-
-private:
-	optr<Orkige::FastGuiFactory>		mFactory;
-	optr<Orkige::FastGuiManager>		mManager;
-	woptr<Orkige::FastGuiLabel>			mTitle;
-	woptr<Orkige::FastGuiLabel>			mHint;
-	woptr<Orkige::FastGuiLabel>			mWinBanner;
-	woptr<Orkige::FastGuiProgressBar>	mProgress;
-	float								mTitleTimer = TITLE_SECONDS;
-	float								mWinTimer = 0.0f;
-};
 
 //! the jump-and-run gameplay: owns the player object and the per-frame rules
 //! (movement, jump, respawn, win, camera). Reads scene data (the goal marker)
@@ -815,8 +709,8 @@ int main(int argc, char** argv)
 		cameraNode->lookAt(game.getSpawnPosition(), Ogre::Node::TS_WORLD);
 
 		// the HUD (engine_fastgui): title splash, controls hint, win banner,
-		// distance-to-goal progress bar - see JumperHud above
-		JumperHud hud(engine.getViewport()->getActualWidth(),
+		// distance-to-goal progress bar - see the shared JumperHud.h
+		Orkige::JumperHud hud(engine.getViewport()->getActualWidth(),
 			engine.getViewport()->getActualHeight());
 		int hudLastWinCount = game.getWinCount();
 
