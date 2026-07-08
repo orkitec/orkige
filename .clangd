@@ -8,3 +8,12 @@
 # flags, which usually suffices).
 CompileFlags:
   CompilationDatabase: build/macos-debug
+
+---
+# Next-flavor sources live only in the macos-debug-next build - serve them
+# from that flavor's database (otherwise clangd applies classic flags and
+# floods false errors: the flavor guard #error, missing OGRE-Next headers).
+If:
+  PathMatch: [.*engine_render_next/.*, .*tests/render_facade/bootstrap_next.*]
+CompileFlags:
+  CompilationDatabase: build/macos-debug-next
