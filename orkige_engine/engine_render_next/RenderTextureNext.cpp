@@ -32,6 +32,9 @@
 #include <OgrePixelFormatGpuUtils.h>
 #include <OgreRenderSystem.h>
 #include <Compositor/OgreCompositorManager2.h>
+#include <Compositor/OgreCompositorNodeDef.h>
+#include <Compositor/OgreCompositorWorkspaceDef.h>
+#include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 
 namespace Orkige
 {
@@ -92,14 +95,36 @@ namespace Orkige
 		{
 			return;	// workspace arrives with setCamera
 		}
-		// one basic (clear + scene) workspace per target incarnation; the
-		// background colour bakes into the definition's clear pass
+		// one (clear + scene) workspace per target incarnation; the
+		// background colour bakes into the definition's clear pass.
+		// Hand-built instead of createBasicWorkspaceDef since the
+		// DrawLayer2D port: the scene pass stops BELOW the UI render
+		// queue, so 2D layers never leak into offscreen targets (the
+		// facade contract - they composite over the main window only)
 		Ogre::CompositorManager2* compositorManager =
 			root->getCompositorManager2();
 		const String definitionName =
 			RenderBackend::generateName("Orkige/RTTWorkspace");
-		compositorManager->createBasicWorkspaceDef(definitionName,
-			this->background);
+		Ogre::CompositorNodeDef* nodeDefinition =
+			compositorManager->addNodeDefinition(definitionName + "/Node");
+		nodeDefinition->addTextureSourceName("TargetRT", 0,
+			Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+		nodeDefinition->setNumTargetPass(1);
+		Ogre::CompositorTargetDef* targetDefinition =
+			nodeDefinition->addTargetPass("TargetRT");
+		targetDefinition->setNumPasses(1);
+		{
+			Ogre::CompositorPassSceneDef* scenePass =
+				static_cast<Ogre::CompositorPassSceneDef*>(
+					targetDefinition->addPass(Ogre::PASS_SCENE));
+			scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+			scenePass->setAllClearColours(this->background);
+			scenePass->mFirstRQ = 0;
+			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+		}
+		Ogre::CompositorWorkspaceDef* workspaceDefinition =
+			compositorManager->addWorkspaceDefinition(definitionName);
+		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
 		this->workspace = compositorManager->addWorkspace(
 			RenderBackend::worldSceneManager(), this->texture,
 			backendCamera, definitionName, true /*enabled*/);

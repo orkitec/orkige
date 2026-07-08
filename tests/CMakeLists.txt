@@ -106,8 +106,11 @@ if(TARGET hello_orkige)
     # frame-capped demo runs; 120 frames ~= 2s
     add_test(NAME demo_plain COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # ORKIGE_DEMO_GUI: the fastgui link/lifecycle smoke (empty UI draw
+    # layer over a frame + FastGuiManager's clean no-atlas refusal) rides
+    # on the plain demo - flavor-neutral since the DrawLayer2D port
     set_tests_properties(demo_plain PROPERTIES
-        ENVIRONMENT "ORKIGE_DEMO_FRAMES=120")
+        ENVIRONMENT "ORKIGE_DEMO_FRAMES=120;ORKIGE_DEMO_GUI=1")
 
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")

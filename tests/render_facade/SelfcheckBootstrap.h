@@ -40,6 +40,12 @@ namespace SelfcheckBootstrap
 	//! one clearly non-black pixel? (backend-implemented so the agnostic
 	//! checks need no image decoder of their own)
 	bool imageHasNonBlackPixel(Orkige::String const & fileName);
+	//! @brief verification plumbing: read one pixel of an image file (the
+	//! DrawLayer2D pattern checks); false when the file cannot be decoded
+	//! or the coordinates are out of range
+	bool readImagePixel(Orkige::String const & fileName,
+		unsigned int x, unsigned int y,
+		float & outRed, float & outGreen, float & outBlue);
 }
 
 #endif //__SelfcheckBootstrap_h__8_7_2026__18_00_00__

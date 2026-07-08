@@ -16,34 +16,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiView::FastGuiView(Gorilla::Screen* _screen, uint _z) : screen(_screen), z(_z)
-	{
-
-	}
-	//---------------------------------------------------------
-	FastGuiView::FastGuiView(FastGuiView const & other) : screen(other.screen), z(other.z), layers(other.layers)
+	FastGuiView::FastGuiView(UiScreen* _screen, uint _z) : screen(_screen), z(_z)
 	{
 
 	}
 	//---------------------------------------------------------
 	FastGuiView::~FastGuiView()
 	{
-		for(std::map<uint, Gorilla::Layer*>::iterator it = this->layers.begin(), itend = this->layers.end(); it != itend; it++)
-		{
-			it->second->destroyAllCaptions();
-			it->second->destroyAllLineLists();
-			it->second->destroyAllMarkupTexts();
-			it->second->destroyAllPolygons();
-			it->second->destroyAllQuadLists();
-			it->second->destroyAllRectangles();
-
-			it->second->hide();
-			this->screen->hide();
-
-			this->screen->destroy(it->second);
-		}
-		this->screen->_destroyVertexBuffer();
-		this->screen->_redrawAllIndexes();
+		// the screen owns the layers (and destroying it drops its draw
+		// layer = its one batch); widgets are already gone - FastGuiManager
+		// destroys them before their views
+		delete this->screen;
 	}
 	//---------------------------------------------------------
 	Ogre::Vector2 FastGuiView::getPosition(FastGuiView::Alignment alignment)

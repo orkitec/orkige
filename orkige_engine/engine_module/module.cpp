@@ -12,11 +12,11 @@
 // the sol2-based ScriptComponent.
 #include "engine_graphic/Engine.h"
 #ifdef ORKIGE_RENDER_CLASSIC
-// classic-only exports (B3): the fastgui UI system (decision #2 - the A3
-// facade HUD is its cross-backend successor) and the overlay-based ingame
-// console. On the next flavor these usertypes simply do not exist; scripts
-// probe engine:hasUISystem() before touching UI (an unguarded FastGui call
-// then fails with an honest "attempt to call a nil value" Lua error).
+// classic-only export: the overlay-based ingame console (Ogre Overlay +
+// Rectangle2D - a classic zone; a cross-backend console would be rebuilt
+// on fastgui/DrawLayer2D when wanted). fastgui itself is flavor-neutral
+// since the DrawLayer2D port - engine:hasUISystem() is true on BOTH
+// flavors and the FastGui usertypes below register unconditionally.
 #include "engine_graphic/IngameConsole.h"
 #endif
 #include "engine_gocomponent/SoundComponent.h"
@@ -30,10 +30,8 @@
 #include "engine_physic/PhysicsWorld.h"
 #include "engine_input/InputManager.h"
 #include "engine_sound/SoundManager.h"
-#ifdef ORKIGE_RENDER_CLASSIC
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiManager.h"
-#endif
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderNode.h"
@@ -76,7 +74,6 @@ ORKIGE_MODULE(orkige_engine)
 		OCONSTVAR(bodyId)
 	OSIMPLEEXPORT_END
 
-#ifdef ORKIGE_RENDER_CLASSIC
 	// FastGuiFactory is not an OOBJECT (it derives Ogre::ConfigFile), so its
 	// Lua face lives here: scripts construct one, hand it to FastGuiManager
 	// and create the widgets the game needs. The create* functions return
@@ -95,8 +92,8 @@ ORKIGE_MODULE(orkige_engine)
 		OFUNCWEAK(createProgressBar)
 	OSIMPLEEXPORT_END
 
-	// widget visibility rides on the shared per-z Gorilla layer
-	OSIMPLEEXPORT(Gorilla::Layer,GuiLayer)
+	// widget visibility rides on the shared per-z UiLayer
+	OSIMPLEEXPORT(Orkige::UiLayer,GuiLayer)
 		OFUNC(show)
 		OFUNC(hide)
 		OFUNC(isVisible)
@@ -118,7 +115,6 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(FastGuiButtonBlink)
 	OEXPORT(FastGuiButton)
 	OEXPORT(DragEventData)
-#endif //ORKIGE_RENDER_CLASSIC (fastgui exports)
 
 	// the math value types scripts actually compute with (the engine math
 	// vocabulary - Ogre spellings per the RenderMath.h alias decision);

@@ -25,6 +25,8 @@ This phase produced the facade **interface headers** in `orkige_engine/engine_re
    screen-space camera. That means fastgui HUDs (jumper, roller) do not run on the
    Ogre-Next backend until the facade HUD exists (A3). Acceptable sequencing?
    **DECIDED: yes — Gorilla/fastgui HUDs are classic-only until the A3 facade HUD lands.**
+   *(SUPERSEDED 2026-07-08 in A3: fastgui itself became the cross-backend HUD on
+   `DrawLayer2D`; Gorilla was deleted — see the A3 section.)*
 3. **Which backend runs the editor?** ImGuiOverlay, RTSS probes and the OverlaySystem
    wiring are classic glue. Cheapest path: the editor stays a classic-backend app
    indefinitely; games choose their backend; RenderTexture/picking still go through the
@@ -673,10 +675,11 @@ B0 (dependency/flavor) + B1 (boot skeleton) + B2 (full facade conformance)
 | components/game objects/serialization | yes | yes |
 | Lua scripting (sol2 module surface) | yes | yes (minus fastgui usertypes) |
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
-| player + hello_orkige + games (jumper-lua, roller) | yes | yes (HUD-less: `engine:hasUISystem()` = false) |
-| fastgui/Gorilla HUD, IngameConsole | yes | no — classic-only until the A3 facade HUD (decision #2) |
+| player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
+| fastgui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
+| IngameConsole | yes | no — classic Overlay zone (rebuild on fastgui/DrawLayer2D when wanted) |
 | editor | yes | no — classic by decision #3 |
-| jumper sample (C++ fastgui HUD) | yes | no (follows the A3 HUD migration) |
+| jumper sample (C++ fastgui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
 | BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
 | export pipeline, Vulkan/GL runtime RS pick | yes | no (classic-backend concerns; next boots Metal) |
 | root-motion animation backdoor | yes | no (decision #1) |
@@ -687,15 +690,46 @@ difference vs classic (content-phase refinement).
 
 ### A3 — cross-backend HUD + closure
 
-- **WP-A3.1 facade HUD**: screen-space sprite layer on `SpriteQuad` + ortho camera
-  (atlas support = UV rects, already in the facade; text via atlas glyph quads reusing
-  `Util/make_fastgui_atlas.py` output). fastgui widgets get the draw-surface seam;
-  Gorilla remains available classic-side until the seam covers jumper's HUD needs.
-- **WP-A3.2 HUD migration**: jumper + roller + player HUD paths onto the facade HUD;
-  fastgui atlas tests extended; `desktop-next` skip list emptied.
+- **WP-A3.1 + A3.2 facade HUD & migration** *(DELIVERED 2026-07-08, revised
+  design)*: instead of the sprite-quad HUD sketched above, the owner decided
+  (a) fastgui runs on BOTH backends and (b) **Gorilla is DROPPED**. What
+  landed:
+  - `engine_render/DrawLayer2D` — the facade's screen-space 2D layer:
+    retained pixel-space triangle batches, per-batch texture binding by
+    resource name, analytic (Sutherland-Hodgman) scissor clipping shared by
+    both backends (`DrawLayer2DClip.h`), zOrder compositing over the main
+    window only. Classic impl: one RenderQueueListener after
+    RENDER_QUEUE_OVERLAY + `manualRender` of a per-layer dynamic vertex
+    buffer (one draw per batch). Next impl: one v2 ManualObject + generated
+    `DrawLayer2D/<tex>` HlmsUnlit datablock per batch in a dedicated UI
+    queue, drawn by the window workspace's late pass through a pixel-space
+    ortho camera whose `mSortMode = SortModeDepthRadiusIgnoring` makes the
+    per-batch node depths the painter order. Conformance: the
+    `render_facade_selfcheck` 2D pattern pixel-verifies z-order, in-layer
+    order, alpha blending, scissor, texture binding, show/hide, RTT
+    isolation and RAII teardown identically on both flavors.
+  - **Gorilla.{h,cpp} DELETED** (recoverable from git). Its .ogui parser
+    lives on as the backend-neutral `engine_fastgui/UiAtlas.{h,cpp}`
+    (sprites, fonts/glyphs/kerning, whitepixel, markup colours; headless
+    constructor for the unit tests) and its glyph layout math as
+    `engine_fastgui/UiRenderer.{h,cpp}` (`UiScreen`/`UiLayer`/`UiRect`/
+    `UiCaption`/`UiMarkupText`). The unused primitives (Polygon, LineList,
+    QuadList, borders, gradients, per-corner colours) are gone.
+  - **Perf contract (mobile ethos)**: one UiScreen = ONE DrawLayer2D batch
+    (all layers/widgets of an atlas concatenate into one retained vertex
+    vector, capacity kept across frames); elements relayout only when
+    dirty; clean frames rebuild and upload NOTHING. The jumper-lua player
+    selfcheck asserts the property: hiding all views drops the frame batch
+    count by exactly the screen count (1), never the widget count (8+).
+  - Widget API + Lua surface byte-compatible: FastGui* classes unchanged
+    (`getLayer()` now returns `UiLayer*`, the Lua `GuiLayer` usertype
+    re-points to it with the same methods), `engine:hasUISystem()` is true
+    on both flavors, module.cpp's fastgui exports register unconditionally,
+    the .ogui format + `Util/make_fastgui_atlas.py` are unchanged.
 - **WP-A3.3 closure**: containment lint DELIVERED EARLY (WP-A1.5:
-  `render_containment_lint` + `Util/ogre_containment.json`) — the A3 job
-  shrinks its sanction list as fastgui/HUD migrate; editor-backend decision
+  `render_containment_lint` + `Util/ogre_containment.json`) — engine_fastgui
+  is now a flavor-neutral sanctioned zone (math aliases + ConfigFile-family
+  utilities present in both backends); editor-backend decision
   (question #3) revisited with real Next numbers, math-swap readiness review
   (question #4), mobile backend evaluation input for Phase 3.
 

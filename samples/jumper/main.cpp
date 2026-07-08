@@ -49,7 +49,7 @@
 //   ORKIGE_JUMPER_HUD_SCREENSHOT=path  (selfcheck only) framebuffer dump a few
 //                                frames after the win, HUD banner visible
 //
-// HUD: engine_fastgui (the engine's own Gorilla-based UI) with the generated
+// HUD: engine_fastgui (the engine's own UiRenderer-based UI) with the generated
 // atlas media/fastgui_default.{ogui,png} - see the shared JumperHud.h (also
 // compiled by the jumper-native project module) and Util/make_fastgui_atlas.py.
 #include <SDL3/SDL.h>

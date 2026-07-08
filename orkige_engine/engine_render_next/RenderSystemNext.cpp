@@ -32,8 +32,11 @@ namespace Orkige
 	RenderSystem::FrameStats::FrameStats()
 		: lastFPS(0.0f)
 		, avgFPS(0.0f)
+		, bestFPS(0.0f)
+		, worstFPS(0.0f)
 		, triangleCount(0)
 		, batchCount(0)
+		, textureMemoryBytes(0)
 	{
 	}
 	//---------------------------------------------------------
@@ -77,6 +80,16 @@ namespace Orkige
 		}
 		this->mImpl->lastFrameTime = now;
 		this->mImpl->haveLastFrameTime = true;
+		if(this->mImpl->lastFPS > 0.0f)
+		{
+			this->mImpl->bestFPS =
+				std::max(this->mImpl->bestFPS, this->mImpl->lastFPS);
+			this->mImpl->worstFPS =
+				std::min(this->mImpl->worstFPS, this->mImpl->lastFPS);
+		}
+		// 2D layer upkeep: UI camera follows window resizes, painter
+		// depths reassign after layer/batch changes (DrawLayer2DNext.cpp)
+		RenderBackend::updateDrawLayer2DFrame();
 		// the Metal RS never passes through _beginFrameOnce's per-frame
 		// metrics reset, so RenderingMetrics accumulate forever - reset
 		// here so getFrameStats reports the LAST frame (classic semantics)
@@ -157,6 +170,25 @@ namespace Orkige
 		unsigned int width, unsigned int height)
 	{
 		return RenderBackend::createRenderTexture(name, width, height);
+	}
+	//---------------------------------------------------------
+	optr<DrawLayer2D> RenderSystem::createDrawLayer2D(int zOrder)
+	{
+		return RenderBackend::createDrawLayer2D(zOrder);
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::getTextureSize(String const & textureName,
+		unsigned int & outWidth, unsigned int & outHeight) const
+	{
+		outWidth = outHeight = 0;
+		Ogre::TextureGpu* texture = RenderBackend::loadTexture2D(textureName);
+		if(!texture)
+		{
+			return false;	// failure already logged by loadTexture2D
+		}
+		outWidth = texture->getWidth();
+		outHeight = texture->getHeight();
+		return true;
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
@@ -244,6 +276,18 @@ namespace Orkige
 		// v2 draws count into mDrawCount (mBatchCount is the v1 path) -
 		// draw calls ARE the classic "batches" notion
 		stats.batchCount = metrics.mBatchCount + metrics.mDrawCount;
+		stats.bestFPS = this->mImpl->bestFPS;
+		stats.worstFPS =
+			this->mImpl->worstFPS >= 999999.0f ? 0.0f : this->mImpl->worstFPS;
+		// no cheap texture-memory total on this backend yet - honest 0
+		// (the field exists for the classic stats HUD parity)
+		stats.textureMemoryBytes = 0;
 		return stats;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::resetFrameStats()
+	{
+		this->mImpl->bestFPS = 0.0f;
+		this->mImpl->worstFPS = 999999.0f;
 	}
 }

@@ -139,4 +139,44 @@ namespace SelfcheckBootstrap
 		}
 		return false;
 	}
+	//---------------------------------------------------------
+	bool readImagePixel(Orkige::String const & fileName,
+		unsigned int x, unsigned int y,
+		float & outRed, float & outGreen, float & outBlue)
+	{
+		std::ifstream file(fileName, std::ios::binary);
+		if(!file)
+		{
+			return false;
+		}
+		std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
+			std::istreambuf_iterator<char>());
+		if(bytes.empty())
+		{
+			return false;
+		}
+		try
+		{
+			Ogre::DataStreamPtr stream(new Ogre::MemoryDataStream(
+				bytes.data(), bytes.size(), false /*freeOnClose*/));
+			Ogre::Image2 image;
+			image.load(stream,
+				fileName.substr(fileName.find_last_of('.') + 1));
+			if(x >= image.getWidth() || y >= image.getHeight())
+			{
+				return false;
+			}
+			const Ogre::ColourValue pixel = image.getColourAt(x, y, 0);
+			outRed = pixel.r;
+			outGreen = pixel.g;
+			outBlue = pixel.b;
+			return true;
+		}
+		catch(Ogre::Exception const & e)
+		{
+			SDL_Log("render_facade next bootstrap: decoding '%s' failed: %s",
+				fileName.c_str(), e.getDescription().c_str());
+			return false;
+		}
+	}
 }

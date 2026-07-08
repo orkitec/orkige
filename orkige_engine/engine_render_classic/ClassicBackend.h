@@ -34,6 +34,7 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
+#include "engine_render/DrawLayer2D.h"
 #include "engine_module/EnginePrerequisitesClassic.h"
 
 #include <vector>
@@ -120,6 +121,37 @@ namespace Orkige
 		optr<RenderNode>	attachedTo;
 	};
 
+	struct DrawLayer2D::Impl
+	{
+		//! one submitted batch: texture + a flat, already scissor-clipped
+		//! triangle list in pixel space (@see DrawLayer2DClip.h)
+		struct Batch
+		{
+			String								textureName;
+			std::vector<DrawLayer2D::Vertex2D>	triangles;
+		};
+
+		bool				visible = true;
+		int					zOrder = 0;
+		std::vector<Batch>	batches;
+		bool				dirty = true;			//!< vertex buffer refill needed
+
+		//--- render plumbing (one dynamic vertex buffer per layer, the
+		//--- Gorilla machinery generalized; filled lazily at render time)
+		Ogre::RenderOperation	renderOp;			//!< its VertexData is owned here
+		Ogre::HardwareVertexBufferSharedPtr	vertexBuffer;
+		size_t				vertexBufferCapacity = 0;
+		//! per batch: [start, count) vertex range inside the buffer
+		std::vector<std::pair<size_t, size_t>>	batchRanges;
+		float				filledWidth = 0.0f;		//!< window size the buffer was
+		float				filledHeight = 0.0f;	//!< transformed to NDC against
+
+		//! (re)fill the vertex buffer from the batches (pixel -> NDC)
+		void fillVertexBuffer(float windowWidth, float windowHeight);
+		//! drop the vertex data again (dtor)
+		void destroyVertexBuffer();
+	};
+
 	struct RenderTexture::Impl
 	{
 		Ogre::TexturePtr	texture;
@@ -179,6 +211,17 @@ namespace Orkige
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
+		//! create a 2D overlay layer (registers it with the render hook -
+		//! a RenderQueueListener compositing after RENDER_QUEUE_OVERLAY on
+		//! the main window's viewport only; @see DrawLayer2DClassic.cpp)
+		static optr<DrawLayer2D> createDrawLayer2D(int zOrder);
+		//! drop a dying layer from the render hook again (facade dtor);
+		//! the last layer detaches the hook from the scene manager
+		static void unregisterDrawLayer2D(DrawLayer2D* layer);
+		//! the render hook's worker (RenderBackend member so it reaches
+		//! the facade Impl state): composite all layers into the CURRENT
+		//! viewport IF it is the main window's (@see DrawLayer2DClassic.cpp)
+		static void renderDrawLayers2D(Ogre::SceneManager* sceneManager);
 
 		//--- guts accessors (NULL-safe) ---------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);

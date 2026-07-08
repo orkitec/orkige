@@ -8,6 +8,8 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiButtonBlink.h"
+
+#include <chrono>
 #include "engine_fastgui/FastGuiManager.h"
 #include <core_event/GlobalEventManager.h>
 
@@ -40,8 +42,11 @@ namespace Orkige
 		if (this->blinkState != BBLINK_NONE && this->state == BS_UP)
 		{
 			// global time in seconds, all buttons blink synchronously
-			unsigned long currentTime = Ogre::Root::getSingleton().getTimer()->getMilliseconds();
-			float time = static_cast<float>(currentTime) * 0.001;
+			// (std::chrono - the Ogre root timer was the classic backend's)
+			const unsigned long currentTime = static_cast<unsigned long>(
+				std::chrono::duration_cast<std::chrono::milliseconds>(
+					std::chrono::steady_clock::now().time_since_epoch()).count());
+			float time = static_cast<float>(currentTime % 86400000ul) * 0.001;
 
 			// simple saw tooth, faster than sinus 
 			float f = fmod(time / this->blinkingTime, 2.0f);

@@ -11,6 +11,7 @@
 #define __FastGuiSlider__h__3_11_2010__19_56_54__
 
 #include "engine_fastgui/FastGuiDecorWidget.h"
+#include <OgreStringVector.h>
 #include "engine_fastgui/FastGuiSelectMenu.h"
 
 namespace Orkige

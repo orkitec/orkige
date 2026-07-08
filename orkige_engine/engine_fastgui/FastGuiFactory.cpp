@@ -13,7 +13,14 @@
 #include <core_util/PlatformUtil.h>
 #include <core_util/foreach.h>
 // boost string algorithms replaced by core_util/StringUtil.h + Ogre::StringUtil (no-boost rule)
+#include "engine_util/ConfigFileUtil.h"
+#ifdef ORKIGE_RENDER_CLASSIC
+// the Localisation service is still classic-only (Ogre::ConfigFile
+// internals + a scene-manager entity probe, no live cross-backend user);
+// layout files with localized text keys show the raw key on other
+// flavors until Localisation gets its own port
 #include "engine_base/Localisation.h"
+#endif
 
 
 namespace Orkige
@@ -162,10 +169,11 @@ namespace Orkige
 	{
 		Ogre::ConfigFile::load(filename, Ogre::ResourceGroupManager::getSingleton().findGroupContainingResource(filename), "\t:=", true);
 		this->resourceGroup = this->getSetting("ResourceGroup", StringUtil::BLANK, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-		// OGRE 14: ConfigFile::SectionIterator became getSettingsBySection()
-		// (same migration as Engine::setupResources); the per-section copy
-		// keeps the historical mutable-pointer handler signatures untouched
-		for (auto const & section : this->getSettingsBySection())
+		// section iteration through the per-flavor seam (classic 14 and
+		// Ogre-Next drifted apart here, see engine_util/ConfigFileUtil.h);
+		// the per-section copy keeps the historical mutable-pointer
+		// handler signatures untouched
+		for (auto const & section : Orkige::ConfigFileUtil::getSections(*this))
 		{
 			String const & widgetType = section.first;
 			SettingsMultiMap sectionSettings = section.second;
@@ -283,7 +291,11 @@ namespace Orkige
 			}
 			else if(key == "text")
 			{
+#ifdef ORKIGE_RENDER_CLASSIC
 				baseSettings.text = Localisation::getSingleton().getLocalized(vt.second);
+#else
+				baseSettings.text = vt.second;	// Localisation is classic-only (see include note)
+#endif
 				baseSettings.text = Ogre::StringUtil::replaceAll(baseSettings.text, "\\n", "\n");
 			}
 			else if(key == "font")

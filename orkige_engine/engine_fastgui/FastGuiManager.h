@@ -9,15 +9,17 @@
 #ifndef __FastGuiManager_h__26_10_2010__18_24_45__
 #define __FastGuiManager_h__26_10_2010__18_24_45__
 
-#include "engine_fastgui/Gorilla.h"
+#include "engine_fastgui/UiRenderer.h"
 #include <core_module/OrkigePrerequisites.h>
 #include "engine_fastgui/FastGuiFactory.h"
 #include <core_event/EventHandler.h>
 #include "engine_fastgui/FastGuiView.h"
 
+#include <OgreResourceGroupManager.h>	// the resource-group default arguments
+
 namespace Orkige
 {
-	class ORKIGE_ENGINE_DLL FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler, public Ogre::RenderTargetListener
+	class ORKIGE_ENGINE_DLL FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
 	{
 		OOBJECT(FastGuiManager, Interface);
 		DECL_OSINGLETON(FastGuiManager);
@@ -33,7 +35,8 @@ namespace Orkige
 	public:
 	protected:
 	private:
-		optr<Gorilla::Silverback> silverback;
+		//! loaded atlases by name (the views' screens reference them)
+		std::map<String, optr<UiAtlas> > atlases;
 		optr<FastGuiFactory> factory;
 		FastGuiViewMap views;
 		FastGuiWidgetMap widgets;
@@ -116,14 +119,7 @@ namespace Orkige
 
 		//! returns true if given point is over any widget
 		bool isPointOverWidget(Ogre::Vector2 const & point);
-
-		//! enable/disable rendering on given Viewport
-		// @param enable on/off
-		// @param windowIdx
-		void setEnabledOnViewport(bool enable, int viewportIdx);
 	protected:
-		virtual void preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
-		virtual void postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameStarted(Orkige::Event const & event);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.

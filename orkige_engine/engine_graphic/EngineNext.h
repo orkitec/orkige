@@ -108,11 +108,12 @@ namespace Orkige
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
-		//! @brief does this build carry the fastgui UI system? (B3)
-		//! @remarks false: fastgui is classic-only until the A3 facade HUD
-		//! (decision #2) - scripts probe engine:hasUISystem() and skip
-		//! their HUD honestly instead of crashing on missing usertypes
-		bool hasUISystem() const { return false; }
+		//! @brief does this build carry the fastgui UI system?
+		//! @remarks true on BOTH flavors since the DrawLayer2D port
+		//! (fastgui renders through the engine_render facade); the probe
+		//! stays registered so scripts written against older builds keep
+		//! working - and so a future UI-less flavor can answer honestly
+		bool hasUISystem() const { return true; }
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle() { return this->externalWindowHandle; }
 		//! get top level window handle if Engine is embedded into multi window app

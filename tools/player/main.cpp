@@ -40,12 +40,9 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
-#ifdef ORKIGE_RENDER_CLASSIC
-// fastgui is classic-only (decision #2, Docs/render-abstraction.md): the
-// game selfchecks below only assert the Lua-booted UI on that flavor - on
-// next the games run HUD-less (scripts probe engine:hasUISystem())
+// fastgui is flavor-neutral since the DrawLayer2D port - the UI
+// assertions below run on BOTH render flavors
 #include <engine_fastgui/FastGuiManager.h>
-#endif
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -731,6 +728,7 @@ int main(int argc, char** argv)
 		unsigned long jumperPhaseDeadline = 0;
 		double jumperBaseRespawns = 0.0;
 		double jumperBaseWins = 0.0;
+		size_t jumperBatchesWithUi = 0;
 		bool jumperCheckFailed = false;
 		// the script's published state (shared.jumper.<key>) - the honest
 		// outside view of the Lua game; missing values read as the fallback
@@ -757,12 +755,10 @@ int main(int argc, char** argv)
 		};
 		// the Lua-booted UI, seen through the FastGuiManager singleton: does
 		// the widget exist, and is its screen (= its shared z layer) visible.
-		// UI-GATED (B3): fastgui is classic-only (decision #2) - on the next
-		// flavor the games run HUD-less (game.lua probes engine:hasUISystem())
-		// and every UI assertion below is skipped via uiChecksEnabled; the
-		// GAMEPLAY assertions (script state, movement, physics, win flow)
-		// stay identical on both flavors.
-#ifdef ORKIGE_RENDER_CLASSIC
+		// Since the DrawLayer2D port fastgui runs on BOTH render flavors
+		// (engine:hasUISystem() is true everywhere), so the UI assertions
+		// are no longer flavor-gated - uiChecksEnabled stays as the one
+		// switch a future UI-less flavor would flip.
 		constexpr bool uiChecksEnabled = true;
 		auto jumperWidgetExists = [](const char* id) -> bool
 		{
@@ -792,12 +788,6 @@ int main(int argc, char** argv)
 					.lock();
 			return progressBar ? progressBar->getProgress() : -1.0f;
 		};
-#else
-		constexpr bool uiChecksEnabled = false;
-		auto jumperWidgetExists = [](const char*) -> bool { return false; };
-		auto jumperWidgetVisible = [](const char*) -> bool { return false; };
-		auto jumperHudProgress = []() -> float { return -1.0f; };
-#endif
 		// player object access through the world - what the script drives
 		auto jumperPlayerTransform = [&gameObjectManager]()
 			-> Orkige::TransformComponent*
@@ -920,8 +910,8 @@ int main(int argc, char** argv)
 			}
 			return gameObject->getComponentPtr<Orkige::TransformComponent>();
 		};
-		// UI-GATED (B3): same rule as the jumper lambdas above
-#ifdef ORKIGE_RENDER_CLASSIC
+		// flavor-neutral since the DrawLayer2D port, like the jumper
+		// lambdas above
 		auto rollerWidgetExists = [](const char* id) -> bool
 		{
 			Orkige::FastGuiManager* ui =
@@ -938,10 +928,6 @@ int main(int argc, char** argv)
 				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
 			return widget && widget->getLayer()->isVisible();
 		};
-#else
-		auto rollerWidgetExists = [](const char*) -> bool { return false; };
-		auto rollerWidgetVisible = [](const char*) -> bool { return false; };
-#endif
 		//! is the cursor sprite (the move-mode highlight) currently showing
 		auto rollerCursorVisible = [&gameObjectManager]() -> bool
 		{
@@ -1122,6 +1108,38 @@ int main(int argc, char** argv)
 							script->getScriptFile().c_str(),
 							uiChecksEnabled ? "UI up + title screen showing"
 								: "HUD-less flavor (UI checks skipped)");
+					}
+				}
+				// UI batching property (the fastgui perf contract, the
+				// UiRenderer design rule): the WHOLE HUD - every widget of
+				// the title/hud/win groups - is ONE draw batch (one screen
+				// = one atlas = one DrawLayer2D batch). Hiding all views
+				// for a frame must drop the batch count by exactly the
+				// SCREEN count (1 here), never by the widget count (8+).
+				if (uiChecksEnabled && frameCount == 6)
+				{
+					jumperBatchesWithUi = render->getFrameStats().batchCount;
+					Orkige::FastGuiManager::getSingleton().hideAllViews();
+				}
+				if (uiChecksEnabled && frameCount == 8)
+				{
+					const size_t batchesWithoutUi =
+						render->getFrameStats().batchCount;
+					Orkige::FastGuiManager::getSingleton().showAllViews();
+					if (jumperBatchesWithUi != batchesWithoutUi + 1)
+					{
+						jumperFail("UI batch property broken: the whole HUD "
+							"must cost exactly ONE draw batch (with UI " +
+							std::to_string(jumperBatchesWithUi) +
+							" batches, without " +
+							std::to_string(batchesWithoutUi) + ")");
+					}
+					else
+					{
+						SDL_Log("orkige_player: jumper-lua selfcheck - the "
+							"whole HUD costs one draw batch (%zu -> %zu "
+							"with all views hidden)",
+							jumperBatchesWithUi, batchesWithoutUi);
 					}
 				}
 				// starting the game: with UI, a synthetic mouse click on the

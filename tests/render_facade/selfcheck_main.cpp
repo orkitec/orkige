@@ -33,6 +33,7 @@
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderLight.h>
 #include <engine_render/RenderTexture.h>
+#include <engine_render/DrawLayer2D.h>
 
 #include <cmath>
 #include <cstdio>
@@ -347,6 +348,186 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		"the window screenshot is not black");
 	SELFCHECK(SelfcheckBootstrap::imageHasNonBlackPixel(rttShot),
 		"the RTT capture is not black (the sprite rendered)");
+
+	//--- 2D draw layers (the DrawLayer2D conformance pattern) --------------
+	// a known pattern in the top-left corner, pixel-verified from a window
+	// screenshot on EVERY backend: layer z-order, batch colours, exact
+	// scissor clipping, alpha blending, textured batches, show/hide.
+	// Colour probes are DOMINANCE checks: the Next flavor renders into an
+	// sRGB swapchain (documented flavor difference), so absolute values
+	// drift while hue relations hold.
+	{
+		auto makeQuad = [](Real left, Real top, Real right, Real bottom,
+			Color const & colour, Real u0 = 0, Real v0 = 0,
+			Real u1 = 1, Real v1 = 1)
+			-> std::vector<DrawLayer2D::Vertex2D>
+		{
+			std::vector<DrawLayer2D::Vertex2D> quad;
+			quad.push_back(DrawLayer2D::Vertex2D(left, top, u0, v0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, top, u1, v0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, bottom, u1, v1, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(left, top, u0, v0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, bottom, u1, v1, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(left, bottom, u0, v1, colour));
+			return quad;
+		};
+		// deliberately created in REVERSE z order: composition must follow
+		// zOrder, not creation order
+		optr<DrawLayer2D> topLayer = renderSystem->createDrawLayer2D(10);
+		optr<DrawLayer2D> bottomLayer = renderSystem->createDrawLayer2D(0);
+		optr<DrawLayer2D> hiddenLayer = renderSystem->createDrawLayer2D(20);
+		SELFCHECK(topLayer && bottomLayer && hiddenLayer,
+			"createDrawLayer2D works");
+		SELFCHECK(topLayer->getZOrder() == 10 && bottomLayer->isVisible(),
+			"draw layers report zOrder and visibility");
+
+		// the whole pattern lives in the TOP strip (y < 220) of the
+		// drawable: the 3D content (cube around the viewport centre,
+		// platform below it) never reaches it on any drawable size
+		// bottom: solid red; top: solid green overlapping it
+		std::vector<DrawLayer2D::Vertex2D> redQuad =
+			makeQuad(20, 20, 220, 220, Color(1, 0, 0, 1));
+		bottomLayer->addTriangles("", redQuad.data(), redQuad.size());
+		std::vector<DrawLayer2D::Vertex2D> greenQuad =
+			makeQuad(120, 120, 320, 220, Color(0, 1, 0, 1));
+		topLayer->addTriangles("", greenQuad.data(), greenQuad.size());
+		// half-transparent white OVER the red quad: verifies alpha
+		// blending AND within-layer batch order (white blends over red -
+		// the pixel goes pink, not back to opaque red)
+		std::vector<DrawLayer2D::Vertex2D> blendQuad =
+			makeQuad(20, 20, 120, 120, Color(1, 1, 1, 0.5f));
+		bottomLayer->addTriangles("", blendQuad.data(), blendQuad.size());
+		// yellow, scissored to its left half (240..340 of 240..440) -
+		// submitted INDEXED to cover the index path too
+		{
+			const DrawLayer2D::Vertex2D corners[4] = {
+				DrawLayer2D::Vertex2D(240, 20, 0, 0, Color(1, 1, 0, 1)),
+				DrawLayer2D::Vertex2D(440, 20, 1, 0, Color(1, 1, 0, 1)),
+				DrawLayer2D::Vertex2D(440, 120, 1, 1, Color(1, 1, 0, 1)),
+				DrawLayer2D::Vertex2D(240, 120, 0, 1, Color(1, 1, 0, 1)),
+			};
+			const unsigned short indices[6] = { 0, 1, 2, 0, 2, 3 };
+			DrawLayer2D::ScissorRect scissor;
+			scissor.left = 240;
+			scissor.top = 20;
+			scissor.width = 100;
+			scissor.height = 100;
+			bottomLayer->addTriangles("", corners, 4, indices, 6, &scissor);
+		}
+		// textured batch (resource-system binding, same texture the sprite
+		// used)
+		std::vector<DrawLayer2D::Vertex2D> texturedQuad =
+			makeQuad(460, 20, 588, 148, Color(1, 1, 1, 1));
+		bottomLayer->addTriangles("platform.png",
+			texturedQuad.data(), texturedQuad.size());
+		// magenta on the hidden layer - must NOT appear
+		std::vector<DrawLayer2D::Vertex2D> magentaQuad =
+			makeQuad(650, 20, 850, 120, Color(1, 0, 1, 1));
+		hiddenLayer->addTriangles("", magentaQuad.data(), magentaQuad.size());
+		hiddenLayer->setVisible(false);
+		// a cyan sliver whose 2D pixel coordinates happen to cover the RTT
+		// camera's world-frustum region (pixel space maps 1:1 onto world
+		// x/-y): if a backend leaked 2D content into scene passes, the RTT
+		// leak probe below would catch this quad
+		std::vector<DrawLayer2D::Vertex2D> rttBaitQuad =
+			makeQuad(95, 0, 105, 2, Color(0, 1, 1, 1));
+		bottomLayer->addTriangles("", rttBaitQuad.data(), rttBaitQuad.size());
+
+		SELFCHECK(renderFrames(renderSystem, 3), "frames render with 2D layers");
+		const std::string patternShot = outDir + "/selfcheck_drawlayer2d.png";
+		renderSystem->saveWindowContents(patternShot);
+
+		float red = 0, green = 0, blue = 0;
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 170, 60,
+			red, green, blue), "the 2D pattern screenshot decodes");
+		SELFCHECK(red > green + 0.3f && red > blue + 0.3f,
+			"2D pattern: the bottom layer's red quad rendered");
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 170, 170,
+			red, green, blue), "overlap probe decodes");
+		SELFCHECK(green > red + 0.3f && green > blue + 0.3f,
+			"2D pattern: zOrder composites the top layer over the bottom one");
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 70, 70,
+			red, green, blue), "alpha-blend probe decodes");
+		SELFCHECK(red > 0.8f && green > 0.3f && green < 0.9f &&
+			std::abs(green - blue) < 0.15f,
+			"2D pattern: half-transparent white blends over the red batch (pink)");
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 260, 60,
+			red, green, blue), "scissor-inside probe decodes");
+		SELFCHECK(red > 0.5f && green > 0.5f && blue < red - 0.3f,
+			"2D pattern: pixels inside the scissor rect draw (yellow)");
+		float backgroundRed = 0, backgroundGreen = 0, backgroundBlue = 0;
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 920, 60,
+			backgroundRed, backgroundGreen, backgroundBlue),
+			"background reference probe decodes");
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 400, 60,
+			red, green, blue), "scissor-outside probe decodes");
+		SELFCHECK(std::abs(red - backgroundRed) < 0.1f &&
+			std::abs(green - backgroundGreen) < 0.1f &&
+			std::abs(blue - backgroundBlue) < 0.1f,
+			"2D pattern: pixels outside the scissor rect stay background");
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(patternShot, 750, 70,
+			red, green, blue), "hidden-layer probe decodes");
+		SELFCHECK(!(red > 0.5f && blue > 0.5f && green < 0.3f),
+			"2D pattern: the hidden layer does not render");
+		// textured batch: at least one probe must differ from background
+		{
+			bool texturedRendered = false;
+			const unsigned int probes[5][2] =
+				{ {490, 50}, {520, 80}, {550, 110}, {570, 40}, {480, 130} };
+			for(int each = 0; each < 5; ++each)
+			{
+				if(!SelfcheckBootstrap::readImagePixel(patternShot,
+					probes[each][0], probes[each][1], red, green, blue))
+				{
+					continue;
+				}
+				if(std::abs(red - backgroundRed) > 0.15f ||
+					std::abs(green - backgroundGreen) > 0.15f ||
+					std::abs(blue - backgroundBlue) > 0.15f)
+				{
+					texturedRendered = true;
+					break;
+				}
+			}
+			SELFCHECK(texturedRendered,
+				"2D pattern: the textured batch binds through the resource system");
+		}
+		// dynamic show/hide: unhide the magenta layer and re-verify
+		hiddenLayer->setVisible(true);
+		SELFCHECK(renderFrames(renderSystem, 2), "frames render after show()");
+		const std::string shownShot = outDir + "/selfcheck_drawlayer2d_shown.png";
+		renderSystem->saveWindowContents(shownShot);
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(shownShot, 750, 70,
+			red, green, blue), "shown-layer probe decodes");
+		SELFCHECK(red > 0.5f && blue > 0.5f && green < red - 0.3f,
+			"2D pattern: show() brings the layer back (magenta)");
+		// the RTT must NOT contain the 2D layers (window-only contract):
+		// the cyan bait quad above sits exactly in the RTT camera's world
+		// frustum - the probe (below the sprite, beside the bait's world
+		// spot) must stay the RTT's black background
+		const std::string rttLeakShot = outDir + "/selfcheck_rtt_2d.png";
+		renderTexture->writeContentsToFile(rttLeakShot);
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(rttLeakShot, 300, 150,
+			red, green, blue), "RTT leak probe decodes");
+		SELFCHECK(red + green + blue < 0.2f,
+			"2D layers never leak into offscreen render textures");
+		// resubmission: clear + resubmit keeps rendering (dirty-path smoke)
+		bottomLayer->clear();
+		bottomLayer->addTriangles("", redQuad.data(), redQuad.size());
+		SELFCHECK(renderFrames(renderSystem, 2), "frames render after clear+resubmit");
+		// RAII: dropping the handles removes the layers
+		topLayer.reset();
+		bottomLayer.reset();
+		hiddenLayer.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after 2D layers were dropped (RAII teardown)");
+		const std::string removedShot = outDir + "/selfcheck_drawlayer2d_removed.png";
+		renderSystem->saveWindowContents(removedShot);
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(removedShot, 170, 60,
+			red, green, blue), "post-teardown probe decodes");
+		SELFCHECK(!(red > green + 0.3f && red > blue + 0.3f),
+			"2D pattern: dropped layers stop rendering");
+	}
 
 	//--- visibility affects rendering --------------------------------------
 	const size_t trianglesBefore = renderSystem->getFrameStats().triangleCount;

@@ -64,48 +64,48 @@ namespace Orkige
 		{
 		case LA_TOPLEFT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
-				this->caption->align(Gorilla::TextAlign_Left);
+				this->caption->vertical_align(VerticalAlign_Top);
+				this->caption->align(TextAlign_Left);
 			} break;
 		case LA_TOP:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
-				this->caption->align(Gorilla::TextAlign_Centre);
+				this->caption->vertical_align(VerticalAlign_Top);
+				this->caption->align(TextAlign_Centre);
 			} break;
 		case LA_TOPRIGHT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Top);
-				this->caption->align(Gorilla::TextAlign_Right);
+				this->caption->vertical_align(VerticalAlign_Top);
+				this->caption->align(TextAlign_Right);
 			} break;
 		case LA_LEFT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
-				this->caption->align(Gorilla::TextAlign_Left);
+				this->caption->vertical_align(VerticalAlign_Middle);
+				this->caption->align(TextAlign_Left);
 			} break;
 		case LA_CENTER:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
-				this->caption->align(Gorilla::TextAlign_Centre);
+				this->caption->vertical_align(VerticalAlign_Middle);
+				this->caption->align(TextAlign_Centre);
 			} break;
 		case LA_RIGHT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Middle);
-				this->caption->align(Gorilla::TextAlign_Right);
+				this->caption->vertical_align(VerticalAlign_Middle);
+				this->caption->align(TextAlign_Right);
 			} break;
 		case LA_BOTTOMLEFT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
-				this->caption->align(Gorilla::TextAlign_Left);
+				this->caption->vertical_align(VerticalAlign_Bottom);
+				this->caption->align(TextAlign_Left);
 			} break;
 		case LA_BOTTOM:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
-				this->caption->align(Gorilla::TextAlign_Centre);
+				this->caption->vertical_align(VerticalAlign_Bottom);
+				this->caption->align(TextAlign_Centre);
 			} break;
 		case LA_BOTTOMRIGHT:
 			{
-				this->caption->vertical_align(Gorilla::VerticalAlign_Bottom);
-				this->caption->align(Gorilla::TextAlign_Right);
+				this->caption->vertical_align(VerticalAlign_Bottom);
+				this->caption->align(TextAlign_Right);
 			} break;
 		}
 	}

@@ -18,9 +18,9 @@ target_link_libraries(orkige_engine_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
-# FastGuiAtlasTests parses the generated fastgui atlas with the same
-# Ogre::ConfigFile rules as Gorilla's TextureAtlas loader (headless - the
-# GPU half is covered by the jumper_selfcheck integration run)
+# FastGuiAtlasTests parses the generated fastgui atlas through the real
+# UiAtlas parser (headless constructor - the GPU half is covered by the
+# jumper_selfcheck integration run)
 target_compile_definitions(orkige_engine_tests PRIVATE
     ORKIGE_FASTGUI_ATLAS_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
 )

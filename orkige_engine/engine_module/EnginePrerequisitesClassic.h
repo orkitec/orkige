@@ -14,7 +14,7 @@
 //! @remarks What engine_module/EnginePrerequisites.h was before B3: the
 //! neutral engine umbrella plus the classic OGRE umbrella headers. Only
 //! classic-gated translation units may include this (engine_graphic's
-//! Engine/console/debug renderables, engine_fastgui incl. Gorilla,
+//! Engine/console/debug renderables,
 //! engine_filesystem's Ogre::Archive subclasses, engine_base/Localisation,
 //! engine_render_classic and the unbuilt legacy tools) - everything the
 //! next flavor compiles sticks to the neutral umbrella. The flavor guard

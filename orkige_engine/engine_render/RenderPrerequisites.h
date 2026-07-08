@@ -54,6 +54,7 @@ namespace Orkige
 	class RenderCamera;
 	class RenderLight;
 	class RenderTexture;
+	class DrawLayer2D;
 
 	//--- the backend door ----------------------------------------------
 	//! Every backend defines exactly ONE RenderBackend struct as its

@@ -14,7 +14,7 @@ target_link_libraries(jumper PRIVATE Orkige::Engine)
 # media dir - the assets are checked in like the rest of media/, the custom
 # command only reruns when Util/make_fastgui_atlas.py changes. The generator
 # is stdlib-only Python and self-validates its output against the .ogui format
-# rules Gorilla's TextureAtlas parser enforces.
+# rules the engine's UiAtlas parser enforces.
 # find_program honours CMAKE_IGNORE_PREFIX_PATH (FindPython3 does not and
 # picks up the banned /usr/local interpreter - see the hermeticity note in
 # CLAUDE.md); any python3 >= 3.6 works, the script is stdlib-only.

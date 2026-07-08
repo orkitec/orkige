@@ -38,6 +38,9 @@
 #include <OgrePixelFormatGpuUtils.h>
 #include <OgreException.h>
 #include <Compositor/OgreCompositorManager2.h>
+#include <Compositor/OgreCompositorNodeDef.h>
+#include <Compositor/OgreCompositorWorkspaceDef.h>
+#include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -209,6 +212,7 @@ namespace Orkige
 		gNodeRegistry.clear();
 		gContentDatablocks.clear();	// owned by their Hlms, die with the root
 		gWireframe = false;
+		RenderBackend::resetDrawLayer2DState();
 		OGRE_DELETE root;
 		OGRE_DELETE gMetalPlugin;
 		gMetalPlugin = NULL;
@@ -304,13 +308,46 @@ namespace Orkige
 		{
 			return;	// nothing shown on the window yet
 		}
-		// one basic (clear + scene) workspace per camera/background state;
-		// definitions are cheap and names must be unique, so each rebuild
-		// gets a fresh one (background colour bakes into the clear pass)
+		// one workspace definition per camera/background state; definitions
+		// are cheap and names must be unique, so each rebuild gets a fresh
+		// one (background colour bakes into the clear pass). Hand-built
+		// instead of createBasicWorkspaceDef since the DrawLayer2D port:
+		// pass 1 clears + renders the scene queues (< the UI queue), pass 2
+		// composites the 2D layers - the UI render queue only - through the
+		// pixel-space UI camera (referenced by name; created up front so
+		// the pass can resolve it whether or not any layer exists yet).
+		RenderBackend::ensureDrawLayer2DCamera();
 		const String definitionName =
 			RenderBackend::generateName("Orkige/WindowWorkspace");
-		compositorManager->createBasicWorkspaceDef(definitionName,
-			impl->windowBackground);
+		Ogre::CompositorNodeDef* nodeDefinition =
+			compositorManager->addNodeDefinition(definitionName + "/Node");
+		nodeDefinition->addTextureSourceName("WindowRT", 0,
+			Ogre::TextureDefinitionBase::TEXTURE_INPUT);
+		nodeDefinition->setNumTargetPass(1);
+		Ogre::CompositorTargetDef* targetDefinition =
+			nodeDefinition->addTargetPass("WindowRT");
+		targetDefinition->setNumPasses(2);
+		{
+			Ogre::CompositorPassSceneDef* scenePass =
+				static_cast<Ogre::CompositorPassSceneDef*>(
+					targetDefinition->addPass(Ogre::PASS_SCENE));
+			scenePass->setAllLoadActions(Ogre::LoadAction::Clear);
+			scenePass->setAllClearColours(impl->windowBackground);
+			scenePass->mFirstRQ = 0;
+			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+		}
+		{
+			Ogre::CompositorPassSceneDef* uiPass =
+				static_cast<Ogre::CompositorPassSceneDef*>(
+					targetDefinition->addPass(Ogre::PASS_SCENE));
+			uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+			uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+			uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
+			uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
+		}
+		Ogre::CompositorWorkspaceDef* workspaceDefinition =
+			compositorManager->addWorkspaceDefinition(definitionName);
+		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
 		impl->workspace = compositorManager->addWorkspace(
 			gRenderSystem->getWorld()->mImpl->sceneManager,
 			impl->window->getTexture(), backendCamera, definitionName,

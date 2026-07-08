@@ -25,6 +25,8 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
+#include "engine_render/DrawLayer2D.h"
+#include "engine_render/DrawLayer2DClip.h"
 
 namespace Orkige
 {

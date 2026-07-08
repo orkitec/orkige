@@ -8,17 +8,20 @@
 # Render flavors (ORKIGE_RENDER_BACKEND, Docs/render-abstraction.md):
 # since B3 the SHARED source list below is backend-neutral - the modules
 # talk to the renderer through engine_render/ and include the neutral
-# engine_module/EnginePrerequisites.h umbrella. Per flavor this target adds:
+# engine_module/EnginePrerequisites.h umbrella. fastgui joined the shared
+# list with the DrawLayer2D port: its UiRenderer draws through the facade's
+# 2D layer and the widgets were always renderer-blind math. Per flavor this
+# target adds:
 #   classic: the classic Engine bootstrapper + backend
-#            (engine_render_classic/), fastgui (decision #2), the BigZip
-#            Ogre::Archive plumbing, Localisation, the overlay console and
-#            debug renderables - everything on the classic umbrella
+#            (engine_render_classic/), the BigZip Ogre::Archive plumbing,
+#            Localisation, the overlay console and debug renderables -
+#            everything on the classic umbrella
 #            (engine_module/EnginePrerequisitesClassic.h).
 #   next:    the Ogre-Next backend (engine_render_next/) + the flavor's
-#            Engine sibling (engine_graphic/EngineNext.*). No fastgui, no
-#            BigZip (the facade's LT_ZIP/LT_BIGZIP stay honest
-#            notImplementedOnce gaps), no Localisation/ResourceUtil (their
-#            consumers are the classic-only fastgui zone).
+#            Engine sibling (engine_graphic/EngineNext.*). No BigZip (the
+#            facade's LT_ZIP/LT_BIGZIP stay honest notImplementedOnce
+#            gaps), no Localisation (classic ConfigFile internals + scene
+#            probe; FastGuiFactory falls back to raw text keys there).
 # ---------------------------------------------------------------------------
 
 # --- dependencies shared by both flavors ------------------------------------
@@ -56,9 +59,12 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/RenderCamera.h
     engine_render/RenderLight.h
     engine_render/RenderTexture.h
+    engine_render/DrawLayer2D.h
+    engine_render/DrawLayer2DClip.h
     engine_render/RenderFacadeCheck.cpp
     engine_util/StringConverter.h
     engine_util/StringUtil.h
+    engine_util/ConfigFileUtil.h
     engine_util/ResourceUtil.h
     engine_util/ResourceUtil.cpp
     engine_util/NodeUtil.h
@@ -114,6 +120,46 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
+    # fastgui: flavor-neutral since the DrawLayer2D port (the UiRenderer
+    # submits to engine_render/DrawLayer2D; atlas parsing/glyph metrics/
+    # widget math were always renderer-blind). Gorilla is DELETED - the
+    # .ogui atlas lives in UiAtlas, the 2D renderer in UiRenderer.
+    engine_fastgui/UiAtlas.h
+    engine_fastgui/UiAtlas.cpp
+    engine_fastgui/UiRenderer.h
+    engine_fastgui/UiRenderer.cpp
+    engine_fastgui/IGuiObject.h
+    engine_fastgui/IGuiObject.cpp
+    engine_fastgui/DragEventData.h
+    engine_fastgui/DragEventData.cpp
+    engine_fastgui/FastGuiWidget.h
+    engine_fastgui/FastGuiWidget.cpp
+    engine_fastgui/FastGuiView.h
+    engine_fastgui/FastGuiView.cpp
+    engine_fastgui/FastGuiTextbox.h
+    engine_fastgui/FastGuiTextbox.cpp
+    engine_fastgui/FastGuiSlider.h
+    engine_fastgui/FastGuiSlider.cpp
+    engine_fastgui/FastGuiSelectMenu.h
+    engine_fastgui/FastGuiSelectMenu.cpp
+    engine_fastgui/FastGuiProgressBar.h
+    engine_fastgui/FastGuiProgressBar.cpp
+    engine_fastgui/FastGuiManager.h
+    engine_fastgui/FastGuiManager.cpp
+    engine_fastgui/FastGuiLabel.h
+    engine_fastgui/FastGuiLabel.cpp
+    engine_fastgui/FastGuiFactory.h
+    engine_fastgui/FastGuiFactory.cpp
+    engine_fastgui/FastGuiDragDropButton.h
+    engine_fastgui/FastGuiDragDropButton.cpp
+    engine_fastgui/FastGuiDecorWidget.h
+    engine_fastgui/FastGuiDecorWidget.cpp
+    engine_fastgui/FastGuiCheckBox.h
+    engine_fastgui/FastGuiCheckBox.cpp
+    engine_fastgui/FastGuiButtonBlink.h
+    engine_fastgui/FastGuiButtonBlink.cpp
+    engine_fastgui/FastGuiButton.h
+    engine_fastgui/FastGuiButton.cpp
 )
 
 # --- classic-only sources (the classic umbrella zone) -----------------------
@@ -139,40 +185,6 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_graphic/IngameConsole.cpp
         engine_base/Localisation.h
         engine_base/Localisation.cpp
-        engine_fastgui/Gorilla.h
-        engine_fastgui/Gorilla.cpp
-        engine_fastgui/IGuiObject.h
-        engine_fastgui/IGuiObject.cpp
-        engine_fastgui/DragEventData.h
-        engine_fastgui/DragEventData.cpp
-        engine_fastgui/FastGuiWidget.h
-        engine_fastgui/FastGuiWidget.cpp
-        engine_fastgui/FastGuiView.h
-        engine_fastgui/FastGuiView.cpp
-        engine_fastgui/FastGuiTextbox.h
-        engine_fastgui/FastGuiTextbox.cpp
-        engine_fastgui/FastGuiSlider.h
-        engine_fastgui/FastGuiSlider.cpp
-        engine_fastgui/FastGuiSelectMenu.h
-        engine_fastgui/FastGuiSelectMenu.cpp
-        engine_fastgui/FastGuiProgressBar.h
-        engine_fastgui/FastGuiProgressBar.cpp
-        engine_fastgui/FastGuiManager.h
-        engine_fastgui/FastGuiManager.cpp
-        engine_fastgui/FastGuiLabel.h
-        engine_fastgui/FastGuiLabel.cpp
-        engine_fastgui/FastGuiFactory.h
-        engine_fastgui/FastGuiFactory.cpp
-        engine_fastgui/FastGuiDragDropButton.h
-        engine_fastgui/FastGuiDragDropButton.cpp
-        engine_fastgui/FastGuiDecorWidget.h
-        engine_fastgui/FastGuiDecorWidget.cpp
-        engine_fastgui/FastGuiCheckBox.h
-        engine_fastgui/FastGuiCheckBox.cpp
-        engine_fastgui/FastGuiButtonBlink.h
-        engine_fastgui/FastGuiButtonBlink.cpp
-        engine_fastgui/FastGuiButton.h
-        engine_fastgui/FastGuiButton.cpp
         # the classic backend implementing the engine_render facade
         engine_render_classic/ClassicBackend.h
         engine_render_classic/ClassicBackend.cpp
@@ -184,6 +196,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/RenderCameraClassic.cpp
         engine_render_classic/RenderLightClassic.cpp
         engine_render_classic/RenderTextureClassic.cpp
+        engine_render_classic/DrawLayer2DClassic.cpp
     )
 endif()
 
@@ -203,6 +216,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
         engine_render_next/RenderTextureNext.cpp
+        engine_render_next/DrawLayer2DNext.cpp
     )
 endif()
 

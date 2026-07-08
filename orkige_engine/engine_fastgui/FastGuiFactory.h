@@ -21,6 +21,8 @@
 #include "engine_fastgui/FastGuiSlider.h"
 #include <core_util/StringUtil.h>
 
+#include <OgreConfigFile.h>
+
 
 namespace Orkige
 {

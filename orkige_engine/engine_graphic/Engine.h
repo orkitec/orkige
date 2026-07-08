@@ -284,11 +284,11 @@ protected:
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
-		//! @brief does this build carry the fastgui UI system? (B3)
-		//! @remarks true on the classic flavor; the Ogre-Next flavor has no
-		//! fastgui until the A3 facade HUD lands (decision #2) and answers
-		//! false - scripts probe engine:hasUISystem() and skip their HUD
-		//! honestly instead of crashing on missing usertypes
+		//! @brief does this build carry the fastgui UI system?
+		//! @remarks true on BOTH flavors since the DrawLayer2D port
+		//! (fastgui renders through the engine_render facade); the probe
+		//! stays registered so scripts written against older builds keep
+		//! working - and so a future UI-less flavor can answer honestly
 		bool hasUISystem() const { return true; }
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 

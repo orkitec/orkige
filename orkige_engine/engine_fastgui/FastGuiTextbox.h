@@ -23,7 +23,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::MarkupText* markupText;
+		UiMarkupText* markupText;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -37,12 +37,12 @@ namespace Orkige
 		//! set box text
 		void setText(String const & text);
 		//! get gorilla Caption
-		inline Gorilla::MarkupText* getMarkupText();
+		inline UiMarkupText* getMarkupText();
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::MarkupText* FastGuiTextbox::getMarkupText()
+	inline UiMarkupText* FastGuiTextbox::getMarkupText()
 	{
 		return this->markupText;
 	}

@@ -1,0 +1,417 @@
+/********************************************************************
+	created:	Wednesday 2026/07/08 at 22:00
+	filename: 	DrawLayer2DNext.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
+
+//! @file DrawLayer2DNext.cpp
+//! @brief Ogre-Next implementation of the DrawLayer2D facade
+//! @remarks The v2 shape of the 2D contract, built from the B2 sprite
+//! machinery: every batch is one v2 ManualObject (VaoManager-backed
+//! dynamic buffers) with a generated "DrawLayer2D/<tex>" HlmsUnlit
+//! datablock (alpha-blended, depth-IGNORED, two-sided, clamped point
+//! sampling), living in the dedicated UI render queue (200, v2 FAST by
+//! default) that ONLY the window workspace's late scene pass draws -
+//! through a pixel-space orthographic camera, so vertex positions stay
+//! pixels (x right, y down via negation). Ordering: alpha-blended
+//! datablocks are transparent to the render queue, and transparents
+//! sort back to front by camera depth - so every batch node gets a
+//! unique depth from the global (layer zOrder, creation order,
+//! submission order) walk, reassigned whenever content changes.
+//! Colour parity note: the Next swapchain is sRGB, so vertex colours
+//! are pre-converted to sRGB space at build time - textures round-trip
+//! (sRGB decode in sampling, encode on write) and vertex colours would
+//! otherwise render brighter than the classic backend's non-sRGB path.
+//! Semi-transparent BLENDING still happens in linear space here vs
+//! gamma space on classic (a hardware property of the sRGB target) -
+//! edge pixels of text/alpha gradients may differ by a hair.
+//! Scissors/indices never reach this backend: DrawLayer2DClip.h
+//! resolves both into flat triangle lists at submission time.
+
+#include "engine_render_next/NextBackend.h"
+#include "engine_render/DrawLayer2DClip.h"
+
+#include <OgreRoot.h>
+#include <OgreSceneManager.h>
+#include <OgreSceneNode.h>
+#include <OgreManualObject2.h>
+#include <OgreCamera.h>
+#include <OgreWindow.h>
+#include <OgreHlmsManager.h>
+#include <OgreHlms.h>
+#include <OgreLogManager.h>
+#include <OgreHlmsUnlit.h>
+#include <OgreHlmsUnlitDatablock.h>
+
+#include <algorithm>
+#include <cmath>
+#include <set>
+#include <utility>
+#include <vector>
+
+namespace Orkige
+{
+	namespace
+	{
+		//! all live layers in creation order (creation order breaks
+		//! zOrder ties, per the facade contract)
+		std::vector<DrawLayer2D*> gDrawLayers;
+		//! batch depths need reassignment before the next frame
+		bool gOrderDirty = false;
+		//! the pixel-space UI camera (owned by the scene manager)
+		Ogre::Camera* gUICamera = NULL;
+		//! window size the UI camera was last shaped for
+		unsigned int gUICameraWidth = 0;
+		unsigned int gUICameraHeight = 0;
+		//! textures that already logged their load failure (log once)
+		std::set<String> gFailedTextures;
+
+		//! depth spacing between consecutive batches: comfortably above
+		//! the render queue's transparent depth quantization at our far
+		//! clip, so the painter order can never collapse into one key
+		const Ogre::Real BATCH_DEPTH_SPACING = Ogre::Real(8.0);
+		const Ogre::Real UI_CAMERA_FAR_CLIP = Ogre::Real(20000.0);
+
+		//! sRGB EOTF (decode): pre-darken vertex colours so the sRGB
+		//! swapchain's encode restores exactly the classic output
+		inline float srgbDecode(float channel)
+		{
+			if(channel <= 0.04045f)
+			{
+				return channel / 12.92f;
+			}
+			return std::pow((channel + 0.055f) / 1.055f, 2.4f);
+		}
+
+	}
+
+	//---------------------------------------------------------
+	//--- RenderBackend plumbing -------------------------------
+	//---------------------------------------------------------
+	char const * RenderBackend::drawLayer2DCameraName()
+	{
+		return "Orkige/DrawLayer2D/Camera";
+	}
+	//---------------------------------------------------------
+	Ogre::Camera* RenderBackend::ensureDrawLayer2DCamera()
+	{
+		if(gUICamera)
+		{
+			return gUICamera;
+		}
+		Ogre::SceneManager* sceneManager = RenderBackend::worldSceneManager();
+		oAssert(sceneManager);
+		gUICamera = sceneManager->createCamera(drawLayer2DCameraName());
+		gUICamera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);
+		gUICamera->setNearClipDistance(Ogre::Real(1.0));
+		gUICamera->setFarClipDistance(UI_CAMERA_FAR_CLIP);
+		// the painter order lives in the batch nodes' z (see the depth
+		// walk below); the default SortModeDistance would let each
+		// batch's PLANAR position and AABB radius swamp that tiny depth
+		// spacing - pure view-space depth is the only mode where the
+		// assigned z alone decides the transparent draw order
+		gUICamera->mSortMode = Ogre::Camera::SortModeDepthRadiusIgnoring;
+		gUICameraWidth = gUICameraHeight = 0;	// shaped on the next update
+		RenderBackend::updateDrawLayer2DFrame();
+		return gUICamera;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::updateDrawLayer2DFrame()
+	{
+		if(!gUICamera || !RenderBackend::system())
+		{
+			return;
+		}
+		unsigned int windowWidth = 0, windowHeight = 0;
+		RenderBackend::system()->getWindowSize(windowWidth, windowHeight);
+		if(windowWidth > 0 && windowHeight > 0 &&
+			(windowWidth != gUICameraWidth || windowHeight != gUICameraHeight))
+		{
+			// pixel-space ortho: (0,0) at the top-left, +x right, +y down
+			// (vertex y is negated into the world's y-up at build time)
+			gUICamera->setOrthoWindow(Ogre::Real(windowWidth),
+				Ogre::Real(windowHeight));
+			gUICamera->setPosition(Ogre::Vector3(
+				Ogre::Real(windowWidth) * Ogre::Real(0.5),
+				Ogre::Real(windowHeight) * Ogre::Real(-0.5),
+				Ogre::Real(0.0)));
+			gUICamera->setOrientation(Ogre::Quaternion::IDENTITY);	// looks -Z
+			gUICameraWidth = windowWidth;
+			gUICameraHeight = windowHeight;
+		}
+		if(gOrderDirty)
+		{
+			gOrderDirty = false;
+			// reassign every batch node's depth in global draw order
+			// (ascending layer zOrder, layer creation order, batch
+			// submission order); earlier draws sit farther from the camera
+			std::vector<DrawLayer2D*> ordered = gDrawLayers;
+			std::stable_sort(ordered.begin(), ordered.end(),
+				[](DrawLayer2D const * a, DrawLayer2D const * b)
+				{ return a->getZOrder() < b->getZOrder(); });
+			size_t totalBatches = 0;
+			for(DrawLayer2D* layer : ordered)
+			{
+				totalBatches += layer->mImpl->batches.size();
+			}
+			size_t drawIndex = 0;
+			for(DrawLayer2D* layer : ordered)
+			{
+				for(DrawLayer2D::Impl::Batch & batch : layer->mImpl->batches)
+				{
+					if(batch.node)
+					{
+						// drawIndex 0 farthest -> drawn first (back to front)
+						const Ogre::Real depth = BATCH_DEPTH_SPACING *
+							Ogre::Real(totalBatches - drawIndex);
+						batch.node->setPosition(0.0f, 0.0f, -depth);
+					}
+					++drawIndex;
+				}
+			}
+		}
+	}
+	//---------------------------------------------------------
+	optr<DrawLayer2D> RenderBackend::createDrawLayer2D(int zOrder)
+	{
+		optr<DrawLayer2D> handle(new DrawLayer2D());
+		handle->mImpl->zOrder = zOrder;
+		gDrawLayers.push_back(handle.get());
+		// the camera must exist before the workspace pass references it -
+		// and the window workspace only carries the UI pass when a camera
+		// is shown, so a rebuild picks the pass up in either order
+		RenderBackend::ensureDrawLayer2DCamera();
+		gOrderDirty = true;
+		return handle;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::unregisterDrawLayer2D(DrawLayer2D* layer)
+	{
+		gDrawLayers.erase(std::remove(gDrawLayers.begin(),
+			gDrawLayers.end(), layer), gDrawLayers.end());
+		gOrderDirty = true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::markDrawLayer2DOrderDirty()
+	{
+		gOrderDirty = true;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::resetDrawLayer2DState()
+	{
+		// the camera and any batch objects die with the root's scene
+		// manager; surviving facade handles free CPU memory only (their
+		// dtors check RenderBackend::system())
+		gUICamera = NULL;
+		gUICameraWidth = gUICameraHeight = 0;
+		gDrawLayers.clear();
+		gFailedTextures.clear();
+		gOrderDirty = false;
+	}
+	//---------------------------------------------------------
+	Ogre::HlmsDatablock* RenderBackend::getOrCreateDrawLayer2DDatablock(
+		String const & textureName)
+	{
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		const String name = "DrawLayer2D/" + textureName;
+		if(Ogre::HlmsDatablock* existing =
+			hlmsManager->getDatablockNoDefault(name))
+		{
+			return existing;
+		}
+		Ogre::TextureGpu* texture = NULL;
+		if(!textureName.empty())
+		{
+			texture = RenderBackend::loadTexture2D(textureName);
+			if(!texture)
+			{
+				return NULL;	// load failure already logged
+			}
+		}
+		// the facade's 2D render contract: unlit, alpha-blended,
+		// depth-IGNORED (check AND write off - 2D composites over the
+		// finished frame), two-sided; vertex colours flow automatically
+		// from VES_DIFFUSE (hlms_colour)
+		Ogre::HlmsUnlit* unlit = static_cast<Ogre::HlmsUnlit*>(
+			hlmsManager->getHlms(Ogre::HLMS_UNLIT));
+		Ogre::HlmsMacroblock macroblock;
+		macroblock.mDepthCheck = false;
+		macroblock.mDepthWrite = false;
+		macroblock.mCullMode = Ogre::CULL_NONE;
+		Ogre::HlmsBlendblock blendblock;
+		blendblock.setBlendType(Ogre::SBT_TRANSPARENT_ALPHA);
+		Ogre::HlmsUnlitDatablock* datablock =
+			static_cast<Ogre::HlmsUnlitDatablock*>(unlit->createDatablock(
+				name, name, macroblock, blendblock, Ogre::HlmsParamVec()));
+		if(texture)
+		{
+			// clamped point sampling: crisp pixel UI, the Gorilla atlas
+			// rule (identical to the classic backend's FO_NONE + clamp)
+			Ogre::HlmsSamplerblock samplerblock;
+			samplerblock.setFiltering(Ogre::TFO_NONE);
+			samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
+			datablock->setTexture(0u, texture, &samplerblock);
+		}
+		RenderBackend::registerContentDatablock(datablock);
+		return datablock;
+	}
+
+	//---------------------------------------------------------
+	//--- Impl batch objects -----------------------------------
+	//---------------------------------------------------------
+	void DrawLayer2D::Impl::buildBatchObject(Batch & batch)
+	{
+		Ogre::SceneManager* sceneManager = RenderBackend::worldSceneManager();
+		oAssert(sceneManager);
+		if(batch.triangles.empty())
+		{
+			return;	// nothing to draw - no backend objects
+		}
+		String datablockTexture = batch.textureName;
+		Ogre::HlmsDatablock* datablock =
+			RenderBackend::getOrCreateDrawLayer2DDatablock(datablockTexture);
+		if(!datablock && !datablockTexture.empty())
+		{
+			if(gFailedTextures.insert(datablockTexture).second)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: DrawLayer2D texture '" +
+					datablockTexture + "' not found - batch draws untextured");
+			}
+			datablockTexture.clear();
+			datablock = RenderBackend::getOrCreateDrawLayer2DDatablock(
+				datablockTexture);
+		}
+		oAssert(datablock);
+		batch.object = sceneManager->createManualObject(Ogre::SCENE_DYNAMIC);
+		batch.object->setName(
+			RenderBackend::generateName("RenderFacade/DrawLayer2D"));
+		batch.object->setQueryFlags(0);	// UI never answers scene ray queries
+		batch.object->estimateVertexCount(batch.triangles.size());
+		batch.object->begin("DrawLayer2D/" + datablockTexture,
+			Ogre::OT_TRIANGLE_LIST);
+		Ogre::uint32 index = 0;
+		for(DrawLayer2D::Vertex2D const & vertex : batch.triangles)
+		{
+			// pixel space -> world: +y down becomes -y (the UI camera sits
+			// over the negated rect); depth rides on the node
+			batch.object->position(vertex.x, -vertex.y, 0.0f);
+			batch.object->colour(Ogre::ColourValue(
+				srgbDecode(vertex.colour.r),
+				srgbDecode(vertex.colour.g),
+				srgbDecode(vertex.colour.b),
+				vertex.colour.a));
+			batch.object->textureCoord(vertex.u, vertex.v);
+			batch.object->index(index++);
+		}
+		batch.object->end();
+		batch.object->setRenderQueueGroup(
+			RenderBackend::DRAWLAYER2D_RENDER_QUEUE);
+		batch.node = sceneManager->getRootSceneNode(Ogre::SCENE_DYNAMIC)
+			->createChildSceneNode(Ogre::SCENE_DYNAMIC);
+		batch.node->attachObject(batch.object);
+		// v2 asserts on setVisible for unattached objects - visibility
+		// only after the attach
+		batch.object->setVisible(this->visible);
+		gOrderDirty = true;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::Impl::destroyBatchObject(Batch & batch)
+	{
+		if(batch.object)
+		{
+			if(batch.object->isAttached())
+			{
+				batch.object->detachFromParent();
+			}
+			RenderBackend::worldSceneManager()->destroyManualObject(batch.object);
+			batch.object = NULL;
+		}
+		if(batch.node)
+		{
+			batch.node->getParentSceneNode()->removeAndDestroyChild(batch.node);
+			batch.node = NULL;
+		}
+	}
+
+	//---------------------------------------------------------
+	//--- facade methods ---------------------------------------
+	//---------------------------------------------------------
+	DrawLayer2D::DrawLayer2D()
+		: mImpl(new Impl())
+	{
+	}
+	//---------------------------------------------------------
+	DrawLayer2D::~DrawLayer2D()
+	{
+		RenderBackend::unregisterDrawLayer2D(this);
+		// late destruction guard, same rule as the other facade handles:
+		// after the backend died there is nothing left to destroy
+		if(RenderBackend::system())
+		{
+			for(Impl::Batch & batch : this->mImpl->batches)
+			{
+				this->mImpl->destroyBatchObject(batch);
+			}
+		}
+		delete this->mImpl;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::setVisible(bool visible)
+	{
+		this->mImpl->visible = visible;
+		for(Impl::Batch & batch : this->mImpl->batches)
+		{
+			if(batch.object)
+			{
+				batch.object->setVisible(visible);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	bool DrawLayer2D::isVisible() const
+	{
+		return this->mImpl->visible;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::setZOrder(int zOrder)
+	{
+		if(this->mImpl->zOrder != zOrder)
+		{
+			this->mImpl->zOrder = zOrder;
+			gOrderDirty = true;
+		}
+	}
+	//---------------------------------------------------------
+	int DrawLayer2D::getZOrder() const
+	{
+		return this->mImpl->zOrder;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::clear()
+	{
+		for(Impl::Batch & batch : this->mImpl->batches)
+		{
+			this->mImpl->destroyBatchObject(batch);
+		}
+		this->mImpl->batches.clear();
+		gOrderDirty = true;
+	}
+	//---------------------------------------------------------
+	void DrawLayer2D::addTriangles(String const & textureName,
+		Vertex2D const * vertices, size_t vertexCount,
+		unsigned short const * indices, size_t indexCount,
+		ScissorRect const * scissor)
+	{
+		this->mImpl->batches.emplace_back();
+		Impl::Batch & batch = this->mImpl->batches.back();
+		batch.textureName = textureName;
+		DrawLayer2DDetail::appendTriangles(batch.triangles, vertices,
+			vertexCount, indices, indexCount, scissor);
+		this->mImpl->buildBatchObject(batch);
+	}
+}

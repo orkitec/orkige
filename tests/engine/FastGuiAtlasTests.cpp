@@ -1,22 +1,22 @@
 // Unit tests for the generated FastGUI atlas (samples/jumper/media/
 // fastgui_default.ogui + .png, produced by Util/make_fastgui_atlas.py).
 //
-// The .ogui is parsed here EXACTLY like Gorilla::TextureAtlas::_load does:
-// through Ogre::ConfigFile with " " as the key/value separator and lowercased
-// section names (see engine_fastgui/Gorilla.cpp). The full TextureAtlas class
-// cannot run headless - its constructor immediately loads the texture through
-// Ogre::TextureManager and clones materials, which needs an initialised
-// render system - so the loader-level contract is verified here and the
-// GPU-side half (Silverback::loadAtlas + FastGuiManager boot + rendered HUD)
-// is covered by the jumper_selfcheck integration test.
+// The .ogui is parsed by the REAL engine parser: UiAtlas's headless
+// constructor (engine_fastgui/UiAtlas.h) consumes an Ogre::ConfigFile
+// loaded from disk against the texture size read straight from the PNG
+// header - no render system needed. The resource-system constructor
+// funnels into the exact same code path, so the loader-level contract
+// (sections, metrics, glyph coverage, sprites, whitepixel) is verified
+// here and the GPU-side half (FastGuiManager boot + rendered HUD) is
+// covered by the jumper_selfcheck integration test.
 #include <catch2/catch_test_macros.hpp>
 
+#include <engine_fastgui/UiAtlas.h>
+
 #include <OgreConfigFile.h>
-#include <OgreStringConverter.h>
 
 #include <cstdint>
 #include <fstream>
-#include <map>
 #include <string>
 
 namespace
@@ -47,21 +47,16 @@ namespace
 		return true;
 	}
 
-	//! load the .ogui the way Gorilla does (separator " ", trimmed,
-	//! lowercased section names) into section -> multimap
-	std::map<Ogre::String, Ogre::ConfigFile::SettingsMultiMap>
-	loadOgui(std::string const& path)
+	//! parse the .ogui through the real UiAtlas parser (headless door:
+	//! the texture size comes from the PNG header, not a render system)
+	Orkige::UiAtlas loadAtlas(uint32_t& width, uint32_t& height)
 	{
+		REQUIRE(readPngSize(kPngPath, width, height));
 		Ogre::ConfigFile file;
-		file.load(path, " ", true);
-		std::map<Ogre::String, Ogre::ConfigFile::SettingsMultiMap> sections;
-		for (auto const& [name, settings] : file.getSettingsBySection())
-		{
-			Ogre::String lowered = name;
-			Ogre::StringUtil::toLowerCase(lowered);
-			sections[lowered] = settings;
-		}
-		return sections;
+		file.load(kOguiPath, " ", true);
+		return Orkige::UiAtlas(file,
+			static_cast<Orkige::Real>(width),
+			static_cast<Orkige::Real>(height));
 	}
 }
 
@@ -69,100 +64,86 @@ TEST_CASE("fastgui atlas texture section matches the png",
 	"[engine][fastgui][atlas]")
 {
 	uint32_t width = 0, height = 0;
-	REQUIRE(readPngSize(kPngPath, width, height));
+	Orkige::UiAtlas atlas = loadAtlas(width, height);
 	CHECK(width > 0);
 	CHECK(height > 0);
 
-	auto sections = loadOgui(kOguiPath);
-	REQUIRE(sections.count("texture") == 1);
-	Ogre::ConfigFile::SettingsMultiMap const& texture = sections["texture"];
+	CHECK(atlas.getTextureName() == "fastgui_default.png");
+	CHECK(atlas.getTextureSize().x == static_cast<float>(width));
+	CHECK(atlas.getTextureSize().y == static_cast<float>(height));
 
-	REQUIRE(texture.count("file") == 1);
-	CHECK(texture.find("file")->second == "fastgui_default.png");
-
-	// the whitepixel Gorilla uses for all solid fills must be inside the
-	// texture (parsed as a Vector2 of pixel coordinates)
-	REQUIRE(texture.count("whitepixel") == 1);
-	const Ogre::Vector2 whitePixel = Ogre::StringConverter::parseVector2(
-		texture.find("whitepixel")->second);
-	CHECK(whitePixel.x > 0);
-	CHECK(whitePixel.y > 0);
-	CHECK(whitePixel.x < static_cast<float>(width));
-	CHECK(whitePixel.y < static_cast<float>(height));
+	// the whitepixel every solid fill samples must be inside the texture
+	// (UiAtlas normalizes it to 0..1)
+	const Orkige::Vec2 whitePixel = atlas.getWhitePixel();
+	CHECK(whitePixel.x > 0.0f);
+	CHECK(whitePixel.y > 0.0f);
+	CHECK(whitePixel.x < 1.0f);
+	CHECK(whitePixel.y < 1.0f);
 }
 
 TEST_CASE("fastgui atlas fonts cover ASCII with valid glyph metrics",
 	"[engine][fastgui][atlas]")
 {
 	uint32_t width = 0, height = 0;
-	REQUIRE(readPngSize(kPngPath, width, height));
-	auto sections = loadOgui(kOguiPath);
+	Orkige::UiAtlas atlas = loadAtlas(width, height);
+
+	// layout math follows the global scale - pin it for the assertions
+	const Orkige::Vec2 scaleBackup = Orkige::UiGlyph::scale;
+	Orkige::UiGlyph::scale = Orkige::Vec2(1.0f, 1.0f);
 
 	// the HUD font (9) and the title font (24) - the glyphDataIndex values
 	// JumperHud and FastGuiManager::showStats use
-	for (const char* fontSection : { "font.9", "font.24" })
+	for (const Orkige::uint fontIndex : { 9u, 24u })
 	{
-		INFO("section [" << fontSection << "]");
-		REQUIRE(sections.count(fontSection) == 1);
-		Ogre::ConfigFile::SettingsMultiMap const& font =
-			sections[fontSection];
+		INFO("font index " << fontIndex);
+		Orkige::UiFont const* font = atlas.getFont(fontIndex);
+		REQUIRE(font != nullptr);
 
-		// the scalar metrics Gorilla reads; all must be present and positive
-		for (const char* key : { "lineheight", "baseline", "spacelength",
-			"monowidth" })
+		// the scalar metrics the layout math reads; all must be positive
+		CHECK(font->getLineHeightScaled() > 0.0f);
+		CHECK(font->getBaselineScaled() > 0.0f);
+		CHECK(font->getSpaceLengthScaled() > 0.0f);
+		CHECK(font->getMonoWidthScaled() > 0.0f);
+
+		CHECK(font->getRangeBegin() == 33u);	// '!' - space is spacelength, not a glyph
+		CHECK(font->getRangeEnd() == 126u);		// '~'
+
+		// UiAtlas creates a glyph slot for EVERY code in the range; a
+		// missing glyph_<n> entry silently renders nothing - require full
+		// coverage with in-bounds UV rects and positive advances
+		for (Orkige::uint code = font->getRangeBegin();
+			code <= font->getRangeEnd(); ++code)
 		{
-			INFO("metric '" << key << "'");
-			REQUIRE(font.count(key) == 1);
-			CHECK(Ogre::StringConverter::parseReal(
-				font.find(key)->second) > 0.0f);
-		}
-		REQUIRE(font.count("offset") == 1);
-		const Ogre::Vector2 offset = Ogre::StringConverter::parseVector2(
-			font.find("offset")->second);
-
-		REQUIRE(font.count("range") == 1);
-		const Ogre::Vector2 range = Ogre::StringConverter::parseVector2(
-			font.find("range")->second);
-		const int rangeBegin = static_cast<int>(range.x);
-		const int rangeEnd = static_cast<int>(range.y);
-		CHECK(rangeBegin == 33);	// '!' - space is spacelength, not a glyph
-		CHECK(rangeEnd == 126);		// '~'
-
-		// Gorilla creates a glyph slot for EVERY code in the range; a missing
-		// glyph_<n> entry silently renders nothing - require full coverage
-		// with in-bounds rects and positive advances
-		for (int code = rangeBegin; code <= rangeEnd; ++code)
-		{
-			const std::string key = "glyph_" + std::to_string(code);
-			INFO("glyph '" << static_cast<char>(code) << "' (" << key << ")");
-			REQUIRE(font.count(key) == 1);
-			const Ogre::StringVector values = Ogre::StringUtil::split(
-				font.find(key)->second, " ", 5);
-			REQUIRE(values.size() == 5);	// x y w h advance
-			const float x = offset.x + Ogre::StringConverter::parseReal(values[0]);
-			const float y = offset.y + Ogre::StringConverter::parseReal(values[1]);
-			const float w = Ogre::StringConverter::parseReal(values[2]);
-			const float h = Ogre::StringConverter::parseReal(values[3]);
-			const int advance = Ogre::StringConverter::parseInt(values[4]);
-			CHECK(w > 0.0f);
-			CHECK(h > 0.0f);
-			CHECK(advance > 0);
-			CHECK(x >= 0.0f);
-			CHECK(y >= 0.0f);
-			CHECK(x + w <= static_cast<float>(width));
-			CHECK(y + h <= static_cast<float>(height));
+			INFO("glyph '" << static_cast<char>(code) << "' (" << code << ")");
+			Orkige::UiGlyph const* glyph = font->getGlyph(code);
+			REQUIRE(glyph != nullptr);
+			CHECK(glyph->getGlyphWidthScaled() > 0.0f);
+			CHECK(glyph->getGlyphHeightScaled() > 0.0f);
+			CHECK(glyph->getGlyphAdvanceScaled() > 0.0f);
+			// normalized texture coordinates inside the atlas
+			CHECK(glyph->uvLeft >= 0.0f);
+			CHECK(glyph->uvTop >= 0.0f);
+			CHECK(glyph->uvRight <= 1.0f);
+			CHECK(glyph->uvBottom <= 1.0f);
+			CHECK(glyph->uvLeft < glyph->uvRight);
+			CHECK(glyph->uvTop < glyph->uvBottom);
 		}
 	}
+
+	// a character outside the range answers NULL, never a stray pointer
+	CHECK(atlas.getFont(9)->getGlyph(32) == nullptr);	// space
+	CHECK(atlas.getFont(9)->getGlyph(200) == nullptr);
+	// an unknown font index answers NULL
+	CHECK(atlas.getFont(9999) == nullptr);
+
+	Orkige::UiGlyph::scale = scaleBackup;
 }
 
 TEST_CASE("fastgui atlas provides the sprites the widgets reference",
 	"[engine][fastgui][atlas]")
 {
 	uint32_t width = 0, height = 0;
-	REQUIRE(readPngSize(kPngPath, width, height));
-	auto sections = loadOgui(kOguiPath);
-	REQUIRE(sections.count("sprites") == 1);
-	Ogre::ConfigFile::SettingsMultiMap const& sprites = sections["sprites"];
+	Orkige::UiAtlas atlas = loadAtlas(width, height);
 
 	// "progressbar_bar" is hardcoded in FastGuiProgressBar; the button states
 	// are FastGuiButton's baseSpriteName + "_over"/"_down"/"_disabled"
@@ -170,17 +151,18 @@ TEST_CASE("fastgui atlas provides the sprites the widgets reference",
 		"button_disabled", "progressbar", "progressbar_bar" })
 	{
 		INFO("sprite '" << name << "'");
-		REQUIRE(sprites.count(name) == 1);
-		const Ogre::StringVector values = Ogre::StringUtil::split(
-			sprites.find(name)->second, " ", 4);
-		REQUIRE(values.size() == 4);	// x y w h (parsed as unsigned ints)
-		const unsigned int x = Ogre::StringConverter::parseUnsignedInt(values[0]);
-		const unsigned int y = Ogre::StringConverter::parseUnsignedInt(values[1]);
-		const unsigned int w = Ogre::StringConverter::parseUnsignedInt(values[2]);
-		const unsigned int h = Ogre::StringConverter::parseUnsignedInt(values[3]);
-		CHECK(w > 0u);
-		CHECK(h > 0u);
-		CHECK(x + w <= width);
-		CHECK(y + h <= height);
+		Orkige::UiSprite const* sprite = atlas.getSprite(name);
+		REQUIRE(sprite != nullptr);
+		CHECK(sprite->spriteWidth > 0.0f);
+		CHECK(sprite->spriteHeight > 0.0f);
+		// normalized rect inside the atlas
+		CHECK(sprite->uvLeft >= 0.0f);
+		CHECK(sprite->uvTop >= 0.0f);
+		CHECK(sprite->uvRight <= 1.0f);
+		CHECK(sprite->uvBottom <= 1.0f);
+		CHECK(sprite->uvLeft < sprite->uvRight);
+		CHECK(sprite->uvTop < sprite->uvBottom);
 	}
+	// an unknown sprite answers NULL, never a stray pointer
+	CHECK(atlas.getSprite("no_such_sprite") == nullptr);
 }

@@ -11,10 +11,11 @@ license-clean generator:
   * procedurally drawn UI sprites (rounded rects with borders): panel,
     button + _over/_down/_disabled states, progressbar frame and
     progressbar_bar fill (the name FastGuiProgressBar hardcodes),
-  * the designated 4x4 whitepixel block Gorilla uses for solid fills.
+  * the designated 4x4 whitepixel block the UI renderer uses for solid fills.
 
-.ogui format (what Gorilla::TextureAtlas::_load* actually parses - see
-orkige_engine/engine_fastgui/Gorilla.cpp):
+.ogui format (what Orkige::UiAtlas actually parses - see
+orkige_engine/engine_fastgui/UiAtlas.cpp; inherited from the retired
+Gorilla library):
 
   [Texture]
   file <texture filename>            # loaded from the same resource group
@@ -28,16 +29,16 @@ orkige_engine/engine_fastgui/Gorilla.cpp):
   [Sprites]
   <name> <x> <y> <w> <h>             # pixel rect (parsed as unsigned ints!)
 
-Semantics gleaned from Gorilla + the legacy fontconverter:
+Semantics inherited from Gorilla (now UiAtlas/UiRenderer) + the legacy fontconverter:
   * Caption/MarkupText draw every glyph TOP-aligned at the cursor and advance
     by "advance + kerning" (kerning falls back to letterspacing, default 0),
     so every glyph cell here has the full font height (no vertical trim) and
     the advance carries the 1px letter gap.
   * ' ' never renders; the cursor advances by spacelength instead.
-  * sprite/glyph coords are texture pixels; Gorilla converts to UVs itself.
+  * sprite/glyph coords are texture pixels; UiAtlas converts to UVs itself.
 
 The script self-validates: it re-parses its own .ogui output with the same
-rules as Ogre::ConfigFile/Gorilla and checks every rect against the texture
+rules as Ogre::ConfigFile/UiAtlas and checks every rect against the texture
 bounds, an occupancy grid (no overlaps) and the whitepixel. Exits non-zero
 on any violation.
 
@@ -380,13 +381,13 @@ def build_atlas(out_dir, atlas_name):
 
 
 # ---------------------------------------------------------------------------
-# self-validation: re-parse the .ogui with Gorilla's rules
+# self-validation: re-parse the .ogui with UiAtlas' rules
 # ---------------------------------------------------------------------------
 
 def parse_ogui(path):
     """Parse like Ogre::ConfigFile(separators=' ', trim=true): first token is
     the key, the rest the value; '#' lines are comments; [x] opens sections.
-    Returns {section: [(key, value)]} with sections lowercased (Gorilla
+    Returns {section: [(key, value)]} with sections lowercased (UiAtlas
     lowercases them too)."""
     sections = {"": []}
     current = ""
@@ -475,13 +476,13 @@ def validate(png_path, ogui_path, canvas, occupied):
                        for py in range(y, y + h) for px in range(x, x + w)):
                 fail(f"[{section}] glyph_{code}: empty rect")
             glyphs[code] = (w, h)
-        # Gorilla creates a glyph slot for EVERY code in the range; missing
+        # UiAtlas creates a glyph slot for EVERY code in the range; missing
         # entries stay zero-sized and render nothing - require full coverage
         for code in range(begin, end + 1):
             if code not in glyphs:
                 fail(f"[{section}] glyph_{code} missing from range")
 
-    # sprites (parsed as unsigned ints by Gorilla - must be plain ints)
+    # sprites (parsed as unsigned ints by UiAtlas - must be plain ints)
     sprites = dict(sections.get("sprites", []))
     for required in ("panel", "button", "button_over", "button_down",
                      "button_disabled", "progressbar", "progressbar_bar"):

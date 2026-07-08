@@ -18,7 +18,7 @@
 --   shared.jumper.*      (x, wins, ...)             written by player.lua,
 --                        read here to drive the progress bar and win screen
 --
--- Widget visibility rides on the shared per-z Gorilla layers (widgets of one
+-- Widget visibility rides on the shared per-z UiLayers (widgets of one
 -- screen share a z), exactly like the C++ jumper sample's HUD: hiding layer
 -- Z_TITLE hides the whole title screen without touching the HUD widgets.
 --
@@ -55,7 +55,7 @@ local startX, goalX = 0.0, 36.0	-- progress range (measured from the scene)
 
 --- helpers ----------------------------------------------------------------
 
--- a horizontally centered label (whole-pixel positions only - the Gorilla
+-- a horizontally centered label (whole-pixel positions only - the caption
 -- caption asserts on subpixel coordinates, and centerHorizontal floors)
 local function centeredLabel(id, font, text, y, z)
 	local label = factory:createLabel(id, font, text, Vector2(0, y), "", z, false)
@@ -123,7 +123,7 @@ function init(self)
 		return
 	end
 
-	-- boot the UI: the factory builds widgets, the manager owns the Gorilla
+	-- boot the UI: the factory builds widgets, the manager owns the UI
 	-- screen for the project's atlas and (enableInputEvents) feeds engine
 	-- mouse events to the widgets - that is what makes buttons clickable
 	factory = FastGuiFactory()

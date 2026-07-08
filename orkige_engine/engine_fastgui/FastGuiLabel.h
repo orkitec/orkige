@@ -36,7 +36,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::Caption* caption;	//!< holds the text
+		UiCaption* caption;	//!< holds the text
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -52,12 +52,12 @@ namespace Orkige
 		//! set text alignment inside the label
 		void setAlignment(LabelAlignment alignment);
 		//! get gorilla Caption
-		inline Gorilla::Caption* getCaption();
+		inline UiCaption* getCaption();
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Caption* FastGuiLabel::getCaption()
+	inline UiCaption* FastGuiLabel::getCaption()
 	{
 		return this->caption;
 	}

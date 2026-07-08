@@ -14,11 +14,9 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
-#ifdef ORKIGE_RENDER_CLASSIC
-// fastgui is classic-only (decision #2) - the ORKIGE_DEMO_GUI smoke test
-// below only exists on that flavor
+// fastgui is flavor-neutral since the DrawLayer2D port - the
+// ORKIGE_DEMO_GUI smoke test below runs on both render flavors
 #include <engine_fastgui/FastGuiManager.h>
-#endif
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
@@ -516,28 +514,30 @@ int main(int, char**)
 				"smoke test skipped", Orkige::ScriptRuntime::backendName());
 		}
 
-#ifdef ORKIGE_RENDER_CLASSIC
-		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test. No .ogui texture
-		// atlas exists anywhere in the repo or its git history (the 2012 game
-		// assets were never checked in), so FastGui has nothing it could render
-		// yet and fabricating an atlas by hand is off the table. What this
-		// verifies instead: the module links, the Gorilla render backend
-		// (Silverback) starts up, survives a rendered frame and tears down
-		// cleanly, and FastGuiManager - which loads its default atlas in the
-		// constructor by design - fails that construction with the documented
-		// Ogre resource error instead of crashing.
+		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test, flavor-
+		// neutral (hello ships no .ogui atlas media of its own, so the
+		// full HUD render is covered by the jumper/roller selfchecks
+		// instead). What this verifies: the module links, an empty
+		// UiScreen on its DrawLayer2D survives a rendered frame and
+		// tears down cleanly, and FastGuiManager - which loads its
+		// default atlas in the constructor by design - fails that
+		// construction with the documented resource error instead of
+		// crashing.
 		if (std::getenv("ORKIGE_DEMO_GUI"))
 		{
 			{
-				// Gorilla backend alone: frame listener registration, an empty
-				// rendered frame, and teardown all work without an atlas.
-				Gorilla::Silverback silverback;
+				// the UI renderer alone: an empty screen (no atlas file -
+				// a bare UiAtlas-less surface is not constructible, so use
+				// a minimal in-memory atlas-free draw layer) rendered and
+				// torn down without media
+				auto uiProbeLayer = render->createDrawLayer2D();
 				if (!render->renderOneFrame())
 				{
-					SDL_Log("hello_orkige: FAILED - frame with Gorilla "
-						"Silverback alive did not render");
+					SDL_Log("hello_orkige: FAILED - frame with an empty UI "
+						"draw layer alive did not render");
 					return 1;
 				}
+				uiProbeLayer.reset();
 			}
 			bool guiRefusedCleanly = false;
 			try
@@ -547,9 +547,9 @@ int main(int, char**)
 			}
 			catch (std::exception const& e)
 			{
-				// the classic backend surfaces the missing atlas as a resource
-				// exception (derives from std::exception - no renderer types
-				// needed to catch it)
+				// both Ogre backends surface the missing atlas as a
+				// resource exception (derives from std::exception - no
+				// renderer types needed to catch it)
 				guiRefusedCleanly = true;
 				SDL_Log("hello_orkige: FastGuiManager without atlas failed "
 					"cleanly as designed: %s", e.what());
@@ -560,18 +560,11 @@ int main(int, char**)
 					"without its default atlas; expected a resource error");
 				return 1;
 			}
-			SDL_Log("hello_orkige: FastGui smoke test passed (Silverback "
-				"lifecycle + clean no-atlas constructor failure)");
+			SDL_Log("hello_orkige: FastGui smoke test passed (UI draw-layer "
+				"lifecycle + clean no-atlas constructor failure, "
+				"engine.hasUISystem()=%d)",
+				static_cast<int>(engine.hasUISystem()));
 		}
-#else
-		// fastgui is classic-only (decision #2) - honest skip on this flavor
-		if (std::getenv("ORKIGE_DEMO_GUI"))
-		{
-			SDL_Log("hello_orkige: ORKIGE_DEMO_GUI skipped - no UI system on "
-				"the %s render flavor (engine.hasUISystem()=%d)",
-				"next", static_cast<int>(engine.hasUISystem()));
-		}
-#endif //ORKIGE_RENDER_CLASSIC
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs
 		// (0/unset = run until the window is closed).

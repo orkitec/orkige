@@ -17,6 +17,7 @@
 
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_graphic/Engine.h"
+#include <core_debug/DebugMacros.h>
 
 namespace Orkige
 {
@@ -24,8 +25,11 @@ namespace Orkige
 	RenderSystem::FrameStats::FrameStats()
 		: lastFPS(0.0f)
 		, avgFPS(0.0f)
+		, bestFPS(0.0f)
+		, worstFPS(0.0f)
 		, triangleCount(0)
 		, batchCount(0)
+		, textureMemoryBytes(0)
 	{
 	}
 	//---------------------------------------------------------
@@ -152,6 +156,41 @@ namespace Orkige
 		return RenderBackend::createRenderTexture(name, width, height);
 	}
 	//---------------------------------------------------------
+	optr<DrawLayer2D> RenderSystem::createDrawLayer2D(int zOrder)
+	{
+		return RenderBackend::createDrawLayer2D(zOrder);
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::getTextureSize(String const & textureName,
+		unsigned int & outWidth, unsigned int & outHeight) const
+	{
+		outWidth = outHeight = 0;
+		// resolve through EVERY resource group, same rule as sprite/2D
+		// batch textures: engine media and project assets both work by
+		// plain file name
+		Ogre::TexturePtr texture;
+		try
+		{
+			texture = Ogre::TextureManager::getSingleton().load(textureName,
+				Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+		}
+		catch(Ogre::Exception const & e)
+		{
+			oDebugError("engine", 0, "RenderSystem: texture '"
+				<< textureName << "' failed to load: " << e.getDescription());
+			return false;
+		}
+		if(!texture)
+		{
+			oDebugError("engine", 0, "RenderSystem: texture '"
+				<< textureName << "' not found");
+			return false;
+		}
+		outWidth = static_cast<unsigned int>(texture->getWidth());
+		outHeight = static_cast<unsigned int>(texture->getHeight());
+		return true;
+	}
+	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
 	{
 		return this->mImpl->world;
@@ -227,8 +266,17 @@ namespace Orkige
 		FrameStats stats;
 		stats.lastFPS = backendStats.lastFPS;
 		stats.avgFPS = backendStats.avgFPS;
+		stats.bestFPS = backendStats.bestFPS;
+		stats.worstFPS = backendStats.worstFPS;
 		stats.triangleCount = backendStats.triangleCount;
 		stats.batchCount = backendStats.batchCount;
+		stats.textureMemoryBytes =
+			Ogre::TextureManager::getSingleton().getMemoryUsage();
 		return stats;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::resetFrameStats()
+	{
+		this->mImpl->engine->getRenderWindow(0)->resetStatistics();
 	}
 }

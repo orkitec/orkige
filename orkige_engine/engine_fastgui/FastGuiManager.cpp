@@ -10,6 +10,8 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_render/RenderSystem.h"
+#include <OgreStringConverter.h>
 #include "engine_input/InputManager.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
@@ -24,22 +26,29 @@ namespace Orkige
 	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false)
 	{
 		oAssert(this->factory);
-		this->silverback = onew(new Gorilla::Silverback());
 		this->getCreateView(this->defaultAtlas, group);
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&FastGuiManager::onFrameRenderingQueued,	this);
 		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&FastGuiManager::onGameStateChanged,		this);
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,					&FastGuiManager::onFrameStarted,			this);
-		// anbled on window 0 by default
-		//this->setEnabledOnViewport(true, 1);
-		this->setEnabledOnViewport(true, 0);
+		// (the per-viewport render gating is gone: the DrawLayer2D facade
+		// composites onto the main window only, on every render flavor)
 	}
 	//---------------------------------------------------------
 	FastGuiManager::~FastGuiManager()
 	{
-		this->setEnabledOnViewport(false, 0);
 		this->unregisterEvent(Orkige::Engine::FrameStartedEvent);
 		this->unregisterEvent(Orkige::GameStateManager::GameStateChangedEvent);
 		this->unregisterEvent(Orkige::Engine::FrameRenderingQueuedEvent);
+		// teardown order: widgets touch their layers (owned by the views'
+		// screens), the screens reference the atlases - so explicitly:
+		// widgets first, then views (each deletes its screen), then atlases
+		this->stats.reset();
+		this->statsValues.reset();
+		this->cursor.reset();
+		this->sortedWidgets.clear();
+		this->widgets.clear();
+		this->views.clear();
+		this->atlases.clear();
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::enableInputEvents()
@@ -77,7 +86,7 @@ namespace Orkige
 	{
 		optr<FastGuiView> view = this->getCreateView(atlas).lock();
 		oAssert(view);
-		Gorilla::Sprite* spriteObject = view->getScreen()->getAtlas()->getSprite(sprite);
+		UiSprite const * spriteObject = view->getScreen()->getAtlas()->getSprite(sprite);
 		oAssert(spriteObject);
 		this->cursor = onew(new FastGuiDecorWidget("Cursor", sprite, Ogre::Vector2::ZERO, Ogre::Vector2(spriteObject->spriteWidth, spriteObject->spriteHeight), atlas, 16));
 	}
@@ -116,12 +125,12 @@ namespace Orkige
 	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group)
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
-		this->silverback->loadAtlas(atlas, group);
-		Ogre::Viewport* viewport = Engine::getSingleton().getViewport();
-		oAssert(viewport);
-		Gorilla::Screen* screen = this->silverback->createScreen(viewport, atlas);
-		oAssert(screen);
-		// OGRE 14: viewport orientation modes are gone; screens render unrotated.
+		optr<UiAtlas> uiAtlas = onew(new UiAtlas(atlas + ".ogui", group));
+		this->atlases[atlas] = uiAtlas;
+		// one screen per atlas = ONE draw batch per view; the compositing
+		// order among views is (re)assigned by reorderViews via setZOrder
+		UiScreen* screen = new UiScreen(uiAtlas.get(),
+			RenderSystem::get()->createDrawLayer2D());
 		optr<FastGuiView> view = onew(new FastGuiView(screen));
 		this->views[atlas] = view;
 		return view;
@@ -131,22 +140,19 @@ namespace Orkige
 	{
 		woptr<FastGuiView> view = this->getView(atlas);
 		oAssert(view.lock());
-		Gorilla::Screen* screen = view.lock()->getScreen();
+		// the view owns (and deletes) its screen; the screen's draw layer
+		// dies with it (facade RAII). The atlas texture stays name-cached
+		// in the backend (tiny UI atlases; recreating a view with the same
+		// atlas reuses it)
 		this->views.erase(this->views.find(atlas));
-
-		Ogre::TextureManager::getSingletonPtr()->remove(screen->getAtlas()->getTexture()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get2DMaterial()->getName());
-		Ogre::MaterialManager::getSingletonPtr()->remove(screen->getAtlas()->get3DMaterial()->getName());
-
-		this->silverback->destroyScreen(screen);
-		this->silverback->destroyAtlas(atlas);
+		this->atlases.erase(atlas);
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::destroyViewWithWidgets(String const & atlas)
 	{
 		woptr<FastGuiView> view = this->getView(atlas);
 		oAssert(view.lock());
-		Gorilla::Screen* screen = view.lock()->getScreen();
+		UiScreen* screen = view.lock()->getScreen();
 		
 		StringVector names;
 		foreach(FastGuiWidgetMap::value_type const & vt, this->widgets)
@@ -241,10 +247,10 @@ namespace Orkige
 #endif
 
 		// don't scale font by resolution
-        Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
+        Vec2 scaleBackup = UiGlyph::scale;
         if(!this->scaleStats)
         {
-            Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;   
+            UiGlyph::scale.x = UiGlyph::scale.y = 1.0f;   
         }
 
 		this->stats->getMarkupText()->_calculateCharacters();
@@ -253,7 +259,7 @@ namespace Orkige
 		size += this->stats->getPosition();
 		this->statsValues->setPosition(size.x, size.y);
 
-		Gorilla::Glyph::scale = scaleBackup;
+		UiGlyph::scale = scaleBackup;
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::hideStats()
@@ -264,14 +270,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiManager::resetStats()
 	{
-		Engine::getSingleton().getRenderWindow()->resetStatistics();
+		RenderSystem::get()->resetFrameStats();
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::updateStats()
 	{
 		if(this->stats)
 		{
-			Ogre::RenderTarget::FrameStats stats = Engine::getSingleton().getRenderWindow()->getStatistics();
+			RenderSystem::FrameStats stats = RenderSystem::get()->getFrameStats();
 			std::stringstream sstr;
 			sstr << "%" << this->statsMarkupColorIndex;
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.lastFPS	<< std::endl;
@@ -280,26 +286,28 @@ namespace Orkige
 			sstr << "   "	<< std::fixed << std::setprecision(1) << stats.worstFPS << std::endl;
 			sstr << "   "	<< stats.triangleCount << std::endl;
 			sstr << "   "	<< stats.batchCount << std::endl;
-			sstr << "   "	<< std::fixed << std::setprecision(4) << (Ogre::TextureManager::getSingleton().getMemoryUsage()/1024.f)/1024.f<< "  mb" << std::endl;
+			sstr << "   "	<< std::fixed << std::setprecision(4) << (stats.textureMemoryBytes/1024.f)/1024.f<< "  mb" << std::endl;
 #ifdef ORKIGE_ENABLE_MEMORYMANAGER
 #ifdef WIN32
+			unsigned int statsWindowWidth = 0, statsWindowHeight = 0;
+			RenderSystem::get()->getWindowSize(statsWindowWidth, statsWindowHeight);
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().totalActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
-			sstr << "   "	<< Engine::getSingleton().getRenderWindow()->getWidth() << " x " << Engine::getSingleton().getRenderWindow()->getHeight() << std::endl;
+			sstr << "   "	<< statsWindowWidth << " x " << statsWindowHeight << std::endl;
 #endif
 #endif
 
 			// don't scale font by resolution
-			Ogre::Vector2 scaleBackup = Gorilla::Glyph::scale;
+			Vec2 scaleBackup = UiGlyph::scale;
             if(!this->scaleStats)
             {
-                Gorilla::Glyph::scale.x = Gorilla::Glyph::scale.y = 1.0f;   
+                UiGlyph::scale.x = UiGlyph::scale.y = 1.0f;   
             }
 
 			this->statsValues->setText(sstr.str());
 			this->statsValues->getMarkupText()->_calculateCharacters();
 
-			Gorilla::Glyph::scale = scaleBackup;
+			UiGlyph::scale = scaleBackup;
 		}
 	}
 	//---------------------------------------------------------
@@ -309,15 +317,15 @@ namespace Orkige
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
 			orderedViews.push_back(vt.second);
-			Engine::getSingleton().getSceneManager()->removeRenderQueueListener(vt.second->getScreen());
 		}
 		orderedViews.sort(FastGuiViewOptrCmp());
 
+		// same order the RenderQueueListener re-registration produced: the
+		// draw layers composite in ascending zOrder
+		int order = 0;
 		foreach(optr<FastGuiView> & view, orderedViews)
 		{
-			//oDebugMsg("core", 0, "View: " << view.getScreen()->getAtlas()->get2DMaterialName());
-			Gorilla::Screen* screen = view->getScreen();
-			Engine::getSingleton().getSceneManager()->addRenderQueueListener(screen);
+			view->getScreen()->setZOrder(order++);
 		}
 	}
 	//---------------------------------------------------------
@@ -340,7 +348,19 @@ namespace Orkige
 	void FastGuiManager::replaceAtlasTexture(const Ogre::String& atlas, const Ogre::String& texture)
 	{
 		oAssertDesc(this->hasView(atlas), "replaceAtlasTexture: atlas not found");
-		this->silverback->replaceTexture(atlas, texture);
+		std::map<String, optr<UiAtlas> >::iterator it = this->atlases.find(atlas);
+		if(it == this->atlases.end())
+		{
+			return;
+		}
+		it->second->replaceTexture(texture);
+		// the batch binds the texture by name: force the atlas' screen to
+		// resubmit
+		optr<FastGuiView> view = this->getView(atlas).lock();
+		if(view)
+		{
+			view->getScreen()->requestFullRedraw();
+		}
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::cancelCurrentInputUpdate()
@@ -366,29 +386,8 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	void FastGuiManager::setEnabledOnViewport(bool enable, int viewportIdx)
-	{
-		if(enable)
-		{
-			Engine::getSingleton().getViewport(viewportIdx)->getTarget()->addListener(this);
-		}
-		else
-		{
-			Engine::getSingleton().getViewport(viewportIdx)->getTarget()->removeListener(this);
-		}
-	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
-	//---------------------------------------------------------
-	void FastGuiManager::preViewportUpdate(const Ogre::RenderTargetViewportEvent& evt)
-	{
-		this->silverback->renderScreens = true;
-	}
-	//---------------------------------------------------------
-	void FastGuiManager::postViewportUpdate(const Ogre::RenderTargetViewportEvent& evt)
-	{
-		this->silverback->renderScreens = false;
-	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameStarted(Orkige::Event const & event)
 	{
@@ -397,8 +396,15 @@ namespace Orkige
 		{
 			widget->onFrameStarted(*data);
 		}
+		// after the widgets updated: rebuild dirty screens and resubmit
+		// their vertices to the DrawLayer2D facade for this frame (clean
+		// screens return immediately - no rebuild, no upload)
+		foreach(FastGuiViewMap::value_type const & vt, this->views)
+		{
+			vt.second->getScreen()->update();
+		}
 		return false;
-	}	
+	}
 	//---------------------------------------------------------
 	bool FastGuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{

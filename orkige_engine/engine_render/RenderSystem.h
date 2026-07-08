@@ -45,8 +45,11 @@ namespace Orkige
 		{
 			float	lastFPS;		//!< fps of the last completed frame
 			float	avgFPS;			//!< smoothed fps
+			float	bestFPS;		//!< best fps since the last resetFrameStats
+			float	worstFPS;		//!< worst fps since the last resetFrameStats
 			size_t	triangleCount;	//!< triangles submitted last frame
 			size_t	batchCount;		//!< draw batches last frame
+			size_t	textureMemoryBytes;	//!< texture memory the backend reports (0 where it has no number)
 			FrameStats();			// defined by the backend TU
 		};
 		//! how a resource location is stored on disk
@@ -113,6 +116,20 @@ namespace Orkige
 		optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
 
+		//--- screen-space 2D ---
+		//! @brief create a 2D overlay layer compositing over the main
+		//! window (fastgui HUDs, ImGui) - @see DrawLayer2D for the contract
+		//! @param zOrder layers composite in ascending zOrder (ties:
+		//! creation order)
+		optr<DrawLayer2D> createDrawLayer2D(int zOrder = 0);
+		//! @brief load a 2D texture through the resource system (any
+		//! group, like SpriteQuad textures) and report its texel size -
+		//! the 2D layer clients (atlas metrics) lay out against it
+		//! @return false + a log line when the resource is missing/broken
+		//! map: classic=TextureManager::load + getWidth/Height | next=TextureGpuManager createOrRetrieve + waitForMetadata | filament=impl decode + Texture dims
+		bool getTextureSize(String const & textureName,
+			unsigned int & outWidth, unsigned int & outHeight) const;
+
 		//--- the scene ---
 		//! the one world (multiple worlds stay a facade-compatible extension)
 		RenderWorld* getWorld() const;
@@ -153,6 +170,10 @@ namespace Orkige
 		//--- stats ---
 		//! @see RenderSystem::FrameStats
 		FrameStats getFrameStats() const;
+		//! restart the best/worst fps tracking (fastgui's stats HUD resets
+		//! them per game state; average follows the backend's own window)
+		//! map: classic=RenderTarget::resetStatistics | next=backend-tracked min/max reset | filament=impl counters reset
+		void resetFrameStats();
 	protected:
 		//! constructed by the backend (Engine::setup) only
 		RenderSystem();

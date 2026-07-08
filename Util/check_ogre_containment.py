@@ -10,7 +10,7 @@ outside the render backend:
   * allowed_files  - the facade math alias header (RenderMath.h), THE
                      documented swap point of the math decision.
   * sanctioned_dirs        - whole-directory sanctions for the classic-only
-                     zones (engine_fastgui incl. Gorilla, engine_filesystem's
+                     zones (engine_fastgui, engine_filesystem's
                      Ogre::Archive subclasses); reason per entry.
   * sanctioned_files       - whole-file sanctions for the classic-only
                      helpers and the accepted math-alias residue; every entry

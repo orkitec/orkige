@@ -22,12 +22,12 @@
 namespace Orkige
 {
 	//! @brief the jumper's in-game HUD, built on the engine's own UI system
-	//! (engine_fastgui / Gorilla): boots FastGuiManager with the generated
+	//! (engine_fastgui / UiRenderer): boots FastGuiManager with the generated
 	//! fastgui_default atlas (Util/make_fastgui_atlas.py ->
 	//! fastgui_default.{ogui,png}) and owns four widgets - a title splash,
 	//! the persistent controls hint, the hidden win banner and a
 	//! distance-to-goal progress bar. Widget groups live on their own
-	//! z-layers (Gorilla layers are shared per z), so the title/banner can
+	//! z-layers (UiLayers are shared per z), so the title/banner can
 	//! be shown/hidden without touching the persistent widgets.
 	//! @remarks shared between the C++ jumper SAMPLE (samples/jumper, atlas
 	//! from its media/ dir in the default resource group) and the jumper
@@ -56,7 +56,7 @@ namespace Orkige
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
 		{
 			// FastGuiManager loads "<atlas>.ogui" (+ texture) from the given
-			// resource group and creates the Gorilla screen on viewport 0
+			// resource group and creates the UI screen for the main window
 			mFactory = onew(new FastGuiFactory());
 			mManager = onew(new FastGuiManager(mFactory, atlas, resourceGroup));
 

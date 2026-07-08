@@ -8,6 +8,7 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiWidget.h"
+#include "engine_render/RenderSystem.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_graphic/Engine.h"
 
@@ -32,7 +33,8 @@ namespace Orkige
 	{
 		Ogre::Vector2 size = this->getSize();
 		Ogre::Vector2 pos = this->getPosition();
-		int screenWidth = Engine::getSingleton().getViewport()->getActualWidth();
+		unsigned int screenWidth = 0, screenHeight = 0;
+		RenderSystem::get()->getWindowSize(screenWidth, screenHeight);
 		// floor to a whole pixel - Caption asserts on subpixel positions
 		pos.x = Ogre::Math::Floor((screenWidth/2.f)-(size.x/2.f));
 		this->setPosition(pos.x, pos.y);
@@ -72,7 +74,7 @@ namespace Orkige
 		OFUNC(getSize)
 		OFUNC(getPosition)
 		OFUNC(centerHorizontal)
-		// visibility rides on the shared per-z Gorilla layer (see the jumper
+		// visibility rides on the shared per-z UiLayer (see the jumper
 		// HUD): widget:getLayer():hide()/show()/isVisible()
 		OFUNC(getLayer)
 	OOBJECT_END

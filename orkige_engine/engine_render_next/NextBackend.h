@@ -50,6 +50,7 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
+#include "engine_render/DrawLayer2D.h"
 
 #include <core_debug/DebugMacros.h>	// oAssert (classic gets it via the EnginePrerequisites umbrella, which this flavor does not compile)
 
@@ -92,6 +93,8 @@ namespace Orkige
 		bool				haveLastFrameTime = false;
 		float				lastFPS = 0.0f;
 		float				avgFPS = 0.0f;
+		float				bestFPS = 0.0f;		//!< max since resetFrameStats
+		float				worstFPS = 999999.0f;	//!< min since resetFrameStats (classic's sentinel)
 	};
 
 	struct RenderWorld::Impl
@@ -159,6 +162,31 @@ namespace Orkige
 		Ogre::Light*		light = NULL;
 		Ogre::SceneManager*	creator = NULL;
 		optr<RenderNode>	attachedTo;
+	};
+
+	struct DrawLayer2D::Impl
+	{
+		//! one submitted batch: texture + a flat, already scissor-clipped
+		//! triangle list in pixel space (@see DrawLayer2DClip.h), rendered
+		//! as one v2 ManualObject on its own node - the node's camera
+		//! depth realizes the painter order (transparents sort back to
+		//! front in the UI render queue)
+		struct Batch
+		{
+			String								textureName;
+			std::vector<DrawLayer2D::Vertex2D>	triangles;
+			Ogre::ManualObject*					object = NULL;
+			Ogre::SceneNode*					node = NULL;
+		};
+
+		bool				visible = true;
+		int					zOrder = 0;
+		std::vector<Batch>	batches;
+
+		//! (re)build one batch's manual object from its triangle list
+		void buildBatchObject(Batch & batch);
+		//! destroy a batch's backend objects again
+		void destroyBatchObject(Batch & batch);
 	};
 
 	struct RenderTexture::Impl
@@ -235,6 +263,29 @@ namespace Orkige
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
+		//! create a 2D overlay layer (@see DrawLayer2DNext.cpp: v2 manual
+		//! objects in the UI render queue, drawn by the window workspace's
+		//! second scene pass through the pixel-space UI camera)
+		static optr<DrawLayer2D> createDrawLayer2D(int zOrder);
+		//! drop a dying layer from the registry again (facade dtor)
+		static void unregisterDrawLayer2D(DrawLayer2D* layer);
+		//! layer content/order changed - painter depths get reassigned
+		//! before the next frame
+		static void markDrawLayer2DOrderDirty();
+		//! per-frame 2D upkeep (called from renderOneFrame): follow window
+		//! resizes with the UI camera and reassign batch depths when dirty
+		static void updateDrawLayer2DFrame();
+		//! teardown hook (destroyRenderSystem): drop the UI-camera/registry
+		//! statics - the backend objects die with the root
+		static void resetDrawLayer2DState();
+		//! the UI render queue id (v2 FAST by default; the window
+		//! workspace's scene pass ends BELOW it, the UI pass draws only it)
+		static unsigned char const DRAWLAYER2D_RENDER_QUEUE = 200;
+		//! name of the pixel-space ortho camera the UI pass renders with
+		static char const * drawLayer2DCameraName();
+		//! lazily create the UI camera (recreateWindowWorkspace needs it
+		//! before it can reference it by name in the pass definition)
+		static Ogre::Camera* ensureDrawLayer2DCamera();
 
 		//--- mesh import (MeshLoaderNext.cpp) ------------------------
 		//! @brief make sure a v2 mesh named meshName exists (idempotent)
@@ -273,6 +324,13 @@ namespace Orkige
 		//! backs setVertexColourUnlit and the cube-mesh service
 		static Ogre::HlmsDatablock* getOrCreateVertexColourUnlitDatablock(
 			String const & datablockName, Ogre::TextureGpu* texture);
+		//! the "DrawLayer2D/<tex>" HlmsUnlit datablock of a 2D batch
+		//! texture (unlit, alpha-blended, depth-IGNORED, two-sided,
+		//! clamped point sampling - the facade's 2D render contract);
+		//! empty textureName = the shared untextured vertex-colour block
+		//! @return NULL + one log line when the texture cannot be loaded
+		static Ogre::HlmsDatablock* getOrCreateDrawLayer2DDatablock(
+			String const & textureName);
 		//! the diffuse texture of a backend datablock or NULL (PBS
 		//! diffuse slot / Unlit slot 0 - the subMeshHasTexture probe)
 		static Ogre::TextureGpu* datablockDiffuseTexture(

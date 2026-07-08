@@ -11,18 +11,10 @@
 
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiView.h"
-#include "engine_fastgui/Gorilla.h"
+#include "engine_fastgui/UiRenderer.h"
 
 namespace Orkige
 {
-	namespace Colours
-	{
-		typedef Gorilla::Colours::Colour Colour;
-		using namespace Gorilla::Colours;
-		using Gorilla::webcolour;
-		using Gorilla::rgb;
-	};
-
 	class ORKIGE_ENGINE_DLL FastGuiWidget : public IGuiObject
 	{
 		OOBJECT(FastGuiWidget, IGuiObject);
@@ -33,7 +25,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::Layer* layer;
+		UiLayer* layer;
 		woptr<FastGuiView> view;
 	private:
 		bool visible;
@@ -51,7 +43,7 @@ namespace Orkige
 		//! get position of this widget
 		virtual Ogre::Vector2 getPosition() = 0;
 		//! get layer this widget is in
-		inline Gorilla::Layer* getLayer() const;
+		inline UiLayer* getLayer() const;
 		//! get the view of this layer
 		inline woptr<FastGuiView> getView();
 		//! center widget horizontally on the screen
@@ -66,7 +58,7 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Layer* FastGuiWidget::getLayer() const
+	inline UiLayer* FastGuiWidget::getLayer() const
 	{
 		return this->layer;
 	}

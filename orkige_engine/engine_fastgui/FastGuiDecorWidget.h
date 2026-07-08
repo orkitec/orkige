@@ -23,7 +23,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------------
 	public:
 	protected:
-		Gorilla::Rectangle* rect;
+		UiRect* rect;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -36,12 +36,12 @@ namespace Orkige
 		virtual Ogre::Vector2 getPosition();
 
 		void setSprite(String const & spriteName);
-		inline Gorilla::Rectangle* getRectangle();
+		inline UiRect* getRectangle();
 	protected:
 	private:
 	};
 	//---------------------------------------------------------------
-	inline Gorilla::Rectangle* FastGuiDecorWidget::getRectangle()
+	inline UiRect* FastGuiDecorWidget::getRectangle()
 	{
 		return this->rect;
 	}
