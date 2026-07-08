@@ -41,6 +41,7 @@ namespace Orkige
 		ButtonState state;					//!< current button state
 		String baseSpriteName;				//!< base name of the button state sprite;
 		bool nostate;
+		bool clicked;						//!< a completed click since the last wasClicked poll
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -69,6 +70,10 @@ namespace Orkige
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);
+		//! @brief poll-and-consume the click state: true once after every
+		//! completed press+release on the button (the polled alternative to
+		//! listening for ButtonHitEvent - scripts poll this every frame)
+		bool wasClicked();
 
 	protected:
 	private:

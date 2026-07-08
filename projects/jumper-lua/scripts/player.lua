@@ -14,6 +14,13 @@
 -- table (each script instance runs in its own environment - locals here are
 -- per-instance and invisible to other scripts).
 --
+-- Game flow: scripts/game.lua (on the "Game" object) owns the UI and the
+-- title/playing/win state machine and publishes shared.game.state - the
+-- controls here only respond while it says "playing". Physics, the kill
+-- plane and the camera stay alive in every state (the world keeps living
+-- behind the title screen); without a game script the state defaults to
+-- "playing" so this script also works standalone.
+--
 -- Controls: A/D or Left/Right run along the level (x), W/S or Up/Down dodge
 -- in depth (z), SPACE jumps (with a 0.12s buffer - a press just before
 -- landing still jumps). Falling below y = -10 respawns at the start;
@@ -144,17 +151,25 @@ function update(self, dt)
 		Vector3(0, -1, 0), GROUND_PROBE_LENGTH)
 	grounded = probe.hit and probe.bodyId ~= body:getBodyId()
 
+	-- controls only while the game flow says "playing" (title/win screens
+	-- park the player); the physics below keeps running in every state
+	local controlsEnabled =
+		(shared.game == nil) or (shared.game.state == "playing")
+
 	-- velocity control: exponential approach to the input direction, the
 	-- same in the air (full air control - tight, forgiving feel)
-	local inputX = axis(KC.KC_A, KC.KC_LEFT, KC.KC_D, KC.KC_RIGHT)
-	local inputZ = axis(KC.KC_W, KC.KC_UP, KC.KC_S, KC.KC_DOWN)
+	local inputX, inputZ = 0, 0
+	if controlsEnabled then
+		inputX = axis(KC.KC_A, KC.KC_LEFT, KC.KC_D, KC.KC_RIGHT)
+		inputZ = axis(KC.KC_W, KC.KC_UP, KC.KC_S, KC.KC_DOWN)
+	end
 	local velocity = body:getLinearVelocity()
 	local vx = approach(velocity.x, inputX * MOVE_SPEED, ACCEL_RATE, dt)
 	local vz = approach(velocity.z, inputZ * MOVE_SPEED, ACCEL_RATE, dt)
 	local vy = velocity.y
 
 	-- buffered jump: a SPACE press up to 0.12s before landing still jumps
-	local spaceDown = input:isKeyDown(KC.KC_SPACE)
+	local spaceDown = controlsEnabled and input:isKeyDown(KC.KC_SPACE)
 	if spaceDown and not spaceWasDown then
 		jumpBuffer = JUMP_BUFFER_SECONDS
 	end

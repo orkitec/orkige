@@ -59,6 +59,32 @@ ORKIGE_MODULE(orkige_engine)
 		OCONSTVAR(bodyId)
 	OSIMPLEEXPORT_END
 
+	// FastGuiFactory is not an OOBJECT (it derives Ogre::ConfigFile), so its
+	// Lua face lives here: scripts construct one, hand it to FastGuiManager
+	// and create the widgets the game needs. The create* functions return
+	// woptr - OFUNCWEAK hands Lua the locked optr. sol2 carries no C++
+	// default arguments across the binding: Lua passes every parameter.
+	OSIMPLEEXPORT(Orkige::FastGuiFactory,FastGuiFactory)
+		OCONSTRUCTOR0()
+		// (id, glyphIndex, text, position, atlas, z, scaled)
+		OFUNCWEAK(createLabel)
+		// (id, sprite, glyphIndex, text, position, textAlignment, size,
+		//  atlas, z, nostate, blinkState) - sprite name is the base of the
+		//  _over/_down/_disabled state sprites; blinkState 0 = none
+		OFUNCWEAK(createButton)
+		// (id, sprite, glyphIndex, text, position, textAlignment, size,
+		//  atlas, z) - sprite is the frame, "<sprite>_bar" the fill
+		OFUNCWEAK(createProgressBar)
+	OSIMPLEEXPORT_END
+
+	// widget visibility rides on the shared per-z Gorilla layer
+	OSIMPLEEXPORT(Gorilla::Layer,GuiLayer)
+		OFUNC(show)
+		OFUNC(hide)
+		OFUNC(isVisible)
+		OFUNC(setVisible)
+	OSIMPLEEXPORT_END
+
 	OEXPORT(IGuiObject)
 	OEXPORT(FastGuiWidget)
 	OEXPORT(FastGuiView)
@@ -95,6 +121,15 @@ ORKIGE_MODULE(orkige_engine)
 		OFUNC(normalisedCopy)
 	OSIMPLEEXPORT_END
 
+	// the 2D sibling for UI work (positions/sizes in screen pixels); like
+	// Vector3, x/y live on the VectorBase - registered as the base class
+	using OgreVector2Base [[maybe_unused]] = Ogre::VectorBase<2, Ogre::Real>;
+	OSIMPLEEXPORT_BASED(Ogre::Vector2,OgreVector2Base,Vector2)
+		OCONSTRUCTOR2(float,float)
+		OVAR(x)
+		OVAR(y)
+	OSIMPLEEXPORT_END
+
 	OSIMPLEEXPORT(Ogre::Quaternion,Quaternion)
 		OCONSTRUCTOR4(float,float,float,float)
 		OVAR(w)
@@ -120,6 +155,13 @@ ORKIGE_MODULE(orkige_engine)
 
 	OSIMPLEEXPORT(Ogre::SceneManager,SceneManager)
 		OFUNCIR(getSceneNode)
+	OSIMPLEEXPORT_END
+
+	// enough Viewport for UI layout: Engine.getSingleton():getViewport(0)
+	// answers the screen size in pixels
+	OSIMPLEEXPORT(Ogre::Viewport,Viewport)
+		OFUNC(getActualWidth)
+		OFUNC(getActualHeight)
 	OSIMPLEEXPORT_END
 
 	// getParentSceneNode lives on Ogre::MovableObject - base registered

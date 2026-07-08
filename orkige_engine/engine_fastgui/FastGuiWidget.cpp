@@ -67,5 +67,13 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiWidget)
+		OFUNC(setPosition)
+		OFUNC(setSize)
+		OFUNC(getSize)
+		OFUNC(getPosition)
+		OFUNC(centerHorizontal)
+		// visibility rides on the shared per-z Gorilla layer (see the jumper
+		// HUD): widget:getLayer():hide()/show()/isVisible()
+		OFUNC(getLayer)
 	OOBJECT_END
 }

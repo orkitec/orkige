@@ -2,7 +2,16 @@
 <XMLArchive Version="0">
     <String value="orkige.oscene"/>
     <int value="1"/>
-    <unsigned_int value="14"/>
+    <unsigned_int value="15"/>
+    <String value="Game"/>
+    <unsigned_int value="1"/>
+    <String value="ScriptComponent"/>
+    <ScriptComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <String value="scripts/game.lua"/>
+        <bool value="1"/>
+    </ScriptComponent>
     <String value="Crate1"/>
     <unsigned_int value="3"/>
     <String value="ModelComponent"/>

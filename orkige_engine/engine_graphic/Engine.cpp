@@ -820,5 +820,7 @@ namespace Orkige
 		// camera access for scripts (Lua passes the index - no default args
 		// across the binding): Engine.getSingleton():getCamera(0)
 		OFUNC(getCamera)
+		// viewport access for UI layout: getViewport(0):getActualWidth()
+		OFUNC(getViewport)
 	OOBJECT_END
 }

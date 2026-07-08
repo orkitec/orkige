@@ -34,6 +34,7 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#include <engine_fastgui/FastGuiManager.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/PrimitiveUtil.h>
@@ -129,6 +130,29 @@ void pushKeyEvent(SDL_Scancode scancode, SDL_Keycode key, bool down)
 	event.key.scancode = scancode;
 	event.key.key = key;
 	event.key.down = down;
+	SDL_PushEvent(&event);
+}
+
+//! push a synthetic mouse move through the SDL queue - same real input path
+//! as pushKeyEvent (InputManager -> MouseMovedEvent -> FastGuiManager)
+void pushMouseMove(float x, float y)
+{
+	SDL_Event event{};
+	event.type = SDL_EVENT_MOUSE_MOTION;
+	event.motion.x = x;
+	event.motion.y = y;
+	SDL_PushEvent(&event);
+}
+
+//! push a synthetic left mouse button press/release at the given position
+void pushMouseButton(float x, float y, bool down)
+{
+	SDL_Event event{};
+	event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
+	event.button.button = SDL_BUTTON_LEFT;
+	event.button.down = down;
+	event.button.x = x;
+	event.button.y = y;
 	SDL_PushEvent(&event);
 }
 
@@ -603,29 +627,41 @@ int main(int argc, char** argv)
 
 		// --- ORKIGE_JUMPER_LUA_SELFCHECK=1: the ScriptComponent milestone,
 		// verified end to end against projects/jumper-lua (run with
-		// --project projects/jumper-lua). Synthetic SDL key events take the
-		// real input path (poll loop -> injectEvent -> isKeyDown); the C++
-		// side observes ONLY what any outsider could: the Player object's
-		// components through the world and the stats the script publishes
-		// into the Lua `shared.jumper` table. Asserted, frame-scripted:
-		//   frame  5  the ScriptComponent loaded scripts/player.lua, ran
-		//             init without error and published shared.jumper
-		//   10..30    hold RIGHT -> frame 45: the player moved +x
-		//   frame 60  the script reports grounded; press SPACE -> the player
+		// --project projects/jumper-lua). Synthetic SDL key AND mouse events
+		// take the real input path (poll loop -> injectEvent -> InputManager
+		// events -> FastGuiManager/isKeyDown); the C++ side observes ONLY
+		// what any outsider could: the Player object's components through
+		// the world, the Lua-booted fastgui widgets through the
+		// FastGuiManager singleton and the stats the scripts publish into
+		// the Lua `shared` tables. Asserted, frame-scripted:
+		//   frame  5  both scripts loaded (player.lua, game.lua), the UI is
+		//             up (all widgets exist), the game is on the visible
+		//             title screen and the HUD is hidden
+		//   10..20    a synthetic mouse click on the START button (move,
+		//             press, release) -> the game switches to "playing",
+		//             title hidden, HUD visible
+		//   30..65    hold RIGHT -> the player moved +x and the HUD
+		//             progress bar advanced
+		//   frame 80  the script reports grounded; press SPACE -> the player
 		//             rises >0.8m and lands again within 120 frames
 		//   then      teleport into the first gap -> the script's kill plane
 		//             respawns the player at the start (shared respawns +1)
 		//   then      teleport in front of the goal -> the script's win
-		//             check fires (shared wins +1)
+		//             check fires (shared wins +1) -> the win screen shows
+		//   then      press ENTER -> the game restarts into "playing" with
+		//             the win screen hidden; the follow camera stayed
+		//             roll-free over the whole session
 		// Any missed deadline exits non-zero; measured values are logged.
 		// (jumperLuaCheck itself is read above, before the engine window
 		// exists.)
 		enum class JumperCheckPhase
 		{
-			Script,			// fixed-frame part (boot, move, jump press)
+			Script,			// fixed-frame part (boot+UI, click, move, jump)
 			WaitLanding,	// jump flight until the script reports grounded
 			WaitRespawn,	// falling in the gap until the script respawned
 			WaitWin,		// in front of the goal until the win fired
+			WaitWinUi,		// until the win screen is visible, then ENTER
+			WaitRestart,	// until ENTER put the game back into "playing"
 			Done
 		};
 		JumperCheckPhase jumperPhase = JumperCheckPhase::Script;
@@ -634,6 +670,7 @@ int main(int argc, char** argv)
 		float jumperJumpStartY = 0.0f;
 		float jumperMaxRise = 0.0f;
 		unsigned long jumperJumpFrame = 0;
+		unsigned long jumperEnterFrame = 0;
 		unsigned long jumperPhaseDeadline = 0;
 		double jumperBaseRespawns = 0.0;
 		double jumperBaseWins = 0.0;
@@ -649,6 +686,47 @@ int main(int argc, char** argv)
 		{
 			return Orkige::ScriptRuntime::getSingleton().getBool(
 				{"shared", "jumper", "grounded"}, false);
+		};
+		// the game-flow state game.lua publishes (shared.game.<key>)
+		auto jumperGameState = []() -> std::string
+		{
+			return Orkige::ScriptRuntime::getSingleton().getString(
+				{"shared", "game", "state"}, "");
+		};
+		auto jumperGameStat = [](const char* key) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "game", key}, -1.0);
+		};
+		// the Lua-booted UI, seen through the FastGuiManager singleton: does
+		// the widget exist, and is its screen (= its shared z layer) visible
+		auto jumperWidgetExists = [](const char* id) -> bool
+		{
+			Orkige::FastGuiManager* ui =
+				Orkige::FastGuiManager::getSingletonPtr();
+			return ui && ui->widgetExists(id);
+		};
+		auto jumperWidgetVisible = [&jumperWidgetExists](const char* id) -> bool
+		{
+			if (!jumperWidgetExists(id))
+			{
+				return false;
+			}
+			optr<Orkige::FastGuiWidget> widget =
+				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
+			return widget && widget->getLayer()->isVisible();
+		};
+		auto jumperHudProgress = [&jumperWidgetExists]() -> float
+		{
+			if (!jumperWidgetExists("hud.progress"))
+			{
+				return -1.0f;
+			}
+			optr<Orkige::FastGuiProgressBar> progressBar =
+				Orkige::FastGuiManager::getSingleton()
+					.getWidgetAs<Orkige::FastGuiProgressBar>("hud.progress")
+					.lock();
+			return progressBar ? progressBar->getProgress() : -1.0f;
 		};
 		// player object access through the world - what the script drives
 		auto jumperPlayerTransform = [&gameObjectManager]()
@@ -801,35 +879,107 @@ int main(int argc, char** argv)
 					{
 						jumperFail("script did not publish shared.jumper");
 					}
+					// the UI game.lua booted from Lua: every widget of the
+					// three screens exists, the game sits on the visible
+					// title screen and the HUD layer is still hidden
+					else if (!jumperWidgetExists("title.name") ||
+						!jumperWidgetExists("title.prompt") ||
+						!jumperWidgetExists("title.start") ||
+						!jumperWidgetExists("hud.progress") ||
+						!jumperWidgetExists("hud.wins") ||
+						!jumperWidgetExists("hud.hint") ||
+						!jumperWidgetExists("win.banner") ||
+						!jumperWidgetExists("win.again"))
+					{
+						jumperFail("the Lua-booted fastgui widgets are "
+							"missing");
+					}
+					else if (jumperGameState() != "title")
+					{
+						jumperFail("game did not start on the title screen "
+							"(state '" + jumperGameState() + "')");
+					}
+					else if (!jumperWidgetVisible("title.name") ||
+						jumperWidgetVisible("hud.progress") ||
+						jumperWidgetVisible("win.banner"))
+					{
+						jumperFail("title-screen layer visibility is wrong");
+					}
 					else
 					{
 						SDL_Log("orkige_player: jumper-lua selfcheck - "
-							"'%s' loaded and initialized",
+							"'%s' loaded, UI up, title screen showing",
 							script->getScriptFile().c_str());
 					}
 				}
+				// synthetic mouse click on the START button (center published
+				// by game.lua): move -> hover, press -> down, release -> hit
 				if (frameCount == 10)
+				{
+					pushMouseMove(
+						static_cast<float>(jumperGameStat("startButtonX")),
+						static_cast<float>(jumperGameStat("startButtonY")));
+				}
+				if (frameCount == 12)
+				{
+					pushMouseButton(
+						static_cast<float>(jumperGameStat("startButtonX")),
+						static_cast<float>(jumperGameStat("startButtonY")),
+						true);
+				}
+				if (frameCount == 14)
+				{
+					pushMouseButton(
+						static_cast<float>(jumperGameStat("startButtonX")),
+						static_cast<float>(jumperGameStat("startButtonY")),
+						false);
+				}
+				if (frameCount == 20)
+				{
+					if (jumperGameState() != "playing")
+					{
+						jumperFail("clicking START did not start the game "
+							"(state '" + jumperGameState() + "')");
+					}
+					else if (jumperWidgetVisible("title.name") ||
+						!jumperWidgetVisible("hud.progress"))
+					{
+						jumperFail("start click did not swap title for HUD");
+					}
+					else
+					{
+						SDL_Log("orkige_player: jumper-lua selfcheck - START "
+							"button clicked via synthetic mouse events, HUD "
+							"up");
+					}
+				}
+				if (frameCount == 30)
 				{
 					jumperStartX = jumperPlayerTransform()->getPosition().x;
 					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
 				}
-				if (frameCount == 30)
+				if (frameCount == 50)
 				{
 					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
 				}
-				if (frameCount == 45)
+				if (frameCount == 65)
 				{
 					jumperMovedX = jumperPlayerTransform()->getPosition().x -
 						jumperStartX;
 					SDL_Log("orkige_player: jumper-lua selfcheck - moved "
-						"+x %.3f m after 20 frames of RIGHT", jumperMovedX);
+						"+x %.3f m after 20 frames of RIGHT (HUD progress "
+						"%.0f%%)", jumperMovedX, jumperHudProgress());
 					if (jumperMovedX < 0.6f)
 					{
 						jumperFail("player did not move right under "
 							"scripted input");
 					}
+					else if (jumperHudProgress() <= 0.0f)
+					{
+						jumperFail("HUD progress bar did not advance with x");
+					}
 				}
-				if (frameCount == 60)
+				if (frameCount == 80)
 				{
 					if (!jumperGrounded())
 					{
@@ -916,6 +1066,49 @@ int main(int argc, char** argv)
 			{
 				if (jumperStat("wins", 0.0) > jumperBaseWins)
 				{
+					SDL_Log("orkige_player: jumper-lua selfcheck - the goal "
+						"fired the script's win (wins=%.0f) - waiting for "
+						"the win screen", jumperStat("wins", -1.0));
+					jumperPhase = JumperCheckPhase::WaitWinUi;
+					jumperPhaseDeadline = frameCount + 120;
+				}
+				else if (frameCount >= jumperPhaseDeadline)
+				{
+					jumperFail("reaching the goal never triggered the "
+						"script's win");
+				}
+			}
+			else if (jumperLuaCheck && !jumperCheckFailed &&
+				jumperPhase == JumperCheckPhase::WaitWinUi)
+			{
+				// the win overlay: game.lua switched to "win" and showed the
+				// banner layer - then ENTER restarts the game
+				if (jumperGameState() == "win" &&
+					jumperWidgetVisible("win.banner"))
+				{
+					SDL_Log("orkige_player: jumper-lua selfcheck - win "
+						"screen up, pressing ENTER to restart");
+					pushKeyEvent(SDL_SCANCODE_RETURN, SDLK_RETURN, true);
+					jumperEnterFrame = frameCount;
+					jumperPhase = JumperCheckPhase::WaitRestart;
+					jumperPhaseDeadline = frameCount + 120;
+				}
+				else if (frameCount >= jumperPhaseDeadline)
+				{
+					jumperFail("the win never showed the win screen (state '" +
+						jumperGameState() + "')");
+				}
+			}
+			else if (jumperLuaCheck && !jumperCheckFailed &&
+				jumperPhase == JumperCheckPhase::WaitRestart)
+			{
+				if (frameCount == jumperEnterFrame + 5)
+				{
+					pushKeyEvent(SDL_SCANCODE_RETURN, SDLK_RETURN, false);
+				}
+				if (jumperGameState() == "playing" &&
+					!jumperWidgetVisible("win.banner"))
+				{
 					// camera-roll regression: the Lua follow camera lookAt's
 					// the engine camera node every frame of this session -
 					// the engine's fixed yaw axis must have kept it roll-free
@@ -933,11 +1126,13 @@ int main(int argc, char** argv)
 					else
 					{
 						SDL_Log("orkige_player: jumper-lua selfcheck complete "
-							"- script boot, movement (+%.2f m), jump "
-							"(+%.2f m), kill-plane respawn, the goal and the "
-							"roll-free camera all verified "
-							"(respawns=%.0f wins=%.0f)", jumperMovedX,
-							jumperMaxRise, jumperStat("respawns", -1.0),
+							"- script+UI boot, START click, movement "
+							"(+%.2f m) with HUD progress, jump (+%.2f m), "
+							"kill-plane respawn, the goal, the win screen, "
+							"the ENTER restart and the roll-free camera all "
+							"verified (respawns=%.0f wins=%.0f)",
+							jumperMovedX, jumperMaxRise,
+							jumperStat("respawns", -1.0),
 							jumperStat("wins", -1.0));
 						jumperPhase = JumperCheckPhase::Done;
 						running = false;
@@ -945,8 +1140,8 @@ int main(int argc, char** argv)
 				}
 				else if (frameCount >= jumperPhaseDeadline)
 				{
-					jumperFail("reaching the goal never triggered the "
-						"script's win");
+					jumperFail("ENTER on the win screen did not restart the "
+						"game (state '" + jumperGameState() + "')");
 				}
 			}
 			if (jumperLuaCheck && jumperCheckFailed)
@@ -976,6 +1171,32 @@ int main(int argc, char** argv)
 			SDL_Log("orkige_player: JUMPER-LUA SELFCHECK FAILED - run ended "
 				"in phase %d", static_cast<int>(jumperPhase));
 			exitCode = 1;
+		}
+
+		// automated (frame-capped) runs fail honestly when a script instance
+		// died: the export tests RUN the exported game, and a game whose
+		// scripts errored out must not pass as "exited 0" (a human run keeps
+		// going - the error is logged once and the instance is disabled)
+		if (frameLimit != 0)
+		{
+			for (auto const& [id, gameObject] :
+				gameObjectManager.getGameObjects())
+			{
+				if (!gameObject->hasComponent<Orkige::ScriptComponent>())
+				{
+					continue;
+				}
+				Orkige::ScriptComponent* script =
+					gameObject->getComponentPtr<Orkige::ScriptComponent>();
+				if (script->hasScriptError())
+				{
+					SDL_Log("orkige_player: FAILED - script error on '%s' "
+						"('%s'): %s", id.c_str(),
+						script->getScriptFile().c_str(),
+						script->getScriptError().c_str());
+					exitCode = 1;
+				}
+			}
 		}
 
 		frameStats.logAtExit("orkige_player");

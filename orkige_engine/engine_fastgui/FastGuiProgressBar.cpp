@@ -95,6 +95,11 @@ namespace Orkige
     //- private: -----------------------------------------
     //----------------------------------------------------
 	OABSTRACT_IMPL(FastGuiProgressBar)
+		OFUNC(setProgress)
+		OFUNC(addProgress)
+		OFUNC(getProgress)
+		OFUNC(getCaption)
+		OFUNC(setCaption)
 		OOBJECT_END
 
 

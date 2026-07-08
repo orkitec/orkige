@@ -239,6 +239,23 @@ namespace Orkige
 	//---------------------------------------------------------
 	ScriptInstance::~ScriptInstance()
 	{
+#ifdef ORKIGE_LUA
+		// deterministic release of everything the instance kept alive: engine
+		// objects held by script locals (a Lua-booted FastGuiManager and its
+		// widgets, for example) must run their C++ destructors NOW - while the
+		// engine is still up - not at lua_close, which happens after the
+		// engine has been torn down. Drop the instance's references first,
+		// then run two full GC cycles (userdata finalization can take two).
+		if (this->environment.valid())
+		{
+			lua_State* luaState = this->environment.lua_state();
+			this->updateFunction = sol::protected_function();
+			this->selfTable = sol::table();
+			this->environment = sol::environment();
+			lua_gc(luaState, LUA_GCCOLLECT, 0);
+			lua_gc(luaState, LUA_GCCOLLECT, 0);
+		}
+#endif
 	}
 	//---------------------------------------------------------
 	bool ScriptInstance::callInit(String * outError)

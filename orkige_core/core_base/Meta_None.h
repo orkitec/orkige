@@ -130,9 +130,12 @@
 #define OSTATICFUNCR2(FunctionName,cp_pt1,cp_pt2)	
 
 //standard function
-#define OFUNC(FunctionName)									
+#define OFUNC(FunctionName)
 
-#define OFUNCOVERL(FunctionName, CCast)						
+//member function returning a woptr
+#define OFUNCWEAK(FunctionName)
+
+#define OFUNCOVERL(FunctionName, CCast)
 
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							

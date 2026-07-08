@@ -117,5 +117,18 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiLabel)
+		OFUNC(setText)
+		OFUNC(setAlignment)
+		OENUM_START(LabelAlignment)
+			OENUM_VALUE(LA_TOPLEFT)
+			OENUM_VALUE(LA_TOP)
+			OENUM_VALUE(LA_TOPRIGHT)
+			OENUM_VALUE(LA_LEFT)
+			OENUM_VALUE(LA_CENTER)
+			OENUM_VALUE(LA_RIGHT)
+			OENUM_VALUE(LA_BOTTOMLEFT)
+			OENUM_VALUE(LA_BOTTOM)
+			OENUM_VALUE(LA_BOTTOMRIGHT)
+		OENUM_END
 	OOBJECT_END
 }

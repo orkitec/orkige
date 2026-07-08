@@ -213,6 +213,27 @@
 //standard function
 #define OFUNC(FunctionName)									py_class[#FunctionName] = &ExposedClassType::FunctionName;
 
+namespace Orkige
+{
+	namespace MetaLuaDetail
+	{
+		//! @brief wrap a woptr-returning member function for OFUNCWEAK: Lua
+		//! receives the locked optr (nil when expired) - sol2 understands
+		//! std::shared_ptr natively but cannot push a std::weak_ptr
+		template<typename ResultType, typename ClassType, typename... ArgTypes>
+		inline auto lockedResult(ResultType (ClassType::*function)(ArgTypes...))
+		{
+			return [function](ClassType & object, ArgTypes... args)
+			{
+				return (object.*function)(static_cast<ArgTypes>(args)...).lock();
+			};
+		}
+	}
+}
+
+//member function returning a woptr - registered so Lua gets the locked optr
+#define OFUNCWEAK(FunctionName)								py_class[#FunctionName] = Orkige::MetaLuaDetail::lockedResult(&ExposedClassType::FunctionName);
+
 #define OFUNCOVERL(FunctionName, CCast)						py_class[#FunctionName] = static_cast<CCast>(&ExposedClassType::FunctionName);
 
 //standard function

@@ -23,6 +23,7 @@ namespace Orkige
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
 		this->nostate = _nostate;
+		this->clicked = false;
 		this->decor = onew(new FastGuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		
 		if(!text.empty())
@@ -71,6 +72,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
+		// a button on a hidden layer is not on screen - it must neither
+		// swallow clicks nor collect a stale clicked flag (found when the
+		// Lua jumper put its START/AGAIN buttons on toggled layers)
+		if (!this->layer->isVisible())
+		{
+			return;
+		}
 		if (this->state != BS_DISABLED)
 		{
 			if (this->decor->getRectangle()->intersects(cursorPos)) 
@@ -82,11 +90,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorReleased(Ogre::Vector2 const & cursorPos)
 	{
+		if (!this->layer->isVisible())
+		{
+			return;
+		}
 		if (this->state != BS_DISABLED)
 		{
 			if (this->state == FastGuiButton::BS_DOWN)
 			{
 				this->setState(FastGuiButton::BS_OVER);
+				this->clicked = true;
 				GlobalEventManager::getSingleton().trigger(Event(FastGuiButton::ButtonHitEvent, oBadPointer(this)));
 			}
 		}
@@ -94,6 +107,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void FastGuiButton::onCursorMoved(Ogre::Vector2 const & cursorPos)
 	{
+		if (!this->layer->isVisible())
+		{
+			return;
+		}
 		if (this->state != BS_DISABLED)
 		{
 			if(this->decor->getRectangle()->intersects(cursorPos))
@@ -127,6 +144,13 @@ namespace Orkige
 			this->label->setText(text);
 	}
 	//---------------------------------------------------------
+	bool FastGuiButton::wasClicked()
+	{
+		bool wasHit = this->clicked;
+		this->clicked = false;
+		return wasHit;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void FastGuiButton::setState(const FastGuiButton::ButtonState& bs)
@@ -156,5 +180,15 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiButton)
+		OFUNC(getCaption)
+		OFUNC(setCaption)
+		OFUNC(getState)
+		OFUNC(wasClicked)
+		OENUM_START(ButtonState)
+			OENUM_VALUE(BS_DISABLED)
+			OENUM_VALUE(BS_UP)
+			OENUM_VALUE(BS_OVER)
+			OENUM_VALUE(BS_DOWN)
+		OENUM_END
 	OOBJECT_END
 }

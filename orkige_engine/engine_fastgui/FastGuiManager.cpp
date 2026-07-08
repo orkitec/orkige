@@ -548,5 +548,19 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiManager)
+		// Lua boots the UI: FastGuiManager(factory, atlas, resourceGroup) -
+		// the atlas .ogui/.png pair must live in that resource group (a
+		// project's assets/ register in "OrkigeProject")
+		OCONSTRUCTOR3(optr<FastGuiFactory>, String const &, String const &)
+		OSINGLETON()
+		OFUNCWEAK(getFactory)
+		OFUNC(enableInputEvents)
+		OFUNC(disableInputEvents)
+		OFUNC(widgetExists)
+		OFUNC(destroyWidget)
+		OFUNC(destroyAllWidgets)
+		OFUNC(hideAllViews)
+		OFUNC(showAllViews)
+		OFUNC(isPointOverWidget)
 	OOBJECT_END
 }
