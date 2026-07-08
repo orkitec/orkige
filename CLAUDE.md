@@ -23,19 +23,26 @@ VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug   # configure (run
 cmake --build --preset macos-debug                              # build
 ```
 
-Presets: `macos-debug`, `macos-release`, `macos-debug-next`, `ios-simulator-debug`,
-`android-debug`. Output in `build/<preset>/`.
-`macos-debug-next` is the **Ogre-Next render-backend flavor**
-(`ORKIGE_RENDER_BACKEND=next`, vcpkg feature `render-next`): same source tree,
-the `engine_render` facade implemented by `engine_render_next/` instead of the
-classic backend. Games (player, hello_orkige, projects/), fastgui AND the
-editor (ImGui on DrawLayer2D) run on both flavors and must render the SAME
-image (WYSIWYG — enforced by the `render_backend_parity` pixel test);
-exports/BigZip/Vulkan-RS-pick stay classic-only — see the flavor capability
-matrix in `Docs/render-abstraction.md` ("B phase status"). Its test preset is
-`ctest --preset desktop-next` (99 tests incl. the facade conformance
-selfcheck, the flavor-suffixed editor/game selfchecks and the cross-backend
-parity comparison, which SKIPs unless `macos-debug` is also built).
+Presets: `macos-debug`, `macos-release` (**Ogre-Next — the DEFAULT render
+backend** since 2026-07-08: `ORKIGE_RENDER_BACKEND=next`, vcpkg feature
+`render-next`), `macos-debug-classic`, `macos-release-classic` (**classic
+OGRE — the compatibility flavor**), `ios-simulator-debug`, `android-debug`
+(classic-flavored — mobile runs the classic GLES2 path; mobile-on-Next is
+future work). Output in `build/<preset>/`.
+The two flavors implement the same `engine_render` facade
+(`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
+(player, hello_orkige, projects/), fastgui AND the editor (ImGui on
+DrawLayer2D) run on both flavors and must render the SAME image (WYSIWYG —
+enforced by the `render_backend_parity` pixel test). Classic remains fully
+supported because it OWNS what next doesn't do yet: the mobile GLES2 path,
+the export pipeline (pinned to the classic presets; next-flavor export needs
+Hlms media bundling — future work), native game modules, BigZip, the
+Vulkan/GL runtime RS pick and the jumper C++ sample. See the flavor
+capability matrix in `Docs/render-abstraction.md` ("B phase status").
+Build trees are flavor-bound: reconfiguring a tree with the other backend
+would silently poison its CMake/vcpkg caches, so the root CMakeLists
+FATAL_ERRORs instead — delete the build dir or use the matching preset
+(guard `ORKIGE_RENDER_BACKEND_CONFIGURED`).
 The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
 (GLES2 render system, SDL3 UIKit main, media bundled in) for the arm64
 simulator via `triplets/arm64-ios-simulator.cmake`; deploy with
@@ -76,9 +83,12 @@ the Vulkan *loader* and headers stay vcpkg-provided.
   --target orkige_engine_tests` (or `orkige_editor`, `jumper`, ...) instead of
   the full preset build.
 - During development run `ctest --preset unit` (~3s, headless); use
-  `ctest --preset desktop` (~30s, excludes the `device`-labeled
-  simulator/emulator tests) as the standard verification pass, and the full
-  `ctest --preset all` when deploy/device code changed or before handing over.
+  `ctest --preset desktop` (the default next-flavor suite, excludes the
+  `device`-labeled simulator/emulator tests) as the standard verification
+  pass, add `ctest --preset desktop-classic` when the change touches the
+  classic backend/flavor-shared code, and the full `ctest --preset all`
+  (classic tree incl. device tests) when deploy/device code changed or
+  before handing over.
 - USING the editor or playing samples (as opposed to developing them): build
   and run the `macos-release` preset — the Debug editor runs ~19x slower
   (measured 237 vs ~4500 fps) because of -O0 plus assert-heavy debug
@@ -102,10 +112,11 @@ the Vulkan *loader* and headers stay vcpkg-provided.
 ## Testing
 
 ```sh
-ctest --preset unit         # headless Catch2 unit tests (~3s) — safe to run anytime
-ctest --preset desktop      # + desktop integration (~30s; no simulator/emulator boots)
-ctest --preset desktop-next # the Ogre-Next flavor's suite (build macos-debug-next first)
-ctest --preset all          # everything incl. device tests (boots simulators/emulators)
+ctest --preset unit            # headless Catch2 unit tests (~3s) — safe to run anytime
+ctest --preset desktop         # the default (Ogre-Next) suite (no simulator/emulator boots)
+ctest --preset desktop-classic # the classic-flavor suite: exports, Vulkan runs,
+                               # native-module tests (build macos-debug-classic first)
+ctest --preset all             # classic tree incl. device tests (boots simulators/emulators)
 ```
 
 Layout: `tests/core/` is the Catch2 unit suite (`orkige_core_tests`, label `unit`,
@@ -142,9 +153,10 @@ pass before committing.
 - Line endings are LF everywhere, enforced by `.gitattributes` (the tree was normalized
   in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
 - Commit messages: no `Co-Authored-By` trailers.
-- Renderer containment (decided 2026-07: classic OGRE stays, Ogre-Next is the pre-planned
-  migration target if mobile forces it): code above the render backend goes through the
-  `engine_render` facade — no `Ogre::` outside `engine_graphic/`, `engine_render_classic/`
+- Renderer containment (decided 2026-07; since 2026-07-08 **Ogre-Next is the default
+  backend** and classic OGRE the fully supported compatibility flavor): code above the
+  render backend goes through the `engine_render` facade — no `Ogre::` outside
+  `engine_graphic/`, `engine_render_classic/`, `engine_render_next/`
   and `engine_render/RenderMath.h`. The rule is ENFORCED MECHANICALLY since WP-A1.5:
   `render_containment_lint` (a unit-labeled ctest running `Util/check_ogre_containment.py`,
   part of the unit and desktop presets) fails on any unsanctioned `Ogre::` spelling in

@@ -68,12 +68,12 @@ endif()
 # entry greys out at runtime while that path does not exist.
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     set(ORKIGE_EDITOR_PLAYER_CLASSIC
-        "${CMAKE_SOURCE_DIR}/build/macos-debug/tools/player/orkige_player")
+        "${CMAKE_SOURCE_DIR}/build/macos-debug-classic/tools/player/orkige_player")
     set(ORKIGE_EDITOR_PLAYER_NEXT "$<TARGET_FILE:orkige_player>")
 else()
     set(ORKIGE_EDITOR_PLAYER_CLASSIC "$<TARGET_FILE:orkige_player>")
     set(ORKIGE_EDITOR_PLAYER_NEXT
-        "${CMAKE_SOURCE_DIR}/build/macos-debug-next/tools/player/orkige_player")
+        "${CMAKE_SOURCE_DIR}/build/macos-debug/tools/player/orkige_player")
 endif()
 
 # Editor-only: point at the RTSS shader library shipping with the

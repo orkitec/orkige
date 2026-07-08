@@ -84,24 +84,51 @@ option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" O
 # violates the ODR; there is deliberately NO runtime switch. Distinct from
 # the ORKIGE_RENDERSYSTEM env var, which stays the runtime graphics-API pick
 # (GL3Plus/Metal/Vulkan/GLES2) WITHIN the classic backend.
-set(ORKIGE_RENDER_BACKEND "classic" CACHE STRING "Render backend implementing the engine_render facade (classic or next)")
-set_property(CACHE ORKIGE_RENDER_BACKEND PROPERTY STRINGS "classic" "next")
-if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-    # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
-elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
-    # Next flavor (preset macos-debug-next; needs the render-next vcpkg
-    # manifest feature). Since B3 games RUN on it (engine modules incl.
-    # scripting/input/sound/physics/runtime, player, hello_orkige); since
-    # the A3 DrawLayer2D port fastgui is flavor-neutral, and the EDITOR
-    # builds/runs too (ImGui on the facade). Classic-only leftovers:
-    # jumper sample (classic boot block only), BigZip, export pipeline,
-    # Vulkan/GL runtime RS pick. See the flavor capability matrix in
-    # Docs/render-abstraction.md.
-    message(STATUS "Orkige render backend: next (games + editor run; "
-        "classic-only excluded: jumper sample, BigZip, export pipeline)")
+#
+# DEFAULT: next (owner decision 2026-07-08 - Ogre-Next is the engine's
+# default backend; the default presets macos-debug/macos-release build it and
+# need the render-next vcpkg manifest feature). classic stays the fully
+# supported COMPATIBILITY flavor (presets macos-debug-classic /
+# macos-release-classic) - it still owns the mobile GLES2 path, the export
+# pipeline, BigZip and the Vulkan/GL runtime RS pick. See the flavor
+# capability matrix in Docs/render-abstraction.md.
+set(ORKIGE_RENDER_BACKEND "next" CACHE STRING "Render backend implementing the engine_render facade (next or classic)")
+set_property(CACHE ORKIGE_RENDER_BACKEND PROPERTY STRINGS "next" "classic")
+if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+    # consumed by orkige_engine (compile definition ORKIGE_RENDER_NEXT)
+    message(STATUS "Orkige render backend: next (the default; classic-only "
+        "excluded: jumper sample, BigZip, export pipeline, mobile GLES2)")
+elseif(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    message(STATUS "Orkige render backend: classic (the compatibility flavor; "
+        "owns mobile GLES2, exports, BigZip, Vulkan/GL RS pick)")
 else()
-    message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
+    message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be next or classic (got '${ORKIGE_RENDER_BACKEND}')")
 endif()
+
+# Backend flip guard: a build tree is flavor-bound - its CMake cache, vcpkg
+# manifest installs and every compiled object encode ONE backend, and
+# reconfiguring it with the other one poisons all of that silently. Refuse
+# honestly instead. Legacy trees (configured before this guard existed) are
+# fingerprinted by the find_package result only their flavor caches.
+if(DEFINED CACHE{ORKIGE_RENDER_BACKEND_CONFIGURED})
+    set(_orkige_backend_was "$CACHE{ORKIGE_RENDER_BACKEND_CONFIGURED}")
+elseif(ORKIGE_RENDER_BACKEND STREQUAL "next" AND DEFINED CACHE{OGRE_DIR})
+    set(_orkige_backend_was "classic")
+elseif(ORKIGE_RENDER_BACKEND STREQUAL "classic" AND DEFINED CACHE{OGRE-Next_DIR})
+    set(_orkige_backend_was "next")
+else()
+    set(_orkige_backend_was "${ORKIGE_RENDER_BACKEND}")
+endif()
+if(NOT _orkige_backend_was STREQUAL ORKIGE_RENDER_BACKEND)
+    message(FATAL_ERROR "This build tree (${CMAKE_BINARY_DIR}) was configured "
+        "with the '${_orkige_backend_was}' render backend and cannot be "
+        "flipped to '${ORKIGE_RENDER_BACKEND}' in place (stale CMake/vcpkg "
+        "caches). Delete the build directory, or use the preset matching the "
+        "backend you want: macos-debug / macos-release build next (the "
+        "default), macos-debug-classic / macos-release-classic build classic.")
+endif()
+set(ORKIGE_RENDER_BACKEND_CONFIGURED "${ORKIGE_RENDER_BACKEND}" CACHE INTERNAL
+    "render backend this build tree was configured with (guard, do not edit)")
 
 # Scripting backend: LUA (sol2-based Meta_Lua.h backend, the default) or OFF
 # (Meta_None.h, no script bindings compiled).

@@ -20,7 +20,9 @@
 #     cmake -G Ninja -S <project>/native -B <project>/native/build \
 #         -DCMAKE_BUILD_TYPE=<Debug|Release> \
 #         -DORKIGE_ROOT=<engine source root> \
-#         -DORKIGE_ENGINE_BUILD_DIR=<engine build dir, e.g. build/macos-debug>
+#         -DORKIGE_ENGINE_BUILD_DIR=<engine build dir, e.g.
+#                                    build/macos-debug-classic - native
+#                                    modules are classic-flavor-only for now>
 #
 # What orkige_game_module(<target>) wires up:
 #   - include dirs + ABI defines of the engine (ORKIGE_STATIC, the scripting
@@ -69,7 +71,23 @@ endif()
 if(NOT DEFINED ORKIGE_ENGINE_BUILD_DIR)
     message(FATAL_ERROR "ORKIGE_ENGINE_BUILD_DIR is not set - pass the engine "
         "build tree to link against: -DORKIGE_ENGINE_BUILD_DIR="
-        "${ORKIGE_ROOT}/build/macos-debug")
+        "${ORKIGE_ROOT}/build/macos-debug-classic")
+endif()
+
+# Native modules are CLASSIC-flavor-only for now: this file links the classic
+# OGRE closure (OgreOverlay/RTSS/GL3Plus) and defines the classic ABI set - a
+# next-flavor engine tree would link but misbehave. Refuse honestly.
+# TODO(next-modules): per-flavor link/define sets once a next-flavor module
+# story (and export) exists.
+if(EXISTS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt")
+    file(STRINGS "${ORKIGE_ENGINE_BUILD_DIR}/CMakeCache.txt"
+        _orkige_module_backend_line REGEX "^ORKIGE_RENDER_BACKEND:")
+    if(_orkige_module_backend_line MATCHES "=next$")
+        message(FATAL_ERROR "engine build tree '${ORKIGE_ENGINE_BUILD_DIR}' "
+            "is the Ogre-Next render flavor - native game modules are "
+            "classic-only for now; point ORKIGE_ENGINE_BUILD_DIR at a "
+            "classic tree (preset macos-debug-classic/-release-classic)")
+    endif()
 endif()
 set(ORKIGE_SCRIPTING "LUA" CACHE STRING
     "Scripting backend the engine build was configured with (LUA or OFF)")

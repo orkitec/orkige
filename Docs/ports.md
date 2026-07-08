@@ -65,7 +65,8 @@ requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives
 `libRenderSystem_MetalStatic.a` lib names (classic: `include/OGRE/`,
 `libOgre*.a`, `libRenderSystem_Metal.a` - file-disjoint even for the Metal
 RS), CMake config + HLMS media live under `share/ogre-next/`
-(classic: `share/ogre/`). Verified live: the `macos-debug-next` preset
+(classic: `share/ogre/`). Verified live: a `render-next` tree (the default
+`macos-debug`/`macos-release` presets since the 2026-07-08 default flip)
 installs both into one `vcpkg_installed` tree.
 
 Configuration: Metal render system only (first-class on Ogre-Next; the legacy

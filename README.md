@@ -12,8 +12,10 @@ modernized in 2026.
 
 ## What's in the box
 
-- **Engine** — OGRE 14.5 rendering (GL3+ on desktop, Vulkan-via-MoltenVK on macOS,
-  GLES2 on iOS/Android), SDL3 windowing/input, Jolt Physics (with a planar "2D mode"),
+- **Engine** — dual render backends behind one facade: **Ogre-Next (default,
+  Metal on macOS)** and classic OGRE 14.5 (GL3+ on desktop, Vulkan-via-MoltenVK
+  on macOS, GLES2 on iOS/Android) — pixel-identical output, selected at build
+  time. SDL3 windowing/input, Jolt Physics (with a planar "2D mode"),
   OpenAL Soft audio, Lua scripting on sol2, glTF asset loading (assimp), a
   GameObject/component model with XML scene serialization (`.oscene`), and the
   homegrown *fastgui* runtime UI with auto-generated texture atlases.
@@ -40,17 +42,22 @@ manifest — nothing is vendored, nothing system-installed is used (exception:
 MoltenVK acts as the Vulkan driver on macOS, `brew install molten-vk`).
 
 ```sh
-cmake --preset macos-debug -DORKIGE_BUILD_ENGINE=ON   # configure (first run builds deps)
-cmake --build --preset macos-debug                    # build
-ctest --preset desktop                                # verify (~30s)
+cmake --preset macos-debug                           # configure (first run builds deps)
+cmake --build --preset macos-debug                   # build
+ctest --preset desktop                               # verify
 
 ./build/macos-debug/tools/editor/orkige_editor       # the editor (use macos-release for speed)
-./build/macos-debug/samples/jumper/jumper            # play the jumper
+./build/macos-debug-classic/samples/jumper/jumper    # play the jumper (classic tree)
 ```
 
-Presets: `macos-debug`, `macos-release` (use release when *working in* the editor —
-it's ~19× faster), `ios-simulator-debug`, `android-debug`. Mobile deploy flows are
-documented in CLAUDE.md.
+Presets: `macos-debug`, `macos-release` build the **default Ogre-Next render
+backend**; `macos-debug-classic`, `macos-release-classic` build the fully
+supported **classic OGRE compatibility flavor** — it still owns the mobile
+GLES2 path, project exports, native game modules and the Vulkan runtime pick,
+and both flavors must render pixel-identical output (enforced by a parity
+test). Use a release preset when *working in* the editor — it's ~19× faster.
+Mobile presets: `ios-simulator-debug`, `android-debug` (classic-flavored);
+deploy flows are documented in CLAUDE.md.
 
 ## Testing
 
@@ -59,9 +66,10 @@ integration runs that assert real behavior — rendered triangle counts, physics
 positions measured over the debug protocol, screenshot dumps):
 
 ```sh
-ctest --preset unit      # headless unit tests (~3s)
-ctest --preset desktop   # + desktop integration (~30s)
-ctest --preset all       # + simulator/emulator device tests
+ctest --preset unit            # headless unit tests (~3s)
+ctest --preset desktop         # the default (Ogre-Next) suite
+ctest --preset desktop-classic # the classic-flavor suite (exports, Vulkan, native modules)
+ctest --preset all             # classic + simulator/emulator device tests
 ```
 
 ## Repository layout

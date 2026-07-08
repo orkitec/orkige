@@ -1,7 +1,9 @@
-# clangd configuration: point the language server at the macOS debug build's
+# clangd configuration: point the language server at the default build's
 # compilation database (CMAKE_EXPORT_COMPILE_COMMANDS is ON in the root
 # CMakeLists). Without this, clangd guesses flags and floods the IDE with
 # false "file not found" / "unknown type" diagnostics for every engine header.
+# build/macos-debug is the Ogre-Next flavor - the DEFAULT render backend
+# since the 2026-07-08 flip (Docs/render-abstraction.md).
 #
 # Note: brand-new source files show stale diagnostics until the next CMake
 # configure regenerates the database (clangd falls back to a sibling file's
@@ -10,10 +12,27 @@ CompileFlags:
   CompilationDatabase: build/macos-debug
 
 ---
-# Next-flavor sources live only in the macos-debug-next build - serve them
-# from that flavor's database (otherwise clangd applies classic flags and
-# floods false errors: the flavor guard #error, missing OGRE-Next headers).
+# Classic-only sources compile only in the classic (compatibility) flavor's
+# tree - serve them from that database (otherwise clangd applies next-flavor
+# flags and floods false errors: the flavor guard #error, missing classic
+# OGRE headers). The list mirrors the classic-only source set in
+# orkige_engine/CMakeLists.txt plus the classic-gated sample/tests.
 If:
-  PathMatch: [.*engine_render_next/.*, .*tests/render_facade/bootstrap_next.*]
+  PathMatch: [
+    .*engine_render_classic/.*,
+    .*engine_module/EnginePrerequisitesClassic\.h,
+    .*engine_filesystem/.*,
+    .*engine_util/PrimitiveUtil\.h,
+    .*engine_util/MeshUtil\.h,
+    .*engine_graphic/Engine\.cpp,
+    .*engine_graphic/DynamicRenderable\..*,
+    .*engine_graphic/DynamicLines\..*,
+    .*engine_graphic/IngameConsole\..*,
+    .*engine_base/Localisation\..*,
+    .*samples/jumper/.*,
+    .*tests/engine/.*,
+    .*tests/jumper/.*,
+    .*tests/render_facade/bootstrap_classic.*
+  ]
 CompileFlags:
-  CompilationDatabase: build/macos-debug-next
+  CompilationDatabase: build/macos-debug-classic

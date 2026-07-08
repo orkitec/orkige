@@ -12,8 +12,9 @@ build of the project's own module). Per platform:
 
   macos          a double-clickable <Name>.app:
                    Contents/MacOS/<Exe>       the player binary - the RELEASE
-                                              one when a sibling macos-release
-                                              tree carries it, else the given
+                                              one when a sibling
+                                              macos-release-classic tree
+                                              carries it, else the given
                                               tree's (with a warning when that
                                               is a Debug binary). A project
                                               with a native module ships the
@@ -227,9 +228,15 @@ def ogre_media_dir(build_dir):
 
 
 def sibling_release_tree(engine_build):
-    """build/macos-release next to the given tree, when it exists"""
+    """build/macos-release-classic next to the given tree, when it exists.
+
+    The export pipeline is PINNED to the classic render backend (the bundled
+    media is the classic RTSS set; macos-release is the Ogre-Next flavor
+    since the default flip). TODO(next-export): shipping the next player
+    needs the Hlms shader-template media bundled + Engine::setHlmsMediaDir
+    wired through PlayerBundle."""
     return os.path.join(os.path.dirname(os.path.abspath(engine_build)),
-                        "macos-release")
+                        "macos-release-classic")
 
 
 def engine_tree_arch(build_dir):
@@ -327,9 +334,9 @@ def macos_make_self_contained(executable, frameworks_dir, search_dirs):
 
 def macos_build_native_module(project, target, engine_build, cmake, ninja):
     """build the project's native module for export (see
-    cmake/OrkigeGameModule.cmake): Release against the sibling macos-release
-    engine tree when its libraries exist, else the given tree's build type
-    with a warning. A SEPARATE build tree (<native.buildDir>-export) keeps
+    cmake/OrkigeGameModule.cmake): Release against the sibling
+    macos-release-classic engine tree when its libraries exist, else the
+    given tree's build type with a warning. A SEPARATE build tree (<native.buildDir>-export) keeps
     the editor's compile-on-Play cache untouched."""
     engine_tree = engine_build
     release_tree = sibling_release_tree(engine_build)
@@ -404,8 +411,8 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                 log("using the release player '%s'" % executable)
             else:
                 warn("no release player at '%s' - exporting the DEBUG player "
-                     "(build the macos-release preset for shippable speed)"
-                     % release_player)
+                     "(build the macos-release-classic preset for shippable "
+                     "speed)" % release_player)
         if not os.path.isfile(executable):
             fail("no player binary at '%s' - build the preset first"
                  % executable)
@@ -541,10 +548,11 @@ def main():
     parser.add_argument("--platform", required=True,
                         choices=["macos", "ios-simulator", "ios", "android"])
     parser.add_argument("--engine-build", required=True,
-                        help="the preset build tree to package from (macos: "
-                             "build/macos-debug or -release, ios-simulator: "
-                             "build/ios-simulator-debug, android: "
-                             "build/android-debug)")
+                        help="the preset build tree to package from - the "
+                             "export pipeline is classic-flavor-only (macos: "
+                             "build/macos-debug-classic or -release-classic, "
+                             "ios-simulator: build/ios-simulator-debug, "
+                             "android: build/android-debug)")
     parser.add_argument("--output",
                         help="output directory (default: "
                              "<project>/builds/<platform>)")
@@ -564,6 +572,14 @@ def main():
     engine_build = os.path.abspath(args.engine_build)
     if not os.path.isdir(engine_build):
         fail("engine build tree '%s' does not exist" % engine_build)
+    # the export pipeline ships the CLASSIC player/media set - refuse a
+    # next-flavor tree honestly instead of packaging a bundle that cannot
+    # boot (no Hlms media in the bundle contract yet, see sibling_release_tree)
+    if read_cmake_cache(engine_build, "ORKIGE_RENDER_BACKEND") == "next":
+        fail("engine build tree '%s' is the Ogre-Next render flavor - the "
+             "export pipeline is classic-only for now; build and pass a "
+             "classic tree (preset macos-debug-classic or "
+             "macos-release-classic)" % engine_build)
     output_dir = os.path.abspath(
         args.output or os.path.join(project.root, "builds", args.platform))
     os.makedirs(output_dir, exist_ok=True)

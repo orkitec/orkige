@@ -238,7 +238,8 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
 ## Build flavors
 
 - **`ORKIGE_RENDER_BACKEND=classic|next`** (root CMakeLists cache option, default
-  `classic`; `next` currently stops with a pointed FATAL_ERROR until A2). It sets
+  `classic` — *SUPERSEDED 2026-07-08: the default is `next`, see "Default flip" at the
+  end of this document*; `next` currently stops with a pointed FATAL_ERROR until A2). It sets
   exactly one of `ORKIGE_RENDER_CLASSIC` / `ORKIGE_RENDER_NEXT` as a PUBLIC compile
   definition on `orkige_engine`; `RenderFacadeCheck.cpp` hard-errors when none/both are
   set. In A2 it additionally: swaps the vcpkg dependency (`ogre` ↔ `ogre-next` feature
@@ -252,6 +253,8 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   A2 adds `macos-debug-next` (inherits base, sets `ORKIGE_RENDER_BACKEND=next`,
   `binaryDir` `build/macos-debug-next`) + matching build preset and `unit-next` /
   `desktop-next` test presets. Mobile presets stay classic until Phase-3 evaluation.
+  *(SUPERSEDED 2026-07-08 by the default flip: `macos-debug/-release` = next,
+  classic moved to `macos-*-classic` — see "Default flip" at the end.)*
 - **Directory layout** (recommendation):
   - `engine_render/` — interfaces only (this phase). Never includes backend headers.
   - `engine_render_classic/` — NEW home for facade impls (`RenderNodeClassic.cpp`, ...)
@@ -833,3 +836,57 @@ classic-backend app") is SUPERSEDED.** What landed:
 *A0 artifacts: `orkige_engine/engine_render/*.h` + `RenderFacadeCheck.cpp` (compile
 check, PCH-exempt), `ORKIGE_RENDER_BACKEND` CMake option, this document. No runtime
 behavior changed; `ctest --preset desktop` stays the gate.*
+
+---
+
+### Default flip: Ogre-Next becomes the DEFAULT backend *(DELIVERED 2026-07-08)*
+
+Owner decision: with the editor, games, UI and pixel parity proven on both
+flavors, **Ogre-Next is the engine's default render backend**; classic stays
+the fully supported **compatibility flavor** — kept because it OWNS what next
+doesn't do yet: the mobile GLES2 path (iOS/Android presets stay classic;
+mobile-on-Next is future work), the export pipeline, native game modules,
+BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample.
+
+- **`ORKIGE_RENDER_BACKEND` defaults to `next`** in the root CMakeLists. Every
+  preset still forces its backend EXPLICITLY (nothing relies on the default;
+  the ios/android presets set `classic` — with a `next` default they would
+  otherwise require the `render-next` manifest feature they deliberately
+  don't list, so ogre-next never builds on the mobile triplets).
+- **Preset/directory mapping** (muscle-memory commands get the default = next):
+
+  | Old preset (flavor) | New preset (flavor) | Build dir |
+  |---|---|---|
+  | `macos-debug` (classic) | `macos-debug` (**next**) | `build/macos-debug` — old classic tree must be deleted |
+  | `macos-debug-next` (next) | `macos-debug` (**next**) | `build/macos-debug` (fresh; `build/macos-debug-next` is orphaned) |
+  | — | `macos-debug-classic` (classic) | `build/macos-debug-classic` |
+  | `macos-release` (classic) | `macos-release` (**next**) | `build/macos-release` — old classic tree must be deleted |
+  | — | `macos-release-classic` (classic) | `build/macos-release-classic` — **exports package from here** |
+  | test `desktop-next` | test `desktop` (next, the full/default suite) | runs in `build/macos-debug` |
+  | test `desktop` (classic) | test `desktop-classic` | runs in `build/macos-debug-classic` |
+  | test `unit` (classic) | test `unit` (next) | runs in `build/macos-debug` |
+  | test `all` (classic incl. device) | test `all` (classic incl. device) | runs in `build/macos-debug-classic` |
+
+- **Cache guard**: build trees are flavor-bound (CMake cache, vcpkg manifest
+  installs and objects encode one backend). The root CMakeLists refuses an
+  in-place flip with a FATAL_ERROR ("delete the build dir or use the matching
+  preset") via the internal `ORKIGE_RENDER_BACKEND_CONFIGURED` cache variable;
+  legacy trees from before the guard are fingerprinted by their
+  `OGRE_DIR`/`OGRE-Next_DIR` find_package cache entries.
+- **Exports stay classic-pinned**: `Util/orkige_export.py` refuses a
+  next-flavor `--engine-build` tree honestly (cache probe) and its shippable
+  release player comes from the sibling `build/macos-release-classic` tree.
+  TODO(next-export): bundling the Hlms shader-template media +
+  `Engine::setHlmsMediaDir` through `PlayerBundle` is what a next-flavor
+  export needs. Native game modules are equally classic-pinned
+  (`cmake/OrkigeGameModule.cmake` links the classic closure and FATAL_ERRORs
+  on a next engine tree).
+- **Editor Play targets**: the default Play target is the editor's OWN flavor
+  (unchanged mechanics); the baked cross-flavor player paths follow the new
+  conventional trees (`build/macos-debug` = next, `build/macos-debug-classic`
+  = classic player).
+- **.clangd inverted**: the default compilation database is
+  `build/macos-debug` (next); the classic-only source set (backend dir,
+  classic Engine/console/debug renderables, BigZip, Localisation,
+  PrimitiveUtil/MeshUtil, jumper sample, classic-gated tests) is served from
+  `build/macos-debug-classic`.

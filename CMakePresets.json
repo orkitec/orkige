@@ -18,37 +18,56 @@
       }
     },
     {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "ON"
+      }
+    },
+    {
       "name": "macos-debug",
-      "displayName": "macOS Debug",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "macos-release",
-      "displayName": "macOS Release",
-      "inherits": "base",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "macos-debug-next",
-      "displayName": "macOS Debug (Ogre-Next render backend)",
-      "inherits": "base",
+      "displayName": "macOS Debug (Ogre-Next - the default backend)",
+      "inherits": "macos-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "ORKIGE_RENDER_BACKEND": "next",
-        "ORKIGE_BUILD_ENGINE": "ON",
-        "ORKIGE_BUILD_TOOLS": "ON",
-        "ORKIGE_BUILD_TESTS": "ON",
         "VCPKG_MANIFEST_FEATURES": "render-next"
       }
     },
     {
+      "name": "macos-release",
+      "displayName": "macOS Release (Ogre-Next - the default backend)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "macos-debug-classic",
+      "displayName": "macOS Debug (classic OGRE - the compatibility flavor)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
+    },
+    {
+      "name": "macos-release-classic",
+      "displayName": "macOS Release (classic OGRE - exports package from this tree)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
+    },
+    {
       "name": "ios-simulator-debug",
-      "displayName": "iOS Simulator Debug (arm64)",
+      "displayName": "iOS Simulator Debug (arm64, classic/GLES2)",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -57,6 +76,7 @@
         "CMAKE_OSX_ARCHITECTURES": "arm64",
         "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
         "VCPKG_TARGET_TRIPLET": "arm64-ios-simulator",
+        "ORKIGE_RENDER_BACKEND": "classic",
         "ORKIGE_BUILD_ENGINE": "ON",
         "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "OFF"
@@ -64,7 +84,7 @@
     },
     {
       "name": "android-debug",
-      "displayName": "Android Debug (arm64-v8a, API 28+)",
+      "displayName": "Android Debug (arm64-v8a, API 28+, classic/GLES2)",
       "inherits": "base",
       "environment": {
         "ANDROID_NDK_HOME": "$penv{HOME}/Library/Android/sdk/ndk/27.2.12479018"
@@ -76,6 +96,7 @@
         "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-28",
+        "ORKIGE_RENDER_BACKEND": "classic",
         "ORKIGE_BUILD_ENGINE": "ON",
         "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "OFF"
@@ -92,8 +113,12 @@
       "configurePreset": "macos-release"
     },
     {
-      "name": "macos-debug-next",
-      "configurePreset": "macos-debug-next"
+      "name": "macos-debug-classic",
+      "configurePreset": "macos-debug-classic"
+    },
+    {
+      "name": "macos-release-classic",
+      "configurePreset": "macos-release-classic"
     },
     {
       "name": "ios-simulator-debug",
@@ -107,7 +132,7 @@
   "testPresets": [
     {
       "name": "unit",
-      "displayName": "Unit tests (headless, fast)",
+      "displayName": "Unit tests (headless, fast; the default next-flavor tree)",
       "configurePreset": "macos-debug",
       "filter": {
         "include": {
@@ -123,7 +148,7 @@
     },
     {
       "name": "desktop",
-      "displayName": "Unit + desktop integration (no simulator/emulator boots)",
+      "displayName": "Default (Ogre-Next) suite: unit + desktop integration (no simulator/emulator boots)",
       "configurePreset": "macos-debug",
       "filter": {
         "exclude": {
@@ -138,9 +163,9 @@
       }
     },
     {
-      "name": "desktop-next",
-      "displayName": "Next-flavor suite (unit + conformance selfcheck/smoke + hello demos + player runs incl. the roller/jumper-lua game selfchecks, B3)",
-      "configurePreset": "macos-debug-next",
+      "name": "desktop-classic",
+      "displayName": "Classic-flavor suite: unit + desktop integration incl. exports/Vulkan/native-module tests (no simulator/emulator boots)",
+      "configurePreset": "macos-debug-classic",
       "filter": {
         "exclude": {
           "label": "device"
@@ -155,8 +180,8 @@
     },
     {
       "name": "all",
-      "displayName": "Full suite (unit + integration incl. device tests)",
-      "configurePreset": "macos-debug",
+      "displayName": "Full classic-tree suite incl. device tests (the simulator/emulator/export flows are classic-flavored)",
+      "configurePreset": "macos-debug-classic",
       "execution": {
         "jobs": 6
       },

@@ -29,7 +29,8 @@
 //! datablock), lights, RTT (TextureGpu + workspace-per-target), AABB
 //! ray queries, frame stats (RenderingMetrics) and the cube-mesh
 //! service. render_facade_selfcheck passes on this backend (enabled
-//! in ctest, preset desktop-next). Remaining honest gaps, each logged
+//! in ctest; since the default flip this flavor's suite is the
+//! default desktop preset). Remaining honest gaps, each logged
 //! once via notImplementedOnce: LT_ZIP/LT_BIGZIP resource locations
 //! (waits for real content work + the zziplib port feature) and
 //! skeletal animation IMPORT through the assimp path (the animation

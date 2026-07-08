@@ -1,7 +1,11 @@
 # Orkige test suite.
 #
-#   ctest --preset unit   ->  headless Catch2 unit tests only (fast)
-#   ctest --preset all    ->  unit tests + integration runs (open real windows)
+#   ctest --preset unit             ->  headless Catch2 unit tests only (fast;
+#                                       the default next-flavor tree)
+#   ctest --preset desktop          ->  the default (Ogre-Next) suite
+#   ctest --preset desktop-classic  ->  the classic-flavor suite (exports,
+#                                       Vulkan runs, native-module tests)
+#   ctest --preset all              ->  classic tree incl. device tests
 #
 # The integration tests reuse the self-checking apps: hello_orkige, the editor
 # and the player verify themselves internally and exit non-zero on failure -
@@ -36,8 +40,8 @@ if(TARGET orkige_engine)
         # two of the five suites are classic-bound (FastGuiAtlasTests =
         # fastgui zone, RenderSystemSelectionTests = the classic Engine's
         # graphics-API pick) - splitting the executable per flavor buys
-        # little while the desktop-next preset runs the same logic through
-        # the game selfchecks
+        # little while the default (next-flavor) desktop preset runs the
+        # same logic through the game selfchecks
         add_subdirectory(engine)
     endif()
 
@@ -102,16 +106,16 @@ if(TARGET orkige_engine)
         # render_backend_parity - the WYSIWYG gate: run the selfcheck on
         # BOTH backends and pixel-compare the screenshots within tolerance
         # (Docs/render-abstraction.md, colour parity). Registered on the
-        # NEXT preset only - next is the flavor that must match classic's
-        # established output. Cross-preset by nature: the classic binary
-        # lives in the classic build tree; when it is absent the driver
-        # SKIPs (exit 77) instead of failing - build the macos-debug preset
-        # to arm the comparison.
+        # NEXT (default) preset only - next is the flavor that must match
+        # classic's established output. Cross-preset by nature: the classic
+        # binary lives in the classic build tree; when it is absent the
+        # driver SKIPs (exit 77) instead of failing - build the
+        # macos-debug-classic preset to arm the comparison.
         add_test(NAME render_backend_parity
             COMMAND python3
                 "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/compare_backend_screenshots.py"
                 --next-binary $<TARGET_FILE:render_facade_selfcheck>
-                --classic-binary "${Orkige_SOURCE_DIR}/build/macos-debug/tests/render_facade_selfcheck"
+                --classic-binary "${Orkige_SOURCE_DIR}/build/macos-debug-classic/tests/render_facade_selfcheck"
                 --out "${CMAKE_CURRENT_BINARY_DIR}/render_backend_parity"
                 --repo "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -388,8 +392,13 @@ if(TARGET orkige_player)
 
     # --- project export (milestone 4, Util/orkige_export.py) ---------------
     # Classic-only: the exporter bundles the classic media set (RTSS libs)
-    # and the exported-app contract is classic-verified; a next-flavor
-    # export path is future work (needs the Hlms media in the bundle).
+    # and the exported-app contract is classic-verified. The export
+    # machinery is PINNED to the classic presets (this tree for Debug, the
+    # sibling build/macos-release-classic for the shippable Release player -
+    # see sibling_release_tree in Util/orkige_export.py, which also refuses
+    # a next tree honestly). TODO(next-export): a next-flavor export needs
+    # the Hlms shader-template media bundled + Engine::setHlmsMediaDir wired
+    # into PlayerBundle before orkige_export.py can ship the next player.
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # The driver (integration_driver/run_export_test.py) runs the exporter,
         # asserts the artifact's structure and self-containment, and - on macOS -

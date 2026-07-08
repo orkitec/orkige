@@ -48,7 +48,7 @@
   ],
   "features": {
     "render-next": {
-      "description": "Ogre-Next render backend (the ORKIGE_RENDER_BACKEND=next build flavor, preset macos-debug-next). Optional so classic-only development never builds ogre-next; classic ogre stays a base dependency, so a render-next tree carries BOTH backends installed side by side (they are file-disjoint - see ports/ogre-next).",
+      "description": "Ogre-Next render backend (ORKIGE_RENDER_BACKEND=next - the DEFAULT backend; the default presets macos-debug/macos-release list this feature). Optional so classic-flavor trees (macos-*-classic, ios/android) never build ogre-next; classic ogre stays a base dependency, so a render-next tree carries BOTH backends installed side by side (they are file-disjoint - see ports/ogre-next).",
       "dependencies": [
         "ogre-next"
       ]
