@@ -53,7 +53,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderCamera::~RenderCamera()
 	{
-		if(this->mImpl->camera && this->mImpl->owned)
+		// late destruction guard (WP-A1.5): script-held handles may outlive
+		// the render system - see ~RenderNode
+		if(this->mImpl->camera && this->mImpl->owned && RenderBackend::system())
 		{
 			if(this->mImpl->camera->isAttached())
 			{
@@ -82,6 +84,23 @@ namespace Orkige
 			this->mImpl->camera->detachFromParent();
 		}
 		this->mImpl->attachedTo.reset();
+	}
+	//---------------------------------------------------------
+	optr<RenderNode> RenderCamera::getNode() const
+	{
+		if(this->mImpl->attachedTo)
+		{
+			return this->mImpl->attachedTo;	// the facade attach path
+		}
+		// wrapped cameras (RenderBackend::wrapCamera) were placed by their
+		// creator - back-map the backend parent node through the registry
+		// (NULL for non-facade nodes, e.g. the legacy Engine camera path)
+		if(this->mImpl->camera->isAttached())
+		{
+			return RenderBackend::findNode(static_cast<Ogre::SceneNode*>(
+				this->mImpl->camera->getParentNode()));
+		}
+		return optr<RenderNode>();
 	}
 	//---------------------------------------------------------
 	void RenderCamera::setPerspective(Degree const & fovY, Real nearClip,

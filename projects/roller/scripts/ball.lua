@@ -19,7 +19,7 @@
 --                         while "play" (the sim is paused in "move" anyway)
 --   x, y, wins, respawns, tiltX, tiltY, ballReady   written HERE
 
-local TS = SceneNode.TransformSpace
+local TS = RenderNode.TransformSpace
 
 --- tuning --------------------------------------------------------------------
 local GRAVITY      = 18.0   -- gravity magnitude m/s^2 (snappy rolling)
@@ -57,9 +57,9 @@ function init(self)
 	-- the 2D camera: orthographic, fixed on the grid center. The grid spans
 	-- y -6..6; ORTHO_SIZE leaves a margin for the HUD.
 	local engine = Engine.getSingleton()
-	engine:setCameraOrthographic(0, ORTHO_SIZE)
-	engine:setViewportBackgroundColour(0, 0.10, 0.12, 0.18)	-- dark slate void
-	local cameraNode = engine:getCamera(0):getParentSceneNode()
+	engine:setCameraOrthographic(ORTHO_SIZE)
+	engine:setWindowBackgroundColour(0.10, 0.12, 0.18)	-- dark slate void
+	local cameraNode = engine:getCamera():getNode()
 	cameraNode:setPosition(Vector3(0, 0, 20))
 	cameraNode:lookAt(Vector3(0, 0, 0), TS.TS_WORLD, Vector3(0, 0, -1))
 

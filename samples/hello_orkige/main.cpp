@@ -90,6 +90,7 @@ int main(int, char**)
 		Orkige::ScriptRuntime scriptRuntime;
 		init_module_orkige_core();
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- classic boot block (sanctioned raw-Ogre corner, see
 		// Docs/render-abstraction.md "App boot"): Engine is the classic
 		// backend's bootstrapper - constructing/configuring it and feeding
@@ -136,6 +137,7 @@ int main(int, char**)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
+		// ORKIGE_SANCTIONED_OGRE_END
 		// --- end of the classic boot block: from here on the demo talks to
 		// the renderer through the engine_render facade exclusively
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
@@ -420,10 +422,12 @@ int main(int, char**)
 
 		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
 		// script pulls the Engine singleton, calls registered methods on it,
-		// walks into the exposed Ogre types, constructs core objects through
-		// their registered factories, triggers an event a C++ listener
-		// receives, and sets a global the C++ side reads back. Runs through
-		// the neutral ScriptRuntime seam; skipped in no-scripting builds.
+		// walks into the exposed engine_render facade types (WP-A1.5:
+		// RenderSystem/RenderWorld/RenderCamera/RenderNode - the classic Ogre
+		// usertypes are gone), constructs core objects through their
+		// registered factories, triggers an event a C++ listener receives,
+		// and sets a global the C++ side reads back. Runs through the
+		// neutral ScriptRuntime seam; skipped in no-scripting builds.
 		if (Orkige::ScriptRuntime::available())
 		{
 			LuaEventProbe luaProbe;
@@ -438,12 +442,24 @@ int main(int, char**)
 
 				-- call registered Engine methods
 				demo_window_handle = engine:getTopLevelWindowHandle()
-				local sceneManager = engine:getSceneManager()
-				assert(sceneManager ~= nil, 'engine:getSceneManager() returned nil')
 
-				-- exposed Ogre internals (OSIMPLEEXPORT SceneManager/SceneNode)
-				local cubeNode = sceneManager:getSceneNode('cubeNode', true)
-				assert(cubeNode ~= nil, 'cube SceneNode not reachable from Lua')
+				-- the render facade surface (RenderSystem/RenderWorld/
+				-- RenderNode/RenderCamera usertypes): reach the scene graph
+				-- and the window camera rig the demo built in C++
+				local render = engine:getRenderSystem()
+				assert(render ~= nil, 'engine:getRenderSystem() returned nil')
+				local renderWorld = render:getWorld()
+				assert(renderWorld ~= nil, 'render:getWorld() returned nil')
+				assert(renderWorld:getRootNode():numChildren() > 0,
+					'render world root has no facade child nodes')
+				local camera = engine:getCamera()
+				assert(camera ~= nil, 'engine:getCamera() returned nil')
+				local cameraNode = camera:getNode()
+				assert(cameraNode ~= nil, 'camera rig node not reachable from Lua')
+				local cameraPos = cameraNode:getPosition()
+				assert(cameraPos.z > 1.0, 'camera rig node answers a wrong position')
+				assert(engine:getWindowWidth() > 0 and engine:getWindowHeight() > 0,
+					'window size not reachable from Lua')
 
 				-- construct registered core objects: Object through its factory,
 				-- Event through the Lua call syntax (first registered constructor)

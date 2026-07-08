@@ -100,8 +100,8 @@ function init(self)
 	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
 	gui:enableInputEvents()
 
-	local viewport = Engine.getSingleton():getViewport(0)
-	local w, h = viewport:getActualWidth(), viewport:getActualHeight()
+	local engine = Engine.getSingleton()
+	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 	layers.screenWidth = w
 
 	-- progress range: scene = data, the goal marker position IS the level

@@ -131,10 +131,14 @@ pass before committing.
   in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
 - Commit messages: no `Co-Authored-By` trailers.
 - Renderer containment (decided 2026-07: classic OGRE stays, Ogre-Next is the pre-planned
-  migration target if mobile forces it): new code above `engine_graphic` must not take
-  `Ogre::` types in public signatures — route through engine-owned wrappers (see how
-  `engine_physic/PhysicsWorld` hides Jolt). Reduce existing `Ogre::` leakage
-  opportunistically when touching a file. Don't add reliance on features Ogre-Next
+  migration target if mobile forces it): code above the render backend goes through the
+  `engine_render` facade — no `Ogre::` outside `engine_graphic/`, `engine_render_classic/`
+  and `engine_render/RenderMath.h`. The rule is ENFORCED MECHANICALLY since WP-A1.5:
+  `render_containment_lint` (a unit-labeled ctest running `Util/check_ogre_containment.py`,
+  part of the unit and desktop presets) fails on any unsanctioned `Ogre::` spelling in
+  code; the sanctioned files/blocks (classic-only zones, math-alias residue, the marked
+  app boot blocks) live in `Util/ogre_containment.json` — a new exception needs an entry
+  there, with a reason, in the same change. Don't add reliance on features Ogre-Next
   dropped (OGRE material scripts especially — keep materials simple/generated).
 
 ## Architecture

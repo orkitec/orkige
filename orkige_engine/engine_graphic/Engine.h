@@ -13,6 +13,9 @@
 #include <core_event/EventManager.h>
 #include "engine_graphic/FrameEventData.h"
 #include "engine_module/EnginePrerequisites.h"
+// facade forward declarations only - Engine's Lua/app-facing camera and
+// window surface answers facade types since WP-A1.5 (Docs/render-abstraction.md)
+#include "engine_render/RenderPrerequisites.h"
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
 #include "engine_filesystem/BigZipArchiveFactory.h"
@@ -224,7 +227,10 @@ protected:
 		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
 		bool setup(String const & windowTitle = StringUtil::BLANK, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
 
-		//! optional: you can have as many Cameras and Viewports as you wish but in most cases 1 is enough for a game
+		//! @brief DEPRECATED classic camera path (WP-A1.5): apps create a
+		//! facade camera rig instead (RenderWorld::createCamera + createNode +
+		//! RenderSystem::showCameraOnWindow) - no live caller remains; kept
+		//! only until embedding scenarios are re-audited
 		void createDefaultCameraAndViewport();
 
 		//! as the name says Render one Frame
@@ -232,24 +238,41 @@ protected:
 		//! faster frame rendering skips Framelisteners and some other ogre related stuff
 		bool renderOneFrameFast();
 
-		//! get Engine SceneManager
+		//! @brief get Engine SceneManager - DEPRECATED scene accessor
+		//! (WP-A1.5): classic-only internals (fastgui, editor bootstrap) may
+		//! keep using it; everything else goes through RenderSystem::getWorld
 		inline Ogre::SceneManager* getSceneManager();
 		//! get Engine RenderWindow
 		inline Ogre::RenderWindow* getRenderWindow( unsigned int num = 0 );
-		//! get Engine default Camera if it was created through Engine::createDefaultCameraAndViewport
+		//! @brief DEPRECATED scene accessor (WP-A1.5): only non-NULL on the
+		//! legacy createDefaultCameraAndViewport path; use getWindowCamera()
 		inline Ogre::Camera* getCamera( unsigned int num = 0 );
-		//! get Engine default Viewport if it was created through Engine::createDefaultCameraAndViewport
+		//! @brief DEPRECATED scene accessor (WP-A1.5): fastgui (classic-only)
+		//! is the last consumer; new code uses RenderSystem window services
 		inline Ogre::Viewport* getViewport( unsigned int num = 0 );
-		//! @brief switch a default camera to ORTHOGRAPHIC projection (2D games)
-		//! @param num camera index (@see Engine::getCamera)
+
+		//--- engine_render facade surface (WP-A1.5) -----------------------
+		// Engine stays the app/Lua singleton; its scene-facing surface
+		// answers facade types. All of these assert that setup() ran.
+		//! the facade camera currently shown on the main window
+		//! (Lua: engine:getCamera() - scripts place it via getNode())
+		optr<RenderCamera> getWindowCamera();
+		//! the render facade entry point (Lua: engine:getRenderSystem())
+		RenderSystem* getRenderSystem();
+		//! main-window drawable width in pixels (UI layout)
+		unsigned int getWindowWidth();
+		//! main-window drawable height in pixels (UI layout)
+		unsigned int getWindowHeight();
+		//! @brief switch the window camera to ORTHOGRAPHIC projection (2D games)
 		//! @param verticalHalfExtent world units from the view center to the
-		//! top edge (the camera sees 2x this height; width follows the aspect)
-		void setCameraOrthographic(unsigned int num, float verticalHalfExtent);
-		//! switch a default camera back to PERSPECTIVE projection
-		void setCameraPerspective(unsigned int num);
-		//! set a default viewport's clear colour (games pick their sky/void)
-		void setViewportBackgroundColour(unsigned int num, float red,
-			float green, float blue);
+		//! top edge (the camera sees 2x this height; width follows the
+		//! aspect); clip distances are preserved
+		void setCameraOrthographic(float verticalHalfExtent);
+		//! switch the window camera back to PERSPECTIVE projection (FOV and
+		//! clip distances are preserved)
+		void setCameraPerspective();
+		//! window clear colour (games pick their sky/void)
+		void setWindowBackgroundColour(float red, float green, float blue);
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app
@@ -311,14 +334,13 @@ protected:
 	//---------------------------------------------------------------
 	inline Ogre::Viewport* Engine::getViewport( unsigned int num )
 	{
-		// classic migration bridge (A1, Docs/render-abstraction.md): when the
-		// window camera was set up through the facade
-		// (RenderSystem::showCameraOnWindow) instead of
-		// createDefaultCameraAndViewport, this->viewport[num] stays NULL but
-		// the window carries the viewport - hand that one out so the
-		// classic-only consumers (fastgui, the Lua getViewport binding) keep
-		// working on the facade boot path. Goes away with the deprecated
-		// accessors in WP-A1.5.
+		// classic bridge (A1, Docs/render-abstraction.md): when the window
+		// camera was set up through the facade
+		// (RenderSystem::showCameraOnWindow), this->viewport[num] stays NULL
+		// but the window carries the viewport - hand that one out. The last
+		// consumer is fastgui (classic-only per decision #2); the Lua
+		// getViewport binding was retired in WP-A1.5. Goes away with the
+		// fastgui draw-surface seam (A3).
 		if(!this->viewport[num] && this->renderWindow[num] &&
 			this->renderWindow[num]->getNumViewports() > 0)
 		{

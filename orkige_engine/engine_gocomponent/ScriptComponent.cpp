@@ -12,32 +12,23 @@
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
+#include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
 #include <core_script/ScriptRuntime.h>
-
-#include <OgreLogManager.h>
-
-#include <cstdio>
 
 namespace Orkige
 {
 	namespace
 	{
 		//! @brief script errors must be VISIBLE in every build configuration:
-		//! the Ogre log reaches the engine log file, stderr and - in editor
-		//! play mode - the editor Console via the player's log forwarder.
-		//! Headless runs without an Ogre::LogManager fall back to stderr.
+		//! the engine log reaches the log file, stderr and - in editor play
+		//! mode - the editor Console via the player's log forwarder; headless
+		//! runs without an engine log fall back to stderr (EngineLogCapture
+		//! hides the logging backend - engine_base/EngineLog.h)
 		void logScriptError(String const & message)
 		{
-			if (Ogre::LogManager::getSingletonPtr())
-			{
-				Ogre::LogManager::getSingleton().logError(message);
-			}
-			else
-			{
-				fprintf(stderr, "%s\n", message.c_str());
-			}
+			EngineLogCapture::logError(message);
 		}
 	}
 	namespace

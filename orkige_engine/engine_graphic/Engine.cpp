@@ -193,7 +193,9 @@ namespace Orkige
 	{
 		// facade first: RenderSystem/RenderWorld wrap the scene manager and
 		// window, which die with the root below (idempotent when setup never
-		// ran; facade HANDLES held by the app must be gone before this)
+		// ran). App-held facade handles should be gone before this; handles
+		// still parked in script states (Lua closes after ~Engine) fall back
+		// to facade-memory-only destruction - see ~RenderNode.
 		RenderBackend::destroyRenderSystem();
 #ifdef USE_RTSHADER_SYSTEM
 		// Finalize the RT Shader System while the root (and its render system)
@@ -820,49 +822,87 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	void Engine::setCameraOrthographic(unsigned int num, float verticalHalfExtent)
+	// --- engine_render facade surface (WP-A1.5): Engine stays the app/Lua
+	// singleton, the scene-facing calls route through RenderSystem ----------
+	//---------------------------------------------------------
+	optr<RenderCamera> Engine::getWindowCamera()
 	{
-		Ogre::Camera* orthoCamera = this->getCamera(num);
-		oAssert(orthoCamera);
-		orthoCamera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);
-		// height only - the width follows the camera's aspect ratio
-		orthoCamera->setOrthoWindowHeight(std::max(verticalHalfExtent, 0.001f) * 2.0f);
+		RenderSystem* renderSystem = RenderSystem::get();
+		oAssert(renderSystem);
+		return renderSystem->getWindowCamera();
 	}
 	//---------------------------------------------------------
-	void Engine::setCameraPerspective(unsigned int num)
+	RenderSystem* Engine::getRenderSystem()
 	{
-		Ogre::Camera* perspectiveCamera = this->getCamera(num);
-		oAssert(perspectiveCamera);
-		perspectiveCamera->setProjectionType(Ogre::PT_PERSPECTIVE);
+		RenderSystem* renderSystem = RenderSystem::get();
+		oAssert(renderSystem);
+		return renderSystem;
 	}
 	//---------------------------------------------------------
-	void Engine::setViewportBackgroundColour(unsigned int num, float red,
-		float green, float blue)
+	unsigned int Engine::getWindowWidth()
 	{
-		Ogre::Viewport* backgroundViewport = this->getViewport(num);
-		oAssert(backgroundViewport);
-		backgroundViewport->setBackgroundColour(
-			Ogre::ColourValue(red, green, blue));
+		unsigned int width = 0;
+		unsigned int height = 0;
+		this->getRenderSystem()->getWindowSize(width, height);
+		return width;
+	}
+	//---------------------------------------------------------
+	unsigned int Engine::getWindowHeight()
+	{
+		unsigned int width = 0;
+		unsigned int height = 0;
+		this->getRenderSystem()->getWindowSize(width, height);
+		return height;
+	}
+	//---------------------------------------------------------
+	void Engine::setCameraOrthographic(float verticalHalfExtent)
+	{
+		optr<RenderCamera> windowCamera = this->getWindowCamera();
+		oAssert(windowCamera);
+		// height only - the width follows the camera's aspect ratio; the
+		// facade call wants the clips, preserving the current ones keeps the
+		// historical "projection switch only" behavior
+		windowCamera->setOrthographic(verticalHalfExtent,
+			windowCamera->getNearClip(), windowCamera->getFarClip());
+	}
+	//---------------------------------------------------------
+	void Engine::setCameraPerspective()
+	{
+		optr<RenderCamera> windowCamera = this->getWindowCamera();
+		oAssert(windowCamera);
+		windowCamera->setPerspective(windowCamera->getFOVy(),
+			windowCamera->getNearClip(), windowCamera->getFarClip());
+	}
+	//---------------------------------------------------------
+	void Engine::setWindowBackgroundColour(float red, float green, float blue)
+	{
+		this->getRenderSystem()->setWindowBackgroundColour(
+			Color(red, green, blue));
 	}
 	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
-		OFUNC(getSceneManager)
 		OFUNC(setup)
 		OFUNC(getTopLevelWindowHandle)
-		OFUNC(createDefaultCameraAndViewport)
 		OFUNC(renderOneFrame)
 		OFUNC(enableWireframeMode)
 		OFUNC(disableWireframeMode)
-		// camera access for scripts (Lua passes the index - no default args
-		// across the binding): Engine.getSingleton():getCamera(0)
-		OFUNC(getCamera)
-		// viewport access for UI layout: getViewport(0):getActualWidth()
-		OFUNC(getViewport)
-		// 2D projection switches: engine:setCameraOrthographic(0, orthoSize)
+		// --- the facade surface (WP-A1.5, Docs/render-abstraction.md): the
+		// classic Ogre accessors (getSceneManager/getCamera/getViewport) left
+		// the Lua surface - scripts see facade types only ------------------
+		// the window camera; scripts place it via its rig node:
+		// Engine.getSingleton():getCamera():getNode()
+		OFUNC_REN(getWindowCamera,getCamera)
+		// render services (RenderSystem/RenderWorld usertypes in module.cpp)
+		OFUNC(getRenderSystem)
+		// window size in pixels for UI layout (the getViewport(0):
+		// getActualWidth/Height successor)
+		OFUNC(getWindowWidth)
+		OFUNC(getWindowHeight)
+		// 2D projection switches: engine:setCameraOrthographic(orthoSize)
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)
-		OFUNC(setViewportBackgroundColour)
+		OFUNC(setWindowBackgroundColour)
 	OOBJECT_END
 }

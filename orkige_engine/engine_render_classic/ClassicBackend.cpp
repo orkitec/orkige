@@ -60,9 +60,11 @@ namespace Orkige
 		}
 		delete gRenderSystem;	// ~RenderSystem deletes the world
 		gRenderSystem = NULL;
-		// any handle still alive now is an application bug (handles must
-		// not outlive the render system) - drop the mappings so late
-		// lookups at least resolve to NULL instead of dangling
+		// handles may still be alive in script states (Lua userdata lives
+		// until the Lua state closes, which happens after ~Engine) - their
+		// destructors detect the dead backend via RenderBackend::system()
+		// and free facade memory only. Drop the mappings so late lookups
+		// resolve to NULL instead of dangling.
 		gNodeRegistry.clear();
 	}
 	//---------------------------------------------------------

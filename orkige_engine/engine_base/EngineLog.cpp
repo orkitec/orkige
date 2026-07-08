@@ -17,6 +17,7 @@
 
 #include <OgreLogManager.h>
 
+#include <cstdio>
 #include <deque>
 #include <mutex>
 
@@ -127,6 +128,18 @@ namespace Orkige
 		if (Ogre::LogManager::getSingletonPtr())
 		{
 			Ogre::LogManager::getSingleton().logMessage(text);
+		}
+	}
+	//---------------------------------------------------------
+	void EngineLogCapture::logError(String const & text)
+	{
+		if (Ogre::LogManager::getSingletonPtr())
+		{
+			Ogre::LogManager::getSingleton().logError(text);
+		}
+		else
+		{
+			fprintf(stderr, "%s\n", text.c_str());
 		}
 	}
 }

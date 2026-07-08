@@ -479,6 +479,7 @@ int main(int argc, char** argv)
 			(std::getenv("ORKIGE_JUMPER_NATIVE_SELFCHECK") != nullptr);
 		const bool automatedRun = frameLimit != 0 || hudSelfCheck;
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- classic boot block (sanctioned raw-Ogre corner, see
 		// Docs/render-abstraction.md "App boot"): Engine construction/config
 		// and the RTSS-internal media registration stay classic plumbing;
@@ -516,6 +517,7 @@ int main(int argc, char** argv)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
+		// ORKIGE_SANCTIONED_OGRE_END
 		// --- end of the classic boot block: from here on the module talks to
 		// the renderer through the engine_render facade exclusively
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();

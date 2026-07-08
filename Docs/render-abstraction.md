@@ -107,7 +107,7 @@ abstracted): see per-file table below.
 | `engine_graphic/IngameConsole` | **classic-only, candidate to unbuild** | `Rectangle2D` + Overlay; live users are only `module.cpp` (Lua export) and an InputManager toggle. Keep classic-only; revisit when a cross-backend console is wanted (could be rebuilt on fastgui/facade sprites). |
 | `engine_graphic/MovableText`, `DynamicLines`, `DynamicRenderable` | **classic-only; MovableText candidate to unbuild** | Ogre `SimpleRenderable`/`MovableObject` subclasses = per-backend by nature. DynamicLines' only user is the unused ColoredBoundingBox; MovableText's only user is the unbuilt sceneoptimizer. |
 | `engine_graphic/ColoredBoundingBox`, `LightMap` | **unbuild (question #6)** | Zero callers. |
-| `engine_util/SceneNodeGuard` | **superseded by `RenderNode`** | The facade carries only the used ~40% of its mirror. WP-A1.2 reshaped the guard into the components' facade-node-owner base (holds `optr<RenderNode>`, forwards ~15 used methods); deleted at the end of A1 (WP-A1.5) when components hold the optr directly. |
+| `engine_util/SceneNodeGuard` | **superseded by `RenderNode`; kept as node-owner base** | The facade carries only the used ~40% of its mirror. WP-A1.2 reshaped the guard into the components' facade-node-owner base (holds `optr<RenderNode>`, forwards ~15 used methods). WP-A1.5 kept it (recorded deviation): it is Ogre-free and shared by three components — deleting it would just triple the forwarding surface. |
 | `engine_util/MeshUtil` | **backend-private** | Raw vertex/index buffer extraction; only caller is CollisionTools' triangle raycast (being superseded by PhysicsWorld) + unbuilt sceneoptimizer. Moves behind the classic seam; Ogre-Next equivalent only if triangle-accurate *render-mesh* picking is ever needed there. |
 | `engine_util/PrimitiveUtil` | **split** | "EditorCube" mesh + vertex-colour-unlit fixup are wanted on every backend → facade (`MeshInstance::setVertexColourUnlit`; cube-mesh factory becomes a backend service in A1 — DONE in WP-A1.3: `RenderWorld::createVertexColourCubeMesh`, classic impl calls PrimitiveUtil). ManualObject guts stay backend-private; direct PrimitiveUtil callers left are the classic backend + the classic-only editor (WP-A1.4 decides its final home). |
 | `engine_util/StringConverter` | **keep (math-adjacent)** | Converts math types + scalars; follows whatever the math decision says (aliases keep it working on both Ogre backends; own-types rewrite it). |
@@ -434,10 +434,84 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
     tools/editor: 33 spellings in main.cpp (all in those blocks or
     comments), plus 5 comment-only mentions across
     ImGuiSDL3Input/EditorTheme; down from the audit's 211.
-- **WP-A1.5 Lua + cleanup**: `module.cpp` usertypes re-targeted at facade classes
-  (script-facing names preserved; `projects/jumper-lua` must run unchanged);
-  SceneNodeGuard deleted; Engine scene accessors deprecated; sweep that no file above
-  the backend dirs adds new `Ogre::` scene types. Gate: `ctest --preset desktop` green.
+- **WP-A1.5 Lua + containment lock** *(DELIVERED 2026-07-08 — closes A1)*:
+  `module.cpp` usertypes re-targeted at facade classes; player onto the facade
+  camera rig; the containment rule became a mechanical gate (pulled forward
+  from WP-A3.3). Gate: `ctest --preset desktop` green (139 tests incl. the lint).
+  Implementation notes:
+  - **Lua surface**: the classic usertypes (`SceneNode`/`SceneManager`/
+    `Viewport`/`Camera`) are GONE. Facade usertypes: `RenderNode` (position/
+    orientation/scale + world getters, translate/lookAt/setDirection/
+    setFixedYawAxis/setVisible, createChild/getParent/numChildren,
+    `TransformSpace` enum), `RenderCamera` (`getNode` — NEW facade API,
+    the rig-node accessor scripts place the camera with — setOrthographic,
+    projection type + clips, setAspectRatio, setWireframe), `RenderSystem`
+    (getWindowCamera/getWorld/saveWindowContents), `RenderWorld`
+    (getRootNode/createNode). `Radian`/`Degree`-taking methods (yaw/pitch/
+    roll, setPerspective/setFOVy) stay unregistered until an angle usertype
+    exists — scripts rotate via setOrientation/lookAt.
+  - **Engine stays the app/Lua singleton**, its scene surface re-pointed:
+    Lua `getCamera()` = the facade window camera (C++
+    `Engine::getWindowCamera`), `getWindowWidth/Height` replace
+    `getViewport(0):getActualWidth/Height`, `setCameraOrthographic(size)` /
+    `setCameraPerspective()` / `setWindowBackgroundColour(r,g,b)` route
+    through the facade preserving clips/FOV. `getSceneManager`/`getCamera(n)`/
+    `getViewport`/`createDefaultCameraAndViewport` left the Lua surface and
+    are deprecated in C++ (doc comments name the remaining classic-only
+    consumers). Script spellings updated in projects/jumper-lua +
+    projects/roller (`RenderNode.TransformSpace`,
+    `engine:getCamera():getNode()`, window-size calls) — behavior identical,
+    proven by the untouched selfcheck expectations; hello_orkige's inline
+    Lua smoke test now walks the facade types.
+  - **Player camera**: tools/player builds the standard facade rig
+    (createCamera + createNode + setFixedYawAxis + showCameraOnWindow); the
+    WP-A1.3 residue (Engine-path camera + roll probe) is gone.
+    `Engine::getViewport`'s bridge STAYS with one consumer: fastgui
+    (classic-only, decision #2) — it goes with the A3 draw-surface seam.
+  - **Late-handle guard**: script-held facade handles legally outlive the
+    render system now (Lua userdata lives until the Lua state closes, after
+    ~Engine) — the classic RenderNode/RenderCamera dtors detect the dead
+    backend (`RenderBackend::system() == NULL`) and free facade memory only.
+  - **SceneNodeGuard NOT deleted — recorded plan deviation**: the WP-A1.2
+    reshape left it Ogre-free and it is the shared facade-node-owner base of
+    exactly three components (Transform/Model/Sprite); inlining the optr
+    would triple ~15 forwarding methods for zero containment gain. It stays
+    (in engine_util) until a component needs a different node model.
+  - **Containment lint** (pulled forward from WP-A3.3):
+    `Util/check_ogre_containment.py` + `Util/ogre_containment.json`, wired
+    as ctest `render_containment_lint` (LABELS unit → unit AND desktop
+    presets). Comment-stripped scan; allowed = engine_graphic/,
+    engine_render_classic/ (+ engine_render_next/ in A2), RenderMath.h;
+    everything else needs a config entry (whole dir/file with reason — the
+    audit's residual lists are the baseline) or an explicitly marked
+    `ORKIGE_SANCTIONED_OGRE_BEGIN(<tag>)`/`_END` block (the app classic boot
+    blocks, the editor glue, the AnimationComponent root-motion backdoor).
+    Stale sanctions fail the lint too, so the list only shrinks. Current
+    violation count: **0**. Bonus de-leak: ScriptComponent's error logging
+    moved onto `EngineLogCapture::logError` (the engine log service grew the
+    stderr-fallback error path).
+
+### A phase status: A1 COMPLETE (2026-07-08)
+
+Everything above `engine_graphic`/`engine_render_classic` talks to the
+renderer exclusively through `engine_render` — components, apps, tools,
+editor AND the Lua script surface — with the residue pinned down in
+`Util/ogre_containment.json` and enforced by `render_containment_lint`.
+
+**What a new backend must implement** (the A2 `engine_render_next/` work
+order): the 8 facade classes (`RenderSystem`, `RenderWorld`, `RenderNode`,
+`MeshInstance`, `SpriteQuad`, `RenderCamera`, `RenderLight`,
+`RenderTexture`) against the per-method mapping comments in the headers,
+plus a bootstrap TU for `tests/render_facade`. The conformance contract IS
+the test suite, unchanged:
+
+- `render_facade_selfcheck` — window, node hierarchy, mesh + unlit fixup,
+  sprite, perspective/ortho cameras + matrices, light, RTT, queryRay,
+  stats, screenshots;
+- `player_jumper_lua_selfcheck` / `player_roller_selfcheck` — the full
+  script-visible surface (facade usertypes, window camera rig, 2D tier);
+- the demo/editor/player integration runs minus the documented
+  fastgui-dependent skips (HUD arrives in A3).
 
 ### A2 — Ogre-Next backend
 
@@ -464,10 +538,11 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   Gorilla remains available classic-side until the seam covers jumper's HUD needs.
 - **WP-A3.2 HUD migration**: jumper + roller + player HUD paths onto the facade HUD;
   fastgui atlas tests extended; `desktop-next` skip list emptied.
-- **WP-A3.3 closure**: containment lint (grep gate: no `Ogre::` outside
-  engine_graphic/engine_render_classic/engine_render_next except `RenderMath.h`),
-  editor-backend decision (question #3) revisited with real Next numbers, math-swap
-  readiness review (question #4), mobile backend evaluation input for Phase 3.
+- **WP-A3.3 closure**: containment lint DELIVERED EARLY (WP-A1.5:
+  `render_containment_lint` + `Util/ogre_containment.json`) — the A3 job
+  shrinks its sanction list as fastgui/HUD migrate; editor-backend decision
+  (question #3) revisited with real Next numbers, math-swap readiness review
+  (question #4), mobile backend evaluation input for Phase 3.
 
 ---
 

@@ -211,8 +211,8 @@ function init(self)
 	factory = FastGuiFactory()
 	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
 
-	local viewport = Engine.getSingleton():getViewport(0)
-	local w, h = viewport:getActualWidth(), viewport:getActualHeight()
+	local engine = Engine.getSingleton()
+	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 
 	-- HUD (z 12): mode indicator, wins counter, controls hint
 	hud.mode = factory:createLabel("hud.mode", FONT_HUD, "", Vector2(16, 16),

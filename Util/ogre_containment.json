@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "Renderer containment config (WP-A1.5, Docs/render-abstraction.md;",
+    "checked by Util/check_ogre_containment.py = ctest render_containment_lint).",
+    "Ogre:: in CODE is allowed only in allowed_dirs/allowed_files, in the",
+    "sanctioned entries below (each with its reason - the doc's residual",
+    "lists are the baseline) and inside ORKIGE_SANCTIONED_OGRE_BEGIN/END",
+    "blocks of sanctioned_block_files. Everything else fails the lint.",
+    "Adding a new Ogre-speaking file means editing THIS file in the same",
+    "change - that is the review speed bump the lint exists for."
+  ],
+  "allowed_dirs": [
+    "orkige_engine/engine_graphic",
+    "orkige_engine/engine_render_classic"
+  ],
+  "allowed_files": [
+    "orkige_engine/engine_render/RenderMath.h"
+  ],
+  "sanctioned_dirs": {
+    "orkige_engine/engine_fastgui": "classic-only zone (decision #2): Gorilla fork + widgets; superseded by the facade HUD in A3",
+    "orkige_engine/engine_filesystem": "Ogre::Archive/ArchiveFactory subclasses (BigZip) - the archive subsystem exists in Ogre-Next too; Filament gets an impl-side VFS"
+  },
+  "sanctioned_files": {
+    "orkige_engine/engine_base/EngineLog.cpp": "the engine log service pimpl - the ONE place above the backends talking to the logging backend (OGRE LogManager, also present in Next)",
+    "orkige_engine/engine_base/Localisation.h": "Ogre::ConfigFile INI parsing (classic-only per audit; replace with an engine parser when touched)",
+    "orkige_engine/engine_base/Localisation.cpp": "Ogre::ConfigFile INI parsing + entity-name probe (classic-only per audit)",
+    "orkige_engine/engine_gocomponent/SpriteComponent.h": "renderQueueForZOrder pure helper (render-queue id math, unit-tested); consolidate onto the backend service when touched",
+    "orkige_engine/engine_gocomponent/SpriteComponent.cpp": "renderQueueForZOrder pure helper (render-queue id math, unit-tested)",
+    "orkige_engine/engine_input/InputManager.h": "math-only residue (tilt vectors) - alias vocabulary pending (math decision, Option A)",
+    "orkige_engine/engine_input/InputManager.cpp": "math-only residue (tilt vectors) - alias vocabulary pending",
+    "orkige_engine/engine_module/module.cpp": "Lua math usertypes (Vector3/Vector2/Quaternion) = the engine math vocabulary per the RenderMath.h alias decision",
+    "orkige_engine/engine_physic/PhysicsWorld.h": "math-only residue (Jolt<->engine math conversions) - alias vocabulary pending",
+    "orkige_engine/engine_physic/PhysicsWorld.cpp": "math-only residue (Jolt<->engine math conversions) - alias vocabulary pending",
+    "orkige_engine/engine_sound/SoundSource.h": "math-only residue (listener/source positions) - alias vocabulary pending",
+    "orkige_engine/engine_sound/SoundSource.cpp": "math-only residue - alias vocabulary pending",
+    "orkige_engine/engine_sound/LoadWavData.cpp": "loads wav bytes through the resource system (Ogre::DataStream) - portable to Next; impl-side VFS on Filament",
+    "orkige_engine/engine_util/MeshUtil.h": "backend-private vertex/index buffer extraction; only referenced by the unbuilt sceneoptimizer",
+    "orkige_engine/engine_util/PrimitiveUtil.h": "backend-private ManualObject mesh building; called by the classic backend (createVertexColourCubeMesh)",
+    "orkige_engine/engine_util/StringConverter.h": "math-adjacent converters - follow the math decision (aliases keep it working on both Ogre backends)",
+    "orkige_engine/engine_util/StringUtil.h": "Ogre::DisplayString conversion for fastgui text (classic-only zone consumer)",
+    "orkige_engine/engine_util/ResourceUtil.cpp": "resource-group listing over Ogre::ResourceGroupManager - portable to Next; facade candidate when a second caller appears",
+    "samples/jumper/JumperLogic.h": "math-only residue (pure gameplay math, unit-tested headlessly) - alias vocabulary pending",
+    "samples/jumper/JumperHud.h": "one spelling: the resource-group default parameter forwarded to fastgui (classic-only zone consumer, documented in WP-A1.3)",
+    "tests/render_facade/bootstrap_classic.cpp": "the classic backend's bootstrap TU of the render_facade selfcheck - per-backend by design",
+    "tests/engine/FastGuiAtlasTests.cpp": "parses .ogui atlases through Ogre::ConfigFile, following FastGuiFactory (classic-only zone)",
+    "tests/engine/TwoDSupportTests.cpp": "math values + render-queue id constants (RENDER_QUEUE_MAIN) asserted against the pure helpers",
+    "tests/jumper/JumperLogicTests.cpp": "math values (JumperLogic surface) - alias vocabulary pending",
+    "tests/editor_core/EditorCameraTests.cpp": "math values - alias vocabulary pending",
+    "tests/editor_core/EditorCoreTests.cpp": "math values - alias vocabulary pending"
+  },
+  "sanctioned_block_files": {
+    "orkige_engine/engine_gocomponent/AnimationComponent.cpp": "root-motion backdoor (decided question #1): classic-only bone/keyframe digging inside #ifdef ORKIGE_RENDER_CLASSIC blocks",
+    "samples/hello_orkige/main.cpp": "app-standard classic boot block (Engine ctor, ORKIGE_RENDERSYSTEM, RTSS internal media)",
+    "samples/jumper/main.cpp": "app-standard classic boot block",
+    "projects/jumper-native/native/main.cpp": "app-standard classic boot block",
+    "tools/player/main.cpp": "app-standard classic boot block",
+    "tools/editor/main.cpp": "classic boot block + the WP-A1.4 editor glue (OverlaySystem/ImGuiOverlay wiring, UI-only window viewport, grid ManualObject)"
+  }
+}

@@ -30,6 +30,7 @@
 #include <engine_graphic/Engine.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderWorld.h>
+#include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
@@ -458,13 +459,11 @@ int main(int argc, char** argv)
 		const bool automatedRun = jumperLuaCheck || rollerCheck ||
 			frameLimit != 0;
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- classic boot block (sanctioned raw-Ogre corner, see
 		// Docs/render-abstraction.md "App boot"): Engine construction/config
 		// and the RTSS-internal media registration stay classic plumbing;
-		// after Engine::setup the player talks to the engine_render facade -
-		// EXCEPT the window camera, which stays on the Engine path until
-		// WP-A1.5 because the project scripts drive it through the Lua
-		// bindings (engine:getCamera/setCameraOrthographic/...).
+		// after Engine::setup the player talks to the engine_render facade.
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, engineLogPath);
@@ -529,13 +528,23 @@ int main(int argc, char** argv)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		// the Engine-path window camera (see the boot-block note above); the
-		// facade wraps it via RenderSystem::getWindowCamera where needed
-		engine.createDefaultCameraAndViewport();
-		// --- end of the classic boot block: from here on (camera placement
-		// aside) the player talks to the engine_render facade
+		// ORKIGE_SANCTIONED_OGRE_END
+		// --- end of the classic boot block: from here on the player talks
+		// to the engine_render facade exclusively
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
+
+		// the window camera on a facade rig (createDefaultCameraAndViewport
+		// successor, same pattern as the samples). The fixed yaw axis keeps
+		// per-frame lookAt calls roll-free - project scripts drive this rig
+		// through the Lua bindings (engine:getCamera():getNode(),
+		// engine:setCameraOrthographic, ...) since WP-A1.5.
+		optr<Orkige::RenderCamera> camera = world->createCamera("player.camera");
+		optr<Orkige::RenderNode> cameraNode =
+			world->createNode("player.cameraNode");
+		cameraNode->setFixedYawAxis(true);
+		camera->attachTo(cameraNode);
+		render->showCameraOnWindow(camera);
 
 		// sample assets (test_mesh.glb; scene meshes load lazily via
 		// Codec_Assimp) and the jumper sample assets, so the editor's play
@@ -642,12 +651,10 @@ int main(int argc, char** argv)
 		}
 
 		// default view: matches the editor's initial orbit camera pose so a
-		// scene looks the same in the player as in a fresh editor viewport.
-		// Engine-path camera placement (sanctioned residue): the Lua camera
-		// bindings own this camera until WP-A1.5 re-targets them at the facade
-		engine.getCamera()->getParentSceneNode()->setPosition(0.0f, 2.5f, 9.0f);
-		engine.getCamera()->getParentSceneNode()->lookAt(
-			Orkige::Vec3::ZERO, Ogre::Node::TS_WORLD);
+		// scene looks the same in the player as in a fresh editor viewport
+		// (project scripts may re-place the rig from their init())
+		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.5f, 9.0f));
+		cameraNode->lookAt(Orkige::Vec3::ZERO, Orkige::RenderNode::TS_WORLD);
 
 		// frame-time statistics: the ORKIGE_DEMO_FPS_LOG measurement hook and
 		// the one-time "this build is too slow to play" hint
@@ -1271,14 +1278,12 @@ int main(int argc, char** argv)
 					!jumperWidgetVisible("win.banner"))
 				{
 					// camera-roll regression: the Lua follow camera lookAt's
-					// the engine camera node every frame of this session -
-					// the engine's fixed yaw axis must have kept it roll-free
-					// (the old shortest-arc lookAt slowly tilted the horizon).
-					// Engine-path camera probe (sanctioned residue, see the
-					// boot-block note) until WP-A1.5 re-targets the Lua camera
+					// the camera rig node every frame of this session - the
+					// rig's fixed yaw axis must have kept it roll-free (the
+					// old shortest-arc lookAt slowly tilted the horizon)
 					const float cameraRollDegrees = std::abs(
-						engine.getCamera()->getParentSceneNode()
-							->getOrientation().getRoll().valueDegrees());
+						cameraNode->getOrientation()
+							.getRoll().valueDegrees());
 					SDL_Log("orkige_player: jumper-lua selfcheck - camera "
 						"roll %.4f deg after the play session",
 						cameraRollDegrees);

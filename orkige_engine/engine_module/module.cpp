@@ -25,6 +25,10 @@
 #include "engine_sound/SoundManager.h"
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_render/RenderSystem.h"
+#include "engine_render/RenderWorld.h"
+#include "engine_render/RenderNode.h"
+#include "engine_render/RenderCamera.h"
 
 using namespace Orkige;
 
@@ -103,12 +107,13 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(FastGuiButton)
 	OEXPORT(DragEventData)
 
-	//Exposing some Ogre internals
-	// the math value types scripts actually compute with; construction is
-	// Vector3(x,y,z) / Quaternion(w,x,y,z), members are plain fields.
-	// x/y/z (and cross/dot) physically live on Ogre's VectorBase - the base
-	// must be registered for sol2 to resolve them (see OSIMPLEEXPORT_BASED);
-	// the typedef exists because macro arguments cannot carry the comma
+	// the math value types scripts actually compute with (the engine math
+	// vocabulary - Ogre spellings per the RenderMath.h alias decision);
+	// construction is Vector3(x,y,z) / Quaternion(w,x,y,z), members are
+	// plain fields. x/y/z (and cross/dot) physically live on Ogre's
+	// VectorBase - the base must be registered for sol2 to resolve them (see
+	// OSIMPLEEXPORT_BASED); the typedef exists because macro arguments
+	// cannot carry the comma
 	using OgreVector3Base [[maybe_unused]] = Ogre::VectorBase<3, Ogre::Real>;
 	OSIMPLEEXPORT_BASED(Ogre::Vector3,OgreVector3Base,Vector3)
 		OCONSTRUCTOR3(float,float,float)
@@ -140,14 +145,40 @@ ORKIGE_MODULE(orkige_engine)
 		OVAR(z)
 	OSIMPLEEXPORT_END
 
-	// enough SceneNode to drive a camera from a script (position + lookAt;
-	// Lua passes lookAt's THREE arguments - no default args across the
-	// binding: node:lookAt(target, SceneNode.TransformSpace.TS_WORLD,
-	// Vector3(0, 0, -1))); position lives on Ogre::Node - base registered
-	OSIMPLEEXPORT_BASED(Ogre::SceneNode,Ogre::Node,SceneNode)
-		OFUNCOVERL(setPosition, void (Ogre::Node::*)(Ogre::Vector3 const &))
+	// --- the engine_render facade surface (WP-A1.5, Docs/render-abstraction
+	// .md): the classic Ogre scene usertypes (SceneNode/SceneManager/
+	// Viewport/Camera) are gone - scripts drive the renderer through the
+	// backend-free facade handles below (optr = shared_ptr, which sol2
+	// binds natively). No default arguments cross the binding: Lua passes
+	// every parameter (node:lookAt(target, RenderNode.TransformSpace
+	// .TS_WORLD, Vector3(0, 0, -1))). yaw/pitch/roll and the Degree-taking
+	// projection calls stay unregistered until a Radian/Degree usertype
+	// exists - scripts rotate via setOrientation/lookAt/setDirection.
+
+	// the transform-hierarchy node handle (what scripts place cameras and
+	// objects with)
+	OSIMPLEEXPORT(Orkige::RenderNode,RenderNode)
 		OFUNCIR(getPosition)
+		OFUNC(setPosition)
+		OFUNCIR(getOrientation)
+		OFUNC(setOrientation)
+		OFUNCIR(getScale)
+		OFUNC(setScale)
+		OFUNC(getWorldPosition)
+		OFUNC(getWorldOrientation)
+		// (delta, TransformSpace)
+		OFUNC(translate)
+		// (target, TransformSpace, localDirection)
 		OFUNC(lookAt)
+		// (direction, TransformSpace, localDirection)
+		OFUNC(setDirection)
+		// (useFixed, fixedAxis)
+		OFUNC(setFixedYawAxis)
+		// (visible, cascade)
+		OFUNC(setVisible)
+		OFUNC(createChild)
+		OFUNC(getParent)
+		OFUNC(numChildren)
 		OENUM_START(TransformSpace)
 			OENUM_VALUE(TS_LOCAL)
 			OENUM_VALUE(TS_PARENT)
@@ -155,19 +186,37 @@ ORKIGE_MODULE(orkige_engine)
 		OENUM_END
 	OSIMPLEEXPORT_END
 
-	OSIMPLEEXPORT(Ogre::SceneManager,SceneManager)
-		OFUNCIR(getSceneNode)
+	// the camera handle: scripts fetch the window camera from the Engine
+	// singleton (engine:getCamera()) and move it via getNode()
+	OSIMPLEEXPORT(Orkige::RenderCamera,RenderCamera)
+		OFUNC(getNode)
+		// (verticalHalfExtent, nearClip, farClip) - Engine's
+		// setCameraOrthographic wraps this preserving the clips
+		OFUNC(setOrthographic)
+		OFUNC(getProjectionType)
+		OFUNC(getNearClip)
+		OFUNC(getFarClip)
+		OFUNC(setAspectRatio)
+		OFUNC(setWireframe)
+		OENUM_START(ProjectionType)
+			OENUM_VALUE(PT_PERSPECTIVE)
+			OENUM_VALUE(PT_ORTHOGRAPHIC)
+		OENUM_END
 	OSIMPLEEXPORT_END
 
-	// enough Viewport for UI layout: Engine.getSingleton():getViewport(0)
-	// answers the screen size in pixels
-	OSIMPLEEXPORT(Ogre::Viewport,Viewport)
-		OFUNC(getActualWidth)
-		OFUNC(getActualHeight)
+	// the renderer entry point (engine:getRenderSystem()) - the services a
+	// script can meaningfully reach; sizes/stats with out-parameters stay
+	// C++-only (Engine wraps the window size as getWindowWidth/Height)
+	OSIMPLEEXPORT(Orkige::RenderSystem,RenderSystem)
+		OFUNC(getWindowCamera)
+		OFUNC(getWorld)
+		OFUNC(saveWindowContents)
 	OSIMPLEEXPORT_END
 
-	// getParentSceneNode lives on Ogre::MovableObject - base registered
-	OSIMPLEEXPORT_BASED(Ogre::Camera,Ogre::MovableObject,Camera)
-		OFUNC(getParentSceneNode)
+	// the scene world: node factory + root access for scripts
+	OSIMPLEEXPORT(Orkige::RenderWorld,RenderWorld)
+		OFUNC(getRootNode)
+		// (name) - empty string = backend-generated name
+		OFUNC(createNode)
 	OSIMPLEEXPORT_END
 ORKIGE_MODULE_END

@@ -223,6 +223,7 @@ namespace Orkige
 			}
 			this->getComponentOwner()->triggerEvent(Event(AnimationsLoaded));
 		}
+// ORKIGE_SANCTIONED_OGRE_BEGIN(root-motion-backdoor) - lint gate, see Util/ogre_containment.json
 #ifdef ORKIGE_RENDER_CLASSIC
 		// bone inventory for the root-motion backdoor (see the include note)
 		if(Ogre::Entity const * model = RenderBackend::ogreEntity(mesh))
@@ -239,10 +240,12 @@ namespace Orkige
 			}
 		}
 #endif //ORKIGE_RENDER_CLASSIC
+// ORKIGE_SANCTIONED_OGRE_END
 	}
 	//---------------------------------------------------------
 	void AnimationComponent::handleMotionRotation(String const & animationName, float timeDelta)
 	{
+// ORKIGE_SANCTIONED_OGRE_BEGIN(root-motion-backdoor) - lint gate, see Util/ogre_containment.json
 #ifdef ORKIGE_RENDER_CLASSIC
 		// ROOT-MOTION BACKDOOR - classic-only by decision #1 (see the
 		// include note at the top of this file)
@@ -314,6 +317,7 @@ namespace Orkige
 				}
 			}
 		}
+// ORKIGE_SANCTIONED_OGRE_END
 #else //ORKIGE_RENDER_CLASSIC
 		// no facade bone/keyframe API by design (question #1) - inert
 		(void)animationName;

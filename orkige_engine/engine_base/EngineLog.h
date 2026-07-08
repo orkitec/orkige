@@ -87,6 +87,10 @@ namespace Orkige
 		//! @brief write a line into the engine's default log (attached
 		//! captures - including this one - see it); no-op without a log
 		static void logMessage(String const & text);
+		//! @brief write an ERROR line into the engine's default log; falls
+		//! back to stderr when no engine log exists (headless runs) - errors
+		//! must stay visible in every build configuration
+		static void logError(String const & text);
 	protected:
 	private:
 		EngineLogCapture(EngineLogCapture const &);					// non-copyable

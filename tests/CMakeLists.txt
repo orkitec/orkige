@@ -10,6 +10,17 @@
 
 add_subdirectory(core)
 
+# renderer containment lint (WP-A1.5, Docs/render-abstraction.md): fails
+# when an Ogre:: spelling appears in code outside the backend directories,
+# the RenderMath.h alias header and the sanctioned files/blocks maintained
+# in Util/ogre_containment.json. Pure source scan - headless, LABELS unit,
+# so it runs in the unit AND desktop presets.
+add_test(NAME render_containment_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_ogre_containment.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(render_containment_lint PROPERTIES
+    LABELS unit TIMEOUT 30)
+
 if(TARGET orkige_engine)
     # pure-logic engine unit tests (no window/GPU)
     add_subdirectory(engine)

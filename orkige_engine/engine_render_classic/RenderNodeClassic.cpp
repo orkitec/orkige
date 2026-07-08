@@ -58,7 +58,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderNode::~RenderNode()
 	{
-		if(this->mImpl->node)
+		// late destruction guard (WP-A1.5): script-held handles (Lua userdata
+		// keeps the optr alive until the Lua state closes) may legally
+		// outlive the render system - once destroyRenderSystem ran, the
+		// backend scene died with the Ogre root and only the facade memory
+		// is freed here
+		if(this->mImpl->node && RenderBackend::system())
 		{
 			RenderBackend::unregisterNode(this->mImpl->node);
 			// drop this handle from the parent's facade child list

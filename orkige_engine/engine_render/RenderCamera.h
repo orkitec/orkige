@@ -59,6 +59,11 @@ namespace Orkige
 		void attachTo(optr<RenderNode> const & node);
 		//! map: classic/next=detach from node | filament=unparent
 		void detach();
+		//! @brief the node this camera is attached to, or NULL when detached
+		//! (scripts drive the window camera through its rig node this way)
+		//! map: facade-side bookkeeping (all backends); classic additionally
+		//! back-maps wrapped cameras through the node registry
+		optr<RenderNode> getNode() const;
 
 		//--- projection ---
 		//! @brief perspective projection (the 3D default)

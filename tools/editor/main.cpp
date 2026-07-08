@@ -2279,6 +2279,7 @@ void applyOrbitCamera(EditorState const& state,
 			Orkige::Vec3::UNIT_X));
 }
 
+// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-grid) - lint gate, see Util/ogre_containment.json
 // The ground-plane reference grid: built ONCE as a ManualObject line list
 // through the shared unlit "VertexColour" material (created before this
 // runs). Lives on its own root child node; the View menu toggles visibility.
@@ -2322,6 +2323,7 @@ Ogre::SceneNode* createEditorGrid(Ogre::SceneManager* sceneManager)
 	gridNode->attachObject(grid);
 	return gridNode;
 }
+// ORKIGE_SANCTIONED_OGRE_END
 
 // F: frame the selected object - retarget the orbit to the object's world
 // bounds centre and fit the orbit distance to its bounding radius
@@ -5537,6 +5539,7 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr;
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- classic boot block (sanctioned raw-Ogre corner, decision #3 +
 		// the WP-A1.3 app rule in Docs/render-abstraction.md): Engine is the
 		// classic backend's bootstrapper - constructing/configuring it,
@@ -5604,6 +5607,7 @@ int main(int, char**)
 			SDL_Log("Engine::setup failed");
 			return 1;
 		}
+		// ORKIGE_SANCTIONED_OGRE_END
 		// --- end of the classic boot block: from here on the editor talks
 		// to the renderer through the engine_render facade - except for the
 		// marked classic editor glue (overlay wiring, UI viewport, grid)
@@ -5628,6 +5632,7 @@ int main(int, char**)
 			world->createNode("EditorSceneCameraNode");
 		sceneCamera->attachTo(sceneCameraNode);
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-ui-viewport) - lint gate, see Util/ogre_containment.json
 		// CLASSIC EDITOR GLUE (decision #3): the window keeps a single
 		// UI-only viewport for the ImGui overlay - visibility mask 0 hides
 		// all scene content, leaving a dark grey backdrop around the docked
@@ -5660,8 +5665,10 @@ int main(int, char**)
 		// overlays render as a RenderQueueListener on the SceneManager
 		// (classic editor glue, see the OverlaySystem note above)
 		sceneManager->addRenderQueueListener(&overlaySystem);
+		// ORKIGE_SANCTIONED_OGRE_END
 		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-imgui-overlay) - lint gate, see Util/ogre_containment.json
 		// Dear ImGui overlay: OGRE's own integration; the overlay renders
 		// through the Overlay render queue hook above. Ownership goes to the
 		// OverlayManager (destroyed with the OverlaySystem). CLASSIC EDITOR
@@ -5711,6 +5718,7 @@ int main(int, char**)
 		OgreAssert(imguiFontTex, "ImGui font texture missing after overlay init");
 		ImGui::GetIO().Fonts->SetTexID(
 			static_cast<ImTextureID>(imguiFontTex->getHandle()));
+		// ORKIGE_SANCTIONED_OGRE_END
 
 		// docking UI: full-window dockspace (drawDockspace). The panel layout
 		// persists through imgui.ini stored NEXT TO THE EXECUTABLE
@@ -5758,10 +5766,12 @@ int main(int, char**)
 		// ARE PrimitiveUtil::CUBE_MESH_NAME/CUBE_MESH_HALF_EXTENT
 		world->createVertexColourCubeMesh();
 
+		// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-grid) - lint gate, see Util/ogre_containment.json
 		// ground-plane reference grid (editor-only, toggled via View menu,
 		// invisible to picking, not part of the GameObject world) - classic
 		// editor glue, see createEditorGrid
 		Ogre::SceneNode* gridNode = createEditorGrid(sceneManager);
+		// ORKIGE_SANCTIONED_OGRE_END
 		gridNode->setVisible(viewSettings.showGrid);
 
 		// GameObject/component bridge (registers the component factories)
@@ -6347,7 +6357,9 @@ int main(int, char**)
 			imguiInput.newFrame(
 				static_cast<float>(drawableWidth),
 				static_cast<float>(drawableHeight));
+			// ORKIGE_SANCTIONED_OGRE_BEGIN(editor-imgui-overlay) - lint gate, see Util/ogre_containment.json
 			Ogre::ImGuiOverlay::NewFrame();
+			// ORKIGE_SANCTIONED_OGRE_END
 			ImGuizmo::BeginFrame();
 
 			// snapshot the panel visibility: a close-button click (the x in

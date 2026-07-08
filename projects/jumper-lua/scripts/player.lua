@@ -27,7 +27,7 @@
 -- reaching the buddy at the end wins and respawns for another round.
 
 local KC = KeyEventData.KeyCode
-local TS = SceneNode.TransformSpace
+local TS = RenderNode.TransformSpace
 
 --- tuning (the "feel" numbers - same values as samples/jumper/main.cpp) ----
 local MOVE_SPEED   = 4.5        -- target run speed m/s
@@ -54,7 +54,7 @@ local CAMERA_LOOK_AHEAD = { x = 1.5, y = 0.8, z = 0.0 }
 --- per-instance state -------------------------------------------------------
 local physics                   -- PhysicsWorld singleton
 local input                     -- InputManager singleton
-local cameraNode                -- the engine camera's SceneNode
+local cameraNode                -- the window camera's rig RenderNode
 local goalTransform             -- the Goal object's TransformComponent or nil
 local grounded     = false
 local jumpBuffer   = 0.0
@@ -123,10 +123,10 @@ function init(self)
 
 	-- the camera starts on the spawn point and follows from update().
 	-- lookAt takes all three arguments across the binding (no default args);
-	-- Vector3(0,0,-1) is Ogre's NEGATIVE_UNIT_Z default localDirectionVector.
-	-- Per-frame lookAt is roll-free: the engine sets a fixed yaw axis on its
-	-- camera nodes (createDefaultCameraAndViewport).
-	cameraNode = Engine.getSingleton():getCamera(0):getParentSceneNode()
+	-- Vector3(0,0,-1) is the facade's default -Z localDirection.
+	-- Per-frame lookAt is roll-free: the player sets a fixed yaw axis on
+	-- its camera rig node (the facade camera rig in tools/player).
+	cameraNode = Engine.getSingleton():getCamera():getNode()
 	cameraNode:setPosition(Vector3(SPAWN.x + CAMERA_OFFSET.x,
 		SPAWN.y + CAMERA_OFFSET.y, SPAWN.z + CAMERA_OFFSET.z))
 	cameraNode:lookAt(Vector3(SPAWN.x, SPAWN.y, SPAWN.z), TS.TS_WORLD,
