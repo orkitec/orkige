@@ -425,6 +425,35 @@ TEST_CASE("EditorCore marks the scene dirty on every stack operation and "
 	manager.clear();
 }
 
+TEST_CASE("EditorCore snap settings default to the constants, are editable "
+	"and clamp to positive steps", "[editor]")
+{
+	Orkige::EditorCore core(freshWorld());
+
+	// defaults: snap off, steps = the historical SNAP_* constants
+	CHECK_FALSE(core.isSnapEnabled());
+	CHECK(core.getSnapTranslate() == Orkige::EditorCore::SNAP_TRANSLATE);
+	CHECK(core.getSnapRotateDegrees() ==
+		Orkige::EditorCore::SNAP_ROTATE_DEGREES);
+	CHECK(core.getSnapScale() == Orkige::EditorCore::SNAP_SCALE);
+
+	// the toolbar popover path: values are taken as given
+	core.setSnapValues(2.0f, 45.0f, 0.25f);
+	CHECK(core.getSnapTranslate() == 2.0f);
+	CHECK(core.getSnapRotateDegrees() == 45.0f);
+	CHECK(core.getSnapScale() == 0.25f);
+
+	// zero/negative steps would freeze the gizmo mid-drag - they clamp to a
+	// positive minimum instead
+	core.setSnapValues(0.0f, -15.0f, -1.0f);
+	CHECK(core.getSnapTranslate() > 0.0f);
+	CHECK(core.getSnapRotateDegrees() > 0.0f);
+	CHECK(core.getSnapScale() > 0.0f);
+
+	core.setSnapEnabled(true);
+	CHECK(core.isSnapEnabled());
+}
+
 TEST_CASE("EditorCore selection set: primary rules, toggle, clear",
 	"[editor]")
 {

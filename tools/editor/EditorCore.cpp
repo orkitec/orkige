@@ -20,15 +20,32 @@
 #include <fstream>
 #include <sstream>
 
+#ifdef _WIN32
+#include <process.h>	// _getpid (snapshot temp file names)
+#else
+#include <unistd.h>		// getpid (snapshot temp file names)
+#endif
+
 namespace Orkige
 {
 	namespace
 	{
-		//! unique short-lived temp file for one snapshot round-trip
+		//! unique short-lived temp file for one snapshot round-trip. The name
+		//! carries the PROCESS id besides the counter: multiple editor (or,
+		//! in practice, parallel ctest) processes share the temp directory,
+		//! and a counter-only name let one process's RAII cleanup delete the
+		//! file another process was still round-tripping through.
 		std::string makeSnapshotTempPath()
 		{
 			static std::atomic<unsigned int> counter{ 0 };
+#ifdef _WIN32
+			const unsigned long processId =
+				static_cast<unsigned long>(_getpid());
+#else
+			const unsigned long processId = static_cast<unsigned long>(getpid());
+#endif
 			const std::string name = "orkige_editor_snapshot_" +
+				std::to_string(processId) + "_" +
 				std::to_string(++counter) + ".xml";
 			return (std::filesystem::temp_directory_path() / name).string();
 		}
@@ -771,8 +788,21 @@ namespace Orkige
 	const Ogre::Vector3 EditorCore::DUPLICATE_OFFSET(0.5f, 0.0f, 0.5f);
 	//---------------------------------------------------------
 	EditorCore::EditorCore(GameObjectManager& gameObjectManager)
-		: mGameObjectManager(gameObjectManager)
+		: mGameObjectManager(gameObjectManager),
+		mSnapTranslate(EditorCore::SNAP_TRANSLATE),
+		mSnapRotateDegrees(EditorCore::SNAP_ROTATE_DEGREES),
+		mSnapScale(EditorCore::SNAP_SCALE)
 	{
+	}
+	//---------------------------------------------------------
+	void EditorCore::setSnapValues(float translate, float rotateDegrees,
+		float scale)
+	{
+		// a zero/negative step would freeze the gizmo mid-drag - clamp to a
+		// sane positive minimum instead of trusting the UI's field values
+		mSnapTranslate = std::max(translate, 0.001f);
+		mSnapRotateDegrees = std::max(rotateDegrees, 0.1f);
+		mSnapScale = std::max(scale, 0.001f);
 	}
 	//---------------------------------------------------------
 	String EditorCore::getSelectedObjectId() const

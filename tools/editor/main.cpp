@@ -76,6 +76,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>	// the break-variant's filtered project copy
+#include <iterator>
 #include <map>
 #include <mutex>
 #include <set>
@@ -435,6 +437,15 @@ struct ViewSettings
 	bool showConsolePanel = true;
 	bool showStatsPanel = true;
 	bool showScenePanel = true;
+	//! snap settings (toolbar toggle + editable step values, Unity-style);
+	//! mirrored into EditorCore on startup, persisted on every popover edit
+	bool snapEnabled = false;
+	float snapTranslate = Orkige::EditorCore::SNAP_TRANSLATE;
+	float snapRotateDegrees = Orkige::EditorCore::SNAP_ROTATE_DEGREES;
+	float snapScale = Orkige::EditorCore::SNAP_SCALE;
+	//! reopen the most recent project on launch (Unity behavior); automation
+	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
+	bool reopenLastProject = true;
 	//! most-recently-used scene paths (newest first) for File > Open Recent;
 	//! filled by every successful open/save, capped at MAX_RECENT_SCENES
 	std::vector<std::string> recentScenes;
@@ -504,6 +515,26 @@ struct ViewSettings
 			{
 				this->showScenePanel = (value == "1");
 			}
+			else if (key == "snap_enabled")
+			{
+				this->snapEnabled = (value == "1");
+			}
+			else if (key == "snap_translate")
+			{
+				this->snapTranslate = std::strtof(value.c_str(), nullptr);
+			}
+			else if (key == "snap_rotate_deg")
+			{
+				this->snapRotateDegrees = std::strtof(value.c_str(), nullptr);
+			}
+			else if (key == "snap_scale")
+			{
+				this->snapScale = std::strtof(value.c_str(), nullptr);
+			}
+			else if (key == "reopen_last_project")
+			{
+				this->reopenLastProject = (value == "1");
+			}
 			else if (key == "recent_scene")
 			{
 				// one line per entry, newest first (the save order)
@@ -530,6 +561,11 @@ struct ViewSettings
 		this->flySpeed = std::clamp(this->flySpeed,
 			Orkige::FLY_SPEED_MIN, Orkige::FLY_SPEED_MAX);
 		this->fovDeg = std::clamp(this->fovDeg, 20.0f, 120.0f);
+		// same clamping rule EditorCore::setSnapValues applies (a zero step
+		// from a hand-edited file must not freeze the gizmo)
+		this->snapTranslate = std::max(this->snapTranslate, 0.001f);
+		this->snapRotateDegrees = std::max(this->snapRotateDegrees, 0.1f);
+		this->snapScale = std::max(this->snapScale, 0.001f);
 	}
 
 	void save() const
@@ -550,7 +586,13 @@ struct ViewSettings
 			<< "panel_inspector=" << (this->showInspectorPanel ? 1 : 0) << "\n"
 			<< "panel_console=" << (this->showConsolePanel ? 1 : 0) << "\n"
 			<< "panel_stats=" << (this->showStatsPanel ? 1 : 0) << "\n"
-			<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n";
+			<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n"
+			<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
+			<< "snap_translate=" << this->snapTranslate << "\n"
+			<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"
+			<< "snap_scale=" << this->snapScale << "\n"
+			<< "reopen_last_project="
+			<< (this->reopenLastProject ? 1 : 0) << "\n";
 		for (std::string const& recent : this->recentScenes)
 		{
 			file << "recent_scene=" << recent << "\n";
@@ -625,11 +667,15 @@ struct ViewSettings
 // open/save functions so every successful open/save feeds File > Open Recent
 // without threading a ViewSettings& through all their call sites.
 ViewSettings* gViewSettings = nullptr;
+// false during automated runs: the scripted tests open temp scenes/projects
+// through the same functions a user does, and those must never pollute the
+// interactive Open Recent lists (or become the reopened "last project")
+bool gRecordRecents = true;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath)
 {
-	if (gViewSettings)
+	if (gViewSettings && gRecordRecents)
 	{
 		gViewSettings->addRecentScene(scenePath);
 		gViewSettings->save();
@@ -639,7 +685,7 @@ void recordRecentScene(std::string const& scenePath)
 //! record a project root in the Open Recent Project list and persist it
 void recordRecentProject(std::string const& projectRoot)
 {
-	if (gViewSettings)
+	if (gViewSettings && gRecordRecents)
 	{
 		gViewSettings->addRecentProject(projectRoot);
 		gViewSettings->save();
@@ -720,6 +766,9 @@ struct EditorState
 	unsigned int gizmoMergeSession = 0;
 	//! inspector drag bracketing (only one drag widget is active at a time)
 	unsigned int inspectorMergeSession = 0;
+	//! Hierarchy search/filter box (Unity-style); ImGuiTextFilter supports
+	//! comma-separated terms and "-term" exclusion, empty = show everything
+	ImGuiTextFilter hierarchyFilter;
 	//! inline rename in the Hierarchy (F2 / context menu)
 	std::string renamingObjectId;
 	char renameBuffer[256] = "";
@@ -2990,6 +3039,10 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 	settingsChanged |= ImGui::Checkbox("Show Grid", &viewSettings.showGrid);
 	settingsChanged |= ImGui::Checkbox("Orientation Gizmo",
 		&viewSettings.showViewGizmo);
+	settingsChanged |= ImGui::Checkbox("Reopen Last Project on Launch",
+		&viewSettings.reopenLastProject);
+	ImGui::SetItemTooltip(
+		"start the editor in the most recent project (Unity behavior)");
 	ImGui::Separator();
 	ImGui::TextDisabled("Camera");
 	ImGui::SetNextItemWidth(160.0f);
@@ -3602,12 +3655,63 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		if (ImGui::Checkbox("Snap", &snapEnabled))
 		{
 			core.setSnapEnabled(snapEnabled);
+			if (gViewSettings)
+			{
+				gViewSettings->snapEnabled = snapEnabled;
+				gViewSettings->save();
+			}
 		}
 		ImGui::SameLine();
-		ImGui::TextDisabled("(%.1f / %.0f\xC2\xB0 / %.1f)",
-			Orkige::EditorCore::SNAP_TRANSLATE,
-			Orkige::EditorCore::SNAP_ROTATE_DEGREES,
-			Orkige::EditorCore::SNAP_SCALE);
+		// the current steps double as the button into the snap-settings
+		// popover (editable values, Unity's snap settings)
+		char snapLabel[64];
+		SDL_snprintf(snapLabel, sizeof(snapLabel),
+			"%.2g / %.2g\xC2\xB0 / %.2g###SnapSettings",
+			core.getSnapTranslate(), core.getSnapRotateDegrees(),
+			core.getSnapScale());
+		if (ImGui::SmallButton(snapLabel))
+		{
+			ImGui::OpenPopup("##SnapSettingsPopover");
+		}
+		ImGui::SetItemTooltip("snap step settings (move / rotate / scale)");
+		if (ImGui::BeginPopup("##SnapSettingsPopover"))
+		{
+			float snapTranslate = core.getSnapTranslate();
+			float snapRotate = core.getSnapRotateDegrees();
+			float snapScale = core.getSnapScale();
+			bool snapEdited = false;
+			ImGui::TextDisabled("Snap Steps");
+			ImGui::SetNextItemWidth(120.0f);
+			snapEdited |= ImGui::DragFloat("Move", &snapTranslate,
+				0.05f, 0.001f, 100.0f, "%.3f");
+			ImGui::SetNextItemWidth(120.0f);
+			snapEdited |= ImGui::DragFloat("Rotate", &snapRotate,
+				0.5f, 0.1f, 180.0f, "%.1f\xC2\xB0");
+			ImGui::SetNextItemWidth(120.0f);
+			snapEdited |= ImGui::DragFloat("Scale", &snapScale,
+				0.01f, 0.001f, 10.0f, "%.3f");
+			if (ImGui::MenuItem("Reset to Defaults"))
+			{
+				snapTranslate = Orkige::EditorCore::SNAP_TRANSLATE;
+				snapRotate = Orkige::EditorCore::SNAP_ROTATE_DEGREES;
+				snapScale = Orkige::EditorCore::SNAP_SCALE;
+				snapEdited = true;
+			}
+			if (snapEdited)
+			{
+				core.setSnapValues(snapTranslate, snapRotate, snapScale);
+				if (gViewSettings)
+				{
+					// persist the CLAMPED values EditorCore actually uses
+					gViewSettings->snapTranslate = core.getSnapTranslate();
+					gViewSettings->snapRotateDegrees =
+						core.getSnapRotateDegrees();
+					gViewSettings->snapScale = core.getSnapScale();
+					gViewSettings->save();
+				}
+			}
+			ImGui::EndPopup();
+		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 		ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
@@ -3783,20 +3887,22 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	ogreToImGuizmo(modelMatrix, model);
 
 	ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
-	float snapValues[3] = { Orkige::EditorCore::SNAP_TRANSLATE,
-		Orkige::EditorCore::SNAP_TRANSLATE,
-		Orkige::EditorCore::SNAP_TRANSLATE };
+	// the editable snap steps from the toolbar popover (default to the
+	// SNAP_* constants)
+	float snapValues[3] = { core.getSnapTranslate(),
+		core.getSnapTranslate(),
+		core.getSnapTranslate() };
 	if (tool == Orkige::EditorTool::Rotate)
 	{
 		operation = ImGuizmo::ROTATE;
 		snapValues[0] = snapValues[1] = snapValues[2] =
-			Orkige::EditorCore::SNAP_ROTATE_DEGREES;
+			core.getSnapRotateDegrees();
 	}
 	else if (tool == Orkige::EditorTool::Scale)
 	{
 		operation = ImGuizmo::SCALE;
 		snapValues[0] = snapValues[1] = snapValues[2] =
-			Orkige::EditorCore::SNAP_SCALE;
+			core.getSnapScale();
 	}
 	// scale is always object-local; translate/rotate follow the X toggle
 	const ImGuizmo::MODE mode = (operation != ImGuizmo::SCALE &&
@@ -4129,6 +4235,17 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 	state.hierarchyFocused = open && !remote && ImGui::IsWindowFocused();
 	if (open)
 	{
+		// search/filter box (Unity's Hierarchy search): shared between edit
+		// and remote mode, ImGuiTextFilter semantics ("a,b" = a or b,
+		// "-a" = exclude a); an active filter never hides the row that is
+		// being renamed (the edit field must stay reachable)
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::InputTextWithHint("##hierarchyFilter", "Filter",
+			state.hierarchyFilter.InputBuf,
+			IM_ARRAYSIZE(state.hierarchyFilter.InputBuf)))
+		{
+			state.hierarchyFilter.Build();
+		}
 		if (remote)
 		{
 			if (!session.hierarchyReceived)
@@ -4142,6 +4259,10 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 				ImGui::Separator();
 				for (std::string const& id : session.remoteHierarchy)
 				{
+					if (!state.hierarchyFilter.PassFilter(id.c_str()))
+					{
+						continue;
+					}
 					const bool selected = (session.remoteSelectedId == id);
 					if (ImGui::Selectable(id.c_str(), selected) && !selected)
 					{
@@ -4156,6 +4277,11 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 			for (auto const& [id, gameObject] :
 				core.getGameObjectManager().getGameObjects())
 			{
+				if (!state.hierarchyFilter.PassFilter(id.c_str()) &&
+					state.renamingObjectId != id)
+				{
+					continue;
+				}
 				orderedIds.push_back(id);
 				ImGui::PushID(id.c_str());
 				if (state.renamingObjectId == id)
@@ -4227,15 +4353,13 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 				}
 				ImGui::EndPopup();
 			}
-			// keyboard: up/down moves the selection through the (sorted)
-			// list, F2 starts the inline rename (double-click frames instead)
+			// keyboard: up/down moves the selection through the (sorted,
+			// filtered) list; F2/Delete/Cmd+D live in the central shortcut
+			// map (handleEditorShortcuts), which covers the focused
+			// Hierarchy too
 			if (state.hierarchyFocused && !ImGui::GetIO().WantTextInput &&
 				state.renamingObjectId.empty() && !orderedIds.empty())
 			{
-				if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
-				{
-					startRenameSelected(state, core);
-				}
 				int step = 0;
 				if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))
 				{
@@ -5053,12 +5177,14 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 
 // The keyboard shortcut map (checked once per frame, after the panels have
 // recorded their hover/focus state; inactive while a text field is being
-// edited or a play session runs):
-//   global: Cmd/Ctrl+Z undo, Shift+Cmd/Ctrl+Z redo, Cmd/Ctrl+N new scene,
-//   Cmd/Ctrl+O open scene, Cmd/Ctrl+S save, Shift+Cmd/Ctrl+S save as
+// edited; only Cmd/Ctrl+P works while a play session runs):
+//   global: Cmd/Ctrl+P play/stop toggle (Unity), Cmd/Ctrl+Z undo,
+//   Shift+Cmd/Ctrl+Z redo, Cmd/Ctrl+N new scene, Cmd/Ctrl+O open scene,
+//   Cmd/Ctrl+S save, Shift+Cmd/Ctrl+S save as
 //   Scene panel hovered/focused: Q select, W translate, E rotate, R scale,
-//   X world/local, F frame selected, F2 rename, Delete/Backspace delete,
-//   Cmd/Ctrl+D duplicate
+//   X world/local, F frame selected
+//   Scene panel OR focused Hierarchy: F2 rename, Delete/Backspace delete,
+//   Cmd/Ctrl+D duplicate (Unity's hierarchy shortcuts work there too)
 //   ... all of which stand down while fly mode is active (right mouse held):
 //   W/A/S/D/Q/E are camera movement then
 // On mac WITH the native menu bar installed the File shortcuts never reach
@@ -5069,11 +5195,30 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	PlaySession& session, Ogre::Camera* sceneCamera, SDL_Window* window)
 {
 	ImGuiIO& io = ImGui::GetIO();
-	if (io.WantTextInput || session.isActive())
+	if (io.WantTextInput)
 	{
 		return;
 	}
 	const bool commandDown = io.KeySuper || io.KeyCtrl;
+	// Cmd/Ctrl+P: Unity's play toggle - Play in edit mode, Stop while a
+	// session runs (this calls the exact functions the toolbar buttons call;
+	// no shortcut for Pause, that stays a toolbar action)
+	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_P, false))
+	{
+		if (!session.isActive())
+		{
+			startPlay(session, core.getGameObjectManager(), state.project);
+		}
+		else if (session.mode != PlaySession::Mode::Stopping)
+		{
+			requestStopPlay(session);
+		}
+		return;
+	}
+	if (session.isActive())
+	{
+		return;
+	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_Z, false))
 	{
 		if (io.KeyShift)
@@ -5111,7 +5256,13 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		}
 		return;
 	}
-	if (!state.scenePanelHovered && !state.scenePanelFocused)
+	// object shortcuts (duplicate/rename/delete) work from the Scene panel
+	// AND the focused Hierarchy - Unity muscle memory; tool switching stays
+	// Scene-panel-only (letters typed while other panels have focus must
+	// not silently flip tools)
+	const bool sceneContext = state.scenePanelHovered ||
+		state.scenePanelFocused;
+	if (!sceneContext && !state.hierarchyFocused)
 	{
 		return;
 	}
@@ -5129,29 +5280,32 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		}
 		return;
 	}
-	if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
+	if (sceneContext)
 	{
-		core.setActiveTool(Orkige::EditorTool::Select);
-	}
-	if (ImGui::IsKeyPressed(ImGuiKey_W, false))
-	{
-		core.setActiveTool(Orkige::EditorTool::Translate);
-	}
-	if (ImGui::IsKeyPressed(ImGuiKey_E, false))
-	{
-		core.setActiveTool(Orkige::EditorTool::Rotate);
-	}
-	if (ImGui::IsKeyPressed(ImGuiKey_R, false))
-	{
-		core.setActiveTool(Orkige::EditorTool::Scale);
-	}
-	if (ImGui::IsKeyPressed(ImGuiKey_X, false))
-	{
-		core.toggleTransformSpace();
-	}
-	if (ImGui::IsKeyPressed(ImGuiKey_F, false))
-	{
-		frameSelectedObject(state, core, sceneCamera);
+		if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
+		{
+			core.setActiveTool(Orkige::EditorTool::Select);
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_W, false))
+		{
+			core.setActiveTool(Orkige::EditorTool::Translate);
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_E, false))
+		{
+			core.setActiveTool(Orkige::EditorTool::Rotate);
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+		{
+			core.setActiveTool(Orkige::EditorTool::Scale);
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+		{
+			core.toggleTransformSpace();
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_F, false))
+		{
+			frameSelectedObject(state, core, sceneCamera);
+		}
 	}
 	if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
 	{
@@ -5328,11 +5482,36 @@ int main(int, char**)
 		Orkige::ScriptRuntime scriptRuntime;
 		init_module_orkige_core();
 
+		// automated run? (any scripted-test/automation hook set) - decided
+		// up front because it gates the vsync choice below (before
+		// Engine::setup) and the reopen-last-project convenience: scripted
+		// runs must render uncapped and start exactly where the script
+		// expects (an empty untitled scene), never in yesterday's project
+		const bool automatedRun =
+			std::getenv("ORKIGE_DEMO_FRAMES") != nullptr ||
+			std::getenv("ORKIGE_DEMO_SCREENSHOT") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_EDITTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_OPEN_SCENE") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr;
+
 		Orkige::Engine engine(Ogre::SMT_DEFAULT,
 			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
 			Orkige::StringUtil::BLANK, "orkige_editor.log");
 		engine.setCustomWindowParam("width", "1280");
 		engine.setCustomWindowParam("height", "720");
+		if (!automatedRun)
+		{
+			// a HUMAN run gets vsync (same rule as the player and the jumper
+			// sample): an uncapped editor renders thousands of UI frames per
+			// second for no benefit - automated runs stay uncapped so the
+			// frame-scripted tests finish as fast as the machine allows
+			engine.setCustomWindowParam("vsync", "true");
+		}
 
 		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Vulkan",
 		// "Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
@@ -5488,6 +5667,8 @@ int main(int, char**)
 		viewSettings.load();
 		// scene open/save feed File > Open Recent through this pointer
 		gViewSettings = &viewSettings;
+		// scripted runs must not rewrite the user's recents (see gRecordRecents)
+		gRecordRecents = !automatedRun;
 		sceneCamera->setFOVy(Ogre::Degree(viewSettings.fovDeg));
 
 		// offscreen scene viewport: initial size is a placeholder, the Scene
@@ -5524,6 +5705,14 @@ int main(int, char**)
 		// object operations) - everything below drives THIS layer
 		Orkige::EditorCore editorCore(gameObjectManager);
 		quitOnEscape.editorCore = &editorCore;
+		// persisted snap settings (toolbar toggle + editable step values);
+		// scripted runs keep the factory defaults - the edittest asserts them
+		if (!automatedRun)
+		{
+			editorCore.setSnapEnabled(viewSettings.snapEnabled);
+			editorCore.setSnapValues(viewSettings.snapTranslate,
+				viewSettings.snapRotateDegrees, viewSettings.snapScale);
+		}
 
 		// play mode session (idle until the Play button / playtest hook)
 		PlaySession playSession;
@@ -5829,6 +6018,26 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST");
 		const bool nativePlaytestBreak =
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST_BREAK") != nullptr;
+
+		// Unity behavior: a plain interactive launch reopens the last project
+		// (toggleable in View Settings; automation runs are exempt via
+		// automatedRun so every scripted test keeps its empty-start
+		// contract). A vanished project directory is skipped silently - the
+		// stale entry stays in Open Recent Project for the user to see.
+		if (!automatedRun && viewSettings.reopenLastProject &&
+			!viewSettings.recentProjects.empty())
+		{
+			const std::string lastProjectRoot =
+				viewSettings.recentProjects.front();
+			std::error_code reopenError;
+			if (std::filesystem::is_directory(lastProjectRoot, reopenError))
+			{
+				SDL_Log("orkige_editor: reopening last project '%s' "
+					"(View Settings > Reopen Last Project)",
+					lastProjectRoot.c_str());
+				openProjectFromPath(state, editorCore, lastProjectRoot);
+			}
+		}
 
 		// The scripted runs above were written against the historical boot
 		// scene (Cube1-3 + TestMesh1). The production editor now starts
@@ -7275,29 +7484,76 @@ int main(int, char**)
 					if (nativePlaytestBreak)
 					{
 						// the deliberate-breakage variant works on a temp COPY
-						// - the real project is never touched. Any build tree
-						// that came along is dropped (the broken copy must
-						// configure + compile from scratch in its own dir).
+						// - the real project is never touched. Build trees
+						// (native/build*, the export outputs in builds/) are
+						// SKIPPED during the copy: they are hundreds of MB the
+						// broken copy must not inherit anyway (it has to
+						// configure + fail-compile from scratch in its own
+						// dir) and copying-then-deleting them cost seconds of
+						// every desktop suite run.
 						nativePlaytestTempRoot =
 							(std::filesystem::temp_directory_path() /
 							("orkige_native_break_" + std::to_string(
 								std::chrono::steady_clock::now()
 									.time_since_epoch().count()))).string();
 						std::error_code copyError;
-						std::filesystem::copy(nativePlaytestEnv,
-							nativePlaytestTempRoot,
-							std::filesystem::copy_options::recursive,
-							copyError);
-						std::error_code ignored;
-						std::filesystem::remove_all(
+						std::function<void(std::filesystem::path const&,
+							std::filesystem::path const&)> copyFiltered =
+							[&copyFiltered, &copyError](
+								std::filesystem::path const& from,
+								std::filesystem::path const& to)
+						{
+							std::filesystem::create_directories(to, copyError);
+							for (auto const& entry :
+								std::filesystem::directory_iterator(from,
+									copyError))
+							{
+								const std::string name =
+									entry.path().filename().string();
+								if (entry.is_directory() &&
+									(name == "build" || name == "builds" ||
+										name.rfind("build-", 0) == 0))
+								{
+									continue;
+								}
+								if (entry.is_directory())
+								{
+									copyFiltered(entry.path(), to / name);
+								}
+								else
+								{
+									std::filesystem::copy_file(entry.path(),
+										to / name, copyError);
+								}
+								if (copyError)
+								{
+									return;
+								}
+							}
+						};
+						copyFiltered(nativePlaytestEnv, nativePlaytestTempRoot);
+						// the error goes to the TOP of the module source: the
+						// compiler fails immediately instead of first parsing
+						// the fat OGRE-including TU - the tested contract
+						// (build failure -> edit mode + Console errors +
+						// nothing launched) is identical, just faster
+						const std::filesystem::path breakSource =
 							std::filesystem::path(nativePlaytestTempRoot) /
-							"native" / "build", ignored);
-						std::ofstream breakFile(
-							std::filesystem::path(nativePlaytestTempRoot) /
-							"native" / "main.cpp", std::ios::app);
-						breakFile << "\nthis is not valid C++ - injected by "
-							"the native playtest break variant\n";
-						if (copyError || !breakFile)
+							"native" / "main.cpp";
+						std::string originalSource;
+						{
+							std::ifstream sourceIn(breakSource,
+								std::ios::binary);
+							originalSource.assign(
+								std::istreambuf_iterator<char>(sourceIn),
+								std::istreambuf_iterator<char>());
+						}
+						std::ofstream breakFile(breakSource,
+							std::ios::binary | std::ios::trunc);
+						breakFile << "this is not valid C++ - injected by "
+							"the native playtest break variant\n"
+							<< originalSource;
+						if (copyError || originalSource.empty() || !breakFile)
 						{
 							nativeFailed = true;
 							nativeFailure = "could not prepare the broken "

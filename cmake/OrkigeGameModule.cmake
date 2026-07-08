@@ -52,6 +52,20 @@ if(NOT DEFINED ORKIGE_ROOT)
     message(FATAL_ERROR "ORKIGE_ROOT is not set - pass the Orkige engine "
         "source root: -DORKIGE_ROOT=/path/to/orkige")
 endif()
+
+# ccache, same wiring as the engine's root CMakeLists: module builds
+# (compile-on-Play, the exporter's build-export tree, the break-variant test)
+# recompile the same fat OGRE-including TU - cache what is cacheable. A
+# launcher the caller already chose wins.
+if(NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    find_program(ORKIGE_MODULE_CCACHE ccache)
+    if(ORKIGE_MODULE_CCACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${ORKIGE_MODULE_CCACHE}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${ORKIGE_MODULE_CCACHE}")
+        set(CMAKE_OBJC_COMPILER_LAUNCHER "${ORKIGE_MODULE_CCACHE}")
+        set(CMAKE_OBJCXX_COMPILER_LAUNCHER "${ORKIGE_MODULE_CCACHE}")
+    endif()
+endif()
 if(NOT DEFINED ORKIGE_ENGINE_BUILD_DIR)
     message(FATAL_ERROR "ORKIGE_ENGINE_BUILD_DIR is not set - pass the engine "
         "build tree to link against: -DORKIGE_ENGINE_BUILD_DIR="

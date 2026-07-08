@@ -444,6 +444,14 @@ namespace Orkige
 		void toggleTransformSpace();
 		bool isSnapEnabled() const { return mSnapEnabled; }
 		void setSnapEnabled(bool enabled) { mSnapEnabled = enabled; }
+		//! adjustable snap step values (Unity-style editable snap settings);
+		//! they default to the SNAP_* constants and are edited via the
+		//! toolbar's snap popover - setSnapValues clamps every step to a
+		//! sane positive minimum (a zero step would freeze the gizmo)
+		float getSnapTranslate() const { return mSnapTranslate; }
+		float getSnapRotateDegrees() const { return mSnapRotateDegrees; }
+		float getSnapScale() const { return mSnapScale; }
+		void setSnapValues(float translate, float rotateDegrees, float scale);
 
 		//--- scene dirty tracking ----------------------------
 		bool isSceneDirty() const { return mSceneDirty; }
@@ -598,6 +606,11 @@ namespace Orkige
 		EditorTool mActiveTool = EditorTool::Translate;
 		EditorTransformSpace mTransformSpace = EditorTransformSpace::World;
 		bool mSnapEnabled = false;
+		//! editable snap steps (initialised to the SNAP_* constants in the
+		//! constructor - the static members live in the .cpp)
+		float mSnapTranslate;
+		float mSnapRotateDegrees;
+		float mSnapScale;
 		bool mSceneDirty = false;
 		std::map<String, int> mNameCounters;	//!< generateObjectId state
 		std::vector<optr<EditorCommand>> mUndoStack;
