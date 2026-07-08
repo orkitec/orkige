@@ -66,6 +66,47 @@
       }
     },
     {
+      "name": "linux-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "environment": {
+        "VCPKG_ROOT": "$penv{HOME}/Development/vcpkg",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/ports"
+      },
+      "cacheVariables": {
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-debug-classic",
+      "displayName": "Linux Debug (classic OGRE / GL3Plus - the CI flavor)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
+    },
+    {
+      "name": "linux-debug-next",
+      "displayName": "Linux Debug (Ogre-Next / Vulkan - experimental until the linux-next CI job is green)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
       "name": "ios-simulator-debug",
       "displayName": "iOS Simulator Debug (arm64, classic/GLES2)",
       "inherits": "base",
@@ -119,6 +160,14 @@
     {
       "name": "macos-release-classic",
       "configurePreset": "macos-release-classic"
+    },
+    {
+      "name": "linux-debug-classic",
+      "configurePreset": "linux-debug-classic"
+    },
+    {
+      "name": "linux-debug-next",
+      "configurePreset": "linux-debug-next"
     },
     {
       "name": "ios-simulator-debug",
@@ -184,6 +233,86 @@
       "configurePreset": "macos-debug-classic",
       "execution": {
         "jobs": 6
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-linux",
+      "displayName": "Linux classic: headless unit tests (the hard CI gate - no display needed)",
+      "configurePreset": "linux-debug-classic",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "smoke-linux",
+      "displayName": "Linux classic: windowed smoke subset for xvfb + Mesa llvmpipe (best-effort in CI; promote tests into desktop-linux as they prove out)",
+      "configurePreset": "linux-debug-classic",
+      "filter": {
+        "include": {
+          "name": "^(render_facade_selfcheck|demo_plain|demo_mesh|player_example_scene|player_example_project|player_debug_pause|player_jumper_lua_selfcheck|player_roller_selfcheck|jumper_selfcheck)$"
+        }
+      },
+      "execution": {
+        "jobs": 1
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-linux",
+      "displayName": "Linux classic: full desktop suite (unit + all windowed integration; needs a real/virtual X display)",
+      "configurePreset": "linux-debug-classic",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-linux-next",
+      "displayName": "Linux next: headless unit tests (experimental flavor)",
+      "configurePreset": "linux-debug-next",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "smoke-linux-next",
+      "displayName": "Linux next: Vulkan smoke subset for xvfb + Mesa lavapipe (best-effort in CI)",
+      "configurePreset": "linux-debug-next",
+      "filter": {
+        "include": {
+          "name": "^(render_next_smoke|render_facade_selfcheck)$"
+        }
+      },
+      "execution": {
+        "jobs": 1
       },
       "output": {
         "outputOnFailure": true

@@ -53,9 +53,16 @@ namespace Orkige
 		constexpr ImVec4 TAB_DIMMED       = rgba(0x262626);
 		constexpr ImVec4 TRANSPARENT_     = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
 
-		//! the macOS system UI font (San Francisco), present on every macOS
-		//! install; loaded at runtime, never shipped with the project
-		const char* const MAC_SYSTEM_FONT_PATH = "/System/Library/Fonts/SFNS.ttf";
+		//! system UI font candidates, best first: the macOS system font
+		//! (San Francisco, present on every macOS install) and common Linux
+		//! distro fonts; loaded at runtime, never shipped with the project.
+		//! No match -> nullptr -> ImGui's embedded default font.
+		const char* const SYSTEM_FONT_PATHS[] = {
+			"/System/Library/Fonts/SFNS.ttf",						// macOS
+			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",		// Debian/Ubuntu
+			"/usr/share/fonts/TTF/DejaVuSans.ttf",					// Arch/Fedora-ish
+			"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",	// Noto fallback
+		};
 	}
 
 	//---------------------------------------------------------
@@ -158,16 +165,20 @@ namespace Orkige
 	//---------------------------------------------------------
 	ImFont* loadMacSystemFont(ImGuiIO& io, float sizePoints, float contentScale)
 	{
-		std::error_code ignored;
-		if (!std::filesystem::exists(MAC_SYSTEM_FONT_PATH, ignored))
+		for (const char* fontPath : SYSTEM_FONT_PATHS)
 		{
-			return nullptr; // not macOS / font gone - keep the default font
+			std::error_code ignored;
+			if (!std::filesystem::exists(fontPath, ignored))
+			{
+				continue;
+			}
+			// load at pixel size (points * scale) so retina surfaces get a
+			// crisp atlas instead of an upscaled one
+			ImFontConfig config;
+			config.SizePixels = 0.0f;
+			return io.Fonts->AddFontFromFileTTF(fontPath,
+				sizePoints * contentScale, &config);
 		}
-		// load at pixel size (points * scale) so retina surfaces get a crisp
-		// atlas instead of an upscaled one
-		ImFontConfig config;
-		config.SizePixels = 0.0f;
-		return io.Fonts->AddFontFromFileTTF(MAC_SYSTEM_FONT_PATH,
-			sizePoints * contentScale, &config);
+		return nullptr; // no system font found - keep the default font
 	}
 }

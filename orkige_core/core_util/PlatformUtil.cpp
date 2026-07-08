@@ -112,6 +112,10 @@ namespace Orkige
 		}
 		//---------------------------------------------------------
 #else	// LiNUX
+		// TODO(linux): every path below is the CWD - fine for build-tree
+		// runs and CI, but getDocumentsDirectory/getSupportDirectory should
+		// resolve the XDG base dirs ($XDG_DATA_HOME, ~/.local/share/<app>)
+		// before anything ships savegames/config on Linux.
 		//---------------------------------------------------------
 		String const & getBaseDirectory()
 		{

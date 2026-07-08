@@ -27,6 +27,31 @@ vcpkg_from_github(
         apple-ninja-no-framework-postbuild.patch  # macOS: the framework-header POST_BUILD uses Xcode $(PLATFORM_NAME) vars - guard it behind OGRE_BUILD_LIBS_AS_FRAMEWORKS
 )
 
+# Render system per platform: Metal is Ogre-Next's first-class RS on Apple;
+# on Linux it is Vulkan (with the XCB windowing - needs the system X11/xcb
+# dev packages: libx11-xcb-dev, libxcb-randr0-dev, plus libxt-dev/libxaw7-dev
+# for the required X11 dependency probe). The Vulkan headers/loader come from
+# vcpkg (see vcpkg.json); glslang headers resolve through the same installed
+# include tree via FindVulkan's Vulkan_INCLUDE_DIRS. The legacy GL3+ path
+# stays off everywhere. TODO(linux): first proven by the linux-next CI job.
+if(VCPKG_TARGET_IS_OSX)
+    set(RENDERSYSTEM_OPTIONS
+        # Metal is the first-class render system of Ogre-Next on Apple; the
+        # legacy GL3+ path (OpenGL 4.1 on macOS) buys nothing here
+        -DOGRE_BUILD_RENDERSYSTEM_METAL=ON
+        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=OFF
+        # hermeticity: no Vulkan RS on Apple -> nothing may probe for a
+        # system Vulkan SDK
+        -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+    )
+else()
+    set(RENDERSYSTEM_OPTIONS
+        -DOGRE_BUILD_RENDERSYSTEM_METAL=OFF
+        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON
+        -DOGRE_VULKAN_WINDOW_XCB=ON
+    )
+endif()
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
@@ -43,11 +68,9 @@ vcpkg_cmake_configure(
         # compile time; the shipped OGRE-NextConfig.cmake propagates the
         # matching definitions to consumers.
         -DOGRE_EMBED_DEBUG_MODE=never
-        # Metal is the first-class render system of Ogre-Next on Apple; the
-        # legacy GL3+ path (OpenGL 4.1 on macOS) buys nothing here
-        -DOGRE_BUILD_RENDERSYSTEM_METAL=ON
+        # per-platform render system selection (see RENDERSYSTEM_OPTIONS)
+        ${RENDERSYSTEM_OPTIONS}
         -DOGRE_BUILD_RENDERSYSTEM_GL3PLUS=OFF
-        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=OFF
         # Hlms PBS/Unlit are the material system - effectively core
         -DOGRE_BUILD_COMPONENT_HLMS_PBS=ON
         -DOGRE_BUILD_COMPONENT_HLMS_UNLIT=ON
@@ -79,10 +102,12 @@ vcpkg_cmake_configure(
         # rapidjson is a hard OgreMain dependency in 3.0 (OgreRootLayout.cpp
         # includes it unconditionally), not just the Hlms-JSON option
         -DCMAKE_REQUIRE_FIND_PACKAGE_Rapidjson=ON
-        # hermeticity: nothing may resolve outside the vcpkg tree
+        # hermeticity: nothing may resolve outside the vcpkg tree (the
+        # Vulkan disable moved into RENDERSYSTEM_OPTIONS - on Linux the
+        # Vulkan RS is on and FindVulkan resolves to the vcpkg
+        # vulkan-headers/vulkan-loader ports)
         -DCMAKE_DISABLE_FIND_PACKAGE_ZZip=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_RenderDoc=ON
-        -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_SDL2=ON
         -DCMAKE_DISABLE_FIND_PACKAGE_Freetype=ON
@@ -90,6 +115,7 @@ vcpkg_cmake_configure(
         CMAKE_DISABLE_FIND_PACKAGE_SDL2
         CMAKE_DISABLE_FIND_PACKAGE_Doxygen
         OGRE_BUILD_COMPONENT_PROPERTY
+        OGRE_VULKAN_WINDOW_XCB
 )
 
 vcpkg_cmake_install()

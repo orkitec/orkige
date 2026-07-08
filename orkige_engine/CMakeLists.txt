@@ -240,6 +240,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowAndroid.cpp)
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # SDL window -> X11 handle bridge (the Linux desktop counterpart of
+    # engine_util/SDLNativeWindow.mm; X11/XWayland only - Wayland is a
+    # TODO(linux) inside the TU). Flavor-aware: classic hands out the X11
+    # Window id, next the {Display*, Window} pair VulkanXcbWindow expects.
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowLinux.cpp)
+endif()
+
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})
 add_library(Orkige::Engine ALIAS orkige_engine)
 
@@ -318,12 +326,20 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             OgreNext::Main
             OgreNext::HlmsPbs
             OgreNext::HlmsUnlit
-            OgreNext::RenderSystem_Metal
         PRIVATE
             # backend-internal mesh import; assimp types never leave the
             # MeshLoaderNext translation unit
             assimp::assimp
     )
+    # exactly one Ogre-Next render system per platform (the backend boot in
+    # engine_render_next/NextBackend.cpp installs the matching plugin):
+    # Metal on Apple, Vulkan everywhere else (ports/ogre-next builds it with
+    # the XCB windowing on Linux). TODO(linux): first real Linux run pending.
+    if(APPLE)
+        target_link_libraries(orkige_engine PUBLIC OgreNext::RenderSystem_Metal)
+    else()
+        target_link_libraries(orkige_engine PUBLIC OgreNext::RenderSystem_Vulkan)
+    endif()
     # everything below is classic-backend plumbing (render system plugins,
     # codecs, Vulkan loader wiring)
     return()

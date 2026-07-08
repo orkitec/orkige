@@ -1,0 +1,272 @@
+# Orkige CI - Linux build + test on every push and pull request.
+#
+# Two jobs:
+#   linux-classic  (REQUIRED) - the classic OGRE / GL3Plus flavor: builds the
+#                  engine + editor + player + samples + tests, runs the
+#                  headless unit suite (must pass), then a best-effort
+#                  windowed smoke subset under xvfb + Mesa llvmpipe.
+#   linux-next     (EXPERIMENTAL, continue-on-error) - the Ogre-Next / Vulkan
+#                  flavor: the ports/ogre-next Linux extension (Vulkan RS via
+#                  vcpkg vulkan-headers/loader + glslang) and the backend's
+#                  VulkanPlugin/SDL2x11 boot are authored but have never run
+#                  on real Linux; this job IS their verification loop.
+#                  Promote it to required once it is green.
+#
+# TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
+# set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
+# imgui, catch2, ... in Debug AND Release) from source - expect 1-2 HOURS per
+# job. Every later run restores the vcpkg binary cache + ccache and should
+# configure+build in well under 15 minutes. The caches are keyed on
+# vcpkg.json + ports/ + triplets/ + the pinned vcpkg commit, so only real
+# dependency changes pay the cold price again.
+#
+# Cache budget: GitHub gives 10 GB per repo; one flavor's binary cache is
+# roughly 1-2 GB, ccache is capped at 1 GB per job below.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  # vcpkg commit the dependency set is proven against locally (the manifest
+  # has no builtin-baseline - the checked-out vcpkg tree defines the port
+  # versions, so it MUST be pinned for reproducible CI)
+  VCPKG_COMMIT: 42e4e33e1505c9f47b58c21e0f557c1571b751ee
+  # the presets resolve VCPKG_ROOT to $HOME/Development/vcpkg (same
+  # convention as the dev machines - see CMakePresets.json linux-base)
+  VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
+  VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
+  CCACHE_DIR: /home/runner/.ccache
+  CCACHE_MAXSIZE: 1G
+  # PCH-friendly ccache (same setting CLAUDE.md documents for dev machines;
+  # the classic flavor precompiles <Ogre.h>)
+  CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+
+jobs:
+  linux-classic:
+    name: Linux classic (GL3Plus) - build + unit + windowed smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # - toolchain: build-essential, ninja, ccache, python3 (lint +
+        #   integration drivers + asset generators), pkg-config/autotools
+        #   (vcpkg port builds)
+        # - X11/Wayland dev stacks: SDL3's x11+wayland features and classic
+        #   OGRE's GLX window need them; libxaw7-dev/libxt-dev are OGRE's
+        #   X11 probe requirements
+        # - GL/EGL dev + Mesa: build against GL, run under llvmpipe
+        # - xvfb: the virtual X server for the windowed smoke subset
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache python3 pkg-config \
+            autoconf automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      # restore/save split (instead of plain actions/cache) so a failed or
+      # timed-out first run still SAVES whatever ports it finished building -
+      # the expensive cold build converges across runs instead of restarting
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-classic-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-classic-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-classic-${{ runner.os }}-
+
+      - name: Configure (linux-debug-classic)
+        # --clean-after-build keeps vcpkg buildtrees from filling the runner
+        # disk during the cold dependency build
+        run: |
+          cmake --preset linux-debug-classic \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Save vcpkg binary cache
+        # save right after configure (which is when vcpkg builds/installs) -
+        # and even when a later step fails
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build (engine + editor + player + samples + tests)
+        run: cmake --build --preset linux-debug-classic
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Unit tests (headless - MUST pass)
+        run: ctest --preset unit-linux
+
+      # TODO(ci): promote this step to a hard gate (drop continue-on-error,
+      # widen smoke-linux towards the full desktop-linux preset) once the
+      # subset has proven stable on llvmpipe. First-run expectations:
+      # GL3Plus on llvmpipe advertises GL 4.5 core, so boots should succeed;
+      # the risk is pixel-probe strictness (render_facade_selfcheck) and
+      # timing under software rasterization. Audio is routed to openal-soft's
+      # null backend (no audio device on runners).
+      - name: Windowed smoke subset (xvfb + Mesa llvmpipe - best-effort)
+        continue-on-error: true
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          glxinfo -B > /dev/null 2>&1 || true
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ctest --preset smoke-linux --timeout 300
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-classic-logs
+          path: |
+            build/linux-debug-classic/Testing/**/*.log
+            build/linux-debug-classic/tests/**/*.log
+            *.log
+          if-no-files-found: ignore
+
+  # EXPERIMENTAL: the Ogre-Next flavor on Linux (Vulkan RS + lavapipe).
+  # continue-on-error at the job level - a red linux-next never blocks a
+  # commit; it is the verification loop for the authored-but-unproven Linux
+  # port of the next backend (ports/ogre-next Vulkan build, glslang link
+  # interface, VulkanPlugin boot, SDL2x11 external window).
+  # TODO(linux): once this job is green, (a) drop continue-on-error, (b)
+  # consider making linux-debug-next the default Linux preset to mirror
+  # macOS (next is the engine's default backend).
+  linux-next:
+    name: Linux next (Vulkan) - EXPERIMENTAL build + unit + smoke
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        # superset of the classic job plus the Mesa Vulkan software driver
+        # (lavapipe) and the Vulkan loader's ICD tooling for the smoke run
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build ccache python3 pkg-config \
+            autoconf automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev \
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri \
+            mesa-vulkan-drivers vulkan-tools
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-next-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-next-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-next-${{ runner.os }}-
+
+      - name: Configure (linux-debug-next)
+        run: |
+          cmake --preset linux-debug-next \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build (engine + editor + player + tests)
+        run: cmake --build --preset linux-debug-next
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Unit tests (headless)
+        run: ctest --preset unit-linux-next
+
+      - name: Vulkan smoke subset (xvfb + Mesa lavapipe - best-effort)
+        continue-on-error: true
+        env:
+          # steer the Vulkan loader to the software rasterizer
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          vulkaninfo --summary > /dev/null 2>&1 || true
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ctest --preset smoke-linux-next --timeout 300
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-next-logs
+          path: |
+            build/linux-debug-next/Testing/**/*.log
+            build/linux-debug-next/tests/**/*.log
+            *.log
+          if-no-files-found: ignore

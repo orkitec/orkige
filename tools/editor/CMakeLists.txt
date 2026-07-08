@@ -65,15 +65,24 @@ endif()
 # Cross-flavor play targets (the toolbar's "Desktop (classic OGRE)" /
 # "Desktop (Ogre-Next)" entries): this flavor's own player is the TARGET_FILE;
 # the OTHER flavor's binary sits in its conventional preset build tree and the
-# entry greys out at runtime while that path does not exist.
+# entry greys out at runtime while that path does not exist. The conventional
+# tree names follow the host's presets (macos-* / linux-*, see
+# CMakePresets.json).
+if(APPLE)
+    set(_orkige_sibling_tree_next "build/macos-debug")
+    set(_orkige_sibling_tree_classic "build/macos-debug-classic")
+else()
+    set(_orkige_sibling_tree_next "build/linux-debug-next")
+    set(_orkige_sibling_tree_classic "build/linux-debug-classic")
+endif()
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     set(ORKIGE_EDITOR_PLAYER_CLASSIC
-        "${CMAKE_SOURCE_DIR}/build/macos-debug-classic/tools/player/orkige_player")
+        "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_classic}/tools/player/orkige_player")
     set(ORKIGE_EDITOR_PLAYER_NEXT "$<TARGET_FILE:orkige_player>")
 else()
     set(ORKIGE_EDITOR_PLAYER_CLASSIC "$<TARGET_FILE:orkige_player>")
     set(ORKIGE_EDITOR_PLAYER_NEXT
-        "${CMAKE_SOURCE_DIR}/build/macos-debug/tools/player/orkige_player")
+        "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_next}/tools/player/orkige_player")
 endif()
 
 # Editor-only: point at the RTSS shader library shipping with the

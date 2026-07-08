@@ -396,6 +396,9 @@ void updateExportJob(ExportJob& job, EditorConsole& console)
 	if (!job.artifactPath.empty())
 	{
 		// Reveal in Finder (fire and forget)
+		// TODO(linux): xdg-open on the artifact's parent directory would be
+		// the equivalent - wire it when exports exist on Linux (the export
+		// tests/targets are APPLE-gated today, see tests/CMakeLists.txt)
 		const char* revealArgs[] =
 			{ "open", "-R", job.artifactPath.c_str(), nullptr };
 		if (SDL_Process* reveal = SDL_CreateProcess(revealArgs, false))

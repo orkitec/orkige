@@ -66,7 +66,12 @@ namespace Orkige
 			{
 				this->data = SoundUtil::loadSoundData(this->fileName, &size, &format, &freq);
 			}
-			oAssert(this->data);
+			// honest failure instead of an assert: loadSoundData returns
+			// NULL for unreadable files AND for .caf on non-Apple platforms
+			// (the decoder is AudioToolbox-backed, see SoundPlatform.h) -
+			// throw the established SoundError so the cleanup below runs
+			SoundError::call(this->data != NULL,
+				"Unsupported or unreadable sound file: " + this->fileName + "!", AL_INVALID_VALUE);
 			SoundUtil::alBufferDataPlatform(this->buffer, format, data, size, freq);
 
 			error = alGetError();

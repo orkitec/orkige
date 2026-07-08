@@ -30,7 +30,14 @@
 #include <OgreHlmsPbsDatablock.h>
 #include <OgreHlmsUnlit.h>
 #include <OgreHlmsUnlitDatablock.h>
+#if defined(__APPLE__)
 #include <OgreMetalPlugin.h>
+#else
+// non-Apple: Vulkan is the Ogre-Next render system (Metal is Apple-only;
+// ports/ogre-next builds the Vulkan RS with XCB windowing on Linux)
+#include <OgreVulkanPlugin.h>
+#endif
+#include <OgrePlugin.h>
 #include <OgreRenderSystem.h>
 #include <OgreTextureGpuManager.h>
 #include <OgreTextureFilters.h>
@@ -58,8 +65,9 @@ namespace Orkige
 		//! the live render system behind RenderSystem::get (one per
 		//! process - the build-time backend rule, no runtime switch)
 		RenderSystem* gRenderSystem = NULL;
-		//! the statically linked Metal render system plugin
-		Ogre::MetalPlugin* gMetalPlugin = NULL;
+		//! the statically linked render system plugin (Metal on Apple,
+		//! Vulkan elsewhere - one RS per platform, installed at boot)
+		Ogre::Plugin* gRenderSystemPlugin = NULL;
 		//! back-mapping registry (same contract as the classic backend)
 		std::unordered_map<Ogre::SceneNode*, woptr<RenderNode>> gNodeRegistry;
 		//! monotonic counter behind RenderBackend::generateName
@@ -157,8 +165,14 @@ namespace Orkige
 		Ogre::Root* root = OGRE_NEW Ogre::Root(NULL /*abiCookie*/,
 			"" /*pluginFileName*/, "" /*configFileName*/,
 			options.logFileName, "Orkige");
-		gMetalPlugin = OGRE_NEW Ogre::MetalPlugin();
-		root->installPlugin(gMetalPlugin, NULL);
+#if defined(__APPLE__)
+		gRenderSystemPlugin = OGRE_NEW Ogre::MetalPlugin();
+#else
+		// TODO(linux): authored against the Ogre-Next 3.0 sources, first
+		// real Linux run pending (verified in CI - see .github/workflows)
+		gRenderSystemPlugin = OGRE_NEW Ogre::VulkanPlugin();
+#endif
+		root->installPlugin(gRenderSystemPlugin, NULL);
 		Ogre::RenderSystemList const & renderers =
 			root->getAvailableRenderers();
 		oAssert(!renderers.empty());
@@ -169,11 +183,24 @@ namespace Orkige
 		root->initialise(false /*autoCreateWindow*/);
 
 		Ogre::NameValuePairList windowParams;
-		if(!options.nativeWindowHandle.empty())
+		// "0" = the platform bridge found no native handle (e.g. a pure
+		// Wayland session on Linux, see SDLNativeWindowLinux.cpp) - fall
+		// back to letting the render system create its own window
+		if(!options.nativeWindowHandle.empty() &&
+			options.nativeWindowHandle != "0")
 		{
+#if defined(__APPLE__)
 			// the SDL-hosted window (Next's Metal window embeds its own
 			// OgreMetalView into the NSWindow's content view)
 			windowParams["externalWindowHandle"] = options.nativeWindowHandle;
+#else
+			// Linux: VulkanXcbWindow's external-window path is the "SDL2x11"
+			// misc param - a (stringified) pointer to {Display*, ::Window},
+			// exactly what engine_util/SDLNativeWindowLinux.cpp hands out on
+			// this flavor ("externalWindowHandle" is ignored by the xcb
+			// windowing). TODO(linux): first real run pending.
+			windowParams["SDL2x11"] = options.nativeWindowHandle;
+#endif
 		}
 		// CLASSIC COLOUR PARITY (the WYSIWYG rule - backends must render
 		// the same image): the classic backend runs a gamma-space pipeline
@@ -226,8 +253,8 @@ namespace Orkige
 		gWireframe = false;
 		RenderBackend::resetDrawLayer2DState();
 		OGRE_DELETE root;
-		OGRE_DELETE gMetalPlugin;
-		gMetalPlugin = NULL;
+		OGRE_DELETE gRenderSystemPlugin;
+		gRenderSystemPlugin = NULL;
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::system()

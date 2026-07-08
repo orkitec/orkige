@@ -109,13 +109,19 @@ if(TARGET orkige_engine)
         # NEXT (default) preset only - next is the flavor that must match
         # classic's established output. Cross-preset by nature: the classic
         # binary lives in the classic build tree; when it is absent the
-        # driver SKIPs (exit 77) instead of failing - build the
-        # macos-debug-classic preset to arm the comparison.
+        # driver SKIPs (exit 77) instead of failing - build the host's
+        # conventional classic preset (macos-debug-classic /
+        # linux-debug-classic) to arm the comparison.
+        if(APPLE)
+            set(ORKIGE_PARITY_CLASSIC_TREE "build/macos-debug-classic")
+        else()
+            set(ORKIGE_PARITY_CLASSIC_TREE "build/linux-debug-classic")
+        endif()
         add_test(NAME render_backend_parity
             COMMAND python3
                 "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/compare_backend_screenshots.py"
                 --next-binary $<TARGET_FILE:render_facade_selfcheck>
-                --classic-binary "${Orkige_SOURCE_DIR}/build/macos-debug-classic/tests/render_facade_selfcheck"
+                --classic-binary "${Orkige_SOURCE_DIR}/${ORKIGE_PARITY_CLASSIC_TREE}/tests/render_facade_selfcheck"
                 --out "${CMAKE_CURRENT_BINARY_DIR}/render_backend_parity"
                 --repo "${Orkige_SOURCE_DIR}"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -309,8 +315,11 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # adb push + run-as, debug link over an 'adb forward tcp' bridge).
     # SKIPPED (exit 77) when no adb device has the APK installed - build
     # (android-debug preset), package (tools/player/android/package_apk.sh)
-    # and adb install it.
-    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    # and adb install it. APPLE-gated with the simulator flow above: the
+    # host-side adb/packaging flow is a dev-machine concern today.
+    # TODO(linux): the adb flow itself is host-portable - ungate once a
+    # Linux machine actually drives Android devices.
+    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
         add_test(NAME editor_play_android COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_android PROPERTIES
@@ -399,7 +408,11 @@ if(TARGET orkige_player)
     # a next tree honestly). TODO(next-export): a next-flavor export needs
     # the Hlms shader-template media bundled + Engine::setHlmsMediaDir wired
     # into PlayerBundle before orkige_export.py can ship the next player.
-    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    # APPLE-gated: the export driver checks/runs .app bundles with otool -
+    # macOS host machinery (a Linux registration would hard-fail at otool).
+    # TODO(linux): a Linux export target needs its own bundle layout +
+    # driver checks in Util/orkige_export.py first.
+    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # The driver (integration_driver/run_export_test.py) runs the exporter,
         # asserts the artifact's structure and self-containment, and - on macOS -
         # RUNS the exported app from a NEUTRAL cwd (the output dir, never the

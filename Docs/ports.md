@@ -56,8 +56,9 @@ Locally authored port (3.0.0, pinned tag `v3.0.0` - the latest stable of
 OGRECave/ogre-next; no upstream vcpkg port exists). The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
-never builds it. Static, `supports: osx & arm64` for now (widened when the
-Phase-3 mobile evaluation decides backends).
+never builds it. Static, `supports: (osx & arm64) | (linux & x64)` - the
+Linux half is the CI `linux-next` job's Vulkan flavor (widened further when
+the Phase-3 mobile evaluation decides backends).
 
 **Coexistence with classic `ogre` in one installed tree** is a hard
 requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives
@@ -69,11 +70,21 @@ RS), CMake config + HLMS media live under `share/ogre-next/`
 `macos-debug`/`macos-release` presets since the 2026-07-08 default flip)
 installs both into one `vcpkg_installed` tree.
 
-Configuration: Metal render system only (first-class on Ogre-Next; the legacy
-GL3+ 4.1 path buys nothing on macOS) plus the NULL render system (headless
+Configuration: ONE render system per platform - Metal on macOS (first-class
+on Ogre-Next; the legacy GL3+ 4.1 path buys nothing there), Vulkan on Linux
+(XCB windowing; headers/loader from the vcpkg `vulkan-headers`/`vulkan-loader`
+ports, glslang from the `glslang` port for the RS's runtime GLSL->SPIR-V
+compile - the upstream static archive has no link interface, so the shipped
+config carries `Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;
+xcb-randr` on `OgreNext::RenderSystem_Vulkan`; the xcb/Xt/Xaw dev packages
+come from the system package manager, same rule as classic ogre on Linux) -
+plus the NULL render system (headless
 option), Hlms PBS + Unlit components, FreeImage codec (the ogre-next STBI
 codec is decode-only - screenshots need an encoder), rapidjson (a hard
 OgreMain 3.0 dependency: OgreRootLayout.cpp includes it unconditionally).
+TODO(linux): the Linux/Vulkan build is authored against the 3.0.0 sources
+but first proven by the `linux-next` CI job - glslang API drift between
+ogre-next 3.0 and the current vcpkg glslang is the known risk.
 Overlay/samples/tools and all other components OFF until a phase needs them;
 zip archives OFF (would add zziplib - revisit in B2 when content work needs
 `addResourceLocation(LT_ZIP)`).
@@ -82,7 +93,8 @@ Upstream installs **no CMake package config** (only pkg-config templates
 whose static .pc unconditionally `Requires: gl` - removed); the port ships
 its own `OGRE-NextConfig.cmake` with namespaced imported targets
 (`OgreNext::Main`, `OgreNext::HlmsPbs`, `OgreNext::HlmsUnlit`,
-`OgreNext::RenderSystem_Metal`, `OgreNext::RenderSystem_NULL`) plus
+`OgreNext::RenderSystem_Metal` on Apple / `OgreNext::RenderSystem_Vulkan`
+on Linux, `OgreNext::RenderSystem_NULL`) plus
 `OGRE_NEXT_MEDIA_DIR` (the shipped `Media/Hlms` shader templates every
 Ogre-Next app must register).
 

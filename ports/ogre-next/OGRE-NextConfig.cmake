@@ -3,10 +3,11 @@
 # provides namespaced imported targets so consumers never collide with the
 # classic ogre port's exported OgreMain/RenderSystem_* target names:
 #
-#   OgreNext::Main               core (OgreNextMainStatic)
-#   OgreNext::HlmsPbs            physically based material system
-#   OgreNext::HlmsUnlit          unlit material system
-#   OgreNext::RenderSystem_Metal Metal render system (static plugin)
+#   OgreNext::Main                core (OgreNextMainStatic)
+#   OgreNext::HlmsPbs             physically based material system
+#   OgreNext::HlmsUnlit           unlit material system
+#   OgreNext::RenderSystem_Metal  Metal render system (Apple; static plugin)
+#   OgreNext::RenderSystem_Vulkan Vulkan render system (Linux; static plugin)
 #
 # Variables:
 #   OGRE_NEXT_INCLUDE_DIR  include/OGRE-Next
@@ -15,6 +16,14 @@
 include(CMakeFindDependencyMacro)
 find_dependency(ZLIB)
 find_dependency(freeimage CONFIG)
+if(NOT APPLE)
+    # the Vulkan RS: loader+headers from the vcpkg vulkan-* ports (built-in
+    # FindVulkan resolves inside the installed tree -> Vulkan::Vulkan), and
+    # glslang for the runtime GLSL->SPIR-V compile the RS does (the upstream
+    # static lib does not carry its link interface - the consumer must)
+    find_dependency(Vulkan)
+    find_dependency(glslang CONFIG)
+endif()
 
 get_filename_component(_ogre_next_prefix "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
@@ -35,6 +44,13 @@ function(_ogre_next_add_library target libname)
     )
 endfunction()
 
+if(APPLE)
+    set(_ogre_next_main_platform_libs "-framework Foundation;-framework IOKit;-framework Cocoa;-framework Carbon;-framework CoreVideo")
+else()
+    # Linux: OgreMain's threading/plugin loading + X11 window-event plumbing
+    set(_ogre_next_main_platform_libs "X11;pthread;dl")
+endif()
+
 _ogre_next_add_library(OgreNext::Main OgreNextMainStatic)
 set_target_properties(OgreNext::Main PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}"
@@ -45,7 +61,7 @@ set_target_properties(OgreNext::Main PROPERTIES
     # OGRE_DEBUG_MODE is ABI-relevant in Ogre-Next (debug bookkeeping in
     # the v2 memory managers changes struct layouts)
     INTERFACE_COMPILE_DEFINITIONS "$<$<CONFIG:Debug>:DEBUG=1;_DEBUG=1>"
-    INTERFACE_LINK_LIBRARIES "ZLIB::ZLIB;freeimage::FreeImage;-framework Foundation;-framework IOKit;-framework Cocoa;-framework Carbon;-framework CoreVideo"
+    INTERFACE_LINK_LIBRARIES "ZLIB::ZLIB;freeimage::FreeImage;${_ogre_next_main_platform_libs}"
 )
 
 _ogre_next_add_library(OgreNext::HlmsPbs OgreNextHlmsPbsStatic)
@@ -60,11 +76,24 @@ set_target_properties(OgreNext::HlmsUnlit PROPERTIES
     INTERFACE_LINK_LIBRARIES "OgreNext::Main"
 )
 
-_ogre_next_add_library(OgreNext::RenderSystem_Metal RenderSystem_MetalStatic)
-set_target_properties(OgreNext::RenderSystem_Metal PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/RenderSystems/Metal/include"
-    INTERFACE_LINK_LIBRARIES "OgreNext::Main;-framework Metal;-framework AppKit;-framework QuartzCore"
-)
+if(APPLE)
+    _ogre_next_add_library(OgreNext::RenderSystem_Metal RenderSystem_MetalStatic)
+    set_target_properties(OgreNext::RenderSystem_Metal PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/RenderSystems/Metal/include"
+        INTERFACE_LINK_LIBRARIES "OgreNext::Main;-framework Metal;-framework AppKit;-framework QuartzCore"
+    )
+else()
+    # Linux: the Vulkan RS with XCB windowing. The upstream static archive
+    # carries no link interface, so everything its objects reference rides
+    # here: the Vulkan loader, glslang(+SPIRV) for the runtime shader
+    # compile, and the xcb/Xlib bridge libs of VulkanXcbWindow (system
+    # packages: libx11-xcb-dev, libxcb-randr0-dev).
+    _ogre_next_add_library(OgreNext::RenderSystem_Vulkan RenderSystem_VulkanStatic)
+    set_target_properties(OgreNext::RenderSystem_Vulkan PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/RenderSystems/Vulkan/include"
+        INTERFACE_LINK_LIBRARIES "OgreNext::Main;Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;xcb-randr"
+    )
+endif()
 
 # headless render system (no window/GPU) - handy for future headless runs
 _ogre_next_add_library(OgreNext::RenderSystem_NULL RenderSystem_NULLStatic)
