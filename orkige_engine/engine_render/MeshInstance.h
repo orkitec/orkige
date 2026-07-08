@@ -26,10 +26,12 @@ namespace Orkige
 	//! extraction of AnimationComponent stays a classic-only backdoor for
 	//! now (open question in the doc).
 	//!
-	//! Backend mapping (whole class): classic = Ogre::Entity;
-	//! next = Ogre::Item (v2; assimp-imported meshes arrive as v1 and are
-	//! converted via Mesh::importV1) ; filament = renderable entity built
-	//! by gltfio's AssetLoader + RenderableManager.
+	//! Backend mapping (whole class): classic = Ogre::Entity (meshes via
+	//! OGRE's Codec_Assimp); next = Ogre::Item over a v2 mesh - Next has
+	//! no assimp codec, the backend drives assimp itself and imports via
+	//! v1::ManualObject -> Mesh::importV1 (static meshes only at B2, see
+	//! engine_render_next/MeshLoaderNext.cpp); filament = renderable
+	//! entity built by gltfio's AssetLoader + RenderableManager.
 	class ORKIGE_ENGINE_DLL MeshInstance
 	{
 		//--- Types -------------------------------------------------

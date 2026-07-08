@@ -5,13 +5,15 @@
 # is the sol2-based engine_gocomponent/ScriptComponent.
 
 # ---------------------------------------------------------------------------
-# Ogre-Next flavor (ORKIGE_RENDER_BACKEND=next, phase B1 skeleton).
+# Ogre-Next flavor (ORKIGE_RENDER_BACKEND=next). Since B2 the whole
+# engine_render facade is implemented on this backend (conformance suite
+# render_facade_selfcheck passes on desktop-next).
 # HONEST GATING: every module above the facade includes the classic <Ogre.h>
 # umbrella through engine_module/EnginePrerequisites.h (Engine, fastgui,
-# IngameConsole, components, sound, input, runtime, filesystem, util) - so at
-# B1 the next-flavor orkige_engine is exactly the backend-free facade
+# IngameConsole, components, sound, input, runtime, filesystem, util) - so
+# the next-flavor orkige_engine is exactly the backend-free facade
 # (engine_render/) + the Ogre-Next backend (engine_render_next/) + the SDL
-# native-window bridge. Modules join this list as B2 ports them off the
+# native-window bridge. Modules join this list as WP-A2.4 ports them off the
 # classic umbrella. The classic flavor below stays untouched.
 # ---------------------------------------------------------------------------
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
@@ -19,6 +21,10 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     # namespaced OgreNext::* so nothing collides with classic's OgreMain
     find_package(OGRE-Next CONFIG REQUIRED)
     find_package(SDL3 CONFIG REQUIRED)
+    # Ogre-Next has no assimp codec - the backend's mesh import path
+    # (engine_render_next/MeshLoaderNext.cpp) drives assimp directly;
+    # the library is already in the tree via classic ogre's assimp feature
+    find_package(assimp CONFIG REQUIRED)
 
     set(ORKIGE_ENGINE_SOURCES
         engine_render/RenderPrerequisites.h
@@ -38,6 +44,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/RenderWorldNext.cpp
         engine_render_next/RenderNodeNext.cpp
         engine_render_next/MeshInstanceNext.cpp
+        engine_render_next/MeshLoaderNext.cpp
         engine_render_next/SpriteQuadNext.cpp
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
@@ -64,6 +71,10 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             OgreNext::HlmsUnlit
             OgreNext::RenderSystem_Metal
             SDL3::SDL3
+        PRIVATE
+            # backend-internal mesh import; assimp types never leave the
+            # MeshLoaderNext translation unit
+            assimp::assimp
     )
     return()
 endif()

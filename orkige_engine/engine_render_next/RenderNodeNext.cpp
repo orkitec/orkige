@@ -9,18 +9,20 @@
 
 //! @file RenderNodeNext.cpp
 //! @brief Ogre-Next implementation of the RenderNode facade
-//! @remarks REAL at B1 - the v2 SceneNode carries the same call surface
-//! as classic; differences handled here: transforms are stored SoA and
+//! @remarks the v2 SceneNode carries the same call surface as
+//! classic; differences handled here: transforms are stored SoA and
 //! returned by value (cached for the facade's const-ref getters),
 //! derived getters use the *Updated variants (v2 updates transforms in
-//! bulk per frame), child nodes are created nameless. getWorldBounds is
-//! the one stub (v2 has no per-node world AABB; B2 merges attached
-//! objects' world Aabbs when content classes exist).
+//! bulk per frame), child nodes are created nameless. getWorldBounds
+//! merges the world Aabbs of all attached objects in the subtree (v2
+//! has no per-node world AABB like classic's _getWorldAABB - the
+//! recursive merge IS the classic semantic).
 
 #include "engine_render_next/NextBackend.h"
 
 #include <OgreSceneManager.h>
 #include <OgreSceneNode.h>
+#include <OgreMovableObject.h>
 
 #include <algorithm>
 
@@ -38,6 +40,37 @@ namespace Orkige
 			case RenderNode::TS_WORLD:	return Ogre::Node::TS_WORLD;
 			}
 			return Ogre::Node::TS_PARENT;
+		}
+
+		//! v2 derived transforms update in bulk per frame; the relative
+		//! operations below (translate/rotate/lookAt in non-local spaces)
+		//! read them IMMEDIATELY and hard-assert on a dirty cache in debug
+		//! builds - force the parent-chain refresh first (the facade
+		//! contract: node ops are valid at any time, same as classic)
+		void forceTransformUpdate(Ogre::SceneNode* node)
+		{
+			node->_getDerivedPositionUpdated();
+		}
+
+		//! merge the world Aabbs of every object attached under node
+		void mergeWorldBounds(Ogre::SceneNode* node, Ogre::AxisAlignedBox & into)
+		{
+			for(size_t each = 0; each < node->numAttachedObjects(); ++each)
+			{
+				const Ogre::Aabb worldAabb =
+					node->getAttachedObject(each)->getWorldAabbUpdated();
+				if(worldAabb.mHalfSize != Ogre::Vector3::ZERO ||
+					worldAabb.mCenter != Ogre::Vector3::ZERO)
+				{
+					into.merge(Ogre::AxisAlignedBox(worldAabb.getMinimum(),
+						worldAabb.getMaximum()));
+				}
+			}
+			for(size_t each = 0; each < node->numChildren(); ++each)
+			{
+				mergeWorldBounds(
+					static_cast<Ogre::SceneNode*>(node->getChild(each)), into);
+			}
 		}
 	}
 	//---------------------------------------------------------
@@ -141,33 +174,39 @@ namespace Orkige
 	//---------------------------------------------------------
 	AABB RenderNode::getWorldBounds() const
 	{
-		RenderBackend::notImplementedOnce("RenderNode::getWorldBounds");
-		return AABB();	// null box - safe default
+		AABB bounds;	// starts null; stays null for content-free subtrees
+		mergeWorldBounds(this->mImpl->node, bounds);
+		return bounds;
 	}
 	//---------------------------------------------------------
 	void RenderNode::translate(Vec3 const & delta, TransformSpace relativeTo)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->translate(delta, toOgreSpace(relativeTo));
 	}
 	//---------------------------------------------------------
 	void RenderNode::yaw(Radian const & angle, TransformSpace relativeTo)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->yaw(angle, toOgreSpace(relativeTo));
 	}
 	//---------------------------------------------------------
 	void RenderNode::pitch(Radian const & angle, TransformSpace relativeTo)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->pitch(angle, toOgreSpace(relativeTo));
 	}
 	//---------------------------------------------------------
 	void RenderNode::roll(Radian const & angle, TransformSpace relativeTo)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->roll(angle, toOgreSpace(relativeTo));
 	}
 	//---------------------------------------------------------
 	void RenderNode::lookAt(Vec3 const & targetPoint, TransformSpace relativeTo,
 		Vec3 const & localDirection)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->lookAt(targetPoint, toOgreSpace(relativeTo),
 			localDirection);
 	}
@@ -175,6 +214,7 @@ namespace Orkige
 	void RenderNode::setDirection(Vec3 const & direction,
 		TransformSpace relativeTo, Vec3 const & localDirection)
 	{
+		forceTransformUpdate(this->mImpl->node);
 		this->mImpl->node->setDirection(direction, toOgreSpace(relativeTo),
 			localDirection);
 	}

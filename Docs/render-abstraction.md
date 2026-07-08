@@ -538,16 +538,81 @@ the test suite, unchanged:
   Affine3; Matrix4 carries the affine helpers - only the classic-only
   editor gizmo consumes it) and `RenderCamera::setWireframe` is a stub on
   Next (the v2 Camera lost the polygon-mode toggle; B2 revisits).
-- **WP-A2.2 core scene**: `engine_render_next/` RenderSystem/World/Node/Camera/Light
-  (workspace bootstrap, v2 scene manager, hemisphere ambient). Gate: facade selfcheck
-  renders a cube on Next (needs the WP-A2.3 mesh piece for the cube — coordinate).
-- **WP-A2.3 content**: MeshInstance (`importV1` path for assimp meshes, HlmsUnlit
-  fixup, v2 skeleton animation surface), SpriteQuad (HlmsUnlit datablock per texture,
-  v2 quad geometry, queue-based zOrder), RenderTexture (workspace-per-target,
-  readback screenshot), queryRay (v2 ray query or impl AABB walk).
-- **WP-A2.4 parity run**: `render_facade_selfcheck` + demo scenes + player scene
-  loading green on `desktop-next` minus fastgui-dependent tests (explicit skip list
-  documented; HUD arrives in A3).
+- **WP-A2.2 core scene + WP-A2.3 content** *(DELIVERED together 2026-07-08 — aka
+  phase B2)*: `engine_render_next/` implements the WHOLE facade;
+  **`render_facade_selfcheck` passes UNCHANGED on `desktop-next` (enabled in ctest,
+  zero carve-outs)**; classic `desktop` stays 139-green. Per-class notes (the
+  reference for future material/mesh work on Next):
+  - **Mesh path (the B2 decision)**: Ogre-Next has no assimp codec, so the backend
+    links assimp PRIVATE (`MeshLoaderNext.cpp` is the only TU seeing it; the lib was
+    already in the tree via classic ogre's `assimp` feature) and owns the import:
+    `*.mesh` → `v1::MeshManager` (serializer); glb/gltf/obj/… → assimp
+    `ReadFileFromMemory` from the resource stream (`Triangulate | GenSmoothNormals |
+    PreTransformVertices | SortByPType`) → throwaway `v1::ManualObject`
+    (`setReadable`, placeholder "BaseWhite" material — v1 MO refuses unknown
+    MATERIAL names) → `convertToMesh` → both roads end in
+    `MeshManager::createByImportingV1`. TWO Next gotchas learned hard:
+    `createByImportingV1` is DEFERRED (records name/group, imports on `load()` —
+    call it, and KEEP the v1 intermediate alive: it is the reload source after
+    device-lost), and real datablock names are written onto the v2 sub-meshes AFTER
+    import (`SubMesh::setMaterialName`). `PreTransformVertices` bakes node
+    transforms: **static meshes only** — skeletal glb import is an honest
+    `notImplementedOnce` gap (the facade animation surface itself is implemented
+    over v2 `SkeletonInstance`/`SkeletonAnimation`, exercised only for
+    unknown-name safety until animated content exists).
+  - **HLMS mapping (the backend's whole material surface, all generated +
+    registered for the wireframe toggle)**: mesh sub-mesh → PBS datablock
+    `"<mesh>/mat<i>"` (diffuse colour via `setDiffuse`, diffuse texture via
+    `setTexture(PBSM_DIFFUSE)`; glb-embedded textures decode from the blob through
+    `Image2` + manual `TextureGpu` upload, external names resolve through the
+    resource groups); sprite → shared per-texture Unlit datablock `"Sprite/<tex>"`
+    (blendblock `SBT_TRANSPARENT_ALPHA`, macroblock depth-write off + `CULL_NONE`;
+    tint/flips stay vertex data, so sprites of one texture share it — same rules as
+    classic); `setVertexColourUnlit` → swaps each sub-item onto Unlit
+    `"<mesh>/VCUnlit<i>"` keeping a diffuse texture — vertex colours need NO
+    datablock knob on Next: `hlms_colour` activates from `VES_DIFFUSE` in the
+    vertex format; cube-mesh service → the same recipe with the shared
+    `"VertexColour"` Unlit datablock (classic palette/winding kept). Visual
+    parity vs classic: same content/hues at every probe point, but Next renders
+    into an sRGB swapchain, so output is brighter than classic's non-sRGB path —
+    colour management is a WP-A2.4/content-phase refinement, not a B2 blocker.
+  - **SpriteQuad**: v2 `ManualObject` quad (has `colour()` — tint/UV/flip rebuilds
+    identical to classic); zOrder → render queue `50+z`, inside Next's default-FAST
+    v2 queues 0..99, so no queue-mode surgery needed.
+  - **RenderTexture**: `TextureGpu(RenderToTexture)` + one basic workspace per
+    target incarnation (background bakes into the definition; setCamera/resize/
+    background = recreate); `writeContentsToFile` is a plain
+    `Image2::convertFromTexture` readback (only the WINDOW needs the Metal
+    manual-swap dance); `getNativeTextureId` = the `TextureGpu*` (documented
+    opaque id; editor is classic-only per decision #3). Overlays/shadows toggles
+    are facade caches — no overlay component compiles on this flavor and the basic
+    workspace has no shadow node, so "off" holds structurally.
+  - **queryRay**: v2 still ships `DefaultRaySceneQuery` (SIMD AABB over the entity
+    memory managers; lights/cameras live elsewhere) — same
+    createRayQuery/sort/execute shape as classic, mask semantics intact.
+  - **RenderLight**: v2 `Ogre::Light` on a facade node, same range→attenuation
+    approximation as classic.
+  - **Node/world-bounds**: `getWorldBounds` merges `getWorldAabbUpdated` of every
+    attached object in the backend subtree (v2 has no per-node world AABB).
+    v2 relative node ops (translate/yaw/pitch/roll/lookAt/setDirection) read
+    derived transforms IMMEDIATELY and hard-assert on dirty caches in debug —
+    the facade forces `_getDerivedPositionUpdated()` first (facade contract:
+    node ops valid at any time).
+  - **Stats**: `RenderingMetrics` with recording enabled at boot; the Metal RS
+    never passes `_beginFrameOnce`'s reset, so the backend calls `_resetMetrics()`
+    per `renderOneFrame` (getFrameStats = last frame, classic semantics); facade
+    batches = `mBatchCount + mDrawCount` (v2 draws count into the latter).
+  - **Recorded deviation — `setWireframe` is GLOBAL on Next** (question #5
+    refined): the v2 camera lost the polygon-mode toggle; the backend flips the
+    macroblock polygon mode of every generated datablock instead. Fine for the
+    debug-view call sites; noted in RenderCamera.h.
+  - Honest gaps (each `notImplementedOnce`): `LT_ZIP`/`LT_BIGZIP` resource
+    locations (zziplib port feature + engine_filesystem port pending), skeletal
+    glb import (above).
+- **WP-A2.4 parity run**: demo scenes + player scene loading green on
+  `desktop-next` minus fastgui-dependent tests (explicit skip list documented; HUD
+  arrives in A3). Requires porting the B-phase apps/modules off the classic
+  `<Ogre.h>` umbrella (the flavor gate in orkige_engine/CMakeLists.txt).
 
 ### A3 — cross-backend HUD + closure
 

@@ -9,10 +9,12 @@
 
 //! @file RenderSystemNext.cpp
 //! @brief Ogre-Next implementation of the RenderSystem facade
-//! @remarks REAL at B1: frame loop, window camera/background (through
-//! the compositor workspace - Next renders nothing without one), window
-//! size/resize, screenshots, resource locations, fps stats. Stubs:
-//! createRenderTexture (B2 workspace-per-target), Zip/BigZip locations.
+//! @remarks frame loop, window camera/background (through the
+//! compositor workspace - Next renders nothing without one), window
+//! size/resize, screenshots, RTT creation (RenderTextureNext.cpp),
+//! resource locations, stats (fps facade-side, triangles/batches from
+//! the RenderingMetrics enabled at boot). Honest gap, logged once:
+//! Zip/BigZip resource locations (waits for real content work).
 
 #include "engine_render_next/NextBackend.h"
 
@@ -75,6 +77,10 @@ namespace Orkige
 		}
 		this->mImpl->lastFrameTime = now;
 		this->mImpl->haveLastFrameTime = true;
+		// the Metal RS never passes through _beginFrameOnce's per-frame
+		// metrics reset, so RenderingMetrics accumulate forever - reset
+		// here so getFrameStats reports the LAST frame (classic semantics)
+		this->mImpl->root->getRenderSystem()->_resetMetrics();
 		return this->mImpl->root->renderOneFrame();
 	}
 	//---------------------------------------------------------
@@ -129,6 +135,7 @@ namespace Orkige
 		// setWantsToDownload(true) already happened at boot.
 		Ogre::Window* window = this->mImpl->window;
 		window->setManualSwapRelease(true);
+		this->mImpl->root->getRenderSystem()->_resetMetrics();	// see renderOneFrame
 		this->mImpl->root->renderOneFrame();
 		if(!window->canDownloadData())
 		{
@@ -149,9 +156,7 @@ namespace Orkige
 	optr<RenderTexture> RenderSystem::createRenderTexture(String const & name,
 		unsigned int width, unsigned int height)
 	{
-		(void)name; (void)width; (void)height;
-		RenderBackend::notImplementedOnce("RenderSystem::createRenderTexture");
-		return optr<RenderTexture>();
+		return RenderBackend::createRenderTexture(name, width, height);
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
@@ -236,7 +241,9 @@ namespace Orkige
 		Ogre::RenderingMetrics const & metrics =
 			this->mImpl->root->getRenderSystem()->getMetrics();
 		stats.triangleCount = metrics.mFaceCount;
-		stats.batchCount = metrics.mBatchCount;
+		// v2 draws count into mDrawCount (mBatchCount is the v1 path) -
+		// draw calls ARE the classic "batches" notion
+		stats.batchCount = metrics.mBatchCount + metrics.mDrawCount;
 		return stats;
 	}
 }

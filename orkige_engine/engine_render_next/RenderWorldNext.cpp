@@ -9,15 +9,18 @@
 
 //! @file RenderWorldNext.cpp
 //! @brief Ogre-Next implementation of the RenderWorld facade
-//! @remarks REAL at B1: root node, node factory, camera factory,
-//! hemisphere ambient. Stubs (B2, WP-A2.2/A2.3): mesh instances
-//! (importV1 path), sprite quads (HlmsUnlit datablocks), lights,
-//! the cube-mesh service and ray queries.
+//! @remarks root node + all content factories (which live in the
+//! per-class TUs/the backend hub), hemisphere ambient, the cube-mesh
+//! service (MeshLoaderNext.cpp) and AABB ray picking. queryRay uses
+//! Next's DefaultRaySceneQuery - still present in v2, SIMD AABB tests
+//! over the entity memory managers (lights/cameras live elsewhere and
+//! are never returned), same sort-by-distance contract as classic.
 
 #include "engine_render_next/NextBackend.h"
 
 #include <OgreSceneManager.h>
 #include <OgreSceneNode.h>
+#include <OgreSceneQuery.h>
 
 namespace Orkige
 {
@@ -67,16 +70,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<MeshInstance> RenderWorld::createMeshInstance(String const & meshName)
 	{
-		(void)meshName;
-		RenderBackend::notImplementedOnce("RenderWorld::createMeshInstance");
-		return optr<MeshInstance>();
+		return RenderBackend::createMeshInstance(
+			this->mImpl->sceneManager, meshName);
 	}
 	//---------------------------------------------------------
 	optr<SpriteQuad> RenderWorld::createSpriteQuad(String const & textureName)
 	{
-		(void)textureName;
-		RenderBackend::notImplementedOnce("RenderWorld::createSpriteQuad");
-		return optr<SpriteQuad>();
+		return RenderBackend::createSpriteQuad(
+			this->mImpl->sceneManager, textureName);
 	}
 	//---------------------------------------------------------
 	optr<RenderCamera> RenderWorld::createCamera(String const & name)
@@ -87,16 +88,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	optr<RenderLight> RenderWorld::createLight()
 	{
-		RenderBackend::notImplementedOnce("RenderWorld::createLight");
-		return optr<RenderLight>();
+		return RenderBackend::createLight(this->mImpl->sceneManager);
 	}
 	//---------------------------------------------------------
 	void RenderWorld::createVertexColourCubeMesh(String const & meshName,
 		Real halfExtent)
 	{
-		(void)meshName; (void)halfExtent;
-		RenderBackend::notImplementedOnce(
-			"RenderWorld::createVertexColourCubeMesh");
+		RenderBackend::createVertexColourCubeMesh(this->mImpl->sceneManager,
+			meshName, halfExtent);
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
@@ -116,8 +115,25 @@ namespace Orkige
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(
 		Ray3 const & ray, unsigned int queryMask) const
 	{
-		(void)ray; (void)queryMask;
-		RenderBackend::notImplementedOnce("RenderWorld::queryRay");
-		return std::vector<RayQueryHit>();
+		// mirror of the classic backend over v2's DefaultRaySceneQuery
+		std::vector<RayQueryHit> hits;
+		Ogre::RaySceneQuery* query =
+			this->mImpl->sceneManager->createRayQuery(ray, queryMask);
+		query->setSortByDistance(true);
+		for(Ogre::RaySceneQueryResultEntry const & entry : query->execute())
+		{
+			if(!entry.movable)
+			{
+				continue;	// world-fragment hits are not scene content
+			}
+			Ogre::SceneNode* backendNode = entry.movable->getParentSceneNode();
+			RayQueryHit hit;
+			hit.distance = entry.distance;
+			hit.node = RenderBackend::findNode(backendNode);
+			hit.userPointer = RenderBackend::findUserPointerUpwards(backendNode);
+			hits.push_back(hit);
+		}
+		this->mImpl->sceneManager->destroyQuery(query);
+		return hits;
 	}
 }

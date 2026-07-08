@@ -8,19 +8,124 @@
 *********************************************************************/
 
 //! @file SpriteQuadNext.cpp
-//! @brief B1 STUB of the SpriteQuad facade on Ogre-Next
-//! @remarks No backend object exists yet (RenderWorld::createSpriteQuad
-//! returns NULL and logs once) - safe-default no-ops so the facade
-//! links. B2 (WP-A2.3) implements the v2 quad + HlmsUnlit datablock
-//! per the header's mapping comments.
+//! @brief Ogre-Next implementation of the SpriteQuad facade
+//! @remarks the v2 counterpart of the classic sprite: one v2
+//! Ogre::ManualObject quad + the shared per-texture "Sprite/<tex>"
+//! HlmsUnlit datablock (unlit, alpha-blended, depth-checked/
+//! not-written, two-sided - built in NextBackend.cpp). Tint and flips
+//! live in the quad's vertex data so all sprites of one texture share
+//! that one datablock; zOrder maps to render queue 50+z exactly like
+//! classic (queues 0..99 are v2-FAST by default on Next).
 
 #include "engine_render_next/NextBackend.h"
 
+#include <OgreSceneManager.h>
+#include <OgreSceneNode.h>
+#include <OgreManualObject2.h>
+#include <OgreTextureGpu.h>
+
+#include <algorithm>
+#include <utility>
+
 namespace Orkige
 {
-	//---------------------------------------------------------
-	const int SpriteQuad::ZORDER_MIN = -40;	//!< matches the classic backend
+	// same clamp as classic (render queue 50 +- 40)
+	const int SpriteQuad::ZORDER_MIN = -40;
 	const int SpriteQuad::ZORDER_MAX = 40;
+	//---------------------------------------------------------
+	optr<SpriteQuad> RenderBackend::createSpriteQuad(
+		Ogre::SceneManager* sceneManager, String const & textureName)
+	{
+		oAssert(sceneManager);
+		oAssert(!textureName.empty());
+		Ogre::TextureGpu* texture = RenderBackend::loadTexture2D(textureName);
+		if(!texture)
+		{
+			return optr<SpriteQuad>();	// error already logged
+		}
+		RenderBackend::getOrCreateSpriteDatablock(textureName, texture);
+
+		optr<SpriteQuad> handle(new SpriteQuad());
+		handle->mImpl->creator = sceneManager;
+		handle->mImpl->textureName = textureName;
+		handle->mImpl->datablockName = "Sprite/" + textureName;
+		handle->mImpl->texelWidth = static_cast<float>(texture->getWidth());
+		handle->mImpl->texelHeight = static_cast<float>(texture->getHeight());
+		handle->mImpl->quad =
+			sceneManager->createManualObject(Ogre::SCENE_DYNAMIC);
+		handle->mImpl->quad->setName(
+			RenderBackend::generateName("RenderFacade/Sprite"));
+		handle->mImpl->quad->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		handle->mImpl->rebuild();
+		return handle;
+	}
+	//---------------------------------------------------------
+	void SpriteQuad::Impl::rebuild()
+	{
+		oAssert(this->quad);
+		// identical geometry rules to the classic backend (facade contract):
+		// unset dimensions derive from the texture aspect (height 1)
+		const float aspect =
+			(this->texelWidth > 0.0f && this->texelHeight > 0.0f)
+			? this->texelWidth / this->texelHeight : 1.0f;
+		float resolvedWidth = this->width;
+		float resolvedHeight = this->height;
+		if(resolvedWidth <= 0.0f && resolvedHeight <= 0.0f)
+		{
+			resolvedHeight = 1.0f;
+			resolvedWidth = aspect;
+		}
+		else if(resolvedWidth <= 0.0f)
+		{
+			resolvedWidth = resolvedHeight * aspect;
+		}
+		else if(resolvedHeight <= 0.0f)
+		{
+			resolvedHeight = resolvedWidth / aspect;
+		}
+		// UV corners, v running top-down; flips swap the coordinates
+		float flippedU0 = this->u0, flippedU1 = this->u1;
+		float flippedV0 = this->v0, flippedV1 = this->v1;
+		if(this->flipX)
+		{
+			std::swap(flippedU0, flippedU1);
+		}
+		if(this->flipY)
+		{
+			std::swap(flippedV0, flippedV1);
+		}
+		const Ogre::Vector2 uv[4] = {
+			{ flippedU0, flippedV0 },	// top-left
+			{ flippedU1, flippedV0 },	// top-right
+			{ flippedU1, flippedV1 },	// bottom-right
+			{ flippedU0, flippedV1 },	// bottom-left
+		};
+		const float halfWidth = resolvedWidth * 0.5f;
+		const float halfHeight = resolvedHeight * 0.5f;
+		// vertex order matches the UV corners: TL, TR, BR, BL; triangles
+		// (0,3,2)(0,2,1) face +Z (the datablock renders two-sided anyway)
+		const Ogre::Vector3 corners[4] = {
+			{ -halfWidth,  halfHeight, 0.0f },
+			{  halfWidth,  halfHeight, 0.0f },
+			{  halfWidth, -halfHeight, 0.0f },
+			{ -halfWidth, -halfHeight, 0.0f },
+		};
+		this->quad->clear();
+		this->quad->estimateVertexCount(4);
+		this->quad->estimateIndexCount(6);
+		this->quad->begin(this->datablockName, Ogre::OT_TRIANGLE_LIST);
+		for(int each = 0; each < 4; ++each)
+		{
+			this->quad->position(corners[each]);
+			this->quad->colour(this->tint);
+			this->quad->textureCoord(uv[each]);
+		}
+		this->quad->triangle(0, 3, 2);
+		this->quad->triangle(0, 2, 1);
+		this->quad->end();
+		this->quad->setRenderQueueGroup(
+			RenderBackend::renderQueueForZOrder(this->zOrder));
+	}
 	//---------------------------------------------------------
 	SpriteQuad::SpriteQuad()
 		: mImpl(new Impl())
@@ -29,16 +134,35 @@ namespace Orkige
 	//---------------------------------------------------------
 	SpriteQuad::~SpriteQuad()
 	{
+		// late destruction guard, same rule as RenderNode
+		if(this->mImpl->quad && RenderBackend::system())
+		{
+			if(this->mImpl->quad->isAttached())
+			{
+				this->mImpl->quad->detachFromParent();
+			}
+			this->mImpl->creator->destroyManualObject(this->mImpl->quad);
+		}
 		delete this->mImpl;
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::attachTo(optr<RenderNode> const & node)
 	{
+		oAssert(node);
+		if(this->mImpl->quad->isAttached())
+		{
+			this->mImpl->quad->detachFromParent();
+		}
+		RenderBackend::sceneNode(node)->attachObject(this->mImpl->quad);
 		this->mImpl->attachedTo = node;
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::detach()
 	{
+		if(this->mImpl->quad->isAttached())
+		{
+			this->mImpl->quad->detachFromParent();
+		}
 		this->mImpl->attachedTo.reset();
 	}
 	//---------------------------------------------------------
@@ -49,42 +173,53 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SpriteQuad::getTextureSize(float & outWidth, float & outHeight) const
 	{
-		outWidth = 0.0f;
-		outHeight = 0.0f;
+		outWidth = this->mImpl->texelWidth;
+		outHeight = this->mImpl->texelHeight;
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setSize(float width, float height)
 	{
-		(void)width; (void)height;
+		this->mImpl->width = width;
+		this->mImpl->height = height;
+		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setUVRect(float u0, float v0, float u1, float v1)
 	{
-		(void)u0; (void)v0; (void)u1; (void)v1;
+		this->mImpl->u0 = u0;
+		this->mImpl->v0 = v0;
+		this->mImpl->u1 = u1;
+		this->mImpl->v1 = v1;
+		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setTint(Color const & tint)
 	{
-		(void)tint;
+		this->mImpl->tint = tint;
+		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setFlip(bool flipX, bool flipY)
 	{
-		(void)flipX; (void)flipY;
+		this->mImpl->flipX = flipX;
+		this->mImpl->flipY = flipY;
+		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setZOrder(int zOrder)
 	{
-		(void)zOrder;
+		this->mImpl->zOrder = std::clamp(zOrder, ZORDER_MIN, ZORDER_MAX);
+		this->mImpl->quad->setRenderQueueGroup(
+			RenderBackend::renderQueueForZOrder(this->mImpl->zOrder));
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setVisible(bool visible)
 	{
-		(void)visible;
+		this->mImpl->quad->setVisible(visible);
 	}
 	//---------------------------------------------------------
 	void SpriteQuad::setQueryFlags(unsigned int flags)
 	{
-		(void)flags;
+		this->mImpl->quad->setQueryFlags(flags);
 	}
 }

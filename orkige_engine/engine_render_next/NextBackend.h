@@ -17,16 +17,22 @@
 //! and the per-backend test bootstraps (tests/render_facade/
 //! bootstrap_next.cpp, the render_next_smoke main) may include it.
 //!
-//! B1 SKELETON STATE (Docs/render-abstraction.md phase A2/WP-A2.1): the
-//! boot path is REAL - Ogre::Root + the Metal render system + an
-//! SDL-hosted window + a CompositorManager2 clear workspace + window
-//! screenshots + resource locations + RenderNode/RenderCamera. The
-//! content classes (MeshInstance, SpriteQuad, RenderLight,
-//! RenderTexture, ray queries, cube-mesh service) are honest stubs:
-//! they compile, return safe defaults and log ONCE per feature
-//! ("not implemented on the next backend yet"). render_facade_selfcheck
-//! is EXPECTED to fail on this backend until B2 (WP-A2.2/A2.3) fills
-//! the stubs - it is registered DISABLED in ctest for the next flavor.
+//! B2 STATE (Docs/render-abstraction.md phase A2/WP-A2.2+A2.3): the
+//! whole facade is implemented - boot (Root + Metal RS + SDL-hosted
+//! window + CompositorManager2 workspace), nodes/cameras, mesh
+//! instances (assimp import -> v1::ManualObject -> Mesh::importV1 ->
+//! Item; .mesh via the v1 serializer + importV1), HLMS PBS/Unlit
+//! datablock generation (the backend's whole material surface),
+//! sprite quads (v2 ManualObject + shared per-texture HlmsUnlit
+//! datablock), lights, RTT (TextureGpu + workspace-per-target), AABB
+//! ray queries, frame stats (RenderingMetrics) and the cube-mesh
+//! service. render_facade_selfcheck passes on this backend (enabled
+//! in ctest, preset desktop-next). Remaining honest gaps, each logged
+//! once via notImplementedOnce: LT_ZIP/LT_BIGZIP resource locations
+//! (waits for real content work + the zziplib port feature) and
+//! skeletal animation IMPORT through the assimp path (the animation
+//! control surface is implemented over v2 SkeletonInstance, but the
+//! B2 importer bakes node transforms - static meshes only).
 //!
 //! Unlike classic (where Engine bootstraps OGRE and the facade wraps
 //! it), the RenderSystem facade IS the boot on Next: RenderBackend::
@@ -60,6 +66,11 @@ namespace Ogre
 	class SceneNode;
 	class Camera;
 	class CompositorWorkspace;
+	class Item;
+	class ManualObject;	// the v2 one (OgreManualObject2.h)
+	class Light;
+	class TextureGpu;
+	class HlmsDatablock;
 }
 
 namespace Orkige
@@ -103,18 +114,34 @@ namespace Orkige
 		mutable Ogre::Vector3		scaleCache = Ogre::Vector3::UNIT_SCALE;
 	};
 
-	//--- B1 stubs: no backend objects yet, facade-side state only -----
-
 	struct MeshInstance::Impl
 	{
+		Ogre::Item*			item = NULL;			//!< the v2 entity equivalent
+		Ogre::SceneManager*	creator = NULL;
 		String				meshName;
-		optr<RenderNode>	attachedTo;
+		optr<RenderNode>	attachedTo;				//!< keeps the node alive while content hangs off it
 	};
 
 	struct SpriteQuad::Impl
 	{
+		Ogre::ManualObject*	quad = NULL;			//!< v2 manual object (VaoManager-backed)
+		Ogre::SceneManager*	creator = NULL;
 		String				textureName;
+		String				datablockName;			//!< the shared per-texture "Sprite/<tex>" HlmsUnlit datablock
+		float				texelWidth = 0.0f;		//!< texture size in texels (aspect derivation)
+		float				texelHeight = 0.0f;
+		float				width = 0.0f;			//!< configured size; <= 0 derives from the texture aspect
+		float				height = 0.0f;
+		float				u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+		Ogre::ColourValue	tint = Ogre::ColourValue::White;
+		bool				flipX = false;
+		bool				flipY = false;
+		int					zOrder = 0;
 		optr<RenderNode>	attachedTo;
+
+		//! rebuild the quad vertex data from the state above (same honest
+		//! sprite rules as the classic backend: tint/flips in vertex data)
+		void rebuild();
 	};
 
 	struct RenderCamera::Impl
@@ -127,8 +154,9 @@ namespace Orkige
 
 	struct RenderLight::Impl
 	{
+		Ogre::Light*		light = NULL;
+		Ogre::SceneManager*	creator = NULL;
 		optr<RenderNode>	attachedTo;
-		LightType			type = LT_POINT;
 	};
 
 	struct RenderTexture::Impl
@@ -136,7 +164,21 @@ namespace Orkige
 		String				name;
 		unsigned int		width = 0;
 		unsigned int		height = 0;
-		optr<RenderCamera>	camera;
+		optr<RenderCamera>	camera;					//!< keeps the fed camera alive
+		Ogre::TextureGpu*			texture = NULL;	//!< RenderToTexture target (owned)
+		Ogre::CompositorWorkspace*	workspace = NULL;	//!< renders the camera into the texture
+		Ogre::ColourValue	background = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
+		//! facade caches: the Next flavor compiles no overlay component and
+		//! the basic workspace has no shadow node, so "off" already holds
+		//! structurally - the flags are kept for a future workspace upgrade
+		bool				overlaysEnabled = true;
+		bool				shadowsEnabled = true;
+
+		//! (re)create texture + workspace from the state above
+		//! (resize-by-recreate, same contract as the classic backend)
+		void recreate();
+		//! drop workspace + texture (dtor and the recreate path)
+		void destroyTarget();
 	};
 
 	//--- the backend hub -----------------------------------------------
@@ -182,10 +224,79 @@ namespace Orkige
 			optr<RenderNode> const & parent);
 		static optr<RenderCamera> createCamera(
 			Ogre::SceneManager* sceneManager, String const & name);
+		//! NULL + a log line when the mesh cannot be resolved/imported
+		static optr<MeshInstance> createMeshInstance(
+			Ogre::SceneManager* sceneManager, String const & meshName);
+		//! NULL + a log line when the texture cannot be loaded
+		static optr<SpriteQuad> createSpriteQuad(
+			Ogre::SceneManager* sceneManager, String const & textureName);
+		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
+		static optr<RenderTexture> createRenderTexture(String const & name,
+			unsigned int width, unsigned int height);
+
+		//--- mesh import (MeshLoaderNext.cpp) ------------------------
+		//! @brief make sure a v2 mesh named meshName exists (idempotent)
+		//! @remarks THE Next mesh path decided in B2: an existing v2 mesh
+		//! is used as-is (cube-mesh service output); "*.mesh" loads
+		//! through the v1 serializer; everything else (glb/gltf/obj/...)
+		//! imports through assimp - both v1 roads end in
+		//! MeshManager::createByImportingV1. The assimp road also
+		//! generates one HLMS datablock per sub-mesh (PBS: diffuse
+		//! colour/texture, incl. glb-embedded textures). Node transforms
+		//! are baked (aiProcess_PreTransformVertices): static meshes
+		//! only until a skeletal need appears (logged once).
+		//! @return false + a log line when the resource is missing/broken
+		static bool ensureV2Mesh(Ogre::SceneManager* sceneManager,
+			String const & meshName);
+		//! the backend cube-mesh service (v2 mesh + shared vertex-colour
+		//! unlit datablock; same recipe/palette as classic PrimitiveUtil)
+		static void createVertexColourCubeMesh(Ogre::SceneManager* sceneManager,
+			String const & meshName, Real halfExtent);
+
+		//--- texture / datablock services (the material surface) -----
+		//! load a 2D texture through the resource system (any group);
+		//! metadata (texel size) is ready on return; NULL when missing
+		static Ogre::TextureGpu* loadTexture2D(String const & textureName);
+		//! create a 2D texture from an in-memory encoded image (png/jpg
+		//! bytes - glb-embedded textures); idempotent per name
+		static Ogre::TextureGpu* createTexture2DFromMemory(String const & name,
+			void const * bytes, size_t sizeBytes, String const & formatHint);
+		//! the shared per-texture "Sprite/<tex>" HlmsUnlit datablock
+		//! (unlit, alpha-blended, depth-checked/not-written, two-sided;
+		//! idempotent - all sprites of one texture share it)
+		static Ogre::HlmsDatablock* getOrCreateSpriteDatablock(
+			String const & textureName, Ogre::TextureGpu* texture);
+		//! an unlit datablock named datablockName that renders vertex
+		//! colours (times the optional texture); idempotent per name -
+		//! backs setVertexColourUnlit and the cube-mesh service
+		static Ogre::HlmsDatablock* getOrCreateVertexColourUnlitDatablock(
+			String const & datablockName, Ogre::TextureGpu* texture);
+		//! the diffuse texture of a backend datablock or NULL (PBS
+		//! diffuse slot / Unlit slot 0 - the subMeshHasTexture probe)
+		static Ogre::TextureGpu* datablockDiffuseTexture(
+			Ogre::HlmsDatablock* datablock);
+		//! @brief every datablock the backend generates registers here
+		//! @remarks backs the global wireframe toggle; datablocks live
+		//! until teardown (they are tiny and shared by name)
+		static void registerContentDatablock(Ogre::HlmsDatablock* datablock);
+		//! @brief RenderCamera::setWireframe on this backend: flip the
+		//! macroblock polygon mode of every backend-generated datablock
+		//! @remarks recorded deviation (see RenderCamera.h): Next's v2
+		//! camera lost the per-camera polygon-mode toggle, so wireframe
+		//! is GLOBAL here - fine for the debug-toggle call sites
+		static void setGlobalWireframe(bool enabled);
+		//! zOrder -> render queue id (painter's sorting, queue 50+z like
+		//! classic; v2 objects render from the FAST queues 0..99)
+		static unsigned char renderQueueForZOrder(int zOrder);
 
 		//--- guts accessors (NULL-safe) ------------------------------
 		static Ogre::SceneNode* sceneNode(optr<RenderNode> const & node);
 		static Ogre::Camera* ogreCamera(optr<RenderCamera> const & camera);
+		//! the booted Ogre root / the one world's scene manager, or NULL
+		//! (nested Impl structs cannot reach OTHER facade classes' mImpl -
+		//! cross-class plumbing goes through these)
+		static Ogre::Root* ogreRoot();
+		static Ogre::SceneManager* worldSceneManager();
 
 		//--- node registry (Ogre::SceneNode* -> facade handle) -------
 		static void registerNode(Ogre::SceneNode* node,
@@ -200,8 +311,9 @@ namespace Orkige
 		//! (re)build the window workspace from the stored camera +
 		//! background colour (Next renders NOTHING without a workspace)
 		static void recreateWindowWorkspace();
-		//! B1 stub discipline: log the missing feature ONCE, stay silent
-		//! afterwards - callers then return their safe default
+		//! honest-gap discipline: log the missing feature ONCE, stay
+		//! silent afterwards - callers then return their safe default
+		//! (B2 residual: LT_ZIP/LT_BIGZIP locations, skeletal import)
 		static void notImplementedOnce(char const * feature);
 	};
 }

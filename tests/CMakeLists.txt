@@ -68,12 +68,9 @@ if(TARGET orkige_engine)
     set_tests_properties(render_facade_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-        # EXPECTED at B1: the next backend is a boot/clear skeleton - the
-        # content half of the conformance suite (mesh/sprite/light/RTT/
-        # queryRay) is stubbed. B2 (WP-A2.2/A2.3, Docs/render-abstraction.md)
-        # fills the stubs and flips this back on; the B1 bar is covered by
-        # render_next_smoke below.
-        set_tests_properties(render_facade_selfcheck PROPERTIES DISABLED TRUE)
+        # B2 (WP-A2.2/A2.3, Docs/render-abstraction.md) filled the content
+        # stubs: the conformance suite runs ENABLED on this flavor, same
+        # command, same checks, zero backend-specific carve-outs.
 
         # render_next_smoke - the B1 flavor bar: window opens, clears to a
         # colour, the facade screenshot is non-black, clean exit 0

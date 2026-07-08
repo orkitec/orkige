@@ -9,11 +9,14 @@
 
 //! @file RenderCameraNext.cpp
 //! @brief Ogre-Next implementation of the RenderCamera facade
-//! @remarks REAL at B1: creation, node placement, projection setup,
-//! viewport rays, project-point, view/projection matrices. Stub:
-//! setWireframe (the v2 Camera lost the per-camera polygon-mode toggle;
-//! B2 decides between an Hlms macroblock override or dropping the doc's
-//! classic/next-keep-it note).
+//! @remarks creation, node placement, projection setup, viewport rays,
+//! project-point, view/projection matrices. setWireframe: the v2
+//! Camera lost the per-camera polygon-mode toggle, so the B2 decision
+//! is the Hlms macroblock road - RenderBackend::setGlobalWireframe
+//! flips the polygon mode of every backend-generated datablock, i.e.
+//! wireframe is GLOBAL (not per-camera) on this backend. That matches
+//! every live call site (a debug-view toggle) and is recorded in
+//! RenderCamera.h + Docs/render-abstraction.md.
 
 #include "engine_render_next/NextBackend.h"
 
@@ -159,7 +162,8 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderCamera::setWireframe(bool enabled)
 	{
-		(void)enabled;
-		RenderBackend::notImplementedOnce("RenderCamera::setWireframe");
+		// GLOBAL on this backend (macroblock polygon mode across all
+		// backend-generated datablocks) - see the file remarks
+		RenderBackend::setGlobalWireframe(enabled);
 	}
 }

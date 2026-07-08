@@ -35,7 +35,7 @@
     },
     {
       "name": "macos-debug-next",
-      "displayName": "macOS Debug (Ogre-Next render backend, B1 skeleton)",
+      "displayName": "macOS Debug (Ogre-Next render backend)",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -139,7 +139,7 @@
     },
     {
       "name": "desktop-next",
-      "displayName": "Next-flavor suite (unit + the render_next_smoke window run; the facade selfcheck is registered DISABLED until B2)",
+      "displayName": "Next-flavor suite (unit + render_next_smoke + the render_facade_selfcheck conformance run, enabled since B2)",
       "configurePreset": "macos-debug-next",
       "filter": {
         "exclude": {

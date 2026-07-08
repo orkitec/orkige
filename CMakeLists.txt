@@ -89,16 +89,18 @@ set_property(CACHE ORKIGE_RENDER_BACKEND PROPERTY STRINGS "classic" "next")
 if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
     # consumed by orkige_engine (compile definition ORKIGE_RENDER_CLASSIC)
 elseif(ORKIGE_RENDER_BACKEND STREQUAL "next")
-    # B1 skeleton flavor (preset macos-debug-next; needs the render-next
-    # vcpkg manifest feature): orkige_engine compiles the engine_render
-    # facade + engine_render_next only. Everything that includes the
-    # classic <Ogre.h> umbrella (EnginePrerequisites.h - i.e. Engine,
-    # fastgui, components, sound, input, runtime AND every app on the
-    # classic Engine boot) is excluded until B2 ports it; see the flavor
-    # gates below and in orkige_engine/tests CMakeLists.
-    message(STATUS "Orkige render backend: next (B1 skeleton - boot/clear/"
-        "screenshot real, content classes stubbed; classic-only targets "
-        "excluded: hello_orkige, jumper, editor, player)")
+    # Next flavor (preset macos-debug-next; needs the render-next vcpkg
+    # manifest feature): orkige_engine compiles the engine_render facade
+    # + engine_render_next only. Since B2 the WHOLE facade is implemented
+    # (render_facade_selfcheck passes on desktop-next); everything that
+    # includes the classic <Ogre.h> umbrella (EnginePrerequisites.h -
+    # i.e. Engine, fastgui, components, sound, input, runtime AND every
+    # app on the classic Engine boot) stays excluded until the module
+    # ports land (WP-A2.4); see the flavor gates below and in
+    # orkige_engine/tests CMakeLists.
+    message(STATUS "Orkige render backend: next (B2 - full facade incl. "
+        "mesh/sprite/light/RTT/queryRay, conformance selfcheck enabled; "
+        "classic-only targets excluded: hello_orkige, jumper, editor, player)")
 else()
     message(FATAL_ERROR "ORKIGE_RENDER_BACKEND must be classic or next (got '${ORKIGE_RENDER_BACKEND}')")
 endif()
