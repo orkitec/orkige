@@ -60,6 +60,41 @@ if(APPLE)
     # native macOS menu bar (NSMenu mirror of the editor menus; ObjC++)
     target_sources(orkige_editor PRIVATE MacMenu.h MacMenu.mm)
     target_link_libraries(orkige_editor PRIVATE "-framework AppKit")
+
+    # a proper .app bundle (Orkige.app): Dock/Cmd-Tab icon + name instead of
+    # a bare Ninja executable. The icon is generated procedurally
+    # (Util/make_editor_icon.py -> iconset -> iconutil, build-dir artifact),
+    # same stdlib-only-Python policy as the fastgui atlas generator - and the
+    # same find_program rationale (FindPython3 ignores CMAKE_IGNORE_PREFIX_PATH
+    # and would pick the banned /usr/local interpreter).
+    # $<TARGET_FILE:orkige_editor> resolves into the bundle, so ctest
+    # registrations and the settings inis (SDL_GetBasePath = the bundle's
+    # Resources dir) follow along untouched.
+    find_program(ORKIGE_PYTHON3 NAMES python3 HINTS /usr/bin REQUIRED)
+    set(_editor_icon_script "${Orkige_SOURCE_DIR}/Util/make_editor_icon.py")
+    set(_editor_iconset "${CMAKE_CURRENT_BINARY_DIR}/orkige_editor.iconset")
+    set(_editor_icns "${CMAKE_CURRENT_BINARY_DIR}/orkige_editor.icns")
+    add_custom_command(
+        OUTPUT "${_editor_icns}"
+        COMMAND "${ORKIGE_PYTHON3}" "${_editor_icon_script}" "${_editor_iconset}"
+        COMMAND iconutil -c icns "${_editor_iconset}" -o "${_editor_icns}"
+        DEPENDS "${_editor_icon_script}"
+        COMMENT "Generating the editor app icon (make_editor_icon.py + iconutil)"
+        VERBATIM
+    )
+    target_sources(orkige_editor PRIVATE "${_editor_icns}")
+    set_source_files_properties("${_editor_icns}" PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(orkige_editor PROPERTIES
+        OUTPUT_NAME "Orkige"
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "Orkige"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.orkitec.orkige-editor"
+        MACOSX_BUNDLE_ICON_FILE "orkige_editor.icns"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
 endif()
 
 # Cross-flavor play targets (the toolbar's "Desktop (classic OGRE)" /

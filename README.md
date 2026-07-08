@@ -46,7 +46,7 @@ cmake --preset macos-debug                           # configure (first run buil
 cmake --build --preset macos-debug                   # build
 ctest --preset desktop                               # verify
 
-./build/macos-debug/tools/editor/orkige_editor       # the editor (use macos-release for speed)
+open build/macos-debug/tools/editor/Orkige.app       # the editor (use macos-release for speed)
 ./build/macos-debug-classic/samples/jumper/jumper    # play the jumper (classic tree)
 ```
 
