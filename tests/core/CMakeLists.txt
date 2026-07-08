@@ -4,6 +4,7 @@
 find_package(Catch2 3 CONFIG REQUIRED)
 
 add_executable(orkige_core_tests
+    TestRunListener.cpp
     CoreTestEnvironment.h
     TestComponents.h
     TestComponents.cpp

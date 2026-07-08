@@ -8,6 +8,7 @@
 find_package(Catch2 3 CONFIG REQUIRED)
 
 add_executable(orkige_editor_core_tests
+    TestRunListener.cpp
     EditorCoreTests.cpp
     EditorCameraTests.cpp
     FileDialogTests.cpp
