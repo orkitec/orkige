@@ -9,6 +9,7 @@
 
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObjectManager.h>
@@ -294,5 +295,13 @@ namespace Orkige
 		OFUNC(setWorldPosition)
 		OFUNC(setWorldOrientation)
 		OFUNC(teleport)
+		// reflected local-transform schema (task #94, P1): the same LOCAL
+		// position/orientation/scale the hand-written save/load persists (that
+		// stays untouched in P1 - serialization migration is P2). The Vec3/Quat
+		// adapters resolve to the engine-side overloads in
+		// ComponentPropertyReflect.h.
+		OPROPERTY("position", Orkige::PropertyKind::Vec3, getPosition, setPosition, Orkige::PROP_NONE)
+		OPROPERTY("orientation", Orkige::PropertyKind::Quat, getOrientation, setOrientation, Orkige::PROP_NONE)
+		OPROPERTY("scale", Orkige::PropertyKind::Vec3, getScale, setScale, Orkige::PROP_NONE)
 	OOBJECT_END
 }

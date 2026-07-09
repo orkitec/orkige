@@ -11,6 +11,7 @@ add_executable(orkige_engine_tests
     ScriptComponentTests.cpp
     PlayerBundleTests.cpp
     TwoDSupportTests.cpp
+    PropertyReflectionTests.cpp
     PhysicsLayerTests.cpp
     PhysicsContactTests.cpp
     ParticleSimTests.cpp

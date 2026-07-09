@@ -163,6 +163,54 @@ namespace Orkige
 		}
 	};
 
+	//! @brief reflection probe (task #94, P0/P1): a headless core component that
+	//! declares one property of EACH core PropertyKind through the OPROPERTY*
+	//! macros - Int/Float/Bool/String, an Enum (with a value<->label table) and
+	//! an AssetRef. Exercising it in tests/core means the neutral registry +
+	//! dual-emitting macros are proven in EVERY scripting config (LUA and OFF)
+	//! AND on both render flavors (the core tests build in the default next tree
+	//! too). All accessors are plain field get/set - no render system needed.
+	class TestReflectComponent : public GameObjectComponent
+	{
+		OOBJECT(TestReflectComponent, GameObjectComponent)
+		//--- Types -------------------------------------------
+	public:
+		//! the enum kind's probe (mirrors CameraComponent::ProjectionMode)
+		enum Team
+		{
+			TEAM_RED	= 0,
+			TEAM_BLUE	= 1,
+			TEAM_GREEN	= 2
+		};
+		//--- Variables ---------------------------------------
+	private:
+		int		mCount;			//!< Int property backing field
+		float	mSpeed;			//!< Float property backing field
+		bool	mEnabled;		//!< Bool property backing field
+		String	mLabel;			//!< String property backing field
+		Team	mTeam;			//!< Enum property backing field
+		String	mIconAssetId;	//!< AssetRef property backing field (an asset id)
+		//--- Methods -----------------------------------------
+	public:
+		TestReflectComponent()
+			: mCount(0), mSpeed(1.0f), mEnabled(false), mTeam(TEAM_RED)
+		{
+		}
+		virtual ~TestReflectComponent() {}
+		int getCount() const { return this->mCount; }
+		void setCount(int value) { this->mCount = value; }
+		float getSpeed() const { return this->mSpeed; }
+		void setSpeed(float value) { this->mSpeed = value; }
+		bool getEnabled() const { return this->mEnabled; }
+		void setEnabled(bool value) { this->mEnabled = value; }
+		String const & getLabel() const { return this->mLabel; }
+		void setLabel(String const & value) { this->mLabel = value; }
+		Team getTeam() const { return this->mTeam; }
+		void setTeam(Team value) { this->mTeam = value; }
+		String const & getIcon() const { return this->mIconAssetId; }
+		void setIcon(String const & value) { this->mIconAssetId = value; }
+	};
+
 	//! register the test components once per process (component factory,
 	//! TypeManager and Lua usertype - exactly what a module init does)
 	void registerOrkigeTestComponents();

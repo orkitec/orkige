@@ -254,6 +254,18 @@ namespace bp = boost::python;
 //python property
 #define OPROP(PropertyName,FunctionName)					py_class.add_property(PropertyName,&ExposedClassType::FunctionName);
 
+//! reflected-property macros - the Python backend is dead/uncompiled (see
+//! CLAUDE.md); these inert stubs only keep it from choking on the OPROPERTY* /
+//! OENUM_REGISTER_* vocabulary a component now declares. A live second backend
+//! would mirror Meta_Lua.h (neutral registration + its own binding).
+#define OPROPERTY(PropName,Kind,Getter,Setter,Flags)
+#define OPROPERTY_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)
+#define OPROPERTY_ENUM(PropName,EnumTypeName,Getter,Setter,Flags)
+#define OPROPERTY_REF(PropName,RefKind,Hint,Getter,Setter,Flags)
+#define OENUM_REGISTER_START(EnumTypeName,EnumType)
+#define OENUM_REGISTER_VALUE(ValueName)
+#define OENUM_REGISTER_END
+
 #define OGETSETPROP(PropertyName)							py_class.add_property(#PropertyName,&ExposedClassType::get##PropertyName,&ExposedClassType::set##PropertyName);
 
 //python property

@@ -26,6 +26,39 @@ namespace Orkige
 		oInfo("\t...TypeManager destroyed!...");
 	}
 	//---------------------------------------------------------
+	void TypeManager::registerProperty(TypeInfo::TypeId typeId,
+		PropertyDesc const & desc)
+	{
+		this->mSchemas[typeId].add(desc);
+	}
+	//---------------------------------------------------------
+	PropertySchema const * TypeManager::getPropertySchema(
+		TypeInfo::TypeId typeId) const
+	{
+		std::map<TypeInfo::TypeId, PropertySchema>::const_iterator it =
+			this->mSchemas.find(typeId);
+		return (it == this->mSchemas.end()) ? NULL : &it->second;
+	}
+	//---------------------------------------------------------
+	EnumInfo & TypeManager::registerEnum(String const & enumTypeName)
+	{
+		std::map<String, EnumInfo>::iterator it =
+			this->mEnums.find(enumTypeName);
+		if (it == this->mEnums.end())
+		{
+			it = this->mEnums.insert(std::make_pair(enumTypeName,
+				EnumInfo(enumTypeName))).first;
+		}
+		return it->second;
+	}
+	//---------------------------------------------------------
+	EnumInfo const * TypeManager::findEnum(String const & enumTypeName) const
+	{
+		std::map<String, EnumInfo>::const_iterator it =
+			this->mEnums.find(enumTypeName);
+		return (it == this->mEnums.end()) ? NULL : &it->second;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 

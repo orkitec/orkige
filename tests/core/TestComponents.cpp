@@ -37,6 +37,35 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 	OOBJECT_END
 	//---------------------------------------------------------
+	OOBJECT_IMPL(TestReflectComponent)
+		GAMEOBJECTCOMPONENT()
+		OFUNC(getCount)
+		OFUNC(setCount)
+		OFUNC(getSpeed)
+		OFUNC(setSpeed)
+		OFUNC(getEnabled)
+		OFUNC(setEnabled)
+		OFUNCCR(getLabel)
+		OFUNC(setLabel)
+		OFUNC(getTeam)
+		OFUNC(setTeam)
+		OFUNCCR(getIcon)
+		OFUNC(setIcon)
+		// neutral enum value<->label table + one reflected property of each core
+		// PropertyKind (the dual-emitting macros run in this exact block)
+		OENUM_REGISTER_START("TestTeam", TestReflectComponent::Team)
+			OENUM_REGISTER_VALUE(TEAM_RED)
+			OENUM_REGISTER_VALUE(TEAM_BLUE)
+			OENUM_REGISTER_VALUE(TEAM_GREEN)
+		OENUM_REGISTER_END
+		OPROPERTY("count", Orkige::PropertyKind::Int, getCount, setCount, Orkige::PROP_NONE)
+		OPROPERTY("speed", Orkige::PropertyKind::Float, getSpeed, setSpeed, Orkige::PROP_NONE)
+		OPROPERTY("enabled", Orkige::PropertyKind::Bool, getEnabled, setEnabled, Orkige::PROP_NONE)
+		OPROPERTY("label", Orkige::PropertyKind::String, getLabel, setLabel, Orkige::PROP_NONE)
+		OPROPERTY_ENUM("team", "TestTeam", getTeam, setTeam, Orkige::PROP_NONE)
+		OPROPERTY_REF("icon", Orkige::PropertyKind::AssetRef, "texture", getIcon, setIcon, Orkige::PROP_NONE)
+	OOBJECT_END
+	//---------------------------------------------------------
 	void registerOrkigeTestComponents()
 	{
 		static bool registered = false;
@@ -47,6 +76,7 @@ namespace Orkige
 			TestArmorComponent::OrkigeMetaExport("orkige_core_tests");
 			TestAssetRefComponent::OrkigeMetaExport("orkige_core_tests");
 			TestActivationProbeComponent::OrkigeMetaExport("orkige_core_tests");
+			TestReflectComponent::OrkigeMetaExport("orkige_core_tests");
 		}
 	}
 }

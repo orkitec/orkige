@@ -9,6 +9,13 @@
 #ifndef __Meta_None_h__9_9_2010__18_38_06__
 #define __Meta_None_h__9_9_2010__18_38_06__
 
+//! the backend-neutral property-reflection registration macros
+//! (OPROPERTY_REGISTER / OENUM_REGISTER_* etc). The None backend has no
+//! scripting layer, so the public OPROPERTY* family IS just the neutral
+//! registry population - the whole point being that the schema still populates
+//! in ORKIGE_SCRIPTING=OFF builds.
+#include "core_base/PropertyMacros.h"
+
 
 //! backend-neutral usertype openers for hand-written OrkigeMetaExport bodies
 //! (TypeInfo.cpp, AttributeHolder.h) - no scripting: nothing to register.
@@ -185,10 +192,22 @@
 #define OFUNCCR_OVERL(ReturnValue,FunctionName)				
 
 //python property
-#define OPROP(PropertyName,FunctionName)					
+#define OPROP(PropertyName,FunctionName)
+
+//! reflected property (registry only in the no-scripting backend). @see
+//! core_base/PropertyMacros.h for the dual-emission contract - the Lua backend
+//! adds a sol2 property ON TOP of this same neutral registration.
+#define OPROPERTY(PropName,Kind,Getter,Setter,Flags)						\
+	OPROPERTY_REGISTER(PropName,Kind,Getter,Setter,Flags)
+#define OPROPERTY_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)			\
+	OPROPERTY_REGISTER_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)
+#define OPROPERTY_ENUM(PropName,EnumTypeName,Getter,Setter,Flags)			\
+	OPROPERTY_ENUM_REGISTER(PropName,EnumTypeName,Getter,Setter,Flags)
+#define OPROPERTY_REF(PropName,RefKind,Hint,Getter,Setter,Flags)			\
+	OPROPERTY_REF_REGISTER(PropName,RefKind,Hint,Getter,Setter,Flags)
 
 //python property
-#define OVAR(VariableName)									
+#define OVAR(VariableName)
 
 //python property
 #define OSTATICVAR(VariableName)							

@@ -37,6 +37,12 @@
 
 #include "core_script/ScriptManager.h"
 
+//! the backend-neutral property-reflection registration macros - the Lua
+//! OPROPERTY* family below emits these (schema registration) AND a sol2
+//! property registration, so the neutral registry and the Lua surface are both
+//! populated from ONE declaration (@see core_base/PropertyMacros.h).
+#include "core_base/PropertyMacros.h"
+
 #include <sol/sol.hpp>
 #include <memory>
 
@@ -287,6 +293,28 @@ namespace Orkige
 
 //property (read-only when only a getter exists)
 #define OPROP(PropertyName,FunctionName)					py_class[PropertyName] = sol::property(&ExposedClassType::FunctionName);
+
+//! reflected property - DUAL emission: the neutral schema registration (so the
+//! registry populates in every config, incl. ORKIGE_SCRIPTING=OFF) AND a sol2
+//! read/write property (so the Lua surface gains the field). Coexists with the
+//! existing OVAR/OPROP/OFUNC registrations - it neither removes nor shadows the
+//! method bindings a component already exposes (a NEW property key is added).
+#define OPROPERTY(PropName,Kind,Getter,Setter,Flags)						\
+	OPROPERTY_REGISTER(PropName,Kind,Getter,Setter,Flags)					\
+	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\
+		&ExposedClassType::Setter);
+#define OPROPERTY_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)			\
+	OPROPERTY_REGISTER_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)		\
+	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\
+		&ExposedClassType::Setter);
+#define OPROPERTY_ENUM(PropName,EnumTypeName,Getter,Setter,Flags)			\
+	OPROPERTY_ENUM_REGISTER(PropName,EnumTypeName,Getter,Setter,Flags)		\
+	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\
+		&ExposedClassType::Setter);
+#define OPROPERTY_REF(PropName,RefKind,Hint,Getter,Setter,Flags)			\
+	OPROPERTY_REF_REGISTER(PropName,RefKind,Hint,Getter,Setter,Flags)		\
+	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\
+		&ExposedClassType::Setter);
 
 //member variable
 #define OVAR(VariableName)									py_class[#VariableName] = &ExposedClassType::VariableName;

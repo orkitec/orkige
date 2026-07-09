@@ -9,6 +9,7 @@
 
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include <core_game/GameObject.h>
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
@@ -177,5 +178,23 @@ namespace Orkige
 			OENUM_VALUE(PM_PERSPECTIVE)
 			OENUM_VALUE(PM_ORTHOGRAPHIC)
 		OENUM_END
+		// neutral enum value<->label table (task #94, P1) so the reflected
+		// projectionMode property can resolve labels in every config (the sol
+		// OENUM_START block above stays - it feeds Lua; this feeds the registry)
+		OENUM_REGISTER_START("ProjectionMode", CameraComponent::ProjectionMode)
+			OENUM_REGISTER_VALUE(PM_PERSPECTIVE)
+			OENUM_REGISTER_VALUE(PM_ORTHOGRAPHIC)
+		OENUM_REGISTER_END
+		// reflected schema (P1): projection mode (Enum) + orthoSize (Float with
+		// reserved inspector range metadata). The component's hand-written
+		// save/load is untouched - this only ADDS the queryable schema.
+		OPROPERTY_ENUM("projectionMode", "ProjectionMode", getProjectionMode, setProjectionMode, Orkige::PROP_NONE)
+		Orkige::PropertyMeta orkigeOrthoMeta;
+		orkigeOrthoMeta.hasRange = true;
+		orkigeOrthoMeta.minValue = 0.1f;
+		orkigeOrthoMeta.maxValue = 100.0f;
+		orkigeOrthoMeta.step = 0.1f;
+		orkigeOrthoMeta.tooltip = "orthographic vertical half-extent in world units";
+		OPROPERTY_META("orthoSize", Orkige::PropertyKind::Float, getOrthoSize, setOrthoSize, Orkige::PROP_NONE, orkigeOrthoMeta)
 	OOBJECT_END
 }
