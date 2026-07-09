@@ -162,7 +162,7 @@ namespace Orkige
 		}
 		const PropertyKind kind = desc->kind;
 		// the tween START is the property's current value
-		const PropertyValue current = desc->get(static_cast<void const *>(component));
+		const PropertyValue current = desc->get(component);
 		float fromChannels[TweenManager::MAX_CHANNELS] = { 0.0f };
 		const int channelCount = PropertyTween::toChannels(current, fromChannels);
 		// the tween END is targetText parsed into a value of the property's kind
@@ -193,7 +193,7 @@ namespace Orkige
 			{
 				return true;	// the property vanished/locked; no-op
 			}
-			desc->set(static_cast<void *>(target),
+			desc->set(target,
 				PropertyTween::fromChannels(kind, values, count));
 			return true;
 		};

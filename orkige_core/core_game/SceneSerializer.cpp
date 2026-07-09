@@ -696,7 +696,7 @@ namespace Orkige
 		// dialect and diff cleanly
 		GameObject::ComponentPropertyMap properties;
 		const PropertySchema schema = getComponentSchema(component);
-		void const * instance = static_cast<void const *>(&component);
+		Object const * instance = &component;
 		foreach(PropertyDesc const & desc, schema.properties())
 		{
 			if(!isSerializedProperty(desc))
@@ -721,7 +721,7 @@ namespace Orkige
 		GameObject::ComponentPropertyMap const & properties,
 		GameObjectComponent & component)
 	{
-		void * instance = static_cast<void *>(&component);
+		Object * instance = &component;
 		// assign the present override properties in DECLARATION order (like
 		// loadComponentProperties, so a setter cascade sees scalars before a
 		// dependent reference); a property absent from the override map is left
@@ -791,7 +791,7 @@ namespace Orkige
 		}
 		unsigned int fieldCount = static_cast<unsigned int>(fields.size());
 		ar << fieldCount;
-		void const * instance = static_cast<void const *>(&component);
+		Object const * instance = &component;
 		foreach(PropertyDesc const * desc, fields)
 		{
 			String name = desc->name;
@@ -841,7 +841,7 @@ namespace Orkige
 			record.reference = reference;
 			records[name] = record;
 		}
-		void * instance = static_cast<void *>(&component);
+		Object * instance = &component;
 		// assign in DECLARATION order (deterministic, so a setter cascade like the
 		// sprite quad rebuild sees the scalar state before the texture reference)
 		auto assignField = [&records, instance](PropertyDesc const & desc)

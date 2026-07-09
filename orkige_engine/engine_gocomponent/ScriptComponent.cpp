@@ -503,13 +503,13 @@ namespace Orkige
 				// PropertyValue so a consumer can't tell dynamic from static
 				const String name = ex.name;
 				PropertyGetter getter =
-					[name](void const * obj) -> PropertyValue
+					[name](Object const * obj) -> PropertyValue
 				{
 					return static_cast<ScriptComponent const *>(obj)
 						->getExportValue(name);
 				};
 				PropertySetter setter =
-					[name](void * obj, PropertyValue const & propertyValue)
+					[name](Object * obj, PropertyValue const & propertyValue)
 				{
 					static_cast<ScriptComponent *>(obj)->setExportValue(name,
 						propertyValue);

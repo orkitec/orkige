@@ -2848,7 +2848,7 @@ int main(int argc, char** argv)
 					}
 					else
 					{
-						desc->set(static_cast<void*>(script),
+						desc->set(script,
 							Orkige::PropertyValue::makeFloat(0.0));
 						scriptPropXAtFreeze = scriptPropNumber("x", 0.0);
 						SDL_Log("orkige_player: scriptprop selfcheck - moved at "

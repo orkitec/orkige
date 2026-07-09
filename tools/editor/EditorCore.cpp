@@ -2227,7 +2227,7 @@ namespace Orkige
 		{
 			return false;
 		}
-		outValue = desc->get(static_cast<void const*>(instance)).toString();
+		outValue = desc->get(instance).toString();
 		return true;
 	}
 	//---------------------------------------------------------
@@ -2258,7 +2258,7 @@ namespace Orkige
 		}
 		// read the current value to obtain a correctly-typed carrier (kind +
 		// enum-type / reference hint), then parse the wire string into it
-		PropertyValue reflected = desc->get(static_cast<void const*>(instance));
+		PropertyValue reflected = desc->get(instance);
 		if (!reflected.fromString(value))
 		{
 			return false;
@@ -2277,7 +2277,7 @@ namespace Orkige
 			normalized.z = quat.z;
 			reflected = PropertyValue::makeQuat(normalized);
 		}
-		desc->set(static_cast<void*>(instance), reflected);
+		desc->set(instance, reflected);
 		return true;
 	}
 	//---------------------------------------------------------

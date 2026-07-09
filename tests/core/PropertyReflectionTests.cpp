@@ -182,7 +182,7 @@ TEST_CASE("A component's OPROPERTY schema enumerates through the neutral registr
 
 	// read/write EACH property through the type-erased get/set on a live instance
 	TestReflectComponent probe;
-	void * instance = &probe;
+	Object * instance = &probe;
 
 	SECTION("read reflects the instance state")
 	{

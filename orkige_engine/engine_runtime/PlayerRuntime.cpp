@@ -154,7 +154,7 @@ namespace Orkige
 				{
 					continue; // a component that declared no reflected properties
 				}
-				void const * instance = static_cast<void const *>(component.get());
+				Object const * instance = component.get();
 				for (PropertyDesc const & desc : schema.properties())
 				{
 					if (desc.hasFlag(PROP_HIDDEN) || !desc.get)
@@ -545,7 +545,7 @@ namespace Orkige
 		}
 		// read the current value to obtain a correctly-typed carrier (kind +
 		// enum-type/reference hint), then parse the wire string into it
-		PropertyValue reflected = desc->get(static_cast<void const *>(instance));
+		PropertyValue reflected = desc->get(instance);
 		String parseError;
 		if (!reflected.fromString(value, &parseError))
 		{
@@ -567,7 +567,7 @@ namespace Orkige
 			normalized.z = quat.z;
 			reflected = PropertyValue::makeQuat(normalized);
 		}
-		desc->set(static_cast<void *>(instance), reflected);
+		desc->set(instance, reflected);
 	}
 	//---------------------------------------------------------
 	//! @brief reload_script (hot-reload): recompile-and-swap the

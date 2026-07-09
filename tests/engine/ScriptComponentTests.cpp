@@ -535,7 +535,7 @@ TEST_CASE("ScriptComponent surfaces script exports through the union schema (P5b
 	CHECK(speed->meta.hasRange);
 	CHECK(speed->meta.maxValue == Catch::Approx(20.0f));
 	// its value reads through the type-erased getter, at the declared default
-	void const * instance = static_cast<void const *>(script);
+	Orkige::Object const * instance = script;
 	CHECK(speed->get(instance).asFloat() == Catch::Approx(4.5));
 	PropertyDesc const * team = unionSchema.find("team");
 	REQUIRE(team != nullptr);
@@ -543,7 +543,7 @@ TEST_CASE("ScriptComponent surfaces script exports through the union schema (P5b
 	CHECK(team->get(instance).asString() == "red");
 
 	// a set through the reflected setter lands in the per-instance store
-	speed->set(static_cast<void *>(script), PropertyValue::makeFloat(9.0));
+	speed->set(script, PropertyValue::makeFloat(9.0));
 	CHECK(script->getExportValue("moveSpeed").asFloat() == Catch::Approx(9.0));
 
 	env.gameObjectManager.clear();

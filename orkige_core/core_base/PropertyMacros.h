@@ -21,8 +21,11 @@
 //!
 //! All *_REGISTER macros are used INSIDE an OrkigeMetaExport body, where OSelf
 //! (the class being exported, via ORKIGETTI) is in scope. The get/set lambdas
-//! cast the type-erased void* back to OSelf* and call the field's real
-//! accessors; the value conversion goes through Orkige::PropertyReflect
+//! downcast the type-erased Orkige::Object pointer to OSelf* and call the
+//! field's real accessors; erasing through Object (not void) makes that
+//! downcast compiler-adjusted, so it stays address-correct even when OSelf
+//! lists a non-Object base first (multiple inheritance). The value conversion
+//! goes through Orkige::PropertyReflect
 //! (core_base/PropertyReflect.h) whose overloads the component TU has pulled in
 //! (scalars from core, Orkige::Vec3/Quat/Color from the engine adapter header).
 
@@ -32,9 +35,19 @@
 
 #include <type_traits>
 
+//! @brief compile-time guard shared by every *_REGISTER macro: a reflected
+//! property may only be declared on an Object-derived type, because the
+//! type-erased get/set downcast the Orkige::Object pointer back to the concrete
+//! type - a non-Object OSelf would make that downcast ill-formed. Expands
+//! inside an OrkigeMetaExport body where OSelf and Orkige::Object are complete.
+#define ORKIGE_PROP_REQUIRE_OBJECT()												\
+	static_assert(std::is_base_of_v<Orkige::Object, OSelf>,							\
+		"reflected properties require the declaring type to derive from "			\
+		"Orkige::Object (the type-erased accessors downcast an Object pointer)")
+
 //! the reflected getter lambda for a scalar/math property
 #define ORKIGE_PROP_GET(Getter)														\
-	[](void const * orkigeObj) -> Orkige::PropertyValue								\
+	[](Orkige::Object const * orkigeObj) -> Orkige::PropertyValue					\
 	{																				\
 		return Orkige::PropertyReflect::pack(										\
 			static_cast<OSelf const *>(orkigeObj)->Getter());						\
@@ -43,7 +56,7 @@
 //! the reflected setter lambda for a scalar/math property (deduces the field
 //! type from the getter's return type, so it works for Vec3/Quat/... too)
 #define ORKIGE_PROP_SET(Getter, Setter)												\
-	[](void * orkigeObj, Orkige::PropertyValue const & orkigeValue)					\
+	[](Orkige::Object * orkigeObj, Orkige::PropertyValue const & orkigeValue)		\
 	{																				\
 		std::remove_cvref_t<decltype(												\
 			static_cast<OSelf *>(orkigeObj)->Getter())> orkigeTemp{};				\
@@ -53,6 +66,7 @@
 
 //! neutral registration of a scalar/math property into the per-type schema
 #define OPROPERTY_REGISTER(PropName, Kind, Getter, Setter, Flags)					\
+	ORKIGE_PROP_REQUIRE_OBJECT();													\
 	Orkige::TypeManager::getSingleton().registerProperty(							\
 		OSelf::getClassTypeInfo().getId(),											\
 		Orkige::PropertyDesc((PropName), (Kind), (Flags),							\
@@ -65,6 +79,7 @@
 //! such a property out of serialization while still exposing it to the debug
 //! protocol, inspector and MCP off the ONE registry.
 #define OPROPERTY_READONLY_REGISTER(PropName, Kind, Getter, Flags)					\
+	ORKIGE_PROP_REQUIRE_OBJECT();													\
 	Orkige::TypeManager::getSingleton().registerProperty(							\
 		OSelf::getClassTypeInfo().getId(),											\
 		Orkige::PropertyDesc((PropName), (Kind), (Flags),							\
@@ -74,6 +89,7 @@
 //! (MetaExpr is an Orkige::PropertyMeta value - reserved for the inspector)
 #define OPROPERTY_REGISTER_META(PropName, Kind, Getter, Setter, Flags, MetaExpr)	\
 	{																				\
+		ORKIGE_PROP_REQUIRE_OBJECT();												\
 		Orkige::PropertyDesc orkigeDesc((PropName), (Kind), (Flags),				\
 			ORKIGE_PROP_GET(Getter), ORKIGE_PROP_SET(Getter, Setter));				\
 		orkigeDesc.meta = (MetaExpr);												\
@@ -83,15 +99,16 @@
 
 //! neutral registration of an Enum property (tagged with its EnumInfo key)
 #define OPROPERTY_ENUM_REGISTER(PropName, EnumTypeName, Getter, Setter, Flags)		\
+	ORKIGE_PROP_REQUIRE_OBJECT();													\
 	Orkige::TypeManager::getSingleton().registerProperty(							\
 		OSelf::getClassTypeInfo().getId(),											\
 		Orkige::PropertyDesc::makeEnum((PropName), (EnumTypeName), (Flags),			\
-			[](void const * orkigeObj) -> Orkige::PropertyValue						\
+			[](Orkige::Object const * orkigeObj) -> Orkige::PropertyValue			\
 			{																		\
 				return Orkige::PropertyReflect::packEnum((EnumTypeName),			\
 					static_cast<OSelf const *>(orkigeObj)->Getter());				\
 			},																		\
-			[](void * orkigeObj, Orkige::PropertyValue const & orkigeValue)			\
+			[](Orkige::Object * orkigeObj, Orkige::PropertyValue const & orkigeValue)\
 			{																		\
 				std::remove_cvref_t<decltype(										\
 					static_cast<OSelf *>(orkigeObj)->Getter())> orkigeTemp{};		\
@@ -103,10 +120,11 @@
 //! returns the id String, Setter takes the id String; Hint is the asset-kind
 //! ("texture"/"mesh"/...) or object-type hint.
 #define OPROPERTY_REF_REGISTER(PropName, RefKind, Hint, Getter, Setter, Flags)		\
+	ORKIGE_PROP_REQUIRE_OBJECT();													\
 	Orkige::TypeManager::getSingleton().registerProperty(							\
 		OSelf::getClassTypeInfo().getId(),											\
 		Orkige::PropertyDesc::makeReference((PropName), (RefKind), (Hint), (Flags),	\
-			[](void const * orkigeObj) -> Orkige::PropertyValue						\
+			[](Orkige::Object const * orkigeObj) -> Orkige::PropertyValue			\
 			{																		\
 				return Orkige::PropertyReflect::packReference((RefKind), (Hint),	\
 					static_cast<OSelf const *>(orkigeObj)->Getter());				\

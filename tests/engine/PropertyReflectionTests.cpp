@@ -113,7 +113,7 @@ TEST_CASE("CameraComponent enum + float properties round-trip through the regist
 	// type-erased get/set - the property setter drives the same setProjectionMode
 	// / setOrthoSize the component already exposes
 	CameraComponent camera;
-	void * instance = &camera;
+	Object * instance = &camera;
 
 	CHECK(mode->get(instance).asInt() == CameraComponent::PM_PERSPECTIVE);
 

@@ -23,6 +23,8 @@ namespace Orkige
 	/** \addtogroup Base
 	*  @{ */
 
+	class Object;
+
 	//! @brief per-property behaviour flags (a bitmask): serialization skips
 	//! TRANSIENT properties, the inspector locks READONLY ones and hides HIDDEN
 	//! ones, and the debug/control protocols honour all three.
@@ -46,17 +48,19 @@ namespace Orkige
 		String	category;			//!< inspector grouping ("" = default group)
 	};
 
-	//! type-erased getter: reads a property off a concrete instance (passed as a
-	//! void* the descriptor casts back to the owning type) into a PropertyValue
-	typedef std::function<PropertyValue(void const *)> PropertyGetter;
+	//! type-erased getter: reads a property off a concrete instance (passed as
+	//! an Object pointer the descriptor downcasts to the owning type) into a
+	//! PropertyValue. The Object base makes the downcast compiler-adjusted, so
+	//! it is address-correct even for a type that lists another base first.
+	typedef std::function<PropertyValue(Object const *)> PropertyGetter;
 	//! type-erased setter: writes a PropertyValue back onto a concrete instance
 	//! (an EMPTY setter marks a read-only property)
-	typedef std::function<void(void *, PropertyValue const &)> PropertySetter;
+	typedef std::function<void(Object *, PropertyValue const &)> PropertySetter;
 	//! @brief optional live-apply hook: fired after an accepted set so a
 	//! component can react (the reflection cousin of CVar::onChange).
 	//! Declarations may leave it empty - the reflected setters already route
 	//! through the components' real accessors, which re-derive runtime state.
-	typedef std::function<void(void *)> PropertyChangeHook;
+	typedef std::function<void(Object *)> PropertyChangeHook;
 
 	//! @brief one reflected property: a name + kind + type-erased get/set that
 	//! bridge the neutral registry to the concrete component field. The get/set
