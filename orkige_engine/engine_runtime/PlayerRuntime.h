@@ -169,6 +169,7 @@ namespace Orkige
 			DebugMessage const & message);
 		void handleReloadScript(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
+		void handleSetCvar(DebugMessage const & message);
 		void processMessages(GameObjectManager & gameObjectManager);
 		void streamObjectState(GameObjectManager & gameObjectManager);
 	};

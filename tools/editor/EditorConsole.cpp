@@ -3,6 +3,8 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 
+#include <core_debug/CVarCommand.h>
+#include <core_debugnet/DebugProtocol.h>
 #include <core_script/ScriptRuntime.h>
 
 #include <string>
@@ -55,9 +57,41 @@ void SDLCALL consoleSdlLogOutput(void* userdata, int category,
 // run the console buffer through the ScriptRuntime seam, capture returns/
 // errors - in a no-scripting build this reports the honest "scripting
 // disabled" error instead of not existing
-void runLuaConsoleInput(EditorState& state)
+void runLuaConsoleInput(EditorState& state, PlaySession& session)
 {
 	std::string code(state.luaInput);
+
+	// a set/get/find/reset line drives the cvar command grammar, not Lua (the
+	// stable, scripting-free console surface - see core_debug/CVarCommand.h)
+	if (Orkige::CVarCommand::isCommand(code))
+	{
+		namespace Protocol = Orkige::DebugProtocol;
+		state.luaHistory.push_back("> " + code);
+		Orkige::String cvarName;
+		Orkige::String cvarValue;
+		if (session.client.isConnected() &&
+			Orkige::CVarCommand::parseSet(code, cvarName, cvarValue))
+		{
+			// during Play a `set` tunes the RUNNING game: send it over the
+			// debug link (the player applies it via CVarManager::setString and
+			// answers with an error message on a bad name/value)
+			Orkige::DebugMessage message(Protocol::MSG_SET_CVAR);
+			message.set(Protocol::FIELD_CVAR_NAME, cvarName);
+			message.set(Protocol::FIELD_VALUE, cvarValue);
+			session.client.send(message);
+			state.luaHistory.push_back("[remote] set " + cvarName + " = " +
+				cvarValue);
+		}
+		else
+		{
+			// not playing (or a get/find/reset): run against the editor's own
+			// registry - informational, and the offline-tuning path
+			state.luaHistory.push_back(Orkige::CVarCommand::run(code));
+		}
+		state.luaScrollToBottom = true;
+		return;
+	}
+
 	state.luaHistory.push_back("lua> " + code);
 	const Orkige::ScriptRuntime::Result result =
 		Orkige::ScriptRuntime::getSingleton().runString(code);
@@ -150,8 +184,8 @@ void drawConsoleLogTab(EditorConsole& console)
 // The Console panel: the former Lua Console grown into a proper console -
 // a Log tab streaming the engine/editor/remote log lines plus the Lua REPL
 // as a second tab.
-void drawConsolePanel(EditorState& state, EditorConsole& console,
-	bool* visible)
+void drawConsolePanel(EditorState& state, PlaySession& session,
+	EditorConsole& console, bool* visible)
 {
 	if (ImGui::Begin("Console", visible))
 	{
@@ -188,7 +222,7 @@ void drawConsolePanel(EditorState& state, EditorConsole& console,
 					ImVec2(-1.0f, ImGui::GetFrameHeightWithSpacing() * 3.0f));
 				if (ImGui::Button("Run"))
 				{
-					runLuaConsoleInput(state);
+					runLuaConsoleInput(state, session);
 				}
 				ImGui::SameLine();
 				if (ImGui::Button("Clear"))

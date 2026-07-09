@@ -128,6 +128,15 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		setActive.set(Protocol::FIELD_VALUE, "0");
 		roundTrip(setActive);
 	}
+	SECTION("set_cvar (WP #83)")
+	{
+		DebugMessage setCvar(Protocol::MSG_SET_CVAR);
+		setCvar.set(Protocol::FIELD_CVAR_NAME, "roller_gravity");
+		setCvar.set(Protocol::FIELD_VALUE, "30.5");
+		DebugMessage out = roundTrip(setCvar);
+		CHECK(out.get(Protocol::FIELD_CVAR_NAME) == "roller_gravity");
+		CHECK(out.get(Protocol::FIELD_VALUE) == "30.5");
+	}
 	SECTION("object_state")
 	{
 		DebugMessage state(Protocol::MSG_OBJECT_STATE);

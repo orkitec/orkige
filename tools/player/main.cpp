@@ -51,6 +51,7 @@
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/Project.h>
+#include <core_debug/CVarManager.h>
 #include <core_debugnet/DebugServer.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/StringUtil.h>
@@ -672,6 +673,13 @@ int main(int argc, char** argv)
 			// the mixer persists per project: manifest Settings audio.master
 			// and audio.group.<name> (engine_sound/SoundManager.h)
 			soundManager.applySettings(project.getSettings());
+			// console variables persist per project: manifest Settings
+			// "cvar.<name>" (WP #83). Applied here BEFORE the scene's scripts
+			// run - an override for a cvar a script has not registered yet is
+			// held and re-applied on registerCVar, so the order does not matter
+			// (core_debug/CVarManager.h).
+			Orkige::CVarManager::getSingleton().applySettings(
+				project.getSettings());
 		}
 
 		// GameObject/component bridge (registers the component factories)

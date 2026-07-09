@@ -15,6 +15,7 @@ add_executable(orkige_engine_tests
     SoundMixerTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp
+    CVarProtocolBehaviourTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE

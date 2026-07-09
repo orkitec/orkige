@@ -1113,7 +1113,7 @@ int main(int, char**)
 			}
 			if (viewSettings.showConsolePanel)
 			{
-				drawConsolePanel(state, console,
+				drawConsolePanel(state, playSession, console,
 					&viewSettings.showConsolePanel);
 			}
 			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
@@ -1246,7 +1246,7 @@ int main(int, char**)
 				// self-check: run the console's default buffer through the
 				// exact same path the Run button uses and expect a result
 				// (skipped in no-scripting builds, where the tab is hidden)
-				runLuaConsoleInput(state);
+				runLuaConsoleInput(state, playSession);
 				const std::string result =
 					state.luaHistory.empty() ? "" : state.luaHistory.back();
 				SDL_Log("orkige_editor: selfcheck frame 10 - lua console "

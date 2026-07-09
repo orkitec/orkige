@@ -22,10 +22,26 @@
 local TS = RenderNode.TransformSpace
 
 --- tuning --------------------------------------------------------------------
-local GRAVITY      = 18.0   -- gravity magnitude m/s^2 (snappy rolling)
+-- GRAVITY is promoted to the `roller_gravity` console variable (WP #83): its
+-- default is 18.0, but it can be tuned LIVE from the editor Console ("set
+-- roller_gravity 30"), the Lua cvar table or the MSG_SET_CVAR debug message,
+-- and persists per project as the manifest Setting "cvar.roller_gravity". The
+-- magnitude is read fresh every frame (below), so a change takes effect at
+-- once - this is the "equivalent live path" of an onChange for a pure-Lua game
+-- (the C++ onChange seam is exercised by the CVarProtocolBehaviour engine test).
+local GRAVITY_DEF  = 18.0   -- gravity magnitude m/s^2 (snappy rolling) - the cvar default
 local KILL_PLANE_Y = -12.0  -- below the grid = fell into the empty slot
 local GOAL_RADIUS  = 1.0    -- win distance to the goal star
 local ORTHO_SIZE   = 7.5    -- vertical half-extent: frames the 12wu grid
+
+-- the live gravity magnitude: the cvar when available (registered in init),
+-- otherwise the built-in default (keeps the script honest with scripting quirks)
+local function gravity()
+	if cvar ~= nil then
+		return cvar.getNumber("roller_gravity", GRAVITY_DEF)
+	end
+	return GRAVITY_DEF
+end
 
 --- per-instance state --------------------------------------------------------
 local physics               -- PhysicsWorld singleton
@@ -76,7 +92,12 @@ function init(self)
 		print("ball.lua: no 'Goal' object - win check disabled")
 	end
 
-	physics:setGravity(Vector3(0, -GRAVITY, 0))
+	-- register the tunable gravity cvar (idempotent: a manifest override or a
+	-- value already set over the debug link survives this registration)
+	if cvar ~= nil then
+		cvar.registerNumber("roller_gravity", GRAVITY_DEF)
+	end
+	physics:setGravity(Vector3(0, -gravity(), 0))
 
 	shared.roller = shared.roller or {}
 	shared.roller.ballReady = true
@@ -99,8 +120,10 @@ function update(self, dt)
 
 	local mode = shared.roller.mode or "play"
 	if mode == "play" then
-		-- Rolando: gravity follows the tilt every frame
-		physics:setGravity(Vector3(tilt.x * GRAVITY, tilt.y * GRAVITY, 0))
+		-- Rolando: gravity follows the tilt every frame (magnitude from the
+		-- live roller_gravity cvar, so tuning it is felt immediately)
+		local g = gravity()
+		physics:setGravity(Vector3(tilt.x * g, tilt.y * g, 0))
 		-- Jolt lets resting bodies fall asleep and a gravity CHANGE alone
 		-- does not wake them - nudge the ball with a tiny impulse so a
 		-- re-tilted world always starts it rolling again

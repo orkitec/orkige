@@ -58,6 +58,17 @@ namespace Orkige
 		//! control verbs) extend the same processMessages else-if chain the same
 		//! way. Additive since protocol v1: old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_RELOAD_SCRIPT;
+		//! @brief cvar tuning (WP #83): the editor tells the RUNNING player to
+		//! change a console variable live. FIELD_CVAR_NAME names the cvar,
+		//! FIELD_VALUE carries the new value (a string, parsed per the cvar's
+		//! registered type on the player). The player drives it through
+		//! CVarManager::setString, so the cvar's onChange fires and the change
+		//! takes effect immediately; a bad name/value answers with an error
+		//! (never crashes). The SECOND additive protocol-extension message that
+		//! rides the ONE debug protocol (after MSG_RELOAD_SCRIPT); #80 (the MCP
+		//! play-control verbs) extends the same else-if chain the same way.
+		//! Additive since protocol v1: old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_SET_CVAR;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -79,6 +90,7 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_COMPONENT;		//!< component type name (e.g. "TransformComponent")
 		extern ORKIGE_CORE_DLL const String FIELD_PROPERTY;		//!< property name (e.g. "position")
 		extern ORKIGE_CORE_DLL const String FIELD_VALUE;			//!< property value (floats space-separated)
+		extern ORKIGE_CORE_DLL const String FIELD_CVAR_NAME;		//!< MSG_SET_CVAR: the console variable's name
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"

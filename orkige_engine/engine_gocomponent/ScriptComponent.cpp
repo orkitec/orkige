@@ -18,6 +18,7 @@
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
@@ -670,6 +671,63 @@ namespace Orkige
 					}
 					return true;
 				}, StringUtil::BLANK);
+		});
+
+		// ================= THE `cvar` TABLE (live tuning) ==================
+		// A thin Lua face on core_debug/CVarManager - the SAME registry the
+		// console command grammar and the MSG_SET_CVAR protocol message drive,
+		// so a cvar changed here, from the editor Console or over the debug
+		// link all land in one place. The registry itself is pure core (works
+		// with scripting OFF); this table is just the scripting-gated accessor.
+		//   cvar.registerNumber(name, default)  register a Float cvar (idempotent -
+		//                        a manifest/protocol override applied earlier survives)
+		//   cvar.getNumber(name [, fallback])   read a cvar as a number
+		//   cvar.getBool(name [, fallback])     read a cvar as a bool
+		//   cvar.get(name)                      read a cvar's canonical string ("" if unset)
+		//   cvar.set(name, value)               set from a string (validated per type);
+		//                        returns true, or false + logs on a rejected value
+		//   cvar.exists(name)                   is the cvar registered
+		// Numbers are the common case (tuning constants), so registerNumber /
+		// getNumber are first-class; game code that needs bool/string cvars
+		// registers them from C++ (OCVAR_*) and reads them the typed way.
+		runtime.registerFunction("cvar", "registerNumber",
+			[](String const & name, double defaultValue)
+		{
+			CVarManager::getSingleton().registerCVar(name, CVarType::Float,
+				cvarToString(static_cast<float>(defaultValue)));
+		});
+		runtime.registerFunction("cvar", "getNumber",
+			[](String const & name, ScriptArgs extra) -> double
+		{
+			const double fallback = ScriptRuntime::numberArg(extra, 0, 0.0);
+			return CVarManager::getSingleton().getFloat(name,
+				static_cast<float>(fallback));
+		});
+		runtime.registerFunction("cvar", "getBool",
+			[](String const & name, ScriptArgs extra) -> bool
+		{
+			const bool fallback = ScriptRuntime::numberArg(extra, 0, 0.0) != 0.0;
+			return CVarManager::getSingleton().getBool(name, fallback);
+		});
+		runtime.registerFunction("cvar", "get",
+			[](String const & name) -> String
+		{
+			return CVarManager::getSingleton().getString(name);
+		});
+		runtime.registerFunction("cvar", "exists", [](String const & name)
+		{
+			return CVarManager::getSingleton().exists(name);
+		});
+		runtime.registerFunction("cvar", "set",
+			[](String const & name, String const & value) -> bool
+		{
+			String error;
+			if (!CVarManager::getSingleton().setString(name, value, &error))
+			{
+				EngineLogCapture::logError("cvar.set: " + error);
+				return false;
+			}
+			return true;
 		});
 	}
 	//---------------------------------------------------------

@@ -687,10 +687,12 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core);
 
 //--- console Lua REPL (EditorConsole.cpp) ----------------------------------
 
-// run the console buffer through the ScriptRuntime seam, capture returns/
-// errors - in a no-scripting build this reports the honest "scripting
-// disabled" error instead of not existing
-void runLuaConsoleInput(EditorState& state);
+// run the console input line: a set/get/find/reset line routes to the cvar
+// command grammar (and a `set` during Play is sent to the running player as
+// MSG_SET_CVAR so it tunes the live game), everything else goes through the
+// ScriptRuntime seam - in a no-scripting build the latter reports the honest
+// "scripting disabled" error instead of not existing
+void runLuaConsoleInput(EditorState& state, PlaySession& session);
 
 //--- native file dialogs (EditorFileDialogs.cpp) ----------------------------
 
@@ -775,7 +777,8 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 void drawStatsPanel(bool* visible);
 
 // the Console panel: Log tab (engine/editor/remote lines) + Lua REPL tab
-void drawConsolePanel(EditorState& state, EditorConsole& console,
-	bool* visible);
+// (the session lets a `set` cvar line during Play tune the running player)
+void drawConsolePanel(EditorState& state, PlaySession& session,
+	EditorConsole& console, bool* visible);
 
 #endif // ORKIGE_EDITORAPP_H_09072026

@@ -14,6 +14,7 @@
 
 #include "engine_runtime/PlayerRuntime.h"
 
+#include "core_debug/CVarManager.h"
 #include "core_game/GameObjectManager.h"
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
@@ -590,6 +591,27 @@ namespace Orkige
 			(targetId.empty() ? String() : " on '" + targetId + "'"));
 	}
 	//---------------------------------------------------------
+	//! @brief set_cvar (WP #83): change a console variable on the RUNNING
+	//! player live. CVarManager::setString parses+validates the value per the
+	//! cvar's registered type and fires its onChange (the live re-apply seam),
+	//! so a `set` in the editor Console tunes the running game at once. An
+	//! unknown name or a value the type rejects answers with an error - never
+	//! crashes (parallel to handleSetProperty). The registry is a core
+	//! singleton, so this handler needs no GameObjectManager.
+	void PlayerDebugLink::handleSetCvar(DebugMessage const & message)
+	{
+		const String name = message.get(Protocol::FIELD_CVAR_NAME);
+		const String value = message.get(Protocol::FIELD_VALUE);
+		String error;
+		if (!CVarManager::getSingleton().setString(name, value, &error))
+		{
+			sendError("set_cvar: " + error);
+			return;
+		}
+		EngineLogCapture::logMessage("orkige runtime: cvar '" + name +
+			"' = " + value);
+	}
+	//---------------------------------------------------------
 	//! drain and act on every queued editor command
 	void PlayerDebugLink::processMessages(
 		GameObjectManager & gameObjectManager)
@@ -667,13 +689,17 @@ namespace Orkige
 				// WP #77 Lua hot-reload (editor-driven, compile-before-swap)
 				handleReloadScript(gameObjectManager, message);
 			}
+			else if (message.type == Protocol::MSG_SET_CVAR)
+			{
+				// WP #83 cvars: tune a console variable on the running player
+				handleSetCvar(message);
+			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
 			// answer honestly - never crash). Keep the chain flat and each
-			// branch a thin dispatch to a handle*() method:
-			//   #83 cvars -> else if (message.type == Protocol::MSG_SET_CVAR)
-			//                    handleSetCvar(gameObjectManager, message);
+			// branch a thin dispatch to a handle*() method. #77 (reload) and #83
+			// (cvars) are wired above; the remaining slot is:
 			//   #80 MCP   -> the editor-side MCP server TRANSLATES its play-
 			//                control verbs into these same messages (no second
 			//                player port) - add its verbs here the same way.
