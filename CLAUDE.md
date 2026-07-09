@@ -174,33 +174,39 @@ everyone's confidence in the suite.
   there, with a reason, in the same change. Don't add reliance on features Ogre-Next
   dropped (OGRE material scripts especially — keep materials simple/generated).
 
-## MCP server (AI-agent editor control)
+## MCP endpoint (AI-agent editor control)
 
-`Util/orkige_mcp.py` is a Model Context Protocol server (official `mcp` Python SDK,
-stdio) that bridges an AI agent to a running editor. Register it with:
+The editor HOSTS an MCP server itself over Streamable HTTP (WP #90, retired the
+#80 `Util/orkige_mcp.py` Python stdio sidecar and its `mcp` pip dependency): one
+`POST /mcp` endpoint speaking JSON-RPC 2.0 (`initialize`, `tools/list`,
+`tools/call`, notifications). A remote MCP client (Claude Code/Desktop) connects
+to the running editor's URL — NO command to spawn, NO new vcpkg/pip dependency
+(the HTTP/1.1 server and the nested-JSON codec are hand-rolled in `core_debugnet`
+on the existing non-blocking socket layer: `HttpServer` + `Json`). Register with
+`claude mcp add --transport http orkige http://127.0.0.1:<port>/mcp --header
+"Authorization: Bearer <token>"`.
 
-```sh
-claude mcp add orkige -- python3 Util/orkige_mcp.py
-```
-
-It talks to an OPT-IN editor control port: launch the editor with `--control-port
-<N> --control-token-file <path>` (or the env equivalents `ORKIGE_CONTROL_PORT` /
-`ORKIGE_CONTROL_TOKEN_FILE`) — OFF by default so no normal run/test is affected. The
-control port is a SECOND `core_debugnet` `DebugServer` living in the EDITOR process
-(`tools/editor/EditorControlServer.{h,cpp}`), reusing the debug transport wholesale
-(line-JSON over loopback TCP) with two additive conventions: request/response
-CORRELATION (a `req` id echoed in `ok`/`err` replies) and an AUTH TOKEN (the editor
-writes a secret to the token file; the host presents it in a `hello`; mutation verbs
-are refused until authenticated — a control port started WITHOUT a token file is
-read/write-open for dev convenience). Play control (play/stop/pause/step) is
-translated into the ONE existing player debug protocol — MCP is an editor-side
-bridge, never a second player port. The ~17 tools (open_project, open/save/new
-scene, list_hierarchy, get/set_component over the six typed bundles, create/delete/
-reparent object, add/remove component, play/stop, screenshot → file path,
-list_assets, console_tail) map onto existing `EditorCore` methods + the
+OPT-IN and OFF by default: launch with `--mcp-port <N> --mcp-token-file <path>`
+(aliases `--control-port` / `--control-token-file`; env `ORKIGE_MCP_PORT` /
+`ORKIGE_MCP_TOKEN_FILE`, historical `ORKIGE_CONTROL_*` still honored) — no normal
+run/test opens a socket. `tools/editor/EditorControlServer.{h,cpp}` is the HTTP +
+JSON-RPC transport in front of the #80 command handler, REUSED wholesale: a thin
+adapter over `EditorCore` + the `EditorDocument` free functions. Each verb is an
+MCP tool with a JSON `inputSchema`; a `tools/call` runs the verb on the handler's
+internal DebugMessage request/reply and returns the reply as MCP tool content
+(text + `structuredContent`, or `isError`). AUTH: mutations need the
+`Authorization: Bearer <token>` header (the editor writes the secret to the token
+file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
+native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
+and are polled via `get_state`. Play control is translated into the ONE existing
+player debug protocol — never a second player port. The ~17 tools (open_project,
+open/save/new scene, list_hierarchy, get/set_component over the six typed bundles,
+create/delete/reparent object, add/remove component, play/stop, screenshot → file
+path, list_assets, console_tail, …) map onto existing `EditorCore` methods + the
 `EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
-(C++ bridge, in-process client) and `mcp_bridge_selftest` (Python framing/
-correlation/auth, stdlib-only). Full reference: `Docs/mcp.md`.
+(a worker thread drives a raw socket through the whole MCP conversation incl. auth
+rejection) plus the `JsonTests`/`HttpServerTests` unit tests. Full reference:
+`Docs/mcp.md`.
 
 ## Architecture
 

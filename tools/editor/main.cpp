@@ -126,29 +126,42 @@ struct QuitOnEscape
 
 int main(int argc, char** argv)
 {
-	// --control-port N / --control-token-file PATH: opt-in MCP control port
-	// (WP #80). Off unless asked for; the env vars ORKIGE_CONTROL_PORT /
-	// ORKIGE_CONTROL_TOKEN_FILE are the equivalents the MCP host uses.
-	int controlPort = -1;			// < 0 = the control port stays off
+	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
+	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
+	// (WP #90, was the #80 line-JSON control port). Off unless asked for; the
+	// env vars ORKIGE_MCP_PORT / ORKIGE_MCP_TOKEN_FILE (and the historical
+	// ORKIGE_CONTROL_PORT / ORKIGE_CONTROL_TOKEN_FILE) are the equivalents.
+	// A remote MCP client then connects to http://127.0.0.1:<port>/mcp.
+	int controlPort = -1;			// < 0 = the MCP endpoint stays off
 	std::string controlTokenFile;
 	for (int argIndex = 1; argIndex < argc; ++argIndex)
 	{
-		if (std::strcmp(argv[argIndex], "--control-port") == 0 &&
+		if ((std::strcmp(argv[argIndex], "--mcp-port") == 0 ||
+			std::strcmp(argv[argIndex], "--control-port") == 0) &&
 			argIndex + 1 < argc)
 		{
 			controlPort = std::atoi(argv[++argIndex]);
 		}
-		else if (std::strcmp(argv[argIndex], "--control-token-file") == 0 &&
+		else if ((std::strcmp(argv[argIndex], "--mcp-token-file") == 0 ||
+			std::strcmp(argv[argIndex], "--control-token-file") == 0) &&
 			argIndex + 1 < argc)
 		{
 			controlTokenFile = argv[++argIndex];
 		}
 	}
-	if (const char* portEnv = std::getenv("ORKIGE_CONTROL_PORT"))
+	if (const char* portEnv = std::getenv("ORKIGE_MCP_PORT"))
 	{
 		controlPort = std::atoi(portEnv);
 	}
-	if (const char* tokenEnv = std::getenv("ORKIGE_CONTROL_TOKEN_FILE"))
+	else if (const char* portEnv = std::getenv("ORKIGE_CONTROL_PORT"))
+	{
+		controlPort = std::atoi(portEnv);
+	}
+	if (const char* tokenEnv = std::getenv("ORKIGE_MCP_TOKEN_FILE"))
+	{
+		controlTokenFile = tokenEnv;
+	}
+	else if (const char* tokenEnv = std::getenv("ORKIGE_CONTROL_TOKEN_FILE"))
 	{
 		controlTokenFile = tokenEnv;
 	}
@@ -552,9 +565,10 @@ int main(int argc, char** argv)
 		// their fixture objects themselves at frame 2 (see the frame loop).
 		EditorState state;
 
-		// MCP control port (WP #80): a SECOND core_debugnet server, in THIS
-		// (editor) process, exposing editor operations to an MCP host
-		// (Util/orkige_mcp.py). Off unless --control-port / the control
+		// MCP endpoint (WP #90): an MCP server hosted IN THIS (editor) process
+		// over Streamable HTTP (POST /mcp, JSON-RPC 2.0), exposing editor
+		// operations to a remote MCP client (Claude Code/Desktop) - the #80
+		// Python sidecar is retired. Off unless --mcp-port / the control
 		// self-test asked for it. The context bundles the objects the handler
 		// bridges to (all owned here). Pumped once per frame below.
 		Orkige::EditorControlServer controlServer;
@@ -593,8 +607,8 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				SDL_Log("orkige_editor: MCP control port listening on "
-					"127.0.0.1:%u%s", controlServer.getPort(),
+				SDL_Log("orkige_editor: MCP endpoint listening at "
+					"http://127.0.0.1:%u/mcp%s", controlServer.getPort(),
 					controlTokenFile.empty() ? " (no token file - auth off)"
 						: "");
 			}
@@ -1128,9 +1142,9 @@ int main(int argc, char** argv)
 			// handle crash/stop transitions - before the UI reads the state
 			updatePlaySession(playSession, console);
 
-			// MCP control port: accept/read/dispatch host commands (WP #80).
-			// Pumped after the play session so play-control verbs act on
-			// current state; no-op when the port never started.
+			// MCP endpoint: accept/read/dispatch HTTP JSON-RPC tool calls
+			// (WP #90). Pumped after the play session so play-control verbs act
+			// on current state; no-op when the endpoint never started.
 			controlServer.update(controlContext);
 
 			// project export: act on a Build-menu request, then pump the
