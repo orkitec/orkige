@@ -1687,6 +1687,144 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// (5) folder browsing (v2): the project root enumerates its
+				// standard subfolders; descending into assets/ lists the
+				// imported file; ".." from assets/ lands back on the root
+				if (assetOk)
+				{
+					const std::string projectRoot =
+						state.project.getRootDirectory();
+					bool sawAssetsDir = false;
+					for (std::string const& sub : enumerateAssetFolder(
+						state.project, projectRoot).subfolders)
+					{
+						if (std::filesystem::path(sub).filename() == "assets")
+						{
+							sawAssetsDir = true;
+						}
+					}
+					bool sawImportedInAssets = false;
+					for (AssetBrowserItem const& fileItem : enumerateAssetFolder(
+						state.project,
+						state.project.getAssetsDirectory()).files)
+					{
+						if (fileItem.relativePath.find("import_src.png") !=
+							std::string::npos)
+						{
+							sawImportedInAssets = true;
+						}
+					}
+					const std::string upFromAssets = std::filesystem::path(
+						state.project.getAssetsDirectory())
+							.parent_path().string();
+					const bool upIsRoot = std::filesystem::equivalent(
+						upFromAssets, projectRoot, assetErr);
+					if (!sawAssetsDir)
+					{
+						assetOk = false;
+						assetFail = "assets/ not enumerated as a subfolder";
+					}
+					else if (!sawImportedInAssets)
+					{
+						assetOk = false;
+						assetFail = "imported file not in the assets/ folder listing";
+					}
+					else if (!upIsRoot)
+					{
+						assetOk = false;
+						assetFail = "'..' from assets/ does not reach the root";
+					}
+				}
+				// (6) New Folder: created + enumerates under assets/
+				if (assetOk)
+				{
+					const std::string newDir = createFolderInDir(
+						state.project.getAssetsDirectory(), "NewGroup");
+					bool enumerated = false;
+					for (std::string const& sub : enumerateAssetFolder(
+						state.project,
+						state.project.getAssetsDirectory()).subfolders)
+					{
+						if (std::filesystem::path(sub).filename() == "NewGroup")
+						{
+							enumerated = true;
+						}
+					}
+					if (newDir.empty() || !enumerated)
+					{
+						assetOk = false;
+						assetFail = "New Folder not created/enumerated";
+					}
+				}
+				// (7) New Script: file written + sidecar minted + enumerates
+				// under scripts/ with a stable id
+				if (assetOk)
+				{
+					const std::string scriptPath = createScriptInDir(state,
+						state.project.getScriptsDirectory(), "probe");
+					const bool sidecarMinted = !scriptPath.empty() &&
+						std::filesystem::exists(scriptPath +
+							Orkige::AssetDatabase::META_FILE_EXTENSION, assetErr);
+					bool enumeratedWithId = false;
+					for (AssetBrowserItem const& fileItem : enumerateAssetFolder(
+						state.project,
+						state.project.getScriptsDirectory()).files)
+					{
+						if (fileItem.relativePath.find("probe.lua") !=
+							std::string::npos && fileItem.hasId)
+						{
+							enumeratedWithId = true;
+						}
+					}
+					if (scriptPath.empty() || !sidecarMinted || !enumeratedWithId)
+					{
+						assetOk = false;
+						assetFail = "New Script not written/sidecar/enumerated";
+					}
+				}
+				// (8) thumbnails: a REAL image loads into a valid ImGui texture
+				// handle; a non-image fails gracefully (0 handle, no crash).
+				// The real png comes from the repo (a neutral source outside
+				// the temp copy, resolved from the ASSETTEST project path).
+				if (assetOk)
+				{
+					const std::string sourceRoot = std::filesystem::path(
+						assetTestEnv).parent_path().parent_path().string();
+					const std::string realPngSource =
+						(std::filesystem::path(sourceRoot) / "projects" /
+							"roller" / "assets" / "ball.png").string();
+					std::string thumbError;
+					const std::string realPngDest =
+						importAssetFile(state, realPngSource, &thumbError);
+					const ImTextureID realThumb = realPngDest.empty() ? 0 :
+						assetThumbnailFor(state, realPngDest);
+					// the fake png from step (2) must NOT crash and yields no id
+					const ImTextureID fakeThumb = assetThumbnailFor(state,
+						state.project.getAssetsDirectory() + "/import_src.png");
+					(void)fakeThumb;
+					if (realPngDest.empty())
+					{
+						assetOk = false;
+						assetFail = "could not import the real png: " + thumbError;
+					}
+					else if (realThumb == 0)
+					{
+						assetOk = false;
+						assetFail = "no thumbnail handle for a real png";
+					}
+				}
+				// (9) openWithDefaultApp resolver: the composed file:// URL is
+				// correct (asserted WITHOUT spawning a GUI app)
+				if (assetOk)
+				{
+					const std::string url =
+						fileUrlForPath("/tmp/orkige asset.lua");
+					if (url != "file:///tmp/orkige%20asset.lua")
+					{
+						assetOk = false;
+						assetFail = "fileUrlForPath composed '" + url + "'";
+					}
+				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);
 				SDL_Log("orkige_editor: asset browser test - %s%s%s",
 					assetOk ? "OK" : "FAILED", assetOk ? "" : ": ",

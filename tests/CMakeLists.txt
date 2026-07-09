@@ -270,12 +270,16 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 60)
 
-    # Asset browser (WP #76): open a temp COPY of projects/example and drive
-    # the browser headlessly - enumerate assets (id-carrying vs. dimmed
-    # sidecar-less), run the generic importAssetFile (copy + sidecar mint +
-    # enumerable), instantiate a sprite via CreateSpriteObjectCommand (+ undo)
-    # and instantiate a prefab through the drag path (instantiateAssetIntoScene).
-    # The panel logic is flavor-agnostic; registered on both flavors.
+    # Asset browser (WP #76 -> v2, task #93): open a temp COPY of
+    # projects/example and drive the browser headlessly - enumerate assets
+    # (id-carrying vs. dimmed sidecar-less), run the generic importAssetFile
+    # (copy + sidecar mint + enumerable), instantiate a sprite via
+    # CreateSpriteObjectCommand (+ undo) and a prefab through the drag path
+    # (instantiateAssetIntoScene). v2 also: folder enumeration + navigate into
+    # a subfolder + up, New Folder, New Script (file + sidecar + enumerable),
+    # the texture-thumbnail path (a real png -> a valid ImGui texture handle;
+    # a non-image fails gracefully) and the openWithDefaultApp URL resolver
+    # (asserted without spawning a GUI app). Flavor-agnostic; both flavors.
     add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES

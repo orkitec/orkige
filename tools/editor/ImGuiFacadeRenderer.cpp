@@ -79,6 +79,27 @@ namespace Orkige
 		return static_cast<ImTextureID>(this->mEntries.size());
 	}
 	//---------------------------------------------------------
+	ImTextureID ImGuiFacadeRenderer::textureIdForResource(
+		String const & resourceName)
+	{
+		if(resourceName.empty())
+		{
+			return 0;
+		}
+		// dedup by name: a named entry with no render target is a resource-
+		// name binding (the font atlas and every thumbnail live here)
+		for(std::size_t each = 0; each < this->mEntries.size(); ++each)
+		{
+			if(!this->mEntries[each].renderTexture.lock() &&
+				this->mEntries[each].resourceName == resourceName)
+			{
+				return static_cast<ImTextureID>(each + 1);
+			}
+		}
+		this->mEntries.push_back(Entry{ resourceName, {} });
+		return static_cast<ImTextureID>(this->mEntries.size());
+	}
+	//---------------------------------------------------------
 	void ImGuiFacadeRenderer::render(ImDrawData const * drawData)
 	{
 		if(!this->mLayer)

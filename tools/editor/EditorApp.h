@@ -312,8 +312,21 @@ struct EditorState
 	//! Hierarchy search/filter box (Unity-style); ImGuiTextFilter supports
 	//! comma-separated terms and "-term" exclusion, empty = show everything
 	ImGuiTextFilter hierarchyFilter;
-	//! Asset browser search/filter box (same ImGuiTextFilter idiom, WP #76)
+	//! Asset browser search/filter box (same ImGuiTextFilter idiom, WP #76).
+	//! In the v2 folder browser the filter is scoped to the CURRENT folder's
+	//! immediate contents (not recursive) - it narrows the right-pane list.
 	ImGuiTextFilter assetBrowserFilter;
+	//! Asset browser v2: the folder currently shown in the right pane
+	//! (absolute path; "" = reset to the open project's root on the next
+	//! draw). The folder TREE on the left drives it; double-clicking a
+	//! subfolder or a breadcrumb crumb also sets it.
+	std::string assetBrowserCurrentDir;
+	//! Asset browser v2 thumbnail cache: bare texture resource name -> the
+	//! ImGui texture id of its lazily-loaded thumbnail (0 = tried and not a
+	//! loadable image, draw a type icon instead). Only textures actually
+	//! drawn this frame load; the cache is bounded (cleared wholesale when it
+	//! grows past ASSET_THUMBNAIL_CACHE_MAX - visible working sets are small).
+	std::map<std::string, ImTextureID> assetThumbnailCache;
 	//! inline rename in the Hierarchy (F2 / context menu)
 	std::string renamingObjectId;
 	char renameBuffer[256] = "";
@@ -877,10 +890,73 @@ struct AssetBrowserItem
 };
 
 //! @brief enumerate the open project's assets/, scripts/ and scenes/ (a live
-//! filesystem walk cross-referenced against the AssetDatabase for ids), sorted
-//! by project-relative path. The panel draws this; the selfcheck asserts on it.
+//! RECURSIVE filesystem walk cross-referenced against the AssetDatabase for
+//! ids), sorted by project-relative path. Kept for the flat listing / the
+//! selfcheck's whole-project assertions; the v2 panel browses folders through
+//! enumerateAssetFolder instead.
 std::vector<AssetBrowserItem> enumerateProjectAssets(
 	Orkige::Project const& project);
+
+//! @brief one folder-browser directory listing (Asset browser v2): the
+//! immediate SUBFOLDERS and the FILES directly in a folder (non-recursive).
+//! Files are classified + id-checked exactly like enumerateProjectAssets.
+struct AssetFolderListing
+{
+	std::vector<std::string> subfolders;		//!< absolute subfolder paths, sorted
+	std::vector<AssetBrowserItem> files;		//!< the folder's files, sorted
+};
+
+//! @brief enumerate ONE folder (non-recursive) under the open project: its
+//! subfolders and its files. Sidecars (.orkmeta) are never listed; a file
+//! under assets/ or scripts/ carrying no AssetDatabase id is dimmed (as in
+//! the flat listing), scenes/ files are never dimmed. Outside a loaded
+//! project (or a non-directory) the listing is empty.
+AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
+	std::string const& absoluteDir);
+
+//! @brief lazily load + cache a small ImGui thumbnail texture id for a
+//! texture asset. Returns 0 when the file is not a loadable image (the caller
+//! then draws a type icon). The texture binds by BARE file name through the
+//! DrawLayer2D named-texture path - the SAME mechanism the Scene RTT / font
+//! atlas use (see ImGuiFacadeRenderer::textureIdForResource). Bounded cache.
+//! DEFERRED: rendered mesh/scene/prefab previews need a per-asset RTT render
+//! pass and are a heavier follow-on - those kinds get a text type icon here.
+ImTextureID assetThumbnailFor(EditorState& state,
+	std::string const& absolutePath);
+//! thumbnail cache cap (see EditorState::assetThumbnailCache)
+const std::size_t ASSET_THUMBNAIL_CACHE_MAX = 512;
+
+//--- Asset browser v2 create + open helpers --------------------------------
+
+//! @brief create a new subfolder "name" under dir (mkdir). Returns its
+//! absolute path, or "" on failure / when it already exists.
+std::string createFolderInDir(std::string const& dir, std::string const& name);
+
+//! @brief write a minimal ScriptComponent .lua template (init/update/shutdown
+//! stubs) as "name" into dir and, in project mode, mint its AssetDatabase
+//! sidecar so it is id-tracked at once. Returns the script's absolute path,
+//! or "" on failure. A missing ".lua" extension is appended.
+std::string createScriptInDir(EditorState& state, std::string const& dir,
+	std::string const& name);
+
+//! @brief write an empty but valid .oscene (magic + current version + zero
+//! objects, through the real SceneSerializer/XMLArchive) as "name" into dir.
+//! Scenes are not id-tracked, so no sidecar is minted. Returns the scene's
+//! absolute path, or "" on failure. A missing ".oscene" extension is appended.
+std::string createSceneInDir(std::string const& dir, std::string const& name);
+
+//! @brief the file:// URL SDL_OpenURL opens for a local absolute path (RFC
+//! 8089; the path is percent-encoded, '/' kept). Exposed so the selfcheck can
+//! assert the composed URL WITHOUT spawning a GUI app. On Windows a drive
+//! path becomes "file:///C:/..." (backslashes normalised).
+std::string fileUrlForPath(std::string const& absolutePath);
+
+//! @brief open a file with the OS default application. Routes through
+//! SDL_OpenURL on a file:// URL - the tidiest cross-platform path: SDL maps it
+//! to `open` (macOS), `xdg-open` (Linux) and ShellExecute/`start` (Windows).
+//! Used for scripts/images/other non-engine files the browser cannot
+//! instantiate (Reveal-in-Finder stays a direct `open -R`, SDL has no reveal).
+void openWithDefaultApp(std::string const& absolutePath);
 
 //! short human label for an AssetKind ("mesh"/"texture"/"script"/"scene"/
 //! "prefab"/"file")
@@ -907,9 +983,13 @@ void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 //! panels right after the item that is the drop target)
 void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core);
 
-//! the Asset browser panel: the open project's assets/scripts/scenes as a
-//! flat, filtered list (drag source, right-click Instantiate/Reveal/Delete,
-//! double-click opens a scene / instantiates a prefab) - EditorAssetBrowserPanel.cpp
+//! the Asset browser panel (v2): a Unity-style two-pane folder browser over
+//! the open project (folder TREE left, current folder's subfolders + files
+//! right, with texture thumbnails / type icons), a Create toolbar (New
+//! Folder/Script/Scene) and the preserved v1 behaviors - the ORKIGE_ASSET
+//! drag source, right-click Instantiate/Reveal/Delete, double-click to open
+//! (scene/prefab instantiate, script/image/other -> the OS default app) and
+//! the dim-if-sidecar-less cue - EditorAssetBrowserPanel.cpp
 void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible);
 

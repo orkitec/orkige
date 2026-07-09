@@ -55,6 +55,16 @@ namespace Orkige
 		//! ImGui::Image; dead targets render untextured (honest fallback).
 		ImTextureID textureIdFor(optr<RenderTexture> const & texture);
 
+		//! @brief stable ImGui texture id for a resource-group texture named
+		//! by resourceName (registers it on the first call, dedups by name).
+		//! The Asset browser feeds this to ImGui::Image for texture-asset
+		//! thumbnails: the batch binds the name through the SAME DrawLayer2D
+		//! named-texture path the font atlas uses (resolved across all groups,
+		//! like a SpriteQuad texture). The caller must ensure the resource is
+		//! loadable (e.g. via RenderSystem::getTextureSize) - an unresolvable
+		//! name draws untextured (honest fallback). An EMPTY name returns 0.
+		ImTextureID textureIdForResource(String const & resourceName);
+
 		//! @brief resubmit this frame's ImGui draw data into the 2D layer
 		//! (call after ImGui::Render(), before the engine renders the frame)
 		void render(ImDrawData const * drawData);
