@@ -335,6 +335,23 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_script_error${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-lua")
 
+    # Lua hot-reload, the full editor->player path (WP #77): the hook copies
+    # tests/projects/hotreload to a temp dir (the real fixture is never
+    # touched), presses Play, then edits scripts/reload_probe.lua on disk - the
+    # editor's scripts/ watcher must detect the change, send MSG_RELOAD_SCRIPT,
+    # emit a [reload] Console line, and the running player must recompile-and-
+    # swap so the object's remote state reflects the NEW behavior (observed via
+    # the object_state stream). Then a broken edit must surface a RED [remote]
+    # SCRIPT ERROR while play continues, and a good edit must clear it. Only
+    # meaningful with a live Lua backend (the watcher/protocol are neutral, but
+    # the reload must actually change behavior), so it is LUA-gated.
+    if(ORKIGE_SCRIPTING STREQUAL "LUA")
+        add_test(NAME editor_play_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_play_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_EDITOR_HOTRELOAD_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/hotreload")
+    endif()
+
     # play mode on an iOS simulator: same stop flow, but the player is the
     # OrkigePlayer.app launched on a simulator via simctl (temp scene read
     # straight off the host filesystem, debug link over the shared loopback).
@@ -464,6 +481,23 @@ if(TARGET orkige_player)
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_tween_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_TWEEN_SELFCHECK=1")
+
+        # Lua hot-reload, end to end (WP #77): tests/projects/hotreload runs a
+        # Probe script publishing shared.hotreload.value. The selfcheck
+        # overwrites the script on disk, drives ScriptComponent::hotReload()
+        # (the player-directed compile-before-swap) and asserts the behavior
+        # changed AND an engine-side transform pose persisted across the swap;
+        # a broken-file variant must keep the OLD instance ticking with a
+        # non-fatal error (mFailed stays false). The committed fixture script
+        # is restored on exit (see the ORKIGE_HOTRELOAD_SELFCHECK block in
+        # tools/player/main.cpp). The RESOURCE_LOCK keeps concurrent runs (the
+        # two flavors under -j) from racing on the in-place file rewrite.
+        add_test(NAME player_hotreload_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project tests/projects/hotreload
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_hotreload_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_HOTRELOAD_SELFCHECK=1"
+            RESOURCE_LOCK hotreload_fixture)
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture
@@ -598,11 +632,12 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
+        player_hotreload_selfcheck player_hotreload_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
-        editor_play_script_error
+        editor_play_script_error editor_play_hotreload
         editor_play_stop_next editor_play_crash_next editor_project_play_next
-        editor_play_script_error_next
+        editor_play_script_error_next editor_play_hotreload_next
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android
@@ -621,9 +656,9 @@ endforeach()
 # selfcheck simulates a whole scripted play session (jump flight, fall past
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
-        editor_project_play editor_play_script_error
+        editor_project_play editor_play_script_error editor_play_hotreload
         editor_play_stop_next editor_play_crash_next editor_project_play_next
-        editor_play_script_error_next
+        editor_play_script_error_next editor_play_hotreload_next
         editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next

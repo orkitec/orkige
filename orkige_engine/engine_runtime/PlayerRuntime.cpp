@@ -435,7 +435,12 @@ namespace Orkige
 	//! @brief push a script_error message for every GameObject whose
 	//! ScriptComponent has failed and was not reported to THIS client yet -
 	//! script failures must be loud in the editor even for objects the user
-	//! never selects (object_state only streams the selected one)
+	//! never selects (object_state only streams the selected one). This covers
+	//! BOTH the fatal update/load error (hasScriptError, the instance disabled
+	//! itself) AND a non-fatal hot-reload failure (hasReloadError, the OLD
+	//! instance kept running) - a broken live edit must be just as loud, even
+	//! though mFailed stays false; handleReloadScript re-arms the report set so
+	//! a re-break re-reports and a healed reload clears.
 	void PlayerDebugLink::sendNewScriptErrors(
 		GameObjectManager & gameObjectManager)
 	{
@@ -448,14 +453,18 @@ namespace Orkige
 			}
 			ScriptComponent * script =
 				gameObject->getComponentPtr<ScriptComponent>();
-			if (!script->hasScriptError() ||
-				mReportedScriptErrors.count(id) != 0)
+			const bool broken =
+				script->hasScriptError() || script->hasReloadError();
+			if (!broken || mReportedScriptErrors.count(id) != 0)
 			{
 				continue;
 			}
+			// a hot-reload failure is the fresher, more actionable message when
+			// present (the old instance is still alive); otherwise the fatal one
 			DebugMessage error(Protocol::MSG_SCRIPT_ERROR);
 			error.set(Protocol::FIELD_ID, id);
-			error.set(Protocol::FIELD_MESSAGE, script->getScriptError());
+			error.set(Protocol::FIELD_MESSAGE, script->hasReloadError()
+				? script->getLastReloadError() : script->getScriptError());
 			mServer.send(error);
 			mReportedScriptErrors.insert(id);
 		}
@@ -539,6 +548,48 @@ namespace Orkige
 			"." + property + " = '" + value + "' on '" + id + "'");
 	}
 	//---------------------------------------------------------
+	//! @brief reload_script (WP #77 hot-reload): recompile-and-swap the
+	//! ScriptComponents of a target GameObject (FIELD_ID) or ALL of them
+	//! (FIELD_ID absent, the v1 reload-ALL). Player-directed: the editor's
+	//! file watcher only sends this; the swap (compile-before-swap failure
+	//! containment) happens HERE, on the running player. Each reloaded id is
+	//! cleared from mReportedScriptErrors so a re-break re-reports and a healed
+	//! reload lets the error clear; the fresh error state is pushed right away.
+	void PlayerDebugLink::handleReloadScript(
+		GameObjectManager & gameObjectManager, DebugMessage const & message)
+	{
+		const String targetId = message.get(Protocol::FIELD_ID); // "" = all
+		if (!targetId.empty() && !gameObjectManager.objectExists(targetId))
+		{
+			sendError("reload_script: no GameObject '" + targetId + "'");
+			return;
+		}
+		int reloaded = 0;
+		for (auto const & [id, gameObject] :
+			gameObjectManager.getGameObjects())
+		{
+			if (!targetId.empty() && id != targetId)
+			{
+				continue;
+			}
+			if (!gameObject->hasComponent<ScriptComponent>())
+			{
+				continue;
+			}
+			gameObject->getComponentPtr<ScriptComponent>()->hotReload();
+			// re-arm reporting: a still-/newly-broken instance must re-report,
+			// a successful reload lets the error clear on the next stream tick
+			mReportedScriptErrors.erase(id);
+			++reloaded;
+		}
+		// surface any reload that just FAILED immediately (its old instance is
+		// still ticking, but the editor must see the broken edit at once)
+		sendNewScriptErrors(gameObjectManager);
+		EngineLogCapture::logMessage("orkige runtime: hot-reloaded " +
+			std::to_string(reloaded) + " script(s)" +
+			(targetId.empty() ? String() : " on '" + targetId + "'"));
+	}
+	//---------------------------------------------------------
 	//! drain and act on every queued editor command
 	void PlayerDebugLink::processMessages(
 		GameObjectManager & gameObjectManager)
@@ -611,6 +662,21 @@ namespace Orkige
 			{
 				sendHierarchyIfChanged(gameObjectManager, true);
 			}
+			else if (message.type == Protocol::MSG_RELOAD_SCRIPT)
+			{
+				// WP #77 Lua hot-reload (editor-driven, compile-before-swap)
+				handleReloadScript(gameObjectManager, message);
+			}
+			// --- protocol-extension slot -------------------------------------
+			// Additive editor->runtime messages ride THIS one debug protocol as
+			// new else-if branches (old players hit the unknown-else below and
+			// answer honestly - never crash). Keep the chain flat and each
+			// branch a thin dispatch to a handle*() method:
+			//   #83 cvars -> else if (message.type == Protocol::MSG_SET_CVAR)
+			//                    handleSetCvar(gameObjectManager, message);
+			//   #80 MCP   -> the editor-side MCP server TRANSLATES its play-
+			//                control verbs into these same messages (no second
+			//                player port) - add its verbs here the same way.
 			else
 			{
 				sendError("unknown command '" + message.type + "'");

@@ -27,6 +27,7 @@ namespace Orkige
 		const String MSG_SET_PROPERTY		= "set_property";
 		const String MSG_REQUEST_HIERARCHY	= "request_hierarchy";
 		const String MSG_SET_ACTIVE			= "set_active";
+		const String MSG_RELOAD_SCRIPT		= "reload_script";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";

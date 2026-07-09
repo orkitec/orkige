@@ -267,6 +267,156 @@ TEST_CASE("A script error disables the instance and never spams or crashes", "[s
 	env.scriptRuntime.setScriptSearchRoot("");
 }
 
+TEST_CASE("ScriptComponent::hotReload swaps compile-before-swap (WP #77)", "[script]")
+{
+	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	TempScriptDir dir("orkige_script_hotreload_test");
+	// variant A: publishes value = 1 and counts its ticks; leaves the shared
+	// state as the engine-side value that must SURVIVE a reload
+	dir.write("probe.lua", R"lua(
+		shared.hr = shared.hr or {}
+		function init(self)
+			shared.hr.value = 1
+			shared.hr.inits = (shared.hr.inits or 0) + 1
+		end
+		function update(self, dt)
+			shared.hr.ticks = (shared.hr.ticks or 0) + 1
+		end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+	env.scriptRuntime.runString("if shared then shared.hr = nil end");
+
+	optr<Orkige::GameObject> probe =
+		env.gameObjectManager.createGameObject("Probe").lock();
+	REQUIRE(probe);
+	REQUIRE(probe->addComponent<Orkige::ScriptComponent>());
+	Orkige::ScriptComponent* script =
+		probe->getComponentPtr<Orkige::ScriptComponent>();
+	script->setScriptFile("scripts/probe.lua");
+
+	env.gameObjectManager.update(0.016f);
+	REQUIRE(script->isScriptStarted());
+	REQUIRE_FALSE(script->hasScriptError());
+	CHECK(sharedNumber("hr", "value") == 1.0);
+	CHECK(sharedNumber("hr", "inits") == 1.0);
+
+	SECTION("a valid edit hot-swaps and keeps the shared/engine state")
+	{
+		dir.write("probe.lua", R"lua(
+			shared.hr = shared.hr or {}
+			function init(self)
+				shared.hr.value = 2
+				shared.hr.inits = (shared.hr.inits or 0) + 1
+			end
+			function update(self, dt)
+				shared.hr.ticks = (shared.hr.ticks or 0) + 1
+			end
+		)lua");
+		script->hotReload();
+		CHECK_FALSE(script->hasReloadError());
+		CHECK_FALSE(script->hasScriptError());
+		// behavior changed (value 1 -> 2) and re-init ran (inits 1 -> 2)
+		CHECK(sharedNumber("hr", "value") == 2.0);
+		CHECK(sharedNumber("hr", "inits") == 2.0);
+		// the new instance keeps updating
+		const double ticksBefore = sharedNumber("hr", "ticks");
+		env.gameObjectManager.update(0.016f);
+		CHECK(sharedNumber("hr", "ticks") > ticksBefore);
+	}
+
+	SECTION("a broken edit is contained: the OLD instance keeps running")
+	{
+		// re-init to value 2 first so we can prove the broken reload does NOT
+		// clobber it
+		dir.write("probe.lua", R"lua(
+			function init(self) shared.hr.value = 2 end
+			function update(self, dt)
+				shared.hr.ticks = (shared.hr.ticks or 0) + 1
+			end
+		)lua");
+		script->hotReload();
+		REQUIRE_FALSE(script->hasReloadError());
+		REQUIRE(sharedNumber("hr", "value") == 2.0);
+
+		// now a syntax error: compile-before-swap must keep the old instance
+		dir.write("probe.lua", "this is not valid lua ((\n");
+		const double ticksBefore = sharedNumber("hr", "ticks");
+		script->hotReload();
+		// the reload error is reported WITHOUT the fatal flag - object alive
+		CHECK(script->hasReloadError());
+		CHECK_FALSE(script->hasScriptError());
+		CHECK(script->getLastReloadError().find("probe.lua") !=
+			Orkige::String::npos);
+		// the running (value = 2) instance was untouched and still ticks
+		CHECK(sharedNumber("hr", "value") == 2.0);
+		env.gameObjectManager.update(0.016f);
+		CHECK(sharedNumber("hr", "ticks") > ticksBefore);
+
+		// a subsequent GOOD edit heals the reload error
+		dir.write("probe.lua", R"lua(
+			function init(self) shared.hr.value = 3 end
+		)lua");
+		script->hotReload();
+		CHECK_FALSE(script->hasReloadError());
+		CHECK(script->getLastReloadError().empty());
+		CHECK(sharedNumber("hr", "value") == 3.0);
+	}
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("Two loadScriptInstance calls yield independent envs; shared survives teardown", "[script]")
+{
+	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	TempScriptDir dir("orkige_script_instance_indep_test");
+	// each instance writes an env-local `mark` and bumps a shared counter -
+	// the env-local must NOT leak between the two instances of the same file
+	dir.write("indep.lua", R"lua(
+		mark = (mark or 0) + 1	-- env-local: fresh per instance -> always 1
+		shared.indep = shared.indep or { count = 0, lastMark = -1 }
+		shared.indep.count = shared.indep.count + 1
+		shared.indep.lastMark = mark
+	)lua");
+	Orkige::ScriptRuntime & runtime = env.scriptRuntime;
+	runtime.setScriptSearchRoot(dir.root.string());
+	// loadScriptInstance is a pure factory (it does NOT create the `shared`
+	// table the way ScriptComponent::ensureScriptApi does), so make sure the
+	// documented cross-instance table exists before the scripts touch it
+	runtime.ensureGlobalTable("shared");
+	runtime.runString("if shared then shared.indep = nil end");
+
+	Orkige::String error;
+	optr<Orkige::ScriptInstance> a =
+		runtime.loadScriptInstance("scripts/indep.lua", &error);
+	REQUIRE(a);
+	optr<Orkige::ScriptInstance> b =
+		runtime.loadScriptInstance("scripts/indep.lua", &error);
+	REQUIRE(b);
+	// both saw a fresh env-local `mark` (== 1), never each other's
+	CHECK(sharedNumber("indep", "lastMark") == 1.0);
+	// the shared table accumulated BOTH loads
+	CHECK(sharedNumber("indep", "count") == 2.0);
+
+	// dropping the instances (their dtors GC the environments) must leave the
+	// global `shared` table - and its contents - standing
+	a.reset();
+	b.reset();
+	CHECK(sharedNumber("indep", "count") == 2.0);
+	CHECK(runtime.hasGlobalTable("shared"));
+
+	runtime.setScriptSearchRoot("");
+}
+
 TEST_CASE("A missing script file is an error, not a crash", "[script]")
 {
 	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();

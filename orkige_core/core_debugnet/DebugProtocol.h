@@ -47,6 +47,17 @@ namespace Orkige
 		//! active flag (GameObject::setActive). Additive since protocol v1:
 		//! old runtimes answer with an "unknown command" error, never crash.
 		extern ORKIGE_CORE_DLL const String MSG_SET_ACTIVE;
+		//! @brief Lua hot-reload (WP #77): the editor tells the RUNNING player
+		//! to recompile-and-swap its ScriptComponents (compile-before-swap, so
+		//! a broken edit keeps the old instance ticking). Optional FIELD_ID
+		//! targets a single GameObject; ABSENT = reload every ScriptComponent
+		//! (v1 is reload-ALL). Player-directed by design: the editor never ticks
+		//! components, it only sends this; the player performs the swap. This is
+		//! the FIRST of the additive protocol-extension messages that ride the
+		//! ONE debug protocol - #83 (cvars, MSG_SET_CVAR) and #80 (the MCP play-
+		//! control verbs) extend the same processMessages else-if chain the same
+		//! way. Additive since protocol v1: old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_RELOAD_SCRIPT;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path

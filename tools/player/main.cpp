@@ -65,6 +65,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
@@ -471,12 +472,21 @@ int main(int argc, char** argv)
 		// tests/projects/tween (run with --project tests/projects/tween)
 		const bool tweenCheck =
 			(std::getenv("ORKIGE_TWEEN_SELFCHECK") != nullptr);
+		// ORKIGE_HOTRELOAD_SELFCHECK verifies Lua hot-reload (WP #77) end to
+		// end against tests/projects/hotreload: overwrite the running script on
+		// disk, drive ScriptComponent::hotReload() (the player-directed swap),
+		// and assert (a) the behavior changed AND (b) an engine-side value
+		// persisted; then a broken-file variant must keep the OLD instance
+		// ticking with a non-fatal error. The committed script is restored at
+		// the end (the selfcheck rewrites it in place).
+		const bool hotreloadCheck =
+			(std::getenv("ORKIGE_HOTRELOAD_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
 		const bool automatedRun = jumperLuaCheck || rollerCheck || tweenCheck ||
-			!assetIdCheckTexture.empty() || frameLimit != 0;
+			hotreloadCheck || !assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
@@ -1097,6 +1107,74 @@ int main(int argc, char** argv)
 				Orkige::ScriptRuntime::getSingleton().getString(
 					{"shared", "tween", "failed"}, "").c_str());
 			tweenCheckFailed = true;
+		};
+
+		// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload (WP #77), verified
+		// end to end against tests/projects/hotreload (run with --project
+		// tests/projects/hotreload). The Probe object runs scripts/
+		// reload_probe.lua, whose init publishes shared.hotreload.value = 1.
+		// Frame-scripted (hotReload is synchronous, so fixed frames are safe):
+		//   frame  5  script loaded + started, value == 1; save the script's
+		//             ORIGINAL bytes and MOVE the Probe transform to a
+		//             distinctive engine-side pose (7,0,0)
+		//   frame 10  overwrite the file to publish value = 2, drive
+		//             hotReload() -> the running value flips to 2 (behavior
+		//             changed) AND the (7,0,0) transform SURVIVED the swap
+		//             (engine-side state persists), re-init ran, no error
+		//   frame 15  record the tick count, overwrite the file with BROKEN
+		//             Lua, drive hotReload() -> a non-fatal reload error
+		//             surfaces (hasReloadError, mFailed still false) and the
+		//             OLD instance (value == 2) stays intact
+		//   frame 20  the surviving instance kept ticking (ticks advanced) ->
+		//             done. The committed script is restored below on exit.
+		enum class HotReloadPhase { Boot, AfterSwap, AfterBreak, Done };
+		HotReloadPhase hotreloadPhase = HotReloadPhase::Boot;
+		bool hotreloadCheckFailed = false;
+		std::string hotreloadScriptPath;	// resolved reload_probe.lua path
+		std::string hotreloadOriginal;		// its committed bytes (restored on exit)
+		double hotreloadTicksAtBreak = -1.0;
+		auto hotreloadNumber = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "hotreload", key}, fallback);
+		};
+		auto hotreloadProbeScript = [&gameObjectManager]()
+			-> Orkige::ScriptComponent*
+		{
+			optr<Orkige::GameObject> probe =
+				gameObjectManager.getGameObject("Probe").lock();
+			if (!probe || !probe->hasComponent<Orkige::ScriptComponent>())
+			{
+				return nullptr;
+			}
+			return probe->getComponentPtr<Orkige::ScriptComponent>();
+		};
+		auto hotreloadProbeTransform = [&gameObjectManager]()
+			-> Orkige::TransformComponent*
+		{
+			optr<Orkige::GameObject> probe =
+				gameObjectManager.getGameObject("Probe").lock();
+			if (!probe || !probe->hasComponent<Orkige::TransformComponent>())
+			{
+				return nullptr;
+			}
+			return probe->getComponentPtr<Orkige::TransformComponent>();
+		};
+		auto hotreloadWriteScript = [&hotreloadScriptPath](
+			std::string const& source) -> bool
+		{
+			std::ofstream file(hotreloadScriptPath,
+				std::ios::binary | std::ios::trunc);
+			file << source;
+			return file.good();
+		};
+		auto hotreloadFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: HOTRELOAD SELFCHECK FAILED - %s "
+				"(value=%.0f inits=%.0f ticks=%.0f)", what.c_str(),
+				hotreloadNumber("value", -1.0), hotreloadNumber("inits", -1.0),
+				hotreloadNumber("ticks", -1.0));
+			hotreloadCheckFailed = true;
 		};
 
 		bool running = true;
@@ -2093,6 +2171,179 @@ int main(int argc, char** argv)
 				running = false;
 			}
 
+			// --- hot-reload selfcheck (see the block above the loop) ---------
+			if (hotreloadCheck && !hotreloadCheckFailed &&
+				hotreloadPhase == HotReloadPhase::Boot && frameCount == 5)
+			{
+				Orkige::ScriptComponent* script = hotreloadProbeScript();
+				Orkige::TransformComponent* transform =
+					hotreloadProbeTransform();
+				if (!script)
+				{
+					hotreloadFail("no Probe object with a ScriptComponent");
+				}
+				else if (script->hasScriptError())
+				{
+					hotreloadFail("script error: " + script->getScriptError());
+				}
+				else if (!script->isScriptStarted())
+				{
+					hotreloadFail("script never loaded/started");
+				}
+				else if (hotreloadNumber("value", -1.0) != 1.0)
+				{
+					hotreloadFail("variant A did not publish value == 1");
+				}
+				else if (!transform)
+				{
+					hotreloadFail("no Probe TransformComponent");
+				}
+				else
+				{
+					// save the committed bytes for restoration on exit
+					hotreloadScriptPath = Orkige::ScriptRuntime::getSingleton()
+						.resolveScriptPath(script->getScriptFile());
+					std::ifstream original(hotreloadScriptPath,
+						std::ios::binary);
+					hotreloadOriginal.assign(
+						std::istreambuf_iterator<char>(original),
+						std::istreambuf_iterator<char>());
+					if (hotreloadScriptPath.empty() ||
+						hotreloadOriginal.empty())
+					{
+						hotreloadFail("could not read the fixture script from "
+							"disk");
+					}
+					else
+					{
+						// engine-side state that the swap must NOT reset (the
+						// new init does not touch the transform)
+						transform->setPosition(Orkige::Vec3(7.0f, 0.0f, 0.0f));
+						SDL_Log("orkige_player: hotreload selfcheck - variant A "
+							"up (value=1), transform parked at x=7");
+					}
+				}
+			}
+			else if (hotreloadCheck && !hotreloadCheckFailed &&
+				hotreloadPhase == HotReloadPhase::Boot && frameCount == 10)
+			{
+				// (1) overwrite with variant B (value = 2), (2) hot-swap
+				if (!hotreloadWriteScript(
+					"function init(self)\n"
+					"\tshared.hotreload = shared.hotreload or {}\n"
+					"\tshared.hotreload.value = 2\n"
+					"\tshared.hotreload.inits = "
+						"(shared.hotreload.inits or 0) + 1\n"
+					"end\n"
+					"function update(self, dt)\n"
+					"\tshared.hotreload.ticks = "
+						"(shared.hotreload.ticks or 0) + 1\n"
+					"end\n"))
+				{
+					hotreloadFail("could not write variant B to disk");
+				}
+				else
+				{
+					Orkige::ScriptComponent* script = hotreloadProbeScript();
+					Orkige::TransformComponent* transform =
+						hotreloadProbeTransform();
+					script->hotReload();
+					if (script->hasReloadError())
+					{
+						hotreloadFail("a valid variant B failed to reload: " +
+							script->getLastReloadError());
+					}
+					else if (script->hasScriptError())
+					{
+						hotreloadFail("the swap disabled the instance "
+							"(mFailed set)");
+					}
+					else if (hotreloadNumber("value", -1.0) != 2.0)
+					{
+						hotreloadFail("the running behavior did not change to "
+							"value == 2 after the swap");
+					}
+					else if (hotreloadNumber("inits", -1.0) != 2.0)
+					{
+						hotreloadFail("the new init did not run (inits != 2)");
+					}
+					else if (!transform || std::abs(
+						transform->getPosition().x - 7.0f) > 0.001f)
+					{
+						hotreloadFail("the engine-side transform did NOT "
+							"survive the swap (x != 7)");
+					}
+					else
+					{
+						SDL_Log("orkige_player: hotreload selfcheck - swap OK "
+							"(value 1->2, re-init ran, transform x=7 persisted)");
+						hotreloadPhase = HotReloadPhase::AfterSwap;
+					}
+				}
+			}
+			else if (hotreloadCheck && !hotreloadCheckFailed &&
+				hotreloadPhase == HotReloadPhase::AfterSwap && frameCount == 15)
+			{
+				// NEGATIVE: overwrite with broken Lua and hot-swap - the old
+				// (variant B) instance must keep running, error non-fatal
+				hotreloadTicksAtBreak = hotreloadNumber("ticks", -1.0);
+				if (!hotreloadWriteScript("this is not valid lua ((\n"))
+				{
+					hotreloadFail("could not write the broken variant to disk");
+				}
+				else
+				{
+					Orkige::ScriptComponent* script = hotreloadProbeScript();
+					script->hotReload();
+					if (!script->hasReloadError())
+					{
+						hotreloadFail("a broken script reloaded without an "
+							"error");
+					}
+					else if (script->hasScriptError())
+					{
+						hotreloadFail("the failed reload wrongly disabled the "
+							"instance (mFailed set - it must stay alive)");
+					}
+					else if (hotreloadNumber("value", -1.0) != 2.0)
+					{
+						hotreloadFail("the failed reload clobbered the running "
+							"instance (value != 2)");
+					}
+					else
+					{
+						SDL_Log("orkige_player: hotreload selfcheck - broken "
+							"edit contained (reload error surfaced, old instance "
+							"kept, mFailed false)");
+						hotreloadPhase = HotReloadPhase::AfterBreak;
+					}
+				}
+			}
+			else if (hotreloadCheck && !hotreloadCheckFailed &&
+				hotreloadPhase == HotReloadPhase::AfterBreak && frameCount == 20)
+			{
+				// the surviving instance kept ticking across the failed reload
+				if (hotreloadNumber("ticks", -1.0) <= hotreloadTicksAtBreak)
+				{
+					hotreloadFail("the surviving instance stopped updating "
+						"after the failed reload");
+				}
+				else
+				{
+					SDL_Log("orkige_player: hotreload selfcheck complete - "
+						"compile-before-swap (behavior change + engine-side "
+						"state persistence) and broken-edit containment both "
+						"verified");
+					hotreloadPhase = HotReloadPhase::Done;
+					running = false;
+				}
+			}
+			if (hotreloadCheck && hotreloadCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -2127,6 +2378,24 @@ int main(int argc, char** argv)
 			SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
 				"the check completed");
 			exitCode = 1;
+		}
+		if (hotreloadCheck)
+		{
+			// restore the committed fixture script no matter how the run ended
+			// (the selfcheck rewrites it in place) so the working tree stays
+			// clean; the write is best-effort
+			if (!hotreloadScriptPath.empty() && !hotreloadOriginal.empty())
+			{
+				std::ofstream restore(hotreloadScriptPath,
+					std::ios::binary | std::ios::trunc);
+				restore << hotreloadOriginal;
+			}
+			if (!hotreloadCheckFailed && hotreloadPhase != HotReloadPhase::Done)
+			{
+				SDL_Log("orkige_player: HOTRELOAD SELFCHECK FAILED - run ended "
+					"in phase %d", static_cast<int>(hotreloadPhase));
+				exitCode = 1;
+			}
 		}
 
 		// automated (frame-capped) runs fail honestly when a script instance

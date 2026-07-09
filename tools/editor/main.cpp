@@ -79,6 +79,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>	// the break-variant's filtered project copy
+#include <limits>		// the hot-reload playtest's NaN sentinel
 #include <mutex>
 #include <string>
 #include <vector>
@@ -172,7 +173,8 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr;
+			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (the WP-A1.3 app rule + B3 flavor split,
@@ -717,6 +719,20 @@ int main(int, char**)
 		const char* scriptErrorPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST");
 
+		// ORKIGE_EDITOR_HOTRELOAD_PLAYTEST=path: scripted Lua hot-reload run
+		// (the editor_play_hotreload ctest on tests/projects/hotreload). The
+		// project is COPIED to a temp dir (never the real one); its
+		// scripts/reload_probe.lua is rewritten to move the Probe transform in
+		// init (an editor-observable behavior via the object_state stream).
+		// After Play + selecting the Probe, the hook EDITS the script on disk
+		// and asserts the editor's scripts/ watcher fired ([reload] Console
+		// line) and the player recompiled-and-swapped (the streamed transform
+		// took the new value); a broken edit must raise a RED [remote] SCRIPT
+		// ERROR while play continues, and a good edit must heal it. Stop must
+		// revert cleanly.
+		const char* hotreloadPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST");
+
 		// Unity behavior: a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
@@ -807,6 +823,68 @@ int main(int, char**)
 				}
 			}
 			return false;
+		};
+
+		// hot-reload playtest state that spans frames
+		enum class HotReloadPlaytestPhase
+		{
+			Idle, WaitBaseline, WaitGood, WaitBroken, WaitHeal,
+			WaitRevert, Done
+		};
+		HotReloadPlaytestPhase hotreloadPhase =
+			HotReloadPlaytestPhase::Idle;
+		std::chrono::steady_clock::time_point hotreloadDeadline;
+		std::string hotreloadTempRoot;	//!< the temp project copy
+		// does the Console hold a "[reload]" line (the watcher fired)?
+		auto consoleHasReloadLine = [&console]()
+		{
+			std::lock_guard<std::mutex> lock(console.mutex);
+			for (ConsoleLine const& line : console.lines)
+			{
+				if (line.text.rfind("[reload] ", 0) == 0)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		// the Probe's streamed transform x (a NaN sentinel when the
+		// object_state stream has not carried a position yet)
+		auto hotreloadRemoteX = [&playSession]() -> float
+		{
+			if (playSession.stateObjectId != "Probe")
+			{
+				return std::numeric_limits<float>::quiet_NaN();
+			}
+			auto it = playSession.stateProperties.find(
+				"TransformComponent.position");
+			if (it == playSession.stateProperties.end())
+			{
+				return std::numeric_limits<float>::quiet_NaN();
+			}
+			float xyz[3] = { 0.0f, 0.0f, 0.0f };
+			if (!parsePlayFloats(it->second, xyz, 3))
+			{
+				return std::numeric_limits<float>::quiet_NaN();
+			}
+			return xyz[0];
+		};
+		// (over)write the temp copy's reload_probe.lua; false on I/O error
+		auto hotreloadWriteScript = [&hotreloadTempRoot](
+			std::string const& source) -> bool
+		{
+			std::ofstream file(std::filesystem::path(hotreloadTempRoot) /
+				"scripts" / "reload_probe.lua",
+				std::ios::binary | std::ios::trunc);
+			file << source;
+			return file.good();
+		};
+		// init moves the Probe transform to (x,0,0) - the editor observes
+		// the change through the object_state stream (no shared visibility)
+		auto hotreloadMoveScript = [](int x) -> std::string
+		{
+			return "function init(self)\n\tself.transform:setPosition("
+				"Vector3(" + std::to_string(x) + ", 0, 0))\nend\n";
 		};
 
 		enum class PlaytestPhase
@@ -2991,6 +3069,243 @@ int main(int, char**)
 						std::error_code ignored;
 						std::filesystem::remove_all(scriptErrorTempRoot,
 							ignored);
+					}
+					exitCode = 7;
+					running = false;
+				}
+			}
+			// --- scripted hot-reload playtest ------------------------------
+			// (ORKIGE_EDITOR_HOTRELOAD_PLAYTEST, see the env block above)
+			if (hotreloadPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point hotreloadNow =
+					std::chrono::steady_clock::now();
+				bool hotreloadFailed = false;
+				std::string hotreloadFailure;
+				if (frameCount == 10 &&
+					hotreloadPhase == HotReloadPlaytestPhase::Idle)
+				{
+					// work on a temp COPY - the real fixture is never touched
+					hotreloadTempRoot =
+						(std::filesystem::temp_directory_path() /
+						("orkige_hotreload_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(hotreloadPlaytestEnv,
+						hotreloadTempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					// baseline the script so init parks the Probe at x=1 - the
+					// player loads THIS before the first edit
+					const bool baselineOk = hotreloadWriteScript(
+						hotreloadMoveScript(1));
+					if (copyError || !baselineOk)
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "could not prepare the temp copy at " +
+							hotreloadTempRoot;
+					}
+					else if (!openProjectFromPath(state, editorCore,
+						hotreloadTempRoot))
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "could not open the project copy '" +
+							hotreloadTempRoot + "'";
+					}
+				}
+				if (frameCount == 40 && !hotreloadFailed &&
+					hotreloadPhase == HotReloadPlaytestPhase::Idle)
+				{
+					// the exact function the Play button calls
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "startPlay failed";
+					}
+					else
+					{
+						hotreloadPhase = HotReloadPlaytestPhase::WaitBaseline;
+						hotreloadDeadline =
+							hotreloadNow + std::chrono::seconds(60);
+						SDL_Log("orkige_editor: hot-reload playtest - Play "
+							"pressed on the temp copy");
+					}
+				}
+				else if (hotreloadPhase ==
+					HotReloadPlaytestPhase::WaitBaseline)
+				{
+					// select the Probe so the player streams its transform
+					if (playSession.mode == PlaySession::Mode::Playing &&
+						playSession.remoteSelectedId != "Probe")
+					{
+						selectRemoteObject(playSession, "Probe");
+					}
+					const float x = hotreloadRemoteX();
+					if (!std::isnan(x) && std::abs(x - 1.0f) < 0.01f)
+					{
+						// baseline confirmed - EDIT the file (init -> x=5): the
+						// editor's watcher must pick this up and reload
+						if (!hotreloadWriteScript(hotreloadMoveScript(5)))
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "could not write the good edit";
+						}
+						else
+						{
+							hotreloadPhase = HotReloadPlaytestPhase::WaitGood;
+							hotreloadDeadline =
+								hotreloadNow + std::chrono::seconds(30);
+							SDL_Log("orkige_editor: hot-reload playtest - "
+								"baseline x=1 up, edited the script to x=5");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "session ended before the baseline "
+							"transform arrived";
+					}
+				}
+				else if (hotreloadPhase == HotReloadPlaytestPhase::WaitGood)
+				{
+					// the watcher fired ([reload] line) AND the player
+					// recompiled-and-swapped (the streamed transform is x=5)
+					const float x = hotreloadRemoteX();
+					if (consoleHasReloadLine() && !std::isnan(x) &&
+						std::abs(x - 5.0f) < 0.01f)
+					{
+						// now break it: a syntax error must NOT stop play
+						if (!hotreloadWriteScript("this is not valid lua ((\n"))
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "could not write the broken edit";
+						}
+						else
+						{
+							hotreloadPhase = HotReloadPlaytestPhase::WaitBroken;
+							hotreloadDeadline =
+								hotreloadNow + std::chrono::seconds(30);
+							SDL_Log("orkige_editor: hot-reload playtest - live "
+								"edit swapped in (x=5), now breaking the script");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "session ended before the good "
+							"reload took effect";
+					}
+				}
+				else if (hotreloadPhase == HotReloadPlaytestPhase::WaitBroken)
+				{
+					// a failed reload: RED script error surfaces, the Probe is
+					// in the error set, play CONTINUES and the old x=5 instance
+					// keeps ticking (broken edit never kills the running game)
+					const float x = hotreloadRemoteX();
+					if (playSession.scriptErrorIds.count("Probe") != 0 &&
+						consoleHasScriptErrorLine())
+					{
+						if (playSession.mode != PlaySession::Mode::Playing &&
+							playSession.mode != PlaySession::Mode::Paused)
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "the broken reload stopped play "
+								"(it must keep running)";
+						}
+						else if (!std::isnan(x) && std::abs(x - 5.0f) > 0.01f)
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "the broken reload clobbered the "
+								"running transform (x != 5)";
+						}
+						else if (!hotreloadWriteScript(hotreloadMoveScript(8)))
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "could not write the healing edit";
+						}
+						else
+						{
+							hotreloadPhase = HotReloadPlaytestPhase::WaitHeal;
+							hotreloadDeadline =
+								hotreloadNow + std::chrono::seconds(30);
+							SDL_Log("orkige_editor: hot-reload playtest - broken "
+								"edit surfaced a SCRIPT ERROR while play "
+								"continued, now healing it to x=8");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "session ended before the broken "
+							"reload surfaced";
+					}
+				}
+				else if (hotreloadPhase == HotReloadPlaytestPhase::WaitHeal)
+				{
+					// a good edit heals: the error clears AND the swap took
+					// (x=8) - the object never died through the whole cycle
+					const float x = hotreloadRemoteX();
+					if (playSession.scriptErrorIds.empty() && !std::isnan(x) &&
+						std::abs(x - 8.0f) < 0.01f)
+					{
+						requestStopPlay(playSession);
+						hotreloadPhase = HotReloadPlaytestPhase::WaitRevert;
+						hotreloadDeadline =
+							hotreloadNow + std::chrono::seconds(30);
+						SDL_Log("orkige_editor: hot-reload playtest - healing "
+							"edit cleared the error and swapped in (x=8), "
+							"stopping");
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						hotreloadFailed = true;
+						hotreloadFailure = "session ended before the healing "
+							"reload took effect";
+					}
+				}
+				else if (hotreloadPhase == HotReloadPlaytestPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						if (playSession.process != nullptr ||
+							playSession.client.isConnected())
+						{
+							hotreloadFailed = true;
+							hotreloadFailure = "session not fully torn down "
+								"after revert";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: hot-reload playtest PASSED: "
+								"watcher -> reload -> live swap (x 1->5->8), "
+								"broken edit contained (SCRIPT ERROR, play "
+								"continued), heal cleared it, clean Stop");
+							std::error_code ignored;
+							std::filesystem::remove_all(hotreloadTempRoot,
+								ignored);
+							hotreloadPhase = HotReloadPlaytestPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!hotreloadFailed &&
+					hotreloadPhase != HotReloadPlaytestPhase::Idle &&
+					hotreloadPhase != HotReloadPlaytestPhase::Done &&
+					hotreloadNow >= hotreloadDeadline)
+				{
+					hotreloadFailed = true;
+					hotreloadFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(hotreloadPhase));
+				}
+				if (hotreloadFailed)
+				{
+					SDL_Log("orkige_editor: hot-reload playtest FAILED - %s",
+						hotreloadFailure.c_str());
+					if (!hotreloadTempRoot.empty())
+					{
+						std::error_code ignored;
+						std::filesystem::remove_all(hotreloadTempRoot, ignored);
 					}
 					exitCode = 7;
 					running = false;

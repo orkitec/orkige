@@ -8,6 +8,7 @@
 #include <core_game/SceneSerializer.h>
 #include <core_project/NativeModule.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -55,6 +56,9 @@ void clearRemoteState(PlaySession& session)
 	session.remoteParents.clear();
 	session.remoteActive.clear();
 	session.scriptErrorIds.clear();
+	// the hot-reload watcher re-baselines against the fresh session's scripts
+	session.scriptsWatchArmed = false;
+	session.scriptsNewestMtime = 0;
 	session.remoteSelectedId.clear();
 	session.stateObjectId.clear();
 	session.stateComponents.clear();
@@ -810,6 +814,85 @@ void setRemoteObjectActive(PlaySession& session, std::string const& id,
 	session.client.send(setActive);
 }
 
+//! Lua hot-reload (WP #77): tell the running player to recompile-and-swap
+void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	// reload-ALL (v1): no FIELD_ID means every ScriptComponent on the player
+	session.client.send(Orkige::DebugMessage(Protocol::MSG_RELOAD_SCRIPT));
+	console.addLine(ConsoleLevel::Info,
+		"[reload] scripts changed - hot-reloading the running player");
+	// optimistic: assume the reload heals whatever was broken. The player
+	// re-pushes script_error (which re-populates scriptErrorIds) ONLY if a
+	// reload actually failed - so a healed edit clears the RED marker at once.
+	session.scriptErrorIds.clear();
+}
+
+namespace
+{
+//! @brief poll <projectRoot>/scripts for .lua edits (~4 Hz) and hot-reload the
+//! running player on any change. Desktop play only (a device player has no
+//! host-filesystem trigger); the first poll of a session only records the
+//! baseline (scriptsWatchArmed) so opening Play never fires a spurious reload.
+void watchProjectScripts(PlaySession& session, EditorConsole& console,
+	std::chrono::steady_clock::time_point now)
+{
+	if (session.projectRoot.empty() || session.onAndroid ||
+		session.onSimulator || !session.client.isConnected())
+	{
+		return;
+	}
+	if (session.scriptsWatchArmed &&
+		now - session.lastScriptCheck < std::chrono::milliseconds(250))
+	{
+		return;
+	}
+	session.lastScriptCheck = now;
+	long long newest = 0;
+	const std::filesystem::path scriptsDir =
+		std::filesystem::path(session.projectRoot) / "scripts";
+	std::error_code ec;
+	if (std::filesystem::is_directory(scriptsDir, ec))
+	{
+		for (std::filesystem::recursive_directory_iterator
+			it(scriptsDir, ec), end; it != end; it.increment(ec))
+		{
+			if (ec)
+			{
+				break;
+			}
+			if (!it->is_regular_file(ec) ||
+				it->path().extension() != ".lua")
+			{
+				continue;
+			}
+			const std::filesystem::file_time_type mtime =
+				std::filesystem::last_write_time(it->path(), ec);
+			if (!ec)
+			{
+				newest = std::max(newest,
+					static_cast<long long>(mtime.time_since_epoch().count()));
+			}
+		}
+	}
+	if (!session.scriptsWatchArmed)
+	{
+		// first poll of the session: record the baseline, never reload
+		session.scriptsNewestMtime = newest;
+		session.scriptsWatchArmed = true;
+		return;
+	}
+	if (newest > session.scriptsNewestMtime)
+	{
+		session.scriptsNewestMtime = newest;
+		reloadRemoteScripts(session, console);
+	}
+}
+} // namespace
+
 //! per-frame play session pump: complete the connect, drain streamed
 //! messages (remote log lines land in the Console tagged "[remote]"), watch
 //! the process and the link, enforce the stop grace timeout
@@ -992,6 +1075,9 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		return;
 	case PlaySession::Mode::Playing:
 	case PlaySession::Mode::Paused:
+		// Lua hot-reload (WP #77): watch the project's scripts/ and tell the
+		// running player to recompile-and-swap on any edit (desktop play only)
+		watchProjectScripts(session, console, now);
 		// crash resilience: a vanished process or a dropped link reverts
 		// the editor to edit mode cleanly
 		if (processExited)

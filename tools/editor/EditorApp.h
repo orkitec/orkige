@@ -440,6 +440,14 @@ struct PlaySession
 	//! line, the toolbar warning marker and the remote hierarchy tint;
 	//! cleared on Stop / a new session (clearRemoteState)
 	std::set<std::string> scriptErrorIds;
+	//! Lua hot-reload watcher (WP #77): poll <projectRoot>/scripts for edits
+	//! (~4 Hz) while playing and send MSG_RELOAD_SCRIPT (reload-ALL v1) to the
+	//! running player on any change. DESKTOP play only - the exported player
+	//! never watches files, the trigger lives here in the editor. Armed lazily
+	//! (first poll records the baseline; reset by clearRemoteState).
+	std::chrono::steady_clock::time_point lastScriptCheck;
+	long long scriptsNewestMtime = 0;	//!< newest scripts/*.lua write time seen (file_time count)
+	bool scriptsWatchArmed = false;		//!< false = next poll only records the baseline
 	std::string remoteSelectedId;
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
@@ -574,6 +582,13 @@ void selectRemoteObject(PlaySession& session, std::string const& id);
 //! answers with a fresh hierarchy so the tree reflects the change)
 void setRemoteObjectActive(PlaySession& session, std::string const& id,
 	bool active);
+
+//! @brief Lua hot-reload (WP #77): tell the running player to recompile-and-
+//! swap its scripts (MSG_RELOAD_SCRIPT, reload-ALL). Sent automatically by the
+//! scripts/ watcher in updatePlaySession and by the toolbar "Reload Scripts"
+//! button. Optimistically clears scriptErrorIds - the player re-pushes
+//! script_error only if a reload actually failed.
+void reloadRemoteScripts(PlaySession& session, EditorConsole& console);
 
 //! per-frame pump: connection progress, protocol messages, build/process
 //! supervision, crash detection

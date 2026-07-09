@@ -76,6 +76,7 @@ namespace Orkige
 		bool	mStarted;			//!< script loaded and init(self) ran
 		bool	mFailed;			//!< a script error disabled this instance
 		String	mErrorMessage;		//!< the first error ("" while healthy)
+		String	mReloadError;		//!< last hotReload() failure ("" = last reload was clean); mFailed stays false - the OLD instance keeps running
 		optr<ScriptInstance>	mInstance;	//!< the loaded script instance (NULL until the lazy load)
 	private:
 		//--- Methods -----------------------------------------------
@@ -102,8 +103,31 @@ namespace Orkige
 		//! has the script been loaded and init(self) run
 		inline bool isScriptStarted() const;
 		//! @brief drop the running script (shutdown(self) is called) and
-		//! clear the error state - the file re-loads on the next update
+		//! clear the error state - the file re-loads on the next update. This
+		//! is the HARD reset used by setScriptFile/load: it tears the old
+		//! instance down FIRST, so a broken file would leave the object dead.
 		void reloadScript();
+		//! @brief LIVE hot-reload (WP #77): recompile the script file and swap
+		//! it in with COMPILE-BEFORE-SWAP failure containment. The new file is
+		//! loaded + init'd into a LOCAL temp instance FIRST; only when that
+		//! succeeds does the old instance get shut down and replaced. A parse
+		//! or init error DISCARDS the temp, keeps the OLD instance running and
+		//! records getLastReloadError() WITHOUT setting the fatal mFailed flag
+		//! (the object stays alive - a broken edit must never kill a running
+		//! game). v1 is a FULL RE-INIT: the `shared`/`world` global tables and
+		//! all engine-side state (positions/bodies/sprites, re-fetched from the
+		//! live siblings) survive; env-locals and `self` reset. (v2 motivator:
+		//! roller's tile-slot state lives only in game.lua env-locals and would
+		//! desync on a full re-init - self-state preservation is out of scope
+		//! here.) Dormant unless a runtime ticks GameObjects, exactly like the
+		//! lazy first load; the editor is play-directed and only sends the
+		//! reload message - the player calls this.
+		void hotReload();
+		//! did the last hotReload() fail (the old instance kept running)
+		inline bool hasReloadError() const;
+		//! the last hotReload() error message ("" when the last reload was
+		//! clean); reported to the editor WITHOUT the fatal mFailed flag
+		inline String const & getLastReloadError() const;
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -122,10 +146,20 @@ namespace Orkige
 	private:
 		//! resolve, load and init the script; false (+failScript) on any error
 		bool loadScriptNow();
+		//! @brief populate the given instance's `self` table (owner id +
+		//! convenience accessors for the sibling components attached NOW) -
+		//! shared by loadScriptNow and hotReload so both build an identical
+		//! `self`; the siblings are re-fetched from the live GameObject, so a
+		//! hot-reloaded script sees the CURRENT engine-side state
+		void populateSelfTable(optr<ScriptInstance> const & instance);
 		//! register the global `world` and `shared` tables once per runtime
 		static void ensureScriptApi();
 		//! log the error once and disable the instance
 		void failScript(String const & message);
+		//! @brief record a hotReload() failure: store it in mReloadError and
+		//! log it, but leave the instance ALIVE (mFailed untouched) - the old
+		//! script keeps running and the editor surfaces the error non-fatally
+		void reportReloadError(String const & message);
 		//! shutdown a running script and reset to the not-started state
 		void resetScriptState();
 	};
@@ -158,6 +192,16 @@ namespace Orkige
 	inline bool ScriptComponent::isScriptStarted() const
 	{
 		return this->mStarted;
+	}
+	//---------------------------------------------------------
+	inline bool ScriptComponent::hasReloadError() const
+	{
+		return !this->mReloadError.empty();
+	}
+	//---------------------------------------------------------
+	inline String const & ScriptComponent::getLastReloadError() const
+	{
+		return this->mReloadError;
 	}
 	//---------------------------------------------------------
 }

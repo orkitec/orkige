@@ -212,6 +212,75 @@ namespace Orkige
 		this->resetScriptState();
 	}
 	//---------------------------------------------------------
+	void ScriptComponent::hotReload()
+	{
+		// each attempt starts from a clean reload-error slate
+		this->mReloadError = "";
+		if (this->mScriptFile.empty())
+		{
+			return;	// nothing attached - nothing to reload
+		}
+		ScriptRuntime* runtime = ScriptRuntime::getSingletonPtr();
+		if (!runtime)
+		{
+			this->mReloadError = "no ScriptRuntime - scripting was not booted";
+			logScriptError(String("ScriptComponent hot-reload of '") +
+				this->mScriptFile + "': " + this->mReloadError);
+			return;
+		}
+		ScriptComponent::ensureScriptApi();
+
+		// (1) COMPILE-BEFORE-SWAP: load into a LOCAL temp instance. This is a
+		// pure factory - a parse error returns NULL WITHOUT touching the live
+		// instance, so a broken edit leaves the running script untouched.
+		String error;
+		optr<ScriptInstance> candidate =
+			runtime->loadScriptInstance(this->mScriptFile, &error);
+		if (!candidate)
+		{
+			// parse error / file-not-found / ORKIGE_SCRIPTING=OFF: keep the OLD
+			// instance running, surface the error WITHOUT the fatal mFailed
+			this->reportReloadError(error);
+			return;
+		}
+
+		// (2) build the temp instance's `self` (from the LIVE siblings) and run
+		// init on it - still without disturbing the running instance. An init
+		// error DISCARDS the candidate and keeps the old one alive.
+		this->populateSelfTable(candidate);
+		if (!candidate->callInit(&error))
+		{
+			this->reportReloadError(String("init: ") + error);
+			candidate.reset();	// its dtor GCs the aborted environment
+			return;
+		}
+
+		// (3) SUCCESS: only now is it safe to retire the old instance. Shut it
+		// down (shutdown(self) fires), then swap the new one in and clear the
+		// fatal error state - a hot reload heals a previously failed instance.
+		if (this->mInstance && this->mStarted)
+		{
+			String shutdownError;
+			if (!this->mInstance->callShutdown(&shutdownError))
+			{
+				// the outgoing instance is going down either way - log, do not
+				// fail the reload over the old script's shutdown hiccup
+				logScriptError(String("ScriptComponent['") + this->mScriptFile +
+					"']: hot-reload shutdown of the old instance: " +
+					shutdownError);
+			}
+		}
+		this->mInstance = candidate;
+		this->mStarted = true;
+		this->mFailed = false;
+		this->mErrorMessage = "";
+		GameObject* componentOwner = this->getComponentOwner();
+		oDebugMsg("script",0,"ScriptComponent: '" << this->mScriptFile
+			<< "' hot-reloaded for '"
+			<< (componentOwner ? componentOwner->getObjectID() : String("?"))
+			<< "'");
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void ScriptComponent::onAdd()
@@ -294,36 +363,7 @@ namespace Orkige
 
 		// the `self` table: owner + convenience accessors for the sibling
 		// components attached NOW (components added later: use the world API)
-		GameObject* componentOwner = this->getComponentOwner();
-		oAssert(componentOwner);
-		this->mInstance->setSelfValue("id", componentOwner->getObjectID());
-		this->mInstance->setSelfValue("gameObject", componentOwner);
-		this->mInstance->setSelfValue("script", this);
-		if (componentOwner->hasComponent<TransformComponent>())
-		{
-			this->mInstance->setSelfValue("transform",
-				componentOwner->getComponentPtr<TransformComponent>());
-		}
-		if (componentOwner->hasComponent<RigidBodyComponent>())
-		{
-			this->mInstance->setSelfValue("rigidbody",
-				componentOwner->getComponentPtr<RigidBodyComponent>());
-		}
-		if (componentOwner->hasComponent<ModelComponent>())
-		{
-			this->mInstance->setSelfValue("model",
-				componentOwner->getComponentPtr<ModelComponent>());
-		}
-		if (componentOwner->hasComponent<SpriteComponent>())
-		{
-			this->mInstance->setSelfValue("sprite",
-				componentOwner->getComponentPtr<SpriteComponent>());
-		}
-		if (componentOwner->hasComponent<ParticleComponent>())
-		{
-			this->mInstance->setSelfValue("particles",
-				componentOwner->getComponentPtr<ParticleComponent>());
-		}
+		this->populateSelfTable(this->mInstance);
 
 		this->mStarted = true;
 		if (!this->mInstance->callInit(&error))
@@ -332,8 +372,48 @@ namespace Orkige
 			return false;
 		}
 		oDebugMsg("script",0,"ScriptComponent: '" << this->mScriptFile
-			<< "' loaded for '" << componentOwner->getObjectID() << "'");
+			<< "' loaded for '" << this->getComponentOwner()->getObjectID()
+			<< "'");
 		return true;
+	}
+	//---------------------------------------------------------
+	void ScriptComponent::populateSelfTable(
+		optr<ScriptInstance> const & instance)
+	{
+		// re-fetch the siblings from the LIVE GameObject every time: on a hot
+		// reload the new instance's `self` must point at the CURRENT components
+		// (the transform/body/sprite the game has been mutating), never at a
+		// stale snapshot - engine-side state survives the swap this way
+		GameObject* componentOwner = this->getComponentOwner();
+		oAssert(componentOwner);
+		instance->setSelfValue("id", componentOwner->getObjectID());
+		instance->setSelfValue("gameObject", componentOwner);
+		instance->setSelfValue("script", this);
+		if (componentOwner->hasComponent<TransformComponent>())
+		{
+			instance->setSelfValue("transform",
+				componentOwner->getComponentPtr<TransformComponent>());
+		}
+		if (componentOwner->hasComponent<RigidBodyComponent>())
+		{
+			instance->setSelfValue("rigidbody",
+				componentOwner->getComponentPtr<RigidBodyComponent>());
+		}
+		if (componentOwner->hasComponent<ModelComponent>())
+		{
+			instance->setSelfValue("model",
+				componentOwner->getComponentPtr<ModelComponent>());
+		}
+		if (componentOwner->hasComponent<SpriteComponent>())
+		{
+			instance->setSelfValue("sprite",
+				componentOwner->getComponentPtr<SpriteComponent>());
+		}
+		if (componentOwner->hasComponent<ParticleComponent>())
+		{
+			instance->setSelfValue("particles",
+				componentOwner->getComponentPtr<ParticleComponent>());
+		}
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::ensureScriptApi()
@@ -606,6 +686,19 @@ namespace Orkige
 			" (instance disabled)");
 	}
 	//---------------------------------------------------------
+	void ScriptComponent::reportReloadError(String const & message)
+	{
+		this->mReloadError = message;
+		// logged (like failScript) so it reaches the log file / stderr / the
+		// editor Console - but the instance is NOT disabled: mFailed stays as
+		// it was and the old script keeps ticking
+		GameObject* componentOwner = this->getComponentOwner();
+		logScriptError(String("ScriptComponent[") +
+			(componentOwner ? componentOwner->getObjectID() : String("?")) +
+			", '" + this->mScriptFile + "']: HOT-RELOAD ERROR - " + message +
+			" (kept the running instance)");
+	}
+	//---------------------------------------------------------
 	void ScriptComponent::resetScriptState()
 	{
 		if (this->mInstance)
@@ -625,6 +718,7 @@ namespace Orkige
 		this->mStarted = false;
 		this->mFailed = false;
 		this->mErrorMessage = "";
+		this->mReloadError = "";
 	}
 	//---------------------------------------------------------
 	OOBJECT_IMPL(ScriptComponent)
@@ -637,5 +731,8 @@ namespace Orkige
 		OFUNCCR(getScriptError)
 		OFUNC(isScriptStarted)
 		OFUNC(reloadScript)
+		OFUNC(hotReload)
+		OFUNC(hasReloadError)
+		OFUNCCR(getLastReloadError)
 	OOBJECT_END
 }
