@@ -23,6 +23,7 @@ namespace Orkige
 		//--- Types -------------------------------------------
 	public:
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
+		typedef std::map<String, StringVector> ChildIdMap;							//!< maps parent id to the ids of its direct children
 	protected:
 		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
 		typedef std::vector< GameObjectComponent *> GameObjectComponentPtrVector;	//!< Vector of Component pointers
@@ -34,9 +35,10 @@ namespace Orkige
 		GameObjectComponentPtrVector	updatableComponents;			//!< holds components that needs their onUpdate method called
 		std::size_t						numUpdatableComponents;			//!< cached number of components that should receive updates
 		std::size_t						currentUpdatableComponentIndex;	//!< index of current updated component in updatableComponents vector
-		bool							enableObjectUpdates;			//!< mark if updating Objects is enabled	
+		bool							enableObjectUpdates;			//!< mark if updating Objects is enabled
 		EventListenerMap				globalEvents;					//!< enabled Global Events
 		StringVector					deleteQueue;					//!< queue of GameObjects that should be deleted on next update
+		ChildIdMap						childIds;						//!< direct children per parent id (maintained by GameObject::setParent)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -70,6 +72,16 @@ namespace Orkige
 		//! set GameObject updates enabled or disabled
 		inline void setUpdatesEnabled(bool enabled);
 
+		//--- HIERARCHY ---
+		//! @brief ids of the direct children of the given GameObject
+		//! @remarks child order is the setParent call order (scene file order
+		//! after a load) - the editor Hierarchy shows this order
+		StringVector const & getChildren(String const & parentId) const;
+		//! ids of all root GameObjects (objects without a parent), sorted by id
+		StringVector getRootObjectIds() const;
+		//! is the GameObject with the given id a descendant of ancestorId
+		bool isDescendantOf(String const & id, String const & ancestorId) const;
+
 		//! save to archive
 		virtual void save(optr<IArchive> const & ar);
 		//! load from archive
@@ -89,6 +101,9 @@ namespace Orkige
 		void processDeleteQueue();
 		//! handle Global Event forwarding
 		inline bool onGlobalEvent(Event const & event);
+		//! @brief keep the child index in sync with a parent link change
+		//! (called by GameObject::setParent - the friend declaration above)
+		void onObjectReparented(String const & childId, String const & oldParentId, String const & newParentId);
 	private:
 	};
 	//---------------------------------------------------------
@@ -130,7 +145,22 @@ namespace Orkige
 			oDebugMsg("core",0,"GameObject: " << id << " doesn't exist!");
 			return false;
 		}
-		this->objects.erase(it);		
+		optr<GameObject> gameObject = it->second;
+		// children survive a single-object delete: they move up to the deleted
+		// object's parent, keeping their world transform (callers that want a
+		// subtree gone - the editor's delete command - delete children first)
+		StringVector const children = this->getChildren(id);	// copy: setParent mutates the index
+		foreach(String const & childId, children)
+		{
+			GameObjectMap::iterator childIt = this->objects.find(childId);
+			if(childIt != this->objects.end())
+			{
+				childIt->second->setParent(gameObject->getParentId(), true);
+			}
+		}
+		// unlink the object itself from its parent's child list
+		this->onObjectReparented(id, gameObject->getParentId(), String());
+		this->objects.erase(it);
 		return true;
 	}
 	//---------------------------------------------------------
@@ -169,12 +199,13 @@ namespace Orkige
 		return this->objects;									
 	}
 	//---------------------------------------------------------
-	inline void GameObjectManager::clear()										
+	inline void GameObjectManager::clear()
 	{
 		this->numUpdatableComponents = 0;
 		this->currentUpdatableComponentIndex = 0;
 		this->updatableComponents.clear();
-		this->objects.clear();								
+		this->childIds.clear();
+		this->objects.clear();
 	}
 	//---------------------------------------------------------
 	inline bool GameObjectManager::onGlobalEvent(Event const & event)

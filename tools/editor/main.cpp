@@ -580,6 +580,8 @@ int main(int, char**)
 				{ corePtr->duplicateSelected(); };
 			menuActions.deleteSelected = [corePtr]()
 				{ corePtr->deleteSelected(); };
+			menuActions.groupSelected = [corePtr]()
+				{ corePtr->groupSelected(); };
 			menuActions.createCube = [corePtr]() { corePtr->createCube(); };
 			menuActions.createTestMesh = [corePtr]()
 				{ corePtr->createTestMesh(); };
@@ -2026,7 +2028,116 @@ int main(int, char**)
 					state.renamingObjectId.clear();
 					state.renameFocusPending = false;
 					SDL_Log("orkige_editor: edittest frame 130 - double-click "
-						"focus OK -> edittest PASSED");
+						"focus OK");
+				}
+				if (frameCount == 135)
+				{
+					// GameObject tree + active state (the WP the Hierarchy
+					// panel's drag & drop / checkbox UI drives): re-parent
+					// through the EXACT function a hierarchy drop calls,
+					// verify the render-node composition (moving the parent
+					// moves the child's WORLD pose), group, deactivate,
+					// undo/redo, and the scene round-trip of both fields
+					Orkige::Vec3 worldBefore = Orkige::Vec3::ZERO;
+					std::string groupId;
+					// scoped: the strong GameObject refs MUST release before
+					// the reload below - a surviving ref would keep the old
+					// (named) scene nodes alive through the world clear
+					{
+					optr<Orkige::GameObject> cube2 =
+						gameObjectManager.getGameObject("Cube2").lock();
+					require(cube2 != nullptr, "Cube2 exists");
+					Orkige::TransformComponent* cube2Transform = cube2
+						->getComponentPtr<Orkige::TransformComponent>();
+					worldBefore = cube2Transform->getWorldPosition();
+					require(editorCore.canReparent("Cube2", "Cube1") &&
+						!editorCore.canReparent("Cube2", "Cube2"),
+						"reparent validation");
+					require(editorCore.reparentObject("Cube2", "Cube1"),
+						"reparent");
+					require(cube2->getParentId() == "Cube1",
+						"parent link set");
+					require(cube2Transform->getWorldPosition()
+						.positionEquals(worldBefore, 1e-3f),
+						"world position preserved across reparent");
+					// the render graph composes: moving the parent moves the
+					// child's world pose by the same delta
+					const Orkige::Vec3 parentDelta(2.0f, 0.0f, 0.0f);
+					Orkige::EditorTransform cube1Now;
+					require(editorCore.getObjectTransform("Cube1", cube1Now),
+						"Cube1 transform");
+					Orkige::EditorTransform cube1Moved = cube1Now;
+					cube1Moved.position += parentDelta;
+					require(editorCore.applyTransformChange("Cube1",
+						cube1Now, cube1Moved), "move parent");
+					require(cube2Transform->getWorldPosition()
+						.positionEquals(worldBefore + parentDelta, 1e-3f),
+						"child world pose follows the parent");
+					require(editorCore.undo(), "undo parent move");
+					// undo the reparent: back to a root, world pose restored
+					require(editorCore.undo(), "undo reparent");
+					require(cube2->getParentId().empty(),
+						"reparent undone");
+					require(cube2Transform->getWorldPosition()
+						.positionEquals(worldBefore, 1e-3f),
+						"world position preserved across undo");
+					// group Cube1+Cube2 under a fresh empty parent (Cmd+G)
+					editorCore.selectObject("Cube1");
+					editorCore.toggleSelection("Cube2");
+					const std::size_t depthBefore =
+						editorCore.getUndoStackSize();
+					require(editorCore.groupSelected(), "group selection");
+					require(editorCore.getUndoStackSize() == depthBefore + 1,
+						"group = one undo step");
+					groupId = editorCore.getSelectedObjectId();
+					require(!groupId.empty() &&
+						gameObjectManager.objectExists(groupId), "group exists");
+					optr<Orkige::GameObject> group =
+						gameObjectManager.getGameObject(groupId).lock();
+					require(group->hasComponent<Orkige::TransformComponent>(),
+						"group carries a transform");
+					require(gameObjectManager.getGameObject("Cube1").lock()
+						->getParentId() == groupId &&
+						cube2->getParentId() == groupId, "members grouped");
+					require(cube2Transform->getWorldPosition()
+						.positionEquals(worldBefore, 1e-3f),
+						"grouping kept the world pose");
+					// active state: deactivating the group hides the members'
+					// render content and gates their updates
+					require(editorCore.setObjectActive(groupId, false),
+						"deactivate group");
+					require(!group->isActiveSelf() &&
+						!cube2->isActiveInHierarchy() &&
+						cube2->isActiveSelf(), "active state propagated");
+					require(editorCore.undo(), "undo deactivate");
+					require(cube2->isActiveInHierarchy(), "reactivated");
+					require(editorCore.setObjectActive("Cube2", false),
+						"deactivate member");
+					}	// release the strong refs before the reload
+					// persistence: parent links + active flags survive the
+					// scene round-trip (v2 fields)
+					const char* editScene =
+						std::getenv("ORKIGE_EDITOR_EDITTEST_SCENE");
+					const std::string scenePath =
+						editScene ? editScene : "edittest.oscene";
+					require(saveSceneToPath(state, editorCore, scenePath),
+						"save tree scene");
+					require(openSceneFromPath(state, editorCore, scenePath),
+						"reload tree scene");
+					optr<Orkige::GameObject> reloadedCube2 =
+						gameObjectManager.getGameObject("Cube2").lock();
+					require(reloadedCube2 &&
+						reloadedCube2->getParentId() == groupId,
+						"parent link persisted");
+					require(!reloadedCube2->isActiveSelf() &&
+						!reloadedCube2->isActiveInHierarchy(),
+						"active flag persisted");
+					require(reloadedCube2
+						->getComponentPtr<Orkige::TransformComponent>()
+						->getWorldPosition().positionEquals(worldBefore,
+							1e-3f), "world pose persisted through the tree");
+					SDL_Log("orkige_editor: edittest frame 135 - hierarchy + "
+						"active state OK -> edittest PASSED");
 				}
 				if (!editOk)
 				{

@@ -115,6 +115,8 @@ namespace Orkige
 		bool			mQuitRequested = false;	//!< editor sent quit
 		String			mSelectedObjectId;		//!< object whose state is streamed
 		StringVector	mLastSentHierarchy;
+		StringVector	mLastSentParents;		//!< parent ids parallel to mLastSentHierarchy
+		StringVector	mLastSentActives;		//!< activeSelf flags parallel to mLastSentHierarchy
 		bool			mHierarchySent = false;	//!< has any hierarchy gone out yet
 		//! ids already reported via script_error (cleared on client loss so
 		//! a re-connecting editor session learns about them again)

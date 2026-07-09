@@ -26,12 +26,15 @@ local GRAVITY      = 18.0   -- gravity magnitude m/s^2 (snappy rolling)
 local KILL_PLANE_Y = -12.0  -- below the grid = fell into the empty slot
 local GOAL_RADIUS  = 1.0    -- win distance to the goal star
 local ORTHO_SIZE   = 7.5    -- vertical half-extent: frames the 12wu grid
-local SPAWN        = { x = -3.0, y = -5.1, z = 0.0 }  -- tile A floor
 
 --- per-instance state --------------------------------------------------------
 local physics               -- PhysicsWorld singleton
 local input                 -- InputManager singleton
 local goalTransform         -- the Goal object's TransformComponent
+-- the respawn pose: captured from the Ball's SCENE position in init - the
+-- generated scene is the single source of the spawn (no hand-copied
+-- derivation of the generator's floor math anymore)
+local SPAWN    = { x = 0.0, y = 0.0, z = 0.0 }
 local wins     = 0
 local respawns = 0
 
@@ -63,6 +66,11 @@ function init(self)
 	cameraNode:setPosition(Vector3(0, 0, 20))
 	cameraNode:lookAt(Vector3(0, 0, 0), TS.TS_WORLD, Vector3(0, 0, -1))
 
+	-- the scene position IS the spawn (the Ball is a scene root, so world
+	-- position == the serialized transform)
+	local start = self.transform:getWorldPosition()
+	SPAWN.x, SPAWN.y, SPAWN.z = start.x, start.y, start.z
+
 	goalTransform = world.getTransform("Goal")
 	if goalTransform == nil then
 		print("ball.lua: no 'Goal' object - win check disabled")
@@ -78,6 +86,10 @@ function init(self)
 end
 
 function update(self, dt)
+	-- tick counter: the player selfcheck probes that a DEACTIVATED ball
+	-- stops receiving updates (GameObject active state gates the ticks)
+	shared.roller.ballUpdates = (shared.roller.ballUpdates or 0) + 1
+
 	local body = self.rigidbody
 	if body == nil or not body:hasBody() then
 		return	-- the rigid body is created lazily on its first update
@@ -105,9 +117,10 @@ function update(self, dt)
 			publishState(SPAWN.x, SPAWN.y, tilt)
 			return
 		end
-		-- reached the goal star?
+		-- reached the goal star? (the Goal is a CHILD of its tile group -
+		-- the win check needs its WORLD position)
 		if goalTransform ~= nil then
-			local goal = goalTransform:getPosition()
+			local goal = goalTransform:getWorldPosition()
 			local dx, dy = goal.x - position.x, goal.y - position.y
 			if dx * dx + dy * dy <= GOAL_RADIUS * GOAL_RADIUS then
 				wins = wins + 1

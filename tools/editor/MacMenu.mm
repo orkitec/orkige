@@ -25,6 +25,7 @@ namespace
 		TAG_REDO,
 		TAG_DUPLICATE,
 		TAG_DELETE,
+		TAG_GROUP_SELECTION,
 		TAG_CREATE_CUBE,
 		TAG_CREATE_TEST_MESH,
 		TAG_EXPORT_MACOS,			//!< Build > Build for macOS
@@ -108,6 +109,7 @@ namespace
 	case TAG_REDO:				action = &gActions.redo; break;
 	case TAG_DUPLICATE:			action = &gActions.duplicateSelected; break;
 	case TAG_DELETE:			action = &gActions.deleteSelected; break;
+	case TAG_GROUP_SELECTION:	action = &gActions.groupSelected; break;
 	case TAG_CREATE_CUBE:		action = &gActions.createCube; break;
 	case TAG_CREATE_TEST_MESH:	action = &gActions.createTestMesh; break;
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
@@ -128,7 +130,8 @@ namespace
 	case TAG_UNDO:			return gStatus.canUndo ? YES : NO;
 	case TAG_REDO:			return gStatus.canRedo ? YES : NO;
 	case TAG_DUPLICATE:
-	case TAG_DELETE:		return gStatus.hasSelection ? YES : NO;
+	case TAG_DELETE:
+	case TAG_GROUP_SELECTION:	return gStatus.hasSelection ? YES : NO;
 	case TAG_CLOSE_PROJECT:	return gStatus.projectOpen ? YES : NO;
 	case TAG_EXPORT_MACOS:
 	case TAG_EXPORT_IOS_SIMULATOR:
@@ -311,6 +314,7 @@ namespace Orkige
 		[editMenu addItem:[NSMenuItem separatorItem]];
 		addItem(editMenu, @"Duplicate", TAG_DUPLICATE, @"", 0);
 		addItem(editMenu, @"Delete", TAG_DELETE, @"", 0);
+		addItem(editMenu, @"Group Selection", TAG_GROUP_SELECTION, @"", 0);
 
 		NSMenu* gameObjectMenu = ensureTopLevelMenu(@"GameObject");
 		addItem(gameObjectMenu, @"Create Cube", TAG_CREATE_CUBE, @"", 0);

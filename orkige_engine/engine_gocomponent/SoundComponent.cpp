@@ -154,7 +154,8 @@ namespace Orkige
                                 {
                                         if(source->isPlaying())
                                         {
-                                                source->setPosition(transformComponent->getPosition());
+                                                // positional audio lives in world space (like physics)
+                                                source->setPosition(transformComponent->getWorldPosition());
                                         }
                                 }
                                 else
@@ -169,6 +170,16 @@ namespace Orkige
                                         this->attachedSoundObjects.erase(it);
                                 }
                         }
+                }
+        }
+        //---------------------------------------------------------
+        void SoundComponent::onSetActive(bool activeInHierarchy)
+        {
+                if(!activeInHierarchy)
+                {
+                        // a deactivated GameObject falls silent; reactivation does
+                        // NOT resume - game code plays sounds again when it wants them
+                        this->stopAllSounds();
                 }
         }
         //---------------------------------------------------------

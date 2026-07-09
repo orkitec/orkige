@@ -330,8 +330,44 @@ namespace Orkige
 		}
 		JPH::BodyInterface & bodyInterface = this->mImpl->mPhysicsSystem.GetBodyInterface();
 		const JPH::BodyID id(bodyId);
-		bodyInterface.RemoveBody(id);
+		// a disabled body (@see setBodyEnabled) is already out of the simulation
+		if (bodyInterface.IsAdded(id))
+		{
+			bodyInterface.RemoveBody(id);
+		}
 		bodyInterface.DestroyBody(id);
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::setBodyEnabled(BodyId bodyId, bool enabled)
+	{
+		if (!this->mImpl || bodyId == PhysicsWorld::INVALID_BODY_ID)
+		{
+			return;
+		}
+		JPH::BodyInterface & bodyInterface = this->mImpl->mPhysicsSystem.GetBodyInterface();
+		const JPH::BodyID id(bodyId);
+		const bool added = bodyInterface.IsAdded(id);
+		if (enabled && !added)
+		{
+			// re-entry keeps the pose and velocities the body left with
+			bodyInterface.AddBody(id,
+				bodyInterface.GetMotionType(id) == JPH::EMotionType::Static ?
+				JPH::EActivation::DontActivate : JPH::EActivation::Activate);
+		}
+		else if (!enabled && added)
+		{
+			bodyInterface.RemoveBody(id);
+		}
+	}
+	//---------------------------------------------------------
+	bool PhysicsWorld::isBodyEnabled(BodyId bodyId) const
+	{
+		if (!this->mImpl || bodyId == PhysicsWorld::INVALID_BODY_ID)
+		{
+			return false;
+		}
+		return this->mImpl->mPhysicsSystem.GetBodyInterface().IsAdded(
+			JPH::BodyID(bodyId));
 	}
 	//---------------------------------------------------------
 	bool PhysicsWorld::getBodyTransform(BodyId bodyId, Ogre::Vector3 & position,
@@ -357,9 +393,12 @@ namespace Orkige
 		JPH::BodyInterface & bodyInterface = this->mImpl->mPhysicsSystem.GetBodyInterface();
 		const JPH::BodyID id(bodyId);
 		// static bodies must not be activated (Jolt asserts); their broadphase
-		// entry still moves, so a teleported static body collides at the new pose
+		// entry still moves, so a teleported static body collides at the new
+		// pose. Disabled bodies (@see setBodyEnabled) are not in the broadphase
+		// and must not be activated either - they re-enter at the new pose.
 		const JPH::EActivation activation =
-			bodyInterface.GetMotionType(id) == JPH::EMotionType::Static ?
+			(bodyInterface.GetMotionType(id) == JPH::EMotionType::Static ||
+				!bodyInterface.IsAdded(id)) ?
 			JPH::EActivation::DontActivate : JPH::EActivation::Activate;
 		bodyInterface.SetPositionAndRotation(id, toJolt(position),
 			toJolt(orientation), activation);

@@ -35,9 +35,13 @@ projects/jumper-lua/scenes/main.oscene for a native reference):
     Cursor  cursor.png highlight over the empty slot (hidden in play mode)
     Goal    goal.png sprite inside tile B (moves with the tile group)
 
-Wall bodies are KINEMATIC (not static) on purpose: the Continuity "move
-world" mode slides whole tiles via RigidBodyComponent::teleport, and
-kinematic bodies are the honest Jolt notion for game-code-moved colliders.
+Each tile is ONE GameObject subtree: a "Tile<key>" parent at the slot
+center with the frame/walls/riders as children (scene format v2 parent
+links). Sliding a tile is a single TransformComponent:teleport of the
+parent - the engine snaps every rigid body in the subtree along, even
+while the simulation is paused. Wall bodies are KINEMATIC (not static)
+on purpose: kinematic bodies are the honest Jolt notion for
+game-code-moved colliders.
 
 Usage:
     python3 Util/make_roller_assets.py [project_dir]
@@ -265,8 +269,13 @@ def fmt(value):
 
 
 class SceneWriter:
+    """Writes scene format VERSION 2: every object carries its parent id
+    ("" = root) and its activeSelf flag next to the components - the
+    Unity-style GameObject tree (core_game/SceneSerializer.cpp)."""
+
     def __init__(self):
-        self.objects = []  # list of (name, [ (componentType, [lines]) ])
+        # list of (name, parent, active, [ (componentType, [lines]) ])
+        self.objects = []
 
     @staticmethod
     def _base_fields():
@@ -335,22 +344,25 @@ class SceneWriter:
             '<bool value="%s"/>' % fmt(enabled),
         ])
 
-    def add(self, name, *components):
+    def add(self, name, *components, parent="", active=True):
         # keep the component order SceneSerializer produces (sorted by type
-        # name) so a re-save in the editor diffs minimally
+        # name) so a re-save in the editor diffs minimally. Objects with a
+        # parent carry LOCAL transforms (relative to the parent's center).
         self.objects.append(
-            (name, sorted(components, key=lambda c: c[0])))
+            (name, parent, active, sorted(components, key=lambda c: c[0])))
 
     def write(self, path):
         lines = [
             "<?1.0, UTF-8, yes?>",
             '<XMLArchive Version="0">',
             '    <String value="orkige.oscene"/>',
-            '    <int value="1"/>',
+            '    <int value="2"/>',
             '    <unsigned_int value="%d"/>' % len(self.objects),
         ]
-        for name, components in self.objects:
+        for name, parent, active, components in self.objects:
             lines.append('    <String value="%s"/>' % name)
+            lines.append('    <String value="%s"/>' % parent)
+            lines.append('    <bool value="%s"/>' % fmt(active))
             lines.append('    <unsigned_int value="%d"/>' % len(components))
             for type_name, fields in components:
                 lines.append('    <String value="%s"/>' % type_name)
@@ -370,8 +382,9 @@ SLOTS = {0: (-HALF, -HALF), 1: (HALF, -HALF), 2: (-HALF, HALF), 3: (HALF, HALF)}
 Z_FRAME, Z_WALL, Z_GOAL, Z_BALL, Z_CURSOR = 1, 2, 3, 5, 8
 
 
-def add_wall(scene, name, cx, cy, horizontal, length):
-    """One wall segment: kinematic box + stretched wall sprite."""
+def add_wall(scene, name, parent, cx, cy, horizontal, length):
+    """One wall segment: kinematic box + stretched wall sprite, parented
+    under its tile group (cx/cy are LOCAL to the tile center)."""
     if horizontal:
         w, h = length, WALL
     else:
@@ -382,31 +395,37 @@ def add_wall(scene, name, cx, cy, horizontal, length):
         scene.sprite("wall.png", w, h, Z_WALL),
         scene.rigid_box(w / 2.0, h / 2.0, WALL_HALF, body_type=1,
                         friction=0.4),
+        parent=parent,
     )
 
 
 def add_tile(scene, key, slot, open_edges, ledge=False):
-    """A tile at its INITIAL slot: frame sprite + walls on the closed edges.
-    (The Lua side groups these objects by the Tile<key>_ name prefix.)"""
+    """A tile at its INITIAL slot: ONE parent GameObject ("Tile<key>") at the
+    slot center whose children (frame sprite, walls, riders like the goal)
+    carry LOCAL offsets - sliding the tile is ONE teleport of the parent
+    (the GameObject tree replaced the historical Lua-side group tables)."""
     cx, cy = SLOTS[slot]
-    scene.add("Tile%s_Frame" % key, scene.transform(cx, cy),
-              scene.sprite("tile_frame.png", TILE, TILE, Z_FRAME))
+    parent = "Tile%s" % key
+    scene.add(parent, scene.transform(cx, cy))
+    scene.add("Tile%s_Frame" % key, scene.transform(0.0, 0.0),
+              scene.sprite("tile_frame.png", TILE, TILE, Z_FRAME),
+              parent=parent)
     edge_offset = HALF - WALL_HALF
     if "top" not in open_edges:
-        add_wall(scene, "Tile%s_WallTop" % key, cx, cy + edge_offset,
+        add_wall(scene, "Tile%s_WallTop" % key, parent, 0.0, edge_offset,
                  True, TILE)
     if "bottom" not in open_edges:
-        add_wall(scene, "Tile%s_WallBottom" % key, cx, cy - edge_offset,
+        add_wall(scene, "Tile%s_WallBottom" % key, parent, 0.0, -edge_offset,
                  True, TILE)
     if "left" not in open_edges:
-        add_wall(scene, "Tile%s_WallLeft" % key, cx - edge_offset, cy,
+        add_wall(scene, "Tile%s_WallLeft" % key, parent, -edge_offset, 0.0,
                  False, TILE)
     if "right" not in open_edges:
-        add_wall(scene, "Tile%s_WallRight" % key, cx + edge_offset, cy,
+        add_wall(scene, "Tile%s_WallRight" % key, parent, edge_offset, 0.0,
                  False, TILE)
     if ledge:
         # interior platform: rolling obstacle inside the tile
-        add_wall(scene, "Tile%s_Ledge" % key, cx - 1.0, cy - 1.0, True, 2.5)
+        add_wall(scene, "Tile%s_Ledge" % key, parent, -1.0, -1.0, True, 2.5)
 
 
 def build_scene():
@@ -428,12 +447,11 @@ def build_scene():
     add_tile(scene, "A", 0, open_edges=("right",), ledge=True)
     add_tile(scene, "B", 3, open_edges=("left",))
     add_tile(scene, "C", 2, open_edges=())
-    # the goal star inside tile B (grouped with B by game.lua, so it slides
-    # along); on B's floor near the right wall
-    goal_x = SLOTS[3][0] + 1.6
-    goal_y = SLOTS[3][1] - HALF + WALL + 0.5
-    scene.add("Goal", scene.transform(goal_x, goal_y),
-              scene.sprite("goal.png", 1.0, 1.0, Z_GOAL))
+    # the goal star inside tile B - a CHILD of the TileB group (local
+    # offset on B's floor near the right wall), so it slides along
+    scene.add("Goal", scene.transform(1.6, -HALF + WALL + 0.5),
+              scene.sprite("goal.png", 1.0, 1.0, Z_GOAL),
+              parent="TileB")
     # move-mode cursor: highlights the EMPTY slot; game.lua repositions and
     # shows/hides it (start: hidden over slot 1)
     scene.add("Cursor", scene.transform(SLOTS[1][0], SLOTS[1][1]),

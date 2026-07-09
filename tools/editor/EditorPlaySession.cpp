@@ -52,6 +52,8 @@ void clearRemoteState(PlaySession& session)
 	session.hierarchyReceived = false;
 	session.remoteLogSeen = false;
 	session.remoteHierarchy.clear();
+	session.remoteParents.clear();
+	session.remoteActive.clear();
 	session.scriptErrorIds.clear();
 	session.remoteSelectedId.clear();
 	session.stateObjectId.clear();
@@ -797,6 +799,17 @@ void selectRemoteObject(PlaySession& session, std::string const& id)
 	session.client.send(select);
 }
 
+//! remote active toggle (the play-mode Hierarchy/Inspector checkbox): the
+//! player applies GameObject::setActive and streams a fresh hierarchy back
+void setRemoteObjectActive(PlaySession& session, std::string const& id,
+	bool active)
+{
+	Orkige::DebugMessage setActive(Protocol::MSG_SET_ACTIVE);
+	setActive.set(Protocol::FIELD_ID, id);
+	setActive.set(Protocol::FIELD_VALUE, active ? "1" : "0");
+	session.client.send(setActive);
+}
+
 //! per-frame play session pump: complete the connect, drain streamed
 //! messages (remote log lines land in the Console tagged "[remote]"), watch
 //! the process and the link, enforce the stop grace timeout
@@ -824,6 +837,18 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		else if (message.type == Protocol::MSG_HIERARCHY)
 		{
 			session.remoteHierarchy = message.getList(Protocol::LIST_IDS);
+			// additive tree extension: old players send neither list - the
+			// panel then falls back to the historical flat rendering
+			session.remoteParents = message.getList(Protocol::LIST_PARENTS);
+			session.remoteActive = message.getList(Protocol::LIST_ACTIVE);
+			if (session.remoteParents.size() != session.remoteHierarchy.size())
+			{
+				session.remoteParents.clear();
+			}
+			if (session.remoteActive.size() != session.remoteHierarchy.size())
+			{
+				session.remoteActive.clear();
+			}
 			session.hierarchyReceived = true;
 		}
 		else if (message.type == Protocol::MSG_OBJECT_STATE)

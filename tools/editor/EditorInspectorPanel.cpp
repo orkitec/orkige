@@ -586,6 +586,29 @@ void drawRemoteInspector(PlaySession& session)
 			session.remoteSelectedId.c_str());
 		return;
 	}
+	// the live active checkbox (set_active is additive protocol v1 - an old
+	// player answers with an error line instead of applying it); the flag
+	// comes from the hierarchy stream, which the player refreshes on change
+	if (session.remoteActive.size() == session.remoteHierarchy.size())
+	{
+		for (std::size_t index = 0; index < session.remoteHierarchy.size();
+			++index)
+		{
+			if (session.remoteHierarchy[index] != session.stateObjectId)
+			{
+				continue;
+			}
+			bool activeSelf = session.remoteActive[index] != "0";
+			if (ImGui::Checkbox("##remoteActive", &activeSelf))
+			{
+				setRemoteObjectActive(session, session.stateObjectId,
+					activeSelf);
+			}
+			ImGui::SetItemTooltip("Active");
+			ImGui::SameLine();
+			break;
+		}
+	}
 	ImGui::Text("%s", session.stateObjectId.c_str());
 	ImGui::TextDisabled("remote object (live)");
 	ImGui::Separator();
@@ -673,7 +696,23 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		else
 		{
 			const std::string objectId = gameObject->getObjectID();
+			// Unity-style active checkbox in the header: it toggles the OWN
+			// flag (activeSelf) - a checked box on an object annotated
+			// "inactive via parent" means an ancestor is deactivated
+			bool activeSelf = gameObject->isActiveSelf();
+			if (ImGui::Checkbox("##activeSelf", &activeSelf))
+			{
+				core.setObjectActive(objectId, activeSelf);
+			}
+			ImGui::SetItemTooltip("Active");
+			ImGui::SameLine();
 			ImGui::Text("%s", objectId.c_str());
+			if (!gameObject->isActiveInHierarchy())
+			{
+				ImGui::SameLine();
+				ImGui::TextDisabled("%s", gameObject->isActiveSelf()
+					? "(inactive via parent)" : "(inactive)");
+			}
 			if (core.getSelectionCount() > 1)
 			{
 				// multi-select groundwork: the Inspector edits the PRIMARY

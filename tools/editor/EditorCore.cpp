@@ -98,6 +98,11 @@ namespace Orkige
 				return false;
 			}
 		}
+		// the hierarchy state travels NEXT TO the component archive: the
+		// parent is a link to another object (not component state) and the
+		// active flag lives on the GameObject itself
+		mParentId = gameObject->getParentId();
+		mActiveSelf = gameObject->isActiveSelf();
 		// keep the archive content in memory, the file is gone after this
 		std::ifstream file(tempFile.path, std::ios::binary);
 		std::ostringstream content;
@@ -170,8 +175,26 @@ namespace Orkige
 		{
 			// don't leave a half-restored object behind
 			gameObjectManager.delGameObject(id);
+			return false;
 		}
-		return loaded;
+		// re-attach where the object was: the restored LOCAL transform is
+		// relative to that parent (keepWorldTransform=false, the scene-load
+		// semantics). A vanished parent leaves the object a root - honest.
+		if (!mParentId.empty())
+		{
+			if (gameObjectManager.objectExists(mParentId))
+			{
+				gameObject->setParent(mParentId, false);
+			}
+			else
+			{
+				oDebugMsg("editor", 0, "EditorObjectSnapshot: parent \""
+					<< mParentId << "\" of restored object " << id
+					<< " no longer exists - restored as a root");
+			}
+		}
+		gameObject->setActive(mActiveSelf);
+		return true;
 	}
 
 	//---------------------------------------------------------
@@ -343,6 +366,10 @@ namespace Orkige
 			return false;
 		}
 		mWasSelected = core.isSelected(mObjectId);
+		// direct children survive the delete re-parented to the grandparent
+		// (GameObjectManager::delGameObject semantics) - remember them so
+		// undo can re-attach them
+		mChildIds = core.getGameObjectManager().getChildren(mObjectId);
 		if (!core.getGameObjectManager().delGameObject(mObjectId))
 		{
 			return false;
@@ -358,6 +385,17 @@ namespace Orkige
 			return false;
 		}
 		core.applyModelFixups(mObjectId);
+		// re-attach the children that moved to the grandparent on delete
+		// (world transforms preserved, so nothing moves visually)
+		for (String const& childId : mChildIds)
+		{
+			optr<GameObject> child = core.getGameObjectManager()
+				.getGameObject(childId).lock();
+			if (child)
+			{
+				child->setParent(mObjectId, true);
+			}
+		}
 		if (mWasSelected)
 		{
 			core.addToSelection(mObjectId);
@@ -443,6 +481,235 @@ namespace Orkige
 	String DuplicateObjectCommand::getDescription() const
 	{
 		return "Duplicate " + mSourceId;
+	}
+
+	//---------------------------------------------------------
+	//--- ReparentObjectCommand --------------------------------
+	//---------------------------------------------------------
+	ReparentObjectCommand::ReparentObjectCommand(String const& objectId,
+		String const& newParentId)
+		: mObjectId(objectId), mNewParentId(newParentId)
+	{
+	}
+	//---------------------------------------------------------
+	bool ReparentObjectCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		mOldParentId = gameObject->getParentId();
+		if (mOldParentId == mNewParentId)
+		{
+			return false;	// no-op re-parent never enters the undo stack
+		}
+		// the exact local transform, so undo restores it bit-for-bit even if
+		// something moved in between
+		mHadTransform = core.getObjectTransform(mObjectId, mOldLocal);
+		// world transform preserved (setParent refuses cycles/self/unknown)
+		return gameObject->setParent(mNewParentId, true);
+	}
+	//---------------------------------------------------------
+	bool ReparentObjectCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject || !gameObject->setParent(mOldParentId, true))
+		{
+			return false;
+		}
+		if (mHadTransform)
+		{
+			core.setObjectTransform(mObjectId, mOldLocal);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String ReparentObjectCommand::getDescription() const
+	{
+		return mNewParentId.empty()
+			? ("Unparent " + mObjectId)
+			: ("Parent " + mObjectId + " to " + mNewParentId);
+	}
+
+	//---------------------------------------------------------
+	//--- SetActiveObjectCommand -------------------------------
+	//---------------------------------------------------------
+	SetActiveObjectCommand::SetActiveObjectCommand(String const& objectId,
+		bool active)
+		: mObjectId(objectId), mActive(active)
+	{
+	}
+	//---------------------------------------------------------
+	bool SetActiveObjectCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		mBefore = gameObject->isActiveSelf();
+		if (mBefore == mActive)
+		{
+			return false;	// no-op toggles never enter the undo stack
+		}
+		gameObject->setActive(mActive);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool SetActiveObjectCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		gameObject->setActive(mBefore);
+		return true;
+	}
+	//---------------------------------------------------------
+	String SetActiveObjectCommand::getDescription() const
+	{
+		return (mActive ? "Activate " : "Deactivate ") + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- GroupObjectsCommand ----------------------------------
+	//---------------------------------------------------------
+	GroupObjectsCommand::GroupObjectsCommand(StringVector const& memberIds,
+		String const& groupId)
+		: mMemberIds(memberIds), mGroupId(groupId)
+	{
+	}
+	//---------------------------------------------------------
+	bool GroupObjectsCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		if (mMemberIds.empty() || manager.objectExists(mGroupId))
+		{
+			return false;
+		}
+		for (String const& memberId : mMemberIds)
+		{
+			if (!manager.objectExists(memberId))
+			{
+				return false;
+			}
+		}
+		// the group inherits the members' COMMON parent (mixed parents = root)
+		// so grouping never changes where the subtree lives in the tree
+		mOldParentIds.clear();
+		String commonParentId =
+			manager.getGameObject(mMemberIds.front()).lock()->getParentId();
+		for (String const& memberId : mMemberIds)
+		{
+			const String parentId =
+				manager.getGameObject(memberId).lock()->getParentId();
+			mOldParentIds.push_back(parentId);
+			if (parentId != commonParentId)
+			{
+				commonParentId.clear();
+			}
+		}
+		// pivot: the average of the members' world positions - like Unity's
+		// "create empty parent", the group sits at the selection's centre
+		Vec3 centre = Vec3::ZERO;
+		int transformCount = 0;
+		for (String const& memberId : mMemberIds)
+		{
+			optr<GameObject> member = manager.getGameObject(memberId).lock();
+			if (member->hasComponent<TransformComponent>())
+			{
+				centre += member->getComponentPtr<TransformComponent>()
+					->getWorldPosition();
+				++transformCount;
+			}
+		}
+		if (transformCount > 0)
+		{
+			centre /= static_cast<float>(transformCount);
+		}
+		optr<GameObject> group = manager.createGameObject(mGroupId).lock();
+		if (!group)
+		{
+			return false;
+		}
+		// a live editor always has TransformComponent registered; the
+		// headless editor_core tests group bare objects (logically identical,
+		// no transform composition without a render scene anyway)
+		if (GameObject::isComponentRegistered(
+			TransformComponent::getClassTypeInfo()))
+		{
+			if (!group->addComponent<TransformComponent>())
+			{
+				manager.delGameObject(mGroupId);
+				return false;
+			}
+		}
+		if (!commonParentId.empty())
+		{
+			group->setParent(commonParentId, false);
+		}
+		if (group->hasComponent<TransformComponent>())
+		{
+			group->getComponentPtr<TransformComponent>()
+				->setWorldPosition(centre);
+		}
+		for (String const& memberId : mMemberIds)
+		{
+			// cannot fail: the members exist and the fresh group is nobody's
+			// descendant - but stay honest if it ever does
+			optr<GameObject> member = manager.getGameObject(memberId).lock();
+			if (!member->setParent(mGroupId, true))
+			{
+				oDebugMsg("editor", 0, "GroupObjectsCommand: could not parent "
+					<< memberId << " under " << mGroupId);
+			}
+		}
+		core.clearSelection();
+		core.addToSelection(mGroupId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool GroupObjectsCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		if (!manager.objectExists(mGroupId))
+		{
+			return false;
+		}
+		for (std::size_t index = 0; index < mMemberIds.size(); ++index)
+		{
+			optr<GameObject> member =
+				manager.getGameObject(mMemberIds[index]).lock();
+			if (member)
+			{
+				member->setParent(mOldParentIds[index], true);
+			}
+		}
+		if (!manager.delGameObject(mGroupId))
+		{
+			return false;
+		}
+		core.clearSelection();
+		for (String const& memberId : mMemberIds)
+		{
+			if (manager.objectExists(memberId))
+			{
+				core.addToSelection(memberId);
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String GroupObjectsCommand::getDescription() const
+	{
+		return "Group " + std::to_string(mMemberIds.size()) +
+			(mMemberIds.size() == 1 ? " Object" : " Objects");
 	}
 
 	//---------------------------------------------------------
@@ -990,6 +1257,126 @@ namespace Orkige
 		return executeCommand(onew(new RenameObjectCommand(id, newId)));
 	}
 	//---------------------------------------------------------
+	bool EditorCore::canReparent(String const& id,
+		String const& newParentId) const
+	{
+		if (!mGameObjectManager.objectExists(id))
+		{
+			return false;
+		}
+		if (newParentId.empty())
+		{
+			return true;	// making something a root is always legal
+		}
+		if (newParentId == id ||
+			!mGameObjectManager.objectExists(newParentId))
+		{
+			return false;
+		}
+		// the cycle guard: never onto an own descendant
+		return !mGameObjectManager.isDescendantOf(newParentId, id);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::reparentObject(String const& id, String const& newParentId)
+	{
+		if (!canReparent(id, newParentId))
+		{
+			return false;
+		}
+		// dragging a member of a multi-selection moves the WHOLE selection;
+		// only the TOPMOST selected objects move - members whose ancestor is
+		// selected too follow that ancestor (Unity drag semantics)
+		StringVector movingIds;
+		if (isSelected(id) && getSelectionCount() > 1)
+		{
+			for (String const& selectedId : mSelection)
+			{
+				if (!canReparent(selectedId, newParentId))
+				{
+					continue;
+				}
+				bool ancestorSelected = false;
+				for (String const& otherId : mSelection)
+				{
+					if (otherId != selectedId &&
+						mGameObjectManager.isDescendantOf(selectedId, otherId))
+					{
+						ancestorSelected = true;
+						break;
+					}
+				}
+				if (!ancestorSelected)
+				{
+					movingIds.push_back(selectedId);
+				}
+			}
+		}
+		else
+		{
+			movingIds.push_back(id);
+		}
+		if (movingIds.empty())
+		{
+			return false;
+		}
+		if (movingIds.size() == 1)
+		{
+			return executeCommand(onew(new ReparentObjectCommand(movingIds[0],
+				newParentId)));
+		}
+		optr<CompositeCommand> batch = onew(new CompositeCommand(
+			"Reparent " + std::to_string(movingIds.size()) + " Objects"));
+		for (String const& movingId : movingIds)
+		{
+			batch->addCommand(onew(new ReparentObjectCommand(movingId,
+				newParentId)));
+		}
+		return executeCommand(batch);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectActive(String const& id, bool active)
+	{
+		if (!mGameObjectManager.objectExists(id))
+		{
+			return false;
+		}
+		return executeCommand(onew(new SetActiveObjectCommand(id, active)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::groupSelected()
+	{
+		// only the TOPMOST selected objects become group members - selected
+		// descendants of selected objects simply ride along
+		StringVector memberIds;
+		for (String const& id : mSelection)
+		{
+			if (!mGameObjectManager.objectExists(id))
+			{
+				continue;
+			}
+			bool ancestorSelected = false;
+			for (String const& otherId : mSelection)
+			{
+				if (otherId != id &&
+					mGameObjectManager.isDescendantOf(id, otherId))
+				{
+					ancestorSelected = true;
+					break;
+				}
+			}
+			if (!ancestorSelected)
+			{
+				memberIds.push_back(id);
+			}
+		}
+		if (memberIds.empty())
+		{
+			return false;
+		}
+		return executeCommand(onew(new GroupObjectsCommand(memberIds,
+			generateObjectId("Group"))));
+	}
+	//---------------------------------------------------------
 	bool EditorCore::applyTransformChange(String const& id,
 		EditorTransform const& before, EditorTransform const& after,
 		unsigned int mergeSession)
@@ -1371,6 +1758,61 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	bool EditorCore::getObjectWorldTransform(String const& id,
+		EditorTransform& out) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<TransformComponent>())
+		{
+			return false;
+		}
+		TransformComponent* transform =
+			gameObject->getComponentPtr<TransformComponent>();
+		out.position = transform->getWorldPosition();
+		out.orientation = transform->getWorldOrientation();
+		out.scale = transform->getWorldScale();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::worldToLocalTransform(String const& id,
+		EditorTransform const& world, EditorTransform& outLocal) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject || !gameObject->hasComponent<TransformComponent>())
+		{
+			return false;
+		}
+		TransformComponent* transform =
+			gameObject->getComponentPtr<TransformComponent>();
+		optr<RenderNode> parent =
+			transform->getNode() ? transform->getNode()->getParent()
+				: optr<RenderNode>();
+		if (!parent)
+		{
+			// attached to the world root: local IS world
+			outLocal = world;
+			return true;
+		}
+		// the same parent-relative math TransformComponent's keep-world
+		// re-parenting uses (component-wise scale, matching inherit-scale)
+		const Vec3 parentPosition = parent->getWorldPosition();
+		const Quat parentOrientation = parent->getWorldOrientation();
+		Vec3 parentScale = parent->getScale();
+		for (optr<RenderNode> ancestor = parent->getParent(); ancestor;
+			ancestor = ancestor->getParent())
+		{
+			parentScale = parentScale * ancestor->getScale();
+		}
+		const Quat inverseOrientation = parentOrientation.Inverse();
+		outLocal.position = (inverseOrientation *
+			(world.position - parentPosition)) / parentScale;
+		outLocal.orientation = inverseOrientation * world.orientation;
+		outLocal.scale = world.scale / parentScale;
+		return true;
+	}
+	//---------------------------------------------------------
 	bool EditorCore::executeCommand(optr<EditorCommand> const& command)
 	{
 		if (!command || !command->execute(*this))
@@ -1512,15 +1954,35 @@ namespace Orkige
 			return false;
 		}
 		const bool wasSelected = isSelected(oldId);
+		// children reference their parent BY id - remember them so they can
+		// follow the rename (delGameObject moves them to the grandparent)
+		const StringVector childIds = mGameObjectManager.getChildren(oldId);
 		if (!mGameObjectManager.delGameObject(oldId))
 		{
 			return false;
 		}
-		if (!snapshot.restore(mGameObjectManager, newId))
+		const String restoredId =
+			snapshot.restore(mGameObjectManager, newId) ? newId : String();
+		if (restoredId.empty())
 		{
 			// try not to lose the object: restore under the old id
 			snapshot.restore(mGameObjectManager, oldId);
 			applyModelFixups(oldId);
+		}
+		// re-point the children at the surviving id (world transforms
+		// preserved, so nothing moves visually)
+		const String& parentId = restoredId.empty() ? oldId : restoredId;
+		for (String const& childId : childIds)
+		{
+			optr<GameObject> child =
+				mGameObjectManager.getGameObject(childId).lock();
+			if (child && mGameObjectManager.objectExists(parentId))
+			{
+				child->setParent(parentId, true);
+			}
+		}
+		if (restoredId.empty())
+		{
 			return false;
 		}
 		applyModelFixups(newId);

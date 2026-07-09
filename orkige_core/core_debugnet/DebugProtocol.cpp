@@ -26,6 +26,7 @@ namespace Orkige
 		const String MSG_SELECT				= "select";
 		const String MSG_SET_PROPERTY		= "set_property";
 		const String MSG_REQUEST_HIERARCHY	= "request_hierarchy";
+		const String MSG_SET_ACTIVE			= "set_active";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";
@@ -44,6 +45,8 @@ namespace Orkige
 		const String FIELD_LEVEL			= "level";
 		const String LIST_IDS				= "ids";
 		const String LIST_COMPONENTS		= "components";
+		const String LIST_PARENTS			= "parents";
+		const String LIST_ACTIVE			= "active";
 	}
 
 	namespace

@@ -802,3 +802,225 @@ TEST_CASE("EditorCore changes ScriptComponent path + enabled undoably",
 
 	manager.clear();
 }
+
+TEST_CASE("EditorCore reparent command re-parents, guards cycles and undoes",
+	"[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Parent", 1);
+	makeHealthObject(manager, "Child", 2);
+	makeHealthObject(manager, "Grandchild", 3);
+	REQUIRE(manager.getGameObject("Grandchild").lock()->setParent("Child"));
+
+	// validation surface for the Hierarchy's drop targets
+	CHECK(core.canReparent("Child", "Parent"));
+	CHECK(core.canReparent("Child", ""));
+	CHECK_FALSE(core.canReparent("Child", "Child"));		// self
+	CHECK_FALSE(core.canReparent("Child", "Grandchild"));	// own descendant
+	CHECK_FALSE(core.canReparent("Child", "Missing"));
+	CHECK_FALSE(core.canReparent("Missing", "Parent"));
+
+	// re-parent (undoable)
+	REQUIRE(core.reparentObject("Child", "Parent"));
+	CHECK(manager.getGameObject("Child").lock()->getParentId() == "Parent");
+	CHECK(core.getUndoDescription() == "Parent Child to Parent");
+	CHECK(core.isSceneDirty());
+
+	// a no-op re-parent must not enter the undo stack
+	CHECK_FALSE(core.reparentObject("Child", "Parent"));
+	CHECK(core.getUndoStackSize() == 1);
+
+	REQUIRE(core.undo());
+	CHECK(manager.getGameObject("Child").lock()->getParentId().empty());
+	REQUIRE(core.redo());
+	CHECK(manager.getGameObject("Child").lock()->getParentId() == "Parent");
+
+	// a refused reparent (cycle) never enters the stack
+	CHECK_FALSE(core.reparentObject("Parent", "Grandchild"));
+	CHECK(core.getUndoStackSize() == 1);
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore multi-select reparent moves only the topmost objects "
+	"as one undo step", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Target", 0);
+	makeHealthObject(manager, "A", 1);
+	makeHealthObject(manager, "AChild", 2);
+	makeHealthObject(manager, "B", 3);
+	REQUIRE(manager.getGameObject("AChild").lock()->setParent("A"));
+
+	// selection contains A, its child AND B - dragging A onto Target moves
+	// A and B; AChild follows A instead of being flattened
+	core.selectObject("A");
+	core.addToSelection("AChild");
+	core.addToSelection("B");
+	REQUIRE(core.reparentObject("A", "Target"));
+	CHECK(manager.getGameObject("A").lock()->getParentId() == "Target");
+	CHECK(manager.getGameObject("B").lock()->getParentId() == "Target");
+	CHECK(manager.getGameObject("AChild").lock()->getParentId() == "A");
+	CHECK(core.getUndoStackSize() == 1);
+
+	REQUIRE(core.undo());
+	CHECK(manager.getGameObject("A").lock()->getParentId().empty());
+	CHECK(manager.getGameObject("B").lock()->getParentId().empty());
+	CHECK(manager.getGameObject("AChild").lock()->getParentId() == "A");
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore set-active command toggles activeSelf and undoes",
+	"[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Parent", 1);
+	makeHealthObject(manager, "Child", 2);
+	REQUIRE(manager.getGameObject("Child").lock()->setParent("Parent"));
+
+	CHECK_FALSE(core.setObjectActive("Missing", false));
+	// a no-op toggle must not enter the undo stack
+	CHECK_FALSE(core.setObjectActive("Parent", true));
+	CHECK_FALSE(core.canUndo());
+
+	REQUIRE(core.setObjectActive("Parent", false));
+	CHECK(core.getUndoDescription() == "Deactivate Parent");
+	CHECK_FALSE(manager.getGameObject("Parent").lock()->isActiveSelf());
+	// the effective state propagates into the subtree
+	CHECK_FALSE(manager.getGameObject("Child").lock()->isActiveInHierarchy());
+	CHECK(manager.getGameObject("Child").lock()->isActiveSelf());
+
+	REQUIRE(core.undo());
+	CHECK(manager.getGameObject("Parent").lock()->isActiveSelf());
+	CHECK(manager.getGameObject("Child").lock()->isActiveInHierarchy());
+	REQUIRE(core.redo());
+	CHECK_FALSE(manager.getGameObject("Child").lock()->isActiveInHierarchy());
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore group command creates the parent, re-parents the "
+	"members and undoes cleanly", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "TileA", 1);
+	makeHealthObject(manager, "TileB", 2);
+	makeHealthObject(manager, "TileBChild", 3);
+	REQUIRE(manager.getGameObject("TileBChild").lock()->setParent("TileB"));
+
+	// nothing selected: refused
+	CHECK_FALSE(core.groupSelected());
+
+	// group TileA + TileB (TileBChild is selected too but rides along
+	// under TileB - only topmost objects become members)
+	core.selectObject("TileA");
+	core.addToSelection("TileB");
+	core.addToSelection("TileBChild");
+	REQUIRE(core.groupSelected());
+	REQUIRE(manager.objectExists("Group1"));
+	CHECK(manager.getGameObject("TileA").lock()->getParentId() == "Group1");
+	CHECK(manager.getGameObject("TileB").lock()->getParentId() == "Group1");
+	CHECK(manager.getGameObject("TileBChild").lock()->getParentId() == "TileB");
+	CHECK(core.getUndoDescription() == "Group 2 Objects");
+	// the fresh group becomes the selection
+	CHECK(core.getSelectedObjectId() == "Group1");
+	CHECK(core.getSelectionCount() == 1);
+
+	REQUIRE(core.undo());
+	CHECK_FALSE(manager.objectExists("Group1"));
+	CHECK(manager.getGameObject("TileA").lock()->getParentId().empty());
+	CHECK(manager.getGameObject("TileB").lock()->getParentId().empty());
+	CHECK(manager.getGameObject("TileBChild").lock()->getParentId() == "TileB");
+	// undo restores the member selection
+	CHECK(core.isSelected("TileA"));
+	CHECK(core.isSelected("TileB"));
+
+	REQUIRE(core.redo());
+	CHECK(manager.objectExists("Group1"));
+	CHECK(manager.getGameObject("TileA").lock()->getParentId() == "Group1");
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore delete + undo restores the parent link, the active "
+	"flag and the children", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Root", 1);
+	makeHealthObject(manager, "Middle", 2);
+	makeHealthObject(manager, "Leaf", 3);
+	REQUIRE(manager.getGameObject("Middle").lock()->setParent("Root"));
+	REQUIRE(manager.getGameObject("Leaf").lock()->setParent("Middle"));
+	manager.getGameObject("Middle").lock()->setActive(false);
+
+	core.selectObject("Middle");
+	REQUIRE(core.deleteSelected());
+	CHECK_FALSE(manager.objectExists("Middle"));
+	// the child moved up to the grandparent, keeping the scene intact
+	CHECK(manager.getGameObject("Leaf").lock()->getParentId() == "Root");
+	// deactivation died with the object
+	CHECK(manager.getGameObject("Leaf").lock()->isActiveInHierarchy());
+
+	REQUIRE(core.undo());
+	optr<Orkige::GameObject> middle = manager.getGameObject("Middle").lock();
+	REQUIRE(middle);
+	CHECK(middle->getParentId() == "Root");
+	CHECK_FALSE(middle->isActiveSelf());
+	// the child is re-attached and inactive again through its parent
+	CHECK(manager.getGameObject("Leaf").lock()->getParentId() == "Middle");
+	CHECK_FALSE(manager.getGameObject("Leaf").lock()->isActiveInHierarchy());
+	CHECK(middle->getComponentPtr<Orkige::TestHealthComponent>()
+		->getHealth() == 2);
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore rename re-points the children and keeps the parent "
+	"link", "[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Root", 1);
+	makeHealthObject(manager, "OldName", 2);
+	makeHealthObject(manager, "Kid", 3);
+	REQUIRE(manager.getGameObject("OldName").lock()->setParent("Root"));
+	REQUIRE(manager.getGameObject("Kid").lock()->setParent("OldName"));
+
+	REQUIRE(core.renameObject("OldName", "NewName"));
+	CHECK_FALSE(manager.objectExists("OldName"));
+	CHECK(manager.getGameObject("NewName").lock()->getParentId() == "Root");
+	CHECK(manager.getGameObject("Kid").lock()->getParentId() == "NewName");
+
+	REQUIRE(core.undo());
+	CHECK(manager.getGameObject("OldName").lock()->getParentId() == "Root");
+	CHECK(manager.getGameObject("Kid").lock()->getParentId() == "OldName");
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore duplicate keeps the source's parent and active flag",
+	"[editor][hierarchy]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Holder", 1);
+	makeHealthObject(manager, "Original", 2);
+	REQUIRE(manager.getGameObject("Original").lock()->setParent("Holder"));
+	manager.getGameObject("Original").lock()->setActive(false);
+
+	core.selectObject("Original");
+	REQUIRE(core.duplicateSelected());
+	optr<Orkige::GameObject> copy =
+		manager.getGameObject("Original Copy").lock();
+	REQUIRE(copy);
+	CHECK(copy->getParentId() == "Holder");
+	CHECK_FALSE(copy->isActiveSelf());
+
+	manager.clear();
+}

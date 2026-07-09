@@ -251,6 +251,11 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			{
 				core.deleteSelected();
 			}
+			if (ImGui::MenuItem("Group Selection",
+				ORKIGE_EDITOR_MOD_LABEL "+G", false, core.hasSelection()))
+			{
+				core.groupSelected();
+			}
 			ImGui::EndMenu();
 		}
 		if (ImGui::BeginMenu("GameObject"))

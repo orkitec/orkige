@@ -53,6 +53,19 @@ namespace Orkige
 		virtual EventManager* getEventManager();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime) {};
+		//! @brief overridable - called after the owning GameObject was
+		//! re-parented (@see GameObject::setParent)
+		//! @param newParent the new parent GameObject (NULL = became a root)
+		//! @param keepWorldTransform true = editor/runtime re-parent that must
+		//! preserve the WORLD transform (recompute the local one); false =
+		//! scene loading, the serialized LOCAL transform is authoritative
+		virtual void onParentChanged(GameObject * newParent, bool keepWorldTransform) {};
+		//! @brief overridable - called when the owning GameObject's EFFECTIVE
+		//! active state (activeInHierarchy) changed (@see GameObject::setActive)
+		//! @remarks components gate their own scene state here: render content
+		//! hides, physics bodies leave the simulation, sounds stop; ticking is
+		//! gated centrally in GameObjectManager::update
+		virtual void onSetActive(bool activeInHierarchy) {};
 		//--- SERIALIZATION ---
 		//! @brief components are created through the ComponentHolder factory
 		//! (GameObject::addComponent) before their state is loaded, never by

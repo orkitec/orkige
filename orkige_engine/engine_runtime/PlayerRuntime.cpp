@@ -78,17 +78,28 @@ namespace Orkige
 			return !(stream >> trailing); // no trailing tokens allowed
 		}
 
-		//! all GameObject ids (the manager map is sorted, order is stable)
-		StringVector collectHierarchy(GameObjectManager & gameObjectManager)
+		//! @brief all GameObject ids plus their parent ids ("" = root) and
+		//! activeSelf flags ("1"/"0") as three parallel lists (the manager map
+		//! is sorted, order is stable); the parent/active lists are the
+		//! additive protocol-v1 hierarchy extension
+		void collectHierarchy(GameObjectManager & gameObjectManager,
+			StringVector & ids, StringVector & parents, StringVector & actives)
 		{
-			StringVector ids;
-			ids.reserve(gameObjectManager.getGameObjects().size());
+			const std::size_t objectCount =
+				gameObjectManager.getGameObjects().size();
+			ids.clear();
+			ids.reserve(objectCount);
+			parents.clear();
+			parents.reserve(objectCount);
+			actives.clear();
+			actives.reserve(objectCount);
 			for (auto const & [id, gameObject] :
 				gameObjectManager.getGameObjects())
 			{
 				ids.push_back(id);
+				parents.push_back(gameObject->getParentId());
+				actives.push_back(gameObject->isActiveSelf() ? "1" : "0");
 			}
-			return ids;
 		}
 
 		//! @brief object_state v1: per-component property snapshot via the
@@ -401,15 +412,23 @@ namespace Orkige
 		{
 			return;
 		}
-		StringVector ids = collectHierarchy(gameObjectManager);
-		if (!force && mHierarchySent && ids == mLastSentHierarchy)
+		StringVector ids;
+		StringVector parents;
+		StringVector actives;
+		collectHierarchy(gameObjectManager, ids, parents, actives);
+		if (!force && mHierarchySent && ids == mLastSentHierarchy &&
+			parents == mLastSentParents && actives == mLastSentActives)
 		{
 			return;
 		}
 		DebugMessage hierarchy(Protocol::MSG_HIERARCHY);
 		hierarchy.setList(Protocol::LIST_IDS, ids);
+		hierarchy.setList(Protocol::LIST_PARENTS, parents);
+		hierarchy.setList(Protocol::LIST_ACTIVE, actives);
 		mServer.send(hierarchy);
 		mLastSentHierarchy = std::move(ids);
+		mLastSentParents = std::move(parents);
+		mLastSentActives = std::move(actives);
 		mHierarchySent = true;
 	}
 	//---------------------------------------------------------
@@ -570,6 +589,23 @@ namespace Orkige
 			else if (message.type == Protocol::MSG_SET_PROPERTY)
 			{
 				handleSetProperty(gameObjectManager, message);
+			}
+			else if (message.type == Protocol::MSG_SET_ACTIVE)
+			{
+				const String id = message.get(Protocol::FIELD_ID);
+				optr<GameObject> gameObject =
+					gameObjectManager.getGameObject(id).lock();
+				if (gameObject)
+				{
+					gameObject->setActive(
+						message.get(Protocol::FIELD_VALUE) == "1");
+					// the editor tree mirrors the change immediately
+					sendHierarchyIfChanged(gameObjectManager, false);
+				}
+				else
+				{
+					sendError("set_active: no GameObject '" + id + "'");
+				}
 			}
 			else if (message.type == Protocol::MSG_REQUEST_HIERARCHY)
 			{

@@ -20,6 +20,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_base/Object.h>
 #include <core_base/TypeManager.h>
+#include <core_game/GameObjectManager.h>
 
 namespace Orkige
 {
@@ -149,4 +150,54 @@ TEST_CASE("Lua-triggered events reach C++ listeners with their payload", "[lua]"
 
 	REQUIRE(Orkige::GlobalEventManager::getSingleton().delListener(
 		listener, type));
+}
+
+TEST_CASE("GameObject hierarchy and active state work from Lua", "[lua][hierarchy]")
+{
+	Orkige::CoreTestEnvironment & env = Orkige::CoreTestEnvironment::get();
+	Orkige::GameObjectManager & manager = env.gameObjectManager;
+	manager.clear();
+	optr<Orkige::GameObject> parent = manager.createGameObject("LuaParent").lock();
+	optr<Orkige::GameObject> child = manager.createGameObject("LuaChild").lock();
+	REQUIRE(parent);
+	REQUIRE(child);
+
+	sol::state & lua = Orkige::ScriptManager::getSingleton().state();
+	lua["luaParent"] = parent;
+	lua["luaChild"] = child;
+	const sol::protected_function_result result = lua.safe_script(R"lua(
+		-- parenting (the Lua form keeps the world transform, Unity-style)
+		assert(luaChild:setParent('LuaParent'))
+		assert(luaChild:getParentId() == 'LuaParent')
+		-- the returned parent is a live GameObject (identity probed through
+		-- its child list; inherited Object methods like getObjectID do not
+		-- resolve through the templated base chain - known meta limitation)
+		local p = luaChild:getParent()
+		assert(p ~= nil)
+		assert(p:getChildIds()[1] == 'LuaChild')
+		assert(not luaChild:setParent('LuaChild'))		-- self-parent refused
+		-- getChildIds returns a reference into the manager's child index -
+		-- take the count NOW (un-parenting below empties the entry)
+		local childCount = #luaParent:getChildIds()
+		-- active state propagation
+		luaParent:setActive(false)
+		assert(luaChild:isActiveSelf())
+		assert(not luaChild:isActiveInHierarchy())
+		luaParent:setActive(true)
+		assert(luaChild:isActiveInHierarchy())
+		-- un-parent again ('' = root); the parent becomes nil
+		assert(luaChild:setParent(''))
+		return childCount, luaChild:getParent() == nil
+	)lua", sol::script_pass_on_error);
+	if(!result.valid())
+	{
+		const sol::error error = result;
+		FAIL(error.what());
+	}
+	CHECK(result.get<int>(0) == 1);
+	CHECK(result.get<bool>(1));
+
+	lua["luaParent"] = sol::lua_nil;
+	lua["luaChild"] = sol::lua_nil;
+	manager.clear();
 }

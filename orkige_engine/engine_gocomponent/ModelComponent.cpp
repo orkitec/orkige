@@ -65,6 +65,12 @@ namespace Orkige
 		this->modelAssetId = AssetDatabase::referenceIdForValue(
 			modelFileName, "", AssetDatabase::REF_FILE_NAME);
 		this->mesh->attachTo(this->getNode());
+		// content attached to an already-hidden node does not inherit the
+		// visibility - re-apply the owner's active state
+		if(!componentOwner->isActiveInHierarchy())
+		{
+			this->setVisible(false);
+		}
 		this->eventData->setValue(modelFileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
@@ -107,6 +113,15 @@ namespace Orkige
 		this->modelFileName = "";
 		this->modelAssetId = "";
 		this->deinitSceneNodeGuard();
+	}
+	//---------------------------------------------------------
+	void ModelComponent::onSetActive(bool activeInHierarchy)
+	{
+		if(this->mNode)
+		{
+			// only over the model's OWN node (child GameObjects gate themselves)
+			this->setVisible(activeInHierarchy);
+		}
 	}
 	//---------------------------------------------------------
 	void ModelComponent::save(optr<IArchive> const & ar)

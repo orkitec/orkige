@@ -32,6 +32,8 @@ namespace Orkige
 	GameObject::GameObject(String const & id) : ComponentHolder<GameObjectComponent>(id)
 	{
 		this->eventManager = new EventManager();
+		this->activeSelf = true;
+		this->activeInHierarchy = true;
 	}
 	//---------------------------------------------------------
 	GameObject::~GameObject()
@@ -330,7 +332,105 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	woptr<GameObject> GameObject::getParent()
+	{
+		if(this->parentId.empty())
+		{
+			return oNull<GameObject>();
+		}
+		return GameObjectManager::getSingleton().getGameObject(this->parentId);
+	}
+	//---------------------------------------------------------
+	bool GameObject::setParent(String const & newParentId, bool keepWorldTransform)
+	{
+		if(newParentId == this->parentId)
+		{
+			return true;
+		}
+		String const & id = this->getObjectID();
+		GameObjectManager & manager = GameObjectManager::getSingleton();
+		GameObject* newParent = NULL;
+		if(!newParentId.empty())
+		{
+			if(newParentId == id)
+			{
+				oDebugMsg("core",0,"GameObject: " << id << " cannot be its own parent!");
+				return false;
+			}
+			optr<GameObject> parent = manager.getGameObject(newParentId).lock();
+			if(!parent)
+			{
+				oDebugMsg("core",0,"GameObject: " << id << " cannot be parented to unknown GameObject: " << newParentId << "!");
+				return false;
+			}
+			// cycle guard: re-parenting onto an own descendant is refused
+			if(manager.isDescendantOf(newParentId, id))
+			{
+				oDebugMsg("core",0,"GameObject: " << id << " cannot be parented to its own descendant: " << newParentId << "!");
+				return false;
+			}
+			newParent = parent.get();
+		}
+		String const oldParentId = this->parentId;
+		this->parentId = newParentId;
+		manager.onObjectReparented(id, oldParentId, newParentId);
+		// components map the new parent onto their scene state (the
+		// TransformComponent re-parents its render node, preserving the
+		// world transform when keepWorldTransform is set)
+		foreach(ComponentMap::value_type const & current, components)
+		{
+			current.second->onParentChanged(newParent, keepWorldTransform);
+		}
+		// a new ancestor chain can change the effective active state
+		this->refreshActiveInHierarchy();
+		return true;
+	}
+	//---------------------------------------------------------
+	StringVector const & GameObject::getChildIds() const
+	{
+		return GameObjectManager::getSingleton().getChildren(this->getObjectID());
+	}
+	//---------------------------------------------------------
+	void GameObject::setActive(bool active)
+	{
+		if(this->activeSelf == active)
+		{
+			return;
+		}
+		this->activeSelf = active;
+		this->refreshActiveInHierarchy();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void GameObject::refreshActiveInHierarchy()
+	{
+		bool parentActive = true;
+		if(optr<GameObject> parent = this->getParent().lock())
+		{
+			parentActive = parent->isActiveInHierarchy();
+		}
+		const bool effective = this->activeSelf && parentActive;
+		if(effective == this->activeInHierarchy)
+		{
+			return;
+		}
+		this->activeInHierarchy = effective;
+		foreach(ComponentMap::value_type const & current, components)
+		{
+			current.second->onSetActive(effective);
+		}
+		// descendants whose effective state changes with ours
+		GameObjectManager & manager = GameObjectManager::getSingleton();
+		StringVector const children = this->getChildIds();	// copy: hooks may mutate
+		foreach(String const & childId, children)
+		{
+			if(optr<GameObject> child = manager.getGameObject(childId).lock())
+			{
+				child->refreshActiveInHierarchy();
+			}
+		}
+	}
 	//---------------------------------------------------------
 	void GameObject::onComponentAdded(TypeInfo const & componentType)
 	{
@@ -345,6 +445,11 @@ namespace Orkige
 		if(goc->getWantsUpdates())
 		{
 			this->enableUpdates(componentType);
+		}
+		// components joining a deactivated object start deactivated
+		if(!this->activeInHierarchy)
+		{
+			goc->onSetActive(false);
 		}
 	}
 	//---------------------------------------------------------
@@ -372,5 +477,16 @@ namespace Orkige
 		OCONSTRUCTOR1(String)
 		OFUNC(loadTemplate)
 		OFUNC(saveTemplate)
+		//--- hierarchy (Unity-style tree) ---
+		OFUNCCR(getParentId)
+		OFUNCWEAK(getParent)
+		//Lua gets the keep-world-transform form (the Unity default);
+		//scene loading uses the two-argument C++ overload
+		OFUNCOVERL(setParent, bool (ExposedClassType::*)(String const &))
+		OFUNCCR(getChildIds)
+		//--- active state ---
+		OFUNC(setActive)
+		OFUNC(isActiveSelf)
+		OFUNC(isActiveInHierarchy)
 	OOBJECT_END
 }

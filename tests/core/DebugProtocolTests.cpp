@@ -111,6 +111,23 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 			{ "Cube1", "Cube2", "TestMesh1" });
 		roundTrip(hierarchy);
 	}
+	SECTION("hierarchy with parent and active lists (additive v1 extension)")
+	{
+		DebugMessage hierarchy(Protocol::MSG_HIERARCHY);
+		hierarchy.setList(Protocol::LIST_IDS,
+			{ "Group", "Tile1", "Tile2" });
+		// "" = root; parents/actives are parallel to ids
+		hierarchy.setList(Protocol::LIST_PARENTS, { "", "Group", "Group" });
+		hierarchy.setList(Protocol::LIST_ACTIVE, { "1", "1", "0" });
+		roundTrip(hierarchy);
+	}
+	SECTION("set_active")
+	{
+		DebugMessage setActive(Protocol::MSG_SET_ACTIVE);
+		setActive.set(Protocol::FIELD_ID, "Group");
+		setActive.set(Protocol::FIELD_VALUE, "0");
+		roundTrip(setActive);
+	}
 	SECTION("object_state")
 	{
 		DebugMessage state(Protocol::MSG_OBJECT_STATE);

@@ -122,6 +122,47 @@ namespace Orkige
 		}
 	};
 
+	//! @brief test component recording the hierarchy/active-state hooks
+	//! (GameObjectComponent::onParentChanged / onSetActive) plus its update
+	//! ticks - what the hierarchy unit tests probe
+	class TestActivationProbeComponent : public GameObjectComponent
+	{
+		OOBJECT(TestActivationProbeComponent, GameObjectComponent)
+		//--- Variables ---------------------------------------
+	public:
+		int			setActiveCalls;		//!< number of onSetActive calls
+		bool		lastActiveState;	//!< last onSetActive argument
+		int			parentChangedCalls;	//!< number of onParentChanged calls
+		GameObject*	lastParent;			//!< last onParentChanged newParent
+		bool		lastKeepWorld;		//!< last onParentChanged keepWorldTransform
+		int			updateCalls;		//!< number of onUpdateComponent calls
+		//--- Methods -----------------------------------------
+	public:
+		TestActivationProbeComponent()
+			: setActiveCalls(0), lastActiveState(true)
+			, parentChangedCalls(0), lastParent(NULL), lastKeepWorld(false)
+			, updateCalls(0)
+		{
+			this->setWantsUpdates(true);
+		}
+		virtual ~TestActivationProbeComponent() {}
+		virtual void onSetActive(bool activeInHierarchy)
+		{
+			++this->setActiveCalls;
+			this->lastActiveState = activeInHierarchy;
+		}
+		virtual void onParentChanged(GameObject * newParent, bool keepWorldTransform)
+		{
+			++this->parentChangedCalls;
+			this->lastParent = newParent;
+			this->lastKeepWorld = keepWorldTransform;
+		}
+		virtual void onUpdateComponent(float deltaTime)
+		{
+			++this->updateCalls;
+		}
+	};
+
 	//! register the test components once per process (component factory,
 	//! TypeManager and Lua usertype - exactly what a module init does)
 	void registerOrkigeTestComponents();

@@ -141,8 +141,13 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//! deactivated GameObjects hide their sprite (setSpriteVisible state is kept)
+		virtual void onSetActive(bool activeInHierarchy);
 		//! push the stored sprite state onto the facade quad (needs a quad)
 		void applyStateToQuad();
+		//! apply the EFFECTIVE visibility to the node: the sprite's own flag
+		//! AND the owner's activeInHierarchy state
+		void applyVisibility();
 		//--- SERIALIZATION ---
 		//! save texture name (plus its stable asset id as the assetId
 		//! attribute), size, UV rect, tint, flips and zOrder to Archive

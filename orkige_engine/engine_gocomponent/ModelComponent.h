@@ -68,6 +68,8 @@ namespace Orkige
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//! deactivated GameObjects hide their model
+		virtual void onSetActive(bool activeInHierarchy);
 		//--- SERIALIZATION ---
 		//! save the model file name (plus its stable asset id as the assetId
 		//! attribute) to Archive

@@ -75,12 +75,14 @@ namespace Orkige
 		//! apply a force (N) at the center of mass for the next step (needs the created body)
 		void applyForce(Vec3 const & force);
 		//! @brief teleport the body AND the sibling TransformComponent to the
-		//! pose, killing all momentum
+		//! WORLD-space pose, killing all momentum
 		//! @remarks unlike moving the TransformComponent (which kinematic
 		//! bodies follow only while the simulation steps), this also works
 		//! while PhysicsWorld is PAUSED - the collision geometry moves
 		//! immediately. This is the API for sliding whole tile groups in
-		//! "move the world" modes and for respawns.
+		//! "move the world" modes and for respawns. Delegates to
+		//! TransformComponent::teleport, so rigid bodies of child GameObjects
+		//! are snapped along with the subtree.
 		void teleport(Vec3 const & position, Quat const & orientation);
 		//! has the rigid body been created in the PhysicsWorld yet
 		inline bool hasBody() const;
@@ -95,6 +97,10 @@ namespace Orkige
 		virtual void onRemove();
 		//! creates the body on first call, then syncs poses with the simulation
 		virtual void onUpdateComponent(float deltaTime);
+		//! @brief deactivated GameObjects take their body OUT of the simulation
+		//! (PhysicsWorld::setBodyEnabled - no collisions, no motion, state
+		//! kept); reactivation re-enters at the transform's current world pose
+		virtual void onSetActive(bool activeInHierarchy);
 		//! create the rigid body at the sibling TransformComponent's current pose
 		void createBody();
 		//! destroy the rigid body

@@ -169,18 +169,9 @@ namespace Orkige
 		optr<TransformComponent> transformComponent =
 			componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		if (this->hasBody())
-		{
-			PhysicsWorld & physicsWorld = PhysicsWorld::getSingleton();
-			physicsWorld.setBodyTransform(this->mBodyId, position, orientation);
-			if (this->mBodyDesc.bodyType != PhysicsWorld::BT_STATIC)
-			{
-				physicsWorld.setLinearVelocity(this->mBodyId, Vec3::ZERO);
-				physicsWorld.setAngularVelocity(this->mBodyId, Vec3::ZERO);
-			}
-		}
-		transformComponent->setPosition(position);
-		transformComponent->setOrientation(orientation);
+		// moves the node (world space) and snaps every body in the subtree -
+		// including this one - to its resulting world pose, killing momentum
+		transformComponent->teleport(position, orientation);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -217,21 +208,23 @@ namespace Orkige
 		{
 		case PhysicsWorld::BT_DYNAMIC:
 			{
-				// simulation -> scene
+				// simulation -> scene; bodies live in WORLD space, the
+				// hierarchy-aware setters recompute the local transform
 				Vec3 position;
 				Quat orientation;
 				if (physicsWorld->getBodyTransform(this->mBodyId, position, orientation))
 				{
-					transformComponent->setPosition(position);
-					transformComponent->setOrientation(orientation);
+					transformComponent->setWorldPosition(position);
+					transformComponent->setWorldOrientation(orientation);
 				}
 			}
 			break;
 		case PhysicsWorld::BT_KINEMATIC:
-			// scene -> simulation (with velocities, so it pushes dynamic bodies)
+			// scene -> simulation (with velocities, so it pushes dynamic
+			// bodies); the body target is the node's WORLD pose
 			physicsWorld->moveKinematic(this->mBodyId,
-				transformComponent->getPosition(),
-				transformComponent->getOrientation(),
+				transformComponent->getWorldPosition(),
+				transformComponent->getWorldOrientation(),
 				PhysicsWorld::FIXED_TIMESTEP);
 			break;
 		case PhysicsWorld::BT_STATIC:
@@ -248,8 +241,40 @@ namespace Orkige
 		optr<TransformComponent> transformComponent =
 			componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
+		// bodies are created at the WORLD pose (local == world for roots)
 		this->mBodyId = PhysicsWorld::getSingleton().createBody(this->mBodyDesc,
-			transformComponent->getPosition(), transformComponent->getOrientation());
+			transformComponent->getWorldPosition(), transformComponent->getWorldOrientation());
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::onSetActive(bool activeInHierarchy)
+	{
+		if (!this->hasBody())
+		{
+			// no body yet: an inactive object does not tick, so the lazy
+			// creation simply waits for the first update after activation
+			return;
+		}
+		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
+		if (!physicsWorld || !physicsWorld->isInitialized())
+		{
+			return;
+		}
+		physicsWorld->setBodyEnabled(this->mBodyId, activeInHierarchy);
+		if (activeInHierarchy)
+		{
+			// the transform may have moved while the body was out of the
+			// simulation - re-enter at the node's current world pose
+			GameObject* componentOwner = this->getComponentOwner();
+			oAssert(componentOwner);
+			optr<TransformComponent> transformComponent =
+				componentOwner->getComponent<TransformComponent>().lock();
+			if (transformComponent && transformComponent->getNode())
+			{
+				physicsWorld->setBodyTransform(this->mBodyId,
+					transformComponent->getWorldPosition(),
+					transformComponent->getWorldOrientation());
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::destroyBody()

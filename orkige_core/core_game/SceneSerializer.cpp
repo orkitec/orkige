@@ -12,7 +12,9 @@
 
 namespace Orkige
 {
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 1;
+	// version 2 (2026-07): per-object parent id + activeSelf flag (Unity-style
+	// GameObject tree); version 1 scenes load as all-root, all-active worlds
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 2;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
@@ -41,6 +43,13 @@ namespace Orkige
 			oAssert(gameObject);
 			String id = gameObject->getObjectID();
 			ar << id;
+
+			// v2: the hierarchy fields ("" = root; the parent reference is the
+			// object id, like every other object reference in the format)
+			String parentId = gameObject->getParentId();
+			ar << parentId;
+			bool activeSelf = gameObject->isActiveSelf();
+			ar << activeSelf;
 
 			GameObject::ComponentMap const & components = gameObject->getComponents();
 			unsigned int componentCount = static_cast<unsigned int>(components.size());
@@ -98,6 +107,13 @@ namespace Orkige
 		bool loaded = true;
 		unsigned int objectCount = 0;
 		ar >> objectCount;
+		// hierarchy fields are applied AFTER the object loop: a parent may
+		// appear later in the file than its children, and the components
+		// (transforms especially) must exist before the links re-attach nodes
+		typedef std::pair<String, String> ParentLink;		// object id -> parent id
+		std::vector<ParentLink> parentLinks;
+		typedef std::pair<String, bool> ActiveState;		// object id -> activeSelf
+		std::vector<ActiveState> activeStates;
 		for(unsigned int objectIndex = 0; objectIndex < objectCount && loaded; ++objectIndex)
 		{
 			String id;
@@ -108,6 +124,22 @@ namespace Orkige
 				oDebugMsg("scene",0,"SceneSerializer: could not create GameObject: "<<id);
 				loaded = false;
 				break;
+			}
+
+			if(version >= 2)
+			{
+				String parentId;
+				ar >> parentId;
+				bool activeSelf = true;
+				ar >> activeSelf;
+				if(!parentId.empty())
+				{
+					parentLinks.push_back(ParentLink(id, parentId));
+				}
+				if(!activeSelf)
+				{
+					activeStates.push_back(ActiveState(id, activeSelf));
+				}
 			}
 
 			unsigned int componentCount = 0;
@@ -141,6 +173,33 @@ namespace Orkige
 				// reads the component element and calls component->load
 				// (GameObjectComponent::createBeforeLoad is false)
 				ar->read(static_cast<ISerializeable&>(*component));
+			}
+		}
+
+		if(loaded)
+		{
+			// apply the hierarchy: keepWorldTransform=false because the
+			// serialized transforms ARE the local transforms (identical to
+			// world for roots - which keeps version 1 scenes semantically
+			// untouched). A refused link (missing parent, cycle in a
+			// hand-edited file) is logged by setParent; the object stays a
+			// root rather than failing the whole scene.
+			foreach(ParentLink const & link, parentLinks)
+			{
+				optr<GameObject> child = gameObjectManager.getGameObject(link.first).lock();
+				oAssert(child);
+				if(!child->setParent(link.second, false))
+				{
+					oDebugMsg("scene",0,"SceneSerializer: could not parent GameObject "<<link.first<<" to "<<link.second<<" - it stays a root");
+				}
+			}
+			// deactivate AFTER parenting so the effective state propagates
+			// through the final tree (components get their onSetActive)
+			foreach(ActiveState const & state, activeStates)
+			{
+				optr<GameObject> gameObject = gameObjectManager.getGameObject(state.first).lock();
+				oAssert(gameObject);
+				gameObject->setActive(state.second);
 			}
 		}
 

@@ -67,6 +67,7 @@ namespace Orkige
 		std::function<void()> redo;
 		std::function<void()> duplicateSelected;
 		std::function<void()> deleteSelected;
+		std::function<void()> groupSelected;
 		// GameObject
 		std::function<void()> createCube;
 		std::function<void()> createTestMesh;

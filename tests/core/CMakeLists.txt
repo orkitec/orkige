@@ -15,6 +15,7 @@ add_executable(orkige_core_tests
     TypeManagerTests.cpp
     ScriptRuntimeTests.cpp
     SceneSerializerTests.cpp
+    HierarchyTests.cpp
     ProjectTests.cpp
     AssetDatabaseTests.cpp
 )

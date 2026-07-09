@@ -85,7 +85,7 @@ namespace Orkige
 		this->mQuad->getTextureSize(this->mTexelWidth, this->mTexelHeight);
 		this->applyStateToQuad();
 		this->mQuad->attachTo(this->getNode());
-		this->setVisible(this->mVisible);
+		this->applyVisibility();
 
 		this->mEventData->setValue(textureName);
 		componentOwner->triggerEvent(Event(SpriteComponent::SpriteSetEvent, this->mEventData));
@@ -178,7 +178,7 @@ namespace Orkige
 		this->mVisible = visible;
 		if(this->mNode)
 		{
-			this->setVisible(visible);
+			this->applyVisibility();
 		}
 	}
 	//---------------------------------------------------------
@@ -266,6 +266,23 @@ namespace Orkige
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
+	void SpriteComponent::onSetActive(bool activeInHierarchy)
+	{
+		if(this->mNode)
+		{
+			this->applyVisibility();
+		}
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::applyVisibility()
+	{
+		oAssert(this->mNode);
+		GameObject* componentOwner = this->getComponentOwner();
+		const bool ownerActive = !componentOwner || componentOwner->isActiveInHierarchy();
+		// only over the sprite's OWN node (child GameObjects gate themselves)
+		this->setVisible(this->mVisible && ownerActive);
+	}
+	//---------------------------------------------------------
 	void SpriteComponent::applyStateToQuad()
 	{
 		oAssert(this->mQuad);
@@ -325,7 +342,7 @@ namespace Orkige
 		this->mTextureAssetId = textureAssetId;
 		if(this->mNode)
 		{
-			this->setVisible(this->mVisible);
+			this->applyVisibility();
 		}
 	}
 	//---------------------------------------------------------

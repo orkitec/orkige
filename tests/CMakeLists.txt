@@ -198,11 +198,13 @@ if(TARGET orkige_editor)
     # add/remove component (dependency rule, state restore), mesh change,
     # multi-select delete/duplicate batches (one undo step each), mesh
     # import (copy into the scene media dir + undoable create + refusal
-    # of non-mesh files) and the fly-mode camera step
+    # of non-mesh files), the fly-mode camera step and the GameObject tree
+    # (reparent with world-pose preservation, render-node composition,
+    # group, active-state propagation, v2 scene round-trip)
     add_test(NAME editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=140;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
+        ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=150;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
 endif()
 
 if(TARGET orkige_editor AND TARGET orkige_player)

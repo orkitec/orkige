@@ -428,6 +428,13 @@ struct PlaySession
 	bool hierarchyReceived = false;
 	bool remoteLogSeen = false;		//!< at least one remote log line arrived
 	Orkige::StringVector remoteHierarchy;
+	//! parent id per remote object ("" = root), parallel to remoteHierarchy;
+	//! EMPTY VECTOR when the player predates the tree extension (protocol v1
+	//! without the additive "parents" list) - the panel then renders flat
+	Orkige::StringVector remoteParents;
+	//! activeSelf flag per remote object ("1"/"0"), parallel to
+	//! remoteHierarchy (same additive-extension caveat)
+	Orkige::StringVector remoteActive;
 	//! objects whose ScriptComponent reported a failure (script_error
 	//! messages, deduped per object per session): feeds the RED Console
 	//! line, the toolbar warning marker and the remote hierarchy tint;
@@ -562,6 +569,11 @@ void requestStopPlay(PlaySession& session);
 
 //! select a remote object (sends select so the player streams its state)
 void selectRemoteObject(PlaySession& session, std::string const& id);
+
+//! toggle a remote object's own active flag (sends set_active; the player
+//! answers with a fresh hierarchy so the tree reflects the change)
+void setRemoteObjectActive(PlaySession& session, std::string const& id,
+	bool active);
 
 //! per-frame pump: connection progress, protocol messages, build/process
 //! supervision, crash detection

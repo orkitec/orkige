@@ -122,6 +122,14 @@ namespace Orkige
 			Ogre::Quaternion const & orientation);
 		//! remove and destroy a body
 		void destroyBody(BodyId bodyId);
+		//! @brief take a body out of / put it back into the simulation WITHOUT
+		//! destroying it (Jolt Remove/AddBody) - the deactivated-GameObject
+		//! mechanism: a disabled body neither collides nor moves, keeps its
+		//! shape, velocities and pose, and can still be teleported
+		//! (setBodyTransform) while disabled
+		void setBodyEnabled(BodyId bodyId, bool enabled);
+		//! is the body currently part of the simulation (@see setBodyEnabled)
+		bool isBodyEnabled(BodyId bodyId) const;
 		//! read the body pose back from the simulation
 		bool getBodyTransform(BodyId bodyId, Ogre::Vector3 & position, Ogre::Quaternion & orientation) const;
 		//! teleport a body (activates it)

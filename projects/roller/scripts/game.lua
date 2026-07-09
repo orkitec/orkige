@@ -8,16 +8,18 @@
 --   move  ...move-world mode: physics PAUSES (PhysicsWorld:setPaused), the
 --         cursor sprite highlights the EMPTY grid slot and an arrow key
 --         slides the neighboring tile INTO the empty slot, moving in the
---         pressed direction (15-puzzle style). The tile's sprites AND its
---         kinematic wall bodies move together: every object of the tile
---         group is teleported by the slot delta (RigidBodyComponent:
---         teleport moves the collision geometry even while paused).
---         TAB again resumes play (and re-centers the simulated tilt - the
---         arrows meant "slide", not "tilt", while in move mode).
+--         pressed direction (15-puzzle style). Each tile is ONE GameObject
+--         subtree ("TileA"/"TileB"/"TileC" parents, frame/walls/goal as
+--         children - scene format v2): the slide is a single
+--         TransformComponent:teleport of the parent, and the engine snaps
+--         every kinematic wall body in the subtree along, even while
+--         paused. TAB again resumes play (and re-centers the simulated
+--         tilt - the arrows meant "slide", not "tilt", while in move mode).
 --
 -- v1 honesty: a tile carrying the BALL refuses to slide (warning flash) -
--- true Continuity edge-compatibility rules are future work. The tile groups
--- are plain Lua tables of object ids (scene = data, grouping = script).
+-- true Continuity edge-compatibility rules are future work. The tiles'
+-- slot assignments are DERIVED from the parents' scene positions at init -
+-- the scene is the single source of the world layout.
 --
 -- Coordination with ball.lua through `shared.roller`:
 --   mode, slides, refusals, emptySlot, gameReady   written HERE
@@ -40,12 +42,15 @@ local PROJECT_RESOURCE_GROUP = "OrkigeProject"
 
 local TILE = 6.0
 -- slot index -> center (grid: 0 bottom-left, 1 bottom-right, 2 top-left,
--- 3 top-right; must match Util/make_roller_assets.py)
+-- 3 top-right). @todo desync risk: TILE and this 2x2 grid layout mirror
+-- Util/make_roller_assets.py (SLOTS/TILE there) - the tiles' slot
+-- ASSIGNMENTS are derived from the scene at init, but the grid geometry
+-- itself still lives in both places.
 local SLOTS = {
-	[0] = { x = -3.0, y = -3.0, col = 0, row = 0 },
-	[1] = { x =  3.0, y = -3.0, col = 1, row = 0 },
-	[2] = { x = -3.0, y =  3.0, col = 0, row = 1 },
-	[3] = { x =  3.0, y =  3.0, col = 1, row = 1 },
+	[0] = { x = -TILE / 2, y = -TILE / 2, col = 0, row = 0 },
+	[1] = { x =  TILE / 2, y = -TILE / 2, col = 1, row = 0 },
+	[2] = { x = -TILE / 2, y =  TILE / 2, col = 0, row = 1 },
+	[3] = { x =  TILE / 2, y =  TILE / 2, col = 1, row = 1 },
 }
 local WARN_SECONDS = 1.2
 local WIN_BANNER_SECONDS = 2.5
@@ -63,16 +68,11 @@ local winTimer = 0.0
 local winsSeen = 0
 local keyWasDown = {}        -- edge detection per key code
 
--- the movable world: each tile = its slot + the ids of ALL its objects
--- (frame + walls + riders like the goal star); the Ball is NOT in a group
-local tiles = {
-	A = { slot = 0, objects = { "TileA_Frame", "TileA_WallTop",
-		"TileA_WallBottom", "TileA_WallLeft", "TileA_Ledge" } },
-	B = { slot = 3, objects = { "TileB_Frame", "TileB_WallTop",
-		"TileB_WallBottom", "TileB_WallRight", "Goal" } },
-	C = { slot = 2, objects = { "TileC_Frame", "TileC_WallTop",
-		"TileC_WallBottom", "TileC_WallLeft", "TileC_WallRight" } },
-}
+-- the movable world: one entry per "Tile<key>" parent GameObject, slot
+-- assignments DERIVED from the scene in init (the frame/walls/goal are
+-- CHILDREN of the parent - no id lists to keep in sync anymore); the Ball
+-- is NOT in a group
+local tiles = {}
 local emptySlot = 1
 local slides = 0
 local refusals = 0
@@ -108,6 +108,34 @@ local function tileAtSlot(slotIndex)
 		end
 	end
 	return nil, nil
+end
+
+-- derive the tiles' slot assignments (and thereby the empty slot) from the
+-- "Tile<key>" parents' scene positions - the scene is the single source of
+-- the world layout, nothing here to keep in sync with the generator
+local function discoverTiles()
+	tiles = {}
+	local occupied = {}
+	for _, key in ipairs({ "A", "B", "C" }) do
+		local transform = world.getTransform("Tile" .. key)
+		if transform ~= nil then
+			local position = transform:getWorldPosition()
+			for index, slot in pairs(SLOTS) do
+				if math.abs(position.x - slot.x) < 0.5 and
+					math.abs(position.y - slot.y) < 0.5 then
+					tiles[key] = { slot = index }
+					occupied[index] = true
+					break
+				end
+			end
+		end
+	end
+	for index in pairs(SLOTS) do
+		if not occupied[index] then
+			emptySlot = index
+			break
+		end
+	end
 end
 
 local function moveCursorToEmpty()
@@ -162,7 +190,7 @@ local function ballInTile(tile)
 		return false
 	end
 	local slot = SLOTS[tile.slot]
-	local position = ball:getPosition()
+	local position = ball:getWorldPosition()
 	local half = TILE / 2.0 + 0.05
 	return math.abs(position.x - slot.x) <= half and
 		math.abs(position.y - slot.y) <= half
@@ -190,24 +218,15 @@ local function trySlide(dx, dy)
 		publishState()
 		return
 	end
-	local from, to = SLOTS[tile.slot], SLOTS[emptySlot]
-	local deltaX, deltaY = to.x - from.x, to.y - from.y
-	for _, id in ipairs(tile.objects) do
-		local transform = world.getTransform(id)
-		if transform ~= nil then
-			local position = transform:getPosition()
-			local target = Vector3(position.x + deltaX,
-				position.y + deltaY, position.z)
-			local body = world.getRigidBody(id)
-			if body ~= nil and body:hasBody() then
-				-- sprites AND collision geometry move together, even while
-				-- the simulation is paused
-				body:teleport(target, Quaternion(1, 0, 0, 0))
-			else
-				transform:setPosition(target)
-			end
-		end
+	local to = SLOTS[emptySlot]
+	local transform = world.getTransform("Tile" .. key)
+	if transform == nil then
+		return
 	end
+	-- ONE teleport of the tile parent: the child sprites follow through the
+	-- render node graph and the engine snaps every rigid body in the
+	-- subtree to its new world pose - even while the simulation is paused
+	transform:teleport(Vector3(to.x, to.y, 0), Quaternion(1, 0, 0, 0))
 	emptySlot, tile.slot = tile.slot, emptySlot
 	slides = slides + 1
 	moveCursorToEmpty()
@@ -224,6 +243,8 @@ function init(self)
 
 	local engine = Engine.getSingleton()
 	hasUI = engine:hasUISystem()
+
+	discoverTiles()
 
 	if not hasUI then
 		-- HUD-less flavor (Ogre-Next until the A3 facade HUD): no widgets;

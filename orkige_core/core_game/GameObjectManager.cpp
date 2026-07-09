@@ -82,9 +82,67 @@ namespace Orkige
 		{
 			for(this->currentUpdatableComponentIndex = 0; this->currentUpdatableComponentIndex < this->numUpdatableComponents; this->currentUpdatableComponentIndex++)
 			{
-				this->updatableComponents[this->currentUpdatableComponentIndex]->onUpdateComponent(delta);
+				GameObjectComponent* component = this->updatableComponents[this->currentUpdatableComponentIndex];
+				// deactivated objects stop ticking (Unity semantics) - the
+				// cached activeInHierarchy flag makes this an O(1) gate
+				GameObject* componentOwner = component->getGameObject();
+				if(componentOwner && !componentOwner->isActiveInHierarchy())
+				{
+					continue;
+				}
+				component->onUpdateComponent(delta);
 			}
 		}
+	}
+	//---------------------------------------------------------
+	StringVector const & GameObjectManager::getChildren(String const & parentId) const
+	{
+		static const StringVector noChildren;
+		ChildIdMap::const_iterator it = this->childIds.find(parentId);
+		if(it == this->childIds.end())
+		{
+			return noChildren;
+		}
+		return it->second;
+	}
+	//---------------------------------------------------------
+	StringVector GameObjectManager::getRootObjectIds() const
+	{
+		StringVector roots;
+		for(GameObjectMap::const_iterator it = this->objects.begin(), itend = this->objects.end(); it != itend; ++it)
+		{
+			if(it->second->getParentId().empty())
+			{
+				roots.push_back(it->first);
+			}
+		}
+		return roots;
+	}
+	//---------------------------------------------------------
+	bool GameObjectManager::isDescendantOf(String const & id, String const & ancestorId) const
+	{
+		if(id.empty() || ancestorId.empty())
+		{
+			return false;
+		}
+		GameObjectMap::const_iterator it = this->objects.find(id);
+		// guard against malformed parent chains (should not happen - the
+		// setParent validation refuses unknown parents and cycles)
+		std::size_t guard = this->objects.size() + 1;
+		while(it != this->objects.end() && guard-- > 0)
+		{
+			String const & parentId = it->second->getParentId();
+			if(parentId.empty())
+			{
+				return false;
+			}
+			if(parentId == ancestorId)
+			{
+				return true;
+			}
+			it = this->objects.find(parentId);
+		}
+		return false;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -116,6 +174,31 @@ namespace Orkige
 				this->updatableComponents.erase(it);
 			}
 			this->numUpdatableComponents = this->updatableComponents.size();
+		}
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::onObjectReparented(String const & childId, String const & oldParentId, String const & newParentId)
+	{
+		if(!oldParentId.empty())
+		{
+			ChildIdMap::iterator it = this->childIds.find(oldParentId);
+			if(it != this->childIds.end())
+			{
+				StringVector & siblings = it->second;
+				StringVector::iterator childIt = std::find(siblings.begin(), siblings.end(), childId);
+				if(childIt != siblings.end())
+				{
+					siblings.erase(childIt);
+				}
+				if(siblings.empty())
+				{
+					this->childIds.erase(it);
+				}
+			}
+		}
+		if(!newParentId.empty())
+		{
+			this->childIds[newParentId].push_back(childId);
 		}
 	}
 	//---------------------------------------------------------

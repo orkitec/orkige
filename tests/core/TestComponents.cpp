@@ -33,6 +33,10 @@ namespace Orkige
 		OFUNC(setAssetReference)
 	OOBJECT_END
 	//---------------------------------------------------------
+	OOBJECT_IMPL(TestActivationProbeComponent)
+		GAMEOBJECTCOMPONENT()
+	OOBJECT_END
+	//---------------------------------------------------------
 	void registerOrkigeTestComponents()
 	{
 		static bool registered = false;
@@ -42,6 +46,7 @@ namespace Orkige
 			TestHealthComponent::OrkigeMetaExport("orkige_core_tests");
 			TestArmorComponent::OrkigeMetaExport("orkige_core_tests");
 			TestAssetRefComponent::OrkigeMetaExport("orkige_core_tests");
+			TestActivationProbeComponent::OrkigeMetaExport("orkige_core_tests");
 		}
 	}
 }

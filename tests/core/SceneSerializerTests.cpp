@@ -144,6 +144,11 @@ TEST_CASE("SceneSerializer fails hard on unregistered component types", "[scene]
 		ar << objectCount;
 		Orkige::String id = "Ghost";
 		ar << id;
+		// v2 per-object hierarchy fields
+		Orkige::String parentId = "";
+		ar << parentId;
+		bool activeSelf = true;
+		ar << activeSelf;
 		unsigned int componentCount = 1;
 		ar << componentCount;
 		Orkige::String componentTypeName = "NoSuchComponent";

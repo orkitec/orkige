@@ -293,9 +293,13 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	ImVec2 const& rectSize)
 {
 	const Orkige::EditorTool tool = core.getActiveTool();
+	// the gizmo lives in WORLD space (a parented object's local transform is
+	// relative to its parent); the undoable command stores LOCAL values
 	Orkige::EditorTransform current;
+	Orkige::EditorTransform currentLocal;
 	if (tool == Orkige::EditorTool::Select || !core.hasSelection() ||
-		!core.getObjectTransform(core.getSelectedObjectId(), current))
+		!core.getObjectWorldTransform(core.getSelectedObjectId(), current) ||
+		!core.getObjectTransform(core.getSelectedObjectId(), currentLocal))
 	{
 		state.gizmoWasUsing = false;
 		return false;
@@ -352,13 +356,21 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		}
 		if (changed)
 		{
-			Orkige::EditorTransform after;
+			Orkige::EditorTransform afterWorld;
 			// gizmo output is affine (no shear) - decompose back to
 			// position/scale/orientation (Affine3 extracts the 3x4 part)
 			Orkige::Affine3(imGuizmoToMatrix(model)).decomposition(
-				after.position, after.scale, after.orientation);
-			core.applyTransformChange(core.getSelectedObjectId(), current,
-				after, state.gizmoMergeSession);
+				afterWorld.position, afterWorld.scale,
+				afterWorld.orientation);
+			// world -> parent-relative local: the command stores what the
+			// Inspector shows and the scene serializes
+			Orkige::EditorTransform afterLocal;
+			if (core.worldToLocalTransform(core.getSelectedObjectId(),
+				afterWorld, afterLocal))
+			{
+				core.applyTransformChange(core.getSelectedObjectId(),
+					currentLocal, afterLocal, state.gizmoMergeSession);
+			}
 		}
 	}
 	else if (state.gizmoWasUsing)

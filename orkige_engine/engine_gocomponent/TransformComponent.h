@@ -43,11 +43,40 @@ namespace Orkige
 		//! @remarks resolves through the RenderNode user pointer - within the
 		//! engine ONLY TransformComponent tags scene nodes, so the cast is safe
 		static TransformComponent* getComponentFromNode(optr<RenderNode> const & node, bool traverseParents = true);
+		//--- WORLD-SPACE SETTERS (hierarchy-aware) ---
+		//! world-space scale (local scales composed through the ancestor chain)
+		Vec3 getWorldScale() const;
+		//! @brief set the world-space position - the LOCAL position (what
+		//! getPosition returns and the scene serializes) is recomputed through
+		//! the parent chain; identical to setPosition for root objects
+		void setWorldPosition(Vec3 const & worldPosition);
+		//! @brief set the world-space orientation (@see setWorldPosition)
+		void setWorldOrientation(Quat const & worldOrientation);
+		//! @brief teleport this transform to a world-space pose AND snap every
+		//! rigid body in the GameObject subtree to its resulting world pose
+		//! @remarks the hierarchy-level "move the world" API: physics bodies
+		//! live in world space, so sliding a parent must teleport the children's
+		//! collision geometry along - this works while PhysicsWorld is PAUSED,
+		//! like RigidBodyComponent::teleport (which handles the self-owned body
+		//! the same way and delegates the subtree part here)
+		void teleport(Vec3 const & worldPosition, Quat const & worldOrientation);
+		//! @brief snap every rigid body attached at or below the given
+		//! GameObject to its TransformComponent's current world pose, killing
+		//! the momentum of non-static bodies (@see teleport)
+		static void syncSubtreeBodies(GameObject * gameObject);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();
+		//! @brief maps the GameObject tree onto the render node graph: attaches
+		//! the node under the new parent's TransformComponent node (world root
+		//! when unparented); with keepWorldTransform the local TRS is recomputed
+		//! so the world pose is preserved (Unity semantics)
+		virtual void onParentChanged(GameObject * newParent, bool keepWorldTransform);
+		//! the node the owner's CURRENT parent GameObject provides (world root
+		//! when unparented or when the parent has no TransformComponent)
+		optr<RenderNode> resolveParentNode();
 		//! re-parents all TransformComponents attached below my node to the world root
 		void detachTransformComponents(optr<RenderNode> const & node, bool traverseChildren = true);
 		//--- SERIALIZATION ---

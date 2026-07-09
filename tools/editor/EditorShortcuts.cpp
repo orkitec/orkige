@@ -107,6 +107,11 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		{
 			core.duplicateSelected();
 		}
+		// Cmd/Ctrl+G: group the selection under a new empty parent (undoable)
+		if (ImGui::IsKeyPressed(ImGuiKey_G, false))
+		{
+			core.groupSelected();
+		}
 		return;
 	}
 	if (sceneContext)

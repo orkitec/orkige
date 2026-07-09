@@ -68,7 +68,9 @@ namespace Orkige
 		bool empty() const { return mXml.empty(); }
 
 	private:
-		String mXml;	//!< the captured archive content
+		String mXml;		//!< the captured archive content
+		String mParentId;	//!< captured parent link ("" = root)
+		bool mActiveSelf = true;	//!< captured own active flag
 	};
 
 	//! @brief serialized state of ONE component of one GameObject, captured
@@ -159,7 +161,9 @@ namespace Orkige
 		Vec3 mPosition;
 	};
 
-	//! delete an object; undo restores the full serialized component state
+	//! @brief delete an object; undo restores the full serialized component
+	//! state, the parent link, the active flag AND re-attaches the children
+	//! that moved up to the grandparent when the object went away
 	class DeleteObjectCommand : public EditorCommand
 	{
 	public:
@@ -171,6 +175,7 @@ namespace Orkige
 	private:
 		String mObjectId;
 		EditorObjectSnapshot mSnapshot;	//!< captured fresh on every execute
+		StringVector mChildIds;			//!< direct children at delete time
 		bool mWasSelected = false;
 	};
 
@@ -204,6 +209,62 @@ namespace Orkige
 	private:
 		String mSourceId;
 		String mNewId;
+	};
+
+	//! @brief re-parent an object in the GameObject tree (Hierarchy drag &
+	//! drop; "" = make it a root). The world transform is preserved (Unity
+	//! semantics - GameObject::setParent keepWorldTransform); undo restores
+	//! the previous parent AND the exact previous local transform.
+	class ReparentObjectCommand : public EditorCommand
+	{
+	public:
+		ReparentObjectCommand(String const& objectId, String const& newParentId);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mNewParentId;
+		String mOldParentId;			//!< captured on execute
+		EditorTransform mOldLocal;		//!< exact pre-reparent local transform
+		bool mHadTransform = false;		//!< object carried a TransformComponent
+	};
+
+	//! toggle a GameObject's own active flag (Inspector checkbox) -
+	//! GameObject::setActive dispatches onSetActive through the subtree
+	class SetActiveObjectCommand : public EditorCommand
+	{
+	public:
+		SetActiveObjectCommand(String const& objectId, bool active);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		bool mActive;
+		bool mBefore = true;			//!< captured on execute
+	};
+
+	//! @brief Cmd/Ctrl+G: group the members under a NEW empty parent object
+	//! (a bare TransformComponent at the members' world-bounds centre,
+	//! parented under the members' common parent). Undo re-parents every
+	//! member back (world transforms preserved) and deletes the group object.
+	class GroupObjectsCommand : public EditorCommand
+	{
+	public:
+		GroupObjectsCommand(StringVector const& memberIds, String const& groupId);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+		String const& getGroupId() const { return mGroupId; }
+
+	private:
+		StringVector mMemberIds;
+		String mGroupId;
+		StringVector mOldParentIds;		//!< parallel to mMemberIds, captured on execute
 	};
 
 	//! @brief a batch of commands that does/undoes as ONE undo step
@@ -478,6 +539,20 @@ namespace Orkige
 		bool deleteSelected();
 		//! rename an object (validateRename rules apply)
 		bool renameObject(String const& id, String const& newId);
+		//! @brief may the object be re-parented onto newParentId right now?
+		//! ("" = root is always fine; refused for self, unknown ids and own
+		//! descendants - the same rules GameObject::setParent enforces, so the
+		//! Hierarchy can grey out invalid drop targets without side effects)
+		bool canReparent(String const& id, String const& newParentId) const;
+		//! @brief re-parent an object (undoable, world transform preserved);
+		//! when the id is part of a multi-selection the WHOLE selection
+		//! re-parents as one undo step (invalid members are skipped)
+		bool reparentObject(String const& id, String const& newParentId);
+		//! set the object's own active flag (undoable, Unity SetActive)
+		bool setObjectActive(String const& id, bool active);
+		//! @brief Cmd/Ctrl+G: group ALL selected objects under a new empty
+		//! parent (auto-named "Group<N>", selected afterwards) - one undo step
+		bool groupSelected();
 		//! record a before/after transform change as one undoable command;
 		//! pass a merge session id to collapse a whole drag into one step
 		bool applyTransformChange(String const& id,
@@ -560,10 +635,19 @@ namespace Orkige
 			bool enabled);
 
 		//--- transform access (engine-touching helpers) ------
-		//! read the object's TransformComponent; false if object/component missing
+		//! @brief read the object's LOCAL transform (what the Inspector edits
+		//! and the scene serializes; identical to world for roots)
 		bool getObjectTransform(String const& id, EditorTransform& out) const;
-		//! raw transform apply WITHOUT a command (commands call this)
+		//! raw LOCAL transform apply WITHOUT a command (commands call this)
 		bool setObjectTransform(String const& id, EditorTransform const& transform);
+		//! @brief read the object's WORLD transform (composed through the
+		//! GameObject tree) - what the Scene panel gizmo manipulates
+		bool getObjectWorldTransform(String const& id, EditorTransform& out) const;
+		//! @brief convert a WORLD transform into the object's parent-relative
+		//! LOCAL one (the gizmo edits world space, the undoable
+		//! TransformChangeCommand stores local values)
+		bool worldToLocalTransform(String const& id,
+			EditorTransform const& world, EditorTransform& outLocal) const;
 
 		//--- undo/redo ---------------------------------------
 		//! run the command; on success the redo stack clears and the command

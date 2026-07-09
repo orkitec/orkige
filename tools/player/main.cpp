@@ -888,18 +888,23 @@ int main(int argc, char** argv)
 		// observes only shared.roller, components through the world and the
 		// fastgui widgets. Frame-scripted:
 		//   frame  5  both scripts booted, HUD up, mode "play", sim running
-		//   10..70    hold LEFT -> the simulated tilt turns gravity left and
+		//   then      ACTIVE GATE: deactivate the TileC subtree + the Ball -
+		//             triangle count drops, the tile's wall body leaves the
+		//             simulation, ball.lua stops ticking; reactivate restores
+		//   then      hold LEFT -> the simulated tilt turns gravity left and
 		//             the ball rolls -x (position sampled)
-		//   ~80       screenshot roller_play.png (when the env dir is set)
-		//   85..95    TAB -> mode "move": physics PAUSED, cursor visible
+		//             screenshot roller_play.png (when the env dir is set)
+		//   then      TAB -> mode "move": physics PAUSED, cursor visible
 		//             over the empty slot; collision probed at tile B's
 		//             future wall location (must be free)
-		//   100..112  DOWN -> tile B slides into the empty slot: its frame
-		//             SPRITE moved -6 in y, the GOAL rode along, and a ray
-		//             probe proves the wall BODY collides at the new spot
-		//             (and no longer at the old one) - while still paused
-		//   115..125  TAB -> back to "play", sim unpaused
-		//   130..     hold RIGHT -> gravity swings right, the ball rolls
+		//             DOWN -> tile B slides into the empty slot VIA ITS
+		//             PARENT (one teleport of the "TileB" group object):
+		//             frame sprite + GOAL moved -6 in WORLD y, their LOCAL
+		//             transforms untouched, and a ray probe proves the wall
+		//             BODY collides at the new spot (and no longer at the
+		//             old one) - while still paused
+		//             TAB -> back to "play", sim unpaused
+		//   then      hold RIGHT -> gravity swings right, the ball rolls
 		//             through tile A's right opening into the slid-down
 		//             tile B onto the goal star -> shared.roller.wins fires
 		//             -> the win banner shows
@@ -911,6 +916,8 @@ int main(int argc, char** argv)
 		enum class RollerCheckPhase
 		{
 			Boot,		// scripts/HUD/camera/mode checks at frame 5
+			ActiveGate,	// deactivate a tile subtree + the ball: no render,
+						// no collision, no script ticks; reactivate restores
 			TiltRoll,	// hold LEFT until the tilt built up and the ball rolled
 			MoveWorld,	// TAB, probe, DOWN-slide, probe, TAB (frame-scripted)
 			WaitWin,	// rolling right until the script reports the win
@@ -923,6 +930,9 @@ int main(int argc, char** argv)
 		float rollerMovedX = 0.0f;
 		float rollerTileBStartY = 0.0f;
 		float rollerGoalStartY = 0.0f;
+		float rollerTileBFrameLocalY = 0.0f;	// child LOCAL y (must not change)
+		std::size_t rollerTrianglesActive = 0;	// triangles with everything active
+		double rollerBallUpdatesGated = 0.0;	// ball.lua ticks while deactivated
 		unsigned long rollerRollFrame = 0;
 		unsigned long rollerPhaseDeadline = 0;
 		bool rollerCheckFailed = false;
@@ -1506,6 +1516,124 @@ int main(int argc, char** argv)
 							"up, ortho camera, sprites loaded%s",
 							uiChecksEnabled ? ", HUD showing"
 								: " (HUD-less flavor, UI checks skipped)");
+						rollerPhase = RollerCheckPhase::ActiveGate;
+						rollerStepFrame = 0;
+					}
+				}
+			}
+			// active-state gate: deactivating the WHOLE TileC subtree (one
+			// setActive on the parent) must stop its rendering (triangle
+			// count) and take its wall bodies out of the simulation;
+			// deactivating the Ball must gate its script ticks -
+			// reactivation restores everything (frame-scripted)
+			else if (rollerCheck && !rollerCheckFailed &&
+				rollerPhase == RollerCheckPhase::ActiveGate)
+			{
+				if (rollerStepFrame == 0)
+				{
+					rollerStepFrame = frameCount;
+				}
+				const unsigned long step = frameCount - rollerStepFrame;
+				// TileC sits at slot 2 (-3, 3): its bottom wall's world
+				// pose is x=-3, y=0.25 (same probe math as the slide)
+				if (step == 5)
+				{
+					optr<Orkige::GameObject> tileC =
+						gameObjectManager.getGameObject("TileC").lock();
+					optr<Orkige::GameObject> ball =
+						gameObjectManager.getGameObject("Ball").lock();
+					if (!tileC || !ball)
+					{
+						rollerFail("no TileC/Ball objects in the scene");
+					}
+					else if (gameObjectManager.getChildren("TileC").empty())
+					{
+						rollerFail("TileC has no children - the scene "
+							"lost its tile groups");
+					}
+					else if (!rollerProbeHit(-3.0f, 0.25f))
+					{
+						rollerFail("TileC's bottom wall body is missing "
+							"before the active-state gate");
+					}
+					else
+					{
+						rollerTrianglesActive =
+							render->getFrameStats().triangleCount;
+						tileC->setActive(false);
+						ball->setActive(false);
+					}
+				}
+				if (step == 10)
+				{
+					// sampled AFTER the deactivation settled: any later
+					// growth means the gated script still ticks
+					rollerBallUpdatesGated =
+						rollerStat("ballUpdates", -1.0);
+				}
+				if (step == 25)
+				{
+					optr<Orkige::GameObject> wall = gameObjectManager
+						.getGameObject("TileC_WallBottom").lock();
+					if (rollerTrianglesActive == 0 ||
+						render->getFrameStats().triangleCount >=
+							rollerTrianglesActive)
+					{
+						rollerFail("deactivating the TileC subtree + ball "
+							"did not reduce the triangle count (" +
+							std::to_string(render->getFrameStats()
+								.triangleCount) + " of " +
+							std::to_string(rollerTrianglesActive) + ")");
+					}
+					else if (rollerProbeHit(-3.0f, 0.25f))
+					{
+						rollerFail("the deactivated tile's wall body "
+							"still collides");
+					}
+					else if (!wall || wall->isActiveInHierarchy() ||
+						!wall->isActiveSelf())
+					{
+						rollerFail("the tile children did not inherit "
+							"the parent's inactive state");
+					}
+					else if (rollerStat("ballUpdates", -1.0) !=
+						rollerBallUpdatesGated)
+					{
+						rollerFail("the deactivated ball's script still "
+							"ticks");
+					}
+					else
+					{
+						gameObjectManager.getGameObject("TileC").lock()
+							->setActive(true);
+						gameObjectManager.getGameObject("Ball").lock()
+							->setActive(true);
+					}
+				}
+				if (step == 40)
+				{
+					if (render->getFrameStats().triangleCount <
+						rollerTrianglesActive)
+					{
+						rollerFail("reactivation did not restore the "
+							"rendered triangles");
+					}
+					else if (!rollerProbeHit(-3.0f, 0.25f))
+					{
+						rollerFail("reactivation did not restore the "
+							"tile's wall body");
+					}
+					else if (rollerStat("ballUpdates", -1.0) <=
+						rollerBallUpdatesGated)
+					{
+						rollerFail("reactivation did not resume the "
+							"ball's script ticks");
+					}
+					else
+					{
+						SDL_Log("orkige_player: roller selfcheck - "
+							"active-state gate OK (subtree hidden, body "
+							"out of the sim, script gated; all restored)");
 						rollerPhase = RollerCheckPhase::TiltRoll;
 						rollerStepFrame = 0;
 					}
@@ -1591,11 +1719,16 @@ int main(int argc, char** argv)
 					}
 					else
 					{
-						rollerTileBStartY = tileB->getPosition().y;
+						// the frame sprite is a CHILD of the TileB group:
+						// track its WORLD pose (what the player sees) and
+						// its LOCAL pose (which must NOT change - the slide
+						// moves the PARENT)
+						rollerTileBStartY = tileB->getWorldPosition().y;
+						rollerTileBFrameLocalY = tileB->getPosition().y;
 						Orkige::TransformComponent* goal =
 							rollerTransform("Goal");
 						rollerGoalStartY = goal ?
-							goal->getPosition().y : 0.0f;
+							goal->getWorldPosition().y : 0.0f;
 						SDL_Log("orkige_player: roller selfcheck - move "
 							"mode up (paused, cursor on), tile B at y=%.2f",
 							rollerTileBStartY);
@@ -1613,12 +1746,16 @@ int main(int argc, char** argv)
 				}
 				if (step == 32)
 				{
+					Orkige::TransformComponent* tileBGroup =
+						rollerTransform("TileB");
 					Orkige::TransformComponent* tileB =
 						rollerTransform("TileB_Frame");
 					Orkige::TransformComponent* goal =
 						rollerTransform("Goal");
+					optr<Orkige::GameObject> frameObject =
+						gameObjectManager.getGameObject("TileB_Frame").lock();
 					const float tileBMovedY = tileB ?
-						tileB->getPosition().y - rollerTileBStartY : 0.0f;
+						tileB->getWorldPosition().y - rollerTileBStartY : 0.0f;
 					if (rollerStat("slides", 0.0) < 1.0)
 					{
 						rollerFail("DOWN in move mode did not slide a tile");
@@ -1626,9 +1763,30 @@ int main(int argc, char** argv)
 					else if (std::abs(tileBMovedY + 6.0f) > 0.01f)
 					{
 						rollerFail("tile B's frame sprite did not move one "
-							"slot down");
+							"slot down (world)");
 					}
-					else if (!goal || std::abs(goal->getPosition().y -
+					// the slide must have happened VIA THE PARENT: the group
+					// object moved one slot, the child's LOCAL pose is
+					// untouched
+					else if (!frameObject ||
+						frameObject->getParentId() != "TileB")
+					{
+						rollerFail("TileB_Frame is not a child of the TileB "
+							"group");
+					}
+					else if (!tileBGroup || std::abs(tileBGroup
+						->getWorldPosition().y + 3.0f) > 0.01f)
+					{
+						rollerFail("the TileB group parent did not move to "
+							"the empty slot");
+					}
+					else if (!tileB || std::abs(tileB->getPosition().y -
+						rollerTileBFrameLocalY) > 0.001f)
+					{
+						rollerFail("the slide changed the child's LOCAL "
+							"transform - it did not move via the parent");
+					}
+					else if (!goal || std::abs(goal->getWorldPosition().y -
 						(rollerGoalStartY - 6.0f)) > 0.01f)
 					{
 						rollerFail("the goal star did not ride its tile");
@@ -1646,8 +1804,9 @@ int main(int argc, char** argv)
 					else
 					{
 						SDL_Log("orkige_player: roller selfcheck - tile B "
-							"slid %.2f in y while paused; wall body probes "
-							"old=free new=hit, goal rode along", tileBMovedY);
+							"slid %.2f in y VIA ITS PARENT while paused; "
+							"wall body probes old=free new=hit, goal rode "
+							"along", tileBMovedY);
 					}
 				}
 				// TAB: back to play; then roll right into the goal tile

@@ -43,6 +43,10 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String MSG_SELECT;				//!< FIELD_ID: object whose state gets streamed
 		extern ORKIGE_CORE_DLL const String MSG_SET_PROPERTY;		//!< FIELD_ID + FIELD_COMPONENT + FIELD_PROPERTY + FIELD_VALUE
 		extern ORKIGE_CORE_DLL const String MSG_REQUEST_HIERARCHY;	//!< ask for a hierarchy message now
+		//! @brief FIELD_ID + FIELD_VALUE ("1"/"0"): set the GameObject's own
+		//! active flag (GameObject::setActive). Additive since protocol v1:
+		//! old runtimes answer with an "unknown command" error, never crash.
+		extern ORKIGE_CORE_DLL const String MSG_SET_ACTIVE;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -69,6 +73,14 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
 		extern ORKIGE_CORE_DLL const String LIST_IDS;				//!< hierarchy: GameObject id list
 		extern ORKIGE_CORE_DLL const String LIST_COMPONENTS;		//!< object_state: component type name list
+		//! @brief hierarchy: parent id per object ("" = root), parallel to
+		//! LIST_IDS. Additive since protocol v1: absent in old runtimes'
+		//! messages - the editor then renders the historical flat list.
+		extern ORKIGE_CORE_DLL const String LIST_PARENTS;
+		//! @brief hierarchy: activeSelf flag per object ("1"/"0"), parallel to
+		//! LIST_IDS (effective activeInHierarchy is derived through the
+		//! parents). Additive since protocol v1 like LIST_PARENTS.
+		extern ORKIGE_CORE_DLL const String LIST_ACTIVE;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

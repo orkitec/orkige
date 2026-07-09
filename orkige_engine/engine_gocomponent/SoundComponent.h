@@ -49,6 +49,9 @@ namespace Orkige
 		virtual void onRemove();
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
+		//! deactivated GameObjects stop all their sounds (updates are gated
+		//! centrally, so nothing restarts them until reactivation plays again)
+		virtual void onSetActive(bool activeInHierarchy);
 		//--- SERIALIZATION ---
 		//! @warning attached sounds do not round-trip yet (logs a warning)
 		virtual void save(optr<IArchive> const & ar);
