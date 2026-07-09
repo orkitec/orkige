@@ -43,6 +43,16 @@ env:
   # PCH-friendly ccache (same setting CLAUDE.md documents for dev machines;
   # the classic flavor precompiles <Ogre.h>)
   CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
+  # Build with clang, NOT the runner-default gcc. Orkige is a clang-oriented
+  # codebase (AppleClang on the dev Macs, .clangd, the containment lint) and
+  # vcpkg port builds inherit these via the stock x64-linux triplet's use of
+  # the environment compiler. Concretely this fixes the SDL3 port: SDL3
+  # gates -Wdocumentation / -fcomment-block-commands=threadsafety behind a
+  # compiler-flag probe that FALSE-POSITIVES on gcc (gcc accepts unknown -W
+  # flags during the probe, then errors on real use) - genuine clang flags
+  # that only work when the compiler really is clang.
+  CC: clang
+  CXX: clang++
 
 jobs:
   linux-classic:
@@ -64,7 +74,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential ninja-build ccache python3 pkg-config \
+            build-essential clang ninja-build ccache python3 pkg-config \
             autoconf autoconf-archive automake libtool curl zip unzip tar \
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
@@ -185,7 +195,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential ninja-build ccache python3 pkg-config \
+            build-essential clang ninja-build ccache python3 pkg-config \
             autoconf autoconf-archive automake libtool curl zip unzip tar \
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
