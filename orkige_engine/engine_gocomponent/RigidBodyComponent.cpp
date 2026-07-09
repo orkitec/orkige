@@ -10,8 +10,10 @@
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/SceneSerializer.h>
 #include <core_util/StringUtil.h>
 
 #include "engine_module/EnginePrerequisites.h"
@@ -438,64 +440,25 @@ namespace Orkige
 		{
 			oDebugMsg("scene",0,"RigidBodyComponent: saving live dynamic body - runtime velocities are not serialized");
 		}
-		int bodyType = static_cast<int>(this->mBodyDesc.bodyType);
-		int shapeType = static_cast<int>(this->mBodyDesc.shapeType);
-		ar << bodyType << shapeType;
-		ar << this->mBodyDesc.halfExtents.x << this->mBodyDesc.halfExtents.y << this->mBodyDesc.halfExtents.z;
-		ar << this->mBodyDesc.radius << this->mBodyDesc.halfHeight;
-		ar << this->mBodyDesc.mass << this->mBodyDesc.friction << this->mBodyDesc.restitution;
-		ar << this->mBodyDesc.planar;
-		// the collision layer NAME then the isSensor flag are the trailing
-		// fields: a pre-layer scene stops after planar, a pre-sensor scene stops
-		// after layer. load() re-reads the last present element for a missing
-		// trailing field (layerIndex maps an unknown name to Default; the sensor
-		// read is guarded), so OLD scenes behave identically (@see load).
-		ar << this->mBodyDesc.layer;
-		ar << this->mBodyDesc.isSensor;
+		// reflection-driven NAMED serialization (task #94 P2): every BodyDesc
+		// creation parameter is written by name off the declared schema. The old
+		// positional trailing-field version guard (layer / isSensor read-the-last-
+		// element hacks) is GONE - a missing named field simply keeps its default.
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		int bodyType = 0;
-		int shapeType = 0;
-		ar >> bodyType >> shapeType;
-		this->mBodyDesc.bodyType = static_cast<PhysicsWorld::BodyType>(bodyType);
-		this->mBodyDesc.shapeType = static_cast<PhysicsWorld::ShapeType>(shapeType);
-		ar >> this->mBodyDesc.halfExtents.x >> this->mBodyDesc.halfExtents.y >> this->mBodyDesc.halfExtents.z;
-		ar >> this->mBodyDesc.radius >> this->mBodyDesc.halfHeight;
-		ar >> this->mBodyDesc.mass >> this->mBodyDesc.friction >> this->mBodyDesc.restitution;
-		ar >> this->mBodyDesc.planar;
-		// collision layer (added after the pre-layer format): a scene written
-		// before this field ends at planar; the archive then re-reads planar's
-		// element as the layer name, which layerIndex() resolves to Default
-		// (unknown name -> index 0, collide-with-all). New scenes carry the
-		// real name. Either way createBody routes desc.layer through the world's
-		// LayerConfig.
-		ar >> this->mBodyDesc.layer;
-		// isSensor (added after the layer format): a pre-sensor scene ends at
-		// the layer field, so this read would re-read the layer STRING element
-		// as a bool - which THROWS (a non-numeric layer name is not a bool). The
-		// throw is contained here so an old scene keeps loading with isSensor
-		// false (the archive cursor is restored by the container read). A body
-		// written with the field reads the real flag.
-		this->mBodyDesc.isSensor = false;
-		try
-		{
-			ar >> this->mBodyDesc.isSensor;
-		}
-		catch (...)
-		{
-			// pre-sensor scene: no trailing bool - keep the default (not a sensor)
-			this->mBodyDesc.isSensor = false;
-		}
 		if (this->hasBody())
 		{
 			// the body is created lazily on the first update, so a load right
 			// after addComponent (the SceneSerializer path) lands here before
-			// creation; recreate defensively if someone loads into a live one
+			// creation; recreate defensively (and so the desc setters apply)
+			// if someone loads into a live one
 			this->destroyBody();
 		}
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
@@ -524,5 +487,29 @@ namespace Orkige
 		OFUNC(teleport)
 		OFUNC(hasBody)
 		OFUNC(getBodyId)
+		// neutral enum value<->label tables (task #94 P2) so the reflected
+		// bodyType/shapeType enums resolve labels in every scripting config
+		OENUM_REGISTER_START("PhysicsBodyType", PhysicsWorld::BodyType)
+			OENUM_REGISTER_VALUE(BT_STATIC)
+			OENUM_REGISTER_VALUE(BT_KINEMATIC)
+			OENUM_REGISTER_VALUE(BT_DYNAMIC)
+		OENUM_REGISTER_END
+		OENUM_REGISTER_START("PhysicsShapeType", PhysicsWorld::ShapeType)
+			OENUM_REGISTER_VALUE(ST_BOX)
+			OENUM_REGISTER_VALUE(ST_SPHERE)
+			OENUM_REGISTER_VALUE(ST_CAPSULE)
+		OENUM_REGISTER_END
+		// reflected BodyDesc schema (task #94 P2): the full creation-parameter set
+		OPROPERTY_ENUM("bodyType", "PhysicsBodyType", getBodyType, setBodyType, Orkige::PROP_NONE)
+		OPROPERTY_ENUM("shapeType", "PhysicsShapeType", getShapeType, setShapeType, Orkige::PROP_NONE)
+		OPROPERTY("halfExtents", Orkige::PropertyKind::Vec3, getHalfExtents, setHalfExtents, Orkige::PROP_NONE)
+		OPROPERTY("radius", Orkige::PropertyKind::Float, getRadius, setRadiusValue, Orkige::PROP_NONE)
+		OPROPERTY("halfHeight", Orkige::PropertyKind::Float, getHalfHeight, setHalfHeightValue, Orkige::PROP_NONE)
+		OPROPERTY("mass", Orkige::PropertyKind::Float, getMass, setMass, Orkige::PROP_NONE)
+		OPROPERTY("friction", Orkige::PropertyKind::Float, getFriction, setFriction, Orkige::PROP_NONE)
+		OPROPERTY("restitution", Orkige::PropertyKind::Float, getRestitution, setRestitution, Orkige::PROP_NONE)
+		OPROPERTY("planar", Orkige::PropertyKind::Bool, getPlanarMode, setPlanarMode, Orkige::PROP_NONE)
+		OPROPERTY("layer", Orkige::PropertyKind::String, getLayer, setLayer, Orkige::PROP_NONE)
+		OPROPERTY("isSensor", Orkige::PropertyKind::Bool, isSensor, setIsSensor, Orkige::PROP_NONE)
 	OOBJECT_END
 }

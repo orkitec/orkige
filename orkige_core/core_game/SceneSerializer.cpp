@@ -11,9 +11,14 @@
 #include "core_game/PrefabSerializer.h"
 #include "core_project/AssetDatabase.h"
 #include "core_serialization/XMLArchive.h"
+#include "core_base/TypeManager.h"
+#include "core_base/PropertyValue.h"
+#include "core_base/PropertySchema.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
+#include <vector>
 
 namespace Orkige
 {
@@ -29,11 +34,58 @@ namespace Orkige
 	// core_game/PrefabSerializer.h); version 2 added the per-object parent id +
 	// activeSelf flag (Unity-style GameObject tree); version 1 scenes load as
 	// all-root, all-active, prefab-less, tag-less worlds
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 5;
+	// version 6 (2026-07, task #94 P2): reflection-driven NAMED component
+	// serialization. Each component's declared PropertySchema (TypeManager) is
+	// written as a name->value field block instead of a positional field list,
+	// so reordering/adding/removing a component field no longer needs an archive
+	// version gate - a clean single current format with no positional-reader
+	// fallback (the owner keeps no legacy scenes; every asset was rewritten).
+	// The per-object envelope (id, parent, activeSelf, tags, prefabRef +
+	// suppressed children + per-child overrides, component list) stays
+	// hand-written/structured - reflection covers component FIELDS, not the
+	// object graph.
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 6;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	namespace
 	{
+		//! @brief which AssetDatabase reference flavour a reflected AssetRef
+		//! property uses, decided by its asset-kind hint: script paths are
+		//! project-relative, every other asset (mesh/texture/sound) is a bare
+		//! resource file name (@see AssetDatabase::ReferenceKind).
+		AssetDatabase::ReferenceKind refKindForHint(String const & hint)
+		{
+			return (hint == "script")
+				? AssetDatabase::REF_PROJECT_PATH
+				: AssetDatabase::REF_FILE_NAME;
+		}
+		//! @brief a default-constructed PropertyValue of a descriptor's kind, so
+		//! PropertyValue::fromString has the right variant tag (and enum/reference
+		//! hint) to parse the stored string into.
+		PropertyValue defaultValueForDesc(PropertyDesc const & desc)
+		{
+			switch(desc.kind)
+			{
+			case PropertyKind::Int:		return PropertyValue::makeInt(0);
+			case PropertyKind::Float:	return PropertyValue::makeFloat(0.0);
+			case PropertyKind::Bool:	return PropertyValue::makeBool(false);
+			case PropertyKind::String:	return PropertyValue::makeString("");
+			case PropertyKind::Enum:	return PropertyValue::makeEnum(desc.enumTypeName, 0);
+			case PropertyKind::Vec3:	return PropertyValue::makeVec3(PropVec3());
+			case PropertyKind::Quat:	return PropertyValue::makeQuat(PropQuat());
+			case PropertyKind::Color:	return PropertyValue::makeColor(PropColor());
+			case PropertyKind::AssetRef:	return PropertyValue::makeAssetRef(desc.referenceHint, "");
+			case PropertyKind::ObjectRef:	return PropertyValue::makeObjectRef(desc.referenceHint, "");
+			default:					return PropertyValue::makeString("");
+			}
+		}
+		//! @brief is a declared property actually serialized: skip transient
+		//! (runtime-only) state and computed/read-only properties (no setter to
+		//! restore them through)
+		bool isSerializedProperty(PropertyDesc const & desc)
+		{
+			return !desc.hasFlag(PROP_TRANSIENT) && static_cast<bool>(desc.set);
+		}
 		//! @brief resolve a project-relative prefabRef to a loadable file
 		//! path: through the active AssetDatabase's project root when there
 		//! is one, otherwise relative to the scene file's directory and (the
@@ -307,9 +359,11 @@ namespace Orkige
 		}
 		int version = 0;
 		ar >> version;
-		if(version > SCENE_FORMAT_VERSION)
+		// clean single current format (task #94 P2): no positional-reader
+		// fallback, no per-version field gates - only the current version loads
+		if(version != SCENE_FORMAT_VERSION)
 		{
-			oDebugMsg("scene",0,"SceneSerializer: scene file "<<fileName<<" has unsupported version "<<version<<" (supported: "<<SCENE_FORMAT_VERSION<<")");
+			oDebugMsg("scene",0,"SceneSerializer: scene file "<<fileName<<" has unsupported version "<<version<<" (this build reads only version "<<SCENE_FORMAT_VERSION<<")");
 			ar->stopReading();
 			return false;
 		}
@@ -340,7 +394,8 @@ namespace Orkige
 				break;
 			}
 
-			if(version >= 2)
+			// the per-object envelope (hierarchy, tags, prefab reference) is
+			// always present in the current format - no version gates
 			{
 				String parentId;
 				ar >> parentId;
@@ -356,7 +411,6 @@ namespace Orkige
 				}
 			}
 
-			if(version >= 4)
 			{
 				// tags apply immediately (independent of the hierarchy links
 				// resolved after the loop); setTags registers them in the
@@ -376,7 +430,6 @@ namespace Orkige
 				}
 			}
 
-			if(version >= 3)
 			{
 				String prefabRef;
 				String prefabAssetId;
@@ -404,13 +457,14 @@ namespace Orkige
 					gameObject->setPrefabRef(prefabRef, prefabAssetId);
 					gameObject->setSuppressedPrefabChildren(suppressed);
 
-					// v5: the per-child component-property overrides ride here in
-					// the file (must be consumed even for a placeholder so the
-					// cursor stays aligned); they are re-APPLIED after the prefab
-					// subtree instantiates (load order: subtree -> suppressed
-					// drop -> child overrides -> root overlay)
+					// the per-child component-property overrides ride here in the
+					// file (must be consumed even for a placeholder so the cursor
+					// stays aligned); they are re-APPLIED after the prefab subtree
+					// instantiates (load order: subtree -> suppressed drop -> child
+					// overrides -> root overlay). Each override is a whole named
+					// component block (serializeComponentState) - the #89 override
+					// unit, now carrying the named field format
 					GameObject::ChildOverrideMap overrides;
-					if(version >= 5)
 					{
 						unsigned int overrideChildCount = 0;
 						ar >> overrideChildCount;
@@ -600,6 +654,116 @@ namespace Orkige
 		ar->read(static_cast<ISerializeable&>(component));
 		ar->stopReading();
 		return true;
+	}
+	//---------------------------------------------------------
+	void SceneSerializer::saveComponentProperties(optr<IArchive> const & ar,
+		GameObjectComponent & component)
+	{
+		PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+			component.getTypeInfo().getId());
+		std::vector<PropertyDesc const *> fields;
+		if(schema)
+		{
+			foreach(PropertyDesc const & desc, schema->properties())
+			{
+				if(isSerializedProperty(desc))
+				{
+					fields.push_back(&desc);
+				}
+			}
+		}
+		unsigned int fieldCount = static_cast<unsigned int>(fields.size());
+		ar << fieldCount;
+		void const * instance = static_cast<void const *>(&component);
+		foreach(PropertyDesc const * desc, fields)
+		{
+			String name = desc->name;
+			ar << name;
+			int kind = static_cast<int>(desc->kind);
+			ar << kind;
+			PropertyValue value = desc->get(instance);
+			String text = value.toString();
+			ar << text;
+			// AssetRef properties carry the resolving asset id (rename survival)
+			// in the trailing record field; every other kind writes "" there
+			String reference;
+			if(desc->kind == PropertyKind::AssetRef)
+			{
+				reference = AssetDatabase::referenceIdForValue(text, "",
+					refKindForHint(desc->referenceHint));
+			}
+			ar << reference;
+		}
+	}
+	//---------------------------------------------------------
+	void SceneSerializer::loadComponentProperties(optr<IArchive> const & ar,
+		GameObjectComponent & component)
+	{
+		struct FieldRecord
+		{
+			int kind;
+			String text;
+			String reference;
+		};
+		unsigned int fieldCount = 0;
+		ar >> fieldCount;
+		std::map<String, FieldRecord> records;
+		for(unsigned int fieldIndex = 0; fieldIndex < fieldCount; ++fieldIndex)
+		{
+			String name;
+			ar >> name;
+			int kind = 0;
+			ar >> kind;
+			String text;
+			ar >> text;
+			String reference;
+			ar >> reference;
+			FieldRecord record;
+			record.kind = kind;
+			record.text = text;
+			record.reference = reference;
+			records[name] = record;
+		}
+		PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+			component.getTypeInfo().getId());
+		if(!schema)
+		{
+			return;
+		}
+		void * instance = static_cast<void *>(&component);
+		// assign in DECLARATION order (deterministic, so a setter cascade like the
+		// sprite quad rebuild sees the scalar state before the texture reference)
+		foreach(PropertyDesc const & desc, schema->properties())
+		{
+			if(!isSerializedProperty(desc))
+			{
+				continue;
+			}
+			std::map<String, FieldRecord>::const_iterator found =
+				records.find(desc.name);
+			if(found == records.end())
+			{
+				// a field absent from the file keeps the constructed default
+				continue;
+			}
+			if(desc.kind == PropertyKind::AssetRef)
+			{
+				// resolve the reference against the active database (a resolving
+				// id wins over a stale name - rename survival) then set the name
+				String name = found->second.text;
+				String assetId = found->second.reference;
+				AssetDatabase::resolveReference(name, assetId,
+					refKindForHint(desc.referenceHint));
+				desc.set(instance,
+					PropertyValue::makeAssetRef(desc.referenceHint, name));
+			}
+			else
+			{
+				PropertyValue value = defaultValueForDesc(desc);
+				value.fromString(found->second.text);
+				desc.set(instance, value);
+			}
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

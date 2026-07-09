@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "core_game/TileComponent.h"
+#include "core_game/SceneSerializer.h"
 
 namespace Orkige
 {
@@ -24,13 +25,14 @@ namespace Orkige
 	void TileComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		ar << this->mOpenEdges;
+		// reflection-driven NAMED serialization (task #94 P2)
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void TileComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		ar >> this->mOpenEdges;
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	OOBJECT_IMPL(TileComponent)
@@ -38,6 +40,8 @@ namespace Orkige
 		OFUNC(getOpenEdges)
 		OFUNC(setOpenEdges)
 		OFUNC(isEdgeOpen)
+		// reflected schema (task #94 P2): the open-edges bitmask
+		OPROPERTY("openEdges", Orkige::PropertyKind::Int, getOpenEdges, setOpenEdges, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
 }

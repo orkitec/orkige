@@ -292,60 +292,78 @@ def fmt(value):
     return str(value)
 
 
+# PropertyKind ordinals (core_base/PropertyValue.h) for the NAMED field records
+K_INT, K_FLOAT, K_BOOL, K_STRING, K_ENUM, K_VEC3, K_QUAT, K_COLOR, K_ASSETREF = range(9)
+
+
 class ComponentWriter:
     """The component builders shared by the scene and the prefab writer -
-    each returns (componentTypeName, [serialized field lines])."""
+    each returns (componentTypeName, [serialized field lines]). Since task #94
+    P2 most components serialize their DECLARED PropertySchema as a NAMED
+    (name, kind, value, ref) record block (see _reflected); ParticleComponent
+    stays a hand-written positional escape hatch (see particles())."""
 
     @staticmethod
     def _base_fields():
-        # GameObjectComponent base save: version uint + empty string
+        # GameObjectComponent base save: attribute-bag count (0) + empty id
         return ['<unsigned_int value="0"/>', '<String value=""/>']
+
+    @staticmethod
+    def _named(records):
+        """the count-prefixed NAMED field block reflection-driven components
+        emit (SceneSerializer::loadComponentProperties reads it): records is a
+        list of (name, kind, value, ref) where ref is the AssetRef asset id."""
+        lines = ['<unsigned_int value="%d"/>' % len(records)]
+        for (name, kind, value, ref) in records:
+            lines.append('<String value="%s"/>' % name)
+            lines.append('<int value="%d"/>' % kind)
+            lines.append('<String value="%s"/>' % value)
+            lines.append('<String value="%s"/>' % ref)
+        return lines
 
     def _component(self, type_name, fields):
         return (type_name, self._base_fields() + fields)
 
+    def _reflected(self, type_name, records):
+        return (type_name, self._base_fields() + self._named(records))
+
     def transform(self, x, y, z=0.0, sx=1.0, sy=1.0, sz=1.0):
-        return self._component("TransformComponent", [
-            '<float value="%s"/>' % fmt(float(v))
-            for v in (x, y, z, 1.0, 0.0, 0.0, 0.0, sx, sy, sz)
+        return self._reflected("TransformComponent", [
+            ("position", K_VEC3, "%s %s %s" % (fmt(float(x)), fmt(float(y)), fmt(float(z))), ""),
+            ("orientation", K_QUAT, "1 0 0 0", ""),
+            ("scale", K_VEC3, "%s %s %s" % (fmt(float(sx)), fmt(float(sy)), fmt(float(sz))), ""),
         ])
 
     def sprite(self, texture, width, height, z_order=0, tint=(1, 1, 1, 1),
                visible=True):
-        return self._component("SpriteComponent", [
-            '<String value="%s"/>' % texture,
-            '<float value="%s"/>' % fmt(float(width)),
-            '<float value="%s"/>' % fmt(float(height)),
-            '<float value="0"/>', '<float value="0"/>',
-            '<float value="1"/>', '<float value="1"/>',
-            '<float value="%s"/>' % fmt(float(tint[0])),
-            '<float value="%s"/>' % fmt(float(tint[1])),
-            '<float value="%s"/>' % fmt(float(tint[2])),
-            '<float value="%s"/>' % fmt(float(tint[3])),
-            '<bool value="0"/>', '<bool value="0"/>',        # flips
-            '<int value="%d"/>' % z_order,
-            '<bool value="%s"/>' % fmt(visible),
+        return self._reflected("SpriteComponent", [
+            ("width", K_FLOAT, fmt(float(width)), ""),
+            ("height", K_FLOAT, fmt(float(height)), ""),
+            ("u0", K_FLOAT, "0", ""), ("v0", K_FLOAT, "0", ""),
+            ("u1", K_FLOAT, "1", ""), ("v1", K_FLOAT, "1", ""),
+            ("tint", K_COLOR, "%s %s %s %s" % tuple(fmt(float(c)) for c in tint), ""),
+            ("flipX", K_BOOL, "0", ""), ("flipY", K_BOOL, "0", ""),
+            ("zOrder", K_INT, "%d" % z_order, ""),
+            ("visible", K_BOOL, fmt(visible), ""),
+            ("texture", K_ASSETREF, texture, ""),
         ])
 
     def rigid_box(self, hx, hy, hz, body_type=1, friction=0.5,
                   restitution=0.0, layer="Default", is_sensor=False):
         """body_type: 0 static, 1 KINEMATIC (movable tiles), 2 dynamic.
-        layer: collision-layer NAME (physics.olayers). is_sensor: trigger volume
-        (detects overlaps, no collision response). layer then isSensor are the
-        LAST two fields, matching RigidBodyComponent::save."""
-        return self._component("RigidBodyComponent", [
-            '<int value="%d"/>' % body_type,
-            '<int value="0"/>',                              # ST_BOX
-            '<float value="%s"/>' % fmt(float(hx)),
-            '<float value="%s"/>' % fmt(float(hy)),
-            '<float value="%s"/>' % fmt(float(hz)),
-            '<float value="0.5"/>', '<float value="0.5"/>',  # radius/halfHeight
-            '<float value="1"/>',                            # mass
-            '<float value="%s"/>' % fmt(float(friction)),
-            '<float value="%s"/>' % fmt(float(restitution)),
-            '<bool value="0"/>',                             # planar (dynamic only)
-            '<String value="%s"/>' % layer,                  # collision layer
-            '<bool value="%s"/>' % fmt(is_sensor),           # isSensor (trigger)
+        layer: collision-layer NAME (physics.olayers). is_sensor: trigger
+        volume (detects overlaps, no collision response)."""
+        return self._reflected("RigidBodyComponent", [
+            ("bodyType", K_ENUM, "%d" % body_type, ""),
+            ("shapeType", K_ENUM, "0", ""),                  # ST_BOX
+            ("halfExtents", K_VEC3, "%s %s %s" % (fmt(float(hx)), fmt(float(hy)), fmt(float(hz))), ""),
+            ("radius", K_FLOAT, "0.5", ""), ("halfHeight", K_FLOAT, "0.5", ""),
+            ("mass", K_FLOAT, "1", ""),
+            ("friction", K_FLOAT, fmt(float(friction)), ""),
+            ("restitution", K_FLOAT, fmt(float(restitution)), ""),
+            ("planar", K_BOOL, "0", ""),
+            ("layer", K_STRING, layer, ""),
+            ("isSensor", K_BOOL, fmt(is_sensor), ""),
         ])
 
     def rigid_sensor_box(self, hx, hy, hz, layer="Trigger"):
@@ -358,47 +376,45 @@ class ComponentWriter:
 
     def rigid_sphere(self, radius, mass=1.0, friction=0.5, restitution=0.2,
                      planar=True, layer="Default", is_sensor=False):
-        return self._component("RigidBodyComponent", [
-            '<int value="2"/>',                              # BT_DYNAMIC
-            '<int value="1"/>',                              # ST_SPHERE
-            '<float value="0.5"/>', '<float value="0.5"/>', '<float value="0.5"/>',
-            '<float value="%s"/>' % fmt(float(radius)),
-            '<float value="0.5"/>',
-            '<float value="%s"/>' % fmt(float(mass)),
-            '<float value="%s"/>' % fmt(float(friction)),
-            '<float value="%s"/>' % fmt(float(restitution)),
-            '<bool value="%s"/>' % fmt(planar),
-            '<String value="%s"/>' % layer,                  # collision layer
-            '<bool value="%s"/>' % fmt(is_sensor),           # isSensor (trigger)
+        return self._reflected("RigidBodyComponent", [
+            ("bodyType", K_ENUM, "2", ""),                   # BT_DYNAMIC
+            ("shapeType", K_ENUM, "1", ""),                  # ST_SPHERE
+            ("halfExtents", K_VEC3, "0.5 0.5 0.5", ""),
+            ("radius", K_FLOAT, fmt(float(radius)), ""),
+            ("halfHeight", K_FLOAT, "0.5", ""),
+            ("mass", K_FLOAT, fmt(float(mass)), ""),
+            ("friction", K_FLOAT, fmt(float(friction)), ""),
+            ("restitution", K_FLOAT, fmt(float(restitution)), ""),
+            ("planar", K_BOOL, fmt(planar), ""),
+            ("layer", K_STRING, layer, ""),
+            ("isSensor", K_BOOL, fmt(is_sensor), ""),
         ])
 
     def script(self, path, enabled=True):
-        return self._component("ScriptComponent", [
-            '<String value="%s"/>' % path,
-            '<bool value="%s"/>' % fmt(enabled),
+        return self._reflected("ScriptComponent", [
+            ("script", K_ASSETREF, path, ""),
+            ("enabled", K_BOOL, fmt(enabled), ""),
         ])
 
     def level(self, cols, rows, tile_size, origin_x, origin_y, goal_slot, par):
         """LevelComponent (core_game/LevelComponent): the tile-grid GEOMETRY
         the game snaps tile roots into - cols/rows/tileSize/origin plus the
-        goal slot and the par slide count. Field ORDER mirrors
-        LevelComponent::save exactly."""
-        return self._component("LevelComponent", [
-            '<int value="%d"/>' % cols,
-            '<int value="%d"/>' % rows,
-            '<float value="%s"/>' % fmt(float(tile_size)),
-            '<float value="%s"/>' % fmt(float(origin_x)),
-            '<float value="%s"/>' % fmt(float(origin_y)),
-            '<int value="%d"/>' % goal_slot,
-            '<int value="%d"/>' % par,
+        goal slot and the par slide count."""
+        return self._reflected("LevelComponent", [
+            ("cols", K_INT, "%d" % cols, ""),
+            ("rows", K_INT, "%d" % rows, ""),
+            ("tileSize", K_FLOAT, fmt(float(tile_size)), ""),
+            ("originX", K_FLOAT, fmt(float(origin_x)), ""),
+            ("originY", K_FLOAT, fmt(float(origin_y)), ""),
+            ("goalSlot", K_INT, "%d" % goal_slot, ""),
+            ("par", K_INT, "%d" % par, ""),
         ])
 
     def tile(self, open_edges_mask=0):
         """TileComponent (core_game/TileComponent): the thin tile marker - one
-        open-edges bitmask (top 1, bottom 2, left 4, right 8; future slide
-        validation). Mirrors TileComponent::save."""
-        return self._component("TileComponent", [
-            '<int value="%d"/>' % open_edges_mask,
+        open-edges bitmask (top 1, bottom 2, left 4, right 8)."""
+        return self._reflected("TileComponent", [
+            ("openEdges", K_INT, "%d" % open_edges_mask, ""),
         ])
 
     def particles(self, texture, burst_count=24, max_particles=48,
@@ -464,10 +480,12 @@ class ComponentWriter:
 
 
 class SceneWriter(ComponentWriter):
-    """Writes scene format VERSION 4: every object carries its parent id
+    """Writes scene format VERSION 6: every object carries its parent id
     ("" = root), its activeSelf flag, its free-form tag list and its prefabRef
     ("" = plain object; instance roots additionally list their suppressed
-    prefab children) next to the components (core_game/SceneSerializer.cpp).
+    prefab children then a per-child property-override count) next to the
+    components, whose fields are NAMED reflection records (task #94 P2,
+    core_game/SceneSerializer.cpp).
     Tile roots are tagged "tile" so game.lua discovers them via
     world.findByTag - no hardcoded id list."""
 
@@ -487,10 +505,10 @@ class SceneWriter(ComponentWriter):
 
     def write(self, path):
         lines = [
-            "<?1.0, UTF-8, yes?>",
+            '<?xml version="1.0" encoding="UTF-8"?>',
             '<XMLArchive Version="0">',
             '    <String value="orkige.oscene"/>',
-            '    <int value="4"/>',
+            '    <int value="6"/>',
             '    <unsigned_int value="%d"/>' % len(self.objects),
         ]
         for (name, parent, active, tags, prefab_ref, prefab_asset_id,
@@ -501,11 +519,14 @@ class SceneWriter(ComponentWriter):
             else:
                 prefab_lines = ['    <String value="%s"/>' % prefab_ref]
             if prefab_ref:
-                # instance roots list their structural overrides
+                # instance roots list their structural overrides (suppressed
+                # children) then the per-child property override count (0 - the
+                # generator emits pristine instances, no overrides)
                 prefab_lines.append(
                     '    <unsigned_int value="%d"/>' % len(suppressed))
                 prefab_lines.extend(
                     '    <String value="%s"/>' % local for local in suppressed)
+                prefab_lines.append('    <unsigned_int value="0"/>')
             lines.extend(self._object_lines(
                 name, parent, active, list(tags), prefab_lines, components))
         lines.append('</XMLArchive>')

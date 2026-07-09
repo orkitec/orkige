@@ -11,6 +11,7 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include <core_game/GameObject.h>
+#include <core_game/SceneSerializer.h>
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_gocomponent/CameraDefaultModes.h"
@@ -147,23 +148,21 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	// @TODO(scene format v2): serialize the camera mode FUNCTION and the
-	// camera/sight node offsets - projection mode and orthoSize round-trip
+	// @TODO: serialize the camera mode FUNCTION and the camera/sight node offsets
+	// - projectionMode + orthoSize round-trip through the reflected schema
 	void CameraComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		int mode = static_cast<int>(this->projectionMode);
-		ar << mode << this->orthoSize;
-		oDebugMsg("scene",0,"CameraComponent: camera mode function and node offsets are not serialized yet");
+		// reflection-driven NAMED serialization (task #94 P2): projectionMode
+		// (enum) + orthoSize (float) are written by name off the declared schema
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void CameraComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		int mode = 0;
-		ar >> mode >> this->orthoSize;
-		this->projectionMode = static_cast<CameraComponent::ProjectionMode>(mode);
-		this->applyProjection();
+		// the setProjectionMode / setOrthoSize reflected setters re-applyProjection
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

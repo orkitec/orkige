@@ -415,24 +415,16 @@ TEST_CASE("Nested prefabs are refused on save and hard-error on load",
 	manager.clear();
 }
 
-TEST_CASE("Legacy version 4 prefab-instance scenes load without child overrides",
-	"[prefab]")
+TEST_CASE("Pre-cutover (legacy positional) scene versions are rejected", "[prefab]")
 {
+	// task #94 P2 is a CLEAN CUTOVER (no back-compat): the positional readers and
+	// the per-version field gates were removed, so scene files written in an
+	// older format version no longer load - only the single current version does.
 	Orkige::GameObjectManager & manager = freshPrefabWorld();
-	TempFile prefab("orkige_test_v4_tile.oprefab");
-	TempFile scene("orkige_test_v4_prefab_scene.oscene");
 
-	// a real prefab on disk (the v4 roller format carries no per-child
-	// overrides - the loader must not expect a v5 block)
-	buildTilePrototype(manager);
-	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefab.path, manager,
-		"TileProto"));
-	manager.clear();
-
-	// hand-craft the exact v4 instance-root block: id, parent, activeSelf,
-	// tag list, prefabRef, suppressed children, then the root component block
-	// (NO v5 override block)
+	SECTION("a version-4 prefab-instance scene")
 	{
+		TempFile scene("orkige_test_v4_prefab_scene.oscene");
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startWriting(scene.path));
 		ar << Orkige::SceneSerializer::SCENE_FORMAT_MAGIC;
@@ -448,73 +440,41 @@ TEST_CASE("Legacy version 4 prefab-instance scenes load without child overrides"
 		ar << activeSelf;
 		unsigned int tagCount = 0;
 		ar << tagCount;
-		ar->writeAttributed(prefab.fileName,
+		ar->writeAttributed("some.oprefab",
 			Orkige::AssetDatabase::REFERENCE_ID_ATTRIBUTE, "");
-		unsigned int suppressedCount = 1;
+		unsigned int suppressedCount = 0;
 		ar << suppressedCount;
-		Orkige::String suppressed = "B";
-		ar << suppressed;
-		unsigned int componentCount = 0;	// no root override
+		unsigned int componentCount = 0;
 		ar << componentCount;
 		REQUIRE(ar->stopWriting());
+
+		REQUIRE_FALSE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+		CHECK_FALSE(manager.objectExists("Tile1"));
 	}
 
-	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
-	CHECK(manager.objectExists("Tile1"));
-	CHECK(manager.objectExists("Tile1/A"));
-	CHECK_FALSE(manager.objectExists("Tile1/B"));		// suppressed subtree
-	CHECK_FALSE(manager.objectExists("Tile1/B_Sub"));
-	CHECK(healthOf(manager, "Tile1/A") == 1);			// pristine prefab value
-	optr<Orkige::GameObject> root = manager.getGameObject("Tile1").lock();
-	REQUIRE(root);
-	CHECK(root->getPrefabChildOverrides().empty());
-	REQUIRE(root->getSuppressedPrefabChildren().size() == 1);
-	CHECK(root->getSuppressedPrefabChildren()[0] == "B");
-
-	manager.clear();
-}
-
-TEST_CASE("Legacy version 2 scenes load with no prefab state", "[prefab]")
-{
-	Orkige::GameObjectManager & manager = freshPrefabWorld();
-	TempFile scene("orkige_test_v2_scene.oscene");
-
-	// hand-craft the exact v2 per-object block (id, parent, activeSelf,
-	// components - no prefab fields)
+	SECTION("a version-2 hierarchy scene")
 	{
+		TempFile scene("orkige_test_v2_scene.oscene");
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startWriting(scene.path));
 		ar << Orkige::SceneSerializer::SCENE_FORMAT_MAGIC;
 		int version = 2;
 		ar << version;
-		unsigned int objectCount = 2;
+		unsigned int objectCount = 1;
 		ar << objectCount;
-		Orkige::String id = "OldChild";
+		Orkige::String id = "OldRoot";
 		ar << id;
-		Orkige::String parentId = "OldRoot";
+		Orkige::String parentId = "";
 		ar << parentId;
-		bool activeSelf = true;
+		bool activeSelf = false;
 		ar << activeSelf;
 		unsigned int componentCount = 0;
 		ar << componentCount;
-		id = "OldRoot";
-		ar << id;
-		parentId = "";
-		ar << parentId;
-		activeSelf = false;
-		ar << activeSelf;
-		ar << componentCount;
 		REQUIRE(ar->stopWriting());
-	}
 
-	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
-	REQUIRE(manager.getGameObjects().size() == 2);
-	optr<Orkige::GameObject> root = manager.getGameObject("OldRoot").lock();
-	REQUIRE(root);
-	CHECK(root->getPrefabRef().empty());
-	CHECK(root->getSuppressedPrefabChildren().empty());
-	CHECK_FALSE(root->isActiveSelf());
-	CHECK(manager.getGameObject("OldChild").lock()->getParentId() == "OldRoot");
+		REQUIRE_FALSE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+		CHECK_FALSE(manager.objectExists("OldRoot"));
+	}
 
 	manager.clear();
 }

@@ -57,6 +57,14 @@ namespace Orkige
 		int getPar() const { return mPar; }
 		void setPar(int par) { mPar = par; }
 
+		//--- reflected property setters (task #94 P2): set one geometry field,
+		//! keep the rest (the drive round-trips each grid field by name)
+		void setColsValue(int cols) { this->setGeometry(cols, mRows, mTileSize, mOriginX, mOriginY); }
+		void setRowsValue(int rows) { this->setGeometry(mCols, rows, mTileSize, mOriginX, mOriginY); }
+		void setTileSizeValue(float tileSize) { this->setGeometry(mCols, mRows, tileSize, mOriginX, mOriginY); }
+		void setOriginXValue(float originX) { this->setGeometry(mCols, mRows, mTileSize, originX, mOriginY); }
+		void setOriginYValue(float originY) { this->setGeometry(mCols, mRows, mTileSize, mOriginX, originY); }
+
 		//! the pure grid this component's geometry describes
 		LevelGrid getGrid() const;
 

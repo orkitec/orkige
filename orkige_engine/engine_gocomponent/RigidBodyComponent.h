@@ -88,6 +88,23 @@ namespace Orkige
 		void setIsSensor(bool isSensor);
 		//! is this body a sensor / trigger volume (@see setIsSensor)
 		inline bool isSensor() const;
+
+		//--- reflected property accessors (task #94 P2): the BodyDesc creation
+		//! parameters, get/set by field so the property drive round-trips them by
+		//! name. The setters write the descriptor directly (the body is created
+		//! lazily AFTER load, so no live-body guard is needed here).
+		inline PhysicsWorld::ShapeType getShapeType() const { return this->mBodyDesc.shapeType; }
+		inline void setShapeType(PhysicsWorld::ShapeType shapeType) { this->mBodyDesc.shapeType = shapeType; }
+		inline Vec3 const & getHalfExtents() const { return this->mBodyDesc.halfExtents; }
+		inline void setHalfExtents(Vec3 const & halfExtents) { this->mBodyDesc.halfExtents = halfExtents; }
+		inline float getRadius() const { return this->mBodyDesc.radius; }
+		inline void setRadiusValue(float radius) { this->mBodyDesc.radius = radius; }
+		inline float getHalfHeight() const { return this->mBodyDesc.halfHeight; }
+		inline void setHalfHeightValue(float halfHeight) { this->mBodyDesc.halfHeight = halfHeight; }
+		inline float getMass() const { return this->mBodyDesc.mass; }
+		inline float getFriction() const { return this->mBodyDesc.friction; }
+		inline float getRestitution() const { return this->mBodyDesc.restitution; }
+
 		//! set linear velocity in m/s (needs the created body)
 		void setLinearVelocity(Vec3 const & velocity);
 		//! get linear velocity in m/s (ZERO before body creation)

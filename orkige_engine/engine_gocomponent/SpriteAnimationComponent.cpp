@@ -10,6 +10,7 @@
 #include "engine_gocomponent/SpriteAnimationComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
 #include <core_game/GameObject.h>
+#include <core_game/SceneSerializer.h>
 
 #include <algorithm>
 #include <cmath>
@@ -167,8 +168,11 @@ namespace Orkige
 	void SpriteAnimationComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		ar << this->mGridColumns << this->mGridRows;
-		ar << this->mDefaultClip;
+		// reflection-driven NAMED serialization (task #94 P2): grid + default clip
+		// are reflected scalars; the variable-length clip catalogue below is the
+		// hand-written ESCAPE HATCH (a map is not a reflectable scalar field), a
+		// positional residue tail after the named block
+		SceneSerializer::saveComponentProperties(ar, *this);
 		// the clip catalogue: count, then each clip's name + fields (the map's
 		// value type is a plain struct, so it is written field by field)
 		ar << static_cast<unsigned int>(this->mClips.size());
@@ -189,8 +193,7 @@ namespace Orkige
 	void SpriteAnimationComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		ar >> this->mGridColumns >> this->mGridRows;
-		ar >> this->mDefaultClip;
+		SceneSerializer::loadComponentProperties(ar, *this);
 		unsigned int clipCount = 0;
 		ar >> clipCount;
 		this->mClips.clear();
@@ -298,5 +301,10 @@ namespace Orkige
 		OFUNC(getCurrentFrame)
 		OFUNC(setSpeed)
 		OFUNC(getSpeed)
+		// reflected schema (task #94 P2): the grid + default clip; the clip
+		// catalogue stays a hand-written positional residue (variable-length map)
+		OPROPERTY("gridColumns", Orkige::PropertyKind::Int, getGridColumns, setGridColumnsValue, Orkige::PROP_NONE)
+		OPROPERTY("gridRows", Orkige::PropertyKind::Int, getGridRows, setGridRowsValue, Orkige::PROP_NONE)
+		OPROPERTY("defaultClip", Orkige::PropertyKind::String, getDefaultClip, setDefaultClip, Orkige::PROP_NONE)
 	OOBJECT_END
 }

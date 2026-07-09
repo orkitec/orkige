@@ -293,12 +293,15 @@ TEST_CASE("SceneSerializer round-trips parented and inactive objects", "[hierarc
 	manager.clear();
 }
 
-TEST_CASE("SceneSerializer loads legacy version-1 scenes as all-root worlds", "[hierarchy][scene]")
+TEST_CASE("SceneSerializer rejects pre-cutover (legacy positional) scene versions", "[hierarchy][scene]")
 {
+	// task #94 P2 is a CLEAN CUTOVER: the positional readers and the per-version
+	// field gates are gone, so an old-version scene file no longer loads (there
+	// is a single current format). Assert the honest rejection.
 	Orkige::GameObjectManager & manager = bootHierarchyWorld();
 	TempScene scene("orkige_test_legacy_v1.oscene");
 
-	// hand-craft a version 1 scene (no parent/active fields)
+	// hand-craft a version 1 scene (the historical all-root shape)
 	{
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startWriting(scene.path));
@@ -321,13 +324,9 @@ TEST_CASE("SceneSerializer loads legacy version-1 scenes as all-root worlds", "[
 		REQUIRE(ar->stopWriting());
 	}
 
-	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
-	optr<Orkige::GameObject> legacy = manager.getGameObject("Legacy").lock();
-	REQUIRE(legacy);
-	CHECK(legacy->getParentId().empty());
-	CHECK(legacy->isActiveSelf());
-	CHECK(legacy->isActiveInHierarchy());
-	CHECK(legacy->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 42);
+	// the old version is refused (unsupported version) - nothing is loaded
+	REQUIRE_FALSE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	CHECK_FALSE(manager.getGameObject("Legacy").lock());
 
 	manager.clear();
 }

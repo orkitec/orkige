@@ -149,6 +149,31 @@ namespace Orkige
 		//! is the sprite visible (true when no quad exists yet - it will show)
 		bool isSpriteVisible() const;
 
+		//--- reflected property accessors (task #94 P2) ---
+		//! @brief set the texture REFERENCE by name (the reflected AssetRef
+		//! setter): empty removes the sprite; a name loads it when the scene node
+		//! exists, otherwise records the reference (detached load). Tolerant where
+		//! loadSprite asserts, so the property drive can set it.
+		void setTextureReference(String const & textureName);
+		//! reflected width setter (keeps the current height)
+		inline void setWidthValue(float width) { this->setSize(width, this->mHeight); }
+		//! reflected height setter (keeps the current width)
+		inline void setHeightValue(float height) { this->setSize(this->mWidth, height); }
+		//! UV rect corners as individual reflected floats
+		inline float getU0() const { return this->mU0; }
+		inline float getV0() const { return this->mV0; }
+		inline float getU1() const { return this->mU1; }
+		inline float getV1() const { return this->mV1; }
+		inline void setU0(float value) { this->setUVRect(value, this->mV0, this->mU1, this->mV1); }
+		inline void setV0(float value) { this->setUVRect(this->mU0, value, this->mU1, this->mV1); }
+		inline void setU1(float value) { this->setUVRect(this->mU0, this->mV0, value, this->mV1); }
+		inline void setV1(float value) { this->setUVRect(this->mU0, this->mV0, this->mU1, value); }
+		//! reflected tint setter (Color -> the four-float setTint)
+		inline void setTintColor(Color const & tint) { this->setTint(tint.r, tint.g, tint.b, tint.a); }
+		//! reflected flip setters (keep the other axis)
+		inline void setFlipXValue(bool flipX) { this->setFlip(flipX, this->mFlipY); }
+		inline void setFlipYValue(bool flipY) { this->setFlip(this->mFlipX, flipY); }
+
 		//--- pure helpers (headless-testable, no renderer required) ---
 		//! @brief derive the rendered size from the configured size and the
 		//! texture texel size (<= 0 configured = from aspect; fallback 1x1)

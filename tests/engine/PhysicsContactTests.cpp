@@ -329,30 +329,30 @@ TEST_CASE("RigidBodyComponent serializes its sensor flag and migrates old scenes
 		CHECK(loaded.getBodyType() == PhysicsWorld::BT_STATIC);
 	}
 
-	// migration: a PRE-SENSOR scene ends at the layer STRING field. Loading the
-	// missing sensor bool must NOT throw (the layer string is not a bool) and
-	// must default to false - old scenes behave identically.
+	// field tolerance (task #94 P2 named format): a component block that carries
+	// only a SUBSET of the schema's fields (here bodyType + layer, no isSensor)
+	// loads with the present fields set and every absent field left at its
+	// constructed default - no positional cursor, no version gate.
 	{
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startWriting(file.path));
 		optr<Orkige::IArchive> archive = ar;
-		// the GameObjectComponent base fields a real serialized component
-		// carries (version uint + empty string) - without them the reads shift
-		unsigned int baseVersion = 0;
+		// the GameObjectComponent base (attribute-bag count + empty id)
+		unsigned int bagCount = 0;
 		Orkige::String baseName = "";
-		archive << baseVersion << baseName;
-		int bodyType = static_cast<int>(PhysicsWorld::BT_STATIC);
-		int shapeType = static_cast<int>(PhysicsWorld::ST_BOX);
-		archive << bodyType << shapeType;
-		float half = 0.5f;
-		archive << half << half << half;			// halfExtents
-		archive << half << half;					// radius / halfHeight
-		float mass = 1.0f, friction = 0.5f, restitution = 0.0f;
-		archive << mass << friction << restitution;
-		bool planar = false;
-		archive << planar;
-		Orkige::String layer = "obstacle";
-		archive << layer;							// LAST field of the pre-sensor format
+		archive << bagCount << baseName;
+		// a NAMED field block with only two of the schema's properties
+		unsigned int fieldCount = 2;
+		archive << fieldCount;
+		Orkige::String name = "bodyType";
+		int kind = 4;					// PropertyKind::Enum
+		Orkige::String value = "0";		// BT_STATIC
+		Orkige::String reference = "";
+		archive << name << kind << value << reference;
+		name = "layer";
+		kind = 3;						// PropertyKind::String
+		value = "obstacle";
+		archive << name << kind << value << reference;
 		REQUIRE(ar->stopWriting());
 	}
 	{
@@ -360,9 +360,10 @@ TEST_CASE("RigidBodyComponent serializes its sensor flag and migrates old scenes
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startReading(file.path));
 		optr<Orkige::IArchive> archive = ar;
-		loaded.load(archive);						// must not throw
+		loaded.load(archive);
 		REQUIRE(ar->stopReading());
+		CHECK(loaded.getBodyType() == PhysicsWorld::BT_STATIC);
 		CHECK(loaded.getLayer() == "obstacle");
-		CHECK_FALSE(loaded.isSensor());				// missing field -> not a sensor
+		CHECK_FALSE(loaded.isSensor());				// absent field -> default (false)
 	}
 }

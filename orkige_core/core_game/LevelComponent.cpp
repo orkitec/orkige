@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "core_game/LevelComponent.h"
+#include "core_game/SceneSerializer.h"
 
 namespace Orkige
 {
@@ -80,25 +81,14 @@ namespace Orkige
 	void LevelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		ar << this->mCols;
-		ar << this->mRows;
-		ar << this->mTileSize;
-		ar << this->mOriginX;
-		ar << this->mOriginY;
-		ar << this->mGoalSlot;
-		ar << this->mPar;
+		// reflection-driven NAMED serialization (task #94 P2)
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void LevelComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		ar >> this->mCols;
-		ar >> this->mRows;
-		ar >> this->mTileSize;
-		ar >> this->mOriginX;
-		ar >> this->mOriginY;
-		ar >> this->mGoalSlot;
-		ar >> this->mPar;
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	OOBJECT_IMPL(LevelComponent)
@@ -118,6 +108,14 @@ namespace Orkige
 		OFUNC(slotCenterX)
 		OFUNC(slotCenterY)
 		OFUNC(starsForMoves)
+		// reflected grid-geometry schema (task #94 P2)
+		OPROPERTY("cols", Orkige::PropertyKind::Int, getCols, setColsValue, Orkige::PROP_NONE)
+		OPROPERTY("rows", Orkige::PropertyKind::Int, getRows, setRowsValue, Orkige::PROP_NONE)
+		OPROPERTY("tileSize", Orkige::PropertyKind::Float, getTileSize, setTileSizeValue, Orkige::PROP_NONE)
+		OPROPERTY("originX", Orkige::PropertyKind::Float, getOriginX, setOriginXValue, Orkige::PROP_NONE)
+		OPROPERTY("originY", Orkige::PropertyKind::Float, getOriginY, setOriginYValue, Orkige::PROP_NONE)
+		OPROPERTY("goalSlot", Orkige::PropertyKind::Int, getGoalSlot, setGoalSlot, Orkige::PROP_NONE)
+		OPROPERTY("par", Orkige::PropertyKind::Int, getPar, setPar, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
 }

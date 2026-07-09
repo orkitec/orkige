@@ -18,6 +18,7 @@
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/SceneSerializer.h>
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelManager.h>
 #include <core_debug/CVarManager.h>
@@ -359,28 +360,23 @@ namespace Orkige
 	void ScriptComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// only the authoring state round-trips: the script path (its stable
-		// asset id rides as an attribute next to it) and the enabled flag;
-		// runtime state (loaded/failed, the Lua environment) is rebuilt from
-		// the script file on the next play run
-		ar->writeAttributed(this->mScriptFile,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
-			AssetDatabase::referenceIdForValue(this->mScriptFile,
-				this->mScriptAssetId, AssetDatabase::REF_PROJECT_PATH));
-		ar << this->mScriptEnabled;
+		// reflection-driven NAMED serialization (task #94 P2): only the authoring
+		// state round-trips - the script path (an AssetRef, its stable asset id in
+		// the record for rename survival) and the enabled flag; runtime state
+		// (loaded/failed, the Lua environment) is rebuilt on the next play run.
+		// The per-instance script EXPORT property VALUES ride the AttributeHolder
+		// bag (OParent::save) - the dynamic-schema wiring itself is P5.
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
 		this->resetScriptState();
-		ar->readAttributed(this->mScriptFile,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE, this->mScriptAssetId);
-		ar >> this->mScriptEnabled;
-		// a resolving asset id wins over a stale path (rename survival);
-		// legacy scenes without ids keep loading via the path
-		AssetDatabase::resolveReference(this->mScriptFile,
-			this->mScriptAssetId, AssetDatabase::REF_PROJECT_PATH);
+		// the script AssetRef is resolved against the active database (a resolving
+		// id wins over a stale path - rename survival) then set through
+		// setScriptFile; the enabled flag follows
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
@@ -860,5 +856,9 @@ namespace Orkige
 		OFUNC(hotReload)
 		OFUNC(hasReloadError)
 		OFUNCCR(getLastReloadError)
+		// reflected schema (task #94 P2): the script file (AssetRef, project-
+		// relative path, asset-kind "script") + the enabled flag
+		OPROPERTY_REF("script", Orkige::PropertyKind::AssetRef, "script", getScriptFile, setScriptFile, Orkige::PROP_NONE)
+		OPROPERTY("enabled", Orkige::PropertyKind::Bool, isScriptEnabled, setScriptEnabled, Orkige::PROP_NONE)
 	OOBJECT_END
 }

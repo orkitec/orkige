@@ -13,6 +13,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObjectManager.h>
+#include <core_game/SceneSerializer.h>
 
 #include <vector>
 
@@ -254,29 +255,17 @@ namespace Orkige
 	void TransformComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// the node hierarchy below this transform (child nodes, attached
-		// content) is owned by other components (e.g. ModelComponent)
-		// which serialize their own state - only the local transform is saved
-		Vec3 position = this->getPosition();
-		Quat orientation = this->getOrientation();
-		Vec3 scale = this->getScale();
-		ar << position.x << position.y << position.z;
-		ar << orientation.w << orientation.x << orientation.y << orientation.z;
-		ar << scale.x << scale.y << scale.z;
+		// reflection-driven NAMED serialization (task #94 P2): the declared
+		// position/orientation/scale schema is written by name. The node
+		// hierarchy below this transform (child nodes, attached content) is
+		// owned by other components which serialize their own state.
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void TransformComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		Vec3 position;
-		Quat orientation;
-		Vec3 scale;
-		ar >> position.x >> position.y >> position.z;
-		ar >> orientation.w >> orientation.x >> orientation.y >> orientation.z;
-		ar >> scale.x >> scale.y >> scale.z;
-		this->setPosition(position);
-		this->setOrientation(orientation);
-		this->setScale(scale);
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------

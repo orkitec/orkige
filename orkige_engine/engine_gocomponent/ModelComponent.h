@@ -55,9 +55,14 @@ namespace Orkige
 		void loadModel(String const & modelFileName);
 		//! removes model and triggers ModelRemovedEvent
 		void removeModel();
+		//! @brief set the mesh REFERENCE by name (the reflected AssetRef setter,
+		//! task #94 P2): empty removes the model; a name loads it when the scene
+		//! node exists, otherwise just records the reference (a detached load).
+		//! Tolerant where loadModel asserts - so the property drive can set it.
+		void setModelReference(String const & modelFileName);
 
 		//! @see ModelComponent::modelFileName
-		inline String const & getCurrentModelFileName();
+		inline String const & getCurrentModelFileName() const;
 		//! @see ModelComponent::modelAssetId
 		inline String const & getModelAssetId() const;
 		//! the facade mesh instance or NULL (@see ModelComponent::mesh)
@@ -81,7 +86,7 @@ namespace Orkige
 	private:
 	};
 	//---------------------------------------------------------------
-	inline String const & ModelComponent::getCurrentModelFileName()
+	inline String const & ModelComponent::getCurrentModelFileName() const
 	{
 		return this->modelFileName;
 	}

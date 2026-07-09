@@ -9,9 +9,11 @@
 
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
+#include <core_game/SceneSerializer.h>
 #include <core_debug/DebugMacros.h>
 #include <core_project/AssetDatabase.h>
 
@@ -528,53 +530,50 @@ namespace Orkige
 			? SpriteQuad::ADDRESS_WRAP : SpriteQuad::ADDRESS_CLAMP;
 	}
 	//---------------------------------------------------------
+	void SpriteComponent::setTextureReference(String const & textureName)
+	{
+		if(textureName.empty())
+		{
+			// a live quad tears down through removeSprite (needs the owner);
+			// a detached component (no quad) just clears the recorded reference
+			if(this->mQuad)
+			{
+				this->removeSprite();
+			}
+			else
+			{
+				this->mTextureName = "";
+				this->mTextureAssetId = "";
+			}
+			return;
+		}
+		// a detached load (unit tests, tooling) only records the state; the quad
+		// needs the scene node the component gets on attachment
+		if(this->mNode)
+		{
+			this->loadSprite(textureName);
+			return;
+		}
+		this->mTextureName = textureName;
+		this->mTextureAssetId = AssetDatabase::referenceIdForValue(
+			textureName, "", AssetDatabase::REF_FILE_NAME);
+	}
+	//---------------------------------------------------------
 	void SpriteComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// the stable asset id rides as an attribute NEXT TO the legacy
-		// texture name - old builds/scenes stay mutually loadable
-		ar->writeAttributed(this->mTextureName,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
-			AssetDatabase::referenceIdForValue(this->mTextureName,
-				this->mTextureAssetId, AssetDatabase::REF_FILE_NAME));
-		ar << this->mWidth << this->mHeight;
-		ar << this->mU0 << this->mV0 << this->mU1 << this->mV1;
-		ar << this->mTint.r << this->mTint.g << this->mTint.b << this->mTint.a;
-		ar << this->mFlipX << this->mFlipY;
-		ar << this->mZOrder;
-		ar << this->mVisible;
+		// reflection-driven NAMED serialization (task #94 P2): size, UV rect,
+		// tint, flips, zOrder, visibility and the texture AssetRef (its stable id
+		// rides the record for rename survival) are written by name off the
+		// declared schema. The texture is declared LAST so the scalar state is set
+		// before the quad rebuild reads it on load (@see loadComponentProperties)
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void SpriteComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		String textureName;
-		String textureAssetId;
-		ar->readAttributed(textureName,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE, textureAssetId);
-		ar >> this->mWidth >> this->mHeight;
-		ar >> this->mU0 >> this->mV0 >> this->mU1 >> this->mV1;
-		ar >> this->mTint.r >> this->mTint.g >> this->mTint.b >> this->mTint.a;
-		ar >> this->mFlipX >> this->mFlipY;
-		ar >> this->mZOrder;
-		ar >> this->mVisible;
-		// a resolving asset id wins over a stale texture name (rename
-		// survival); legacy scenes without ids keep loading via the name
-		AssetDatabase::resolveReference(textureName, textureAssetId,
-			AssetDatabase::REF_FILE_NAME);
-		// a detached load (unit tests, tooling) only restores the state; the
-		// quad needs the scene node the component gets on attachment
-		if(!textureName.empty() && this->mNode)
-		{
-			this->loadSprite(textureName);
-		}
-		else
-		{
-			this->mTextureName = textureName;
-		}
-		// keep the serialized id even when no database could verify it (a
-		// standalone scene load must not strip ids on a re-save)
-		this->mTextureAssetId = textureAssetId;
+		SceneSerializer::loadComponentProperties(ar, *this);
 		if(this->mNode)
 		{
 			this->applyVisibility();
@@ -604,5 +603,20 @@ namespace Orkige
 		OFUNC(getZOrder)
 		OFUNC(setSpriteVisible)
 		OFUNC(isSpriteVisible)
+		// reflected schema (task #94 P2): scalar/colour/flip state THEN the
+		// texture reference last (its setter rebuilds the quad from the state set
+		// just above). width/height <= 0 keep the texture-aspect derivation.
+		OPROPERTY("width", Orkige::PropertyKind::Float, getWidth, setWidthValue, Orkige::PROP_NONE)
+		OPROPERTY("height", Orkige::PropertyKind::Float, getHeight, setHeightValue, Orkige::PROP_NONE)
+		OPROPERTY("u0", Orkige::PropertyKind::Float, getU0, setU0, Orkige::PROP_NONE)
+		OPROPERTY("v0", Orkige::PropertyKind::Float, getV0, setV0, Orkige::PROP_NONE)
+		OPROPERTY("u1", Orkige::PropertyKind::Float, getU1, setU1, Orkige::PROP_NONE)
+		OPROPERTY("v1", Orkige::PropertyKind::Float, getV1, setV1, Orkige::PROP_NONE)
+		OPROPERTY("tint", Orkige::PropertyKind::Color, getTint, setTintColor, Orkige::PROP_NONE)
+		OPROPERTY("flipX", Orkige::PropertyKind::Bool, getFlipX, setFlipXValue, Orkige::PROP_NONE)
+		OPROPERTY("flipY", Orkige::PropertyKind::Bool, getFlipY, setFlipYValue, Orkige::PROP_NONE)
+		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
+		OPROPERTY("visible", Orkige::PropertyKind::Bool, isSpriteVisible, setSpriteVisible, Orkige::PROP_NONE)
+		OPROPERTY_REF("texture", Orkige::PropertyKind::AssetRef, "texture", getTextureName, setTextureReference, Orkige::PROP_NONE)
 	OOBJECT_END
 }

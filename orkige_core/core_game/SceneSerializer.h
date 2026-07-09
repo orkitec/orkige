@@ -68,6 +68,25 @@ namespace Orkige
 		//! (existing) component. False when the string cannot be read.
 		static bool applyComponentState(String const & xml,
 			GameObjectComponent & component);
+
+		//--- reflection-driven component serialization (task #94, P2) ---
+		//! @brief write a component's declared properties as a NAMED field block:
+		//! a count followed by (name, kind, value, ref-id) records driven off the
+		//! component type's PropertySchema (TypeManager). Transient/read-only
+		//! (setter-less) properties are skipped; AssetRef properties carry their
+		//! stable asset id in the trailing record field. This is what replaced the
+		//! per-component positional save - a component's save() calls it after
+		//! OParent::save (@see loadComponentProperties). Order-independent,
+		//! add/remove-field tolerant by design (matched by name on load).
+		static void saveComponentProperties(optr<IArchive> const & ar,
+			GameObjectComponent & component);
+		//! @brief read a NAMED field block written by saveComponentProperties and
+		//! assign each present property through its reflected setter (resolving
+		//! AssetRef references against the active AssetDatabase). A field missing
+		//! from the file keeps the constructed default; a field not in the schema
+		//! is ignored - so the named format has no per-version field gates.
+		static void loadComponentProperties(optr<IArchive> const & ar,
+			GameObjectComponent & component);
 	protected:
 	private:
 	};

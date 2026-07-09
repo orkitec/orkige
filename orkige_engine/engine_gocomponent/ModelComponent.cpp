@@ -9,9 +9,11 @@
 
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
+#include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
 
 namespace Orkige
@@ -90,6 +92,35 @@ namespace Orkige
 		this->modelAssetId = "";
 	}
 	//---------------------------------------------------------
+	void ModelComponent::setModelReference(String const & modelFileName)
+	{
+		if(modelFileName.empty())
+		{
+			// a live mesh tears down through removeModel (needs the owner); a
+			// detached component (no mesh) just clears the recorded reference
+			if(this->mesh)
+			{
+				this->removeModel();
+			}
+			else
+			{
+				this->modelFileName = "";
+				this->modelAssetId = "";
+			}
+			return;
+		}
+		if(this->mNode)
+		{
+			this->loadModel(modelFileName);
+			return;
+		}
+		// a detached load (no scene node yet): record the reference so a re-save
+		// keeps it; the live mesh is built when the component gets its node
+		this->modelFileName = modelFileName;
+		this->modelAssetId = AssetDatabase::referenceIdForValue(
+			modelFileName, "", AssetDatabase::REF_FILE_NAME);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void ModelComponent::onAdd()
@@ -127,34 +158,21 @@ namespace Orkige
 	void ModelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// only the mesh resource name round-trips (its stable asset id rides
-		// as an attribute next to it); runtime tweaks applied to the mesh
-		// instance after loadModel (unlit fixup, visibility, ...) are NOT
-		// serialized yet
-		ar->writeAttributed(this->modelFileName,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE,
-			AssetDatabase::referenceIdForValue(this->modelFileName,
-				this->modelAssetId, AssetDatabase::REF_FILE_NAME));
+		// reflection-driven NAMED serialization (task #94 P2): the mesh AssetRef
+		// (its stable asset id rides in the record's reference field for rename
+		// survival) is the only serialized field; runtime tweaks applied to the
+		// mesh instance after loadModel (unlit fixup, visibility, ...) are not
+		// serialized
+		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	void ModelComponent::load(optr<IArchive> const & ar)
 	{
 		OParent::load(ar);
-		String fileName;
-		String assetId;
-		ar->readAttributed(fileName,
-			AssetDatabase::REFERENCE_ID_ATTRIBUTE, assetId);
-		// a resolving asset id wins over a stale file name (rename
-		// survival); legacy scenes without ids keep loading via the name
-		AssetDatabase::resolveReference(fileName, assetId,
-			AssetDatabase::REF_FILE_NAME);
-		if(!fileName.empty())
-		{
-			this->loadModel(fileName);
-		}
-		// keep the serialized id even when no database could verify it (a
-		// standalone scene load must not strip ids on a re-save)
-		this->modelAssetId = assetId;
+		// the mesh AssetRef is resolved against the active AssetDatabase (a
+		// resolving id wins over a stale name - rename survival) then set through
+		// setModelReference, which loads the model when the scene node exists
+		SceneSerializer::loadComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
@@ -163,5 +181,8 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 		OFUNC(loadModel)
 		OFUNCCR(getCurrentModelFileName)
+		// reflected schema (task #94 P2): the mesh reference (AssetRef, asset-kind
+		// "mesh"); its stable id rides the record so a project rename survives
+		OPROPERTY_REF("mesh", Orkige::PropertyKind::AssetRef, "mesh", getCurrentModelFileName, setModelReference, Orkige::PROP_NONE)
 	OOBJECT_END
 }
