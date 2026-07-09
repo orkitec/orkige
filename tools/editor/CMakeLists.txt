@@ -32,8 +32,26 @@ target_precompile_headers(orkige_editor_core PRIVATE
 )
 orkige_pch_ccache_compat(orkige_editor_core)
 
+# The editor shell: main.cpp (boot + frame loop) plus one TU per concern
+# (EditorApp.h is the shared-state/seam header) so a single-panel edit
+# recompiles one small TU instead of the former 8600-line monolith.
 add_executable(orkige_editor
     main.cpp
+    EditorApp.h
+    EditorConsole.cpp
+    EditorDeviceTargets.cpp
+    EditorDocument.cpp
+    EditorExport.cpp
+    EditorFileDialogs.cpp
+    EditorHierarchyPanel.cpp
+    EditorInspectorPanel.cpp
+    EditorMenus.cpp
+    EditorPlaySession.cpp
+    EditorScenePanel.cpp
+    EditorSettings.cpp
+    EditorShortcuts.cpp
+    EditorStatsPanel.cpp
+    EditorToolbar.cpp
     ImGuiFacadeRenderer.h
     ImGuiFacadeRenderer.cpp
     ImGuiSDL3Input.h
