@@ -248,8 +248,9 @@ namespace Orkige
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
-		// UI capability probe (B3): false here - fastgui is classic-only
-		// until the A3 facade HUD; scripts skip their HUD honestly
+		// UI capability probe: true on BOTH flavors since the DrawLayer2D
+		// port (fastgui renders through the engine_render facade); the probe
+		// stays so scripts can still gate honestly for a future UI-less flavor
 		OFUNC(hasUISystem)
 	OOBJECT_END
 }
