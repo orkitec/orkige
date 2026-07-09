@@ -16,11 +16,13 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 
+#include "EditorAssetDnd.h"
 #include "EditorCamera.h"
 #include "EditorCore.h"
 #include "FileDialog.h"
 
 #include <core_debugnet/DebugClient.h>
+#include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_util/String.h>
 #include <engine_base/EngineLog.h>
@@ -300,6 +302,11 @@ struct AssetBrowserState
 	//! the panel held keyboard focus while drawing (gates its local shortcut
 	//! handling, mirrors scenePanelFocused / hierarchyFocused)
 	bool focused = false;
+	//! the Inspector's Texture Import Settings edit cache: the settings being
+	//! edited and the sidecar path they were read from (a changed path re-reads
+	//! from disk, so the section always reflects the selected texture)
+	Orkige::TextureImport editImport;
+	std::string editImportPath;
 };
 
 // Editor UI state that lives across frames. Everything UI-independent
@@ -805,6 +812,17 @@ void closeProject(EditorState& state, Orkige::EditorCore& core);
 bool newProjectAtPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& folder);
 
+//! @brief register the project's assets/ directory AND each of its
+//! subdirectories as its OWN flat resource location in the project group, so a
+//! texture/mesh in a subfolder resolves by BARE name. A single recursive
+//! registration indexes subfolder files by their sub-path on the next backend,
+//! so bare-name loads miss there; per-directory flat locations resolve
+//! identically on both flavors. Idempotent (remove-then-add per directory), so
+//! it doubles as the re-index after a browser op creates a folder or moves a
+//! file into a subfolder. Missing assets/ (or an unloaded project) is a no-op;
+//! scenes/ is a separate single flat location the callers register.
+void registerProjectAssetLocations(std::string const& assetsDirectory);
+
 //! the directory File > Import Mesh copies into (an open project ROOTS the
 //! import, otherwise the historical loose-scene rule applies)
 std::string meshImportDestination(EditorState const& state);
@@ -938,25 +956,11 @@ void drawConsolePanel(EditorState& state, PlaySession& session,
 // The Asset browser is the codebase's FIRST user of ImGui drag & drop across
 // panels: it sets an "ORKIGE_ASSET" payload (an AssetDragDropPayload value -
 // kind + absolute path) that the Scene and Hierarchy panels accept and turn
-// into a scene object. The hierarchy re-parent drag uses a SEPARATE payload
+// into a scene object, or an "ORKIGE_ASSET_MULTI" payload (newline-joined
+// paths) when a multi-selection is dragged. The AssetKind enum, the payload
+// struct and both tags live in EditorAssetDnd.h (shared with the ImGui-only
+// property-widget layer). The hierarchy re-parent drag uses a SEPARATE payload
 // tag ("ORKIGE_HIERARCHY_OBJECT"), so the two never cross.
-
-//! ImGui drag-drop payload tag the Asset browser sets / the Scene + Hierarchy
-//! panels accept
-extern const char* const ASSET_DND_PAYLOAD;		//!< "ORKIGE_ASSET"
-
-//! kind of a project asset, classified purely by file extension - drives the
-//! browser's type label and how a drop instantiates into the scene
-enum class AssetKind
-{
-	Unknown,
-	Mesh,		//!< .glb/.gltf/.obj/.fbx/... (CreateObjectCommand)
-	Texture,	//!< .png/.jpg/... (CreateSpriteObjectCommand)
-	Script,		//!< .lua (not instantiable on its own)
-	Scene,		//!< .oscene (double-click / drop opens it)
-	Prefab,		//!< .oprefab (CreatePrefabInstanceCommand)
-	Audio		//!< .wav/.ogg/... (added to an object as a SoundComponent)
-};
 
 //! classify a file path by its extension (case-insensitive)
 AssetKind classifyAsset(std::string const& path);
@@ -1076,26 +1080,42 @@ void openWithDefaultApp(std::string const& absolutePath);
 //! "prefab"/"file")
 const char* assetKindLabel(AssetKind kind);
 
-//! the drag-drop payload bytes: kind + absolute path, fixed size so ImGui
-//! copies it by value into its internal payload buffer
-struct AssetDragDropPayload
-{
-	AssetKind kind = AssetKind::Unknown;
-	char path[1024] = "";
-};
-
 //! @brief instantiate/open a project asset in the current scene (the browser's
-//! "Instantiate" context item and the Scene/Hierarchy drop targets): mesh ->
+//! "Instantiate" context item and a single-item Scene/Hierarchy drop): mesh ->
 //! CreateObjectCommand, texture -> CreateSpriteObjectCommand, prefab ->
 //! CreatePrefabInstanceCommand, scene -> openSceneFromPath. Scripts are not
 //! instantiable on their own (logged). Placement is the origin for v1.
 void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 	AssetKind kind, std::string const& absolutePath);
 
+//! @brief instantiate a batch of assets (absolute paths, kind classified per
+//! path) into the current scene as ONE undo step: the instantiable kinds
+//! (mesh/texture/prefab) collapse into a single CompositeCommand; a lone .oscene
+//! opens instead (scenes/scripts are skipped inside a multi-drop). The multi-
+//! item drop path (Scene/Hierarchy accepting ORKIGE_ASSET_MULTI) routes here.
+void instantiateAssetsIntoScene(EditorState& state, Orkige::EditorCore& core,
+	std::vector<std::string> const& absolutePaths);
+
 //! @brief if an ImGui drag-drop target is currently active, accept an
-//! ORKIGE_ASSET payload and instantiate it (called by the Scene + Hierarchy
-//! panels right after the item that is the drop target)
+//! ORKIGE_ASSET or ORKIGE_ASSET_MULTI payload and instantiate its asset(s) as
+//! one undo step (called by the Scene + Hierarchy panels right after the item
+//! that is the drop target)
 void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core);
+
+//! @brief the single id-tracked TEXTURE currently selected in the Asset browser
+//! (empty/multi selection or a non-texture -> false): fills its absolute
+//! sidecar path and its asset id. The seam behind the Inspector's Texture
+//! Import Settings section and applyTextureImportEdit.
+bool selectedBrowserTextureMeta(EditorState& state, std::string& metaFilePath,
+	std::string& assetId);
+
+//! @brief write the given import settings onto the single selected texture's
+//! sidecar (its id preserved), the Inspector "Texture Import Settings" Apply.
+//! A filesystem side effect, NOT undoable (the sidecar is edited in place);
+//! already-loaded sprites re-sample the texture on its next (re)load. False
+//! when no single id-tracked texture is selected or the write fails.
+bool applyTextureImportEdit(EditorState& state,
+	Orkige::TextureImport const& texture);
 
 //--- Asset browser operations (filesystem side effects, NOT undoable) -------
 // These operate on asset files directly; the stable asset id survives (the

@@ -51,6 +51,15 @@ struct PropertyRefOption
 typedef std::function<std::vector<PropertyRefOption>(
 	PropertyWidgetDesc const& desc)> PropertyRefProvider;
 
+//! @brief does an asset file name belong to the asset-kind a reference property
+//! hints at? Matches on the extension set the engine's resource pipeline
+//! associates with each kind ("texture"/"mesh"/"sound"/"script"/"prefab"); an
+//! unknown/empty hint matches every asset (a permissive picker beats an empty
+//! one). Shared by the local inspector's reference picker AND this layer's
+//! asset-ref drop target, so a dropped asset is kind-validated the same way the
+//! combo filters candidates.
+bool assetMatchesKind(std::string const& fileName, std::string const& kind);
+
 //! @brief render the ImGui widget for a property whose current value is the
 //! canonical string `value` (PropertyValue::toString()). Returns true and fills
 //! `outValue` (the new canonical string) exactly when the user committed an

@@ -1,14 +1,17 @@
 // EditorPropertyWidgets.cpp - the generic PropertyKind -> ImGui widget renderer
 // See EditorPropertyWidgets.h for the contract.
 #include "EditorPropertyWidgets.h"
+#include "EditorAssetDnd.h"
 
 #include <imgui.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <sstream>
 #include <unordered_map>
 #include <vector>
@@ -185,6 +188,79 @@ bool drawRefCombo(char const* label, std::string const& value,
 
 } // namespace
 
+bool assetMatchesKind(std::string const& fileName, std::string const& kind)
+{
+	const std::string::size_type dot = fileName.find_last_of('.');
+	if (dot == std::string::npos)
+	{
+		return kind.empty();
+	}
+	std::string ext = fileName.substr(dot + 1);
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (kind == "texture")
+	{
+		return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp" ||
+			ext == "tga" || ext == "dds";
+	}
+	if (kind == "mesh")
+	{
+		return ext == "mesh" || ext == "gltf" || ext == "glb" || ext == "obj";
+	}
+	if (kind == "sound")
+	{
+		return ext == "wav" || ext == "ogg" || ext == "mp3" || ext == "flac";
+	}
+	if (kind == "script")
+	{
+		return ext == "lua";
+	}
+	if (kind == "prefab")
+	{
+		return ext == "oprefab";
+	}
+	return true; // an unknown hint: offer everything rather than nothing
+}
+
+namespace
+{
+
+//! @brief an asset-ref field is a drop target for a single dragged asset: a
+//! drop whose file kind matches the property's hint assigns its BARE FILE NAME
+//! (the value the reflected setter consumes, exactly what the picker delivers;
+//! rename safety comes from the assetId serialized alongside). Call right after
+//! the ref widget. Returns true and sets outValue when a matching asset drops.
+//! Multi-item drags are ignored - one field takes one reference.
+bool acceptAssetRefDrop(std::string const& hint, std::string& outValue)
+{
+	bool assigned = false;
+	if (ImGui::BeginDragDropTarget())
+	{
+		if (ImGuiPayload const* payload =
+			ImGui::AcceptDragDropPayload(ASSET_DND_PAYLOAD))
+		{
+			if (payload->Data && payload->DataSize ==
+				static_cast<int>(sizeof(AssetDragDropPayload)))
+			{
+				AssetDragDropPayload data;
+				std::memcpy(&data, payload->Data, sizeof(data));
+				data.path[sizeof(data.path) - 1] = '\0';
+				const std::string fileName =
+					std::filesystem::path(data.path).filename().string();
+				if (assetMatchesKind(fileName, hint))
+				{
+					outValue = fileName;
+					assigned = true;
+				}
+			}
+		}
+		ImGui::EndDragDropTarget();
+	}
+	return assigned;
+}
+
+} // namespace
+
 bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	std::string const& value, std::string& outValue,
 	PropertyRefProvider const& refProvider)
@@ -319,16 +395,28 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	{
 		// a picker when a provider yields candidates (the LOCAL inspector);
 		// otherwise the free-text field (the remote-safe default path)
+		bool drewCombo = false;
 		if (refProvider)
 		{
 			std::vector<PropertyRefOption> options = refProvider(desc);
 			if (!options.empty())
 			{
 				edited = drawRefCombo(label, value, options, outValue);
-				break;
+				drewCombo = true;
 			}
 		}
-		edited = drawTextField(label, value, outValue);
+		if (!drewCombo)
+		{
+			edited = drawTextField(label, value, outValue);
+		}
+		// an ASSET reference field also accepts a dragged asset (the drop
+		// assigns the bare file name when its kind matches the hint); object
+		// refs have no asset drag source, so only AssetRef wires the target
+		if (desc.kind == PropertyKind::AssetRef &&
+			acceptAssetRefDrop(desc.hint, outValue))
+		{
+			edited = true;
+		}
 		break;
 	}
 	case PropertyKind::String:

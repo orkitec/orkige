@@ -57,8 +57,9 @@
 #include <filesystem>
 #include <fstream>
 
-// the drag-drop payload tag (declared extern in EditorApp.h)
+// the drag-drop payload tags (declared extern in EditorAssetDnd.h)
 const char* const ASSET_DND_PAYLOAD = "ORKIGE_ASSET";
+const char* const ASSET_DND_PAYLOAD_MULTI = "ORKIGE_ASSET_MULTI";
 
 namespace
 {
@@ -155,25 +156,87 @@ std::string uniqueFileName(std::string const& dir, std::string const& base,
 	return candidate.string();
 }
 
-//! first free "<base>"/"<base> <N>" GameObject id (mirrors the mesh import)
-std::string uniqueObjectId(Orkige::GameObjectManager& manager, std::string base)
+//! first free "<base>"/"<base> <N>" GameObject id (mirrors the mesh import).
+//! reserved carries ids already claimed by sibling commands in the same batch,
+//! so a multi-drop of same-stemmed assets does not collide when the commands
+//! execute; the returned id is inserted into it.
+std::string reserveObjectId(Orkige::GameObjectManager& manager,
+	std::set<std::string>& reserved, std::string base)
 {
 	if (base.empty())
 	{
 		base = "Object";
 	}
-	if (!manager.objectExists(base))
-	{
-		return base;
-	}
+	std::string candidate = base;
 	int suffix = 2;
-	std::string candidate;
-	do
+	while (manager.objectExists(candidate) || reserved.count(candidate) > 0)
 	{
 		candidate = base + " " + std::to_string(suffix);
 		++suffix;
-	} while (manager.objectExists(candidate));
+	}
+	reserved.insert(candidate);
 	return candidate;
+}
+
+//! @brief build the undoable creation command for one instantiable asset kind
+//! (mesh -> CreateObjectCommand, texture -> CreateSpriteObjectCommand, prefab ->
+//! CreatePrefabInstanceCommand). Returns null for scene/script/unknown - a
+//! scene OPENS rather than instantiates, the rest are not standalone objects.
+//! reserved keeps object ids unique across a batch (see reserveObjectId).
+optr<Orkige::EditorCommand> makeInstantiateCommand(EditorState& state,
+	Orkige::GameObjectManager& manager, AssetKind kind,
+	std::string const& absolutePath, std::set<std::string>& reserved)
+{
+	const std::string fileName = fs::path(absolutePath).filename().string();
+	const std::string stem = fs::path(absolutePath).stem().string();
+	switch (kind)
+	{
+	case AssetKind::Mesh:
+	{
+		// the mesh is already a project resource (registered in the project
+		// group at open time) - instantiate it by bare file name at the origin
+		const std::string id = reserveObjectId(manager, reserved,
+			stem.empty() ? "Mesh" : stem);
+		return Orkige::onew(new Orkige::CreateObjectCommand(
+			id, fileName, Orkige::Vec3::ZERO));
+	}
+	case AssetKind::Texture:
+	{
+		// SpriteComponent::loadSprite resolves the texture by bare file name
+		// across all resource groups (the project assets/ group among them)
+		const std::string id = reserveObjectId(manager, reserved,
+			stem.empty() ? "Sprite" : stem);
+		return Orkige::onew(new Orkige::CreateSpriteObjectCommand(
+			id, fileName, Orkige::Vec3::ZERO));
+	}
+	case AssetKind::Prefab:
+	{
+		// carry the project-relative reference + the stable asset id onto the
+		// new instance root so it re-resolves across renames/moves like a
+		// scene-loaded instance
+		std::string prefabRef;
+		std::string assetId;
+		if (state.project.isLoaded())
+		{
+			prefabRef = state.project.makeProjectRelative(absolutePath);
+			if (optr<Orkige::AssetDatabase> const& database =
+				state.project.getAssetDatabase())
+			{
+				assetId = database->idForPath(prefabRef);
+			}
+		}
+		const std::string id = reserveObjectId(manager, reserved,
+			stem.empty() ? "Prefab" : stem);
+		return Orkige::onew(new Orkige::CreatePrefabInstanceCommand(
+			id, absolutePath, prefabRef, assetId, Orkige::Vec3::ZERO));
+	}
+	case AssetKind::Scene:
+	case AssetKind::Script:
+	case AssetKind::Audio:
+	case AssetKind::Unknown:
+	default:
+		return optr<Orkige::EditorCommand>();
+	}
 }
 
 //! walk one project directory tree (recursive), appending every non-sidecar
@@ -219,27 +282,18 @@ void deleteAssetFile(std::string const& absolutePath)
 }
 
 //! rebuild the project's assets/ resource index after a filesystem change so a
-//! moved/renamed/duplicated asset resolves by bare name again (the resource
-//! index is built when the location is registered; a re-register rescans the
-//! tree - the same idempotent remove+add the import path uses). Recursive, so
-//! assets in subfolders are covered.
+//! moved/renamed/duplicated asset resolves by bare name again - including one
+//! moved INTO a subfolder: registerProjectAssetLocations registers assets/ and
+//! each subfolder as its own flat location (a single recursive location indexes
+//! subfolder files by sub-path on the next backend, so bare-name loads miss
+//! there). Idempotent remove-then-add, non-destructive to loaded resources.
 void reindexProjectAssets(EditorState& state)
 {
 	if (!state.project.isLoaded())
 	{
 		return;
 	}
-	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-	std::error_code ec;
-	const std::string assetsDir = state.project.getAssetsDirectory();
-	if (!render || !fs::is_directory(assetsDir, ec))
-	{
-		return;
-	}
-	render->removeResourceLocation(assetsDir,
-		Orkige::Project::RESOURCE_GROUP_NAME);
-	render->addResourceLocation(assetsDir, Orkige::RenderSystem::LT_FILESYSTEM,
-		Orkige::Project::RESOURCE_GROUP_NAME, true);
+	registerProjectAssetLocations(state.project.getAssetsDirectory());
 }
 
 } // namespace
@@ -946,64 +1000,106 @@ const char* assetKindLabel(AssetKind kind)
 void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 	AssetKind kind, std::string const& absolutePath)
 {
+	if (kind == AssetKind::Scene)
+	{
+		openSceneFromPath(state, core, absolutePath);
+		return;
+	}
+	std::set<std::string> reserved;
+	if (optr<Orkige::EditorCommand> command = makeInstantiateCommand(state,
+		core.getGameObjectManager(), kind, absolutePath, reserved))
+	{
+		core.executeCommand(command);
+		return;
+	}
+	SDL_Log("orkige_editor: '%s' cannot be instantiated on its own "
+		"(add it to an object as a component instead)",
+		fs::path(absolutePath).filename().string().c_str());
+}
+
+void instantiateAssetsIntoScene(EditorState& state, Orkige::EditorCore& core,
+	std::vector<std::string> const& absolutePaths)
+{
+	// a lone scene drop opens the scene (a scene cannot be batched - opening it
+	// replaces the current one; scenes inside a multi-drop are skipped)
+	if (absolutePaths.size() == 1 &&
+		classifyAsset(absolutePaths.front()) == AssetKind::Scene)
+	{
+		openSceneFromPath(state, core, absolutePaths.front());
+		return;
+	}
+	std::set<std::string> reserved;
+	std::vector<optr<Orkige::EditorCommand>> commands;
 	Orkige::GameObjectManager& manager = core.getGameObjectManager();
-	const std::string fileName = fs::path(absolutePath).filename().string();
-	const std::string stem = fs::path(absolutePath).stem().string();
-	switch (kind)
+	for (std::string const& absolutePath : absolutePaths)
 	{
-	case AssetKind::Mesh:
-	{
-		// the mesh is already a project resource (registered in the project
-		// group at open time) - instantiate it by bare file name at the origin
-		const std::string id = uniqueObjectId(manager,
-			stem.empty() ? "Mesh" : stem);
-		core.executeCommand(Orkige::onew(new Orkige::CreateObjectCommand(
-			id, fileName, Orkige::Vec3::ZERO)));
-		break;
-	}
-	case AssetKind::Texture:
-	{
-		// SpriteComponent::loadSprite resolves the texture by bare file name
-		// across all resource groups (the project assets/ group among them)
-		const std::string id = uniqueObjectId(manager,
-			stem.empty() ? "Sprite" : stem);
-		core.executeCommand(Orkige::onew(new Orkige::CreateSpriteObjectCommand(
-			id, fileName, Orkige::Vec3::ZERO)));
-		break;
-	}
-	case AssetKind::Prefab:
-	{
-		// carry the project-relative reference + the stable asset id onto the
-		// new instance root so it re-resolves across renames/moves like a
-		// scene-loaded instance
-		std::string prefabRef;
-		std::string assetId;
-		if (state.project.isLoaded())
+		if (optr<Orkige::EditorCommand> command = makeInstantiateCommand(state,
+			manager, classifyAsset(absolutePath), absolutePath, reserved))
 		{
-			prefabRef = state.project.makeProjectRelative(absolutePath);
-			if (optr<Orkige::AssetDatabase> const& database =
-				state.project.getAssetDatabase())
+			commands.push_back(command);
+		}
+	}
+	if (commands.size() == 1)
+	{
+		// one instantiable asset: keep its own descriptive undo label
+		core.executeCommand(commands.front());
+	}
+	else if (commands.size() > 1)
+	{
+		// many: collapse into ONE undo step (mirrors the multi-select batches)
+		optr<Orkige::CompositeCommand> batch = Orkige::onew(
+			new Orkige::CompositeCommand("Add " +
+				std::to_string(commands.size()) + " assets"));
+		for (optr<Orkige::EditorCommand> const& command : commands)
+		{
+			batch->addCommand(command);
+		}
+		core.executeCommand(batch);
+	}
+}
+
+//! collect the absolute asset paths a drop delivers: the multi payload (newline-
+//! joined) or the single ORKIGE_ASSET struct. Call inside a BeginDragDropTarget
+//! block; returns empty until the payload is actually released.
+std::vector<std::string> acceptDroppedAssetPaths()
+{
+	std::vector<std::string> paths;
+	if (ImGuiPayload const* multi =
+		ImGui::AcceptDragDropPayload(ASSET_DND_PAYLOAD_MULTI))
+	{
+		if (multi->Data && multi->DataSize > 0)
+		{
+			const std::string joined(static_cast<const char*>(multi->Data),
+				static_cast<std::size_t>(multi->DataSize));
+			std::string::size_type start = 0;
+			while (start < joined.size())
 			{
-				assetId = database->idForPath(prefabRef);
+				std::string::size_type nl = joined.find('\n', start);
+				if (nl == std::string::npos)
+				{
+					nl = joined.size();
+				}
+				if (nl > start)
+				{
+					paths.push_back(joined.substr(start, nl - start));
+				}
+				start = nl + 1;
 			}
 		}
-		const std::string id = uniqueObjectId(manager,
-			stem.empty() ? "Prefab" : stem);
-		core.executeCommand(Orkige::onew(
-			new Orkige::CreatePrefabInstanceCommand(id, absolutePath, prefabRef,
-				assetId, Orkige::Vec3::ZERO)));
-		break;
 	}
-	case AssetKind::Scene:
-		openSceneFromPath(state, core, absolutePath);
-		break;
-	case AssetKind::Script:
-	case AssetKind::Unknown:
-	default:
-		SDL_Log("orkige_editor: '%s' cannot be instantiated on its own "
-			"(add it to an object as a component instead)", fileName.c_str());
-		break;
+	else if (ImGuiPayload const* single =
+		ImGui::AcceptDragDropPayload(ASSET_DND_PAYLOAD))
+	{
+		if (single->Data && single->DataSize ==
+			static_cast<int>(sizeof(AssetDragDropPayload)))
+		{
+			AssetDragDropPayload data;
+			std::memcpy(&data, single->Data, sizeof(data));
+			data.path[sizeof(data.path) - 1] = '\0';
+			paths.emplace_back(data.path);
+		}
 	}
+	return paths;
 }
 
 void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core)
@@ -1012,23 +1108,85 @@ void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core)
 	{
 		return;
 	}
-	if (ImGuiPayload const* payload =
-		ImGui::AcceptDragDropPayload(ASSET_DND_PAYLOAD))
+	const std::vector<std::string> paths = acceptDroppedAssetPaths();
+	if (!paths.empty())
 	{
-		if (payload->Data &&
-			payload->DataSize == static_cast<int>(sizeof(AssetDragDropPayload)))
-		{
-			AssetDragDropPayload data;
-			std::memcpy(&data, payload->Data, sizeof(data));
-			data.path[sizeof(data.path) - 1] = '\0';
-			instantiateAssetIntoScene(state, core, data.kind, data.path);
-		}
+		instantiateAssetsIntoScene(state, core, paths);
 	}
 	ImGui::EndDragDropTarget();
 }
 
+bool selectedBrowserTextureMeta(EditorState& state, std::string& metaFilePath,
+	std::string& assetId)
+{
+	AssetBrowserState const& browser = state.assetBrowser;
+	if (browser.selection.size() != 1 || !state.project.isLoaded())
+	{
+		return false;
+	}
+	const std::string relativePath = *browser.selection.begin();
+	if (classifyAsset(relativePath) != AssetKind::Texture)
+	{
+		return false;
+	}
+	optr<Orkige::AssetDatabase> const& database =
+		state.project.getAssetDatabase();
+	if (!database)
+	{
+		return false;
+	}
+	assetId = database->idForPath(relativePath);
+	if (assetId.empty())
+	{
+		return false;	// sidecar-less: no settings to edit
+	}
+	metaFilePath = database->metaFilePathForId(assetId);
+	return !metaFilePath.empty();
+}
+
+bool applyTextureImportEdit(EditorState& state,
+	Orkige::TextureImport const& texture)
+{
+	std::string metaFilePath;
+	std::string assetId;
+	if (!selectedBrowserTextureMeta(state, metaFilePath, assetId))
+	{
+		return false;
+	}
+	// preserve the id: the sidecar is rewritten with its EXISTING id plus the
+	// new <texture> block (the documented keep-the-id contract)
+	Orkige::String preservedId = assetId;
+	Orkige::AssetDatabase::readMetaFile(metaFilePath, preservedId);
+	const bool ok =
+		Orkige::AssetDatabase::writeMetaFile(metaFilePath, preservedId, texture);
+	if (ok)
+	{
+		SDL_Log("orkige_editor: wrote texture import settings for '%s' "
+			"(already-loaded sprites re-sample on the texture's next load)",
+			metaFilePath.c_str());
+	}
+	return ok;
+}
+
 namespace
 {
+
+//! a MOVE drop target for a folder (absolute path): accepts a dragged asset (or
+//! multi-selection) and moves it into destDir. Call right after the widget the
+//! folder is drawn as (a tree node, a breadcrumb segment, a grid folder tile).
+void folderDropTarget(EditorState& state, std::string const& destDir)
+{
+	if (!ImGui::BeginDragDropTarget())
+	{
+		return;
+	}
+	const std::vector<std::string> paths = acceptDroppedAssetPaths();
+	if (!paths.empty())
+	{
+		moveAssetsIntoFolder(state, paths, destDir);
+	}
+	ImGui::EndDragDropTarget();
+}
 
 //! open a file per its kind on double-click: scene/prefab instantiate/open
 //! into the current scene (the v1 behavior); everything else - script, image,
@@ -1113,6 +1271,8 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 	}
 	ImGui::PushID(dir.c_str());
 	const bool open = ImGui::TreeNodeEx(name.c_str(), flags);
+	// a dragged asset dropped onto a folder node moves into it
+	folderDropTarget(state, dir);
 	// a click on the label (not the expand arrow) navigates
 	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 	{
@@ -1164,6 +1324,8 @@ void drawBreadcrumb(EditorState& state)
 		{
 			navigateTo(state.assetBrowser, chain[i].string());
 		}
+		// dropping onto a breadcrumb segment moves into that ancestor folder
+		folderDropTarget(state, chain[i].string());
 		ImGui::PopID();
 	}
 }
@@ -1535,15 +1697,46 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 			openAssetEntry(state, core, entry.item);
 		}
 	}
-	if (!entry.isFolder && ImGui::BeginDragDropSource(
+	// a folder tile is a MOVE target (drop assets into it); files are drag
+	// sources
+	if (entry.isFolder)
+	{
+		folderDropTarget(state, entry.item.absolutePath);
+	}
+	else if (ImGui::BeginDragDropSource(
 		ImGuiDragDropFlags_SourceNoDisableHover))
 	{
-		AssetDragDropPayload payload;
-		payload.kind = entry.item.kind;
-		SDL_strlcpy(payload.path, entry.item.absolutePath.c_str(),
-			sizeof(payload.path));
-		ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload, sizeof(payload));
-		ImGui::TextUnformatted(entry.name.c_str());
+		// dragging within a multi-selection carries the WHOLE selection as a
+		// newline-joined path list; a lone item carries the single struct
+		// payload (ImGui holds one payload type per drag, so the type is chosen
+		// by selection size - the accept sites take either)
+		if (selected && browser.selection.size() > 1)
+		{
+			std::string joined;
+			const fs::path rootPath(state.project.getRootDirectory());
+			for (std::string const& rel : browser.selection)
+			{
+				if (!joined.empty())
+				{
+					joined += '\n';
+				}
+				joined += (rootPath / rel).string();
+			}
+			ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD_MULTI, joined.data(),
+				joined.size());
+			ImGui::Text("%d assets",
+				static_cast<int>(browser.selection.size()));
+		}
+		else
+		{
+			AssetDragDropPayload payload;
+			payload.kind = entry.item.kind;
+			SDL_strlcpy(payload.path, entry.item.absolutePath.c_str(),
+				sizeof(payload.path));
+			ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload,
+				sizeof(payload));
+			ImGui::TextUnformatted(entry.name.c_str());
+		}
 		ImGui::EndDragDropSource();
 	}
 	if (ImGui::BeginPopupContextItem("##itemmenu"))

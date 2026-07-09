@@ -79,34 +79,59 @@ void unregisterProjectResources()
 		Orkige::Project::RESOURCE_GROUP_NAME);
 }
 
-//! register the project's assets/ and scenes/ in the project group;
-//! missing directories are skipped with an honest Console line
+//! register the project's assets/ (recursively, per-subfolder) and scenes/
+//! (flat) in the project group; missing directories are skipped honestly
 void registerProjectResources(Orkige::Project const& project)
 {
-	const std::string assetsDir = project.getAssetsDirectory();
-	for (std::string const& projectDir : { assetsDir,
-		project.getScenesDirectory() })
+	// assets/ and each subfolder as their own flat location so a subfolder
+	// asset resolves by bare name on both flavors (see the seam's doc)
+	registerProjectAssetLocations(project.getAssetsDirectory());
+	// scenes/ stays a single flat location
+	const std::string scenesDir = project.getScenesDirectory();
+	std::error_code ignored;
+	if (std::filesystem::is_directory(scenesDir, ignored))
 	{
-		std::error_code ignored;
-		if (std::filesystem::is_directory(projectDir, ignored))
-		{
-			// assets/ is registered RECURSIVELY so an asset in a subfolder
-			// still resolves by bare name (moves keep bare-name resolution);
-			// scenes/ stays flat
-			const bool recursive = projectDir == assetsDir;
-			Orkige::RenderSystem::get()->addResourceLocation(projectDir,
-				Orkige::RenderSystem::LT_FILESYSTEM,
-				Orkige::Project::RESOURCE_GROUP_NAME, recursive);
-		}
-		else
-		{
-			SDL_Log("orkige_editor: project directory '%s' does not exist - "
-				"not registered", projectDir.c_str());
-		}
+		Orkige::RenderSystem::get()->addResourceLocation(scenesDir,
+			Orkige::RenderSystem::LT_FILESYSTEM,
+			Orkige::Project::RESOURCE_GROUP_NAME, false);
+	}
+	else
+	{
+		SDL_Log("orkige_editor: project directory '%s' does not exist - "
+			"not registered", scenesDir.c_str());
 	}
 }
 
 } // namespace
+
+void registerProjectAssetLocations(std::string const& assetsDirectory)
+{
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	std::error_code ec;
+	if (!render || !std::filesystem::is_directory(assetsDirectory, ec))
+	{
+		return;
+	}
+	// each directory a FLAT location: a file resolves by its bare name from its
+	// own directory. Remove-then-add per directory keeps this idempotent (the
+	// re-index after a move/create) without unloading already-loaded resources.
+	const auto registerFlat = [&](std::string const& directory)
+	{
+		render->removeResourceLocation(directory,
+			Orkige::Project::RESOURCE_GROUP_NAME);
+		render->addResourceLocation(directory, Orkige::RenderSystem::LT_FILESYSTEM,
+			Orkige::Project::RESOURCE_GROUP_NAME, false);
+	};
+	registerFlat(assetsDirectory);
+	for (std::filesystem::recursive_directory_iterator
+		it(assetsDirectory, ec), end; !ec && it != end; it.increment(ec))
+	{
+		if (it->is_directory(ec))
+		{
+			registerFlat(it->path().string());
+		}
+	}
+}
 
 // File > Open Project... / Open Recent Project / the scripted project test:
 // accepts a project directory or a .orkproj manifest. The current world is
@@ -260,17 +285,11 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 	}
 	if (state.project.isLoaded())
 	{
-		// the assets/ location index was built when the project opened -
-		// re-register it in the project group so the just-copied file is
-		// findable by bare filename right away (also covers an assets/ that
-		// was missing at open time and got created by this copy);
-		// removeResourceLocation is idempotent by facade contract
-		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-		render->removeResourceLocation(destDir,
-			Orkige::Project::RESOURCE_GROUP_NAME);
-		render->addResourceLocation(destDir,
-			Orkige::RenderSystem::LT_FILESYSTEM,
-			Orkige::Project::RESOURCE_GROUP_NAME, true);	// recursive: subfolders
+		// re-register assets/ + each subfolder (flat, per-directory) so the
+		// just-copied file is findable by bare filename right away - and by bare
+		// name even in a subfolder (a recursive location would miss those on the
+		// next backend); idempotent by the seam's remove-then-add contract
+		registerProjectAssetLocations(destDir);
 		// editor-side asset creation mints the stable id right away, so a
 		// component referencing it serializes the id with the scene
 		if (optr<Orkige::AssetDatabase> const& assetDatabase =

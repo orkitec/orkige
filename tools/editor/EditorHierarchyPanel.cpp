@@ -303,9 +303,10 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 			ImGui::PopStyleColor();
 			acceptHierarchyDrop(core, "");
 		}
-		// Asset browser drop: a mesh/texture/prefab dragged from the Assets
-		// panel over the Hierarchy adds it to the scene
-		else if (payload->IsDataType(ASSET_DND_PAYLOAD))
+		// Asset browser drop: a mesh/texture/prefab (or a whole multi-selection)
+		// dragged from the Assets panel over the Hierarchy adds it to the scene
+		else if (payload->IsDataType(ASSET_DND_PAYLOAD) ||
+			payload->IsDataType(ASSET_DND_PAYLOAD_MULTI))
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
 				ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));

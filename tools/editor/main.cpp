@@ -2024,10 +2024,31 @@ int main(int argc, char** argv)
 					// reference resolution guarantee (a Sprite serializes the bare
 					// name + assetId; the id heals the reference on load)
 					const Orkige::String byName = db->idForFileName(bareName);
-					// a scene round-trip must not lose the reference: save + reload a
-					// sprite carrying it (exercises the serializer end to end)
+					// the rendering-level proof: loadSprite keeps the texture
+					// name ONLY when the quad actually LOADED (a failed load
+					// returns early, leaving the name empty). An equal name
+					// means the moved subfolder file resolved by BARE name -
+					// exactly what a recursive registration fails to give on
+					// the next backend (which indexes subfolder files by
+					// sub-path). Checked right after the move AND after a
+					// scene round-trip.
+					const auto spriteTextureName = [&](std::string const& id)
+					{
+						optr<Orkige::GameObject> obj =
+							gameObjectManager.getGameObject(id).lock();
+						if (!obj ||
+							!obj->hasComponent<Orkige::SpriteComponent>())
+						{
+							return std::string();
+						}
+						return std::string(obj
+							->getComponentPtr<Orkige::SpriteComponent>()
+							->getTextureName());
+					};
 					editorCore.instantiateSpriteObject("MovedRefSprite", bareName,
 						Orkige::Vec3::ZERO);
+					const bool loadedFresh =
+						spriteTextureName("MovedRefSprite") == bareName;
 					const std::string roundtripScene =
 						(std::filesystem::path(state.project.getScenesDirectory()) /
 							"moved_ref.oscene").string();
@@ -2035,9 +2056,8 @@ int main(int argc, char** argv)
 						saveSceneToPath(state, editorCore, roundtripScene);
 					const bool reopened = saved &&
 						openSceneFromPath(state, editorCore, roundtripScene);
-					optr<Orkige::GameObject> movedSprite = reopened
-						? gameObjectManager.getGameObject("MovedRefSprite").lock()
-						: optr<Orkige::GameObject>();
+					const bool loadedReloaded = reopened &&
+						spriteTextureName("MovedRefSprite") == bareName;
 					if (moved != 1 || preId.empty() || postId != preId ||
 						byName != preId)
 					{
@@ -2045,12 +2065,17 @@ int main(int argc, char** argv)
 						assetFail = "moveAssetsIntoFolder did not keep the id / "
 							"bare-name resolution";
 					}
-					else if (!movedSprite ||
-						!movedSprite->hasComponent<Orkige::SpriteComponent>())
+					else if (!loadedFresh)
 					{
 						assetOk = false;
-						assetFail = "moved-asset sprite lost after the scene "
-							"round-trip";
+						assetFail = "moved-subfolder texture did not load by "
+							"bare name after the move";
+					}
+					else if (!loadedReloaded)
+					{
+						assetOk = false;
+						assetFail = "moved-subfolder texture did not load by "
+							"bare name after the scene round-trip";
 					}
 					else
 					{
@@ -2153,6 +2178,88 @@ int main(int argc, char** argv)
 							assetOk = false;
 							assetFail = "selection prune survival wrong";
 						}
+					}
+				}
+				// (17) texture import settings round-trip through the inspector
+				// seam: select a single id-tracked texture, edit its settings and
+				// Apply, then read the sidecar back and confirm every field landed
+				// (the base block AND a per-platform override)
+				if (assetOk)
+				{
+					const std::string probePng =
+						state.project.getAssetsDirectory() + "/settings_probe.png";
+					{
+						std::ofstream f(probePng,
+							std::ios::binary | std::ios::trunc);
+						f << "px";
+					}
+					Orkige::AssetDatabase* db =
+						state.project.getAssetDatabase().get();
+					const Orkige::String probeId = db->importAsset(probePng);
+					const std::string probeRel =
+						state.project.makeProjectRelative(probePng);
+					state.assetBrowser.selection.clear();
+					state.assetBrowser.selection.insert(probeRel);
+					state.assetBrowser.editImportPath.clear();
+					Orkige::TextureImport edit;
+					edit.base.filter = "point";
+					edit.base.wrap = "wrap";
+					edit.base.maxSize = 512;
+					edit.base.premultiply = true;
+					edit.hasAndroid = true;
+					edit.android = edit.base;
+					edit.android.maxSize = 256;
+					const bool applied =
+						applyTextureImportEdit(state, edit);
+					const std::string metaPath = db->metaFilePathForId(probeId);
+					Orkige::TextureImport readBack;
+					const bool readOk = Orkige::AssetDatabase::readImportSettings(
+						metaPath, readBack);
+					// the id must survive the sidecar rewrite (still resolves)
+					const bool idKept =
+						db->idForPath(probeRel) == probeId && !probeId.empty();
+					if (!applied || !readOk || !idKept ||
+						readBack.base.filter != "point" ||
+						readBack.base.wrap != "wrap" ||
+						readBack.base.maxSize != 512 ||
+						!readBack.base.premultiply ||
+						!readBack.hasAndroid ||
+						readBack.android.maxSize != 256)
+					{
+						assetOk = false;
+						assetFail = "texture import settings did not round-trip "
+							"through applyTextureImportEdit";
+					}
+					state.assetBrowser.selection.clear();
+					state.assetBrowser.editImportPath.clear();
+				}
+				// (18) multi-drop as ONE undo step: instantiating a batch of
+				// assets creates every object, and a single undo removes them all
+				// (the CompositeCommand the ORKIGE_ASSET_MULTI drop path builds)
+				if (assetOk)
+				{
+					const std::string multiA =
+						state.project.getAssetsDirectory() + "/multi_a.png";
+					const std::string multiB =
+						state.project.getAssetsDirectory() + "/multi_b.png";
+					for (std::string const& p : { multiA, multiB })
+					{
+						std::ofstream f(p, std::ios::binary | std::ios::trunc);
+						f << "px";
+					}
+					instantiateAssetsIntoScene(state, editorCore,
+						{ multiA, multiB });
+					const bool bothCreated =
+						gameObjectManager.objectExists("multi_a") &&
+						gameObjectManager.objectExists("multi_b");
+					const bool undoneOnce = editorCore.undo();
+					const bool bothGone =
+						!gameObjectManager.objectExists("multi_a") &&
+						!gameObjectManager.objectExists("multi_b");
+					if (!bothCreated || !undoneOnce || !bothGone)
+					{
+						assetOk = false;
+						assetFail = "multi-drop did not create/undo as one step";
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);

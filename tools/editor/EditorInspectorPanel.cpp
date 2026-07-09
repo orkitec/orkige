@@ -13,48 +13,10 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 namespace
 {
-
-//! @brief does an asset file name belong to the asset-kind a reference property
-//! hints at? The AssetDatabase enumerates files, not kinds, so we match on the
-//! extension set the engine's resource pipeline associates with each kind
-//! (texture/mesh/sound/script/prefab). An unknown/empty hint matches every
-//! asset (a permissive picker beats an empty one).
-bool assetMatchesKind(std::string const& fileName, std::string const& kind)
-{
-	const std::string::size_type dot = fileName.find_last_of('.');
-	if (dot == std::string::npos)
-	{
-		return kind.empty();
-	}
-	std::string ext = fileName.substr(dot + 1);
-	std::transform(ext.begin(), ext.end(), ext.begin(),
-		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	if (kind == "texture")
-	{
-		return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp" ||
-			ext == "tga" || ext == "dds";
-	}
-	if (kind == "mesh")
-	{
-		return ext == "mesh" || ext == "gltf" || ext == "glb" || ext == "obj";
-	}
-	if (kind == "sound")
-	{
-		return ext == "wav" || ext == "ogg" || ext == "mp3" || ext == "flac";
-	}
-	if (kind == "script")
-	{
-		return ext == "lua";
-	}
-	if (kind == "prefab")
-	{
-		return ext == "oprefab";
-	}
-	return true; // an unknown hint: offer everything rather than nothing
-}
 
 //! @brief the LOCAL inspector's reference-picker provider: AssetRef candidates
 //! come from the open project's AssetDatabase (filtered by asset-kind hint),
@@ -415,6 +377,104 @@ void drawRemoteInspector(PlaySession& session)
 	ImGui::PopStyleColor(3); // neutral component headers
 }
 
+//! draw the editable fields of one texture import block (filter/wrap combos,
+//! max-size cap, premultiply/generate-mips toggles); id-scoped by the caller so
+//! the default and per-platform blocks never collide on the widget ids
+void drawTextureSettingsFields(Orkige::TextureImportSettings& settings)
+{
+	if (ImGui::BeginCombo("Filter", settings.filter.c_str()))
+	{
+		for (const char* option : { "point", "bilinear" })
+		{
+			if (ImGui::Selectable(option, settings.filter == option))
+			{
+				settings.filter = option;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if (ImGui::BeginCombo("Wrap", settings.wrap.c_str()))
+	{
+		for (const char* option : { "clamp", "wrap" })
+		{
+			if (ImGui::Selectable(option, settings.wrap == option))
+			{
+				settings.wrap = option;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	int maxSize = settings.maxSize;
+	if (ImGui::InputInt("Max Size", &maxSize))
+	{
+		settings.maxSize = maxSize < 0 ? 0 : maxSize;	// 0 = uncapped
+	}
+	ImGui::SetItemTooltip("longest-side texel cap the export cook downscales "
+		"to; 0 = uncapped");
+	ImGui::Checkbox("Premultiply Alpha", &settings.premultiply);
+	ImGui::Checkbox("Generate Mips", &settings.generateMips);
+}
+
+//! the "Texture Import Settings" Inspector section: shown when the SCENE
+//! selection is empty AND exactly one id-tracked TEXTURE is selected in the
+//! Asset browser. Reads the sidecar's import block on a selection change, edits
+//! it live in an AssetBrowserState cache, and writes it back (id preserved) on
+//! Apply through applyTextureImportEdit. Returns true when it drew the section.
+bool drawTextureImportSection(EditorState& state)
+{
+	std::string metaFilePath;
+	std::string assetId;
+	if (!selectedBrowserTextureMeta(state, metaFilePath, assetId))
+	{
+		return false;
+	}
+	AssetBrowserState& browser = state.assetBrowser;
+	// (re)read from disk on a selection change so the fields always reflect the
+	// selected texture (an unset/id-only sidecar leaves the defaults)
+	if (browser.editImportPath != metaFilePath)
+	{
+		Orkige::TextureImport loaded;
+		Orkige::AssetDatabase::readImportSettings(metaFilePath, loaded);
+		browser.editImport = loaded;
+		browser.editImportPath = metaFilePath;
+	}
+	const std::string relativePath = *browser.selection.begin();
+	ImGui::TextUnformatted("Texture Import Settings");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(relativePath).filename().string().c_str());
+	ImGui::Separator();
+	drawTextureSettingsFields(browser.editImport.base);
+	// per-platform overrides: enabling one seeds it from the resolved default
+	ImGui::PushID("android");
+	if (ImGui::Checkbox("Android override", &browser.editImport.hasAndroid) &&
+		browser.editImport.hasAndroid)
+	{
+		browser.editImport.android = browser.editImport.base;
+	}
+	if (browser.editImport.hasAndroid)
+	{
+		drawTextureSettingsFields(browser.editImport.android);
+	}
+	ImGui::PopID();
+	ImGui::PushID("ios");
+	if (ImGui::Checkbox("iOS override", &browser.editImport.hasIos) &&
+		browser.editImport.hasIos)
+	{
+		browser.editImport.ios = browser.editImport.base;
+	}
+	if (browser.editImport.hasIos)
+	{
+		drawTextureSettingsFields(browser.editImport.ios);
+	}
+	ImGui::PopID();
+	ImGui::Separator();
+	if (ImGui::Button("Apply"))
+	{
+		applyTextureImportEdit(state, browser.editImport);
+	}
+	return true;
+}
+
 } // namespace
 
 void drawInspectorPanel(EditorState& state, PlaySession& session,
@@ -438,7 +498,12 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		}
 		if (!gameObject)
 		{
-			ImGui::TextDisabled("nothing selected");
+			// with no scene object selected, a single texture selected in the
+			// Asset browser shows its import settings instead
+			if (!drawTextureImportSection(state))
+			{
+				ImGui::TextDisabled("nothing selected");
+			}
 		}
 		else
 		{

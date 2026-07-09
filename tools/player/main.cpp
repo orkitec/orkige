@@ -634,24 +634,46 @@ int main(int argc, char** argv)
 		if (project.isLoaded())
 		{
 			const std::string projectAssetsDir = project.getAssetsDirectory();
-			for (std::string const& projectDir : {
-				projectAssetsDir, project.getScenesDirectory() })
+			std::error_code assetErr;
+			if (std::filesystem::is_directory(projectAssetsDir, assetErr))
 			{
-				std::error_code ignored;
-				if (std::filesystem::is_directory(projectDir, ignored))
+				// assets/ AND each subfolder as their own FLAT location, so a
+				// subfolder asset resolves by BARE name (a single recursive
+				// location indexes subfolder files by sub-path on the next
+				// backend, so bare-name loads miss there); matches the editor
+				const auto registerFlat = [&](std::string const& directory)
 				{
-					// assets/ recursively (bare-name resolution reaches
-					// subfolders, matching the editor); scenes/ stays flat
-					const bool recursive = projectDir == projectAssetsDir;
-					render->addResourceLocation(projectDir,
+					render->addResourceLocation(directory,
 						Orkige::RenderSystem::LT_FILESYSTEM,
-						Orkige::Project::RESOURCE_GROUP_NAME, recursive);
-				}
-				else
+						Orkige::Project::RESOURCE_GROUP_NAME, false);
+				};
+				registerFlat(projectAssetsDir);
+				for (std::filesystem::recursive_directory_iterator
+					it(projectAssetsDir, assetErr), end;
+					!assetErr && it != end; it.increment(assetErr))
 				{
-					SDL_Log("orkige_player: project directory '%s' does not "
-						"exist - not registered", projectDir.c_str());
+					if (it->is_directory(assetErr))
+					{
+						registerFlat(it->path().string());
+					}
 				}
+			}
+			else
+			{
+				SDL_Log("orkige_player: project directory '%s' does not "
+					"exist - not registered", projectAssetsDir.c_str());
+			}
+			const std::string projectScenesDir = project.getScenesDirectory();
+			if (std::filesystem::is_directory(projectScenesDir, assetErr))
+			{
+				render->addResourceLocation(projectScenesDir,
+					Orkige::RenderSystem::LT_FILESYSTEM,
+					Orkige::Project::RESOURCE_GROUP_NAME, false);	// scenes/ flat
+			}
+			else
+			{
+				SDL_Log("orkige_player: project directory '%s' does not "
+					"exist - not registered", projectScenesDir.c_str());
 			}
 			SDL_Log("orkige_player: project '%s' (root '%s') rooted the "
 				"resource locations", project.getName().c_str(),
