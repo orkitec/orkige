@@ -460,6 +460,22 @@ struct PlaySession
 	bool isActive() const { return this->mode != Mode::Edit; }
 };
 
+//! lower-case name of a play session's mode (edit/building/launching/playing/
+//! paused/stopping) - the MCP control port reports play state as this string
+inline const char* playSessionModeName(PlaySession const& session)
+{
+	switch (session.mode)
+	{
+	case PlaySession::Mode::Edit:		return "edit";
+	case PlaySession::Mode::Building:	return "building";
+	case PlaySession::Mode::Launching:	return "launching";
+	case PlaySession::Mode::Playing:	return "playing";
+	case PlaySession::Mode::Paused:		return "paused";
+	case PlaySession::Mode::Stopping:	return "stopping";
+	}
+	return "edit";
+}
+
 //! seconds the editor keeps re-connecting while the player engine boots
 const int PLAY_CONNECT_TIMEOUT_SECONDS = 30;
 //! seconds a shutdown simulator gets to boot (+ app install) before Play

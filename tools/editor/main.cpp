@@ -68,6 +68,7 @@
 #endif
 
 #include "EditorApp.h"
+#include "EditorControlServer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -121,8 +122,35 @@ struct QuitOnEscape
 
 } // namespace
 
-int main(int, char**)
+int main(int argc, char** argv)
 {
+	// --control-port N / --control-token-file PATH: opt-in MCP control port
+	// (WP #80). Off unless asked for; the env vars ORKIGE_CONTROL_PORT /
+	// ORKIGE_CONTROL_TOKEN_FILE are the equivalents the MCP host uses.
+	int controlPort = -1;			// < 0 = the control port stays off
+	std::string controlTokenFile;
+	for (int argIndex = 1; argIndex < argc; ++argIndex)
+	{
+		if (std::strcmp(argv[argIndex], "--control-port") == 0 &&
+			argIndex + 1 < argc)
+		{
+			controlPort = std::atoi(argv[++argIndex]);
+		}
+		else if (std::strcmp(argv[argIndex], "--control-token-file") == 0 &&
+			argIndex + 1 < argc)
+		{
+			controlTokenFile = argv[++argIndex];
+		}
+	}
+	if (const char* portEnv = std::getenv("ORKIGE_CONTROL_PORT"))
+	{
+		controlPort = std::atoi(portEnv);
+	}
+	if (const char* tokenEnv = std::getenv("ORKIGE_CONTROL_TOKEN_FILE"))
+	{
+		controlTokenFile = tokenEnv;
+	}
+
 	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -174,7 +202,8 @@ int main(int, char**)
 			std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr;
+			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (the WP-A1.3 app rule + B3 flavor split,
@@ -520,6 +549,54 @@ int main(int, char**)
 		// their fixture objects themselves at frame 2 (see the frame loop).
 		EditorState state;
 
+		// MCP control port (WP #80): a SECOND core_debugnet server, in THIS
+		// (editor) process, exposing editor operations to an MCP host
+		// (Util/orkige_mcp.py). Off unless --control-port / the control
+		// self-test asked for it. The context bundles the objects the handler
+		// bridges to (all owned here). Pumped once per frame below.
+		Orkige::EditorControlServer controlServer;
+		Orkige::EditorControlContext controlContext;
+		controlContext.state = &state;
+		controlContext.core = &editorCore;
+		controlContext.play = &playSession;
+		controlContext.console = &console;
+		controlContext.sceneTarget = &sceneTarget;
+		controlContext.gameObjectManager = &gameObjectManager;
+		// the control self-test drives an ephemeral in-process port; a real
+		// host passes an explicit --control-port
+		const char* controlTestEnv = std::getenv("ORKIGE_EDITOR_CONTROL_TEST");
+		Orkige::EditorControlSelfTest controlSelfTest;
+		if (controlTestEnv != nullptr && controlPort < 0)
+		{
+			controlPort = 0;	// ephemeral - the in-process test reads it back
+			// publish a token so the self-test really exercises the auth path
+			// (a token file makes start() mint + enforce a secret)
+			if (controlTokenFile.empty())
+			{
+				controlTokenFile = std::string(controlTestEnv) + ".token";
+			}
+		}
+		if (controlPort >= 0)
+		{
+			if (!controlServer.start(
+				static_cast<unsigned short>(controlPort), controlTokenFile))
+			{
+				SDL_Log("orkige_editor: control port failed to start on "
+					"port %d", controlPort);
+				if (controlTestEnv != nullptr)
+				{
+					exitCode = 2;
+				}
+			}
+			else
+			{
+				SDL_Log("orkige_editor: MCP control port listening on "
+					"127.0.0.1:%u%s", controlServer.getPort(),
+					controlTokenFile.empty() ? " (no token file - auth off)"
+						: "");
+			}
+		}
+
 		// initial orbit pose reproduces the old fixed camera at (0, 2.5, 9)
 		applyOrbitCamera(state, sceneCameraNode);
 
@@ -760,7 +837,7 @@ int main(int, char**)
 		// scripted stage fires. The plain interactive editor (none of these
 		// hooks set) never creates them.
 		const bool needsSceneFixtures = selfCheck || editTest || playtest ||
-			(exportExampleEnv != nullptr);
+			(exportExampleEnv != nullptr) || (controlTestEnv != nullptr);
 		// edittest state that spans frames
 		Orkige::EditorTransform editTestCube1Before;
 		Orkige::EditorTransform editTestCube1Moved;
@@ -1023,6 +1100,11 @@ int main(int, char**)
 			// play mode: pump the debug link, watch the player process,
 			// handle crash/stop transitions - before the UI reads the state
 			updatePlaySession(playSession, console);
+
+			// MCP control port: accept/read/dispatch host commands (WP #80).
+			// Pumped after the play session so play-control verbs act on
+			// current state; no-op when the port never started.
+			controlServer.update(controlContext);
 
 			// project export: act on a Build-menu request, then pump the
 			// running exporter's output into the Console ([export] lines)
@@ -3423,6 +3505,31 @@ int main(int, char**)
 					resizedWidth, resizedHeight,
 					sceneTarget.width, sceneTarget.height);
 			}
+			// MCP control-port self-test (editor_control ctest): once the
+			// frame-2 fixtures exist, drive an in-process DebugClient through
+			// the control server and assert every reply (see
+			// EditorControlSelfTest). Runs uncapped until it passes or fails.
+			if (controlTestEnv != nullptr && controlServer.isListening())
+			{
+				if (frameCount == 3)
+				{
+					controlSelfTest.begin(controlServer.getPort(),
+						controlServer.getToken(), controlTestEnv);
+				}
+				if (controlSelfTest.active())
+				{
+					controlSelfTest.update(gameObjectManager);
+				}
+				if (frameCount >= 3 && controlSelfTest.done())
+				{
+					if (!controlSelfTest.passed())
+					{
+						exitCode = 2;
+					}
+					running = false;
+				}
+			}
+
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
 				running = false;

@@ -135,6 +135,25 @@ namespace Orkige
 		this->mFileNameToId.clear();
 	}
 	//---------------------------------------------------------
+	std::vector<AssetEntry> AssetDatabase::listAssets() const
+	{
+		// iterate the path->id map: it is already sorted by project-relative
+		// path (std::map), which is the stable order callers want
+		std::vector<AssetEntry> entries;
+		entries.reserve(this->mPathToId.size());
+		for (std::pair<String const, String> const & pathAndId :
+			this->mPathToId)
+		{
+			AssetEntry entry;
+			entry.id = pathAndId.second;
+			entry.relativePath = pathAndId.first;
+			entry.fileName =
+				std::filesystem::path(pathAndId.first).filename().string();
+			entries.push_back(entry);
+		}
+		return entries;
+	}
+	//---------------------------------------------------------
 	String AssetDatabase::pathForId(String const & assetId) const
 	{
 		const std::map<String, String>::const_iterator found =

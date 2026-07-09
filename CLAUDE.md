@@ -174,6 +174,34 @@ everyone's confidence in the suite.
   there, with a reason, in the same change. Don't add reliance on features Ogre-Next
   dropped (OGRE material scripts especially — keep materials simple/generated).
 
+## MCP server (AI-agent editor control)
+
+`Util/orkige_mcp.py` is a Model Context Protocol server (official `mcp` Python SDK,
+stdio) that bridges an AI agent to a running editor. Register it with:
+
+```sh
+claude mcp add orkige -- python3 Util/orkige_mcp.py
+```
+
+It talks to an OPT-IN editor control port: launch the editor with `--control-port
+<N> --control-token-file <path>` (or the env equivalents `ORKIGE_CONTROL_PORT` /
+`ORKIGE_CONTROL_TOKEN_FILE`) — OFF by default so no normal run/test is affected. The
+control port is a SECOND `core_debugnet` `DebugServer` living in the EDITOR process
+(`tools/editor/EditorControlServer.{h,cpp}`), reusing the debug transport wholesale
+(line-JSON over loopback TCP) with two additive conventions: request/response
+CORRELATION (a `req` id echoed in `ok`/`err` replies) and an AUTH TOKEN (the editor
+writes a secret to the token file; the host presents it in a `hello`; mutation verbs
+are refused until authenticated — a control port started WITHOUT a token file is
+read/write-open for dev convenience). Play control (play/stop/pause/step) is
+translated into the ONE existing player debug protocol — MCP is an editor-side
+bridge, never a second player port. The ~17 tools (open_project, open/save/new
+scene, list_hierarchy, get/set_component over the six typed bundles, create/delete/
+reparent object, add/remove component, play/stop, screenshot → file path,
+list_assets, console_tail) map onto existing `EditorCore` methods + the
+`EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
+(C++ bridge, in-process client) and `mcp_bridge_selftest` (Python framing/
+correlation/auth, stdlib-only). Full reference: `Docs/mcp.md`.
+
 ## Architecture
 
 Two layers, each split into small modules with a flat `<module>/<File>.{h,cpp}` layout.

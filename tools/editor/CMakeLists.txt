@@ -39,6 +39,8 @@ add_executable(orkige_editor
     main.cpp
     EditorApp.h
     EditorConsole.cpp
+    EditorControlServer.h
+    EditorControlServer.cpp
     EditorDeviceTargets.cpp
     EditorDocument.cpp
     EditorExport.cpp

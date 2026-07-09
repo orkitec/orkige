@@ -256,7 +256,30 @@ if(TARGET orkige_editor)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=150;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
+
+    # MCP control port, headless end to end (WP #80): the editor starts its
+    # control server on an ephemeral in-process port and drives its OWN
+    # DebugClient through hello (auth token) + list_hierarchy + create_object
+    # (+ verify it exists in the live scene) + get/set the Transform bundle
+    # (mutation + request/response correlation) + a screenshot to a temp path
+    # (+ verify the file was written), asserting every reply. Proves the whole
+    # C++ bridge without needing Python. Screenshot needs the GPU -> integration.
+    add_test(NAME editor_control${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_control${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
+        LABELS integration TIMEOUT 60)
 endif()
+
+# the MCP Python bridge's framing/correlation logic, headless and without a
+# live editor: orkige_mcp.py --selftest stands up a stub control server on a
+# loopback socket (stdlib only - no editor, no `mcp` SDK needed) and drives the
+# bridge's request/reply correlation through it. Stdlib-only -> LABELS unit, so
+# it runs in the unit AND desktop presets.
+add_test(NAME mcp_bridge_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_mcp.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(mcp_bridge_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
 if(TARGET orkige_editor AND TARGET orkige_player)
     # editor play mode: press Play programmatically, require the remote

@@ -668,3 +668,35 @@ TEST_CASE("AssetDatabase::importAsset rejects paths outside the project root",
 	std::error_code ignored;
 	std::filesystem::remove(outside, ignored);
 }
+
+TEST_CASE("AssetDatabase::listAssets enumerates every id-carrying asset "
+	"sorted by path (WP #80)", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_listassets");
+	// deliberately out of sorted order on disk
+	project.writeAsset("assets/zebra.png");
+	project.writeAsset("assets/apple.png");
+	project.writeAsset("scripts/player.lua");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true); // mints the sidecars
+
+	const std::vector<Orkige::AssetEntry> assets = database.listAssets();
+	REQUIRE(assets.size() == 3);
+	// sorted by project-relative path (std::map order): assets/ before scripts/
+	CHECK(assets[0].relativePath == "assets/apple.png");
+	CHECK(assets[0].fileName == "apple.png");
+	CHECK(assets[1].relativePath == "assets/zebra.png");
+	CHECK(assets[2].relativePath == "scripts/player.lua");
+	CHECK(assets[2].fileName == "player.lua");
+	// every entry carries the id the maps hold (round-trips through the id)
+	for (Orkige::AssetEntry const & entry : assets)
+	{
+		CHECK(isHex32(entry.id));
+		CHECK(database.pathForId(entry.id) == entry.relativePath);
+		CHECK(database.idForPath(entry.relativePath) == entry.id);
+	}
+	// an empty database lists nothing
+	Orkige::AssetDatabase empty;
+	CHECK(empty.listAssets().empty());
+}

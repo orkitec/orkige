@@ -14,10 +14,22 @@
 #include "core_util/optr.h"
 
 #include <map>
+#include <vector>
 
 namespace Orkige
 {
 	class IArchive;
+
+	//! @brief one enumerated asset the database knows about (id + where it
+	//! lives), the shape listAssets() returns. Plain strings so callers above
+	//! the project layer (the editor's MCP control server, an asset browser)
+	//! stay ignorant of the internal lookup maps.
+	struct ORKIGE_CORE_DLL AssetEntry
+	{
+		String id;				//!< stable 32-hex asset id
+		String relativePath;	//!< project-relative path ("assets/ball.png")
+		String fileName;		//!< bare file name ("ball.png")
+	};
 
 	//! @brief a texture asset's import settings for ONE platform: how the
 	//! runtime samples it (filter/wrap, honored LIVE at sprite material
@@ -132,6 +144,11 @@ namespace Orkige
 		String const & getRootDirectory() const { return mRootDirectory; }
 		//! number of assets that carry an id
 		size_t getAssetCount() const { return mIdToPath.size(); }
+		//! @brief every id-carrying asset (id + project-relative path + bare
+		//! file name), sorted by project-relative path for a stable listing.
+		//! The clean enumeration accessor over the otherwise-private lookup
+		//! maps (the MCP control server / an asset browser build on it).
+		std::vector<AssetEntry> listAssets() const;
 
 		//! project-relative path of an asset id ("" when unknown)
 		String pathForId(String const & assetId) const;

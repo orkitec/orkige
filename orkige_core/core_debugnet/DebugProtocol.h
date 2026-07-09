@@ -29,7 +29,17 @@ namespace Orkige
 	//! else without crashing.
 	namespace DebugProtocol
 	{
-		//! protocol version written into every message as "v"
+		//! @brief protocol version written into every message as "v".
+		//! @remarks the version handshake is deliberately additive-friendly:
+		//! DebugMessage::decode fills DebugMessage::version from the wire "v",
+		//! and BOTH ends carry DebugProtocol::VERSION when they build a message
+		//! locally. A peer never REFUSES a message purely on a version
+		//! difference (every extension so far - LIST_PARENTS, MSG_SET_ACTIVE,
+		//! MSG_RELOAD_SCRIPT, MSG_SET_CVAR, the MCP control verbs - stayed at
+		//! v1 and old peers answer "unknown command" for a type they do not
+		//! know). A handler that WANTS to gate a feature compares versions
+		//! itself (the MCP control server echoes its VERSION in the hello ack so
+		//! the host can adapt); the transport imposes no version policy.
 		extern ORKIGE_CORE_DLL const int VERSION;
 		//! transport line cap: longer lines are refused by the sender and
 		//! discarded by the receiver (protects both ends from unbounded input)
@@ -94,6 +104,17 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
+		//! @brief request-correlation id (WP #80): a REQUEST/RESPONSE protocol
+		//! (the MCP editor control port) echoes the request's "req" value back
+		//! in its ok/err reply so an async caller can match answers to
+		//! outstanding requests. Additive since protocol v1: absent on the
+		//! fire-and-forget player messages, which never carry or expect it.
+		extern ORKIGE_CORE_DLL const String FIELD_REQ;
+		//! @brief auth token (WP #80): a control port that guards mutation
+		//! reads a secret the editor wrote to a file; the host presents it here
+		//! in a "hello". Absent on the intra-machine player link (loopback +
+		//! single-client is its trust model). Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String FIELD_TOKEN;
 		extern ORKIGE_CORE_DLL const String LIST_IDS;				//!< hierarchy: GameObject id list
 		extern ORKIGE_CORE_DLL const String LIST_COMPONENTS;		//!< object_state: component type name list
 		//! @brief hierarchy: parent id per object ("" = root), parallel to

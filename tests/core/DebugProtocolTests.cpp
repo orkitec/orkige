@@ -172,6 +172,43 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 	}
 }
 
+TEST_CASE("DebugMessage carries request-correlation and auth fields (WP #80)",
+	"[debugnet]")
+{
+	// the MCP control port echoes a request's "req" id in its ok/err reply and
+	// presents an auth token in a hello - both are plain additive fields, so
+	// they round-trip through the existing codec unchanged
+	DebugMessage hello(Protocol::MSG_HELLO);
+	hello.set(Protocol::FIELD_TOKEN, "5f2c9ab1deadbeef5f2c9ab1deadbeef");
+	hello.set(Protocol::FIELD_REQ, "r42");
+	const DebugMessage out = roundTrip(hello);
+	CHECK(out.get(Protocol::FIELD_TOKEN) ==
+		"5f2c9ab1deadbeef5f2c9ab1deadbeef");
+	CHECK(out.get(Protocol::FIELD_REQ) == "r42");
+
+	DebugMessage ok("ok");
+	ok.set(Protocol::FIELD_REQ, "r42");
+	ok.set("scene_dirty", "0");
+	const DebugMessage okOut = roundTrip(ok);
+	CHECK(okOut.type == "ok");
+	CHECK(okOut.get(Protocol::FIELD_REQ) == "r42");
+}
+
+TEST_CASE("DebugMessage::decode is safe on a temporary source string",
+	"[debugnet]")
+{
+	// the JsonReader keeps a reference to the source text; decode()'s String
+	// const& parameter keeps a passed temporary alive for the whole call, so
+	// decoding the result of an expression must be safe (the fix deletes the
+	// reader's rvalue ctor so an INTERNAL temporary can never be bound)
+	DebugMessage source(Protocol::MSG_SELECT);
+	source.set(Protocol::FIELD_ID, "TempCube");
+	DebugMessage out;
+	REQUIRE(DebugMessage::decode(source.encode(), out)); // temporary argument
+	CHECK(out.type == Protocol::MSG_SELECT);
+	CHECK(out.get(Protocol::FIELD_ID) == "TempCube");
+}
+
 TEST_CASE("DebugMessage escapes and restores edge-case values", "[debugnet]")
 {
 	DebugMessage in("select");

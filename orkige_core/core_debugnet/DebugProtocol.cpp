@@ -46,6 +46,8 @@ namespace Orkige
 		const String FIELD_SCENE			= "scene";
 		const String FIELD_MESSAGE			= "message";
 		const String FIELD_LEVEL			= "level";
+		const String FIELD_REQ				= "req";
+		const String FIELD_TOKEN			= "token";
 		const String LIST_IDS				= "ids";
 		const String LIST_COMPONENTS		= "components";
 		const String LIST_PARENTS			= "parents";
@@ -123,7 +125,12 @@ namespace Orkige
 		class JsonReader
 		{
 		public:
-			JsonReader(String const & text) : text(text), pos(0) {}
+			explicit JsonReader(String const & text) : text(text), pos(0) {}
+			//! @brief the reader keeps a reference to the source text, so binding
+			//! it to a TEMPORARY string would dangle - forbid that at the API.
+			//! decode() only ever constructs it from its own String const& line
+			//! parameter (an lvalue that outlives the reader).
+			JsonReader(String &&) = delete;
 			//---------------------------------------------------------
 			void skipWhitespace()
 			{
