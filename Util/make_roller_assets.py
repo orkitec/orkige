@@ -319,10 +319,11 @@ class ComponentWriter:
         ])
 
     def rigid_box(self, hx, hy, hz, body_type=1, friction=0.5,
-                  restitution=0.0, layer="Default"):
+                  restitution=0.0, layer="Default", is_sensor=False):
         """body_type: 0 static, 1 KINEMATIC (movable tiles), 2 dynamic.
-        layer: collision-layer NAME (physics.olayers) - the LAST field, matches
-        RigidBodyComponent::save."""
+        layer: collision-layer NAME (physics.olayers). is_sensor: trigger volume
+        (detects overlaps, no collision response). layer then isSensor are the
+        LAST two fields, matching RigidBodyComponent::save."""
         return self._component("RigidBodyComponent", [
             '<int value="%d"/>' % body_type,
             '<int value="0"/>',                              # ST_BOX
@@ -335,10 +336,19 @@ class ComponentWriter:
             '<float value="%s"/>' % fmt(float(restitution)),
             '<bool value="0"/>',                             # planar (dynamic only)
             '<String value="%s"/>' % layer,                  # collision layer
+            '<bool value="%s"/>' % fmt(is_sensor),           # isSensor (trigger)
         ])
 
+    def rigid_sensor_box(self, hx, hy, hz, layer="Trigger"):
+        """A STATIC sensor box - a trigger volume detecting the dynamic bodies
+        its layer collides with (no collision response). The roller goal uses
+        this: a static sensor on the Trigger layer senses the dynamic ball
+        (Trigger x ball = collide in physics.olayers)."""
+        return self.rigid_box(hx, hy, hz, body_type=0, layer=layer,
+                              is_sensor=True)
+
     def rigid_sphere(self, radius, mass=1.0, friction=0.5, restitution=0.2,
-                     planar=True, layer="Default"):
+                     planar=True, layer="Default", is_sensor=False):
         return self._component("RigidBodyComponent", [
             '<int value="2"/>',                              # BT_DYNAMIC
             '<int value="1"/>',                              # ST_SPHERE
@@ -350,6 +360,7 @@ class ComponentWriter:
             '<float value="%s"/>' % fmt(float(restitution)),
             '<bool value="%s"/>' % fmt(planar),
             '<String value="%s"/>' % layer,                  # collision layer
+            '<bool value="%s"/>' % fmt(is_sensor),           # isSensor (trigger)
         ])
 
     def script(self, path, enabled=True):
@@ -594,9 +605,14 @@ def build_scene(tile_asset_id):
              tile_asset_id=tile_asset_id)
     add_tile(scene, "C", 2, open_edges=(), tile_asset_id=tile_asset_id)
     # the goal star inside tile B - a CHILD of the TileB group (local
-    # offset on B's floor near the right wall), so it slides along
+    # offset on B's floor near the right wall), so it slides along. A STATIC
+    # SENSOR (WP #88) on the Trigger layer detects the dynamic ball rolling
+    # into it: ball.lua's onContactBegin fires the win (the old GOAL_RADIUS
+    # distance hack is gone). The sensor body rides the tile slide through the
+    # subtree teleport, exactly like the kinematic walls.
     scene.add("Goal", scene.transform(1.6, -HALF + WALL + 0.5),
               scene.sprite("goal.png", 1.0, 1.0, Z_GOAL),
+              scene.rigid_sensor_box(0.6, 0.6, WALL_HALF, layer="Trigger"),
               parent="TileB")
     # move-mode cursor: highlights the EMPTY slot; game.lua repositions and
     # shows/hides it (start: hidden over slot 1)
@@ -611,12 +627,15 @@ def write_layers(path):
     on the obstacle walls/tiles (ball x obstacle = collide) while ball/ball and
     obstacle/obstacle are OFF. Default (0) collides with everything so any
     unlabeled body behaves as before. Row-major NxN bools, symmetric."""
-    names = ["Default", "ball", "obstacle"]
-    # symmetric collision matrix (index order matches names)
+    names = ["Default", "ball", "obstacle", "Trigger"]
+    # symmetric collision matrix (index order matches names). The Trigger layer
+    # (WP #88) carries the goal SENSOR: it collides with (senses) ONLY the ball,
+    # never the obstacle walls or itself - so the win fires on the ball alone.
     matrix = [
-        [True,  True,  True],   # Default: collides with all
-        [True,  False, True],   # ball:    not with itself, yes with obstacles
-        [True,  True,  False],  # obstacle: not with itself
+        [True,  True,  True,  False],  # Default:  collides with all real layers
+        [True,  False, True,  True],   # ball:     obstacles + the goal trigger
+        [True,  True,  False, False],  # obstacle: not itself, not the trigger
+        [False, True,  False, False],  # Trigger:  senses ONLY the ball
     ]
     lines = [
         "<?1.0, UTF-8, yes?>",

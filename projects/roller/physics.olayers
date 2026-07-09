@@ -2,17 +2,25 @@
 <XMLArchive Version="0">
     <String value="orkige.olayers"/>
     <int value="1"/>
-    <unsigned_int value="3"/>
+    <unsigned_int value="4"/>
     <String value="Default"/>
     <String value="ball"/>
     <String value="obstacle"/>
-    <bool value="1"/>
+    <String value="Trigger"/>
     <bool value="1"/>
     <bool value="1"/>
     <bool value="1"/>
     <bool value="0"/>
     <bool value="1"/>
+    <bool value="0"/>
     <bool value="1"/>
     <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="0"/>
+    <bool value="0"/>
+    <bool value="0"/>
+    <bool value="1"/>
+    <bool value="0"/>
     <bool value="0"/>
 </XMLArchive>

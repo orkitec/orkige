@@ -24,6 +24,7 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 
 #include "core_project/Project.h"
 #include "core_serialization/XMLArchive.h"
@@ -31,7 +32,12 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
+#include <mutex>
+#include <set>
 #include <thread>
+#include <tuple>
+#include <unordered_map>
+#include <vector>
 
 namespace
 {
@@ -141,6 +147,46 @@ namespace
 		}
 	};
 
+	//--- contact listener (worker-thread SAFE) ----------------------
+	// THE threading contract (task #88): Jolt calls OnContactAdded /
+	// OnContactRemoved on WORKER threads, concurrently, DURING
+	// PhysicsSystem::Update, while body locks are held. Touching GameObjects
+	// or the Lua state from here is a data race / deadlock. So the callbacks do
+	// the MINIMUM: push the raw {BodyID pair, began} into a MUTEX-GUARDED queue
+	// and return. The main thread drains + coalesces + dispatches AFTER Update
+	// returns (PhysicsWorld::update, drainContactQueue). OnContactAdded fires
+	// per sub-step; the main-thread drain dedupes to once per pair per frame.
+	// OnContactRemoved carries only BodyIDs (no Body refs) and can fire while a
+	// body is being destroyed - the drain tolerates unresolvable ids.
+	class ContactListenerImpl final : public JPH::ContactListener
+	{
+	public:
+		struct QueuedContact
+		{
+			JPH::BodyID	a;
+			JPH::BodyID	b;
+			bool		began;
+		};
+		std::mutex					mMutex;		//!< guards mQueue (worker threads push, main thread drains)
+		std::vector<QueuedContact>	mQueue;		//!< raw contacts, drained each update()
+
+		virtual void OnContactAdded(const JPH::Body & inBody1,
+			const JPH::Body & inBody2, const JPH::ContactManifold & /*inManifold*/,
+			JPH::ContactSettings & /*ioSettings*/) override
+		{
+			std::lock_guard<std::mutex> lock(this->mMutex);
+			this->mQueue.push_back({ inBody1.GetID(), inBody2.GetID(), true });
+		}
+		virtual void OnContactRemoved(
+			const JPH::SubShapeIDPair & inSubShapePair) override
+		{
+			// only BodyIDs here - the bodies may already be mid-destruction
+			std::lock_guard<std::mutex> lock(this->mMutex);
+			this->mQueue.push_back({ inSubShapePair.GetBody1ID(),
+				inSubShapePair.GetBody2ID(), false });
+		}
+	};
+
 	//--- Jolt runtime hooks -------------------------------------------
 	//---------------------------------------------------------
 	void joltTrace(const char * fmt, ...)
@@ -198,6 +244,12 @@ namespace Orkige
 		JPH::TempAllocatorImpl				mTempAllocator;				//!< per-update scratch memory
 		JPH::JobSystemThreadPool			mJobSystem;					//!< worker threads for the simulation
 		JPH::PhysicsSystem					mPhysicsSystem;				//!< the Jolt world
+		ContactListenerImpl					mContactListener;			//!< worker-thread contact queue (@see drainContactQueue)
+		//! body -> opaque user tag (the GameObject bridge stores its
+		//! RigidBodyComponent here). Touched ONLY on the main thread
+		//! (createBody/destroyBody/setBodyUserData/the drain) - the sole
+		//! cross-thread structure is the listener's mutex-guarded queue.
+		std::unordered_map<PhysicsWorld::BodyId, PhysicsWorld::BodyUserData> mBodyUserData;
 		//--- Methods -----------------------------------------------
 	public:
 		explicit PhysicsWorldImpl(PhysicsWorld::LayerConfig const & layerConfig) :
@@ -237,6 +289,9 @@ namespace Orkige
 		this->mImpl->mPhysicsSystem.Init(maxBodies, numBodyMutexes, maxBodyPairs,
 			maxContactConstraints, this->mImpl->mBroadPhaseLayerInterface,
 			this->mImpl->mObjectVsBroadPhaseFilter, this->mImpl->mObjectLayerPairFilter);
+		// wire the contact listener AFTER Init: sensors and contact events fire
+		// through it (the queue is drained on the main thread in update())
+		this->mImpl->mPhysicsSystem.SetContactListener(&this->mImpl->mContactListener);
 		this->mAccumulator = 0.0f;
 		oDebugMsg("physic", 0, "PhysicsWorld initialized (Jolt, maxBodies=" << maxBodies << ")");
 		return true;
@@ -251,6 +306,7 @@ namespace Orkige
 		delete this->mImpl;
 		this->mImpl = NULL;
 		this->mAccumulator = 0.0f;
+		this->mFrameContacts.clear();
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::setLayerConfig(LayerConfig const & config)
@@ -274,8 +330,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	void PhysicsWorld::update(float deltaTime)
 	{
+		// last frame's contacts expire the moment a new update() begins - so a
+		// PAUSED frame (early return below) honestly presents NO contacts, and a
+		// consumer always sees exactly this call's contacts
+		this->mFrameContacts.clear();
 		if (!this->mImpl || deltaTime <= 0.0f || this->mPaused)
 		{
+			// PAUSED SEMANTICS (documented loudly): while paused Update() never
+			// runs, so NO contact callbacks fire and NO triggers fire. A body
+			// teleported into a sensor while paused generates a contact only on
+			// the next UNPAUSED step (or never if teleported through and out).
+			// This is correct for the roller "move the world" mode - wins happen
+			// during play, not during the paused tile slide.
 			return;
 		}
 		this->mAccumulator += deltaTime;
@@ -290,6 +356,47 @@ namespace Orkige
 		}
 		// after a long stall drop the excess instead of trying to catch up
 		this->mAccumulator = std::min(this->mAccumulator, PhysicsWorld::FIXED_TIMESTEP);
+		// MAIN-THREAD drain: the worker threads finished inside Update() above,
+		// so the queue is quiescent now - coalesce it into mFrameContacts
+		this->drainContactQueue();
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::drainContactQueue()
+	{
+		oAssert(this->mImpl);
+		// take the queue under the listener's lock (workers are done, but the
+		// lock is the contract) and process it lock-free afterwards
+		std::vector<ContactListenerImpl::QueuedContact> queued;
+		{
+			std::lock_guard<std::mutex> lock(this->mImpl->mContactListener.mMutex);
+			queued.swap(this->mImpl->mContactListener.mQueue);
+		}
+		if (queued.empty())
+		{
+			return;
+		}
+		// COALESCE per frame: OnContactAdded fires once per sub-step, so the same
+		// pair can appear many times - dedupe on the unordered (lo,hi) id pair
+		// plus the began/ended kind so onContactBegin fires exactly once per pair
+		// per frame (and a begin+end within one frame both survive).
+		std::set<std::tuple<BodyId, BodyId, bool> > seen;
+		this->mFrameContacts.reserve(queued.size());
+		for (ContactListenerImpl::QueuedContact const & contact : queued)
+		{
+			const BodyId ia = contact.a.GetIndexAndSequenceNumber();
+			const BodyId ib = contact.b.GetIndexAndSequenceNumber();
+			const BodyId lo = std::min(ia, ib);
+			const BodyId hi = std::max(ia, ib);
+			if (!seen.insert(std::make_tuple(lo, hi, contact.began)).second)
+			{
+				continue;	// already recorded this pair+kind this frame
+			}
+			ContactEvent event;
+			event.bodyA = ia;
+			event.bodyB = ib;
+			event.began = contact.began;
+			this->mFrameContacts.push_back(event);
+		}
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::setPaused(bool paused)
@@ -312,7 +419,8 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	PhysicsWorld::BodyId PhysicsWorld::createBody(BodyDesc const & desc,
-		Ogre::Vector3 const & position, Ogre::Quaternion const & orientation)
+		Ogre::Vector3 const & position, Ogre::Quaternion const & orientation,
+		BodyUserData userData)
 	{
 		oAssert(this->mImpl);
 		JPH::ShapeRefC shape;
@@ -342,6 +450,13 @@ namespace Orkige
 			toJolt(orientation), motionType, layer);
 		settings.mFriction = desc.friction;
 		settings.mRestitution = desc.restitution;
+		// sensor = trigger volume: overlaps are DETECTED (the contact listener
+		// fires) but produce NO collision response. It still obeys the layer
+		// matrix (only detects bodies its layer collides with), and a STATIC
+		// sensor detects the DYNAMIC bodies moving through it (the roller goal).
+		settings.mIsSensor = desc.isSensor;
+		// tag the body with its owner handle so the contact drain can map back
+		settings.mUserData = static_cast<JPH::uint64>(userData);
 		if (desc.bodyType == PhysicsWorld::BT_DYNAMIC)
 		{
 			if (desc.planar)
@@ -363,7 +478,15 @@ namespace Orkige
 		}
 		bodyInterface.AddBody(body->GetID(), desc.bodyType == PhysicsWorld::BT_STATIC ?
 			JPH::EActivation::DontActivate : JPH::EActivation::Activate);
-		return body->GetID().GetIndexAndSequenceNumber();
+		const BodyId bodyId = body->GetID().GetIndexAndSequenceNumber();
+		// mirror the tag in the main-thread map: OnContactRemoved carries only a
+		// BodyID (no Body ref), so the drain resolves owners through this map -
+		// which is cleared in destroyBody, giving the honest "no live owner"
+		if (userData != 0)
+		{
+			this->mImpl->mBodyUserData[bodyId] = userData;
+		}
+		return bodyId;
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::destroyBody(BodyId bodyId)
@@ -380,6 +503,39 @@ namespace Orkige
 			bodyInterface.RemoveBody(id);
 		}
 		bodyInterface.DestroyBody(id);
+		// drop the owner tag: a still-queued OnContactRemoved for this body now
+		// resolves to 0 in the drain, so it is never dispatched to a dead object
+		this->mImpl->mBodyUserData.erase(bodyId);
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::setBodyUserData(BodyId bodyId, BodyUserData userData)
+	{
+		if (!this->mImpl || bodyId == PhysicsWorld::INVALID_BODY_ID)
+		{
+			return;
+		}
+		if (userData != 0)
+		{
+			this->mImpl->mBodyUserData[bodyId] = userData;
+		}
+		else
+		{
+			this->mImpl->mBodyUserData.erase(bodyId);
+		}
+		// keep the on-body tag in sync (used for direct Body::GetUserData reads)
+		this->mImpl->mPhysicsSystem.GetBodyInterface().SetUserData(
+			JPH::BodyID(bodyId), static_cast<JPH::uint64>(userData));
+	}
+	//---------------------------------------------------------
+	PhysicsWorld::BodyUserData PhysicsWorld::getBodyUserData(BodyId bodyId) const
+	{
+		if (!this->mImpl || bodyId == PhysicsWorld::INVALID_BODY_ID)
+		{
+			return 0;
+		}
+		std::unordered_map<BodyId, BodyUserData>::const_iterator it =
+			this->mImpl->mBodyUserData.find(bodyId);
+		return it != this->mImpl->mBodyUserData.end() ? it->second : 0;
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::setBodyEnabled(BodyId bodyId, bool enabled)

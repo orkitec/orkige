@@ -29,6 +29,16 @@ namespace Orkige
 		OOBJECT(RigidBodyComponent,GameObjectComponent)
 		//--- Types -------------------------------------------------
 	public:
+		//! @brief fired on a GameObject when one of its bodies STARTS touching
+		//! another (WP #88, begin = Jolt OnContactAdded). The event data is a
+		//! StringUtil::StringObject carrying the OTHER GameObject's id. Dispatched
+		//! on the MAIN thread from the contact drain (@see dispatchContacts), so
+		//! native components / the debug protocol can observe contacts without
+		//! scripting. @ingroup EngineEvents
+		DECL_EVENTTYPE(ContactBeganEvent);
+		//! @brief fired on a GameObject when one of its bodies STOPS touching
+		//! another (end = Jolt OnContactRemoved). @see ContactBeganEvent
+		DECL_EVENTTYPE(ContactEndedEvent);
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -69,6 +79,15 @@ namespace Orkige
 		void setLayer(String const & layer);
 		//! the collision-layer name ("Default" unless set)
 		inline String const & getLayer() const;
+		//! @brief make this a SENSOR / trigger volume (before body creation): it
+		//! detects overlaps (firing ContactBegan/EndedEvent + the script hooks)
+		//! with NO collision response. Composes with the layer - a sensor only
+		//! detects bodies its layer collides with per the LayerConfig matrix. A
+		//! STATIC sensor detects DYNAMIC bodies moving through it (the roller
+		//! goal: a static sensor + the dynamic ball).
+		void setIsSensor(bool isSensor);
+		//! is this body a sensor / trigger volume (@see setIsSensor)
+		inline bool isSensor() const;
 		//! set linear velocity in m/s (needs the created body)
 		void setLinearVelocity(Vec3 const & velocity);
 		//! get linear velocity in m/s (ZERO before body creation)
@@ -109,6 +128,19 @@ namespace Orkige
 		//! one-tick-old pose (the classic step-while-paused contract caught
 		//! exactly that)
 		static void syncDynamicBodyPoses(GameObjectManager & gameObjectManager);
+		//! @brief MAIN-THREAD dispatch of the physics contacts drained this frame
+		//! (PhysicsWorld::getFrameContacts) to game code - THE consumer side of
+		//! the worker-thread->queue->main-drain pipeline. For every contact it
+		//! maps each body back to its owning GameObject through the body user tag
+		//! (set in createBody, re-validated here so a destroyed body never
+		//! delivers), fires ContactBegan/EndedEvent on the object and calls the
+		//! sibling ScriptComponent's onContactBegin/onContactEnd hook with the
+		//! OTHER GameObject. Call it AFTER PhysicsWorld::update in the player loop
+		//! (alongside syncDynamicBodyPoses); a no-op without an initialized world.
+		//! A contact where one side no longer resolves to a live object is
+		//! SKIPPED (v1: both sides must resolve, so a script never sees a nil
+		//! `other`) - the stale-id tolerance the drain requires.
+		static void dispatchContacts(GameObjectManager & gameObjectManager);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -130,6 +162,10 @@ namespace Orkige
 		//! load the body creation parameters (BodyDesc) from Archive
 		virtual void load(optr<IArchive> const & ar);
 	private:
+		//! @brief deliver ONE contact side (self touched other): fire the C++
+		//! ContactBegan/EndedEvent on self and call self's optional Lua hook with
+		//! other. Both objects are guaranteed live (@see dispatchContacts).
+		static void deliverContact(GameObject* self, GameObject* other, bool began);
 	};
 	//---------------------------------------------------------
 	inline PhysicsWorld::BodyType RigidBodyComponent::getBodyType() const
@@ -145,6 +181,11 @@ namespace Orkige
 	inline String const & RigidBodyComponent::getLayer() const
 	{
 		return this->mBodyDesc.layer;
+	}
+	//---------------------------------------------------------
+	inline bool RigidBodyComponent::isSensor() const
+	{
+		return this->mBodyDesc.isSensor;
 	}
 	//---------------------------------------------------------
 	inline bool RigidBodyComponent::hasBody() const

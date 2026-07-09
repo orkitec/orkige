@@ -1827,6 +1827,8 @@ namespace Orkige
 		rigidBody->setFriction(desc.friction);
 		rigidBody->setRestitution(desc.restitution);
 		rigidBody->setPlanarMode(desc.planar);
+		rigidBody->setLayer(desc.layer);
+		rigidBody->setIsSensor(desc.isSensor);
 		return true;
 	}
 	//---------------------------------------------------------

@@ -14,6 +14,7 @@
 #include <core_util/Singleton.h>
 #include <core_util/String.h>
 
+#include <cstdint>
 #include <vector>
 
 namespace Orkige
@@ -36,6 +37,11 @@ namespace Orkige
 	public:
 		//! opaque rigid body handle (stable across the body's lifetime)
 		typedef Ogre::uint32 BodyId;
+		//! @brief opaque per-body user handle stored ON the body and returned by
+		//! the contact drain - wide enough to hold a pointer so the GameObject
+		//! bridge tags each body with its owning RigidBodyComponent (mirrors how
+		//! TransformComponent tags render nodes with a user pointer). 0 = untagged.
+		typedef std::uintptr_t BodyUserData;
 		//! motion type of a rigid body
 		enum BodyType
 		{
@@ -73,10 +79,24 @@ namespace Orkige
 			float			restitution;	//!< bounciness (0 = none, 1 = fully elastic)
 			bool			planar;			//!< 2D mode: lock translation to X/Y and rotation to Z (dynamic bodies)
 			String			layer;			//!< collision layer NAME (LayerConfig); "" / "Default" = the collide-with-all layer 0
+			bool			isSensor;		//!< trigger volume: detects overlaps (fires contacts) with NO collision response - composes with layer (only detects bodies its layer collides with)
 			BodyDesc() : bodyType(BT_DYNAMIC), shapeType(ST_BOX),
 				halfExtents(0.5f, 0.5f, 0.5f), radius(0.5f), halfHeight(0.5f),
 				mass(1.0f), friction(0.5f), restitution(0.0f), planar(false),
-				layer("Default") {}
+				layer("Default"), isSensor(false) {}
+		};
+		//! @brief a single coalesced contact between two bodies for ONE frame,
+		//! drained on the MAIN thread after the step loop (@see getFrameContacts).
+		//! Jolt fires the raw callbacks on worker threads mid-Update; this is the
+		//! safe main-thread product. began = OnContactAdded (once per pair per
+		//! frame after coalescing), !began = OnContactRemoved. Resolve a body to
+		//! its user tag with getBodyUserData - a body may already be gone by the
+		//! time an end event is drained, so the tag is looked up at drain time.
+		struct ORKIGE_ENGINE_DLL ContactEvent
+		{
+			BodyId	bodyA;		//!< first body (INVALID_BODY_ID never appears here)
+			BodyId	bodyB;		//!< second body
+			bool	began;		//!< true = contact started, false = contact ended
 		};
 		//! @brief data-driven collision layers: the named game-layer set plus a
 		//! SYMMETRIC NxN "do these two layers collide" matrix. Plain data (no
@@ -157,6 +177,7 @@ namespace Orkige
 		float				mAccumulator;			//!< fixed-timestep accumulator
 		bool				mPaused;				//!< update() no-ops while true
 		LayerConfig			mLayerConfig;			//!< collision layers; set BEFORE init() (default = collide-with-all)
+		std::vector<ContactEvent>	mFrameContacts;	//!< contacts drained during the LAST update() (cleared each call); read after update(), dispatched on the main thread
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -197,11 +218,27 @@ namespace Orkige
 		//! get world gravity
 		Ogre::Vector3 getGravity() const;
 		//! @brief create a rigid body at the given pose
+		//! @param userData opaque per-body tag stored on the body (0 = untagged);
+		//! the GameObject bridge passes its RigidBodyComponent here so the contact
+		//! drain can map a body back to its owner (@see getBodyUserData)
 		//! @return body handle or INVALID_BODY_ID on failure
 		BodyId createBody(BodyDesc const & desc, Ogre::Vector3 const & position,
-			Ogre::Quaternion const & orientation);
-		//! remove and destroy a body
+			Ogre::Quaternion const & orientation, BodyUserData userData = 0);
+		//! remove and destroy a body (also drops its user-data tag)
 		void destroyBody(BodyId bodyId);
+		//! @brief set the opaque user tag of an existing body (@see createBody)
+		void setBodyUserData(BodyId bodyId, BodyUserData userData);
+		//! @brief read a body's opaque user tag; 0 for an untagged or
+		//! already-destroyed body - the honest "no live owner" answer the
+		//! contact drain relies on
+		BodyUserData getBodyUserData(BodyId bodyId) const;
+		//! @brief the contacts drained on the main thread during the last
+		//! update() call (empty while paused / before the first step). Jolt fires
+		//! contact callbacks on WORKER threads during Update; update() queues them
+		//! under a mutex and drains + coalesces them here AFTER the step loop, so
+		//! this is safe to walk on the main thread and dispatch to game code.
+		//! Valid until the next update() call.
+		inline std::vector<ContactEvent> const & getFrameContacts() const;
 		//! @brief take a body out of / put it back into the simulation WITHOUT
 		//! destroying it (Jolt Remove/AddBody) - the deactivated-GameObject
 		//! mechanism: a disabled body neither collides nor moves, keeps its
@@ -248,6 +285,10 @@ namespace Orkige
 			Ogre::Vector3 const & direction, float maxDistance) const;
 	protected:
 	private:
+		//! @brief MAIN-THREAD drain of the worker-thread contact queue into
+		//! mFrameContacts, coalescing per frame (once per pair per kind). Called
+		//! from update() AFTER the step loop, when the worker threads are idle.
+		void drainContactQueue();
 	};
 	//---------------------------------------------------------
 	inline bool PhysicsWorld::isInitialized() const
@@ -263,6 +304,12 @@ namespace Orkige
 	inline bool PhysicsWorld::isPaused() const
 	{
 		return this->mPaused;
+	}
+	//---------------------------------------------------------
+	inline std::vector<PhysicsWorld::ContactEvent> const &
+		PhysicsWorld::getFrameContacts() const
+	{
+		return this->mFrameContacts;
 	}
 	//---------------------------------------------------------
 }

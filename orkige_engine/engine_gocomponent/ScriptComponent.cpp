@@ -303,6 +303,26 @@ namespace Orkige
 			<< "'");
 	}
 	//---------------------------------------------------------
+	void ScriptComponent::dispatchContact(GameObject* other, bool began)
+	{
+		// only a loaded, healthy, running instance receives events (mirrors the
+		// gate in onUpdateComponent); in ORKIGE_SCRIPTING=OFF builds mInstance is
+		// never set, so this is a no-op there too
+		if (!this->mScriptEnabled || this->mFailed || !this->mStarted ||
+			!this->mInstance)
+		{
+			return;
+		}
+		const char* const hook = began ? "onContactBegin" : "onContactEnd";
+		String error;
+		if (!this->mInstance->callFunction(hook, &error, other))
+		{
+			// an error inside the hook disables the instance like any other
+			// script error (logged once through failScript)
+			this->failScript(String(hook) + ": " + error);
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void ScriptComponent::onAdd()

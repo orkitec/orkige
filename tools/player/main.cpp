@@ -1287,6 +1287,15 @@ int main(int argc, char** argv)
 					physicsWorld.update(deltaTime);
 					Orkige::RigidBodyComponent::syncDynamicBodyPoses(
 						gameObjectManager);
+					// contacts + sensors/triggers (WP #88): the worker-thread
+					// contact queue was drained inside update() above; dispatch
+					// the coalesced frame contacts to game code on THIS main
+					// thread (C++ ContactBegan/EndedEvent + the Lua
+					// onContactBegin/onContactEnd hooks). A script mutating the
+					// world here defers through the GameObjectManager delete
+					// queue, so it stays safe mid-dispatch.
+					Orkige::RigidBodyComponent::dispatchContacts(
+						gameObjectManager);
 				}
 				//
 				// [5] SLOT(#87 deferred-load pump): scene switches tear down at

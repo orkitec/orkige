@@ -14,6 +14,11 @@
 -- (Engine:setCameraOrthographic) framing the whole 2x2 tile grid; it never
 -- moves - the WORLD is what moves in this game.
 --
+-- The win: the "Goal" object carries a STATIC SENSOR RigidBodyComponent (WP
+-- #88) on the Trigger layer, which senses the dynamic ball. When the ball
+-- rolls into it, the engine's contact drain calls onContactBegin(self, other)
+-- below with the goal as `other` - the OLD GOAL_RADIUS distance poll is gone.
+--
 -- Coordination with game.lua (the Continuity half) through `shared.roller`:
 --   mode ("play"/"move")  written by game.lua; gravity/win/respawn only run
 --                         while "play" (the sim is paused in "move" anyway)
@@ -31,7 +36,6 @@ local TS = RenderNode.TransformSpace
 -- (the C++ onChange seam is exercised by the CVarProtocolBehaviour engine test).
 local GRAVITY_DEF  = 18.0   -- gravity magnitude m/s^2 (snappy rolling) - the cvar default
 local KILL_PLANE_Y = -12.0  -- below the grid = fell into the empty slot
-local GOAL_RADIUS  = 1.0    -- win distance to the goal star
 local ORTHO_SIZE   = 7.5    -- vertical half-extent: frames the 12wu grid
 
 -- the live gravity magnitude: the cvar when available (registered in init),
@@ -46,7 +50,6 @@ end
 --- per-instance state --------------------------------------------------------
 local physics               -- PhysicsWorld singleton
 local input                 -- InputManager singleton
-local goalTransform         -- the Goal object's TransformComponent
 -- the respawn pose: captured from the Ball's SCENE position in init - the
 -- generated scene is the single source of the spawn (no hand-copied
 -- derivation of the generator's floor math anymore)
@@ -86,11 +89,6 @@ function init(self)
 	-- position == the serialized transform)
 	local start = self.transform:getWorldPosition()
 	SPAWN.x, SPAWN.y, SPAWN.z = start.x, start.y, start.z
-
-	goalTransform = world.getTransform("Goal")
-	if goalTransform == nil then
-		print("ball.lua: no 'Goal' object - win check disabled")
-	end
 
 	-- register the tunable gravity cvar (idempotent: a manifest override or a
 	-- value already set over the debug link survives this registration)
@@ -140,26 +138,33 @@ function update(self, dt)
 			publishState(SPAWN.x, SPAWN.y, tilt)
 			return
 		end
-		-- reached the goal star? (the Goal is a CHILD of its tile group -
-		-- the win check needs its WORLD position)
-		if goalTransform ~= nil then
-			local goal = goalTransform:getWorldPosition()
-			local dx, dy = goal.x - position.x, goal.y - position.y
-			if dx * dx + dy * dy <= GOAL_RADIUS * GOAL_RADIUS then
-				wins = wins + 1
-				print("ball.lua: WIN #" .. wins .. " - back to the start")
-				-- star-collect juice: a burst of golden particles (WP #82)
-				if self.particles ~= nil then
-					self.particles:burst(24)
-				end
-				resetBall(self)
-				publishState(SPAWN.x, SPAWN.y, tilt)
-				return
-			end
-		end
+		-- the win is no longer polled here: the goal SENSOR fires
+		-- onContactBegin below when the ball rolls into it (WP #88)
 	end
 
 	publishState(position.x, position.y, tilt)
+end
+
+-- WP #88: the goal's static sensor detected the ball. The engine drains the
+-- worker-thread contact on the main thread and calls this with the goal as
+-- `other`. Only "Goal" contacts win (the ball also contacts obstacle walls,
+-- but those are not sensors and never reach here). Guarded to "play" mode -
+-- the sim is paused in "move" mode, so no contacts fire there anyway.
+function onContactBegin(self, other)
+	if other.id ~= "Goal" then
+		return
+	end
+	if (shared.roller.mode or "play") ~= "play" then
+		return
+	end
+	wins = wins + 1
+	print("ball.lua: WIN #" .. wins .. " (goal sensor) - back to the start")
+	-- star-collect juice: a burst of golden particles (WP #82)
+	if self.particles ~= nil then
+		self.particles:burst(24)
+	end
+	resetBall(self)
+	publishState(SPAWN.x, SPAWN.y, input:getTilt())
 end
 
 function shutdown(self)

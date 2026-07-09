@@ -17,6 +17,7 @@
 namespace Orkige
 {
 	class ScriptInstance;	//core_script/ScriptRuntime.h - only the .cpp needs it
+	class GameObject;		//the OTHER object of a contact event (dispatchContact)
 
 	//! @brief attaches a Lua behavior script to a GameObject - game logic in
 	//! project scripts instead of C++ (the successor of the dead luabind-era
@@ -128,6 +129,16 @@ namespace Orkige
 		//! the last hotReload() error message ("" when the last reload was
 		//! clean); reported to the editor WITHOUT the fatal mFailed flag
 		inline String const & getLastReloadError() const;
+		//! @brief deliver a physics contact to the script (WP #88): calls the
+		//! OPTIONAL onContactBegin(self, other) / onContactEnd(self, other) hook
+		//! with the OTHER GameObject. Called on the MAIN thread from the contact
+		//! drain (RigidBodyComponent::dispatchContacts) - never from a Jolt
+		//! worker callback. A no-op unless a script is loaded and healthy; a
+		//! script the file does not define the hook for is a silent no-op. A
+		//! script error inside the hook disables the instance (like update).
+		//! Mutating the world here (spawn/destroy) is safe: it goes through the
+		//! GameObjectManager delete queue, never mid-drain.
+		void dispatchContact(GameObject* other, bool began);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

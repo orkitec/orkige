@@ -236,6 +236,46 @@ namespace Orkige
 		//! run shutdown(self) if the script defines one
 		//! @return false with *outError set on a script error
 		bool callShutdown(String * outError);
+		//! @brief call an OPTIONAL script-defined function name(self, args...)
+		//! if the environment defines it - the generalization of the lifecycle
+		//! calls above (callInit/callUpdate/callShutdown are the fixed cases).
+		//! The per-instance `self` table is ALWAYS the first argument; the
+		//! forwarded args follow (engine pointers registered as usertypes come
+		//! through as such, e.g. the OTHER GameObject of a contact event). A
+		//! function the script does not define is a silent no-op (returns true) -
+		//! event hooks like onContactBegin are opt-in.
+		//! @return false with *outError set on a script error
+		template<typename... Args>
+		bool callFunction(char const * name, String * outError, Args &&... args)
+		{
+			oAssert(outError);
+#ifdef ORKIGE_LUA
+			if (!this->environment.valid())
+			{
+				return true;
+			}
+			const sol::object function = this->environment[name];
+			if (!function.is<sol::protected_function>())
+			{
+				return true;	// optional hook not defined - nothing to call
+			}
+			const sol::protected_function_result result =
+				function.as<sol::protected_function>()(this->selfTable,
+					std::forward<Args>(args)...);
+			if (!result.valid())
+			{
+				const sol::error error = result;
+				*outError = error.what();
+				return false;
+			}
+			return true;
+#else
+			(void)name;
+			((void)args, ...);	// fold: silence the unused forwarded args
+			*outError = "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+			return false;
+#endif
+		}
 	protected:
 	private:
 		//! only ScriptRuntime::loadScriptInstance creates instances

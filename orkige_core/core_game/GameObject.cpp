@@ -537,6 +537,12 @@ namespace Orkige
 		OCONSTRUCTOR1(String)
 		OFUNC(loadTemplate)
 		OFUNC(saveTemplate)
+		//--- identity ---
+		//! read-only `.id` property: the object id as a Lua field, so a raw
+		//! GameObject handed to a script (the OTHER object of a contact event,
+		//! self.gameObject, world.get) reads its id as `obj.id` - the same value
+		//! the ScriptComponent `self.id` convenience field carries
+		OPROP("id", getObjectID)
 		//--- hierarchy (Unity-style tree) ---
 		OFUNCCR(getParentId)
 		OFUNCWEAK(getParent)

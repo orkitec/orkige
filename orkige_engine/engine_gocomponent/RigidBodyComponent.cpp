@@ -9,13 +9,17 @@
 
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/ScriptComponent.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_util/StringUtil.h>
 
 #include "engine_module/EnginePrerequisites.h"
 
 namespace Orkige
 {
+	IMPL_OWNED_EVENTTYPE(RigidBodyComponent, ContactBeganEvent);
+	IMPL_OWNED_EVENTTYPE(RigidBodyComponent, ContactEndedEvent);
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -120,6 +124,17 @@ namespace Orkige
 			return;
 		}
 		this->mBodyDesc.layer = layer;
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::setIsSensor(bool isSensor)
+	{
+		if (this->hasBody())
+		{
+			// mIsSensor is a creation-time flag in Jolt (no live toggle in v1)
+			oDebugWarning(false, "RigidBodyComponent::setIsSensor ignored - body already created");
+			return;
+		}
+		this->mBodyDesc.isSensor = isSensor;
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::setLinearVelocity(Vec3 const & velocity)
@@ -289,6 +304,69 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void RigidBodyComponent::dispatchContacts(GameObjectManager & gameObjectManager)
+	{
+		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
+		if (!physicsWorld || !physicsWorld->isInitialized())
+		{
+			return;
+		}
+		// resolve a body's user tag to its owning GameObject, re-validated NOW:
+		// getBodyUserData returns 0 for a destroyed body (its tag was erased in
+		// destroyBody), so a stale end-contact never dereferences a dead object.
+		// The tag is a RigidBodyComponent*; a non-zero tag means the body still
+		// lives, hence the component (which owns the body) still lives too.
+		auto ownerOf = [physicsWorld](PhysicsWorld::BodyId bodyId) -> GameObject*
+		{
+			const PhysicsWorld::BodyUserData tag =
+				physicsWorld->getBodyUserData(bodyId);
+			if (tag == 0)
+			{
+				return NULL;
+			}
+			RigidBodyComponent* body = reinterpret_cast<RigidBodyComponent*>(tag);
+			return body->getGameObject();
+		};
+		(void)gameObjectManager;	// resolution goes through the body tag, not a scan
+		for (PhysicsWorld::ContactEvent const & contact :
+			physicsWorld->getFrameContacts())
+		{
+			GameObject* objectA = ownerOf(contact.bodyA);
+			GameObject* objectB = ownerOf(contact.bodyB);
+			// v1: both sides must resolve to a live object - so a script hook
+			// never receives a nil `other` and a dead object is never delivered
+			// to (the stale-id contract). One-sided delivery is future work.
+			if (!objectA || !objectB)
+			{
+				continue;
+			}
+			RigidBodyComponent::deliverContact(objectA, objectB, contact.began);
+			RigidBodyComponent::deliverContact(objectB, objectA, contact.began);
+		}
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::deliverContact(GameObject* self, GameObject* other,
+		bool began)
+	{
+		oAssert(self && other);
+		// (1) the C++ event (AnimationComponent triggerEvent pattern): native
+		// components and the debug protocol observe contacts without scripting.
+		// The data carries the OTHER object's id.
+		optr<StringUtil::StringObject> data =
+			onew(new StringUtil::StringObject(other->getObjectID()));
+		self->triggerEvent(Event(began ?
+			RigidBodyComponent::ContactBeganEvent :
+			RigidBodyComponent::ContactEndedEvent, data));
+		// (2) the optional Lua hook onContactBegin/onContactEnd(self, other) -
+		// gated inside dispatchContact (no-op without a healthy loaded script).
+		// A script mutating the world here goes through the GameObjectManager
+		// delete queue, so it is safe even mid-dispatch.
+		if (self->hasComponent<ScriptComponent>())
+		{
+			self->getComponentPtr<ScriptComponent>()->dispatchContact(other, began);
+		}
+	}
+	//---------------------------------------------------------
 	void RigidBodyComponent::createBody()
 	{
 		oAssert(!this->hasBody());
@@ -297,9 +375,13 @@ namespace Orkige
 		optr<TransformComponent> transformComponent =
 			componentOwner->getComponent<TransformComponent>().lock();
 		oAssert(transformComponent);
-		// bodies are created at the WORLD pose (local == world for roots)
+		// bodies are created at the WORLD pose (local == world for roots). The
+		// body is tagged with THIS component pointer so the contact drain can map
+		// a colliding body back to its owning GameObject; the tag is cleared in
+		// destroyBody, so a stale (destroyed-body) contact resolves to no owner.
 		this->mBodyId = PhysicsWorld::getSingleton().createBody(this->mBodyDesc,
-			transformComponent->getWorldPosition(), transformComponent->getWorldOrientation());
+			transformComponent->getWorldPosition(), transformComponent->getWorldOrientation(),
+			reinterpret_cast<PhysicsWorld::BodyUserData>(this));
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::onSetActive(bool activeInHierarchy)
@@ -363,11 +445,13 @@ namespace Orkige
 		ar << this->mBodyDesc.radius << this->mBodyDesc.halfHeight;
 		ar << this->mBodyDesc.mass << this->mBodyDesc.friction << this->mBodyDesc.restitution;
 		ar << this->mBodyDesc.planar;
-		// the collision layer NAME is the LAST field on purpose: a pre-layer
-		// scene stops after planar, so load() re-reads planar for the missing
-		// layer and layerIndex() maps that unknown name to Default (index 0,
-		// collides with all) - old scenes behave identically (@see load)
+		// the collision layer NAME then the isSensor flag are the trailing
+		// fields: a pre-layer scene stops after planar, a pre-sensor scene stops
+		// after layer. load() re-reads the last present element for a missing
+		// trailing field (layerIndex maps an unknown name to Default; the sensor
+		// read is guarded), so OLD scenes behave identically (@see load).
 		ar << this->mBodyDesc.layer;
+		ar << this->mBodyDesc.isSensor;
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::load(optr<IArchive> const & ar)
@@ -389,6 +473,22 @@ namespace Orkige
 		// real name. Either way createBody routes desc.layer through the world's
 		// LayerConfig.
 		ar >> this->mBodyDesc.layer;
+		// isSensor (added after the layer format): a pre-sensor scene ends at
+		// the layer field, so this read would re-read the layer STRING element
+		// as a bool - which THROWS (a non-numeric layer name is not a bool). The
+		// throw is contained here so an old scene keeps loading with isSensor
+		// false (the archive cursor is restored by the container read). A body
+		// written with the field reads the real flag.
+		this->mBodyDesc.isSensor = false;
+		try
+		{
+			ar >> this->mBodyDesc.isSensor;
+		}
+		catch (...)
+		{
+			// pre-sensor scene: no trailing bool - keep the default (not a sensor)
+			this->mBodyDesc.isSensor = false;
+		}
 		if (this->hasBody())
 		{
 			// the body is created lazily on the first update, so a load right
@@ -413,6 +513,8 @@ namespace Orkige
 		OFUNC(getPlanarMode)
 		OFUNC(setLayer)
 		OFUNC(getLayer)
+		OFUNC(setIsSensor)
+		OFUNC(isSensor)
 		OFUNC(setLinearVelocity)
 		OFUNC(getLinearVelocity)
 		OFUNC(setAngularVelocity)

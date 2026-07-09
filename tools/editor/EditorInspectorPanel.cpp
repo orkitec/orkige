@@ -297,6 +297,19 @@ void drawRigidBodyComponentUI(EditorState& state, Orkige::EditorCore& core,
 		edited = true;
 	}
 
+	// sensor / trigger volume (WP #88): detects overlaps (fires contact events
+	// + the Lua onContactBegin/onContactEnd hooks) with NO collision response,
+	// composing with the layer above (only detects what its layer collides with)
+	bool isSensor = before.isSensor;
+	if (ImGui::Checkbox("Sensor (trigger - no collision response)", &isSensor))
+	{
+		after.isSensor = isSensor;
+		edited = true;
+	}
+	ImGui::SetItemTooltip("a trigger volume: it detects overlaps (firing "
+		"ContactBegan/EndedEvent and the onContactBegin/onContactEnd script "
+		"hooks) but never pushes bodies apart");
+
 	// collision layer: a dropdown over the project's physics.olayers names
 	// (a single "Default" without an asset). An unknown current name (a
 	// hand-edited scene, or a project whose asset dropped the layer) shows
