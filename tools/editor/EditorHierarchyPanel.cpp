@@ -290,6 +290,16 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 			ImGui::PopStyleColor();
 			acceptHierarchyDrop(core, "");
 		}
+		// Asset browser drop: a mesh/texture/prefab dragged from the Assets
+		// panel over the Hierarchy adds it to the scene (WP #76)
+		else if (payload->IsDataType(ASSET_DND_PAYLOAD))
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text,
+				ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			ImGui::Selectable("  (drop asset here to add it to the scene)");
+			ImGui::PopStyleColor();
+			handleAssetDropTarget(state, core);
+		}
 	}
 	// right-click on empty space: creation menu
 	if (ImGui::BeginPopupContextWindow("##createmenu",

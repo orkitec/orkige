@@ -177,6 +177,8 @@ struct ViewSettings
 	bool showConsolePanel = true;
 	bool showStatsPanel = true;
 	bool showScenePanel = true;
+	//! project Asset browser panel (WP #76; project-only content)
+	bool showAssetBrowserPanel = true;
 	//! snap settings (toolbar toggle + editable step values, Unity-style);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -310,6 +312,8 @@ struct EditorState
 	//! Hierarchy search/filter box (Unity-style); ImGuiTextFilter supports
 	//! comma-separated terms and "-term" exclusion, empty = show everything
 	ImGuiTextFilter hierarchyFilter;
+	//! Asset browser search/filter box (same ImGuiTextFilter idiom, WP #76)
+	ImGuiTextFilter assetBrowserFilter;
 	//! inline rename in the Hierarchy (F2 / context menu)
 	std::string renamingObjectId;
 	char renameBuffer[256] = "";
@@ -713,6 +717,16 @@ std::string meshImportDestination(EditorState const& state);
 bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& sourcePath);
 
+//! @brief the generic asset import (Finder drop of a non-mesh file, the Asset
+//! browser): copy sourcePath into the import destination (meshImportDestination
+//! - the open project's assets/, else the loose-scene media dir), register that
+//! directory as a resource location and mint the AssetDatabase sidecar (project
+//! mode) so the copied texture/script/prefab/scene resolves by name at once.
+//! NOT undoable (a filesystem side effect, like the mesh import). Returns the
+//! destination path ("" on failure; error, if given, receives the reason).
+std::string importAssetFile(EditorState& state, std::string const& sourcePath,
+	std::string* error = nullptr);
+
 // GameObject > Create Prefab / Hierarchy context menu: write the selection's
 // subtree as "<assets>/<rootId>.oprefab" (stable .orkmeta id included) and
 // convert it into a prefab instance (undoable); on an instance root it
@@ -814,5 +828,80 @@ void drawStatsPanel(bool* visible);
 // (the session lets a `set` cvar line during Play tune the running player)
 void drawConsolePanel(EditorState& state, PlaySession& session,
 	EditorConsole& console, bool* visible);
+
+//--- asset browser (EditorAssetBrowserPanel.cpp, WP #76) --------------------
+
+// The Asset browser is the codebase's FIRST user of ImGui drag & drop across
+// panels: it sets an "ORKIGE_ASSET" payload (an AssetDragDropPayload value -
+// kind + absolute path) that the Scene and Hierarchy panels accept and turn
+// into a scene object. The hierarchy re-parent drag uses a SEPARATE payload
+// tag ("ORKIGE_HIERARCHY_OBJECT"), so the two never cross.
+
+//! ImGui drag-drop payload tag the Asset browser sets / the Scene + Hierarchy
+//! panels accept
+extern const char* const ASSET_DND_PAYLOAD;		//!< "ORKIGE_ASSET"
+
+//! kind of a project asset, classified purely by file extension - drives the
+//! browser's type label and how a drop instantiates into the scene
+enum class AssetKind
+{
+	Unknown,
+	Mesh,		//!< .glb/.gltf/.obj/.fbx/... (CreateObjectCommand)
+	Texture,	//!< .png/.jpg/... (CreateSpriteObjectCommand)
+	Script,		//!< .lua (not instantiable on its own)
+	Scene,		//!< .oscene (double-click / drop opens it)
+	Prefab		//!< .oprefab (CreatePrefabInstanceCommand)
+};
+
+//! classify a file path by its extension (case-insensitive)
+AssetKind classifyAsset(std::string const& path);
+
+//! one enumerated Asset browser row: a project asset (or scene) plus whether
+//! it carries a stable id (sidecar-less id-trackable assets render dimmed)
+struct AssetBrowserItem
+{
+	std::string absolutePath;	//!< absolute filesystem path
+	std::string relativePath;	//!< project-relative path ("assets/ball.png")
+	AssetKind kind = AssetKind::Unknown;
+	bool hasId = false;			//!< an AssetDatabase id resolves for it
+	bool dimmed = false;		//!< sidecar-less id-trackable asset (assets/, scripts/)
+};
+
+//! @brief enumerate the open project's assets/, scripts/ and scenes/ (a live
+//! filesystem walk cross-referenced against the AssetDatabase for ids), sorted
+//! by project-relative path. The panel draws this; the selfcheck asserts on it.
+std::vector<AssetBrowserItem> enumerateProjectAssets(
+	Orkige::Project const& project);
+
+//! short human label for an AssetKind ("mesh"/"texture"/"script"/"scene"/
+//! "prefab"/"file")
+const char* assetKindLabel(AssetKind kind);
+
+//! the drag-drop payload bytes: kind + absolute path, fixed size so ImGui
+//! copies it by value into its internal payload buffer
+struct AssetDragDropPayload
+{
+	AssetKind kind = AssetKind::Unknown;
+	char path[1024] = "";
+};
+
+//! @brief instantiate/open a project asset in the current scene (the browser's
+//! "Instantiate" context item and the Scene/Hierarchy drop targets): mesh ->
+//! CreateObjectCommand, texture -> CreateSpriteObjectCommand, prefab ->
+//! CreatePrefabInstanceCommand, scene -> openSceneFromPath. Scripts are not
+//! instantiable on their own (logged). Placement is the origin for v1.
+void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
+	AssetKind kind, std::string const& absolutePath);
+
+//! @brief if an ImGui drag-drop target is currently active, accept an
+//! ORKIGE_ASSET payload and instantiate it (called by the Scene + Hierarchy
+//! panels right after the item that is the drop target)
+void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core);
+
+//! the Asset browser panel: the open project's assets/scripts/scenes as a
+//! flat, filtered list (drag source, right-click Instantiate/Reveal/Delete,
+//! double-click opens a scene / instantiates a prefab) - EditorAssetBrowserPanel.cpp
+void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
+	bool* visible);
 
 #endif // ORKIGE_EDITORAPP_H_09072026

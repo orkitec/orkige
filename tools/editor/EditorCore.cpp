@@ -356,6 +356,82 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- CreateSpriteObjectCommand ----------------------------
+	//---------------------------------------------------------
+	CreateSpriteObjectCommand::CreateSpriteObjectCommand(String const& objectId,
+		String const& textureName, Vec3 const& position)
+		: mObjectId(objectId), mTextureName(textureName), mPosition(position)
+	{
+	}
+	//---------------------------------------------------------
+	bool CreateSpriteObjectCommand::execute(EditorCore& core)
+	{
+		if (!core.instantiateSpriteObject(mObjectId, mTextureName, mPosition))
+		{
+			return false;
+		}
+		core.selectObject(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool CreateSpriteObjectCommand::unexecute(EditorCore& core)
+	{
+		core.deselectObject(mObjectId);
+		return core.getGameObjectManager().delGameObject(mObjectId);
+	}
+	//---------------------------------------------------------
+	String CreateSpriteObjectCommand::getDescription() const
+	{
+		return "Create " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- CreatePrefabInstanceCommand --------------------------
+	//---------------------------------------------------------
+	CreatePrefabInstanceCommand::CreatePrefabInstanceCommand(
+		String const& instanceRootId, String const& prefabFilePath,
+		String const& prefabRef, String const& prefabAssetId,
+		Vec3 const& position)
+		: mRootId(instanceRootId), mPrefabFilePath(prefabFilePath),
+		mPrefabRef(prefabRef), mPrefabAssetId(prefabAssetId), mPosition(position)
+	{
+	}
+	//---------------------------------------------------------
+	bool CreatePrefabInstanceCommand::execute(EditorCore& core)
+	{
+		if (!core.instantiatePrefabInstance(mRootId, mPrefabFilePath,
+			mPrefabRef, mPrefabAssetId, mPosition))
+		{
+			return false;
+		}
+		core.selectObject(mRootId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool CreatePrefabInstanceCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		// remove the whole instance subtree deepest first (a plain
+		// delGameObject would re-parent the children up to the grandparent)
+		const StringVector subtree = manager.collectSubtreeIds(mRootId);
+		bool removed = !subtree.empty();
+		for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+		{
+			core.deselectObject(*it);
+			if (!manager.delGameObject(*it))
+			{
+				removed = false;
+			}
+		}
+		return removed;
+	}
+	//---------------------------------------------------------
+	String CreatePrefabInstanceCommand::getDescription() const
+	{
+		return "Instantiate Prefab " + mRootId;
+	}
+
+	//---------------------------------------------------------
 	//--- DeleteObjectCommand ----------------------------------
 	//---------------------------------------------------------
 	DeleteObjectCommand::DeleteObjectCommand(String const& objectId)
@@ -2176,6 +2252,69 @@ namespace Orkige
 		applyModelFixups(id);
 		gameObject->getComponentPtr<TransformComponent>()
 			->setPosition(position);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::instantiateSpriteObject(String const& id,
+		String const& textureName, Vec3 const& position)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.createGameObject(id).lock();
+		// SpriteComponent depends on TransformComponent - added automatically
+		if (!gameObject || !gameObject->addComponent<SpriteComponent>())
+		{
+			return false;
+		}
+		// loadSprite logs (not throws) on a missing texture - the sprite object
+		// still exists, empty, like a mesh object whose mesh went missing. An
+		// empty texture name would trip loadSprite's assert, so skip it then.
+		if (!textureName.empty())
+		{
+			gameObject->getComponentPtr<SpriteComponent>()->loadSprite(textureName);
+		}
+		gameObject->getComponentPtr<TransformComponent>()
+			->setPosition(position);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::instantiatePrefabInstance(String const& instanceRootId,
+		String const& prefabFilePath, String const& prefabRef,
+		String const& prefabAssetId, Vec3 const& position)
+	{
+		if (mGameObjectManager.objectExists(instanceRootId))
+		{
+			return false;
+		}
+		// instantiatePrefab creates the root (it does not exist yet) plus every
+		// prefab-provided child under the "<root>/<localId>" namespace
+		if (PrefabSerializer::instantiatePrefab(prefabFilePath,
+			mGameObjectManager, instanceRootId, StringVector()) !=
+			PrefabSerializer::INSTANTIATE_OK)
+		{
+			// tear the partial subtree down again (deepest first)
+			const StringVector subtree =
+				mGameObjectManager.collectSubtreeIds(instanceRootId);
+			for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+			{
+				mGameObjectManager.delGameObject(*it);
+			}
+			return false;
+		}
+		for (String const& id : mGameObjectManager.collectSubtreeIds(instanceRootId))
+		{
+			applyModelFixups(id);
+		}
+		optr<GameObject> root =
+			mGameObjectManager.getGameObject(instanceRootId).lock();
+		if (root)
+		{
+			root->setPrefabRef(prefabRef, prefabAssetId);
+			if (root->hasComponent<TransformComponent>())
+			{
+				root->getComponentPtr<TransformComponent>()
+					->setPosition(position);
+			}
+		}
 		return true;
 	}
 	//---------------------------------------------------------

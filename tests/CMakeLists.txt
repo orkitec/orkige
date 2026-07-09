@@ -269,6 +269,18 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_control${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 60)
+
+    # Asset browser (WP #76): open a temp COPY of projects/example and drive
+    # the browser headlessly - enumerate assets (id-carrying vs. dimmed
+    # sidecar-less), run the generic importAssetFile (copy + sidecar mint +
+    # enumerable), instantiate a sprite via CreateSpriteObjectCommand (+ undo)
+    # and instantiate a prefab through the drag path (instantiateAssetIntoScene).
+    # The panel logic is flavor-agnostic; registered on both flavors.
+    add_test(NAME editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 90)
 endif()
 
 # the MCP Python bridge's framing/correlation logic, headless and without a

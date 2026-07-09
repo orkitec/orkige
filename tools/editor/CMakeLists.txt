@@ -38,6 +38,7 @@ orkige_pch_ccache_compat(orkige_editor_core)
 add_executable(orkige_editor
     main.cpp
     EditorApp.h
+    EditorAssetBrowserPanel.cpp
     EditorConsole.cpp
     EditorControlServer.h
     EditorControlServer.cpp

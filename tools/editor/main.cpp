@@ -40,7 +40,9 @@
 #include <engine_base/EngineLog.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
+#include <core_project/AssetDatabase.h>
 #include <engine_input/InputManager.h>
 #include <engine_render/DrawLayer2D.h>
 #include <engine_util/StringUtil.h>
@@ -203,7 +205,8 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr;
+			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (the WP-A1.3 app rule + B3 flavor split,
@@ -810,6 +813,19 @@ int main(int argc, char** argv)
 		const char* hotreloadPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST");
 
+		// ORKIGE_EDITOR_ASSETTEST=path: scripted Asset browser run (the
+		// editor_asset_browser ctest, WP #76). At frame 10 it COPIES the
+		// project to a temp dir (the real one is never touched), opens the
+		// copy and exercises the browser headlessly end to end: enumerate the
+		// assets (the known project asset carries an id, a raw sidecar-less
+		// file dropped into assets/ shows dimmed), run the generic
+		// importAssetFile on a temp file (copied into assets/ + sidecar minted
+		// + now enumerable with an id), instantiate a sprite via
+		// CreateSpriteObjectCommand (GameObject + SpriteComponent exist, undo
+		// removes it) and instantiate a prefab through the drag path
+		// (instantiateAssetIntoScene). Exits non-zero on any failed assertion.
+		const char* assetTestEnv = std::getenv("ORKIGE_EDITOR_ASSETTEST");
+
 		// Unity behavior: a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
@@ -1028,12 +1044,23 @@ int main(int argc, char** argv)
 				}
 				if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
 				{
-					// a mesh file dropped onto the window imports through the
-					// exact same path as File > Import Mesh...; anything else
-					// is refused with a Console line. Drop events are not
-					// mouse/keyboard input, so this does not compete with the
-					// ImGui event routing below.
-					importMeshFromPath(state, editorCore, event.drop.data);
+					// Finder drop: a mesh file imports AND instantiates (as
+					// before, File > Import Mesh...); any other file (png/lua/
+					// oscene/oprefab/...) rides the generic asset import -
+					// copied into the project assets/ + sidecar minted, no
+					// scene object (browse/instantiate it from the Assets
+					// panel). Drop events are not mouse/keyboard input, so this
+					// does not compete with the ImGui event routing below.
+					const std::string dropped(event.drop.data);
+					if (Orkige::isSupportedMeshFile(dropped))
+					{
+						importMeshFromPath(state, editorCore, dropped);
+					}
+					else if (!importAssetFile(state, dropped).empty())
+					{
+						SDL_Log("orkige_editor: imported '%s' into the project "
+							"assets", dropped.c_str());
+					}
 				}
 				// ImGui gets every event first; only forward into the engine
 				// input pipeline what ImGui does not capture. The dockspace
@@ -1130,9 +1157,10 @@ int main(int argc, char** argv)
 
 			// snapshot the panel visibility: a close-button click (the x in
 			// a docked tab) must persist exactly like a View-menu toggle
-			const bool panelsBefore[5] = { viewSettings.showHierarchyPanel,
+			const bool panelsBefore[6] = { viewSettings.showHierarchyPanel,
 				viewSettings.showInspectorPanel, viewSettings.showConsolePanel,
-				viewSettings.showStatsPanel, viewSettings.showScenePanel };
+				viewSettings.showStatsPanel, viewSettings.showScenePanel,
+				viewSettings.showAssetBrowserPanel };
 #ifdef __APPLE__
 			// the native NSMenu bar replaces the ImGui menu bar on mac; the
 			// ImGui bar only steps in when AppKit gave us no menu (headless)
@@ -1201,11 +1229,17 @@ int main(int argc, char** argv)
 				drawConsolePanel(state, playSession, console,
 					&viewSettings.showConsolePanel);
 			}
+			if (viewSettings.showAssetBrowserPanel)
+			{
+				drawAssetBrowserPanel(state, editorCore,
+					&viewSettings.showAssetBrowserPanel);
+			}
 			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
 				panelsBefore[1] != viewSettings.showInspectorPanel ||
 				panelsBefore[2] != viewSettings.showConsolePanel ||
 				panelsBefore[3] != viewSettings.showStatsPanel ||
-				panelsBefore[4] != viewSettings.showScenePanel)
+				panelsBefore[4] != viewSettings.showScenePanel ||
+				panelsBefore[5] != viewSettings.showAssetBrowserPanel)
 			{
 				viewSettings.save();
 			}
@@ -1492,6 +1526,176 @@ int main(int argc, char** argv)
 					exitCode = 2;
 					running = false;
 				}
+			}
+			// --- scripted Asset browser test (ORKIGE_EDITOR_ASSETTEST) ------
+			if (assetTestEnv && frameCount == 10)
+			{
+				bool assetOk = true;
+				std::string assetFail;
+				std::error_code assetErr;
+				// work on a temp COPY - the real project is never touched
+				const std::string assetTempRoot =
+					(std::filesystem::temp_directory_path() /
+					("orkige_assettest_" + std::to_string(
+						std::chrono::steady_clock::now()
+							.time_since_epoch().count()))).string();
+				std::filesystem::copy(assetTestEnv, assetTempRoot,
+					std::filesystem::copy_options::recursive, assetErr);
+				if (assetErr ||
+					!openProjectFromPath(state, editorCore, assetTempRoot))
+				{
+					assetOk = false;
+					assetFail = "could not prepare/open the temp copy at " +
+						assetTempRoot;
+				}
+				// (1) enumerate: a known asset carries an id; a raw sidecar-less
+				// file dropped into assets/ AFTER open shows dimmed (the DB never
+				// indexed it)
+				if (assetOk)
+				{
+					const std::string sidecarless =
+						state.project.getAssetsDirectory() +
+						"/loose_sidecarless.png";
+					{
+						std::ofstream f(sidecarless,
+							std::ios::binary | std::ios::trunc);
+						f << "not a real png";
+					}
+					bool sawKnownWithId = false;
+					bool sawDimmed = false;
+					for (AssetBrowserItem const& item :
+						enumerateProjectAssets(state.project))
+					{
+						if (item.kind == AssetKind::Mesh && item.hasId)
+						{
+							sawKnownWithId = true;
+						}
+						if (item.relativePath.find("loose_sidecarless.png") !=
+							std::string::npos)
+						{
+							sawDimmed = item.dimmed && !item.hasId;
+						}
+					}
+					if (!sawKnownWithId)
+					{
+						assetOk = false;
+						assetFail = "no id-carrying asset enumerated";
+					}
+					else if (!sawDimmed)
+					{
+						assetOk = false;
+						assetFail = "sidecar-less asset not dimmed";
+					}
+				}
+				// (2) generic import: a temp file lands in assets/ + gets a
+				// sidecar + becomes enumerable with an id
+				if (assetOk)
+				{
+					const std::string srcPng = (std::filesystem::path(
+						assetTempRoot) / "import_src.png").string();
+					{
+						std::ofstream f(srcPng,
+							std::ios::binary | std::ios::trunc);
+						f << "fake png bytes";
+					}
+					const std::string dest = importAssetFile(state, srcPng);
+					const bool sidecarMinted = !dest.empty() &&
+						std::filesystem::exists(dest +
+							Orkige::AssetDatabase::META_FILE_EXTENSION, assetErr);
+					if (dest.empty() || !sidecarMinted)
+					{
+						assetOk = false;
+						assetFail = "importAssetFile did not copy + mint a sidecar";
+					}
+					else
+					{
+						const std::string importedRel =
+							state.project.makeProjectRelative(dest);
+						bool enumerable = false;
+						for (AssetBrowserItem const& item :
+							enumerateProjectAssets(state.project))
+						{
+							if (item.relativePath == importedRel && item.hasId)
+							{
+								enumerable = true;
+							}
+						}
+						if (!enumerable)
+						{
+							assetOk = false;
+							assetFail = "imported file not enumerable with an id";
+						}
+					}
+				}
+				// (3) sprite via CreateSpriteObjectCommand: object +
+				// SpriteComponent exist, undo removes it
+				if (assetOk)
+				{
+					instantiateAssetIntoScene(state, editorCore,
+						AssetKind::Texture,
+						state.project.getAssetsDirectory() + "/import_src.png");
+					const std::string spriteId = editorCore.getSelectedObjectId();
+					optr<Orkige::GameObject> spriteObj =
+						gameObjectManager.getGameObject(spriteId).lock();
+					if (!spriteObj ||
+						!spriteObj->hasComponent<Orkige::SpriteComponent>())
+					{
+						assetOk = false;
+						assetFail = "sprite object/SpriteComponent missing";
+					}
+					else if (!editorCore.undo() ||
+						gameObjectManager.objectExists(spriteId))
+					{
+						assetOk = false;
+						assetFail = "undo did not remove the sprite object";
+					}
+				}
+				// (4) prefab via the drag path: make a prefab from an object,
+				// then instantiate it through instantiateAssetIntoScene (the
+				// exact code path a Scene/Hierarchy drop runs)
+				if (assetOk)
+				{
+					editorCore.instantiateSpriteObject("PrefabSource",
+						"import_src.png", Orkige::Vec3::ZERO);
+					editorCore.selectObject("PrefabSource");
+					if (!createPrefabFromSelection(state, editorCore))
+					{
+						assetOk = false;
+						assetFail = "createPrefabFromSelection failed";
+					}
+					else
+					{
+						const std::string prefabPath =
+							state.project.getAssetsDirectory() +
+							"/PrefabSource.oprefab";
+						instantiateAssetIntoScene(state, editorCore,
+							AssetKind::Prefab, prefabPath);
+						const std::string instId =
+							editorCore.getSelectedObjectId();
+						optr<Orkige::GameObject> inst =
+							gameObjectManager.getGameObject(instId).lock();
+						if (!inst || inst->getPrefabRef().empty())
+						{
+							assetOk = false;
+							assetFail = "prefab instance not created via drag path";
+						}
+						else if (!editorCore.undo() ||
+							gameObjectManager.objectExists(instId))
+						{
+							assetOk = false;
+							assetFail = "undo did not remove the prefab instance";
+						}
+					}
+				}
+				std::filesystem::remove_all(assetTempRoot, assetErr);
+				SDL_Log("orkige_editor: asset browser test - %s%s%s",
+					assetOk ? "OK" : "FAILED", assetOk ? "" : ": ",
+					assetOk ? "" : assetFail.c_str());
+				if (!assetOk)
+				{
+					exitCode = 9;
+				}
+				running = false;
 			}
 			// --- scripted scene-open test (ORKIGE_EDITOR_OPEN_SCENE=path) ---
 			if (openSceneEnv && frameCount == 10)

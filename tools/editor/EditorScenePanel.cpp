@@ -466,6 +466,15 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				avail);
 			const ImVec2 rectMin = ImGui::GetItemRectMin();
 			state.scenePanelHovered = ImGui::IsItemHovered();
+			// Asset browser drop: a mesh/texture/prefab dragged from the
+			// Assets panel onto the viewport instantiates at the origin
+			// (WP #76; ray/ground-plane placement is deferred - origin on the
+			// XY plane is natural in 2D editor mode). Only while editing the
+			// local scene (the panels show the remote scene during play).
+			if (editMode)
+			{
+				handleAssetDropTarget(state, core);
+			}
 			// gizmo first: while it is hovered/dragged the click-pick and
 			// the camera drags stand down (input priority). Editing the
 			// local scene is pointless while the panels show the remote one.

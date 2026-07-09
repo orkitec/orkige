@@ -230,25 +230,28 @@ std::string meshImportDestination(EditorState const& state)
 		projectImportDir);
 }
 
-bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
-	std::string const& sourcePath)
+// The copy+register+sidecar-mint MIDDLE of the old importMeshFromPath, made
+// generic so any asset (texture/script/prefab/scene from a Finder drop or the
+// browser) rides the same path meshes always did - the copied file lands where
+// the resource groups (and SpriteComponent::loadSprite) resolve it, and gets
+// its stable .orkmeta id in a project. The mesh-instantiate tail stays below,
+// mesh-only.
+std::string importAssetFile(EditorState& state, std::string const& sourcePath,
+	std::string* error)
 {
-	if (!Orkige::isSupportedMeshFile(sourcePath))
-	{
-		SDL_Log("orkige_editor: import refused - '%s' is not a supported mesh "
-			"file (.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh)",
-			sourcePath.c_str());
-		return false;
-	}
 	const std::string destDir = meshImportDestination(state);
-	std::string error;
+	std::string localError;
 	const std::string destPath =
-		Orkige::importMeshFileToDir(sourcePath, destDir, &error);
+		Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
 	if (destPath.empty())
 	{
 		SDL_Log("orkige_editor: import of '%s' failed - %s",
-			sourcePath.c_str(), error.c_str());
-		return false;
+			sourcePath.c_str(), localError.c_str());
+		if (error)
+		{
+			*error = localError;
+		}
+		return "";
 	}
 	if (state.project.isLoaded())
 	{
@@ -263,8 +266,8 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 		render->addResourceLocation(destDir,
 			Orkige::RenderSystem::LT_FILESYSTEM,
 			Orkige::Project::RESOURCE_GROUP_NAME);
-		// editor-side asset creation mints the stable id right away, so the
-		// ModelComponent created below serializes it with the scene
+		// editor-side asset creation mints the stable id right away, so a
+		// component referencing it serializes the id with the scene
 		if (optr<Orkige::AssetDatabase> const& assetDatabase =
 			state.project.getAssetDatabase())
 		{
@@ -273,9 +276,28 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	}
 	else if (state.importResourceDirs.insert(destDir).second)
 	{
-		// indexes the directory contents immediately - the mesh is loadable
+		// indexes the directory contents immediately - the file is loadable
 		// by bare filename right after this
 		Orkige::RenderSystem::get()->addResourceLocation(destDir);
+	}
+	return destPath;
+}
+
+bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
+	std::string const& sourcePath)
+{
+	if (!Orkige::isSupportedMeshFile(sourcePath))
+	{
+		SDL_Log("orkige_editor: import refused - '%s' is not a supported mesh "
+			"file (.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh)",
+			sourcePath.c_str());
+		return false;
+	}
+	// copy into the project (+ sidecar mint + resource-location refresh)
+	const std::string destPath = importAssetFile(state, sourcePath);
+	if (destPath.empty())
+	{
+		return false;
 	}
 	const std::string meshName =
 		std::filesystem::path(destPath).filename().string();

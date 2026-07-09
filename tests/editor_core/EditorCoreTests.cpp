@@ -1166,3 +1166,32 @@ TEST_CASE("EditorCore MakePrefab refuses cleanly when the prefab file is "
 
 	manager.clear();
 }
+
+TEST_CASE("CreateSpriteObjectCommand describes its object and undoes cleanly",
+	"[editor][sprite]")
+{
+	// The engine-touching execute path (instantiateSpriteObject builds a live
+	// SpriteComponent + scene node) needs a booted render scene and is covered
+	// by the editor_asset_browser integration run. Here, headless with the
+	// core-only test components, we lock the UI-independent contract: the undo
+	// half (deselect + delGameObject, the shape CreateObjectCommand shares) and
+	// the description label.
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+
+	Orkige::CreateSpriteObjectCommand command("Sprite1", "ball.png",
+		Orkige::Vec3::ZERO);
+	CHECK(command.getDescription() == "Create Sprite1");
+
+	// stand in for a successful execute: an object exists and is selected
+	makeHealthObject(manager, "Sprite1", 1);
+	core.selectObject("Sprite1");
+	REQUIRE(core.isSelected("Sprite1"));
+
+	// unexecute is the undo half - it deselects and removes the object
+	CHECK(command.unexecute(core));
+	CHECK_FALSE(manager.objectExists("Sprite1"));
+	CHECK_FALSE(core.isSelected("Sprite1"));
+
+	manager.clear();
+}

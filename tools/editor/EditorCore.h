@@ -162,6 +162,51 @@ namespace Orkige
 		Vec3 mPosition;
 	};
 
+	//! @brief create a sprite-carrying GameObject (a TransformComponent +
+	//! SpriteComponent quad in the XY plane) - the shared primitive behind the
+	//! Asset browser's "drag a texture into the scene" (WP #76) and any future
+	//! sprite-object instantiation. Mirrors CreateObjectCommand: execute
+	//! instantiates + selects, undo deselects + deletes; a texture that fails
+	//! to load leaves the (empty) sprite object like ModelComponent does.
+	class CreateSpriteObjectCommand : public EditorCommand
+	{
+	public:
+		CreateSpriteObjectCommand(String const& objectId,
+			String const& textureName, Vec3 const& position);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mTextureName;
+		Vec3 mPosition;
+	};
+
+	//! @brief instantiate a .oprefab asset into the scene as a NEW prefab
+	//! instance (Asset browser drag/double-click, WP #76). Unlike
+	//! MakePrefabCommand (which converts an EXISTING subtree), this creates the
+	//! instance root + its prefab-provided children from scratch and marks the
+	//! root with the prefab reference. Undo removes the whole instance subtree
+	//! (deepest first) and deselects; the .oprefab file on disk is untouched.
+	class CreatePrefabInstanceCommand : public EditorCommand
+	{
+	public:
+		CreatePrefabInstanceCommand(String const& instanceRootId,
+			String const& prefabFilePath, String const& prefabRef,
+			String const& prefabAssetId, Vec3 const& position);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mRootId;
+		String mPrefabFilePath;	//!< absolute .oprefab path (the instantiate source)
+		String mPrefabRef;		//!< project-relative reference stored on the root
+		String mPrefabAssetId;	//!< stable .orkmeta id riding next to the reference
+		Vec3 mPosition;
+	};
+
 	//! @brief delete an object; undo restores the full serialized component
 	//! state, the parent link, the active flag AND re-attaches the children
 	//! that moved up to the grandparent when the object went away
@@ -752,6 +797,20 @@ namespace Orkige
 		//! and CreateObjectCommand use it). Requires a booted engine.
 		bool instantiateModelObject(String const& id, String const& meshName,
 			Vec3 const& position);
+		//! @brief create a GameObject carrying a sprite through
+		//! TransformComponent + SpriteComponent (loadSprite(textureName), NOT
+		//! undoable - CreateSpriteObjectCommand wraps it). A missing texture
+		//! only logs (the sprite stays empty); requires a booted engine.
+		bool instantiateSpriteObject(String const& id, String const& textureName,
+			Vec3 const& position);
+		//! @brief create a NEW prefab instance from a .oprefab file: the
+		//! deterministic instance-namespace subtree plus the marked root at the
+		//! given position (NOT undoable - CreatePrefabInstanceCommand wraps it).
+		//! On a failed instantiate the partial subtree is torn down again.
+		//! Requires a booted engine.
+		bool instantiatePrefabInstance(String const& instanceRootId,
+			String const& prefabFilePath, String const& prefabRef,
+			String const& prefabAssetId, Vec3 const& position);
 		//! re-apply the unlit vertex-colour render state after a (re)load -
 		//! ModelComponent does not serialize material tweaks yet. Safe to
 		//! call on objects without a ModelComponent (does nothing).

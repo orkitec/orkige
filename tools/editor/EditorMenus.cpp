@@ -44,6 +44,8 @@ bool drawPanelToggleItems(ViewSettings& viewSettings)
 		&viewSettings.showStatsPanel);
 	changed |= ImGui::MenuItem("Scene", nullptr,
 		&viewSettings.showScenePanel);
+	changed |= ImGui::MenuItem("Assets", nullptr,
+		&viewSettings.showAssetBrowserPanel);
 	return changed;
 }
 
@@ -547,6 +549,7 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
+	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	ImGui::DockBuilderDockWindow("Scene", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
 }
