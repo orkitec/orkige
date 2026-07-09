@@ -3,8 +3,12 @@
 # Two jobs:
 #   linux-classic  (REQUIRED) - the classic OGRE / GL3Plus flavor: builds the
 #                  engine + editor + player + samples + tests, runs the
-#                  headless unit suite (must pass), then a best-effort
-#                  windowed smoke subset under xvfb + Mesa llvmpipe.
+#                  headless unit suite (must pass), then the full windowed
+#                  desktop suite under xvfb + Mesa llvmpipe (best-effort
+#                  while it proves out). Also builds + unit-tests the
+#                  ORKIGE_SCRIPTING=OFF configuration (must pass) - the
+#                  compile-time guard that keeps Lua an implementation
+#                  detail behind the core_script seam.
 #   linux-next     (EXPERIMENTAL, continue-on-error) - the Ogre-Next / Vulkan
 #                  flavor: the ports/ogre-next Linux extension (Vulkan RS via
 #                  vcpkg vulkan-headers/loader + glslang) and the backend's
@@ -39,7 +43,9 @@ env:
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
   CCACHE_DIR: /home/runner/.ccache
-  CCACHE_MAXSIZE: 1G
+  # the classic job compiles TWO configurations (scripting on + off, which
+  # differ in global defines, so their object caches do not overlap)
+  CCACHE_MAXSIZE: 2G
   # PCH-friendly ccache (same setting CLAUDE.md documents for dev machines;
   # the classic flavor precompiles <Ogre.h>)
   CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
@@ -143,14 +149,27 @@ jobs:
       - name: Unit tests (headless - MUST pass)
         run: ctest --preset unit-linux
 
-      # TODO(ci): promote this step to a hard gate (drop continue-on-error,
-      # widen smoke-linux towards the full desktop-linux preset) once the
-      # subset has proven stable on llvmpipe. First-run expectations:
-      # GL3Plus on llvmpipe advertises GL 4.5 core, so boots should succeed;
-      # the risk is pixel-probe strictness (render_facade_selfcheck) and
-      # timing under software rasterization. Audio is routed to openal-soft's
-      # null backend (no audio device on runners).
-      - name: Windowed smoke subset (xvfb + Mesa llvmpipe - best-effort)
+      # The scripting-OFF configuration exists to enforce the scripting seam:
+      # nothing outside the Meta backends and the ScriptRuntime implementation
+      # may depend on Lua/sol2, and the moment something does, this leg breaks
+      # at compile time. Same dependency set (the scripting switch is
+      # CMake-level, not a vcpkg feature), so the binary cache above serves
+      # this configure too.
+      - name: Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)
+        run: |
+          cmake --preset linux-debug-noscript \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --build --preset linux-debug-noscript
+          ctest --preset unit-linux-noscript
+
+      # TODO(ci): promote this step to a hard gate (drop continue-on-error)
+      # once the full desktop suite has proven stable on llvmpipe over a few
+      # runs. Expectations: GL3Plus on llvmpipe advertises GL 4.5 core, so
+      # boots should succeed; the risks are pixel-probe strictness, editor
+      # runs under a virtual display, and timing under software
+      # rasterization. Audio is routed to openal-soft's null backend (no
+      # audio device on runners).
+      - name: Windowed desktop suite (xvfb + Mesa llvmpipe - best-effort)
         continue-on-error: true
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
@@ -160,7 +179,7 @@ jobs:
         run: |
           glxinfo -B > /dev/null 2>&1 || true
           xvfb-run -a -s "-screen 0 1280x1024x24" \
-            ctest --preset smoke-linux --timeout 300
+            ctest --preset desktop-linux --timeout 300
 
       - name: Upload logs
         if: always()
@@ -170,6 +189,7 @@ jobs:
           path: |
             build/linux-debug-classic/Testing/**/*.log
             build/linux-debug-classic/tests/**/*.log
+            build/linux-debug-noscript/Testing/**/*.log
             *.log
           if-no-files-found: ignore
 

@@ -66,6 +66,14 @@
       }
     },
     {
+      "name": "macos-debug-noscript",
+      "displayName": "macOS Debug (classic, ORKIGE_SCRIPTING=OFF - the seam-enforcement compile check)",
+      "inherits": "macos-debug-classic",
+      "cacheVariables": {
+        "ORKIGE_SCRIPTING": "OFF"
+      }
+    },
+    {
       "name": "linux-base",
       "hidden": true,
       "generator": "Ninja",
@@ -104,6 +112,14 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "ORKIGE_RENDER_BACKEND": "next",
         "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "linux-debug-noscript",
+      "displayName": "Linux Debug (classic, ORKIGE_SCRIPTING=OFF - the seam-enforcement CI leg)",
+      "inherits": "linux-debug-classic",
+      "cacheVariables": {
+        "ORKIGE_SCRIPTING": "OFF"
       }
     },
     {
@@ -162,8 +178,16 @@
       "configurePreset": "macos-release-classic"
     },
     {
+      "name": "macos-debug-noscript",
+      "configurePreset": "macos-debug-noscript"
+    },
+    {
       "name": "linux-debug-classic",
       "configurePreset": "linux-debug-classic"
+    },
+    {
+      "name": "linux-debug-noscript",
+      "configurePreset": "linux-debug-noscript"
     },
     {
       "name": "linux-debug-next",
@@ -239,6 +263,22 @@
       }
     },
     {
+      "name": "unit-noscript",
+      "displayName": "Unit tests on the ORKIGE_SCRIPTING=OFF tree (script-seam enforcement)",
+      "configurePreset": "macos-debug-noscript",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 10
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "unit-linux",
       "displayName": "Linux classic: headless unit tests (the hard CI gate - no display needed)",
       "configurePreset": "linux-debug-classic",
@@ -277,6 +317,22 @@
       "filter": {
         "exclude": {
           "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-linux-noscript",
+      "displayName": "Linux noscript: headless unit tests (ORKIGE_SCRIPTING=OFF must keep building and passing)",
+      "configurePreset": "linux-debug-noscript",
+      "filter": {
+        "include": {
+          "label": "unit"
         }
       },
       "execution": {
