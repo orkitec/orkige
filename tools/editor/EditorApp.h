@@ -30,6 +30,7 @@
 #include <engine_render/RenderTexture.h>
 
 #include <chrono>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <set>
@@ -185,6 +186,9 @@ struct ViewSettings
 	float snapTranslate = Orkige::EditorCore::SNAP_TRANSLATE;
 	float snapRotateDegrees = Orkige::EditorCore::SNAP_ROTATE_DEGREES;
 	float snapScale = Orkige::EditorCore::SNAP_SCALE;
+	//! Asset browser thumbnail cell size in points (the content-pane size
+	//! slider); persisted so the browser reopens at the chosen zoom
+	float assetThumbnailSize = 64.0f;
 	//! reopen the most recent project on launch; automation
 	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
 	bool reopenLastProject = true;
@@ -235,27 +239,47 @@ void recordRecentScene(std::string const& scenePath);
 //! record a project root in the Open Recent Project list and persist it
 void recordRecentProject(std::string const& projectRoot);
 
-//! Asset browser panel state that lives across frames: folder navigation,
-//! the content filter, the thumbnail cache, and the multi-item asset-op
-//! working set (selection, inline rename, pending delete). Selection and
-//! rename are keyed by project-relative path so they survive re-enumeration
-//! and renames of OTHER items.
+//! one cached thumbnail: the ImGui texture id (0 = tried, not a loadable
+//! image) and the file mtime it was loaded at (a changed mtime reloads)
+struct AssetThumbnail
+{
+	ImTextureID textureId = 0;
+	long long mtime = 0;
+};
+
+//! Asset browser panel state that lives across frames: folder navigation with
+//! back/forward history, search + type filtering, the thumbnail cache and its
+//! per-frame load queue, and the multi-item asset-op working set (selection,
+//! inline rename, pending delete). Selection and rename are keyed by
+//! project-relative path so they survive re-enumeration and renames of OTHER
+//! items.
 struct AssetBrowserState
 {
 	//! the folder shown in the content pane (absolute path; "" = reset to the
-	//! open project's root on the next draw). The folder TREE and breadcrumb
-	//! drive it; descending into a subfolder also sets it.
+	//! open project's root on the next draw). The folder TREE, breadcrumb and
+	//! back/forward buttons drive it; descending into a subfolder also sets it.
 	std::string currentDir;
-	//! content filter (same ImGuiTextFilter idiom as the Hierarchy), scoped to
-	//! the current folder's immediate contents - it narrows the content list
-	ImGuiTextFilter filter;
-	//! thumbnail cache: bare texture resource name -> the ImGui texture id of
-	//! its lazily-loaded thumbnail (0 = tried and not a loadable image, draw a
-	//! type icon instead). Bounded (cleared wholesale past
-	//! ASSET_THUMBNAIL_CACHE_MAX - visible working sets are small).
-	std::map<std::string, ImTextureID> thumbnailCache;
+	//! navigation history (back/forward buttons; navigateTo pushes the old
+	//! folder onto backHistory and clears forwardHistory)
+	std::vector<std::string> backHistory;
+	std::vector<std::string> forwardHistory;
+	//! thumbnail cell size in points; below LIST_THRESHOLD the content pane
+	//! renders as compact list rows (the slider spans both continuously)
+	float thumbnailSize = 64.0f;
+	static constexpr float THUMBNAIL_MIN = 20.0f;
+	static constexpr float THUMBNAIL_MAX = 160.0f;
+	static constexpr float LIST_THRESHOLD = 28.0f;
+	//! search text (name substring, case-insensitive); a non-empty value
+	//! switches the content pane into recursive/flat result mode
+	char searchText[256] = "";
+	//! search descends into subfolders of currentDir (else the current folder
+	//! only)
+	bool searchRecursive = true;
+	//! type-filter chips: a bitmask over AssetKind (bit = 1u << kind; 0 = show
+	//! everything). Applies in both folder mode and search mode.
+	unsigned int kindFilterMask = 0;
 	//! multi-selection, keyed by relativePath (survives refresh); the last
-	//! clicked path is the range anchor and the "primary"
+	//! focused path is the range anchor and the "primary"
 	std::set<std::string> selection;
 	std::string selectionAnchor;
 	//! inline rename target ("" = none) + edit buffer + first-frame focus
@@ -265,6 +289,17 @@ struct AssetBrowserState
 	//! delete-confirm modal payload (absolute paths; folders included). A
 	//! non-empty set opens the confirm modal and is consumed on Delete/Cancel.
 	std::vector<std::string> pendingDelete;
+	//! thumbnail cache keyed by ABSOLUTE path (two folders may hold same-named
+	//! files while the user reorganises). Bounded (cleared wholesale past
+	//! ASSET_THUMBNAIL_CACHE_MAX - visible working sets are small).
+	std::map<std::string, AssetThumbnail> thumbnails;
+	//! per-frame thumbnail load queue: absolute paths the last draw wanted but
+	//! did not have cached, serviced oldest-first a few per frame so a big
+	//! folder never hitches
+	std::deque<std::string> thumbnailQueue;
+	//! the panel held keyboard focus while drawing (gates its local shortcut
+	//! handling, mirrors scenePanelFocused / hierarchyFocused)
+	bool focused = false;
 };
 
 // Editor UI state that lives across frames. Everything UI-independent
@@ -919,7 +954,8 @@ enum class AssetKind
 	Texture,	//!< .png/.jpg/... (CreateSpriteObjectCommand)
 	Script,		//!< .lua (not instantiable on its own)
 	Scene,		//!< .oscene (double-click / drop opens it)
-	Prefab		//!< .oprefab (CreatePrefabInstanceCommand)
+	Prefab,		//!< .oprefab (CreatePrefabInstanceCommand)
+	Audio		//!< .wav/.ogg/... (added to an object as a SoundComponent)
 };
 
 //! classify a file path by its extension (case-insensitive)
@@ -934,6 +970,7 @@ struct AssetBrowserItem
 	AssetKind kind = AssetKind::Unknown;
 	bool hasId = false;			//!< an AssetDatabase id resolves for it
 	bool dimmed = false;		//!< sidecar-less id-trackable asset (assets/, scripts/)
+	long long mtime = 0;		//!< last-write time (keys the thumbnail cache)
 };
 
 //! @brief enumerate the open project's assets/, scripts/ and scenes/ (a live
@@ -961,17 +998,47 @@ struct AssetFolderListing
 AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
 	std::string const& absoluteDir);
 
-//! @brief lazily load + cache a small ImGui thumbnail texture id for a
-//! texture asset. Returns 0 when the file is not a loadable image (the caller
-//! then draws a type icon). The texture binds by BARE file name through the
-//! DrawLayer2D named-texture path - the SAME mechanism the Scene RTT / font
-//! atlas use (see ImGuiFacadeRenderer::textureIdForResource). Bounded cache.
+//! @brief load + cache a small ImGui thumbnail texture id for a texture asset
+//! and return it (SYNCHRONOUS - the panel drives this off the paint path
+//! through the per-frame queue; the selfcheck calls it directly). Returns 0
+//! when the file is not a loadable image (the caller then draws a glyph icon).
+//! The texture binds by BARE file name through the DrawLayer2D named-texture
+//! path - the SAME mechanism the Scene RTT / font atlas use (see
+//! ImGuiFacadeRenderer::textureIdForResource). The cache is keyed by ABSOLUTE
+//! path + mtime; bounded (cleared wholesale past ASSET_THUMBNAIL_CACHE_MAX).
 //! DEFERRED: rendered mesh/scene/prefab previews need a per-asset RTT render
-//! pass and are a heavier follow-on - those kinds get a text type icon here.
+//! pass and are a heavier follow-on - those kinds get a glyph type icon here.
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath);
-//! thumbnail cache cap (see AssetBrowserState::thumbnailCache)
+//! thumbnail cache cap (see AssetBrowserState::thumbnails)
 const std::size_t ASSET_THUMBNAIL_CACHE_MAX = 512;
+
+//! @brief navigate the content pane to a folder (absolute path), pushing the
+//! current folder onto the back history and clearing the forward history - the
+//! single seam every navigation (tree, breadcrumb, folder double-click, "..")
+//! routes through so back/forward stay consistent.
+void navigateTo(AssetBrowserState& browser, std::string const& dir);
+
+//! @brief back/forward history navigation (the toolbar arrow buttons). A no-op
+//! when the respective history is empty.
+void navigateBack(AssetBrowserState& browser);
+void navigateForward(AssetBrowserState& browser);
+
+//! @brief search a folder subtree for files whose name contains query
+//! (case-insensitive substring). Walks recursively when recursive is set, the
+//! folder only otherwise; skips sidecars; applies kindMask (bit = 1u << kind,
+//! 0 = every kind). Results carry the same kind/id/dimming as a folder listing
+//! and are sorted by project-relative path (whose parent is the containing
+//! folder). Empty outside a loaded project or for a non-directory root.
+std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
+	std::string const& rootDir, std::string const& query, bool recursive,
+	unsigned int kindMask);
+
+//! @brief drop selection entries whose relativePath is no longer present (an
+//! asset moved/renamed/deleted out from under the folder listing). Keyed by
+//! relativePath, so it is a set intersection; the anchor follows.
+void pruneAssetSelection(AssetBrowserState& browser,
+	std::set<std::string> const& presentRelativePaths);
 
 //--- Asset browser v2 create + open helpers --------------------------------
 
@@ -1066,13 +1133,15 @@ int duplicateAssetEntries(EditorState& state,
 int deleteAssetEntries(EditorState& state,
 	std::vector<std::string> const& absolutePaths);
 
-//! the Asset browser panel (v2): a two-pane folder browser over
-//! the open project (folder TREE left, current folder's subfolders + files
-//! right, with texture thumbnails / type icons), a Create toolbar (New
-//! Folder/Script/Scene) and the preserved v1 behaviors - the ORKIGE_ASSET
-//! drag source, right-click Instantiate/Reveal/Delete, double-click to open
-//! (scene/prefab instantiate, script/image/other -> the OS default app) and
-//! the dim-if-sidecar-less cue - EditorAssetBrowserPanel.cpp
+//! the Asset browser panel (v3): a content browser over the open project - a
+//! folder TREE left and, right, a size-slider-scaled content grid (large
+//! thumbnail tiles down to compact list rows) with a back/forward/breadcrumb/
+//! search/filter-chip toolbar. Textures preview with real thumbnails (loaded
+//! off the paint path via a budgeted queue), other kinds draw glyph type
+//! icons. Multi-selection (ctrl/shift/box/keyboard) drives the asset ops -
+//! the ORKIGE_ASSET drag source, Instantiate/Open, Reveal, Rename (F2),
+//! Duplicate (Cmd/Ctrl+D), Copy Path/Asset ID and confirm-Delete - and
+//! sidecar-less assets render dimmed - EditorAssetBrowserPanel.cpp
 void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible);
 

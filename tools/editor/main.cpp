@@ -564,6 +564,8 @@ int main(int argc, char** argv)
 		// work instantly on the blank scene. The scripted test runs create
 		// their fixture objects themselves at frame 2 (see the frame loop).
 		EditorState state;
+		// the Asset browser opens at the persisted thumbnail-size zoom
+		state.assetBrowser.thumbnailSize = viewSettings.assetThumbnailSize;
 
 		// MCP endpoint: an MCP server hosted IN THIS (editor) process
 		// over Streamable HTTP (POST /mcp, JSON-RPC 2.0), exposing editor
@@ -1854,6 +1856,102 @@ int main(int argc, char** argv)
 						assetFail = "fileUrlForPath composed '" + url + "'";
 					}
 				}
+				// (10) searchAssets: a recursive search from the root finds a
+				// file created in assets/NewGroup/; a non-recursive search from
+				// the root does not; the kind mask filters it in/out; the result
+				// row's relativePath parent is the containing folder
+				if (assetOk)
+				{
+					const std::string rootDir = state.project.getRootDirectory();
+					const std::string groupDir = (std::filesystem::path(
+						state.project.getAssetsDirectory()) / "NewGroup").string();
+					std::filesystem::create_directories(groupDir, assetErr);
+					const std::string nested =
+						(std::filesystem::path(groupDir) / "search_probe.png")
+							.string();
+					{
+						std::ofstream f(nested,
+							std::ios::binary | std::ios::trunc);
+						f << "probe";
+					}
+					const auto containsProbe = [](
+						std::vector<AssetBrowserItem> const& hits,
+						std::string* containing)
+					{
+						for (AssetBrowserItem const& hit : hits)
+						{
+							if (hit.relativePath.find("search_probe.png") !=
+								std::string::npos)
+							{
+								if (containing)
+								{
+									*containing = std::filesystem::path(
+										hit.relativePath).parent_path().string();
+								}
+								return true;
+							}
+						}
+						return false;
+					};
+					std::string containing;
+					const bool foundRecursive = containsProbe(searchAssets(
+						state.project, rootDir, "search_probe", true, 0),
+						&containing);
+					const bool foundFlat = containsProbe(searchAssets(
+						state.project, rootDir, "search_probe", false, 0),
+						nullptr);
+					const unsigned int texBit =
+						1u << static_cast<unsigned int>(AssetKind::Texture);
+					const unsigned int meshBit =
+						1u << static_cast<unsigned int>(AssetKind::Mesh);
+					const bool inTexMask = containsProbe(searchAssets(
+						state.project, rootDir, "search_probe", true, texBit),
+						nullptr);
+					const bool inMeshMask = containsProbe(searchAssets(
+						state.project, rootDir, "search_probe", true, meshBit),
+						nullptr);
+					const bool folderOk =
+						containing.find("NewGroup") != std::string::npos;
+					if (!foundRecursive || foundFlat || !inTexMask ||
+						inMeshMask || !folderOk)
+					{
+						assetOk = false;
+						assetFail = "searchAssets recursion/mask/containing-folder"
+							" wrong";
+					}
+				}
+				// (11) navigateTo + back/forward: root -> assets -> NewGroup,
+				// back twice lands on root, forward once lands on assets, a
+				// fresh navigateTo clears the forward history
+				if (assetOk)
+				{
+					AssetBrowserState nav;
+					const std::string rootDir = state.project.getRootDirectory();
+					const std::string assetsDir =
+						state.project.getAssetsDirectory();
+					const std::string groupDir = (std::filesystem::path(
+						assetsDir) / "NewGroup").string();
+					nav.currentDir = rootDir;
+					navigateTo(nav, assetsDir);
+					navigateTo(nav, groupDir);
+					navigateBack(nav);
+					const bool atAssets = std::filesystem::equivalent(
+						nav.currentDir, assetsDir, assetErr);
+					navigateBack(nav);
+					const bool atRoot = std::filesystem::equivalent(
+						nav.currentDir, rootDir, assetErr);
+					navigateForward(nav);
+					const bool forwardAssets = std::filesystem::equivalent(
+						nav.currentDir, assetsDir, assetErr);
+					navigateTo(nav, groupDir);
+					const bool forwardCleared = nav.forwardHistory.empty();
+					if (!atAssets || !atRoot || !forwardAssets ||
+						!forwardCleared)
+					{
+						assetOk = false;
+						assetFail = "navigateTo/back/forward history wrong";
+					}
+				}
 				// (12) rename: an id-tracked asset keeps its id across a rename
 				if (assetOk && !realImportRel.empty())
 				{
@@ -2003,6 +2101,58 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "deleteAssetEntries left the file/sidecar/id";
+					}
+				}
+				// (16) selection survival: two relativePaths survive a re-
+				// enumerate + prune; deleting one on disk drops exactly it
+				if (assetOk)
+				{
+					const AssetFolderListing before = enumerateAssetFolder(
+						state.project, state.project.getAssetsDirectory());
+					if (before.files.size() < 2)
+					{
+						assetOk = false;
+						assetFail = "need two files for the selection test";
+					}
+					else
+					{
+						const std::string relA = before.files[0].relativePath;
+						const std::string relB = before.files[1].relativePath;
+						const std::string absA = before.files[0].absolutePath;
+						state.assetBrowser.selection.clear();
+						state.assetBrowser.selection.insert(relA);
+						state.assetBrowser.selection.insert(relB);
+						std::set<std::string> present;
+						for (AssetBrowserItem const& f : before.files)
+						{
+							present.insert(f.relativePath);
+						}
+						pruneAssetSelection(state.assetBrowser, present);
+						const bool bothSurvive =
+							state.assetBrowser.selection.count(relA) > 0 &&
+							state.assetBrowser.selection.count(relB) > 0;
+						// delete one on disk, re-enumerate, prune again
+						std::filesystem::remove(absA, assetErr);
+						std::filesystem::remove(absA +
+							Orkige::AssetDatabase::META_FILE_EXTENSION, assetErr);
+						const AssetFolderListing after = enumerateAssetFolder(
+							state.project, state.project.getAssetsDirectory());
+						std::set<std::string> presentAfter;
+						for (AssetBrowserItem const& f : after.files)
+						{
+							presentAfter.insert(f.relativePath);
+						}
+						pruneAssetSelection(state.assetBrowser, presentAfter);
+						const bool droppedA =
+							state.assetBrowser.selection.count(relA) == 0;
+						const bool keptB =
+							state.assetBrowser.selection.count(relB) > 0;
+						state.assetBrowser.selection.clear();
+						if (!bothSurvive || !droppedA || !keptB)
+						{
+							assetOk = false;
+							assetFail = "selection prune survival wrong";
+						}
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);

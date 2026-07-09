@@ -92,6 +92,10 @@ void ViewSettings::load()
 		{
 			this->snapScale = std::strtof(value.c_str(), nullptr);
 		}
+		else if (key == "asset_thumb_size")
+		{
+			this->assetThumbnailSize = std::strtof(value.c_str(), nullptr);
+		}
 		else if (key == "reopen_last_project")
 		{
 			this->reopenLastProject = (value == "1");
@@ -127,6 +131,8 @@ void ViewSettings::load()
 	this->snapTranslate = std::max(this->snapTranslate, 0.001f);
 	this->snapRotateDegrees = std::max(this->snapRotateDegrees, 0.1f);
 	this->snapScale = std::max(this->snapScale, 0.001f);
+	this->assetThumbnailSize = std::clamp(this->assetThumbnailSize,
+		AssetBrowserState::THUMBNAIL_MIN, AssetBrowserState::THUMBNAIL_MAX);
 }
 
 void ViewSettings::save() const
@@ -154,6 +160,7 @@ void ViewSettings::save() const
 		<< "snap_translate=" << this->snapTranslate << "\n"
 		<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"
 		<< "snap_scale=" << this->snapScale << "\n"
+		<< "asset_thumb_size=" << this->assetThumbnailSize << "\n"
 		<< "reopen_last_project="
 		<< (this->reopenLastProject ? 1 : 0) << "\n";
 	for (std::string const& recent : this->recentScenes)
@@ -207,6 +214,7 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 	this->zoomSpeed = defaults.zoomSpeed;
 	this->flySpeed = defaults.flySpeed;
 	this->fovDeg = defaults.fovDeg;
+	this->assetThumbnailSize = defaults.assetThumbnailSize;
 }
 
 void ViewSettings::showAllPanels()

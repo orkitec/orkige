@@ -88,10 +88,12 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	// object shortcuts (duplicate/rename/delete) work from the Scene panel
 	// AND the focused Hierarchy - familiar shortcuts; tool switching stays
 	// Scene-panel-only (letters typed while other panels have focus must
-	// not silently flip tools)
+	// not silently flip tools). The Asset browser owns the SAME keys for its
+	// own selection when it has focus, so stand down entirely there.
 	const bool sceneContext = state.scenePanelHovered ||
 		state.scenePanelFocused;
-	if (!sceneContext && !state.hierarchyFocused)
+	if (state.assetBrowser.focused ||
+		(!sceneContext && !state.hierarchyFocused))
 	{
 		return;
 	}

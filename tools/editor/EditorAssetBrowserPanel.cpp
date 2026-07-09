@@ -1,31 +1,40 @@
-// EditorAssetBrowserPanel.cpp - the project Asset browser (v2):
-// a two-pane FOLDER browser over the open project's assets/,
-// scripts/ and scenes/. It is the codebase's FIRST user of ImGui drag & drop
-// across panels (the "ORKIGE_ASSET" payload the Scene and Hierarchy panels
-// accept), the home of the generic asset-instantiation dispatch
-// (mesh/texture/prefab/scene) and the drop-target helper both those panels call.
+// EditorAssetBrowserPanel.cpp - the project Asset browser (v3):
+// a content browser over the open project's assets/, scripts/ and scenes/. It
+// is the codebase's FIRST user of ImGui drag & drop across panels (the
+// "ORKIGE_ASSET" payload the Scene and Hierarchy panels accept), of ImGui
+// multi-select + the list clipper, and the home of the generic
+// asset-instantiation dispatch (mesh/texture/prefab/scene) and the drop-target
+// helper both those panels call.
 //
-// v2 layout: a folder TREE on the left (expandable ImGui TreeNodes rooted at
-// the project root, like the Hierarchy panel) and the CURRENT folder's contents
-// on the right (its subfolders then its files). The current folder lives in
-// AssetBrowserState::currentDir; double-clicking a subfolder descends, a
-// breadcrumb / ".." goes up. A Create toolbar mints New Folder/Script/Scene in
-// the current folder. The ImGuiTextFilter is scoped to the current folder's
-// immediate contents (NOT recursive) - it narrows the right pane only.
+// Layout: a folder TREE on the left (expandable ImGui TreeNodes rooted at the
+// project root, like the Hierarchy panel) and, on the right, a content grid
+// that scales continuously from large thumbnail tiles down to compact list
+// rows via a size slider. The current folder lives in
+// AssetBrowserState::currentDir and every navigation (tree, breadcrumb, folder
+// double-click, "..", back/forward) routes through navigateTo so the history
+// stays consistent. A search box (recursive or current-folder) plus per-kind
+// filter chips narrow the grid; a Create menu mints New Folder/Script/Scene.
 //
 // Enumeration is a live filesystem walk (rather than AssetDatabase::listAssets)
 // because the browser must ALSO show sidecar-less files (dimmed) and the
 // scenes/ directory the database does not track at all - listAssets() returns
 // only id-carrying assets under assets/+scripts/. enumerateProjectAssets does
 // the whole-project recursive walk (kept for the selfcheck); enumerateAssetFolder
-// does one folder for the panel.
+// does one folder for the panel; searchAssets walks a subtree for a name query.
 //
 // Texture thumbnails reuse the Scene panel's RTT-in-ImGui bridge: a texture is
-// bound into an ImGui::Image by its bare resource name through
+// bound by its bare resource name through
 // ImGuiFacadeRenderer::textureIdForResource -> the DrawLayer2D named-texture
-// path (identical machinery to the ImGui font atlas). Mesh/scene/prefab/script
-// get a text type icon; rendered mesh previews (a per-asset RTT render) are a
-// DEFERRED heavier follow-on.
+// path (identical machinery to the ImGui font atlas). Loading happens OFF the
+// paint path through a budgeted per-frame queue keyed by absolute path + mtime;
+// every non-texture kind draws a self-contained glyph type icon. Rendered mesh
+// previews (a per-asset RTT render) are a DEFERRED heavier follow-on.
+//
+// Selection is keyed by project-relative path (so it survives re-enumeration
+// and renames of OTHER items) and drives the asset ops. Filesystem side effects
+// (rename/move/duplicate/delete) are honestly NOT undoable: the stable asset id
+// travels with the sidecar and scene references self-heal on load, so only
+// Delete confirms.
 //
 // Split out of main.cpp's per-panel decomposition (see EditorApp.h).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
@@ -56,6 +65,19 @@ namespace
 
 namespace fs = std::filesystem;
 
+//! the file's last-write time as a raw tick count (0 when it cannot be
+//! stat'ed); a monotonic key the thumbnail cache uses to detect an edit
+long long fileMTime(std::string const& path)
+{
+	std::error_code ec;
+	const auto stamp = fs::last_write_time(path, ec);
+	if (ec)
+	{
+		return 0;
+	}
+	return static_cast<long long>(stamp.time_since_epoch().count());
+}
+
 //! lower-case file extension INCLUDING the dot (".png"); "" when none
 std::string lowerExtension(std::string const& path)
 {
@@ -85,6 +107,7 @@ AssetBrowserItem makeItem(std::string const& absolutePath,
 		? database->idForPath(entry.relativePath) : Orkige::String();
 	entry.hasId = !id.empty();
 	entry.dimmed = idTracked && id.empty();
+	entry.mtime = fileMTime(absolutePath);
 	return entry;
 }
 
@@ -296,7 +319,7 @@ bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
 	{
 		state.assetBrowser.selectionAnchor = newRel;
 	}
-	state.assetBrowser.thumbnailCache.erase(source.filename().string());
+	state.assetBrowser.thumbnails.erase(source.string());
 	reindexProjectAssets(state);	// the new bare name resolves again
 	SDL_Log("orkige_editor: renamed '%s' to '%s'", item.relativePath.c_str(),
 		newRel.c_str());
@@ -395,7 +418,7 @@ int moveAssetsIntoFolder(EditorState& state,
 		{
 			state.assetBrowser.selection.insert(newRel);
 		}
-		state.assetBrowser.thumbnailCache.erase(source.filename().string());
+		state.assetBrowser.thumbnails.erase(source.string());
 	}
 	if (moved > 0)
 	{
@@ -483,8 +506,7 @@ int deleteAssetEntries(EditorState& state,
 		}
 		state.assetBrowser.selection.erase(
 			state.project.makeProjectRelative(targetAbs));
-		state.assetBrowser.thumbnailCache.erase(
-			fs::path(targetAbs).filename().string());
+		state.assetBrowser.thumbnails.erase(targetAbs);
 	}
 	// prune the stale id-map entries the raw removals left behind (cheap at
 	// project scale; the panel's live walk enumerates the disk regardless)
@@ -558,6 +580,132 @@ AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
 	return listing;
 }
 
+void navigateTo(AssetBrowserState& browser, std::string const& dir)
+{
+	if (dir.empty() || dir == browser.currentDir)
+	{
+		browser.currentDir = dir;
+		return;
+	}
+	if (!browser.currentDir.empty())
+	{
+		browser.backHistory.push_back(browser.currentDir);
+	}
+	browser.forwardHistory.clear();
+	browser.currentDir = dir;
+}
+
+void navigateBack(AssetBrowserState& browser)
+{
+	if (browser.backHistory.empty())
+	{
+		return;
+	}
+	browser.forwardHistory.push_back(browser.currentDir);
+	browser.currentDir = browser.backHistory.back();
+	browser.backHistory.pop_back();
+}
+
+void navigateForward(AssetBrowserState& browser)
+{
+	if (browser.forwardHistory.empty())
+	{
+		return;
+	}
+	browser.backHistory.push_back(browser.currentDir);
+	browser.currentDir = browser.forwardHistory.back();
+	browser.forwardHistory.pop_back();
+}
+
+std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
+	std::string const& rootDir, std::string const& query, bool recursive,
+	unsigned int kindMask)
+{
+	std::vector<AssetBrowserItem> results;
+	std::error_code ec;
+	if (!project.isLoaded() || !fs::is_directory(rootDir, ec))
+	{
+		return results;
+	}
+	// case-insensitive substring: lower-case the needle once
+	std::string needle = query;
+	std::transform(needle.begin(), needle.end(), needle.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	optr<Orkige::AssetDatabase> const& database = project.getAssetDatabase();
+	const auto consider = [&](fs::path const& file)
+	{
+		if (lowerExtension(file.string()) ==
+			Orkige::AssetDatabase::META_FILE_EXTENSION)
+		{
+			return;		// the sidecars themselves are never listed
+		}
+		std::string name = file.filename().string();
+		std::string lowered = name;
+		std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (!needle.empty() &&
+			lowered.find(needle) == std::string::npos)
+		{
+			return;
+		}
+		const AssetKind kind = classifyAsset(file.string());
+		if (kindMask != 0 &&
+			(kindMask & (1u << static_cast<unsigned int>(kind))) == 0)
+		{
+			return;
+		}
+		const bool idTracked = isIdTrackedPath(project, file.string());
+		results.push_back(makeItem(file.string(), project, database, idTracked));
+	};
+	if (recursive)
+	{
+		for (fs::recursive_directory_iterator it(rootDir, ec), end;
+			!ec && it != end; it.increment(ec))
+		{
+			if (it->is_regular_file(ec))
+			{
+				consider(it->path());
+			}
+		}
+	}
+	else
+	{
+		for (fs::directory_iterator it(rootDir, ec), end; !ec && it != end;
+			it.increment(ec))
+		{
+			if (it->is_regular_file(ec))
+			{
+				consider(it->path());
+			}
+		}
+	}
+	std::sort(results.begin(), results.end(),
+		[](AssetBrowserItem const& a, AssetBrowserItem const& b)
+		{ return a.relativePath < b.relativePath; });
+	return results;
+}
+
+void pruneAssetSelection(AssetBrowserState& browser,
+	std::set<std::string> const& presentRelativePaths)
+{
+	for (auto it = browser.selection.begin(); it != browser.selection.end(); )
+	{
+		if (presentRelativePaths.count(*it) == 0)
+		{
+			it = browser.selection.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
+	if (!browser.selectionAnchor.empty() &&
+		presentRelativePaths.count(browser.selectionAnchor) == 0)
+	{
+		browser.selectionAnchor.clear();
+	}
+}
+
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath)
 {
@@ -565,20 +713,24 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	{
 		return 0;
 	}
-	// key by bare file name: the DrawLayer2D named-texture path resolves by
-	// bare name across all resource groups (exactly as SpriteComponent does)
-	const std::string name = fs::path(absolutePath).filename().string();
-	auto cached = state.assetBrowser.thumbnailCache.find(name);
-	if (cached != state.assetBrowser.thumbnailCache.end())
+	AssetBrowserState& browser = state.assetBrowser;
+	const long long mtime = fileMTime(absolutePath);
+	// key by ABSOLUTE path + mtime: two folders may hold same-named files
+	// while the user reorganises, and an edited file must re-decode
+	auto cached = browser.thumbnails.find(absolutePath);
+	if (cached != browser.thumbnails.end() && cached->second.mtime == mtime)
 	{
-		return cached->second;
+		return cached->second.textureId;
 	}
 	// bound the cache: a full clear is cheap and simple (the visible working
 	// set of a folder is small; nothing here needs true LRU eviction yet)
-	if (state.assetBrowser.thumbnailCache.size() >= ASSET_THUMBNAIL_CACHE_MAX)
+	if (browser.thumbnails.size() >= ASSET_THUMBNAIL_CACHE_MAX)
 	{
-		state.assetBrowser.thumbnailCache.clear();
+		browser.thumbnails.clear();
 	}
+	// the DrawLayer2D named-texture path resolves by bare name across all
+	// resource groups (exactly as SpriteComponent does)
+	const std::string name = fs::path(absolutePath).filename().string();
 	ImTextureID id = 0;
 	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 	unsigned int width = 0;
@@ -591,7 +743,7 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	{
 		id = gImGuiRenderer->textureIdForResource(name);
 	}
-	state.assetBrowser.thumbnailCache[name] = id;
+	browser.thumbnails[absolutePath] = AssetThumbnail{ id, mtime };
 	return id;
 }
 
@@ -769,6 +921,10 @@ AssetKind classifyAsset(std::string const& path)
 	{
 		return AssetKind::Prefab;
 	}
+	if (ext == ".wav" || ext == ".ogg" || ext == ".mp3" || ext == ".flac")
+	{
+		return AssetKind::Audio;
+	}
 	return AssetKind::Unknown;
 }
 
@@ -781,6 +937,7 @@ const char* assetKindLabel(AssetKind kind)
 	case AssetKind::Script:		return "script";
 	case AssetKind::Scene:		return "scene";
 	case AssetKind::Prefab:		return "prefab";
+	case AssetKind::Audio:		return "audio";
 	case AssetKind::Unknown:	break;
 	}
 	return "file";
@@ -896,7 +1053,9 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 }
 
 //! ensure the current folder is valid: reset to the project root when unset,
-//! gone, or no longer under the open project (a project switch)
+//! gone, or no longer under the open project (a project switch). A reset also
+//! forgets the navigation history and selection - they belonged to the folder
+//! we just left behind.
 void ensureCurrentDir(EditorState& state)
 {
 	std::error_code ec;
@@ -909,6 +1068,10 @@ void ensureCurrentDir(EditorState& state)
 			state.assetBrowser.currentDir).empty())
 	{
 		state.assetBrowser.currentDir = state.project.getRootDirectory();
+		state.assetBrowser.backHistory.clear();
+		state.assetBrowser.forwardHistory.clear();
+		state.assetBrowser.selection.clear();
+		state.assetBrowser.selectionAnchor.clear();
 	}
 }
 
@@ -953,7 +1116,7 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 	// a click on the label (not the expand arrow) navigates
 	if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 	{
-		state.assetBrowser.currentDir = dir;
+		navigateTo(state.assetBrowser, dir);
 	}
 	if (open)
 	{
@@ -999,25 +1162,461 @@ void drawBreadcrumb(EditorState& state)
 		ImGui::PushID(static_cast<int>(i));
 		if (ImGui::SmallButton(label.c_str()))
 		{
-			state.assetBrowser.currentDir = chain[i].string();
+			navigateTo(state.assetBrowser, chain[i].string());
 		}
 		ImGui::PopID();
 	}
 }
 
+//! the accent colour of a kind's glyph icon (folders share one warm tone)
+ImU32 assetKindColor(AssetKind kind, bool isFolder)
+{
+	if (isFolder)
+	{
+		return IM_COL32(214, 182, 122, 255);
+	}
+	switch (kind)
+	{
+	case AssetKind::Texture:	return IM_COL32(88, 168, 158, 255);
+	case AssetKind::Mesh:		return IM_COL32(92, 132, 200, 255);
+	case AssetKind::Script:		return IM_COL32(110, 178, 112, 255);
+	case AssetKind::Scene:		return IM_COL32(150, 122, 202, 255);
+	case AssetKind::Prefab:		return IM_COL32(212, 150, 88, 255);
+	case AssetKind::Audio:		return IM_COL32(200, 110, 152, 255);
+	case AssetKind::Unknown:
+	default:					return IM_COL32(122, 122, 122, 255);
+	}
+}
+
+//! the short tag drawn inside a kind's glyph icon
+const char* assetKindTag(AssetKind kind, bool isFolder)
+{
+	if (isFolder)
+	{
+		return "DIR";
+	}
+	switch (kind)
+	{
+	case AssetKind::Texture:	return "IMG";
+	case AssetKind::Mesh:		return "MESH";
+	case AssetKind::Script:		return "LUA";
+	case AssetKind::Scene:		return "SCN";
+	case AssetKind::Prefab:		return "PFB";
+	case AssetKind::Audio:		return "SND";
+	case AssetKind::Unknown:
+	default:					return "?";
+	}
+}
+
+//! draw a self-contained glyph type icon (a rounded rect + a short kind tag)
+//! into a rect - no icon art files, so every kind reads at a glance
+void drawKindGlyph(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
+	AssetKind kind, bool isFolder, bool dimmed)
+{
+	ImU32 fill = assetKindColor(kind, isFolder);
+	if (dimmed)
+	{
+		fill = (fill & 0x00FFFFFFu) | 0x80000000u;	// half alpha for sidecar-less
+	}
+	const float side = std::min(maxCorner.x - minCorner.x,
+		maxCorner.y - minCorner.y);
+	const float rounding = std::min(6.0f, side * 0.18f);
+	drawList->AddRectFilled(minCorner, maxCorner, fill, rounding);
+	const char* tag = assetKindTag(kind, isFolder);
+	const ImVec2 tagSize = ImGui::CalcTextSize(tag);
+	if (tagSize.x <= (maxCorner.x - minCorner.x) &&
+		tagSize.y <= (maxCorner.y - minCorner.y))
+	{
+		const ImVec2 at((minCorner.x + maxCorner.x) * 0.5f - tagSize.x * 0.5f,
+			(minCorner.y + maxCorner.y) * 0.5f - tagSize.y * 0.5f);
+		drawList->AddText(at, IM_COL32(24, 24, 24, 255), tag);
+	}
+}
+
+//! the ONE seam for a content item's visual across grid, list and (future)
+//! tree: the real texture thumbnail when one is loaded, otherwise the kind's
+//! glyph icon. A later icon-font pass swaps the glyph branch here in one place,
+//! so nothing else draws icon art directly.
+void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
+	AssetKind kind, bool isFolder, bool dimmed, ImTextureID thumb)
+{
+	if (thumb)
+	{
+		drawList->AddImage(thumb, minCorner, maxCorner);
+	}
+	else
+	{
+		drawKindGlyph(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
+	}
+}
+
+//! clip text to a pixel width with a trailing ellipsis (grid labels)
+std::string ellipsizeToWidth(std::string const& text, float maxWidth)
+{
+	if (maxWidth <= 0.0f || ImGui::CalcTextSize(text.c_str()).x <= maxWidth)
+	{
+		return text;
+	}
+	std::string clipped = text;
+	while (!clipped.empty() &&
+		ImGui::CalcTextSize((clipped + "...").c_str()).x > maxWidth)
+	{
+		clipped.pop_back();
+	}
+	return clipped + "...";
+}
+
+//! the thumbnail texture wanted for an item WITHOUT loading it on the paint
+//! path: a fresh cache hit returns the id, otherwise the absolute path is
+//! queued (deduplicated) for the budgeted post-draw service and 0 is returned
+//! so the caller draws the glyph icon this frame
+ImTextureID queuedThumbnail(EditorState& state, AssetBrowserItem const& item)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	auto cached = browser.thumbnails.find(item.absolutePath);
+	if (cached != browser.thumbnails.end() && cached->second.mtime == item.mtime)
+	{
+		return cached->second.textureId;
+	}
+	if (std::find(browser.thumbnailQueue.begin(), browser.thumbnailQueue.end(),
+		item.absolutePath) == browser.thumbnailQueue.end())
+	{
+		browser.thumbnailQueue.push_back(item.absolutePath);
+	}
+	return 0;
+}
+
+//! service a few queued thumbnail loads per frame so a big folder never
+//! hitches (the decode goes through the main-thread render-facade resource
+//! system; a real off-thread decoder is future facade work)
+void serviceThumbnailQueue(EditorState& state)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	int budget = 2;
+	while (budget-- > 0 && !browser.thumbnailQueue.empty())
+	{
+		const std::string absolute = browser.thumbnailQueue.front();
+		browser.thumbnailQueue.pop_front();
+		assetThumbnailFor(state, absolute);		// synchronous load into cache
+	}
+}
+
+//! one entry in the content pane's flat, index-addressable grid: a folder or a
+//! file, carrying the display name and (search mode) the containing folder
+struct GridEntry
+{
+	bool isFolder = false;
+	AssetBrowserItem item;			//!< file data; folders fill path/rel only
+	std::string name;				//!< the display name (folder or file name)
+	std::string containingFolder;	//!< search mode: project-relative parent
+};
+
+//! apply a BeginMultiSelect / EndMultiSelect request list against the
+//! relativePath-keyed selection set (user data = the item's grid index)
+void applyMultiSelectRequests(ImGuiMultiSelectIO const* io,
+	std::vector<GridEntry> const& entries, AssetBrowserState& browser)
+{
+	for (ImGuiSelectionRequest const& request : io->Requests)
+	{
+		if (request.Type == ImGuiSelectionRequestType_SetAll)
+		{
+			browser.selection.clear();
+			if (request.Selected)
+			{
+				for (GridEntry const& entry : entries)
+				{
+					browser.selection.insert(entry.item.relativePath);
+				}
+			}
+		}
+		else if (request.Type == ImGuiSelectionRequestType_SetRange)
+		{
+			for (int i = static_cast<int>(request.RangeFirstItem);
+				i <= static_cast<int>(request.RangeLastItem); ++i)
+			{
+				if (i < 0 || i >= static_cast<int>(entries.size()))
+				{
+					continue;
+				}
+				if (request.Selected)
+				{
+					browser.selection.insert(entries[i].item.relativePath);
+				}
+				else
+				{
+					browser.selection.erase(entries[i].item.relativePath);
+				}
+			}
+		}
+	}
+}
+
+//! the absolute paths a context/keyboard op should act on: the whole selection
+//! when the item is part of a multi-selection, else just the item
+std::vector<std::string> assetOpTargets(EditorState& state,
+	GridEntry const& entry, bool selected)
+{
+	AssetBrowserState const& browser = state.assetBrowser;
+	if (selected && browser.selection.size() > 1)
+	{
+		std::vector<std::string> targets;
+		const fs::path root(state.project.getRootDirectory());
+		for (std::string const& rel : browser.selection)
+		{
+			targets.push_back((root / rel).string());
+		}
+		return targets;
+	}
+	return { entry.item.absolutePath };
+}
+
+//! begin an inline rename of an item (seed the buffer with its current name)
+void beginItemRename(AssetBrowserState& browser, GridEntry const& entry)
+{
+	browser.renamingPath = entry.item.relativePath;
+	SDL_strlcpy(browser.renameBuffer, entry.name.c_str(),
+		sizeof(browser.renameBuffer));
+	browser.renameFocusPending = true;
+}
+
+//! the shared item context menu (files get the full asset-op set, folders a
+//! reduced one) - the item is already selected by the multiselect right-click
+void drawItemContextMenu(EditorState& state, Orkige::EditorCore& core,
+	GridEntry const& entry, bool selected)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	if (!entry.isFolder)
+	{
+		const bool instantiable = entry.item.kind == AssetKind::Mesh ||
+			entry.item.kind == AssetKind::Texture ||
+			entry.item.kind == AssetKind::Prefab ||
+			entry.item.kind == AssetKind::Scene;
+		const char* instantiateLabel =
+			entry.item.kind == AssetKind::Scene ? "Open" : "Instantiate";
+		if (ImGui::MenuItem(instantiateLabel, nullptr, false, instantiable))
+		{
+			instantiateAssetIntoScene(state, core, entry.item.kind,
+				entry.item.absolutePath);
+		}
+		if (ImGui::MenuItem("Open with default app"))
+		{
+			openWithDefaultApp(entry.item.absolutePath);
+		}
+	}
+	else if (ImGui::MenuItem("Open"))
+	{
+		navigateTo(browser, entry.item.absolutePath);
+	}
+	// reveal in the OS file manager: macOS highlights the item (open -R), other
+	// desktops open the containing folder (no highlight - honest)
+#ifdef __APPLE__
+	if (ImGui::MenuItem("Reveal in Finder"))
+	{
+		const char* revealArgs[] =
+			{ "open", "-R", entry.item.absolutePath.c_str(), nullptr };
+		if (SDL_Process* reveal = SDL_CreateProcess(revealArgs, false))
+		{
+			SDL_DestroyProcess(reveal);
+		}
+	}
+#else
+	if (ImGui::MenuItem("Reveal in file manager"))
+	{
+		const std::string parent =
+			fs::path(entry.item.absolutePath).parent_path().string();
+		openWithDefaultApp(parent);
+	}
+#endif
+	ImGui::Separator();
+	if (ImGui::MenuItem("Rename"))
+	{
+		beginItemRename(browser, entry);
+	}
+	if (!entry.isFolder && ImGui::MenuItem("Duplicate"))
+	{
+		duplicateAssetEntries(state, assetOpTargets(state, entry, selected));
+	}
+	if (ImGui::MenuItem("Copy Path"))
+	{
+		ImGui::SetClipboardText(entry.item.relativePath.c_str());
+	}
+	if (!entry.isFolder && ImGui::MenuItem("Copy Asset ID", nullptr, false,
+		entry.item.hasId))
+	{
+		if (optr<Orkige::AssetDatabase> const& database =
+			state.project.getAssetDatabase())
+		{
+			ImGui::SetClipboardText(
+				database->idForPath(entry.item.relativePath).c_str());
+		}
+	}
+	ImGui::Separator();
+	if (ImGui::MenuItem("Delete..."))
+	{
+		browser.pendingDelete = assetOpTargets(state, entry, selected);
+	}
+}
+
+//! draw one content-pane cell (grid or list mode): a Selectable that carries
+//! the hover/selection visuals + multiselect + keyboard nav, with the
+//! thumbnail/glyph and label painted over it, plus the item interactions
+//! (double-click, drag source, context menu, inline rename)
+void drawContentItem(EditorState& state, Orkige::EditorCore& core,
+	std::vector<GridEntry> const& entries, int index, bool listMode,
+	bool searchMode, float cellW, float cellH, float thumbH)
+{
+	GridEntry const& entry = entries[index];
+	AssetBrowserState& browser = state.assetBrowser;
+	ImGui::PushID(index);
+	const bool selected = browser.selection.count(entry.item.relativePath) > 0;
+	const bool renaming = entry.item.relativePath == browser.renamingPath;
+	const ImTextureID thumb = (!entry.isFolder &&
+		entry.item.kind == AssetKind::Texture)
+		? queuedThumbnail(state, entry.item) : 0;
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	const float inset = 4.0f;
+
+	if (renaming)
+	{
+		// the cell is replaced by its icon + an InputText (Enter commits through
+		// renameAssetEntry, Escape/blur cancels) - the Hierarchy's pattern
+		ImGui::BeginGroup();
+		const ImVec2 iconPos = ImGui::GetCursorScreenPos();
+		const float iconSide = listMode ? ImGui::GetTextLineHeight() : thumbH;
+		ImGui::Dummy(ImVec2(listMode ? iconSide : cellW, iconSide));
+		const ImVec2 iconMin(iconPos.x + inset, iconPos.y + inset);
+		const ImVec2 iconMax(iconMin.x + iconSide - inset * 2.0f,
+			iconMin.y + iconSide - inset * 2.0f);
+		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
+			entry.isFolder, entry.item.dimmed, thumb);
+		if (listMode)
+		{
+			ImGui::SameLine();
+		}
+		ImGui::SetNextItemWidth(listMode ? -FLT_MIN : cellW);
+		if (browser.renameFocusPending)
+		{
+			ImGui::SetKeyboardFocusHere();
+			browser.renameFocusPending = false;
+		}
+		const bool committed = ImGui::InputText("##rename",
+			browser.renameBuffer, sizeof(browser.renameBuffer),
+			ImGuiInputTextFlags_EnterReturnsTrue);
+		if (committed)
+		{
+			renameAssetEntry(state, entry.item, browser.renameBuffer);
+			browser.renamingPath.clear();
+		}
+		else if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+			ImGui::IsItemDeactivated())
+		{
+			browser.renamingPath.clear();
+		}
+		ImGui::EndGroup();
+		ImGui::PopID();
+		return;
+	}
+
+	const ImVec2 pos = ImGui::GetCursorScreenPos();
+	const ImVec2 cellSize(listMode ? 0.0f : cellW, cellH);
+	ImGui::SetNextItemSelectionUserData(index);
+	ImGui::Selectable("##cell", selected, ImGuiSelectableFlags_None, cellSize);
+
+	// interactions on the cell
+	if (ImGui::IsItemHovered() &&
+		ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+	{
+		if (entry.isFolder)
+		{
+			navigateTo(browser, entry.item.absolutePath);
+		}
+		else
+		{
+			openAssetEntry(state, core, entry.item);
+		}
+	}
+	if (!entry.isFolder && ImGui::BeginDragDropSource(
+		ImGuiDragDropFlags_SourceNoDisableHover))
+	{
+		AssetDragDropPayload payload;
+		payload.kind = entry.item.kind;
+		SDL_strlcpy(payload.path, entry.item.absolutePath.c_str(),
+			sizeof(payload.path));
+		ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload, sizeof(payload));
+		ImGui::TextUnformatted(entry.name.c_str());
+		ImGui::EndDragDropSource();
+	}
+	if (ImGui::BeginPopupContextItem("##itemmenu"))
+	{
+		drawItemContextMenu(state, core, entry, selected);
+		ImGui::EndPopup();
+	}
+	if (entry.item.dimmed)
+	{
+		ImGui::SetItemTooltip("no asset id yet (sidecar-less)");
+	}
+
+	// paint the icon + label over the item rect
+	const ImU32 textColor = ImGui::GetColorU32(
+		entry.item.dimmed ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+	if (listMode)
+	{
+		const float iconSide = ImGui::GetTextLineHeight();
+		const ImVec2 iconMin(pos.x, pos.y);
+		const ImVec2 iconMax(pos.x + iconSide, pos.y + iconSide);
+		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
+			entry.isFolder, entry.item.dimmed, thumb);
+		drawList->AddText(ImVec2(pos.x + iconSide + 6.0f, pos.y), textColor,
+			entry.name.c_str());
+		// right-aligned meta: the kind (and, in search mode, the folder)
+		std::string meta = entry.isFolder ? "folder"
+			: assetKindLabel(entry.item.kind);
+		if (searchMode && !entry.containingFolder.empty())
+		{
+			meta += "  " + entry.containingFolder;
+		}
+		const float metaWidth = ImGui::CalcTextSize(meta.c_str()).x;
+		const float rightEdge = pos.x + ImGui::GetContentRegionAvail().x;
+		drawList->AddText(ImVec2(rightEdge - metaWidth, pos.y),
+			ImGui::GetColorU32(ImGuiCol_TextDisabled), meta.c_str());
+	}
+	else
+	{
+		const float squareSide = std::min(cellW, thumbH) - inset * 2.0f;
+		const ImVec2 center(pos.x + cellW * 0.5f, pos.y + thumbH * 0.5f);
+		const ImVec2 squareMin(center.x - squareSide * 0.5f,
+			center.y - squareSide * 0.5f);
+		const ImVec2 squareMax(center.x + squareSide * 0.5f,
+			center.y + squareSide * 0.5f);
+		drawAssetIcon(drawList, squareMin, squareMax, entry.item.kind,
+			entry.isFolder, entry.item.dimmed, thumb);
+		const std::string label = ellipsizeToWidth(entry.name,
+			cellW - inset * 2.0f);
+		const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
+		drawList->AddText(ImVec2(pos.x + (cellW - labelWidth) * 0.5f,
+			pos.y + thumbH + inset), textColor, label.c_str());
+	}
+	ImGui::PopID();
+}
+
 } // namespace
 
-// The Assets panel (v2): a two-pane folder browser over the open project. The
-// LEFT pane is a folder tree (ImGui TreeNodes rooted at the project root); the
-// RIGHT pane shows the current folder's subfolders (double-click descends) and
-// files (thumbnails for textures, type icons otherwise). A breadcrumb + ".."
-// navigate up, a Create toolbar mints New Folder/Script/Scene in the current
-// folder, and the filter narrows the current folder's contents. Preserved from
-// v1: each file row is a drag source ("ORKIGE_ASSET"), the right-click menu
-// offers Instantiate / Reveal in Finder / Delete, double-click opens (scene/
-// prefab instantiate, everything else -> the OS default app), sidecar-less
-// assets render dimmed. Project-only: without an open project the panel shows
-// an empty-state hint.
+// The Assets panel (v3): a content browser over the open project. The LEFT
+// pane is a folder tree (ImGui TreeNodes rooted at the project root); the RIGHT
+// pane is a content grid that scales continuously from large thumbnail tiles
+// down to compact list rows via a size slider. A toolbar carries back/forward
+// history, a clickable breadcrumb, a recursive search box, per-kind filter
+// chips and the size slider; a Create menu mints New Folder/Script/Scene.
+// Textures preview with real thumbnails (loaded off the paint path through a
+// budgeted per-frame queue), every other kind draws a self-contained glyph
+// type icon. Multi-selection (ctrl/shift/box-select/keyboard, keyed by
+// project-relative path so it survives re-enumeration) drives the asset ops:
+// each item is a drag source ("ORKIGE_ASSET"); the context menu offers
+// Instantiate/Open, Reveal, Rename (F2), Duplicate (Cmd/Ctrl+D), Copy Path,
+// Copy Asset ID and Delete; sidecar-less assets render dimmed. Filesystem ops
+// are honestly NOT undoable (the stable id survives via the sidecar and scene
+// references self-heal on load), so only Delete confirms. Project-only:
+// without an open project the panel shows an empty-state hint.
 void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible)
 {
@@ -1030,14 +1629,34 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	{
 		ImGui::TextDisabled("Open a project to browse its assets.");
 		ImGui::TextDisabled("(File > Open Project...)");
+		state.assetBrowser.focused = false;
 		ImGui::End();
 		return;
 	}
 
+	AssetBrowserState& browser = state.assetBrowser;
 	ensureCurrentDir(state);
+	// panel-wide keyboard focus (this window or any of its children) gates the
+	// local shortcut routing, mirroring scenePanelFocused / hierarchyFocused
+	browser.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 	const std::string root = state.project.getRootDirectory();
+	ImGuiStyle& style = ImGui::GetStyle();
 
-	// --- top toolbar: Create menu + Reveal + filter ------------------------
+	// --- toolbar row 1: back/forward history, Create, breadcrumb -----------
+	ImGui::BeginDisabled(browser.backHistory.empty());
+	if (ImGui::ArrowButton("##back", ImGuiDir_Left))
+	{
+		navigateBack(browser);
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::BeginDisabled(browser.forwardHistory.empty());
+	if (ImGui::ArrowButton("##forward", ImGuiDir_Right))
+	{
+		navigateForward(browser);
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
 	if (ImGui::Button("Create"))
 	{
 		ImGui::OpenPopup("##assetCreate");
@@ -1046,25 +1665,24 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	{
 		if (ImGui::MenuItem("New Folder"))
 		{
-			const std::string created = createFolderInDir(
-				state.assetBrowser.currentDir,
-				fs::path(uniqueFileName(state.assetBrowser.currentDir,
+			const std::string created = createFolderInDir(browser.currentDir,
+				fs::path(uniqueFileName(browser.currentDir,
 					"New Folder", "")).filename().string());
 			if (!created.empty())
 			{
-				state.assetBrowser.currentDir = created;
+				navigateTo(browser, created);
 			}
 		}
 		if (ImGui::MenuItem("New Script"))
 		{
-			createScriptInDir(state, state.assetBrowser.currentDir,
-				fs::path(uniqueFileName(state.assetBrowser.currentDir,
+			createScriptInDir(state, browser.currentDir,
+				fs::path(uniqueFileName(browser.currentDir,
 					"NewScript", ".lua")).filename().string());
 		}
 		if (ImGui::MenuItem("New Scene"))
 		{
-			createSceneInDir(state.assetBrowser.currentDir,
-				fs::path(uniqueFileName(state.assetBrowser.currentDir,
+			createSceneInDir(browser.currentDir,
+				fs::path(uniqueFileName(browser.currentDir,
 					"NewScene", ".oscene")).filename().string());
 		}
 		ImGui::EndPopup();
@@ -1074,18 +1692,57 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::SameLine();
 	drawBreadcrumb(state);
 
-	// filter box (same ImGuiTextFilter idiom as the Hierarchy; scoped to the
-	// current folder's immediate contents)
-	ImGui::SetNextItemWidth(-FLT_MIN);
-	if (ImGui::InputTextWithHint("##assetFilter", "Filter (this folder)",
-		state.assetBrowser.filter.InputBuf,
-		IM_ARRAYSIZE(state.assetBrowser.filter.InputBuf)))
+	// --- toolbar row 2: search + recursive + kind chips + size slider ------
+	ImGui::SetNextItemWidth(180.0f);
+	ImGui::InputTextWithHint("##assetSearch", "Search", browser.searchText,
+		sizeof(browser.searchText));
+	ImGui::SameLine();
+	ImGui::Checkbox("Recursive", &browser.searchRecursive);
+	ImGui::SameLine();
+	// per-kind filter chips: an active chip renders in the accent colour and
+	// flips its AssetKind bit in the mask (0 = every kind)
+	const struct { AssetKind kind; const char* label; } kindChips[] = {
+		{ AssetKind::Texture, "IMG" }, { AssetKind::Mesh, "MESH" },
+		{ AssetKind::Audio, "SND" }, { AssetKind::Script, "LUA" },
+		{ AssetKind::Prefab, "PFB" }, { AssetKind::Scene, "SCN" } };
+	for (auto const& chip : kindChips)
 	{
-		state.assetBrowser.filter.Build();
+		const unsigned int bit = 1u << static_cast<unsigned int>(chip.kind);
+		const bool active = (browser.kindFilterMask & bit) != 0;
+		if (active)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button,
+				ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+		}
+		ImGui::PushID(chip.label);
+		if (ImGui::SmallButton(chip.label))
+		{
+			browser.kindFilterMask ^= bit;
+		}
+		ImGui::PopID();
+		if (active)
+		{
+			ImGui::PopStyleColor();
+		}
+		ImGui::SameLine();
+	}
+	// thumbnail-size slider, right-aligned
+	const float sliderWidth = 120.0f;
+	const float regionWidth = ImGui::GetWindowContentRegionMax().x -
+		ImGui::GetWindowContentRegionMin().x;
+	ImGui::SameLine(std::max(0.0f, regionWidth - sliderWidth));
+	ImGui::SetNextItemWidth(sliderWidth);
+	ImGui::SliderFloat("##thumbsize", &browser.thumbnailSize,
+		AssetBrowserState::THUMBNAIL_MIN, AssetBrowserState::THUMBNAIL_MAX, "");
+	if (ImGui::IsItemDeactivatedAfterEdit() && gRecordRecents && gViewSettings)
+	{
+		// persist the zoom (interactive runs only, like the other view prefs)
+		gViewSettings->assetThumbnailSize = browser.thumbnailSize;
+		gViewSettings->save();
 	}
 	ImGui::Separator();
 
-	// --- two panes: folder tree (left) + folder contents (right) -----------
+	// --- two panes: folder tree (left) + content grid (right) --------------
 	const float treeWidth = std::min(220.0f,
 		ImGui::GetContentRegionAvail().x * 0.35f);
 	if (ImGui::BeginChild("##assetTree", ImVec2(treeWidth, 0.0f),
@@ -1096,224 +1753,289 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::EndChild();
 	ImGui::SameLine();
 
-	const AssetFolderListing listing =
-		enumerateAssetFolder(state.project, state.assetBrowser.currentDir);
-	if (ImGui::BeginChild("##assetContents"))
+	// enumerate the content pane: search mode (a recursive/flat name search)
+	// or folder mode (the current folder's subfolders + files); the kind mask
+	// applies in both
+	const bool searchMode = browser.searchText[0] != '\0';
+	std::vector<GridEntry> entries;
+	int folderCount = 0;
+	int fileCount = 0;
+	int filteredOut = 0;
+	if (searchMode)
 	{
-		int shown = 0;
-		// ".." row (up a folder), unless already at the project root
-		std::error_code ec;
-		if (!fs::equivalent(state.assetBrowser.currentDir, root, ec))
+		for (AssetBrowserItem const& found : searchAssets(state.project,
+			browser.currentDir, browser.searchText, browser.searchRecursive,
+			browser.kindFilterMask))
 		{
-			if (ImGui::Selectable("[..] (up)"))
-			{
-				state.assetBrowser.currentDir =
-					fs::path(state.assetBrowser.currentDir).parent_path().string();
-			}
+			GridEntry entry;
+			entry.item = found;
+			entry.name = fs::path(found.absolutePath).filename().string();
+			entry.containingFolder =
+				fs::path(found.relativePath).parent_path().string();
+			entries.push_back(std::move(entry));
+			++fileCount;
 		}
-		// subfolders first: double-click descends
+	}
+	else
+	{
+		const AssetFolderListing listing =
+			enumerateAssetFolder(state.project, browser.currentDir);
 		for (std::string const& sub : listing.subfolders)
 		{
-			const std::string folderName = fs::path(sub).filename().string();
-			const std::string label = std::string("[dir] ") + folderName;
-			if (!state.assetBrowser.filter.PassFilter(label.c_str()))
+			GridEntry entry;
+			entry.isFolder = true;
+			entry.item.absolutePath = sub;
+			entry.item.relativePath = state.project.makeProjectRelative(sub);
+			entry.name = fs::path(sub).filename().string();
+			entries.push_back(std::move(entry));
+			++folderCount;
+		}
+		for (AssetBrowserItem const& file : listing.files)
+		{
+			const unsigned int bit =
+				1u << static_cast<unsigned int>(file.kind);
+			if (browser.kindFilterMask != 0 &&
+				(browser.kindFilterMask & bit) == 0)
 			{
+				++filteredOut;
 				continue;
 			}
-			++shown;
-			ImGui::PushID(sub.c_str());
-			ImGui::Selectable(label.c_str(), false);
-			if (ImGui::IsItemHovered() &&
-				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			GridEntry entry;
+			entry.item = file;
+			entry.name = fs::path(file.absolutePath).filename().string();
+			entries.push_back(std::move(entry));
+			++fileCount;
+		}
+		// selection is keyed by relativePath; drop entries no longer present
+		// (folder mode only - a search result may live in another folder)
+		std::set<std::string> present;
+		for (GridEntry const& entry : entries)
+		{
+			present.insert(entry.item.relativePath);
+		}
+		pruneAssetSelection(browser, present);
+	}
+
+	const bool listMode =
+		browser.thumbnailSize < AssetBrowserState::LIST_THRESHOLD;
+	// the content grid sits above a one-line status footer
+	const float footerHeight =
+		ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y;
+	if (ImGui::BeginChild("##assetContents", ImVec2(0.0f, -footerHeight)))
+	{
+		const int count = static_cast<int>(entries.size());
+		if (count == 0)
+		{
+			ImGui::TextDisabled(searchMode
+				? "no assets match the search"
+				: "empty folder - use Create, or drop files onto the window "
+					"to import");
+		}
+		else
+		{
+			// cell metrics: grid tiles vs. compact list rows off the slider
+			const float avail = ImGui::GetContentRegionAvail().x;
+			const float lineHeight = ImGui::GetTextLineHeight();
+			float cellW = 0.0f;
+			float cellH = 0.0f;
+			float thumbH = 0.0f;
+			int columns = 1;
+			if (listMode)
 			{
-				state.assetBrowser.currentDir = sub;
+				columns = 1;
+				cellW = avail;
+				thumbH = lineHeight;
+				cellH = lineHeight;
 			}
-			if (ImGui::BeginPopupContextItem("##foldermenu"))
+			else
 			{
-#ifdef __APPLE__
-				if (ImGui::MenuItem("Reveal in Finder"))
+				cellW = browser.thumbnailSize;
+				thumbH = browser.thumbnailSize;
+				cellH = browser.thumbnailSize + lineHeight + 6.0f;
+				columns = std::max(1, static_cast<int>(
+					avail / (cellW + style.ItemSpacing.x)));
+			}
+			// multi-select over the whole grid (ctrl/shift/box/keyboard); the
+			// user data is the item's index into this frame's entry vector
+			ImGuiMultiSelectIO* msio = ImGui::BeginMultiSelect(
+				ImGuiMultiSelectFlags_ClearOnEscape |
+				ImGuiMultiSelectFlags_BoxSelect2d,
+				static_cast<int>(browser.selection.size()), count);
+			applyMultiSelectRequests(msio, entries, browser);
+			const int rows = (count + columns - 1) / columns;
+			const float rowStep = cellH + style.ItemSpacing.y;
+			ImGuiListClipper clipper;
+			clipper.Begin(rows, rowStep);
+			// keep the range-source item's row unclipped so shift-select spans
+			if (msio->RangeSrcItem != -1)
+			{
+				clipper.IncludeItemByIndex(
+					static_cast<int>(msio->RangeSrcItem) / columns);
+			}
+			while (clipper.Step())
+			{
+				for (int line = clipper.DisplayStart; line < clipper.DisplayEnd;
+					++line)
 				{
-					const char* revealArgs[] =
-						{ "open", "-R", sub.c_str(), nullptr };
-					if (SDL_Process* reveal = SDL_CreateProcess(revealArgs, false))
+					for (int col = 0; col < columns; ++col)
 					{
-						SDL_DestroyProcess(reveal);
+						const int index = line * columns + col;
+						if (index >= count)
+						{
+							break;
+						}
+						if (col > 0)
+						{
+							ImGui::SameLine();
+						}
+						drawContentItem(state, core, entries, index, listMode,
+							searchMode, cellW, cellH, thumbH);
 					}
 				}
-#endif
-				if (ImGui::MenuItem("Delete Folder"))
-				{
-					fs::remove_all(sub, ec);
-				}
-				ImGui::EndPopup();
 			}
-			ImGui::PopID();
+			msio = ImGui::EndMultiSelect();
+			applyMultiSelectRequests(msio, entries, browser);
+			// the focused item becomes the range anchor / keyboard target
+			if (msio->NavIdItem != -1)
+			{
+				const int nav = static_cast<int>(msio->NavIdItem);
+				if (nav >= 0 && nav < count)
+				{
+					browser.selectionAnchor = entries[nav].item.relativePath;
+				}
+			}
 		}
-		// files: thumbnail (textures) or type icon, drag source, context menu
-		for (AssetBrowserItem const& entry : listing.files)
+		// empty-space right-click: the Create menu (no drop-target Paste in v3)
+		if (ImGui::BeginPopupContextWindow("##assetEmptyMenu",
+			ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
 		{
-			const std::string fileName =
-				fs::path(entry.absolutePath).filename().string();
-			const std::string label = std::string("[") +
-				assetKindLabel(entry.kind) + "] " + fileName;
-			if (!state.assetBrowser.filter.PassFilter(label.c_str()))
+			if (ImGui::MenuItem("New Folder"))
 			{
-				continue;
+				const std::string created = createFolderInDir(
+					browser.currentDir, fs::path(uniqueFileName(
+						browser.currentDir, "New Folder", "")).filename()
+						.string());
+				if (!created.empty())
+				{
+					navigateTo(browser, created);
+				}
 			}
-			++shown;
-			ImGui::PushID(entry.relativePath.c_str());
-			const bool renaming =
-				entry.relativePath == state.assetBrowser.renamingPath;
-			// texture thumbnail (lazy + cached); other kinds get the text icon.
-			// DEFERRED: rendered mesh/scene/prefab previews (a per-asset RTT
-			// render) are a heavier follow-on - only textures preview here.
-			const ImTextureID thumb = (entry.kind == AssetKind::Texture)
-				? assetThumbnailFor(state, entry.absolutePath) : 0;
-			if (thumb)
+			if (ImGui::MenuItem("New Script"))
 			{
-				const float size = ImGui::GetTextLineHeight();
-				ImGui::Image(thumb, ImVec2(size, size));
-				ImGui::SameLine();
+				createScriptInDir(state, browser.currentDir,
+					fs::path(uniqueFileName(browser.currentDir, "NewScript",
+						".lua")).filename().string());
 			}
-			if (renaming)
+			if (ImGui::MenuItem("New Scene"))
 			{
-				// inline rename: an InputText replaces the row label (Enter
-				// commits through renameAssetEntry, Escape/blur cancels) - the
-				// same pattern the Hierarchy uses
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				if (state.assetBrowser.renameFocusPending)
-				{
-					ImGui::SetKeyboardFocusHere();
-					state.assetBrowser.renameFocusPending = false;
-				}
-				const bool committed = ImGui::InputText("##assetrename",
-					state.assetBrowser.renameBuffer,
-					sizeof(state.assetBrowser.renameBuffer),
-					ImGuiInputTextFlags_EnterReturnsTrue);
-				if (committed)
-				{
-					renameAssetEntry(state, entry,
-						state.assetBrowser.renameBuffer);
-					state.assetBrowser.renamingPath.clear();
-				}
-				else if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-					ImGui::IsItemDeactivated())
-				{
-					state.assetBrowser.renamingPath.clear();
-				}
-				ImGui::PopID();
-				continue;
+				createSceneInDir(browser.currentDir,
+					fs::path(uniqueFileName(browser.currentDir, "NewScene",
+						".oscene")).filename().string());
 			}
-			if (entry.dimmed)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text,
-					ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			}
-			ImGui::Selectable(label.c_str(), false);
-			if (entry.dimmed)
-			{
-				ImGui::PopStyleColor();
-				ImGui::SetItemTooltip("no asset id yet (sidecar-less)");
-			}
-			// double-click: scene/prefab instantiate; script/image/other open
-			// with the OS default app
-			if (ImGui::IsItemHovered() &&
-				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-			{
-				openAssetEntry(state, core, entry);
-			}
-			// drag source: the codebase's first cross-panel asset drag
-			if (ImGui::BeginDragDropSource(
-				ImGuiDragDropFlags_SourceNoDisableHover))
-			{
-				AssetDragDropPayload payload;
-				payload.kind = entry.kind;
-				SDL_strlcpy(payload.path, entry.absolutePath.c_str(),
-					sizeof(payload.path));
-				ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload,
-					sizeof(payload));
-				ImGui::TextUnformatted(label.c_str());
-				ImGui::EndDragDropSource();
-			}
-			// right-click operations
-			if (ImGui::BeginPopupContextItem("##assetmenu"))
-			{
-				const bool instantiable = entry.kind == AssetKind::Mesh ||
-					entry.kind == AssetKind::Texture ||
-					entry.kind == AssetKind::Prefab ||
-					entry.kind == AssetKind::Scene;
-				const char* instantiateLabel =
-					entry.kind == AssetKind::Scene ? "Open" : "Instantiate";
-				if (ImGui::MenuItem(instantiateLabel, nullptr, false,
-					instantiable))
-				{
-					instantiateAssetIntoScene(state, core, entry.kind,
-						entry.absolutePath);
-				}
-				if (ImGui::MenuItem("Open with default app"))
-				{
-					openWithDefaultApp(entry.absolutePath);
-				}
-#ifdef __APPLE__
-				if (ImGui::MenuItem("Reveal in Finder"))
-				{
-					const char* revealArgs[] =
-						{ "open", "-R", entry.absolutePath.c_str(), nullptr };
-					if (SDL_Process* reveal = SDL_CreateProcess(revealArgs, false))
-					{
-						SDL_DestroyProcess(reveal);
-					}
-				}
-#endif
-				ImGui::Separator();
-				if (ImGui::MenuItem("Rename"))
-				{
-					// seed the inline editor with the current file name
-					state.assetBrowser.renamingPath = entry.relativePath;
-					SDL_strlcpy(state.assetBrowser.renameBuffer,
-						fileName.c_str(),
-						sizeof(state.assetBrowser.renameBuffer));
-					state.assetBrowser.renameFocusPending = true;
-				}
-				if (ImGui::MenuItem("Duplicate"))
-				{
-					duplicateAssetEntries(state, { entry.absolutePath });
-				}
-				if (ImGui::MenuItem("Copy Path"))
-				{
-					ImGui::SetClipboardText(entry.relativePath.c_str());
-				}
-				if (ImGui::MenuItem("Copy Asset ID", nullptr, false,
-					entry.hasId))
-				{
-					if (optr<Orkige::AssetDatabase> const& database =
-						state.project.getAssetDatabase())
-					{
-						ImGui::SetClipboardText(
-							database->idForPath(entry.relativePath).c_str());
-					}
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Delete..."))
-				{
-					// queue the confirm modal (the only destructive op)
-					state.assetBrowser.pendingDelete = { entry.absolutePath };
-				}
-				ImGui::EndPopup();
-			}
-			ImGui::PopID();
-		}
-		if (listing.subfolders.empty() && listing.files.empty())
-		{
-			ImGui::TextDisabled("empty folder - use Create, or drop files onto "
-				"the window to import");
-		}
-		else if (shown == 0)
-		{
-			ImGui::TextDisabled("nothing in this folder matches the filter");
+			ImGui::EndPopup();
 		}
 	}
 	ImGui::EndChild();
+
+	// --- status footer -----------------------------------------------------
+	ImGui::Separator();
+	std::string status;
+	if (searchMode)
+	{
+		status = std::to_string(fileCount) + " results";
+	}
+	else
+	{
+		const int totalFiles = fileCount + filteredOut;
+		status = std::to_string(folderCount) + " folders, " +
+			std::to_string(totalFiles) + " files";
+		if (filteredOut > 0)
+		{
+			status += " (" + std::to_string(fileCount) + " shown)";
+		}
+	}
+	if (!browser.selection.empty())
+	{
+		status += ", " + std::to_string(browser.selection.size()) + " selected";
+	}
+	ImGui::TextUnformatted(status.c_str());
+	std::string here = state.project.makeProjectRelative(browser.currentDir);
+	if (here.empty() || here == ".")
+	{
+		here = "/";
+	}
+	const float hereWidth = ImGui::CalcTextSize(here.c_str()).x;
+	ImGui::SameLine(std::max(0.0f, ImGui::GetWindowContentRegionMax().x -
+		ImGui::GetWindowContentRegionMin().x - hereWidth));
+	ImGui::TextDisabled("%s", here.c_str());
+
+	// --- panel-local keyboard shortcuts (only while the panel has focus, and
+	// never mid-rename) - the Hierarchy/global handlers stand down through the
+	// browser.focused guard in EditorShortcuts.cpp so keys go to one panel ----
+	if (browser.focused && !ImGui::GetIO().WantTextInput &&
+		browser.renamingPath.empty())
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		const bool commandDown = io.KeySuper || io.KeyCtrl;
+		const GridEntry* anchor = nullptr;
+		for (GridEntry const& entry : entries)
+		{
+			if (entry.item.relativePath == browser.selectionAnchor)
+			{
+				anchor = &entry;
+				break;
+			}
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+			ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false))
+		{
+			if (anchor)
+			{
+				if (anchor->isFolder)
+				{
+					navigateTo(browser, anchor->item.absolutePath);
+				}
+				else
+				{
+					openAssetEntry(state, core, anchor->item);
+				}
+			}
+		}
+		else if (ImGui::IsKeyPressed(ImGuiKey_F2, false))
+		{
+			if (anchor)
+			{
+				beginItemRename(browser, *anchor);
+			}
+		}
+		else if (commandDown && ImGui::IsKeyPressed(ImGuiKey_D, false))
+		{
+			if (anchor)
+			{
+				duplicateAssetEntries(state,
+					assetOpTargets(state, *anchor, true));
+			}
+		}
+		else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) ||
+			ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+		{
+			// fill the confirm modal from the selection (or the anchor alone)
+			std::vector<std::string> targets;
+			const fs::path rootPath(root);
+			for (std::string const& rel : browser.selection)
+			{
+				targets.push_back((rootPath / rel).string());
+			}
+			if (targets.empty() && anchor)
+			{
+				targets.push_back(anchor->item.absolutePath);
+			}
+			if (!targets.empty())
+			{
+				browser.pendingDelete = targets;
+			}
+		}
+	}
 
 	// delete-confirm modal: the only destructive asset op gets a confirmation
 	// (rename/move/duplicate are non-destructive and land without one)
@@ -1354,4 +2076,7 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		ImGui::EndPopup();
 	}
 	ImGui::End();
+
+	// service a budgeted slice of the thumbnail load queue off the paint path
+	serviceThumbnailQueue(state);
 }
