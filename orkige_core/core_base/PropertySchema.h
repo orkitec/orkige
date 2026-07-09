@@ -23,10 +23,9 @@ namespace Orkige
 	/** \addtogroup Base
 	*  @{ */
 
-	//! @brief per-property behaviour flags (a bitmask). P0/P1 only STORE them;
-	//! the consumers that act on them (transient-skip in serialization, the
-	//! inspector's read-only lock) arrive in later phases. Reserved here so a
-	//! declaration site can already annotate a property.
+	//! @brief per-property behaviour flags (a bitmask): serialization skips
+	//! TRANSIENT properties, the inspector locks READONLY ones and hides HIDDEN
+	//! ones, and the debug/control protocols honour all three.
 	enum PropertyFlags
 	{
 		PROP_NONE		= 0,
@@ -35,9 +34,8 @@ namespace Orkige
 		PROP_HIDDEN		= 1 << 2	//!< not shown in the inspector
 	};
 
-	//! @brief display metadata for a property - RESERVED for the inspector (a
-	//! later phase). Inert in P0/P1; a declaration may already fill it in via
-	//! the OPROPERTY_META macro so the schema carries it forward.
+	//! @brief display metadata for a property, consumed by the inspector
+	//! (range-limited drags, tooltips, grouping). Declared via OPROPERTY_META.
 	struct PropertyMeta
 	{
 		bool	hasRange = false;	//!< true when min/max/step are meaningful
@@ -54,9 +52,10 @@ namespace Orkige
 	//! type-erased setter: writes a PropertyValue back onto a concrete instance
 	//! (an EMPTY setter marks a read-only property)
 	typedef std::function<void(void *, PropertyValue const &)> PropertySetter;
-	//! @brief RESERVED live-apply hook slot: fired after an accepted set so a
-	//! component can react (the reflection cousin of CVar::onChange). Unused in
-	//! P0/P1 - declarations leave it empty.
+	//! @brief optional live-apply hook: fired after an accepted set so a
+	//! component can react (the reflection cousin of CVar::onChange).
+	//! Declarations may leave it empty - the reflected setters already route
+	//! through the components' real accessors, which re-derive runtime state.
 	typedef std::function<void(void *)> PropertyChangeHook;
 
 	//! @brief one reflected property: a name + kind + type-erased get/set that

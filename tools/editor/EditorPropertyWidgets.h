@@ -2,9 +2,9 @@
 //
 // One ImGui widget renderer keyed off Orkige::PropertyKind, so the SAME code
 // draws a C++ component's reflected property and (later) a Lua script's dynamic
-// export property. P3 uses it for the remote play-mode Inspector, which has no
+// export property. It serves the remote play-mode Inspector, which has no
 // local schema - it consumes the stringly-typed reflection metadata streamed in
-// the object_state message. P4 reuses drawPropertyWidget() for the LOCAL
+// the object_state message. drawPropertyWidget() also drives the LOCAL
 // edit-mode Inspector (feeding it PropertyDesc.kind + PropertyValue::toString()
 // and writing back through the reflected setter), retiring the per-component
 // ImGui editors. Values cross as PropertyValue's canonical string form both

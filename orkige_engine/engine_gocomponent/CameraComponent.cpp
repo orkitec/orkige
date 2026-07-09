@@ -184,7 +184,7 @@ namespace Orkige
 			OENUM_REGISTER_VALUE(PM_PERSPECTIVE)
 			OENUM_REGISTER_VALUE(PM_ORTHOGRAPHIC)
 		OENUM_REGISTER_END
-		// reflected schema (P1): projection mode (Enum) + orthoSize (Float with
+		// reflected schema: projection mode (Enum) + orthoSize (Float with
 		// reserved inspector range metadata). The component's hand-written
 		// save/load is untouched - this only ADDS the queryable schema.
 		OPROPERTY_ENUM("projectionMode", "ProjectionMode", getProjectionMode, setProjectionMode, Orkige::PROP_NONE)

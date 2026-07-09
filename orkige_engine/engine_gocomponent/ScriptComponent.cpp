@@ -377,7 +377,7 @@ namespace Orkige
 		// the record for rename survival) and the enabled flag; runtime state
 		// (loaded/failed, the Lua environment) is rebuilt on the next play run.
 		// The per-instance script EXPORT property VALUES ride the AttributeHolder
-		// bag (OParent::save) - the dynamic-schema wiring itself is P5.
+		// bag (OParent::save) alongside the reflected export values.
 		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------

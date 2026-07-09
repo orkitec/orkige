@@ -284,11 +284,11 @@ namespace Orkige
 		OFUNC(setWorldPosition)
 		OFUNC(setWorldOrientation)
 		OFUNC(teleport)
-		// reflected local-transform schema: the same LOCAL
-		// position/orientation/scale the hand-written save/load persists (that
-		// stays untouched in P1 - serialization migration is P2). The Vec3/Quat
-		// adapters resolve to the engine-side overloads in
-		// ComponentPropertyReflect.h.
+		// reflected local-transform schema: the LOCAL position/orientation/
+		// scale (world state is derived through the parent chain and is not a
+		// property). Serialization, the inspector and the debug protocol all
+		// drive these through the schema; the Vec3/Quat adapters resolve to
+		// the engine-side overloads in ComponentPropertyReflect.h.
 		OPROPERTY("position", Orkige::PropertyKind::Vec3, getPosition, setPosition, Orkige::PROP_NONE)
 		OPROPERTY("orientation", Orkige::PropertyKind::Quat, getOrientation, setOrientation, Orkige::PROP_NONE)
 		OPROPERTY("scale", Orkige::PropertyKind::Vec3, getScale, setScale, Orkige::PROP_NONE)

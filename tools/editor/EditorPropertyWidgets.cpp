@@ -79,7 +79,7 @@ struct TextFieldState
 };
 
 //! draw an InputText bound to a persistent buffer; true (and outValue set) on
-//! Enter. Shared by String and the reference kinds (a real picker is P4/P5).
+//! Enter. Shared by String and, when no reference provider is set, the reference kinds.
 bool drawTextField(char const* label, std::string const& value,
 	std::string& outValue)
 {

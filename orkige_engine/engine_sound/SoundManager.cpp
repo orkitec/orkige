@@ -9,7 +9,7 @@
 
 // OpenAL Soft port notes:
 // - the OgreOggSound backend (ORKIGE_OGGSOUNDMANAGER) is gone together with
-//   its vendored dependency; streaming/ogg support returns in a later phase
+//   its vendored dependency; streaming/ogg support is future work
 // - the iOS AudioSession interruption wiring (AudioSessionInitialize & co)
 //   was removed from the iOS SDK long ago; AVAudioSession based handling
 //   returns with the mobile phase and should call onInterruptBegin/End

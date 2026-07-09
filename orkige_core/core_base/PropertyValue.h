@@ -74,7 +74,7 @@ namespace Orkige
 	//! the PropertyKind set with a CANONICAL STRING form (its get/set borrow the
 	//! CVarManager coerce/format dialect) so the same value crosses the debug
 	//! protocol wire, feeds the inspector and round-trips through the registry.
-	//! @remarks P0 scaffolding: additive, Ogre-free, no behaviour change. Enum
+	//! @remarks Ogre-free by design (core must not see engine math types). Enum
 	//! carries its value AND the enum-type name (so value<->label lookup through
 	//! the EnumInfo registry stays possible later); the reference kinds carry an
 	//! id string plus a target-type hint (asset-kind / object-type). Display
