@@ -32,6 +32,9 @@ namespace Orkige
 		String										parentId;				//!< id of the parent GameObject ("" = root, Unity-style tree)
 		bool										activeSelf;				//!< own active flag (Unity activeSelf, default true)
 		bool										activeInHierarchy;		//!< cached effective state: activeSelf AND all ancestors active
+		String										prefabRef;				//!< project-relative .oprefab path ("" = not a prefab instance root)
+		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
+		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -81,6 +84,20 @@ namespace Orkige
 		//! GameObjectComponent::onSetActive - inactive objects stop ticking,
 		//! engine components hide/silence/park their scene state
 		void setActive(bool active);
+		//--- PREFAB INSTANCE (see core_game/PrefabSerializer) ---
+		//! project-relative .oprefab path this object is an instance root of
+		//! ("" = a plain GameObject)
+		inline String const & getPrefabRef() const;
+		//! stable asset id serialized next to the prefabRef ("" when unknown)
+		inline String const & getPrefabAssetId() const;
+		//! @brief mark (or with "" unmark) this object as a prefab instance
+		//! root - pure bookkeeping, the PrefabSerializer/SceneSerializer act
+		//! on it (no components are touched here)
+		inline void setPrefabRef(String const & prefabRef, String const & prefabAssetId);
+		//! prefab-LOCAL ids of the prefab children this instance dropped
+		inline StringVector const & getSuppressedPrefabChildren() const;
+		//! replace the suppressed-children list (prefab-LOCAL ids)
+		inline void setSuppressedPrefabChildren(StringVector const & localIds);
 	protected:
 		//! @brief recompute the cached activeInHierarchy state of this object
 		//! and (on change) of all descendants, dispatching onSetActive
@@ -127,6 +144,37 @@ namespace Orkige
 	inline bool GameObject::isActiveInHierarchy() const
 	{
 		return this->activeInHierarchy;
+	}
+	//---------------------------------------------------------
+	inline String const & GameObject::getPrefabRef() const
+	{
+		return this->prefabRef;
+	}
+	//---------------------------------------------------------
+	inline String const & GameObject::getPrefabAssetId() const
+	{
+		return this->prefabAssetId;
+	}
+	//---------------------------------------------------------
+	inline void GameObject::setPrefabRef(String const & prefabRef, String const & prefabAssetId)
+	{
+		this->prefabRef = prefabRef;
+		this->prefabAssetId = prefabAssetId;
+		if(prefabRef.empty())
+		{
+			// a plain GameObject carries no structural overrides
+			this->suppressedPrefabChildren.clear();
+		}
+	}
+	//---------------------------------------------------------
+	inline StringVector const & GameObject::getSuppressedPrefabChildren() const
+	{
+		return this->suppressedPrefabChildren;
+	}
+	//---------------------------------------------------------
+	inline void GameObject::setSuppressedPrefabChildren(StringVector const & localIds)
+	{
+		this->suppressedPrefabChildren = localIds;
 	}
 }
 

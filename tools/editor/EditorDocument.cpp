@@ -5,6 +5,7 @@
 #include "EditorApp.h"
 #include "MeshImport.h"
 
+#include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
@@ -299,5 +300,116 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	}
 	SDL_Log("orkige_editor: imported '%s' -> '%s' as GameObject '%s'",
 		sourcePath.c_str(), destPath.c_str(), objectId.c_str());
+	return true;
+}
+
+// GameObject > Create Prefab (also the Hierarchy context menu): write the
+// primary selection's subtree as a .oprefab under the open project's assets/
+// (prefabs are project assets - the file gets its stable .orkmeta id through
+// the project's AssetDatabase right away) and convert the live subtree into a
+// prefab INSTANCE through the undoable MakePrefabCommand. The destination is
+// deterministic - "<assets>/<rootId>.oprefab" - instead of a save dialog:
+// prefabs must live inside assets/ anyway, and the deterministic path keeps
+// the flow scriptable for the automated tests. Creating a prefab where an
+// UNRELATED .oprefab already sits is refused (rename the object first);
+// running it on an existing instance ROOT re-makes (overwrites) that
+// instance's own prefab file - the v1 "edit a prefab" loop (the structural
+// overrides reset: the file now IS the live subtree).
+bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
+{
+	if (!core.hasSelection())
+	{
+		SDL_Log("orkige_editor: Create Prefab needs a selected object");
+		return false;
+	}
+	if (!state.project.isLoaded())
+	{
+		SDL_Log("orkige_editor: Create Prefab needs an open project - "
+			"prefabs live in the project's assets/");
+		return false;
+	}
+	const std::string rootId = core.getSelectedObjectId();
+	Orkige::String reason;
+	if (!core.canMakePrefab(rootId, &reason))
+	{
+		SDL_Log("orkige_editor: Create Prefab refused for '%s' - %s",
+			rootId.c_str(), reason.c_str());
+		return false;
+	}
+	Orkige::GameObjectManager& manager = core.getGameObjectManager();
+	optr<Orkige::GameObject> root = manager.getGameObject(rootId).lock();
+	oAssert(root);
+	const bool remake = !root->getPrefabRef().empty();
+	std::string prefabRef;
+	std::string prefabPath;
+	if (remake)
+	{
+		// overwrite the instance's OWN source prefab
+		prefabRef = root->getPrefabRef();
+		prefabPath = state.project.getRootDirectory() + "/" + prefabRef;
+	}
+	else
+	{
+		// file name derived from the object id (path separators sanitized)
+		std::string fileName = rootId;
+		for (char& c : fileName)
+		{
+			if (c == '/' || c == '\\' || c == ':')
+			{
+				c = '_';
+			}
+		}
+		prefabRef = "assets/" + fileName + ".oprefab";
+		prefabPath = state.project.getAssetsDirectory() + "/" + fileName +
+			".oprefab";
+		std::error_code ignored;
+		if (std::filesystem::exists(prefabPath, ignored))
+		{
+			SDL_Log("orkige_editor: Create Prefab refused - '%s' already "
+				"exists (rename the object or remove the file first)",
+				prefabPath.c_str());
+			return false;
+		}
+	}
+	{
+		std::error_code ignored;
+		std::filesystem::create_directories(
+			std::filesystem::path(prefabPath).parent_path(), ignored);
+	}
+	if (!Orkige::PrefabSerializer::savePrefab(prefabPath, manager, rootId))
+	{
+		SDL_Log("orkige_editor: Create Prefab failed - could not write '%s' "
+			"(see the log above)", prefabPath.c_str());
+		return false;
+	}
+	// editor-side asset creation mints the stable id right away (an existing
+	// sidecar - the re-make case - is reused)
+	std::string assetId;
+	if (optr<Orkige::AssetDatabase> const& assetDatabase =
+		state.project.getAssetDatabase())
+	{
+		assetId = assetDatabase->importAsset(prefabPath);
+	}
+	if (remake)
+	{
+		// the file now IS the live subtree: stale structural overrides no
+		// longer apply (the fs overwrite is not undoable, so neither is this)
+		root->setPrefabRef(prefabRef,
+			assetId.empty() ? root->getPrefabAssetId() : assetId);
+		root->setSuppressedPrefabChildren(Orkige::StringVector());
+		core.markSceneDirty();
+		SDL_Log("orkige_editor: prefab '%s' re-made from instance '%s'",
+			prefabRef.c_str(), rootId.c_str());
+		return true;
+	}
+	if (!core.makePrefabInstance(rootId, prefabPath, prefabRef, assetId))
+	{
+		SDL_Log("orkige_editor: Create Prefab failed - could not convert "
+			"'%s' into an instance (see the log above)", rootId.c_str());
+		return false;
+	}
+	SDL_Log("orkige_editor: prefab '%s' created from '%s' (asset id %s)",
+		prefabRef.c_str(), rootId.c_str(),
+		assetId.empty() ? "<none>" : assetId.c_str());
 	return true;
 }

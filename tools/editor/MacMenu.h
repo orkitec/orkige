@@ -71,6 +71,8 @@ namespace Orkige
 		// GameObject
 		std::function<void()> createCube;
 		std::function<void()> createTestMesh;
+		//! Create Prefab from the primary selection (needs an open project)
+		std::function<void()> createPrefab;
 		// Build (project export via Util/orkige_export.py); platform is
 		// "macos", "ios-simulator" or "android"
 		std::function<void(std::string const& platform)> exportProject;
@@ -91,7 +93,7 @@ namespace Orkige
 		std::string undoLabel = "Undo";		//!< e.g. "Undo Delete Cube1"
 		std::string redoLabel = "Redo";
 		bool hasSelection = false;			//!< gates Duplicate/Delete
-		bool projectOpen = false;			//!< gates Close Project
+		bool projectOpen = false;			//!< gates Close Project + (with a selection) Create Prefab
 		bool canExport = false;				//!< gates the Build menu (project open, no export running)
 		bool panelVisible[PANEL_COUNT] = { true, true, true, true, true };
 		//! File > Open Recent entries, newest first (empty = placeholder item)

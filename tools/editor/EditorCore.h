@@ -267,6 +267,36 @@ namespace Orkige
 		StringVector mOldParentIds;		//!< parallel to mMemberIds, captured on execute
 	};
 
+	//! @brief the UNDOABLE half of "Create Prefab" (Unity-style): convert the
+	//! subtree rooted at an object into a prefab INSTANCE of the already
+	//! written .oprefab file - the live children are replaced by the
+	//! deterministic "<root>/<localId>" instance objects the file provides
+	//! and the root gets its prefabRef/assetId mark. Undo removes the
+	//! instance children, clears the mark and restores the original children
+	//! with their full serialized state; the prefab FILE stays on disk either
+	//! way (a fs side effect, not undoable - like an imported mesh).
+	class MakePrefabCommand : public EditorCommand
+	{
+	public:
+		MakePrefabCommand(String const& rootId, String const& prefabFilePath,
+			String const& prefabRef, String const& prefabAssetId);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		//! restore the pre-conversion children from the snapshots (DFS order,
+		//! parents first - the snapshots re-attach the parent links)
+		bool restoreOriginalChildren(EditorCore& core) const;
+
+		String mRootId;
+		String mPrefabFilePath;	//!< absolute .oprefab path (the instantiate source)
+		String mPrefabRef;		//!< project-relative reference stored on the root
+		String mPrefabAssetId;	//!< stable .orkmeta id riding next to the reference
+		StringVector mOldChildIds;	//!< pre-conversion descendants (DFS), captured fresh on execute
+		std::vector<EditorObjectSnapshot> mOldChildSnapshots;	//!< parallel to mOldChildIds
+	};
+
 	//! @brief a batch of commands that does/undoes as ONE undo step
 	//! (multi-select delete/duplicate). Execute runs the children in order
 	//! and rolls the already-executed prefix back if one refuses; unexecute
@@ -553,6 +583,20 @@ namespace Orkige
 		//! @brief Cmd/Ctrl+G: group ALL selected objects under a new empty
 		//! parent (auto-named "Group<N>", selected afterwards) - one undo step
 		bool groupSelected();
+		//! @brief may "Create Prefab" run on this object right now? Refused
+		//! for unknown ids, prefab-PROVIDED objects (a prefab child cannot
+		//! become its own prefab) and subtrees containing a nested instance
+		//! BELOW the root; an instance root itself is fine (re-making its
+		//! prefab is the v1 edit loop). reason (optional) receives the
+		//! human-readable refusal for the Console.
+		bool canMakePrefab(String const& id, String* reason = nullptr) const;
+		//! @brief the undoable half of Create Prefab: convert the subtree
+		//! rooted at id into an instance of the ALREADY WRITTEN prefab file
+		//! (see MakePrefabCommand). The caller wrote the file
+		//! (PrefabSerializer::savePrefab) and minted its asset id - the fs
+		//! side effect is not undoable, the conversion is.
+		bool makePrefabInstance(String const& id, String const& prefabFilePath,
+			String const& prefabRef, String const& prefabAssetId);
 		//! record a before/after transform change as one undoable command;
 		//! pass a merge session id to collapse a whole drag into one step
 		bool applyTransformChange(String const& id,

@@ -9,6 +9,7 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_render/RenderWorld.h>
+#include <core_game/PrefabSerializer.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <algorithm>
@@ -713,6 +714,119 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- MakePrefabCommand ------------------------------------
+	//---------------------------------------------------------
+	MakePrefabCommand::MakePrefabCommand(String const& rootId,
+		String const& prefabFilePath, String const& prefabRef,
+		String const& prefabAssetId)
+		: mRootId(rootId), mPrefabFilePath(prefabFilePath),
+		mPrefabRef(prefabRef), mPrefabAssetId(prefabAssetId)
+	{
+	}
+	//---------------------------------------------------------
+	bool MakePrefabCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		// converting an existing instance again is a plain re-make of its
+		// file - it never reaches this command (see EditorCore::canMakePrefab
+		// and the createPrefabFromSelection shell flow)
+		if (!root || !root->getPrefabRef().empty())
+		{
+			return false;
+		}
+		// captured fresh on every execute so redo converts the state the
+		// subtree had when it was converted again
+		mOldChildIds.clear();
+		mOldChildSnapshots.clear();
+		const StringVector subtree = manager.collectSubtreeIds(mRootId);
+		for (String const& id : subtree)
+		{
+			if (id == mRootId)
+			{
+				continue;
+			}
+			EditorObjectSnapshot snapshot;
+			if (!snapshot.capture(manager, id))
+			{
+				return false;
+			}
+			mOldChildIds.push_back(id);
+			mOldChildSnapshots.push_back(snapshot);
+		}
+		// swap the live children for the instance-namespace objects the just
+		// written prefab file provides (identical state, deterministic ids)
+		for (auto it = mOldChildIds.rbegin(); it != mOldChildIds.rend(); ++it)
+		{
+			manager.delGameObject(*it);
+			core.deselectObject(*it);
+		}
+		if (PrefabSerializer::instantiatePrefab(mPrefabFilePath, manager,
+			mRootId, StringVector()) != PrefabSerializer::INSTANTIATE_OK)
+		{
+			oDebugMsg("editor", 0, "MakePrefabCommand: instantiating '"
+				<< mPrefabFilePath << "' failed - restoring the original "
+				"children of " << mRootId);
+			restoreOriginalChildren(core);
+			return false;
+		}
+		for (String const& id : manager.collectSubtreeIds(mRootId))
+		{
+			core.applyModelFixups(id);
+		}
+		root->setPrefabRef(mPrefabRef, mPrefabAssetId);
+		root->setSuppressedPrefabChildren(StringVector());
+		core.selectObject(mRootId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool MakePrefabCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root)
+		{
+			return false;
+		}
+		// remove the instance-namespace children (deepest first), unmark the
+		// root, then bring the original children back from the snapshots
+		const StringVector subtree = manager.collectSubtreeIds(mRootId);
+		for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+		{
+			if (*it != mRootId)
+			{
+				manager.delGameObject(*it);
+				core.deselectObject(*it);
+			}
+		}
+		root->setPrefabRef("", "");
+		return restoreOriginalChildren(core);
+	}
+	//---------------------------------------------------------
+	String MakePrefabCommand::getDescription() const
+	{
+		return "Create Prefab from " + mRootId;
+	}
+	//---------------------------------------------------------
+	bool MakePrefabCommand::restoreOriginalChildren(EditorCore& core) const
+	{
+		bool restored = true;
+		for (std::size_t index = 0; index < mOldChildIds.size(); ++index)
+		{
+			if (!mOldChildSnapshots[index].restore(core.getGameObjectManager(),
+				mOldChildIds[index]))
+			{
+				oDebugMsg("editor", 0, "MakePrefabCommand: could not restore "
+					"original child " << mOldChildIds[index]);
+				restored = false;
+				continue;
+			}
+			core.applyModelFixups(mOldChildIds[index]);
+		}
+		return restored;
+	}
+
+	//---------------------------------------------------------
 	//--- CompositeCommand -------------------------------------
 	//---------------------------------------------------------
 	CompositeCommand::CompositeCommand(String const& description)
@@ -1375,6 +1489,62 @@ namespace Orkige
 		}
 		return executeCommand(onew(new GroupObjectsCommand(memberIds,
 			generateObjectId("Group"))));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::canMakePrefab(String const& id, String* reason) const
+	{
+		optr<GameObject> root = mGameObjectManager.getGameObject(id).lock();
+		if (!root)
+		{
+			if (reason)
+			{
+				*reason = "the object does not exist";
+			}
+			return false;
+		}
+		if (PrefabSerializer::isPrefabProvided(mGameObjectManager, *root))
+		{
+			if (reason)
+			{
+				*reason = "a prefab-provided child cannot become its own "
+					"prefab (v1 has no nested prefabs)";
+			}
+			return false;
+		}
+		// nested instances BELOW the root are refused; the root's OWN
+		// prefabRef is fine - re-making an instance's prefab is the edit loop
+		for (String const& subtreeId :
+			mGameObjectManager.collectSubtreeIds(id))
+		{
+			if (subtreeId == id)
+			{
+				continue;
+			}
+			optr<GameObject> descendant =
+				mGameObjectManager.getGameObject(subtreeId).lock();
+			if (descendant && !descendant->getPrefabRef().empty())
+			{
+				if (reason)
+				{
+					*reason = "the subtree contains the prefab instance '" +
+						subtreeId + "' (v1 has no nested prefabs)";
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::makePrefabInstance(String const& id,
+		String const& prefabFilePath, String const& prefabRef,
+		String const& prefabAssetId)
+	{
+		if (!canMakePrefab(id))
+		{
+			return false;
+		}
+		return executeCommand(onew(new MakePrefabCommand(id, prefabFilePath,
+			prefabRef, prefabAssetId)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::applyTransformChange(String const& id,

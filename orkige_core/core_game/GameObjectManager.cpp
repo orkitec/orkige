@@ -145,6 +145,31 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	StringVector GameObjectManager::collectSubtreeIds(String const & rootId) const
+	{
+		StringVector subtree;
+		if(this->objects.find(rootId) == this->objects.end())
+		{
+			return subtree;
+		}
+		// iterative depth-first walk, root first; a pending stack keeps the
+		// child order (children are pushed in reverse so they pop in order)
+		StringVector pending;
+		pending.push_back(rootId);
+		while(!pending.empty())
+		{
+			const String id = pending.back();
+			pending.pop_back();
+			subtree.push_back(id);
+			StringVector const & children = this->getChildren(id);
+			for(StringVector::const_reverse_iterator it = children.rbegin(); it != children.rend(); ++it)
+			{
+				pending.push_back(*it);
+			}
+		}
+		return subtree;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void GameObjectManager::enableUpdates(GameObjectComponent * component)

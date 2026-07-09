@@ -664,6 +664,12 @@ std::string meshImportDestination(EditorState const& state);
 bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& sourcePath);
 
+// GameObject > Create Prefab / Hierarchy context menu: write the selection's
+// subtree as "<assets>/<rootId>.oprefab" (stable .orkmeta id included) and
+// convert it into a prefab instance (undoable); on an instance root it
+// re-makes (overwrites) the instance's own prefab file instead
+bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core);
+
 //--- console Lua REPL (EditorConsole.cpp) ----------------------------------
 
 // run the console buffer through the ScriptRuntime seam, capture returns/

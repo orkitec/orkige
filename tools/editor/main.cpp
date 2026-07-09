@@ -585,6 +585,8 @@ int main(int, char**)
 			menuActions.createCube = [corePtr]() { corePtr->createCube(); };
 			menuActions.createTestMesh = [corePtr]()
 				{ corePtr->createTestMesh(); };
+			menuActions.createPrefab = [statePtr, corePtr]()
+				{ createPrefabFromSelection(*statePtr, *corePtr); };
 			// Build menu: the request is deferred to the frame loop (the
 			// same flag pattern as the popup opens) so the native menu and
 			// the ImGui menu share one start path

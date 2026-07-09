@@ -28,6 +28,7 @@ namespace
 		TAG_GROUP_SELECTION,
 		TAG_CREATE_CUBE,
 		TAG_CREATE_TEST_MESH,
+		TAG_CREATE_PREFAB,
 		TAG_EXPORT_MACOS,			//!< Build > Build for macOS
 		TAG_EXPORT_IOS_SIMULATOR,	//!< Build > Build for iOS Simulator
 		TAG_EXPORT_ANDROID,			//!< Build > Build for Android APK
@@ -112,6 +113,7 @@ namespace
 	case TAG_GROUP_SELECTION:	action = &gActions.groupSelected; break;
 	case TAG_CREATE_CUBE:		action = &gActions.createCube; break;
 	case TAG_CREATE_TEST_MESH:	action = &gActions.createTestMesh; break;
+	case TAG_CREATE_PREFAB:		action = &gActions.createPrefab; break;
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
 	case TAG_VIEW_SETTINGS:		action = &gActions.viewSettings; break;
 	case TAG_ABOUT:				action = &gActions.about; break;
@@ -132,6 +134,8 @@ namespace
 	case TAG_DUPLICATE:
 	case TAG_DELETE:
 	case TAG_GROUP_SELECTION:	return gStatus.hasSelection ? YES : NO;
+	case TAG_CREATE_PREFAB:
+		return (gStatus.hasSelection && gStatus.projectOpen) ? YES : NO;
 	case TAG_CLOSE_PROJECT:	return gStatus.projectOpen ? YES : NO;
 	case TAG_EXPORT_MACOS:
 	case TAG_EXPORT_IOS_SIMULATOR:
@@ -320,6 +324,8 @@ namespace Orkige
 		addItem(gameObjectMenu, @"Create Cube", TAG_CREATE_CUBE, @"", 0);
 		addItem(gameObjectMenu, @"Create Test Mesh", TAG_CREATE_TEST_MESH,
 			@"", 0);
+		[gameObjectMenu addItem:[NSMenuItem separatorItem]];
+		addItem(gameObjectMenu, @"Create Prefab", TAG_CREATE_PREFAB, @"", 0);
 
 		// Build - project export (Util/orkige_export.py); enabled only with
 		// a project open and no export running (validateMenuItem/canExport)

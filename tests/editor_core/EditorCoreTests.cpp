@@ -22,9 +22,11 @@
 #include "TestComponents.h"
 
 #include <EditorCore.h>
+#include <core_game/PrefabSerializer.h>
 #include <engine_gocomponent/ScriptComponent.h>
 
 #include <algorithm>
+#include <filesystem>
 
 namespace
 {
@@ -1021,6 +1023,108 @@ TEST_CASE("EditorCore duplicate keeps the source's parent and active flag",
 	REQUIRE(copy);
 	CHECK(copy->getParentId() == "Holder");
 	CHECK_FALSE(copy->isActiveSelf());
+
+	manager.clear();
+}
+
+TEST_CASE("EditorCore MakePrefab converts a subtree to an instance and undo "
+	"reverts it", "[editor][prefab]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	const std::string prefabPath = (std::filesystem::temp_directory_path() /
+		"orkige_editor_test_tile.oprefab").string();
+	std::filesystem::remove(prefabPath);
+
+	// the pre-conversion subtree: root + child + grandchild
+	makeHealthObject(manager, "Tile", 10);
+	makeHealthObject(manager, "Tile_Frame", 1);
+	makeHealthObject(manager, "Tile_Frame_Bolt", 2);
+	REQUIRE(manager.getGameObject("Tile_Frame").lock()->setParent("Tile"));
+	REQUIRE(manager.getGameObject("Tile_Frame_Bolt").lock()
+		->setParent("Tile_Frame"));
+
+	// nested-prefab guard: a marked instance below the root refuses
+	manager.getGameObject("Tile_Frame").lock()
+		->setPrefabRef("other.oprefab", "");
+	Orkige::String reason;
+	CHECK_FALSE(core.canMakePrefab("Tile", &reason));
+	CHECK_FALSE(reason.empty());
+	manager.getGameObject("Tile_Frame").lock()->setPrefabRef("", "");
+	REQUIRE(core.canMakePrefab("Tile"));
+
+	// the fs half (what createPrefabFromSelection does), then the command
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefabPath, manager, "Tile"));
+	REQUIRE(core.makePrefabInstance("Tile", prefabPath,
+		"assets/tile.oprefab", "cafe0123"));
+
+	// converted: children re-created in the deterministic instance namespace
+	CHECK_FALSE(manager.objectExists("Tile_Frame"));
+	CHECK_FALSE(manager.objectExists("Tile_Frame_Bolt"));
+	REQUIRE(manager.objectExists("Tile/Frame"));
+	REQUIRE(manager.objectExists("Tile/Frame_Bolt"));
+	CHECK(manager.getGameObject("Tile/Frame").lock()->getParentId() == "Tile");
+	CHECK(manager.getGameObject("Tile/Frame_Bolt").lock()->getParentId() ==
+		"Tile/Frame");
+	CHECK(manager.getGameObject("Tile/Frame").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 1);
+	optr<Orkige::GameObject> root = manager.getGameObject("Tile").lock();
+	CHECK(root->getPrefabRef() == "assets/tile.oprefab");
+	CHECK(root->getPrefabAssetId() == "cafe0123");
+	CHECK(core.isSceneDirty());
+	CHECK(core.getUndoStackSize() == 1);
+	CHECK(core.getUndoDescription() == "Create Prefab from Tile");
+
+	// prefab children may not become their own prefab (v1)
+	CHECK_FALSE(core.canMakePrefab("Tile/Frame"));
+
+	// undo: the original children come back, the mark goes away (the file
+	// stays on disk - a fs side effect like an imported mesh)
+	REQUIRE(core.undo());
+	CHECK_FALSE(manager.objectExists("Tile/Frame"));
+	CHECK_FALSE(manager.objectExists("Tile/Frame_Bolt"));
+	REQUIRE(manager.objectExists("Tile_Frame"));
+	REQUIRE(manager.objectExists("Tile_Frame_Bolt"));
+	CHECK(manager.getGameObject("Tile_Frame").lock()->getParentId() == "Tile");
+	CHECK(manager.getGameObject("Tile_Frame_Bolt").lock()->getParentId() ==
+		"Tile_Frame");
+	CHECK(manager.getGameObject("Tile_Frame").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->getHealth() == 1);
+	CHECK(manager.getGameObject("Tile").lock()->getPrefabRef().empty());
+	CHECK(std::filesystem::exists(prefabPath));
+
+	// redo converts again
+	REQUIRE(core.redo());
+	CHECK(manager.objectExists("Tile/Frame"));
+	CHECK_FALSE(manager.objectExists("Tile_Frame"));
+	CHECK(manager.getGameObject("Tile").lock()->getPrefabRef() ==
+		"assets/tile.oprefab");
+
+	std::filesystem::remove(prefabPath);
+	manager.clear();
+}
+
+TEST_CASE("EditorCore MakePrefab refuses cleanly when the prefab file is "
+	"gone and restores the subtree", "[editor][prefab]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	const std::string prefabPath = (std::filesystem::temp_directory_path() /
+		"orkige_editor_test_missing.oprefab").string();
+	std::filesystem::remove(prefabPath);
+
+	makeHealthObject(manager, "Tile", 10);
+	makeHealthObject(manager, "Tile_Frame", 1);
+	REQUIRE(manager.getGameObject("Tile_Frame").lock()->setParent("Tile"));
+
+	// the command's instantiate step fails (no file) - the refused command
+	// must leave the world exactly as it was and enter no undo stack
+	CHECK_FALSE(core.makePrefabInstance("Tile", prefabPath,
+		"assets/missing.oprefab", ""));
+	CHECK(core.getUndoStackSize() == 0);
+	REQUIRE(manager.objectExists("Tile_Frame"));
+	CHECK(manager.getGameObject("Tile_Frame").lock()->getParentId() == "Tile");
+	CHECK(manager.getGameObject("Tile").lock()->getPrefabRef().empty());
 
 	manager.clear();
 }

@@ -268,6 +268,14 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			{
 				core.createTestMesh();
 			}
+			ImGui::Separator();
+			// prefabs live in the open project's assets/ - enabled only with
+			// a project AND a selection (refusals log to the Console)
+			if (ImGui::MenuItem("Create Prefab", nullptr, false,
+				core.hasSelection() && state.project.isLoaded()))
+			{
+				createPrefabFromSelection(state, core);
+			}
 			ImGui::EndMenu();
 		}
 		// project export (async - Util/orkige_export.py; the output lands in

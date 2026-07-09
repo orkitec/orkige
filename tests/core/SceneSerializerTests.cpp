@@ -149,6 +149,9 @@ TEST_CASE("SceneSerializer fails hard on unregistered component types", "[scene]
 		ar << parentId;
 		bool activeSelf = true;
 		ar << activeSelf;
+		// v3 prefabRef slot ("" = a plain GameObject)
+		Orkige::String prefabRef = "";
+		ar << prefabRef;
 		unsigned int componentCount = 1;
 		ar << componentCount;
 		Orkige::String componentTypeName = "NoSuchComponent";

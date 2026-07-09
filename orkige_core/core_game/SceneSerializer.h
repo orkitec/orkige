@@ -13,6 +13,8 @@
 
 namespace Orkige
 {
+	class XMLArchive;
+
 	//! @brief saves and loads a whole GameObjectManager world to/from a .oscene file
 	//! @remarks The scene file is an XMLArchive: a scene format version followed
 	//! by every GameObject as id + component type list + each component's
@@ -41,6 +43,18 @@ namespace Orkige
 		//! removed (their components tear down their scene-side state) before
 		//! the saved GameObjects are recreated through the component factories
 		static bool loadScene(String const & fileName, GameObjectManager & gameObjectManager);
+
+		//--- shared per-object helpers (PrefabSerializer reuses these) ---
+		//! write one GameObject's component block (count, then per component
+		//! the type name followed by the component's serialized state)
+		static void writeComponents(optr<XMLArchive> const & ar, GameObject & gameObject);
+		//! @brief read one GameObject's component block onto the (existing)
+		//! object; components that dependencies already added are re-read in
+		//! place. False on an unregistered component type (a hard error by
+		//! design - the archive cursor cannot skip the unknown state element);
+		//! fileName only labels the error message.
+		static bool readComponents(optr<XMLArchive> const & ar,
+			optr<GameObject> const & gameObject, String const & fileName);
 	protected:
 	private:
 	};

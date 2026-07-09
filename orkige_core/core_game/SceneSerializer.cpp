@@ -8,14 +8,55 @@
 ***************************************************************/
 
 #include "core_game/SceneSerializer.h"
+#include "core_game/PrefabSerializer.h"
+#include "core_project/AssetDatabase.h"
 #include "core_serialization/XMLArchive.h"
+
+#include <filesystem>
 
 namespace Orkige
 {
-	// version 2 (2026-07): per-object parent id + activeSelf flag (Unity-style
-	// GameObject tree); version 1 scenes load as all-root, all-active worlds
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 2;
+	// version 3 (2026-07): per-object prefabRef (+assetId attribute, like
+	// every asset reference) and, on prefab instance roots, the list of
+	// suppressed prefab children (structural overrides - see
+	// core_game/PrefabSerializer.h); version 2 added the per-object parent
+	// id + activeSelf flag (Unity-style GameObject tree); version 1 scenes
+	// load as all-root, all-active, prefab-less worlds
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 3;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
+	//---------------------------------------------------------
+	namespace
+	{
+		//! @brief resolve a project-relative prefabRef to a loadable file
+		//! path: through the active AssetDatabase's project root when there
+		//! is one, otherwise relative to the scene file's directory and (the
+		//! standard <project>/scenes/ + <project>/assets/ layout) to its
+		//! parent. "" when nothing exists - the caller creates a placeholder.
+		String resolvePrefabPath(String const & prefabRef, String const & sceneFileName)
+		{
+			namespace fs = std::filesystem;
+			std::error_code ignored;
+			std::vector<fs::path> candidates;
+			if(optr<AssetDatabase> const & database = AssetDatabase::getActive())
+			{
+				if(!database->getRootDirectory().empty())
+				{
+					candidates.push_back(fs::path(database->getRootDirectory()) / prefabRef);
+				}
+			}
+			const fs::path sceneDirectory = fs::path(sceneFileName).parent_path();
+			candidates.push_back(sceneDirectory / prefabRef);
+			candidates.push_back(sceneDirectory.parent_path() / prefabRef);
+			foreach(fs::path const & candidate, candidates)
+			{
+				if(fs::exists(candidate, ignored))
+				{
+					return candidate.string();
+				}
+			}
+			return String();
+		}
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -33,14 +74,27 @@ namespace Orkige
 		int version = SCENE_FORMAT_VERSION;
 		ar << version;
 
+		// prefab-PROVIDED objects (the "<instanceRoot>/" id namespace) are
+		// NOT serialized - they are reconstructed from their .oprefab at
+		// load time; only the instance root (with its overrides) and the
+		// scene-side extra children ride in the scene file
 		GameObjectManager::GameObjectMap const & objects = gameObjectManager.getGameObjects();
-		unsigned int objectCount = static_cast<unsigned int>(objects.size());
-		ar << objectCount;
-
+		std::vector< optr<GameObject> > savedObjects;
+		savedObjects.reserve(objects.size());
 		foreach(GameObjectManager::GameObjectMap::value_type const & objectEntry, objects)
 		{
 			optr<GameObject> gameObject = objectEntry.second;
 			oAssert(gameObject);
+			if(!PrefabSerializer::isPrefabProvided(gameObjectManager, *gameObject))
+			{
+				savedObjects.push_back(gameObject);
+			}
+		}
+		unsigned int objectCount = static_cast<unsigned int>(savedObjects.size());
+		ar << objectCount;
+
+		foreach(optr<GameObject> const & gameObject, savedObjects)
+		{
 			String id = gameObject->getObjectID();
 			ar << id;
 
@@ -51,18 +105,30 @@ namespace Orkige
 			bool activeSelf = gameObject->isActiveSelf();
 			ar << activeSelf;
 
-			GameObject::ComponentMap const & components = gameObject->getComponents();
-			unsigned int componentCount = static_cast<unsigned int>(components.size());
-			ar << componentCount;
-
-			foreach(GameObject::ComponentMap::value_type const & componentEntry, components)
+			// v3: the prefab reference ("" on plain objects) with its stable
+			// asset id riding as a side attribute (the same rename-survival
+			// plumbing every asset reference uses - see ModelComponent)
+			String const & prefabRef = gameObject->getPrefabRef();
+			ar->writeAttributed(prefabRef,
+				AssetDatabase::REFERENCE_ID_ATTRIBUTE,
+				AssetDatabase::referenceIdForValue(prefabRef,
+					gameObject->getPrefabAssetId(), AssetDatabase::REF_PROJECT_PATH));
+			if(!prefabRef.empty())
 			{
-				String componentTypeName = componentEntry.first.getName();
-				ar << componentTypeName;
-				// writes an element named after the component type whose
-				// children are the component's serialized state
-				ar->write(static_cast<ISerializeable&>(*componentEntry.second));
+				// structural overrides: the prefab-LOCAL ids this instance drops
+				StringVector const & suppressed = gameObject->getSuppressedPrefabChildren();
+				unsigned int suppressedCount = static_cast<unsigned int>(suppressed.size());
+				ar << suppressedCount;
+				foreach(String const & localId, suppressed)
+				{
+					String suppressedId = localId;
+					ar << suppressedId;
+				}
 			}
+
+			// the instance ROOT's own component block doubles as its override
+			// state: at load it overlays the prefab defaults
+			SceneSerializer::writeComponents(ar, *gameObject);
 		}
 
 		bool written = ar->stopWriting();
@@ -142,37 +208,72 @@ namespace Orkige
 				}
 			}
 
-			unsigned int componentCount = 0;
-			ar >> componentCount;
-			for(unsigned int componentIndex = 0; componentIndex < componentCount; ++componentIndex)
+			if(version >= 3)
 			{
-				String componentTypeName;
-				ar >> componentTypeName;
-				TypeInfo componentType(componentTypeName);
-				if(!GameObject::isComponentRegistered(componentType))
+				String prefabRef;
+				String prefabAssetId;
+				ar->readAttributed(prefabRef,
+					AssetDatabase::REFERENCE_ID_ATTRIBUTE, prefabAssetId);
+				// a resolving asset id wins over a stale path (rename
+				// survival); scenes without ids keep loading via the path
+				AssetDatabase::resolveReference(prefabRef, prefabAssetId,
+					AssetDatabase::REF_PROJECT_PATH);
+				if(!prefabRef.empty())
 				{
-					// the archive cursor cannot skip the unknown component's
-					// state element, so this is a hard error by design
-					oDebugMsg("scene",0,"SceneSerializer: component type \""<<componentTypeName<<"\" is not registered - cannot load scene: "<<fileName);
-					loaded = false;
-					break;
-				}
-				// dependencies may already have added this component
-				// (e.g. ModelComponent pulls in TransformComponent)
-				if(!gameObject->hasComponent(componentType))
-				{
-					if(!gameObject->addComponent(componentType))
+					StringVector suppressed;
+					unsigned int suppressedCount = 0;
+					ar >> suppressedCount;
+					for(unsigned int suppressedIndex = 0; suppressedIndex < suppressedCount; ++suppressedIndex)
 					{
-						oDebugMsg("scene",0,"SceneSerializer: could not add component \""<<componentTypeName<<"\" to GameObject: "<<id);
-						loaded = false;
-						break;
+						String localId;
+						ar >> localId;
+						suppressed.push_back(localId);
+					}
+					// the instance keeps its reference and overrides even when
+					// the prefab file cannot be found right now (Unity-style:
+					// a re-save must not strip the link, a later load with the
+					// asset back in place heals the instance)
+					gameObject->setPrefabRef(prefabRef, prefabAssetId);
+					gameObject->setSuppressedPrefabChildren(suppressed);
+
+					// the prefab subtree comes FIRST; the root's own component
+					// block (read below) then overlays the prefab defaults
+					const String prefabPath = resolvePrefabPath(prefabRef, fileName);
+					if(prefabPath.empty())
+					{
+						oDebugMsg("scene",0,"SceneSerializer: PREFAB MISSING - \""<<prefabRef
+							<<"\" (instance \""<<id<<"\" in "<<fileName
+							<<") could not be found; the instance loads as a PLACEHOLDER root "
+							"keeping its reference and overrides");
+					}
+					else
+					{
+						const PrefabSerializer::InstantiateResult result =
+							PrefabSerializer::instantiatePrefab(prefabPath,
+								gameObjectManager, id, suppressed);
+						if(result == PrefabSerializer::INSTANTIATE_FILE_MISSING)
+						{
+							// raced away between resolve and open - same placeholder policy
+							oDebugMsg("scene",0,"SceneSerializer: PREFAB MISSING - \""<<prefabPath
+								<<"\" vanished while loading "<<fileName
+								<<"; instance \""<<id<<"\" loads as a placeholder root");
+						}
+						else if(result != PrefabSerializer::INSTANTIATE_OK)
+						{
+							// corrupt or nested prefab: a hard error by design
+							oDebugMsg("scene",0,"SceneSerializer: could not instantiate prefab \""
+								<<prefabPath<<"\" for instance \""<<id<<"\" - cannot load scene: "<<fileName);
+							loaded = false;
+							break;
+						}
 					}
 				}
-				GameObjectComponent* component = gameObject->getComponentPtr(componentType);
-				oAssert(component);
-				// reads the component element and calls component->load
-				// (GameObjectComponent::createBeforeLoad is false)
-				ar->read(static_cast<ISerializeable&>(*component));
+			}
+
+			if(!SceneSerializer::readComponents(ar, gameObject, fileName))
+			{
+				loaded = false;
+				break;
 			}
 		}
 
@@ -210,6 +311,60 @@ namespace Orkige
 			gameObjectManager.clear();
 		}
 		return loaded;
+	}
+	//---------------------------------------------------------
+	void SceneSerializer::writeComponents(optr<XMLArchive> const & ar, GameObject & gameObject)
+	{
+		GameObject::ComponentMap const & components = gameObject.getComponents();
+		unsigned int componentCount = static_cast<unsigned int>(components.size());
+		ar << componentCount;
+		foreach(GameObject::ComponentMap::value_type const & componentEntry, components)
+		{
+			String componentTypeName = componentEntry.first.getName();
+			ar << componentTypeName;
+			// writes an element named after the component type whose
+			// children are the component's serialized state
+			ar->write(static_cast<ISerializeable&>(*componentEntry.second));
+		}
+	}
+	//---------------------------------------------------------
+	bool SceneSerializer::readComponents(optr<XMLArchive> const & ar,
+		optr<GameObject> const & gameObject, String const & fileName)
+	{
+		oAssert(gameObject);
+		unsigned int componentCount = 0;
+		ar >> componentCount;
+		for(unsigned int componentIndex = 0; componentIndex < componentCount; ++componentIndex)
+		{
+			String componentTypeName;
+			ar >> componentTypeName;
+			TypeInfo componentType(componentTypeName);
+			if(!GameObject::isComponentRegistered(componentType))
+			{
+				// the archive cursor cannot skip the unknown component's
+				// state element, so this is a hard error by design
+				oDebugMsg("scene",0,"SceneSerializer: component type \""<<componentTypeName<<"\" is not registered - cannot load: "<<fileName);
+				return false;
+			}
+			// dependencies may already have added this component
+			// (e.g. ModelComponent pulls in TransformComponent) - and on a
+			// prefab instance ROOT the components already exist as prefab
+			// defaults; reading overlays the serialized (override) state
+			if(!gameObject->hasComponent(componentType))
+			{
+				if(!gameObject->addComponent(componentType))
+				{
+					oDebugMsg("scene",0,"SceneSerializer: could not add component \""<<componentTypeName<<"\" to GameObject: "<<gameObject->getObjectID());
+					return false;
+				}
+			}
+			GameObjectComponent* component = gameObject->getComponentPtr(componentType);
+			oAssert(component);
+			// reads the component element and calls component->load
+			// (GameObjectComponent::createBeforeLoad is false)
+			ar->read(static_cast<ISerializeable&>(*component));
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

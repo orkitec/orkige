@@ -484,6 +484,8 @@ namespace Orkige
 		//scene loading uses the two-argument C++ overload
 		OFUNCOVERL(setParent, bool (ExposedClassType::*)(String const &))
 		OFUNCCR(getChildIds)
+		//--- prefab instance (read-only from scripts) ---
+		OFUNCCR(getPrefabRef)
 		//--- active state ---
 		OFUNC(setActive)
 		OFUNC(isActiveSelf)

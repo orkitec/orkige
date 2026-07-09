@@ -81,6 +81,12 @@ namespace Orkige
 		StringVector getRootObjectIds() const;
 		//! is the GameObject with the given id a descendant of ancestorId
 		bool isDescendantOf(String const & id, String const & ancestorId) const;
+		//! @brief ids of the given GameObject and ALL its descendants,
+		//! depth-first (the object itself first, then each child's subtree in
+		//! child order) - the shared subtree-walk primitive (prefab save,
+		//! subtree delete, a future subtree-aware duplicate). Empty when the
+		//! id is unknown.
+		StringVector collectSubtreeIds(String const & rootId) const;
 
 		//! save to archive
 		virtual void save(optr<IArchive> const & ar);

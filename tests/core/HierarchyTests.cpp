@@ -337,7 +337,7 @@ TEST_CASE("SceneSerializer survives a scene referencing a missing parent", "[hie
 	Orkige::GameObjectManager & manager = bootHierarchyWorld();
 	TempScene scene("orkige_test_missing_parent.oscene");
 
-	// hand-craft a v2 scene whose parent reference points nowhere
+	// hand-craft a current-version scene whose parent reference points nowhere
 	{
 		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
 		REQUIRE(ar->startWriting(scene.path));
@@ -352,6 +352,9 @@ TEST_CASE("SceneSerializer survives a scene referencing a missing parent", "[hie
 		ar << parentId;
 		bool activeSelf = true;
 		ar << activeSelf;
+		// the v3 prefabRef slot ("" = a plain GameObject)
+		Orkige::String prefabRef = "";
+		ar << prefabRef;
 		unsigned int componentCount = 0;
 		ar << componentCount;
 		REQUIRE(ar->stopWriting());

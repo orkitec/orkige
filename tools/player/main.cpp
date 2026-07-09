@@ -1574,7 +1574,7 @@ int main(int argc, char** argv)
 				if (step == 25)
 				{
 					optr<Orkige::GameObject> wall = gameObjectManager
-						.getGameObject("TileC_WallBottom").lock();
+						.getGameObject("TileC/WallBottom").lock();
 					if (rollerTrianglesActive == 0 ||
 						render->getFrameStats().triangleCount >=
 							rollerTrianglesActive)
@@ -1694,7 +1694,7 @@ int main(int argc, char** argv)
 				if (step == 15)
 				{
 					Orkige::TransformComponent* tileB =
-						rollerTransform("TileB_Frame");
+						rollerTransform("TileB/Frame");
 					if (rollerMode() != "move" || !physicsWorld.isPaused())
 					{
 						rollerFail("TAB did not pause into move-world mode");
@@ -1705,7 +1705,7 @@ int main(int argc, char** argv)
 					}
 					else if (!tileB)
 					{
-						rollerFail("no TileB_Frame object in the scene");
+						rollerFail("no TileB/Frame object in the scene");
 					}
 					else if (rollerProbeHit(3.0f, -5.75f))
 					{
@@ -1749,11 +1749,11 @@ int main(int argc, char** argv)
 					Orkige::TransformComponent* tileBGroup =
 						rollerTransform("TileB");
 					Orkige::TransformComponent* tileB =
-						rollerTransform("TileB_Frame");
+						rollerTransform("TileB/Frame");
 					Orkige::TransformComponent* goal =
 						rollerTransform("Goal");
 					optr<Orkige::GameObject> frameObject =
-						gameObjectManager.getGameObject("TileB_Frame").lock();
+						gameObjectManager.getGameObject("TileB/Frame").lock();
 					const float tileBMovedY = tileB ?
 						tileB->getWorldPosition().y - rollerTileBStartY : 0.0f;
 					if (rollerStat("slides", 0.0) < 1.0)
@@ -1771,7 +1771,7 @@ int main(int argc, char** argv)
 					else if (!frameObject ||
 						frameObject->getParentId() != "TileB")
 					{
-						rollerFail("TileB_Frame is not a child of the TileB "
+						rollerFail("TileB/Frame is not a child of the TileB "
 							"group");
 					}
 					else if (!tileBGroup || std::abs(tileBGroup

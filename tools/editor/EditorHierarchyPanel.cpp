@@ -5,6 +5,8 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 
+#include <core_game/PrefabSerializer.h>
+
 #include <cfloat>
 #include <map>
 
@@ -156,15 +158,25 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	{
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
-	// deactivated objects render dimmed (Unity greys them out too)
+	// deactivated objects render dimmed (Unity greys them out too); prefab
+	// instances - the marked root and its prefab-provided children - render
+	// blue-ish (the Unity prefab cue; deactivation wins over the tint)
 	const bool dimmed = !gameObject->isActiveInHierarchy();
+	const bool prefabTinted = !dimmed &&
+		(!gameObject->getPrefabRef().empty() ||
+			Orkige::PrefabSerializer::isPrefabProvided(manager, *gameObject));
 	if (dimmed)
 	{
 		ImGui::PushStyleColor(ImGuiCol_Text,
 			ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 	}
+	else if (prefabTinted)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Text,
+			ImVec4(0.55f, 0.76f, 1.0f, 1.0f));
+	}
 	const bool open = ImGui::TreeNodeEx("##node", flags, "%s", id.c_str());
-	if (dimmed)
+	if (dimmed || prefabTinted)
 	{
 		ImGui::PopStyleColor();
 	}
@@ -224,6 +236,13 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 			ORKIGE_EDITOR_MOD_LABEL "+G"))
 		{
 			core.groupSelected();
+		}
+		// prefabs live in the open project's assets/ (an instance root
+		// re-makes its own prefab file); refusals log to the Console
+		if (ImGui::MenuItem("Create Prefab", nullptr, false,
+			state.project.isLoaded()))
+		{
+			createPrefabFromSelection(state, core);
 		}
 		if (!gameObject->getParentId().empty() &&
 			ImGui::MenuItem("Unparent"))

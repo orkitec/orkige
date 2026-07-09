@@ -16,6 +16,11 @@ Textures (projects/roller/assets/):
     goal.png        64x64   golden star with alpha
     cursor.png      64x64   translucent yellow highlight frame (move mode)
 
+Prefab (projects/roller/assets/tile.oprefab) - written in the exact
+XMLArchive form PrefabSerializer::savePrefab produces: the reusable tile
+subtree (root "Tile" + frame sprite + all four edge walls as prefab-local
+children "Frame"/"WallTop"/"WallBottom"/"WallLeft"/"WallRight").
+
 Scene (projects/roller/scenes/main.oscene) - written in the exact
 XMLArchive form SceneSerializer::saveScene produces (see
 projects/jumper-lua/scenes/main.oscene for a native reference):
@@ -35,13 +40,17 @@ projects/jumper-lua/scenes/main.oscene for a native reference):
     Cursor  cursor.png highlight over the empty slot (hidden in play mode)
     Goal    goal.png sprite inside tile B (moves with the tile group)
 
-Each tile is ONE GameObject subtree: a "Tile<key>" parent at the slot
-center with the frame/walls/riders as children (scene format v2 parent
-links). Sliding a tile is a single TransformComponent:teleport of the
-parent - the engine snaps every rigid body in the subtree along, even
-while the simulation is paused. Wall bodies are KINEMATIC (not static)
-on purpose: kinematic bodies are the honest Jolt notion for
-game-code-moved colliders.
+Each tile is ONE prefab INSTANCE (scene format v3): a "Tile<key>" root at
+the slot center referencing assets/tile.oprefab, with the open edges as
+suppressedChildren (structural overrides) - the loader instantiates the
+prefab subtree under the deterministic ids "Tile<key>/Frame",
+"Tile<key>/WallTop", ... and drops the suppressed walls. Scene-side EXTRA
+children (TileA's interior ledge, the Goal star inside tile B) stay plain
+serialized objects parented under the instance root. Sliding a tile is a
+single TransformComponent:teleport of the parent - the engine snaps every
+rigid body in the subtree along, even while the simulation is paused.
+Wall bodies are KINEMATIC (not static) on purpose: kinematic bodies are
+the honest Jolt notion for game-code-moved colliders.
 
 Usage:
     python3 Util/make_roller_assets.py [project_dir]
@@ -51,6 +60,7 @@ uses is generated separately: Util/make_fastgui_atlas.py <assets_dir>.)
 
 import hashlib
 import math
+import re
 import struct
 import sys
 import zlib
@@ -66,16 +76,20 @@ def write_meta(project_dir, asset_path):
     An existing sidecar is PRESERVED (its id is the asset's identity - the
     whole point of the database); a missing one gets a deterministic id
     (md5 of the project-relative path under a fixed namespace), so
-    regenerating the project never churns ids in version control."""
+    regenerating the project never churns ids in version control.
+    Returns the asset's id (the scene embeds it next to asset references)."""
     meta_path = Path(str(asset_path) + ".orkmeta")
     if meta_path.exists():
-        return
+        match = re.search(r'id="([0-9a-f]+)"', meta_path.read_text())
+        assert match, "unreadable sidecar: %s" % meta_path
+        return match.group(1)
     relative = Path(asset_path).resolve().relative_to(
         Path(project_dir).resolve()).as_posix()
     asset_id = hashlib.md5(
         ("orkige.roller:" + relative).encode("utf-8")).hexdigest()
     meta_path.write_text('<orkmeta id="%s"/>\n' % asset_id)
     print("wrote %s (id %s)" % (meta_path, asset_id))
+    return asset_id
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +269,8 @@ def make_cursor_texture(size=64, border=7):
 
 
 # ---------------------------------------------------------------------------
-# scene writer (the XMLArchive .oscene form SceneSerializer produces)
+# scene/prefab writers (the XMLArchive forms SceneSerializer::saveScene and
+# PrefabSerializer::savePrefab produce)
 # ---------------------------------------------------------------------------
 
 def fmt(value):
@@ -268,14 +283,9 @@ def fmt(value):
     return str(value)
 
 
-class SceneWriter:
-    """Writes scene format VERSION 2: every object carries its parent id
-    ("" = root) and its activeSelf flag next to the components - the
-    Unity-style GameObject tree (core_game/SceneSerializer.cpp)."""
-
-    def __init__(self):
-        # list of (name, parent, active, [ (componentType, [lines]) ])
-        self.objects = []
+class ComponentWriter:
+    """The component builders shared by the scene and the prefab writer -
+    each returns (componentTypeName, [serialized field lines])."""
 
     @staticmethod
     def _base_fields():
@@ -344,31 +354,101 @@ class SceneWriter:
             '<bool value="%s"/>' % fmt(enabled),
         ])
 
-    def add(self, name, *components, parent="", active=True):
+    @staticmethod
+    def _object_lines(name, parent, active, prefab_lines, components):
+        """One scene-v3/prefab-v1 per-object block (they share the shape);
+        prefab_lines carries the prefabRef element plus, on instance roots,
+        the suppressed-children count and ids."""
+        lines = []
+        lines.append('    <String value="%s"/>' % name)
+        lines.append('    <String value="%s"/>' % parent)
+        lines.append('    <bool value="%s"/>' % fmt(active))
+        lines.extend(prefab_lines)
+        lines.append('    <unsigned_int value="%d"/>' % len(components))
+        for type_name, fields in components:
+            lines.append('    <String value="%s"/>' % type_name)
+            lines.append('    <%s create="0">' % type_name)
+            lines.extend('        ' + field for field in fields)
+            lines.append('    </%s>' % type_name)
+        return lines
+
+
+class SceneWriter(ComponentWriter):
+    """Writes scene format VERSION 3: every object carries its parent id
+    ("" = root), its activeSelf flag and its prefabRef ("" = plain object;
+    instance roots additionally list their suppressed prefab children) next
+    to the components (core_game/SceneSerializer.cpp)."""
+
+    def __init__(self):
+        # list of (name, parent, active, prefabRef, prefabAssetId,
+        #          suppressed locals, [ (componentType, [lines]) ])
+        self.objects = []
+
+    def add(self, name, *components, parent="", active=True, prefab_ref="",
+            prefab_asset_id="", suppressed=()):
         # keep the component order SceneSerializer produces (sorted by type
         # name) so a re-save in the editor diffs minimally. Objects with a
         # parent carry LOCAL transforms (relative to the parent's center).
         self.objects.append(
-            (name, parent, active, sorted(components, key=lambda c: c[0])))
+            (name, parent, active, prefab_ref, prefab_asset_id,
+             tuple(suppressed), sorted(components, key=lambda c: c[0])))
 
     def write(self, path):
         lines = [
             "<?1.0, UTF-8, yes?>",
             '<XMLArchive Version="0">',
             '    <String value="orkige.oscene"/>',
-            '    <int value="2"/>',
+            '    <int value="3"/>',
             '    <unsigned_int value="%d"/>' % len(self.objects),
         ]
-        for name, parent, active, components in self.objects:
-            lines.append('    <String value="%s"/>' % name)
-            lines.append('    <String value="%s"/>' % parent)
-            lines.append('    <bool value="%s"/>' % fmt(active))
-            lines.append('    <unsigned_int value="%d"/>' % len(components))
-            for type_name, fields in components:
-                lines.append('    <String value="%s"/>' % type_name)
-                lines.append('    <%s create="0">' % type_name)
-                lines.extend('        ' + field for field in fields)
-                lines.append('    </%s>' % type_name)
+        for (name, parent, active, prefab_ref, prefab_asset_id, suppressed,
+             components) in self.objects:
+            if prefab_ref and prefab_asset_id:
+                prefab_lines = ['    <String value="%s" assetId="%s"/>'
+                                % (prefab_ref, prefab_asset_id)]
+            else:
+                prefab_lines = ['    <String value="%s"/>' % prefab_ref]
+            if prefab_ref:
+                # instance roots list their structural overrides
+                prefab_lines.append(
+                    '    <unsigned_int value="%d"/>' % len(suppressed))
+                prefab_lines.extend(
+                    '    <String value="%s"/>' % local for local in suppressed)
+            lines.extend(self._object_lines(
+                name, parent, active, prefab_lines, components))
+        lines.append('</XMLArchive>')
+        path.write_text("\n".join(lines) + "\n")
+
+
+class PrefabWriter(ComponentWriter):
+    """Writes prefab format VERSION 1 (core_game/PrefabSerializer): magic,
+    version, the root's prefab-local id, then every subtree object under
+    its prefab-LOCAL id with LOCAL parent links (the per-object block is
+    the scene v3 shape with prefabRef always "" - nested prefabs are
+    refused by the engine)."""
+
+    def __init__(self, root_local_id):
+        self.root_local_id = root_local_id
+        # list of (localId, parentLocalId, [ (componentType, [lines]) ])
+        self.objects = []
+
+    def add(self, local_id, *components, parent=""):
+        self.objects.append(
+            (local_id, parent, sorted(components, key=lambda c: c[0])))
+
+    def write(self, path):
+        lines = [
+            "<?1.0, UTF-8, yes?>",
+            '<XMLArchive Version="0">',
+            '    <String value="orkige.oprefab"/>',
+            '    <int value="1"/>',
+            '    <String value="%s"/>' % self.root_local_id,
+            '    <unsigned_int value="%d"/>' % len(self.objects),
+        ]
+        for local_id, parent, components in self.objects:
+            lines.extend(self._object_lines(
+                local_id, parent, True, ['    <String value=""/>'],
+                components))
         lines.append('</XMLArchive>')
         path.write_text("\n".join(lines) + "\n")
 
@@ -382,53 +462,72 @@ SLOTS = {0: (-HALF, -HALF), 1: (HALF, -HALF), 2: (-HALF, HALF), 3: (HALF, HALF)}
 Z_FRAME, Z_WALL, Z_GOAL, Z_BALL, Z_CURSOR = 1, 2, 3, 5, 8
 
 
-def add_wall(scene, name, parent, cx, cy, horizontal, length):
-    """One wall segment: kinematic box + stretched wall sprite, parented
-    under its tile group (cx/cy are LOCAL to the tile center)."""
+def wall_components(writer, cx, cy, horizontal, length):
+    """One wall segment's components: kinematic box + stretched wall sprite
+    (cx/cy are LOCAL to the tile center)."""
     if horizontal:
         w, h = length, WALL
     else:
         w, h = WALL, length
-    scene.add(
-        name,
-        scene.transform(cx, cy),
-        scene.sprite("wall.png", w, h, Z_WALL),
-        scene.rigid_box(w / 2.0, h / 2.0, WALL_HALF, body_type=1,
-                        friction=0.4),
-        parent=parent,
+    return (
+        writer.transform(cx, cy),
+        writer.sprite("wall.png", w, h, Z_WALL),
+        writer.rigid_box(w / 2.0, h / 2.0, WALL_HALF, body_type=1,
+                         friction=0.4),
     )
 
 
-def add_tile(scene, key, slot, open_edges, ledge=False):
-    """A tile at its INITIAL slot: ONE parent GameObject ("Tile<key>") at the
-    slot center whose children (frame sprite, walls, riders like the goal)
-    carry LOCAL offsets - sliding the tile is ONE teleport of the parent
-    (the GameObject tree replaced the historical Lua-side group tables)."""
+#: prefab-local wall id per tile edge (fixed order - the suppressed lists
+#: stay deterministic across regenerations)
+EDGE_LOCALS = (("top", "WallTop"), ("bottom", "WallBottom"),
+               ("left", "WallLeft"), ("right", "WallRight"))
+
+
+def build_tile_prefab():
+    """The reusable tile subtree: root "Tile" + frame sprite + all FOUR edge
+    walls - instances open edges by SUPPRESSING the wall children."""
+    prefab = PrefabWriter("Tile")
+    prefab.add("Tile", prefab.transform(0.0, 0.0))
+    prefab.add("Frame", prefab.transform(0.0, 0.0),
+               prefab.sprite("tile_frame.png", TILE, TILE, Z_FRAME),
+               parent="Tile")
+    edge_offset = HALF - WALL_HALF
+    offsets = {"top": (0.0, edge_offset, True),
+               "bottom": (0.0, -edge_offset, True),
+               "left": (-edge_offset, 0.0, False),
+               "right": (edge_offset, 0.0, False)}
+    for edge, local_id in EDGE_LOCALS:
+        cx, cy, horizontal = offsets[edge]
+        prefab.add(local_id,
+                   *wall_components(prefab, cx, cy, horizontal, TILE),
+                   parent="Tile")
+    return prefab
+
+
+def add_tile(scene, key, slot, open_edges, tile_asset_id, ledge=False):
+    """A tile at its INITIAL slot: ONE prefab INSTANCE root ("Tile<key>") at
+    the slot center referencing assets/tile.oprefab - the frame and walls
+    come from the prefab ("Tile<key>/Frame", "Tile<key>/WallTop", ...), the
+    open edges are suppressedChildren. Sliding the tile is ONE teleport of
+    the root (the GameObject tree replaced the historical Lua-side group
+    tables); scene-side EXTRAS (the ledge) stay plain serialized children."""
     cx, cy = SLOTS[slot]
     parent = "Tile%s" % key
-    scene.add(parent, scene.transform(cx, cy))
-    scene.add("Tile%s_Frame" % key, scene.transform(0.0, 0.0),
-              scene.sprite("tile_frame.png", TILE, TILE, Z_FRAME),
-              parent=parent)
-    edge_offset = HALF - WALL_HALF
-    if "top" not in open_edges:
-        add_wall(scene, "Tile%s_WallTop" % key, parent, 0.0, edge_offset,
-                 True, TILE)
-    if "bottom" not in open_edges:
-        add_wall(scene, "Tile%s_WallBottom" % key, parent, 0.0, -edge_offset,
-                 True, TILE)
-    if "left" not in open_edges:
-        add_wall(scene, "Tile%s_WallLeft" % key, parent, -edge_offset, 0.0,
-                 False, TILE)
-    if "right" not in open_edges:
-        add_wall(scene, "Tile%s_WallRight" % key, parent, edge_offset, 0.0,
-                 False, TILE)
+    suppressed = [local_id for edge, local_id in EDGE_LOCALS
+                  if edge in open_edges]
+    scene.add(parent, scene.transform(cx, cy),
+              prefab_ref="assets/tile.oprefab",
+              prefab_asset_id=tile_asset_id,
+              suppressed=suppressed)
     if ledge:
-        # interior platform: rolling obstacle inside the tile
-        add_wall(scene, "Tile%s_Ledge" % key, parent, -1.0, -1.0, True, 2.5)
+        # interior platform: rolling obstacle inside the tile (an EXTRA
+        # child of the instance - it does not come from the prefab)
+        scene.add("Tile%s_Ledge" % key,
+                  *wall_components(scene, -1.0, -1.0, True, 2.5),
+                  parent=parent)
 
 
-def build_scene():
+def build_scene(tile_asset_id):
     scene = SceneWriter()
     # game flow / UI / tile sliding
     scene.add("Game", scene.script("scripts/game.lua"))
@@ -444,9 +543,11 @@ def build_scene():
     )
     # tiles: A = spawn (right edge open), B = goal (left open, starts top
     # right), C = filler (closed), slot 1 stays empty
-    add_tile(scene, "A", 0, open_edges=("right",), ledge=True)
-    add_tile(scene, "B", 3, open_edges=("left",))
-    add_tile(scene, "C", 2, open_edges=())
+    add_tile(scene, "A", 0, open_edges=("right",),
+             tile_asset_id=tile_asset_id, ledge=True)
+    add_tile(scene, "B", 3, open_edges=("left",),
+             tile_asset_id=tile_asset_id)
+    add_tile(scene, "C", 2, open_edges=(), tile_asset_id=tile_asset_id)
     # the goal star inside tile B - a CHILD of the TileB group (local
     # offset on B's floor near the right wall), so it slides along
     scene.add("Goal", scene.transform(1.6, -HALF + WALL + 0.5),
@@ -480,7 +581,13 @@ def main():
         print("wrote %s (%d bytes)" % (assets / name, len(data)))
         write_meta(project_dir, assets / name)
 
-    scene = build_scene()
+    prefab = build_tile_prefab()
+    prefab.write(assets / "tile.oprefab")
+    tile_asset_id = write_meta(project_dir, assets / "tile.oprefab")
+    print("wrote %s (%d objects)" % (assets / "tile.oprefab",
+                                     len(prefab.objects)))
+
+    scene = build_scene(tile_asset_id)
     scene.write(scenes / "main.oscene")
     print("wrote %s (%d objects)" % (scenes / "main.oscene",
                                      len(scene.objects)))
