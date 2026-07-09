@@ -99,6 +99,65 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `screenshot(path, window)` | `RenderTexture::writeContentsToFile` (chrome-free viewport) / `RenderSystem::saveWindowContents` (whole window) → returns the written path |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
 | `console_tail(count)` | the editor `EditorConsole` line store |
+| `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
+| `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
+| `get_test_results(jobId)` | the structured verdict of a `run_tests` job |
+
+## Test runner (the evidence loop)
+
+`run_tests` is the close-the-loop primitive: edit, run the relevant test, read
+a STRUCTURED verdict, iterate. Everything in Orkige is already self-checking
+(Catch2 units + self-checking apps that exit non-zero on failure), so this is
+cheap, deterministic evidence.
+
+- `list_tests(filter?, label?, preset?)` runs `ctest -N` and returns `tests`
+  (the names) so an agent can find, e.g., the selfcheck for the project it is
+  editing. `filter` is a ctest `-R` name regex, `label` a `-L` label
+  (`unit` / `integration`). `device`-labelled (simulator/emulator) tests are
+  never listed. Synchronous (fast).
+- `run_tests(filter?, label?, preset?, build?, targets?)` is **async**: it
+  returns `{ accepted:"1", jobId }` immediately and does the work on a worker
+  thread. With `build` unset/true it first `cmake --build`s the tree
+  (`targets` scopes it); a **build failure short-circuits** — no ctest runs and
+  the result is `buildFailed:"1"` + `buildErrors` (the compiler output tail), so
+  an agent's first question ("did it compile?") is answered directly. Then
+  `ctest` runs, filtered by `filter` (`-R`) and/or `label` (`-L`);
+  `device`-labelled tests are ALWAYS excluded (a run never boots a simulator or
+  emulator). Pass `build:"0"` to test an already-built tree as-is (fast).
+- `get_test_results(jobId)` returns `status:"running"` until the run finishes,
+  then `status:"done"` with `total` / `passed` / `failed` counts and, for each
+  failure, the index-aligned lists `failed_names`, `failed_durations`,
+  `failed_logtails` (each logtail is the last ~40 lines of that test's captured
+  output — the "why did it fail" material). All counts cross as strings, per the
+  DebugMessage convention.
+- `preset` selects the build tree: empty / `desktop` / `unit` / `next` = this
+  editor's own build; `desktop-classic` (or a `build/` dir name, or an absolute
+  path) = another tree. Build/ctest paths are this editor build's own baked
+  constants (`CMAKE_COMMAND` / `CMAKE_CTEST_COMMAND`).
+
+Example loop — edit a project script, then verify with its selfcheck:
+
+```jsonc
+// 1. discover the acceptance gate for the project you are editing
+tools/call list_tests { "filter": "jumper_lua" }
+//   → { "tests": ["player_jumper_lua_selfcheck_next"], "count": "1" }
+
+// 2. after editing scripts, run it (authed; build the tree first)
+tools/call run_tests { "filter": "player_jumper_lua_selfcheck" }
+//   → { "accepted": "1", "jobId": "a1b2..." }
+
+// 3. poll for the verdict
+tools/call get_test_results { "jobId": "a1b2..." }
+//   → { "status": "running" }               // keep polling
+//   → { "status": "done", "total": "1", "passed": "0", "failed": "1",
+//       "failed_names": ["player_jumper_lua_selfcheck_next"],
+//       "failed_logtails": ["...assertion: player never left the ground..."] }
+//   read the logtail, fix the script, go back to step 2.
+
+// a build that does not compile short-circuits with the compiler errors:
+//   → { "status": "done", "buildFailed": "1",
+//       "buildErrors": "player.lua:12: ... error: ..." }
+```
 
 The six typed component bundles (v1 — no generic reflection):
 `TransformComponent` (position/orientation/scale, space-separated float strings;
@@ -125,7 +184,12 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   in `list_hierarchy`), an AUTH-REJECTED `create_object` (a mutation with no
   bearer token), and a `screenshot` to a temp path (+ verify the file was
   written) — asserting MCP-compliant JSON-RPC responses (id echo, result shape)
-  at every step. Proves the whole C++ MCP endpoint with no Python.
+  at every step. It also drives the test-runner tools: `list_tests` (a known
+  core unit test must appear), `run_tests` + `get_test_results` on ONE
+  already-built unit test (`build:"0"`, asserting the structured pass tally),
+  and a throwaway failing CTest tree (built on the fly) so the `failed_*` lists +
+  logtail parse are exercised on a real failure without touching the real suite.
+  Proves the whole C++ MCP endpoint with no Python.
 - `JsonTests` / `HttpServerTests` (ctest, unit): the nested-JSON codec
   round-trip + malformed-input safety, and the hand-rolled HTTP/1.1 framing
   (request parsing, keep-alive pipelining, case-insensitive headers, junk

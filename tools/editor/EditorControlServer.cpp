@@ -41,6 +41,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
 #include <mutex>
 #include <vector>
 
@@ -50,8 +53,400 @@ namespace Orkige
 	const String EditorControlServer::MSG_ERR = "err";
 	const String EditorControlServer::MCP_PROTOCOL_VERSION = "2025-03-26";
 
+	//---------------------------------------------------------
+	//--- the async test-runner state ---
+	//---------------------------------------------------------
+	//! one failing test, evidence-shaped: the name, how long it ran and the tail
+	//! of its captured output (the agent's "why did it fail" material)
+	struct TestFailure
+	{
+		String name;
+		String durationSec;
+		String logTail;		//!< last ~40 lines of the test's captured output
+	};
+	//! the structured outcome of one run_tests job. Filled by the worker thread,
+	//! read once by get_test_results. Build failures short-circuit the ctest run
+	//! (an agent's first question is "did it compile"), so a run reports EITHER a
+	//! build failure OR a test tally, never a half-parsed mix.
+	struct TestRunResult
+	{
+		String preset;			//!< the caller's preset selector (echoed back)
+		String filter;			//!< the ctest -R regex (echoed back)
+		String label;			//!< the ctest -L label (echoed back)
+		String buildDir;		//!< the resolved build tree the run drove
+		String error;			//!< non-empty: the run could not be carried out
+		bool buildRequested = false;
+		bool buildFailed = false;
+		String buildErrors;		//!< compiler output tail when buildFailed
+		int total = 0;
+		int passed = 0;
+		int failed = 0;
+		std::vector<TestFailure> failures;
+	};
+	//! one asynchronous test run. The worker thread computes result then flips
+	//! done; get_test_results reports "running" until then, and the structured
+	//! result after. The mutex guards result against the worker/main handoff.
+	struct EditorTestJob
+	{
+		std::string id;
+		std::thread worker;
+		std::atomic<bool> done{ false };
+		std::mutex mutex;
+		TestRunResult result;
+	};
+
 	namespace
 	{
+		//---------------------------------------------------------
+		//--- test-runner helpers (run_tests / list_tests) ----
+		//---------------------------------------------------------
+		//! @brief spawn a child process, capture its combined stdout+stderr and
+		//! wait for it to exit. Blocks (only ever called off the main thread, on
+		//! a run_tests worker or the self-test worker). false when the process
+		//! could not be spawned (output then carries the spawn error).
+		bool runProcessCapture(std::vector<std::string> const& args,
+			std::string& output, int& exitCode)
+		{
+			output.clear();
+			exitCode = -1;
+			std::vector<const char*> argv;
+			argv.reserve(args.size() + 1);
+			for (std::string const& arg : args)
+			{
+				argv.push_back(arg.c_str());
+			}
+			argv.push_back(nullptr);
+			SDL_PropertiesID props = SDL_CreateProperties();
+			SDL_SetPointerProperty(props, SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
+				const_cast<char**>(argv.data()));
+			SDL_SetNumberProperty(props, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
+				SDL_PROCESS_STDIO_APP);
+			SDL_SetBooleanProperty(props,
+				SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
+			SDL_Process* process = SDL_CreateProcessWithProperties(props);
+			SDL_DestroyProperties(props);
+			if (!process)
+			{
+				const char* error = SDL_GetError();
+				output = error ? error : "process spawn failed";
+				return false;
+			}
+			size_t dataSize = 0;
+			void* data = SDL_ReadProcess(process, &dataSize, &exitCode);
+			if (data)
+			{
+				output.assign(static_cast<char*>(data), dataSize);
+				SDL_free(data);
+			}
+			SDL_DestroyProcess(process);
+			return true;
+		}
+		//! keep the last @a maxLines lines of @a text (its trailing content -
+		//! where compiler errors and a failing test's death cry live)
+		String lastLines(String const& text, size_t maxLines)
+		{
+			size_t lineCount = 0;
+			size_t start = text.size();
+			// walk back over trailing newline noise, then count line breaks
+			while (start > 0)
+			{
+				const size_t newline = text.rfind('\n', start - 1);
+				if (newline == String::npos)
+				{
+					start = 0;
+					break;
+				}
+				++lineCount;
+				if (lineCount > maxLines)
+				{
+					start = newline + 1;
+					return text.substr(start);
+				}
+				if (newline == 0)
+				{
+					start = 0;
+					break;
+				}
+				start = newline;
+			}
+			return text.substr(start);
+		}
+		//! decode the five standard XML entities a CTest JUnit writer emits in
+		//! text/attribute content (&amp; is unescaped LAST so "&amp;lt;" round-
+		//! trips to "&lt;", not "<")
+		String xmlUnescape(String const& in)
+		{
+			String out = in;
+			auto replaceAll = [&out](String const& from, String const& to)
+			{
+				size_t at = 0;
+				while ((at = out.find(from, at)) != String::npos)
+				{
+					out.replace(at, from.size(), to);
+					at += to.size();
+				}
+			};
+			replaceAll("&lt;", "<");
+			replaceAll("&gt;", ">");
+			replaceAll("&quot;", "\"");
+			replaceAll("&apos;", "'");
+			replaceAll("&amp;", "&");
+			return out;
+		}
+		//! read an attribute value ('key="..."') out of an XML open tag, unescaped
+		String xmlAttribute(String const& tag, String const& key)
+		{
+			const String needle = key + "=\"";
+			const size_t at = tag.find(needle);
+			if (at == String::npos)
+			{
+				return String();
+			}
+			const size_t valueStart = at + needle.size();
+			const size_t valueEnd = tag.find('"', valueStart);
+			if (valueEnd == String::npos)
+			{
+				return String();
+			}
+			return xmlUnescape(tag.substr(valueStart, valueEnd - valueStart));
+		}
+		//! @brief parse a CTest --output-junit file into the run tally. Each
+		//! <testcase> carries name/time/status and a <system-out> body; a failing
+		//! case (status != "run") contributes to the failures list with the tail
+		//! of that body as its logTail. Deterministic - the file is machine-
+		//! written, so a narrow hand parser beats pulling in an XML dependency.
+		void parseJUnit(String const& xml, TestRunResult& result)
+		{
+			size_t pos = 0;
+			while ((pos = xml.find("<testcase", pos)) != String::npos)
+			{
+				const size_t tagEnd = xml.find('>', pos);
+				if (tagEnd == String::npos)
+				{
+					break;
+				}
+				const String openTag = xml.substr(pos, tagEnd - pos + 1);
+				const bool selfClosed = tagEnd > pos && xml[tagEnd - 1] == '/';
+				const String name = xmlAttribute(openTag, "name");
+				const String status = xmlAttribute(openTag, "status");
+				const String time = xmlAttribute(openTag, "time");
+				String body;
+				const size_t close = xml.find("</testcase>", tagEnd + 1);
+				if (!selfClosed && close != String::npos)
+				{
+					body = xml.substr(tagEnd + 1, close - (tagEnd + 1));
+				}
+				++result.total;
+				if (status == "run")
+				{
+					++result.passed;
+				}
+				else if (status == "fail")
+				{
+					++result.failed;
+					String captured;
+					const String openMarker = "<system-out>";
+					const size_t soAt = body.find(openMarker);
+					if (soAt != String::npos)
+					{
+						const size_t soEnd = body.find("</system-out>", soAt);
+						if (soEnd != String::npos)
+						{
+							const size_t textAt = soAt + openMarker.size();
+							captured = xmlUnescape(
+								body.substr(textAt, soEnd - textAt));
+						}
+					}
+					TestFailure failure;
+					failure.name = name;
+					failure.durationSec = time;
+					failure.logTail = lastLines(captured, 40);
+					result.failures.push_back(failure);
+				}
+				// any other status (notrun/disabled) counts toward total only
+				pos = close != String::npos ? close + 11 : tagEnd + 1;
+			}
+		}
+		//! parse `ctest -N` output ("  Test #NN: <name>") into the test names
+		StringVector parseCtestList(String const& output)
+		{
+			StringVector names;
+			size_t lineStart = 0;
+			while (lineStart <= output.size())
+			{
+				size_t newline = output.find('\n', lineStart);
+				const String line = output.substr(lineStart,
+					newline == String::npos ? String::npos : newline - lineStart);
+				const size_t hash = line.find('#');
+				const size_t colon = hash == String::npos
+					? String::npos : line.find(':', hash);
+				if (colon != String::npos)
+				{
+					size_t nameStart = colon + 1;
+					while (nameStart < line.size() && line[nameStart] == ' ')
+					{
+						++nameStart;
+					}
+					if (nameStart < line.size())
+					{
+						names.push_back(line.substr(nameStart));
+					}
+				}
+				if (newline == String::npos)
+				{
+					break;
+				}
+				lineStart = newline + 1;
+			}
+			return names;
+		}
+		//! @brief resolve a run_tests/list_tests 'preset' selector to a concrete
+		//! build tree. Empty / a current-flavour alias -> THIS editor build's own
+		//! tree (the common case: the agent edits and rebuilds the tree the editor
+		//! runs in). A "*classic" alias or a bare directory name -> the sibling
+		//! tree under build/. An absolute path is used verbatim. false (with a
+		//! reason) when the resolved tree has no CMake cache.
+		bool resolveBuildDir(String const& preset, std::string& outDir,
+			String& outError)
+		{
+			namespace fs = std::filesystem;
+			const fs::path self(ORKIGE_EDITOR_ENGINE_BUILD_DIR);
+			auto hasCache = [](fs::path const& dir) -> bool
+			{
+				std::error_code ec;
+				return fs::exists(dir / "CMakeCache.txt", ec);
+			};
+			if (preset.empty() || preset == "current" || preset == "default" ||
+				preset == "next" || preset == "desktop" || preset == "unit" ||
+				preset == self.filename().string())
+			{
+				outDir = self.string();
+				return true;
+			}
+			const fs::path direct(preset);
+			if (direct.is_absolute())
+			{
+				if (hasCache(direct))
+				{
+					outDir = direct.string();
+					return true;
+				}
+				outError = "build tree '" + preset + "' has no CMakeCache.txt";
+				return false;
+			}
+			// friendly ctest-preset aliases -> the classic configure-preset dir
+			static const std::map<std::string, std::string> presetDir = {
+				{ "desktop-classic", "macos-debug-classic" },
+				{ "classic", "macos-debug-classic" },
+				{ "all", "macos-debug-classic" },
+			};
+			std::string dirName = preset;
+			const auto mapped = presetDir.find(preset);
+			if (mapped != presetDir.end())
+			{
+				dirName = mapped->second;
+			}
+			const fs::path candidate = self.parent_path() / dirName;
+			if (hasCache(candidate))
+			{
+				outDir = candidate.string();
+				return true;
+			}
+			outError = "no build tree for preset '" + preset + "' (looked in '" +
+				candidate.string() + "')";
+			return false;
+		}
+		//! @brief the run_tests worker body: an optional incremental build (whose
+		//! failure short-circuits with the compiler output), then a filtered ctest
+		//! whose JUnit output is parsed into the structured tally. device-labelled
+		//! tests are always excluded so a test run never boots a simulator/
+		//! emulator. Runs on its own thread; parks the verdict under job->mutex
+		//! and flips job->done.
+		void runTestJobWorker(EditorTestJob* job, TestRunResult params,
+			std::vector<std::string> buildTargets, bool doBuild)
+		{
+			namespace fs = std::filesystem;
+			TestRunResult result = params;
+			const std::string cmakeExe = ORKIGE_EDITOR_CMAKE;
+			const std::string ctestExe = ORKIGE_EDITOR_CTEST;
+
+			if (doBuild)
+			{
+				std::vector<std::string> build = { cmakeExe, "--build",
+					result.buildDir };
+				if (!buildTargets.empty())
+				{
+					build.push_back("--target");
+					for (std::string const& target : buildTargets)
+					{
+						build.push_back(target);
+					}
+				}
+				std::string output;
+				int exitCode = 0;
+				const bool spawned = runProcessCapture(build, output, exitCode);
+				if (!spawned || exitCode != 0)
+				{
+					result.buildFailed = true;
+					result.buildErrors = spawned
+						? lastLines(output, 120)
+						: ("could not start the build: " + output);
+					std::lock_guard<std::mutex> lock(job->mutex);
+					job->result = std::move(result);
+					job->done.store(true);
+					return;
+				}
+			}
+
+			const fs::path junitPath = fs::temp_directory_path() /
+				("orkige_run_tests_" + job->id + ".xml");
+			std::error_code ignored;
+			fs::remove(junitPath, ignored);
+			std::vector<std::string> ctest = { ctestExe, "--test-dir",
+				result.buildDir, "--output-on-failure", "--output-junit",
+				junitPath.string(), "-LE", "device" };
+			if (!result.label.empty())
+			{
+				ctest.push_back("-L");
+				ctest.push_back(result.label);
+			}
+			if (!result.filter.empty())
+			{
+				ctest.push_back("-R");
+				ctest.push_back(result.filter);
+			}
+			std::string output;
+			int exitCode = 0;
+			if (!runProcessCapture(ctest, output, exitCode))
+			{
+				result.error = "could not start ctest: " + output;
+				std::lock_guard<std::mutex> lock(job->mutex);
+				job->result = std::move(result);
+				job->done.store(true);
+				return;
+			}
+			// ctest exits non-zero when tests fail - that is not an error here,
+			// the JUnit file is the source of truth for the tally
+			std::ifstream junitFile(junitPath, std::ios::binary);
+			if (junitFile)
+			{
+				std::string xml((std::istreambuf_iterator<char>(junitFile)),
+					std::istreambuf_iterator<char>());
+				junitFile.close();
+				parseJUnit(xml, result);
+			}
+			if (result.total == 0 && result.error.empty())
+			{
+				// no results parsed: surface ctest's own words (typically "No
+				// tests were found" for a filter that matched none)
+				result.error = lastLines(output, 20);
+			}
+			fs::remove(junitPath, ignored);
+
+			std::lock_guard<std::mutex> lock(job->mutex);
+			job->result = std::move(result);
+			job->done.store(true);
+		}
 		//! read an optional space-separated float bundle; false when the field
 		//! is absent or does not parse to exactly count floats (out untouched)
 		bool readFloats(DebugMessage const& message, String const& key,
@@ -69,7 +464,8 @@ namespace Orkige
 			return type == "hello" || type == "ping" || type == "get_state" ||
 				type == "list_hierarchy" || type == "get_object" ||
 				type == "get_component" || type == "list_assets" ||
-				type == "console_tail" || type == "list_addable_components";
+				type == "console_tail" || type == "list_addable_components" ||
+				type == "list_tests" || type == "get_test_results";
 		}
 		//---------------------------------------------------------
 		//--- generic reflected-property helpers ---
@@ -381,6 +777,49 @@ namespace Orkige
 				{ "console_tail",
 				  "The last N editor Console lines (default 50, max 200).",
 				  { { "count", "integer", "how many lines (1-200)", false } } },
+				{ "list_tests",
+				  "Discover the tests in a build tree (ctest -N). Returns 'tests' "
+				  "(the names) so an agent can find, e.g., the selfcheck for the "
+				  "project it is editing. Optional 'filter' is a ctest -R name "
+				  "regex, 'label' a ctest -L label ('unit'/'integration'). "
+				  "device-labelled (simulator/emulator) tests are never listed. "
+				  "'preset' selects the tree (default: this editor's own build).",
+				  { { "preset", "string",
+				      "build tree selector: '' (this editor's build), "
+				      "'desktop-classic', a build/ dir name or an absolute path",
+				      false },
+				    { "filter", "string", "ctest -R name regex", false },
+				    { "label", "string", "ctest -L label", false } } },
+				{ "run_tests",
+				  "Run a scoped test suite and get STRUCTURED evidence back - the "
+				  "close-the-loop primitive: edit, run the relevant test, read the "
+				  "verdict, iterate. ASYNC: returns { accepted, jobId } immediately; "
+				  "poll get_test_results for the result. With build=true (default) "
+				  "the build tree is (incrementally) built first; a BUILD failure "
+				  "short-circuits (no ctest) and is reported as buildFailed + the "
+				  "compiler output. Then ctest runs, filtered by 'filter' (-R name "
+				  "regex) and/or 'label' (-L). device-labelled tests are always "
+				  "excluded (a run never boots a simulator/emulator). 'preset' "
+				  "selects the tree (default: this editor's own build); 'targets' "
+				  "scopes the build.",
+				  { { "filter", "string", "ctest -R name regex", false },
+				    { "label", "string", "ctest -L label (e.g. 'unit')", false },
+				    { "preset", "string",
+				      "build tree selector (default: this editor's build)", false },
+				    { "build", "string",
+				      "'0' to skip the build and test the tree as-is (default "
+				      "builds first)", false },
+				    { "targets", "array",
+				      "build only these targets (default: the whole tree)",
+				      false } } },
+				{ "get_test_results",
+				  "Poll a run_tests job. Returns status 'running' until the run "
+				  "finishes, then 'done' with the structured verdict: total / "
+				  "passed / failed counts, buildFailed + buildErrors on a build "
+				  "failure, and the parallel failure lists 'failed_names', "
+				  "'failed_durations', 'failed_logtails' (index-aligned; each "
+				  "logtail is the tail of that test's captured output).",
+				  { { "jobId", "string", "the id run_tests returned", true } } },
 			};
 			return specs;
 		}
@@ -435,6 +874,7 @@ namespace Orkige
 	void EditorControlServer::stop()
 	{
 		this->mServer.stop();
+		this->joinTestJobs();
 		if (!this->mTokenFilePath.empty())
 		{
 			std::error_code ignored;
@@ -443,6 +883,20 @@ namespace Orkige
 		}
 		this->mToken.clear();
 		this->mAuthenticated = false;
+	}
+	//---------------------------------------------------------
+	void EditorControlServer::joinTestJobs()
+	{
+		// join every worker (each runs to completion on its own; this just waits
+		// for the last build/ctest to exit) before dropping the jobs
+		for (auto const& job : this->mTestJobs)
+		{
+			if (job->worker.joinable())
+			{
+				job->worker.join();
+			}
+		}
+		this->mTestJobs.clear();
 	}
 	//---------------------------------------------------------
 	void EditorControlServer::update(EditorControlContext const& context)
@@ -1515,6 +1969,140 @@ namespace Orkige
 			return;
 		}
 
+		//--- test runner (structured, evidence-shaped) -------
+		// list_tests: synchronous (ctest -N is fast) test discovery
+		if (type == "list_tests")
+		{
+			std::string buildDir;
+			String error;
+			if (!resolveBuildDir(request.get("preset"), buildDir, error))
+			{
+				this->sendErr(req, error);
+				return;
+			}
+			std::vector<std::string> args = { std::string(ORKIGE_EDITOR_CTEST),
+				"--test-dir", buildDir, "-N", "-LE", "device" };
+			if (!request.get("label").empty())
+			{
+				args.push_back("-L");
+				args.push_back(request.get("label"));
+			}
+			if (!request.get("filter").empty())
+			{
+				args.push_back("-R");
+				args.push_back(request.get("filter"));
+			}
+			std::string output;
+			int exitCode = 0;
+			if (!runProcessCapture(args, output, exitCode))
+			{
+				this->sendErr(req, "could not run ctest -N: " + output);
+				return;
+			}
+			StringVector names = parseCtestList(output);
+			DebugMessage ok(MSG_OK);
+			ok.set("buildDir", buildDir);
+			ok.set("count", std::to_string(names.size()));
+			ok.setList("tests", names);
+			this->sendOk(req, ok);
+			return;
+		}
+		// run_tests: async - spawn a worker, return an accepted { jobId }
+		if (type == "run_tests")
+		{
+			std::string buildDir;
+			String error;
+			if (!resolveBuildDir(request.get("preset"), buildDir, error))
+			{
+				this->sendErr(req, error);
+				return;
+			}
+			const bool doBuild = request.get("build") != "0";	// default true
+			auto job = std::make_unique<EditorTestJob>();
+			job->id = AssetDatabase::generateId();
+			TestRunResult params;
+			params.preset = request.get("preset");
+			params.filter = request.get("filter");
+			params.label = request.get("label");
+			params.buildDir = buildDir;
+			params.buildRequested = doBuild;
+			EditorTestJob* jobPtr = job.get();
+			StringVector const& targetList = request.getList("targets");
+			std::vector<std::string> targets(targetList.begin(),
+				targetList.end());
+			job->worker = std::thread(runTestJobWorker, jobPtr, params, targets,
+				doBuild);
+			this->mTestJobs.push_back(std::move(job));
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("jobId", jobPtr->id);
+			ok.set("build", doBuild ? "1" : "0");
+			ok.set("buildDir", buildDir);
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_test_results: poll a run_tests job for the structured verdict
+		if (type == "get_test_results")
+		{
+			const String jobId = request.get("jobId");
+			EditorTestJob* job = nullptr;
+			for (auto const& candidate : this->mTestJobs)
+			{
+				if (candidate->id == jobId)
+				{
+					job = candidate.get();
+					break;
+				}
+			}
+			if (!job)
+			{
+				this->sendErr(req, "no such test job '" + jobId + "'");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("jobId", jobId);
+			if (!job->done.load())
+			{
+				ok.set("status", "running");
+				this->sendOk(req, ok);
+				return;
+			}
+			std::lock_guard<std::mutex> lock(job->mutex);
+			TestRunResult const& result = job->result;
+			ok.set("status", "done");
+			ok.set("preset", result.preset);
+			ok.set("filter", result.filter);
+			ok.set("label", result.label);
+			ok.set("buildDir", result.buildDir);
+			ok.set("buildRequested", result.buildRequested ? "1" : "0");
+			ok.set("buildFailed", result.buildFailed ? "1" : "0");
+			if (result.buildFailed)
+			{
+				ok.set("buildErrors", result.buildErrors);
+			}
+			if (!result.error.empty())
+			{
+				ok.set("error", result.error);
+			}
+			ok.set("total", std::to_string(result.total));
+			ok.set("passed", std::to_string(result.passed));
+			ok.set("failed", std::to_string(result.failed));
+			StringVector failedNames;
+			StringVector failedDurations;
+			StringVector failedLogTails;
+			for (TestFailure const& failure : result.failures)
+			{
+				failedNames.push_back(failure.name);
+				failedDurations.push_back(failure.durationSec);
+				failedLogTails.push_back(failure.logTail);
+			}
+			ok.setList("failed_names", failedNames);
+			ok.setList("failed_durations", failedDurations);
+			ok.setList("failed_logtails", failedLogTails);
+			this->sendOk(req, ok);
+			return;
+		}
+
 		//--- unknown -----------------------------------------
 		this->sendErr(req, "unknown command '" + type + "'");
 	}
@@ -2073,6 +2661,182 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - generic Sprite property "
 				"(zOrder -> 7) OK");
+		}
+
+		// a get_test_results poller: spins on the job (100ms between polls, hard
+		// cap) until it reports 'done', returning the structured verdict
+		auto waitForTestJob = [&](String const& jobId, JsonValue& structured)
+			-> bool
+		{
+			for (int attempt = 0; attempt < 300; ++attempt)
+			{
+				JsonValue args = JsonValue::object();
+				args.set("jobId", JsonValue(jobId));
+				bool isError = true;
+				if (!callTool("get_test_results", args, false, structured,
+					isError) || isError)
+				{
+					return false;
+				}
+				if (structured.get("status").asString() == "done")
+				{
+					return true;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			return false;
+		};
+
+		// (11) list_tests: discover the tree's tests; a known core unit test
+		// must be present (this proves ctest -N discovery end to end)
+		{
+			JsonValue args = JsonValue::object();
+			args.set("filter", JsonValue("JsonValue"));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("list_tests", args, false, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: list_tests failed");
+				return;
+			}
+			JsonValue const& tests = structured.get("tests");
+			bool foundKnown = false;
+			for (size_t i = 0; i < tests.size(); ++i)
+			{
+				if (tests.at(i).asString() ==
+					"JsonValue parses scalars, numbers and escapes")
+				{
+					foundKnown = true;
+				}
+			}
+			if (!foundKnown)
+			{
+				finish(false, "control self-test: list_tests did not report the "
+					"known JsonValue unit test");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - list_tests OK "
+				"(%zu tests, known unit test present)", tests.size());
+		}
+
+		// (12) run_tests HAPPY PATH: run ONE fast, already-built unit test
+		// (build='0' keeps the ctest quick - no multi-minute build in the test),
+		// poll get_test_results, assert the structured tally reports it passed
+		{
+			JsonValue args = JsonValue::object();
+			args.set("filter", JsonValue("JsonValue parses scalars"));
+			args.set("build", JsonValue("0"));
+			JsonValue accepted;
+			bool isError = true;
+			if (!callTool("run_tests", args, true, accepted, isError) || isError ||
+				accepted.get("jobId").asString().empty())
+			{
+				finish(false, "control self-test: run_tests (happy path) was not "
+					"accepted");
+				return;
+			}
+			JsonValue result;
+			if (!waitForTestJob(accepted.get("jobId").asString(), result))
+			{
+				finish(false, "control self-test: run_tests (happy path) never "
+					"finished");
+				return;
+			}
+			// the tally fields cross as strings (the DebugMessage convention)
+			const int total = std::atoi(result.get("total").asString().c_str());
+			const int passed = std::atoi(result.get("passed").asString().c_str());
+			const int failed = std::atoi(result.get("failed").asString().c_str());
+			if (result.get("buildFailed").asString() != "0" || total < 1 ||
+				passed < 1 || failed != 0)
+			{
+				finish(false, "control self-test: run_tests (happy path) did not "
+					"report the unit test as passed");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - run_tests happy path OK "
+				"(total %d, passed %d, failed %d)", total, passed, failed);
+		}
+
+		// (13) run_tests FAILURE PATH: build a throwaway CTest tree (one passing
+		// + one failing test) and run it, so the failed[] + logTail parse is
+		// exercised on a real failure without breaking the real suite. The
+		// failing test writes to stderr, so its logTail must be non-empty.
+		{
+			namespace fs = std::filesystem;
+			const fs::path probeRoot = fs::temp_directory_path() /
+				("orkige_rtprobe_" + std::to_string(port));
+			const fs::path probeSrc = probeRoot / "src";
+			const fs::path probeBuild = probeRoot / "build";
+			std::error_code ignored;
+			fs::remove_all(probeRoot, ignored);
+			fs::create_directories(probeSrc, ignored);
+			{
+				std::ofstream lists(probeSrc / "CMakeLists.txt");
+				lists <<
+					"cmake_minimum_required(VERSION 3.20)\n"
+					"project(rtprobe NONE)\n"
+					"enable_testing()\n"
+					"add_test(NAME rtprobe_pass COMMAND \"${CMAKE_COMMAND}\" "
+					"-E true)\n"
+					"add_test(NAME rtprobe_fail COMMAND \"${CMAKE_COMMAND}\" "
+					"-E cat /orkige_no_such_file_probe)\n";
+			}
+			std::vector<std::string> configure = { std::string(ORKIGE_EDITOR_CMAKE),
+				"-S", probeSrc.string(), "-B", probeBuild.string() };
+			std::string configureOutput;
+			int configureExit = 0;
+			if (!runProcessCapture(configure, configureOutput, configureExit) ||
+				configureExit != 0)
+			{
+				fs::remove_all(probeRoot, ignored);
+				finish(false, "control self-test: could not configure the "
+					"throwaway CTest tree");
+				return;
+			}
+			JsonValue args = JsonValue::object();
+			args.set("preset", JsonValue(probeBuild.string()));
+			args.set("build", JsonValue("0"));
+			JsonValue accepted;
+			bool isError = true;
+			if (!callTool("run_tests", args, true, accepted, isError) || isError ||
+				accepted.get("jobId").asString().empty())
+			{
+				fs::remove_all(probeRoot, ignored);
+				finish(false, "control self-test: run_tests (failure path) was "
+					"not accepted");
+				return;
+			}
+			JsonValue result;
+			const bool finished =
+				waitForTestJob(accepted.get("jobId").asString(), result);
+			bool ok = finished &&
+				std::atoi(result.get("total").asString().c_str()) == 2 &&
+				std::atoi(result.get("passed").asString().c_str()) == 1 &&
+				std::atoi(result.get("failed").asString().c_str()) == 1;
+			bool failureReported = false;
+			if (ok)
+			{
+				JsonValue const& names = result.get("failed_names");
+				JsonValue const& tails = result.get("failed_logtails");
+				for (size_t i = 0; i < names.size(); ++i)
+				{
+					if (names.at(i).asString() == "rtprobe_fail" &&
+						!tails.at(i).asString().empty())
+					{
+						failureReported = true;
+					}
+				}
+			}
+			fs::remove_all(probeRoot, ignored);
+			if (!ok || !failureReported)
+			{
+				finish(false, "control self-test: run_tests (failure path) did "
+					"not report the failing test with a log tail");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - run_tests failure path OK "
+				"(1 pass, 1 fail with a captured log tail)");
 		}
 
 		finish(true, "");

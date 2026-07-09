@@ -40,8 +40,10 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
+#include <vector>
 
 // forward declarations (the shells live in EditorApp.h; the header stays free
 // of the SDL/ImGui pull EditorApp.h carries so main can include it cheaply)
@@ -54,6 +56,10 @@ namespace Orkige
 {
 	class EditorCore;
 	class GameObjectManager;
+	//! @brief one asynchronous test run (run_tests -> get_test_results). Opaque
+	//! here; defined in the .cpp. A worker thread does the build+ctest work and
+	//! parks the structured verdict for a later get_test_results poll.
+	struct EditorTestJob;
 
 	//! @brief everything the control-port handler bridges to (all owned by
 	//! main; the server holds raw pointers, never ownership). The Project the
@@ -130,12 +136,18 @@ namespace Orkige
 		//! is the request allowed to run a mutation verb (auth gate)?
 		bool requireAuth(String const& req);
 
+		//! join every finished/outstanding test-run worker (called on stop)
+		void joinTestJobs();
+
 		HttpServer mServer;
 		std::string mToken;				//!< the auth secret (empty = auth off)
 		std::string mTokenFilePath;		//!< where the token was written ("" = none)
 		bool mAuthenticated = false;	//!< the current request presented a valid token
 		DebugMessage mReply;			//!< the verb's buffered reply
 		bool mReplyIsError = false;		//!< was the buffered reply an error
+		//! outstanding/finished async test runs, keyed by their generated jobId;
+		//! run_tests appends, get_test_results reads, stop() joins the workers
+		std::vector<std::unique_ptr<EditorTestJob>> mTestJobs;
 	};
 
 	//! @brief the in-process MCP endpoint self-test (the editor_control ctest).
@@ -146,7 +158,11 @@ namespace Orkige
 	//! list_hierarchy), an AUTH-REJECTED create_object (wrong/absent token on a
 	//! mutation) and a screenshot to a temp path (+ verify the file was written)
 	//! - asserting MCP-compliant JSON-RPC responses (id echo, result shape) at
-	//! every step. This proves the whole C++ MCP endpoint headlessly, no Python.
+	//! every step. It also drives the test-runner tools: list_tests (a known
+	//! unit test must appear), run_tests + get_test_results on ONE already-built
+	//! unit test (build:false) asserting the structured pass tally, and a
+	//! throwaway failing CTest tree so the failure list + logTail parse is
+	//! exercised. This proves the whole C++ MCP endpoint headlessly, no Python.
 	//! The socket work runs on a worker thread (the server is pumped on the main
 	//! thread, so a same-thread blocking client would deadlock); main polls the
 	//! done/passed verdict and turns it into the process exit code.
