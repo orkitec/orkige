@@ -530,3 +530,54 @@ TEST_CASE("Asset references round-trip through a scene: id wins over a "
 	}
 	manager.clear();
 }
+
+TEST_CASE("AssetDatabase path lookups: normalization-robust, case-sensitive "
+	"(the cross-platform contract)", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_portability");
+	project.writeAsset("assets/sub/tile.png");
+
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+
+	const Orkige::String tileId = database.idForPath("assets/sub/tile.png");
+	REQUIRE(!tileId.empty());
+	// keys are the lexically-normal generic form - other spellings of the
+	// same path must resolve identically on every platform
+	CHECK(database.idForPath("./assets/sub/tile.png") == tileId);
+	CHECK(database.idForPath("assets//sub/tile.png") == tileId);
+	CHECK(database.idForPath("assets/sub/../sub/tile.png") == tileId);
+	// deliberately CASE-SENSITIVE everywhere: a case-insensitive host
+	// filesystem (macOS default) must not hide a spelling that would break
+	// on Linux/Android - the database refuses it on macOS too
+	CHECK(database.idForPath("assets/sub/Tile.png").empty());
+	CHECK(database.idForFileName("Tile.png").empty());
+	CHECK(database.idForFileName("tile.png") == tileId);
+}
+
+TEST_CASE("AssetDatabase::importAsset rejects paths outside the project root",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_containment");
+	project.writeAsset("assets/inside.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+
+	// a file genuinely outside the root (the temp dir above it)
+	const std::filesystem::path outside =
+		project.root.parent_path() /
+		("orkige_test_outside_" + std::to_string(::getpid()) + ".png");
+	{
+		std::ofstream file(outside, std::ios::trunc);
+		file << "outside bytes";
+	}
+	CHECK(database.importAsset(outside.string()).empty());
+	// relative traversal out of the root
+	CHECK(database.importAsset("../outside.png").empty());
+	// inside stays accepted (control)
+	CHECK(!database.importAsset("assets/inside.png").empty());
+	std::error_code ignored;
+	std::filesystem::remove(outside, ignored);
+}

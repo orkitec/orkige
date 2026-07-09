@@ -95,8 +95,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	String AssetDatabase::idForPath(String const & relativePath) const
 	{
+		// keys are the scanner's lexically-normal generic (forward-slash)
+		// form - tolerate "./"-prefixed or doubled-separator spellings, and
+		// on Windows also backslashes. Deliberately CASE-SENSITIVE on every
+		// platform: a case-insensitive host filesystem (macOS) must not hide
+		// a mismatch that breaks on Linux/Android.
 		const std::map<String, String>::const_iterator found =
-			this->mPathToId.find(relativePath);
+			this->mPathToId.find(std::filesystem::path(relativePath)
+				.lexically_normal().generic_string());
 		return (found != this->mPathToId.end()) ? found->second : String();
 	}
 	//---------------------------------------------------------
@@ -133,7 +139,14 @@ namespace Orkige
 			.lexically_normal();
 		const std::filesystem::path relative =
 			absolute.lexically_relative(this->mRootDirectory);
-		if (relative.empty() || relative.native().starts_with("..") ||
+		// containment: an outside path relativizes to a ".."-led one. Compare
+		// the first COMPONENT as a path (relative.native() is a wide string on
+		// Windows, and a plain prefix test would also reject a file literally
+		// named "..foo")
+		const bool escapesRoot = relative.empty() ||
+			(relative.begin() != relative.end() &&
+				*relative.begin() == std::filesystem::path(".."));
+		if (escapesRoot ||
 			!std::filesystem::is_regular_file(absolute, fsError))
 		{
 			return String(); // not a file inside this project
