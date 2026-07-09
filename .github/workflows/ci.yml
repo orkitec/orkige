@@ -79,7 +79,7 @@ jobs:
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
-            libx11-xcb-dev libxcb-randr0-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
             libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
@@ -200,7 +200,7 @@ jobs:
             libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
             libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
-            libx11-xcb-dev libxcb-randr0-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
             libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
