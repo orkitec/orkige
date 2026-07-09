@@ -118,7 +118,20 @@ namespace Orkige
 		this->currentUpdatableComponentIndex = 0;
 		this->updatableComponents.clear();
 		this->childIds.clear();
+		this->tagIds.clear();
 		this->objects.clear();
+	}
+	//---------------------------------------------------------
+	StringVector GameObjectManager::findByTag(String const & tag) const
+	{
+		StringVector result;
+		TagIdMap::const_iterator it = this->tagIds.find(tag);
+		if(it != this->tagIds.end())
+		{
+			// the set is already sorted; hand the ids back as a plain vector
+			result.assign(it->second.begin(), it->second.end());
+		}
+		return result;
 	}
 	//---------------------------------------------------------
 	StringVector const & GameObjectManager::getChildren(String const & parentId) const
@@ -250,6 +263,37 @@ namespace Orkige
 		if(!newParentId.empty())
 		{
 			this->childIds[newParentId].push_back(childId);
+		}
+	}
+	//---------------------------------------------------------
+	void GameObjectManager::onObjectTagsChanged(String const & objectId, StringVector const & oldTags, StringVector const & newTags)
+	{
+		// remove the object from every tag it no longer has (mirror of the
+		// oldParent unlink in onObjectReparented)
+		foreach(String const & tag, oldTags)
+		{
+			if(std::find(newTags.begin(), newTags.end(), tag) != newTags.end())
+			{
+				continue;
+			}
+			TagIdMap::iterator it = this->tagIds.find(tag);
+			if(it != this->tagIds.end())
+			{
+				it->second.erase(objectId);
+				if(it->second.empty())
+				{
+					this->tagIds.erase(it);
+				}
+			}
+		}
+		// add the object to every tag it gained (mirror of the newParent add)
+		foreach(String const & tag, newTags)
+		{
+			if(std::find(oldTags.begin(), oldTags.end(), tag) != oldTags.end())
+			{
+				continue;
+			}
+			this->tagIds[tag].insert(objectId);
 		}
 	}
 	//---------------------------------------------------------

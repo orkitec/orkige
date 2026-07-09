@@ -112,6 +112,16 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void RigidBodyComponent::setLayer(String const & layer)
+	{
+		if (this->hasBody())
+		{
+			oDebugWarning(false, "RigidBodyComponent::setLayer ignored - body already created");
+			return;
+		}
+		this->mBodyDesc.layer = layer;
+	}
+	//---------------------------------------------------------
 	void RigidBodyComponent::setLinearVelocity(Vec3 const & velocity)
 	{
 		if (this->hasBody())
@@ -353,6 +363,11 @@ namespace Orkige
 		ar << this->mBodyDesc.radius << this->mBodyDesc.halfHeight;
 		ar << this->mBodyDesc.mass << this->mBodyDesc.friction << this->mBodyDesc.restitution;
 		ar << this->mBodyDesc.planar;
+		// the collision layer NAME is the LAST field on purpose: a pre-layer
+		// scene stops after planar, so load() re-reads planar for the missing
+		// layer and layerIndex() maps that unknown name to Default (index 0,
+		// collides with all) - old scenes behave identically (@see load)
+		ar << this->mBodyDesc.layer;
 	}
 	//---------------------------------------------------------
 	void RigidBodyComponent::load(optr<IArchive> const & ar)
@@ -367,6 +382,13 @@ namespace Orkige
 		ar >> this->mBodyDesc.radius >> this->mBodyDesc.halfHeight;
 		ar >> this->mBodyDesc.mass >> this->mBodyDesc.friction >> this->mBodyDesc.restitution;
 		ar >> this->mBodyDesc.planar;
+		// collision layer (added after the pre-layer format): a scene written
+		// before this field ends at planar; the archive then re-reads planar's
+		// element as the layer name, which layerIndex() resolves to Default
+		// (unknown name -> index 0, collide-with-all). New scenes carry the
+		// real name. Either way createBody routes desc.layer through the world's
+		// LayerConfig.
+		ar >> this->mBodyDesc.layer;
 		if (this->hasBody())
 		{
 			// the body is created lazily on the first update, so a load right
@@ -389,6 +411,8 @@ namespace Orkige
 		OFUNC(setRestitution)
 		OFUNC(setPlanarMode)
 		OFUNC(getPlanarMode)
+		OFUNC(setLayer)
+		OFUNC(getLayer)
 		OFUNC(setLinearVelocity)
 		OFUNC(getLinearVelocity)
 		OFUNC(setAngularVelocity)

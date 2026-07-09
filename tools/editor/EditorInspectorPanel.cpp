@@ -297,6 +297,41 @@ void drawRigidBodyComponentUI(EditorState& state, Orkige::EditorCore& core,
 		edited = true;
 	}
 
+	// collision layer: a dropdown over the project's physics.olayers names
+	// (a single "Default" without an asset). An unknown current name (a
+	// hand-edited scene, or a project whose asset dropped the layer) shows
+	// as a first entry so it is never silently lost.
+	{
+		const Orkige::String currentLayer =
+			before.layer.empty() ? Orkige::String("Default") : before.layer;
+		std::vector<Orkige::String> names = core.getPhysicsLayerNames();
+		if (std::find(names.begin(), names.end(), currentLayer) == names.end())
+		{
+			names.insert(names.begin(), currentLayer);
+		}
+		if (ImGui::BeginCombo("Layer", currentLayer.c_str()))
+		{
+			for (Orkige::String const& name : names)
+			{
+				const bool selected = (name == currentLayer);
+				if (ImGui::Selectable(name.c_str(), selected) &&
+					name != currentLayer)
+				{
+					after.layer = name;
+					state.inspectorMergeSession = core.beginMergeSession();
+					edited = true;
+				}
+				if (selected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImGui::SetItemTooltip("collision layer (physics.olayers) - the NxN "
+			"matrix decides which layers collide");
+	}
+
 	if (edited)
 	{
 		core.applyRigidBodyChange(objectId, before, after,
@@ -721,6 +756,62 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			}
 			ImGui::TextDisabled("type: %s",
 				gameObject->getTypeInfo().getName().c_str());
+			// tags: comma-separated multi-tag labels (the manager tag index /
+			// world.findByTag). Applied on Enter as one undoable SetTagsCommand;
+			// the buffer rebuilds when the selection or the cleaned tag set
+			// changes.
+			{
+				Orkige::StringVector currentTags;
+				core.getObjectTags(objectId, currentTags);
+				std::string joined;
+				for (Orkige::String const& tag : currentTags)
+				{
+					if (!joined.empty())
+					{
+						joined += ", ";
+					}
+					joined += tag;
+				}
+				if (state.tagsEditObjectId != objectId ||
+					state.tagsEditCurrent != joined)
+				{
+					state.tagsEditObjectId = objectId;
+					state.tagsEditCurrent = joined;
+					SDL_strlcpy(state.tagsEditBuffer, joined.c_str(),
+						sizeof(state.tagsEditBuffer));
+				}
+				if (ImGui::InputTextWithHint("Tags", "tag1, tag2, ...",
+					state.tagsEditBuffer, sizeof(state.tagsEditBuffer),
+					ImGuiInputTextFlags_EnterReturnsTrue))
+				{
+					Orkige::StringVector newTags;
+					const std::string buffer = state.tagsEditBuffer;
+					std::size_t pos = 0;
+					while (pos <= buffer.size())
+					{
+						const std::size_t comma = buffer.find(',', pos);
+						const std::string token = buffer.substr(pos,
+							comma == std::string::npos ? std::string::npos
+								: comma - pos);
+						const std::size_t begin = token.find_first_not_of(" \t");
+						const std::size_t end = token.find_last_not_of(" \t");
+						if (begin != std::string::npos)
+						{
+							newTags.push_back(
+								token.substr(begin, end - begin + 1));
+						}
+						if (comma == std::string::npos)
+						{
+							break;
+						}
+						pos = comma + 1;
+					}
+					core.setObjectTags(objectId, newTags);
+					state.tagsEditCurrent.clear();	// force a rebuild from the cleaned set
+				}
+				ImGui::SetItemTooltip("comma-separated tags "
+					"(world.findByTag); Enter to apply");
+			}
 			ImGui::Separator();
 			// the theme's accent Header colour is for list selection; the
 			// component CollapsingHeaders read better neutral (macOS

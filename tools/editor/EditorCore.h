@@ -71,6 +71,7 @@ namespace Orkige
 		String mXml;		//!< the captured archive content
 		String mParentId;	//!< captured parent link ("" = root)
 		bool mActiveSelf = true;	//!< captured own active flag
+		StringVector mTags;	//!< captured tag list (carried through rename/duplicate)
 	};
 
 	//! @brief serialized state of ONE component of one GameObject, captured
@@ -245,6 +246,22 @@ namespace Orkige
 		String mObjectId;
 		bool mActive;
 		bool mBefore = true;			//!< captured on execute
+	};
+
+	//! @brief set a GameObject's tag list (Inspector tags field) - one
+	//! undoable step; the manager tag index is updated by GameObject::setTags
+	class SetTagsCommand : public EditorCommand
+	{
+	public:
+		SetTagsCommand(String const& objectId, StringVector const& tags);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		StringVector mTags;				//!< the tag list to apply
+		StringVector mBefore;			//!< captured on execute
 	};
 
 	//! @brief Cmd/Ctrl+G: group the members under a NEW empty parent object
@@ -580,6 +597,11 @@ namespace Orkige
 		bool reparentObject(String const& id, String const& newParentId);
 		//! set the object's own active flag (undoable, Unity SetActive)
 		bool setObjectActive(String const& id, bool active);
+		//! @brief replace an object's tag list (undoable); refused if the object
+		//! is missing or the tags did not change
+		bool setObjectTags(String const& id, StringVector const& tags);
+		//! read an object's tag list; false if the object is missing
+		bool getObjectTags(String const& id, StringVector& out) const;
 		//! @brief Cmd/Ctrl+G: group ALL selected objects under a new empty
 		//! parent (auto-named "Group<N>", selected afterwards) - one undo step
 		bool groupSelected();
@@ -649,6 +671,17 @@ namespace Orkige
 			unsigned int mergeSession = 0);
 
 		//--- component access (helpers the commands share) ----
+		//--- physics collision layers (project-config, read-only in the editor) ---
+		//! @brief load the open project's collision-layer config (the dropdown
+		//! source for the RigidBody Inspector); resets to the built-in default
+		//! (a single "Default" layer) when the project has no physics.olayers.
+		//! The editor never runs physics - this is purely for authoring.
+		void loadPhysicsLayers(Project const& project);
+		//! reset the collision-layer config to the built-in default
+		void resetPhysicsLayers();
+		//! the collision-layer names offered by the RigidBody layer dropdown
+		StringVector getPhysicsLayerNames() const;
+
 		//! read the RigidBodyComponent's creation parameters; false if missing
 		bool getRigidBodyDesc(String const& id,
 			PhysicsWorld::BodyDesc& out) const;
@@ -742,5 +775,8 @@ namespace Orkige
 		std::vector<optr<EditorCommand>> mUndoStack;
 		std::vector<optr<EditorCommand>> mRedoStack;
 		unsigned int mNextMergeSession = 1;
+		//! the open project's collision layers (dropdown source; default =
+		//! single "Default" layer) - the editor reads this, never simulates
+		PhysicsWorld::LayerConfig mPhysicsLayers;
 	};
 }

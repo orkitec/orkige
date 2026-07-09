@@ -325,6 +325,11 @@ struct EditorState
 	char spriteEditBuffer[512] = "";
 	std::string spriteEditObjectId;
 	std::string spriteEditCurrentTexture;
+	//! object tags field edit buffer (comma-separated; rebuilt when the
+	//! selection or the object's current tag set changes)
+	char tagsEditBuffer[512] = "";
+	std::string tagsEditObjectId;
+	std::string tagsEditCurrent;
 };
 
 //--- play mode (remote debugging) -----------------------------------------

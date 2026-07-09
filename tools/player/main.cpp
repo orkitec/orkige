@@ -751,6 +751,17 @@ int main(int argc, char** argv)
 				static_cast<unsigned>(debugLink.getPort()));
 		}
 
+		// collision layers must be configured BEFORE PhysicsWorld::init (the
+		// Jolt filters are built from them at init time). A project's
+		// physics.olayers (manifest Settings "physics.layers") overrides the
+		// built-in default (a single "Default" layer colliding with everything).
+		if (project.isLoaded())
+		{
+			Orkige::PhysicsWorld::LayerConfig layerConfig;
+			layerConfig.loadForProject(project);
+			physicsWorld.setLayerConfig(layerConfig);
+		}
+
 		// physics only when the scene needs it: RigidBodyComponents create
 		// their bodies lazily on the first component update, which requires
 		// an initialized PhysicsWorld

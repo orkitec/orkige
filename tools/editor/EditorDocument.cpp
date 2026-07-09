@@ -134,6 +134,9 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// scripts the same way the runtimes do
 	Orkige::ScriptRuntime::getSingleton().setScriptSearchRoot(
 		state.project.getRootDirectory());
+	// the collision-layer config feeds the RigidBody Inspector's layer dropdown
+	// (the editor never simulates; this is purely for authoring)
+	core.loadPhysicsLayers(state.project);
 	SDL_Log("orkige_editor: project '%s' opened (root '%s', %zu scenes)",
 		state.project.getName().c_str(),
 		state.project.getRootDirectory().c_str(),
@@ -168,6 +171,8 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	unregisterProjectResources();
 	state.project.close();
 	Orkige::ScriptRuntime::getSingleton().setScriptSearchRoot("");
+	// back to the built-in default layers (loose-scene mode)
+	core.resetPhysicsLayers();
 }
 
 // File > New Project...: create the skeleton (project name = the picked

@@ -371,6 +371,44 @@ TEST_CASE("EditorCore rename command moves the component state and undoes",
 	manager.clear();
 }
 
+TEST_CASE("EditorCore SetTagsCommand applies and undoes; tags survive "
+	"rename and duplicate", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	makeHealthObject(manager, "Old", 7);
+	core.selectObject("Old");
+
+	// SetTagsCommand: one undoable step, feeds the manager tag index
+	REQUIRE(core.setObjectTags("Old", { "enemy", "boss" }));
+	CHECK(manager.findByTag("enemy").size() == 1);
+	Orkige::StringVector tags;
+	REQUIRE(core.getObjectTags("Old", tags));
+	CHECK(tags.size() == 2);
+	REQUIRE(core.undo());
+	CHECK(manager.findByTag("enemy").empty());
+	REQUIRE(core.redo());
+	CHECK(manager.findByTag("enemy").size() == 1);
+
+	// rename = serialize + recreate: the tags travel with the object and
+	// re-register in the index under the new id
+	REQUIRE(core.renameObject("Old", "New"));
+	CHECK(manager.findByTag("enemy").empty() == false);
+	Orkige::StringVector afterRename = manager.findByTag("enemy");
+	REQUIRE(afterRename.size() == 1);
+	CHECK(afterRename.front() == "New");
+	optr<Orkige::GameObject> renamed = manager.getGameObject("New").lock();
+	REQUIRE(renamed);
+	CHECK(renamed->hasTag("boss"));
+
+	// duplicate clones the tag set too (both objects carry the tag)
+	core.selectObject("New");
+	REQUIRE(core.duplicateSelected());
+	CHECK(manager.findByTag("enemy").size() == 2);
+
+	manager.clear();
+}
+
 TEST_CASE("EditorCore duplicate clones component state and undoes",
 	"[editor]")
 {

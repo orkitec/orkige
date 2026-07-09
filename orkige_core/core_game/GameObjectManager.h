@@ -12,6 +12,8 @@
 #include "core_util/Singleton.h"
 #include "core_game/GameObject.h"
 
+#include <set>
+
 namespace Orkige
 {
 	//! GameObject management
@@ -24,6 +26,7 @@ namespace Orkige
 	public:
 		typedef std::map<String, optr<GameObject> > GameObjectMap;					//!< maps GameObject to String id
 		typedef std::map<String, StringVector> ChildIdMap;							//!< maps parent id to the ids of its direct children
+		typedef std::map<String, std::set<String> > TagIdMap;						//!< maps a tag to the ids of the objects carrying it
 	protected:
 		typedef std::map<EventType::TypeId, optr<EventListener> > EventListenerMap;	//!< maps TypeId to EventListener
 		typedef std::vector< GameObjectComponent *> GameObjectComponentPtrVector;	//!< Vector of Component pointers
@@ -39,6 +42,7 @@ namespace Orkige
 		EventListenerMap				globalEvents;					//!< enabled Global Events
 		StringVector					deleteQueue;					//!< queue of GameObjects that should be deleted on next update
 		ChildIdMap						childIds;						//!< direct children per parent id (maintained by GameObject::setParent)
+		TagIdMap						tagIds;							//!< object ids per tag (maintained by GameObject::addTag/removeTag/setTags - mirrors childIds)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -83,6 +87,13 @@ namespace Orkige
 		StringVector getRootObjectIds() const;
 		//! is the GameObject with the given id a descendant of ancestorId
 		bool isDescendantOf(String const & id, String const & ancestorId) const;
+		//--- TAGS (tag -> ids index, mirrors the childIds hierarchy index) ---
+		//! @brief ids of every GameObject carrying the given tag, sorted
+		//! (empty when the tag is unused). Maintained incrementally on
+		//! addTag/removeTag/setTags and on object destroy - the O(1)-lookup
+		//! counterpart of scanning every object.
+		StringVector findByTag(String const & tag) const;
+
 		//! @brief ids of the given GameObject and ALL its descendants,
 		//! depth-first (the object itself first, then each child's subtree in
 		//! child order) - the shared subtree-walk primitive (prefab save,
@@ -112,6 +123,11 @@ namespace Orkige
 		//! @brief keep the child index in sync with a parent link change
 		//! (called by GameObject::setParent - the friend declaration above)
 		void onObjectReparented(String const & childId, String const & oldParentId, String const & newParentId);
+		//! @brief keep the tag index in sync with a tag-set change on an object
+		//! (called by GameObject::addTag/removeTag/setTags/clearTags - the
+		//! friend declaration above; mirrors onObjectReparented): the object is
+		//! removed from every tag it lost and added to every tag it gained
+		void onObjectTagsChanged(String const & objectId, StringVector const & oldTags, StringVector const & newTags);
 	private:
 	};
 	//---------------------------------------------------------
@@ -168,6 +184,8 @@ namespace Orkige
 		}
 		// unlink the object itself from its parent's child list
 		this->onObjectReparented(id, gameObject->getParentId(), String());
+		// drop the object from the tag index (mirror of the child unlink above)
+		this->onObjectTagsChanged(id, gameObject->getTags(), StringVector());
 		this->objects.erase(it);
 		return true;
 	}

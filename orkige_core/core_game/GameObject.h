@@ -35,6 +35,7 @@ namespace Orkige
 		String										prefabRef;				//!< project-relative .oprefab path ("" = not a prefab instance root)
 		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
 		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
+		StringVector								tags;					//!< free-form multi-tag labels (Unity tags, but many per object); indexed by GameObjectManager
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -98,6 +99,21 @@ namespace Orkige
 		inline StringVector const & getSuppressedPrefabChildren() const;
 		//! replace the suppressed-children list (prefab-LOCAL ids)
 		inline void setSuppressedPrefabChildren(StringVector const & localIds);
+		//--- TAGS (multi-tag labels, indexed by GameObjectManager) ---
+		//! the tags on this object (order preserved, no duplicates)
+		inline StringVector const & getTags() const;
+		//! does this object carry the given tag
+		bool hasTag(String const & tag) const;
+		//! @brief add a tag (no-op if empty or already present); keeps the
+		//! GameObjectManager tag->ids index in sync
+		void addTag(String const & tag);
+		//! @brief remove a tag (no-op if absent); keeps the manager index in sync
+		void removeTag(String const & tag);
+		//! @brief replace the whole tag set (duplicates and empties dropped);
+		//! keeps the manager index in sync (the rename/load/duplicate path)
+		void setTags(StringVector const & tags);
+		//! remove every tag (keeps the manager index in sync)
+		void clearTags();
 	protected:
 		//! @brief recompute the cached activeInHierarchy state of this object
 		//! and (on change) of all descendants, dispatching onSetActive
@@ -175,6 +191,11 @@ namespace Orkige
 	inline void GameObject::setSuppressedPrefabChildren(StringVector const & localIds)
 	{
 		this->suppressedPrefabChildren = localIds;
+	}
+	//---------------------------------------------------------
+	inline StringVector const & GameObject::getTags() const
+	{
+		return this->tags;
 	}
 }
 

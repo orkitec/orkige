@@ -78,6 +78,7 @@
         <float value="0.4"/>
         <float value="0.2"/>
         <bool value="1"/>
+        <String value="ball"/>
     </RigidBodyComponent>
     <String value="ScriptComponent"/>
     <ScriptComponent create="0">
@@ -163,6 +164,7 @@
         <float value="0.4"/>
         <float value="0"/>
         <bool value="0"/>
+        <String value="obstacle"/>
     </RigidBodyComponent>
     <String value="SpriteComponent"/>
     <SpriteComponent create="0">

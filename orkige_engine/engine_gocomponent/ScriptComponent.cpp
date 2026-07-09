@@ -63,6 +63,27 @@ namespace Orkige
 			}
 			return gameObject->getComponentPtr<ComponentType>();
 		}
+		//! every live GameObject carrying the given tag (the manager tag index),
+		//! as raw pointers - the Lua array world.findByTag returns
+		std::vector<GameObject*> worldFindByTag(String const & tag)
+		{
+			std::vector<GameObject*> result;
+			if (GameObjectManager::getSingletonPtr() == NULL)
+			{
+				return result;
+			}
+			GameObjectManager & manager = GameObjectManager::getSingleton();
+			StringVector const ids = manager.findByTag(tag);
+			result.reserve(ids.size());
+			foreach(String const & id, ids)
+			{
+				if (GameObject* gameObject = manager.getGameObject(id).lock().get())
+				{
+					result.push_back(gameObject);
+				}
+			}
+			return result;
+		}
 	}
 	namespace
 	{
@@ -455,6 +476,10 @@ namespace Orkige
 			&worldGetComponent<ScriptComponent>);
 		runtime.registerFunction("world", "getSound",
 			&worldGetComponent<SoundComponent>);
+		// world.findByTag(tag) -> array of the GameObjects carrying that tag
+		// (empty table when none); tags are set in the editor Inspector or via
+		// GameObject:addTag, indexed by the GameObjectManager
+		runtime.registerFunction("world", "findByTag", &worldFindByTag);
 
 		// ================= THE `sound` TABLE (the mixer) ===================
 		// Global mixer controls (per-sound volume/group live on the

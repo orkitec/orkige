@@ -12,9 +12,14 @@
 #include "engine_module/EnginePrerequisites.h"
 #include <core_base/Interface.h>
 #include <core_util/Singleton.h>
+#include <core_util/String.h>
+
+#include <vector>
 
 namespace Orkige
 {
+	class Project;
+
 	//! @brief rigid body dynamics world (Jolt Physics backend)
 	//! @remarks backend-agnostic facade around JPH::PhysicsSystem: all Jolt
 	//! types stay inside PhysicsWorld.cpp, users talk plain Ogre math types
@@ -67,9 +72,76 @@ namespace Orkige
 			float			friction;		//!< friction coefficient (usually 0..1)
 			float			restitution;	//!< bounciness (0 = none, 1 = fully elastic)
 			bool			planar;			//!< 2D mode: lock translation to X/Y and rotation to Z (dynamic bodies)
+			String			layer;			//!< collision layer NAME (LayerConfig); "" / "Default" = the collide-with-all layer 0
 			BodyDesc() : bodyType(BT_DYNAMIC), shapeType(ST_BOX),
 				halfExtents(0.5f, 0.5f, 0.5f), radius(0.5f), halfHeight(0.5f),
-				mass(1.0f), friction(0.5f), restitution(0.0f), planar(false) {}
+				mass(1.0f), friction(0.5f), restitution(0.0f), planar(false),
+				layer("Default") {}
+		};
+		//! @brief data-driven collision layers: the named game-layer set plus a
+		//! SYMMETRIC NxN "do these two layers collide" matrix. Plain data (no
+		//! Jolt types) - SET ON THE WORLD BEFORE init(); createBody() routes a
+		//! body's BodyDesc::layer name through layerIndex() to its ObjectLayer.
+		//! The broadphase motion buckets (static/moving) stay bodyType-derived
+		//! and DECOUPLED from the game layer - a game layer may hold both static
+		//! and moving bodies.
+		//!
+		//! CONFIG-ASSET CONVENTION (mirrors engine_input/InputActionMap.h - the
+		//! third project-config asset alongside input.oactions and the cvars):
+		//!   * an XMLArchive file (*.olayers) REFERENCED from the manifest by a
+		//!     Settings key (LAYERS_SETTING_KEY "physics.layers") holding a
+		//!     project-relative path; PROJECT-CONFIG, not under assets/, not
+		//!     id-tracked by the AssetDatabase.
+		//!   * OPTIONAL: without the key the built-in default (a single
+		//!     "Default" layer that collides with everything) applies, so a
+		//!     project with no asset behaves EXACTLY as before.
+		//!   * export bundles it when referenced - Util/orkige_export.py stages
+		//!     it via CONFIG_SETTING_KEYS.
+		struct ORKIGE_ENGINE_DLL LayerConfig
+		{
+			StringVector					names;	//!< layer names; index 0 is always the collide-with-all "Default"
+			std::vector< std::vector<bool> >	matrix;	//!< symmetric NxN: matrix[a][b] = layers a and b collide
+
+			//--- config-asset convention constants ---
+			static const String LAYERS_SETTING_KEY;		//!< manifest Settings key ("physics.layers")
+			static const String LAYERS_FILE_EXTENSION;	//!< ".olayers"
+			static const String LAYERS_FILE_MAGIC;		//!< "orkige.olayers"
+			static const int	LAYERS_FORMAT_VERSION;	//!< version written into every saved file
+			static const String DEFAULT_LAYER_NAME;		//!< "Default" (layer index 0)
+
+			//! constructs the built-in default (single "Default", collides with all)
+			LayerConfig();
+			//! reset to the built-in default set
+			void loadDefaults();
+			//! number of named layers (always >= 1)
+			int getLayerCount() const;
+			//! @brief index of a named layer; the Default layer (0) for an
+			//! empty or unknown name - THE migration rule: a body with no/unknown
+			//! layer lands on Default (index 0), which collides with everything
+			int layerIndex(String const & name) const;
+			//! name of a layer index ("" out of range)
+			String layerName(int index) const;
+			//! do layers a and b collide (false if either index is out of range)
+			bool collides(int a, int b) const;
+			//! set (SYMMETRICALLY) whether layers a and b collide
+			void setCollision(int a, int b, bool value);
+			//! is the matrix symmetric (matrix[a][b] == matrix[b][a] everywhere)
+			bool isSymmetric() const;
+			//! @brief force symmetry: matrix[a][b] = matrix[b][a] = the OR of the
+			//! two (a collision authored in either direction stands)
+			void symmetrize();
+
+			//--- asset IO (XMLArchive) ---
+			//! @brief load an .olayers file. On any error the config is left
+			//! UNCHANGED and false is returned (honest, non-destructive).
+			bool load(String const & fileName);
+			//! write the current config to an .olayers file (round-trip)
+			bool save(String const & fileName) const;
+			//! @brief the project-load entry point: if the manifest has
+			//! LAYERS_SETTING_KEY, resolve it project-relative and load();
+			//! otherwise loadDefaults(). A referenced-but-broken file keeps the
+			//! defaults (logged), so a typo never breaks collisions.
+			void loadForProject(Project const & project);
 		};
 	protected:
 		//! hides all Jolt types (only defined in PhysicsWorld.cpp)
@@ -84,6 +156,7 @@ namespace Orkige
 		PhysicsWorldImpl*	mImpl;					//!< Jolt guts, NULL until init()
 		float				mAccumulator;			//!< fixed-timestep accumulator
 		bool				mPaused;				//!< update() no-ops while true
+		LayerConfig			mLayerConfig;			//!< collision layers; set BEFORE init() (default = collide-with-all)
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -100,6 +173,13 @@ namespace Orkige
 		void deinit();
 		//! is the physics system initialized
 		inline bool isInitialized() const;
+		//! @brief set the collision-layer configuration. MUST be called BEFORE
+		//! init() - the Jolt filters are built from it at init time and there
+		//! are no mid-session layer changes in v1 (a re-init is heavy). Setting
+		//! it while initialized is ignored (logged).
+		void setLayerConfig(LayerConfig const & config);
+		//! the active collision-layer configuration
+		inline LayerConfig const & getLayerConfig() const;
 		//! @brief advance the simulation by deltaTime (seconds)
 		//! @remarks steps the world in FIXED_TIMESTEP increments, at most
 		//! MAX_STEPS_PER_UPDATE per call; the remainder carries over.
@@ -173,6 +253,11 @@ namespace Orkige
 	inline bool PhysicsWorld::isInitialized() const
 	{
 		return this->mImpl != NULL;
+	}
+	//---------------------------------------------------------
+	inline PhysicsWorld::LayerConfig const & PhysicsWorld::getLayerConfig() const
+	{
+		return this->mLayerConfig;
 	}
 	//---------------------------------------------------------
 	inline bool PhysicsWorld::isPaused() const

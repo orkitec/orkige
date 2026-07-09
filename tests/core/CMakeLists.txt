@@ -18,6 +18,7 @@ add_executable(orkige_core_tests
     SceneSerializerTests.cpp
     PrefabSerializerTests.cpp
     HierarchyTests.cpp
+    TagTests.cpp
     ProjectTests.cpp
     AssetDatabaseTests.cpp
     TweenTests.cpp

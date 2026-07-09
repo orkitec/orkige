@@ -64,6 +64,11 @@ namespace Orkige
 		void setPlanarMode(bool planar);
 		//! is 2D mode enabled
 		inline bool getPlanarMode() const;
+		//! @brief set the collision-layer NAME (before body creation; the layer
+		//! is resolved against the PhysicsWorld's LayerConfig at createBody)
+		void setLayer(String const & layer);
+		//! the collision-layer name ("Default" unless set)
+		inline String const & getLayer() const;
 		//! set linear velocity in m/s (needs the created body)
 		void setLinearVelocity(Vec3 const & velocity);
 		//! get linear velocity in m/s (ZERO before body creation)
@@ -135,6 +140,11 @@ namespace Orkige
 	inline bool RigidBodyComponent::getPlanarMode() const
 	{
 		return this->mBodyDesc.planar;
+	}
+	//---------------------------------------------------------
+	inline String const & RigidBodyComponent::getLayer() const
+	{
+		return this->mBodyDesc.layer;
 	}
 	//---------------------------------------------------------
 	inline bool RigidBodyComponent::hasBody() const

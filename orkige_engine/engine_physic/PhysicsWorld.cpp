@@ -25,6 +25,9 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
 
+#include "core_project/Project.h"
+#include "core_serialization/XMLArchive.h"
+
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
@@ -53,13 +56,14 @@ namespace
 		return Ogre::Quaternion(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
 	}
 
-	//--- standard two-layer broadphase setup (Jolt HelloWorld) -------
-	namespace Layers
-	{
-		static constexpr JPH::ObjectLayer NON_MOVING = 0;
-		static constexpr JPH::ObjectLayer MOVING = 1;
-		static constexpr JPH::ObjectLayer NUM_LAYERS = 2;
-	}
+	//--- data-driven object layers ----------------------------------
+	// The ObjectLayer PACKS two independent axes: the game-layer index (from
+	// LayerConfig, drives the collision matrix) in the high bits and one motion
+	// bit (static vs. moving, bodyType-derived) in the low bit. This keeps the
+	// broadphase at the classic 2 motion buckets while giving the narrow phase
+	// N arbitrary game layers - the two axes stay decoupled (a game layer may
+	// carry both static and moving bodies). ObjectLayer is a 16-bit value, so
+	// this leaves room for 2^15 game layers - far more than any project needs.
 	namespace BroadPhaseLayers
 	{
 		static constexpr JPH::BroadPhaseLayer NON_MOVING(0);
@@ -67,7 +71,22 @@ namespace
 		static constexpr JPH::uint NUM_LAYERS(2);
 	}
 	//---------------------------------------------------------
-	//! object layer -> broadphase layer mapping
+	inline JPH::ObjectLayer makeObjectLayer(int gameLayer, bool moving)
+	{
+		return static_cast<JPH::ObjectLayer>(
+			(static_cast<unsigned>(gameLayer) << 1) | (moving ? 1u : 0u));
+	}
+	inline int gameLayerOf(JPH::ObjectLayer layer)
+	{
+		return static_cast<int>(layer >> 1);
+	}
+	inline bool movingOf(JPH::ObjectLayer layer)
+	{
+		return (layer & 1) != 0;
+	}
+	//---------------------------------------------------------
+	//! object layer -> broadphase (motion) layer mapping: the low bit is the
+	//! static/moving flag, decoupled from the game-layer index in the high bits
 	class BPLayerInterfaceImpl final : public JPH::BroadPhaseLayerInterface
 	{
 	public:
@@ -77,8 +96,8 @@ namespace
 		}
 		virtual JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override
 		{
-			return layer == Layers::NON_MOVING ?
-				BroadPhaseLayers::NON_MOVING : BroadPhaseLayers::MOVING;
+			return movingOf(layer) ?
+				BroadPhaseLayers::MOVING : BroadPhaseLayers::NON_MOVING;
 		}
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
 		virtual const char * GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override
@@ -88,39 +107,37 @@ namespace
 #endif
 	};
 	//---------------------------------------------------------
-	//! which object layers collide with which broadphase layers
+	//! coarse broadphase cull (unchanged semantics): a moving object may hit
+	//! any bucket, a static object only the MOVING bucket - static/static pairs
+	//! never simulate. The game-layer MATRIX is applied in the narrow phase.
 	class ObjectVsBroadPhaseLayerFilterImpl final : public JPH::ObjectVsBroadPhaseLayerFilter
 	{
 	public:
 		virtual bool ShouldCollide(JPH::ObjectLayer layer1, JPH::BroadPhaseLayer layer2) const override
 		{
-			switch (layer1)
+			if (movingOf(layer1))
 			{
-			case Layers::NON_MOVING:
-				return layer2 == BroadPhaseLayers::MOVING;
-			case Layers::MOVING:
 				return true;
-			default:
-				return false;
 			}
+			return layer2 == BroadPhaseLayers::MOVING;
 		}
 	};
 	//---------------------------------------------------------
-	//! which object layers collide with each other
+	//! which object layers collide with each other - the data-driven narrow
+	//! phase: decode the game-layer index from each ObjectLayer and read the
+	//! symmetric collision matrix (Jolt calls this both (A,B) and (B,A), which
+	//! the enforced symmetry answers consistently)
 	class ObjectLayerPairFilterImpl final : public JPH::ObjectLayerPairFilter
 	{
 	public:
+		Orkige::PhysicsWorld::LayerConfig const * mConfig = nullptr;
 		virtual bool ShouldCollide(JPH::ObjectLayer layer1, JPH::ObjectLayer layer2) const override
 		{
-			switch (layer1)
+			if (!mConfig)
 			{
-			case Layers::NON_MOVING:
-				return layer2 == Layers::MOVING;
-			case Layers::MOVING:
 				return true;
-			default:
-				return false;
 			}
+			return mConfig->collides(gameLayerOf(layer1), gameLayerOf(layer2));
 		}
 	};
 
@@ -174,19 +191,24 @@ namespace Orkige
 	{
 		//--- Variables ---------------------------------------------
 	public:
+		PhysicsWorld::LayerConfig			mLayerConfig;				//!< the game-layer set + collision matrix (owned copy)
 		BPLayerInterfaceImpl				mBroadPhaseLayerInterface;	//!< object -> broadphase layer mapping
 		ObjectVsBroadPhaseLayerFilterImpl	mObjectVsBroadPhaseFilter;	//!< object vs broadphase layer filter
-		ObjectLayerPairFilterImpl			mObjectLayerPairFilter;		//!< object layer pair filter
+		ObjectLayerPairFilterImpl			mObjectLayerPairFilter;		//!< object layer pair filter (reads mLayerConfig)
 		JPH::TempAllocatorImpl				mTempAllocator;				//!< per-update scratch memory
 		JPH::JobSystemThreadPool			mJobSystem;					//!< worker threads for the simulation
 		JPH::PhysicsSystem					mPhysicsSystem;				//!< the Jolt world
 		//--- Methods -----------------------------------------------
 	public:
-		PhysicsWorldImpl() :
+		explicit PhysicsWorldImpl(PhysicsWorld::LayerConfig const & layerConfig) :
+			mLayerConfig(layerConfig),
 			mTempAllocator(10 * 1024 * 1024),
 			mJobSystem(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
 				std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 1))
 		{
+			// the pair filter reads the owned config copy (stable for the Jolt
+			// system's lifetime - Jolt keeps the interface by reference)
+			this->mObjectLayerPairFilter.mConfig = &this->mLayerConfig;
 		}
 	};
 	//---------------------------------------------------------
@@ -211,7 +233,7 @@ namespace Orkige
 			return true;
 		}
 		registerJoltRuntimeOnce();
-		this->mImpl = new PhysicsWorldImpl();
+		this->mImpl = new PhysicsWorldImpl(this->mLayerConfig);
 		this->mImpl->mPhysicsSystem.Init(maxBodies, numBodyMutexes, maxBodyPairs,
 			maxContactConstraints, this->mImpl->mBroadPhaseLayerInterface,
 			this->mImpl->mObjectVsBroadPhaseFilter, this->mImpl->mObjectLayerPairFilter);
@@ -229,6 +251,25 @@ namespace Orkige
 		delete this->mImpl;
 		this->mImpl = NULL;
 		this->mAccumulator = 0.0f;
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::setLayerConfig(LayerConfig const & config)
+	{
+		if (this->mImpl)
+		{
+			// the Jolt filters were built at init() from the previous config;
+			// v1 has no mid-session layer changes (a re-init is heavy)
+			oDebugWarning(false, "PhysicsWorld::setLayerConfig ignored - already "
+				"initialized (layers must be configured before init)");
+			return;
+		}
+		this->mLayerConfig = config;
+		// a config must always answer at least the Default layer
+		if (this->mLayerConfig.getLayerCount() == 0)
+		{
+			this->mLayerConfig.loadDefaults();
+		}
+		this->mLayerConfig.symmetrize();
 	}
 	//---------------------------------------------------------
 	void PhysicsWorld::update(float deltaTime)
@@ -292,8 +333,11 @@ namespace Orkige
 			desc.bodyType == PhysicsWorld::BT_STATIC ? JPH::EMotionType::Static :
 			desc.bodyType == PhysicsWorld::BT_KINEMATIC ? JPH::EMotionType::Kinematic :
 			JPH::EMotionType::Dynamic;
-		const JPH::ObjectLayer layer = desc.bodyType == PhysicsWorld::BT_STATIC ?
-			Layers::NON_MOVING : Layers::MOVING;
+		// the ObjectLayer packs the game-layer index (drives the collision
+		// matrix) with the motion bit (static vs. moving, still bodyType-derived)
+		const bool moving = desc.bodyType != PhysicsWorld::BT_STATIC;
+		const int gameLayer = this->mImpl->mLayerConfig.layerIndex(desc.layer);
+		const JPH::ObjectLayer layer = makeObjectLayer(gameLayer, moving);
 		JPH::BodyCreationSettings settings(shape, toJolt(position),
 			toJolt(orientation), motionType, layer);
 		settings.mFriction = desc.friction;
@@ -525,6 +569,244 @@ namespace Orkige
 		result.hit = this->castRay(origin, direction, maxDistance,
 			result.position, result.bodyId);
 		return result;
+	}
+	//---------------------------------------------------------
+	//--- PhysicsWorld::LayerConfig ---------------------------
+	//---------------------------------------------------------
+	const String PhysicsWorld::LayerConfig::LAYERS_SETTING_KEY = "physics.layers";
+	const String PhysicsWorld::LayerConfig::LAYERS_FILE_EXTENSION = ".olayers";
+	const String PhysicsWorld::LayerConfig::LAYERS_FILE_MAGIC = "orkige.olayers";
+	const int PhysicsWorld::LayerConfig::LAYERS_FORMAT_VERSION = 1;
+	const String PhysicsWorld::LayerConfig::DEFAULT_LAYER_NAME = "Default";
+	//---------------------------------------------------------
+	PhysicsWorld::LayerConfig::LayerConfig()
+	{
+		this->loadDefaults();
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::LayerConfig::loadDefaults()
+	{
+		// a single "Default" layer that collides with everything - a project
+		// with no .olayers asset behaves EXACTLY as before this feature landed
+		this->names.clear();
+		this->names.push_back(DEFAULT_LAYER_NAME);
+		this->matrix.assign(1, std::vector<bool>(1, true));
+	}
+	//---------------------------------------------------------
+	int PhysicsWorld::LayerConfig::getLayerCount() const
+	{
+		return static_cast<int>(this->names.size());
+	}
+	//---------------------------------------------------------
+	int PhysicsWorld::LayerConfig::layerIndex(String const & name) const
+	{
+		if (!name.empty())
+		{
+			for (std::size_t index = 0; index < this->names.size(); ++index)
+			{
+				if (this->names[index] == name)
+				{
+					return static_cast<int>(index);
+				}
+			}
+		}
+		// migration: an empty or unknown layer lands on Default (index 0), which
+		// collides with everything - old scenes behave identically
+		return 0;
+	}
+	//---------------------------------------------------------
+	String PhysicsWorld::LayerConfig::layerName(int index) const
+	{
+		if (index < 0 || index >= this->getLayerCount())
+		{
+			return String();
+		}
+		return this->names[static_cast<std::size_t>(index)];
+	}
+	//---------------------------------------------------------
+	bool PhysicsWorld::LayerConfig::collides(int a, int b) const
+	{
+		const int count = this->getLayerCount();
+		if (a < 0 || b < 0 || a >= count || b >= count)
+		{
+			return false;
+		}
+		return this->matrix[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)];
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::LayerConfig::setCollision(int a, int b, bool value)
+	{
+		const int count = this->getLayerCount();
+		if (a < 0 || b < 0 || a >= count || b >= count)
+		{
+			return;
+		}
+		// symmetric by construction: Jolt asks both (A,B) and (B,A)
+		this->matrix[static_cast<std::size_t>(a)][static_cast<std::size_t>(b)] = value;
+		this->matrix[static_cast<std::size_t>(b)][static_cast<std::size_t>(a)] = value;
+	}
+	//---------------------------------------------------------
+	bool PhysicsWorld::LayerConfig::isSymmetric() const
+	{
+		const std::size_t count = this->names.size();
+		if (this->matrix.size() != count)
+		{
+			return false;
+		}
+		for (std::size_t a = 0; a < count; ++a)
+		{
+			if (this->matrix[a].size() != count)
+			{
+				return false;
+			}
+			for (std::size_t b = a + 1; b < count; ++b)
+			{
+				if (this->matrix[a][b] != this->matrix[b][a])
+				{
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::LayerConfig::symmetrize()
+	{
+		const std::size_t count = this->names.size();
+		// normalise the matrix to a full NxN first (a hand-edited file may be
+		// ragged); missing cells default to no-collision
+		this->matrix.resize(count);
+		for (std::size_t a = 0; a < count; ++a)
+		{
+			this->matrix[a].resize(count, false);
+		}
+		for (std::size_t a = 0; a < count; ++a)
+		{
+			for (std::size_t b = a + 1; b < count; ++b)
+			{
+				// a collision authored in EITHER direction stands
+				const bool both = this->matrix[a][b] || this->matrix[b][a];
+				this->matrix[a][b] = both;
+				this->matrix[b][a] = both;
+			}
+		}
+	}
+	//---------------------------------------------------------
+	bool PhysicsWorld::LayerConfig::load(String const & fileName)
+	{
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if (!ar->startReading(fileName))
+		{
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: could not open layer file: " << fileName);
+			return false;
+		}
+		String magic;
+		ar >> magic;
+		if (magic != LAYERS_FILE_MAGIC)
+		{
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: " << fileName
+				<< " is not an orkige layer file (magic: \"" << magic << "\")");
+			ar->stopReading();
+			return false;
+		}
+		int version = 0;
+		ar >> version;
+		if (version > LAYERS_FORMAT_VERSION)
+		{
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: layer file " << fileName
+				<< " has unsupported version " << version << " (supported: "
+				<< LAYERS_FORMAT_VERSION << ")");
+			ar->stopReading();
+			return false;
+		}
+		// build into scratch; the live config is only replaced on success
+		LayerConfig loaded;
+		loaded.names.clear();
+		loaded.matrix.clear();
+		unsigned int layerCount = 0;
+		ar >> layerCount;
+		for (unsigned int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
+		{
+			String name;
+			ar >> name;
+			loaded.names.push_back(name);
+		}
+		loaded.matrix.assign(layerCount, std::vector<bool>(layerCount, false));
+		for (unsigned int a = 0; a < layerCount; ++a)
+		{
+			for (unsigned int b = 0; b < layerCount; ++b)
+			{
+				bool value = false;
+				ar >> value;
+				loaded.matrix[a][b] = value;
+			}
+		}
+		ar->stopReading();
+		if (loaded.names.empty())
+		{
+			// an empty set is meaningless - keep at least Default
+			loaded.loadDefaults();
+		}
+		// enforce symmetry: Jolt asks both directions (a hand edit may be ragged)
+		loaded.symmetrize();
+		*this = loaded;
+		oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: loaded "
+			<< this->names.size() << " layer(s) from " << fileName);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool PhysicsWorld::LayerConfig::save(String const & fileName) const
+	{
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if (!ar->startWriting(fileName))
+		{
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: could not start writing layer file: " << fileName);
+			return false;
+		}
+		ar << LAYERS_FILE_MAGIC;
+		int version = LAYERS_FORMAT_VERSION;
+		ar << version;
+		unsigned int layerCount = static_cast<unsigned int>(this->names.size());
+		ar << layerCount;
+		for (String const & name : this->names)
+		{
+			String value = name;
+			ar << value;
+		}
+		for (unsigned int a = 0; a < layerCount; ++a)
+		{
+			for (unsigned int b = 0; b < layerCount; ++b)
+			{
+				bool value = this->collides(static_cast<int>(a), static_cast<int>(b));
+				ar << value;
+			}
+		}
+		bool written = ar->stopWriting();
+		if (!written)
+		{
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: error while writing layer file: " << fileName);
+		}
+		return written;
+	}
+	//---------------------------------------------------------
+	void PhysicsWorld::LayerConfig::loadForProject(Project const & project)
+	{
+		const String reference = project.getSetting(LAYERS_SETTING_KEY);
+		if (reference.empty())
+		{
+			// no override authored: the built-in default (collide-with-all) stands
+			this->loadDefaults();
+			return;
+		}
+		const String path = project.resolvePath(reference);
+		if (!this->load(path))
+		{
+			// a referenced-but-broken file must not silently drop collisions:
+			// fall back to the defaults (load already logged the reason)
+			oDebugMsg("physic", 0, "PhysicsWorld::LayerConfig: layer override '"
+				<< reference << "' could not be loaded - keeping the built-in defaults");
+			this->loadDefaults();
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

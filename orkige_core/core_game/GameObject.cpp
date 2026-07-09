@@ -11,6 +11,7 @@
 #include "core_game/GameObject.h"
 #include "core_game/GameObjectManager.h"
 #include <core_debug/ProfileManager.h>
+#include <algorithm>
 #include <string>
 #include <stdexcept>
 
@@ -401,6 +402,65 @@ namespace Orkige
 		this->refreshActiveInHierarchy();
 	}
 	//---------------------------------------------------------
+	bool GameObject::hasTag(String const & tag) const
+	{
+		return std::find(this->tags.begin(), this->tags.end(), tag) != this->tags.end();
+	}
+	//---------------------------------------------------------
+	void GameObject::addTag(String const & tag)
+	{
+		if(tag.empty() || this->hasTag(tag))
+		{
+			return;
+		}
+		StringVector const oldTags = this->tags;	// copy: the index diffs old vs new
+		this->tags.push_back(tag);
+		GameObjectManager::getSingleton().onObjectTagsChanged(this->getObjectID(), oldTags, this->tags);
+	}
+	//---------------------------------------------------------
+	void GameObject::removeTag(String const & tag)
+	{
+		StringVector::iterator it = std::find(this->tags.begin(), this->tags.end(), tag);
+		if(it == this->tags.end())
+		{
+			return;
+		}
+		StringVector const oldTags = this->tags;	// copy: the index diffs old vs new
+		this->tags.erase(it);
+		GameObjectManager::getSingleton().onObjectTagsChanged(this->getObjectID(), oldTags, this->tags);
+	}
+	//---------------------------------------------------------
+	void GameObject::setTags(StringVector const & newTags)
+	{
+		// drop empties and duplicates, preserving first-seen order
+		StringVector cleaned;
+		foreach(String const & tag, newTags)
+		{
+			if(!tag.empty() && std::find(cleaned.begin(), cleaned.end(), tag) == cleaned.end())
+			{
+				cleaned.push_back(tag);
+			}
+		}
+		if(cleaned == this->tags)
+		{
+			return;
+		}
+		StringVector const oldTags = this->tags;
+		this->tags = cleaned;
+		GameObjectManager::getSingleton().onObjectTagsChanged(this->getObjectID(), oldTags, this->tags);
+	}
+	//---------------------------------------------------------
+	void GameObject::clearTags()
+	{
+		if(this->tags.empty())
+		{
+			return;
+		}
+		StringVector const oldTags = this->tags;
+		this->tags.clear();
+		GameObjectManager::getSingleton().onObjectTagsChanged(this->getObjectID(), oldTags, this->tags);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void GameObject::refreshActiveInHierarchy()
@@ -490,5 +550,9 @@ namespace Orkige
 		OFUNC(setActive)
 		OFUNC(isActiveSelf)
 		OFUNC(isActiveInHierarchy)
+		//--- tags (multi-tag labels) ---
+		OFUNC(hasTag)
+		OFUNC(addTag)
+		OFUNC(removeTag)
 	OOBJECT_END
 }

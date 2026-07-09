@@ -16,13 +16,14 @@
 
 namespace Orkige
 {
-	// version 3 (2026-07): per-object prefabRef (+assetId attribute, like
-	// every asset reference) and, on prefab instance roots, the list of
-	// suppressed prefab children (structural overrides - see
-	// core_game/PrefabSerializer.h); version 2 added the per-object parent
-	// id + activeSelf flag (Unity-style GameObject tree); version 1 scenes
-	// load as all-root, all-active, prefab-less worlds
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 3;
+	// version 4 (2026-07): per-object tag list (free-form multi-tag labels,
+	// GameObjectManager tag index); version 3 added the per-object prefabRef
+	// (+assetId attribute, like every asset reference) and, on prefab instance
+	// roots, the list of suppressed prefab children (structural overrides - see
+	// core_game/PrefabSerializer.h); version 2 added the per-object parent id +
+	// activeSelf flag (Unity-style GameObject tree); version 1 scenes load as
+	// all-root, all-active, prefab-less, tag-less worlds
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 4;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	namespace
@@ -104,6 +105,16 @@ namespace Orkige
 			ar << parentId;
 			bool activeSelf = gameObject->isActiveSelf();
 			ar << activeSelf;
+
+			// v4: the free-form tag list (ids into the manager's tag index)
+			StringVector const & tags = gameObject->getTags();
+			unsigned int tagCount = static_cast<unsigned int>(tags.size());
+			ar << tagCount;
+			foreach(String const & tag, tags)
+			{
+				String tagValue = tag;
+				ar << tagValue;
+			}
 
 			// v3: the prefab reference ("" on plain objects) with its stable
 			// asset id riding as a side attribute (the same rename-survival
@@ -205,6 +216,26 @@ namespace Orkige
 				if(!activeSelf)
 				{
 					activeStates.push_back(ActiveState(id, activeSelf));
+				}
+			}
+
+			if(version >= 4)
+			{
+				// tags apply immediately (independent of the hierarchy links
+				// resolved after the loop); setTags registers them in the
+				// manager's tag index
+				StringVector tags;
+				unsigned int tagCount = 0;
+				ar >> tagCount;
+				for(unsigned int tagIndex = 0; tagIndex < tagCount; ++tagIndex)
+				{
+					String tag;
+					ar >> tag;
+					tags.push_back(tag);
+				}
+				if(!tags.empty())
+				{
+					gameObject->setTags(tags);
 				}
 			}
 

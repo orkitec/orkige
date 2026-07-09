@@ -319,8 +319,10 @@ class ComponentWriter:
         ])
 
     def rigid_box(self, hx, hy, hz, body_type=1, friction=0.5,
-                  restitution=0.0):
-        """body_type: 0 static, 1 KINEMATIC (movable tiles), 2 dynamic."""
+                  restitution=0.0, layer="Default"):
+        """body_type: 0 static, 1 KINEMATIC (movable tiles), 2 dynamic.
+        layer: collision-layer NAME (physics.olayers) - the LAST field, matches
+        RigidBodyComponent::save."""
         return self._component("RigidBodyComponent", [
             '<int value="%d"/>' % body_type,
             '<int value="0"/>',                              # ST_BOX
@@ -332,10 +334,11 @@ class ComponentWriter:
             '<float value="%s"/>' % fmt(float(friction)),
             '<float value="%s"/>' % fmt(float(restitution)),
             '<bool value="0"/>',                             # planar (dynamic only)
+            '<String value="%s"/>' % layer,                  # collision layer
         ])
 
     def rigid_sphere(self, radius, mass=1.0, friction=0.5, restitution=0.2,
-                     planar=True):
+                     planar=True, layer="Default"):
         return self._component("RigidBodyComponent", [
             '<int value="2"/>',                              # BT_DYNAMIC
             '<int value="1"/>',                              # ST_SPHERE
@@ -346,6 +349,7 @@ class ComponentWriter:
             '<float value="%s"/>' % fmt(float(friction)),
             '<float value="%s"/>' % fmt(float(restitution)),
             '<bool value="%s"/>' % fmt(planar),
+            '<String value="%s"/>' % layer,                  # collision layer
         ])
 
     def script(self, path, enabled=True):
@@ -511,7 +515,7 @@ def wall_components(writer, cx, cy, horizontal, length):
         writer.transform(cx, cy),
         writer.sprite("wall.png", w, h, Z_WALL),
         writer.rigid_box(w / 2.0, h / 2.0, WALL_HALF, body_type=1,
-                         friction=0.4),
+                         friction=0.4, layer="obstacle"),
     )
 
 
@@ -576,7 +580,7 @@ def build_scene(tile_asset_id):
         scene.transform(SLOTS[0][0], ball_spawn_y),
         scene.sprite("ball.png", 0.8, 0.8, Z_BALL),
         scene.rigid_sphere(0.4, mass=1.0, friction=0.4, restitution=0.2,
-                           planar=True),
+                           planar=True, layer="ball"),
         scene.script("scripts/ball.lua"),
         # star-collect burst (WP #82): ball.lua fires self.particles:burst()
         # on the win - a golden additive shower of the goal-star texture
@@ -599,6 +603,34 @@ def build_scene(tile_asset_id):
     scene.add("Cursor", scene.transform(SLOTS[1][0], SLOTS[1][1]),
               scene.sprite("cursor.png", TILE, TILE, Z_CURSOR, visible=False))
     return scene
+
+
+def write_layers(path):
+    """physics.olayers (PhysicsWorld::LayerConfig, XMLArchive) - proves the
+    data-driven collision matrix gates real roller collisions: the ball rolls
+    on the obstacle walls/tiles (ball x obstacle = collide) while ball/ball and
+    obstacle/obstacle are OFF. Default (0) collides with everything so any
+    unlabeled body behaves as before. Row-major NxN bools, symmetric."""
+    names = ["Default", "ball", "obstacle"]
+    # symmetric collision matrix (index order matches names)
+    matrix = [
+        [True,  True,  True],   # Default: collides with all
+        [True,  False, True],   # ball:    not with itself, yes with obstacles
+        [True,  True,  False],  # obstacle: not with itself
+    ]
+    lines = [
+        "<?1.0, UTF-8, yes?>",
+        '<XMLArchive Version="0">',
+        '    <String value="orkige.olayers"/>',
+        '    <int value="1"/>',
+        '    <unsigned_int value="%d"/>' % len(names),
+    ]
+    lines.extend('    <String value="%s"/>' % name for name in names)
+    for row in matrix:
+        lines.extend('    <bool value="%d"/>' % (1 if cell else 0)
+                     for cell in row)
+    lines.append('</XMLArchive>')
+    path.write_text("\n".join(lines) + "\n")
 
 
 def main():
@@ -632,6 +664,11 @@ def main():
     scene.write(scenes / "main.oscene")
     print("wrote %s (%d objects)" % (scenes / "main.oscene",
                                      len(scene.objects)))
+
+    # collision layers (project-config, referenced from the manifest by the
+    # Settings key "physics.layers")
+    write_layers(project_dir / "physics.olayers")
+    print("wrote %s" % (project_dir / "physics.olayers"))
 
 
 if __name__ == "__main__":

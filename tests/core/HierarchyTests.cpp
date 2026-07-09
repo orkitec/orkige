@@ -352,6 +352,9 @@ TEST_CASE("SceneSerializer survives a scene referencing a missing parent", "[hie
 		ar << parentId;
 		bool activeSelf = true;
 		ar << activeSelf;
+		// the v4 per-object tag list (empty)
+		unsigned int tagCount = 0;
+		ar << tagCount;
 		// the v3 prefabRef slot ("" = a plain GameObject)
 		Orkige::String prefabRef = "";
 		ar << prefabRef;

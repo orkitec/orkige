@@ -98,7 +98,7 @@ PAYLOAD_SUBDIRS = ("scenes", "assets", "scripts")
 # convention - see engine_input/InputActionMap.h). Each entry is a Settings key
 # whose value is a project-relative path to copy verbatim; later config
 # packages (cvars persistence, physics.olayers) append their key here.
-CONFIG_SETTING_KEYS = ("input.actions",)
+CONFIG_SETTING_KEYS = ("input.actions", "physics.layers")
 
 
 def log(message):

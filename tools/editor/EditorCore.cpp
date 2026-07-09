@@ -104,6 +104,10 @@ namespace Orkige
 		// active flag lives on the GameObject itself
 		mParentId = gameObject->getParentId();
 		mActiveSelf = gameObject->isActiveSelf();
+		// tags travel with the object too (rename = serialize + recreate under a
+		// new id, so the tags must be re-applied - which re-registers them in
+		// the manager's tag index under the new id)
+		mTags = gameObject->getTags();
 		// keep the archive content in memory, the file is gone after this
 		std::ifstream file(tempFile.path, std::ios::binary);
 		std::ostringstream content;
@@ -195,6 +199,7 @@ namespace Orkige
 			}
 		}
 		gameObject->setActive(mActiveSelf);
+		gameObject->setTags(mTags);
 		return true;
 	}
 
@@ -576,6 +581,50 @@ namespace Orkige
 	String SetActiveObjectCommand::getDescription() const
 	{
 		return (mActive ? "Activate " : "Deactivate ") + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- SetTagsCommand ---------------------------------------
+	//---------------------------------------------------------
+	SetTagsCommand::SetTagsCommand(String const& objectId,
+		StringVector const& tags)
+		: mObjectId(objectId), mTags(tags)
+	{
+	}
+	//---------------------------------------------------------
+	bool SetTagsCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		mBefore = gameObject->getTags();
+		gameObject->setTags(mTags);
+		// a no-op change (setTags cleaned to the same set) never enters undo
+		if (gameObject->getTags() == mBefore)
+		{
+			return false;
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool SetTagsCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject = core.getGameObjectManager()
+			.getGameObject(mObjectId).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		gameObject->setTags(mBefore);
+		return true;
+	}
+	//---------------------------------------------------------
+	String SetTagsCommand::getDescription() const
+	{
+		return "Set tags on " + mObjectId;
 	}
 
 	//---------------------------------------------------------
@@ -1455,6 +1504,41 @@ namespace Orkige
 			return false;
 		}
 		return executeCommand(onew(new SetActiveObjectCommand(id, active)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectTags(String const& id, StringVector const& tags)
+	{
+		if (!mGameObjectManager.objectExists(id))
+		{
+			return false;
+		}
+		return executeCommand(onew(new SetTagsCommand(id, tags)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::getObjectTags(String const& id, StringVector& out) const
+	{
+		optr<GameObject> gameObject = mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		out = gameObject->getTags();
+		return true;
+	}
+	//---------------------------------------------------------
+	void EditorCore::loadPhysicsLayers(Project const& project)
+	{
+		mPhysicsLayers.loadForProject(project);
+	}
+	//---------------------------------------------------------
+	void EditorCore::resetPhysicsLayers()
+	{
+		mPhysicsLayers.loadDefaults();
+	}
+	//---------------------------------------------------------
+	StringVector EditorCore::getPhysicsLayerNames() const
+	{
+		return mPhysicsLayers.names;
 	}
 	//---------------------------------------------------------
 	bool EditorCore::groupSelected()
