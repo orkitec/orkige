@@ -80,7 +80,8 @@ namespace Orkige
 	//! @brief the player side of the editor's play-mode debug protocol,
 	//! shared by tools/player and native game modules: owns the DebugServer,
 	//! answers editor commands (pause/resume/step/quit/select/set_property/
-	//! request_hierarchy), streams the hierarchy on change and the selected
+	//! set_cvar/reload_script/screenshot/request_hierarchy), streams the
+	//! hierarchy on change and the selected
 	//! object's state at ~15Hz, pushes a script_error message for every
 	//! GameObject whose ScriptComponent fails (once per object per
 	//! connection - failures on never-selected objects must not stay
@@ -113,6 +114,11 @@ namespace Orkige
 		bool			mPaused = false;		//!< update/physics stepping gated
 		int				mPendingSteps = 0;		//!< queued single-steps (only while paused)
 		bool			mQuitRequested = false;	//!< editor sent quit
+		//! a MSG_SCREENSHOT arrived: the main loop consumes the path after
+		//! rendering, captures the window and reports back (kept out of the
+		//! renderer-agnostic protocol code on purpose)
+		bool			mHasPendingScreenshot = false;
+		String			mPendingScreenshotPath;
 		String			mSelectedObjectId;		//!< object whose state is streamed
 		StringVector	mLastSentHierarchy;
 		StringVector	mLastSentParents;		//!< parent ids parallel to mLastSentHierarchy
@@ -142,6 +148,19 @@ namespace Orkige
 		//! one queued single-step? (true at most once per queued step; only
 		//! ever true while paused)
 		bool consumePendingStep();
+
+		//! @brief a queued screenshot request? On true, outPath receives the
+		//! editor-requested capture path and the request is consumed (at most
+		//! once per MSG_SCREENSHOT). The player's main loop performs the actual
+		//! window capture (renderer containment keeps the render call out of
+		//! this class) AFTER rendering the frame, then reports the outcome with
+		//! notifyScreenshotSaved.
+		bool consumePendingScreenshot(String & outPath);
+		//! @brief answer a consumed screenshot request: sends MSG_SCREENSHOT_SAVED
+		//! back to the editor (path echoed, ok flag, error text on failure). A
+		//! no-op when the link has no client.
+		void notifyScreenshotSaved(String const & path, bool ok,
+			String const & error = String());
 
 		//! @brief per-frame pump BEFORE stepping the world: accept/lose the
 		//! client (hello + initial hierarchy on connect, un-pause on a

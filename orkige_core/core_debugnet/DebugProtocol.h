@@ -79,6 +79,16 @@ namespace Orkige
 		//! play-control verbs extend the same else-if chain the same way.
 		//! Additive since protocol v1: old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_SET_CVAR;
+		//! @brief screenshot the RUNNING game: the editor asks the player to
+		//! capture its next rendered frame to FIELD_PATH (a path on the player's
+		//! filesystem - desktop play shares it with the editor). The player saves
+		//! the window contents after the frame renders and answers with
+		//! MSG_SCREENSHOT_SAVED. The FOURTH additive protocol-extension message
+		//! that rides the ONE debug protocol (after MSG_RELOAD_SCRIPT / cvars and
+		//! the MCP play-control verbs); old players answer "unknown command".
+		//! Renderer-agnostic on the wire - the capture stays in the player's main
+		//! loop (renderer containment), the link only carries the request/ack.
+		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -93,6 +103,11 @@ namespace Orkige
 		//! silently otherwise). Additive since protocol v1: old editors ignore
 		//! unknown message types.
 		extern ORKIGE_CORE_DLL const String MSG_SCRIPT_ERROR;
+		//! @brief the answer to MSG_SCREENSHOT: FIELD_PATH echoes the requested
+		//! path, FIELD_VALUE is "1" when the capture was written / "0" on failure
+		//! (FIELD_MESSAGE then carries the reason). Additive since protocol v1:
+		//! old editors ignore unknown message types.
+		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT_SAVED;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -101,6 +116,7 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_PROPERTY;		//!< property name (e.g. "position")
 		extern ORKIGE_CORE_DLL const String FIELD_VALUE;			//!< property value (floats space-separated)
 		extern ORKIGE_CORE_DLL const String FIELD_CVAR_NAME;		//!< MSG_SET_CVAR: the console variable's name
+		extern ORKIGE_CORE_DLL const String FIELD_PATH;				//!< MSG_SCREENSHOT: output file path
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"

@@ -479,6 +479,14 @@ struct PlaySession
 	std::map<std::string, int> statePropKind;
 	std::map<std::string, std::string> statePropHint;
 	std::set<std::string> statePropReadonly;
+	//! running-game screenshot (MSG_SCREENSHOT / MSG_SCREENSHOT_SAVED): the
+	//! path last CONFIRMED written by the player, its ok flag and any error.
+	//! screenshotSeq increments on every confirmation so a poller can tell a
+	//! fresh capture from a stale one; all reset by clearRemoteState.
+	std::string lastScreenshotPath;
+	std::string lastScreenshotError;
+	bool lastScreenshotOk = false;
+	unsigned int screenshotSeq = 0;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;
@@ -632,6 +640,25 @@ void setRemoteObjectActive(PlaySession& session, std::string const& id,
 //! button. Optimistically clears scriptErrorIds - the player re-pushes
 //! script_error only if a reload actually failed.
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console);
+
+//! @brief write a live component property on the RUNNING game (MSG_SET_PROPERTY,
+//! the reflected setter on the player - takes effect immediately, not undoable
+//! and NOT an edit-world change). A no-op when no player is connected.
+void setRemoteObjectProperty(PlaySession& session, std::string const& id,
+	std::string const& component, std::string const& property,
+	std::string const& value);
+
+//! @brief change a console variable on the RUNNING game (MSG_SET_CVAR). A no-op
+//! when no player is connected.
+void setRemoteCvar(PlaySession& session, std::string const& name,
+	std::string const& value);
+
+//! @brief ask the RUNNING game to screenshot its next rendered frame to path
+//! (MSG_SCREENSHOT). The player answers with MSG_SCREENSHOT_SAVED, which
+//! updatePlaySession records in lastScreenshotPath/Ok/Error + screenshotSeq. A
+//! no-op when no player is connected. Desktop play only - the path lives on the
+//! player's filesystem, shared with the editor there.
+void requestRemoteScreenshot(PlaySession& session, std::string const& path);
 
 //! per-frame pump: connection progress, protocol messages, build/process
 //! supervision, crash detection

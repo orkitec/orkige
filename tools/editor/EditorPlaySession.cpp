@@ -67,6 +67,10 @@ void clearRemoteState(PlaySession& session)
 	session.statePropKind.clear();
 	session.statePropHint.clear();
 	session.statePropReadonly.clear();
+	session.lastScreenshotPath.clear();
+	session.lastScreenshotError.clear();
+	session.lastScreenshotOk = false;
+	session.screenshotSeq = 0;
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -818,6 +822,49 @@ void setRemoteObjectActive(PlaySession& session, std::string const& id,
 	session.client.send(setActive);
 }
 
+//! live property write on the running game (reflected setter on the player)
+void setRemoteObjectProperty(PlaySession& session, std::string const& id,
+	std::string const& component, std::string const& property,
+	std::string const& value)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage set(Protocol::MSG_SET_PROPERTY);
+	set.set(Protocol::FIELD_ID, id);
+	set.set(Protocol::FIELD_COMPONENT, component);
+	set.set(Protocol::FIELD_PROPERTY, property);
+	set.set(Protocol::FIELD_VALUE, value);
+	session.client.send(set);
+}
+
+//! live cvar tuning on the running game
+void setRemoteCvar(PlaySession& session, std::string const& name,
+	std::string const& value)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage cvar(Protocol::MSG_SET_CVAR);
+	cvar.set(Protocol::FIELD_CVAR_NAME, name);
+	cvar.set(Protocol::FIELD_VALUE, value);
+	session.client.send(cvar);
+}
+
+//! ask the running game to capture its next frame to path
+void requestRemoteScreenshot(PlaySession& session, std::string const& path)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage shot(Protocol::MSG_SCREENSHOT);
+	shot.set(Protocol::FIELD_PATH, path);
+	session.client.send(shot);
+}
+
 //! Lua hot-reload: tell the running player to recompile-and-swap
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 {
@@ -1011,6 +1058,27 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				console.addLine(ConsoleLevel::Error,
 					"[remote] SCRIPT ERROR on '" + id + "': " +
 					message.get(Protocol::FIELD_MESSAGE));
+			}
+		}
+		else if (message.type == Protocol::MSG_SCREENSHOT_SAVED)
+		{
+			// the running game confirmed (or failed) a requested capture; record
+			// it so the toolbar and the MCP screenshot_game poller see the fresh
+			// result
+			session.lastScreenshotPath = message.get(Protocol::FIELD_PATH);
+			session.lastScreenshotOk =
+				message.get(Protocol::FIELD_VALUE) == "1";
+			session.lastScreenshotError = message.get(Protocol::FIELD_MESSAGE);
+			++session.screenshotSeq;
+			if (session.lastScreenshotOk)
+			{
+				console.addLine(ConsoleLevel::Info,
+					"[remote] screenshot saved: " + session.lastScreenshotPath);
+			}
+			else
+			{
+				console.addLine(ConsoleLevel::Error,
+					"[remote] screenshot FAILED: " + session.lastScreenshotError);
 			}
 		}
 		else if (message.type == Protocol::MSG_BYE)

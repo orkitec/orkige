@@ -170,10 +170,14 @@ namespace Orkige
 	{
 	public:
 		~EditorControlSelfTest();
-		//! start driving the MCP endpoint at 127.0.0.1:port with the given auth
-		//! token; the screenshot verb writes to screenshotPath
+		//! @brief start driving the MCP endpoint at 127.0.0.1:port with the given
+		//! auth token; the screenshot verb writes to screenshotPath. With
+		//! runtimeDebug set, run the RUNTIME DEBUG conversation instead of the
+		//! edit-world one: boot Play over MCP, then pause/step/inspect/mutate/
+		//! screenshot the RUNNING game and stop (the editor_control_debug ctest,
+		//! which needs the built player).
 		void begin(unsigned short port, std::string const& token,
-			std::string const& screenshotPath);
+			std::string const& screenshotPath, bool runtimeDebug = false);
 		//! poll the worker (the GameObjectManager param is unused - the endpoint
 		//! is verified entirely through its JSON-RPC responses)
 		void update(GameObjectManager& manager);
@@ -188,6 +192,7 @@ namespace Orkige
 		std::thread mThread;
 		std::string mToken;
 		std::string mScreenshotPath;
+		bool mRuntimeDebug = false;		//!< run the runtime-debug conversation
 		std::atomic<bool> mActive{ false };
 		std::atomic<bool> mDone{ false };
 		std::atomic<bool> mPassed{ false };

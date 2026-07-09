@@ -322,6 +322,35 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	bool PlayerDebugLink::consumePendingScreenshot(String & outPath)
+	{
+		if (!mActive || !mHasPendingScreenshot)
+		{
+			return false;
+		}
+		outPath = mPendingScreenshotPath;
+		mHasPendingScreenshot = false;
+		mPendingScreenshotPath.clear();
+		return true;
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::notifyScreenshotSaved(String const & path, bool ok,
+		String const & error)
+	{
+		if (!mActive || !mServer.hasClient())
+		{
+			return;
+		}
+		DebugMessage saved(Protocol::MSG_SCREENSHOT_SAVED);
+		saved.set(Protocol::FIELD_PATH, path);
+		saved.set(Protocol::FIELD_VALUE, ok ? "1" : "0");
+		if (!ok)
+		{
+			saved.set(Protocol::FIELD_MESSAGE, error);
+		}
+		mServer.send(saved);
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::update(GameObjectManager & gameObjectManager,
 		String const & scenePath)
 	{
@@ -714,6 +743,22 @@ namespace Orkige
 			{
 				// cvars: tune a console variable on the running player
 				handleSetCvar(message);
+			}
+			else if (message.type == Protocol::MSG_SCREENSHOT)
+			{
+				// screenshot the running game: record the target path; the
+				// main loop captures the window AFTER rendering (renderer
+				// containment) and reports back with notifyScreenshotSaved
+				const String path = message.get(Protocol::FIELD_PATH);
+				if (path.empty())
+				{
+					sendError("screenshot: missing path");
+				}
+				else
+				{
+					mHasPendingScreenshot = true;
+					mPendingScreenshotPath = path;
+				}
 			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as

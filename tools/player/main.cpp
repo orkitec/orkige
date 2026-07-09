@@ -1544,6 +1544,29 @@ int main(int argc, char** argv)
 			{
 				running = false;
 			}
+			// editor-requested screenshot of the RUNNING game (MSG_SCREENSHOT):
+			// captured AFTER the frame renders so it shows what the player just
+			// drew, then acknowledged over the debug link. The capture lives
+			// here (not in PlayerDebugLink) to keep the protocol code free of
+			// renderer types.
+			{
+				std::string screenshotPath;
+				if (debugLink.consumePendingScreenshot(screenshotPath))
+				{
+					render->saveWindowContents(screenshotPath);
+					// saveWindowContents is fire-and-forget; the file's presence
+					// (non-empty) is the honest success signal reported back
+					std::error_code shotError;
+					const bool captured =
+						std::filesystem::exists(screenshotPath, shotError) &&
+						std::filesystem::file_size(screenshotPath, shotError) > 0;
+					debugLink.notifyScreenshotSaved(screenshotPath, captured,
+						captured ? std::string()
+							: std::string("saveWindowContents wrote no file"));
+					SDL_Log("orkige_player: debug screenshot %s -> '%s'",
+						captured ? "written" : "FAILED", screenshotPath.c_str());
+				}
+			}
 			++frameCount;
 
 			// --- jumper-lua selfcheck script (see the block above the loop) --

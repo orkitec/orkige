@@ -311,6 +311,21 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_crash${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PLAYTEST=crash")
 
+    # MCP runtime debug tools end to end: the editor hosts its MCP endpoint on
+    # an ephemeral in-process port and, on a worker thread, drives the WHOLE
+    # runtime debug loop over a real socket - initialize, then play (boots the
+    # built player over the debug protocol), runtime_hierarchy/runtime_select/
+    # runtime_state (live inspection), pause + step, set_runtime_property (live
+    # write, read back), screenshot_game (the running-game frame, verified on
+    # disk), reload_script, an auth-rejected mutation on the live player, then
+    # stop and revert to edit mode. Everything runs through the MCP tools,
+    # exactly as an agent would. The screenshot path travels in the env value.
+    add_test(NAME editor_control_debug${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_control_debug${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_PLAYTEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_debug_shot.png"
+        LABELS integration TIMEOUT 120)
+
     # the project system end to end: open projects/example programmatically
     # (same function as File > Open Project), re-open it (resource-group
     # teardown on a project switch), assert the project roots everything

@@ -77,9 +77,11 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
   return an *accepted* result and are polled via `get_state`.
 - **Auth**: a mutation needs `Authorization: Bearer <token>` (the token from the
   token file). Read verbs are open. No token file ⇒ auth off (dev convenience).
-- **Play control** (`play`/`stop`/`pause`/`resume`/`step`) is translated into
-  the ONE existing player debug protocol — the MCP endpoint is editor-side,
-  never a second player port.
+- **Play control** (`play`/`stop`/`pause`/`resume`/`step`) and the **runtime
+  debug tools** (`runtime_hierarchy`/`runtime_select`/`runtime_state`/
+  `set_runtime_property`/`set_cvar`/`reload_script`/`screenshot_game` — see
+  "Debugging a running game") are translated into the ONE existing player debug
+  protocol — the MCP endpoint is editor-side, never a second player port.
 
 ## Tools
 
@@ -95,10 +97,17 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `rename_object(id, new_id)` / `reparent_object(id, parent)` / `set_active(id, value)` | `EditorCore::renameObject` / `reparentObject` / `setObjectActive` |
 | `add_component(id, component)` / `remove_component(id, component)` / `list_addable_components()` | `addComponentToObject` / `removeComponentFromObject` / `getAddableComponentTypes` |
 | `select(id)` / `undo()` / `redo()` | `EditorCore::selectObject` / `undo` / `redo` |
-| `play()` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` (translated to the player protocol) |
-| `screenshot(path, window)` | `RenderTexture::writeContentsToFile` (chrome-free viewport) / `RenderSystem::saveWindowContents` (whole window) → returns the written path |
+| `play()` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` / pause·resume·step over the player protocol |
+| `screenshot(path, window)` | the EDITOR: `RenderTexture::writeContentsToFile` (chrome-free viewport) / `RenderSystem::saveWindowContents` (whole window) → returns the written path |
+| `runtime_hierarchy()` | the RUNNING game's live hierarchy (ids/parents/active), streamed from the player |
+| `runtime_select(id)` | choose which running object streams its component state (`MSG_SELECT`) |
+| `runtime_state()` | the streamed component state of the selected running object (values + kinds/hints/readonly) |
+| `set_runtime_property(id, component, property, value)` | write one reflected property on the RUNNING game live (`MSG_SET_PROPERTY`) |
+| `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) |
+| `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
+| `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
-| `console_tail(count)` | the editor `EditorConsole` line store |
+| `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
 | `get_test_results(jobId)` | the structured verdict of a `run_tests` job |
@@ -168,6 +177,76 @@ restitution/planar/radius/half_height/half_extents), `CameraComponent`
 flip_x/flip_y/z_order/visible). `set_component` accepts the fields either at the
 top level or inside a `properties` object.
 
+## Debugging a running game
+
+During Play the editor spawns the player as a separate process and talks to it
+over the ONE player debug protocol (`core_debugnet`). A distinct family of tools
+bridges that link so an agent can drive and inspect the RUNNING game — the
+editor-side MCP endpoint never opens a second player port. This is the DEBUG half
+of the develop→run→test→debug loop: change something, watch it live, verify with
+a screenshot.
+
+**Edit world vs. running game.** `list_hierarchy` / `get_object` / `get_component`
+/ `set_component` ALWAYS operate on the EDITOR's world, even while Play is running
+(editing the scene mid-play stages changes for the next Play; it does not touch
+the live game). The `runtime_*` tools serve the LIVE player instead. Each returns
+`isError` (`"no live player - start Play first"`) when nothing is playing, so the
+mode is never ambiguous.
+
+- `runtime_hierarchy` reads the running game's live tree (`ids` / `parents` /
+  `active`, parallel lists; plus `scene`, `selected`, `play_mode`). The player
+  streams it on change; this returns the latest snapshot.
+- `runtime_select(id)` picks which running object streams its component state
+  (the debug protocol streams the SELECTED object only), then `runtime_state`
+  returns that stream: `object` (the streamed id), `ready` (`"1"` once it matches
+  the selection), and the parallel lists `properties` (the
+  `"<Component>.<property>"` keys), `values`, `kinds`, `hints`, `readonly`. The
+  stream is asynchronous (~15 Hz), so select, then poll `runtime_state` until
+  `ready="1"`.
+- `pause` / `resume` / `step` gate the running game's world stepping (rendering
+  and the protocol stay live); `step` advances exactly one fixed physics tick
+  while paused.
+- `set_runtime_property(id, component, property, value)` writes ONE reflected
+  property on the running game through the player's reflected setter — it takes
+  effect immediately and is NOT undoable (contrast `set_component`, which is the
+  undoable edit-world write). A bad name/value is reported as a `[remote]` error
+  line rather than failing the call, matching the live protocol's one-way write.
+- `set_cvar(name, value)` tunes a console variable on the running game
+  (`CVarManager`, fires its `onChange`). `reload_script(id?)` hot-reloads Lua
+  (compile-before-swap; one object or all) — a broken edit keeps the old instance
+  and surfaces a `[remote] SCRIPT ERROR`.
+- `console_tail` already includes the running player's forwarded log (the
+  `[remote]` lines) and its script errors — the player forwards its engine log
+  over the debug protocol and the editor folds it into the same Console store, so
+  no separate remote-log verb is needed.
+- `screenshot_game(path)` captures the RUNNING game's next rendered frame (the
+  most-cited verification primitive). Desktop play only — the path lives on the
+  player's filesystem, which the editor shares on desktop. It is ASYNC: the tool
+  returns `{ accepted:"1", path, prev_screenshot_seq }`; the player captures the
+  next frame and confirms, and `get_state` then carries `screenshot_seq` (bumped
+  on each confirmation), `screenshot_ok` and `screenshot_path`. Poll `get_state`
+  until `screenshot_seq` exceeds the returned `prev_screenshot_seq`.
+
+`get_state` is the poll target for all of the above: besides the editor snapshot
+it carries `remote_connected`, `remote_scene`, `remote_selected`,
+`remote_object_count` and the `screenshot_*` fields while a play session is up.
+
+Example loop — inspect and poke the running game, then capture evidence:
+
+```jsonc
+tools/call play {}                                 // → { accepted:"1", play_mode:"launching" }
+tools/call get_state {}                            // poll → play_mode:"playing", remote_connected:"1"
+tools/call runtime_hierarchy {}                    // → { ids:["Player", ...], ... }
+tools/call runtime_select { "id": "Player" }       // authed
+tools/call runtime_state {}                        // poll → ready:"1", values:["1 0 0", ...]
+tools/call pause {}                                // authed → get_state play_mode:"paused"
+tools/call set_runtime_property {                  // authed; live write
+    "id":"Player","component":"TransformComponent","property":"position","value":"2 3 4" }
+tools/call screenshot_game { "path":"/tmp/frame.png" }  // → { accepted:"1", prev_screenshot_seq:"0" }
+tools/call get_state {}                             // poll until screenshot_seq > 0, screenshot_ok:"1"
+tools/call stop {}                                 // authed → back to edit mode
+```
+
 ## Dirty-state policy
 
 Destructive verbs (`new_scene`, `open_scene`, `open_project`, `new_project`,
@@ -189,7 +268,20 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   already-built unit test (`build:"0"`, asserting the structured pass tally),
   and a throwaway failing CTest tree (built on the fly) so the `failed_*` lists +
   logtail parse are exercised on a real failure without touching the real suite.
-  Proves the whole C++ MCP endpoint with no Python.
+  It also proves the runtime debug tools' NEGATIVE paths headlessly: `tools/list`
+  advertises them, the runtime READS (`runtime_hierarchy` / `runtime_state`)
+  error cleanly with no player, and every runtime MUTATION is rejected without a
+  bearer token. Proves the whole C++ MCP endpoint with no Python.
+- `editor_control_debug` (ctest, integration; needs the built player): the same
+  socket-driven MCP client, but the RUNTIME DEBUG loop end to end against the
+  live player — `play` (boots the player over the debug protocol), then
+  `runtime_hierarchy` / `runtime_select` / `runtime_state` (live inspection),
+  `pause` + `step`, `set_runtime_property` (a live Transform write read back
+  through `runtime_state`), `screenshot_game` (the running-game frame, verified
+  non-empty on disk via `get_state`'s `screenshot_seq`/`screenshot_ok`),
+  `reload_script`, an auth-rejected mutation on the LIVE player, then `stop` and a
+  clean revert to edit mode. Every step runs through the MCP tools, exactly as an
+  agent would drive them.
 - `JsonTests` / `HttpServerTests` (ctest, unit): the nested-JSON codec
   round-trip + malformed-input safety, and the hand-rolled HTTP/1.1 framing
   (request parsing, keep-alive pipelining, case-insensitive headers, junk

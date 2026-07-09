@@ -465,7 +465,8 @@ namespace Orkige
 				type == "list_hierarchy" || type == "get_object" ||
 				type == "get_component" || type == "list_assets" ||
 				type == "console_tail" || type == "list_addable_components" ||
-				type == "list_tests" || type == "get_test_results";
+				type == "list_tests" || type == "get_test_results" ||
+				type == "runtime_hierarchy" || type == "runtime_state";
 		}
 		//---------------------------------------------------------
 		//--- generic reflected-property helpers ---
@@ -768,10 +769,65 @@ namespace Orkige
 				{ "resume", "Resume the running player.", {} },
 				{ "step", "Advance the paused player one frame.", {} },
 				{ "screenshot",
-				  "Write a PNG: the chrome-free scene viewport, or the whole "
-				  "editor window (window='1'). Returns the written path.",
+				  "Write a PNG of the EDITOR: the chrome-free scene viewport, or "
+				  "the whole editor window (window='1'). Returns the written "
+				  "path. For the RUNNING game's frame use screenshot_game.",
 				  { { "path", "string", "output PNG path", true },
 				    { "window", "string", "'1' for the whole window", false } } },
+				{ "runtime_hierarchy",
+				  "The RUNNING game's live GameObject hierarchy (ids/parents/"
+				  "active), streamed from the player during Play. Distinct from "
+				  "list_hierarchy, which always reads the EDIT world. Errors when "
+				  "no player is connected.",
+				  {} },
+				{ "runtime_state",
+				  "The component state streamed for the running game's currently "
+				  "SELECTED object: 'object' (the streamed id), 'ready' ('1' when "
+				  "it matches the selection), and the parallel lists 'properties' "
+				  "(the '<Component>.<property>' keys), 'values', 'kinds', 'hints' "
+				  "and 'readonly'. Call runtime_select first, then poll this until "
+				  "ready='1' (the stream is asynchronous). Errors when no player "
+				  "is connected.",
+				  {} },
+				{ "runtime_select",
+				  "Choose which running-game object streams its component state "
+				  "(''=stop streaming). Then poll runtime_state. Errors when no "
+				  "player is connected.",
+				  { { "id", "string", "GameObject id ('' clears)", false } } },
+				{ "set_runtime_property",
+				  "Write ONE reflected property on the RUNNING game live (the "
+				  "player's reflected setter - takes effect immediately, not "
+				  "undoable, NOT an edit-world change; use set_component for the "
+				  "edit world). A bad value/name surfaces as a [remote] error in "
+				  "console_tail. Errors when no player is connected.",
+				  { { "id", "string", "GameObject id", true },
+				    { "component", "string", "component type name", true },
+				    { "property", "string", "property name", true },
+				    { "value", "string", "canonical value string", true } } },
+				{ "set_cvar",
+				  "Change a console variable on the RUNNING game live "
+				  "(CVarManager). An unknown name or bad value surfaces as a "
+				  "[remote] error in console_tail. Errors when no player is "
+				  "connected.",
+				  { { "name", "string", "cvar name", true },
+				    { "value", "string", "new value (parsed per the cvar type)",
+				      true } } },
+				{ "reload_script",
+				  "Hot-reload Lua on the RUNNING game (compile-before-swap): one "
+				  "object's ScriptComponent (id) or ALL of them (id omitted). A "
+				  "reload that fails to compile keeps the old instance and "
+				  "surfaces a [remote] SCRIPT ERROR. Errors when no player is "
+				  "connected.",
+				  { { "id", "string", "GameObject id (omit = reload all)",
+				      false } } },
+				{ "screenshot_game",
+				  "Screenshot the RUNNING game's next rendered frame to 'path' "
+				  "(desktop play only; the path is on the player's filesystem, "
+				  "shared with the editor). ASYNC: returns accepted + "
+				  "prev_screenshot_seq; poll get_state until screenshot_seq "
+				  "exceeds it, then screenshot_path/screenshot_ok carry the "
+				  "result. Errors when no player is connected.",
+				  { { "path", "string", "output PNG path", true } } },
 				{ "list_assets",
 				  "List the open project's assets and scenes.", {} },
 				{ "console_tail",
@@ -1307,6 +1363,18 @@ namespace Orkige
 			ok.set("can_undo", core.canUndo() ? "1" : "0");
 			ok.set("can_redo", core.canRedo() ? "1" : "0");
 			ok.set("play_mode", playSessionModeName(*context.play));
+			// live-player snapshot (present while a play session is up): the
+			// debug tools poll these - remote connection, the streamed selection
+			// and the last confirmed running-game screenshot
+			PlaySession const& play = *context.play;
+			ok.set("remote_connected", play.client.isConnected() ? "1" : "0");
+			ok.set("remote_scene", play.remoteScenePath);
+			ok.set("remote_selected", play.remoteSelectedId);
+			ok.set("remote_object_count",
+				std::to_string(play.remoteHierarchy.size()));
+			ok.set("screenshot_path", play.lastScreenshotPath);
+			ok.set("screenshot_ok", play.lastScreenshotOk ? "1" : "0");
+			ok.set("screenshot_seq", std::to_string(play.screenshotSeq));
 			this->sendOk(req, ok);
 			return;
 		}
@@ -1865,6 +1933,196 @@ namespace Orkige
 			return;
 		}
 
+		//--- runtime debug: inspect + drive the RUNNING game ------
+		// These bridge the editor-side play link onto the ONE player debug
+		// protocol (never a second player port). They serve the LIVE player -
+		// distinct from list_hierarchy/get_component, which always read the
+		// EDIT world (even during Play). A read answers honestly when no player
+		// is connected.
+		if (type == "runtime_hierarchy")
+		{
+			PlaySession const& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("scene", play.remoteScenePath);
+			ok.set("selected", play.remoteSelectedId);
+			ok.set("play_mode", playSessionModeName(play));
+			ok.setList(DebugProtocol::LIST_IDS, play.remoteHierarchy);
+			ok.setList(DebugProtocol::LIST_PARENTS, play.remoteParents);
+			ok.setList(DebugProtocol::LIST_ACTIVE, play.remoteActive);
+			this->sendOk(req, ok);
+			return;
+		}
+		// runtime_state: the component state streamed for the running game's
+		// currently-selected object. object_state only covers the SELECTED
+		// object, so runtime_select the object first, then poll this until
+		// 'object' matches (the stream arrives asynchronously at ~15Hz).
+		if (type == "runtime_state")
+		{
+			PlaySession const& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("object", play.stateObjectId);
+			ok.set("selected", play.remoteSelectedId);
+			ok.set("ready", (!play.stateObjectId.empty() &&
+				play.stateObjectId == play.remoteSelectedId) ? "1" : "0");
+			ok.setList(DebugProtocol::LIST_COMPONENTS, play.stateComponents);
+			// the streamed "<Component>.<property>" values by key, plus the
+			// parallel metadata lists the player sends (kind/hint/read-only)
+			StringVector keys;
+			StringVector values;
+			StringVector kinds;
+			StringVector hints;
+			StringVector readonly;
+			for (String const& key : play.statePropKeys)
+			{
+				keys.push_back(key);
+				auto valueIt = play.stateProperties.find(key);
+				values.push_back(valueIt != play.stateProperties.end()
+					? valueIt->second : String());
+				auto kindIt = play.statePropKind.find(key);
+				kinds.push_back(kindIt != play.statePropKind.end()
+					? kindName(static_cast<PropertyKind>(kindIt->second))
+					: String());
+				auto hintIt = play.statePropHint.find(key);
+				hints.push_back(hintIt != play.statePropHint.end()
+					? hintIt->second : String());
+				readonly.push_back(
+					play.statePropReadonly.count(key) != 0 ? "1" : "0");
+			}
+			ok.setList("properties", keys);
+			ok.setList("values", values);
+			ok.setList("kinds", kinds);
+			ok.setList("hints", hints);
+			ok.setList("readonly", readonly);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "runtime_select")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			const String id = request.get(DebugProtocol::FIELD_ID);
+			// "" is a legal clear (stop streaming); a non-empty id is validated
+			// by the player, which errors over the log if it is unknown
+			selectRemoteObject(*context.play, id);
+			DebugMessage ok(MSG_OK);
+			ok.set("selected", id);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "set_runtime_property")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String property = request.get(DebugProtocol::FIELD_PROPERTY);
+			const String value = request.get(DebugProtocol::FIELD_VALUE);
+			if (id.empty() || component.empty() || property.empty())
+			{
+				this->sendErr(req, "set_runtime_property needs id, component and "
+					"property");
+				return;
+			}
+			// fire-and-forget onto the player's reflected setter; a bad value/
+			// name surfaces as a [remote] error line (console_tail), matching the
+			// live protocol's one-way write model
+			setRemoteObjectProperty(*context.play, id, component, property,
+				value);
+			this->sendOk(req);
+			return;
+		}
+		if (type == "set_cvar")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			const String name = request.get(DebugProtocol::FIELD_CVAR_NAME);
+			if (name.empty())
+			{
+				this->sendErr(req, "set_cvar needs a 'name'");
+				return;
+			}
+			setRemoteCvar(*context.play, name,
+				request.get(DebugProtocol::FIELD_VALUE));
+			this->sendOk(req);
+			return;
+		}
+		if (type == "reload_script")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			// reload one object's scripts (FIELD_ID) or ALL of them (absent).
+			// reloadRemoteScripts sends reload-ALL; a per-object reload sends
+			// MSG_RELOAD_SCRIPT with the id directly.
+			const String id = request.get(DebugProtocol::FIELD_ID);
+			if (id.empty())
+			{
+				reloadRemoteScripts(*context.play, *context.console);
+			}
+			else
+			{
+				DebugMessage reload(DebugProtocol::MSG_RELOAD_SCRIPT);
+				reload.set(DebugProtocol::FIELD_ID, id);
+				context.play->client.send(reload);
+			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "screenshot_game")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (play.onSimulator || play.onAndroid)
+			{
+				this->sendErr(req, "screenshot_game is desktop-play only (the "
+					"path lives on the player's filesystem)");
+				return;
+			}
+			const String path = request.get("path");
+			if (path.empty())
+			{
+				this->sendErr(req, "screenshot_game needs a 'path'");
+				return;
+			}
+			// async: the player captures its NEXT frame and answers with
+			// screenshot_saved; poll get_state (screenshot_path/screenshot_ok/
+			// screenshot_seq) for the confirmation. Report the request accepted
+			// plus the sequence value BEFORE the request so a poller knows a
+			// fresh confirmation is one with a higher screenshot_seq.
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("path", path);
+			ok.set("prev_screenshot_seq", std::to_string(play.screenshotSeq));
+			requestRemoteScreenshot(play, path);
+			this->sendOk(req, ok);
+			return;
+		}
+
 		//--- screenshot (out of band; returns the written path) --
 		if (type == "screenshot")
 		{
@@ -2243,10 +2501,12 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	void EditorControlSelfTest::begin(unsigned short port,
-		std::string const& token, std::string const& screenshotPath)
+		std::string const& token, std::string const& screenshotPath,
+		bool runtimeDebug)
 	{
 		this->mToken = token;
 		this->mScreenshotPath = screenshotPath;
+		this->mRuntimeDebug = runtimeDebug;
 		this->mActive.store(true);
 		this->mDone.store(false);
 		this->mPassed.store(false);
@@ -2400,6 +2660,10 @@ namespace Orkige
 			bool hasCreate = false;
 			bool hasList = false;
 			bool schemasOk = true;
+			// the runtime debug tools must be advertised too
+			bool hasRuntimeHierarchy = false;
+			bool hasSetRuntimeProperty = false;
+			bool hasScreenshotGame = false;
 			for (size_t i = 0; i < tools.size(); ++i)
 			{
 				const String name = tools.at(i).get("name").asString();
@@ -2409,8 +2673,13 @@ namespace Orkige
 				}
 				if (name == "create_object") hasCreate = true;
 				if (name == "list_hierarchy") hasList = true;
+				if (name == "runtime_hierarchy") hasRuntimeHierarchy = true;
+				if (name == "set_runtime_property") hasSetRuntimeProperty = true;
+				if (name == "screenshot_game") hasScreenshotGame = true;
 			}
-			if (!hasCreate || !hasList || !schemasOk || tools.size() < 10)
+			if (!hasCreate || !hasList || !schemasOk || tools.size() < 10 ||
+				!hasRuntimeHierarchy || !hasSetRuntimeProperty ||
+				!hasScreenshotGame)
 			{
 				finish(false, "control self-test: tools/list missing tools/"
 					"schemas");
@@ -2549,6 +2818,322 @@ namespace Orkige
 			structured = result.get("structuredContent");
 			return true;
 		};
+
+		// a get_state fetch (read, no auth) returning the structuredContent
+		auto getState = [&](JsonValue& state) -> bool
+		{
+			bool isError = true;
+			return callTool("get_state", JsonValue::object(), false, state,
+				isError) && !isError;
+		};
+
+		// --- the RUNTIME DEBUG conversation (a separate ctest, needs the
+		// built player): boot Play over MCP, then pause/step/inspect/mutate/
+		// screenshot the RUNNING game and stop - all through the MCP tools,
+		// exactly as an agent would drive them. Runs instead of the edit-world
+		// conversation below when the runtime-debug env selected this mode.
+		if (this->mRuntimeDebug)
+		{
+			JsonValue structured;
+			bool isError = true;
+			// poll get_state until a predicate holds (or a timeout); returns the
+			// final state. 0.1s between polls; the verbs run on the editor's main
+			// thread, so a live player boots over these frames.
+			auto pollState = [&](auto&& ready,
+				int maxAttempts, JsonValue& outState) -> bool
+			{
+				for (int attempt = 0; attempt < maxAttempts; ++attempt)
+				{
+					if (getState(outState) && ready(outState))
+					{
+						return true;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				return false;
+			};
+
+			// (R1) play (authed) -> accepted
+			if (!callTool("play", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: runtime - play was not "
+					"accepted");
+				return;
+			}
+			// (R2) wait for the player to boot + connect (fat window - it spawns
+			// a process and boots the engine)
+			JsonValue state;
+			if (!pollState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "playing" &&
+						s.get("remote_connected").asString() == "1";
+				}, 600, state))
+			{
+				finish(false, "control self-test: runtime - player never "
+					"reached the playing state");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - runtime play up "
+				"(%s remote objects)",
+				state.get("remote_object_count").asString().c_str());
+
+			// (R3) runtime_hierarchy (read) must list the running objects
+			if (!callTool("runtime_hierarchy", JsonValue::object(), false,
+					structured, isError) || isError)
+			{
+				finish(false, "control self-test: runtime_hierarchy failed");
+				return;
+			}
+			JsonValue const& ids = structured.get("ids");
+			if (ids.size() == 0)
+			{
+				finish(false, "control self-test: runtime_hierarchy returned no "
+					"objects");
+				return;
+			}
+			const String firstId = ids.at(0).asString();
+
+			// (R4) runtime_select (authed), then poll runtime_state until it
+			// streams that object with its Transform
+			JsonValue selectArgs = JsonValue::object();
+			selectArgs.set("id", JsonValue(firstId));
+			if (!callTool("runtime_select", selectArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: runtime_select failed");
+				return;
+			}
+			bool stateReady = false;
+			JsonValue runtimeState;
+			for (int attempt = 0; attempt < 100 && !stateReady; ++attempt)
+			{
+				bool stateError = true;
+				if (callTool("runtime_state", JsonValue::object(), false,
+						runtimeState, stateError) && !stateError &&
+					runtimeState.get("ready").asString() == "1" &&
+					runtimeState.get("object").asString() == firstId)
+				{
+					stateReady = true;
+					break;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			if (!stateReady)
+			{
+				finish(false, "control self-test: runtime_state never streamed "
+					"the selected object");
+				return;
+			}
+			// the streamed keys must include the Transform position
+			bool hasPosition = false;
+			JsonValue const& keys = runtimeState.get("properties");
+			for (size_t i = 0; i < keys.size(); ++i)
+			{
+				if (keys.at(i).asString() == "TransformComponent.position")
+				{
+					hasPosition = true;
+				}
+			}
+			if (!hasPosition)
+			{
+				finish(false, "control self-test: runtime_state missing the "
+					"Transform position of the running object");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - runtime_state streams "
+				"'%s'", firstId.c_str());
+
+			// (R5) pause (authed) -> paused, then step (authed)
+			if (!callTool("pause", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: pause failed");
+				return;
+			}
+			if (!pollState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "paused";
+				}, 100, state))
+			{
+				finish(false, "control self-test: running game did not pause");
+				return;
+			}
+			if (!callTool("step", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: step failed");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - runtime pause + step OK");
+
+			// (R6) set_runtime_property (authed): move the Transform live, then
+			// read it back through runtime_state
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue(firstId));
+			setArgs.set("component", JsonValue("TransformComponent"));
+			setArgs.set("property", JsonValue("position"));
+			setArgs.set("value", JsonValue("2 3 4"));
+			if (!callTool("set_runtime_property", setArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: set_runtime_property failed");
+				return;
+			}
+			bool moved = false;
+			for (int attempt = 0; attempt < 100 && !moved; ++attempt)
+			{
+				bool stateError = true;
+				if (callTool("runtime_state", JsonValue::object(), false,
+						runtimeState, stateError) && !stateError)
+				{
+					JsonValue const& pk = runtimeState.get("properties");
+					JsonValue const& pv = runtimeState.get("values");
+					for (size_t i = 0; i < pk.size() && i < pv.size(); ++i)
+					{
+						if (pk.at(i).asString() ==
+								"TransformComponent.position" &&
+							pv.at(i).asString() == "2 3 4")
+						{
+							moved = true;
+						}
+					}
+				}
+				if (!moved)
+				{
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+			}
+			if (!moved)
+			{
+				finish(false, "control self-test: set_runtime_property did not "
+					"move the running object to '2 3 4'");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - set_runtime_property "
+				"moved the running object");
+
+			// (R7) screenshot_game (authed): capture the running frame, poll
+			// get_state until a FRESH confirmation (screenshot_seq advanced),
+			// then verify the file
+			const int prevSeq = std::atoi(state.get("screenshot_seq")
+				.asString().c_str());
+			JsonValue shotArgs = JsonValue::object();
+			shotArgs.set("path", JsonValue(String(this->mScreenshotPath)));
+			if (!callTool("screenshot_game", shotArgs, true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: screenshot_game was not "
+					"accepted");
+				return;
+			}
+			if (!pollState([prevSeq](JsonValue const& s)
+				{
+					return std::atoi(s.get("screenshot_seq").asString()
+						.c_str()) > prevSeq;
+				}, 100, state))
+			{
+				finish(false, "control self-test: running game never confirmed "
+					"the screenshot");
+				return;
+			}
+			std::error_code ignored;
+			if (state.get("screenshot_ok").asString() != "1" ||
+				state.get("screenshot_path").asString() !=
+					this->mScreenshotPath ||
+				!std::filesystem::exists(this->mScreenshotPath, ignored) ||
+				std::filesystem::file_size(this->mScreenshotPath, ignored) == 0)
+			{
+				finish(false, "control self-test: screenshot_game did not write "
+					"the running-game frame");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - screenshot_game wrote "
+				"'%s'", this->mScreenshotPath.c_str());
+
+			// (R8) reload_script (authed): a smoke over the running player (the
+			// fixtures carry no scripts, so this reloads zero but must succeed)
+			if (!callTool("reload_script", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: reload_script failed");
+				return;
+			}
+			// an unauthenticated mutation on the LIVE player must still be
+			// rejected (the auth gate holds during Play)
+			if (!callTool("pause", JsonValue::object(), false, structured,
+					isError) || !isError)
+			{
+				finish(false, "control self-test: unauthenticated pause on the "
+					"live player was NOT rejected");
+				return;
+			}
+
+			// (R9) stop (authed) -> back to edit mode, session torn down
+			if (!callTool("stop", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				finish(false, "control self-test: stop failed");
+				return;
+			}
+			if (!pollState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "edit";
+				}, 300, state))
+			{
+				finish(false, "control self-test: play did not revert to edit "
+					"mode after stop");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - runtime debug loop "
+				"PASSED (play/inspect/pause/step/set/screenshot/stop)");
+			finish(true, "");
+			return;
+		}
+
+		// --- runtime debug tools, NEGATIVE paths (headless, no live player):
+		// the runtime READS error cleanly when nothing is playing, and every
+		// runtime MUTATION is rejected without the bearer token (the auth gate
+		// fires before the play-state check).
+		{
+			JsonValue structured;
+			bool isError = false;
+			// runtime_hierarchy (read) with no player must error, not crash
+			if (!callTool("runtime_hierarchy", JsonValue::object(), false,
+					structured, isError) || !isError)
+			{
+				finish(false, "control self-test: runtime_hierarchy did not "
+					"error with no live player");
+				return;
+			}
+			isError = false;
+			if (!callTool("runtime_state", JsonValue::object(), false,
+					structured, isError) || !isError)
+			{
+				finish(false, "control self-test: runtime_state did not error "
+					"with no live player");
+				return;
+			}
+			// each runtime mutation WITHOUT auth must be rejected
+			const char* mutations[] = { "runtime_select", "set_runtime_property",
+				"set_cvar", "reload_script", "screenshot_game" };
+			for (const char* mutation : mutations)
+			{
+				isError = false;
+				if (!callTool(mutation, JsonValue::object(), false, structured,
+						isError) || !isError)
+				{
+					finish(false, String("control self-test: unauthenticated ") +
+						mutation + " was NOT rejected");
+					return;
+				}
+			}
+			SDL_Log("orkige_editor: control self-test - runtime debug tools "
+				"error cleanly with no player + reject unauthenticated "
+				"mutations");
+		}
 
 		// (8) GENERIC get_component: the reflected Transform
 		// property set crosses back by name, with discovery metadata lists.

@@ -218,6 +218,7 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -579,17 +580,24 @@ int main(int argc, char** argv)
 		controlContext.sceneTarget = &sceneTarget;
 		controlContext.gameObjectManager = &gameObjectManager;
 		// the control self-test drives an ephemeral in-process port; a real
-		// host passes an explicit --control-port
+		// host passes an explicit --control-port. Two self-test flavors: the
+		// edit-world conversation (ORKIGE_EDITOR_CONTROL_TEST) and the runtime-
+		// debug conversation (ORKIGE_EDITOR_CONTROL_PLAYTEST) which boots Play
+		// over MCP and drives the running game. Both take a screenshot path env.
 		const char* controlTestEnv = std::getenv("ORKIGE_EDITOR_CONTROL_TEST");
+		const char* controlPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST");
+		const char* controlSelfTestEnv =
+			controlTestEnv ? controlTestEnv : controlPlaytestEnv;
 		Orkige::EditorControlSelfTest controlSelfTest;
-		if (controlTestEnv != nullptr && controlPort < 0)
+		if (controlSelfTestEnv != nullptr && controlPort < 0)
 		{
 			controlPort = 0;	// ephemeral - the in-process test reads it back
 			// publish a token so the self-test really exercises the auth path
 			// (a token file makes start() mint + enforce a secret)
 			if (controlTokenFile.empty())
 			{
-				controlTokenFile = std::string(controlTestEnv) + ".token";
+				controlTokenFile = std::string(controlSelfTestEnv) + ".token";
 			}
 		}
 		if (controlPort >= 0)
@@ -599,7 +607,7 @@ int main(int argc, char** argv)
 			{
 				SDL_Log("orkige_editor: control port failed to start on "
 					"port %d", controlPort);
-				if (controlTestEnv != nullptr)
+				if (controlSelfTestEnv != nullptr)
 				{
 					exitCode = 2;
 				}
@@ -866,7 +874,7 @@ int main(int argc, char** argv)
 		// scripted stage fires. The plain interactive editor (none of these
 		// hooks set) never creates them.
 		const bool needsSceneFixtures = selfCheck || editTest || playtest ||
-			(exportExampleEnv != nullptr) || (controlTestEnv != nullptr);
+			(exportExampleEnv != nullptr) || (controlSelfTestEnv != nullptr);
 		// edittest state that spans frames
 		Orkige::EditorTransform editTestCube1Before;
 		Orkige::EditorTransform editTestCube1Moved;
@@ -3985,16 +3993,19 @@ int main(int argc, char** argv)
 					resizedWidth, resizedHeight,
 					sceneTarget.width, sceneTarget.height);
 			}
-			// MCP control-port self-test (editor_control ctest): once the
-			// frame-2 fixtures exist, drive an in-process DebugClient through
-			// the control server and assert every reply (see
-			// EditorControlSelfTest). Runs uncapped until it passes or fails.
-			if (controlTestEnv != nullptr && controlServer.isListening())
+			// MCP control-port self-test (editor_control / editor_control_debug
+			// ctests): once the frame-2 fixtures exist, drive the control server
+			// over a real socket and assert every reply (see
+			// EditorControlSelfTest). The runtime-debug flavor boots Play over
+			// MCP and drives the running game. Runs uncapped until it passes or
+			// fails.
+			if (controlSelfTestEnv != nullptr && controlServer.isListening())
 			{
 				if (frameCount == 3)
 				{
 					controlSelfTest.begin(controlServer.getPort(),
-						controlServer.getToken(), controlTestEnv);
+						controlServer.getToken(), controlSelfTestEnv,
+						controlPlaytestEnv != nullptr);
 				}
 				if (controlSelfTest.active())
 				{
