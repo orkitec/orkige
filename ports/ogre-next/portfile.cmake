@@ -23,17 +23,24 @@ vcpkg_from_github(
     SHA512 2ef8f16517c96cc7ddb31986857e4d0002e33c2eeff845b4af0b8e5848c3e92289dc3b10ededbe66fb63ef6234cbee88ed513466182bd4e70d710d0507f98418
     HEAD_REF master
     PATCHES
-        apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber CMAKE_OSX_SYSROOT with the symbolic "macosx" (Xcode-only assumptions upstream)
+        apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber CMAKE_OSX_SYSROOT (macOS "macosx" and iOS "iphoneos") with a symbolic name under single-config generators (Xcode-only assumptions upstream)
         apple-ninja-no-framework-postbuild.patch  # macOS: the framework-header POST_BUILD uses Xcode $(PLATFORM_NAME) vars - guard it behind OGRE_BUILD_LIBS_AS_FRAMEWORKS
+        vulkan-no-shaderc-probe.patch             # the Vulkan RS compiles GLSL via glslang only - stop the find-probe from requiring shaderc_combined (absent from vcpkg and the NDK), which silently disabled the whole RS
+        ios-lib-install-path.patch                # iOS: keep the standard vcpkg lib/ layout (upstream installs iOS release static libs into lib/Release)
 )
 
-# Render system per platform: Metal is Ogre-Next's first-class RS on Apple;
-# on Linux it is Vulkan (with the XCB windowing - needs the system X11/xcb
-# dev packages: libx11-xcb-dev, libxcb-randr0-dev, plus libxt-dev/libxaw7-dev
-# for the required X11 dependency probe). The Vulkan headers/loader come from
-# vcpkg (see vcpkg.json); glslang headers resolve through the same installed
-# include tree via FindVulkan's Vulkan_INCLUDE_DIRS. The legacy GL3+ path
-# stays off everywhere. TODO(linux): first proven by the linux-next CI job.
+# Render system per platform: Metal is Ogre-Next's first-class RS on Apple
+# (macOS and iOS); on Linux and Android it is Vulkan. The legacy GL3+/GLES
+# paths stay off everywhere.
+#   - Linux: Vulkan with XCB windowing (needs the system X11/xcb dev packages:
+#     libx11-xcb-dev, libxcb-randr0-dev, plus libxt-dev/libxaw7-dev for the
+#     required X11 dependency probe). Vulkan headers/loader come from vcpkg
+#     (see vcpkg.json); glslang headers resolve through the same installed
+#     include tree via FindVulkan's Vulkan_INCLUDE_DIRS.
+#   - Android: Vulkan with the ANativeWindow surface. The loader and headers
+#     come from the NDK sysroot (API 28 >= Vulkan 1.1), treated as driver-tier
+#     the same way MoltenVK is on macOS; glslang is a vcpkg dependency.
+#   - macOS / iOS: Metal only, no Vulkan find-probe.
 if(VCPKG_TARGET_IS_OSX)
     set(RENDERSYSTEM_OPTIONS
         # Metal is the first-class render system of Ogre-Next on Apple; the
@@ -44,11 +51,46 @@ if(VCPKG_TARGET_IS_OSX)
         # system Vulkan SDK
         -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
     )
+elseif(VCPKG_TARGET_IS_IOS)
+    set(RENDERSYSTEM_OPTIONS
+        # OGRE_BUILD_PLATFORM_APPLE_IOS is Ogre-Next's own iOS switch (a plain
+        # option upstream never sets from the toolchain): it selects the UIKit
+        # platform sources, the iOS view path and codec set. Setting it here
+        # keeps the iOS-simulator triplet untouched.
+        -DOGRE_BUILD_PLATFORM_APPLE_IOS=ON
+        -DOGRE_BUILD_RENDERSYSTEM_METAL=ON
+        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=OFF
+        -DCMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON
+    )
+elseif(VCPKG_TARGET_IS_ANDROID)
+    set(RENDERSYSTEM_OPTIONS
+        -DOGRE_BUILD_RENDERSYSTEM_METAL=OFF
+        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON
+        # no XCB on Android: the Vulkan ANativeWindow surface auto-selects via
+        # the dependent option's ANDROID condition
+    )
 else()
     set(RENDERSYSTEM_OPTIONS
         -DOGRE_BUILD_RENDERSYSTEM_METAL=OFF
         -DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON
         -DOGRE_VULKAN_WINDOW_XCB=ON
+    )
+endif()
+
+# Image codecs per platform: FreeImage on desktop (loads png/jpg AND encodes -
+# screenshots need an encoder). Mobile drops the FreeImage dependency entirely
+# and uses the in-tree STBI codec (decode-only, which is all device asset
+# loading needs) - matching the classic mobile flavor.
+if(VCPKG_TARGET_IS_IOS OR VCPKG_TARGET_IS_ANDROID)
+    set(CODEC_OPTIONS
+        -DOGRE_CONFIG_ENABLE_FREEIMAGE=OFF
+        -DOGRE_CONFIG_ENABLE_STBI=ON
+    )
+else()
+    set(CODEC_OPTIONS
+        -DOGRE_CONFIG_ENABLE_FREEIMAGE=ON
+        -DOGRE_CONFIG_ENABLE_STBI=OFF
+        -DCMAKE_REQUIRE_FIND_PACKAGE_FreeImage=ON
     )
 endif()
 
@@ -91,13 +133,10 @@ vcpkg_cmake_configure(
         -DOGRE_INSTALL_SAMPLES_SOURCE=OFF
         -DOGRE_INSTALL_TOOLS=OFF
         -DOGRE_INSTALL_DOCS=OFF
-        # image codecs: FreeImage (loads png/jpg AND encodes - the STBI codec
-        # in ogre-next is decode-only, screenshots need an encoder)
-        -DOGRE_CONFIG_ENABLE_FREEIMAGE=ON
-        -DOGRE_CONFIG_ENABLE_STBI=OFF
+        # image codecs (per-platform, see CODEC_OPTIONS above)
+        ${CODEC_OPTIONS}
         # zip archives wait for a real need (would add a zziplib dependency)
         -DOGRE_CONFIG_ENABLE_ZIP=OFF
-        -DCMAKE_REQUIRE_FIND_PACKAGE_FreeImage=ON
         -DCMAKE_REQUIRE_FIND_PACKAGE_ZLIB=ON
         # rapidjson is a hard OgreMain dependency in 3.0 (OgreRootLayout.cpp
         # includes it unconditionally), not just the Hlms-JSON option
@@ -119,6 +158,24 @@ vcpkg_cmake_configure(
 )
 
 vcpkg_cmake_install()
+
+# Guard against a silent render-system disable. OGRE_BUILD_RENDERSYSTEM_VULKAN
+# is a cmake_dependent_option gated on Vulkan_FOUND, so a broken find-probe
+# would drop the whole Vulkan RS and STILL complete the build "successfully"
+# (only a feature-summary log line). On the Vulkan platforms (Linux, Android)
+# assert the RS actually landed - fail here, in the port build, not later in
+# the consumer's generate step where the missing interface include dir is the
+# only symptom.
+if(VCPKG_TARGET_IS_LINUX OR VCPKG_TARGET_IS_ANDROID)
+    # the RS plugins install under lib/OGRE-Next/ on non-Apple
+    # (OGRE_PLUGIN_PATH=/OGRE-Next), unlike lib/ directly on Apple
+    if(NOT EXISTS "${CURRENT_PACKAGES_DIR}/lib/OGRE-Next/libRenderSystem_VulkanStatic.a")
+        message(FATAL_ERROR "Vulkan render system static library missing - the Vulkan find-probe or build was silently disabled")
+    endif()
+    if(NOT IS_DIRECTORY "${CURRENT_PACKAGES_DIR}/include/OGRE-Next/RenderSystems/Vulkan/include")
+        message(FATAL_ERROR "Vulkan render system headers missing - the Vulkan render system was silently disabled")
+    endif()
+endif()
 
 # The .pc files upstream templates are wrong for this configuration (they
 # unconditionally Require: gl, which is neither built nor installed) and the

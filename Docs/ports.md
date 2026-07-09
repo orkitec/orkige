@@ -56,9 +56,10 @@ Locally authored port (3.0.0, pinned tag `v3.0.0` - the latest stable of
 OGRECave/ogre-next; no upstream vcpkg port exists). The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
-never builds it. Static, `supports: (osx & arm64) | (linux & x64)` - the
-Linux half is the CI `linux-next` job's Vulkan flavor (widened further when
-the Phase-3 mobile evaluation decides backends).
+never builds it. Static, `supports: (osx & arm64) | (linux & x64) | (ios &
+arm64) | (android & arm64)` - the Linux half is the CI `linux-next` job's
+Vulkan flavor; the iOS (Metal) and Android (Vulkan) halves carry the mobile
+next backend.
 
 **Coexistence with classic `ogre` in one installed tree** is a hard
 requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives
@@ -70,21 +71,56 @@ RS), CMake config + HLMS media live under `share/ogre-next/`
 `macos-debug`/`macos-release` presets since the 2026-07-08 default flip)
 installs both into one `vcpkg_installed` tree.
 
-Configuration: ONE render system per platform - Metal on macOS (first-class
-on Ogre-Next; the legacy GL3+ 4.1 path buys nothing there), Vulkan on Linux
-(XCB windowing; headers/loader from the vcpkg `vulkan-headers`/`vulkan-loader`
-ports, glslang from the `glslang` port for the RS's runtime GLSL->SPIR-V
-compile - the upstream static archive has no link interface, so the shipped
-config carries `Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;
-xcb-randr` on `OgreNext::RenderSystem_Vulkan`; the xcb/Xt/Xaw dev packages
-come from the system package manager, same rule as classic ogre on Linux) -
-plus the NULL render system (headless
-option), Hlms PBS + Unlit components, FreeImage codec (the ogre-next STBI
-codec is decode-only - screenshots need an encoder), rapidjson (a hard
-OgreMain 3.0 dependency: OgreRootLayout.cpp includes it unconditionally).
-TODO(linux): the Linux/Vulkan build is authored against the 3.0.0 sources
-but first proven by the `linux-next` CI job - glslang API drift between
-ogre-next 3.0 and the current vcpkg glslang is the known risk.
+Configuration: ONE render system per platform (four-way in the portfile) -
+Metal on macOS and iOS (first-class on Ogre-Next; the legacy GL3+ 4.1 path
+buys nothing there), Vulkan on Linux and Android:
+
+- **Linux** - XCB windowing; headers/loader from the vcpkg
+  `vulkan-headers`/`vulkan-loader` ports, glslang from the `glslang` port for
+  the RS's runtime GLSL->SPIR-V compile. The upstream static archive has no
+  link interface, so the shipped config carries
+  `Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;xcb-randr` on
+  `OgreNext::RenderSystem_Vulkan`; the xcb/Xt/Xaw dev packages come from the
+  system package manager, same rule as classic ogre on Linux.
+- **Android** - Vulkan with the ANativeWindow surface (no X11/xcb). The Vulkan
+  loader and headers come from the **NDK sysroot** (API 28 >= Vulkan 1.1),
+  NOT from vcpkg: Vulkan on a device is driver-tier, the same doctrine as
+  MoltenVK on macOS (a platform-provided driver, not a vendored library).
+  `vulkan-headers`/`vulkan-loader` stay `platform: linux` in the manifest
+  (vcpkg's `vulkan-loader` is `supports: !android` anyway); glslang IS a vcpkg
+  dependency here (`platform: "linux | android"`) for the runtime compile. The
+  shipped config carries `Vulkan::Vulkan;glslang::glslang;glslang::SPIRV`
+  (CMake's built-in `FindVulkan` resolves the NDK loader into `Vulkan::Vulkan`).
+- **macOS / iOS** - Metal only, `CMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON` for
+  hermeticity. iOS additionally sets `OGRE_BUILD_PLATFORM_APPLE_IOS=ON` in the
+  portfile (Ogre-Next's own iOS switch, a plain option upstream never sets from
+  the toolchain - selects the UIKit platform sources and codec set), which
+  keeps the `arm64-ios-simulator` triplet untouched. The Metal RS config
+  interface is `-framework Metal;-framework AppKit;-framework QuartzCore` on
+  macOS, `-framework Metal;-framework QuartzCore` on iOS (no AppKit).
+
+All four also build the NULL render system (headless option), Hlms PBS + Unlit
+components and rapidjson (a hard OgreMain 3.0 dependency: OgreRootLayout.cpp
+includes it unconditionally).
+
+**Image codec** is FreeImage on desktop (decode + encode - screenshots need an
+encoder). Mobile drops the FreeImage dependency (`platform: "!ios & !android"`
+in the manifest, matching the classic mobile flavor) and builds the in-tree
+STBI codec (`OGRE_CONFIG_ENABLE_STBI=ON`, decode-only - all device asset
+loading needs). A screenshot-based device check would have to account for the
+missing encoder, same as classic mobile.
+
+**Silent-disable guard**: `OGRE_BUILD_RENDERSYSTEM_VULKAN` is a
+`cmake_dependent_option` gated on `Vulkan_FOUND`, so a failing Vulkan find-probe
+would drop the whole RS and STILL let the build complete "successfully" (only a
+feature-summary log line), surfacing later only as a missing interface include
+dir in the consumer's generate step. The portfile asserts (FATAL_ERROR) after
+install, on the Vulkan platforms, that `libRenderSystem_VulkanStatic.a` and the
+`RenderSystems/Vulkan/include` header dir actually landed - failing in the port
+build instead. TODO(linux): the Linux/Vulkan build is authored against the
+3.0.0 sources but first proven by the `linux-next` CI job - glslang API drift
+between ogre-next 3.0 and the current vcpkg glslang is the known risk.
+
 Overlay/samples/tools and all other components OFF until a phase needs them;
 zip archives OFF (would add zziplib - revisit when content work needs
 `addResourceLocation(LT_ZIP)`).
@@ -94,25 +130,51 @@ whose static .pc unconditionally `Requires: gl` - removed); the port ships
 its own `OGRE-NextConfig.cmake` with namespaced imported targets
 (`OgreNext::Main`, `OgreNext::HlmsPbs`, `OgreNext::HlmsUnlit`,
 `OgreNext::RenderSystem_Metal` on Apple / `OgreNext::RenderSystem_Vulkan`
-on Linux, `OgreNext::RenderSystem_NULL`) plus
+on Linux and Android, `OgreNext::RenderSystem_NULL`) plus
 `OGRE_NEXT_MEDIA_DIR` (the shipped `Media/Hlms` shader templates every
-Ogre-Next app must register).
+Ogre-Next app must register). The config detects the consumer's platform
+(`CMAKE_SYSTEM_NAME` = `iOS`/`Android`) to pick the per-platform link
+interfaces: macOS vs iOS platform frameworks on `OgreNext::Main` (iOS uses
+Foundation/UIKit/QuartzCore/CoreGraphics, no Cocoa/Carbon/IOKit), Linux xcb
+libs vs Android's xcb-free Vulkan interface, and it drops
+`freeimage::FreeImage` (and its `find_dependency`) on mobile.
 
 Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
 
 - `apple-ninja-objcxx-sysroot.patch` - upstream assumes Xcode on Apple:
   (a) enable OBJC/OBJCXX so the `.mm` sources (OgreMain/src/OSX,
   RenderSystem_Metal) compile under single-config generators; (b) do not
-  clobber `CMAKE_OSX_SYSROOT` with the symbolic "macosx" after `project()`
-  (Ninja passes `-isysroot` verbatim; resolve via xcodebuild only when
-  unset); (c) mirror upstream's `-DDEBUG=1` debug flag into the
-  OBJCXX/OBJC debug flags - `OGRE_DEBUG_MODE` is ABI-relevant
-  (`generateAbiCookie`) and the Metal plugin's ObjC++ TUs must agree with
-  OgreMain's C++ TUs.
+  clobber `CMAKE_OSX_SYSROOT` with a symbolic SDK name after `project()`
+  (Ninja passes `-isysroot` verbatim; resolve via xcodebuild only when unset)
+  - carried for BOTH the macOS "macosx" block and the iOS "iphoneos" block
+  (the iOS hunk stops upstream from overwriting the simulator triplet's
+  `iphonesimulator` sysroot with `iphoneos` under Ninja); (c) mirror
+  upstream's `-DDEBUG=1` debug flag into the OBJCXX/OBJC debug flags -
+  `OGRE_DEBUG_MODE` is ABI-relevant (`generateAbiCookie`) and the Metal
+  plugin's ObjC++ TUs must agree with OgreMain's C++ TUs.
 - `apple-ninja-no-framework-postbuild.patch` - macOS: OgreMain's
   framework-header POST_BUILD step uses Xcode `$(PLATFORM_NAME)` variables
   (literal `$(...)` under Ninja); guard it behind
   `OGRE_BUILD_LIBS_AS_FRAMEWORKS`.
+- `vulkan-no-shaderc-probe.patch` - ogre-next's bundled
+  `CMake/Packages/FindVulkan.cmake` requires `libshaderc_combined` (via
+  `Vulkan_SHADERC_LIB_REL`/`_DBG`) in its `find_package_handle_standard_args`,
+  a Windows-Vulkan-SDK-ism. The v3.0.0 Vulkan RS compiles GLSL to SPIR-V
+  through **glslang only** (`OgreVulkanProgram.cpp` uses `glslang/Public/
+  ShaderLang.h` and self-declares the `GlslangToSpv` prototypes - zero shaderc
+  usage under `RenderSystems/Vulkan/`), and neither vcpkg nor the NDK ships
+  shaderc_combined, so the probe failed, `Vulkan_FOUND` went false, and the
+  `cmake_dependent_option` silently dropped the RS. The patch drops the two
+  shaderc vars from the probe and only appends the `optimized`/`debug` shaderc
+  entries to `Vulkan_LIBRARIES` when found (an absent shaderc otherwise leaves
+  a dangling `optimized` keyword that reaches `target_link_libraries` and
+  hard-errors). Needed on both Linux and Android.
+- `ios-lib-install-path.patch` - `CMake/Utils/OgreConfigTargets.cmake`
+  installs iOS release static libs into `lib/Release` (an Xcode-layout
+  leftover); drop that so iOS keeps the standard vcpkg `lib/` layout the
+  shipped config's `lib/lib*.a` paths expect. (The `$(PLATFORM_NAME)`-under-
+  Ninja output-path problem classic patched is already fixed upstream in
+  ogre-next - `OgreConfigTargets.cmake` excludes Ninja.)
 
 Debug/release note: vcpkg ships ONE header tree for both configs, but
 ogre-next's generated `OgreBuildSettings.h` bakes `OGRE_DEBUG_MODE` per build

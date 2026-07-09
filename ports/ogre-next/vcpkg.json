@@ -4,9 +4,12 @@
   "description": "OGRE-Next (ogre v2.x line) - scene-oriented, flexible 3D engine with AZDO renderer, Hlms material system and first-class Metal support",
   "homepage": "https://github.com/OGRECave/ogre-next",
   "license": "MIT",
-  "supports": "(osx & arm64) | (linux & x64)",
+  "supports": "(osx & arm64) | (linux & x64) | (ios & arm64) | (android & arm64)",
   "dependencies": [
-    "freeimage",
+    {
+      "name": "freeimage",
+      "platform": "!ios & !android"
+    },
     "rapidjson",
     "zlib",
     {
@@ -15,7 +18,7 @@
     },
     {
       "name": "glslang",
-      "platform": "linux"
+      "platform": "linux | android"
     },
     {
       "name": "vulkan-headers",
