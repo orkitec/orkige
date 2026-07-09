@@ -700,3 +700,149 @@ TEST_CASE("AssetDatabase::listAssets enumerates every id-carrying asset "
 	Orkige::AssetDatabase empty;
 	CHECK(empty.listAssets().empty());
 }
+
+TEST_CASE("AssetDatabase::moveAsset into a subfolder keeps the id and carries "
+	"the sidecar", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_move");
+	project.writeAsset("assets/ball.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String id = database.idForPath("assets/ball.png");
+	REQUIRE(isHex32(id));
+
+	REQUIRE(database.moveAsset("assets/ball.png", "assets/sub/x.png"));
+	// the id followed the asset; the old path is forgotten
+	CHECK(database.idForPath("assets/sub/x.png") == id);
+	CHECK(database.pathForId(id) == "assets/sub/x.png");
+	CHECK(database.idForPath("assets/ball.png").empty());
+	// the files physically moved together (parent created), old ones gone
+	CHECK(std::filesystem::is_regular_file(project.root / "assets/sub/x.png"));
+	CHECK(std::filesystem::is_regular_file(project.metaPath("assets/sub/x.png")));
+	CHECK_FALSE(std::filesystem::exists(project.root / "assets/ball.png"));
+	CHECK_FALSE(std::filesystem::exists(project.metaPath("assets/ball.png")));
+}
+
+TEST_CASE("AssetDatabase::moveAsset refuses an existing target or an escaping "
+	"path and leaves the source untouched", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_move_refuse");
+	project.writeAsset("assets/ball.png");
+	project.writeAsset("assets/taken.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String id = database.idForPath("assets/ball.png");
+
+	// a destination that already exists is never clobbered
+	CHECK_FALSE(database.moveAsset("assets/ball.png", "assets/taken.png"));
+	// a path escaping the root is refused
+	CHECK_FALSE(database.moveAsset("assets/ball.png", "../escape.png"));
+	// a missing source is refused
+	CHECK_FALSE(database.moveAsset("assets/nope.png", "assets/whatever.png"));
+	// after every refusal the source is exactly as it was
+	CHECK(std::filesystem::is_regular_file(project.root / "assets/ball.png"));
+	CHECK(database.idForPath("assets/ball.png") == id);
+}
+
+TEST_CASE("AssetDatabase::moveAsset as a same-folder rename remaps the file "
+	"name lookup", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_move_rename");
+	project.writeAsset("assets/ball.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String id = database.idForFileName("ball.png");
+	REQUIRE(isHex32(id));
+
+	REQUIRE(database.moveAsset("assets/ball.png", "assets/hero.png"));
+	CHECK(database.idForFileName("ball.png").empty());
+	CHECK(database.idForFileName("hero.png") == id);
+	CHECK(database.pathForId(id) == "assets/hero.png");
+}
+
+TEST_CASE("AssetDatabase::moveAsset keeps scene references resolving through "
+	"the id", "[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	ActiveDatabaseGuard guard;
+	TempProject project("orkige_test_assetdb_move_heal");
+	project.writeAsset("assets/ball.png");
+	optr<Orkige::AssetDatabase> database =
+		Orkige::onew(new Orkige::AssetDatabase());
+	database->refresh(project.root.string(), true);
+	const Orkige::String id = database->idForFileName("ball.png");
+	Orkige::AssetDatabase::setActive(database);
+
+	// a scene captured the reference by the pre-rename name + id
+	CHECK(Orkige::AssetDatabase::referenceIdForValue("ball.png", "",
+		Orkige::AssetDatabase::REF_FILE_NAME) == id);
+
+	REQUIRE(database->moveAsset("assets/ball.png", "assets/champion.png"));
+	// loading the old scene: the id wins and fixes the stale name up
+	Orkige::String value = "ball.png";
+	Orkige::String storedId = id;
+	Orkige::AssetDatabase::resolveReference(value, storedId,
+		Orkige::AssetDatabase::REF_FILE_NAME);
+	CHECK(value == "champion.png");
+	CHECK(storedId == id);
+}
+
+TEST_CASE("AssetDatabase::duplicateAsset mints a fresh id and carries the "
+	"import block", "[assetdb][texture]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_duplicate_api");
+	project.writeAsset("assets/hero.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String sourceId = database.idForPath("assets/hero.png");
+	REQUIRE(isHex32(sourceId));
+
+	// give the source a texture import block (a v2 sidecar)
+	Orkige::TextureImport settings;
+	settings.base.filter = "point";
+	settings.base.maxSize = 256;
+	REQUIRE(Orkige::AssetDatabase::writeMetaFile(
+		project.metaPath("assets/hero.png"), sourceId, settings));
+
+	const Orkige::String copyRel = database.duplicateAsset("assets/hero.png");
+	REQUIRE_FALSE(copyRel.empty());
+	const Orkige::String copyId = database.idForPath(copyRel);
+	REQUIRE(isHex32(copyId));
+	CHECK(copyId != sourceId);				// a fresh identity for the copy
+	CHECK(database.pathForId(sourceId) == "assets/hero.png"); // source intact
+	CHECK(database.pathForId(copyId) == copyRel);
+	// the copy is a real file with its own sidecar (never the source's)
+	CHECK(std::filesystem::is_regular_file(project.root / copyRel));
+	// the import block carried over onto the copy
+	Orkige::TextureImport copySettings;
+	REQUIRE(Orkige::AssetDatabase::readImportSettings(
+		(project.root / copyRel).string() +
+			Orkige::AssetDatabase::META_FILE_EXTENSION, copySettings));
+	CHECK(copySettings.base.filter == "point");
+	CHECK(copySettings.base.maxSize == 256);
+}
+
+TEST_CASE("AssetDatabase rescan after a move is stable - the moved id persists",
+	"[assetdb]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_move_stable");
+	project.writeAsset("assets/ball.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String id = database.idForPath("assets/ball.png");
+	REQUIRE(database.moveAsset("assets/ball.png", "assets/sub/x.png"));
+
+	// the same database rescans to the same identity
+	database.refresh(project.root.string(), true);
+	CHECK(database.idForPath("assets/sub/x.png") == id);
+	// and a fresh database reads it identically off disk
+	Orkige::AssetDatabase second;
+	second.refresh(project.root.string(), true);
+	CHECK(second.idForPath("assets/sub/x.png") == id);
+	CHECK(second.idForPath("assets/ball.png").empty());
+}

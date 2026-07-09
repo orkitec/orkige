@@ -13,6 +13,7 @@
 #include "core_util/String.h"
 #include "core_util/optr.h"
 
+#include <filesystem>
 #include <map>
 #include <vector>
 
@@ -169,6 +170,22 @@ namespace Orkige
 		//! @return the asset's id ("" when the path lies outside the root)
 		String importAsset(String const & assetPath);
 
+		//! @brief move/rename one asset file AND its sidecar in one step; the id
+		//! survives (the pair travels together, the documented keep-the-id
+		//! rule). Both paths are project-relative; parent directories of the
+		//! destination are created. False when the source is missing, the
+		//! destination exists, either path escapes the root, or the rename
+		//! fails. A file the database does not index (sidecar-less, or under a
+		//! non-tracked tree) moves fine - there is simply no map entry to carry.
+		bool moveAsset(String const & relativePath, String const & newRelativePath);
+
+		//! @brief copy one asset next to itself as "<stem> Copy[ N]<ext>",
+		//! minting a FRESH id for the copy while carrying the source sidecar's
+		//! <texture> import block over (settings are per-asset intent, ids are
+		//! per-file identity). Returns the copy's project-relative path ("" on
+		//! failure - a missing source or a path outside the root).
+		String duplicateAsset(String const & relativePath);
+
 		//! a fresh 128-bit random id as 32 lower-case hex characters
 		static String generateId();
 		//! read a sidecar file; false (id untouched) when missing/invalid.
@@ -220,6 +237,12 @@ namespace Orkige
 			String & assetIdInOut, ReferenceKind kind);
 	protected:
 	private:
+		//! @brief normalize a project-relative-or-absolute asset path to an
+		//! absolute, lexically-normal path INSIDE the root; false when the root
+		//! is unset, the input is empty, or it escapes the root (a "../" head).
+		//! The shared containment check behind importAsset/moveAsset/duplicate.
+		bool resolveInsideRoot(String const & relativeOrAbsolute,
+			std::filesystem::path & absoluteOut) const;
 		//! scan one directory tree (sorted, deterministic)
 		void scanDirectory(String const & directory, bool createSidecars);
 		//! register one asset (relative path + id) into the lookup maps

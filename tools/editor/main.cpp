@@ -1554,6 +1554,9 @@ int main(int argc, char** argv)
 				bool assetOk = true;
 				std::string assetFail;
 				std::error_code assetErr;
+				// the project-relative path of the real png imported in
+				// step (8), carried into the rename/move steps below
+				std::string realImportRel;
 				// work on a temp COPY - the real project is never touched
 				const std::string assetTempRoot =
 					(std::filesystem::temp_directory_path() /
@@ -1833,6 +1836,11 @@ int main(int argc, char** argv)
 						assetOk = false;
 						assetFail = "no thumbnail handle for a real png";
 					}
+					else
+					{
+						realImportRel =
+							state.project.makeProjectRelative(realPngDest);
+					}
 				}
 				// (9) openWithDefaultApp resolver: the composed file:// URL is
 				// correct (asserted WITHOUT spawning a GUI app)
@@ -1844,6 +1852,157 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "fileUrlForPath composed '" + url + "'";
+					}
+				}
+				// (12) rename: an id-tracked asset keeps its id across a rename
+				if (assetOk && !realImportRel.empty())
+				{
+					Orkige::AssetDatabase* db =
+						state.project.getAssetDatabase().get();
+					const Orkige::String preId = db->idForPath(realImportRel);
+					AssetBrowserItem toRename;
+					bool found = false;
+					for (AssetBrowserItem const& fileItem : enumerateAssetFolder(
+						state.project,
+						state.project.getAssetsDirectory()).files)
+					{
+						if (fileItem.relativePath == realImportRel)
+						{
+							toRename = fileItem;
+							found = true;
+						}
+					}
+					const std::string oldAbs = toRename.absolutePath;
+					const bool renamed = found &&
+						renameAssetEntry(state, toRename, "renamed_ball");
+					const std::string renamedMeta =
+						(std::filesystem::path(state.project.getAssetsDirectory()) /
+							"renamed_ball.png").string() +
+						Orkige::AssetDatabase::META_FILE_EXTENSION;
+					const std::string newRel = state.project.makeProjectRelative(
+						(std::filesystem::path(state.project.getAssetsDirectory()) /
+							"renamed_ball.png").string());
+					const Orkige::String postId = db->idForPath(newRel);
+					if (!renamed || preId.empty() || postId != preId)
+					{
+						assetOk = false;
+						assetFail = "renameAssetEntry did not preserve the id";
+					}
+					else if (std::filesystem::exists(oldAbs, assetErr) ||
+						!std::filesystem::exists(renamedMeta, assetErr))
+					{
+						assetOk = false;
+						assetFail = "rename left the old file or lost the sidecar";
+					}
+					else
+					{
+						realImportRel = newRel;	// carry into the move step
+					}
+				}
+				// (13) move into a subfolder: the id survives and the texture's
+				// bare name still resolves to it through the database, so a scene
+				// reference (bare name + assetId) keeps pointing at the moved asset
+				// across a save + reload round-trip
+				if (assetOk)
+				{
+					const std::string newGroup =
+						(std::filesystem::path(state.project.getAssetsDirectory()) /
+							"NewGroup").string();
+					std::filesystem::create_directories(newGroup, assetErr);
+					Orkige::AssetDatabase* db =
+						state.project.getAssetDatabase().get();
+					const std::string bareName =
+						std::filesystem::path(realImportRel).filename().string();
+					const Orkige::String preId = db->idForPath(realImportRel);
+					const std::string moveAbs =
+						(std::filesystem::path(state.project.getRootDirectory()) /
+							realImportRel).string();
+					const int moved =
+						moveAssetsIntoFolder(state, { moveAbs }, newGroup);
+					const std::string movedRel = state.project.makeProjectRelative(
+						(std::filesystem::path(newGroup) / bareName).string());
+					const Orkige::String postId = db->idForPath(movedRel);
+					// the bare name still maps to the same id - this is the scene
+					// reference resolution guarantee (a Sprite serializes the bare
+					// name + assetId; the id heals the reference on load)
+					const Orkige::String byName = db->idForFileName(bareName);
+					// a scene round-trip must not lose the reference: save + reload a
+					// sprite carrying it (exercises the serializer end to end)
+					editorCore.instantiateSpriteObject("MovedRefSprite", bareName,
+						Orkige::Vec3::ZERO);
+					const std::string roundtripScene =
+						(std::filesystem::path(state.project.getScenesDirectory()) /
+							"moved_ref.oscene").string();
+					const bool saved =
+						saveSceneToPath(state, editorCore, roundtripScene);
+					const bool reopened = saved &&
+						openSceneFromPath(state, editorCore, roundtripScene);
+					optr<Orkige::GameObject> movedSprite = reopened
+						? gameObjectManager.getGameObject("MovedRefSprite").lock()
+						: optr<Orkige::GameObject>();
+					if (moved != 1 || preId.empty() || postId != preId ||
+						byName != preId)
+					{
+						assetOk = false;
+						assetFail = "moveAssetsIntoFolder did not keep the id / "
+							"bare-name resolution";
+					}
+					else if (!movedSprite ||
+						!movedSprite->hasComponent<Orkige::SpriteComponent>())
+					{
+						assetOk = false;
+						assetFail = "moved-asset sprite lost after the scene "
+							"round-trip";
+					}
+					else
+					{
+						realImportRel = movedRel;
+					}
+				}
+				// (14) duplicate: an id-tracked asset yields a new enumerable
+				// id-carrying copy
+				if (assetOk)
+				{
+					const std::string srcAbs =
+						state.project.getAssetsDirectory() + "/import_src.png";
+					const int duplicated =
+						duplicateAssetEntries(state, { srcAbs });
+					bool sawCopyWithId = false;
+					for (AssetBrowserItem const& fileItem : enumerateAssetFolder(
+						state.project,
+						state.project.getAssetsDirectory()).files)
+					{
+						if (fileItem.relativePath.find("import_src Copy") !=
+							std::string::npos && fileItem.hasId)
+						{
+							sawCopyWithId = true;
+						}
+					}
+					if (duplicated != 1 || !sawCopyWithId)
+					{
+						assetOk = false;
+						assetFail = "duplicateAssetEntries did not create an "
+							"id-carrying copy";
+					}
+				}
+				// (15) delete: the file + sidecar go and the id map is pruned
+				if (assetOk)
+				{
+					const std::string delAbs =
+						state.project.getAssetsDirectory() + "/import_src.png";
+					const std::string delRel =
+						state.project.makeProjectRelative(delAbs);
+					const int deleted = deleteAssetEntries(state, { delAbs });
+					const bool fileGone =
+						!std::filesystem::exists(delAbs, assetErr);
+					const bool sidecarGone = !std::filesystem::exists(delAbs +
+						Orkige::AssetDatabase::META_FILE_EXTENSION, assetErr);
+					const bool idPruned = state.project.getAssetDatabase()
+						->idForPath(delRel).empty();
+					if (deleted < 1 || !fileGone || !sidecarGone || !idPruned)
+					{
+						assetOk = false;
+						assetFail = "deleteAssetEntries left the file/sidecar/id";
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);

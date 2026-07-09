@@ -193,33 +193,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	String AssetDatabase::importAsset(String const & assetPath)
 	{
-		if (this->mRootDirectory.empty() || assetPath.empty())
+		std::filesystem::path absolute;
+		if (!this->resolveInsideRoot(assetPath, absolute))
 		{
 			return String();
 		}
 		std::error_code fsError;
-		std::filesystem::path absolute(assetPath);
-		if (!absolute.is_absolute())
-		{
-			absolute = std::filesystem::path(this->mRootDirectory) / absolute;
-		}
-		absolute = std::filesystem::absolute(absolute, fsError)
-			.lexically_normal();
-		const std::filesystem::path relative =
-			absolute.lexically_relative(this->mRootDirectory);
-		// containment: an outside path relativizes to a ".."-led one. Compare
-		// the first COMPONENT as a path (relative.native() is a wide string on
-		// Windows, and a plain prefix test would also reject a file literally
-		// named "..foo")
-		const bool escapesRoot = relative.empty() ||
-			(relative.begin() != relative.end() &&
-				*relative.begin() == std::filesystem::path(".."));
-		if (escapesRoot ||
-			!std::filesystem::is_regular_file(absolute, fsError))
+		if (!std::filesystem::is_regular_file(absolute, fsError))
 		{
 			return String(); // not a file inside this project
 		}
-		const String relativePath = relative.generic_string();
+		const String relativePath = absolute.lexically_relative(
+			this->mRootDirectory).generic_string();
 		const String metaPath = absolute.string() + META_FILE_EXTENSION;
 		String assetId;
 		if (!readMetaFile(metaPath, assetId))
@@ -236,6 +221,125 @@ namespace Orkige
 		}
 		this->registerAsset(relativePath, assetId);
 		return assetId;
+	}
+	//---------------------------------------------------------
+	bool AssetDatabase::moveAsset(String const & relativePath,
+		String const & newRelativePath)
+	{
+		std::filesystem::path source;
+		std::filesystem::path dest;
+		if (!this->resolveInsideRoot(relativePath, source) ||
+			!this->resolveInsideRoot(newRelativePath, dest))
+		{
+			return false;
+		}
+		std::error_code fsError;
+		if (!std::filesystem::is_regular_file(source, fsError))
+		{
+			return false; // nothing (or not a file) to move
+		}
+		if (std::filesystem::exists(dest, fsError))
+		{
+			return false; // never clobber an existing destination
+		}
+		std::filesystem::create_directories(dest.parent_path(), fsError);
+		std::filesystem::rename(source, dest, fsError);
+		if (fsError)
+		{
+			assetLog("AssetDatabase: could not move '" + relativePath +
+				"' to '" + newRelativePath + "' - " + fsError.message());
+			return false;
+		}
+		// the sidecar travels with the asset when present - that is what keeps
+		// the id (a move without it would look like a fresh asset on rescan)
+		const String sourceMeta = source.string() + META_FILE_EXTENSION;
+		if (std::filesystem::exists(sourceMeta, fsError))
+		{
+			std::filesystem::rename(sourceMeta,
+				dest.string() + META_FILE_EXTENSION, fsError);
+		}
+		// map surgery: an unindexed file (sidecar-less / under a non-tracked
+		// tree) simply has no entry to carry - the fs move already succeeded
+		const String oldRel = source.lexically_relative(
+			this->mRootDirectory).generic_string();
+		const String newRel = dest.lexically_relative(
+			this->mRootDirectory).generic_string();
+		const std::map<String, String>::iterator found =
+			this->mPathToId.find(oldRel);
+		if (found != this->mPathToId.end())
+		{
+			const String assetId = found->second;
+			this->mPathToId.erase(found);
+			const String oldName =
+				std::filesystem::path(oldRel).filename().string();
+			const std::map<String, String>::iterator nameEntry =
+				this->mFileNameToId.find(oldName);
+			if (nameEntry != this->mFileNameToId.end() &&
+				nameEntry->second == assetId)
+			{
+				this->mFileNameToId.erase(nameEntry);
+			}
+			this->registerAsset(newRel, assetId);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String AssetDatabase::duplicateAsset(String const & relativePath)
+	{
+		std::filesystem::path source;
+		if (!this->resolveInsideRoot(relativePath, source))
+		{
+			return String();
+		}
+		std::error_code fsError;
+		if (!std::filesystem::is_regular_file(source, fsError))
+		{
+			return String();
+		}
+		// a unique sibling "<stem> Copy[ N]<ext>"
+		const String stem = source.stem().string();
+		const String extension = source.extension().string();
+		std::filesystem::path dest =
+			source.parent_path() / (stem + " Copy" + extension);
+		int suffix = 2;
+		while (std::filesystem::exists(dest, fsError))
+		{
+			dest = source.parent_path() /
+				(stem + " Copy " + std::to_string(suffix) + extension);
+			++suffix;
+		}
+		// copy the ASSET only - never the sidecar (a copied sidecar duplicates
+		// the id); the copy gets a fresh identity below
+		std::filesystem::copy_file(source, dest, fsError);
+		if (fsError)
+		{
+			assetLog("AssetDatabase: could not duplicate '" + relativePath +
+				"' - " + fsError.message());
+			return String();
+		}
+		const String freshId = generateId();
+		const String destMeta = dest.string() + META_FILE_EXTENSION;
+		// carry the source's import intent onto the copy (settings are
+		// per-asset, the id is per-file); a source without a <texture> block
+		// yields a plain id-only sidecar
+		TextureImport texture;
+		const bool hasSettings = readImportSettings(
+			source.string() + META_FILE_EXTENSION, texture);
+		const bool wrote = hasSettings
+			? writeMetaFile(destMeta, freshId, texture)
+			: writeMetaFile(destMeta, freshId);
+		if (!wrote)
+		{
+			assetLog("AssetDatabase: could not write the copy's sidecar '" +
+				destMeta + "'");
+			return String();
+		}
+		const String destRel = dest.lexically_relative(
+			this->mRootDirectory).generic_string();
+		this->registerAsset(destRel, freshId);
+		assetLog("AssetDatabase: duplicated '" + relativePath + "' as '" +
+			destRel + "' (" + freshId + ")");
+		return destRel;
 	}
 	//---------------------------------------------------------
 	String AssetDatabase::generateId()
@@ -434,6 +538,38 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
+	//---------------------------------------------------------
+	bool AssetDatabase::resolveInsideRoot(String const & relativeOrAbsolute,
+		std::filesystem::path & absoluteOut) const
+	{
+		if (this->mRootDirectory.empty() || relativeOrAbsolute.empty())
+		{
+			return false;
+		}
+		std::error_code fsError;
+		std::filesystem::path absolute(relativeOrAbsolute);
+		if (!absolute.is_absolute())
+		{
+			absolute = std::filesystem::path(this->mRootDirectory) / absolute;
+		}
+		absolute = std::filesystem::absolute(absolute, fsError)
+			.lexically_normal();
+		const std::filesystem::path relative =
+			absolute.lexically_relative(this->mRootDirectory);
+		// containment: an outside path relativizes to a ".."-led one. Compare
+		// the first COMPONENT as a path (relative.native() is a wide string on
+		// Windows, and a plain prefix test would also reject a file literally
+		// named "..foo")
+		const bool escapesRoot = relative.empty() ||
+			(relative.begin() != relative.end() &&
+				*relative.begin() == std::filesystem::path(".."));
+		if (escapesRoot)
+		{
+			return false;
+		}
+		absoluteOut = absolute;
+		return true;
+	}
 	//---------------------------------------------------------
 	void AssetDatabase::scanDirectory(String const & directory,
 		bool createSidecars)

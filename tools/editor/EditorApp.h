@@ -235,6 +235,38 @@ void recordRecentScene(std::string const& scenePath);
 //! record a project root in the Open Recent Project list and persist it
 void recordRecentProject(std::string const& projectRoot);
 
+//! Asset browser panel state that lives across frames: folder navigation,
+//! the content filter, the thumbnail cache, and the multi-item asset-op
+//! working set (selection, inline rename, pending delete). Selection and
+//! rename are keyed by project-relative path so they survive re-enumeration
+//! and renames of OTHER items.
+struct AssetBrowserState
+{
+	//! the folder shown in the content pane (absolute path; "" = reset to the
+	//! open project's root on the next draw). The folder TREE and breadcrumb
+	//! drive it; descending into a subfolder also sets it.
+	std::string currentDir;
+	//! content filter (same ImGuiTextFilter idiom as the Hierarchy), scoped to
+	//! the current folder's immediate contents - it narrows the content list
+	ImGuiTextFilter filter;
+	//! thumbnail cache: bare texture resource name -> the ImGui texture id of
+	//! its lazily-loaded thumbnail (0 = tried and not a loadable image, draw a
+	//! type icon instead). Bounded (cleared wholesale past
+	//! ASSET_THUMBNAIL_CACHE_MAX - visible working sets are small).
+	std::map<std::string, ImTextureID> thumbnailCache;
+	//! multi-selection, keyed by relativePath (survives refresh); the last
+	//! clicked path is the range anchor and the "primary"
+	std::set<std::string> selection;
+	std::string selectionAnchor;
+	//! inline rename target ("" = none) + edit buffer + first-frame focus
+	std::string renamingPath;
+	char renameBuffer[256] = "";
+	bool renameFocusPending = false;
+	//! delete-confirm modal payload (absolute paths; folders included). A
+	//! non-empty set opens the confirm modal and is consumed on Delete/Cancel.
+	std::vector<std::string> pendingDelete;
+};
+
 // Editor UI state that lives across frames. Everything UI-independent
 // (selection, dirty flag, tools, undo/redo) lives in EditorCore instead.
 struct EditorState
@@ -312,21 +344,9 @@ struct EditorState
 	//! Hierarchy search/filter box; ImGuiTextFilter supports
 	//! comma-separated terms and "-term" exclusion, empty = show everything
 	ImGuiTextFilter hierarchyFilter;
-	//! Asset browser search/filter box (same ImGuiTextFilter idiom).
-	//! In the v2 folder browser the filter is scoped to the CURRENT folder's
-	//! immediate contents (not recursive) - it narrows the right-pane list.
-	ImGuiTextFilter assetBrowserFilter;
-	//! Asset browser v2: the folder currently shown in the right pane
-	//! (absolute path; "" = reset to the open project's root on the next
-	//! draw). The folder TREE on the left drives it; double-clicking a
-	//! subfolder or a breadcrumb crumb also sets it.
-	std::string assetBrowserCurrentDir;
-	//! Asset browser v2 thumbnail cache: bare texture resource name -> the
-	//! ImGui texture id of its lazily-loaded thumbnail (0 = tried and not a
-	//! loadable image, draw a type icon instead). Only textures actually
-	//! drawn this frame load; the cache is bounded (cleared wholesale when it
-	//! grows past ASSET_THUMBNAIL_CACHE_MAX - visible working sets are small).
-	std::map<std::string, ImTextureID> assetThumbnailCache;
+	//! Asset browser panel state (navigation, filter, thumbnails, asset-op
+	//! working set) - see AssetBrowserState
+	AssetBrowserState assetBrowser;
 	//! inline rename in the Hierarchy (F2 / context menu)
 	std::string renamingObjectId;
 	char renameBuffer[256] = "";
@@ -950,7 +970,7 @@ AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
 //! pass and are a heavier follow-on - those kinds get a text type icon here.
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath);
-//! thumbnail cache cap (see EditorState::assetThumbnailCache)
+//! thumbnail cache cap (see AssetBrowserState::thumbnailCache)
 const std::size_t ASSET_THUMBNAIL_CACHE_MAX = 512;
 
 //--- Asset browser v2 create + open helpers --------------------------------
@@ -1009,6 +1029,42 @@ void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 //! ORKIGE_ASSET payload and instantiate it (called by the Scene + Hierarchy
 //! panels right after the item that is the drop target)
 void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core);
+
+//--- Asset browser operations (filesystem side effects, NOT undoable) -------
+// These operate on asset files directly; the stable asset id survives (the
+// sidecar travels with the asset) and scene references self-heal on the next
+// load, so rename/move/duplicate need no confirm - only delete does.
+
+//! @brief rename one asset in place (same folder), keeping its extension when
+//! the new name omits one. An id-tracked file (assets/, scripts/) moves
+//! through the AssetDatabase so its id is preserved; a scenes/ or sidecar-less
+//! file is renamed directly (its sidecar too, when present). Follows the
+//! selection key. Returns false on a bad name / an existing target / an IO
+//! failure.
+bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
+	std::string const& newFileName);
+
+//! @brief move assets (absolute paths, files and/or folders) into destDir
+//! (absolute). id-tracked files go through the AssetDatabase (id preserved);
+//! others are renamed directly (+ sidecar when present). A folder moved into
+//! its own descendant, or a name that already exists in the destination, is
+//! refused. Follows the selection + thumbnail keys. Returns the count moved.
+int moveAssetsIntoFolder(EditorState& state,
+	std::vector<std::string> const& absolutePaths, std::string const& destDir);
+
+//! @brief duplicate assets (absolute paths) next to themselves. An id-tracked
+//! file goes through AssetDatabase::duplicateAsset (a FRESH id, the import
+//! block carried over); a scenes/ or sidecar-less file is copied with a unique
+//! "<stem> Copy" name. The copies become the new selection. Returns the count.
+int duplicateAssetEntries(EditorState& state,
+	std::vector<std::string> const& absolutePaths);
+
+//! @brief delete assets AND folders (absolute paths): files drop their sidecar
+//! too, folders go recursively, then ONE AssetDatabase refresh prunes the
+//! stale id-map entries. Clears the affected selection + thumbnail keys.
+//! Returns the count deleted. The confirm modal is UI sugar around this.
+int deleteAssetEntries(EditorState& state,
+	std::vector<std::string> const& absolutePaths);
 
 //! the Asset browser panel (v2): a two-pane folder browser over
 //! the open project (folder TREE left, current folder's subfolders + files

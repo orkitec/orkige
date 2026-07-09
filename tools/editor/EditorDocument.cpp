@@ -83,15 +83,20 @@ void unregisterProjectResources()
 //! missing directories are skipped with an honest Console line
 void registerProjectResources(Orkige::Project const& project)
 {
-	for (std::string const& projectDir : { project.getAssetsDirectory(),
+	const std::string assetsDir = project.getAssetsDirectory();
+	for (std::string const& projectDir : { assetsDir,
 		project.getScenesDirectory() })
 	{
 		std::error_code ignored;
 		if (std::filesystem::is_directory(projectDir, ignored))
 		{
+			// assets/ is registered RECURSIVELY so an asset in a subfolder
+			// still resolves by bare name (moves keep bare-name resolution);
+			// scenes/ stays flat
+			const bool recursive = projectDir == assetsDir;
 			Orkige::RenderSystem::get()->addResourceLocation(projectDir,
 				Orkige::RenderSystem::LT_FILESYSTEM,
-				Orkige::Project::RESOURCE_GROUP_NAME);
+				Orkige::Project::RESOURCE_GROUP_NAME, recursive);
 		}
 		else
 		{
@@ -265,7 +270,7 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 			Orkige::Project::RESOURCE_GROUP_NAME);
 		render->addResourceLocation(destDir,
 			Orkige::RenderSystem::LT_FILESYSTEM,
-			Orkige::Project::RESOURCE_GROUP_NAME);
+			Orkige::Project::RESOURCE_GROUP_NAME, true);	// recursive: subfolders
 		// editor-side asset creation mints the stable id right away, so a
 		// component referencing it serializes the id with the scene
 		if (optr<Orkige::AssetDatabase> const& assetDatabase =

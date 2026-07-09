@@ -633,15 +633,19 @@ int main(int argc, char** argv)
 		// editor uses); a missing directory is skipped with an honest line
 		if (project.isLoaded())
 		{
+			const std::string projectAssetsDir = project.getAssetsDirectory();
 			for (std::string const& projectDir : {
-				project.getAssetsDirectory(), project.getScenesDirectory() })
+				projectAssetsDir, project.getScenesDirectory() })
 			{
 				std::error_code ignored;
 				if (std::filesystem::is_directory(projectDir, ignored))
 				{
+					// assets/ recursively (bare-name resolution reaches
+					// subfolders, matching the editor); scenes/ stays flat
+					const bool recursive = projectDir == projectAssetsDir;
 					render->addResourceLocation(projectDir,
 						Orkige::RenderSystem::LT_FILESYSTEM,
-						Orkige::Project::RESOURCE_GROUP_NAME);
+						Orkige::Project::RESOURCE_GROUP_NAME, recursive);
 				}
 				else
 				{
