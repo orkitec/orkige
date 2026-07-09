@@ -778,6 +778,12 @@ namespace Orkige
 			String const& componentTypeName, String const& propertyName,
 			String const& before, String const& after,
 			unsigned int mergeSession = 0);
+		//! @brief the FULL property schema of a live component: static per-type
+		//! UNION the dynamic per-instance schema (task #94 P5b) - so the auto
+		//! Inspector lists a ScriptComponent's exported script properties too.
+		//! Empty when the object/component is missing.
+		PropertySchema getComponentPropertySchema(String const& id,
+			String const& componentTypeName) const;
 
 		//--- component access (helpers the commands share) ----
 		//--- physics collision layers (project-config, read-only in the editor) ---

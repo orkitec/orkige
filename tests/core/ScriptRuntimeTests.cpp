@@ -180,3 +180,95 @@ TEST_CASE("ScriptRuntime global tables and function registration", "[script]")
 	REQUIRE(result.returnValues.size() == 1);
 	CHECK(result.returnValues[0] == "42.0");
 }
+
+TEST_CASE("ScriptRuntime::readExportedProperties parses the exports table (P5b)",
+	"[script][export]")
+{
+	using namespace Orkige;
+	CoreTestEnvironment & env = CoreTestEnvironment::get();
+	TempScriptDir dir("orkige_scriptruntime_export_test");
+	dir.write("mover.lua", R"lua(
+		properties = {
+			moveSpeed = { type = "number", default = 4.5, min = 0, max = 20 },
+			canDouble = { type = "bool",   default = true },
+			team      = { type = "string", default = "red" },
+			tint      = { type = "color",  default = {0.25, 0.5, 0.75, 1.0} },
+			muzzle    = { type = "vec3",   default = {0, 0, 1} },
+			icon      = { type = "asset",  kind = "texture" },
+		}
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+
+	std::vector<ScriptExportProperty> exports =
+		env.scriptRuntime.readExportedProperties("scripts/mover.lua");
+
+	if (!ScriptRuntime::available())
+	{
+		// OFF configuration: scripts have no exports (honest, not a crash)
+		CHECK(exports.empty());
+		env.scriptRuntime.setScriptSearchRoot("");
+		return;
+	}
+
+	// six exports, DETERMINISTICALLY ordered by name (Lua tables are unordered)
+	REQUIRE(exports.size() == 6);
+	CHECK(exports[0].name == "canDouble");
+	CHECK(exports[1].name == "icon");
+	CHECK(exports[2].name == "moveSpeed");
+	CHECK(exports[3].name == "muzzle");
+	CHECK(exports[4].name == "team");
+	CHECK(exports[5].name == "tint");
+
+	// a name index so the per-kind assertions read cleanly
+	auto byName = [&exports](std::string const & name) -> ScriptExportProperty const *
+	{
+		for (ScriptExportProperty const & e : exports)
+		{
+			if (e.name == name) { return &e; }
+		}
+		return nullptr;
+	};
+
+	ScriptExportProperty const * speed = byName("moveSpeed");
+	REQUIRE(speed);
+	CHECK(speed->kind == PropertyKind::Float);
+	CHECK(speed->defaultValue.asFloat() == Catch::Approx(4.5));
+	CHECK(speed->hasRange);
+	CHECK(speed->minValue == Catch::Approx(0.0f));
+	CHECK(speed->maxValue == Catch::Approx(20.0f));
+
+	ScriptExportProperty const * canDouble = byName("canDouble");
+	REQUIRE(canDouble);
+	CHECK(canDouble->kind == PropertyKind::Bool);
+	CHECK(canDouble->defaultValue.asBool());
+
+	ScriptExportProperty const * team = byName("team");
+	REQUIRE(team);
+	CHECK(team->kind == PropertyKind::String);
+	CHECK(team->defaultValue.asString() == "red");
+
+	ScriptExportProperty const * tint = byName("tint");
+	REQUIRE(tint);
+	CHECK(tint->kind == PropertyKind::Color);
+	CHECK(tint->defaultValue.asColor().b == Catch::Approx(0.75f));
+	CHECK(tint->defaultValue.asColor().a == Catch::Approx(1.0f));
+
+	ScriptExportProperty const * muzzle = byName("muzzle");
+	REQUIRE(muzzle);
+	CHECK(muzzle->kind == PropertyKind::Vec3);
+	CHECK(muzzle->defaultValue.asVec3().z == Catch::Approx(1.0f));
+
+	ScriptExportProperty const * icon = byName("icon");
+	REQUIRE(icon);
+	CHECK(icon->kind == PropertyKind::AssetRef);
+	CHECK(icon->referenceHint == "texture");
+
+	// a script with NO `properties` table yields no exports (not an error)
+	dir.write("plain.lua", "function update(self, dt) end\n");
+	CHECK(env.scriptRuntime.readExportedProperties("scripts/plain.lua").empty());
+	// a missing file: empty, honest
+	CHECK(env.scriptRuntime.readExportedProperties("scripts/nope.lua").empty());
+
+	env.scriptRuntime.setScriptSearchRoot("");
+}

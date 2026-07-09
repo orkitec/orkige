@@ -138,17 +138,20 @@ std::string propertyWidgetHint(Orkige::PropertyDesc const& desc)
 void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 	std::string const& objectId, Orkige::TypeInfo const& componentType)
 {
-	Orkige::PropertySchema const* schema =
-		Orkige::TypeManager::getSingleton().getPropertySchema(
-			componentType.getId());
-	if (!schema || schema->empty())
+	const std::string componentName = componentType.getName();
+	// the union schema (static per-type + dynamic per-instance) so a
+	// ScriptComponent's exported script properties render in the Inspector too
+	// (task #94 P5b) - discovered per instance since a script's exports are
+	// known only once a specific .lua is attached
+	const Orkige::PropertySchema schema =
+		core.getComponentPropertySchema(objectId, componentName);
+	if (schema.empty())
 	{
 		ImGui::TextDisabled("(no editable properties yet)");
 		return;
 	}
-	const std::string componentName = componentType.getName();
 	bool any = false;
-	for (Orkige::PropertyDesc const& desc : schema->properties())
+	for (Orkige::PropertyDesc const& desc : schema.properties())
 	{
 		// edit-mode filtering: never show a hidden property or transient
 		// runtime telemetry (velocities, has_body, script started/error);

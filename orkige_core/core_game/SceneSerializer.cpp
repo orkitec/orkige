@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "core_game/SceneSerializer.h"
+#include "core_game/GameObjectComponent.h"
 #include "core_game/PrefabSerializer.h"
 #include "core_project/AssetDatabase.h"
 #include "core_serialization/XMLArchive.h"
@@ -659,17 +660,16 @@ namespace Orkige
 	void SceneSerializer::saveComponentProperties(optr<IArchive> const & ar,
 		GameObjectComponent & component)
 	{
-		PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
-			component.getTypeInfo().getId());
+		// the FULL schema: static per-type UNION dynamic per-instance (task #94
+		// P5b) - so a ScriptComponent's exported script properties serialize
+		// per-instance alongside its static fields, through this one named path
+		const PropertySchema schema = getComponentSchema(component);
 		std::vector<PropertyDesc const *> fields;
-		if(schema)
+		foreach(PropertyDesc const & desc, schema.properties())
 		{
-			foreach(PropertyDesc const & desc, schema->properties())
+			if(isSerializedProperty(desc))
 			{
-				if(isSerializedProperty(desc))
-				{
-					fields.push_back(&desc);
-				}
+				fields.push_back(&desc);
 			}
 		}
 		unsigned int fieldCount = static_cast<unsigned int>(fields.size());
@@ -724,27 +724,21 @@ namespace Orkige
 			record.reference = reference;
 			records[name] = record;
 		}
-		PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
-			component.getTypeInfo().getId());
-		if(!schema)
-		{
-			return;
-		}
 		void * instance = static_cast<void *>(&component);
 		// assign in DECLARATION order (deterministic, so a setter cascade like the
 		// sprite quad rebuild sees the scalar state before the texture reference)
-		foreach(PropertyDesc const & desc, schema->properties())
+		auto assignField = [&records, instance](PropertyDesc const & desc)
 		{
 			if(!isSerializedProperty(desc))
 			{
-				continue;
+				return;
 			}
 			std::map<String, FieldRecord>::const_iterator found =
 				records.find(desc.name);
 			if(found == records.end())
 			{
 				// a field absent from the file keeps the constructed default
-				continue;
+				return;
 			}
 			if(desc.kind == PropertyKind::AssetRef)
 			{
@@ -763,6 +757,26 @@ namespace Orkige
 				value.fromString(found->second.text);
 				desc.set(instance, value);
 			}
+		};
+		// PASS 1 - the STATIC per-type schema. Assigning it sets the authoring
+		// state INCLUDING a ScriptComponent's script path, whose setter discovers
+		// the dynamic export schema (task #94 P5b) - so pass 2 can see it.
+		if(PropertySchema const * staticSchema =
+			TypeManager::getSingleton().getPropertySchema(
+				component.getTypeInfo().getId()))
+		{
+			foreach(PropertyDesc const & desc, staticSchema->properties())
+			{
+				assignField(desc);
+			}
+		}
+		// PASS 2 - the DYNAMIC per-instance schema, now populated (the script's
+		// exported property values restore per-instance from the same records).
+		// A fully-static component's dynamic schema is empty, so this is a no-op.
+		const PropertySchema dynamicSchema = component.getInstancePropertySchema();
+		foreach(PropertyDesc const & desc, dynamicSchema.properties())
+		{
+			assignField(desc);
 		}
 	}
 	//---------------------------------------------------------

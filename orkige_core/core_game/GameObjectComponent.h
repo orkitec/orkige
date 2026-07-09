@@ -13,6 +13,7 @@
 // EventHandler.h (the EventHandler base class) already provides the
 // EventManager/EventListener/EventType surface this header's users need
 #include "core_event/EventHandler.h"
+#include "core_base/PropertySchema.h"
 
 namespace tinyxml2
 {
@@ -71,6 +72,20 @@ namespace Orkige
 		//! (GameObject::addComponent) before their state is loaded, never by
 		//! the TypeManager - @see ISerializeable::createBeforeLoad
 		virtual bool createBeforeLoad();
+		//! @brief the DYNAMIC per-INSTANCE property schema of this component
+		//! (task #94 P5b). The static reflection half is a per-TYPE schema
+		//! (TypeManager::getPropertySchema by TypeId); some components ALSO
+		//! carry properties known only once a specific resource is attached -
+		//! ScriptComponent's exported script properties are the case that drives
+		//! this hook. The default is empty (a component's schema is fully
+		//! static). The returned descriptors' get/set close over THIS instance,
+		//! so a consumer reads/writes them exactly like a static property - it
+		//! cannot tell the two apart. @see getComponentSchema for the union the
+		//! consumers actually iterate.
+		virtual PropertySchema getInstancePropertySchema() const
+		{
+			return PropertySchema();
+		}
 		//! does this component wants updates?
 		inline bool getWantsUpdates();
 		//! set if this component should receive updates
@@ -90,6 +105,21 @@ namespace Orkige
 	{
 		return this->getComponentOwner();
 	}
+	//---------------------------------------------------------
+	//! @brief the full property schema of a component instance: the STATIC
+	//! per-type schema (TypeManager, by the instance's dynamic TypeId) UNION the
+	//! DYNAMIC per-instance schema (getInstancePropertySchema). This is the ONE
+	//! query every reflection consumer (serialization, the debug protocol, the
+	//! editor inspector, MCP) routes through, so a C++ component's static
+	//! properties and a script's exported properties surface everywhere through
+	//! the same path with zero per-consumer special-casing (task #94 P5b).
+	//! Returned by value (the union is a fresh list); the dynamic half is cheap
+	//! (a handful of descriptors), so consumers may call it per selected object.
+	//! A dynamic property REPLACES a static one of the same name (PropertySchema
+	//! ::add is by-name idempotent) - in practice the two name spaces are
+	//! disjoint (a script component's small static schema vs. its exports).
+	ORKIGE_CORE_DLL PropertySchema getComponentSchema(
+		GameObjectComponent const & component);
 	//---------------------------------------------------------
 #define REGISTERGOCOMPONENT(Class) ::Orkige::ComponentHolder< ::Orkige::GameObjectComponent >::registerComponent<Class>();
 	//put this in the OOBJECT_IMPL block of each component

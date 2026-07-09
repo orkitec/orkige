@@ -9,7 +9,9 @@
 
 #include "core_script/ScriptRuntime.h"
 
+#include <algorithm>
 #include <filesystem>
+#include <utility>
 
 namespace Orkige
 {
@@ -157,6 +159,180 @@ namespace Orkige
 		*outError = ScriptRuntime::disabledError();
 		return optr<ScriptInstance>();
 #endif
+	}
+	//---------------------------------------------------------
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! read a 0..3 numeric field of a Lua array table (1-based), default 0
+		float luaArrayFloat(sol::table const & table, int index, float fallback)
+		{
+			const sol::object value = table[index];
+			return value.is<double>()
+				? static_cast<float>(value.as<double>()) : fallback;
+		}
+		//! @brief translate ONE `properties` entry (a sub-table) into a neutral
+		//! ScriptExportProperty. Returns false (the entry is skipped) when the
+		//! `type` string is missing or unknown - an unknown export type is
+		//! ignored, never a hard error, so a typo does not brick a whole script.
+		bool readExportEntry(String const & name, sol::table const & spec,
+			ScriptExportProperty & outProperty)
+		{
+			const sol::object typeObject = spec["type"];
+			if (!typeObject.is<String>())
+			{
+				return false;
+			}
+			const String typeName = typeObject.as<String>();
+			outProperty.name = name;
+			if (typeName == "number" || typeName == "float" || typeName == "int")
+			{
+				outProperty.kind = PropertyKind::Float;
+				const sol::object def = spec["default"];
+				outProperty.defaultValue = PropertyValue::makeFloat(
+					def.is<double>() ? def.as<double>() : 0.0);
+			}
+			else if (typeName == "bool" || typeName == "boolean")
+			{
+				outProperty.kind = PropertyKind::Bool;
+				const sol::object def = spec["default"];
+				outProperty.defaultValue = PropertyValue::makeBool(
+					def.is<bool>() ? def.as<bool>() : false);
+			}
+			else if (typeName == "string")
+			{
+				outProperty.kind = PropertyKind::String;
+				const sol::object def = spec["default"];
+				outProperty.defaultValue = PropertyValue::makeString(
+					def.is<String>() ? def.as<String>() : String());
+			}
+			else if (typeName == "vec3")
+			{
+				outProperty.kind = PropertyKind::Vec3;
+				PropVec3 vec;
+				const sol::object def = spec["default"];
+				if (def.is<sol::table>())
+				{
+					const sol::table t = def.as<sol::table>();
+					vec.x = luaArrayFloat(t, 1, 0.0f);
+					vec.y = luaArrayFloat(t, 2, 0.0f);
+					vec.z = luaArrayFloat(t, 3, 0.0f);
+				}
+				outProperty.defaultValue = PropertyValue::makeVec3(vec);
+			}
+			else if (typeName == "color")
+			{
+				outProperty.kind = PropertyKind::Color;
+				PropColor col;
+				const sol::object def = spec["default"];
+				if (def.is<sol::table>())
+				{
+					const sol::table t = def.as<sol::table>();
+					col.r = luaArrayFloat(t, 1, 0.0f);
+					col.g = luaArrayFloat(t, 2, 0.0f);
+					col.b = luaArrayFloat(t, 3, 0.0f);
+					col.a = luaArrayFloat(t, 4, 1.0f);
+				}
+				outProperty.defaultValue = PropertyValue::makeColor(col);
+			}
+			else if (typeName == "asset")
+			{
+				outProperty.kind = PropertyKind::AssetRef;
+				const sol::object kind = spec["kind"];
+				outProperty.referenceHint =
+					kind.is<String>() ? kind.as<String>() : String();
+				const sol::object def = spec["default"];
+				outProperty.defaultValue = PropertyValue::makeAssetRef(
+					outProperty.referenceHint,
+					def.is<String>() ? def.as<String>() : String());
+			}
+			else if (typeName == "object")
+			{
+				outProperty.kind = PropertyKind::ObjectRef;
+				const sol::object kind = spec["kind"];
+				outProperty.referenceHint =
+					kind.is<String>() ? kind.as<String>() : String();
+				const sol::object def = spec["default"];
+				outProperty.defaultValue = PropertyValue::makeObjectRef(
+					outProperty.referenceHint,
+					def.is<String>() ? def.as<String>() : String());
+			}
+			else
+			{
+				return false;	// unknown export type - skip it
+			}
+			// optional slider range (numeric kinds); harmless on the others
+			const sol::object minObject = spec["min"];
+			const sol::object maxObject = spec["max"];
+			if (minObject.is<double>() || maxObject.is<double>())
+			{
+				outProperty.hasRange = true;
+				outProperty.minValue = minObject.is<double>()
+					? static_cast<float>(minObject.as<double>()) : 0.0f;
+				outProperty.maxValue = maxObject.is<double>()
+					? static_cast<float>(maxObject.as<double>()) : 0.0f;
+			}
+			return true;
+		}
+	}
+#endif //ORKIGE_LUA
+	//---------------------------------------------------------
+	std::vector<ScriptExportProperty> ScriptRuntime::readExportedProperties(
+		String const & scriptFile)
+	{
+		std::vector<ScriptExportProperty> properties;
+#ifdef ORKIGE_LUA
+		const String resolvedPath = this->resolveScriptPath(scriptFile);
+		if (resolvedPath.empty())
+		{
+			return properties;	// no file -> no exports (honest, not an error)
+		}
+		sol::state & lua = this->luaManager.state();
+		// a throwaway sandbox: reads fall through to _G, top-level runs to
+		// populate `properties`, but we never call init/update. A parse/run
+		// error just means "no exports discovered" - a broken script's export
+		// set is empty, its load failure surfaces later through the component.
+		sol::environment probe(lua, sol::create, lua.globals());
+		const sol::protected_function_result loadResult = lua.safe_script_file(
+			resolvedPath, probe, sol::script_pass_on_error);
+		if (!loadResult.valid())
+		{
+			return properties;
+		}
+		const sol::object propertiesObject = probe["properties"];
+		if (!propertiesObject.is<sol::table>())
+		{
+			return properties;	// no `properties` table declared
+		}
+		// Lua tables are unordered; sort by name so the schema (and therefore
+		// the inspector order + the serialized field order) is DETERMINISTIC.
+		const sol::table table = propertiesObject.as<sol::table>();
+		std::vector<std::pair<String, sol::table> > entries;
+		table.for_each([&entries](sol::object const & key, sol::object const & value)
+		{
+			if (key.is<String>() && value.is<sol::table>())
+			{
+				entries.push_back({ key.as<String>(), value.as<sol::table>() });
+			}
+		});
+		std::sort(entries.begin(), entries.end(),
+			[](std::pair<String, sol::table> const & a,
+				std::pair<String, sol::table> const & b)
+			{
+				return a.first < b.first;
+			});
+		for (auto const & entry : entries)
+		{
+			ScriptExportProperty property;
+			if (readExportEntry(entry.first, entry.second, property))
+			{
+				properties.push_back(property);
+			}
+		}
+#else
+		(void)scriptFile;
+#endif
+		return properties;
 	}
 	//---------------------------------------------------------
 	double ScriptRuntime::getNumber(StringVector const & path, double fallback)
@@ -391,6 +567,52 @@ namespace Orkige
 			lua_gc(luaState, LUA_GCCOLLECT, 0);
 			lua_gc(luaState, LUA_GCCOLLECT, 0);
 		}
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptInstance::setSelfProperty(char const * key,
+		PropertyValue const & value)
+	{
+#ifdef ORKIGE_LUA
+		switch (value.kind())
+		{
+		case PropertyKind::Int:
+		case PropertyKind::Enum:
+			this->selfTable[key] = value.asInt();
+			break;
+		case PropertyKind::Float:
+			this->selfTable[key] = value.asFloat();
+			break;
+		case PropertyKind::Bool:
+			this->selfTable[key] = value.asBool();
+			break;
+		case PropertyKind::String:
+		case PropertyKind::AssetRef:
+		case PropertyKind::ObjectRef:
+			this->selfTable[key] = value.asString();
+			break;
+		case PropertyKind::Vec3:
+		{
+			const PropVec3 vec = value.asVec3();
+			this->selfTable[key] = this->selfTable.lua_state() ?
+				sol::state_view(this->selfTable.lua_state()).create_table_with(
+					1, vec.x, 2, vec.y, 3, vec.z) : sol::lua_nil;
+			break;
+		}
+		case PropertyKind::Color:
+		{
+			const PropColor col = value.asColor();
+			this->selfTable[key] = this->selfTable.lua_state() ?
+				sol::state_view(this->selfTable.lua_state()).create_table_with(
+					1, col.r, 2, col.g, 3, col.b, 4, col.a) : sol::lua_nil;
+			break;
+		}
+		default:
+			break;
+		}
+#else
+		(void)key;
+		(void)value;
 #endif
 	}
 	//---------------------------------------------------------

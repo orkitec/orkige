@@ -130,9 +130,11 @@ namespace Orkige
 			DebugMessage state(Protocol::MSG_OBJECT_STATE);
 			state.set(Protocol::FIELD_ID, gameObject->getObjectID());
 
-			// per-TYPE caches (the runtime is single-threaded; TypeManager map
-			// entries are stable once module init has registered them)
-			static std::map<TypeInfo::TypeId, PropertySchema const *> schemaCache;
+			// the enum value<->label hint cache stays per-type (enum metadata is
+			// static); the SCHEMA is now resolved per component through the
+			// static-UNION-dynamic union (task #94 P5b), so a ScriptComponent's
+			// exported script properties stream too - the union is a handful of
+			// descriptors, cheap enough for the selected object per frame.
 			static std::map<String, String> enumHintCache;
 			TypeManager & typeManager = TypeManager::getSingleton();
 
@@ -147,25 +149,13 @@ namespace Orkige
 				String const & componentName = componentType.getName();
 				componentNames.push_back(componentName);
 
-				const TypeInfo::TypeId typeId = componentType.getId();
-				std::map<TypeInfo::TypeId, PropertySchema const *>::iterator
-					cached = schemaCache.find(typeId);
-				PropertySchema const * schema;
-				if (cached != schemaCache.end())
-				{
-					schema = cached->second;
-				}
-				else
-				{
-					schema = typeManager.getPropertySchema(typeId);
-					schemaCache[typeId] = schema;
-				}
-				if (!schema)
+				const PropertySchema schema = getComponentSchema(*component);
+				if (schema.empty())
 				{
 					continue; // a component that declared no reflected properties
 				}
 				void const * instance = static_cast<void const *>(component.get());
-				for (PropertyDesc const & desc : schema->properties())
+				for (PropertyDesc const & desc : schema.properties())
 				{
 					if (desc.hasFlag(PROP_HIDDEN) || !desc.get)
 					{
@@ -530,9 +520,17 @@ namespace Orkige
 			sendError("set_property: '" + id + "' has no " + component);
 			return;
 		}
-		PropertySchema const * schema = TypeManager::getSingleton()
-			.getPropertySchema(componentType.getId());
-		PropertyDesc const * desc = schema ? schema->find(property) : 0;
+		GameObjectComponent * instance =
+			gameObject->getComponentPtr(componentType);
+		if (!instance)
+		{
+			sendError("set_property: '" + id + "' has no " + component);
+			return;
+		}
+		// the union schema (static per-type + dynamic per-instance) so a
+		// ScriptComponent's exported properties are writable too (task #94 P5b)
+		const PropertySchema schema = getComponentSchema(*instance);
+		PropertyDesc const * desc = schema.find(property);
 		if (!desc)
 		{
 			sendError("set_property: unknown property " + component + "." +
@@ -543,13 +541,6 @@ namespace Orkige
 		{
 			sendError("set_property: " + component + "." + property +
 				" is read-only");
-			return;
-		}
-		GameObjectComponent * instance =
-			gameObject->getComponentPtr(componentType);
-		if (!instance)
-		{
-			sendError("set_property: '" + id + "' has no " + component);
 			return;
 		}
 		// read the current value to obtain a correctly-typed carrier (kind +

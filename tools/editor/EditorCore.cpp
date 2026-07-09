@@ -11,6 +11,7 @@
 #include <engine_render/RenderWorld.h>
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
+#include <core_game/GameObjectComponent.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_serialization/XMLArchive.h>
@@ -2217,9 +2218,11 @@ namespace Orkige
 		{
 			return false;
 		}
-		PropertySchema const* schema = TypeManager::getSingleton()
-			.getPropertySchema(componentType.getId());
-		PropertyDesc const* desc = schema ? schema->find(propertyName) : 0;
+		// the union schema (static per-type + dynamic per-instance) so script
+		// export properties resolve here too (task #94 P5b) - this drives both
+		// the local inspector and the MCP get_component path
+		const PropertySchema schema = getComponentSchema(*instance);
+		PropertyDesc const* desc = schema.find(propertyName);
 		if (!desc || !desc->get)
 		{
 			return false;
@@ -2245,9 +2248,10 @@ namespace Orkige
 		{
 			return false;
 		}
-		PropertySchema const* schema = TypeManager::getSingleton()
-			.getPropertySchema(componentType.getId());
-		PropertyDesc const* desc = schema ? schema->find(propertyName) : 0;
+		// the union schema (static per-type + dynamic per-instance) so script
+		// export properties are settable here too (task #94 P5b)
+		const PropertySchema schema = getComponentSchema(*instance);
+		PropertyDesc const* desc = schema.find(propertyName);
 		if (!desc || desc->isReadOnly())
 		{
 			return false;
@@ -2275,6 +2279,25 @@ namespace Orkige
 		}
 		desc->set(static_cast<void*>(instance), reflected);
 		return true;
+	}
+	//---------------------------------------------------------
+	PropertySchema EditorCore::getComponentPropertySchema(String const& id,
+		String const& componentTypeName) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return PropertySchema();
+		}
+		const TypeInfo componentType(componentTypeName);
+		GameObjectComponent* instance =
+			gameObject->getComponentPtr(componentType);
+		if (!instance)
+		{
+			return PropertySchema();
+		}
+		return getComponentSchema(*instance);
 	}
 	//---------------------------------------------------------
 	bool EditorCore::applyPropertyChange(String const& id,

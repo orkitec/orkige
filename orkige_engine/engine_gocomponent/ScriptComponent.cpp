@@ -225,6 +225,11 @@ namespace Orkige
 		// knows it ("" without a project - honest either way)
 		this->mScriptAssetId = AssetDatabase::referenceIdForValue(
 			scriptFile, "", AssetDatabase::REF_PROJECT_PATH);
+		// (re)discover the new script's exported properties: the dynamic schema
+		// is known only once a specific .lua is attached (task #94 P5b). Values
+		// reconcile BY NAME, so switching to a script sharing an export name
+		// keeps that value; everything else takes the new file's defaults.
+		this->discoverExports();
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::setScriptEnabled(bool enabled)
@@ -268,6 +273,12 @@ namespace Orkige
 			this->reportReloadError(error);
 			return;
 		}
+
+		// re-read the edited file's export set and reconcile BY NAME (task #94
+		// P5b): a designer-set value survives an edit that keeps the export, a
+		// removed export drops, a new one takes its default - before the value
+		// is injected into the fresh instance's `self` below
+		this->discoverExports();
 
 		// (2) build the temp instance's `self` (from the LIVE siblings) and run
 		// init on it - still without disturbing the running instance. An init
@@ -453,6 +464,102 @@ namespace Orkige
 		{
 			instance->setSelfValue("particles",
 				componentOwner->getComponentPtr<ParticleComponent>());
+		}
+		// inject the EXPORTED property values (task #94 P5b) as their natural
+		// Lua types BEFORE init runs, so the script reads them as tunables
+		// (self.moveSpeed, self.tint, ...) - the Unity public-field / Godot
+		// @export payoff. A hot reload re-injects the CURRENT values (reconciled
+		// above), so designer edits survive the swap.
+		for (std::map<String, PropertyValue>::const_iterator it =
+			this->mExportValues.begin(); it != this->mExportValues.end(); ++it)
+		{
+			instance->setSelfProperty(it->first.c_str(), it->second);
+		}
+	}
+	//---------------------------------------------------------
+	void ScriptComponent::discoverExports()
+	{
+		PropertySchema newSchema;
+		std::map<String, PropertyValue> newValues;
+		ScriptRuntime* runtime = ScriptRuntime::getSingletonPtr();
+		if (runtime && !this->mScriptFile.empty())
+		{
+			const std::vector<ScriptExportProperty> declared =
+				runtime->readExportedProperties(this->mScriptFile);
+			for (ScriptExportProperty const & ex : declared)
+			{
+				// reconcile BY NAME: keep the current value when the name AND a
+				// compatible kind survive; otherwise take the declared default
+				std::map<String, PropertyValue>::const_iterator existing =
+					this->mExportValues.find(ex.name);
+				PropertyValue value = (existing != this->mExportValues.end() &&
+					existing->second.kind() == ex.kind)
+					? existing->second : ex.defaultValue;
+				newValues[ex.name] = value;
+
+				// the descriptor closes over the property NAME and reads/writes
+				// this component's per-instance store - reusing PropertyDesc/
+				// PropertyValue so a consumer can't tell dynamic from static
+				const String name = ex.name;
+				PropertyGetter getter =
+					[name](void const * obj) -> PropertyValue
+				{
+					return static_cast<ScriptComponent const *>(obj)
+						->getExportValue(name);
+				};
+				PropertySetter setter =
+					[name](void * obj, PropertyValue const & propertyValue)
+				{
+					static_cast<ScriptComponent *>(obj)->setExportValue(name,
+						propertyValue);
+				};
+				PropertyDesc desc;
+				if (ex.kind == PropertyKind::AssetRef ||
+					ex.kind == PropertyKind::ObjectRef)
+				{
+					desc = PropertyDesc::makeReference(ex.name, ex.kind,
+						ex.referenceHint, PROP_NONE, getter, setter);
+				}
+				else
+				{
+					desc = PropertyDesc(ex.name, ex.kind, PROP_NONE, getter,
+						setter);
+				}
+				if (ex.hasRange)
+				{
+					desc.meta.hasRange = true;
+					desc.meta.minValue = ex.minValue;
+					desc.meta.maxValue = ex.maxValue;
+				}
+				newSchema.add(desc);
+			}
+		}
+		this->mExportSchema = newSchema;
+		this->mExportValues.swap(newValues);
+	}
+	//---------------------------------------------------------
+	PropertySchema ScriptComponent::getInstancePropertySchema() const
+	{
+		return this->mExportSchema;
+	}
+	//---------------------------------------------------------
+	PropertyValue ScriptComponent::getExportValue(String const & name) const
+	{
+		std::map<String, PropertyValue>::const_iterator it =
+			this->mExportValues.find(name);
+		return it != this->mExportValues.end() ? it->second : PropertyValue();
+	}
+	//---------------------------------------------------------
+	void ScriptComponent::setExportValue(String const & name,
+		PropertyValue const & value)
+	{
+		this->mExportValues[name] = value;
+		// live effect: a set that arrives while the script is running (an
+		// inspector edit / an MCP set over the debug protocol) re-injects onto
+		// `self`, so self.<name> updates without a reload
+		if (this->mInstance)
+		{
+			this->mInstance->setSelfProperty(name.c_str(), value);
 		}
 	}
 	//---------------------------------------------------------

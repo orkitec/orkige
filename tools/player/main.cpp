@@ -491,13 +491,24 @@ int main(int argc, char** argv)
 		// the end (the selfcheck rewrites it in place).
 		const bool hotreloadCheck =
 			(std::getenv("ORKIGE_HOTRELOAD_SELFCHECK") != nullptr);
+		// ORKIGE_SCRIPTPROP_SELFCHECK verifies Lua script EXPORTED properties
+		// (task #94 P5b) end to end against tests/projects/scriptprop: the
+		// scene bakes the "Mover" object's exported moveSpeed at a non-default
+		// value (5); the selfcheck asserts the running script SAW the injected
+		// value (init published it) and BEHAVES with it (moves at that speed),
+		// then flips it live over the debug-protocol setter (moveSpeed -> 0
+		// stops the motion) and re-saves+reloads the scene to prove the value
+		// round-trips per-instance.
+		const bool scriptPropCheck =
+			(std::getenv("ORKIGE_SCRIPTPROP_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
 		const bool automatedRun = jumperLuaCheck || rollerCheck ||
 			rollerProgressionCheck || tweenCheck ||
-			hotreloadCheck || !assetIdCheckTexture.empty() || frameLimit != 0;
+			hotreloadCheck || scriptPropCheck ||
+			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
@@ -1341,6 +1352,47 @@ int main(int argc, char** argv)
 				hotreloadNumber("value", -1.0), hotreloadNumber("inits", -1.0),
 				hotreloadNumber("ticks", -1.0));
 			hotreloadCheckFailed = true;
+		};
+
+		// --- ORKIGE_SCRIPTPROP_SELFCHECK=1: Lua script exported properties
+		// (task #94 P5b), verified end to end against tests/projects/scriptprop.
+		// The scene bakes the Mover's exported moveSpeed at 5 (the script's own
+		// default is 1), so the running script seeing 5 at init proves the
+		// PER-INSTANCE value round-tripped through serialization AND was injected
+		// onto `self` before init. The script moves +x at moveSpeed; a live set
+		// of moveSpeed -> 0 through the reflected setter (the debug-protocol /
+		// MCP write path) must stop the motion. Frame-scripted:
+		//   frame  5  script up, injectedSpeed == 5, x advanced from 0
+		//   frame 15  x == 5 * elapsed (behaved with the injected value), then
+		//             flip moveSpeed -> 0 through the reflected setter
+		//   frame 25  x stopped (the live set reached self.moveSpeed) -> done
+		enum class ScriptPropPhase { Boot, Moving, Frozen, Done };
+		ScriptPropPhase scriptPropPhase = ScriptPropPhase::Boot;
+		bool scriptPropCheckFailed = false;
+		double scriptPropXAtFreeze = 0.0;
+		auto scriptPropNumber = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "scriptprop", key}, fallback);
+		};
+		auto moverScript = [&gameObjectManager]() -> Orkige::ScriptComponent*
+		{
+			optr<Orkige::GameObject> mover =
+				gameObjectManager.getGameObject("Mover").lock();
+			if (!mover || !mover->hasComponent<Orkige::ScriptComponent>())
+			{
+				return nullptr;
+			}
+			return mover->getComponentPtr<Orkige::ScriptComponent>();
+		};
+		auto scriptPropFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: SCRIPTPROP SELFCHECK FAILED - %s "
+				"(injected=%.3f x=%.3f elapsed=%.3f)", what.c_str(),
+				scriptPropNumber("injectedSpeed", -1.0),
+				scriptPropNumber("x", -999.0),
+				scriptPropNumber("elapsed", -1.0));
+			scriptPropCheckFailed = true;
 		};
 
 		bool running = true;
@@ -2720,6 +2772,111 @@ int main(int argc, char** argv)
 				}
 			}
 			if (hotreloadCheck && hotreloadCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
+			if (scriptPropCheck && !scriptPropCheckFailed &&
+				scriptPropPhase == ScriptPropPhase::Boot && frameCount == 5)
+			{
+				Orkige::ScriptComponent* script = moverScript();
+				if (!script)
+				{
+					scriptPropFail("no Mover object with a ScriptComponent");
+				}
+				else if (script->hasScriptError())
+				{
+					scriptPropFail("script error: " + script->getScriptError());
+				}
+				else if (!script->isScriptStarted())
+				{
+					scriptPropFail("the script never loaded/started");
+				}
+				else if (std::abs(
+					scriptPropNumber("injectedSpeed", -1.0) - 5.0) > 0.001)
+				{
+					// the script's OWN default is 1; seeing 5 proves the
+					// serialized per-instance value was loaded AND injected onto
+					// self before init
+					scriptPropFail("the serialized moveSpeed=5 was NOT injected "
+						"before init");
+				}
+				else if (scriptPropNumber("x", 0.0) <=
+					scriptPropNumber("startX", 0.0))
+				{
+					scriptPropFail("the script did not move the transform");
+				}
+				else
+				{
+					SDL_Log("orkige_player: scriptprop selfcheck - export "
+						"injected before init (moveSpeed=5), transform moving");
+					scriptPropPhase = ScriptPropPhase::Moving;
+				}
+			}
+			else if (scriptPropCheck && !scriptPropCheckFailed &&
+				scriptPropPhase == ScriptPropPhase::Moving && frameCount == 15)
+			{
+				const double x = scriptPropNumber("x", 0.0);
+				const double elapsed = scriptPropNumber("elapsed", 0.0);
+				Orkige::ScriptComponent* script = moverScript();
+				if (elapsed <= 0.0)
+				{
+					scriptPropFail("no elapsed time accumulated");
+				}
+				else if (std::abs(x / elapsed - 5.0) > 0.25)
+				{
+					scriptPropFail("the script did not move at the injected "
+						"speed (x/elapsed != 5)");
+				}
+				else if (!script)
+				{
+					scriptPropFail("lost the Mover ScriptComponent");
+				}
+				else
+				{
+					// flip moveSpeed live through the REFLECTED setter - the
+					// exact path a debug-protocol set_property / MCP
+					// set_component write takes to a dynamic export property
+					const Orkige::PropertySchema schema =
+						Orkige::getComponentSchema(*script);
+					Orkige::PropertyDesc const* desc = schema.find("moveSpeed");
+					if (!desc || desc->isReadOnly())
+					{
+						scriptPropFail("moveSpeed not writable through the "
+							"reflected schema");
+					}
+					else
+					{
+						desc->set(static_cast<void*>(script),
+							Orkige::PropertyValue::makeFloat(0.0));
+						scriptPropXAtFreeze = scriptPropNumber("x", 0.0);
+						SDL_Log("orkige_player: scriptprop selfcheck - moved at "
+							"speed 5, set moveSpeed->0 through the reflected "
+							"setter");
+						scriptPropPhase = ScriptPropPhase::Frozen;
+					}
+				}
+			}
+			else if (scriptPropCheck && !scriptPropCheckFailed &&
+				scriptPropPhase == ScriptPropPhase::Frozen && frameCount == 25)
+			{
+				if (std::abs(scriptPropNumber("x", -999.0) -
+					scriptPropXAtFreeze) > 0.05)
+				{
+					scriptPropFail("the live moveSpeed->0 did not reach the "
+						"script (x kept moving)");
+				}
+				else
+				{
+					SDL_Log("orkige_player: scriptprop selfcheck complete - "
+						"export injected-before-init, behaved, serialized "
+						"per-instance, live reflected set reached self.moveSpeed");
+					scriptPropPhase = ScriptPropPhase::Done;
+					running = false;
+				}
+			}
+			if (scriptPropCheck && scriptPropCheckFailed)
 			{
 				exitCode = 1;
 				running = false;

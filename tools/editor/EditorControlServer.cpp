@@ -17,6 +17,7 @@
 #include <core_base/TypeManager.h>
 #include <core_debugnet/DebugSocket.h>
 #include <core_game/GameObject.h>
+#include <core_game/GameObjectComponent.h>
 #include <core_game/GameObjectManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
@@ -926,13 +927,18 @@ namespace Orkige
 				return;
 			}
 			const TypeInfo componentType(component);
-			if (!gameObject->hasComponent(componentType))
+			GameObjectComponent* instance =
+				gameObject->getComponentPtr(componentType);
+			if (!instance)
 			{
 				this->sendErr(req, "no " + component + " on '" + id + "'");
 				return;
 			}
-			PropertySchema const* schema = TypeManager::getSingleton()
-				.getPropertySchema(componentType.getId());
+			// the union schema (static per-type + dynamic per-instance) so a
+			// ScriptComponent's exported script properties are discovered here
+			// too (task #94 P5b) - MCP shows them with zero server code
+			const PropertySchema unionSchema = getComponentSchema(*instance);
+			PropertySchema const* schema = &unionSchema;
 			DebugMessage ok(MSG_OK);
 			ok.set(DebugProtocol::FIELD_ID, id);
 			ok.set(DebugProtocol::FIELD_COMPONENT, component);
@@ -991,13 +997,18 @@ namespace Orkige
 				return;
 			}
 			const TypeInfo componentType(component);
-			if (!gameObject->hasComponent(componentType))
+			GameObjectComponent* instance =
+				gameObject->getComponentPtr(componentType);
+			if (!instance)
 			{
 				this->sendErr(req, "no " + component + " on '" + id + "'");
 				return;
 			}
-			PropertySchema const* schema = TypeManager::getSingleton()
-				.getPropertySchema(componentType.getId());
+			// the union schema (static per-type + dynamic per-instance) so a
+			// ScriptComponent's exported script properties validate/apply here
+			// too (task #94 P5b)
+			const PropertySchema unionSchema = getComponentSchema(*instance);
+			PropertySchema const* schema = &unionSchema;
 			// the request fields that are NOT properties (routing/control)
 			auto isReserved = [](String const& key) -> bool
 			{

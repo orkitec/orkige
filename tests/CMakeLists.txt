@@ -551,6 +551,21 @@ if(TARGET orkige_player)
         set_tests_properties(player_hotreload_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_HOTRELOAD_SELFCHECK=1"
             RESOURCE_LOCK hotreload_fixture)
+
+        # Lua script EXPORTED properties, end to end (task #94 P5b):
+        # tests/projects/scriptprop runs a Mover whose script declares an
+        # exported `moveSpeed`. The scene bakes moveSpeed at 5 (the script's own
+        # default is 1), so the running script seeing 5 at init proves the
+        # per-instance value round-tripped through serialization AND was injected
+        # onto `self` before init; the script then moves at that speed and a
+        # LIVE set of moveSpeed->0 through the reflected setter (the debug /
+        # MCP write path) stops the motion (see the ORKIGE_SCRIPTPROP_SELFCHECK
+        # block in tools/player/main.cpp).
+        add_test(NAME player_scriptprop_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project tests/projects/scriptprop
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_scriptprop_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SCRIPTPROP_SELFCHECK=1")
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture
@@ -688,6 +703,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
         player_hotreload_selfcheck player_hotreload_selfcheck_next
+        player_scriptprop_selfcheck player_scriptprop_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
         editor_play_script_error editor_play_hotreload

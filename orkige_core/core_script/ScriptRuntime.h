@@ -13,6 +13,9 @@
 #include "core_util/Singleton.h"
 #include "core_util/String.h"
 #include "core_util/optr.h"
+#include "core_base/PropertyValue.h"
+
+#include <vector>
 
 // The ONLY place (besides Meta.h) that selects a scripting backend: call
 // sites include this header unconditionally and never test ORKIGE_LUA.
@@ -27,6 +30,27 @@ namespace Orkige
 	/** \addtogroup Script
 	*  @{ */
 	class ScriptInstance;
+
+	//! @brief one EXPORTED property declared by a script's top-level
+	//! `properties` table (task #94 P5b, the Unity public-field / Godot
+	//! `@export` convention). A backend-neutral, sol2-free description: the
+	//! ScriptComponent turns a vector of these into a DYNAMIC per-instance
+	//! PropertySchema so a script's tunables surface in the inspector / debug
+	//! protocol / MCP through the SAME registry path as a C++ component's
+	//! static properties. Read via ScriptRuntime::readExportedProperties; the
+	//! None backend never produces any (scripts simply have no exports there).
+	struct ScriptExportProperty
+	{
+		String			name;			//!< the property name (its schema key + the `self` field)
+		PropertyKind	kind;			//!< the reflected value shape
+		PropertyValue	defaultValue;	//!< the declared default (the value a fresh instance starts at)
+		String			referenceHint;	//!< AssetRef/ObjectRef: the asset-kind / object-type hint ("" otherwise)
+		bool			hasRange = false;	//!< true when min/max were declared (a slider hint)
+		float			minValue = 0.0f;	//!< the declared slider lower bound
+		float			maxValue = 0.0f;	//!< the declared slider upper bound
+
+		ScriptExportProperty() : kind(PropertyKind::Float) {}
+	};
 
 	//! @brief the OPTIONAL-TRAILING-ARGUMENTS parameter for functions
 	//! registered through ScriptRuntime::registerFunction: declare it as the
@@ -149,6 +173,30 @@ namespace Orkige
 		optr<ScriptInstance> loadScriptInstance(String const & scriptFile,
 			String * outError);
 
+		//! @brief read a script file's top-level `properties` table (the
+		//! exported-property declaration, task #94 P5b) into backend-neutral
+		//! descriptors. The Lua backend loads the file into a THROWAWAY
+		//! sandboxed environment (init/update are NOT run - this only reads the
+		//! declaration) and translates each entry; a parse error or a missing
+		//! `properties` table yields an empty vector. In ORKIGE_SCRIPTING=OFF
+		//! builds this ALWAYS returns {} - scripts have no exports there, which
+		//! keeps the "scripting disabled is honest, not a crash" contract (a
+		//! ScriptComponent then reports an empty dynamic schema and keeps
+		//! whatever export values were serialized, inert). Declaration:
+		//! @code
+		//! properties = {
+		//!   moveSpeed = { type = "number", default = 4.5, min = 0, max = 20 },
+		//!   canDouble = { type = "bool",   default = true },
+		//!   tint      = { type = "color",  default = {1,1,1,1} },
+		//!   icon      = { type = "asset",  kind = "texture" },
+		//! }
+		//! @endcode
+		//! Types map 1:1 to PropertyKind: number->Float, bool->Bool,
+		//! string->String, vec3->Vec3, color->Color, asset->AssetRef,
+		//! object->ObjectRef.
+		std::vector<ScriptExportProperty> readExportedProperties(
+			String const & scriptFile);
+
 		//! read a global (path like {"shared","jumper","wins"}) as a number
 		double getNumber(StringVector const & path, double fallback);
 		//! read a global (path walk like getNumber) as a bool
@@ -226,6 +274,15 @@ namespace Orkige
 			(void)value;
 #endif
 		}
+		//! @brief inject a reflected PropertyValue onto the `self` table as its
+		//! natural Lua type (task #94 P5b: a script's EXPORTED properties are
+		//! pushed here before init so the script reads them as tunables -
+		//! `self.moveSpeed` etc). Number/Bool/String/reference map to the
+		//! scalar Lua types; Vec3 -> {x,y,z}, Color -> {r,g,b,a} array tables.
+		//! Backend-neutral (no-op without a scripting backend) so ScriptComponent
+		//! stays free of sol2 - the mapping lives in the ScriptRuntime impl.
+		void setSelfProperty(char const * key, PropertyValue const & value);
+
 		//! @brief run init(self) if the script defines one, then cache the
 		//! script's update function
 		//! @return false with *outError set on a script error

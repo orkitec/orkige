@@ -9,9 +9,35 @@
 
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObject.h"
+#include "core_base/TypeManager.h"
 
 namespace Orkige
 {
+	//---------------------------------------------------------
+	PropertySchema getComponentSchema(GameObjectComponent const & component)
+	{
+		PropertySchema schema;
+		// the static per-type half (the instance's DYNAMIC type, so a subclass's
+		// full schema comes through)
+		if (PropertySchema const * staticSchema =
+			TypeManager::getSingleton().getPropertySchema(
+				component.getTypeInfo().getId()))
+		{
+			for (PropertyDesc const & desc : staticSchema->properties())
+			{
+				schema.add(desc);
+			}
+		}
+		// the dynamic per-instance half (empty for a fully-static component) -
+		// appended AFTER the static ones so a script's exports render below the
+		// component's own fields, and REPLACE a static of the same name
+		PropertySchema const dynamicSchema = component.getInstancePropertySchema();
+		for (PropertyDesc const & desc : dynamicSchema.properties())
+		{
+			schema.add(desc);
+		}
+		return schema;
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------

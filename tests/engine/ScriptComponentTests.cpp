@@ -22,7 +22,10 @@
 
 #include <engine_gocomponent/ScriptComponent.h>
 #include <core_game/GameObject.h>
+#include <core_game/GameObjectComponent.h>
 #include <core_game/SceneSerializer.h>
+#include <core_base/PropertySchema.h>
+#include <core_base/PropertyValue.h>
 
 #include <filesystem>
 #include <fstream>
@@ -484,4 +487,184 @@ TEST_CASE("ScriptComponent round-trips through the scene serializer", "[script]"
 	env.gameObjectManager.clear();
 	std::error_code ignored;
 	std::filesystem::remove(scenePath, ignored);
+}
+
+TEST_CASE("ScriptComponent surfaces script exports through the union schema (P5b)",
+	"[script][export]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment & env = EngineTestEnvironment::get();
+	TempScriptDir dir("orkige_script_export_schema_test");
+	dir.write("mover.lua", R"lua(
+		properties = {
+			moveSpeed = { type = "number", default = 4.5, min = 0, max = 20 },
+			team      = { type = "string", default = "red" },
+		}
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+
+	optr<GameObject> hero =
+		env.gameObjectManager.createGameObject("Hero").lock();
+	REQUIRE(hero);
+	REQUIRE(hero->addComponent<ScriptComponent>());
+	ScriptComponent* script = hero->getComponentPtr<ScriptComponent>();
+	script->setScriptFile("scripts/mover.lua");
+
+	const PropertySchema unionSchema = getComponentSchema(*script);
+	// the STATIC half is always present (script/enabled + telemetry)
+	CHECK(unionSchema.find("script") != nullptr);
+	CHECK(unionSchema.find("enabled") != nullptr);
+
+	if (!scriptingAvailable())
+	{
+		// OFF configuration: no dynamic exports, union == static, no crash
+		CHECK(script->getInstancePropertySchema().empty());
+		CHECK(unionSchema.find("moveSpeed") == nullptr);
+		env.gameObjectManager.clear();
+		env.scriptRuntime.setScriptSearchRoot("");
+		return;
+	}
+
+	// the DYNAMIC exported properties appear in the union, indistinguishable
+	// from static ones (same PropertyDesc/PropertyValue currency)
+	PropertyDesc const * speed = unionSchema.find("moveSpeed");
+	REQUIRE(speed != nullptr);
+	CHECK(speed->kind == PropertyKind::Float);
+	CHECK(speed->meta.hasRange);
+	CHECK(speed->meta.maxValue == Catch::Approx(20.0f));
+	// its value reads through the type-erased getter, at the declared default
+	void const * instance = static_cast<void const *>(script);
+	CHECK(speed->get(instance).asFloat() == Catch::Approx(4.5));
+	PropertyDesc const * team = unionSchema.find("team");
+	REQUIRE(team != nullptr);
+	CHECK(team->kind == PropertyKind::String);
+	CHECK(team->get(instance).asString() == "red");
+
+	// a set through the reflected setter lands in the per-instance store
+	speed->set(static_cast<void *>(script), PropertyValue::makeFloat(9.0));
+	CHECK(script->getExportValue("moveSpeed").asFloat() == Catch::Approx(9.0));
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+}
+
+TEST_CASE("ScriptComponent export values round-trip per-instance through the scene (P5b)",
+	"[script][export]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment & env = EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	TempScriptDir dir("orkige_script_export_serialize_test");
+	dir.write("mover.lua", R"lua(
+		properties = {
+			moveSpeed = { type = "number", default = 4.5 },
+			team      = { type = "string", default = "red" },
+		}
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+	const std::string scenePath = (std::filesystem::temp_directory_path() /
+		"orkige_script_export_roundtrip.oscene").string();
+
+	// two instances of the SAME script with DIFFERENT export values - proves
+	// the values are per-INSTANCE, not per-type
+	{
+		optr<GameObject> a = env.gameObjectManager.createGameObject("A").lock();
+		optr<GameObject> b = env.gameObjectManager.createGameObject("B").lock();
+		REQUIRE(a->addComponent<ScriptComponent>());
+		REQUIRE(b->addComponent<ScriptComponent>());
+		ScriptComponent* sa = a->getComponentPtr<ScriptComponent>();
+		ScriptComponent* sb = b->getComponentPtr<ScriptComponent>();
+		sa->setScriptFile("scripts/mover.lua");
+		sb->setScriptFile("scripts/mover.lua");
+		sa->setExportValue("moveSpeed", PropertyValue::makeFloat(11.0));
+		sa->setExportValue("team", PropertyValue::makeString("blue"));
+		// B keeps the default moveSpeed (4.5), overrides only team
+		sb->setExportValue("team", PropertyValue::makeString("green"));
+	}
+	REQUIRE(SceneSerializer::saveScene(scenePath, env.gameObjectManager));
+	env.gameObjectManager.clear();
+
+	REQUIRE(SceneSerializer::loadScene(scenePath, env.gameObjectManager));
+	ScriptComponent* la = env.gameObjectManager.getGameObject("A").lock()
+		->getComponentPtr<ScriptComponent>();
+	ScriptComponent* lb = env.gameObjectManager.getGameObject("B").lock()
+		->getComponentPtr<ScriptComponent>();
+	// the schema re-discovered on load (script path restored first), values
+	// restored per-instance from the named records
+	CHECK(la->getExportValue("moveSpeed").asFloat() == Catch::Approx(11.0));
+	CHECK(la->getExportValue("team").asString() == "blue");
+	CHECK(lb->getExportValue("moveSpeed").asFloat() == Catch::Approx(4.5));
+	CHECK(lb->getExportValue("team").asString() == "green");
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
+	std::error_code ignored;
+	std::filesystem::remove(scenePath, ignored);
+}
+
+TEST_CASE("ScriptComponent export discovery reconciles BY NAME (P5b)",
+	"[script][export]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment & env = EngineTestEnvironment::get();
+	if (!scriptingAvailable())
+	{
+		return;
+	}
+	TempScriptDir dir("orkige_script_export_reconcile_test");
+	// export set v1: { kept, dropped }
+	dir.write("probe.lua", R"lua(
+		properties = {
+			kept    = { type = "number", default = 1.0 },
+			dropped = { type = "number", default = 2.0 },
+		}
+		function update(self, dt) end
+	)lua");
+	env.scriptRuntime.setScriptSearchRoot(dir.root.string());
+	env.gameObjectManager.clear();
+
+	optr<GameObject> probe =
+		env.gameObjectManager.createGameObject("Probe").lock();
+	REQUIRE(probe->addComponent<ScriptComponent>());
+	ScriptComponent* script = probe->getComponentPtr<ScriptComponent>();
+	script->setScriptFile("scripts/probe.lua");
+
+	// the designer sets a non-default value on the property that will SURVIVE
+	script->setExportValue("kept", PropertyValue::makeFloat(42.0));
+	CHECK(script->getExportValue("kept").asFloat() == Catch::Approx(42.0));
+
+	// load once so hotReload has a running instance to swap
+	env.gameObjectManager.update(0.016f);
+	REQUIRE(script->isScriptStarted());
+
+	// export set v2: { kept (survives), added (new) } - `dropped` removed
+	dir.write("probe.lua", R"lua(
+		properties = {
+			kept  = { type = "number", default = 1.0 },
+			added = { type = "number", default = 7.0 },
+		}
+		function update(self, dt) end
+	)lua");
+	script->hotReload();
+	REQUIRE_FALSE(script->hasReloadError());
+
+	const PropertySchema schema = script->getInstancePropertySchema();
+	// kept: KEPT its designer-set value across the export-set change
+	REQUIRE(schema.find("kept") != nullptr);
+	CHECK(script->getExportValue("kept").asFloat() == Catch::Approx(42.0));
+	// added: new export present at its declared default
+	REQUIRE(schema.find("added") != nullptr);
+	CHECK(script->getExportValue("added").asFloat() == Catch::Approx(7.0));
+	// dropped: removed export is gone from the schema
+	CHECK(schema.find("dropped") == nullptr);
+
+	env.gameObjectManager.clear();
+	env.scriptRuntime.setScriptSearchRoot("");
 }

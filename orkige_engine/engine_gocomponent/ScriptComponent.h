@@ -11,8 +11,12 @@
 
 #include <core_game/GameObjectComponent.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "core_base/PropertyValue.h"
+#include "core_base/PropertySchema.h"
 #include "core_util/String.h"
 #include "core_util/optr.h"
+
+#include <map>
 
 namespace Orkige
 {
@@ -79,6 +83,21 @@ namespace Orkige
 		String	mErrorMessage;		//!< the first error ("" while healthy)
 		String	mReloadError;		//!< last hotReload() failure ("" = last reload was clean); mFailed stays false - the OLD instance keeps running
 		optr<ScriptInstance>	mInstance;	//!< the loaded script instance (NULL until the lazy load)
+		//! @brief the DYNAMIC per-instance schema built from the attached
+		//! script's `properties` table (task #94 P5b); empty until a script with
+		//! exports is attached and in ORKIGE_SCRIPTING=OFF builds. Its
+		//! descriptors' get/set close over THIS component and read/write
+		//! mExportValues, so the exports reflect through the ONE registry exactly
+		//! like a static C++ property. Rebuilt on every export discovery.
+		PropertySchema	mExportSchema;
+		//! @brief the current per-instance value of each exported property, keyed
+		//! by name (defaults from the declaration, overridable per instance in
+		//! the inspector / over the wire). Serialized alongside the script path
+		//! through the reflection-driven named path (@see save/load); injected
+		//! into the script's `self` before init so the script reads it as a
+		//! tunable. Reconciled BY NAME on re-discovery (kept values survive an
+		//! export-set change, removed ones drop, new ones take their default).
+		std::map<String, PropertyValue>	mExportValues;
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -139,6 +158,19 @@ namespace Orkige
 		//! Mutating the world here (spawn/destroy) is safe: it goes through the
 		//! GameObjectManager delete queue, never mid-drain.
 		void dispatchContact(GameObject* other, bool began);
+		//! @brief the DYNAMIC schema of the attached script's exported properties
+		//! (task #94 P5b) - the per-instance half of the reflection union. Empty
+		//! until a script declaring a `properties` table is attached (and always
+		//! empty in ORKIGE_SCRIPTING=OFF). @see getComponentSchema.
+		virtual PropertySchema getInstancePropertySchema() const;
+		//! read an exported property's current value (Int(0) when the name is not
+		//! an export) - the reflected getter the dynamic descriptors close over
+		PropertyValue getExportValue(String const & name) const;
+		//! @brief write an exported property's value (the reflected setter the
+		//! dynamic descriptors close over). Stores it in the per-instance bag AND,
+		//! when a script is running, re-injects it onto `self` so a live set (over
+		//! the debug protocol / MCP) reaches the script immediately.
+		void setExportValue(String const & name, PropertyValue const & value);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();
@@ -155,6 +187,14 @@ namespace Orkige
 		//! AssetDatabase wins over a stale path (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
+		//! @brief (re)discover the attached script's exported properties (task
+		//! #94 P5b): read the `properties` table through the ScriptRuntime seam,
+		//! reconcile the per-instance values BY NAME (keep a value whose name +
+		//! kind survive, drop a removed export, add a new one at its declared
+		//! default) and rebuild mExportSchema. Called on attach (setScriptFile),
+		//! load and hotReload; a no-op without a runtime / a resolvable file /
+		//! scripting (the schema then simply stays empty).
+		void discoverExports();
 		//! resolve, load and init the script; false (+failScript) on any error
 		bool loadScriptNow();
 		//! @brief populate the given instance's `self` table (owner id +
