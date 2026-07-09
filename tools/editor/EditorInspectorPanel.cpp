@@ -5,514 +5,119 @@
 #include "EditorApp.h"
 #include "EditorPropertyWidgets.h"
 
+#include <core_base/PropertySchema.h>
+#include <core_base/TypeManager.h>
 #include <core_util/StringUtil.h>
-#include <engine_gocomponent/CameraComponent.h>
-#include <engine_gocomponent/ModelComponent.h>
-#include <engine_gocomponent/RigidBodyComponent.h>
-#include <engine_gocomponent/ScriptComponent.h>
-#include <engine_gocomponent/SpriteComponent.h>
-#include <engine_gocomponent/TransformComponent.h>
 
 #include <cstring>
 
 namespace
 {
 
-// Inspector transform editors: every edit goes through the command stack
-// (undoable); while a drag widget stays active the per-frame edits merge
-// into ONE undo step, exactly like a gizmo drag.
-void drawTransformComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId)
+//! @brief the widget hint a reflected property needs beyond its kind: Enum ->
+//! the "label=value,label=value,..." option table (from the EnumInfo registry),
+//! AssetRef/ObjectRef -> the asset-kind / object-type hint, everything else ->
+//! "". The LOCAL cousin of PlayerRuntime::propertyHint (the remote path builds
+//! the same string on the player side and streams it).
+std::string propertyWidgetHint(Orkige::PropertyDesc const& desc)
 {
-	Orkige::EditorTransform before;
-	if (!core.getObjectTransform(objectId, before))
+	if (desc.kind == Orkige::PropertyKind::Enum)
 	{
-		return;
-	}
-	Orkige::EditorTransform after = before;
-	bool edited = false;
-
-	float position[3] = { before.position.x, before.position.y,
-		before.position.z };
-	bool changed = ImGui::DragFloat3("Position", position, 0.05f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.position = Orkige::Vec3(position[0], position[1], position[2]);
-		edited = true;
-	}
-
-	float yawPitchRoll[3] = {
-		before.orientation.getYaw().valueDegrees(),
-		before.orientation.getPitch().valueDegrees(),
-		before.orientation.getRoll().valueDegrees(),
-	};
-	changed = ImGui::DragFloat3("Yaw/Pitch/Roll", yawPitchRoll, 0.5f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		Orkige::Mat3 rotation;
-		rotation.FromEulerAnglesYXZ(
-			Orkige::Degree(yawPitchRoll[0]),
-			Orkige::Degree(yawPitchRoll[1]),
-			Orkige::Degree(yawPitchRoll[2]));
-		after.orientation = Orkige::Quat(rotation);
-		edited = true;
-	}
-
-	float scale[3] = { before.scale.x, before.scale.y, before.scale.z };
-	changed = ImGui::DragFloat3("Scale", scale, 0.02f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.scale = Orkige::Vec3(scale[0], scale[1], scale[2]);
-		edited = true;
-	}
-
-	if (edited)
-	{
-		core.applyTransformChange(objectId, before, after,
-			state.inspectorMergeSession);
-	}
-}
-
-// ModelComponent editor: the mesh name is an editable text field; Enter
-// applies through EditorCore::changeObjectMesh (undoable, reloads the
-// entity). A failed load logs to the Console and keeps the old mesh.
-void drawModelComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId, Orkige::ModelComponent* model)
-{
-	const std::string currentMesh = model->getCurrentModelFileName();
-	// rebuild the edit buffer when the selection or the mesh changed behind
-	// the field (undo/redo, another panel)
-	if (state.meshEditObjectId != objectId ||
-		state.meshEditCurrentMesh != currentMesh)
-	{
-		state.meshEditObjectId = objectId;
-		state.meshEditCurrentMesh = currentMesh;
-		SDL_strlcpy(state.meshEditBuffer, currentMesh.c_str(),
-			sizeof(state.meshEditBuffer));
-	}
-	if (ImGui::InputText("Mesh", state.meshEditBuffer,
-		sizeof(state.meshEditBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
-	{
-		if (!core.changeObjectMesh(objectId, state.meshEditBuffer))
+		std::string options;
+		if (Orkige::EnumInfo const* enumInfo =
+			Orkige::TypeManager::getSingleton().findEnum(desc.enumTypeName))
 		{
-			SDL_Log("orkige_editor: mesh change to '%s' refused/failed",
-				state.meshEditBuffer);
-			// snap the field back to reality
-			SDL_strlcpy(state.meshEditBuffer, currentMesh.c_str(),
-				sizeof(state.meshEditBuffer));
-		}
-		// on success the next frame re-syncs via meshEditCurrentMesh
-	}
-	ImGui::SetItemTooltip("mesh resource name (Enter reloads the entity)");
-}
-
-// ScriptComponent editor: project-relative script path (Enter applies) +
-// enabled checkbox - both undoable through ONE ChangeScriptCommand - plus a
-// "(script error)" indicator fed from the component. In the editor scripts
-// never run (edit mode does not tick components), so errors show up here
-// only for state carried in from elsewhere; the live play-mode error state
-// arrives through the remote Inspector (ScriptComponent.error).
-void drawScriptComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId, Orkige::ScriptComponent* script)
-{
-	const std::string currentScript = script->getScriptFile();
-	// rebuild the edit buffer when the selection or the path changed behind
-	// the field (undo/redo, another panel)
-	if (state.scriptEditObjectId != objectId ||
-		state.scriptEditCurrentScript != currentScript)
-	{
-		state.scriptEditObjectId = objectId;
-		state.scriptEditCurrentScript = currentScript;
-		SDL_strlcpy(state.scriptEditBuffer, currentScript.c_str(),
-			sizeof(state.scriptEditBuffer));
-	}
-	if (ImGui::InputText("Script", state.scriptEditBuffer,
-		sizeof(state.scriptEditBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
-	{
-		if (!core.changeObjectScript(objectId, state.scriptEditBuffer,
-			script->isScriptEnabled()))
-		{
-			// refused = no-op (same path); snap the field back to reality
-			SDL_strlcpy(state.scriptEditBuffer, currentScript.c_str(),
-				sizeof(state.scriptEditBuffer));
-		}
-		// on success the next frame re-syncs via scriptEditCurrentScript
-	}
-	ImGui::SetItemTooltip("project-relative Lua script path, e.g. "
-		"scripts/player.lua (Enter applies; runs in Play mode only)");
-	bool enabled = script->isScriptEnabled();
-	if (ImGui::Checkbox("Enabled", &enabled))
-	{
-		core.changeObjectScript(objectId, currentScript, enabled);
-	}
-	ImGui::SetItemTooltip("disabled scripts load but never update");
-	if (script->hasScriptError())
-	{
-		ImGui::TextColored(ImVec4(0.94f, 0.35f, 0.35f, 1.0f),
-			"(script error)");
-		ImGui::SetItemTooltip("%s", script->getScriptError().c_str());
-	}
-}
-
-// RigidBodyComponent editor: creation parameters (BodyDesc) only - every
-// edit is one undoable RigidBodyChangeCommand; drag widgets merge their
-// per-frame edits into ONE undo step exactly like the transform drags.
-void drawRigidBodyComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId)
-{
-	Orkige::PhysicsWorld::BodyDesc before;
-	if (!core.getRigidBodyDesc(objectId, before))
-	{
-		return;
-	}
-	Orkige::PhysicsWorld::BodyDesc after = before;
-	bool edited = false;
-
-	static const char* const bodyTypeNames[] =
-		{ "Static", "Kinematic", "Dynamic" };
-	int bodyType = static_cast<int>(before.bodyType);
-	if (ImGui::Combo("Body Type", &bodyType, bodyTypeNames, 3))
-	{
-		after.bodyType =
-			static_cast<Orkige::PhysicsWorld::BodyType>(bodyType);
-		// click widgets get a fresh session - they never merge
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-
-	static const char* const shapeTypeNames[] =
-		{ "Box", "Sphere", "Capsule" };
-	int shapeType = static_cast<int>(before.shapeType);
-	if (ImGui::Combo("Shape", &shapeType, shapeTypeNames, 3))
-	{
-		after.shapeType =
-			static_cast<Orkige::PhysicsWorld::ShapeType>(shapeType);
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-
-	// shape dimensions (which ones apply follows the CURRENT shape)
-	if (before.shapeType == Orkige::PhysicsWorld::ST_BOX)
-	{
-		float halfExtents[3] = { before.halfExtents.x, before.halfExtents.y,
-			before.halfExtents.z };
-		const bool changed =
-			ImGui::DragFloat3("Half Extents", halfExtents, 0.05f, 0.01f,
-				1000.0f);
-		if (ImGui::IsItemActivated())
-		{
-			state.inspectorMergeSession = core.beginMergeSession();
-		}
-		if (changed)
-		{
-			after.halfExtents = Orkige::Vec3(halfExtents[0], halfExtents[1],
-				halfExtents[2]);
-			edited = true;
-		}
-	}
-	else
-	{
-		float radius = before.radius;
-		bool changed = ImGui::DragFloat("Radius", &radius, 0.05f, 0.01f,
-			1000.0f);
-		if (ImGui::IsItemActivated())
-		{
-			state.inspectorMergeSession = core.beginMergeSession();
-		}
-		if (changed)
-		{
-			after.radius = radius;
-			edited = true;
-		}
-		if (before.shapeType == Orkige::PhysicsWorld::ST_CAPSULE)
-		{
-			float halfHeight = before.halfHeight;
-			changed = ImGui::DragFloat("Half Height", &halfHeight, 0.05f,
-				0.01f, 1000.0f);
-			if (ImGui::IsItemActivated())
+			for (auto const& labelled : enumInfo->values())
 			{
-				state.inspectorMergeSession = core.beginMergeSession();
-			}
-			if (changed)
-			{
-				after.halfHeight = halfHeight;
-				edited = true;
-			}
-		}
-	}
-
-	float mass = before.mass;
-	bool changed = ImGui::DragFloat("Mass", &mass, 0.1f, 0.0f, 100000.0f,
-		"%.2f kg");
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.mass = mass;
-		edited = true;
-	}
-
-	float friction = before.friction;
-	changed = ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, 5.0f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.friction = friction;
-		edited = true;
-	}
-
-	float restitution = before.restitution;
-	changed = ImGui::DragFloat("Restitution", &restitution, 0.01f, 0.0f, 1.0f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.restitution = restitution;
-		edited = true;
-	}
-
-	bool planar = before.planar;
-	if (ImGui::Checkbox("Planar (2D: X/Y plane)", &planar))
-	{
-		after.planar = planar;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-
-	// sensor / trigger volume (WP #88): detects overlaps (fires contact events
-	// + the Lua onContactBegin/onContactEnd hooks) with NO collision response,
-	// composing with the layer above (only detects what its layer collides with)
-	bool isSensor = before.isSensor;
-	if (ImGui::Checkbox("Sensor (trigger - no collision response)", &isSensor))
-	{
-		after.isSensor = isSensor;
-		edited = true;
-	}
-	ImGui::SetItemTooltip("a trigger volume: it detects overlaps (firing "
-		"ContactBegan/EndedEvent and the onContactBegin/onContactEnd script "
-		"hooks) but never pushes bodies apart");
-
-	// collision layer: a dropdown over the project's physics.olayers names
-	// (a single "Default" without an asset). An unknown current name (a
-	// hand-edited scene, or a project whose asset dropped the layer) shows
-	// as a first entry so it is never silently lost.
-	{
-		const Orkige::String currentLayer =
-			before.layer.empty() ? Orkige::String("Default") : before.layer;
-		std::vector<Orkige::String> names = core.getPhysicsLayerNames();
-		if (std::find(names.begin(), names.end(), currentLayer) == names.end())
-		{
-			names.insert(names.begin(), currentLayer);
-		}
-		if (ImGui::BeginCombo("Layer", currentLayer.c_str()))
-		{
-			for (Orkige::String const& name : names)
-			{
-				const bool selected = (name == currentLayer);
-				if (ImGui::Selectable(name.c_str(), selected) &&
-					name != currentLayer)
+				if (!options.empty())
 				{
-					after.layer = name;
-					state.inspectorMergeSession = core.beginMergeSession();
-					edited = true;
+					options += ",";
 				}
-				if (selected)
-				{
-					ImGui::SetItemDefaultFocus();
-				}
+				options += labelled.first + "=" +
+					std::to_string(labelled.second);
 			}
-			ImGui::EndCombo();
 		}
-		ImGui::SetItemTooltip("collision layer (physics.olayers) - the NxN "
-			"matrix decides which layers collide");
+		return options;
 	}
-
-	if (edited)
+	if (desc.kind == Orkige::PropertyKind::AssetRef ||
+		desc.kind == Orkige::PropertyKind::ObjectRef)
 	{
-		core.applyRigidBodyChange(objectId, before, after,
-			state.inspectorMergeSession);
+		return desc.referenceHint;
 	}
+	return std::string();
 }
 
-// CameraComponent editor: projection mode combo + ortho size drag - one
-// undoable CameraChangeCommand per edit, drags merge like the transforms
-void drawCameraComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId)
+// The AUTO Inspector (task #94 P4): render ONE component's editable properties
+// GENERICALLY off its reflection schema, retiring the six hand-written per-
+// component ImGui editors. For every declared PropertyDesc we read the live
+// value (desc.get -> canonical string), draw the typed widget by its
+// PropertyKind (the SAME drawPropertyWidget the remote play-mode inspector uses,
+// task #94 P3), and route an edit through EditorCore's generic undoable
+// PropertyChangeCommand - the reflected setter makes the change take effect live
+// in the viewport (a texture/mesh reloads, a transform moves the node). New
+// components and (later) script export properties appear here with ZERO editor
+// code. Edit-mode filtering: PROP_HIDDEN and PROP_TRANSIENT (runtime telemetry
+// like velocities / has_body / script started) are hidden while editing;
+// PROP_READONLY and getter-less properties render disabled. Drags collapse to
+// one undo step via the merge session (IsItemActivated opens it, matching the
+// gizmo/old-inspector drag bracketing).
+void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
+	std::string const& objectId, Orkige::TypeInfo const& componentType)
 {
-	Orkige::EditorCameraSettings before;
-	if (!core.getCameraSettings(objectId, before))
+	Orkige::PropertySchema const* schema =
+		Orkige::TypeManager::getSingleton().getPropertySchema(
+			componentType.getId());
+	if (!schema || schema->empty())
 	{
+		ImGui::TextDisabled("(no editable properties yet)");
 		return;
 	}
-	Orkige::EditorCameraSettings after = before;
-	bool edited = false;
-
-	static const char* const projectionNames[] =
-		{ "Perspective", "Orthographic" };
-	int projection = before.projectionMode;
-	if (ImGui::Combo("Projection", &projection, projectionNames, 2))
+	const std::string componentName = componentType.getName();
+	bool any = false;
+	for (Orkige::PropertyDesc const& desc : schema->properties())
 	{
-		after.projectionMode = projection;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-	ImGui::SetItemTooltip("orthographic = 2D projection (applies to the "
-		"engine camera in Play mode; the editor viewport stays perspective)");
-
-	if (before.projectionMode ==
-		static_cast<int>(Orkige::CameraComponent::PM_ORTHOGRAPHIC))
-	{
-		float orthoSize = before.orthoSize;
-		const bool changed = ImGui::DragFloat("Ortho Size", &orthoSize,
-			0.1f, 0.01f, 10000.0f, "%.2f wu");
+		// edit-mode filtering: never show a hidden property or transient
+		// runtime telemetry (velocities, has_body, script started/error);
+		// a property with no getter has nothing to read/display
+		if (desc.hasFlag(Orkige::PROP_HIDDEN) ||
+			desc.hasFlag(Orkige::PROP_TRANSIENT) || !desc.get)
+		{
+			continue;
+		}
+		std::string value;
+		if (!core.getObjectProperty(objectId, componentName, desc.name, value))
+		{
+			continue;
+		}
+		PropertyWidgetDesc widget;
+		widget.label = desc.name;
+		widget.kind = desc.kind;
+		widget.hint = propertyWidgetHint(desc);
+		widget.readOnly = desc.isReadOnly();
+		std::string edited;
+		const bool committed = drawPropertyWidget(widget, value, edited);
+		// bracket a drag/interaction into ONE undo step: a fresh merge session
+		// opens when the widget becomes active (drag start / combo open / click)
+		// and every edited frame of that interaction shares it (mergeWith
+		// collapses them); the next interaction opens a new session
 		if (ImGui::IsItemActivated())
 		{
 			state.inspectorMergeSession = core.beginMergeSession();
 		}
-		if (changed)
+		if (committed)
 		{
-			after.orthoSize = orthoSize;
-			edited = true;
+			core.applyPropertyChange(objectId, componentName, desc.name,
+				value, edited, state.inspectorMergeSession);
 		}
-		ImGui::SetItemTooltip("world units from the view center to the top "
-			"edge (the camera sees 2x this height)");
-	}
-
-	if (edited)
-	{
-		core.applyCameraChange(objectId, before, after,
-			state.inspectorMergeSession);
-	}
-}
-
-// SpriteComponent editor: texture name (Enter applies), size/tint/flip/
-// z-order/visibility - one undoable SpriteChangeCommand per edit
-void drawSpriteComponentUI(EditorState& state, Orkige::EditorCore& core,
-	std::string const& objectId)
-{
-	Orkige::EditorSpriteSettings before;
-	if (!core.getSpriteSettings(objectId, before))
-	{
-		return;
-	}
-	Orkige::EditorSpriteSettings after = before;
-	bool edited = false;
-
-	// texture field: rebuild the buffer when the selection or the texture
-	// changed behind the field (undo/redo, another panel)
-	if (state.spriteEditObjectId != objectId ||
-		state.spriteEditCurrentTexture != before.textureName)
-	{
-		state.spriteEditObjectId = objectId;
-		state.spriteEditCurrentTexture = before.textureName;
-		SDL_strlcpy(state.spriteEditBuffer, before.textureName.c_str(),
-			sizeof(state.spriteEditBuffer));
-	}
-	if (ImGui::InputText("Texture", state.spriteEditBuffer,
-		sizeof(state.spriteEditBuffer), ImGuiInputTextFlags_EnterReturnsTrue))
-	{
-		after.textureName = state.spriteEditBuffer;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-	ImGui::SetItemTooltip("texture resource name, e.g. ball.png from the "
-		"project's assets/ (Enter reloads the sprite)");
-
-	float size[2] = { before.width, before.height };
-	bool changed = ImGui::DragFloat2("Size", size, 0.05f, 0.0f, 10000.0f);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.width = size[0];
-		after.height = size[1];
-		edited = true;
-	}
-	ImGui::SetItemTooltip("world units; 0 derives the dimension from the "
-		"texture aspect ratio");
-
-	float tint[4] = { before.tint[0], before.tint[1], before.tint[2],
-		before.tint[3] };
-	changed = ImGui::ColorEdit4("Tint", tint);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		for (int each = 0; each < 4; ++each)
+		if (!desc.meta.tooltip.empty())
 		{
-			after.tint[each] = tint[each];
+			ImGui::SetItemTooltip("%s", desc.meta.tooltip.c_str());
 		}
-		edited = true;
+		any = true;
 	}
-
-	bool flipX = before.flipX;
-	if (ImGui::Checkbox("Flip X", &flipX))
+	if (!any)
 	{
-		after.flipX = flipX;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-	ImGui::SameLine();
-	bool flipY = before.flipY;
-	if (ImGui::Checkbox("Flip Y", &flipY))
-	{
-		after.flipY = flipY;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-
-	int zOrder = before.zOrder;
-	changed = ImGui::DragInt("Z-Order", &zOrder, 0.1f,
-		Orkige::SpriteComponent::ZORDER_MIN,
-		Orkige::SpriteComponent::ZORDER_MAX);
-	if (ImGui::IsItemActivated())
-	{
-		state.inspectorMergeSession = core.beginMergeSession();
-	}
-	if (changed)
-	{
-		after.zOrder = zOrder;
-		edited = true;
-	}
-	ImGui::SetItemTooltip("higher renders on top; overlapping sprites should "
-		"use distinct values (alpha sorting within one value is by camera "
-		"distance)");
-
-	bool visible = before.visible;
-	if (ImGui::Checkbox("Visible", &visible))
-	{
-		after.visible = visible;
-		state.inspectorMergeSession = core.beginMergeSession();
-		edited = true;
-	}
-
-	if (edited)
-	{
-		core.applySpriteChange(objectId, before, after,
-			state.inspectorMergeSession);
+		ImGui::TextDisabled("(no editable properties yet)");
 	}
 }
 
@@ -911,38 +516,10 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 					ImGui::PopID();
 					continue;
 				}
-				Orkige::GameObjectComponent* component =
-					gameObject->getComponentPtr(componentType);
-				if (dynamic_cast<Orkige::TransformComponent*>(component))
-				{
-					drawTransformComponentUI(state, core, objectId);
-				}
-				else if (auto* model =
-					dynamic_cast<Orkige::ModelComponent*>(component))
-				{
-					drawModelComponentUI(state, core, objectId, model);
-				}
-				else if (dynamic_cast<Orkige::RigidBodyComponent*>(component))
-				{
-					drawRigidBodyComponentUI(state, core, objectId);
-				}
-				else if (dynamic_cast<Orkige::SpriteComponent*>(component))
-				{
-					drawSpriteComponentUI(state, core, objectId);
-				}
-				else if (dynamic_cast<Orkige::CameraComponent*>(component))
-				{
-					drawCameraComponentUI(state, core, objectId);
-				}
-				else if (auto* script =
-					dynamic_cast<Orkige::ScriptComponent*>(component))
-				{
-					drawScriptComponentUI(state, core, objectId, script);
-				}
-				else
-				{
-					ImGui::TextDisabled("(no editable properties yet)");
-				}
+				// AUTO Inspector: render this component's editable properties
+				// off its reflection schema (task #94 P4) - no per-component
+				// code, no dynamic_cast dispatch
+				drawComponentProperties(state, core, objectId, componentType);
 				ImGui::PopID();
 			}
 			ImGui::PopStyleColor(3); // neutral component headers

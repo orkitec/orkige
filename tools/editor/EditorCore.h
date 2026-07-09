@@ -588,6 +588,35 @@ namespace Orkige
 		EditorSpriteSettings mAfter;
 	};
 
+	//! @brief the GENERIC, reflection-driven property edit (task #94 P4): change
+	//! ONE reflected property of ONE component, captured purely as PropertyValue
+	//! canonical strings ({objectId, componentTypeName, propertyName, before,
+	//! after}). execute/unexecute resolve the component + PropertyDesc off the
+	//! schema and apply through the reflected setter, so the change takes effect
+	//! live in the viewport (a Sprite reloads its texture, a Transform moves).
+	//! This is the ONE command the auto-generated Inspector routes every edit
+	//! through - no per-component command type. Mergeable within one interactive
+	//! session (a slider drag collapses to one undo step) when the session id and
+	//! the (object,component,property) target match.
+	class PropertyChangeCommand : public EditorCommand
+	{
+	public:
+		PropertyChangeCommand(String const& objectId,
+			String const& componentTypeName, String const& propertyName,
+			String const& beforeValue, String const& afterValue);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+		virtual bool mergeWith(EditorCommand const& next) override;
+
+	private:
+		String mObjectId;
+		String mComponentTypeName;
+		String mPropertyName;
+		String mBefore;		//!< the property's canonical string before the edit
+		String mAfter;		//!< the property's canonical string after the edit
+	};
+
 	//! @brief UI-independent editor state and operations.
 	//! All mutating object operations go through the command stack so they
 	//! are undoable; every executed/undone/redone command marks the scene
@@ -782,6 +811,31 @@ namespace Orkige
 		bool applySpriteChange(String const& id,
 			EditorSpriteSettings const& before,
 			EditorSpriteSettings const& after,
+			unsigned int mergeSession = 0);
+
+		//--- generic reflected property edit (task #94 P4) ----
+		//! @brief read a reflected property (schema-driven) as its canonical
+		//! string form; false if the object/component/property is missing or the
+		//! property has no getter. componentTypeName is the component type name
+		//! (the schema key half), propertyName the PropertyDesc name.
+		bool getObjectProperty(String const& id, String const& componentTypeName,
+			String const& propertyName, String& outValue) const;
+		//! @brief write a reflected property from its canonical string, routing
+		//! through the reflected setter (the component's real accessor - the
+		//! change takes effect live: a sprite reloads its texture, a transform
+		//! moves the node). false if the object/component/property is missing,
+		//! the property is read-only, or the string does not parse for the kind.
+		//! A Quat value is re-normalized before it is applied (an inspector drag
+		//! can send an unnormalized quaternion). Raw apply WITHOUT a command
+		//! (PropertyChangeCommand calls this).
+		bool setObjectProperty(String const& id, String const& componentTypeName,
+			String const& propertyName, String const& value);
+		//! @brief record a before/after reflected property change as ONE undoable
+		//! PropertyChangeCommand (the auto Inspector's edit path); pass a merge
+		//! session id to collapse a whole slider drag into one undo step.
+		bool applyPropertyChange(String const& id,
+			String const& componentTypeName, String const& propertyName,
+			String const& before, String const& after,
 			unsigned int mergeSession = 0);
 
 		//--- component access (helpers the commands share) ----

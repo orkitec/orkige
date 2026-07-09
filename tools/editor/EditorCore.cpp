@@ -9,6 +9,8 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_render/RenderWorld.h>
+#include <core_base/PropertySchema.h>
+#include <core_base/TypeManager.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_serialization/XMLArchive.h>
@@ -1511,6 +1513,49 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- PropertyChangeCommand --------------------------------
+	//---------------------------------------------------------
+	PropertyChangeCommand::PropertyChangeCommand(String const& objectId,
+		String const& componentTypeName, String const& propertyName,
+		String const& beforeValue, String const& afterValue)
+		: mObjectId(objectId), mComponentTypeName(componentTypeName),
+		mPropertyName(propertyName), mBefore(beforeValue), mAfter(afterValue)
+	{
+	}
+	//---------------------------------------------------------
+	bool PropertyChangeCommand::execute(EditorCore& core)
+	{
+		return core.setObjectProperty(mObjectId, mComponentTypeName,
+			mPropertyName, mAfter);
+	}
+	//---------------------------------------------------------
+	bool PropertyChangeCommand::unexecute(EditorCore& core)
+	{
+		return core.setObjectProperty(mObjectId, mComponentTypeName,
+			mPropertyName, mBefore);
+	}
+	//---------------------------------------------------------
+	String PropertyChangeCommand::getDescription() const
+	{
+		return "Change " + mComponentTypeName + "." + mPropertyName;
+	}
+	//---------------------------------------------------------
+	bool PropertyChangeCommand::mergeWith(EditorCommand const& next)
+	{
+		PropertyChangeCommand const* other =
+			dynamic_cast<PropertyChangeCommand const*>(&next);
+		if (!other || other->mObjectId != mObjectId ||
+			other->mComponentTypeName != mComponentTypeName ||
+			other->mPropertyName != mPropertyName)
+		{
+			return false;
+		}
+		// keep my drag-start "before", absorb the newest "after"
+		mAfter = other->mAfter;
+		return true;
+	}
+
+	//---------------------------------------------------------
 	//--- EditorCore -------------------------------------------
 	//---------------------------------------------------------
 	const float EditorCore::SNAP_TRANSLATE = 0.5f;
@@ -2268,6 +2313,99 @@ namespace Orkige
 	{
 		optr<EditorCommand> command =
 			onew(new SpriteChangeCommand(id, before, after));
+		command->setMergeSession(mergeSession);
+		return executeCommand(command);
+	}
+	//---------------------------------------------------------
+	//--- generic reflected property edit (task #94 P4) --------
+	// The three below mirror the player's PlayerDebugLink object_state /
+	// set_property path (PlayerRuntime.cpp): resolve the component + PropertyDesc
+	// off the schema, read/write through the reflected get/set. The setter routes
+	// to the component's real accessor so the change is live in the viewport.
+	//---------------------------------------------------------
+	bool EditorCore::getObjectProperty(String const& id,
+		String const& componentTypeName, String const& propertyName,
+		String& outValue) const
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		const TypeInfo componentType(componentTypeName);
+		GameObjectComponent* instance =
+			gameObject->getComponentPtr(componentType);
+		if (!instance)
+		{
+			return false;
+		}
+		PropertySchema const* schema = TypeManager::getSingleton()
+			.getPropertySchema(componentType.getId());
+		PropertyDesc const* desc = schema ? schema->find(propertyName) : 0;
+		if (!desc || !desc->get)
+		{
+			return false;
+		}
+		outValue = desc->get(static_cast<void const*>(instance)).toString();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::setObjectProperty(String const& id,
+		String const& componentTypeName, String const& propertyName,
+		String const& value)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		const TypeInfo componentType(componentTypeName);
+		GameObjectComponent* instance =
+			gameObject->getComponentPtr(componentType);
+		if (!instance)
+		{
+			return false;
+		}
+		PropertySchema const* schema = TypeManager::getSingleton()
+			.getPropertySchema(componentType.getId());
+		PropertyDesc const* desc = schema ? schema->find(propertyName) : 0;
+		if (!desc || desc->isReadOnly())
+		{
+			return false;
+		}
+		// read the current value to obtain a correctly-typed carrier (kind +
+		// enum-type / reference hint), then parse the wire string into it
+		PropertyValue reflected = desc->get(static_cast<void const*>(instance));
+		if (!reflected.fromString(value))
+		{
+			return false;
+		}
+		// keep the historical orientation guarantee: an inspector drag can send
+		// an unnormalized quaternion and the scene node does not normalize
+		if (desc->kind == PropertyKind::Quat)
+		{
+			const PropQuat raw = reflected.asQuat();
+			Quat quat(raw.w, raw.x, raw.y, raw.z);
+			quat.normalise();
+			PropQuat normalized;
+			normalized.w = quat.w;
+			normalized.x = quat.x;
+			normalized.y = quat.y;
+			normalized.z = quat.z;
+			reflected = PropertyValue::makeQuat(normalized);
+		}
+		desc->set(static_cast<void*>(instance), reflected);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::applyPropertyChange(String const& id,
+		String const& componentTypeName, String const& propertyName,
+		String const& before, String const& after, unsigned int mergeSession)
+	{
+		optr<EditorCommand> command = onew(new PropertyChangeCommand(id,
+			componentTypeName, propertyName, before, after));
 		command->setMergeSession(mergeSession);
 		return executeCommand(command);
 	}

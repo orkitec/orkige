@@ -334,19 +334,9 @@ struct EditorState
 	//! "Add Component" popup search state (Inspector)
 	char addComponentSearch[128] = "";
 	bool addComponentFocusPending = false;
-	//! ModelComponent mesh field edit buffer (rebuilt when the selection or
-	//! the component's current mesh changes)
-	char meshEditBuffer[512] = "";
-	std::string meshEditObjectId;
-	std::string meshEditCurrentMesh;
-	//! ScriptComponent script path field edit buffer (same rebuild rules)
-	char scriptEditBuffer[512] = "";
-	std::string scriptEditObjectId;
-	std::string scriptEditCurrentScript;
-	//! SpriteComponent texture field edit buffer (same rebuild rules)
-	char spriteEditBuffer[512] = "";
-	std::string spriteEditObjectId;
-	std::string spriteEditCurrentTexture;
+	// (the ModelComponent mesh / ScriptComponent script / SpriteComponent
+	// texture field buffers are gone: the auto Inspector's generic property
+	// widgets keep their own per-field state - task #94 P4)
 	//! object tags field edit buffer (comma-separated; rebuilt when the
 	//! selection or the object's current tag set changes)
 	char tagsEditBuffer[512] = "";

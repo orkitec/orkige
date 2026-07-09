@@ -2327,6 +2327,62 @@ int main(int argc, char** argv)
 					SDL_Log("orkige_editor: edittest frame 105 - mesh change "
 						"OK");
 				}
+				if (frameCount == 107)
+				{
+					// GENERIC reflection-driven property edit (task #94 P4):
+					// the auto Inspector routes every edit through
+					// EditorCore::applyPropertyChange - ONE undoable
+					// PropertyChangeCommand, values as PropertyValue canonical
+					// strings, resolved+applied through the schema's reflected
+					// setter. Prove apply + undo through that path AND that the
+					// reflected setter takes effect LIVE (a scalar move + a mesh
+					// reload, the viewport-live guarantee).
+					std::string posBefore;
+					require(editorCore.getObjectProperty("Cube1",
+						"TransformComponent", "position", posBefore),
+						"read reflected position");
+					require(editorCore.applyPropertyChange("Cube1",
+						"TransformComponent", "position", posBefore, "3 4 5"),
+						"generic property change applied");
+					Orkige::EditorTransform moved;
+					require(editorCore.getObjectTransform("Cube1", moved) &&
+						positionsEqual(moved.position,
+							Orkige::Vec3(3.0f, 4.0f, 5.0f)),
+						"reflected setter moved the node");
+					require(editorCore.getUndoDescription() ==
+						"Change TransformComponent.position",
+						"generic undo description");
+					require(editorCore.undo(),
+						"undo generic property change");
+					std::string posNow;
+					require(editorCore.getObjectProperty("Cube1",
+						"TransformComponent", "position", posNow) &&
+						posNow == posBefore,
+						"generic property change undone");
+					// a mesh AssetRef edit through the SAME generic path reloads
+					// the entity live - the reflected setter routes to
+					// ModelComponent's real accessor (loadModel)
+					optr<Orkige::GameObject> cube2b =
+						gameObjectManager.getGameObject("Cube2").lock();
+					Orkige::ModelComponent* model2 = cube2b
+						->getComponentPtr<Orkige::ModelComponent>();
+					std::string meshBefore;
+					require(editorCore.getObjectProperty("Cube2",
+						"ModelComponent", "mesh", meshBefore),
+						"read reflected mesh");
+					require(editorCore.applyPropertyChange("Cube2",
+						"ModelComponent", "mesh", meshBefore, "test_mesh.glb"),
+						"generic mesh change applied");
+					require(model2->getCurrentModelFileName() ==
+						"test_mesh.glb" &&
+						model2->getMeshInstance() != nullptr,
+						"reflected mesh setter reloaded the entity live");
+					require(editorCore.undo(), "undo generic mesh change");
+					require(model2->getMeshInstance() != nullptr,
+						"mesh restored + entity loaded");
+					SDL_Log("orkige_editor: edittest frame 107 - generic "
+						"property edit (apply+undo, live setter) OK");
+				}
 				if (frameCount == 110)
 				{
 					// multi-select delete: ONE undo step restores the batch
