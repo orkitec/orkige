@@ -26,15 +26,24 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <unistd.h> // getpid - unique temp fixture names (parallel ctest!)
 
 namespace
 {
+	//! PID-suffixed temp file: every TEST_CASE runs as its own ctest process
+	//! in parallel, so fixed names collide across cases sharing a file name
+	//! (seen in the wild as a one-in-many flake of the round-trip case)
 	struct TempFile
 	{
+		Orkige::String fileName;	//!< the suffixed name (for prefabRef)
 		Orkige::String path;
 		explicit TempFile(std::string const & name)
-			: path((std::filesystem::temp_directory_path() / name).string())
 		{
+			const std::filesystem::path base(name);
+			this->fileName = base.stem().string() + "_" +
+				std::to_string(::getpid()) + base.extension().string();
+			this->path = (std::filesystem::temp_directory_path() /
+				this->fileName).string();
 			std::filesystem::remove(this->path);
 		}
 		~TempFile()
@@ -137,7 +146,7 @@ TEST_CASE("PrefabSerializer round-trips a subtree with deterministic instance id
 
 	// prefab-provided vs extra children: the instance root's mark plus the
 	// "<root>/" id namespace decide
-	root->setPrefabRef("orkige_test_tile.oprefab", "");
+	root->setPrefabRef(prefab.fileName, "");
 	CHECK(Orkige::PrefabSerializer::isPrefabProvided(manager, *childA));
 	CHECK(Orkige::PrefabSerializer::isPrefabProvided(manager, *grandchild));
 	CHECK_FALSE(Orkige::PrefabSerializer::isPrefabProvided(manager, *root));
@@ -183,7 +192,7 @@ TEST_CASE("Scene round-trips a prefab instance with structural + root overrides"
 	REQUIRE(root);
 	// prefabRef is the bare file name: the loader resolves it relative to
 	// the scene file's directory (both live in the temp directory)
-	root->setPrefabRef("orkige_test_tile.oprefab", "");
+	root->setPrefabRef(prefab.fileName, "");
 	Orkige::StringVector suppressed;
 	suppressed.push_back("B");
 	root->setSuppressedPrefabChildren(suppressed);
@@ -213,7 +222,7 @@ TEST_CASE("Scene round-trips a prefab instance with structural + root overrides"
 	CHECK(healthOf(manager, "Tile1/A") == 1);		// the prefab default
 	CHECK(healthOf(manager, "Goal") == 77);
 	optr<Orkige::GameObject> loadedRoot = manager.getGameObject("Tile1").lock();
-	CHECK(loadedRoot->getPrefabRef() == "orkige_test_tile.oprefab");
+	CHECK(loadedRoot->getPrefabRef() == prefab.fileName);
 	REQUIRE(loadedRoot->getSuppressedPrefabChildren().size() == 1);
 	CHECK(loadedRoot->getSuppressedPrefabChildren()[0] == "B");
 	CHECK(manager.getGameObject("Goal").lock()->getParentId() == "Tile1");
@@ -317,7 +326,7 @@ TEST_CASE("Nested prefabs are refused on save and hard-error on load",
 	// half-loaded world behind
 	{
 		optr<Orkige::GameObject> root = makeHealthObject(manager, "Bad", 1);
-		root->setPrefabRef("orkige_test_nested.oprefab", "");
+		root->setPrefabRef(prefab.fileName, "");
 		REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
 		manager.clear();
 	}
