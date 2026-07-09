@@ -11,6 +11,7 @@
 
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
+#include "engine_render/SpriteBatch.h"
 #include <core_util/String.h>
 #include <vector>
 
@@ -75,6 +76,12 @@ namespace Orkige
 		//! @brief create a textured alpha-blended sprite quad (2D building block)
 		//! map: classic=ManualObject + generated "Sprite/<tex>" material | next=ManualObject v2 + HlmsUnlit datablock | filament=quad VB/IB + unlit filamat instance
 		optr<SpriteQuad> createSpriteQuad(String const & textureName);
+		//! @brief create a world-space, single-texture N-quad batch (the 2D
+		//! particle-system building block, WP #82) - one draw call per system,
+		//! refilled from a CPU vertex array each frame (@see SpriteBatch)
+		//! map: classic=ManualObject + shared "Sprite/<tex>"/"SpriteAdd/<tex>" material | next=v2 ManualObject + shared HlmsUnlit datablock | filament=dynamic VB/IB + unlit filamat instance
+		optr<SpriteBatch> createSpriteBatch(String const & textureName,
+			SpriteBatch::BlendMode blendMode = SpriteBatch::BLEND_ALPHA);
 		//! @brief create a camera (attach it to a node to place it)
 		//! map: classic/next=SceneManager::createCamera | filament=Engine::createCamera(entity)
 		optr<RenderCamera> createCamera(String const & name = "");

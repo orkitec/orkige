@@ -125,6 +125,10 @@ function update(self, dt)
 			if dx * dx + dy * dy <= GOAL_RADIUS * GOAL_RADIUS then
 				wins = wins + 1
 				print("ball.lua: WIN #" .. wins .. " - back to the start")
+				-- star-collect juice: a burst of golden particles (WP #82)
+				if self.particles ~= nil then
+					self.particles:burst(24)
+				end
 				resetBall(self)
 				publishState(SPAWN.x, SPAWN.y, tilt)
 				return

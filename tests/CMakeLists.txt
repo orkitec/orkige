@@ -205,6 +205,17 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_spriteatlas PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_SPRITEATLAS=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_PARTICLES: the 2D particle-system headed selfcheck (WP #82) -
+    # a burst-only additive ParticleComponent on one GameObject; fires a burst
+    # of maxParticles and asserts the frame-stats triangle count rose by
+    # ~maxParticles*2 (the single-draw SpriteBatch) while alive and decayed
+    # back once every particle passed its lifetime. Reads stats, not pixels -
+    # runs on both render flavors (per-tree, like the other demo_* tests).
+    add_test(NAME demo_particles COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_particles PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_PARTICLES=1;ORKIGE_DEMO_FRAMES=120")
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test
@@ -580,7 +591,7 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
-        demo_spriteanim demo_spriteatlas
+        demo_spriteanim demo_spriteatlas demo_particles
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_debug_pause

@@ -354,6 +354,44 @@ class ComponentWriter:
             '<bool value="%s"/>' % fmt(enabled),
         ])
 
+    def particles(self, texture, burst_count=24, max_particles=48,
+                  z_order=6, blend_mode=1,
+                  start_color=(1.0, 0.9, 0.4, 1.0),
+                  end_color=(1.0, 0.5, 0.1, 0.0)):
+        """A burst-only 2D particle emitter (WP #82). The field ORDER mirrors
+        ParticleComponent::save exactly - keep the two in sync. blend_mode:
+        0 alpha, 1 additive (the burst default)."""
+        return self._component("ParticleComponent", [
+            '<String value="%s"/>' % texture,     # texture name (plain, no assetId)
+            '<bool value="0"/>',                  # emitOnStart (burst-only)
+            '<float value="0"/>',                 # emissionRate (0 = burst-only)
+            '<int value="%d"/>' % burst_count,    # burstCount
+            '<float value="0"/>',                 # duration
+            '<bool value="1"/>',                  # looping
+            '<float value="0.5"/>', '<float value="0.9"/>',   # lifetime min/max
+            '<float value="0"/>', '<float value="0"/>',       # spawnOffset x/y
+            '<float value="90"/>', '<float value="180"/>',    # directionAngle / spreadAngle (full radial)
+            '<float value="3"/>', '<float value="6"/>',       # speed min/max
+            '<float value="0"/>', '<float value="-4"/>',      # gravity x/y
+            '<float value="1"/>',                             # damping
+            '<float value="-180"/>', '<float value="180"/>',  # spin min/max (deg/s)
+            '<float value="0.35"/>', '<float value="0"/>',    # startSize / endSize
+            '<float value="%s"/>' % fmt(float(start_color[0])),
+            '<float value="%s"/>' % fmt(float(start_color[1])),
+            '<float value="%s"/>' % fmt(float(start_color[2])),
+            '<float value="%s"/>' % fmt(float(start_color[3])),
+            '<float value="%s"/>' % fmt(float(end_color[0])),
+            '<float value="%s"/>' % fmt(float(end_color[1])),
+            '<float value="%s"/>' % fmt(float(end_color[2])),
+            '<float value="%s"/>' % fmt(float(end_color[3])),
+            '<String value="linear"/>', '<String value="quadOut"/>',  # size / colour ease
+            '<int value="1"/>', '<int value="1"/>',           # atlas columns/rows
+            '<int value="0"/>', '<int value="0"/>',           # atlas frame min/max
+            '<int value="%d"/>' % max_particles,              # maxParticles
+            '<int value="%d"/>' % z_order,                    # zOrder
+            '<int value="%d"/>' % blend_mode,                 # blendMode
+        ])
+
     @staticmethod
     def _object_lines(name, parent, active, prefab_lines, components):
         """One scene-v3/prefab-v1 per-object block (they share the shape);
@@ -540,6 +578,9 @@ def build_scene(tile_asset_id):
         scene.rigid_sphere(0.4, mass=1.0, friction=0.4, restitution=0.2,
                            planar=True),
         scene.script("scripts/ball.lua"),
+        # star-collect burst (WP #82): ball.lua fires self.particles:burst()
+        # on the win - a golden additive shower of the goal-star texture
+        scene.particles("goal.png"),
     )
     # tiles: A = spawn (right edge open), B = goal (left open, starts top
     # right), C = filler (closed), slot 1 stays empty

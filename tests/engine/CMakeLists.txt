@@ -11,6 +11,7 @@ add_executable(orkige_engine_tests
     ScriptComponentTests.cpp
     PlayerBundleTests.cpp
     TwoDSupportTests.cpp
+    ParticleSimTests.cpp
     SoundMixerTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp

@@ -48,6 +48,7 @@
 #include "engine_render/RenderNode.h"
 #include "engine_render/MeshInstance.h"
 #include "engine_render/SpriteQuad.h"
+#include "engine_render/SpriteBatch.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
@@ -154,6 +155,25 @@ namespace Orkige
 		//! rebuild the quad vertex data from the state above (same honest
 		//! sprite rules as the classic backend: tint/flips in vertex data)
 		void rebuild();
+	};
+
+	struct SpriteBatch::Impl
+	{
+		Ogre::ManualObject*	batch = NULL;			//!< v2 manual object (VaoManager-backed)
+		Ogre::SceneManager*	creator = NULL;
+		String				textureName;
+		Ogre::TextureGpu*	texture = NULL;			//!< the loaded texture (texel-size queries)
+		String				datablockName;			//!< the shared per-(texture,blend) HlmsUnlit datablock
+		SpriteBatch::BlendMode	blendMode = SpriteBatch::BLEND_ALPHA;
+		float				texelWidth = 0.0f;		//!< texture size in texels (atlas UV derivation)
+		float				texelHeight = 0.0f;
+		int					zOrder = 0;
+		std::size_t			quadCount = 0;			//!< quads in the batch right now
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the v2 manual object from a CPU vertex array (4 verts/quad,
+		//! TL/TR/BR/BL); an empty array leaves the object with no geometry
+		void rebuild(SpriteBatch::Vertex const * vertices, std::size_t quadCount);
 	};
 
 	struct RenderCamera::Impl
@@ -270,6 +290,10 @@ namespace Orkige
 		//! NULL + a log line when the texture cannot be loaded
 		static optr<SpriteQuad> createSpriteQuad(
 			Ogre::SceneManager* sceneManager, String const & textureName);
+		//! NULL + a log line when the texture cannot be loaded
+		static optr<SpriteBatch> createSpriteBatch(
+			Ogre::SceneManager* sceneManager, String const & textureName,
+			SpriteBatch::BlendMode blendMode);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
@@ -350,6 +374,14 @@ namespace Orkige
 		static Ogre::HlmsDatablock* getOrCreateSpriteDatablock(
 			String const & textureName, Ogre::TextureGpu* texture,
 			SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing);
+		//! @brief the shared per-(texture,blend) sprite-batch datablock: the
+		//! alpha variant IS the SpriteQuad "Sprite/<tex>#bilinear-clamp"
+		//! datablock (reused wholesale); the additive variant a distinct
+		//! "SpriteAdd/<tex>#bilinear-clamp" HlmsUnlit datablock (source alpha /
+		//! one - order-independent glow). Idempotent per name.
+		static Ogre::HlmsDatablock* getOrCreateSpriteBatchDatablock(
+			String const & textureName, Ogre::TextureGpu* texture,
+			SpriteBatch::BlendMode blendMode);
 		//! an unlit datablock named datablockName that renders vertex
 		//! colours (times the optional texture); idempotent per name -
 		//! backs setVertexColourUnlit and the cube-mesh service

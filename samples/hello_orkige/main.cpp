@@ -14,6 +14,7 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
+#include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 // fastgui is flavor-neutral since the DrawLayer2D port - the
@@ -187,6 +188,16 @@ int main(int, char**)
 		if (demoSpriteAtlas)
 		{
 			render->addResourceLocation(ORKIGE_SPRITE_ATLAS_DIR);
+		}
+		// ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck (WP #82,
+		// below) needs a texture for its ParticleComponent SpriteBatch -
+		// register the committed sample texture dir (any texture works; the
+		// check reads the frame-stats triangle count, not pixels)
+		const bool demoParticles =
+			(std::getenv("ORKIGE_DEMO_PARTICLES") != nullptr);
+		if (demoParticles)
+		{
+			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 		}
 		render->initialiseResourceGroups();
 
@@ -435,6 +446,54 @@ int main(int, char**)
 				return 1;
 			}
 			SDL_Log("hello_orkige: sprite atlas + sampler selfcheck passed");
+		}
+
+		// --- ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck (WP #82).
+		// A GameObject carrying a ParticleComponent (auto-adds its
+		// TransformComponent dependency); the emitter is burst-only (additive
+		// glow) so the frame-stats triangle count is a clean before/after probe.
+		// The loop fires ONE burst at frame 20 and the frame checks assert the
+		// triangle count rose by ~maxParticles*2 while the burst is alive and
+		// decayed back once every particle passed its lifetime. The batch is a
+		// SINGLE draw call; this reads stats, not pixels, so it runs identically
+		// on both render flavors.
+		Orkige::ParticleComponent* particles = nullptr;
+		const int particleMax = 64;
+		const float particleLifetime = 0.5f;	// 10 ticks at the fixed 0.05 dt
+		std::size_t particleBaselineTriangles = 0;	// stats just before the burst
+		if (demoParticles)
+		{
+			optr<Orkige::GameObject> emitter =
+				gameObjectManager.createGameObject("sparks").lock();
+			if (!emitter ||
+				!emitter->addComponent<Orkige::ParticleComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - ParticleComponent creation "
+					"failed");
+				return 1;
+			}
+			particles = emitter->getComponentPtr<Orkige::ParticleComponent>();
+			if (!particles)
+			{
+				SDL_Log("hello_orkige: FAILED - ParticleComponent missing");
+				return 1;
+			}
+			Orkige::ParticleSim::EmitterParams p = particles->params();
+			p.emissionRate = 0.0f;			// burst-only
+			p.burstCount = particleMax;
+			p.maxParticles = particleMax;
+			p.lifetimeMin = particleLifetime;
+			p.lifetimeMax = particleLifetime;
+			p.gravity = Orkige::Vec2(0.0f, -1.0f);
+			p.startSize = 0.3f;
+			p.endSize = 0.0f;
+			p.blendMode = Orkige::ParticleSim::BLEND_ADDITIVE;
+			p.zOrder = 5;
+			particles->params() = p;
+			particles->setEmitOnStart(false);	// only the explicit burst emits
+			particles->setTexture("player.png");	// creates the batch
+			SDL_Log("hello_orkige: particle emitter up (max=%d, additive burst)",
+				particleMax);
 		}
 
 		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the procedural cubes -
@@ -790,6 +849,12 @@ int main(int, char**)
 				animSprite->getUVRect(au0, av0, au1, av1);
 				spriteAnimU0Log.push_back(au0);
 			}
+			if (demoParticles)
+			{
+				// fixed tick: the emitter ages its particles deterministically
+				// (burst-only, so nothing spawns until frame 20)
+				gameObjectManager.update(0.05f);
+			}
 			cubeNode->yaw(Orkige::Degree(0.4f));
 			cubeNode->pitch(Orkige::Degree(0.13f));
 			// orbit the small cube around the main cube purely through the
@@ -934,6 +999,63 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: flipbook self-checks passed (4-frame clip "
 					"advanced across frames and wrapped on loop)");
+			}
+			if (demoParticles && frameCount == 20)
+			{
+				// baseline (no live particles yet), then fire the one burst
+				particleBaselineTriangles =
+					render->getFrameStats().triangleCount;
+				const int spawned = particles->burst(particleMax);
+				SDL_Log("hello_orkige: particle burst spawned=%d live=%d "
+					"baselineTris=%zu", spawned, particles->getLiveCount(),
+					particleBaselineTriangles);
+				if (spawned != particleMax ||
+					particles->getLiveCount() != particleMax)
+				{
+					SDL_Log("hello_orkige: FAILED - burst did not spawn %d "
+						"particles", particleMax);
+					return 1;
+				}
+			}
+			if (demoParticles && frameCount == 25)
+			{
+				// the burst is still alive (age ~0.25 < 0.5): the single-draw
+				// batch must have raised the triangle count by ~maxParticles*2
+				const std::size_t burstTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(burstTriangles > particleBaselineTriangles)
+					? burstTriangles - particleBaselineTriangles : 0;
+				SDL_Log("hello_orkige: particle burst triangles=%zu (baseline "
+					"%zu, +%zu) live=%d", burstTriangles,
+					particleBaselineTriangles, risen, particles->getLiveCount());
+				if (risen < static_cast<std::size_t>(particleMax * 2 - 8) ||
+					particles->getLiveCount() == 0)
+				{
+					SDL_Log("hello_orkige: FAILED - burst did not raise the "
+						"triangle count (expected ~%d more)", particleMax * 2);
+					return 1;
+				}
+			}
+			if (demoParticles && frameCount == 45)
+			{
+				// lifetime 0.5s at the fixed 0.05 dt = 10 ticks: every particle
+				// is long dead, so the count decayed back to the baseline
+				const std::size_t decayTriangles =
+					render->getFrameStats().triangleCount;
+				const int live = particles->getLiveCount();
+				SDL_Log("hello_orkige: particle decay triangles=%zu (baseline "
+					"%zu) live=%d", decayTriangles, particleBaselineTriangles,
+					live);
+				if (live != 0 ||
+					decayTriangles > particleBaselineTriangles + 8)
+				{
+					SDL_Log("hello_orkige: FAILED - particles did not decay "
+						"back down (live=%d)", live);
+					return 1;
+				}
+				SDL_Log("hello_orkige: particle selfcheck passed (burst raised "
+					"then decayed, single-draw batch)");
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{

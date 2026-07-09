@@ -31,6 +31,7 @@
 #include "engine_render/RenderNode.h"
 #include "engine_render/MeshInstance.h"
 #include "engine_render/SpriteQuad.h"
+#include "engine_render/SpriteBatch.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
@@ -111,6 +112,25 @@ namespace Orkige
 		//! rebuild the quad vertex data from the state above (same honest
 		//! v1 sprite rules SpriteComponent renders with today)
 		void rebuild();
+	};
+
+	struct SpriteBatch::Impl
+	{
+		Ogre::ManualObject*	batch = NULL;
+		Ogre::SceneManager*	creator = NULL;
+		String				textureName;
+		Ogre::TexturePtr	texture;				//!< the loaded texture (texel-size queries)
+		String				materialName;			//!< the shared per-(texture,blend) material the batch renders with
+		SpriteBatch::BlendMode	blendMode = SpriteBatch::BLEND_ALPHA;
+		float				texelWidth = 0.0f;		//!< texture size in texels (atlas UV derivation)
+		float				texelHeight = 0.0f;
+		int					zOrder = 0;
+		std::size_t			quadCount = 0;			//!< quads in the batch right now
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the manual object from a CPU vertex array (4 verts/quad,
+		//! TL/TR/BR/BL); an empty array leaves the object with no geometry
+		void rebuild(SpriteBatch::Vertex const * vertices, std::size_t quadCount);
 	};
 
 	struct RenderCamera::Impl
@@ -212,6 +232,9 @@ namespace Orkige
 			Ogre::SceneManager* sceneManager, String const & meshName);
 		static optr<SpriteQuad> createSpriteQuad(
 			Ogre::SceneManager* sceneManager, String const & textureName);
+		static optr<SpriteBatch> createSpriteBatch(
+			Ogre::SceneManager* sceneManager, String const & textureName,
+			SpriteBatch::BlendMode blendMode);
 		static optr<RenderCamera> createCamera(
 			Ogre::SceneManager* sceneManager, String const & name);
 		//! wrap an EXISTING backend camera into a facade handle (owned=false
@@ -271,6 +294,13 @@ namespace Orkige
 		static Ogre::MaterialPtr getOrCreateSpriteMaterial(
 			Ogre::TexturePtr const & texture, SpriteQuad::FilterMode filter,
 			SpriteQuad::AddressMode addressing);
+		//! @brief the shared per-(texture,blend) sprite-batch material: the
+		//! alpha variant IS the SpriteQuad "Sprite/<tex>#bilinear-clamp"
+		//! material (reused wholesale); the additive variant is a distinct
+		//! "SpriteAdd/<tex>#bilinear-clamp" material (SBF_SOURCE_ALPHA/SBF_ONE -
+		//! src.rgb*src.a + dst, order-independent glow). Idempotent per name.
+		static Ogre::MaterialPtr getOrCreateSpriteBatchMaterial(
+			Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode);
 		//! zOrder -> render queue id (painter's sorting around MAIN)
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
 	};

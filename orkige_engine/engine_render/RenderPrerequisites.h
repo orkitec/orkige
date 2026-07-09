@@ -51,6 +51,7 @@ namespace Orkige
 	class RenderNode;
 	class MeshInstance;
 	class SpriteQuad;
+	class SpriteBatch;
 	class RenderCamera;
 	class RenderLight;
 	class RenderTexture;

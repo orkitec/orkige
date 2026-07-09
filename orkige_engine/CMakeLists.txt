@@ -56,6 +56,7 @@ set(ORKIGE_ENGINE_SOURCES
     engine_render/RenderNode.h
     engine_render/MeshInstance.h
     engine_render/SpriteQuad.h
+    engine_render/SpriteBatch.h
     engine_render/RenderCamera.h
     engine_render/RenderLight.h
     engine_render/RenderTexture.h
@@ -103,6 +104,9 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/SpriteComponent.cpp
     engine_gocomponent/SpriteAnimationComponent.h
     engine_gocomponent/SpriteAnimationComponent.cpp
+    engine_gocomponent/ParticleSim.h
+    engine_gocomponent/ParticleComponent.h
+    engine_gocomponent/ParticleComponent.cpp
     engine_gocomponent/AnimationComponent.h
     engine_gocomponent/AnimationComponent.cpp
     engine_gocomponent/CameraComponent.h
@@ -198,6 +202,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/RenderNodeClassic.cpp
         engine_render_classic/MeshInstanceClassic.cpp
         engine_render_classic/SpriteQuadClassic.cpp
+        engine_render_classic/SpriteBatchClassic.cpp
         engine_render_classic/RenderCameraClassic.cpp
         engine_render_classic/RenderLightClassic.cpp
         engine_render_classic/RenderTextureClassic.cpp
@@ -218,6 +223,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/MeshInstanceNext.cpp
         engine_render_next/MeshLoaderNext.cpp
         engine_render_next/SpriteQuadNext.cpp
+        engine_render_next/SpriteBatchNext.cpp
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
         engine_render_next/RenderTextureNext.cpp

@@ -12,6 +12,7 @@
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
+#include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_base/EngineLog.h"
@@ -318,6 +319,11 @@ namespace Orkige
 			this->mInstance->setSelfValue("sprite",
 				componentOwner->getComponentPtr<SpriteComponent>());
 		}
+		if (componentOwner->hasComponent<ParticleComponent>())
+		{
+			this->mInstance->setSelfValue("particles",
+				componentOwner->getComponentPtr<ParticleComponent>());
+		}
 
 		this->mStarted = true;
 		if (!this->mInstance->callInit(&error))
@@ -362,6 +368,8 @@ namespace Orkige
 			&worldGetComponent<ModelComponent>);
 		runtime.registerFunction("world", "getSprite",
 			&worldGetComponent<SpriteComponent>);
+		runtime.registerFunction("world", "getParticles",
+			&worldGetComponent<ParticleComponent>);
 		runtime.registerFunction("world", "getScript",
 			&worldGetComponent<ScriptComponent>);
 		runtime.registerFunction("world", "getSound",

@@ -73,6 +73,13 @@ namespace Orkige
 			this->mImpl->sceneManager, textureName);
 	}
 	//---------------------------------------------------------
+	optr<SpriteBatch> RenderWorld::createSpriteBatch(String const & textureName,
+		SpriteBatch::BlendMode blendMode)
+	{
+		return RenderBackend::createSpriteBatch(
+			this->mImpl->sceneManager, textureName, blendMode);
+	}
+	//---------------------------------------------------------
 	optr<RenderCamera> RenderWorld::createCamera(String const & name)
 	{
 		return RenderBackend::createCamera(this->mImpl->sceneManager, name);
