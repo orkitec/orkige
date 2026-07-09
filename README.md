@@ -1,9 +1,9 @@
 # Orkige
 
 **The orkitec game engine** — a C++20 game engine for mobile games (iOS + Android)
-with desktop (macOS/Windows) as first-class development targets. Originally written
-2009–2012 and shipped on the App Store (*Pudding Panic*), revived and fully
-modernized in 2026.
+with desktop (macOS, Linux CI-verified; Windows planned) as development targets.
+Originally written 2009–2012 and shipped on the App Store (*Pudding Panic*),
+revived and fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
 
 ![Editor](https://img.shields.io/badge/editor-ImGui%20docked-blue)
 ![Renderer](https://img.shields.io/badge/renderer-OGRE%2014%20·%20GL3%2B%20·%20Vulkan%2FMoltenVK%20·%20GLES2-green)
@@ -114,9 +114,9 @@ tests/            unit + integration       Util/           asset generator scrip
 ports/ triplets/  vcpkg overlays           Docs/           ports rationale, upstream PRs
 ```
 
-`master` holds the historical 2012 state; modern work lives on `modernize`.
-The old games survive in branches (`watermaze`, `ThinkBlue`, `CigaretteGame`,
-tag `PuddingPanic-Appstore-version-1.1`).
+Modern work happens on `modernize` (the default branch); the deep history
+carries the engine's 2009–2012 origins. The games shipped on the original
+engine live in a private archive.
 
 ## Upstream
 
@@ -127,4 +127,8 @@ Fixes discovered during the revival were contributed back to OGRE:
 `VK_EXT_metal_surface`).
 
 ---
-© 2009–2026 orkitec / Steffen Römer
+
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). © 2009–2026 orkitec / Steffen Römer and contributors.
