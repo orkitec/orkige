@@ -34,6 +34,25 @@ add_test(NAME render_containment_lint
 set_tests_properties(render_containment_lint PROPERTIES
     LABELS unit TIMEOUT 30)
 
+# sprite-atlas packer self-validation (WP #84): make_sprite_atlas.py packs a
+# handful of synthetic sprites, re-parses its own .oatlas and asserts no region
+# overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
+# LABELS unit so it runs in the unit AND desktop presets.
+add_test(NAME sprite_atlas_packer
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_sprite_atlas.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(sprite_atlas_packer PROPERTIES LABELS unit TIMEOUT 60)
+
+# export-time texture cook self-validation (WP #84): cook_textures.py resizes /
+# premultiplies a synthetic payload per sidecar import settings (default AND a
+# per-platform override), asserts the shipped PNG is downscaled AND still
+# decodes, and that id-only / sidecar-less textures stay untouched. Stdlib-only,
+# headless - the cook-then-load smoke at the tooling level.
+add_test(NAME cook_textures_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_textures.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(cook_textures_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:
@@ -174,6 +193,17 @@ if(TARGET hello_orkige)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_spriteanim PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_SPRITEANIM=1;ORKIGE_DEMO_FRAMES=120")
+
+    # ORKIGE_DEMO_SPRITEATLAS: the sprite-atlas + live-sampler headed
+    # selfcheck (WP #84) - loads a region of the generated demo_sprite_atlas
+    # and asserts the UV rect matches the shared pixelRectToUV over the
+    # region's pixel rect (parsed independently from the .oatlas), distinct
+    # regions differ, a bogus region is refused, and setFilter/setAddressing
+    # apply. Runs on both render flavors (per-tree, like the other demo_*).
+    add_test(NAME demo_spriteatlas COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_spriteatlas PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_SPRITEATLAS=1;ORKIGE_DEMO_FRAMES=120")
 
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
@@ -550,7 +580,7 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
-        demo_spriteanim
+        demo_spriteanim demo_spriteatlas
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_debug_pause

@@ -347,6 +347,28 @@ namespace Orkige
 			resourceName);
 	}
 	//---------------------------------------------------------
+	bool RenderSystem::readResourceText(String const & resourceName,
+		String & outText) const
+	{
+		try
+		{
+			Ogre::DataStreamPtr stream =
+				Ogre::ResourceGroupManager::getSingleton().openResource(
+					resourceName,
+					Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+			if(!stream)
+			{
+				return false;
+			}
+			outText = stream->getAsString();
+			return true;
+		}
+		catch(Ogre::Exception const &)
+		{
+			return false;	// not found in any group - honest miss
+		}
+	}
+	//---------------------------------------------------------
 	RenderSystem::FrameStats RenderSystem::getFrameStats() const
 	{
 		Ogre::RenderTarget::FrameStats const & backendStats =

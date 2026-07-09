@@ -76,7 +76,14 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+import cook_textures  # sibling Util helper (export-time texture cook)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# --platform value -> the texture-cook / import-settings platform token
+# (desktop uses the default block; the mobile flavors resolve their overrides)
+COOK_PLATFORM = {"macos": "", "ios-simulator": "ios", "ios": "ios",
+                 "android": "android"}
 
 # the marker file name PlayerBundle reads (engine_runtime/PlayerRuntime.cpp)
 PROJECT_MARKER_FILE_NAME = "orkige_project.txt"
@@ -162,9 +169,10 @@ class Project:
         return self.settings.get("native.target", "").strip()
 
 
-def stage_project_payload(project, dest_dir):
+def stage_project_payload(project, dest_dir, platform="macos"):
     """copy the shippable project subset (manifest + scenes/assets/scripts)
-    into dest_dir and return the number of files staged"""
+    into dest_dir, run the export-time texture cook over the staged assets for
+    the target platform, and return the number of files staged"""
     os.makedirs(dest_dir, exist_ok=True)
     shutil.copy2(os.path.join(project.root, "project.orkproj"),
                  os.path.join(dest_dir, "project.orkproj"))
@@ -190,6 +198,16 @@ def stage_project_payload(project, dest_dir):
         else:
             warn("manifest setting '%s' references '%s' but no such file "
                  "exists - not bundled" % (setting_key, relative))
+    # export-time texture cook: resize/premultiply the staged textures per
+    # their sidecar import settings, resolved for the target platform. The
+    # sidecars ship alongside (the runtime reads the LIVE sampler settings from
+    # them); the cook only rewrites the pixels. Uncompressed only - GPU
+    # compression is double-blocked (see cook_textures.py) and deferred.
+    cooked = cook_textures.cook_payload(dest_dir, COOK_PLATFORM.get(platform,
+        ""), log=lambda message: log(message))
+    if cooked:
+        log("cooked %d texture(s) for platform '%s'"
+            % (cooked, COOK_PLATFORM.get(platform, "")))
     return staged
 
 
@@ -470,7 +488,7 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                         os.path.join(resources, "Media", media_subdir))
 
     staged = stage_project_payload(
-        project, os.path.join(resources, PAYLOAD_DIR_NAME))
+        project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos")
     write_marker(resources)
     log("project payload: %d files" % staged)
 
@@ -515,7 +533,8 @@ def export_ios_simulator(project, engine_build, output_dir):
     # on iOS). No re-signing needed on the simulator.
     shutil.copytree(source_app, app_dir, symlinks=True)
     staged = stage_project_payload(project,
-                                   os.path.join(app_dir, PAYLOAD_DIR_NAME))
+                                   os.path.join(app_dir, PAYLOAD_DIR_NAME),
+                                   "ios-simulator")
     write_marker(app_dir)
     log("project payload: %d files" % staged)
     log("install: xcrun simctl install <udid> '%s'" % app_dir)
@@ -537,7 +556,7 @@ def export_android(project, engine_build, output_dir):
     payload_dir = os.path.join(output_dir, "payload-staging")
     if os.path.exists(payload_dir):
         shutil.rmtree(payload_dir)
-    staged = stage_project_payload(project, payload_dir)
+    staged = stage_project_payload(project, payload_dir, "android")
     log("project payload: %d files" % staged)
     package = project.settings.get(
         "export.android.package", "com.orkitec." + project.id_slug)

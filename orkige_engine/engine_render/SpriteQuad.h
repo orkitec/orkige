@@ -33,6 +33,30 @@ namespace Orkige
 	{
 		//--- Types -------------------------------------------------
 	public:
+		//! @brief texture minification/magnification filter (the v1 sprite
+		//! sampler knob). map: classic=TextureUnitState::setTextureFiltering
+		//! (FO_NONE/FO_LINEAR) | next=HlmsSamplerblock::setFiltering
+		//! (TFO_NONE/TFO_BILINEAR)
+		enum FilterMode
+		{
+			FILTER_POINT,		//!< nearest-neighbour - crisp pixel art
+			FILTER_BILINEAR		//!< linear - smooth (the default)
+		};
+		//! @brief texture addressing outside [0,1]. map:
+		//! classic=setTextureAddressingMode | next=HlmsSamplerblock::setAddressingMode
+		enum AddressMode
+		{
+			ADDRESS_CLAMP,		//!< clamp to edge (the default; atlas-safe)
+			ADDRESS_WRAP		//!< repeat/tile
+		};
+		//! @brief the cache key a per-texture sprite material/datablock is
+		//! stored under - grown to include the sampler so two sprites sharing
+		//! ONE texture with DIFFERENT sampling get DISTINCT materials instead
+		//! of stomping each other's filter/addressing (e.g.
+		//! "Sprite/hero.png#point-clamp"). Both render backends key on THIS
+		//! exact spelling so the naming can never drift between them.
+		static String samplerName(String const & textureName,
+			FilterMode filter, AddressMode addressing);
 	protected:
 		//! backend state - defined only inside the selected backend
 		struct Impl;
@@ -76,6 +100,15 @@ namespace Orkige
 		//! @brief mirror on X and/or Y (swaps quad UVs)
 		//! map: all backends=facade quad UVs
 		void setFlip(bool flipX, bool flipY);
+		//! @brief how the texture is sampled (filter + addressing). Rebinds
+		//! the quad onto the per-(texture,sampler) material/datablock named by
+		//! samplerName() - the cache key grows so distinct sampling never
+		//! stomps a shared texture. Defaults to bilinear + clamp (the historic
+		//! sprite look on both backends).
+		//! map: classic=per-sampler generated material (setTextureFiltering +
+		//! addressing) | next=per-sampler HlmsUnlit datablock with an
+		//! HlmsSamplerblock on slot 0
+		void setSampler(FilterMode filter, AddressMode addressing);
 
 		//--- sorting / visibility ---
 		//! @brief painter's-algorithm sort order, clamped to ZORDER_MIN/MAX

@@ -302,6 +302,93 @@ TEST_CASE("AssetDatabase::importAsset registers a just-created file",
 	REQUIRE(database.importAsset("/definitely/elsewhere.png").empty());
 }
 
+TEST_CASE("AssetDatabase sidecar v2: texture import block round-trips and an "
+	"id-only sidecar still reads clean", "[assetdb][texture]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_texturev2");
+	const std::string metaPath = project.metaPath("assets/hero.png");
+	std::filesystem::create_directories(
+		std::filesystem::path(metaPath).parent_path());
+
+	SECTION("a v2 sidecar preserves the id AND round-trips the settings")
+	{
+		Orkige::TextureImport written;
+		written.base.filter = "point";
+		written.base.wrap = "wrap";
+		written.base.maxSize = 1024;
+		written.base.premultiply = true;
+		written.base.generateMips = true;
+		written.hasAndroid = true;
+		written.android = written.base;
+		written.android.maxSize = 512;		// mobile caps harder
+		written.hasIos = true;
+		written.ios = written.base;
+		written.ios.filter = "bilinear";	// iOS overrides just the filter
+
+		const Orkige::String id = "1234567890abcdef1234567890abcdef";
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath, id, written));
+
+		// the id reads back through the plain (v1) reader - back-compat: a
+		// settings-carrying sidecar is still a valid id sidecar
+		Orkige::String readId;
+		REQUIRE(Orkige::AssetDatabase::readMetaFile(metaPath, readId));
+		CHECK(readId == id);
+
+		Orkige::TextureImport read;
+		REQUIRE(Orkige::AssetDatabase::readImportSettings(metaPath, read));
+		CHECK(read.base.filter == "point");
+		CHECK(read.base.wrap == "wrap");
+		CHECK(read.base.maxSize == 1024);
+		CHECK(read.base.premultiply == true);
+		CHECK(read.base.generateMips == true);
+		REQUIRE(read.hasAndroid);
+		CHECK(read.android.maxSize == 512);
+		CHECK(read.android.filter == "point");		// inherited from base
+		REQUIRE(read.hasIos);
+		CHECK(read.ios.filter == "bilinear");		// overridden
+		CHECK(read.ios.maxSize == 1024);			// inherited from base
+
+		// resolvedFor() picks the platform block when present, else base
+		CHECK(read.resolvedFor("").maxSize == 1024);
+		CHECK(read.resolvedFor("android").maxSize == 512);
+		CHECK(read.resolvedFor("ios").filter == "bilinear");
+		CHECK(read.resolvedFor("windows").maxSize == 1024);	// unknown = base
+	}
+	SECTION("an id-only v1 sidecar reads clean and yields no import block")
+	{
+		const Orkige::String id = "fedcba0987654321fedcba0987654321";
+		REQUIRE(Orkige::AssetDatabase::writeMetaFile(metaPath, id));
+		Orkige::String readId;
+		REQUIRE(Orkige::AssetDatabase::readMetaFile(metaPath, readId));
+		CHECK(readId == id);
+		// no <texture> block: readImportSettings reports false and leaves
+		// defaults, so a live sprite keeps its default sampler
+		Orkige::TextureImport read;
+		CHECK_FALSE(Orkige::AssetDatabase::readImportSettings(metaPath, read));
+		CHECK(read.base.filter == "bilinear");
+		CHECK(read.base.maxSize == 0);
+		CHECK_FALSE(read.hasAndroid);
+	}
+}
+
+TEST_CASE("AssetDatabase::metaFilePathForId resolves a texture's sidecar",
+	"[assetdb][texture]")
+{
+	Orkige::CoreTestEnvironment::get();
+	TempProject project("orkige_test_assetdb_metapath");
+	project.writeAsset("assets/hero.png");
+	Orkige::AssetDatabase database;
+	database.refresh(project.root.string(), true);
+	const Orkige::String id = database.idForFileName("hero.png");
+	REQUIRE(isHex32(id));
+	const Orkige::String metaPath = database.metaFilePathForId(id);
+	REQUIRE_FALSE(metaPath.empty());
+	CHECK(std::filesystem::is_regular_file(metaPath));
+	CHECK(metaPath == project.metaPath("assets/hero.png"));
+	CHECK(database.metaFilePathForId("no-such-id").empty());
+}
+
 TEST_CASE("AssetDatabase::generateId yields 128-bit hex ids", "[assetdb]")
 {
 	Orkige::CoreTestEnvironment::get();

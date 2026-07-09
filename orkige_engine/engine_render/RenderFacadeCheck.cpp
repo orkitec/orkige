@@ -44,4 +44,21 @@ namespace Orkige
 	static_assert(sizeof(Vec3) == 3 * sizeof(Real), "Vec3 must stay 3 packed Reals");
 	static_assert(sizeof(Quat) == 4 * sizeof(Real), "Quat must stay 4 packed Reals");
 	static_assert(sizeof(Color) == 4 * sizeof(float), "Color must stay 4 packed floats");
+
+	//---------------------------------------------------------
+	// The ONE definition of the per-(texture,sampler) material/datablock cache
+	// key, compiled into BOTH render flavors (this facade TU links in each) so
+	// the classic material name and the next datablock name can NEVER drift.
+	// Growing the key past the bare "Sprite/<tex>" is the correctness fix: two
+	// sprites of the same texture but different sampling must not share (and so
+	// stomp) one material.
+	String SpriteQuad::samplerName(String const & textureName,
+		FilterMode filter, AddressMode addressing)
+	{
+		const String filterToken =
+			(filter == FILTER_POINT) ? "point" : "bilinear";
+		const String addressToken =
+			(addressing == ADDRESS_WRAP) ? "wrap" : "clamp";
+		return "Sprite/" + textureName + "#" + filterToken + "-" + addressToken;
+	}
 }

@@ -19,6 +19,46 @@ namespace Orkige
 {
 	class IArchive;
 
+	//! @brief a texture asset's import settings for ONE platform: how the
+	//! runtime samples it (filter/wrap, honored LIVE at sprite material
+	//! creation) and how the EXPORT-TIME cook conditions the shipped pixels
+	//! (maxSize downscale + premultiply; generateMips is a forward-looking
+	//! flag the cook does not act on yet).
+	//! @remarks filter/wrap are kept as strings ("point"/"bilinear",
+	//! "clamp"/"wrap") because this struct lives in core, BELOW the render
+	//! facade that owns the SpriteQuad sampler enums - the engine layer maps
+	//! the strings onto those enums. GPU-compressed formats are deliberately
+	//! ABSENT: the runtime registers only the PNG/JPG image codec AND the
+	//! stdlib-Python cook has no block-compression encoder, so compression is
+	//! double-blocked and stays out of v1 (its own future work package).
+	struct ORKIGE_CORE_DLL TextureImportSettings
+	{
+		String	filter = "bilinear";	//!< "point" | "bilinear"
+		String	wrap = "clamp";			//!< "clamp" | "wrap"
+		int		maxSize = 0;			//!< texel cap (longest side); 0 = uncapped
+		bool	premultiply = false;	//!< cook premultiplies alpha into RGB
+		bool	generateMips = false;	//!< reserved (the cook does not build mips yet)
+	};
+
+	//! @brief the full <texture> import block of a sidecar: the default
+	//! settings plus optional per-platform override sub-blocks. Each platform
+	//! sub-block is stored ALREADY RESOLVED against the default (the reader
+	//! starts every override from the default and overlays the attributes the
+	//! sub-block actually spells), so resolvedFor() is a plain lookup.
+	struct ORKIGE_CORE_DLL TextureImport
+	{
+		TextureImportSettings	base;				//!< the default (desktop) settings
+		bool					hasAndroid = false;	//!< an <android> override exists
+		TextureImportSettings	android;			//!< resolved Android settings
+		bool					hasIos = false;		//!< an <ios> override exists
+		TextureImportSettings	ios;				//!< resolved iOS settings
+
+		//! @brief the effective settings for a platform token ("android"/"ios"
+		//! use the override when present; anything else - "" = desktop - the
+		//! default)
+		TextureImportSettings const & resolvedFor(String const & platform) const;
+	};
+
 	//! @brief Unity-style stable asset ids for a project's assets - the
 	//! foundation that lets scene references survive renames and moves.
 	//! @remarks Every asset file under a project's assets/ and scripts/
@@ -64,6 +104,7 @@ namespace Orkige
 		static const String META_FILE_EXTENSION;		//!< ".orkmeta"
 		static const String META_ELEMENT_NAME;			//!< "orkmeta"
 		static const String META_ID_ATTRIBUTE;			//!< "id"
+		static const String META_TEXTURE_ELEMENT_NAME;	//!< "texture" (the import block)
 		//! the scene-file attribute carrying an asset id next to a value
 		static const String REFERENCE_ID_ATTRIBUTE;	//!< "assetId"
 	protected:
@@ -113,10 +154,28 @@ namespace Orkige
 
 		//! a fresh 128-bit random id as 32 lower-case hex characters
 		static String generateId();
-		//! read a sidecar file; false (id untouched) when missing/invalid
+		//! read a sidecar file; false (id untouched) when missing/invalid.
+		//! @remarks reads ONLY the root id and ignores any children, so a v2
+		//! sidecar carrying a <texture> import block reads exactly like a v1
+		//! id-only one - back-compat is automatic.
 		static bool readMetaFile(String const & metaFilePath, String & assetId);
-		//! (over)write a sidecar file; false on an IO error
+		//! (over)write a plain id-only sidecar; false on an IO error
 		static bool writeMetaFile(String const & metaFilePath, String const & assetId);
+		//! @brief (over)write a sidecar carrying its id AND a <texture> import
+		//! block (per-platform overrides included); false on an IO error. The
+		//! id is preserved by the caller passing it - read it with readMetaFile
+		//! first when updating an existing sidecar's settings.
+		static bool writeMetaFile(String const & metaFilePath,
+			String const & assetId, TextureImport const & texture);
+		//! @brief read the <texture> import block of a sidecar into settings;
+		//! false (settings left at defaults) when the file is missing/invalid
+		//! or carries no <texture> block (an id-only v1 sidecar).
+		static bool readImportSettings(String const & metaFilePath,
+			TextureImport & texture);
+
+		//! @brief absolute .orkmeta path of an asset id, or "" when the id is
+		//! unknown (used to reach a texture's import settings from its id)
+		String metaFilePathForId(String const & assetId) const;
 
 		//--- the active database (the open project's) --------
 		//! @brief make the given database the process-wide one asset

@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <set>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -178,6 +179,15 @@ int main(int, char**)
 		{
 			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 		}
+		// ORKIGE_DEMO_SPRITEATLAS=1: the sprite-atlas + sampler selfcheck
+		// (below) needs the generated atlas (.oatlas + .png) on a resource
+		// location so loadSpriteFromAtlas resolves it
+		const bool demoSpriteAtlas =
+			(std::getenv("ORKIGE_DEMO_SPRITEATLAS") != nullptr);
+		if (demoSpriteAtlas)
+		{
+			render->addResourceLocation(ORKIGE_SPRITE_ATLAS_DIR);
+		}
 		render->initialiseResourceGroups();
 
 		// the window camera on a facade rig (the createDefaultCameraAndViewport
@@ -320,6 +330,111 @@ int main(int, char**)
 			spriteAnim->play("spin");						// start on frame 0
 			SDL_Log("hello_orkige: flipbook up - 4x1 grid, clip 'spin' playing "
 				"(sprite loaded=%d)", static_cast<int>(animSprite->hasSprite()));
+		}
+
+		// --- ORKIGE_DEMO_SPRITEATLAS=1: the sprite-atlas + sampler selfcheck.
+		// A SpriteComponent loads a named region of the generated
+		// demo_sprite_atlas (packed by Util/make_sprite_atlas.py at build
+		// time); the check asserts loadSpriteFromAtlas positioned the UV rect
+		// EXACTLY where the shared pixelRectToUV primitive puts the region's
+		// pixel rect (parsed independently from the .oatlas), that distinct
+		// regions land on distinct rects, a bogus region is refused, and the
+		// live sampler setters apply without a crash. Reads component state -
+		// runs identically on both render flavors.
+		if (demoSpriteAtlas)
+		{
+			optr<Orkige::GameObject> atlasObject =
+				gameObjectManager.createGameObject("atlasSprite").lock();
+			if (!atlasObject ||
+				!atlasObject->addComponent<Orkige::SpriteComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - atlas sprite creation failed");
+				return 1;
+			}
+			Orkige::SpriteComponent* atlasSprite =
+				atlasObject->getComponentPtr<Orkige::SpriteComponent>();
+			if (!atlasSprite ||
+				!atlasSprite->loadSpriteFromAtlas("demo_sprite_atlas.oatlas",
+					"crate"))
+			{
+				SDL_Log("hello_orkige: FAILED - loadSpriteFromAtlas('crate')");
+				return 1;
+			}
+			// independently parse the region rect from the .oatlas and confirm
+			// the UV rect matches pixelRectToUV over it
+			std::string atlasText;
+			if (!render->readResourceText("demo_sprite_atlas.oatlas", atlasText))
+			{
+				SDL_Log("hello_orkige: FAILED - .oatlas not readable");
+				return 1;
+			}
+			float rx = 0.0f, ry = 0.0f, rw = 0.0f, rh = 0.0f;
+			bool found = false;
+			std::istringstream lineStream(atlasText);
+			std::string line;
+			while (std::getline(lineStream, line))
+			{
+				std::istringstream tokens(line);
+				std::string key;
+				if (!(tokens >> key) || key.empty() || key[0] == '#' ||
+					key[0] == '[')
+				{
+					continue;
+				}
+				if (key == "crate" && (tokens >> rx >> ry >> rw >> rh))
+				{
+					found = true;
+				}
+			}
+			float atlasW = 0.0f, atlasH = 0.0f;
+			atlasSprite->getTextureSize(atlasW, atlasH);
+			float eu0, ev0, eu1, ev1;
+			Orkige::SpriteComponent::pixelRectToUV(rx, ry, rw, rh,
+				atlasW, atlasH, eu0, ev0, eu1, ev1);
+			float u0, v0, u1, v1;
+			atlasSprite->getUVRect(u0, v0, u1, v1);
+			const bool uvMatches = found &&
+				std::abs(u0 - eu0) < 1e-5f && std::abs(v0 - ev0) < 1e-5f &&
+				std::abs(u1 - eu1) < 1e-5f && std::abs(v1 - ev1) < 1e-5f;
+			// the region must be a strict SUB-rect of the atlas, not the whole
+			// texture (proves the atlas > the sprite and the region was applied)
+			const bool isSubRect = (u1 - u0) < 0.999f && (v1 - v0) < 0.999f &&
+				u0 >= 0.0f && v0 >= 0.0f && u1 <= 1.0f && v1 <= 1.0f;
+
+			// a different region must land on a different rect
+			atlasSprite->loadSpriteFromAtlas("demo_sprite_atlas.oatlas",
+				"player");
+			float pu0, pv0, pu1, pv1;
+			atlasSprite->getUVRect(pu0, pv0, pu1, pv1);
+			const bool regionsDiffer =
+				std::abs(pu0 - u0) > 1e-5f || std::abs(pv0 - v0) > 1e-5f ||
+				std::abs(pu1 - u1) > 1e-5f || std::abs(pv1 - v1) > 1e-5f;
+
+			// a bogus region is refused (and leaves the sprite intact)
+			const bool bogusRefused = !atlasSprite->loadSpriteFromAtlas(
+				"demo_sprite_atlas.oatlas", "no_such_region");
+
+			// the live sampler setters apply without a crash and are readable
+			atlasSprite->setFilter(Orkige::SpriteQuad::FILTER_POINT);
+			atlasSprite->setAddressing(Orkige::SpriteQuad::ADDRESS_WRAP);
+			const bool samplerApplied =
+				atlasSprite->getFilter() == Orkige::SpriteQuad::FILTER_POINT &&
+				atlasSprite->getAddressing() ==
+					Orkige::SpriteQuad::ADDRESS_WRAP;
+
+			SDL_Log("hello_orkige: atlas uvMatches=%d subRect=%d differ=%d "
+				"bogusRefused=%d sampler=%d (atlas %.0fx%.0f region "
+				"%.0f,%.0f,%.0f,%.0f)", static_cast<int>(uvMatches),
+				static_cast<int>(isSubRect), static_cast<int>(regionsDiffer),
+				static_cast<int>(bogusRefused), static_cast<int>(samplerApplied),
+				atlasW, atlasH, rx, ry, rw, rh);
+			if (!(uvMatches && isSubRect && regionsDiffer && bogusRefused &&
+				samplerApplied))
+			{
+				SDL_Log("hello_orkige: FAILED - sprite atlas/sampler selfcheck");
+				return 1;
+			}
+			SDL_Log("hello_orkige: sprite atlas + sampler selfcheck passed");
 		}
 
 		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the procedural cubes -

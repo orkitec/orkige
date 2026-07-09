@@ -92,6 +92,8 @@ namespace Orkige
 		Ogre::ManualObject*	quad = NULL;
 		Ogre::SceneManager*	creator = NULL;
 		String				textureName;
+		Ogre::TexturePtr	texture;				//!< the loaded texture (per-sampler material rebinds need it)
+		String				materialName;			//!< the per-(texture,sampler) material the quad renders with
 		float				texelWidth = 0.0f;		//!< texture size in texels (aspect derivation)
 		float				texelHeight = 0.0f;
 		float				width = 0.0f;			//!< configured size; <= 0 derives from the texture aspect
@@ -101,6 +103,9 @@ namespace Orkige
 		bool				flipX = false;
 		bool				flipY = false;
 		int					zOrder = 0;
+		//! the v1 sprite sampler (bilinear+clamp = the historic look)
+		SpriteQuad::FilterMode	filter = SpriteQuad::FILTER_BILINEAR;
+		SpriteQuad::AddressMode	addressing = SpriteQuad::ADDRESS_CLAMP;
 		optr<RenderNode>	attachedTo;
 
 		//! rebuild the quad vertex data from the state above (same honest
@@ -257,10 +262,15 @@ namespace Orkige
 		//! the RTSS material scheme wiring every viewport needs on the
 		//! shader-only render systems (same as Engine/editor apply today)
 		static void applyRTSSScheme(Ogre::Viewport* viewport);
-		//! the generated per-texture "Sprite/<tex>" material (idempotent;
-		//! same recipe as SpriteComponent until WP-A1.2 migrates it here)
+		//! @brief the generated per-(texture,sampler) sprite material,
+		//! idempotent per SpriteQuad::samplerName key: unlit, alpha-blended,
+		//! depth-checked/not-written, two-sided, with the requested
+		//! filter/addressing on its texture unit. The sampler is baked into
+		//! the name so distinct sampling of one texture never shares (stomps)
+		//! a material.
 		static Ogre::MaterialPtr getOrCreateSpriteMaterial(
-			Ogre::TexturePtr const & texture);
+			Ogre::TexturePtr const & texture, SpriteQuad::FilterMode filter,
+			SpriteQuad::AddressMode addressing);
 		//! zOrder -> render queue id (painter's sorting around MAIN)
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
 	};

@@ -26,7 +26,56 @@ namespace Orkige
 	const String AssetDatabase::META_FILE_EXTENSION = ".orkmeta";
 	const String AssetDatabase::META_ELEMENT_NAME = "orkmeta";
 	const String AssetDatabase::META_ID_ATTRIBUTE = "id";
+	const String AssetDatabase::META_TEXTURE_ELEMENT_NAME = "texture";
 	const String AssetDatabase::REFERENCE_ID_ATTRIBUTE = "assetId";
+
+	namespace
+	{
+		//! read one <texture>/<android>/<ios> element's attributes onto
+		//! settings that already carry the inherited defaults (an absent
+		//! attribute leaves its value untouched - so override sub-blocks are
+		//! deltas over the default block)
+		void readTextureSettings(tinyxml2::XMLElement const * element,
+			TextureImportSettings & settings)
+		{
+			if (const char * value = element->Attribute("filter"))
+			{
+				settings.filter = value;
+			}
+			if (const char * value = element->Attribute("wrap"))
+			{
+				settings.wrap = value;
+			}
+			element->QueryIntAttribute("maxSize", &settings.maxSize);
+			element->QueryBoolAttribute("premultiply", &settings.premultiply);
+			element->QueryBoolAttribute("generateMips", &settings.generateMips);
+		}
+		//! write a settings block's attributes onto an element (full, not a
+		//! delta - deterministic output the cook and a re-import both trust)
+		void writeTextureSettings(tinyxml2::XMLElement * element,
+			TextureImportSettings const & settings)
+		{
+			element->SetAttribute("filter", settings.filter.c_str());
+			element->SetAttribute("wrap", settings.wrap.c_str());
+			element->SetAttribute("maxSize", settings.maxSize);
+			element->SetAttribute("premultiply", settings.premultiply);
+			element->SetAttribute("generateMips", settings.generateMips);
+		}
+	}
+	//---------------------------------------------------------
+	TextureImportSettings const & TextureImport::resolvedFor(
+		String const & platform) const
+	{
+		if (platform == "android" && this->hasAndroid)
+		{
+			return this->android;
+		}
+		if (platform == "ios" && this->hasIos)
+		{
+			return this->ios;
+		}
+		return this->base;
+	}
 
 	optr<AssetDatabase> AssetDatabase::sActive;
 	//---------------------------------------------------------
@@ -218,6 +267,84 @@ namespace Orkige
 		document.InsertEndChild(root);
 		return document.SaveFile(metaFilePath.c_str()) ==
 			tinyxml2::XML_SUCCESS;
+	}
+	//---------------------------------------------------------
+	bool AssetDatabase::writeMetaFile(String const & metaFilePath,
+		String const & assetId, TextureImport const & texture)
+	{
+		tinyxml2::XMLDocument document;
+		tinyxml2::XMLElement * root = document.NewElement(
+			META_ELEMENT_NAME.c_str());
+		root->SetAttribute(META_ID_ATTRIBUTE.c_str(), assetId.c_str());
+		tinyxml2::XMLElement * textureElement = document.NewElement(
+			META_TEXTURE_ELEMENT_NAME.c_str());
+		writeTextureSettings(textureElement, texture.base);
+		if (texture.hasAndroid)
+		{
+			tinyxml2::XMLElement * platform = document.NewElement("android");
+			writeTextureSettings(platform, texture.android);
+			textureElement->InsertEndChild(platform);
+		}
+		if (texture.hasIos)
+		{
+			tinyxml2::XMLElement * platform = document.NewElement("ios");
+			writeTextureSettings(platform, texture.ios);
+			textureElement->InsertEndChild(platform);
+		}
+		root->InsertEndChild(textureElement);
+		document.InsertEndChild(root);
+		return document.SaveFile(metaFilePath.c_str()) ==
+			tinyxml2::XML_SUCCESS;
+	}
+	//---------------------------------------------------------
+	bool AssetDatabase::readImportSettings(String const & metaFilePath,
+		TextureImport & texture)
+	{
+		texture = TextureImport();	// defaults until proven otherwise
+		tinyxml2::XMLDocument document;
+		if (document.LoadFile(metaFilePath.c_str()) != tinyxml2::XML_SUCCESS)
+		{
+			return false;
+		}
+		const tinyxml2::XMLElement * root = document.RootElement();
+		if (!root || String(root->Name()) != META_ELEMENT_NAME)
+		{
+			return false;
+		}
+		const tinyxml2::XMLElement * textureElement =
+			root->FirstChildElement(META_TEXTURE_ELEMENT_NAME.c_str());
+		if (!textureElement)
+		{
+			return false;	// an id-only v1 sidecar - no import block
+		}
+		readTextureSettings(textureElement, texture.base);
+		// per-platform sub-blocks are deltas: start each from the default
+		if (const tinyxml2::XMLElement * android =
+			textureElement->FirstChildElement("android"))
+		{
+			texture.hasAndroid = true;
+			texture.android = texture.base;
+			readTextureSettings(android, texture.android);
+		}
+		if (const tinyxml2::XMLElement * ios =
+			textureElement->FirstChildElement("ios"))
+		{
+			texture.hasIos = true;
+			texture.ios = texture.base;
+			readTextureSettings(ios, texture.ios);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String AssetDatabase::metaFilePathForId(String const & assetId) const
+	{
+		const String relativePath = this->pathForId(assetId);
+		if (relativePath.empty() || this->mRootDirectory.empty())
+		{
+			return String();
+		}
+		return (std::filesystem::path(this->mRootDirectory) / relativePath)
+			.string() + META_FILE_EXTENSION;
 	}
 	//---------------------------------------------------------
 	void AssetDatabase::setActive(optr<AssetDatabase> const & database)

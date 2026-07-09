@@ -215,6 +215,51 @@ TEST_CASE("frameToUVRect insets half a texel against seam bleeding", "[sprite][f
 	CHECK(v0 == Approx(0.5f / 32.0f));
 }
 
+TEST_CASE("pixelRectToUV maps an atlas region rect to UV (shared inset)",
+	"[sprite][atlas]")
+{
+	float u0 = 0.0f, v0 = 0.0f, u1 = 0.0f, v1 = 0.0f;
+
+	// a 32x48 region at (64,0) on a 256x256 atlas, no inset (unknown size)
+	Orkige::SpriteComponent::pixelRectToUV(64.0f, 0.0f, 32.0f, 48.0f,
+		256.0f, 256.0f, u0, v0, u1, v1);
+	const float insetX = 0.5f / 256.0f;
+	const float insetY = 0.5f / 256.0f;
+	CHECK(u0 == Approx(64.0f / 256.0f + insetX));
+	CHECK(u1 == Approx(96.0f / 256.0f - insetX));
+	CHECK(v0 == Approx(0.0f + insetY));
+	CHECK(v1 == Approx(48.0f / 256.0f - insetY));
+
+	// the full-texture rect (0,0,w,h) matches frameToUVRect's degenerate grid
+	Orkige::SpriteComponent::pixelRectToUV(0.0f, 0.0f, 128.0f, 128.0f,
+		128.0f, 128.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.5f / 128.0f));
+	CHECK(v0 == Approx(0.5f / 128.0f));
+	CHECK(u1 == Approx(1.0f - 0.5f / 128.0f));
+	CHECK(v1 == Approx(1.0f - 0.5f / 128.0f));
+
+	// an unknown texture size (<= 0) falls back to the whole texture
+	Orkige::SpriteComponent::pixelRectToUV(10.0f, 10.0f, 5.0f, 5.0f,
+		0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.0f));
+	CHECK(v0 == Approx(0.0f));
+	CHECK(u1 == Approx(1.0f));
+	CHECK(v1 == Approx(1.0f));
+
+	// pixelRectToUV and frameToUVRect share the inset: a grid cell expressed
+	// as its pixel rect must land where frameToUVRect puts it. 2x2 grid on
+	// 64x64 -> cell (1,1) is the pixel rect (32,32,32,32)
+	float gu0, gv0, gu1, gv1;
+	Orkige::SpriteComponent::frameToUVRect(3, 2, 2, 64.0f, 64.0f,
+		gu0, gv0, gu1, gv1);
+	Orkige::SpriteComponent::pixelRectToUV(32.0f, 32.0f, 32.0f, 32.0f,
+		64.0f, 64.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(gu0));
+	CHECK(v0 == Approx(gv0));
+	CHECK(u1 == Approx(gu1));
+	CHECK(v1 == Approx(gv1));
+}
+
 TEST_CASE("frameForElapsed advances, wraps and ends", "[sprite][flipbook]")
 {
 	bool ended = false;

@@ -135,7 +135,8 @@ namespace Orkige
 		Ogre::ManualObject*	quad = NULL;			//!< v2 manual object (VaoManager-backed)
 		Ogre::SceneManager*	creator = NULL;
 		String				textureName;
-		String				datablockName;			//!< the shared per-texture "Sprite/<tex>" HlmsUnlit datablock
+		Ogre::TextureGpu*	texture = NULL;			//!< the loaded texture (per-sampler datablock rebinds need it)
+		String				datablockName;			//!< the per-(texture,sampler) "Sprite/<tex>#..." HlmsUnlit datablock
 		float				texelWidth = 0.0f;		//!< texture size in texels (aspect derivation)
 		float				texelHeight = 0.0f;
 		float				width = 0.0f;			//!< configured size; <= 0 derives from the texture aspect
@@ -145,6 +146,9 @@ namespace Orkige
 		bool				flipX = false;
 		bool				flipY = false;
 		int					zOrder = 0;
+		//! the v1 sprite sampler (bilinear+clamp = the historic look)
+		SpriteQuad::FilterMode	filter = SpriteQuad::FILTER_BILINEAR;
+		SpriteQuad::AddressMode	addressing = SpriteQuad::ADDRESS_CLAMP;
 		optr<RenderNode>	attachedTo;
 
 		//! rebuild the quad vertex data from the state above (same honest
@@ -337,11 +341,15 @@ namespace Orkige
 		//! the generated 2D-layer datablock first - the replace path and
 		//! RenderSystem::destroyTexture2D share this)
 		static void destroyTexture2DByName(String const & name);
-		//! the shared per-texture "Sprite/<tex>" HlmsUnlit datablock
-		//! (unlit, alpha-blended, depth-checked/not-written, two-sided;
-		//! idempotent - all sprites of one texture share it)
+		//! @brief the per-(texture,sampler) "Sprite/<tex>#..." HlmsUnlit
+		//! datablock (unlit, alpha-blended, depth-checked/not-written,
+		//! two-sided; an HlmsSamplerblock on slot 0 carries the requested
+		//! filter/addressing). Idempotent per SpriteQuad::samplerName key -
+		//! the sampler is baked in so distinct sampling of one texture never
+		//! shares (stomps) a datablock.
 		static Ogre::HlmsDatablock* getOrCreateSpriteDatablock(
-			String const & textureName, Ogre::TextureGpu* texture);
+			String const & textureName, Ogre::TextureGpu* texture,
+			SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing);
 		//! an unlit datablock named datablockName that renders vertex
 		//! colours (times the optional texture); idempotent per name -
 		//! backs setVertexColourUnlit and the cube-mesh service

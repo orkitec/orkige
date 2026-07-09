@@ -53,11 +53,17 @@ namespace Orkige
 				<< textureName << "' not found");
 			return optr<SpriteQuad>();
 		}
-		RenderBackend::getOrCreateSpriteMaterial(texture);
-
 		optr<SpriteQuad> handle(new SpriteQuad());
+		// default sampler (bilinear + clamp) reproduces the historic sprite
+		// look; the material name carries the sampler so a later setSampler
+		// rebinds onto a distinct material instead of mutating a shared one
+		RenderBackend::getOrCreateSpriteMaterial(texture,
+			handle->mImpl->filter, handle->mImpl->addressing);
 		handle->mImpl->creator = sceneManager;
 		handle->mImpl->textureName = textureName;
+		handle->mImpl->texture = texture;
+		handle->mImpl->materialName = SpriteQuad::samplerName(textureName,
+			handle->mImpl->filter, handle->mImpl->addressing);
 		handle->mImpl->texelWidth = static_cast<float>(texture->getWidth());
 		handle->mImpl->texelHeight = static_cast<float>(texture->getHeight());
 		handle->mImpl->quad = sceneManager->createManualObject(
@@ -120,7 +126,7 @@ namespace Orkige
 		this->quad->clear();
 		this->quad->estimateVertexCount(4);
 		this->quad->estimateIndexCount(6);
-		this->quad->begin("Sprite/" + this->textureName,
+		this->quad->begin(this->materialName,
 			Ogre::RenderOperation::OT_TRIANGLE_LIST);
 		for(int each = 0; each < 4; ++each)
 		{
@@ -210,6 +216,28 @@ namespace Orkige
 	{
 		this->mImpl->flipX = flipX;
 		this->mImpl->flipY = flipY;
+		this->mImpl->rebuild();
+	}
+	//---------------------------------------------------------
+	void SpriteQuad::setSampler(FilterMode filter, AddressMode addressing)
+	{
+		if(this->mImpl->filter == filter &&
+			this->mImpl->addressing == addressing)
+		{
+			return;
+		}
+		this->mImpl->filter = filter;
+		this->mImpl->addressing = addressing;
+		// rebind onto the per-(texture,sampler) material (created on demand) -
+		// keying on the sampler keeps sprites that share a texture but sample
+		// it differently on DISTINCT materials
+		if(this->mImpl->texture)
+		{
+			RenderBackend::getOrCreateSpriteMaterial(this->mImpl->texture,
+				filter, addressing);
+		}
+		this->mImpl->materialName = SpriteQuad::samplerName(
+			this->mImpl->textureName, filter, addressing);
 		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------

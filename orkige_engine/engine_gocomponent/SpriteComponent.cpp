@@ -12,9 +12,33 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
+#include <core_debug/DebugMacros.h>
 #include <core_project/AssetDatabase.h>
 
 #include <algorithm>
+#include <sstream>
+#include <vector>
+
+#if defined(__APPLE__)
+#	include <TargetConditionals.h>
+#endif
+
+namespace
+{
+	//! the running platform token AssetDatabase import settings resolve
+	//! against (per-platform sampler/maxSize overrides). Desktop = "" (the
+	//! default block); the cook uses the same tokens at export time.
+	Orkige::String currentPlatformToken()
+	{
+#if defined(__ANDROID__)
+		return "android";
+#elif defined(__APPLE__) && (TARGET_OS_IPHONE || TARGET_OS_SIMULATOR)
+		return "ios";
+#else
+		return "";
+#endif
+	}
+}
 
 namespace Orkige
 {
@@ -44,6 +68,10 @@ namespace Orkige
 		this->mTint = Color::White;
 		this->mFlipX = false;
 		this->mFlipY = false;
+		// the historic sprite sampler (also the facade quad's default); a
+		// texture's import settings override it live on loadSprite
+		this->mFilter = SpriteQuad::FILTER_BILINEAR;
+		this->mAddressing = SpriteQuad::ADDRESS_CLAMP;
 		this->mZOrder = 0;
 		this->mVisible = true;
 		this->addDependency<TransformComponent>();
@@ -83,12 +111,83 @@ namespace Orkige
 		this->mTextureAssetId = AssetDatabase::referenceIdForValue(
 			textureName, "", AssetDatabase::REF_FILE_NAME);
 		this->mQuad->getTextureSize(this->mTexelWidth, this->mTexelHeight);
+		// honor the texture's import-settings sampler LIVE (before the state
+		// push, so applyStateToQuad binds the right material/datablock)
+		this->applyImportSettings();
 		this->applyStateToQuad();
 		this->mQuad->attachTo(this->getNode());
 		this->applyVisibility();
 
 		this->mEventData->setValue(textureName);
 		componentOwner->triggerEvent(Event(SpriteComponent::SpriteSetEvent, this->mEventData));
+	}
+	//---------------------------------------------------------
+	bool SpriteComponent::loadSpriteFromAtlas(String const & atlasName,
+		String const & regionName)
+	{
+		oAssert(!atlasName.empty());
+		oAssert(!regionName.empty());
+		// the .oatlas is a small text resource (a `texture <file>` line + one
+		// `<region> <x> <y> <w> <h>` line per region); read it through the
+		// facade so this stays backend-neutral (no renderer/Ogre here)
+		String atlasText;
+		if(!RenderSystem::get()->readResourceText(atlasName, atlasText))
+		{
+			oDebugError("engine", 0, "SpriteComponent: atlas '" << atlasName
+				<< "' not found");
+			return false;
+		}
+		String textureFile;
+		bool regionFound = false;
+		float regionX = 0.0f, regionY = 0.0f, regionW = 0.0f, regionH = 0.0f;
+		std::istringstream lines(atlasText);
+		String line;
+		while(std::getline(lines, line))
+		{
+			// tokenize on whitespace; skip comments and section headers
+			std::istringstream tokens(line);
+			String key;
+			if(!(tokens >> key) || key.empty() || key[0] == '#' ||
+				key[0] == '[')
+			{
+				continue;
+			}
+			if(key == "texture")
+			{
+				tokens >> textureFile;
+			}
+			else if(key == regionName)
+			{
+				if(tokens >> regionX >> regionY >> regionW >> regionH)
+				{
+					regionFound = true;
+				}
+			}
+		}
+		if(textureFile.empty())
+		{
+			oDebugError("engine", 0, "SpriteComponent: atlas '" << atlasName
+				<< "' has no 'texture' line");
+			return false;
+		}
+		if(!regionFound)
+		{
+			oDebugError("engine", 0, "SpriteComponent: atlas '" << atlasName
+				<< "' has no region '" << regionName << "'");
+			return false;
+		}
+		this->loadSprite(textureFile);
+		if(!this->mQuad)
+		{
+			return false;	// the texture load already logged the failure
+		}
+		// the SHARED pixel-rect->UV primitive: region pixels -> UV (with the
+		// same half-texel inset the flipbook uses against seam bleeding)
+		float u0, v0, u1, v1;
+		pixelRectToUV(regionX, regionY, regionW, regionH,
+			this->mTexelWidth, this->mTexelHeight, u0, v0, u1, v1);
+		this->setUVRect(u0, v0, u1, v1);
+		return true;
 	}
 	//---------------------------------------------------------
 	void SpriteComponent::removeSprite()
@@ -175,6 +274,24 @@ namespace Orkige
 		if(this->mQuad)
 		{
 			this->mQuad->setFlip(flipX, flipY);
+		}
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::setFilter(SpriteQuad::FilterMode filter)
+	{
+		this->mFilter = filter;
+		if(this->mQuad)
+		{
+			this->mQuad->setSampler(this->mFilter, this->mAddressing);
+		}
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::setAddressing(SpriteQuad::AddressMode addressing)
+	{
+		this->mAddressing = addressing;
+		if(this->mQuad)
+		{
+			this->mQuad->setSampler(this->mFilter, this->mAddressing);
 		}
 	}
 	//---------------------------------------------------------
@@ -266,10 +383,38 @@ namespace Orkige
 		u1 = static_cast<float>(column + 1) * cellWidth;
 		v0 = static_cast<float>(row) * cellHeight;
 		v1 = static_cast<float>(row + 1) * cellHeight;
-		// half-texel inset: bilinear filtering pulls neighbour texels at the
-		// cell edges (visible atlas-seam bleeding); pulling the rect in by
-		// half a texel on each side keeps the sample inside the frame. Needs
-		// the real texel size - skipped when it is unknown (<= 0).
+		// the same half-texel inset the atlas path uses (shared primitive)
+		insetHalfTexel(u0, v0, u1, v1, textureWidth, textureHeight);
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::pixelRectToUV(float x, float y,
+		float width, float height, float textureWidth, float textureHeight,
+		float & u0, float & v0, float & u1, float & v1)
+	{
+		// no texture size = no normalization possible: show the whole texture
+		if(textureWidth <= 0.0f || textureHeight <= 0.0f)
+		{
+			u0 = 0.0f;
+			v0 = 0.0f;
+			u1 = 1.0f;
+			v1 = 1.0f;
+			return;
+		}
+		u0 = x / textureWidth;
+		u1 = (x + width) / textureWidth;
+		v0 = y / textureHeight;
+		v1 = (y + height) / textureHeight;
+		// same seam-safety inset as the flipbook grid cells
+		insetHalfTexel(u0, v0, u1, v1, textureWidth, textureHeight);
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::insetHalfTexel(float & u0, float & v0,
+		float & u1, float & v1, float textureWidth, float textureHeight)
+	{
+		// bilinear filtering pulls neighbour texels at the rect edges (visible
+		// atlas-seam bleeding); pulling in by half a texel on each side keeps
+		// the sample inside the region. Needs the real texel size - each axis
+		// is skipped when its size is unknown (<= 0).
 		if(textureWidth > 0.0f)
 		{
 			const float insetU = 0.5f / textureWidth;
@@ -347,7 +492,40 @@ namespace Orkige
 		this->mQuad->setUVRect(this->mU0, this->mV0, this->mU1, this->mV1);
 		this->mQuad->setTint(this->mTint);
 		this->mQuad->setFlip(this->mFlipX, this->mFlipY);
+		this->mQuad->setSampler(this->mFilter, this->mAddressing);
 		this->mQuad->setZOrder(this->mZOrder);
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::applyImportSettings()
+	{
+		// sampler comes from the texture ASSET's import settings (not per
+		// sprite - so it is NOT serialized): resolve them through the open
+		// project's database and apply for the running platform. No project /
+		// no <texture> block keeps the constructor defaults.
+		this->mFilter = SpriteQuad::FILTER_BILINEAR;
+		this->mAddressing = SpriteQuad::ADDRESS_CLAMP;
+		optr<AssetDatabase> const & database = AssetDatabase::getActive();
+		if(!database || this->mTextureAssetId.empty())
+		{
+			return;
+		}
+		const String metaPath =
+			database->metaFilePathForId(this->mTextureAssetId);
+		if(metaPath.empty())
+		{
+			return;
+		}
+		TextureImport texture;
+		if(!AssetDatabase::readImportSettings(metaPath, texture))
+		{
+			return;	// id-only sidecar - no sampler override
+		}
+		TextureImportSettings const & settings =
+			texture.resolvedFor(currentPlatformToken());
+		this->mFilter = (settings.filter == "point")
+			? SpriteQuad::FILTER_POINT : SpriteQuad::FILTER_BILINEAR;
+		this->mAddressing = (settings.wrap == "wrap")
+			? SpriteQuad::ADDRESS_WRAP : SpriteQuad::ADDRESS_CLAMP;
 	}
 	//---------------------------------------------------------
 	void SpriteComponent::save(optr<IArchive> const & ar)
@@ -408,6 +586,7 @@ namespace Orkige
 	OOBJECT_IMPL(SpriteComponent)
 		GAMEOBJECTCOMPONENT()
 		OFUNC(loadSprite)
+		OFUNC(loadSpriteFromAtlas)
 		OFUNC(removeSprite)
 		OFUNCCR(getTextureName)
 		OFUNC(hasSprite)

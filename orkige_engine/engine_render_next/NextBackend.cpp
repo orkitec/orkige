@@ -580,12 +580,17 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	Ogre::HlmsDatablock* RenderBackend::getOrCreateSpriteDatablock(
-		String const & textureName, Ogre::TextureGpu* texture)
+		String const & textureName, Ogre::TextureGpu* texture,
+		SpriteQuad::FilterMode filter, SpriteQuad::AddressMode addressing)
 	{
 		oAssert(gRenderSystem);
 		Ogre::HlmsManager* hlmsManager =
 			gRenderSystem->mImpl->root->getHlmsManager();
-		const String name = "Sprite/" + textureName;
+		// the sampler is baked into the name (SpriteQuad::samplerName) so two
+		// sprites of one texture but different sampling get DISTINCT datablocks
+		// instead of stomping each other's filter/addressing
+		const String name =
+			SpriteQuad::samplerName(textureName, filter, addressing);
 		if(Ogre::HlmsDatablock* existing =
 			hlmsManager->getDatablockNoDefault(name))
 		{
@@ -593,8 +598,7 @@ namespace Orkige
 		}
 		// the honest sprite rules carried over from classic: unlit,
 		// alpha-blended, depth-checked/not-written, two-sided; tint and
-		// flips live in the quad's vertex data so all sprites of one
-		// texture share this one datablock
+		// flips live in the quad's vertex data
 		Ogre::HlmsUnlit* unlit = static_cast<Ogre::HlmsUnlit*>(
 			hlmsManager->getHlms(Ogre::HLMS_UNLIT));
 		Ogre::HlmsMacroblock macroblock;
@@ -607,7 +611,16 @@ namespace Orkige
 				name, name, macroblock, blendblock, Ogre::HlmsParamVec()));
 		if(texture)
 		{
-			datablock->setTexture(0u, texture);
+			// same DrawLayer2D recipe, generalized to a runtime choice: point
+			// (TFO_NONE) vs bilinear (TFO_BILINEAR), clamp vs wrap addressing
+			Ogre::HlmsSamplerblock samplerblock;
+			samplerblock.setFiltering(
+				(filter == SpriteQuad::FILTER_POINT)
+				? Ogre::TFO_NONE : Ogre::TFO_BILINEAR);
+			samplerblock.setAddressingMode(
+				(addressing == SpriteQuad::ADDRESS_WRAP)
+				? Ogre::TAM_WRAP : Ogre::TAM_CLAMP);
+			datablock->setTexture(0u, texture, &samplerblock);
 		}
 		RenderBackend::registerContentDatablock(datablock);
 		return datablock;

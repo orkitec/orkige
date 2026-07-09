@@ -43,12 +43,17 @@ namespace Orkige
 		{
 			return optr<SpriteQuad>();	// error already logged
 		}
-		RenderBackend::getOrCreateSpriteDatablock(textureName, texture);
-
 		optr<SpriteQuad> handle(new SpriteQuad());
+		// default sampler (bilinear + clamp) reproduces the historic sprite
+		// look; the datablock name carries the sampler so a later setSampler
+		// rebinds onto a distinct datablock instead of mutating a shared one
+		RenderBackend::getOrCreateSpriteDatablock(textureName, texture,
+			handle->mImpl->filter, handle->mImpl->addressing);
 		handle->mImpl->creator = sceneManager;
 		handle->mImpl->textureName = textureName;
-		handle->mImpl->datablockName = "Sprite/" + textureName;
+		handle->mImpl->texture = texture;
+		handle->mImpl->datablockName = SpriteQuad::samplerName(textureName,
+			handle->mImpl->filter, handle->mImpl->addressing);
 		handle->mImpl->texelWidth = static_cast<float>(texture->getWidth());
 		handle->mImpl->texelHeight = static_cast<float>(texture->getHeight());
 		handle->mImpl->quad =
@@ -203,6 +208,28 @@ namespace Orkige
 	{
 		this->mImpl->flipX = flipX;
 		this->mImpl->flipY = flipY;
+		this->mImpl->rebuild();
+	}
+	//---------------------------------------------------------
+	void SpriteQuad::setSampler(FilterMode filter, AddressMode addressing)
+	{
+		if(this->mImpl->filter == filter &&
+			this->mImpl->addressing == addressing)
+		{
+			return;
+		}
+		this->mImpl->filter = filter;
+		this->mImpl->addressing = addressing;
+		// rebind onto the per-(texture,sampler) datablock (created on demand) -
+		// keying on the sampler keeps sprites that share a texture but sample
+		// it differently on DISTINCT datablocks
+		if(this->mImpl->texture)
+		{
+			RenderBackend::getOrCreateSpriteDatablock(this->mImpl->textureName,
+				this->mImpl->texture, filter, addressing);
+		}
+		this->mImpl->datablockName = SpriteQuad::samplerName(
+			this->mImpl->textureName, filter, addressing);
 		this->mImpl->rebuild();
 	}
 	//---------------------------------------------------------

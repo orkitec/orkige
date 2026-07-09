@@ -152,16 +152,18 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	Ogre::MaterialPtr RenderBackend::getOrCreateSpriteMaterial(
-		Ogre::TexturePtr const & texture)
+		Ogre::TexturePtr const & texture, SpriteQuad::FilterMode filter,
+		SpriteQuad::AddressMode addressing)
 	{
 		oAssert(texture);
-		// identical recipe (and name) to SpriteComponent::createSpriteMaterial
-		// so facade sprites and component sprites share one material per
-		// texture until WP-A1.2 retargets the component onto SpriteQuad:
-		// unlit, vertex colours tracked (the tint), alpha-BLENDED,
-		// depth-checked/not-written, two-sided; generated - material
-		// scripts stay banned (Ogre-Next has no material scripts)
-		const String materialName = "Sprite/" + texture->getName();
+		// the honest v1 sprite recipe: unlit, vertex colours tracked (the
+		// tint), alpha-BLENDED, depth-checked/not-written, two-sided;
+		// generated - material scripts stay banned (Ogre-Next has no material
+		// scripts). The name carries the sampler (SpriteQuad::samplerName) so
+		// two sprites of one texture but different sampling get DISTINCT
+		// materials instead of stomping each other's filter/addressing.
+		const String materialName =
+			SpriteQuad::samplerName(texture->getName(), filter, addressing);
 		Ogre::MaterialManager & materialManager =
 			Ogre::MaterialManager::getSingleton();
 		if(materialManager.resourceExists(materialName,
@@ -180,7 +182,17 @@ namespace Orkige
 		pass->setCullingMode(Ogre::CULL_NONE);
 		Ogre::TextureUnitState* textureUnit = pass->createTextureUnitState();
 		textureUnit->setTexture(texture);
-		textureUnit->setTextureAddressingMode(Ogre::TextureUnitState::TAM_CLAMP);
+		textureUnit->setTextureAddressingMode(
+			(addressing == SpriteQuad::ADDRESS_WRAP)
+			? Ogre::TextureUnitState::TAM_WRAP
+			: Ogre::TextureUnitState::TAM_CLAMP);
+		// FO_NONE = point (crisp pixel art), FO_LINEAR = bilinear (the
+		// DrawLayer2D point-sampling recipe, generalized to a runtime choice)
+		const Ogre::FilterOptions filterOption =
+			(filter == SpriteQuad::FILTER_POINT)
+			? Ogre::FO_NONE : Ogre::FO_LINEAR;
+		textureUnit->setTextureFiltering(filterOption, filterOption,
+			Ogre::FO_NONE);
 		return material;
 	}
 	//---------------------------------------------------------

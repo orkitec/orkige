@@ -192,6 +192,13 @@ namespace Orkige
 		//! map: classic/next=ResourceGroupManager::resourceExists | filament=impl VFS lookup
 		bool resourceExists(String const & resourceName,
 			String const & groupName = "") const;
+		//! @brief read a named text resource (searched across ALL groups, like
+		//! sprite textures) into a string; false (outText untouched) when it is
+		//! not found. Lets backend-neutral code (e.g. SpriteComponent's .oatlas
+		//! loader) read small config resources without touching the renderer.
+		//! map: classic/next=ResourceGroupManager::openResource(...).getAsString
+		bool readResourceText(String const & resourceName,
+			String & outText) const;
 
 		//--- stats ---
 		//! @see RenderSystem::FrameStats
