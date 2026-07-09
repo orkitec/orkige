@@ -28,6 +28,10 @@ void ViewSettings::load()
 		{
 			this->showViewGizmo = (value == "1");
 		}
+		else if (key == "mode_2d")
+		{
+			this->editor2D = (value == "1");
+		}
 		else if (key == "orbit_speed")
 		{
 			this->orbitSpeed = std::strtof(value.c_str(), nullptr);
@@ -130,6 +134,7 @@ void ViewSettings::save() const
 	std::ofstream file(this->path, std::ios::trunc);
 	file << "show_grid=" << (this->showGrid ? 1 : 0) << "\n"
 		<< "show_view_gizmo=" << (this->showViewGizmo ? 1 : 0) << "\n"
+		<< "mode_2d=" << (this->editor2D ? 1 : 0) << "\n"
 		<< "orbit_speed=" << this->orbitSpeed << "\n"
 		<< "look_speed=" << this->lookSpeed << "\n"
 		<< "zoom_speed=" << this->zoomSpeed << "\n"

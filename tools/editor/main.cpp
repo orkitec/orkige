@@ -1149,8 +1149,11 @@ int main(int argc, char** argv)
 			// independently of whichever menu bar is active
 			drawEditorModals(state, editorCore);
 			drawViewSettingsWindow(state, viewSettings, sceneTarget.camera);
-			// the View menu may have toggled the grid
-			gridNode->setVisible(viewSettings.showGrid);
+			// the View menu may have toggled the grid; 2D mode hides the XZ
+			// ground grid (it lies edge-on to the top-down view - WP #78; an
+			// XY grid redraw is deferred)
+			gridNode->setVisible(viewSettings.showGrid &&
+				!viewSettings.editor2D);
 			const float toolbarHeight =
 				drawToolbar(state, playSession, editorCore);
 			drawDockspace(state, toolbarHeight, viewSettings);
@@ -2299,7 +2302,73 @@ int main(int argc, char** argv)
 						->getWorldPosition().positionEquals(worldBefore,
 							1e-3f), "world pose persisted through the tree");
 					SDL_Log("orkige_editor: edittest frame 135 - hierarchy + "
-						"active state OK -> edittest PASSED");
+						"active state OK");
+				}
+				if (frameCount == 140)
+				{
+					// 2D editor mode (WP #78): flip to 2D and apply the 2D
+					// camera directly (drawScenePanel does the same next frame).
+					// It reconfigures the editor's OWN camera - orthographic,
+					// looking straight down -Z at the XY plane - and touches NO
+					// scene object. Frame a root cube so the frame-145 pick is
+					// deterministic.
+					viewSettings.editor2D = true;
+					Orkige::EditorTransform cube3;
+					require(editorCore.getObjectTransform("Cube3", cube3),
+						"Cube3 transform");
+					state.camera.target = cube3.position;
+					state.camera.distance = 10.0f;
+					apply2DCamera(state, sceneTarget.camera, sceneCameraNode);
+					require(sceneTarget.camera->getProjectionType() ==
+						Orkige::RenderCamera::PT_ORTHOGRAPHIC,
+						"editor camera became orthographic");
+					require(orientationsEqual(sceneCameraNode->getOrientation(),
+						Orkige::Quat::IDENTITY),
+						"2D view looks straight down -Z (XY plane)");
+					require(sceneCameraNode->getPosition().z >
+						cube3.position.z + 1.0f,
+						"2D camera stands off on +Z");
+					// a scripted move in 2D goes through the SAME undoable
+					// TransformChangeCommand and must land on the XY plane (its
+					// world Z unchanged - Cube3 is a root, so local == world)
+					Orkige::EditorTransform after = cube3;
+					after.position = Orkige::Vec3(cube3.position.x + 1.5f,
+						cube3.position.y + 1.0f, cube3.position.z);
+					const std::size_t undoBefore =
+						editorCore.getUndoStackSize();
+					require(editorCore.applyTransformChange("Cube3", cube3,
+						after), "2D move via TransformChangeCommand");
+					require(editorCore.getUndoStackSize() == undoBefore + 1,
+						"2D move is one undo step");
+					Orkige::EditorTransform now;
+					require(editorCore.getObjectTransform("Cube3", now) &&
+						positionsEqual(now.position, after.position) &&
+						std::abs(now.position.z - cube3.position.z) < 1e-4f,
+						"2D move kept Z on the plane");
+					// re-frame onto the moved object for the pick
+					state.camera.target = now.position;
+					apply2DCamera(state, sceneTarget.camera, sceneCameraNode);
+					SDL_Log("orkige_editor: edittest frame 140 - 2D camera + "
+						"planar move OK");
+				}
+				if (frameCount == 145)
+				{
+					// click-pick must work under the orthographic projection too
+					// (the facade builds a projection-correct ray for an ortho
+					// camera on BOTH render flavors - the WYSIWYG rule). Project
+					// Cube3 to the panel and run the exact pick path the mouse
+					// uses. The 2D camera is already applied by drawScenePanel
+					// (editor2D has been on since frame 140) and its bounds
+					// updated by the frame's render - querying here is safe,
+					// exactly like the frame-45 selfcheck pick.
+					editorCore.clearSelection();
+					require(pickGameObjectThroughScenePanel(editorCore,
+						gameObjectManager, sceneTarget.camera, "Cube3"),
+						"2D pick projected");
+					require(editorCore.getSelectedObjectId() == "Cube3",
+						"2D click-pick selected Cube3");
+					SDL_Log("orkige_editor: edittest frame 145 - 2D click-pick "
+						"OK -> edittest PASSED");
 				}
 				if (!editOk)
 				{

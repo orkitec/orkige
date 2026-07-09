@@ -157,6 +157,11 @@ struct ViewSettings
 
 	bool showGrid = true;			//!< reference grid on the ground plane
 	bool showViewGizmo = true;		//!< axis orientation gizmo (top-right)
+	//! 2D editor mode (WP #78): the Scene viewport's OWN camera switches to an
+	//! orthographic top-down look at the XY plane (orbit/fly disabled, pan+zoom
+	//! kept, the transform gizmo constrains to that plane). A pure view/
+	//! interaction feature - no scene object is touched.
+	bool editor2D = false;
 	float orbitSpeed = 0.4f;		//!< orbit drag: degrees per dragged point
 	//! fly-mode mouselook: degrees per relative mouse count (0.15 by
 	//! default; fly mode runs in SDL relative mouse mode, whose counts
@@ -637,6 +642,14 @@ void createSceneRenderTexture(SceneRenderTarget& target, int width, int height);
 // place the scene camera on its orbit sphere around the orbit target
 // (the position math lives in EditorCamera.h, shared with the fly mode)
 void applyOrbitCamera(EditorState const& state,
+	optr<Orkige::RenderNode> const& cameraNode);
+
+// 2D editor mode (WP #78): point the editor's OWN camera straight down -Z at
+// the XY plane and switch it to orthographic - the orbit "distance" drives the
+// ortho half-extent (zoom). Independent of any scene CameraComponent; see
+// EditorScenePanel.cpp
+void apply2DCamera(EditorState const& state,
+	optr<Orkige::RenderCamera> const& camera,
 	optr<Orkige::RenderNode> const& cameraNode);
 
 // the ground-plane reference grid, all facade (the returned mesh handle

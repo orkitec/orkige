@@ -274,6 +274,30 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			core.toggleTransformSpace();
 		}
 		ImGui::SameLine();
+		// 2D/3D view toggle (WP #78): flips the Scene viewport between the
+		// orthographic XY-plane 2D mode and the orbit 3D view. Persisted like
+		// the other view flags; a pure view feature (no command-stack change)
+		if (gViewSettings)
+		{
+			const bool is2D = gViewSettings->editor2D;
+			if (is2D)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button,
+					ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+			}
+			if (ImGui::Button(is2D ? "2D" : "3D"))
+			{
+				gViewSettings->editor2D = !gViewSettings->editor2D;
+				gViewSettings->save();
+			}
+			if (is2D)
+			{
+				ImGui::PopStyleColor();
+			}
+			ImGui::SetItemTooltip(
+				"toggle 2D (orthographic, XY plane) / 3D orbit view");
+			ImGui::SameLine();
+		}
 		bool snapEnabled = core.isSnapEnabled();
 		if (ImGui::Checkbox("Snap", &snapEnabled))
 		{

@@ -65,6 +65,37 @@ void applyOrbitCamera(EditorState const& state,
 			Orkige::Vec3::UNIT_X));
 }
 
+// 2D editor mode camera constants (WP #78). The camera looks straight down -Z
+// at the XY plane from a FIXED standoff (decoupled from the zoom) so sprites at
+// any plausible Z stay inside the near/far range - the orbit "distance" drives
+// only the orthographic half-extent (the 2D zoom). near/far are generous around
+// the standoff: visible Z spans roughly [target.z - 1000, target.z + 999].
+static const float EDITOR_2D_CAMERA_STANDOFF = 1000.0f;
+static const float EDITOR_2D_NEAR = 1.0f;
+static const float EDITOR_2D_FAR = 2000.0f;
+// perspective clips restored when leaving 2D (match the historical editor
+// camera near/far the boot block documents, 1 / 100000)
+static const float EDITOR_PERSPECTIVE_NEAR = 1.0f;
+static const float EDITOR_PERSPECTIVE_FAR = 100000.0f;
+
+// 2D editor mode (WP #78): point the editor's own camera straight down the -Z
+// axis at the XY plane and switch it to orthographic. Identity orientation IS
+// the look-down-(-Z) pose (Ogre's default camera direction), so the XY plane
+// maps 1:1 to the screen (screen +X = world +X, screen +Y = world +Y). No
+// yaw/pitch, no scene object involved - a pure view reconfiguration.
+void apply2DCamera(EditorState const& state,
+	optr<Orkige::RenderCamera> const& camera,
+	optr<Orkige::RenderNode> const& cameraNode)
+{
+	cameraNode->setPosition(Orkige::Vec3(state.camera.target.x,
+		state.camera.target.y,
+		state.camera.target.z + EDITOR_2D_CAMERA_STANDOFF));
+	cameraNode->setOrientation(Orkige::Quat::IDENTITY);
+	// the orbit distance doubles as the ortho vertical half-extent (zoom)
+	camera->setOrthographic(state.camera.distance,
+		EDITOR_2D_NEAR, EDITOR_2D_FAR);
+}
+
 // The ground-plane reference grid, all facade: the line list becomes a mesh
 // resource through RenderWorld::createLineListMesh (the WP-A1.3 cube-service
 // pattern - shared unlit "VertexColour" look, works on every render flavor)
@@ -290,7 +321,7 @@ Orkige::Mat4 imGuizmoToMatrix(const float* in16)
 // must stand down then.
 bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
-	ImVec2 const& rectSize)
+	ImVec2 const& rectSize, bool editor2D)
 {
 	const Orkige::EditorTool tool = core.getActiveTool();
 	// the gizmo lives in WORLD space (a parented object's local transform is
@@ -304,7 +335,9 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		state.gizmoWasUsing = false;
 		return false;
 	}
-	ImGuizmo::SetOrthographic(false);
+	// ImGuizmo needs to know the projection kind: 2D mode renders through the
+	// orthographic camera (WP #78), 3D through the perspective one
+	ImGuizmo::SetOrthographic(editor2D);
 	ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
 	ImGuizmo::SetRect(rectMin.x, rectMin.y, rectSize.x, rectSize.y);
 
@@ -318,7 +351,14 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		current.orientation);
 	matrixToImGuizmo(modelMatrix, model);
 
-	ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
+	// In 2D mode (WP #78) the manipulation is constrained to the XY plane the
+	// camera looks at: translate along X/Y only, rotate about the screen-facing
+	// Z axis only, scale X/Y only. Belt-and-braces: even so, the world Z of the
+	// result is clamped to its previous value on submit (below), so a finicky
+	// ortho gizmo can never push the object off its plane.
+	ImGuizmo::OPERATION operation = editor2D
+		? (ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y)
+		: ImGuizmo::TRANSLATE;
 	// the editable snap steps from the toolbar popover (default to the
 	// SNAP_* constants)
 	float snapValues[3] = { core.getSnapTranslate(),
@@ -326,13 +366,15 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		core.getSnapTranslate() };
 	if (tool == Orkige::EditorTool::Rotate)
 	{
-		operation = ImGuizmo::ROTATE;
+		operation = editor2D ? ImGuizmo::ROTATE_Z : ImGuizmo::ROTATE;
 		snapValues[0] = snapValues[1] = snapValues[2] =
 			core.getSnapRotateDegrees();
 	}
 	else if (tool == Orkige::EditorTool::Scale)
 	{
-		operation = ImGuizmo::SCALE;
+		operation = editor2D
+			? (ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y)
+			: ImGuizmo::SCALE;
 		snapValues[0] = snapValues[1] = snapValues[2] =
 			core.getSnapScale();
 	}
@@ -362,6 +404,13 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 			Orkige::Affine3(imGuizmoToMatrix(model)).decomposition(
 				afterWorld.position, afterWorld.scale,
 				afterWorld.orientation);
+				// 2D mode: pin the object to its XY plane - keep the world Z it
+				// had before the drag (the axis-constrained operations already
+				// avoid Z; this guards against float drift on submit)
+				if (editor2D)
+				{
+					afterWorld.position.z = current.position.z;
+				}
 			// world -> parent-relative local: the command stores what the
 			// Inspector shows and the scene serializes
 			Orkige::EditorTransform afterLocal;
@@ -421,7 +470,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// the camera drags stand down (input priority). Editing the
 			// local scene is pointless while the panels show the remote one.
 			const bool gizmoOwnsMouse = editMode &&
-				drawSceneGizmo(state, core, sceneTarget.camera, rectMin, avail);
+				drawSceneGizmo(state, core, sceneTarget.camera, rectMin, avail,
+					viewSettings.editor2D);
 			// axis orientation gizmo (top-right corner): displays the camera
 			// orientation and drives the orbit - ImGuizmo manipulates the
 			// view matrix around a pivot orbitDistance away (the orbit
@@ -433,7 +483,10 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// mutate the same yaw/pitch - running them simultaneously made
 			// the view fight itself and "rotate weirdly")
 			bool viewGizmoOwnsMouse = false;
-			if (viewSettings.showViewGizmo && !state.flyActive &&
+			// the orbit corner gizmo is meaningless in 2D (no yaw/pitch) - the
+			// 2D camera looks straight down -Z, so it is hidden there (WP #78)
+			if (viewSettings.showViewGizmo && !viewSettings.editor2D &&
+				!state.flyActive &&
 				!state.orbitActive && !state.panActive)
 			{
 				const float viewGizmoSize = 96.0f;
@@ -506,7 +559,11 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				// the camera modes are mutually exclusive - a second button
 				// pressed mid-drag must not start a competing mode that
 				// would double-apply deltas onto the same yaw/pitch
-				if (ImGui::IsMouseDown(ImGuiMouseButton_Right) &&
+				// 2D mode (WP #78): orbit and fly are disabled - only pan and
+				// scroll-zoom navigate the top-down orthographic view. Picking
+				// (above) stays live.
+				if (!viewSettings.editor2D &&
+					ImGui::IsMouseDown(ImGuiMouseButton_Right) &&
 					!state.orbitActive && !state.panActive &&
 					!state.flyActive)
 				{
@@ -515,7 +572,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					state.flyActive = true;
 					imguiInput.setRelativeMode(true);
 				}
-				if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt &&
+				if (!viewSettings.editor2D &&
+					ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.KeyAlt &&
 					!state.flyActive && !state.panActive)
 				{
 					state.orbitActive = true;
@@ -609,13 +667,43 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					// factor scales with distance so a point of mouse travel
 					// moves the scene about the same visual amount
 					const float panScale = state.camera.distance * 0.003f;
-					state.camera.target += cameraNode->getOrientation() *
-						Orkige::Vec3(
+					if (viewSettings.editor2D)
+					{
+						// 2D: the view is axis-aligned (screen right = world +X,
+						// screen up = world +Y), so pan the target directly in
+						// the XY plane - never through the node orientation,
+						// which may still be the orbit pose on the transition
+						// frame
+						state.camera.target += Orkige::Vec3(
 							-io.MouseDelta.x / contentScale * panScale,
 							io.MouseDelta.y / contentScale * panScale, 0.0f);
+					}
+					else
+					{
+						state.camera.target += cameraNode->getOrientation() *
+							Orkige::Vec3(
+								-io.MouseDelta.x / contentScale * panScale,
+								io.MouseDelta.y / contentScale * panScale, 0.0f);
+					}
 				}
 			}
-			applyOrbitCamera(state, cameraNode);
+			if (viewSettings.editor2D)
+			{
+				apply2DCamera(state, sceneTarget.camera, cameraNode);
+			}
+			else
+			{
+				// restore the perspective projection when leaving 2D (the
+				// camera is still orthographic on the 2D->3D transition frame)
+				if (sceneTarget.camera->getProjectionType() ==
+					Orkige::RenderCamera::PT_ORTHOGRAPHIC)
+				{
+					sceneTarget.camera->setPerspective(
+						Orkige::Degree(viewSettings.fovDeg),
+						EDITOR_PERSPECTIVE_NEAR, EDITOR_PERSPECTIVE_FAR);
+				}
+				applyOrbitCamera(state, cameraNode);
+			}
 		}
 	}
 	ImGui::End();
