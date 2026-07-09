@@ -508,7 +508,7 @@ class SceneWriter(ComponentWriter):
             '<?xml version="1.0" encoding="UTF-8"?>',
             '<XMLArchive Version="0">',
             '    <String value="orkige.oscene"/>',
-            '    <int value="6"/>',
+            '    <int value="7"/>',
             '    <unsigned_int value="%d"/>' % len(self.objects),
         ]
         for (name, parent, active, tags, prefab_ref, prefab_asset_id,

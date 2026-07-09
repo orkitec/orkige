@@ -56,17 +56,24 @@ namespace Orkige
 		static bool readComponents(optr<XMLArchive> const & ar,
 			optr<GameObject> const & gameObject, String const & fileName);
 
-		//--- single-component state (prefab child override / baseline unit) ---
-		//! @brief serialize ONE component's opaque save/load block to a
-		//! standalone XML string (through an in-memory XMLArchive). Because
-		//! components serialize opaquely (no per-property reflection), a whole
-		//! component's state IS the honest override unit; this is how a prefab
-		//! instance captures a child's per-component override and its pristine
-		//! baseline. "" on error.
-		static String serializeComponentState(GameObjectComponent & component);
-		//! @brief apply a state string from serializeComponentState back onto an
-		//! (existing) component. False when the string cannot be read.
-		static bool applyComponentState(String const & xml,
+		//--- reflected per-component property capture (prefab override / baseline) ---
+		//! @brief capture ONE component's reflected properties (the full
+		//! static UNION dynamic schema, transient/read-only skipped) as a
+		//! name -> {kind, value, reference} map. This is the per-property baseline
+		//! a prefab instance diffs its live children against, and the granularity a
+		//! prefab override is stored at - reflection lets an override be the subset
+		//! of NAMED fields that differ rather than an opaque whole-component block.
+		//! @see saveComponentProperties for the identical per-field capture the
+		//! scene serializer writes inline.
+		static GameObject::ComponentPropertyMap captureComponentProperties(
+			GameObjectComponent & component);
+		//! @brief apply a captured property map (a per-property OVERRIDE subset)
+		//! back onto an (existing) component through the reflected setters,
+		//! resolving AssetRef references against the active AssetDatabase. Applied
+		//! in schema declaration order (static then dynamic); a property absent
+		//! from the map is left untouched (it keeps the prefab default).
+		static void applyComponentProperties(
+			GameObject::ComponentPropertyMap const & properties,
 			GameObjectComponent & component);
 
 		//--- reflection-driven component serialization (task #94, P2) ---

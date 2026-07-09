@@ -45,7 +45,15 @@ namespace Orkige
 	// suppressed children + per-child overrides, component list) stays
 	// hand-written/structured - reflection covers component FIELDS, not the
 	// object graph.
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 6;
+	// version 7 (2026-07): PER-PROPERTY prefab overrides. A prefab child override
+	// used to store the whole opaque component block (the honest unit under
+	// opaque serialization); reflection makes it the subset of NAMED fields whose
+	// live value differs from the prefab default. The on-disk override block
+	// changed shape (child -> component -> a count of
+	// {propertyName, kind, value, reference} records instead of one
+	// component-block string), so the format-era marker bumps. Clean cutover -
+	// every scene asset was rewritten, no legacy override reader survives.
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 7;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	namespace
@@ -117,12 +125,15 @@ namespace Orkige
 			return String();
 		}
 		//! @brief diff every prefab-PROVIDED child of the instance root against
-		//! its instantiate-time baseline and collect the components that differ
-		//! (the honest override unit under opaque component serialization: a
-		//! whole component's serialized block). A component with no baseline (an
-		//! editor-added component the prefab does not provide) counts as an
-		//! override; a suppressed child is skipped (it is gone anyway). Order is
-		//! deterministic (std::map keys), so re-saves are byte-stable.
+		//! its instantiate-time baseline and collect only the reflected
+		//! PROPERTIES that differ. An override is the subset of a
+		//! component's named fields whose live value differs from the pristine
+		//! prefab default - an unmodified property (and an unmodified component,
+		//! and an unmodified child) stores NOTHING. A component with no baseline
+		//! (an editor-added component the prefab does not provide) counts as an
+		//! override of ALL its properties; a suppressed child is skipped (it is
+		//! gone anyway). Order is deterministic (std::map keys), so re-saves are
+		//! byte-stable.
 		GameObject::ChildOverrideMap computeChildOverrides(
 			GameObjectManager & gameObjectManager, GameObject & root)
 		{
@@ -155,11 +166,35 @@ namespace Orkige
 				foreach(GameObject::ComponentMap::value_type const & componentEntry, components)
 				{
 					String const & typeName = componentEntry.first.getName();
-					const String state = SceneSerializer::serializeComponentState(*componentEntry.second);
+					GameObject::ComponentPropertyMap live =
+						SceneSerializer::captureComponentProperties(*componentEntry.second);
 					GameObject::ComponentStateMap::const_iterator baseIt = baseline.find(typeName);
-					if(baseIt == baseline.end() || baseIt->second != state)
+					GameObject::ComponentPropertyMap changedProperties;
+					if(baseIt == baseline.end())
 					{
-						changed[typeName] = state;
+						// no baseline: an editor-added component the prefab does not
+						// provide - every one of its properties is an override
+						changedProperties = live;
+					}
+					else
+					{
+						// keep ONLY the properties whose live value differs from the
+						// pristine prefab default (or that the baseline lacks)
+						GameObject::ComponentPropertyMap const & baseProperties = baseIt->second;
+						foreach(GameObject::ComponentPropertyMap::value_type const & propertyEntry, live)
+						{
+							GameObject::ComponentPropertyMap::const_iterator baseProperty =
+								baseProperties.find(propertyEntry.first);
+							if(baseProperty == baseProperties.end() ||
+								baseProperty->second != propertyEntry.second)
+							{
+								changedProperties[propertyEntry.first] = propertyEntry.second;
+							}
+						}
+					}
+					if(!changedProperties.empty())
+					{
+						changed[typeName] = changedProperties;
 					}
 				}
 				if(!changed.empty())
@@ -207,7 +242,7 @@ namespace Orkige
 					GameObjectComponent* component = child->getComponentPtr(componentType);
 					if(component)
 					{
-						SceneSerializer::applyComponentState(componentEntry.second, *component);
+						SceneSerializer::applyComponentProperties(componentEntry.second, *component);
 					}
 				}
 			}
@@ -321,8 +356,22 @@ namespace Orkige
 					{
 						String componentTypeName = componentEntry.first;
 						ar << componentTypeName;
-						String componentState = componentEntry.second;
-						ar << componentState;
+						// v7: only the CHANGED properties (name, kind, value,
+						// reference) instead of a whole opaque component block
+						unsigned int propertyOverrideCount =
+							static_cast<unsigned int>(componentEntry.second.size());
+						ar << propertyOverrideCount;
+						foreach(GameObject::ComponentPropertyMap::value_type const & propertyEntry, componentEntry.second)
+						{
+							String propertyName = propertyEntry.first;
+							ar << propertyName;
+							int kind = propertyEntry.second.kind;
+							ar << kind;
+							String value = propertyEntry.second.value;
+							ar << value;
+							String reference = propertyEntry.second.reference;
+							ar << reference;
+						}
 					}
 				}
 			}
@@ -462,9 +511,8 @@ namespace Orkige
 					// file (must be consumed even for a placeholder so the cursor
 					// stays aligned); they are re-APPLIED after the prefab subtree
 					// instantiates (load order: subtree -> suppressed drop -> child
-					// overrides -> root overlay). Each override is a whole named
-					// component block (serializeComponentState) - the #89 override
-					// unit, now carrying the named field format
+					// overrides -> root overlay). v7: an override is the subset of
+					// CHANGED named properties, not a whole component block
 					GameObject::ChildOverrideMap overrides;
 					{
 						unsigned int overrideChildCount = 0;
@@ -480,9 +528,20 @@ namespace Orkige
 							{
 								String componentTypeName;
 								ar >> componentTypeName;
-								String componentState;
-								ar >> componentState;
-								componentStates[componentTypeName] = componentState;
+								unsigned int propertyOverrideCount = 0;
+								ar >> propertyOverrideCount;
+								GameObject::ComponentPropertyMap properties;
+								for(unsigned int propertyIndex = 0; propertyIndex < propertyOverrideCount; ++propertyIndex)
+								{
+									String propertyName;
+									ar >> propertyName;
+									GameObject::ComponentPropertyRecord record;
+									ar >> record.kind;
+									ar >> record.value;
+									ar >> record.reference;
+									properties[propertyName] = record;
+								}
+								componentStates[componentTypeName] = properties;
 							}
 							overrides[localId] = componentStates;
 						}
@@ -627,34 +686,92 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	String SceneSerializer::serializeComponentState(GameObjectComponent & component)
-	{
-		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startWritingMemory())
-		{
-			return String();
-		}
-		// the same opaque per-component element writeComponents emits (type
-		// name + create flag + the component's own save block), on its own
-		ar->write(static_cast<ISerializeable&>(component));
-		return ar->stopWritingMemory();
-	}
-	//---------------------------------------------------------
-	bool SceneSerializer::applyComponentState(String const & xml,
+	GameObject::ComponentPropertyMap SceneSerializer::captureComponentProperties(
 		GameObjectComponent & component)
 	{
-		if(xml.empty())
+		// mirrors saveComponentProperties' per-field capture (the same schema,
+		// the same transient/read-only skip, the same AssetRef id resolution) but
+		// into an in-memory name->record map instead of onto an archive - so a
+		// prefab baseline and a live child speak the identical per-property
+		// dialect and diff cleanly
+		GameObject::ComponentPropertyMap properties;
+		const PropertySchema schema = getComponentSchema(component);
+		void const * instance = static_cast<void const *>(&component);
+		foreach(PropertyDesc const & desc, schema.properties())
 		{
-			return false;
+			if(!isSerializedProperty(desc))
+			{
+				continue;
+			}
+			GameObject::ComponentPropertyRecord record;
+			record.kind = static_cast<int>(desc.kind);
+			PropertyValue value = desc.get(instance);
+			record.value = value.toString();
+			if(desc.kind == PropertyKind::AssetRef)
+			{
+				record.reference = AssetDatabase::referenceIdForValue(record.value,
+					"", refKindForHint(desc.referenceHint));
+			}
+			properties[desc.name] = record;
 		}
-		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startReadingMemory(xml))
+		return properties;
+	}
+	//---------------------------------------------------------
+	void SceneSerializer::applyComponentProperties(
+		GameObject::ComponentPropertyMap const & properties,
+		GameObjectComponent & component)
+	{
+		void * instance = static_cast<void *>(&component);
+		// assign the present override properties in DECLARATION order (like
+		// loadComponentProperties, so a setter cascade sees scalars before a
+		// dependent reference); a property absent from the override map is left
+		// untouched - it keeps the freshly-instantiated prefab default
+		auto assignProperty = [&properties, instance](PropertyDesc const & desc)
 		{
-			return false;
+			if(!isSerializedProperty(desc))
+			{
+				return;
+			}
+			GameObject::ComponentPropertyMap::const_iterator found =
+				properties.find(desc.name);
+			if(found == properties.end())
+			{
+				return;
+			}
+			if(desc.kind == PropertyKind::AssetRef)
+			{
+				String name = found->second.value;
+				String assetId = found->second.reference;
+				AssetDatabase::resolveReference(name, assetId,
+					refKindForHint(desc.referenceHint));
+				desc.set(instance,
+					PropertyValue::makeAssetRef(desc.referenceHint, name));
+			}
+			else
+			{
+				PropertyValue value = defaultValueForDesc(desc);
+				value.fromString(found->second.value);
+				desc.set(instance, value);
+			}
+		};
+		// PASS 1 static per-type schema (a ScriptComponent's script path lands
+		// here, discovering its dynamic exports); PASS 2 the now-populated
+		// dynamic per-instance schema - the same two-pass order the named field
+		// loader uses (@see loadComponentProperties)
+		if(PropertySchema const * staticSchema =
+			TypeManager::getSingleton().getPropertySchema(
+				component.getTypeInfo().getId()))
+		{
+			foreach(PropertyDesc const & desc, staticSchema->properties())
+			{
+				assignProperty(desc);
+			}
 		}
-		ar->read(static_cast<ISerializeable&>(component));
-		ar->stopReading();
-		return true;
+		const PropertySchema dynamicSchema = component.getInstancePropertySchema();
+		foreach(PropertyDesc const & desc, dynamicSchema.properties())
+		{
+			assignProperty(desc);
+		}
 	}
 	//---------------------------------------------------------
 	void SceneSerializer::saveComponentProperties(optr<IArchive> const & ar,

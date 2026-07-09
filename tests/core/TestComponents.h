@@ -31,7 +31,7 @@ namespace Orkige
 	public:
 		TestHealthComponent() : health(100) {}
 		virtual ~TestHealthComponent() {}
-		int getHealth() { return this->health; }
+		int getHealth() const { return this->health; }
 		void setHealth(int value) { this->health = value; }
 		virtual void onAdd() { ++TestHealthComponent::addCount; }
 		virtual void onRemove() { ++TestHealthComponent::removeCount; }
@@ -63,7 +63,7 @@ namespace Orkige
 			this->addDependency<TestHealthComponent>();
 		}
 		virtual ~TestArmorComponent() {}
-		int getArmor() { return this->armor; }
+		int getArmor() const { return this->armor; }
 		void setArmor(int value) { this->armor = value; }
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar)
@@ -209,6 +209,39 @@ namespace Orkige
 		void setTeam(Team value) { this->mTeam = value; }
 		String const & getIcon() const { return this->mIconAssetId; }
 		void setIcon(String const & value) { this->mIconAssetId = value; }
+	};
+
+	//! @brief a headless reflected component carrying the NUMERIC-interpolatable
+	//! property kinds plus a non-numeric one: a Float, a Vec3, a Color and a
+	//! String. Drives both the property-path tween tests (tween a
+	//! Float/Vec3/Color, reject the String) and the PER-PROPERTY prefab override
+	//! test (a multi-property reflected component whose named fields diff
+	//! individually). Uses reflection-driven save/load so its authored values
+	//! ride the prefab/scene like a real reflected component.
+	class TestTweenTargetComponent : public GameObjectComponent
+	{
+		OOBJECT(TestTweenTargetComponent, GameObjectComponent)
+		//--- Variables ---------------------------------------
+	private:
+		float		mScalar;	//!< Float property backing field
+		PropVec3	mOffset;	//!< Vec3 property backing field
+		PropColor	mColor;		//!< Color property backing field
+		String		mName;		//!< String property backing field (non-numeric)
+		//--- Methods -----------------------------------------
+	public:
+		TestTweenTargetComponent() : mScalar(0.0f) {}
+		virtual ~TestTweenTargetComponent() {}
+		float getScalar() const { return this->mScalar; }
+		void setScalar(float value) { this->mScalar = value; }
+		PropVec3 getOffset() const { return this->mOffset; }
+		void setOffset(PropVec3 const & value) { this->mOffset = value; }
+		PropColor getColor() const { return this->mColor; }
+		void setColor(PropColor const & value) { this->mColor = value; }
+		String const & getName() const { return this->mName; }
+		void setName(String const & value) { this->mName = value; }
+		//--- SERIALIZATION ---
+		virtual void save(optr<IArchive> const & ar);
+		virtual void load(optr<IArchive> const & ar);
 	};
 
 	//! register the test components once per process (component factory,

@@ -312,6 +312,86 @@ TEST_CASE("A prefab-provided child property override round-trips and re-applies 
 	manager.clear();
 }
 
+TEST_CASE("A prefab child override stores only the CHANGED reflected properties",
+	"[prefab]")
+{
+	// a per-PROPERTY override. Overriding ONE field of a
+	// multi-property reflected child must store ONLY that field (not the whole
+	// component block), re-apply it over the prefab default, and leave every
+	// unchanged field storing nothing.
+	Orkige::GameObjectManager & manager = freshPrefabWorld();
+	TempFile prefab("orkige_test_prop_override.oprefab");
+	TempFile scene("orkige_test_prop_override_scene.oscene");
+
+	// a prototype whose one child carries a multi-property reflected component
+	// with authored, NON-default values (so the prefab default is meaningful)
+	{
+		optr<Orkige::GameObject> root = manager.createGameObject("Proto").lock();
+		REQUIRE(root);
+		REQUIRE(root->addComponent<Orkige::TestHealthComponent>());
+		optr<Orkige::GameObject> child = manager.createGameObject("Proto_Body").lock();
+		REQUIRE(child);
+		REQUIRE(child->addComponent<Orkige::TestTweenTargetComponent>());
+		REQUIRE(child->setParent("Proto", false));
+		Orkige::TestTweenTargetComponent * body =
+			child->getComponentPtr<Orkige::TestTweenTargetComponent>();
+		body->setScalar(2.0f);
+		Orkige::PropVec3 offset; offset.x = 1.0f; offset.y = 2.0f; offset.z = 3.0f;
+		body->setOffset(offset);
+	}
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefab.path, manager, "Proto"));
+	manager.clear();
+
+	REQUIRE(Orkige::PrefabSerializer::instantiatePrefab(prefab.path, manager,
+		"Inst", Orkige::StringVector()) == Orkige::PrefabSerializer::INSTANTIATE_OK);
+	optr<Orkige::GameObject> root = manager.getGameObject("Inst").lock();
+	REQUIRE(root);
+	root->setPrefabRef(prefab.fileName, "");
+	Orkige::TestTweenTargetComponent * body =
+		manager.getGameObject("Inst/Body").lock()
+			->getComponentPtr<Orkige::TestTweenTargetComponent>();
+	REQUIRE(body);
+	// the prefab default rode through reflection-driven save/load
+	CHECK(body->getScalar() == 1.0f * 2.0f);
+	CHECK(body->getOffset().y == 2.0f);
+	// override EXACTLY ONE property (scalar); leave offset/color/name pristine
+	body->setScalar(9.0f);
+
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+
+	// only "scalar" was stored for the child's component - not the whole block
+	Orkige::GameObject::ChildOverrideMap const & saved =
+		root->getPrefabChildOverrides();
+	REQUIRE(saved.count("Body") == 1);
+	Orkige::GameObject::ComponentStateMap const & bodyOverride = saved.at("Body");
+	REQUIRE(bodyOverride.count("TestTweenTargetComponent") == 1);
+	Orkige::GameObject::ComponentPropertyMap const & props =
+		bodyOverride.at("TestTweenTargetComponent");
+	CHECK(props.size() == 1);					// ONLY the changed property
+	CHECK(props.count("scalar") == 1);
+	CHECK(props.count("offset") == 0);			// unchanged -> stores nothing
+	CHECK(props.count("color") == 0);
+	CHECK(props.count("name") == 0);
+
+	// the override re-applies over the prefab default; unchanged fields keep it
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	body = manager.getGameObject("Inst/Body").lock()
+		->getComponentPtr<Orkige::TestTweenTargetComponent>();
+	REQUIRE(body);
+	CHECK(body->getScalar() == 9.0f);			// the override
+	CHECK(body->getOffset().x == 1.0f);			// the prefab default, untouched
+	CHECK(body->getOffset().z == 3.0f);
+
+	// reverting scalar to the prefab default drops the override entirely
+	body->setScalar(2.0f);
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+	CHECK(manager.getGameObject("Inst").lock()
+		->getPrefabChildOverrides().empty());
+
+	manager.clear();
+}
+
 TEST_CASE("A missing prefab loads as a placeholder root keeping its reference",
 	"[prefab]")
 {

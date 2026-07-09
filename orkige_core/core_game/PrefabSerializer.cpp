@@ -238,7 +238,7 @@ namespace Orkige
 				foreach(GameObject::ComponentMap::value_type const & componentEntry, childComponents)
 				{
 					baseline[componentEntry.first.getName()] =
-						SceneSerializer::serializeComponentState(*componentEntry.second);
+						SceneSerializer::captureComponentProperties(*componentEntry.second);
 				}
 				gameObject->setPrefabComponentBaseline(baseline);
 			}

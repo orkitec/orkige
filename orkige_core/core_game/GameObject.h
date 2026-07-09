@@ -24,11 +24,37 @@ namespace Orkige
 		OOBJECT(GameObject,ComponentHolder<GameObjectComponent>)
 		//--- Types -------------------------------------------
 	public:
-		//! serialized state of a set of components, keyed by component type
-		//! name (the honest override unit under OPAQUE component serialization:
-		//! a whole component's save/load block as a standalone XML string - see
-		//! SceneSerializer::serializeComponentState)
-		typedef std::map<String, String> ComponentStateMap;
+		//! @brief one reflected property's serialized form - the PER-PROPERTY
+		//! override / baseline unit. Reflection makes a prefab override a subset
+		//! of NAMED fields, so an override is not a whole opaque component block
+		//! but the individual properties that differ. The record mirrors the
+		//! reflection-driven named field record
+		//! (SceneSerializer::saveComponentProperties): the PropertyKind as int,
+		//! the value's canonical string form, and the AssetRef resolving id ("" for
+		//! every other kind).
+		struct ComponentPropertyRecord
+		{
+			int		kind;		//!< PropertyKind as int (the value's variant tag)
+			String	value;		//!< the property value's canonical string form
+			String	reference;	//!< AssetRef resolving id ("" for every other kind)
+			bool operator==(ComponentPropertyRecord const & other) const
+			{
+				return this->kind == other.kind && this->value == other.value &&
+					this->reference == other.reference;
+			}
+			bool operator!=(ComponentPropertyRecord const & other) const
+			{
+				return !(*this == other);
+			}
+		};
+		//! @brief a single component's reflected properties, keyed by property
+		//! name. As a BASELINE it holds every serialized property of the pristine
+		//! prefab child; as an OVERRIDE it holds only the properties whose live
+		//! value differs from that baseline.
+		typedef std::map<String, ComponentPropertyRecord> ComponentPropertyMap;
+		//! per component type name its reflected properties (BASELINE: all
+		//! serialized properties; OVERRIDE: only the changed ones)
+		typedef std::map<String, ComponentPropertyMap> ComponentStateMap;
 		//! per prefab-provided child (prefab-LOCAL id) the components an
 		//! instance overrides against the prefab default (the v2 prefab feature)
 		typedef std::map<String, ComponentStateMap> ChildOverrideMap;
@@ -46,7 +72,7 @@ namespace Orkige
 		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
 		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
 		ChildOverrideMap							prefabChildOverrides;	//!< on an instance ROOT: per prefab-provided child the overridden component states (serialized, survives save/load)
-		ComponentStateMap							prefabComponentBaseline;	//!< on a prefab-provided CHILD: pristine component states captured at instantiate (RUNTIME only, drives the save-time override diff)
+		ComponentStateMap							prefabComponentBaseline;	//!< on a prefab-provided CHILD: pristine per-component reflected property values captured at instantiate (RUNTIME only, drives the save-time per-property override diff)
 		StringVector								tags;					//!< free-form multi-tag labels (Unity tags, but many per object); indexed by GameObjectManager
 	private:
 		//--- Methods -----------------------------------------

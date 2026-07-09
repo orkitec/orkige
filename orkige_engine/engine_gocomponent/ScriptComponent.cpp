@@ -25,6 +25,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
+#include <core_game/PropertyTween.h>
 
 namespace Orkige
 {
@@ -687,6 +688,16 @@ namespace Orkige
 		//     tween.fade(id, alpha, duration [, ease [, delay]])     - sprite tint alpha
 		//     tween.volume(group, volume, duration [, ease [, delay]]) - mixer group volume
 		//
+		//   declarative property-path tween - animates ANY numeric
+		//   reflected property BY NAME through the registry (no bespoke helper):
+		//     tween.property(id, componentType, propertyName, toValue, duration
+		//                    [, ease [, onComplete [, delay]]])
+		//   toValue is the target's canonical string ("3.5" for a Float, "1 2 0"
+		//   for a Vec3, "1 0 0 1" for a Color); only Float/Int/Vec3/Color tween,
+		//   any other kind is a logged error. Reaped by id like the typed helpers.
+		//     tween.property("Hero", "CameraComponent", "orthoSize", "5", 1.0)
+		//     tween.property("Coin", "SpriteComponent", "tint", "1 1 0 1", 0.4, "quadOut")
+		//
 		//   ducking is deliberately NOT a feature - it is a two-line recipe:
 		//     tween.volume("music", 0.3, 0.2)                -- duck under a stinger
 		//     tween.volume("music", 1.0, 0.8, "quadOut", 1.5) -- and restore after it
@@ -842,6 +853,29 @@ namespace Orkige
 					}
 					return true;
 				}, StringUtil::BLANK);
+		});
+		runtime.registerFunction("tween", "property",
+			[](String const & id, String const & componentType,
+				String const & propertyName, String const & toValue,
+				double duration, ScriptArgs extra) -> TweenHandle
+		{
+			// the DECLARATIVE variant: resolve + interpolate a reflected property
+			// by path through the ONE registry (core_game/PropertyTween). Optional
+			// trailing args mirror the tween.* style: ease name, onComplete, delay.
+			const String easeName = ScriptRuntime::stringArg(extra, 0, "");
+			const ScriptCallback onComplete = ScriptCallback::fromArgs(extra, 1);
+			const float delay = static_cast<float>(
+				ScriptRuntime::numberArg(extra, 2, 0.0));
+			TweenHandle handle;
+			String error;
+			handle.mId = PropertyTween::start(id, componentType, propertyName,
+				toValue, static_cast<float>(duration), easeForScripts(easeName),
+				wrapScriptComplete(onComplete), delay, &error);
+			if (handle.mId == 0 && !error.empty())
+			{
+				EngineLogCapture::logError("tween.property: " + error);
+			}
+			return handle;
 		});
 
 		// ================= THE `cvar` TABLE (live tuning) ==================

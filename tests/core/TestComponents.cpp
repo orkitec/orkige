@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "TestComponents.h"
+#include "core_game/SceneSerializer.h"
 
 namespace Orkige
 {
@@ -18,12 +19,16 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 		OFUNC(getHealth)
 		OFUNC(setHealth)
+		// reflected so the per-property prefab override diff sees health;
+		// save/load stays hand-written positional (unchanged format)
+		OPROPERTY("health", Orkige::PropertyKind::Int, getHealth, setHealth, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
 	OOBJECT_IMPL(TestArmorComponent)
 		GAMEOBJECTCOMPONENT()
 		OFUNC(getArmor)
 		OFUNC(setArmor)
+		OPROPERTY("armor", Orkige::PropertyKind::Int, getArmor, setArmor, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
 	OOBJECT_IMPL(TestAssetRefComponent)
@@ -66,6 +71,32 @@ namespace Orkige
 		OPROPERTY_REF("icon", Orkige::PropertyKind::AssetRef, "texture", getIcon, setIcon, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
+	void TestTweenTargetComponent::save(optr<IArchive> const & ar)
+	{
+		OParent::save(ar);
+		SceneSerializer::saveComponentProperties(ar, *this);
+	}
+	//---------------------------------------------------------
+	void TestTweenTargetComponent::load(optr<IArchive> const & ar)
+	{
+		OParent::load(ar);
+		SceneSerializer::loadComponentProperties(ar, *this);
+	}
+	//---------------------------------------------------------
+	OOBJECT_IMPL(TestTweenTargetComponent)
+		GAMEOBJECTCOMPONENT()
+		OFUNC(getScalar)
+		OFUNC(setScalar)
+		OFUNCCR(getName)
+		OFUNC(setName)
+		// the numeric-interpolatable kinds (Float/Vec3/Color) + a non-numeric
+		// String (tween.property must reject it)
+		OPROPERTY("scalar", Orkige::PropertyKind::Float, getScalar, setScalar, Orkige::PROP_NONE)
+		OPROPERTY("offset", Orkige::PropertyKind::Vec3, getOffset, setOffset, Orkige::PROP_NONE)
+		OPROPERTY("color", Orkige::PropertyKind::Color, getColor, setColor, Orkige::PROP_NONE)
+		OPROPERTY("name", Orkige::PropertyKind::String, getName, setName, Orkige::PROP_NONE)
+	OOBJECT_END
+	//---------------------------------------------------------
 	void registerOrkigeTestComponents()
 	{
 		static bool registered = false;
@@ -77,6 +108,7 @@ namespace Orkige
 			TestAssetRefComponent::OrkigeMetaExport("orkige_core_tests");
 			TestActivationProbeComponent::OrkigeMetaExport("orkige_core_tests");
 			TestReflectComponent::OrkigeMetaExport("orkige_core_tests");
+			TestTweenTargetComponent::OrkigeMetaExport("orkige_core_tests");
 		}
 	}
 }

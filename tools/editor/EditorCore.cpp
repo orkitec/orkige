@@ -1976,7 +1976,7 @@ namespace Orkige
 			for (auto const& [componentType, component] : child->getComponents())
 			{
 				baseline[componentType.getName()] =
-					SceneSerializer::serializeComponentState(*component);
+					SceneSerializer::captureComponentProperties(*component);
 			}
 			child->setPrefabComponentBaseline(baseline);
 		}
