@@ -11,6 +11,7 @@ set(ORKIGE_CORE_MODULES
     core_project
     core_script
     core_serialization
+    core_tween
     core_util
 )
 

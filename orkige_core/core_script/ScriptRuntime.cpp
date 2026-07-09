@@ -220,6 +220,40 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	double ScriptRuntime::numberArg(ScriptArgs const & args, int index,
+		double fallback)
+	{
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return fallback;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		return value.is<double>() ? value.as<double>() : fallback;
+#else
+		(void)args;
+		(void)index;
+		return fallback;
+#endif
+	}
+	//---------------------------------------------------------
+	String ScriptRuntime::stringArg(ScriptArgs const & args, int index,
+		String const & fallback)
+	{
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return fallback;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		return value.is<String>() ? value.as<String>() : fallback;
+#else
+		(void)args;
+		(void)index;
+		return fallback;
+#endif
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -229,6 +263,108 @@ namespace Orkige
 	String ScriptRuntime::disabledError()
 	{
 		return "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+	}
+	//---------------------------------------------------------
+	//--- ScriptCallback --------------------------------------
+	//---------------------------------------------------------
+	ScriptCallback::ScriptCallback()
+	{
+	}
+	//---------------------------------------------------------
+	ScriptCallback ScriptCallback::fromArgs(ScriptArgs const & args, int index)
+	{
+		ScriptCallback callback;
+#ifdef ORKIGE_LUA
+		if(index >= 0 && static_cast<std::size_t>(index) < args.size())
+		{
+			const sol::object value = args.get<sol::object>(index);
+			if(value.is<sol::protected_function>())
+			{
+				callback.mFunction = value.as<sol::protected_function>();
+			}
+		}
+#else
+		(void)args;
+		(void)index;
+#endif
+		return callback;
+	}
+	//---------------------------------------------------------
+	bool ScriptCallback::valid() const
+	{
+#ifdef ORKIGE_LUA
+		return this->mFunction.valid();
+#else
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptCallback::invoke(String * outError) const
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		if(!this->mFunction.valid())
+		{
+			return true;	// nothing to call - not an error
+		}
+		const sol::protected_function_result result = this->mFunction();
+		if(!result.valid())
+		{
+			const sol::error error = result;
+			*outError = error.what();
+			return false;
+		}
+		return true;
+#else
+		*outError = "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	bool ScriptCallback::invokeNumbers(float const * values, int count,
+		bool * outRequestedStop, String * outError) const
+	{
+		oAssert(outError);
+		if(outRequestedStop)
+		{
+			*outRequestedStop = false;
+		}
+#ifdef ORKIGE_LUA
+		if(!this->mFunction.valid())
+		{
+			return true;	// nothing to call - not an error
+		}
+		sol::protected_function_result result;
+		switch(count)
+		{
+		case 1:  result = this->mFunction(values[0]); break;
+		case 2:  result = this->mFunction(values[0], values[1]); break;
+		case 3:  result = this->mFunction(values[0], values[1], values[2]); break;
+		default: result = this->mFunction(values[0], values[1], values[2],
+					values[3]); break;
+		}
+		if(!result.valid())
+		{
+			const sol::error error = result;
+			*outError = error.what();
+			return false;
+		}
+		// the documented cancel channel: an explicit `return false`
+		if(outRequestedStop && result.return_count() > 0)
+		{
+			const sol::object returned = result.get<sol::object>(0);
+			if(returned.is<bool>() && !returned.as<bool>())
+			{
+				*outRequestedStop = true;
+			}
+		}
+		return true;
+#else
+		(void)values;
+		(void)count;
+		*outError = "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+		return false;
+#endif
 	}
 	//---------------------------------------------------------
 	//--- ScriptInstance --------------------------------------

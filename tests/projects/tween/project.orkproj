@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Tween Fixture</Name>
+    <MainScene>scenes/main.oscene</MainScene>
+    <Settings>
+        <Setting key="audio.master" value="0.8"/>
+        <Setting key="audio.group.hud" value="0.4"/>
+    </Settings>
+</OrkigeProject>

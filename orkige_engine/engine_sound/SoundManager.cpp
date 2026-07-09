@@ -19,6 +19,9 @@
 #include "engine_sound/SoundManager.h"
 #include <core_util/foreach.h>
 
+#include <algorithm>
+#include <cstdlib>
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -29,6 +32,7 @@ namespace Orkige
 	, context(0)
 #endif //ORKIGE_OPENAL_SOUND
 	, listener(soundListener)
+	, masterVolume(1.f)
 	{
 		oInfo("...SoundManager created!...");
 	}
@@ -102,7 +106,11 @@ namespace Orkige
 			{
 				src->stop();
 			}
-			src->deinit();
+			// sources registered while OpenAL was down own no AL objects
+			if(src->isInitialized())
+			{
+				src->deinit();
+			}
 		}
 		this->sounds.clear();
 		if (this->isInitialized)
@@ -123,7 +131,16 @@ namespace Orkige
 		{
 
 			optr<SoundSource> sound = onew(new SoundSource(id, fileName, loop, pos));
-			sound->init();
+			// AL objects only exist while OpenAL is up; an uninitialized
+			// manager still REGISTERS the source (headless tests exercise the
+			// gain model this way) - it just stays silent
+			if(this->isInitialized)
+			{
+				sound->init();
+			}
+			// a new source starts in its default group ("sfx") - push that
+			// group's current volume
+			sound->setGroupVolume(this->getGroupVolume(sound->getGroup()));
 			this->sounds[id] = sound;
 			return sound;
 		}
@@ -136,7 +153,11 @@ namespace Orkige
 		if(it == this->sounds.end())
 		{
 			optr<SoundSource> sound = onew(new SoundSource(id, StringUtil::BLANK, loop, pos));
-			sound->initFromPCM(pcmData, dataSize, channels, bitsPerSample, sampleRate);
+			if(this->isInitialized)
+			{
+				sound->initFromPCM(pcmData, dataSize, channels, bitsPerSample, sampleRate);
+			}
+			sound->setGroupVolume(this->getGroupVolume(sound->getGroup()));
 			this->sounds[id] = sound;
 			return sound;
 		}
@@ -243,6 +264,76 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void SoundManager::setGroupVolume(String const & group, float volume)
+	{
+		volume = std::clamp(volume, 0.f, 1.f);
+		this->groupVolumes[group] = volume;
+		// recompute every source of the group (effective = base * group)
+		foreach(SoundRegistry::value_type const & vt, sounds)
+		{
+			if(vt.second->getGroup() == group)
+			{
+				vt.second->setGroupVolume(volume);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	float SoundManager::getGroupVolume(String const & group) const
+	{
+		GroupVolumeMap::const_iterator it = this->groupVolumes.find(group);
+		return it == this->groupVolumes.end() ? 1.f : it->second;
+	}
+	//---------------------------------------------------------
+	void SoundManager::setMasterVolume(float volume)
+	{
+		this->masterVolume = std::clamp(volume, 0.f, 1.f);
+#ifdef ORKIGE_OPENAL_SOUND
+		// ONE call scales the whole mix - the listener gain; reapplied by
+		// initOpenAl after interruption reinits
+		if(this->isInitialized)
+		{
+			alListenerf(AL_GAIN, this->masterVolume);
+		}
+#endif //ORKIGE_OPENAL_SOUND
+	}
+	//---------------------------------------------------------
+	float SoundManager::getMasterVolume() const
+	{
+		return this->masterVolume;
+	}
+	//---------------------------------------------------------
+	void SoundManager::setSoundGroup(SoundSourcePtr const & sound, String const & group)
+	{
+		if(!sound)
+		{
+			return;
+		}
+		sound->setGroup(group);
+		sound->setGroupVolume(this->getGroupVolume(group));
+	}
+	//---------------------------------------------------------
+	void SoundManager::applySettings(std::map<String, String> const & settings)
+	{
+		static const String masterKey = "audio.master";
+		static const String groupPrefix = "audio.group.";
+		for(std::map<String, String>::const_iterator it = settings.begin(),
+			itend = settings.end(); it != itend; ++it)
+		{
+			// honest parsing: a malformed value reads as 0 via strtof - the
+			// keys are tool-written floats, not user-facing free text
+			if(it->first == masterKey)
+			{
+				this->setMasterVolume(std::strtof(it->second.c_str(), NULL));
+			}
+			else if(it->first.compare(0, groupPrefix.size(), groupPrefix) == 0 &&
+				it->first.size() > groupPrefix.size())
+			{
+				this->setGroupVolume(it->first.substr(groupPrefix.size()),
+					std::strtof(it->second.c_str(), NULL));
+			}
+		}
+	}
+	//---------------------------------------------------------
 	void SoundManager::onInterruptBegin()
 	{
 		//backup playing sounds indexes and deinit sources
@@ -256,7 +347,10 @@ namespace Orkige
 				this->interruptedSounds[vt.first] = src->getPlayPosition();
 				src->stop();
 			}
-			src->deinit();
+			if(src->isInitialized())
+			{
+				src->deinit();
+			}
 		}
 
 		//deinit al
@@ -322,6 +416,9 @@ namespace Orkige
 			oDebugMsg("sound",0,"Error initializing OpenAL!");
 			return false;
 		}
+		// a fresh context starts at listener gain 1 - reapply the mixer's
+		// master volume (matters on the interruption reinit path)
+		alListenerf(AL_GAIN, this->masterVolume);
 		return true;
 #else //ORKIGE_OPENAL_SOUND
 		return false;

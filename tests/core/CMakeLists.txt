@@ -19,6 +19,7 @@ add_executable(orkige_core_tests
     HierarchyTests.cpp
     ProjectTests.cpp
     AssetDatabaseTests.cpp
+    TweenTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

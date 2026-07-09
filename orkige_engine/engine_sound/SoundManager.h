@@ -13,6 +13,8 @@
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderNode.h"
 
+#include <map>
+
 namespace Orkige
 {
 	//! @brief Sound Management
@@ -29,6 +31,7 @@ namespace Orkige
 	protected:
 		typedef std::map<String, optr<SoundSource> > SoundRegistry;		//!< registry of sound sources with id's
 		typedef std::map<String, float>	InterruptedSoundRegistry;		//!< interrupted sound ids and play offset
+		typedef std::map<String, float>	GroupVolumeMap;					//!< mixer group name -> volume 0..1
 	private:
 		//--- Variables ---------------------------------------------
 	public:
@@ -44,6 +47,11 @@ namespace Orkige
 		//! camera's node) - facade-typed since A1 (Docs/render-abstraction.md);
 		//! forward = the node's -Z, up = its +Y
 		optr<RenderNode>			listener;
+		//--- the mixer: per-source AL_GAIN = baseGain * groupVolumes[group],
+		//--- master = alListenerf(AL_GAIN); all volumes 0..1 (AL_MAX_GAIN is
+		//--- pinned to 1.0 per source - see SoundSource.cpp)
+		GroupVolumeMap				groupVolumes;		//!< mixer group volumes (absent = 1)
+		float						masterVolume;		//!< listener gain 0..1 (default 1)
 
 	private:
 		//--- Methods -----------------------------------------------
@@ -91,6 +99,29 @@ namespace Orkige
 		//! sound interruption end
 		void onInterruptEnd();
 		bool isinitialised();
+
+		//--- MIXER ---------------------------------------------------------
+		//! @brief set a mixer group's volume (clamped 0..1) and push it onto
+		//! every registered source tagged with that group
+		//! @remarks groups are free-form strings; a group nobody set plays at
+		//! 1. Persisted per project as the manifest Setting
+		//! "audio.group.<name>" (@see applySettings).
+		void setGroupVolume(String const & group, float volume);
+		//! a group's volume (1 when never set)
+		float getGroupVolume(String const & group) const;
+		//! @brief master volume (clamped 0..1) via the AL listener gain - one
+		//! call scales everything; persisted as the "audio.master" Setting
+		void setMasterVolume(float volume);
+		//! @see SoundManager::setMasterVolume
+		float getMasterVolume() const;
+		//! @brief move a source into a mixer group: stores the tag AND pushes
+		//! the group's current volume (use this instead of SoundSource::setGroup)
+		void setSoundGroup(SoundSourcePtr const & sound, String const & group);
+		//! @brief apply the audio.* keys of a project's manifest Settings map:
+		//! "audio.master" and "audio.group.<name>" (values parsed as floats,
+		//! clamped 0..1; unrelated keys are ignored). Called by the runtimes
+		//! on project load - the manifest is the persistence layer.
+		void applySettings(std::map<String, String> const & settings);
 	protected:
 		//! init openAl
 		bool initOpenAl();

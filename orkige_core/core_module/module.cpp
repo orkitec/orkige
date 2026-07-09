@@ -25,6 +25,8 @@
 #include "core_game/GameState.h"
 #include "core_game/GameStateManager.h"
 
+#include "core_tween/TweenManager.h"
+
 using namespace Orkige;
 
 ORKIGE_MODULE(orkige_core)
@@ -66,4 +68,12 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORT(GameObjectManager)
 	OEXPORT(GameState)
 	OEXPORT(GameStateManager)
+
+	//the value handle the tween Lua API returns (core_tween/TweenManager.h);
+	//the tween functions themselves are registered through the ScriptRuntime
+	//seam in engine_gocomponent/ScriptComponent.cpp (ensureScriptApi)
+	OSIMPLEEXPORT(Orkige::TweenHandle,TweenHandle)
+		OFUNC(cancel)
+		OFUNC(isActive)
+	OSIMPLEEXPORT_END
 ORKIGE_MODULE_END

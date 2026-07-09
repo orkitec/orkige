@@ -116,6 +116,53 @@ namespace Orkige
         }
 
         //---------------------------------------------------------
+        bool SoundComponent::setVolume(String const & sid, float volume)
+        {
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return false;
+                }
+                it->second->setBaseGain(volume);
+                return true;
+        }
+        //---------------------------------------------------------
+        float SoundComponent::getVolume(String const & sid)
+        {
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return 1.f;
+                }
+                return it->second->getBaseGain();
+        }
+        //---------------------------------------------------------
+        bool SoundComponent::setGroup(String const & sid, String const & group)
+        {
+                if(!SoundManager::getSingletonPtr())
+                {
+                        return false;
+                }
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return false;
+                }
+                // manager-mediated: also pushes the group's current volume
+                SoundManager::getSingleton().setSoundGroup(it->second, group);
+                return true;
+        }
+        //---------------------------------------------------------
+        String SoundComponent::getGroup(String const & sid)
+        {
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return "";
+                }
+                return it->second->getGroup();
+        }
+        //---------------------------------------------------------
         //--- protected: ------------------------------------------
         //---------------------------------------------------------
         void SoundComponent::onAdd()
@@ -200,5 +247,21 @@ namespace Orkige
         //---------------------------------------------------------
         OOBJECT_IMPL(SoundComponent)
                 GAMEOBJECTCOMPONENT()
+                // the sound Lua surface (reached via world.getSound(id)):
+                //   snd:addSound("boing", "assets/boing.wav", false, false)
+                //   snd:play("boing") / snd:stop("boing") / snd:stopAllSounds()
+                //   snd:setVolume("boing", 0.6)  -- 0..1, own gain
+                //   snd:setGroup("boing", "music")  -- mixer group (default "sfx")
+                // group/master volumes live on the global `sound` table (see
+                // ScriptComponent::ensureScriptApi); no default arguments
+                // across the binding - Lua passes every parameter explicitly
+                OFUNC(addSound)
+                OFUNC(play)
+                OFUNC(stop)
+                OFUNC(stopAllSounds)
+                OFUNC(setVolume)
+                OFUNC(getVolume)
+                OFUNC(setGroup)
+                OFUNC(getGroup)
         OOBJECT_END
 }

@@ -40,6 +40,11 @@ namespace Orkige
                 String			fileName;		//!< filename of this SoundSource
                 bool			looped;			//!< marks if source should be looping
                 bool			initialized;	//!< true after SoundSource::init() was called
+                //--- the mixer model: AL_GAIN = baseGain * groupVolume; the
+                //--- master sits on the listener (SoundManager::setMasterVolume)
+                float			baseGain;		//!< this source's own volume 0..1 (default 1)
+                String			group;			//!< mixer group tag (default "sfx")
+                float			groupVolume;	//!< the group's volume 0..1, pushed by SoundManager
         private:
                 //--- Methods -----------------------------------------------
         public:
@@ -86,7 +91,32 @@ namespace Orkige
                 //! set current offset in seconds for playing sound
                 void setPlayPosition(float pos);
 
+                //--- MIXER (effective = baseGain * groupVolume; master rides
+                //--- on the AL listener via SoundManager::setMasterVolume) ---
+                //! @brief this source's own volume, clamped to 0..1
+                //! @remarks volumes stay <= 1 by design: init() pins
+                //! AL_MAX_GAIN to 1.0, so anything above would clamp silently
+                void setBaseGain(float gain);
+                //! @see SoundSource::setBaseGain
+                float getBaseGain() const;
+                //! @brief tag this source with a mixer group ("sfx", "music",
+                //! ...). Prefer SoundManager::setSoundGroup, which also pushes
+                //! the group's current volume - this only stores the tag.
+                void setGroup(String const & groupName);
+                //! @see SoundSource::setGroup
+                String const & getGroup() const;
+                //! the group volume push channel (called by SoundManager when
+                //! the group's volume changes), clamped to 0..1
+                void setGroupVolume(float volume);
+                //! @brief the gain this source actually plays at:
+                //! baseGain * groupVolume - queryable headlessly (the state is
+                //! kept even while OpenAL is not initialized)
+                float getEffectiveGain() const;
+                //! true after SoundSource::init() succeeded
+                bool isInitialized() const;
         protected:
+                //! push the effective gain onto the AL source (if initialized)
+                void applyGain();
         private:
         };
         //---------------------------------------------------------------

@@ -42,6 +42,17 @@ namespace Orkige
 		bool stop(String const & sid);
 		//! stop all sounds from this component
 		bool stopAllSounds();
+		//--- MIXER (per attached sound; effective gain = volume * group
+		//--- volume, master on top - see engine_sound/SoundManager.h) ---
+		//! set an attached sound's own volume (0..1 - gains above 1 would
+		//! clamp silently at the pinned AL_MAX_GAIN)
+		bool setVolume(String const & sid, float volume);
+		//! an attached sound's own volume (1 when the sound is unknown)
+		float getVolume(String const & sid);
+		//! move an attached sound into a mixer group (default "sfx")
+		bool setGroup(String const & sid, String const & group);
+		//! an attached sound's mixer group ("" when the sound is unknown)
+		String getGroup(String const & sid);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

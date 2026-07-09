@@ -15,6 +15,8 @@
 
 namespace Orkige
 {
+	class GameObjectManager;
+
 	//! @brief attaches a rigid body (PhysicsWorld / Jolt) to a GameObject
 	//! @remarks needs a sibling TransformComponent. The body is created lazily
 	//! on the first component update (so shape/type/mass setters and the
@@ -90,6 +92,18 @@ namespace Orkige
 		inline PhysicsWorld::BodyId getBodyId() const;
 		//! get the body creation parameters (what the editor inspects/edits)
 		inline PhysicsWorld::BodyDesc const & getBodyDesc() const;
+		//! @brief publish THIS dynamic body's simulated world pose into the
+		//! sibling TransformComponent (no-op for non-dynamic bodies, missing
+		//! bodies and bodies outside the simulation)
+		void syncFromSimulation();
+		//! @brief publish every ACTIVE dynamic body's simulated pose under the
+		//! given manager into its TransformComponent - the sim->scene half of
+		//! the canonical PLAYER LOOP TICK ORDER (tools/player/main.cpp):
+		//! component updates run BEFORE the physics step there, so without
+		//! this post-physics pass rendering and the debug stream would show a
+		//! one-tick-old pose (the classic step-while-paused contract caught
+		//! exactly that)
+		static void syncDynamicBodyPoses(GameObjectManager & gameObjectManager);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

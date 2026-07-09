@@ -40,6 +40,7 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#include <engine_sound/SoundManager.h>
 // fastgui is flavor-neutral since the DrawLayer2D port - the UI
 // assertions below run on BOTH render flavors
 #include <engine_fastgui/FastGuiManager.h>
@@ -55,6 +56,7 @@
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
+#include <core_tween/TweenManager.h>
 
 #include <algorithm>
 #include <chrono>
@@ -464,11 +466,15 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_ASSETID_SELFCHECK");
 		const std::string assetIdCheckTexture =
 			assetIdCheckEnv ? assetIdCheckEnv : "";
+		// ORKIGE_TWEEN_SELFCHECK verifies the tween system end to end against
+		// tests/projects/tween (run with --project tests/projects/tween)
+		const bool tweenCheck =
+			(std::getenv("ORKIGE_TWEEN_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
-		const bool automatedRun = jumperLuaCheck || rollerCheck ||
+		const bool automatedRun = jumperLuaCheck || rollerCheck || tweenCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -632,10 +638,30 @@ int main(int argc, char** argv)
 				Orkige::InputManager::KeyPressedEvent,
 				&QuitOnEscape::onKeyPressed, &quitOnEscape);
 
+		// audio: the mixer lives on the SoundManager (per-source gain x group
+		// volume, master on the AL listener); the "ears" ride the window
+		// camera's rig node. A failed OpenAL init is NOT fatal - the game
+		// runs silent, every sound call no-ops honestly (headless CI safety)
+		Orkige::SoundManager soundManager(cameraNode);
+		if (!soundManager.init())
+		{
+			SDL_Log("orkige_player: sound disabled - OpenAL init failed");
+		}
+		if (project.isLoaded())
+		{
+			// the mixer persists per project: manifest Settings audio.master
+			// and audio.group.<name> (engine_sound/SoundManager.h)
+			soundManager.applySettings(project.getSettings());
+		}
+
 		// GameObject/component bridge (registers the component factories)
 		init_module_orkige_engine();
 		Orkige::GameObjectManager gameObjectManager;
 		Orkige::PhysicsWorld physicsWorld; // inert until init()
+		// tweens tick in the ordered block of the main loop below; scripts
+		// start them through the Lua `tween` table (scene clears reap them
+		// via the GameObjectManager::clear teardown hook)
+		Orkige::TweenManager tweenManager;
 
 		if (!Orkige::SceneSerializer::loadScene(scenePath, gameObjectManager))
 		{
@@ -1025,6 +1051,44 @@ int main(int argc, char** argv)
 			rollerCheckFailed = true;
 		};
 
+		// --- ORKIGE_TWEEN_SELFCHECK=1: the tween system end to end against
+		// tests/projects/tween (run with --project tests/projects/tween).
+		// The scene's Tweener object runs scripts/tween_check.lua, which
+		// starts the whole Lua tween surface (tween.to closure + typed
+		// fade/volume helpers, cancel, delay, onComplete) and publishes its
+		// observations into shared.tween; the C++ side verifies only what an
+		// outsider can see: the script's verdict, the Tweener transform (the
+		// tween.to closure drove x to 3), the sprite tint alpha (tween.fade),
+		// the "music" group volume (tween.volume) and the manifest-loaded
+		// mixer settings (audio.master=0.8 / audio.group.hud=0.4 from
+		// project.orkproj). Condition-driven (durations live in simulated
+		// time, deterministic under the floored automated dt) with a fat
+		// frame deadline.
+		bool tweenCheckDone = false;
+		bool tweenCheckFailed = false;
+		auto tweenStat = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "tween", key}, fallback);
+		};
+		auto tweenFlag = [](const char* key) -> bool
+		{
+			return Orkige::ScriptRuntime::getSingleton().getBool(
+				{"shared", "tween", key}, false);
+		};
+		auto tweenFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - %s "
+				"(updates=%.0f completes=%.0f cancelUpdates=%.0f "
+				"delayFirstAt=%.3f script='%s')", what.c_str(),
+				tweenStat("updates", -1.0), tweenStat("completes", -1.0),
+				tweenStat("cancelUpdates", -1.0),
+				tweenStat("delayFirstAt", -1.0),
+				Orkige::ScriptRuntime::getSingleton().getString(
+					{"shared", "tween", "failed"}, "").c_str());
+			tweenCheckFailed = true;
+		};
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::chrono::steady_clock::time_point lastFrameTime =
@@ -1079,12 +1143,49 @@ int main(int argc, char** argv)
 			}
 			if (advanceWorld)
 			{
+				// ============== PLAYER LOOP TICK ORDER (canonical) ==============
+				// Ruled ONCE for every runtime feature (execution plan, 2026-07):
+				//   input -> scripts/world -> tweens -> physics -> load pump.
+				// Later packages FILL their labeled slot below instead of
+				// appending elsewhere - a wrong position means silent
+				// one-frame-lag bugs.
+				//
+				// [1] INPUT - the raw SDL events of this frame were polled and
+				//     injected at the top of the loop (inputManager.injectEvent).
+				//     SLOT(#81 input-actions): map raw input state to actions
+				//     HERE, before the scripts that read them run.
+				//
+				// [2] SCRIPTS/WORLD - the component updates: ScriptComponent
+				//     runs the game code, rigid bodies create lazily and sync
+				//     their simulated pose into the transforms, sounds/sprites
+				//     follow their transforms.
+				gameObjectManager.update(deltaTime);
+				//
+				// [3] TWEENS - after scripts (a tween started this frame takes
+				//     its first step this frame), before physics (tweened poses
+				//     are what the simulation sees). Dormant in the editor: only
+				//     runtimes that tick this block create a TweenManager.
+				tweenManager.update(deltaTime);
+				//
+				// [4] PHYSICS - the fixed-timestep simulation, then the
+				//     sim->scene pose sync: dynamic bodies publish the pose
+				//     THIS frame's step produced (component updates ran before
+				//     physics, so without this pass rendering and the debug
+				//     stream would lag the simulation by one tick).
 				if (physicsNeeded)
 				{
 					physicsWorld.update(deltaTime);
+					Orkige::RigidBodyComponent::syncDynamicBodyPoses(
+						gameObjectManager);
 				}
-				// component updates (rigid body creation/pose sync, ...)
-				gameObjectManager.update(deltaTime);
+				//
+				// [5] SLOT(#87 deferred-load pump): scene switches tear down at
+				//     the END of the frame (through the GameObjectManager::clear
+				//     teardown hook) - keep this slot LAST.
+				// ================ end PLAYER LOOP TICK ORDER ====================
+
+				// audio listener follows the (script-driven) camera rig
+				soundManager.update(deltaTime);
 			}
 
 			// streaming: hierarchy on change (checked every N frames),
@@ -1879,6 +1980,106 @@ int main(int argc, char** argv)
 				running = false;
 			}
 
+			// --- tween selfcheck (see the block above the loop) -------------
+			if (tweenCheck && !tweenCheckFailed && !tweenCheckDone)
+			{
+				const std::string scriptVerdict =
+					Orkige::ScriptRuntime::getSingleton().getString(
+						{"shared", "tween", "failed"}, "");
+				if (!scriptVerdict.empty())
+				{
+					tweenFail("the script reported: " + scriptVerdict);
+				}
+				else if (tweenFlag("done"))
+				{
+					// the script says every tween ran its course - now verify
+					// the world from the OUTSIDE
+					Orkige::TransformComponent* tweener =
+						gameObjectManager.getGameObject("Tweener").lock()
+						? gameObjectManager.getGameObject("Tweener").lock()
+							->getComponentPtr<Orkige::TransformComponent>()
+						: nullptr;
+					Orkige::SpriteComponent* sprite =
+						gameObjectManager.getGameObject("Tweener").lock()
+						&& gameObjectManager.getGameObject("Tweener").lock()
+							->hasComponent<Orkige::SpriteComponent>()
+						? gameObjectManager.getGameObject("Tweener").lock()
+							->getComponentPtr<Orkige::SpriteComponent>()
+						: nullptr;
+					if (tweenStat("updates", 0.0) < 1.0)
+					{
+						tweenFail("tween.to never called its onUpdate closure");
+					}
+					else if (tweenStat("completes", 0.0) != 1.0)
+					{
+						tweenFail("onComplete did not fire exactly once");
+					}
+					else if (!tweener ||
+						std::abs(tweener->getPosition().x - 3.0f) > 0.001f)
+					{
+						tweenFail("the tween.to closure did not land the "
+							"Tweener on x=3 exactly");
+					}
+					else if (!sprite ||
+						std::abs(sprite->getTint().a - 0.25f) > 0.001f)
+					{
+						tweenFail("tween.fade did not land the sprite tint "
+							"alpha on 0.25");
+					}
+					else if (std::abs(soundManager.getGroupVolume("music") -
+						0.25f) > 0.001f)
+					{
+						tweenFail("tween.volume did not land the music group "
+							"volume on 0.25 (the ducking recipe channel)");
+					}
+					else if (std::abs(soundManager.getMasterVolume() - 0.8f) >
+						0.001f)
+					{
+						tweenFail("the manifest Setting audio.master=0.8 was "
+							"not applied on project load");
+					}
+					else if (std::abs(soundManager.getGroupVolume("hud") -
+						0.4f) > 0.001f)
+					{
+						tweenFail("the manifest Setting audio.group.hud=0.4 "
+							"was not applied on project load");
+					}
+					else if (tweenFlag("soundChecked") &&
+						(!soundManager.getSound("beep") ||
+							std::abs(soundManager.getSound("beep")
+								->getEffectiveGain() - 0.15f) > 0.001f))
+					{
+						tweenFail("the beep's effective gain is not 0.15 "
+							"(base 0.6 x tweened music group 0.25)");
+					}
+					else
+					{
+						SDL_Log("orkige_player: tween selfcheck complete - "
+							"closure tween.to (x=%.3f, %0.f updates, "
+							"onComplete once), fade (alpha=%.3f), volume "
+							"(music=%.3f), cancel, delay and the manifest "
+							"mixer settings all verified",
+							tweener->getPosition().x,
+							tweenStat("updates", -1.0),
+							sprite->getTint().a,
+							soundManager.getGroupVolume("music"));
+						tweenCheckDone = true;
+						running = false;
+					}
+				}
+				else if (frameCount >= 900)
+				{
+					// fat deadline: ~2.2s of simulated tween time must have
+					// long finished after 900 floored-dt frames (15s sim)
+					tweenFail("the script never reported done");
+				}
+			}
+			if (tweenCheck && tweenCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -1906,6 +2107,12 @@ int main(int argc, char** argv)
 		{
 			SDL_Log("orkige_player: ROLLER SELFCHECK FAILED - run ended in "
 				"phase %d", static_cast<int>(rollerPhase));
+			exitCode = 1;
+		}
+		if (tweenCheck && !tweenCheckFailed && !tweenCheckDone)
+		{
+			SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
+				"the check completed");
 			exitCode = 1;
 		}
 

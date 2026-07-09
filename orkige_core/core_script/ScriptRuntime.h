@@ -28,6 +28,57 @@ namespace Orkige
 	*  @{ */
 	class ScriptInstance;
 
+	//! @brief the OPTIONAL-TRAILING-ARGUMENTS parameter for functions
+	//! registered through ScriptRuntime::registerFunction: declare it as the
+	//! LAST parameter of the registered callable and script calls may pass
+	//! any number of extra values (callbacks, ease names, delays, ...). Read
+	//! them through the ScriptCallback::fromArgs / ScriptRuntime::numberArg /
+	//! stringArg helpers - call sites stay free of backend types and guards.
+#ifdef ORKIGE_LUA
+	typedef sol::variadic_args ScriptArgs;
+#else
+	//! placeholder in no-scripting builds (the registered callables must
+	//! keep compiling; they are never invoked)
+	struct ScriptArgs {};
+#endif
+
+	//! @brief a script function value received by a registered C++ function
+	//! (e.g. a tween's onUpdate/onComplete closure), invokable from C++.
+	//! Backend-neutral at every call site; in no-scripting builds callbacks
+	//! are never valid(). Copyable - safe to stash inside std::function
+	//! wrappers handed to core systems.
+	class ORKIGE_CORE_DLL ScriptCallback
+	{
+		//--- Variables ---------------------------------------
+	private:
+#ifdef ORKIGE_LUA
+		sol::protected_function mFunction;	//!< the wrapped Lua function (may be invalid)
+#endif
+		//--- Methods -----------------------------------------
+	public:
+		//! an invalid (never-callable) callback
+		ScriptCallback();
+
+		//! @brief read optional trailing argument #index (0-based within the
+		//! ScriptArgs tail) as a callback; invalid when absent, nil or not a
+		//! function
+		static ScriptCallback fromArgs(ScriptArgs const & args, int index);
+
+		//! is there a script function to call
+		bool valid() const;
+		//! @brief call the script function with no arguments
+		//! @return false with *outError set on a script error
+		bool invoke(String * outError) const;
+		//! @brief call the script function with count number arguments
+		//! @return false with *outError set on a script error. A script
+		//! function explicitly returning false sets *outRequestedStop (the
+		//! documented "return false from onUpdate to cancel" channel).
+		bool invokeNumbers(float const * values, int count,
+			bool * outRequestedStop, String * outError) const;
+	protected:
+	private:
+	};
+
 	//! @brief the backend-neutral scripting seam: everything outside the
 	//! core_base/Meta_*.h backends and core_script itself talks to scripting
 	//! exclusively through this facade - call sites carry no ORKIGE_LUA
@@ -109,6 +160,15 @@ namespace Orkige
 		bool hasGlobalTable(String const & name);
 		//! create the global table if it does not exist yet
 		void ensureGlobalTable(String const & name);
+
+		//! read optional trailing argument #index (0-based) as a number
+		//! (fallback when absent or not a number) - @see ScriptArgs
+		static double numberArg(ScriptArgs const & args, int index,
+			double fallback);
+		//! read optional trailing argument #index (0-based) as a string
+		//! (fallback when absent or not a string) - @see ScriptArgs
+		static String stringArg(ScriptArgs const & args, int index,
+			String const & fallback);
 
 		//! @brief register a C++ callable as <tableName>.<functionName>
 		//! (the table is created when missing) - no-op without a backend

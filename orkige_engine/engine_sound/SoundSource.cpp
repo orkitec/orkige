@@ -9,6 +9,8 @@
 #include "engine_sound/SoundSource.h"
 #include "engine_sound/SoundError.h"
 
+#include <algorithm>
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -16,6 +18,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	SoundSource::SoundSource(String const & id, String const & file, bool loop, Ogre::Vector3 const & pos)
 		: Object(id), data(NULL), position(pos), fileName(file), looped(loop), initialized(false)
+		, baseGain(1.f), group("sfx"), groupVolume(1.f)
 	{
 #ifdef ORKIGE_OPENAL_SOUND
 		this->source = 0;
@@ -111,9 +114,12 @@ namespace Orkige
 		float sourcePosAL[] = {this->position.x, this->position.y, this->position.z};
 		alSourcefv(this->source, AL_POSITION, sourcePosAL);
 
-		//@TODO: make this configurable with SoundSource set and get functions
+		//@TODO: make pitch/distance model configurable with SoundSource set and get functions
+		// AL_GAIN carries the mixer model (baseGain * groupVolume) - note
+		// AL_MAX_GAIN is pinned to 1.0 here, so gains above 1 would clamp
+		// SILENTLY: the whole volume vocabulary stays in 0..1 by design
 		alSourcef (this->source, AL_PITCH,				1.f);
-		alSourcef (this->source, AL_GAIN,				1.f);
+		alSourcef (this->source, AL_GAIN,				this->getEffectiveGain());
 		alSourcef (this->source, AL_MAX_GAIN,			1.f);
 		alSourcef (this->source, AL_MIN_GAIN,			0.f);
 		alSourcef (this->source, AL_MAX_DISTANCE,		3400.f);
@@ -379,7 +385,54 @@ namespace Orkige
 		return this->position;
 	}
 	//---------------------------------------------------------
+	void SoundSource::setBaseGain(float gain)
+	{
+		this->baseGain = std::clamp(gain, 0.f, 1.f);
+		this->applyGain();
+	}
+	//---------------------------------------------------------
+	float SoundSource::getBaseGain() const
+	{
+		return this->baseGain;
+	}
+	//---------------------------------------------------------
+	void SoundSource::setGroup(String const & groupName)
+	{
+		this->group = groupName;
+	}
+	//---------------------------------------------------------
+	String const & SoundSource::getGroup() const
+	{
+		return this->group;
+	}
+	//---------------------------------------------------------
+	void SoundSource::setGroupVolume(float volume)
+	{
+		this->groupVolume = std::clamp(volume, 0.f, 1.f);
+		this->applyGain();
+	}
+	//---------------------------------------------------------
+	float SoundSource::getEffectiveGain() const
+	{
+		return this->baseGain * this->groupVolume;
+	}
+	//---------------------------------------------------------
+	bool SoundSource::isInitialized() const
+	{
+		return this->initialized;
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void SoundSource::applyGain()
+	{
+#ifdef ORKIGE_OPENAL_SOUND
+		if(this->initialized)
+		{
+			alSourcef(this->source, AL_GAIN, this->getEffectiveGain());
+		}
+#endif //ORKIGE_OPENAL_SOUND
+	}
 	//---------------------------------------------------------
 
 

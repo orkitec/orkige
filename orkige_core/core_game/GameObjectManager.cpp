@@ -10,6 +10,7 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/GameObject.h"
 #include "core_event/GlobalEventManager.h"
+#include "core_tween/TweenManager.h"
 
 namespace Orkige
 {
@@ -93,6 +94,31 @@ namespace Orkige
 				component->onUpdateComponent(delta);
 			}
 		}
+	}
+	//---------------------------------------------------------
+	// ================= SCENE TEARDOWN HOOK =================
+	// clear() is THE single authoritative "the world goes away" point: every
+	// scene switch funnels through it (SceneSerializer::loadScene clears
+	// before loading, the editor's new/open document paths call it, tests
+	// reset through it). Cross-object runtime state that must not outlive the
+	// scene is torn down HERE and nowhere else - later features (the deferred
+	// scene-load pump, #87) EXTEND this hook instead of inventing a second
+	// teardown path.
+	void GameObjectManager::clear()
+	{
+		// running tweens die with the scene: their callbacks close over
+		// objects of THIS scene (core_tween/TweenManager.h lifetime rules);
+		// no callbacks fire. The editor never creates a TweenManager - guard.
+		if(TweenManager::getSingletonPtr() != 0)
+		{
+			TweenManager::getSingleton().clear();
+		}
+
+		this->numUpdatableComponents = 0;
+		this->currentUpdatableComponentIndex = 0;
+		this->updatableComponents.clear();
+		this->childIds.clear();
+		this->objects.clear();
 	}
 	//---------------------------------------------------------
 	StringVector const & GameObjectManager::getChildren(String const & parentId) const

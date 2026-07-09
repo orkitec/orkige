@@ -60,8 +60,10 @@ namespace Orkige
 		inline woptr<GameObject> createGameObject(String const & id); 
 		//! get map with all GameObjects
 		inline GameObjectMap const & getGameObjects();
-		//! remove all managed GameObjects
-		inline void clear();
+		//! @brief remove all managed GameObjects - THE scene teardown hook
+		//! (also clears cross-object runtime state like running tweens);
+		//! implemented in GameObjectManager.cpp
+		void clear();
 		//! triggers an event on all GameObjects
 		bool triggerEvent(Event const & event) const;
 		//! forward given Event to all GameObjects
@@ -203,15 +205,6 @@ namespace Orkige
 	inline GameObjectManager::GameObjectMap const & GameObjectManager::getGameObjects()
 	{	
 		return this->objects;									
-	}
-	//---------------------------------------------------------
-	inline void GameObjectManager::clear()
-	{
-		this->numUpdatableComponents = 0;
-		this->currentUpdatableComponentIndex = 0;
-		this->updatableComponents.clear();
-		this->childIds.clear();
-		this->objects.clear();
 	}
 	//---------------------------------------------------------
 	inline bool GameObjectManager::onGlobalEvent(Event const & event)

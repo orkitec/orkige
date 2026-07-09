@@ -10,6 +10,7 @@
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include <core_game/GameObject.h>
+#include <core_game/GameObjectManager.h>
 
 #include "engine_module/EnginePrerequisites.h"
 
@@ -207,17 +208,12 @@ namespace Orkige
 		switch (this->mBodyDesc.bodyType)
 		{
 		case PhysicsWorld::BT_DYNAMIC:
-			{
-				// simulation -> scene; bodies live in WORLD space, the
-				// hierarchy-aware setters recompute the local transform
-				Vec3 position;
-				Quat orientation;
-				if (physicsWorld->getBodyTransform(this->mBodyId, position, orientation))
-				{
-					transformComponent->setWorldPosition(position);
-					transformComponent->setWorldOrientation(orientation);
-				}
-			}
+			// simulation -> scene (see syncFromSimulation). In runtimes on
+			// the canonical tick order (component updates BEFORE the physics
+			// step) the post-physics syncDynamicBodyPoses pass republishes
+			// the fresh pose the same frame; this per-update sync stays for
+			// the loops that step physics first (samples, native modules).
+			this->syncFromSimulation();
 			break;
 		case PhysicsWorld::BT_KINEMATIC:
 			// scene -> simulation (with velocities, so it pushes dynamic
@@ -230,6 +226,56 @@ namespace Orkige
 		case PhysicsWorld::BT_STATIC:
 		default:
 			break;
+		}
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::syncFromSimulation()
+	{
+		if (this->mBodyDesc.bodyType != PhysicsWorld::BT_DYNAMIC ||
+			!this->hasBody())
+		{
+			return;
+		}
+		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
+		if (!physicsWorld || !physicsWorld->isInitialized())
+		{
+			return;
+		}
+		GameObject* componentOwner = this->getComponentOwner();
+		oAssert(componentOwner);
+		optr<TransformComponent> transformComponent =
+			componentOwner->getComponent<TransformComponent>().lock();
+		oAssert(transformComponent);
+		// simulation -> scene; bodies live in WORLD space, the
+		// hierarchy-aware setters recompute the local transform
+		Vec3 position;
+		Quat orientation;
+		if (physicsWorld->getBodyTransform(this->mBodyId, position, orientation))
+		{
+			transformComponent->setWorldPosition(position);
+			transformComponent->setWorldOrientation(orientation);
+		}
+	}
+	//---------------------------------------------------------
+	void RigidBodyComponent::syncDynamicBodyPoses(GameObjectManager & gameObjectManager)
+	{
+		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
+		if (!physicsWorld || !physicsWorld->isInitialized())
+		{
+			return;
+		}
+		for (GameObjectManager::GameObjectMap::value_type const & entry :
+			gameObjectManager.getGameObjects())
+		{
+			GameObject* gameObject = entry.second.get();
+			// same gate as the component update loop: deactivated objects
+			// have no body in the simulation and must not be touched
+			if (!gameObject || !gameObject->isActiveInHierarchy() ||
+				!gameObject->hasComponent<RigidBodyComponent>())
+			{
+				continue;
+			}
+			gameObject->getComponentPtr<RigidBodyComponent>()->syncFromSimulation();
 		}
 	}
 	//---------------------------------------------------------
