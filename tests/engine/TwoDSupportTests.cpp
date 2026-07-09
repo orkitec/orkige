@@ -20,6 +20,7 @@
 #include "EngineTestEnvironment.h"
 
 #include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_input/InputManager.h>
 #include <core_serialization/XMLArchive.h>
@@ -60,6 +61,11 @@ namespace
 	{
 		using Orkige::CameraComponent::save;
 		using Orkige::CameraComponent::load;
+	};
+	struct TestSpriteAnim : Orkige::SpriteAnimationComponent
+	{
+		using Orkige::SpriteAnimationComponent::save;
+		using Orkige::SpriteAnimationComponent::load;
 	};
 }
 
@@ -143,6 +149,110 @@ TEST_CASE("SpriteComponent zOrder maps to a clamped render queue", "[sprite]")
 		Orkige::SpriteComponent::ZORDER_MIN);
 }
 
+TEST_CASE("frameToUVRect maps grid cells to UV sub-rects", "[sprite][flipbook]")
+{
+	float u0 = 0.0f, v0 = 0.0f, u1 = 0.0f, v1 = 0.0f;
+
+	// 4x4 sheet, no inset (unknown texel size): exact cell boundaries.
+	// frame 0 = top-left cell
+	Orkige::SpriteComponent::frameToUVRect(0, 4, 4, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.0f));
+	CHECK(v0 == Approx(0.0f));
+	CHECK(u1 == Approx(0.25f));
+	CHECK(v1 == Approx(0.25f));
+
+	// row-major: frame 5 = column 1, row 1 on a 4-wide grid
+	Orkige::SpriteComponent::frameToUVRect(5, 4, 4, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.25f));
+	CHECK(v0 == Approx(0.25f));
+	CHECK(u1 == Approx(0.5f));
+	CHECK(v1 == Approx(0.5f));
+
+	// last cell of the sheet (frame 15)
+	Orkige::SpriteComponent::frameToUVRect(15, 4, 4, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.75f));
+	CHECK(v0 == Approx(0.75f));
+	CHECK(u1 == Approx(1.0f));
+	CHECK(v1 == Approx(1.0f));
+
+	// non-square grid: 8 columns x 2 rows, frame 9 = column 1, row 1
+	Orkige::SpriteComponent::frameToUVRect(9, 8, 2, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.125f));
+	CHECK(u1 == Approx(0.25f));
+	CHECK(v0 == Approx(0.5f));
+	CHECK(v1 == Approx(1.0f));
+
+	// out-of-range frame clamps onto the sheet instead of sampling past 1.0
+	Orkige::SpriteComponent::frameToUVRect(999, 4, 4, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u1 == Approx(1.0f));
+	CHECK(v1 == Approx(1.0f));
+
+	// a degenerate grid falls back to the full texture
+	Orkige::SpriteComponent::frameToUVRect(0, 0, 0, 0.0f, 0.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.0f));
+	CHECK(v0 == Approx(0.0f));
+	CHECK(u1 == Approx(1.0f));
+	CHECK(v1 == Approx(1.0f));
+}
+
+TEST_CASE("frameToUVRect insets half a texel against seam bleeding", "[sprite][flipbook]")
+{
+	float u0 = 0.0f, v0 = 0.0f, u1 = 0.0f, v1 = 0.0f;
+
+	// 2x2 sheet on a 64x64 texture: each cell is 32 texels; half a texel is
+	// 0.5/64 = 0.0078125 in UV. Cell 0 (top-left) pulls in on all sides.
+	Orkige::SpriteComponent::frameToUVRect(0, 2, 2, 64.0f, 64.0f, u0, v0, u1, v1);
+	const float halfTexel = 0.5f / 64.0f;
+	CHECK(u0 == Approx(0.0f + halfTexel));
+	CHECK(v0 == Approx(0.0f + halfTexel));
+	CHECK(u1 == Approx(0.5f - halfTexel));
+	CHECK(v1 == Approx(0.5f - halfTexel));
+
+	// a non-square texture insets U and V by different amounts (per-axis
+	// texel size): 128 wide, 32 tall
+	Orkige::SpriteComponent::frameToUVRect(0, 2, 2, 128.0f, 32.0f, u0, v0, u1, v1);
+	CHECK(u0 == Approx(0.5f / 128.0f));
+	CHECK(v0 == Approx(0.5f / 32.0f));
+}
+
+TEST_CASE("frameForElapsed advances, wraps and ends", "[sprite][flipbook]")
+{
+	bool ended = false;
+
+	// 4-frame clip at 10 fps: 0.1s per frame
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.0f, 10.0f, 4, true, ended) == 0);
+	CHECK_FALSE(ended);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.05f, 10.0f, 4, true, ended) == 0);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.15f, 10.0f, 4, true, ended) == 1);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.35f, 10.0f, 4, true, ended) == 3);
+
+	// looping wraps back around and never ends
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.45f, 10.0f, 4, true, ended) == 0);
+	CHECK_FALSE(ended);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.55f, 10.0f, 4, true, ended) == 1);
+	CHECK_FALSE(ended);
+	// deep into many loops still wraps cleanly
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(100.15f, 10.0f, 4, true, ended) == 1);
+	CHECK_FALSE(ended);
+
+	// non-looping clamps at the last frame and reports ended past the end
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.25f, 10.0f, 4, false, ended) == 2);
+	CHECK_FALSE(ended);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.35f, 10.0f, 4, false, ended) == 3);
+	CHECK_FALSE(ended);	// exactly on the last frame is not yet ended
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.45f, 10.0f, 4, false, ended) == 3);
+	CHECK(ended);		// past the last frame: clamp + end
+
+	// a single-frame non-looping clip is done as soon as time passes
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.0f, 10.0f, 1, false, ended) == 0);
+	CHECK_FALSE(ended);
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(0.5f, 10.0f, 1, false, ended) == 0);
+	CHECK(ended);
+
+	// a zero fps clip cannot advance (guarded, no divide-by-anything)
+	CHECK(Orkige::SpriteAnimationComponent::frameForElapsed(1.0f, 0.0f, 4, true, ended) == 0);
+}
+
 TEST_CASE("SpriteComponent state round-trips through an XMLArchive", "[sprite]")
 {
 	Orkige::EngineTestEnvironment::get();
@@ -198,6 +308,51 @@ TEST_CASE("SpriteComponent zOrder setter clamps", "[sprite]")
 	CHECK(sprite.getZOrder() == Orkige::SpriteComponent::ZORDER_MAX);
 	sprite.setZOrder(-10000);
 	CHECK(sprite.getZOrder() == Orkige::SpriteComponent::ZORDER_MIN);
+}
+
+TEST_CASE("SpriteAnimationComponent grid + clips round-trip through an XMLArchive", "[sprite][flipbook]")
+{
+	Orkige::EngineTestEnvironment::get();
+	TempFile file("orkige_sprite_anim_roundtrip.xml");
+
+	{
+		TestSpriteAnim anim;
+		anim.setGrid(4, 2);
+		anim.addClip("idle", 0, 1, 1.0f, true);
+		anim.addClip("run", 1, 6, 12.0f, true);
+		anim.addClip("die", 7, 3, 8.0f, false);
+		anim.setDefaultClip("idle");
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startWriting(file.path));
+		optr<Orkige::IArchive> archive = ar;
+		anim.save(archive);
+		REQUIRE(ar->stopWriting());
+	}
+
+	{
+		TestSpriteAnim loaded;
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startReading(file.path));
+		optr<Orkige::IArchive> archive = ar;
+		loaded.load(archive);
+		REQUIRE(ar->stopReading());
+
+		CHECK(loaded.getGridColumns() == 4);
+		CHECK(loaded.getGridRows() == 2);
+		CHECK(loaded.getDefaultClip() == "idle");
+		CHECK(loaded.getClipCount() == 3);
+		REQUIRE(loaded.hasClip("run"));
+		Orkige::SpriteAnimationComponent::Clip const & run =
+			loaded.getClips().at("run");
+		CHECK(run.startFrame == 1);
+		CHECK(run.frameCount == 6);
+		CHECK(run.fps == Approx(12.0f));
+		CHECK(run.loop);
+		Orkige::SpriteAnimationComponent::Clip const & die =
+			loaded.getClips().at("die");
+		CHECK(die.startFrame == 7);
+		CHECK_FALSE(die.loop);
+	}
 }
 
 TEST_CASE("CameraComponent projection state round-trips through an XMLArchive", "[camera]")

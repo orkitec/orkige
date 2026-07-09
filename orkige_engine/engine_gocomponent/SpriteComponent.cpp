@@ -145,6 +145,20 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void SpriteComponent::getUVRect(float & u0, float & v0, float & u1, float & v1) const
+	{
+		u0 = this->mU0;
+		v0 = this->mV0;
+		u1 = this->mU1;
+		v1 = this->mV1;
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::getTextureSize(float & width, float & height) const
+	{
+		width = this->mTexelWidth;
+		height = this->mTexelHeight;
+	}
+	//---------------------------------------------------------
 	void SpriteComponent::setTint(float red, float green, float blue, float alpha)
 	{
 		this->mTint = Color(red, green, blue, alpha);
@@ -225,6 +239,49 @@ namespace Orkige
 		outCorners[1] = Vec2(u1, v0);	// top-right
 		outCorners[2] = Vec2(u1, v1);	// bottom-right
 		outCorners[3] = Vec2(u0, v1);	// bottom-left
+	}
+	//---------------------------------------------------------
+	void SpriteComponent::frameToUVRect(int frame, int columns, int rows,
+		float textureWidth, float textureHeight,
+		float & u0, float & v0, float & u1, float & v1)
+	{
+		// a degenerate grid shows the whole texture (honest fallback, no crash)
+		if(columns <= 0 || rows <= 0)
+		{
+			u0 = 0.0f;
+			v0 = 0.0f;
+			u1 = 1.0f;
+			v1 = 1.0f;
+			return;
+		}
+		// row-major, top-left origin; clamp so an out-of-range frame stays on
+		// the sheet instead of sampling past (0,0)-(1,1)
+		const int cellCount = columns * rows;
+		frame = std::clamp(frame, 0, cellCount - 1);
+		const int column = frame % columns;
+		const int row = frame / columns;
+		const float cellWidth = 1.0f / static_cast<float>(columns);
+		const float cellHeight = 1.0f / static_cast<float>(rows);
+		u0 = static_cast<float>(column) * cellWidth;
+		u1 = static_cast<float>(column + 1) * cellWidth;
+		v0 = static_cast<float>(row) * cellHeight;
+		v1 = static_cast<float>(row + 1) * cellHeight;
+		// half-texel inset: bilinear filtering pulls neighbour texels at the
+		// cell edges (visible atlas-seam bleeding); pulling the rect in by
+		// half a texel on each side keeps the sample inside the frame. Needs
+		// the real texel size - skipped when it is unknown (<= 0).
+		if(textureWidth > 0.0f)
+		{
+			const float insetU = 0.5f / textureWidth;
+			u0 += insetU;
+			u1 -= insetU;
+		}
+		if(textureHeight > 0.0f)
+		{
+			const float insetV = 0.5f / textureHeight;
+			v0 += insetV;
+			v1 -= insetV;
+		}
 	}
 	//---------------------------------------------------------
 	unsigned char SpriteComponent::renderQueueForZOrder(int zOrder)

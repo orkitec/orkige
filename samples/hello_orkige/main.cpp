@@ -12,6 +12,8 @@
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 // fastgui is flavor-neutral since the DrawLayer2D port - the
@@ -32,6 +34,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -165,6 +168,16 @@ int main(int, char**)
 		{
 			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 		}
+		// ORKIGE_DEMO_SPRITEANIM=1: the flipbook selfcheck (below) needs a
+		// texture for its SpriteComponent - register the committed sample
+		// texture dir so loadSprite resolves one (any texture works; the
+		// check reads UV rects, not pixels)
+		const bool demoSpriteAnim =
+			(std::getenv("ORKIGE_DEMO_SPRITEANIM") != nullptr);
+		if (demoSpriteAnim)
+		{
+			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
+		}
 		render->initialiseResourceGroups();
 
 		// the window camera on a facade rig (the createDefaultCameraAndViewport
@@ -266,6 +279,48 @@ int main(int, char**)
 		optr<Orkige::MeshInstance> smallCube =
 			world->createMeshInstance("HelloCube.mesh");
 		smallCube->attachTo(smallCubeNode);
+
+		// --- ORKIGE_DEMO_SPRITEANIM=1: the sprite flipbook selfcheck. A
+		// GameObject carrying a SpriteAnimationComponent on a 4x1 grid with one
+		// looping 4-frame clip. Adding the flipbook auto-adds its
+		// SpriteComponent dependency (which in turn brings a TransformComponent)
+		// - the same AnimationComponent<->ModelComponent idiom. The frame loop
+		// ticks the GameObjectManager with a fixed dt and records the sibling
+		// sprite's UV rect; the frame-120 self-check asserts the rect advances
+		// across frames AND wraps on the loop - reading component state, no
+		// pixel readback, so it runs identically on both render flavors.
+		Orkige::SpriteComponent* animSprite = nullptr;
+		Orkige::SpriteAnimationComponent* spriteAnim = nullptr;
+		std::vector<float> spriteAnimU0Log;	// per-tick UV u0 (column probe)
+		if (demoSpriteAnim)
+		{
+			optr<Orkige::GameObject> flip =
+				gameObjectManager.createGameObject("flipbook").lock();
+			if (!flip ||
+				!flip->addComponent<Orkige::SpriteAnimationComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - SpriteAnimationComponent "
+					"creation failed");
+				return 1;
+			}
+			animSprite = flip->getComponentPtr<Orkige::SpriteComponent>();
+			spriteAnim =
+				flip->getComponentPtr<Orkige::SpriteAnimationComponent>();
+			if (!animSprite || !spriteAnim)
+			{
+				SDL_Log("hello_orkige: FAILED - flipbook siblings missing");
+				return 1;
+			}
+			// any texture works (the check reads UV, not pixels); a real one
+			// also exercises the frameToUVRect half-texel inset via getTextureSize
+			animSprite->loadSprite("player.png");
+			spriteAnim->setGrid(4, 1);
+			spriteAnim->addClip("spin", 0, 4, 8.0f, true);	// 4 frames @ 8 fps
+			spriteAnim->setDefaultClip("spin");
+			spriteAnim->play("spin");						// start on frame 0
+			SDL_Log("hello_orkige: flipbook up - 4x1 grid, clip 'spin' playing "
+				"(sprite loaded=%d)", static_cast<int>(animSprite->hasSprite()));
+		}
 
 		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the procedural cubes -
 		// createMeshInstance("test_mesh.glb") pulls the .glb through
@@ -611,6 +666,15 @@ int main(int, char**)
 				// (simulation -> TransformComponent for dynamic bodies)
 				gameObjectManager.update(deltaTime);
 			}
+			if (demoSpriteAnim)
+			{
+				// fixed tick: deterministic frame progression regardless of the
+				// (headless-fast) render rate
+				gameObjectManager.update(0.05f);
+				float au0, av0, au1, av1;
+				animSprite->getUVRect(au0, av0, au1, av1);
+				spriteAnimU0Log.push_back(au0);
+			}
 			cubeNode->yaw(Orkige::Degree(0.4f));
 			cubeNode->pitch(Orkige::Degree(0.13f));
 			// orbit the small cube around the main cube purely through the
@@ -717,6 +781,44 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: physics self-checks passed (fall + "
 					"rest on floor, planar DOF locks)");
+			}
+			if (demoSpriteAnim && frameCount == 120)
+			{
+				// count distinct grid columns visited (u0 quantized to the 4-cell
+				// grid) and confirm the clip advanced AND wrapped to frame 0
+				std::set<int> columns;
+				bool advanced = false;
+				bool wrapped = false;
+				const float firstU0 =
+					spriteAnimU0Log.empty() ? 0.0f : spriteAnimU0Log.front();
+				for (size_t i = 0; i < spriteAnimU0Log.size(); ++i)
+				{
+					const float au0 = spriteAnimU0Log[i];
+					columns.insert(static_cast<int>(std::lround(au0 * 4.0f)));
+					if (i > 0 &&
+						std::abs(au0 - spriteAnimU0Log[i - 1]) > 1e-4f)
+					{
+						advanced = true;
+					}
+					// frame 0 seen again after leaving it = a completed loop
+					if (i > 2 && advanced &&
+						std::abs(au0 - firstU0) < 1e-4f)
+					{
+						wrapped = true;
+					}
+				}
+				SDL_Log("hello_orkige: flipbook ticks=%zu distinctColumns=%zu "
+					"advanced=%d wrapped=%d", spriteAnimU0Log.size(),
+					columns.size(), static_cast<int>(advanced),
+					static_cast<int>(wrapped));
+				if (columns.size() != 4 || !advanced || !wrapped)
+				{
+					SDL_Log("hello_orkige: FAILED - flipbook self-checks "
+						"(expected 4 distinct frames advancing and wrapping)");
+					return 1;
+				}
+				SDL_Log("hello_orkige: flipbook self-checks passed (4-frame clip "
+					"advanced across frames and wrapped on loop)");
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{

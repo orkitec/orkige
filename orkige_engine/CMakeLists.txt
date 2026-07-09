@@ -101,6 +101,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/ModelComponent.cpp
     engine_gocomponent/SpriteComponent.h
     engine_gocomponent/SpriteComponent.cpp
+    engine_gocomponent/SpriteAnimationComponent.h
+    engine_gocomponent/SpriteAnimationComponent.cpp
     engine_gocomponent/AnimationComponent.h
     engine_gocomponent/AnimationComponent.cpp
     engine_gocomponent/CameraComponent.h

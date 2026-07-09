@@ -102,6 +102,12 @@ namespace Orkige
 		//! @brief the shown texture region (for atlas sprites); defaults to the
 		//! full texture (0,0)-(1,1). v runs top-down (texture convention).
 		void setUVRect(float u0, float v0, float u1, float v1);
+		//! @brief read the current UV rect back (the flipbook driver observes
+		//! its per-frame writes through this; also lets tooling inspect it)
+		void getUVRect(float & u0, float & v0, float & u1, float & v1) const;
+		//! @brief the loaded texture size in texels (0 before a texture loads);
+		//! the flipbook driver needs it for the frameToUVRect half-texel inset
+		void getTextureSize(float & width, float & height) const;
 		//! colour tint, multiplied with the texture (default 1,1,1,1)
 		void setTint(float red, float green, float blue, float alpha);
 		//! current tint
@@ -131,6 +137,22 @@ namespace Orkige
 		//! bottom-right, bottom-left - flips swap the respective coordinates
 		static void computeUVCorners(float u0, float v0, float u1, float v1,
 			bool flipX, bool flipY, Vec2 outCorners[4]);
+		//! @brief map a grid cell (flipbook frame / atlas tile) to a UV
+		//! sub-rect, with an optional half-texel inset against bilinear
+		//! atlas-seam bleeding. Cells are indexed row-major from the top-left
+		//! (v runs top-down, the same convention computeUVCorners follows);
+		//! frame is clamped to [0, columns*rows-1] and a columns/rows count
+		//! <= 0 yields the full (0,0)-(1,1) rect. The inset shrinks the rect
+		//! by half a texel on every side when the texture texel size is
+		//! passed (textureWidth/Height <= 0 = no inset, e.g. the pure grid
+		//! math the unit test pins).
+		//! @remarks THE shared pixel-rect->UV primitive (WP #79): the sprite
+		//! flipbook (SpriteAnimationComponent) drives it per frame, and the
+		//! texture-atlas package (#84) reuses it for atlas-region->UV math -
+		//! keep it pure and self-contained.
+		static void frameToUVRect(int frame, int columns, int rows,
+			float textureWidth, float textureHeight,
+			float & u0, float & v0, float & u1, float & v1);
 		//! the render queue id a zOrder maps to (clamped; base queue 50 on
 		//! both Ogre backends)
 		//! @remarks pure math kept for the unit tests; the live mapping is

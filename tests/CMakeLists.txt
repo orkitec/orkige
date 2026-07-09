@@ -165,6 +165,16 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_sound PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_SOUND=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_SPRITEANIM: the sprite flipbook (SpriteAnimationComponent)
+    # headed selfcheck - a 4x1 grid clip ticked through the GameObjectManager;
+    # asserts the sibling sprite's UV rect advances across frames and wraps on
+    # the loop (frame 120). Runs on both render flavors (per-tree, like the
+    # other demo_* tests).
+    add_test(NAME demo_spriteanim COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_spriteanim PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_SPRITEANIM=1;ORKIGE_DEMO_FRAMES=120")
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test
@@ -540,6 +550,7 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
+        demo_spriteanim
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_debug_pause
