@@ -14,7 +14,11 @@
 
 #include "engine_runtime/PlayerRuntime.h"
 
+#include "core_base/TypeManager.h"
+#include "core_base/PropertySchema.h"
+#include "core_base/PropertyValue.h"
 #include "core_debug/CVarManager.h"
+#include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
@@ -43,40 +47,45 @@ namespace Orkige
 	//---------------------------------------------------------
 	namespace
 	{
-		//! print a float with round-trip precision (matches
-		//! DebugMessage::setFloat)
-		String formatFloat(float value)
+		//! @brief the widget hint for a reflected property crossing the wire:
+		//! Enum -> its "label=value,label=value,..." option table (looked up once
+		//! per enum-type and cached), AssetRef/ObjectRef -> the asset-kind /
+		//! object-type hint, everything else -> "". Lets the editor pick a typed
+		//! widget (combo/asset picker) without a local schema.
+		String propertyHint(PropertyDesc const & desc, TypeManager & typeManager,
+			std::map<String, String> & enumHintCache)
 		{
-			char buffer[64];
-			std::snprintf(buffer, sizeof(buffer), "%.9g", value);
-			return buffer;
-		}
-
-		String formatVector3(Vec3 const & v)
-		{
-			return formatFloat(v.x) + " " + formatFloat(v.y) + " " +
-				formatFloat(v.z);
-		}
-
-		String formatQuaternion(Quat const & q)
-		{
-			return formatFloat(q.w) + " " + formatFloat(q.x) + " " +
-				formatFloat(q.y) + " " + formatFloat(q.z);
-		}
-
-		//! parse exactly count whitespace-separated floats; false on junk
-		bool parseFloats(String const & text, float * out, int count)
-		{
-			std::istringstream stream(text);
-			for (int i = 0; i < count; ++i)
+			if (desc.kind == PropertyKind::Enum)
 			{
-				if (!(stream >> out[i]))
+				std::map<String, String>::const_iterator cached =
+					enumHintCache.find(desc.enumTypeName);
+				if (cached != enumHintCache.end())
 				{
-					return false;
+					return cached->second;
 				}
+				String options;
+				if (EnumInfo const * enumInfo =
+					typeManager.findEnum(desc.enumTypeName))
+				{
+					for (auto const & labelled : enumInfo->values())
+					{
+						if (!options.empty())
+						{
+							options += ",";
+						}
+						options += labelled.first + "=" +
+							std::to_string(labelled.second);
+					}
+				}
+				enumHintCache[desc.enumTypeName] = options;
+				return options;
 			}
-			String trailing;
-			return !(stream >> trailing); // no trailing tokens allowed
+			if (desc.kind == PropertyKind::AssetRef ||
+				desc.kind == PropertyKind::ObjectRef)
+			{
+				return desc.referenceHint;
+			}
+			return String();
 		}
 
 		//! @brief all GameObject ids plus their parent ids ("" = root) and
@@ -103,70 +112,80 @@ namespace Orkige
 			}
 		}
 
-		//! @brief object_state v1: per-component property snapshot via the
-		//! known component getters. Exposed: TransformComponent position/
-		//! orientation/scale, ModelComponent mesh, RigidBodyComponent
-		//! body_type/has_body/linear_velocity/angular_velocity,
-		//! ScriptComponent script/enabled/started/error; other components
-		//! appear in the "components" list without properties.
+		//! @brief object_state: GENERIC per-component property snapshot driven off
+		//! the reflection registry (task #94 P3). For every component of the
+		//! object, iterate its declared PropertySchema and stream each reflected
+		//! property as "<Component>.<name>" -> PropertyValue::toString() (the
+		//! stringly-typed wire form), skipping HIDDEN properties and any without a
+		//! getter. Four parallel lists (keys/kinds/hints/read-only flags) carry
+		//! the per-property metadata so the editor picks a typed widget without a
+		//! local schema. New components and script exports appear here with ZERO
+		//! protocol code - the hand-written per-component allowlist is retired.
+		//! @remarks streams every frame for the selected object, so the schema
+		//! pointer is cached per component TYPE (one TypeManager lookup per type,
+		//! not per property per frame). Components that declared no properties
+		//! still appear in the "components" list.
 		DebugMessage buildObjectState(optr<GameObject> const & gameObject)
 		{
 			DebugMessage state(Protocol::MSG_OBJECT_STATE);
 			state.set(Protocol::FIELD_ID, gameObject->getObjectID());
+
+			// per-TYPE caches (the runtime is single-threaded; TypeManager map
+			// entries are stable once module init has registered them)
+			static std::map<TypeInfo::TypeId, PropertySchema const *> schemaCache;
+			static std::map<String, String> enumHintCache;
+			TypeManager & typeManager = TypeManager::getSingleton();
+
 			StringVector componentNames;
+			StringVector propKeys;
+			StringVector propKinds;
+			StringVector propHints;
+			StringVector propFlags;
 			for (auto const & [componentType, component] :
 				gameObject->getComponents())
 			{
-				componentNames.push_back(componentType.getName());
+				String const & componentName = componentType.getName();
+				componentNames.push_back(componentName);
+
+				const TypeInfo::TypeId typeId = componentType.getId();
+				std::map<TypeInfo::TypeId, PropertySchema const *>::iterator
+					cached = schemaCache.find(typeId);
+				PropertySchema const * schema;
+				if (cached != schemaCache.end())
+				{
+					schema = cached->second;
+				}
+				else
+				{
+					schema = typeManager.getPropertySchema(typeId);
+					schemaCache[typeId] = schema;
+				}
+				if (!schema)
+				{
+					continue; // a component that declared no reflected properties
+				}
+				void const * instance = static_cast<void const *>(component.get());
+				for (PropertyDesc const & desc : schema->properties())
+				{
+					if (desc.hasFlag(PROP_HIDDEN) || !desc.get)
+					{
+						continue; // never stream a hidden / getter-less property
+					}
+					const String key = componentName + "." + desc.name;
+					state.set(key, desc.get(instance).toString());
+					propKeys.push_back(key);
+					propKinds.push_back(
+						std::to_string(static_cast<int>(desc.kind)));
+					propHints.push_back(
+						propertyHint(desc, typeManager, enumHintCache));
+					propFlags.push_back(desc.isReadOnly() ? "1" : "0");
+				}
 			}
 			state.setList(Protocol::LIST_COMPONENTS, componentNames);
-			if (gameObject->hasComponent<TransformComponent>())
-			{
-				TransformComponent * transform =
-					gameObject->getComponentPtr<TransformComponent>();
-				state.set("TransformComponent.position",
-					formatVector3(transform->getPosition()));
-				state.set("TransformComponent.orientation",
-					formatQuaternion(transform->getOrientation()));
-				state.set("TransformComponent.scale",
-					formatVector3(transform->getScale()));
-			}
-			if (gameObject->hasComponent<ModelComponent>())
-			{
-				state.set("ModelComponent.mesh",
-					gameObject->getComponentPtr<ModelComponent>()
-						->getCurrentModelFileName());
-			}
-			if (gameObject->hasComponent<RigidBodyComponent>())
-			{
-				RigidBodyComponent * rigidBody =
-					gameObject->getComponentPtr<RigidBodyComponent>();
-				const char * bodyTypeNames[] =
-					{ "static", "kinematic", "dynamic" };
-				const int bodyType = static_cast<int>(rigidBody->getBodyType());
-				state.set("RigidBodyComponent.body_type",
-					(bodyType >= 0 && bodyType <= 2)
-						? bodyTypeNames[bodyType] : "?");
-				state.set("RigidBodyComponent.has_body",
-					rigidBody->hasBody() ? "1" : "0");
-				state.set("RigidBodyComponent.linear_velocity",
-					formatVector3(rigidBody->getLinearVelocity()));
-				state.set("RigidBodyComponent.angular_velocity",
-					formatVector3(rigidBody->getAngularVelocity()));
-			}
-			if (gameObject->hasComponent<ScriptComponent>())
-			{
-				// the live script state - this is what feeds the editor's
-				// remote Inspector, including the "(script error)" indicator
-				ScriptComponent * script =
-					gameObject->getComponentPtr<ScriptComponent>();
-				state.set("ScriptComponent.script", script->getScriptFile());
-				state.set("ScriptComponent.enabled",
-					script->isScriptEnabled() ? "1" : "0");
-				state.set("ScriptComponent.started",
-					script->isScriptStarted() ? "1" : "0");
-				state.set("ScriptComponent.error", script->getScriptError());
-			}
+			state.setList(Protocol::LIST_PROP_KEYS, propKeys);
+			state.setList(Protocol::LIST_PROP_KINDS, propKinds);
+			state.setList(Protocol::LIST_PROP_HINTS, propHints);
+			state.setList(Protocol::LIST_PROP_FLAGS, propFlags);
 			return state;
 		}
 	}
@@ -483,11 +502,14 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	//! set_property v1: TransformComponent position ("x y z"), orientation
-	//! ("w x y z", normalized here), scale ("x y z"); RigidBodyComponent
-	//! linear_velocity/angular_velocity ("x y z", needs the created body).
-	//! Unknown objects/components/properties and malformed values answer
-	//! with an error message - never crash.
+	//! @brief set_property: GENERIC write driven off the reflection registry
+	//! (task #94 P3). Resolve the (component,property) descriptor in the schema,
+	//! parse the wire string into a correctly-typed PropertyValue and call the
+	//! reflected setter - which routes to the component's real accessor, so the
+	//! effect takes hold live (a Sprite reloads its texture, a RigidBody rebuilds,
+	//! a Transform moves). A read-only property, an unknown object/component/
+	//! property or a value that fails to parse answers with an error - never
+	//! crashes. The hand-written per-component write switch is retired.
 	void PlayerDebugLink::handleSetProperty(
 		GameObjectManager & gameObjectManager, DebugMessage const & message)
 	{
@@ -502,63 +524,59 @@ namespace Orkige
 			sendError("set_property: no GameObject '" + id + "'");
 			return;
 		}
-		if (component == "TransformComponent" &&
-			gameObject->hasComponent<TransformComponent>())
+		const TypeInfo componentType(component);
+		if (!gameObject->hasComponent(componentType))
 		{
-			TransformComponent * transform =
-				gameObject->getComponentPtr<TransformComponent>();
-			float floats[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			if (property == "position" && parseFloats(value, floats, 3))
-			{
-				transform->setPosition(
-					Vec3(floats[0], floats[1], floats[2]));
-				return;
-			}
-			if (property == "orientation" && parseFloats(value, floats, 4))
-			{
-				Quat orientation(floats[0], floats[1], floats[2],
-					floats[3]);
-				orientation.normalise();
-				transform->setOrientation(orientation);
-				return;
-			}
-			if (property == "scale" && parseFloats(value, floats, 3))
-			{
-				transform->setScale(
-					Vec3(floats[0], floats[1], floats[2]));
-				return;
-			}
+			sendError("set_property: '" + id + "' has no " + component);
+			return;
 		}
-		else if (component == "RigidBodyComponent" &&
-			gameObject->hasComponent<RigidBodyComponent>())
+		PropertySchema const * schema = TypeManager::getSingleton()
+			.getPropertySchema(componentType.getId());
+		PropertyDesc const * desc = schema ? schema->find(property) : 0;
+		if (!desc)
 		{
-			RigidBodyComponent * rigidBody =
-				gameObject->getComponentPtr<RigidBodyComponent>();
-			float floats[3] = { 0.0f, 0.0f, 0.0f };
-			if ((property == "linear_velocity" ||
-				property == "angular_velocity") &&
-				parseFloats(value, floats, 3))
-			{
-				if (!rigidBody->hasBody())
-				{
-					sendError("set_property: '" + id +
-						"' has no created rigid body yet");
-					return;
-				}
-				const Vec3 velocity(floats[0], floats[1], floats[2]);
-				if (property == "linear_velocity")
-				{
-					rigidBody->setLinearVelocity(velocity);
-				}
-				else
-				{
-					rigidBody->setAngularVelocity(velocity);
-				}
-				return;
-			}
+			sendError("set_property: unknown property " + component + "." +
+				property);
+			return;
 		}
-		sendError("set_property: unsupported or malformed " + component +
-			"." + property + " = '" + value + "' on '" + id + "'");
+		if (desc->isReadOnly())
+		{
+			sendError("set_property: " + component + "." + property +
+				" is read-only");
+			return;
+		}
+		GameObjectComponent * instance =
+			gameObject->getComponentPtr(componentType);
+		if (!instance)
+		{
+			sendError("set_property: '" + id + "' has no " + component);
+			return;
+		}
+		// read the current value to obtain a correctly-typed carrier (kind +
+		// enum-type/reference hint), then parse the wire string into it
+		PropertyValue reflected = desc->get(static_cast<void const *>(instance));
+		String parseError;
+		if (!reflected.fromString(value, &parseError))
+		{
+			sendError("set_property: bad value for " + component + "." +
+				property + " ('" + value + "'): " + parseError);
+			return;
+		}
+		// keep the historical orientation guarantee: an editor drag can send an
+		// unnormalized quaternion, and the scene node does not normalize
+		if (desc->kind == PropertyKind::Quat)
+		{
+			const PropQuat raw = reflected.asQuat();
+			Quat quat(raw.w, raw.x, raw.y, raw.z);
+			quat.normalise();
+			PropQuat normalized;
+			normalized.w = quat.w;
+			normalized.x = quat.x;
+			normalized.y = quat.y;
+			normalized.z = quat.z;
+			reflected = PropertyValue::makeQuat(normalized);
+		}
+		desc->set(static_cast<void *>(instance), reflected);
 	}
 	//---------------------------------------------------------
 	//! @brief reload_script (WP #77 hot-reload): recompile-and-swap the

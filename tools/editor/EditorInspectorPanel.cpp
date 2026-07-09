@@ -3,6 +3,7 @@
 // and the remote play-mode object_state view.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorPropertyWidgets.h"
 
 #include <core_util/StringUtil.h>
 #include <engine_gocomponent/CameraComponent.h>
@@ -584,43 +585,52 @@ void drawAddComponentButton(EditorState& state, Orkige::EditorCore& core,
 	}
 }
 
-// remote inspector helpers: a Drag editor bound to a streamed property that
-// sends set_property on change (only used for the set_property-backed
-// properties; everything else renders read-only)
-void drawRemoteDragProperty(PlaySession& session, char const* label,
-	std::string const& component, std::string const& property, int floatCount)
+// remote inspector helper: render ONE streamed property with a typed widget
+// (drawPropertyWidget, task #94 P3) and send set_property when the user edits
+// it. `key` is the "<Component>.<property>" schema key; `component`/`property`
+// are its split halves (the wire fields set_property needs). Read-only and
+// getter-less properties render disabled - the reflection metadata says which.
+void drawRemoteProperty(PlaySession& session, std::string const& key,
+	std::string const& component, std::string const& property)
 {
-	const std::string key = component + "." + property;
-	std::map<std::string, std::string>::const_iterator it =
+	std::map<std::string, std::string>::const_iterator value =
 		session.stateProperties.find(key);
-	if (it == session.stateProperties.end())
+	if (value == session.stateProperties.end())
 	{
 		return;
 	}
-	float values[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	if (!parsePlayFloats(it->second, values, floatCount))
+	PropertyWidgetDesc desc;
+	desc.label = property;
+	std::map<std::string, int>::const_iterator kind =
+		session.statePropKind.find(key);
+	desc.kind = (kind != session.statePropKind.end())
+		? static_cast<Orkige::PropertyKind>(kind->second)
+		: Orkige::PropertyKind::String;
+	std::map<std::string, std::string>::const_iterator hint =
+		session.statePropHint.find(key);
+	if (hint != session.statePropHint.end())
 	{
-		ImGui::TextDisabled("%s: %s", label, it->second.c_str());
-		return;
+		desc.hint = hint->second;
 	}
-	const bool edited = (floatCount == 4)
-		? ImGui::DragFloat4(label, values, 0.05f)
-		: ImGui::DragFloat3(label, values, 0.05f);
-	if (edited)
+	desc.readOnly = session.statePropReadonly.count(key) != 0;
+	std::string edited;
+	if (drawPropertyWidget(desc, value->second, edited))
 	{
 		Orkige::DebugMessage set(Protocol::MSG_SET_PROPERTY);
 		set.set(Protocol::FIELD_ID, session.stateObjectId);
 		set.set(Protocol::FIELD_COMPONENT, component);
 		set.set(Protocol::FIELD_PROPERTY, property);
-		set.set(Protocol::FIELD_VALUE, formatPlayFloats(values, floatCount));
+		set.set(Protocol::FIELD_VALUE, edited);
 		session.client.send(set);
 	}
 }
 
 // Inspector content during play: the streamed object_state of the selected
-// remote object. The set_property-backed properties (TransformComponent
-// position/orientation/scale, RigidBodyComponent linear/angular velocity)
-// are editable drags, everything else is read-only.
+// remote object, rendered GENERICALLY off the reflection metadata (task #94
+// P3). Every reflected property gets a typed widget by its PropertyKind
+// (float->drag, vec3->3 drags, bool->checkbox, enum->combo, ...); an edit
+// sends set_property. No per-component code - new components / script exports
+// appear here automatically.
 void drawRemoteInspector(PlaySession& session)
 {
 	if (session.remoteSelectedId.empty())
@@ -674,30 +684,27 @@ void drawRemoteInspector(PlaySession& session)
 		{
 			continue;
 		}
-		if (component == "TransformComponent")
+		ImGui::PushID(component.c_str());
+		const std::string prefix = component + ".";
+		bool any = false;
+		if (!session.statePropKeys.empty())
 		{
-			drawRemoteDragProperty(session, "Position", component,
-				"position", 3);
-			drawRemoteDragProperty(session, "Orientation (wxyz)", component,
-				"orientation", 4);
-			drawRemoteDragProperty(session, "Scale", component, "scale", 3);
-		}
-		else if (component == "RigidBodyComponent")
-		{
-			ImGui::TextDisabled("body: %s%s",
-				session.stateProperties["RigidBodyComponent.body_type"].c_str(),
-				session.stateProperties["RigidBodyComponent.has_body"] == "1"
-					? "" : " (not created yet)");
-			drawRemoteDragProperty(session, "Linear velocity", component,
-				"linear_velocity", 3);
-			drawRemoteDragProperty(session, "Angular velocity", component,
-				"angular_velocity", 3);
+			// typed widgets, in the schema's declaration order
+			for (std::string const& key : session.statePropKeys)
+			{
+				if (key.rfind(prefix, 0) != 0)
+				{
+					continue;
+				}
+				drawRemoteProperty(session, key, component,
+					key.substr(prefix.size()));
+				any = true;
+			}
 		}
 		else
 		{
-			// generic read-only dump of whatever the player streamed
-			bool any = false;
-			const std::string prefix = component + ".";
+			// fallback: a player predating the reflection metadata - untyped
+			// read-only dump of whatever values it streamed
 			for (auto const& [key, value] : session.stateProperties)
 			{
 				if (key.rfind(prefix, 0) == 0)
@@ -707,11 +714,12 @@ void drawRemoteInspector(PlaySession& session)
 					any = true;
 				}
 			}
-			if (!any)
-			{
-				ImGui::TextDisabled("(no properties streamed)");
-			}
 		}
+		if (!any)
+		{
+			ImGui::TextDisabled("(no properties streamed)");
+		}
+		ImGui::PopID();
 	}
 	ImGui::PopStyleColor(3); // neutral component headers
 }

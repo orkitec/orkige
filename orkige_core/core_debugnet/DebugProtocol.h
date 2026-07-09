@@ -125,6 +125,21 @@ namespace Orkige
 		//! LIST_IDS (effective activeInHierarchy is derived through the
 		//! parents). Additive since protocol v1 like LIST_PARENTS.
 		extern ORKIGE_CORE_DLL const String LIST_ACTIVE;
+		//! @brief object_state reflection metadata (task #94 P3): four parallel
+		//! lists describing the streamed properties so the editor picks a TYPED
+		//! widget without a local schema. LIST_PROP_KEYS holds the ordered
+		//! "<Component>.<property>" keys (the same keys the flat value fields use);
+		//! LIST_PROP_KINDS the PropertyKind int per key; LIST_PROP_HINTS the
+		//! widget hint (Enum: "label=value,label=value,..." option table; AssetRef/
+		//! ObjectRef: the asset-kind/object-type hint; "" otherwise);
+		//! LIST_PROP_FLAGS "1" when the property is read-only, "0" otherwise.
+		//! Additive since protocol v1: an editor without them falls back to the
+		//! historical untyped read-only value dump, and the values themselves
+		//! still cross as the flat "<Component>.<property>" fields.
+		extern ORKIGE_CORE_DLL const String LIST_PROP_KEYS;
+		extern ORKIGE_CORE_DLL const String LIST_PROP_KINDS;
+		extern ORKIGE_CORE_DLL const String LIST_PROP_HINTS;
+		extern ORKIGE_CORE_DLL const String LIST_PROP_FLAGS;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

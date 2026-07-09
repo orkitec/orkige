@@ -52,6 +52,10 @@ namespace Orkige
 		const String LIST_COMPONENTS		= "components";
 		const String LIST_PARENTS			= "parents";
 		const String LIST_ACTIVE			= "active";
+		const String LIST_PROP_KEYS			= "pkeys";
+		const String LIST_PROP_KINDS		= "pkinds";
+		const String LIST_PROP_HINTS		= "phints";
+		const String LIST_PROP_FLAGS		= "pflags";
 	}
 
 	namespace

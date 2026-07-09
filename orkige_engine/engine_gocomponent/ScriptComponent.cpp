@@ -860,5 +860,11 @@ namespace Orkige
 		// relative path, asset-kind "script") + the enabled flag
 		OPROPERTY_REF("script", Orkige::PropertyKind::AssetRef, "script", getScriptFile, setScriptFile, Orkige::PROP_NONE)
 		OPROPERTY("enabled", Orkige::PropertyKind::Bool, isScriptEnabled, setScriptEnabled, Orkige::PROP_NONE)
+		// runtime telemetry: reflected but TRANSIENT read-only live state - the
+		// started flag and the current error text keep the debug protocol's
+		// script readout (the editor's inline "(script error)") flowing off the
+		// ONE registry (loud failures still ride the separate MSG_SCRIPT_ERROR).
+		OPROPERTY_RO("started", Orkige::PropertyKind::Bool, isScriptStarted, Orkige::PROP_TRANSIENT)
+		OPROPERTY_RO("error", Orkige::PropertyKind::String, getScriptError, Orkige::PROP_TRANSIENT)
 	OOBJECT_END
 }

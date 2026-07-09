@@ -50,6 +50,8 @@ add_executable(orkige_editor
     EditorInspectorPanel.cpp
     EditorMenus.cpp
     EditorPlaySession.cpp
+    EditorPropertyWidgets.h
+    EditorPropertyWidgets.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp
     EditorShortcuts.cpp

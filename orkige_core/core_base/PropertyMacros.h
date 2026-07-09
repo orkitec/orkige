@@ -58,6 +58,18 @@
 		Orkige::PropertyDesc((PropName), (Kind), (Flags),							\
 			ORKIGE_PROP_GET(Getter), ORKIGE_PROP_SET(Getter, Setter)));
 
+//! @brief neutral registration of a READ-ONLY scalar/math property: a getter,
+//! no setter (an empty PropertySetter marks the descriptor read-only). Used for
+//! runtime telemetry that reflects but must not be assigned - velocity readback,
+//! has-body, a script's started/error state. Combine with PROP_TRANSIENT to keep
+//! such a property out of serialization while still exposing it to the debug
+//! protocol, inspector and MCP off the ONE registry.
+#define OPROPERTY_READONLY_REGISTER(PropName, Kind, Getter, Flags)					\
+	Orkige::TypeManager::getSingleton().registerProperty(							\
+		OSelf::getClassTypeInfo().getId(),											\
+		Orkige::PropertyDesc((PropName), (Kind), (Flags),							\
+			ORKIGE_PROP_GET(Getter), Orkige::PropertySetter()));
+
 //! neutral registration of a scalar/math property carrying display metadata
 //! (MetaExpr is an Orkige::PropertyMeta value - reserved for the inspector)
 #define OPROPERTY_REGISTER_META(PropName, Kind, Getter, Setter, Flags, MetaExpr)	\

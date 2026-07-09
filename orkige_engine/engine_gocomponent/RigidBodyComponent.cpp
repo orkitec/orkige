@@ -511,5 +511,13 @@ namespace Orkige
 		OPROPERTY("planar", Orkige::PropertyKind::Bool, getPlanarMode, setPlanarMode, Orkige::PROP_NONE)
 		OPROPERTY("layer", Orkige::PropertyKind::String, getLayer, setLayer, Orkige::PROP_NONE)
 		OPROPERTY("isSensor", Orkige::PropertyKind::Bool, isSensor, setIsSensor, Orkige::PROP_NONE)
+		// runtime telemetry: reflected but TRANSIENT (never serialized - live
+		// physics state). Velocity is read/write (the accessors no-op / return
+		// zero without a created body, so a generic set is always safe); has_body
+		// is read-only. These keep the debug protocol's rigid-body readout (and
+		// its only pre-#94 writable fields) flowing off the ONE registry.
+		OPROPERTY("linear_velocity", Orkige::PropertyKind::Vec3, getLinearVelocity, setLinearVelocity, Orkige::PROP_TRANSIENT)
+		OPROPERTY("angular_velocity", Orkige::PropertyKind::Vec3, getAngularVelocity, setAngularVelocity, Orkige::PROP_TRANSIENT)
+		OPROPERTY_RO("has_body", Orkige::PropertyKind::Bool, hasBody, Orkige::PROP_TRANSIENT)
 	OOBJECT_END
 }

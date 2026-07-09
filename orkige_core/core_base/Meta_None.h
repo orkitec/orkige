@@ -199,6 +199,8 @@
 //! adds a sol2 property ON TOP of this same neutral registration.
 #define OPROPERTY(PropName,Kind,Getter,Setter,Flags)						\
 	OPROPERTY_REGISTER(PropName,Kind,Getter,Setter,Flags)
+#define OPROPERTY_RO(PropName,Kind,Getter,Flags)							\
+	OPROPERTY_READONLY_REGISTER(PropName,Kind,Getter,Flags)
 #define OPROPERTY_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)			\
 	OPROPERTY_REGISTER_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)
 #define OPROPERTY_ENUM(PropName,EnumTypeName,Getter,Setter,Flags)			\

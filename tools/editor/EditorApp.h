@@ -479,6 +479,16 @@ struct PlaySession
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
 	std::map<std::string, std::string> stateProperties;	//!< "<Comp>.<prop>" -> value
+	//! reflection metadata parallel to stateProperties (task #94 P3): the
+	//! ordered "<Comp>.<prop>" keys and, per key, the PropertyKind int, the
+	//! widget hint (enum "label=value,..." table / asset-kind) and the
+	//! read-only flag - so the remote Inspector renders a TYPED widget per
+	//! property off the ONE registry. EMPTY when the player predates the
+	//! metadata lists (the panel then falls back to a read-only value dump).
+	Orkige::StringVector statePropKeys;
+	std::map<std::string, int> statePropKind;
+	std::map<std::string, std::string> statePropHint;
+	std::set<std::string> statePropReadonly;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;

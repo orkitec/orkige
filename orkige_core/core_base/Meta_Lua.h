@@ -303,6 +303,11 @@ namespace Orkige
 	OPROPERTY_REGISTER(PropName,Kind,Getter,Setter,Flags)					\
 	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\
 		&ExposedClassType::Setter);
+//! reflected READ-ONLY property - DUAL emission: the neutral registry (getter
+//! only, no setter => read-only descriptor) AND a getter-only sol2 property.
+#define OPROPERTY_RO(PropName,Kind,Getter,Flags)							\
+	OPROPERTY_READONLY_REGISTER(PropName,Kind,Getter,Flags)				\
+	py_class[PropName] = sol::property(&ExposedClassType::Getter);
 #define OPROPERTY_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)			\
 	OPROPERTY_REGISTER_META(PropName,Kind,Getter,Setter,Flags,MetaExpr)		\
 	py_class[PropName] = sol::property(&ExposedClassType::Getter,			\

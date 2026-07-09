@@ -63,6 +63,10 @@ void clearRemoteState(PlaySession& session)
 	session.stateObjectId.clear();
 	session.stateComponents.clear();
 	session.stateProperties.clear();
+	session.statePropKeys.clear();
+	session.statePropKind.clear();
+	session.statePropHint.clear();
+	session.statePropReadonly.clear();
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -944,6 +948,35 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				if (key != Protocol::FIELD_ID)
 				{
 					session.stateProperties[key] = value;
+				}
+			}
+			// reflection metadata (task #94 P3): four parallel lists describe
+			// each streamed property so the Inspector picks a typed widget. A
+			// player predating them leaves these empty (read-only-dump fallback).
+			session.statePropKeys = message.getList(Protocol::LIST_PROP_KEYS);
+			const Orkige::StringVector& kinds =
+				message.getList(Protocol::LIST_PROP_KINDS);
+			const Orkige::StringVector& hints =
+				message.getList(Protocol::LIST_PROP_HINTS);
+			const Orkige::StringVector& flags =
+				message.getList(Protocol::LIST_PROP_FLAGS);
+			session.statePropKind.clear();
+			session.statePropHint.clear();
+			session.statePropReadonly.clear();
+			for (std::size_t i = 0; i < session.statePropKeys.size(); ++i)
+			{
+				const std::string& key = session.statePropKeys[i];
+				if (i < kinds.size())
+				{
+					session.statePropKind[key] = std::atoi(kinds[i].c_str());
+				}
+				if (i < hints.size())
+				{
+					session.statePropHint[key] = hints[i];
+				}
+				if (i < flags.size() && flags[i] == "1")
+				{
+					session.statePropReadonly.insert(key);
 				}
 			}
 		}
