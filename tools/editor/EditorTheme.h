@@ -39,4 +39,28 @@ namespace Orkige
 	//!         ImGui default font - never an error)
 	ImFont* loadMacSystemFont(ImGuiIO& io, float sizePoints,
 		float contentScale = 1.0f);
+
+	//! @brief merge the editor icon font (Font Awesome 6 Free, Solid) into the
+	//! font atlas. The glyphs are added twice from the same .ttf: MergeMode into
+	//! the last-added (base UI) font so icons render inline with text at UI size,
+	//! AND once more as a standalone larger font (see editorIconFont) the asset
+	//! browser draws at grid-tile size - rasterised big so it stays crisp when
+	//! scaled down for small tiles/list rows. Only the handful of codepoints the
+	//! editor uses are rasterised, so the atlas cost is tiny.
+	//! Call AFTER loadMacSystemFont (a base font must exist to merge into) and
+	//! BEFORE the atlas is built.
+	//! @param io the ImGui IO whose atlas receives the icons
+	//! @param fontPath path to fa-solid-900.ttf
+	//! @param sizePoints the base UI font size in points (the merged size)
+	//! @param contentScale render-target pixels per point (DPI scale)
+	//! On any failure (path missing, parse error) the atlas is left unchanged and
+	//! editorIconFont() stays nullptr - callers fall back to drawn glyph icons.
+	void loadEditorIconFont(ImGuiIO& io, const char* fontPath, float sizePoints,
+		float contentScale = 1.0f);
+
+	//! @brief the standalone larger icon font loaded by loadEditorIconFont, or
+	//! nullptr when the icon font was unavailable (callers then draw the
+	//! programmer-art glyph icons instead). Also the "are icons available?"
+	//! probe: non-null implies the merged inline icons are present too.
+	ImFont* editorIconFont();
 }

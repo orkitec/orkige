@@ -109,6 +109,18 @@ if(APPLE)
     target_sources(orkige_editor PRIVATE "${_editor_icns}")
     set_source_files_properties("${_editor_icns}" PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources)
+    # ship the icon font (+ its licenses) inside the bundle so a distributed
+    # Orkige.app finds it next to the executable via SDL_GetBasePath; out of the
+    # build tree the editor falls back to ORKIGE_EDITOR_ICON_FONT_DIR (below)
+    set(_editor_icon_font "${CMAKE_CURRENT_SOURCE_DIR}/media/fa-solid-900.ttf")
+    set(_editor_font_licenses
+        "${CMAKE_CURRENT_SOURCE_DIR}/media/LICENSE-fontawesome.txt"
+        "${CMAKE_CURRENT_SOURCE_DIR}/media/LICENSE-iconfontcppheaders.txt")
+    target_sources(orkige_editor PRIVATE
+        "${_editor_icon_font}" ${_editor_font_licenses})
+    set_source_files_properties(
+        "${_editor_icon_font}" ${_editor_font_licenses} PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
     set_target_properties(orkige_editor PROPERTIES
         OUTPUT_NAME "Orkige"
         MACOSX_BUNDLE TRUE
@@ -158,6 +170,9 @@ target_compile_definitions(orkige_editor PRIVATE
     ORKIGE_EDITOR_JUMPER_ASSET_DIR="${CMAKE_SOURCE_DIR}/samples/jumper/media"
     # default directory the Scene Path modal offers for .oscene files
     ORKIGE_EDITOR_SCENE_DIR="${CMAKE_SOURCE_DIR}/samples/scenes"
+    # icon font source dir (fa-solid-900.ttf) - the out-of-bundle fallback the
+    # editor loads from when running straight out of the build tree
+    ORKIGE_EDITOR_ICON_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
     ORKIGE_EDITOR_VERSION="${PROJECT_VERSION}"
     # play mode spawns this binary (Play toolbar button / playtest hooks)
     ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"

@@ -27,8 +27,10 @@
 // ImGuiFacadeRenderer::textureIdForResource -> the DrawLayer2D named-texture
 // path (identical machinery to the ImGui font atlas). Loading happens OFF the
 // paint path through a budgeted per-frame queue keyed by absolute path + mtime;
-// every non-texture kind draws a self-contained glyph type icon. Rendered mesh
-// previews (a per-asset RTT render) are a DEFERRED heavier follow-on.
+// every non-texture kind draws a per-kind icon-font glyph (Font Awesome 6
+// solid, colour-tinted; a drawn rounded-rect glyph is the fallback when the
+// icon font is unavailable). Rendered mesh previews (a per-asset RTT render)
+// are a DEFERRED heavier follow-on.
 //
 // Selection is keyed by project-relative path (so it survives re-enumeration
 // and renames of OTHER items) and drives the asset ops. Filesystem side effects
@@ -39,6 +41,8 @@
 // Split out of main.cpp's per-panel decomposition (see EditorApp.h).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorApp.h"
+#include "EditorTheme.h"
+#include "IconsFontAwesome6.h"
 #include "ImGuiFacadeRenderer.h"
 #include "MeshImport.h"
 
@@ -1270,7 +1274,11 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 		flags |= ImGuiTreeNodeFlags_Selected;
 	}
 	ImGui::PushID(dir.c_str());
-	const bool open = ImGui::TreeNodeEx(name.c_str(), flags);
+	// the same folder icon the content grid uses, inline via the merged icon
+	// font (rendered in text colour); bare label when the icon font is absent
+	std::string label = Orkige::editorIconFont()
+		? std::string(ICON_FA_FOLDER "  ") + name : name;
+	const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
 	// a dragged asset dropped onto a folder node moves into it
 	folderDropTarget(state, dir);
 	// a click on the label (not the expand arrow) navigates
@@ -1370,16 +1378,39 @@ const char* assetKindTag(AssetKind kind, bool isFolder)
 	}
 }
 
+//! the icon-font glyph for a kind (Font Awesome 6 solid; see IconsFontAwesome6.h)
+const char* assetKindIcon(AssetKind kind, bool isFolder)
+{
+	if (isFolder)
+	{
+		return ICON_FA_FOLDER;
+	}
+	switch (kind)
+	{
+	case AssetKind::Texture:	return ICON_FA_IMAGE;
+	case AssetKind::Mesh:		return ICON_FA_CUBE;
+	case AssetKind::Script:		return ICON_FA_FILE_CODE;
+	case AssetKind::Scene:		return ICON_FA_FILM;
+	case AssetKind::Prefab:		return ICON_FA_CLONE;
+	case AssetKind::Audio:		return ICON_FA_MUSIC;
+	case AssetKind::Unknown:
+	default:					return ICON_FA_FILE;
+	}
+}
+
+//! apply the sidecar-less "dimmed" convention to a kind colour (half alpha)
+ImU32 dimIfNeeded(ImU32 color, bool dimmed)
+{
+	return dimmed ? ((color & 0x00FFFFFFu) | 0x80000000u) : color;
+}
+
 //! draw a self-contained glyph type icon (a rounded rect + a short kind tag)
-//! into a rect - no icon art files, so every kind reads at a glance
+//! into a rect - the fallback for when the icon font failed to load, so every
+//! kind still reads at a glance with no art files
 void drawKindGlyph(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 	AssetKind kind, bool isFolder, bool dimmed)
 {
-	ImU32 fill = assetKindColor(kind, isFolder);
-	if (dimmed)
-	{
-		fill = (fill & 0x00FFFFFFu) | 0x80000000u;	// half alpha for sidecar-less
-	}
+	const ImU32 fill = dimIfNeeded(assetKindColor(kind, isFolder), dimmed);
 	const float side = std::min(maxCorner.x - minCorner.x,
 		maxCorner.y - minCorner.y);
 	const float rounding = std::min(6.0f, side * 0.18f);
@@ -1395,21 +1426,86 @@ void drawKindGlyph(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 	}
 }
 
-//! the ONE seam for a content item's visual across grid, list and (future)
-//! tree: the real texture thumbnail when one is loaded, otherwise the kind's
-//! glyph icon. A later icon-font pass swaps the glyph branch here in one place,
-//! so nothing else draws icon art directly.
-void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
-	AssetKind kind, bool isFolder, bool dimmed, ImTextureID thumb)
+//! draw a kind's icon-font glyph centred in a rect, tinted by the kind colour;
+//! folders read a touch larger and warmer, like an established file browser.
+//! Falls back to the drawn glyph when the icon font is unavailable.
+void drawKindIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
+	AssetKind kind, bool isFolder, bool dimmed)
 {
-	if (thumb)
-	{
-		drawList->AddImage(thumb, minCorner, maxCorner);
-	}
-	else
+	ImFont* iconFont = Orkige::editorIconFont();
+	if (!iconFont)
 	{
 		drawKindGlyph(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
+		return;
 	}
+	const ImU32 color = dimIfNeeded(assetKindColor(kind, isFolder), dimmed);
+	const char* glyph = assetKindIcon(kind, isFolder);
+	const float side = std::min(maxCorner.x - minCorner.x,
+		maxCorner.y - minCorner.y);
+	const float pixels = side * (isFolder ? 0.94f : 0.82f);
+	const ImVec2 size = iconFont->CalcTextSizeA(pixels, FLT_MAX, 0.0f, glyph);
+	const ImVec2 at((minCorner.x + maxCorner.x) * 0.5f - size.x * 0.5f,
+		(minCorner.y + maxCorner.y) * 0.5f - size.y * 0.5f);
+	drawList->AddText(iconFont, pixels, at, color, glyph);
+}
+
+//! a light/dark checkerboard clipped to a rect - the classic "this is
+//! transparency" backing so alpha textures read against any tile colour
+void drawCheckerboard(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner)
+{
+	const float cell = 6.0f;
+	const ImU32 light = IM_COL32(58, 58, 60, 255);
+	const ImU32 dark = IM_COL32(44, 44, 46, 255);
+	drawList->AddRectFilled(minCorner, maxCorner, dark);
+	drawList->PushClipRect(minCorner, maxCorner, true);
+	int row = 0;
+	for (float y = minCorner.y; y < maxCorner.y; y += cell, ++row)
+	{
+		for (float x = minCorner.x + (row & 1 ? cell : 0.0f); x < maxCorner.x;
+			x += cell * 2.0f)
+		{
+			drawList->AddRectFilled(ImVec2(x, y),
+				ImVec2(std::min(x + cell, maxCorner.x),
+					std::min(y + cell, maxCorner.y)), light);
+		}
+	}
+	drawList->PopClipRect();
+}
+
+//! the ONE seam for a content item's visual across grid, list and tree: the
+//! real texture thumbnail when one is loaded, otherwise the kind's icon.
+//! @param tile when true (grid tiles) the icon/thumbnail sits on a subtle
+//!        rounded backing (a checkerboard behind alpha textures); false for the
+//!        compact list/tree/rename rows where a bare icon reads better
+void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
+	AssetKind kind, bool isFolder, bool dimmed, ImTextureID thumb,
+	bool tile = false)
+{
+	const float rounding = tile
+		? std::min(6.0f, (maxCorner.y - minCorner.y) * 0.14f) : 0.0f;
+	if (thumb)
+	{
+		if (tile)
+		{
+			drawCheckerboard(drawList, minCorner, maxCorner);
+			drawList->AddImageRounded(thumb, minCorner, maxCorner,
+				ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, rounding);
+		}
+		else
+		{
+			drawList->AddImage(thumb, minCorner, maxCorner);
+		}
+		return;
+	}
+	if (tile)
+	{
+		// a subtle rounded backing tints toward the kind so unloaded tiles are
+		// not just a floating glyph on the grid
+		const ImU32 backing = dimIfNeeded(
+			(assetKindColor(kind, isFolder) & 0x00FFFFFFu) | 0x22000000u, dimmed);
+		drawList->AddRectFilled(minCorner, maxCorner, backing, rounding);
+	}
+	drawKindIcon(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
 }
 
 //! clip text to a pixel width with a trailing ellipsis (grid labels)
@@ -1650,7 +1746,7 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 iconMax(iconMin.x + iconSide - inset * 2.0f,
 			iconMin.y + iconSide - inset * 2.0f);
 		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
-			entry.isFolder, entry.item.dimmed, thumb);
+			entry.isFolder, entry.item.dimmed, thumb, !listMode);
 		if (listMode)
 		{
 			ImGui::SameLine();
@@ -1681,8 +1777,28 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 
 	const ImVec2 pos = ImGui::GetCursorScreenPos();
 	const ImVec2 cellSize(listMode ? 0.0f : cellW, cellH);
+	// draw the selection/hover fill ourselves (rounded, theme accent) instead of
+	// the Selectable's square block: capture the theme colours, then suppress the
+	// widget's own fill by pushing the header slots transparent
+	const ImU32 selFill = ImGui::GetColorU32(ImGuiCol_Header);
+	const ImU32 hoverFill = ImGui::GetColorU32(ImGuiCol_HeaderHovered);
+	ImGui::PushStyleColor(ImGuiCol_Header, 0);
+	ImGui::PushStyleColor(ImGuiCol_HeaderHovered, 0);
+	ImGui::PushStyleColor(ImGuiCol_HeaderActive, 0);
 	ImGui::SetNextItemSelectionUserData(index);
 	ImGui::Selectable("##cell", selected, ImGuiSelectableFlags_None, cellSize);
+	ImGui::PopStyleColor(3);
+	{
+		const bool hovered = ImGui::IsItemHovered();
+		if (selected || hovered)
+		{
+			const ImVec2 hlMin(pos.x, pos.y);
+			const ImVec2 hlMax(pos.x + cellW, pos.y + cellH);
+			drawList->AddRectFilled(hlMin, hlMax,
+				selected ? selFill : hoverFill,
+				ImGui::GetStyle().FrameRounding);
+		}
+	}
 
 	// interactions on the cell
 	if (ImGui::IsItemHovered() &&
@@ -1744,14 +1860,10 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		drawItemContextMenu(state, core, entry, selected);
 		ImGui::EndPopup();
 	}
-	if (entry.item.dimmed)
-	{
-		ImGui::SetItemTooltip("no asset id yet (sidecar-less)");
-	}
-
 	// paint the icon + label over the item rect
 	const ImU32 textColor = ImGui::GetColorU32(
 		entry.item.dimmed ? ImGuiCol_TextDisabled : ImGuiCol_Text);
+	bool nameTruncated = false;
 	if (listMode)
 	{
 		const float iconSide = ImGui::GetTextLineHeight();
@@ -1759,8 +1871,6 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 iconMax(pos.x + iconSide, pos.y + iconSide);
 		drawAssetIcon(drawList, iconMin, iconMax, entry.item.kind,
 			entry.isFolder, entry.item.dimmed, thumb);
-		drawList->AddText(ImVec2(pos.x + iconSide + 6.0f, pos.y), textColor,
-			entry.name.c_str());
 		// right-aligned meta: the kind (and, in search mode, the folder)
 		std::string meta = entry.isFolder ? "folder"
 			: assetKindLabel(entry.item.kind);
@@ -1770,6 +1880,12 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		}
 		const float metaWidth = ImGui::CalcTextSize(meta.c_str()).x;
 		const float rightEdge = pos.x + ImGui::GetContentRegionAvail().x;
+		// the name clips to whatever the meta leaves free (ellipsis + tooltip)
+		const float nameLeft = pos.x + iconSide + 6.0f;
+		const float nameRoom = (rightEdge - metaWidth - 8.0f) - nameLeft;
+		const std::string label = ellipsizeToWidth(entry.name, nameRoom);
+		nameTruncated = label != entry.name;
+		drawList->AddText(ImVec2(nameLeft, pos.y), textColor, label.c_str());
 		drawList->AddText(ImVec2(rightEdge - metaWidth, pos.y),
 			ImGui::GetColorU32(ImGuiCol_TextDisabled), meta.c_str());
 	}
@@ -1782,12 +1898,24 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const ImVec2 squareMax(center.x + squareSide * 0.5f,
 			center.y + squareSide * 0.5f);
 		drawAssetIcon(drawList, squareMin, squareMax, entry.item.kind,
-			entry.isFolder, entry.item.dimmed, thumb);
+			entry.isFolder, entry.item.dimmed, thumb, true);
 		const std::string label = ellipsizeToWidth(entry.name,
 			cellW - inset * 2.0f);
+		nameTruncated = label != entry.name;
 		const float labelWidth = ImGui::CalcTextSize(label.c_str()).x;
 		drawList->AddText(ImVec2(pos.x + (cellW - labelWidth) * 0.5f,
 			pos.y + thumbH + inset), textColor, label.c_str());
+	}
+
+	// one tooltip: the full name when it was clipped, plus the sidecar-less note
+	if (nameTruncated || entry.item.dimmed)
+	{
+		std::string tip = entry.name;
+		if (entry.item.dimmed)
+		{
+			tip += "\n(no asset id yet - sidecar-less)";
+		}
+		ImGui::SetItemTooltip("%s", tip.c_str());
 	}
 	ImGui::PopID();
 }
@@ -1801,8 +1929,8 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 // history, a clickable breadcrumb, a recursive search box, per-kind filter
 // chips and the size slider; a Create menu mints New Folder/Script/Scene.
 // Textures preview with real thumbnails (loaded off the paint path through a
-// budgeted per-frame queue), every other kind draws a self-contained glyph
-// type icon. Multi-selection (ctrl/shift/box-select/keyboard, keyed by
+// budgeted per-frame queue), every other kind draws a colour-tinted icon-font
+// glyph. Multi-selection (ctrl/shift/box-select/keyboard, keyed by
 // project-relative path so it survives re-enumeration) drives the asset ops:
 // each item is a drag source ("ORKIGE_ASSET"); the context menu offers
 // Instantiate/Open, Reveal, Rename (F2), Duplicate (Cmd/Ctrl+D), Copy Path,

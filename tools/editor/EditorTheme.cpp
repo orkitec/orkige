@@ -1,7 +1,9 @@
 // EditorTheme - macOS-dark-mode-inspired ImGui style (see header).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorTheme.h"
+#include "IconsFontAwesome6.h"
 
+#include <cfloat>
 #include <filesystem>
 
 namespace Orkige
@@ -62,6 +64,31 @@ namespace Orkige
 			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",		// Debian/Ubuntu
 			"/usr/share/fonts/TTF/DejaVuSans.ttf",					// Arch/Fedora-ish
 			"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",	// Noto fallback
+		};
+
+		//! the standalone larger icon font (grid-tile drawing); null until a
+		//! successful loadEditorIconFont, which is also the "icons available" flag
+		ImFont* gIconFontLarge = nullptr;
+
+		//! the pixel size the standalone icon font is rasterised at: big enough
+		//! that grid tiles (drawn at tile size, up to ~128 px) only mildly upscale
+		//! while small tiles / list rows downscale crisply
+		constexpr float ICON_FONT_ATLAS_PIXELS = 48.0f;
+
+		//! the FA6 codepoints the editor actually draws (asset kinds + folders) -
+		//! a tight glyph range so the atlas rasterises ~a dozen glyphs, not the
+		//! whole Font Awesome block. Pairs are {first, last}; see
+		//! IconsFontAwesome6.h for the ICON_FA_* names behind each value.
+		const ImWchar ICON_GLYPH_RANGES[] = {
+			0xf001, 0xf001,		// music (audio)
+			0xf008, 0xf008,		// film (scene)
+			0xf03e, 0xf03e,		// image (texture)
+			0xf07b, 0xf07c,		// folder / folder-open
+			0xf15b, 0xf15b,		// file (unknown)
+			0xf1b2, 0xf1b2,		// cube (mesh)
+			0xf1c9, 0xf1c9,		// file-code (script)
+			0xf24d, 0xf24d,		// clone (prefab)
+			0,
 		};
 	}
 
@@ -180,5 +207,55 @@ namespace Orkige
 				sizePoints * contentScale, &config);
 		}
 		return nullptr; // no system font found - keep the default font
+	}
+	//---------------------------------------------------------
+	void loadEditorIconFont(ImGuiIO& io, const char* fontPath, float sizePoints,
+		float contentScale)
+	{
+		gIconFontLarge = nullptr;
+		if (!fontPath)
+		{
+			return;
+		}
+		std::error_code ignored;
+		if (!std::filesystem::exists(fontPath, ignored))
+		{
+			return; // no icon font - callers fall back to drawn glyph icons
+		}
+		// MergeMode needs a base font to merge into; if none was loaded (no
+		// system font found) fall back to ImGui's built-in so inline icons still
+		// have a host font
+		if (io.Fonts->Fonts.empty())
+		{
+			io.Fonts->AddFontDefault();
+		}
+		// (1) merge the icons into the base UI font so they render inline with
+		//     text (list rows, labelled buttons) at text size
+		{
+			ImFontConfig config;
+			config.MergeMode = true;
+			config.PixelSnapH = true;
+			// keep icons from stretching the line advance past the text
+			config.GlyphMinAdvanceX = sizePoints * contentScale;
+			if (!io.Fonts->AddFontFromFileTTF(fontPath, sizePoints * contentScale,
+				&config, ICON_GLYPH_RANGES))
+			{
+				return; // parse failure - leave the atlas as the base font only
+			}
+		}
+		// (2) a standalone, larger copy the asset browser draws at grid-tile size
+		{
+			ImFontConfig config;
+			config.OversampleH = 2;
+			config.OversampleV = 2;
+			gIconFontLarge = io.Fonts->AddFontFromFileTTF(fontPath,
+				ICON_FONT_ATLAS_PIXELS * contentScale, &config,
+				ICON_GLYPH_RANGES);
+		}
+	}
+	//---------------------------------------------------------
+	ImFont* editorIconFont()
+	{
+		return gIconFontLarge;
 	}
 }

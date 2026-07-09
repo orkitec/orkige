@@ -363,6 +363,23 @@ int main(int argc, char** argv)
 			SDL_Log("orkige_editor: system font unavailable - using the "
 				"ImGui default font");
 		}
+		// merge the icon font (Font Awesome 6 solid) for the asset browser's
+		// kind icons. It ships next to the executable in the .app bundle
+		// (SDL_GetBasePath = Resources), and out of the build tree it comes from
+		// the source media dir (ORKIGE_EDITOR_ICON_FONT_DIR). Missing file -> the
+		// browser keeps drawing its glyph icons, so this is never fatal.
+		{
+			const char* fontBase = SDL_GetBasePath();
+			std::string bundledFont =
+				std::string(fontBase ? fontBase : "") + "fa-solid-900.ttf";
+			std::error_code fontEc;
+			const std::string iconFontPath =
+				std::filesystem::exists(bundledFont, fontEc)
+					? bundledFont
+					: std::string(ORKIGE_EDITOR_ICON_FONT_DIR "/fa-solid-900.ttf");
+			Orkige::loadEditorIconFont(ImGui::GetIO(), iconFontPath.c_str(),
+				14.0f, editorContentScale);
+		}
 		Orkige::ImGuiFacadeRenderer imguiRenderer;
 		if (!imguiRenderer.initialise(300 /*layer zOrder*/))
 		{
