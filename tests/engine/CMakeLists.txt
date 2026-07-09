@@ -13,6 +13,7 @@ add_executable(orkige_engine_tests
     TwoDSupportTests.cpp
     SoundMixerTests.cpp
     TweenScriptTests.cpp
+    InputActionTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE

@@ -29,6 +29,7 @@
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_physic/PhysicsWorld.h"
 #include "engine_input/InputManager.h"
+#include "engine_input/InputActionMap.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiManager.h"
@@ -62,6 +63,21 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TouchEventData)
 	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
+
+	// the action-mapping layer on top of InputManager. Like FastGuiFactory it
+	// is not an OOBJECT, so its Lua face lives here - registered under the
+	// game-facing name "InputActions" (decoupled from the C++ class name).
+	// Scripts: local actions = InputActions.getSingleton();
+	//          actions:pressed("jump"); local m = actions:value2("move")
+	OSIMPLEEXPORT(Orkige::InputActionMap,InputActions)
+		OSINGLETON()
+		OFUNC(down)			// down("name")   - held this frame (digital)
+		OFUNC(pressed)		// pressed("name") - went down this frame
+		OFUNC(released)		// released("name") - went up this frame
+		OFUNC(value)		// value("name")   - analog1D value
+		OFUNC(value2)		// value2("name")  - analog2D value (Vector2)
+		OFUNC(hasAction)	// hasAction("name")
+	OSIMPLEEXPORT_END
 
 	OEXPORT(PhysicsWorld)
 	OEXPORT(SoundManager)

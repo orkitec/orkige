@@ -30,7 +30,6 @@
 -- world we are in - without a UI system this script skips the HUD/banners;
 -- modes, tile slides, cursor sprite and the win flow work identically.
 
-local KC = KeyEventData.KeyCode
 -- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
 -- system (engine:hasUISystem(), see init) - LA is only read on that path
 local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
@@ -56,7 +55,8 @@ local WARN_SECONDS = 1.2
 local WIN_BANNER_SECONDS = 2.5
 
 --- per-instance state --------------------------------------------------------
-local input                  -- InputManager singleton
+local input                  -- InputManager singleton (tilt reset only)
+local actions                -- InputActionMap singleton (named menu actions)
 local physics                -- PhysicsWorld singleton
 local hasUI = false          -- engine:hasUISystem() (false = HUD-less flavor)
 local gui, factory           -- the Lua-booted UI system (nil when HUD-less)
@@ -66,7 +66,6 @@ local mode = "play"
 local warnTimer = 0.0
 local winTimer = 0.0
 local winsSeen = 0
-local keyWasDown = {}        -- edge detection per key code
 
 -- the movable world: one entry per "Tile<key>" parent GameObject, slot
 -- assignments DERIVED from the scene in init (the frame/walls/goal are
@@ -78,13 +77,6 @@ local slides = 0
 local refusals = 0
 
 --- helpers ---------------------------------------------------------------
-
-local function keyPressed(kc)
-	local down = input:isKeyDown(kc)
-	local pressed = down and not keyWasDown[kc]
-	keyWasDown[kc] = down
-	return pressed
-end
 
 local function centeredLabel(id, font, text, y, z)
 	local label = factory:createLabel(id, font, text, Vector2(0, y), "", z, false)
@@ -239,6 +231,10 @@ end
 
 function init(self)
 	input = InputManager.getSingleton()
+	-- named menu actions (menu_toggle on TAB, menu_left/right/up/down on the
+	-- arrows) from the built-in default set; the raw InputManager stays for
+	-- the tilt reset in setMode
+	actions = InputActions.getSingleton()
 	physics = PhysicsWorld.getSingleton()
 
 	local engine = Engine.getSingleton()
@@ -291,19 +287,21 @@ function init(self)
 end
 
 function update(self, dt)
-	-- TAB toggles between rolling and rearranging the world
-	if keyPressed(KC.KC_TAB) then
+	-- TAB toggles between rolling and rearranging the world (menu_toggle);
+	-- actions:pressed is the once-per-frame edge the keyWasDown table used to
+	-- track by hand
+	if actions:pressed("menu_toggle") then
 		setMode(mode == "play" and "move" or "play")
 	end
 
 	if mode == "move" then
-		if keyPressed(KC.KC_LEFT) then
+		if actions:pressed("menu_left") then
 			trySlide(-1, 0)
-		elseif keyPressed(KC.KC_RIGHT) then
+		elseif actions:pressed("menu_right") then
 			trySlide(1, 0)
-		elseif keyPressed(KC.KC_UP) then
+		elseif actions:pressed("menu_up") then
 			trySlide(0, 1)
-		elseif keyPressed(KC.KC_DOWN) then
+		elseif actions:pressed("menu_down") then
 			trySlide(0, -1)
 		end
 	end

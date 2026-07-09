@@ -86,6 +86,13 @@ PAYLOAD_DIR_NAME = "project"
 # builds/ stay home - compiled code ships as the packaged binary)
 PAYLOAD_SUBDIRS = ("scenes", "assets", "scripts")
 
+# PROJECT-CONFIG assets ride along too: files referenced by a manifest Settings
+# key rather than living under scenes/assets/scripts (the config-asset
+# convention - see engine_input/InputActionMap.h). Each entry is a Settings key
+# whose value is a project-relative path to copy verbatim; later config
+# packages (cvars persistence, physics.olayers) append their key here.
+CONFIG_SETTING_KEYS = ("input.actions",)
+
 
 def log(message):
     print("orkige_export: " + message, flush=True)
@@ -168,6 +175,21 @@ def stage_project_payload(project, dest_dir):
             destination = os.path.join(dest_dir, subdir)
             shutil.copytree(source, destination, dirs_exist_ok=True)
             staged += sum(len(files) for _, _, files in os.walk(destination))
+    # manifest-referenced project-config files (input.oactions and its future
+    # siblings): copy each referenced file preserving its project-relative path
+    for setting_key in CONFIG_SETTING_KEYS:
+        relative = project.settings.get(setting_key, "").strip()
+        if not relative:
+            continue
+        source = os.path.join(project.root, relative)
+        if os.path.isfile(source):
+            destination = os.path.join(dest_dir, relative)
+            os.makedirs(os.path.dirname(destination) or dest_dir, exist_ok=True)
+            shutil.copy2(source, destination)
+            staged += 1
+        else:
+            warn("manifest setting '%s' references '%s' but no such file "
+                 "exists - not bundled" % (setting_key, relative))
     return staged
 
 

@@ -26,7 +26,6 @@
 -- landing still jumps). Falling below y = -10 respawns at the start;
 -- reaching the buddy at the end wins and respawns for another round.
 
-local KC = KeyEventData.KeyCode
 local TS = RenderNode.TransformSpace
 
 --- tuning (the "feel" numbers - same values as samples/jumper/main.cpp) ----
@@ -53,12 +52,11 @@ local CAMERA_LOOK_AHEAD = { x = 1.5, y = 0.8, z = 0.0 }
 
 --- per-instance state -------------------------------------------------------
 local physics                   -- PhysicsWorld singleton
-local input                     -- InputManager singleton
+local actions                   -- InputActionMap singleton (named actions)
 local cameraNode                -- the window camera's rig RenderNode
 local goalTransform             -- the Goal object's TransformComponent or nil
 local grounded     = false
 local jumpBuffer   = 0.0
-local spaceWasDown = false      -- isKeyDown edge detection for the buffer
 local wins         = 0
 local respawns     = 0
 
@@ -68,18 +66,6 @@ local respawns     = 0
 -- JumperLogic::approach): never overshoots, ~63% of the distance per 1/rate s
 local function approach(current, target, rate, dt)
 	return current + (target - current) * (1.0 - math.exp(-rate * dt))
-end
-
--- 1 / 0 / -1 from a pair of keys (each with its WASD alias)
-local function axis(negativeA, negativeB, positiveA, positiveB)
-	local value = 0
-	if input:isKeyDown(positiveA) or input:isKeyDown(positiveB) then
-		value = value + 1
-	end
-	if input:isKeyDown(negativeA) or input:isKeyDown(negativeB) then
-		value = value - 1
-	end
-	return value
 end
 
 -- teleport the player body (respawn and the selfcheck use this): pose reset
@@ -112,7 +98,9 @@ end
 
 function init(self)
 	physics = PhysicsWorld.getSingleton()
-	input = InputManager.getSingleton()
+	-- named actions instead of raw keys: "move" (analog2D on WASD/arrows) and
+	-- "jump" (digital on SPACE) come from the built-in default action set
+	actions = InputActions.getSingleton()
 	physics:setGravity(Vector3(0.0, GRAVITY_Y, 0.0))
 
 	-- scene = data: the goal marker's position comes from the loaded level
@@ -160,20 +148,24 @@ function update(self, dt)
 	-- same in the air (full air control - tight, forgiving feel)
 	local inputX, inputZ = 0, 0
 	if controlsEnabled then
-		inputX = axis(KC.KC_A, KC.KC_LEFT, KC.KC_D, KC.KC_RIGHT)
-		inputZ = axis(KC.KC_W, KC.KC_UP, KC.KC_S, KC.KC_DOWN)
+		-- value2("move").x = run axis (A/LEFT..D/RIGHT), .y = depth axis
+		-- (W/UP..S/DOWN) - the action layer does the -1/0/+1 mapping the old
+		-- axis() helper used to hand-roll
+		local move = actions:value2("move")
+		inputX = move.x
+		inputZ = move.y
 	end
 	local velocity = body:getLinearVelocity()
 	local vx = approach(velocity.x, inputX * MOVE_SPEED, ACCEL_RATE, dt)
 	local vz = approach(velocity.z, inputZ * MOVE_SPEED, ACCEL_RATE, dt)
 	local vy = velocity.y
 
-	-- buffered jump: a SPACE press up to 0.12s before landing still jumps
-	local spaceDown = controlsEnabled and input:isKeyDown(KC.KC_SPACE)
-	if spaceDown and not spaceWasDown then
+	-- buffered jump: a SPACE press up to 0.12s before landing still jumps.
+	-- actions:pressed("jump") is the once-per-frame edge (true exactly the
+	-- frame SPACE goes down) - no more hand-rolled spaceWasDown tracking
+	if controlsEnabled and actions:pressed("jump") then
 		jumpBuffer = JUMP_BUFFER_SECONDS
 	end
-	spaceWasDown = spaceDown
 	jumpBuffer = math.max(0.0, jumpBuffer - dt)
 	if grounded and jumpBuffer > 0.0 then
 		vy = JUMP_SPEED

@@ -90,6 +90,9 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/AccelerationEventData.cpp
     engine_input/InputManager.h
     engine_input/InputManager.cpp
+    engine_input/InputAction.h
+    engine_input/InputActionMap.h
+    engine_input/InputActionMap.cpp
     engine_physic/PhysicsWorld.h
     engine_physic/PhysicsWorld.cpp
     engine_gocomponent/TransformComponent.h

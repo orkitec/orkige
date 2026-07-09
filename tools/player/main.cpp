@@ -40,6 +40,7 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#include <engine_input/InputActionMap.h>
 #include <engine_sound/SoundManager.h>
 // fastgui is flavor-neutral since the DrawLayer2D port - the UI
 // assertions below run on BOTH render flavors
@@ -632,6 +633,15 @@ int main(int argc, char** argv)
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
 		Orkige::InputManager inputManager;
+		// action mapping layered on top: named, rebindable actions the scripts
+		// query by intent (actions:pressed("jump")). Built-in defaults cover
+		// the reference games; a project's input.oactions (manifest Settings
+		// "input.actions") overrides. Ticked once per frame in the input slot.
+		Orkige::InputActionMap inputActions;
+		if (project.isLoaded())
+		{
+			inputActions.loadForProject(project);
+		}
 		QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> escapeListener =
 			Orkige::GlobalEventManager::getSingleton().bind(
@@ -1153,7 +1163,10 @@ int main(int argc, char** argv)
 				// [1] INPUT - the raw SDL events of this frame were polled and
 				//     injected at the top of the loop (inputManager.injectEvent).
 				//     SLOT(#81 input-actions): map raw input state to actions
-				//     HERE, before the scripts that read them run.
+				//     HERE, before the scripts that read them run. ONE edge
+				//     snapshot per frame (pressed = down && !down-last-frame);
+				//     scripts read the snapshot back, never recompute it.
+				inputActions.update(deltaTime);
 				//
 				// [2] SCRIPTS/WORLD - the component updates: ScriptComponent
 				//     runs the game code, rigid bodies create lazily and sync
