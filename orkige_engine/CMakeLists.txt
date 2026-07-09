@@ -6,10 +6,10 @@
 #
 # ---------------------------------------------------------------------------
 # Render flavors (ORKIGE_RENDER_BACKEND, Docs/render-abstraction.md):
-# since B3 the SHARED source list below is backend-neutral - the modules
+# the SHARED source list below is backend-neutral - the modules
 # talk to the renderer through engine_render/ and include the neutral
-# engine_module/EnginePrerequisites.h umbrella. fastgui joined the shared
-# list with the DrawLayer2D port: its UiRenderer draws through the facade's
+# engine_module/EnginePrerequisites.h umbrella. fastgui is in the shared
+# list too: its UiRenderer draws through the facade's
 # 2D layer and the widgets were always renderer-blind math. Per flavor this
 # target adds:
 #   classic: the classic Engine bootstrapper + backend
@@ -129,7 +129,7 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
-    # fastgui: flavor-neutral since the DrawLayer2D port (the UiRenderer
+    # fastgui: flavor-neutral (the UiRenderer
     # submits to engine_render/DrawLayer2D; atlas parsing/glyph metrics/
     # widget math were always renderer-blind). Gorilla is DELETED - the
     # .ogui atlas lives in UiAtlas, the 2D renderer in UiRenderer.
@@ -181,11 +181,11 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_filesystem/BigZipArchiveFactory.cpp
         engine_util/PrimitiveUtil.h
         engine_graphic/Engine.cpp
-        # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted in
-        # phase A1 (zero callers - decided question #6 in Docs/render-abstraction.md;
+        # ColoredBoundingBox, LightMap and MovableText were unbuilt AND deleted
+        # (zero callers - see Docs/render-abstraction.md;
         # recoverable from git). DynamicRenderable/DynamicLines stay compiled: the
         # editor-era debug-line drawing is expected back, but they are now
-        # caller-less too - candidates for the same treatment if A2 says so.
+        # caller-less too - candidates for the same treatment later.
         engine_graphic/DynamicRenderable.h
         engine_graphic/DynamicRenderable.cpp
         engine_graphic/DynamicLines.h

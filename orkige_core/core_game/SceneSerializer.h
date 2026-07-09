@@ -76,7 +76,7 @@ namespace Orkige
 			GameObject::ComponentPropertyMap const & properties,
 			GameObjectComponent & component);
 
-		//--- reflection-driven component serialization (task #94, P2) ---
+		//--- reflection-driven component serialization ---
 		//! @brief write a component's declared properties as a NAMED field block:
 		//! a count followed by (name, kind, value, ref-id) records driven off the
 		//! component type's PropertySchema (TypeManager). Transient/read-only

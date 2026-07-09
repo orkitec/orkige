@@ -670,7 +670,7 @@ TEST_CASE("AssetDatabase::importAsset rejects paths outside the project root",
 }
 
 TEST_CASE("AssetDatabase::listAssets enumerates every id-carrying asset "
-	"sorted by path (WP #80)", "[assetdb]")
+	"sorted by path", "[assetdb]")
 {
 	Orkige::CoreTestEnvironment::get();
 	TempProject project("orkige_test_assetdb_listassets");

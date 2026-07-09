@@ -53,7 +53,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderCamera::~RenderCamera()
 	{
-		// late destruction guard (WP-A1.5): script-held handles may outlive
+		// late destruction guard: script-held handles may outlive
 		// the render system - see ~RenderNode
 		if(this->mImpl->camera && this->mImpl->owned && RenderBackend::system())
 		{
@@ -190,7 +190,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderCamera::setWireframe(bool enabled)
 	{
-		// documented no-op on Filament (decided question #5); classic and
+		// documented no-op on Filament (by design); classic and
 		// Next both have the polygon-mode toggle
 		this->mImpl->camera->setPolygonMode(
 			enabled ? Ogre::PM_WIREFRAME : Ogre::PM_SOLID);

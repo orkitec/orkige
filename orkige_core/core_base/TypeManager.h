@@ -30,7 +30,7 @@ namespace Orkige
 
 	//! @brief can register and create all types Derived from Interface with default constructor
 	//! @see InterfaceTypeFactory
-	//! @remarks since the reflection substrate (task #94, P0) TypeManager is
+	//! @remarks TypeManager is
 	//! ALSO the owner of the neutral property registry: a per-type
 	//! PropertySchema keyed by TypeId plus an enum value<->label registry keyed
 	//! by enum-type name. Both are populated by the OPROPERTY* / OENUM_REGISTER

@@ -1,5 +1,5 @@
 // EditorPropertyWidgets.cpp - the generic PropertyKind -> ImGui widget renderer
-// (task #94 P3). See EditorPropertyWidgets.h for the contract.
+// See EditorPropertyWidgets.h for the contract.
 #include "EditorPropertyWidgets.h"
 
 #include <imgui.h>

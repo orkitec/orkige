@@ -121,12 +121,12 @@ std::string propertyWidgetHint(Orkige::PropertyDesc const& desc)
 	return std::string();
 }
 
-// The AUTO Inspector (task #94 P4): render ONE component's editable properties
+// The AUTO Inspector: render ONE component's editable properties
 // GENERICALLY off its reflection schema, retiring the six hand-written per-
 // component ImGui editors. For every declared PropertyDesc we read the live
 // value (desc.get -> canonical string), draw the typed widget by its
-// PropertyKind (the SAME drawPropertyWidget the remote play-mode inspector uses,
-// task #94 P3), and route an edit through EditorCore's generic undoable
+// PropertyKind (the SAME drawPropertyWidget the remote play-mode inspector uses),
+// and route an edit through EditorCore's generic undoable
 // PropertyChangeCommand - the reflected setter makes the change take effect live
 // in the viewport (a texture/mesh reloads, a transform moves the node). New
 // components and (later) script export properties appear here with ZERO editor
@@ -141,7 +141,7 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 	const std::string componentName = componentType.getName();
 	// the union schema (static per-type + dynamic per-instance) so a
 	// ScriptComponent's exported script properties render in the Inspector too
-	// (task #94 P5b) - discovered per instance since a script's exports are
+	// - discovered per instance since a script's exports are
 	// known only once a specific .lua is attached
 	const Orkige::PropertySchema schema =
 		core.getComponentPropertySchema(objectId, componentName);
@@ -277,7 +277,7 @@ void drawAddComponentButton(EditorState& state, Orkige::EditorCore& core,
 }
 
 // remote inspector helper: render ONE streamed property with a typed widget
-// (drawPropertyWidget, task #94 P3) and send set_property when the user edits
+// (drawPropertyWidget) and send set_property when the user edits
 // it. `key` is the "<Component>.<property>" schema key; `component`/`property`
 // are its split halves (the wire fields set_property needs). Read-only and
 // getter-less properties render disabled - the reflection metadata says which.
@@ -317,8 +317,8 @@ void drawRemoteProperty(PlaySession& session, std::string const& key,
 }
 
 // Inspector content during play: the streamed object_state of the selected
-// remote object, rendered GENERICALLY off the reflection metadata (task #94
-// P3). Every reflected property gets a typed widget by its PropertyKind
+// remote object, rendered GENERICALLY off the reflection metadata.
+// Every reflected property gets a typed widget by its PropertyKind
 // (float->drag, vec3->3 drags, bool->checkbox, enum->combo, ...); an edit
 // sends set_property. No per-component code - new components / script exports
 // appear here automatically.
@@ -443,7 +443,7 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		else
 		{
 			const std::string objectId = gameObject->getObjectID();
-			// Unity-style active checkbox in the header: it toggles the OWN
+			// active checkbox in the header: it toggles the OWN
 			// flag (activeSelf) - a checked box on an object annotated
 			// "inactive via parent" means an ancestor is deactivated
 			bool activeSelf = gameObject->isActiveSelf();
@@ -603,7 +603,7 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 					continue;
 				}
 				// AUTO Inspector: render this component's editable properties
-				// off its reflection schema (task #94 P4) - no per-component
+				// off its reflection schema - no per-component
 				// code, no dynamic_cast dispatch
 				drawComponentProperties(state, core, objectId, componentType);
 				ImGui::PopID();

@@ -493,7 +493,7 @@ namespace Orkige
 			if (this->mIdToPath.find(assetId) != this->mIdToPath.end())
 			{
 				// duplicated id: a copied asset+sidecar pair - the copy gets
-				// a fresh identity (Unity behavior), read-only runs keep the
+				// a fresh identity, read-only runs keep the
 				// first (sorted) asset and skip the copy honestly
 				if (!createSidecars)
 				{

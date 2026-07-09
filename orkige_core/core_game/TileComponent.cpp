@@ -25,7 +25,7 @@ namespace Orkige
 	void TileComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2)
+		// reflection-driven NAMED serialization
 		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
@@ -40,7 +40,7 @@ namespace Orkige
 		OFUNC(getOpenEdges)
 		OFUNC(setOpenEdges)
 		OFUNC(isEdgeOpen)
-		// reflected schema (task #94 P2): the open-edges bitmask
+		// reflected schema: the open-edges bitmask
 		OPROPERTY("openEdges", Orkige::PropertyKind::Int, getOpenEdges, setOpenEdges, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------

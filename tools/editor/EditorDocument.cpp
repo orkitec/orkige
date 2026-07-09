@@ -1,5 +1,5 @@
 // EditorDocument.cpp - scene/project document operations: New/Open/Save
-// scene, the Unity-style project open/close/create (with the dedicated
+// scene, the project open/close/create (with the dedicated
 // resource group) and the mesh import (asset database wiring included).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
@@ -60,7 +60,7 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	return true;
 }
 
-//--- project handling (Unity-style "open a project, not a scene") ----------
+//--- project handling ("open a project, not a scene") ----------
 
 // A loaded project registers its assets/ and scenes/ directories as engine
 // resource locations in the DEDICATED "OrkigeProject" group (the player's

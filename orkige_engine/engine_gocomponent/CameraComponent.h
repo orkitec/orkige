@@ -21,7 +21,7 @@ namespace Orkige
 	//! camera function definition
 	typedef fastdelegate::FastDelegate3<CameraComponent*, Real, Real, void> CameraModeFunction;
 	//! @brief component that can handle a camera attached to a GameObject
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): drives the
+	//! @remarks drives the
 	//! facade window camera (RenderSystem::getWindowCamera) on a rig of
 	//! facade RenderNodes. The historical Ogre::SceneNode auto-tracking was
 	//! replaced by an explicit per-update lookAt at the target node - same

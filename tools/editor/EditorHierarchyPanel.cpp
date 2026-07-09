@@ -158,9 +158,9 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	{
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
-	// deactivated objects render dimmed (Unity greys them out too); prefab
+	// deactivated objects render dimmed; prefab
 	// instances - the marked root and its prefab-provided children - render
-	// blue-ish (the Unity prefab cue; deactivation wins over the tint)
+	// blue-ish (the prefab cue; deactivation wins over the tint)
 	const bool dimmed = !gameObject->isActiveInHierarchy();
 	const bool prefabTinted = !dimmed &&
 		(!gameObject->getPrefabRef().empty() ||
@@ -196,7 +196,7 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 			core.selectObject(id);
 			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 			{
-				// Unity-style: double-click = select + frame
+				// double-click = select + frame
 				focusObjectFromDoubleClick(state, core, sceneCamera, id);
 			}
 		}
@@ -244,7 +244,7 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 		{
 			createPrefabFromSelection(state, core);
 		}
-		// Apply / Revert on a prefab instance root (Unity's prefab overflow
+		// Apply / Revert on a prefab instance root (the prefab overflow
 		// menu); enabled only when THIS object is an instance root
 		if (core.canApplyOrRevertPrefab(id))
 		{
@@ -292,7 +292,7 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 		drawLocalHierarchyNode(state, core, sceneCamera, id, orderedIds);
 	}
 	// while a hierarchy drag is in flight, offer a drop strip that
-	// un-parents (drop "into empty space" = make it a root, like Unity)
+	// un-parents (drop "into empty space" = make it a root)
 	if (ImGuiPayload const* payload = ImGui::GetDragDropPayload())
 	{
 		if (payload->IsDataType(HIERARCHY_DND_PAYLOAD))
@@ -304,7 +304,7 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 			acceptHierarchyDrop(core, "");
 		}
 		// Asset browser drop: a mesh/texture/prefab dragged from the Assets
-		// panel over the Hierarchy adds it to the scene (WP #76)
+		// panel over the Hierarchy adds it to the scene
 		else if (payload->IsDataType(ASSET_DND_PAYLOAD))
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
@@ -573,7 +573,7 @@ void drawRemoteHierarchy(EditorState& state, PlaySession& session)
 // clicking an entry sends select so the player streams that object's state.
 // Edit mode extras: drag & drop re-parenting (drop on a row = parent under
 // it, drop on the strip below = unparent), double-click selects AND frames
-// the object in the Scene viewport (Unity behavior; inline rename is F2 or
+// the object in the Scene viewport (inline rename is F2 or
 // the context menu), right-click opens Duplicate/Rename/Delete/Group (per
 // object) or Create Cube/Create Test Mesh (empty space), up/down arrows move
 // the selection through the visible rows, deactivated objects render dimmed.
@@ -588,7 +588,7 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 	state.hierarchyFocused = open && !remote && ImGui::IsWindowFocused();
 	if (open)
 	{
-		// search/filter box (Unity's Hierarchy search): shared between edit
+		// search/filter box (Hierarchy search): shared between edit
 		// and remote mode, ImGuiTextFilter semantics ("a,b" = a or b,
 		// "-a" = exclude a); an active filter never hides the row that is
 		// being renamed (the edit field must stay reachable) and force-opens

@@ -1,4 +1,4 @@
--- Lua hot-reload fixture (WP #77), driven by the player_hotreload_selfcheck
+-- Lua hot-reload fixture, driven by the player_hotreload_selfcheck
 -- ctest (ORKIGE_HOTRELOAD_SELFCHECK). This is "variant A": init publishes
 -- value = 1 into the shared table. The selfcheck OVERWRITES this file at
 -- runtime - first with a variant publishing value = 2 (proving a live

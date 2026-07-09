@@ -157,7 +157,7 @@ struct ViewSettings
 
 	bool showGrid = true;			//!< reference grid on the ground plane
 	bool showViewGizmo = true;		//!< axis orientation gizmo (top-right)
-	//! 2D editor mode (WP #78): the Scene viewport's OWN camera switches to an
+	//! 2D editor mode: the Scene viewport's OWN camera switches to an
 	//! orthographic top-down look at the XY plane (orbit/fly disabled, pan+zoom
 	//! kept, the transform gizmo constrains to that plane). A pure view/
 	//! interaction feature - no scene object is touched.
@@ -177,15 +177,15 @@ struct ViewSettings
 	bool showConsolePanel = true;
 	bool showStatsPanel = true;
 	bool showScenePanel = true;
-	//! project Asset browser panel (WP #76; project-only content)
+	//! project Asset browser panel (project-only content)
 	bool showAssetBrowserPanel = true;
-	//! snap settings (toolbar toggle + editable step values, Unity-style);
+	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
 	float snapTranslate = Orkige::EditorCore::SNAP_TRANSLATE;
 	float snapRotateDegrees = Orkige::EditorCore::SNAP_ROTATE_DEGREES;
 	float snapScale = Orkige::EditorCore::SNAP_SCALE;
-	//! reopen the most recent project on launch (Unity behavior); automation
+	//! reopen the most recent project on launch; automation
 	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
 	bool reopenLastProject = true;
 	//! most-recently-used scene paths (newest first) for File > Open Recent;
@@ -309,10 +309,10 @@ struct EditorState
 	unsigned int gizmoMergeSession = 0;
 	//! inspector drag bracketing (only one drag widget is active at a time)
 	unsigned int inspectorMergeSession = 0;
-	//! Hierarchy search/filter box (Unity-style); ImGuiTextFilter supports
+	//! Hierarchy search/filter box; ImGuiTextFilter supports
 	//! comma-separated terms and "-term" exclusion, empty = show everything
 	ImGuiTextFilter hierarchyFilter;
-	//! Asset browser search/filter box (same ImGuiTextFilter idiom, WP #76).
+	//! Asset browser search/filter box (same ImGuiTextFilter idiom).
 	//! In the v2 folder browser the filter is scoped to the CURRENT folder's
 	//! immediate contents (not recursive) - it narrows the right-pane list.
 	ImGuiTextFilter assetBrowserFilter;
@@ -336,7 +336,7 @@ struct EditorState
 	bool addComponentFocusPending = false;
 	// (the ModelComponent mesh / ScriptComponent script / SpriteComponent
 	// texture field buffers are gone: the auto Inspector's generic property
-	// widgets keep their own per-field state - task #94 P4)
+	// widgets keep their own per-field state)
 	//! object tags field edit buffer (comma-separated; rebuilt when the
 	//! selection or the object's current tag set changes)
 	char tagsEditBuffer[512] = "";
@@ -356,7 +356,7 @@ const char* const HIERARCHY_WINDOW_REMOTE =
 const char* const INSPECTOR_WINDOW_EDIT = "Inspector###Inspector";
 const char* const INSPECTOR_WINDOW_REMOTE = "Inspector (Remote)###Inspector";
 
-// The editor's play mode, Godot-style: Play saves the CURRENT scene to a
+// The editor's out-of-process play mode: Play saves the CURRENT scene to a
 // temp file (never the user's file), spawns ./orkige_player <tempScene>
 // --debug-port <freeport> (SDL_CreateProcess - the editor already lives on
 // SDL3, so no extra platform code) and connects a core_debugnet DebugClient.
@@ -457,7 +457,7 @@ struct PlaySession
 	//! line, the toolbar warning marker and the remote hierarchy tint;
 	//! cleared on Stop / a new session (clearRemoteState)
 	std::set<std::string> scriptErrorIds;
-	//! Lua hot-reload watcher (WP #77): poll <projectRoot>/scripts for edits
+	//! Lua hot-reload watcher: poll <projectRoot>/scripts for edits
 	//! (~4 Hz) while playing and send MSG_RELOAD_SCRIPT (reload-ALL v1) to the
 	//! running player on any change. DESKTOP play only - the exported player
 	//! never watches files, the trigger lives here in the editor. Armed lazily
@@ -469,7 +469,7 @@ struct PlaySession
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
 	std::map<std::string, std::string> stateProperties;	//!< "<Comp>.<prop>" -> value
-	//! reflection metadata parallel to stateProperties (task #94 P3): the
+	//! reflection metadata parallel to stateProperties: the
 	//! ordered "<Comp>.<prop>" keys and, per key, the PropertyKind int, the
 	//! widget hint (enum "label=value,..." table / asset-kind) and the
 	//! read-only flag - so the remote Inspector renders a TYPED widget per
@@ -626,7 +626,7 @@ void selectRemoteObject(PlaySession& session, std::string const& id);
 void setRemoteObjectActive(PlaySession& session, std::string const& id,
 	bool active);
 
-//! @brief Lua hot-reload (WP #77): tell the running player to recompile-and-
+//! @brief Lua hot-reload: tell the running player to recompile-and-
 //! swap its scripts (MSG_RELOAD_SCRIPT, reload-ALL). Sent automatically by the
 //! scripts/ watcher in updatePlaySession and by the toolbar "Reload Scripts"
 //! button. Optimistically clears scriptErrorIds - the player re-pushes
@@ -638,7 +638,7 @@ void reloadRemoteScripts(PlaySession& session, EditorConsole& console);
 void updatePlaySession(PlaySession& session, EditorConsole& console);
 
 // The offscreen scene render target: the editor's scene camera renders into a
-// facade RenderTexture (WP-A1.4; the old manual TU_RENDERTARGET pattern moved
+// facade RenderTexture (the old manual TU_RENDERTARGET pattern moved
 // behind engine_render), and the Scene panel displays that texture via
 // ImGui::Image. The ImTextureID comes from ImGuiFacadeRenderer::textureIdFor:
 // it registers the facade HANDLE, and DrawLayer2D binds the target's CURRENT
@@ -661,7 +661,7 @@ void createSceneRenderTexture(SceneRenderTarget& target, int width, int height);
 void applyOrbitCamera(EditorState const& state,
 	optr<Orkige::RenderNode> const& cameraNode);
 
-// 2D editor mode (WP #78): point the editor's OWN camera straight down -Z at
+// 2D editor mode: point the editor's OWN camera straight down -Z at
 // the XY plane and switch it to orthographic - the orbit "distance" drives the
 // ortho half-extent (zoom). Independent of any scene CameraComponent; see
 // EditorScenePanel.cpp
@@ -679,7 +679,7 @@ optr<Orkige::MeshInstance> createEditorGrid(Orkige::RenderWorld* world,
 void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderCamera> const& camera);
 
-// Unity-style double-click focus: select the object AND frame it - the same
+// double-click focus (select + frame): select the object AND frame it - the same
 // orbit retarget/refit the F shortcut does. The edittest drives this.
 void focusObjectFromDoubleClick(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderCamera> const& camera, std::string const& id);
@@ -712,7 +712,7 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path);
 
-// Unity-style "open a project, not a scene" - see EditorDocument.cpp
+// "open a project, not a scene" - see EditorDocument.cpp
 bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path);
 
@@ -851,7 +851,7 @@ void drawStatsPanel(bool* visible);
 void drawConsolePanel(EditorState& state, PlaySession& session,
 	EditorConsole& console, bool* visible);
 
-//--- asset browser (EditorAssetBrowserPanel.cpp, WP #76) --------------------
+//--- asset browser (EditorAssetBrowserPanel.cpp) --------------------
 
 // The Asset browser is the codebase's FIRST user of ImGui drag & drop across
 // panels: it sets an "ORKIGE_ASSET" payload (an AssetDragDropPayload value -
@@ -983,7 +983,7 @@ void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 //! panels right after the item that is the drop target)
 void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core);
 
-//! the Asset browser panel (v2): a Unity-style two-pane folder browser over
+//! the Asset browser panel (v2): a two-pane folder browser over
 //! the open project (folder TREE left, current folder's subfolders + files
 //! right, with texture thumbnails / type icons), a Create toolbar (New
 //! Folder/Script/Scene) and the preserved v1 behaviors - the ORKIGE_ASSET

@@ -20,17 +20,17 @@
 namespace Orkige
 {
 	//! @brief a 2D particle emitter - the CPU-simulated, batched juice tier
-	//! (WP #82). Needs a sibling TransformComponent (the emitter origin) and
+	//! Needs a sibling TransformComponent (the emitter origin) and
 	//! draws all its particles through ONE world-space SpriteBatch.
 	//! @remarks WORLD-space emission: the batch hangs off the world ROOT, not
 	//! the emitter's node, so particles fly independently of the emitter (the
 	//! trail stays behind a moving emitter instead of dragging with it). The
 	//! simulation runs in onUpdateComponent, which the editor never ticks - so
-	//! the emitter is dormant in edit mode for free (RULING #2) and only lives
+	//! the emitter is dormant in edit mode for free and only lives
 	//! in the spawned player. Every frame the live particles become one
 	//! SpriteBatch vertex array (setQuads once); atlas-frame UVs reuse the
 	//! shared SpriteComponent::frameToUVRect primitive; zOrder uses the SAME
-	//! painter's window as SpriteComponent (RULING #3, no parallel scheme). The
+	//! painter's window as SpriteComponent (no parallel scheme). The
 	//! pure simulation lives in ParticleSim (headless-testable, SEEDED).
 	//!
 	//! Lua (through the ScriptComponent `self.particles` accessor + the

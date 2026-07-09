@@ -65,7 +65,7 @@ void applyOrbitCamera(EditorState const& state,
 			Orkige::Vec3::UNIT_X));
 }
 
-// 2D editor mode camera constants (WP #78). The camera looks straight down -Z
+// 2D editor mode camera constants. The camera looks straight down -Z
 // at the XY plane from a FIXED standoff (decoupled from the zoom) so sprites at
 // any plausible Z stay inside the near/far range - the orbit "distance" drives
 // only the orthographic half-extent (the 2D zoom). near/far are generous around
@@ -78,7 +78,7 @@ static const float EDITOR_2D_FAR = 2000.0f;
 static const float EDITOR_PERSPECTIVE_NEAR = 1.0f;
 static const float EDITOR_PERSPECTIVE_FAR = 100000.0f;
 
-// 2D editor mode (WP #78): point the editor's own camera straight down the -Z
+// 2D editor mode: point the editor's own camera straight down the -Z
 // axis at the XY plane and switch it to orthographic. Identity orientation IS
 // the look-down-(-Z) pose (Ogre's default camera direction), so the XY plane
 // maps 1:1 to the screen (screen +X = world +X, screen +Y = world +Y). No
@@ -97,7 +97,7 @@ void apply2DCamera(EditorState const& state,
 }
 
 // The ground-plane reference grid, all facade: the line list becomes a mesh
-// resource through RenderWorld::createLineListMesh (the WP-A1.3 cube-service
+// resource through RenderWorld::createLineListMesh (the cube-service
 // pattern - shared unlit "VertexColour" look, works on every render flavor)
 // and instantiates onto its own root child node; the View menu toggles
 // visibility. Query flags 0 keep it invisible to the click-picking ray
@@ -182,7 +182,7 @@ void frameSelectedObject(EditorState& state, Orkige::EditorCore& core,
 		radius / std::sin(halfFov) * 1.25f, 2.0f, 200.0f);
 }
 
-// Unity-style double-click focus (Hierarchy entries; the Scene viewport's
+// double-click focus (select + frame) (Hierarchy entries; the Scene viewport's
 // double-click runs its pick first and then frames the result): select the
 // object AND frame it - the same orbit retarget/refit the F shortcut does.
 // The edittest drives this exact function.
@@ -247,7 +247,7 @@ bool pickObjectAtCursor(Orkige::EditorCore& core,
 	}
 	if (!picked && !additive)
 	{
-		// clicking empty space deselects, like Unity
+		// clicking empty space deselects
 		core.clearSelection();
 	}
 	return picked;
@@ -336,7 +336,7 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		return false;
 	}
 	// ImGuizmo needs to know the projection kind: 2D mode renders through the
-	// orthographic camera (WP #78), 3D through the perspective one
+	// orthographic camera, 3D through the perspective one
 	ImGuizmo::SetOrthographic(editor2D);
 	ImGuizmo::SetDrawlist(ImGui::GetWindowDrawList());
 	ImGuizmo::SetRect(rectMin.x, rectMin.y, rectSize.x, rectSize.y);
@@ -351,7 +351,7 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 		current.orientation);
 	matrixToImGuizmo(modelMatrix, model);
 
-	// In 2D mode (WP #78) the manipulation is constrained to the XY plane the
+	// In 2D mode the manipulation is constrained to the XY plane the
 	// camera looks at: translate along X/Y only, rotate about the screen-facing
 	// Z axis only, scale X/Y only. Belt-and-braces: even so, the world Z of the
 	// result is clamped to its previous value on submit (below), so a finicky
@@ -468,7 +468,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			state.scenePanelHovered = ImGui::IsItemHovered();
 			// Asset browser drop: a mesh/texture/prefab dragged from the
 			// Assets panel onto the viewport instantiates at the origin
-			// (WP #76; ray/ground-plane placement is deferred - origin on the
+			// (ray/ground-plane placement is deferred - origin on the
 			// XY plane is natural in 2D editor mode). Only while editing the
 			// local scene (the panels show the remote scene during play).
 			if (editMode)
@@ -493,7 +493,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// the view fight itself and "rotate weirdly")
 			bool viewGizmoOwnsMouse = false;
 			// the orbit corner gizmo is meaningless in 2D (no yaw/pitch) - the
-			// 2D camera looks straight down -Z, so it is hidden there (WP #78)
+			// 2D camera looks straight down -Z, so it is hidden there
 			if (viewSettings.showViewGizmo && !viewSettings.editor2D &&
 				!state.flyActive &&
 				!state.orbitActive && !state.panActive)
@@ -549,7 +549,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 						(io.MousePos.x - rectMin.x) / avail.x,
 						(io.MousePos.y - rectMin.y) / avail.y,
 						io.KeySuper || io.KeyCtrl);
-					// Unity-style double-click: the pick above selected the
+					// double-click: the pick above selected the
 					// hit - frame it too (a double-click on empty space just
 					// cleared the selection; frameSelectedObject no-ops then)
 					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -568,7 +568,7 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				// the camera modes are mutually exclusive - a second button
 				// pressed mid-drag must not start a competing mode that
 				// would double-apply deltas onto the same yaw/pitch
-				// 2D mode (WP #78): orbit and fly are disabled - only pan and
+				// 2D mode: orbit and fly are disabled - only pan and
 				// scroll-zoom navigate the top-down orthographic view. Picking
 				// (above) stays live.
 				if (!viewSettings.editor2D &&

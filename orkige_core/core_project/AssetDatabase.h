@@ -42,7 +42,7 @@ namespace Orkige
 	//! the strings onto those enums. GPU-compressed formats are deliberately
 	//! ABSENT: the runtime registers only the PNG/JPG image codec AND the
 	//! stdlib-Python cook has no block-compression encoder, so compression is
-	//! double-blocked and stays out of v1 (its own future work package).
+	//! double-blocked and stays out of v1 (its own separate future effort).
 	struct ORKIGE_CORE_DLL TextureImportSettings
 	{
 		String	filter = "bilinear";	//!< "point" | "bilinear"
@@ -71,7 +71,7 @@ namespace Orkige
 		TextureImportSettings const & resolvedFor(String const & platform) const;
 	};
 
-	//! @brief Unity-style stable asset ids for a project's assets - the
+	//! @brief stable asset ids for a project's assets - the
 	//! foundation that lets scene references survive renames and moves.
 	//! @remarks Every asset file under a project's assets/ and scripts/
 	//! directories gets a sibling sidecar file "<name>.<ext>.orkmeta" holding
@@ -79,7 +79,7 @@ namespace Orkige
 	//! @code
 	//! <orkmeta id="5f2c..."/>
 	//! @endcode
-	//! Sidecars are the Unity-proven shape: per-asset files merge cleanly in
+	//! Sidecars are the per-asset sidecar shape: per-asset files merge cleanly in
 	//! VCS and travel with the asset when both are moved together. refresh()
 	//! scans the project; with createSidecars (the EDITOR's import mode)
 	//! missing sidecars are minted and orphaned ones deleted - a runtime
@@ -206,7 +206,7 @@ namespace Orkige
 		//! @brief (save side) the id to serialize next to a reference value:
 		//! the active database's current id for the value when it knows it
 		//! (covers references set before/after the sidecar was minted),
-		//! otherwise the stored id (kept even when unresolved - Unity-style,
+		//! otherwise the stored id (kept even when unresolved,
 		//! a temporarily missing asset must not lose its reference)
 		static String referenceIdForValue(String const & value,
 			String const & storedId, ReferenceKind kind);

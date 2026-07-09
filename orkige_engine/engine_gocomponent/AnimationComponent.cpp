@@ -13,7 +13,7 @@
 #include "engine_gocomponent/TransformComponent.h"
 
 #ifdef ORKIGE_RENDER_CLASSIC
-// ROOT-MOTION BACKDOOR (decided design question #1 in
+// ROOT-MOTION BACKDOOR (a deliberate design decision, see
 // Docs/render-abstraction.md): extracting root motion digs into
 // Ogre::Bone / NodeAnimationTrack / TransformKeyFrame - far below the
 // facade's scene-graph level and without a 1:1 shape on Ogre-Next or
@@ -247,7 +247,7 @@ namespace Orkige
 	{
 // ORKIGE_SANCTIONED_OGRE_BEGIN(root-motion-backdoor) - lint gate, see Util/ogre_containment.json
 #ifdef ORKIGE_RENDER_CLASSIC
-		// ROOT-MOTION BACKDOOR - classic-only by decision #1 (see the
+		// ROOT-MOTION BACKDOOR - classic-only by design (see the
 		// include note at the top of this file)
 		optr<MeshInstance> mesh = this->getAnimableMesh();
 		Ogre::Entity const * model = RenderBackend::ogreEntity(mesh);
@@ -319,7 +319,7 @@ namespace Orkige
 		}
 // ORKIGE_SANCTIONED_OGRE_END
 #else //ORKIGE_RENDER_CLASSIC
-		// no facade bone/keyframe API by design (question #1) - inert
+		// no facade bone/keyframe API by design - inert
 		(void)animationName;
 		(void)timeDelta;
 #endif //ORKIGE_RENDER_CLASSIC

@@ -113,7 +113,7 @@ namespace Orkige
 		}
 
 		//! @brief object_state: GENERIC per-component property snapshot driven off
-		//! the reflection registry (task #94 P3). For every component of the
+		//! the reflection registry. For every component of the
 		//! object, iterate its declared PropertySchema and stream each reflected
 		//! property as "<Component>.<name>" -> PropertyValue::toString() (the
 		//! stringly-typed wire form), skipping HIDDEN properties and any without a
@@ -132,7 +132,7 @@ namespace Orkige
 
 			// the enum value<->label hint cache stays per-type (enum metadata is
 			// static); the SCHEMA is now resolved per component through the
-			// static-UNION-dynamic union (task #94 P5b), so a ScriptComponent's
+			// static-UNION-dynamic union, so a ScriptComponent's
 			// exported script properties stream too - the union is a handful of
 			// descriptors, cheap enough for the selected object per frame.
 			static std::map<String, String> enumHintCache;
@@ -493,7 +493,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//! @brief set_property: GENERIC write driven off the reflection registry
-	//! (task #94 P3). Resolve the (component,property) descriptor in the schema,
+	//! Resolve the (component,property) descriptor in the schema,
 	//! parse the wire string into a correctly-typed PropertyValue and call the
 	//! reflected setter - which routes to the component's real accessor, so the
 	//! effect takes hold live (a Sprite reloads its texture, a RigidBody rebuilds,
@@ -528,7 +528,7 @@ namespace Orkige
 			return;
 		}
 		// the union schema (static per-type + dynamic per-instance) so a
-		// ScriptComponent's exported properties are writable too (task #94 P5b)
+		// ScriptComponent's exported properties are writable too
 		const PropertySchema schema = getComponentSchema(*instance);
 		PropertyDesc const * desc = schema.find(property);
 		if (!desc)
@@ -570,7 +570,7 @@ namespace Orkige
 		desc->set(static_cast<void *>(instance), reflected);
 	}
 	//---------------------------------------------------------
-	//! @brief reload_script (WP #77 hot-reload): recompile-and-swap the
+	//! @brief reload_script (hot-reload): recompile-and-swap the
 	//! ScriptComponents of a target GameObject (FIELD_ID) or ALL of them
 	//! (FIELD_ID absent, the v1 reload-ALL). Player-directed: the editor's
 	//! file watcher only sends this; the swap (compile-before-swap failure
@@ -612,7 +612,7 @@ namespace Orkige
 			(targetId.empty() ? String() : " on '" + targetId + "'"));
 	}
 	//---------------------------------------------------------
-	//! @brief set_cvar (WP #83): change a console variable on the RUNNING
+	//! @brief set_cvar: change a console variable on the RUNNING
 	//! player live. CVarManager::setString parses+validates the value per the
 	//! cvar's registered type and fires its onChange (the live re-apply seam),
 	//! so a `set` in the editor Console tunes the running game at once. An
@@ -707,21 +707,21 @@ namespace Orkige
 			}
 			else if (message.type == Protocol::MSG_RELOAD_SCRIPT)
 			{
-				// WP #77 Lua hot-reload (editor-driven, compile-before-swap)
+				// Lua hot-reload (editor-driven, compile-before-swap)
 				handleReloadScript(gameObjectManager, message);
 			}
 			else if (message.type == Protocol::MSG_SET_CVAR)
 			{
-				// WP #83 cvars: tune a console variable on the running player
+				// cvars: tune a console variable on the running player
 				handleSetCvar(message);
 			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
 			// answer honestly - never crash). Keep the chain flat and each
-			// branch a thin dispatch to a handle*() method. #77 (reload) and #83
-			// (cvars) are wired above; the remaining slot is:
-			//   #80 MCP   -> the editor-side MCP server TRANSLATES its play-
+			// branch a thin dispatch to a handle*() method. reload and cvars
+			// are wired above; the remaining slot is:
+			//   MCP   -> the editor-side MCP server TRANSLATES its play-
 			//                control verbs into these same messages (no second
 			//                player port) - add its verbs here the same way.
 			else

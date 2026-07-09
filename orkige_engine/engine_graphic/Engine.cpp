@@ -9,7 +9,7 @@
 
 #include "engine_graphic/Engine.h"
 #include "engine_module/EnginePrerequisitesClassic.h"
-// phase A1 (Docs/render-abstraction.md): Engine is the classic backend's
+// (Docs/render-abstraction.md): Engine is the classic backend's
 // bootstrapper - it creates/destroys the engine_render facade around the
 // root/window/scene-manager plumbing it already owns
 #include "engine_render_classic/ClassicBackend.h"
@@ -338,7 +338,7 @@ namespace Orkige
 
 		// bring up the engine_render facade over the scene manager and main
 		// window created above - RenderSystem::get() is live from here on
-		// (phase A1, Docs/render-abstraction.md)
+		// (Docs/render-abstraction.md)
 		RenderBackend::createRenderSystem(this);
 
 		this->lastFrameTime = Timer::getMilliseconds();
@@ -822,7 +822,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	// --- engine_render facade surface (WP-A1.5): Engine stays the app/Lua
+	// --- engine_render facade surface: Engine stays the app/Lua
 	// singleton, the scene-facing calls route through RenderSystem ----------
 	//---------------------------------------------------------
 	optr<RenderCamera> Engine::getWindowCamera()
@@ -888,7 +888,7 @@ namespace Orkige
 		OFUNC(renderOneFrame)
 		OFUNC(enableWireframeMode)
 		OFUNC(disableWireframeMode)
-		// --- the facade surface (WP-A1.5, Docs/render-abstraction.md): the
+		// --- the facade surface (Docs/render-abstraction.md): the
 		// classic Ogre accessors (getSceneManager/getCamera/getViewport) left
 		// the Lua surface - scripts see facade types only ------------------
 		// the window camera; scripts place it via its rig node:
@@ -904,7 +904,7 @@ namespace Orkige
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
-		// UI capability probe (B3): true here - the classic flavor carries
+		// UI capability probe: true here - the classic flavor carries
 		// fastgui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly
 		OFUNC(hasUISystem)

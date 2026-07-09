@@ -21,7 +21,7 @@ namespace Orkige
 	//! an order). Each entry names a scene (project-relative) plus a display
 	//! name and its par slide count; the game plays them front to back, and
 	//! win->next advances the index.
-	//! @remarks A PROJECT-CONFIG asset (the ConfigAsset convention #81):
+	//! @remarks A PROJECT-CONFIG asset (the ConfigAsset convention):
 	//! manifest-referenced by the Settings key "levels" (LEVELS_SETTING_KEY),
 	//! resolved project-relative, bundled into exports via CONFIG_SETTING_KEYS.
 	//! Written in the same XMLArchive form as the other .o* config files so the

@@ -20,7 +20,7 @@
 namespace Orkige
 {
 	//! @brief the CPU particle simulation - a pure, renderer-free, SEEDED
-	//! emitter and pool (WP #82). Headless-testable and deterministic: the
+	//! emitter and pool. Headless-testable and deterministic: the
 	//! same seed produces the same particle sequence, which the render parity
 	//! screenshot test relies on.
 	//! @remarks Planar 2D (XY), single texture. Emits at a rate and/or in
@@ -28,7 +28,7 @@ namespace Orkige
 	//! Euler), kills it at its lifetime and swap-removes it from a fixed pool
 	//! (capacity = maxParticles). Size and colour interpolate start->end over
 	//! each particle's normalized life, SHAPED by a curve from the shared
-	//! core_tween/EaseLibrary (the #86 enabler) - v1 is two-point lerps, not
+	//! core_tween/EaseLibrary (the easing/tween enabler) - v1 is two-point lerps, not
 	//! multi-keyframe tracks. The owning ParticleComponent turns the live
 	//! particles into a SpriteBatch vertex array every frame; this class knows
 	//! nothing of the renderer.

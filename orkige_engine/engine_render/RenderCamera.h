@@ -110,7 +110,7 @@ namespace Orkige
 		//! @brief wireframe rendering for everything this camera shows
 		//! (Engine::enable/disableWireframeMode successor)
 		//! @remarks on the next backend the toggle is GLOBAL, not
-		//! per-camera (fine for the debug-view call sites; recorded B2
+		//! per-camera (fine for the debug-view call sites; recorded
 		//! deviation, see Docs/render-abstraction.md)
 		//! map: classic=Camera::setPolygonMode(PM_WIREFRAME/PM_SOLID) | next=macroblock polygon mode across all backend-generated HLMS datablocks (the v2 camera lost the toggle) | filament=no direct equivalent (impl may no-op; flagged in doc)
 		void setWireframe(bool enabled);

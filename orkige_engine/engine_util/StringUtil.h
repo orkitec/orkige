@@ -27,8 +27,8 @@ namespace Orkige
 		//! OGRE 14 dropped Ogre::UTFString; display strings are plain UTF-8 now,
 		//! so this encodes every input byte (treated as Latin-1, as the old
 		//! UTFString version did) as an UTF-8 code point.
-		//! @remarks classic-only (B3): the sole consumer is fastgui text
-		//! (classic-only zone, decision #2) and Ogre-Next has no
+		//! @remarks classic-only: the sole consumer is fastgui text
+		//! (classic-only zone) and Ogre-Next has no
 		//! DisplayString typedef
 		static inline Ogre::DisplayString convertToUTF(String const & text)
 		{

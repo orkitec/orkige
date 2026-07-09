@@ -15,7 +15,7 @@
 add_subdirectory(core)
 
 # Flavor suffix for test registrations that exist on BOTH render flavors
-# (game selfchecks since B3, editor tests since the editor-on-Next port):
+# (game selfchecks and editor tests both run on both flavors):
 # the _next names keep the two presets' reports distinguishable.
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     set(ORKIGE_FLAVOR_TEST_SUFFIX "_next")
@@ -23,7 +23,7 @@ else()
     set(ORKIGE_FLAVOR_TEST_SUFFIX "")
 endif()
 
-# renderer containment lint (WP-A1.5, Docs/render-abstraction.md): fails
+# renderer containment lint (Docs/render-abstraction.md): fails
 # when an Ogre:: spelling appears in code outside the backend directories,
 # the RenderMath.h alias header and the sanctioned files/blocks maintained
 # in Util/ogre_containment.json. Pure source scan - headless, LABELS unit,
@@ -34,7 +34,7 @@ add_test(NAME render_containment_lint
 set_tests_properties(render_containment_lint PROPERTIES
     LABELS unit TIMEOUT 30)
 
-# sprite-atlas packer self-validation (WP #84): make_sprite_atlas.py packs a
+# sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
 # LABELS unit so it runs in the unit AND desktop presets.
@@ -43,7 +43,7 @@ add_test(NAME sprite_atlas_packer
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(sprite_atlas_packer PROPERTIES LABELS unit TIMEOUT 60)
 
-# export-time texture cook self-validation (WP #84): cook_textures.py resizes /
+# export-time texture cook self-validation: cook_textures.py resizes /
 # premultiplies a synthetic payload per sidecar import settings (default AND a
 # per-platform override), asserts the shipped PNG is downscaled AND still
 # decodes, and that id-only / sidecar-less textures stay untouched. Stdlib-only,
@@ -103,11 +103,11 @@ if(TARGET orkige_engine)
     set_tests_properties(render_facade_selfcheck PROPERTIES
         ENVIRONMENT "ORKIGE_SELFCHECK_OUT=${CMAKE_CURRENT_BINARY_DIR}/render_facade")
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
-        # B2 (WP-A2.2/A2.3, Docs/render-abstraction.md) filled the content
-        # stubs: the conformance suite runs ENABLED on this flavor, same
+        # the content stubs are now filled (Docs/render-abstraction.md):
+        # the conformance suite runs ENABLED on this flavor, same
         # command, same checks, zero backend-specific carve-outs.
 
-        # render_next_smoke - the B1 flavor bar: window opens, clears to a
+        # render_next_smoke - the flavor smoke bar: window opens, clears to a
         # colour, the facade screenshot is non-black, clean exit 0
         add_executable(render_next_smoke
             render_facade/smoke_main.cpp
@@ -165,7 +165,7 @@ if(TARGET hello_orkige)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     # ORKIGE_DEMO_GUI: the fastgui link/lifecycle smoke (empty UI draw
     # layer over a frame + FastGuiManager's clean no-atlas refusal) rides
-    # on the plain demo - flavor-neutral since the DrawLayer2D port
+    # on the plain demo - flavor-neutral via the DrawLayer2D facade
     set_tests_properties(demo_plain PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=120;ORKIGE_DEMO_GUI=1")
 
@@ -195,7 +195,7 @@ if(TARGET hello_orkige)
         ENVIRONMENT "ORKIGE_DEMO_SPRITEANIM=1;ORKIGE_DEMO_FRAMES=120")
 
     # ORKIGE_DEMO_SPRITEATLAS: the sprite-atlas + live-sampler headed
-    # selfcheck (WP #84) - loads a region of the generated demo_sprite_atlas
+    # selfcheck - loads a region of the generated demo_sprite_atlas
     # and asserts the UV rect matches the shared pixelRectToUV over the
     # region's pixel rect (parsed independently from the .oatlas), distinct
     # regions differ, a bogus region is refused, and setFilter/setAddressing
@@ -205,7 +205,7 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_spriteatlas PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_SPRITEATLAS=1;ORKIGE_DEMO_FRAMES=120")
 
-    # ORKIGE_DEMO_PARTICLES: the 2D particle-system headed selfcheck (WP #82) -
+    # ORKIGE_DEMO_PARTICLES: the 2D particle-system headed selfcheck -
     # a burst-only additive ParticleComponent on one GameObject; fires a burst
     # of maxParticles and asserts the frame-stats triangle count rose by
     # ~maxParticles*2 (the single-draw SpriteBatch) while alive and decayed
@@ -226,7 +226,7 @@ if(TARGET hello_orkige)
 endif()
 
 if(TARGET orkige_editor)
-    # the editor builds/runs on BOTH render flavors since the ImGui-on-
+    # the editor builds/runs on BOTH render flavors via the ImGui-on-
     # DrawLayer2D port; the next preset registers these as *_next
     # empty-start assertion at frame 1 (the editor must open with an empty
     # untitled scene), fixture creation at frame 2, picking checks at frames
@@ -257,7 +257,7 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_edittest${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_EDITTEST=1;ORKIGE_DEMO_FRAMES=150;ORKIGE_EDITOR_EDITTEST_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_edittest.oscene")
 
-    # MCP endpoint, headless end to end (WP #90): the editor hosts its MCP
+    # MCP endpoint, headless end to end: the editor hosts its MCP
     # server on an ephemeral in-process port over Streamable HTTP and, on a
     # worker thread, drives a RAW TCP socket through a real MCP conversation -
     # a JSON-RPC initialize handshake, notifications/initialized, tools/list,
@@ -273,7 +273,7 @@ if(TARGET orkige_editor)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_TEST=${CMAKE_CURRENT_BINARY_DIR}/editor_control_shot.png"
         LABELS integration TIMEOUT 60)
 
-    # Asset browser (WP #76 -> v2, task #93): open a temp COPY of
+    # Asset browser (v2): open a temp COPY of
     # projects/example and drive the browser headlessly - enumerate assets
     # (id-carrying vs. dimmed sidecar-less), run the generic importAssetFile
     # (copy + sidecar mint + enumerable), instantiate a sprite via
@@ -290,8 +290,8 @@ if(TARGET orkige_editor)
         LABELS integration TIMEOUT 90)
 endif()
 
-# (WP #90 retired the Python MCP sidecar Util/orkige_mcp.py and its
-# mcp_bridge_selftest ctest: the editor now hosts the MCP endpoint itself over
+# (the Python MCP sidecar Util/orkige_mcp.py and its mcp_bridge_selftest ctest
+# were retired: the editor now hosts the MCP endpoint itself over
 # HTTP - the JsonTests/HttpServerTests unit tests cover the codec + transport
 # and editor_control drives the whole MCP endpoint end to end.)
 
@@ -323,7 +323,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_project_play${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PROJECT_TEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_EDITOR_PLAYTEST=stop")
 
-    # native project modules, compile-on-Play (milestone 3): open
+    # native project modules, compile-on-Play: open
     # projects/jumper-native (manifest carries native.target), press Play -
     # the editor must enter the Building state, run the real cmake
     # configure+build of the module (output as [build] Console lines),
@@ -372,7 +372,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_script_error${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST=${Orkige_SOURCE_DIR}/projects/jumper-lua")
 
-    # Lua hot-reload, the full editor->player path (WP #77): the hook copies
+    # Lua hot-reload, the full editor->player path: the hook copies
     # tests/projects/hotreload to a temp dir (the real fixture is never
     # touched), presses Play, then edits scripts/reload_probe.lua on disk - the
     # editor's scripts/ watcher must detect the change, send MSG_RELOAD_SCRIPT,
@@ -466,7 +466,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_example_scene PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
-    # Unity-style project run: --project loads projects/example's manifest,
+    # whole-project run: --project loads projects/example's manifest,
     # registers its assets/ and scenes/ as resource locations and plays the
     # project's main scene (no scene argument)
     add_test(NAME player_example_project
@@ -475,7 +475,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_example_project PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
-    # THE scripting milestone, end to end: the jumper game reimplemented in
+    # THE scripting proof, end to end: the jumper game reimplemented in
     # pure Lua (projects/jumper-lua, scripts/player.lua on a ScriptComponent
     # - zero compiled game code). The player's selfcheck injects synthetic
     # key events through the real input path and asserts script boot,
@@ -483,9 +483,9 @@ if(TARGET orkige_player)
     # the Player object's transform and the stats the script publishes
     # (see the ORKIGE_JUMPER_LUA_SELFCHECK block in tools/player/main.cpp)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
-        # B3: the game selfchecks run on BOTH flavors - the next flavor's
+        # the game selfchecks run on BOTH flavors - the next flavor's
         # registrations carry a _next suffix and the UI assertions are
-        # compile-time-skipped there (fastgui is classic-only, decision #2;
+        # compile-time-skipped there (fastgui is classic-only;
         # game.lua probes engine:hasUISystem() and runs HUD-less)
         add_test(NAME player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua
@@ -493,13 +493,14 @@ if(TARGET orkige_player)
         set_tests_properties(player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_JUMPER_LUA_SELFCHECK=1")
 
-        # the 2D tier, end to end: projects/roller (Continuity x Rolando
-        # prototype - SpriteComponents, ortho camera, tilt gravity, physics
+        # the 2D tier, end to end: projects/roller (a tilt-gravity ball +
+        # sliding-tile puzzle prototype - SpriteComponents, ortho camera,
+        # tilt gravity, physics
         # pause + kinematic tile-group teleports). The selfcheck injects
         # arrow/TAB keys through the real input path and asserts the tilt
         # roll, the paused tile slide (sprite AND body probed) and the win
         # (see the ORKIGE_ROLLER_SELFCHECK block in tools/player/main.cpp)
-        # ORKIGE_PROGRESS_DIR/RESET isolate the #87 progression save into the
+        # ORKIGE_PROGRESS_DIR/RESET isolate the progression save into the
         # build tree (a unique dir per test) and wipe it before each run so the
         # single-level win path stays deterministic and never resumes from a
         # stale save (game.lua persists on the win but exits on the banner here)
@@ -509,7 +510,7 @@ if(TARGET orkige_player)
         set_tests_properties(player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/roller_progress_selfcheck")
 
-        # roller LEVELS + PROGRESSION, end to end (WP #87): solve level 1 (the
+        # roller LEVELS + PROGRESSION, end to end: solve level 1 (the
         # proven slide + roll), assert the runtime SWITCHED to level 2 via the
         # DEFERRED scene load (shared.roller.levelIndex incremented + the
         # progression file written) and then solve the deterministic
@@ -535,7 +536,7 @@ if(TARGET orkige_player)
         set_tests_properties(player_tween_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_TWEEN_SELFCHECK=1")
 
-        # Lua hot-reload, end to end (WP #77): tests/projects/hotreload runs a
+        # Lua hot-reload, end to end: tests/projects/hotreload runs a
         # Probe script publishing shared.hotreload.value. The selfcheck
         # overwrites the script on disk, drives ScriptComponent::hotReload()
         # (the player-directed compile-before-swap) and asserts the behavior
@@ -552,7 +553,7 @@ if(TARGET orkige_player)
             ENVIRONMENT "ORKIGE_HOTRELOAD_SELFCHECK=1"
             RESOURCE_LOCK hotreload_fixture)
 
-        # Lua script EXPORTED properties, end to end (task #94 P5b):
+        # Lua script EXPORTED properties, end to end:
         # tests/projects/scriptprop runs a Mover whose script declares an
         # exported `moveSpeed`. The scene bakes moveSpeed at 5 (the script's own
         # default is 1), so the running script seeing 5 at init proves the
@@ -580,7 +581,7 @@ if(TARGET orkige_player)
     set_tests_properties(player_assetid_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_ASSETID_SELFCHECK=ball_renamed.png;ORKIGE_DEMO_FRAMES=60")
 
-    # --- project export (milestone 4, Util/orkige_export.py) ---------------
+    # --- project export (Util/orkige_export.py) ---------------------------
     # Classic-only: the exporter bundles the classic media set (RTSS libs)
     # and the exported-app contract is classic-verified. The export
     # machinery is PINNED to the classic presets (this tree for Debug, the

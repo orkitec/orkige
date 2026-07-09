@@ -19,7 +19,7 @@ namespace Orkige
 {
 	class AssetDatabase;
 
-	//! @brief a game project on disk - the Unity-style "open a project, not a
+	//! @brief a game project on disk - the "open a project, not a
 	//! scene" unit the editor and player work in.
 	//! @remarks A project is a folder with a project.orkproj manifest plus the
 	//! standard subdirectories scenes/, assets/ and scripts/ (scripts/ is

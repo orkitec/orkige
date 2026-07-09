@@ -58,7 +58,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderNode::~RenderNode()
 	{
-		// late destruction guard (WP-A1.5): script-held handles (Lua userdata
+		// late destruction guard: script-held handles (Lua userdata
 		// keeps the optr alive until the Lua state closes) may legally
 		// outlive the render system - once destroyRenderSystem ran, the
 		// backend scene died with the Ogre root and only the facade memory

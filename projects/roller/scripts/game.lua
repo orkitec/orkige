@@ -1,4 +1,4 @@
--- game.lua - the Continuity half of the roller prototype, attached to the
+-- game.lua - the world-sliding half of the roller prototype, attached to the
 -- "Game" object in every level scene through a ScriptComponent.
 --
 -- This script owns everything AROUND the rolling: the fastgui HUD, the
@@ -19,7 +19,7 @@
 --         run is scored/persisted and after a beat the DEFERRED load switches
 --         to the next level (looping to level 1 after the last).
 --
--- THE SLOT MAP IS DERIVED FROM THE SCENE (#87): the grid geometry lives once,
+-- THE SLOT MAP IS DERIVED FROM THE SCENE: the grid geometry lives once,
 -- in the "Level" object's LevelComponent (cols/rows/tileSize/origin/goal/par).
 -- init snaps every tile root (world.findByTag("tile")) through the component's
 -- grid to recover which slot it sits in - the empty slot is the cell with no
@@ -30,7 +30,7 @@
 --     levelIndex, levelComplete, saved   written HERE
 --   x, y, wins, respawns, ballReady                          written by ball.lua
 --
--- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the facade
+-- RENDER FLAVORS: fastgui exists only on the classic backend (the facade
 -- HUD replaces it later). engine:hasUISystem() answers which world we are in -
 -- without a UI system this script skips the HUD/banners; modes, tile slides,
 -- cursor sprite, the win flow and progression work identically.
@@ -183,7 +183,7 @@ end
 local function setMode(newMode)
 	mode = newMode
 	local moving = (mode == "move")
-	-- Continuity: the world only moves while the simulation stands still
+	-- the world only moves while the simulation stands still
 	physics:setPaused(moving)
 	setCursorVisible(moving)
 	if moving then

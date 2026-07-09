@@ -11,7 +11,7 @@
 //! @brief Ogre-Next implementation of the RenderCamera facade
 //! @remarks creation, node placement, projection setup, viewport rays,
 //! project-point, view/projection matrices. setWireframe: the v2
-//! Camera lost the per-camera polygon-mode toggle, so the B2 decision
+//! Camera lost the per-camera polygon-mode toggle, so the decision
 //! is the Hlms macroblock road - RenderBackend::setGlobalWireframe
 //! flips the polygon mode of every backend-generated datablock, i.e.
 //! wireframe is GLOBAL (not per-camera) on this backend. That matches

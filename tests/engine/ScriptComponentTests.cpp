@@ -270,7 +270,7 @@ TEST_CASE("A script error disables the instance and never spams or crashes", "[s
 	env.scriptRuntime.setScriptSearchRoot("");
 }
 
-TEST_CASE("ScriptComponent::hotReload swaps compile-before-swap (WP #77)", "[script]")
+TEST_CASE("ScriptComponent::hotReload swaps compile-before-swap", "[script]")
 {
 	Orkige::EngineTestEnvironment & env = Orkige::EngineTestEnvironment::get();
 	if (!scriptingAvailable())

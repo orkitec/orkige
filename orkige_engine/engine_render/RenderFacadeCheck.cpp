@@ -7,9 +7,9 @@
 	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 //! @file RenderFacadeCheck.cpp
-//! @brief phase A0 compile check for the engine_render facade headers
-//! @remarks The facade is design-only in A0: no backend implements it yet
-//! (phase A1 makes the classic backend the first one, see
+//! @brief compile check for the engine_render facade headers
+//! @remarks The facade started design-only: no backend implemented it yet
+//! (the classic backend was the first one, see
 //! Docs/render-abstraction.md). This TU keeps every facade header honest -
 //! self-contained, Ogre-free except through engine_render/RenderMath.h -
 //! by compiling them all in one place. It defines nothing and can be

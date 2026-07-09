@@ -1,4 +1,4 @@
-// EditorPropertyWidgets.h - the GENERIC property-widget layer (task #94 P3).
+// EditorPropertyWidgets.h - the GENERIC property-widget layer.
 //
 // One ImGui widget renderer keyed off Orkige::PropertyKind, so the SAME code
 // draws a C++ component's reflected property and (later) a Lua script's dynamic

@@ -49,7 +49,7 @@ namespace Orkige
 
 		JumperHud(int screenWidth, int screenHeight,
 			String const & atlas = "fastgui_default",
-			// fastgui is classic-only (decision #2 in
+			// fastgui is classic-only (see
 			// Docs/render-abstraction.md) - its resource-group default is
 			// the one sanctioned Ogre spelling left in this header
 			String const & resourceGroup =

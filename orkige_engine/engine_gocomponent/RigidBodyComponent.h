@@ -30,7 +30,7 @@ namespace Orkige
 		//--- Types -------------------------------------------------
 	public:
 		//! @brief fired on a GameObject when one of its bodies STARTS touching
-		//! another (WP #88, begin = Jolt OnContactAdded). The event data is a
+		//! another (begin = Jolt OnContactAdded). The event data is a
 		//! StringUtil::StringObject carrying the OTHER GameObject's id. Dispatched
 		//! on the MAIN thread from the contact drain (@see dispatchContacts), so
 		//! native components / the debug protocol can observe contacts without
@@ -89,7 +89,7 @@ namespace Orkige
 		//! is this body a sensor / trigger volume (@see setIsSensor)
 		inline bool isSensor() const;
 
-		//--- reflected property accessors (task #94 P2): the BodyDesc creation
+		//--- reflected property accessors: the BodyDesc creation
 		//! parameters, get/set by field so the property drive round-trips them by
 		//! name. The setters write the descriptor directly (the body is created
 		//! lazily AFTER load, so no live-body guard is needed here).

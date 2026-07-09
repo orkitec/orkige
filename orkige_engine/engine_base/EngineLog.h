@@ -43,7 +43,7 @@ namespace Orkige
 	//! forwarding is an engine service, not part of the render facade).
 	//! @remarks First consumer is PlayerDebugLink (engine_runtime), which
 	//! forwards captured lines to the editor Console as "[remote]" lines;
-	//! the editor's own console capture migrates onto this in WP-A1.4.
+	//! the editor's own console capture migrates onto this.
 	//! Captured lines queue in a bounded backlog (oldest lines drop on
 	//! overflow - the newest context is the interesting part) and are
 	//! drained by the consumer once per frame. Capture may fire off the

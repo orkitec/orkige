@@ -155,7 +155,7 @@ namespace Orkige
 		void stream(GameObjectManager & gameObjectManager,
 			unsigned long frameCount);
 
-		//! @brief a mid-play scene switch happened (#87 deferred level load):
+		//! @brief a mid-play scene switch happened (deferred level load):
 		//! the previous world was town down and a new one loaded, so any
 		//! remembered selection id now dangles and the last-sent hierarchy is
 		//! stale. Drop the selection and force the next stream() to re-send the

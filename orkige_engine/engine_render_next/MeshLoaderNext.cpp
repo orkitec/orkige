@@ -8,7 +8,7 @@
 *********************************************************************/
 
 //! @file MeshLoaderNext.cpp
-//! @brief the Next backend's mesh import path (B2, WP-A2.3)
+//! @brief the Next backend's mesh import path
 //! @remarks Ogre-Next has no assimp codec (classic loads glb through
 //! OGRE 14's Codec_Assimp), so the backend links assimp directly and
 //! owns the import end to end - THE decided glb/mesh path:
@@ -27,7 +27,7 @@
 //! memory, external references resolve through the resource groups.
 //! Assimp generates smooth normals (PBS needs them; the test glbs ship
 //! none) and BAKES node transforms (aiProcess_PreTransformVertices):
-//! the B2 importer is static-meshes-only - skeletal glb import is an
+//! the importer is static-meshes-only - skeletal glb import is an
 //! honest gap logged once (the facade animation surface itself is
 //! implemented over v2 SkeletonInstance in MeshInstanceNext.cpp).
 

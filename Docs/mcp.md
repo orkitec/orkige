@@ -1,4 +1,4 @@
-# MCP endpoint — AI-agent editor control (WP #90)
+# MCP endpoint — AI-agent editor control
 
 The Orkige **editor hosts an MCP server itself**, over
 [Model Context Protocol](https://modelcontextprotocol.io) **Streamable HTTP**
@@ -8,8 +8,9 @@ the running editor as a *remote* MCP server and drives it: open projects, edit
 and save scenes, inspect and mutate the GameObject hierarchy, read and write
 component properties, control play mode, take screenshots and list assets.
 
-There is **no Python sidecar and no extra pip dependency** — WP #90 retired the
-old `Util/orkige_mcp.py` stdio bridge (and its `mcp` SDK requirement). The HTTP
+There is **no Python sidecar and no extra pip dependency** — the editor now
+hosts the endpoint in-process, retiring the old `Util/orkige_mcp.py` stdio
+bridge (and its `mcp` SDK requirement). The HTTP
 server is hand-rolled on the engine's own non-blocking socket layer
 (`core_debugnet/HttpServer`), with a minimal nested-JSON value type
 (`core_debugnet/Json`) for the JSON-RPC surface.
@@ -59,8 +60,8 @@ Claude Desktop: add an entry under `mcpServers` with `"type": "http"` and
                                              (EditorControlServer → HttpServer)
 ```
 
-`EditorControlServer` is an HTTP + JSON-RPC transport in front of the WP #80
-command handler, which is REUSED wholesale: a thin adapter over `EditorCore`
+`EditorControlServer` is an HTTP + JSON-RPC transport in front of the existing
+verb handler, which is REUSED wholesale: a thin adapter over `EditorCore`
 (deliberately UI-independent) and the `EditorDocument` free functions. Each
 editor verb is surfaced as an MCP **tool** with a JSON `inputSchema`; a
 `tools/call` converts the tool arguments into the handler's internal request and

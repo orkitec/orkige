@@ -543,10 +543,10 @@ namespace Orkige
 		//! self.gameObject, world.get) reads its id as `obj.id` - the same value
 		//! the ScriptComponent `self.id` convenience field carries
 		OPROP("id", getObjectID)
-		//--- hierarchy (Unity-style tree) ---
+		//--- hierarchy (GameObject tree) ---
 		OFUNCCR(getParentId)
 		OFUNCWEAK(getParent)
-		//Lua gets the keep-world-transform form (the Unity default);
+		//Lua gets the keep-world-transform form (the default);
 		//scene loading uses the two-argument C++ overload
 		OFUNCOVERL(setParent, bool (ExposedClassType::*)(String const &))
 		OFUNCCR(getChildIds)

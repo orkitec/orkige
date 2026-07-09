@@ -18,7 +18,7 @@
 //! media its shader pipeline needs registered before startup. Each
 //! backend contributes one bootstrap TU implementing these four
 //! functions (classic: bootstrap_classic.cpp; Ogre-Next adds
-//! bootstrap_next.cpp in phase A2 - see Docs/render-abstraction.md).
+//! bootstrap_next.cpp - see Docs/render-abstraction.md).
 
 #include <engine_render/RenderPrerequisites.h>
 #include <core_util/String.h>

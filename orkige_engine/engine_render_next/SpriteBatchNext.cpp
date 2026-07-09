@@ -8,7 +8,7 @@
 *********************************************************************/
 
 //! @file SpriteBatchNext.cpp
-//! @brief Ogre-Next implementation of the SpriteBatch facade (WP #82)
+//! @brief Ogre-Next implementation of the SpriteBatch facade
 //! @remarks the v2 counterpart of the classic sprite batch: one v2
 //! Ogre::ManualObject (SCENE_DYNAMIC) rebuilt every frame from the owner's
 //! CPU vertex array (four vertices per quad, TL/TR/BR/BL) - the same

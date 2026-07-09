@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Headless unit tests of the pure 2D particle simulation (WP #82):
+	Headless unit tests of the pure 2D particle simulation:
 	emission rate, gravity integration, lifetime culling, over-life
 	size/colour lerps (through the EaseLibrary), the hard capacity cap,
 	burst(n) exactness and PRNG reproducibility. ParticleSim is renderer-

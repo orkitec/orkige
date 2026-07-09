@@ -81,7 +81,7 @@ namespace Orkige
 	void LevelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2)
+		// reflection-driven NAMED serialization
 		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
@@ -108,7 +108,7 @@ namespace Orkige
 		OFUNC(slotCenterX)
 		OFUNC(slotCenterY)
 		OFUNC(starsForMoves)
-		// reflected grid-geometry schema (task #94 P2)
+		// reflected grid-geometry schema
 		OPROPERTY("cols", Orkige::PropertyKind::Int, getCols, setColsValue, Orkige::PROP_NONE)
 		OPROPERTY("rows", Orkige::PropertyKind::Int, getRows, setRowsValue, Orkige::PROP_NONE)
 		OPROPERTY("tileSize", Orkige::PropertyKind::Float, getTileSize, setTileSizeValue, Orkige::PROP_NONE)

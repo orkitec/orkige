@@ -10,7 +10,7 @@ PNG/JPG-only runtime's texture inputs. GPU-compressed formats (ETC2/ASTC/BCn)
 are intentionally out of scope and double-blocked: the runtime registers only
 the STBI PNG/JPG image codec, AND there is no block-compression encoder in the
 Python stdlib - so a compression cook would produce assets nothing can load.
-Compression is its own future work package (encoder decision + a loader codec).
+Compression is its own separate future effort (encoder decision + a loader codec).
 """
 
 import struct

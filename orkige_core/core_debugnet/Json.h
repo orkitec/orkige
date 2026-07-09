@@ -19,7 +19,7 @@ namespace Orkige
 {
 	//! @brief a minimal, allocation-simple JSON value with FULL nesting
 	//! (objects and arrays), unlike the flat DebugMessage codec next door.
-	//! @remarks it exists for the editor's in-process MCP endpoint (WP #90),
+	//! @remarks it exists for the editor's in-process MCP endpoint,
 	//! whose JSON-RPC 2.0 surface needs nested objects/arrays (params, result,
 	//! the tool inputSchemas, the content array) that DebugMessage - a flat
 	//! key/value line record - deliberately cannot carry. The parser is a

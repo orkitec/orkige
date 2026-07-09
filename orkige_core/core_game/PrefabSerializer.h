@@ -14,7 +14,7 @@
 namespace Orkige
 {
 	//! @brief saves a GameObject SUBTREE as a reusable .oprefab asset and
-	//! instantiates such assets back into a world (the Unity prefab idea,
+	//! instantiates such assets back into a world (the prefab pattern,
 	//! v1: STRUCTURAL variants + root overrides only).
 	//! @remarks The .oprefab file is a thin sibling of the .oscene format
 	//! (same XMLArchive per-object block, shared through the SceneSerializer

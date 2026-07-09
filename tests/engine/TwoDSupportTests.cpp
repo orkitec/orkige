@@ -25,7 +25,7 @@
 #include <engine_input/InputManager.h>
 #include <core_serialization/XMLArchive.h>
 // the classic render-queue constant the zOrder mapping is asserted against
-// (renderQueueForZOrder itself is backend-free since B3 - base queue 50 on
+// (renderQueueForZOrder itself is backend-free - base queue 50 on
 // both Ogre backends; this classic-only test pins it to the classic enum)
 #include <OgreRenderQueue.h>
 

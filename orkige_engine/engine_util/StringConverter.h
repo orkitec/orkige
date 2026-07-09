@@ -10,7 +10,7 @@
 #define __StringConverter_h__31_8_2010__0_31_04__
 
 #include "engine_module/EnginePrerequisites.h"
-// explicit since B3 (the neutral umbrella carries math only): the Ogre
+// explicit (the neutral umbrella carries math only): the Ogre
 // string helpers exist identically in classic OGRE 14 and Ogre-Next
 #include <OgreString.h>
 #include <OgreStringConverter.h>

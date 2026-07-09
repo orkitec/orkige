@@ -18,7 +18,7 @@ namespace Orkige
 	//! @brief the renderer entry point: startup, main window, frame loop,
 	//! resources and the small services every app calls today
 	//! @remarks The facade RenderSystem is what engine_graphic/Engine
-	//! becomes: in phase A1 Engine implements this surface and apps migrate
+	//! becomes: Engine implements this surface and apps migrate
 	//! to it; the config-file/window plumbing stays in Engine (backend-
 	//! independent). Frame events (FrameStartedEvent etc.) stay on the core
 	//! event system, fired around renderOneFrame - they are not part of the
@@ -91,8 +91,8 @@ namespace Orkige
 		//! @brief the camera currently shown on the main window, or NULL when
 		//! none is - what CameraComponent takes over when it attaches
 		//! @remarks classic migration note: when the window camera was set up
-		//! through Engine::createDefaultCameraAndViewport (every app until
-		//! WP-A1.3), this wraps that camera into a facade handle, so component
+		//! through Engine::createDefaultCameraAndViewport (every app),
+		//! this wraps that camera into a facade handle, so component
 		//! code stays backend-free while the Engine path is still live
 		//! map: classic=facade handle over the window viewport's camera | next=workspace camera | filament=main View camera
 		optr<RenderCamera> getWindowCamera() const;

@@ -42,7 +42,7 @@
 #include <engine_input/InputManager.h>
 #include <engine_input/InputActionMap.h>
 #include <engine_sound/SoundManager.h>
-// fastgui is flavor-neutral since the DrawLayer2D port - the UI
+// fastgui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_runtime/PlayerRuntime.h>
@@ -245,7 +245,7 @@ bool extractBundledAssets(std::string const& destRoot)
 int main(int argc, char** argv)
 {
 	// arguments: the player CLI contract (an optional positional scene file,
-	// --project <dir-or-.orkproj> - Unity-style: play a whole project, its
+	// --project <dir-or-.orkproj> - play a whole project, its
 	// assets/ and scenes/ become resource locations and its main scene is the
 	// default scene - and --debug-port N for the editor's play mode), parsed
 	// by the shared PlayerArguments so native game modules stay identical.
@@ -462,7 +462,7 @@ int main(int argc, char** argv)
 		const std::string rollerShotDir =
 			rollerShotDirEnv ? rollerShotDirEnv : "";
 		// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
-		// deferred scene switch + progression save (WP #87) end to end against
+		// deferred scene switch + progression save end to end against
 		// projects/roller: solve level 1 (the proven tile-slide + roll), assert
 		// the runtime SWITCHED to level 2 (shared.roller.levelIndex incremented,
 		// the progression file written), then solve the straight-shot level 2
@@ -482,7 +482,7 @@ int main(int argc, char** argv)
 		// tests/projects/tween (run with --project tests/projects/tween)
 		const bool tweenCheck =
 			(std::getenv("ORKIGE_TWEEN_SELFCHECK") != nullptr);
-		// ORKIGE_HOTRELOAD_SELFCHECK verifies Lua hot-reload (WP #77) end to
+		// ORKIGE_HOTRELOAD_SELFCHECK verifies Lua hot-reload end to
 		// end against tests/projects/hotreload: overwrite the running script on
 		// disk, drive ScriptComponent::hotReload() (the player-directed swap),
 		// and assert (a) the behavior changed AND (b) an engine-side value
@@ -492,7 +492,7 @@ int main(int argc, char** argv)
 		const bool hotreloadCheck =
 			(std::getenv("ORKIGE_HOTRELOAD_SELFCHECK") != nullptr);
 		// ORKIGE_SCRIPTPROP_SELFCHECK verifies Lua script EXPORTED properties
-		// (task #94 P5b) end to end against tests/projects/scriptprop: the
+		// end to end against tests/projects/scriptprop: the
 		// scene bakes the "Mover" object's exported moveSpeed at a non-default
 		// value (5); the selfcheck asserts the running script SAW the injected
 		// value (init published it) and BEHAVES with it (moves at that speed),
@@ -511,7 +511,7 @@ int main(int argc, char** argv)
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
+		// --- per-flavor boot block (Docs/render-abstraction.md "App
 		// boot"): on classic, Engine construction/config and the
 		// RTSS-internal media registration stay classic plumbing; on the
 		// next flavor the Engine sibling (engine_graphic/EngineNext.h)
@@ -606,7 +606,7 @@ int main(int argc, char** argv)
 		// successor, same pattern as the samples). The fixed yaw axis keeps
 		// per-frame lookAt calls roll-free - project scripts drive this rig
 		// through the Lua bindings (engine:getCamera():getNode(),
-		// engine:setCameraOrthographic, ...) since WP-A1.5.
+		// engine:setCameraOrthographic, ...).
 		optr<Orkige::RenderCamera> camera = world->createCamera("player.camera");
 		optr<Orkige::RenderNode> cameraNode =
 			world->createNode("player.cameraNode");
@@ -695,7 +695,7 @@ int main(int argc, char** argv)
 			// and audio.group.<name> (engine_sound/SoundManager.h)
 			soundManager.applySettings(project.getSettings());
 			// console variables persist per project: manifest Settings
-			// "cvar.<name>" (WP #83). Applied here BEFORE the scene's scripts
+			// "cvar.<name>". Applied here BEFORE the scene's scripts
 			// run - an override for a cvar a script has not registered yet is
 			// held and re-applied on registerCVar, so the order does not matter
 			// (core_debug/CVarManager.h).
@@ -711,7 +711,7 @@ int main(int argc, char** argv)
 		// start them through the Lua `tween` table (scene clears reap them
 		// via the GameObjectManager::clear teardown hook)
 		Orkige::TweenManager tweenManager;
-		// the level director (#87): the ordered level sequence, the DEFERRED
+		// the level director: the ordered level sequence, the DEFERRED
 		// scene-load request that drives win->next-level and the progression
 		// save. Created like the TweenManager - the editor never makes one, so
 		// the Lua level/loadScene API is an honest no-op there. Only projects
@@ -843,7 +843,7 @@ int main(int argc, char** argv)
 		// physics only when the scene needs it: RigidBodyComponents create
 		// their bodies lazily on the first component update, which requires
 		// an initialized PhysicsWorld. Not const: a deferred level load
-		// (#87) re-evaluates it for the new scene.
+		// re-evaluates it for the new scene.
 		bool physicsNeeded = sceneHasRigidBodies(gameObjectManager);
 		if (physicsNeeded)
 		{
@@ -856,11 +856,11 @@ int main(int argc, char** argv)
 				"rigid bodies)");
 		}
 
-		// the re-entrant scene load (#87): the SAME steps the initial load
+		// the re-entrant scene load: the SAME steps the initial load
 		// above runs, factored so the deferred-load pump at the frame boundary
-		// (PLAYER LOOP TICK ORDER, SLOT #87) can reuse them. SceneSerializer::
+		// (in the player loop's tick order) can reuse them. SceneSerializer::
 		// loadScene tears the old world down via GameObjectManager::clear (the
-		// #86 teardown hook - scripts get their shutdown, tweens are reaped,
+		// teardown hook - scripts get their shutdown, tweens are reaped,
 		// rigid bodies leave the sim); we then re-apply the unlit fix, bring
 		// physics up lazily if the new level introduces bodies (PhysicsWorld
 		// persists - inited once, never torn down), drop the debug-link
@@ -981,7 +981,7 @@ int main(int argc, char** argv)
 		};
 		// the Lua-booted UI, seen through the FastGuiManager singleton: does
 		// the widget exist, and is its screen (= its shared z layer) visible.
-		// Since the DrawLayer2D port fastgui runs on BOTH render flavors
+		// fastgui runs on BOTH render flavors
 		// (engine:hasUISystem() is true everywhere), so the UI assertions
 		// are no longer flavor-gated - uiChecksEnabled stays as the one
 		// switch a future UI-less flavor would flip.
@@ -1146,7 +1146,7 @@ int main(int argc, char** argv)
 			}
 			return gameObject->getComponentPtr<Orkige::TransformComponent>();
 		};
-		// flavor-neutral since the DrawLayer2D port, like the jumper
+		// flavor-neutral, like the jumper
 		// lambdas above
 		auto rollerWidgetExists = [](const char* id) -> bool
 		{
@@ -1209,7 +1209,7 @@ int main(int argc, char** argv)
 		};
 
 		// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
-		// DEFERRED scene switch + the progression save (WP #87), end to end
+		// DEFERRED scene switch + the progression save, end to end
 		// against projects/roller. Same discipline as the roller selfcheck
 		// (synthetic keys through the real input path, C++ observes only
 		// shared.roller, the components and the LevelManager). Phased:
@@ -1286,7 +1286,7 @@ int main(int argc, char** argv)
 			tweenCheckFailed = true;
 		};
 
-		// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload (WP #77), verified
+		// --- ORKIGE_HOTRELOAD_SELFCHECK=1: Lua hot-reload, verified
 		// end to end against tests/projects/hotreload (run with --project
 		// tests/projects/hotreload). The Probe object runs scripts/
 		// reload_probe.lua, whose init publishes shared.hotreload.value = 1.
@@ -1355,7 +1355,7 @@ int main(int argc, char** argv)
 		};
 
 		// --- ORKIGE_SCRIPTPROP_SELFCHECK=1: Lua script exported properties
-		// (task #94 P5b), verified end to end against tests/projects/scriptprop.
+		// verified end to end against tests/projects/scriptprop.
 		// The scene bakes the Mover's exported moveSpeed at 5 (the script's own
 		// default is 1), so the running script seeing 5 at init proves the
 		// PER-INSTANCE value round-tripped through serialization AND was injected
@@ -1458,7 +1458,7 @@ int main(int argc, char** argv)
 				//
 				// [1] INPUT - the raw SDL events of this frame were polled and
 				//     injected at the top of the loop (inputManager.injectEvent).
-				//     SLOT(#81 input-actions): map raw input state to actions
+				//     SLOT(input-actions): map raw input state to actions
 				//     HERE, before the scripts that read them run. ONE edge
 				//     snapshot per frame (pressed = down && !down-last-frame);
 				//     scripts read the snapshot back, never recompute it.
@@ -1486,7 +1486,7 @@ int main(int argc, char** argv)
 					physicsWorld.update(deltaTime);
 					Orkige::RigidBodyComponent::syncDynamicBodyPoses(
 						gameObjectManager);
-					// contacts + sensors/triggers (WP #88): the worker-thread
+					// contacts + sensors/triggers: the worker-thread
 					// contact queue was drained inside update() above; dispatch
 					// the coalesced frame contacts to game code on THIS main
 					// thread (C++ ContactBegan/EndedEvent + the Lua
@@ -1497,7 +1497,7 @@ int main(int argc, char** argv)
 						gameObjectManager);
 				}
 				//
-				// [5] SLOT(#87 deferred-load pump): a script asked for a scene
+				// [5] SLOT(deferred-load pump): a script asked for a scene
 				//     switch (world.loadScene / LevelManager:loadLevel set the
 				//     pending request during [2]). Apply it HERE, at the frame
 				//     boundary AFTER physics - never mid-update, where in-flight

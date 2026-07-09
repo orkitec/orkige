@@ -18,7 +18,7 @@ TEST_CASE("JsonValue round-trips nested objects and arrays", "[json]")
 {
 	// build a JSON-RPC-shaped value: nested objects, an array of objects,
 	// strings, numbers and booleans - exactly what the flat DebugMessage codec
-	// cannot carry and what the MCP endpoint (WP #90) needs
+	// cannot carry and what the MCP endpoint needs
 	JsonValue request = JsonValue::object();
 	request.set("jsonrpc", JsonValue("2.0"));
 	request.set("id", JsonValue(7));

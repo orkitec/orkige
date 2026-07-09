@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renderer containment lint (WP-A1.5, Docs/render-abstraction.md).
+"""Renderer containment lint (Docs/render-abstraction.md).
 
 Fails when an `Ogre::` spelling appears in CODE (comments are stripped)
 outside the render backend:

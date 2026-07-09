@@ -13,8 +13,8 @@
 //! material (unlit, alpha-blended, depth-checked/not-written, two-sided;
 //! tint and flips live in the vertex data so all sprites of one texture
 //! share one material; zOrder = render-queue painter's sorting). Same
-//! honest v1 rules SpriteComponent renders with today - WP-A1.2 retargets
-//! the component onto this class.
+//! honest v1 rules SpriteComponent renders with today; the component is
+//! retargeted onto this class.
 
 #include "engine_render_classic/ClassicBackend.h"
 #include <core_debug/DebugMacros.h>

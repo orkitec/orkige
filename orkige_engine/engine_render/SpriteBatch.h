@@ -18,7 +18,7 @@
 namespace Orkige
 {
 	//! @brief a world-space, single-texture, N-quad batch drawn in ONE draw
-	//! call - the 2D particle-system building block (WP #82)
+	//! call - the 2D particle-system building block
 	//! @remarks The sibling of SpriteQuad for the many-quads case: where a
 	//! SpriteQuad is one textured quad per movable object, a SpriteBatch holds
 	//! a whole CPU vertex array (four vertices per quad, TL/TR/BR/BL) that the

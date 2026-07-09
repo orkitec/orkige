@@ -21,7 +21,7 @@ namespace Orkige
 		String ORKIGE_ENGINE_DLL findPath(String const & filename);
 
 #ifndef ORKIGE_RENDER_NEXT
-		//! classic-only (B3): the single caller is the fastgui zone and
+		//! classic-only: the single caller is the fastgui zone and
 		//! Ogre-Next dropped the non-iterator resource-manager accessor
 		void ORKIGE_ENGINE_DLL removeUnusedResources();
 #endif

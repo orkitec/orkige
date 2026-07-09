@@ -163,7 +163,7 @@ namespace Orkige
 		}
 	};
 
-	//! @brief reflection probe (task #94, P0/P1): a headless core component that
+	//! @brief reflection probe: a headless core component that
 	//! declares one property of EACH core PropertyKind through the OPROPERTY*
 	//! macros - Int/Float/Bool/String, an Enum (with a value<->label table) and
 	//! an AssetRef. Exercising it in tests/core means the neutral registry +

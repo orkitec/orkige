@@ -18,14 +18,14 @@ namespace Orkige
 {
 	//! @brief the components' node-owner base: holds ONE owned facade
 	//! RenderNode and forwards the transform surface components expose
-	//! @remarks Phase A1 reshape (Docs/render-abstraction.md, WP-A1.2): the
+	//! @remarks the facade reshape (Docs/render-abstraction.md): the
 	//! historical class mirrored ~60 Ogre::SceneNode methods around a raw
 	//! node pointer plus an Ogre::Node::Listener; components hand-rolled
 	//! NodeUtil wipe chains in onRemove. The facade handle is RAII - the
 	//! guard now only carries the ~15 methods components and their callers
 	//! actually use (audit in the doc) and dropping the handle detaches and
 	//! destroys the backend node. The whole class is scheduled for deletion
-	//! in WP-A1.5, when components hold their optr<RenderNode> directly.
+	//! once components hold their optr<RenderNode> directly.
 	class ORKIGE_ENGINE_DLL SceneNodeGuard
 	{
 		//--- Types -------------------------------------------------

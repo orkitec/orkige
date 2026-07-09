@@ -1,12 +1,12 @@
-// EditorControlServer.h - the editor-side MCP endpoint (WP #90, was #80).
+// EditorControlServer.h - the editor-side MCP endpoint.
 //
 // An MCP server hosted DIRECTLY IN THE EDITOR over Streamable HTTP (the MCP
 // stable remote transport, spec 2025-03-26): a single `POST /mcp` speaking
 // JSON-RPC 2.0 (initialize / tools/list / tools/call / notifications). Claude
 // Code/Desktop connect to the editor as a REMOTE MCP server - no Python
-// sidecar, no extra pip dependency (#90 retired Util/orkige_mcp.py).
+// sidecar, no extra pip dependency (Util/orkige_mcp.py was retired).
 //
-// It REUSES the WP #80 command handler wholesale - the same thin adapter over
+// It REUSES the existing command handler wholesale - the same thin adapter over
 // EditorCore + the EditorDocument free functions exposing ~17 editor verbs
 // (open/save scene, open/close project, read the hierarchy, create/delete/
 // reparent/rename objects, add/remove components, read/write the six typed
@@ -19,7 +19,7 @@
 // layer converts a tool call's JSON arguments into that request and the reply
 // back into MCP tool content.
 //
-// AUTH: the token-file scheme from #80 is kept - the editor writes a random
+// AUTH: the existing token-file scheme is kept - the editor writes a random
 // secret to a file; the MCP client presents it as `Authorization: Bearer
 // <token>`. MUTATION verbs are refused until a valid token authenticated the
 // request (per-request, HTTP-idiomatic); read verbs are open (a loopback reader
@@ -30,7 +30,7 @@
 //
 // SSE: POST-only (single JSON response per request). The optional GET-SSE stream
 // is not implemented (the tool surface is request/response; long ops - play boot
-// - return an accepted result and are polled via get_state, as in #80).
+// - return an accepted result and are polled via get_state).
 #ifndef ORKIGE_EDITORCONTROLSERVER_H_09072026
 #define ORKIGE_EDITORCONTROLSERVER_H_09072026
 
@@ -69,7 +69,7 @@ namespace Orkige
 	};
 
 	//! @brief the editor's MCP endpoint: a loopback HttpServer plus the JSON-RPC
-	//! dispatch that adapts MCP tool calls onto the WP #80 verb handler. Pump
+	//! dispatch that adapts MCP tool calls onto the verb handler. Pump
 	//! update() once per frame.
 	class EditorControlServer
 	{
@@ -114,7 +114,7 @@ namespace Orkige
 		//! the advertised tool list with JSON inputSchemas (tools/list result)
 		static JsonValue buildToolList();
 
-		//--- the WP #80 verb handler (reused wholesale) ------
+		//--- the verb handler (reused wholesale) ------
 		//! dispatch one decoded verb request; the outcome lands in mReply/
 		//! mReplyIsError (sendOk/sendErr buffer it instead of writing a socket)
 		void runVerb(DebugMessage const& request,

@@ -33,9 +33,9 @@ namespace Orkige
 	// every asset reference) and, on prefab instance roots, the list of
 	// suppressed prefab children (structural overrides - see
 	// core_game/PrefabSerializer.h); version 2 added the per-object parent id +
-	// activeSelf flag (Unity-style GameObject tree); version 1 scenes load as
+	// activeSelf flag (GameObject parent/child tree); version 1 scenes load as
 	// all-root, all-active, prefab-less, tag-less worlds
-	// version 6 (2026-07, task #94 P2): reflection-driven NAMED component
+	// version 6 (2026-07): reflection-driven NAMED component
 	// serialization. Each component's declared PropertySchema (TypeManager) is
 	// written as a name->value field block instead of a positional field list,
 	// so reordering/adding/removing a component field no longer needs an archive
@@ -331,7 +331,7 @@ namespace Orkige
 				// components against the pristine baseline captured at
 				// instantiate (an unmodified component stores NOTHING); when it
 				// does not (a placeholder instance), keep the overrides loaded
-				// from the scene so a re-save loses none of them (Unity-style)
+				// from the scene so a re-save loses none of them
 				GameObject::ChildOverrideMap overrides;
 				const String prefabPath = resolvePrefabPath(prefabRef, fileName);
 				if(!prefabPath.empty())
@@ -409,7 +409,7 @@ namespace Orkige
 		}
 		int version = 0;
 		ar >> version;
-		// clean single current format (task #94 P2): no positional-reader
+		// clean single current format: no positional-reader
 		// fallback, no per-version field gates - only the current version loads
 		if(version != SCENE_FORMAT_VERSION)
 		{
@@ -501,8 +501,8 @@ namespace Orkige
 						suppressed.push_back(localId);
 					}
 					// the instance keeps its reference and overrides even when
-					// the prefab file cannot be found right now (Unity-style:
-					// a re-save must not strip the link, a later load with the
+					// the prefab file cannot be found right now (a re-save
+					// must not strip the link, a later load with the
 					// asset back in place heals the instance)
 					gameObject->setPrefabRef(prefabRef, prefabAssetId);
 					gameObject->setSuppressedPrefabChildren(suppressed);
@@ -777,8 +777,8 @@ namespace Orkige
 	void SceneSerializer::saveComponentProperties(optr<IArchive> const & ar,
 		GameObjectComponent & component)
 	{
-		// the FULL schema: static per-type UNION dynamic per-instance (task #94
-		// P5b) - so a ScriptComponent's exported script properties serialize
+		// the FULL schema: static per-type UNION dynamic per-instance
+		// - so a ScriptComponent's exported script properties serialize
 		// per-instance alongside its static fields, through this one named path
 		const PropertySchema schema = getComponentSchema(component);
 		std::vector<PropertyDesc const *> fields;
@@ -877,7 +877,7 @@ namespace Orkige
 		};
 		// PASS 1 - the STATIC per-type schema. Assigning it sets the authoring
 		// state INCLUDING a ScriptComponent's script path, whose setter discovers
-		// the dynamic export schema (task #94 P5b) - so pass 2 can see it.
+		// the dynamic export schema - so pass 2 can see it.
 		if(PropertySchema const * staticSchema =
 			TypeManager::getSingleton().getPropertySchema(
 				component.getTypeInfo().getId()))

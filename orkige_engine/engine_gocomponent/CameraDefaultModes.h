@@ -14,7 +14,7 @@
 namespace Orkige
 {
 	//! @brief some basic modes for CameraComponent
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): runs on the
+	//! @remarks runs on the
 	//! facade RenderNode rig. The historical CollisionTools camera-vs-entity
 	//! test in the chase camera was dropped with CollisionTools' retirement
 	//! (superseded by PhysicsWorld::castRay - wire a physics-based camera

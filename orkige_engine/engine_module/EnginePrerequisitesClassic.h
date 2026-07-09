@@ -10,8 +10,8 @@
 #define __EnginePrerequisitesClassic_h__8_7_2026__12_00_00__
 
 //! @file EnginePrerequisitesClassic.h
-//! @brief the CLASSIC-ONLY engine umbrella (phase B3, Docs/render-abstraction.md)
-//! @remarks What engine_module/EnginePrerequisites.h was before B3: the
+//! @brief the CLASSIC-ONLY engine umbrella (Docs/render-abstraction.md)
+//! @remarks The classic-only prerequisites: the
 //! neutral engine umbrella plus the classic OGRE umbrella headers. Only
 //! classic-gated translation units may include this (engine_graphic's
 //! Engine/console/debug renderables,

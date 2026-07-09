@@ -15,7 +15,7 @@ target platform:
 What this cook deliberately does NOT do: GPU compression (ETC2/ASTC/BCn). It is
 double-blocked - the runtime registers only the PNG/JPG image codec, and the
 Python stdlib has no block-compression encoder - so it stays out of v1 and is
-its own future work package. The cook only ever rewrites UNCOMPRESSED PNGs.
+its own separate future effort. The cook only ever rewrites UNCOMPRESSED PNGs.
 
 Sampler settings (filter/wrap) are NOT cooked: they are honored LIVE at sprite
 material/datablock creation from the same sidecar (which ships alongside the

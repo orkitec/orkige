@@ -86,7 +86,7 @@ TODO(linux): the Linux/Vulkan build is authored against the 3.0.0 sources
 but first proven by the `linux-next` CI job - glslang API drift between
 ogre-next 3.0 and the current vcpkg glslang is the known risk.
 Overlay/samples/tools and all other components OFF until a phase needs them;
-zip archives OFF (would add zziplib - revisit in B2 when content work needs
+zip archives OFF (would add zziplib - revisit when content work needs
 `addResourceLocation(LT_ZIP)`).
 
 Upstream installs **no CMake package config** (only pkg-config templates

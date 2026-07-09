@@ -65,15 +65,15 @@ namespace Orkige
 	protected:
 		EventManager*								eventManager;			//!< EventManager assigned Components can listen to
 		std::vector< optr<GameObjectComponent> >	updatableComponents;	//!< holds components that needs their onUpdate method called
-		String										parentId;				//!< id of the parent GameObject ("" = root, Unity-style tree)
-		bool										activeSelf;				//!< own active flag (Unity activeSelf, default true)
+		String										parentId;				//!< id of the parent GameObject ("" = root, GameObject tree)
+		bool										activeSelf;				//!< own active flag (default true)
 		bool										activeInHierarchy;		//!< cached effective state: activeSelf AND all ancestors active
 		String										prefabRef;				//!< project-relative .oprefab path ("" = not a prefab instance root)
 		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
 		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
 		ChildOverrideMap							prefabChildOverrides;	//!< on an instance ROOT: per prefab-provided child the overridden component states (serialized, survives save/load)
 		ComponentStateMap							prefabComponentBaseline;	//!< on a prefab-provided CHILD: pristine per-component reflected property values captured at instantiate (RUNTIME only, drives the save-time per-property override diff)
-		StringVector								tags;					//!< free-form multi-tag labels (Unity tags, but many per object); indexed by GameObjectManager
+		StringVector								tags;					//!< free-form labels, many per object; indexed by GameObjectManager
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -104,20 +104,20 @@ namespace Orkige
 		//! re-parenting onto an own descendant (cycle guard). Components get
 		//! GameObjectComponent::onParentChanged - with keepWorldTransform the
 		//! TransformComponent recomputes its LOCAL transform so the WORLD
-		//! transform is preserved (Unity semantics); scene loading passes
+		//! transform is preserved; scene loading passes
 		//! false because serialized transforms are already local.
 		bool setParent(String const & newParentId, bool keepWorldTransform);
-		//! @brief setParent overload with the Unity default (keep the world
+		//! @brief setParent overload with the default (keep the world
 		//! transform) - the form the Lua binding exposes
 		inline bool setParent(String const & newParentId);
 		//! ids of the direct children (@see GameObjectManager::getChildren)
 		StringVector const & getChildIds() const;
 		//--- ACTIVE STATE ---
-		//! own active flag (Unity activeSelf)
+		//! own active flag (default true)
 		inline bool isActiveSelf() const;
 		//! effective active state: activeSelf AND all ancestors active
 		inline bool isActiveInHierarchy() const;
-		//! @brief set the own active flag (Unity SetActive)
+		//! @brief set the own active flag
 		//! @remarks where the effective state (activeInHierarchy) of this
 		//! object or a descendant changes, every affected component receives
 		//! GameObjectComponent::onSetActive - inactive objects stop ticking,

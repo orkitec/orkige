@@ -9,7 +9,7 @@
 #ifdef ORKIGE_OPENAL_SOUND
 #include "engine_sound/SoundPlatform.h"
 #include "engine_sound/SoundError.h"
-// explicit since B3 (the neutral umbrella carries math only): wav bytes
+// explicit (the neutral umbrella carries math only): wav bytes
 // come through the resource system - Ogre::DataStream/ResourceGroupManager
 // exist identically in classic OGRE 14 and Ogre-Next
 #include <OgreDataStream.h>

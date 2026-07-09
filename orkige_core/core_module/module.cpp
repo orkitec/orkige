@@ -72,14 +72,14 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORT(GameState)
 	OEXPORT(GameStateManager)
 
-	// the tile-slide level tier (#87): the data-only LevelComponent (grid
+	// the tile-slide level tier: the data-only LevelComponent (grid
 	// geometry the game snaps tiles into, its LevelGrid math re-exposed to
 	// Lua) and the thin TileComponent marker; both are plain GameObject
 	// components registered like the rest.
 	OEXPORT(LevelComponent)
 	OEXPORT(TileComponent)
 
-	// the runtime level director (#87): sequence + current index + the
+	// the runtime level director: sequence + current index + the
 	// deferred scene-load request + progression save, reached from Lua as
 	// LevelManager.getSingleton(). Like InputActions it is a plain Singleton
 	// (not an OOBJECT), so its Lua face is spelled out here. Honest no-op in

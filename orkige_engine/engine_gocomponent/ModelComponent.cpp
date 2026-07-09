@@ -158,7 +158,7 @@ namespace Orkige
 	void ModelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): the mesh AssetRef
+		// reflection-driven NAMED serialization: the mesh AssetRef
 		// (its stable asset id rides in the record's reference field for rename
 		// survival) is the only serialized field; runtime tweaks applied to the
 		// mesh instance after loadModel (unlit fixup, visibility, ...) are not
@@ -181,7 +181,7 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 		OFUNC(loadModel)
 		OFUNCCR(getCurrentModelFileName)
-		// reflected schema (task #94 P2): the mesh reference (AssetRef, asset-kind
+		// reflected schema: the mesh reference (AssetRef, asset-kind
 		// "mesh"); its stable id rides the record so a project rename survives
 		OPROPERTY_REF("mesh", Orkige::PropertyKind::AssetRef, "mesh", getCurrentModelFileName, setModelReference, Orkige::PROP_NONE)
 	OOBJECT_END

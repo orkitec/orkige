@@ -440,7 +440,7 @@ namespace Orkige
 		{
 			oDebugMsg("scene",0,"RigidBodyComponent: saving live dynamic body - runtime velocities are not serialized");
 		}
-		// reflection-driven NAMED serialization (task #94 P2): every BodyDesc
+		// reflection-driven NAMED serialization: every BodyDesc
 		// creation parameter is written by name off the declared schema. The old
 		// positional trailing-field version guard (layer / isSensor read-the-last-
 		// element hacks) is GONE - a missing named field simply keeps its default.
@@ -487,7 +487,7 @@ namespace Orkige
 		OFUNC(teleport)
 		OFUNC(hasBody)
 		OFUNC(getBodyId)
-		// neutral enum value<->label tables (task #94 P2) so the reflected
+		// neutral enum value<->label tables so the reflected
 		// bodyType/shapeType enums resolve labels in every scripting config
 		OENUM_REGISTER_START("PhysicsBodyType", PhysicsWorld::BodyType)
 			OENUM_REGISTER_VALUE(BT_STATIC)
@@ -499,7 +499,7 @@ namespace Orkige
 			OENUM_REGISTER_VALUE(ST_SPHERE)
 			OENUM_REGISTER_VALUE(ST_CAPSULE)
 		OENUM_REGISTER_END
-		// reflected BodyDesc schema (task #94 P2): the full creation-parameter set
+		// reflected BodyDesc schema: the full creation-parameter set
 		OPROPERTY_ENUM("bodyType", "PhysicsBodyType", getBodyType, setBodyType, Orkige::PROP_NONE)
 		OPROPERTY_ENUM("shapeType", "PhysicsShapeType", getShapeType, setShapeType, Orkige::PROP_NONE)
 		OPROPERTY("halfExtents", Orkige::PropertyKind::Vec3, getHalfExtents, setHalfExtents, Orkige::PROP_NONE)
@@ -515,7 +515,7 @@ namespace Orkige
 		// physics state). Velocity is read/write (the accessors no-op / return
 		// zero without a created body, so a generic set is always safe); has_body
 		// is read-only. These keep the debug protocol's rigid-body readout (and
-		// its only pre-#94 writable fields) flowing off the ONE registry.
+		// its only pre-reflection writable fields) flowing off the ONE registry.
 		OPROPERTY("linear_velocity", Orkige::PropertyKind::Vec3, getLinearVelocity, setLinearVelocity, Orkige::PROP_TRANSIENT)
 		OPROPERTY("angular_velocity", Orkige::PropertyKind::Vec3, getAngularVelocity, setAngularVelocity, Orkige::PROP_TRANSIENT)
 		OPROPERTY_RO("has_body", Orkige::PropertyKind::Bool, hasBody, Orkige::PROP_TRANSIENT)

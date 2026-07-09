@@ -84,7 +84,7 @@ namespace Orkige
 			for(this->currentUpdatableComponentIndex = 0; this->currentUpdatableComponentIndex < this->numUpdatableComponents; this->currentUpdatableComponentIndex++)
 			{
 				GameObjectComponent* component = this->updatableComponents[this->currentUpdatableComponentIndex];
-				// deactivated objects stop ticking (Unity semantics) - the
+				// deactivated objects stop ticking - the
 				// cached activeInHierarchy flag makes this an O(1) gate
 				GameObject* componentOwner = component->getGameObject();
 				if(componentOwner && !componentOwner->isActiveInHierarchy())
@@ -102,7 +102,7 @@ namespace Orkige
 	// before loading, the editor's new/open document paths call it, tests
 	// reset through it). Cross-object runtime state that must not outlive the
 	// scene is torn down HERE and nowhere else - later features (the deferred
-	// scene-load pump, #87) EXTEND this hook instead of inventing a second
+	// scene-load pump) EXTEND this hook instead of inventing a second
 	// teardown path.
 	void GameObjectManager::clear()
 	{

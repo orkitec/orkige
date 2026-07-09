@@ -1,11 +1,11 @@
-// EditorControlServer.cpp - the editor's in-process MCP endpoint (WP #90).
+// EditorControlServer.cpp - the editor's in-process MCP endpoint.
 //
 // Two layers:
 //   1. an HTTP/1.1 + JSON-RPC 2.0 transport (handleHttp / dispatchJsonRpc /
 //      runToolCall / buildToolList) on top of the hand-rolled loopback
 //      HttpServer - the MCP Streamable HTTP surface (initialize, tools/list,
-//      tools/call, notifications). NEW in #90.
-//   2. the WP #80 verb handler (handleMessage) REUSED wholesale - a thin
+//      tools/call, notifications).
+//   2. the verb handler (handleMessage) REUSED wholesale - a thin
 //      adapter over EditorCore + the EditorDocument free functions. Its verbs
 //      still work on an internal DebugMessage request/reply pair; sendOk/sendErr
 //      buffer the reply into mReply (they used to write a DebugServer socket).
@@ -72,7 +72,7 @@ namespace Orkige
 				type == "console_tail" || type == "list_addable_components";
 		}
 		//---------------------------------------------------------
-		//--- generic reflected-property helpers (task #94 P5a) ---
+		//--- generic reflected-property helpers ---
 		//---------------------------------------------------------
 		//! @brief the agent-facing name of a PropertyKind ("float"/"vec3"/...),
 		//! so get_component's metadata is self-describing without the client
@@ -786,7 +786,7 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
-	//--- the WP #80 verb handler (reused wholesale) ----------
+	//--- the verb handler (reused wholesale) ----------
 	//---------------------------------------------------------
 	void EditorControlServer::handleMessage(DebugMessage const& request,
 		EditorControlContext const& context)
@@ -907,7 +907,7 @@ namespace Orkige
 			return;
 		}
 
-		//--- generic reflected property read (task #94 P5a) --
+		//--- generic reflected property read --
 		// GENERIC over the property registry: every reflected property of the
 		// named component crosses back as a field (name -> canonical string)
 		// plus four parallel metadata lists (names/kinds/hints/read-only) so an
@@ -936,7 +936,7 @@ namespace Orkige
 			}
 			// the union schema (static per-type + dynamic per-instance) so a
 			// ScriptComponent's exported script properties are discovered here
-			// too (task #94 P5b) - MCP shows them with zero server code
+			// too - MCP shows them with zero server code
 			const PropertySchema unionSchema = getComponentSchema(*instance);
 			PropertySchema const* schema = &unionSchema;
 			DebugMessage ok(MSG_OK);
@@ -978,7 +978,7 @@ namespace Orkige
 			return;
 		}
 
-		//--- generic reflected property write (task #94 P5a) -
+		//--- generic reflected property write -
 		// GENERIC over the property registry, undoable: every request field
 		// that names a writable reflected property is applied through
 		// EditorCore::applyPropertyChange (the undoable PropertyChangeCommand /
@@ -1006,7 +1006,7 @@ namespace Orkige
 			}
 			// the union schema (static per-type + dynamic per-instance) so a
 			// ScriptComponent's exported script properties validate/apply here
-			// too (task #94 P5b)
+			// too
 			const PropertySchema unionSchema = getComponentSchema(*instance);
 			PropertySchema const* schema = &unionSchema;
 			// the request fields that are NOT properties (routing/control)
@@ -1962,7 +1962,7 @@ namespace Orkige
 			return true;
 		};
 
-		// (8) GENERIC get_component (task #94 P5a): the reflected Transform
+		// (8) GENERIC get_component: the reflected Transform
 		// property set crosses back by name, with discovery metadata lists.
 		// McpProbe was created at position "1 2 3".
 		{

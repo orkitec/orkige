@@ -227,7 +227,7 @@ namespace Orkige
 		this->mScriptAssetId = AssetDatabase::referenceIdForValue(
 			scriptFile, "", AssetDatabase::REF_PROJECT_PATH);
 		// (re)discover the new script's exported properties: the dynamic schema
-		// is known only once a specific .lua is attached (task #94 P5b). Values
+		// is known only once a specific .lua is attached. Values
 		// reconcile BY NAME, so switching to a script sharing an export name
 		// keeps that value; everything else takes the new file's defaults.
 		this->discoverExports();
@@ -275,8 +275,8 @@ namespace Orkige
 			return;
 		}
 
-		// re-read the edited file's export set and reconcile BY NAME (task #94
-		// P5b): a designer-set value survives an edit that keeps the export, a
+		// re-read the edited file's export set and reconcile BY NAME:
+		// a designer-set value survives an edit that keeps the export, a
 		// removed export drops, a new one takes its default - before the value
 		// is injected into the fresh instance's `self` below
 		this->discoverExports();
@@ -372,7 +372,7 @@ namespace Orkige
 	void ScriptComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): only the authoring
+		// reflection-driven NAMED serialization: only the authoring
 		// state round-trips - the script path (an AssetRef, its stable asset id in
 		// the record for rename survival) and the enabled flag; runtime state
 		// (loaded/failed, the Lua environment) is rebuilt on the next play run.
@@ -466,10 +466,10 @@ namespace Orkige
 			instance->setSelfValue("particles",
 				componentOwner->getComponentPtr<ParticleComponent>());
 		}
-		// inject the EXPORTED property values (task #94 P5b) as their natural
+		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables
-		// (self.moveSpeed, self.tint, ...) - the Unity public-field / Godot
-		// @export payoff. A hot reload re-injects the CURRENT values (reconciled
+		// (self.moveSpeed, self.tint, ...) - script-declared properties
+		// auto-exposed in the inspector. A hot reload re-injects the CURRENT values (reconciled
 		// above), so designer edits survive the swap.
 		for (std::map<String, PropertyValue>::const_iterator it =
 			this->mExportValues.begin(); it != this->mExportValues.end(); ++it)
@@ -581,7 +581,7 @@ namespace Orkige
 		// closure style, see the tween block below).
 		// APPEND-ONLY convention: one world.get<Component>(id) accessor per
 		// component type, plus world.exists/get - later packages append THEIR
-		// accessor here (#82 getParticles, #85 findByTag, #87 loadLevel)
+		// accessor here (getParticles, findByTag, loadLevel)
 		// instead of inventing a second lookup vocabulary.
 		runtime.registerFunction("world", "exists", [](String const & id)
 		{
@@ -607,7 +607,7 @@ namespace Orkige
 		// GameObject:addTag, indexed by the GameObjectManager
 		runtime.registerFunction("world", "getLevel",
 			&worldGetComponent<LevelComponent>);
-		// world.loadScene(path) (#87): request a DEFERRED, re-entrant scene
+		// world.loadScene(path): request a DEFERRED, re-entrant scene
 		// switch - the pending request is applied by the runtime at the frame
 		// boundary after physics (never mid-update), tearing the old world down
 		// through the GameObjectManager::clear hook. Honest no-op when no
@@ -997,7 +997,7 @@ namespace Orkige
 		OFUNC(hotReload)
 		OFUNC(hasReloadError)
 		OFUNCCR(getLastReloadError)
-		// reflected schema (task #94 P2): the script file (AssetRef, project-
+		// reflected schema: the script file (AssetRef, project-
 		// relative path, asset-kind "script") + the enabled flag
 		OPROPERTY_REF("script", Orkige::PropertyKind::AssetRef, "script", getScriptFile, setScriptFile, Orkige::PROP_NONE)
 		OPROPERTY("enabled", Orkige::PropertyKind::Bool, isScriptEnabled, setScriptEnabled, Orkige::PROP_NONE)

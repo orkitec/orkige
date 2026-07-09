@@ -11,7 +11,7 @@
 //! @brief classic-OGRE implementation of the RenderSystem facade
 //! @remarks RenderSystem WRAPS the existing Engine (the classic
 //! bootstrapper keeps owning root/window/config plumbing - kept working
-//! because everything still calls it until WP-A1.3+); the facade adds
+//! because everything still calls it); the facade adds
 //! the services apps used to reach raw Ogre for (Docs/render-abstraction.md
 //! bucket B). Engine::setup creates this via RenderBackend::createRenderSystem.
 
@@ -61,7 +61,7 @@ namespace Orkige
 		oAssert(backendCamera);
 		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
 		// "replaces the previous window camera": one full-window viewport
-		// (single-window/single-viewport is frozen by design decision #7).
+		// (single-window/single-viewport is frozen by design).
 		// NOTE for the migration window: this drops a viewport created via
 		// Engine::createDefaultCameraAndViewport - an app uses the Engine
 		// path OR the facade path for the window camera, never both.
@@ -119,7 +119,7 @@ namespace Orkige
 		{
 			return this->mImpl->windowCamera;	// the facade path
 		}
-		// the Engine path (every app until WP-A1.3): wrap the camera the
+		// the Engine path (every app): wrap the camera the
 		// window viewport shows - non-owning, Engine keeps destroying it
 		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
 		if(window->getNumViewports() == 0)

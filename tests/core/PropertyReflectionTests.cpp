@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Task #94, P0/P1 - the neutral property-reflection substrate. These tests
+	The neutral property-reflection substrate. These tests
 	run in EVERY scripting config (ORKIGE_LUA and ORKIGE_SCRIPTING=OFF) and on
 	BOTH render flavors (tests/core builds in the default next tree too),
 	because that is the whole point of the substrate: a component's declared

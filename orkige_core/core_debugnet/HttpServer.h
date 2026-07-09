@@ -46,7 +46,7 @@ namespace Orkige
 	};
 
 	//! @brief a hand-rolled, single-purpose, non-blocking HTTP/1.1 server for
-	//! ONE loopback endpoint (the editor's in-process MCP endpoint, WP #90).
+	//! ONE loopback endpoint (the editor's in-process MCP endpoint).
 	//! @remarks NOT a general web server: it binds 127.0.0.1 only, reuses the
 	//! DebugSocketUtil BSD-socket seam (the same non-blocking accept/poll/recv/
 	//! send plumbing the debug link uses) and frames requests by Content-Length

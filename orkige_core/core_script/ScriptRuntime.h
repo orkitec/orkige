@@ -32,8 +32,8 @@ namespace Orkige
 	class ScriptInstance;
 
 	//! @brief one EXPORTED property declared by a script's top-level
-	//! `properties` table (task #94 P5b, the Unity public-field / Godot
-	//! `@export` convention). A backend-neutral, sol2-free description: the
+	//! `properties` table (script-declared properties auto-exposed in the
+	//! inspector). A backend-neutral, sol2-free description: the
 	//! ScriptComponent turns a vector of these into a DYNAMIC per-instance
 	//! PropertySchema so a script's tunables surface in the inspector / debug
 	//! protocol / MCP through the SAME registry path as a C++ component's
@@ -174,7 +174,7 @@ namespace Orkige
 			String * outError);
 
 		//! @brief read a script file's top-level `properties` table (the
-		//! exported-property declaration, task #94 P5b) into backend-neutral
+		//! exported-property declaration) into backend-neutral
 		//! descriptors. The Lua backend loads the file into a THROWAWAY
 		//! sandboxed environment (init/update are NOT run - this only reads the
 		//! declaration) and translates each entry; a parse error or a missing
@@ -275,7 +275,7 @@ namespace Orkige
 #endif
 		}
 		//! @brief inject a reflected PropertyValue onto the `self` table as its
-		//! natural Lua type (task #94 P5b: a script's EXPORTED properties are
+		//! natural Lua type (a script's EXPORTED properties are
 		//! pushed here before init so the script reads them as tunables -
 		//! `self.moveSpeed` etc). Number/Bool/String/reference map to the
 		//! scalar Lua types; Vec3 -> {x,y,z}, Color -> {r,g,b,a} array tables.

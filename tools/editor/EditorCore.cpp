@@ -745,7 +745,7 @@ namespace Orkige
 				commonParentId.clear();
 			}
 		}
-		// pivot: the average of the members' world positions - like Unity's
+		// pivot: the average of the members' world positions - like a
 		// "create empty parent", the group sits at the selection's centre
 		Vec3 centre = Vec3::ZERO;
 		int transformCount = 0;
@@ -1318,7 +1318,7 @@ namespace Orkige
 	{
 		// refuse while another attached component depends on this one (the
 		// holder would cascade-remove the dependents; the editor blocks the
-		// operation instead, like Unity does)
+		// operation instead)
 		if (!core.canRemoveComponent(mObjectId, mComponentTypeName))
 		{
 			return false;
@@ -1736,7 +1736,7 @@ namespace Orkige
 		}
 		// dragging a member of a multi-selection moves the WHOLE selection;
 		// only the TOPMOST selected objects move - members whose ancestor is
-		// selected too follow that ancestor (Unity drag semantics)
+		// selected too follow that ancestor (drag semantics)
 		StringVector movingIds;
 		if (isSelected(id) && getSelectionCount() > 1)
 		{
@@ -2195,7 +2195,7 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
-	//--- generic reflected property edit (task #94 P4) --------
+	//--- generic reflected property edit --------
 	// The three below mirror the player's PlayerDebugLink object_state /
 	// set_property path (PlayerRuntime.cpp): resolve the component + PropertyDesc
 	// off the schema, read/write through the reflected get/set. The setter routes
@@ -2219,7 +2219,7 @@ namespace Orkige
 			return false;
 		}
 		// the union schema (static per-type + dynamic per-instance) so script
-		// export properties resolve here too (task #94 P5b) - this drives both
+		// export properties resolve here too - this drives both
 		// the local inspector and the MCP get_component path
 		const PropertySchema schema = getComponentSchema(*instance);
 		PropertyDesc const* desc = schema.find(propertyName);
@@ -2249,7 +2249,7 @@ namespace Orkige
 			return false;
 		}
 		// the union schema (static per-type + dynamic per-instance) so script
-		// export properties are settable here too (task #94 P5b)
+		// export properties are settable here too
 		const PropertySchema schema = getComponentSchema(*instance);
 		PropertyDesc const* desc = schema.find(propertyName);
 		if (!desc || desc->isReadOnly())

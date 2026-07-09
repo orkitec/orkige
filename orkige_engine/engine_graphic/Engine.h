@@ -9,8 +9,8 @@
 #ifndef __Engine_h__7_9_2010__16_34_16__
 #define __Engine_h__7_9_2010__16_34_16__
 
-// Engine is the app/Lua singleton on BOTH render flavors (phase B3,
-// Docs/render-abstraction.md): apps and scripts spell
+// Engine is the app/Lua singleton on BOTH render flavors
+// (Docs/render-abstraction.md): apps and scripts spell
 // "engine_graphic/Engine.h" / Engine.getSingleton() regardless of the
 // backend. On the classic flavor Engine below IS the classic bootstrapper
 // (Ogre::Root/RTSS/window plumbing); the Ogre-Next flavor compiles the
@@ -25,7 +25,7 @@
 #include "engine_graphic/FrameEventData.h"
 #include "engine_module/EnginePrerequisitesClassic.h"
 // facade forward declarations only - Engine's Lua/app-facing camera and
-// window surface answers facade types since WP-A1.5 (Docs/render-abstraction.md)
+// window surface answers facade types (Docs/render-abstraction.md)
 #include "engine_render/RenderPrerequisites.h"
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
@@ -238,7 +238,7 @@ protected:
 		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
 		bool setup(String const & windowTitle = StringUtil::BLANK, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
 
-		//! @brief DEPRECATED classic camera path (WP-A1.5): apps create a
+		//! @brief DEPRECATED classic camera path: apps create a
 		//! facade camera rig instead (RenderWorld::createCamera + createNode +
 		//! RenderSystem::showCameraOnWindow) - no live caller remains; kept
 		//! only until embedding scenarios are re-audited
@@ -249,20 +249,20 @@ protected:
 		//! faster frame rendering skips Framelisteners and some other ogre related stuff
 		bool renderOneFrameFast();
 
-		//! @brief get Engine SceneManager - DEPRECATED scene accessor
-		//! (WP-A1.5): classic-only internals (fastgui, editor bootstrap) may
+		//! @brief get Engine SceneManager - DEPRECATED scene accessor:
+		//! classic-only internals (fastgui, editor bootstrap) may
 		//! keep using it; everything else goes through RenderSystem::getWorld
 		inline Ogre::SceneManager* getSceneManager();
 		//! get Engine RenderWindow
 		inline Ogre::RenderWindow* getRenderWindow( unsigned int num = 0 );
-		//! @brief DEPRECATED scene accessor (WP-A1.5): only non-NULL on the
+		//! @brief DEPRECATED scene accessor: only non-NULL on the
 		//! legacy createDefaultCameraAndViewport path; use getWindowCamera()
 		inline Ogre::Camera* getCamera( unsigned int num = 0 );
-		//! @brief DEPRECATED scene accessor (WP-A1.5): fastgui (classic-only)
+		//! @brief DEPRECATED scene accessor: fastgui (classic-only)
 		//! is the last consumer; new code uses RenderSystem window services
 		inline Ogre::Viewport* getViewport( unsigned int num = 0 );
 
-		//--- engine_render facade surface (WP-A1.5) -----------------------
+		//--- engine_render facade surface -----------------------
 		// Engine stays the app/Lua singleton; its scene-facing surface
 		// answers facade types. All of these assert that setup() ran.
 		//! the facade camera currently shown on the main window
@@ -285,7 +285,7 @@ protected:
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
 		//! @brief does this build carry the fastgui UI system?
-		//! @remarks true on BOTH flavors since the DrawLayer2D port
+		//! @remarks true on BOTH flavors
 		//! (fastgui renders through the engine_render facade); the probe
 		//! stays registered so scripts written against older builds keep
 		//! working - and so a future UI-less flavor can answer honestly
@@ -355,9 +355,9 @@ protected:
 		// camera was set up through the facade
 		// (RenderSystem::showCameraOnWindow), this->viewport[num] stays NULL
 		// but the window carries the viewport - hand that one out. The last
-		// consumer is fastgui (classic-only per decision #2); the Lua
-		// getViewport binding was retired in WP-A1.5. Goes away with the
-		// fastgui draw-surface seam (A3).
+		// consumer is fastgui (classic-only); the Lua
+		// getViewport binding was retired. Goes away with the
+		// fastgui draw-surface seam.
 		if(!this->viewport[num] && this->renderWindow[num] &&
 			this->renderWindow[num]->getNumViewports() > 0)
 		{

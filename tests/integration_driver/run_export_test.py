@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ctest driver for the project-export milestone: run Util/orkige_export.py
+"""ctest driver for project export: run Util/orkige_export.py
 for a project/platform, assert the packaged artifact's structure, and - for
 macOS - RUN the exported app from a neutral cwd (ORKIGE_DEMO_FRAMES caps the
 run) so a clean exit proves the bundle is genuinely self-contained.

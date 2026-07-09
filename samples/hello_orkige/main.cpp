@@ -1,4 +1,4 @@
-// hello_orkige - Phase 1 milestone demo.
+// hello_orkige - feature demo.
 // SDL3 owns the window and event loop; Orkige::Engine boots the renderer into
 // it via the externalWindowHandle path, everything AFTER boot goes through the
 // engine_render facade (A1, Docs/render-abstraction.md). Scene: a spinning
@@ -17,7 +17,7 @@
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
-// fastgui is flavor-neutral since the DrawLayer2D port - the
+// fastgui is flavor-neutral - the
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_input/InputManager.h>
@@ -98,7 +98,7 @@ int main(int, char**)
 		init_module_orkige_core();
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (B3, Docs/render-abstraction.md "App
+		// --- per-flavor boot block (Docs/render-abstraction.md "App
 		// boot"): on classic, Engine is the backend's bootstrapper -
 		// constructing/configuring it and feeding the RTSS its internal
 		// media stays classic plumbing. On the next flavor the Engine
@@ -189,8 +189,8 @@ int main(int, char**)
 		{
 			render->addResourceLocation(ORKIGE_SPRITE_ATLAS_DIR);
 		}
-		// ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck (WP #82,
-		// below) needs a texture for its ParticleComponent SpriteBatch -
+		// ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck
+		// (below) needs a texture for its ParticleComponent SpriteBatch -
 		// register the committed sample texture dir (any texture works; the
 		// check reads the frame-stats triangle count, not pixels)
 		const bool demoParticles =
@@ -291,8 +291,8 @@ int main(int, char**)
 			orbiter->getComponentPtr<Orkige::TransformComponent>();
 
 		// a smaller cube instance of the same mesh, attached to the
-		// TransformComponent's facade node through a scaled child (WP-A1.3:
-		// the demo content sits on facade types - no more reaching the
+		// TransformComponent's facade node through a scaled child (the
+		// demo content sits on facade types - no more reaching the
 		// backend node by its deterministic name)
 		optr<Orkige::RenderNode> smallCubeNode =
 			orbiterTransform->createChildNode("orbiterVisual");
@@ -448,7 +448,7 @@ int main(int, char**)
 			SDL_Log("hello_orkige: sprite atlas + sampler selfcheck passed");
 		}
 
-		// --- ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck (WP #82).
+		// --- ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck.
 		// A GameObject carrying a ParticleComponent (auto-adds its
 		// TransformComponent dependency); the emitter is burst-only (additive
 		// glow) so the frame-stats triangle count is a clean before/after probe.
@@ -526,7 +526,7 @@ int main(int, char**)
 		// (setPlanarMode: translation locked to X/Y, rotation to Z) shoved
 		// sideways with an impulse. The world is stepped from this app loop
 		// with the measured frame dt (engine-loop integration via
-		// FrameStartedEvent is a Phase 2 TODO); self-checks run at frame 120.
+		// FrameStartedEvent is a TODO); self-checks run at frame 120.
 		const bool demoPhysics = (std::getenv("ORKIGE_DEMO_PHYSICS") != nullptr);
 		Orkige::PhysicsWorld physicsWorld; // inert until init()
 		const float floorTopY = -2.0f;
@@ -662,10 +662,10 @@ int main(int, char**)
 				Orkige::RenderNode::TS_WORLD);
 		}
 
-		// --- Lua scripting smoke test (Phase 2, sol2 meta backend): an inline
+		// --- Lua scripting smoke test (sol2 meta backend): an inline
 		// script pulls the Engine singleton, calls registered methods on it,
-		// walks into the exposed engine_render facade types (WP-A1.5:
-		// RenderSystem/RenderWorld/RenderCamera/RenderNode - the classic Ogre
+		// walks into the exposed engine_render facade types
+		// (RenderSystem/RenderWorld/RenderCamera/RenderNode - the classic Ogre
 		// usertypes are gone), constructs core objects through their
 		// registered factories, triggers an event a C++ listener receives,
 		// and sets a global the C++ side reads back. Runs through the

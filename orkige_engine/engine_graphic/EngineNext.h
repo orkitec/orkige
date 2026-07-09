@@ -10,7 +10,7 @@
 #define __EngineNext_h__8_7_2026__12_00_00__
 
 //! @file EngineNext.h
-//! @brief the Ogre-Next flavor's Orkige::Engine (phase B3, Docs/render-abstraction.md)
+//! @brief the Ogre-Next flavor's Orkige::Engine (Docs/render-abstraction.md)
 //! @remarks Engine stays the app/Lua singleton on every render flavor. On
 //! classic it IS the backend bootstrapper (engine_graphic/Engine.h); on the
 //! Next flavor the RenderSystem facade is the boot
@@ -109,7 +109,7 @@ namespace Orkige
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
 		//! @brief does this build carry the fastgui UI system?
-		//! @remarks true on BOTH flavors since the DrawLayer2D port
+		//! @remarks true on BOTH flavors
 		//! (fastgui renders through the engine_render facade); the probe
 		//! stays registered so scripts written against older builds keep
 		//! working - and so a future UI-less flavor can answer honestly

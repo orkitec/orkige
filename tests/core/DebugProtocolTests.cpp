@@ -128,7 +128,7 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 		setActive.set(Protocol::FIELD_VALUE, "0");
 		roundTrip(setActive);
 	}
-	SECTION("set_cvar (WP #83)")
+	SECTION("set_cvar")
 	{
 		DebugMessage setCvar(Protocol::MSG_SET_CVAR);
 		setCvar.set(Protocol::FIELD_CVAR_NAME, "roller_gravity");
@@ -172,7 +172,7 @@ TEST_CASE("DebugMessage round-trips every protocol message type", "[debugnet]")
 	}
 }
 
-TEST_CASE("DebugMessage carries request-correlation and auth fields (WP #80)",
+TEST_CASE("DebugMessage carries request-correlation and auth fields",
 	"[debugnet]")
 {
 	// the MCP control port echoes a request's "req" id in its ok/err reply and

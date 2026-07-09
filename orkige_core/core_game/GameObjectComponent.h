@@ -73,7 +73,7 @@ namespace Orkige
 		//! the TypeManager - @see ISerializeable::createBeforeLoad
 		virtual bool createBeforeLoad();
 		//! @brief the DYNAMIC per-INSTANCE property schema of this component
-		//! (task #94 P5b). The static reflection half is a per-TYPE schema
+		//! The static reflection half is a per-TYPE schema
 		//! (TypeManager::getPropertySchema by TypeId); some components ALSO
 		//! carry properties known only once a specific resource is attached -
 		//! ScriptComponent's exported script properties are the case that drives
@@ -112,7 +112,7 @@ namespace Orkige
 	//! query every reflection consumer (serialization, the debug protocol, the
 	//! editor inspector, MCP) routes through, so a C++ component's static
 	//! properties and a script's exported properties surface everywhere through
-	//! the same path with zero per-consumer special-casing (task #94 P5b).
+	//! the same path with zero per-consumer special-casing.
 	//! Returned by value (the union is a fresh list); the dynamic half is cheap
 	//! (a handful of descriptors), so consumers may call it per selected object.
 	//! A dynamic property REPLACES a static one of the same name (PropertySchema

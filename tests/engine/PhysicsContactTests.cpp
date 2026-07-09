@@ -6,8 +6,8 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Headless unit tests for physics CONTACT events + SENSORS/TRIGGERS
-	(WP #88), driving PhysicsWorld directly (the roller-selfcheck /
+	Headless unit tests for physics CONTACT events + SENSORS/TRIGGERS,
+	driving PhysicsWorld directly (the roller-selfcheck /
 	physics-test pattern - no GameObjects, no renderer). They lock in the
 	load-bearing correctness contract: the worker-thread contact callbacks
 	are queued and DRAINED on the main thread into getFrameContacts,
@@ -329,7 +329,7 @@ TEST_CASE("RigidBodyComponent serializes its sensor flag and migrates old scenes
 		CHECK(loaded.getBodyType() == PhysicsWorld::BT_STATIC);
 	}
 
-	// field tolerance (task #94 P2 named format): a component block that carries
+	// field tolerance (named format): a component block that carries
 	// only a SUBSET of the schema's fields (here bodyType + layer, no isSensor)
 	// loads with the present fields set and every absent field left at its
 	// constructed default - no positional cursor, no version gate.

@@ -39,7 +39,7 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
-- **Editor** — a Unity-style tool built on the engine itself: docked Hierarchy /
+- **Editor** — a full scene-authoring tool built on the engine itself: docked Hierarchy /
   Inspector / Console / Stats / RTT Scene viewport, a two-pane **asset browser**
   (folder tree, texture thumbnails, create/import, two-way drag-&-drop), a **2D
   editor mode** (ortho, plane-locked gizmos), transform gizmos with Q/W/E/R,
@@ -58,7 +58,7 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   `.app`, iOS-simulator app, or Android APK.
 - **Samples** — `samples/hello_orkige` (feature demo) and `samples/jumper` (a
   textured jump-and-run); `projects/` holds the real games, headlined by
-  **`roller`** (a Continuity×Rolando 2D puzzle: tilt-gravity ball + sliding world
+  **`roller`** (a 2D physics puzzle: tilt-gravity ball + sliding world
   tiles, multi-level progression with mobile-persisted saves).
 
 ## Building

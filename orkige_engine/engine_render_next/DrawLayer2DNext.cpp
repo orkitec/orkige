@@ -9,7 +9,7 @@
 
 //! @file DrawLayer2DNext.cpp
 //! @brief Ogre-Next implementation of the DrawLayer2D facade
-//! @remarks The v2 shape of the 2D contract, built from the B2 sprite
+//! @remarks The v2 shape of the 2D contract, built from the sprite
 //! machinery: every batch is one v2 ManualObject (VaoManager-backed
 //! dynamic buffers) with a generated "DrawLayer2D/<tex>" HlmsUnlit
 //! datablock (alpha-blended, depth-IGNORED, two-sided, clamped point

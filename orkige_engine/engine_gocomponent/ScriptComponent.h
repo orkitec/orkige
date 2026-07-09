@@ -84,7 +84,7 @@ namespace Orkige
 		String	mReloadError;		//!< last hotReload() failure ("" = last reload was clean); mFailed stays false - the OLD instance keeps running
 		optr<ScriptInstance>	mInstance;	//!< the loaded script instance (NULL until the lazy load)
 		//! @brief the DYNAMIC per-instance schema built from the attached
-		//! script's `properties` table (task #94 P5b); empty until a script with
+		//! script's `properties` table; empty until a script with
 		//! exports is attached and in ORKIGE_SCRIPTING=OFF builds. Its
 		//! descriptors' get/set close over THIS component and read/write
 		//! mExportValues, so the exports reflect through the ONE registry exactly
@@ -127,7 +127,7 @@ namespace Orkige
 		//! is the HARD reset used by setScriptFile/load: it tears the old
 		//! instance down FIRST, so a broken file would leave the object dead.
 		void reloadScript();
-		//! @brief LIVE hot-reload (WP #77): recompile the script file and swap
+		//! @brief LIVE hot-reload: recompile the script file and swap
 		//! it in with COMPILE-BEFORE-SWAP failure containment. The new file is
 		//! loaded + init'd into a LOCAL temp instance FIRST; only when that
 		//! succeeds does the old instance get shut down and replaced. A parse
@@ -148,7 +148,7 @@ namespace Orkige
 		//! the last hotReload() error message ("" when the last reload was
 		//! clean); reported to the editor WITHOUT the fatal mFailed flag
 		inline String const & getLastReloadError() const;
-		//! @brief deliver a physics contact to the script (WP #88): calls the
+		//! @brief deliver a physics contact to the script: calls the
 		//! OPTIONAL onContactBegin(self, other) / onContactEnd(self, other) hook
 		//! with the OTHER GameObject. Called on the MAIN thread from the contact
 		//! drain (RigidBodyComponent::dispatchContacts) - never from a Jolt
@@ -159,7 +159,7 @@ namespace Orkige
 		//! GameObjectManager delete queue, never mid-drain.
 		void dispatchContact(GameObject* other, bool began);
 		//! @brief the DYNAMIC schema of the attached script's exported properties
-		//! (task #94 P5b) - the per-instance half of the reflection union. Empty
+		//! the per-instance half of the reflection union. Empty
 		//! until a script declaring a `properties` table is attached (and always
 		//! empty in ORKIGE_SCRIPTING=OFF). @see getComponentSchema.
 		virtual PropertySchema getInstancePropertySchema() const;
@@ -187,8 +187,8 @@ namespace Orkige
 		//! AssetDatabase wins over a stale path (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
-		//! @brief (re)discover the attached script's exported properties (task
-		//! #94 P5b): read the `properties` table through the ScriptRuntime seam,
+		//! @brief (re)discover the attached script's exported properties:
+		//! read the `properties` table through the ScriptRuntime seam,
 		//! reconcile the per-instance values BY NAME (keep a value whose name +
 		//! kind survive, drop a removed export, add a new one at its declared
 		//! default) and rebuild mExportSchema. Called on attach (setScriptFile),

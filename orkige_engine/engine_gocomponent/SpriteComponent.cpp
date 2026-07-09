@@ -436,7 +436,7 @@ namespace Orkige
 		// 50 = classic Ogre::RENDER_QUEUE_MAIN = the base of Ogre-Next's
 		// default-FAST v2 queue window (0..99): the shared painter's base
 		// both backends sort sprites from. Spelled as a literal so this
-		// pure helper stays backend-free (B3); the live mapping sits in the
+		// pure helper stays backend-free; the live mapping sits in the
 		// backends (RenderBackend sprite queue services).
 		const int RENDER_QUEUE_MAIN = 50;
 		const int queue = RENDER_QUEUE_MAIN +
@@ -562,7 +562,7 @@ namespace Orkige
 	void SpriteComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): size, UV rect,
+		// reflection-driven NAMED serialization: size, UV rect,
 		// tint, flips, zOrder, visibility and the texture AssetRef (its stable id
 		// rides the record for rename survival) are written by name off the
 		// declared schema. The texture is declared LAST so the scalar state is set
@@ -603,7 +603,7 @@ namespace Orkige
 		OFUNC(getZOrder)
 		OFUNC(setSpriteVisible)
 		OFUNC(isSpriteVisible)
-		// reflected schema (task #94 P2): scalar/colour/flip state THEN the
+		// reflected schema: scalar/colour/flip state THEN the
 		// texture reference last (its setter rebuilds the quad from the state set
 		// just above). width/height <= 0 keep the texture-aspect derivation.
 		OPROPERTY("width", Orkige::PropertyKind::Float, getWidth, setWidthValue, Orkige::PROP_NONE)

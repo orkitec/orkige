@@ -99,7 +99,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void Engine::setCustomWindowParam(Orkige::String paramName, Orkige::String paramValue, unsigned int windowNumber)
 	{
-		// single main window on this flavor (facade decision #7)
+		// single main window on this flavor (by design)
 		oAssert(windowNumber == 0);
 		this->windowParams[paramName] = paramValue;
 	}

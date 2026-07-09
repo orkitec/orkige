@@ -8,7 +8,7 @@
 *********************************************************************/
 
 //! @file SpriteBatchClassic.cpp
-//! @brief classic-OGRE implementation of the SpriteBatch facade (WP #82)
+//! @brief classic-OGRE implementation of the SpriteBatch facade
 //! @remarks Ogre::ManualObject rebuilt every frame from the owner's CPU
 //! vertex array (four vertices per quad, TL/TR/BR/BL) - the same clear +
 //! begin/end idiom SpriteQuad uses on every setUVRect, scaled to N quads so

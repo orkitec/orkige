@@ -180,7 +180,7 @@ namespace Orkige
 			this->attachToNode(parentNode);
 			return;
 		}
-		// Unity semantics: preserve the WORLD transform by recomputing the
+		// preserve the WORLD transform by recomputing the
 		// local one relative to the new parent
 		const Vec3 worldPosition = this->getWorldPosition();
 		const Quat worldOrientation = this->getWorldOrientation();
@@ -255,7 +255,7 @@ namespace Orkige
 	void TransformComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): the declared
+		// reflection-driven NAMED serialization: the declared
 		// position/orientation/scale schema is written by name. The node
 		// hierarchy below this transform (child nodes, attached content) is
 		// owned by other components which serialize their own state.
@@ -284,7 +284,7 @@ namespace Orkige
 		OFUNC(setWorldPosition)
 		OFUNC(setWorldOrientation)
 		OFUNC(teleport)
-		// reflected local-transform schema (task #94, P1): the same LOCAL
+		// reflected local-transform schema: the same LOCAL
 		// position/orientation/scale the hand-written save/load persists (that
 		// stays untouched in P1 - serialization migration is P2). The Vec3/Quat
 		// adapters resolve to the engine-side overloads in

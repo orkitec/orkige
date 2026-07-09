@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Unit tests for the Unity-style GameObject tree (parenting, children
+	Unit tests for the GameObject parent/child tree (parenting, children
 	queries, cycle guard) and the active state (activeSelf /
 	activeInHierarchy propagation, onSetActive dispatch, update gating)
 	plus the version-2 scene serialization of both.
@@ -295,7 +295,7 @@ TEST_CASE("SceneSerializer round-trips parented and inactive objects", "[hierarc
 
 TEST_CASE("SceneSerializer rejects pre-cutover (legacy positional) scene versions", "[hierarchy][scene]")
 {
-	// task #94 P2 is a CLEAN CUTOVER: the positional readers and the per-version
+	// the scene format is a CLEAN CUTOVER: the positional readers and the per-version
 	// field gates are gone, so an old-version scene file no longer loads (there
 	// is a single current format). Assert the honest rejection.
 	Orkige::GameObjectManager & manager = bootHierarchyWorld();

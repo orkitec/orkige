@@ -29,7 +29,7 @@ namespace Orkige
 	//! Backend mapping (whole class): classic = Ogre::Entity (meshes via
 	//! OGRE's Codec_Assimp); next = Ogre::Item over a v2 mesh - Next has
 	//! no assimp codec, the backend drives assimp itself and imports via
-	//! v1::ManualObject -> Mesh::importV1 (static meshes only at B2, see
+	//! v1::ManualObject -> Mesh::importV1 (static meshes only, see
 	//! engine_render_next/MeshLoaderNext.cpp); filament = renderable
 	//! entity built by gltfio's AssetLoader + RenderableManager.
 	class ORKIGE_ENGINE_DLL MeshInstance

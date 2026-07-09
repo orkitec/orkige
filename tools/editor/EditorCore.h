@@ -164,7 +164,7 @@ namespace Orkige
 
 	//! @brief create a sprite-carrying GameObject (a TransformComponent +
 	//! SpriteComponent quad in the XY plane) - the shared primitive behind the
-	//! Asset browser's "drag a texture into the scene" (WP #76) and any future
+	//! Asset browser's "drag a texture into the scene" and any future
 	//! sprite-object instantiation. Mirrors CreateObjectCommand: execute
 	//! instantiates + selects, undo deselects + deletes; a texture that fails
 	//! to load leaves the (empty) sprite object like ModelComponent does.
@@ -184,7 +184,7 @@ namespace Orkige
 	};
 
 	//! @brief instantiate a .oprefab asset into the scene as a NEW prefab
-	//! instance (Asset browser drag/double-click, WP #76). Unlike
+	//! instance (Asset browser drag/double-click). Unlike
 	//! MakePrefabCommand (which converts an EXISTING subtree), this creates the
 	//! instance root + its prefab-provided children from scratch and marks the
 	//! root with the prefab reference. Undo removes the whole instance subtree
@@ -258,8 +258,8 @@ namespace Orkige
 	};
 
 	//! @brief re-parent an object in the GameObject tree (Hierarchy drag &
-	//! drop; "" = make it a root). The world transform is preserved (Unity
-	//! semantics - GameObject::setParent keepWorldTransform); undo restores
+	//! drop; "" = make it a root). The world transform is preserved
+	//! (GameObject::setParent keepWorldTransform); undo restores
 	//! the previous parent AND the exact previous local transform.
 	class ReparentObjectCommand : public EditorCommand
 	{
@@ -329,7 +329,7 @@ namespace Orkige
 		StringVector mOldParentIds;		//!< parallel to mMemberIds, captured on execute
 	};
 
-	//! @brief the UNDOABLE half of "Create Prefab" (Unity-style): convert the
+	//! @brief the UNDOABLE half of "Create Prefab": convert the
 	//! subtree rooted at an object into a prefab INSTANCE of the already
 	//! written .oprefab file - the live children are replaced by the
 	//! deterministic "<root>/<localId>" instance objects the file provides
@@ -359,7 +359,7 @@ namespace Orkige
 		std::vector<EditorObjectSnapshot> mOldChildSnapshots;	//!< parallel to mOldChildIds
 	};
 
-	//! @brief delete a prefab-PROVIDED child by SUPPRESSING it (Unity: a
+	//! @brief delete a prefab-PROVIDED child by SUPPRESSING it (a
 	//! provided child cannot just be removed - the prefab would bring it back
 	//! on reload). Execute records the child's prefab-LOCAL id in the instance
 	//! root's suppressedChildren AND removes the child subtree; undo drops the
@@ -455,8 +455,8 @@ namespace Orkige
 
 	//! @brief remove a component from an object; refused while another
 	//! attached component depends on it (EditorCore::canRemoveComponent -
-	//! the holder would cascade-remove dependents, the editor blocks instead,
-	//! like Unity). Undo re-adds the component and restores its serialized
+	//! the holder would cascade-remove dependents, the editor blocks instead).
+	//! Undo re-adds the component and restores its serialized
 	//! state from the snapshot.
 	class RemoveComponentCommand : public EditorCommand
 	{
@@ -532,12 +532,12 @@ namespace Orkige
 	};
 
 	// (the Camera and Sprite typed value bundles + their per-component
-	// CameraChangeCommand/SpriteChangeCommand were retired in task #94 P5a: the
-	// auto-generated Inspector (P4) and the generic MCP get/set_component (P5a)
+	// CameraChangeCommand/SpriteChangeCommand were retired: the
+	// auto-generated Inspector and the generic MCP get/set_component
 	// now edit these components through the reflection registry and the ONE
 	// PropertyChangeCommand below - no per-component command/struct.)
 
-	//! @brief the GENERIC, reflection-driven property edit (task #94 P4): change
+	//! @brief the GENERIC, reflection-driven property edit: change
 	//! ONE reflected property of ONE component, captured purely as PropertyValue
 	//! canonical strings ({objectId, componentTypeName, propertyName, before,
 	//! after}). execute/unexecute resolve the component + PropertyDesc off the
@@ -625,7 +625,7 @@ namespace Orkige
 		void toggleTransformSpace();
 		bool isSnapEnabled() const { return mSnapEnabled; }
 		void setSnapEnabled(bool enabled) { mSnapEnabled = enabled; }
-		//! adjustable snap step values (Unity-style editable snap settings);
+		//! adjustable snap step values (editable snap settings);
 		//! they default to the SNAP_* constants and are edited via the
 		//! toolbar's snap popover - setSnapValues clamps every step to a
 		//! sane positive minimum (a zero step would freeze the gizmo)
@@ -670,7 +670,7 @@ namespace Orkige
 		//! when the id is part of a multi-selection the WHOLE selection
 		//! re-parents as one undo step (invalid members are skipped)
 		bool reparentObject(String const& id, String const& newParentId);
-		//! set the object's own active flag (undoable, Unity SetActive)
+		//! set the object's own active flag (undoable)
 		bool setObjectActive(String const& id, bool active);
 		//! @brief replace an object's tag list (undoable); refused if the object
 		//! is missing or the tags did not change
@@ -751,10 +751,10 @@ namespace Orkige
 			PhysicsWorld::BodyDesc const& before,
 			PhysicsWorld::BodyDesc const& after,
 			unsigned int mergeSession = 0);
-		// (applyCameraChange / applySpriteChange retired in task #94 P5a - the
+		// (applyCameraChange / applySpriteChange retired - the
 		// Inspector and MCP edit Camera/Sprite through applyPropertyChange.)
 
-		//--- generic reflected property edit (task #94 P4) ----
+		//--- generic reflected property edit ----
 		//! @brief read a reflected property (schema-driven) as its canonical
 		//! string form; false if the object/component/property is missing or the
 		//! property has no getter. componentTypeName is the component type name
@@ -779,7 +779,7 @@ namespace Orkige
 			String const& before, String const& after,
 			unsigned int mergeSession = 0);
 		//! @brief the FULL property schema of a live component: static per-type
-		//! UNION the dynamic per-instance schema (task #94 P5b) - so the auto
+		//! UNION the dynamic per-instance schema - so the auto
 		//! Inspector lists a ScriptComponent's exported script properties too.
 		//! Empty when the object/component is missing.
 		PropertySchema getComponentPropertySchema(String const& id,

@@ -14,8 +14,8 @@
 #ifdef ORKIGE_RENDER_CLASSIC
 // classic-only export: the overlay-based ingame console (Ogre Overlay +
 // Rectangle2D - a classic zone; a cross-backend console would be rebuilt
-// on fastgui/DrawLayer2D when wanted). fastgui itself is flavor-neutral
-// since the DrawLayer2D port - engine:hasUISystem() is true on BOTH
+// on fastgui/DrawLayer2D when wanted). fastgui itself is flavor-neutral -
+// engine:hasUISystem() is true on BOTH
 // flavors and the FastGui usertypes below register unconditionally.
 #include "engine_graphic/IngameConsole.h"
 #endif
@@ -183,7 +183,7 @@ ORKIGE_MODULE(orkige_engine)
 		OVAR(z)
 	OSIMPLEEXPORT_END
 
-	// --- the engine_render facade surface (WP-A1.5, Docs/render-abstraction
+	// --- the engine_render facade surface (Docs/render-abstraction
 	// .md): the classic Ogre scene usertypes (SceneNode/SceneManager/
 	// Viewport/Camera) are gone - scripts drive the renderer through the
 	// backend-free facade handles below (optr = shared_ptr, which sol2

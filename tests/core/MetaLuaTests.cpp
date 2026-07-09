@@ -166,7 +166,7 @@ TEST_CASE("GameObject hierarchy and active state work from Lua", "[lua][hierarch
 	lua["luaParent"] = parent;
 	lua["luaChild"] = child;
 	const sol::protected_function_result result = lua.safe_script(R"lua(
-		-- parenting (the Lua form keeps the world transform, Unity-style)
+		-- parenting (the Lua form keeps the world transform)
 		assert(luaChild:setParent('LuaParent'))
 		assert(luaChild:getParentId() == 'LuaParent')
 		-- the returned parent is a live GameObject (identity probed through

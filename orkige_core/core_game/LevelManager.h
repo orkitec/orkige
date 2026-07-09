@@ -27,10 +27,10 @@ namespace Orkige
 	//! TweenManager). The load is DEFERRED on purpose: a script requests a
 	//! switch mid-update (loadLevel / loadScenePath set the pending request),
 	//! and the player applies it at the frame boundary AFTER physics
-	//! (PLAYER LOOP TICK ORDER, SLOT #87) - never mid-update, where in-flight
+	//! (in the player loop's tick order) - never mid-update, where in-flight
 	//! script/update pointers would dangle. consumePendingLoad hands the target
 	//! to the player, which tears down through GameObjectManager::clear (the
-	//! #86 scene teardown hook - never a second teardown path) and reloads.
+	//! scene teardown hook - never a second teardown path) and reloads.
 	//! The save is written to a path the player sets from the same directory
 	//! its engine log uses (PlatformUtil::getDocumentsDirectory on mobile,
 	//! getSupportDirectory for desktop exports); a missing/garbage file starts

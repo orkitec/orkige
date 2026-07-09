@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! @brief pure, headless-testable grid geometry for the tile-slide levels
-	//! (Continuity x Rolando "roller" tier). A level is a cols x rows grid of
+	//! (the "roller" tier). A level is a cols x rows grid of
 	//! square slots of edge tileSize, cell (0,0) centered at (originX, originY);
 	//! slot index = row * cols + col.
 	//! @remarks This is the SINGLE source of the slot<->world mapping the game

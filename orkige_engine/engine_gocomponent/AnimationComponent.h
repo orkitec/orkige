@@ -17,11 +17,11 @@
 namespace Orkige
 {
 	//! @brief component which can manage Animation Playback on GameObject's
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): playback runs
+	//! @remarks playback runs
 	//! on the facade MeshInstance animation surface of the sibling
 	//! ModelComponent. The root-motion extraction (handleMotion/handleRotation
 	//! + motionBone) digs into skeleton bones and keyframes - that stays a
-	//! CLASSIC-ONLY backdoor per decided design question #1: on other
+	//! CLASSIC-ONLY backdoor by deliberate design: on other
 	//! backends those switches are inert no-ops (and boneNames stays empty)
 	//! until a real cross-backend root-motion need adds a facade bone API.
 	class ORKIGE_ENGINE_DLL AnimationComponent : public GameObjectComponent
@@ -151,7 +151,7 @@ namespace Orkige
 		optr<MeshInstance> getAnimableMesh();
 		//! @brief the root-motion backdoor: moves the owning transform by the
 		//! motion bone's keyframe track and neutralizes the track in-place
-		//! @remarks classic-only (design question #1) - a no-op elsewhere
+		//! @remarks classic-only by design - a no-op elsewhere
 		void handleMotionRotation(String const & animationName, float timeDelta);
 	};
 	//---------------------------------------------------------------

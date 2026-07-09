@@ -18,7 +18,7 @@
 namespace Orkige
 {
 	//! @brief handles 1 Model attached to a GameObject
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): owns a facade
+	//! @remarks owns a facade
 	//! MeshInstance on an owned child node of the sibling TransformComponent.
 	//! The historical shareSkeletonInstance flag of loadModel was dropped -
 	//! Ogre skeleton-instance sharing has no facade shape and no caller
@@ -55,8 +55,8 @@ namespace Orkige
 		void loadModel(String const & modelFileName);
 		//! removes model and triggers ModelRemovedEvent
 		void removeModel();
-		//! @brief set the mesh REFERENCE by name (the reflected AssetRef setter,
-		//! task #94 P2): empty removes the model; a name loads it when the scene
+		//! @brief set the mesh REFERENCE by name (the reflected AssetRef setter):
+		//! empty removes the model; a name loads it when the scene
 		//! node exists, otherwise just records the reference (a detached load).
 		//! Tolerant where loadModel asserts - so the property drive can set it.
 		void setModelReference(String const & modelFileName);

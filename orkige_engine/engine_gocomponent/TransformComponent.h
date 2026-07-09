@@ -16,7 +16,7 @@
 namespace Orkige
 {
 	//! @brief basic Transformation component for all GameObjects in 3D Space
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): owns a facade
+	//! @remarks owns a facade
 	//! RenderNode (via the reshaped SceneNodeGuard base) instead of a raw
 	//! Ogre::SceneNode. The node carries `this` as its user pointer - ray
 	//! query hits and editors resolve a node back to its component through
@@ -72,7 +72,7 @@ namespace Orkige
 		//! @brief maps the GameObject tree onto the render node graph: attaches
 		//! the node under the new parent's TransformComponent node (world root
 		//! when unparented); with keepWorldTransform the local TRS is recomputed
-		//! so the world pose is preserved (Unity semantics)
+		//! so the world pose is preserved
 		virtual void onParentChanged(GameObject * newParent, bool keepWorldTransform);
 		//! the node the owner's CURRENT parent GameObject provides (world root
 		//! when unparented or when the parent has no TransformComponent)

@@ -6,13 +6,13 @@
 // The keyboard shortcut map (checked once per frame, after the panels have
 // recorded their hover/focus state; inactive while a text field is being
 // edited; only Cmd/Ctrl+P works while a play session runs):
-//   global: Cmd/Ctrl+P play/stop toggle (Unity), Cmd/Ctrl+Z undo,
+//   global: Cmd/Ctrl+P play/stop toggle, Cmd/Ctrl+Z undo,
 //   Shift+Cmd/Ctrl+Z redo, Cmd/Ctrl+N new scene, Cmd/Ctrl+O open scene,
 //   Cmd/Ctrl+S save, Shift+Cmd/Ctrl+S save as
 //   Scene panel hovered/focused: Q select, W translate, E rotate, R scale,
 //   X world/local, F frame selected
 //   Scene panel OR focused Hierarchy: F2 rename, Delete/Backspace delete,
-//   Cmd/Ctrl+D duplicate (Unity's hierarchy shortcuts work there too)
+//   Cmd/Ctrl+D duplicate (the hierarchy shortcuts work there too)
 //   ... all of which stand down while fly mode is active (right mouse held):
 //   W/A/S/D/Q/E are camera movement then
 // On mac WITH the native menu bar installed the File shortcuts never reach
@@ -29,7 +29,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		return;
 	}
 	const bool commandDown = io.KeySuper || io.KeyCtrl;
-	// Cmd/Ctrl+P: Unity's play toggle - Play in edit mode, Stop while a
+	// Cmd/Ctrl+P: play toggle - Play in edit mode, Stop while a
 	// session runs (this calls the exact functions the toolbar buttons call;
 	// no shortcut for Pause, that stays a toolbar action)
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_P, false))
@@ -86,7 +86,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		return;
 	}
 	// object shortcuts (duplicate/rename/delete) work from the Scene panel
-	// AND the focused Hierarchy - Unity muscle memory; tool switching stays
+	// AND the focused Hierarchy - familiar shortcuts; tool switching stays
 	// Scene-panel-only (letters typed while other panels have focus must
 	// not silently flip tools)
 	const bool sceneContext = state.scenePanelHovered ||

@@ -148,7 +148,7 @@ namespace
 	};
 
 	//--- contact listener (worker-thread SAFE) ----------------------
-	// THE threading contract (task #88): Jolt calls OnContactAdded /
+	// THE threading contract: Jolt calls OnContactAdded /
 	// OnContactRemoved on WORKER threads, concurrently, DURING
 	// PhysicsSystem::Update, while body locks are held. Touching GameObjects
 	// or the Lua state from here is a data race / deadlock. So the callbacks do

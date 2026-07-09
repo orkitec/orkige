@@ -497,7 +497,7 @@ TEST_CASE("Nested prefabs are refused on save and hard-error on load",
 
 TEST_CASE("Pre-cutover (legacy positional) scene versions are rejected", "[prefab]")
 {
-	// task #94 P2 is a CLEAN CUTOVER (no back-compat): the positional readers and
+	// the scene format is a CLEAN CUTOVER (no back-compat): the positional readers and
 	// the per-version field gates were removed, so scene files written in an
 	// older format version no longer load - only the single current version does.
 	Orkige::GameObjectManager & manager = freshPrefabWorld();

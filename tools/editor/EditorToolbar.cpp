@@ -274,7 +274,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			core.toggleTransformSpace();
 		}
 		ImGui::SameLine();
-		// 2D/3D view toggle (WP #78): flips the Scene viewport between the
+		// 2D/3D view toggle: flips the Scene viewport between the
 		// orthographic XY-plane 2D mode and the orbit 3D view. Persisted like
 		// the other view flags; a pure view feature (no command-stack change)
 		if (gViewSettings)
@@ -310,7 +310,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 		ImGui::SameLine();
 		// the current steps double as the button into the snap-settings
-		// popover (editable values, Unity's snap settings)
+		// popover (editable values, the snap settings)
 		char snapLabel[64];
 		SDL_snprintf(snapLabel, sizeof(snapLabel),
 			"%.2g / %.2g\xC2\xB0 / %.2g###SnapSettings",

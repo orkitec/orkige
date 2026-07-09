@@ -151,9 +151,9 @@ if(ORKIGE_BUILD_ENGINE)
     add_subdirectory(orkige_engine)
     if(NOT ORKIGE_MOBILE)
         # desktop-only SDL samples (plain executables, host asset paths).
-        # hello_orkige builds on both render flavors (B3: per-flavor boot
-        # block); jumper stays classic-only - its HUD is fastgui (decision
-        # #2, migrates with the A3 facade HUD).
+        # hello_orkige builds on both render flavors (per-flavor boot
+        # block); jumper stays classic-only - its HUD is fastgui, which
+        # migrates to the facade HUD later.
         add_subdirectory(samples/hello_orkige)
         if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
             add_subdirectory(samples/jumper)
@@ -167,11 +167,11 @@ if(ORKIGE_BUILD_TOOLS)
     endif()
     if(NOT ORKIGE_MOBILE)
         # the editor is desktop-only (imgui/imguizmo are not built for
-        # mobile) and builds on BOTH render flavors since the ImGui-on-
-        # DrawLayer2D port (decision #3 revisited, Docs/render-abstraction.md)
+        # mobile) and builds on BOTH render flavors via the ImGui-on-
+        # DrawLayer2D port (Docs/render-abstraction.md)
         add_subdirectory(tools/editor)
     endif()
-    # the player builds on both render flavors since B3 (per-flavor boot
+    # the player builds on both render flavors (per-flavor boot
     # block; games choose their backend)
     add_subdirectory(tools/player)
 endif()

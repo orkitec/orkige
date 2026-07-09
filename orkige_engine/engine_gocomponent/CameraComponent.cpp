@@ -72,8 +72,8 @@ namespace Orkige
 
 		this->attachNode->setFixedYawAxis(true); // keeps the per-update lookAt roll-free
 
-		// take over the window camera (the Engine default camera until
-		// WP-A1.3 - getWindowCamera wraps it into a facade handle).
+		// take over the window camera (the Engine default camera -
+		// getWindowCamera wraps it into a facade handle).
 		// A UI-only window (showUIOnlyWindow - the editor shell) has NO
 		// window camera by contract: the component then stays inactive
 		// (rig nodes exist, nothing drives the view) instead of asserting -
@@ -153,7 +153,7 @@ namespace Orkige
 	void CameraComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): projectionMode
+		// reflection-driven NAMED serialization: projectionMode
 		// (enum) + orthoSize (float) are written by name off the declared schema
 		SceneSerializer::saveComponentProperties(ar, *this);
 	}
@@ -177,7 +177,7 @@ namespace Orkige
 			OENUM_VALUE(PM_PERSPECTIVE)
 			OENUM_VALUE(PM_ORTHOGRAPHIC)
 		OENUM_END
-		// neutral enum value<->label table (task #94, P1) so the reflected
+		// neutral enum value<->label table so the reflected
 		// projectionMode property can resolve labels in every config (the sol
 		// OENUM_START block above stays - it feeds Lua; this feeds the registry)
 		OENUM_REGISTER_START("ProjectionMode", CameraComponent::ProjectionMode)

@@ -23,7 +23,7 @@ namespace Orkige
 	//! by name (project assets resolve through the AUTODETECT resource group)
 	//! and shows it on a unit-thin quad centered on the node.
 	//!
-	//! Phase A1 (Docs/render-abstraction.md, WP-A1.2): renders through the
+	//! renders through the
 	//! facade SpriteQuad, which carries the honest v1 rendering rules the
 	//! component pioneered - unlit, alpha-BLENDED, depth-checked/not-written,
 	//! two-sided, one generated material per texture (tint/flips live in the
@@ -149,7 +149,7 @@ namespace Orkige
 		//! is the sprite visible (true when no quad exists yet - it will show)
 		bool isSpriteVisible() const;
 
-		//--- reflected property accessors (task #94 P2) ---
+		//--- reflected property accessors ---
 		//! @brief set the texture REFERENCE by name (the reflected AssetRef
 		//! setter): empty removes the sprite; a name loads it when the scene node
 		//! exists, otherwise records the reference (detached load). Tolerant where
@@ -193,9 +193,9 @@ namespace Orkige
 		//! by half a texel on every side when the texture texel size is
 		//! passed (textureWidth/Height <= 0 = no inset, e.g. the pure grid
 		//! math the unit test pins).
-		//! @remarks THE shared pixel-rect->UV primitive (WP #79): the sprite
+		//! @remarks THE shared pixel-rect->UV primitive: the sprite
 		//! flipbook (SpriteAnimationComponent) drives it per frame, and the
-		//! texture-atlas package (#84) reuses it for atlas-region->UV math -
+		//! texture-atlas packing reuses it for atlas-region->UV math -
 		//! keep it pure and self-contained.
 		static void frameToUVRect(int frame, int columns, int rows,
 			float textureWidth, float textureHeight,
@@ -206,7 +206,7 @@ namespace Orkige
 		//! yields the full (0,0)-(1,1) rect (no size = no normalization). v
 		//! runs top-down (the sprite/texture convention).
 		//! @remarks THE shared pixel-rect->UV primitive for atlas regions
-		//! (WP #84), pairing with #79's grid frameToUVRect - both route their
+		//! pairing with the grid frameToUVRect - both route their
 		//! seam-safety through insetHalfTexel so the subtle inset can never
 		//! diverge between the flipbook and atlas paths.
 		static void pixelRectToUV(float x, float y, float width, float height,

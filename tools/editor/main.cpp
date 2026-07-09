@@ -1,12 +1,11 @@
 // orkige_editor - the in-engine editor shell (bootstrap).
 //
-// A Unity-like editor built as a regular Orkige app: SDL3 owns the window and
+// An editor built as a regular Orkige app: SDL3 owns the window and
 // event loop, Orkige::Engine renders into it (externalWindowHandle path, same
 // boot sequence as samples/hello_orkige), and the UI is Dear ImGui drawn
 // through the engine_render facade (ImGuiFacadeRenderer on DrawLayer2D).
 //
-// Renderer coupling (Docs/render-abstraction.md; decision #3 was REVISITED
-// after the DrawLayer2D port): the editor builds and runs on BOTH render
+// Renderer coupling (Docs/render-abstraction.md): the editor builds and runs on BOTH render
 // flavors. Everything scene-facing goes through the engine_render facade
 // (RTT panel, picking, camera rig, grid, stats, resources, screenshots,
 // ImGui itself); the one raw-Ogre corner left is the app-standard classic
@@ -98,7 +97,7 @@ namespace
 
 // ESC through the engine input pipeline (SDL event -> InputManager ->
 // GlobalEventManager -> listener) - also proves that non-ImGui input still
-// reaches the engine. Unity-style: a first ESC clears the selection, ESC
+// reaches the engine. A first ESC clears the selection, ESC
 // with nothing selected quits the editor.
 struct QuitOnEscape
 {
@@ -128,7 +127,7 @@ int main(int argc, char** argv)
 {
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
 	// --control-token-file): opt-in in-editor MCP endpoint over Streamable HTTP
-	// (WP #90, was the #80 line-JSON control port). Off unless asked for; the
+	// (previously a line-JSON control port). Off unless asked for; the
 	// env vars ORKIGE_MCP_PORT / ORKIGE_MCP_TOKEN_FILE (and the historical
 	// ORKIGE_CONTROL_PORT / ORKIGE_CONTROL_TOKEN_FILE) are the equivalents.
 	// A remote MCP client then connects to http://127.0.0.1:<port>/mcp.
@@ -222,7 +221,7 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (the WP-A1.3 app rule + B3 flavor split,
+		// --- per-flavor boot block (the app rule + flavor split,
 		// Docs/render-abstraction.md - same shape as tools/player): on
 		// classic, Engine construction/config, the RTSS-internal media and
 		// the ORKIGE_RENDERSYSTEM pick stay classic plumbing; on the next
@@ -565,10 +564,10 @@ int main(int argc, char** argv)
 		// their fixture objects themselves at frame 2 (see the frame loop).
 		EditorState state;
 
-		// MCP endpoint (WP #90): an MCP server hosted IN THIS (editor) process
+		// MCP endpoint: an MCP server hosted IN THIS (editor) process
 		// over Streamable HTTP (POST /mcp, JSON-RPC 2.0), exposing editor
-		// operations to a remote MCP client (Claude Code/Desktop) - the #80
-		// Python sidecar is retired. Off unless --mcp-port / the control
+		// operations to a remote MCP client (Claude Code/Desktop) - the
+		// former Python sidecar is retired. Off unless --mcp-port / the control
 		// self-test asked for it. The context bundles the objects the handler
 		// bridges to (all owned here). Pumped once per frame below.
 		Orkige::EditorControlServer controlServer;
@@ -828,7 +827,7 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST");
 
 		// ORKIGE_EDITOR_ASSETTEST=path: scripted Asset browser run (the
-		// editor_asset_browser ctest, WP #76). At frame 10 it COPIES the
+		// editor_asset_browser ctest). At frame 10 it COPIES the
 		// project to a temp dir (the real one is never touched), opens the
 		// copy and exercises the browser headlessly end to end: enumerate the
 		// assets (the known project asset carries an id, a raw sidecar-less
@@ -840,7 +839,7 @@ int main(int argc, char** argv)
 		// (instantiateAssetIntoScene). Exits non-zero on any failed assertion.
 		const char* assetTestEnv = std::getenv("ORKIGE_EDITOR_ASSETTEST");
 
-		// Unity behavior: a plain interactive launch reopens the last project
+		// a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
 		// contract). A vanished project directory is skipped silently - the
@@ -1143,7 +1142,7 @@ int main(int argc, char** argv)
 			updatePlaySession(playSession, console);
 
 			// MCP endpoint: accept/read/dispatch HTTP JSON-RPC tool calls
-			// (WP #90). Pumped after the play session so play-control verbs act
+			// Pumped after the play session so play-control verbs act
 			// on current state; no-op when the endpoint never started.
 			controlServer.update(controlContext);
 
@@ -1192,7 +1191,7 @@ int main(int argc, char** argv)
 			drawEditorModals(state, editorCore);
 			drawViewSettingsWindow(state, viewSettings, sceneTarget.camera);
 			// the View menu may have toggled the grid; 2D mode hides the XZ
-			// ground grid (it lies edge-on to the top-down view - WP #78; an
+			// ground grid (it lies edge-on to the top-down view; an
 			// XY grid redraw is deferred)
 			gridNode->setVisible(viewSettings.showGrid &&
 				!viewSettings.editor2D);
@@ -2329,7 +2328,7 @@ int main(int argc, char** argv)
 				}
 				if (frameCount == 107)
 				{
-					// GENERIC reflection-driven property edit (task #94 P4):
+					// GENERIC reflection-driven property edit:
 					// the auto Inspector routes every edit through
 					// EditorCore::applyPropertyChange - ONE undoable
 					// PropertyChangeCommand, values as PropertyValue canonical
@@ -2573,7 +2572,7 @@ int main(int argc, char** argv)
 				}
 				if (frameCount == 130)
 				{
-					// Unity-style double-click focus: drive the EXACT function
+					// double-click focus (select + frame): drive the EXACT function
 					// the Hierarchy double-click (and, after its pick, the
 					// Scene viewport double-click) runs - the selection must
 					// change AND the orbit camera must retarget/refit to
@@ -2609,7 +2608,7 @@ int main(int argc, char** argv)
 				}
 				if (frameCount == 135)
 				{
-					// GameObject tree + active state (the WP the Hierarchy
+					// GameObject tree + active state (what the Hierarchy
 					// panel's drag & drop / checkbox UI drives): re-parent
 					// through the EXACT function a hierarchy drop calls,
 					// verify the render-node composition (moving the parent
@@ -2718,7 +2717,7 @@ int main(int argc, char** argv)
 				}
 				if (frameCount == 140)
 				{
-					// 2D editor mode (WP #78): flip to 2D and apply the 2D
+					// 2D editor mode: flip to 2D and apply the 2D
 					// camera directly (drawScenePanel does the same next frame).
 					// It reconfigures the editor's OWN camera - orthographic,
 					// looking straight down -Z at the XY plane - and touches NO

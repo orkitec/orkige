@@ -10,8 +10,8 @@
 #define __EnginePrerequisites_h__8_9_2010__20_40_50__
 
 //! @file EnginePrerequisites.h
-//! @brief the BACKEND-NEUTRAL engine umbrella (phase B3, Docs/render-abstraction.md)
-//! @remarks Until B3 this header included the classic <Ogre.h> umbrella,
+//! @brief the BACKEND-NEUTRAL engine umbrella (Docs/render-abstraction.md)
+//! @remarks Historically this header included the classic <Ogre.h> umbrella,
 //! which chained every engine module to the classic render backend. It is
 //! now backend-neutral: core prerequisites + the Meta/type system + the
 //! facade math vocabulary (engine_render/RenderMath.h - Ogre math types on

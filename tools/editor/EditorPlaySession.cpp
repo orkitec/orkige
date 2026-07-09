@@ -818,7 +818,7 @@ void setRemoteObjectActive(PlaySession& session, std::string const& id,
 	session.client.send(setActive);
 }
 
-//! Lua hot-reload (WP #77): tell the running player to recompile-and-swap
+//! Lua hot-reload: tell the running player to recompile-and-swap
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 {
 	if (!session.client.isConnected())
@@ -950,7 +950,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 					session.stateProperties[key] = value;
 				}
 			}
-			// reflection metadata (task #94 P3): four parallel lists describe
+			// reflection metadata: four parallel lists describe
 			// each streamed property so the Inspector picks a typed widget. A
 			// player predating them leaves these empty (read-only-dump fallback).
 			session.statePropKeys = message.getList(Protocol::LIST_PROP_KEYS);
@@ -1108,7 +1108,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		return;
 	case PlaySession::Mode::Playing:
 	case PlaySession::Mode::Paused:
-		// Lua hot-reload (WP #77): watch the project's scripts/ and tell the
+		// Lua hot-reload: watch the project's scripts/ and tell the
 		// running player to recompile-and-swap on any edit (desktop play only)
 		watchProjectScripts(session, console, now);
 		// crash resilience: a vanished process or a dropped link reverts

@@ -720,7 +720,7 @@ namespace Orkige
 	{
 		// SDL3 feeds us events through injectEvent() - all that is left to set
 		// up is the window extents used to scale normalized touch coordinates
-		// (facade-routed since B3, so this works on every render flavor)
+		// (facade-routed, so this works on every render flavor)
 		if(RenderSystem::get())
 		{
 			unsigned int width = 0;

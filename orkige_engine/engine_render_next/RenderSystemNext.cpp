@@ -227,9 +227,9 @@ namespace Orkige
 	{
 		if(type != LT_FILESYSTEM)
 		{
-			// Zip needs the zziplib-backed archive (port feature, B2);
+			// Zip needs the zziplib-backed archive (port feature);
 			// BigZip needs engine_filesystem ported off the classic
-			// umbrella (B2) - both wait for real content work
+			// umbrella - both wait for real content work
 			RenderBackend::notImplementedOnce(type == LT_ZIP
 				? "RenderSystem::addResourceLocation(LT_ZIP)"
 				: "RenderSystem::addResourceLocation(LT_BIGZIP)");

@@ -20,7 +20,7 @@
 namespace Orkige
 {
 	//! @brief node utilities - the node -> GameObject back-mapping
-	//! @remarks Phase A1 (Docs/render-abstraction.md, WP-A1.2): the historical
+	//! @remarks the historical
 	//! cleanSceneNode/wipeSceneNode destroy chains are GONE - facade
 	//! RenderNode/MeshInstance/SpriteQuad handles are RAII, dropping the optr
 	//! detaches and destroys the backend object (recoverable from git).

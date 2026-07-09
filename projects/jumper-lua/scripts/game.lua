@@ -22,8 +22,8 @@
 -- screen share a z), exactly like the C++ jumper sample's HUD: hiding layer
 -- Z_TITLE hides the whole title screen without touching the HUD widgets.
 --
--- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the
--- facade HUD replaces it in phase A3). engine:hasUISystem() answers which
+-- RENDER FLAVORS: fastgui exists only on the classic backend (the
+-- facade HUD replaces it later). engine:hasUISystem() answers which
 -- world we are in - without a UI system this script skips every widget and
 -- runs the same state machine on ENTER alone (title -> playing -> win).
 
@@ -114,7 +114,7 @@ function init(self)
 	end
 
 	if not hasUI then
-		-- HUD-less flavor (Ogre-Next until the A3 facade HUD): no widgets,
+		-- HUD-less flavor (Ogre-Next until the facade HUD lands): no widgets,
 		-- the game flow runs on ENTER alone
 		shared.game = {}
 		setState("title")

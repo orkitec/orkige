@@ -350,7 +350,7 @@ namespace Orkige
 		// one workspace definition per camera/background state; definitions
 		// are cheap and names must be unique, so each rebuild gets a fresh
 		// one (background colour bakes into the clear pass). Hand-built
-		// instead of createBasicWorkspaceDef since the DrawLayer2D port:
+		// instead of createBasicWorkspaceDef:
 		// pass 1 clears + renders the scene queues (< the UI queue), pass 2
 		// composites the 2D layers - the UI render queue only - through the
 		// pixel-space UI camera (referenced by name; created up front so
@@ -741,8 +741,8 @@ namespace Orkige
 			return;
 		}
 		const String message = String("Orkige next backend: '") + feature +
-			"' is not implemented on the next backend yet (B2, see "
-			"Docs/render-abstraction.md phase A2) - returning a safe default";
+			"' is not implemented on the next backend yet (see "
+			"Docs/render-abstraction.md) - returning a safe default";
 		if(Ogre::LogManager::getSingletonPtr())
 		{
 			Ogre::LogManager::getSingleton().logMessage(message);

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Generate projects/roller/ assets and scene - the Continuity x Rolando
-prototype ("roller"): a 2x2 grid of movable tiles and a ball rolled by tilt
+"""Generate projects/roller/ assets and scene - a tilt-gravity ball +
+sliding-tile puzzle prototype ("roller"): a 2x2 grid of movable tiles and a ball rolled by tilt
 gravity, built entirely on SpriteComponent (2D) + planar Jolt bodies.
 
 Everything is license-clean and reproducible from the Python standard
@@ -40,7 +40,7 @@ projects/jumper-lua/scenes/main.oscene for a native reference):
     Cursor  cursor.png highlight over the empty slot (hidden in play mode)
     Goal    goal.png sprite inside tile B (moves with the tile group)
 
-This is now a SEED-LEVEL generator (#87): it emits the tile prefab + textures
+This is now a SEED-LEVEL generator: it emits the tile prefab + textures
 plus a small set of DETERMINISTIC seed level scenes (scenes/main.oscene =
 level 1, scenes/level2.oscene = level 2) and the ordered levels.olevels
 sequence. Each scene also carries a data-only "Level" object (LevelComponent:
@@ -298,8 +298,8 @@ K_INT, K_FLOAT, K_BOOL, K_STRING, K_ENUM, K_VEC3, K_QUAT, K_COLOR, K_ASSETREF = 
 
 class ComponentWriter:
     """The component builders shared by the scene and the prefab writer -
-    each returns (componentTypeName, [serialized field lines]). Since task #94
-    P2 most components serialize their DECLARED PropertySchema as a NAMED
+    each returns (componentTypeName, [serialized field lines]). Most
+    components serialize their DECLARED PropertySchema as a NAMED
     (name, kind, value, ref) record block (see _reflected); ParticleComponent
     stays a hand-written positional escape hatch (see particles())."""
 
@@ -421,7 +421,7 @@ class ComponentWriter:
                   z_order=6, blend_mode=1,
                   start_color=(1.0, 0.9, 0.4, 1.0),
                   end_color=(1.0, 0.5, 0.1, 0.0)):
-        """A burst-only 2D particle emitter (WP #82). The field ORDER mirrors
+        """A burst-only 2D particle emitter. The field ORDER mirrors
         ParticleComponent::save exactly - keep the two in sync. blend_mode:
         0 alpha, 1 additive (the burst default)."""
         return self._component("ParticleComponent", [
@@ -484,7 +484,7 @@ class SceneWriter(ComponentWriter):
     ("" = root), its activeSelf flag, its free-form tag list and its prefabRef
     ("" = plain object; instance roots additionally list their suppressed
     prefab children then a per-child property-override count) next to the
-    components, whose fields are NAMED reflection records (task #94 P2,
+    components, whose fields are NAMED reflection records (see
     core_game/SceneSerializer.cpp).
     Tile roots are tagged "tile" so game.lua discovers them via
     world.findByTag - no hardcoded id list."""
@@ -654,7 +654,7 @@ def add_tile(scene, key, slot, open_edges, tile_asset_id, ledge=False,
     if goal:
         # the goal star inside the tile - a CHILD of the tile group (local
         # offset on the floor near the right wall), so it slides along. A
-        # STATIC SENSOR (WP #88) on the Trigger layer detects the dynamic ball
+        # STATIC SENSOR on the Trigger layer detects the dynamic ball
         # rolling into it: ball.lua's onContactBegin fires the win. The sensor
         # body rides the tile slide through the subtree teleport, exactly like
         # the kinematic walls.
@@ -716,7 +716,7 @@ def build_scene(level, tile_asset_id):
         scene.rigid_sphere(0.4, mass=1.0, friction=0.4, restitution=0.2,
                            planar=True, layer="ball"),
         scene.script("scripts/ball.lua"),
-        # star-collect burst (WP #82): ball.lua fires self.particles:burst()
+        # star-collect burst: ball.lua fires self.particles:burst()
         # on the win - a golden additive shower of the goal-star texture
         scene.particles("goal.png"),
     )
@@ -758,7 +758,7 @@ def write_layers(path):
     unlabeled body behaves as before. Row-major NxN bools, symmetric."""
     names = ["Default", "ball", "obstacle", "Trigger"]
     # symmetric collision matrix (index order matches names). The Trigger layer
-    # (WP #88) carries the goal SENSOR: it collides with (senses) ONLY the ball,
+    # carries the goal SENSOR: it collides with (senses) ONLY the ball,
     # never the obstacle walls or itself - so the win fires on the ball alone.
     matrix = [
         [True,  True,  True,  False],  # Default:  collides with all real layers

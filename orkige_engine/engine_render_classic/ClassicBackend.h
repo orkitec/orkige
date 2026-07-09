@@ -17,10 +17,10 @@
 //! classic bootstrapper, which creates/destroys the RenderSystem) may
 //! include it - application code and everything above engine_graphic
 //! talk to the facade headers exclusively. ONE sanctioned exception
-//! (decided question #1 in Docs/render-abstraction.md): the root-motion
+//! (a deliberate design decision, see Docs/render-abstraction.md): the root-motion
 //! backdoor in engine_gocomponent/AnimationComponent.cpp includes this
 //! inside its documented #if ORKIGE_RENDER_CLASSIC block to reach
-//! RenderBackend::ogreEntity. In phase A2 an
+//! RenderBackend::ogreEntity. A planned
 //! engine_render_next/ClassicBackend counterpart mirrors this file
 //! against Ogre-Next (Docs/render-abstraction.md, "Directory layout").
 
@@ -267,7 +267,7 @@ namespace Orkige
 		//! the 2D layer binds render-texture batches through this per draw
 		static Ogre::TexturePtr ogreTexture(optr<RenderTexture> const & texture);
 		//! the wrapped entity - ONLY for AnimationComponent's root-motion
-		//! backdoor (decided question #1; see the file remarks above)
+		//! backdoor (see the file remarks above)
 		static Ogre::Entity* ogreEntity(optr<MeshInstance> const & mesh);
 
 		//--- node registry (Ogre::SceneNode* -> facade handle) ----------

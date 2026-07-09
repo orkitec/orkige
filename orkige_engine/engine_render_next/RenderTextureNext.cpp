@@ -125,8 +125,8 @@ namespace Orkige
 		}
 		// one (clear + scene) workspace per target incarnation; the
 		// background colour bakes into the definition's clear pass.
-		// Hand-built instead of createBasicWorkspaceDef since the
-		// DrawLayer2D port: the scene pass stops BELOW the UI render
+		// Hand-built instead of createBasicWorkspaceDef:
+		// the scene pass stops BELOW the UI render
 		// queue, so 2D layers never leak into offscreen targets (the
 		// facade contract - they composite over the main window only)
 		Ogre::CompositorManager2* compositorManager =
@@ -228,7 +228,7 @@ namespace Orkige
 		// target exists, changes across resizes): the TextureGpu pointer.
 		// A future ImGui-on-Next integration resolves the actual API
 		// texture from it (TextureGpu::getCustomAttribute) - the editor
-		// is classic-only today (decided question #3)
+		// is classic-only today (by design)
 		return reinterpret_cast<unsigned long long>(this->mImpl->texture);
 	}
 	//---------------------------------------------------------

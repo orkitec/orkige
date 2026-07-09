@@ -168,7 +168,7 @@ namespace Orkige
 	void SpriteAnimationComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization (task #94 P2): grid + default clip
+		// reflection-driven NAMED serialization: grid + default clip
 		// are reflected scalars; the variable-length clip catalogue below is the
 		// hand-written ESCAPE HATCH (a map is not a reflectable scalar field), a
 		// positional residue tail after the named block
@@ -301,7 +301,7 @@ namespace Orkige
 		OFUNC(getCurrentFrame)
 		OFUNC(setSpeed)
 		OFUNC(getSpeed)
-		// reflected schema (task #94 P2): the grid + default clip; the clip
+		// reflected schema: the grid + default clip; the clip
 		// catalogue stays a hand-written positional residue (variable-length map)
 		OPROPERTY("gridColumns", Orkige::PropertyKind::Int, getGridColumns, setGridColumnsValue, Orkige::PROP_NONE)
 		OPROPERTY("gridRows", Orkige::PropertyKind::Int, getGridRows, setGridRowsValue, Orkige::PROP_NONE)

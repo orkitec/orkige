@@ -17,7 +17,7 @@
 //! the original PBS datablock had one - the Next analog of classic's
 //! Pass::setLightingEnabled(false)+setVertexColourTracking. The
 //! animation surface runs over the v2 SkeletonInstance/
-//! SkeletonAnimation when the mesh has one; the B2 assimp importer
+//! SkeletonAnimation when the mesh has one; the assimp importer
 //! produces static meshes only (see MeshLoaderNext.cpp), so today that
 //! path only answers honestly with "no animations".
 

@@ -19,7 +19,7 @@
 //! bootstraps (tests/render_facade/bootstrap_next.cpp, the
 //! render_next_smoke main) may include it.
 //!
-//! B2 STATE (Docs/render-abstraction.md phase A2/WP-A2.2+A2.3): the
+//! STATE (Docs/render-abstraction.md): the
 //! whole facade is implemented - boot (Root + Metal RS + SDL-hosted
 //! window + CompositorManager2 workspace), nodes/cameras, mesh
 //! instances (assimp import -> v1::ManualObject -> Mesh::importV1 ->
@@ -35,7 +35,7 @@
 //! (waits for real content work + the zziplib port feature) and
 //! skeletal animation IMPORT through the assimp path (the animation
 //! control surface is implemented over v2 SkeletonInstance, but the
-//! B2 importer bakes node transforms - static meshes only).
+//! importer bakes node transforms - static meshes only).
 //!
 //! Unlike classic (where Engine bootstraps OGRE and the facade wraps
 //! it), the RenderSystem facade IS the boot on Next: RenderBackend::
@@ -323,7 +323,7 @@ namespace Orkige
 
 		//--- mesh import (MeshLoaderNext.cpp) ------------------------
 		//! @brief make sure a v2 mesh named meshName exists (idempotent)
-		//! @remarks THE Next mesh path decided in B2: an existing v2 mesh
+		//! @remarks THE Next mesh path: an existing v2 mesh
 		//! is used as-is (cube-mesh service output); "*.mesh" loads
 		//! through the v1 serializer; everything else (glb/gltf/obj/...)
 		//! imports through assimp - both v1 roads end in
@@ -451,7 +451,7 @@ namespace Orkige
 		static void makeImageAlphaOpaque(Ogre::Image2 & image);
 		//! honest-gap discipline: log the missing feature ONCE, stay
 		//! silent afterwards - callers then return their safe default
-		//! (B2 residual: LT_ZIP/LT_BIGZIP locations, skeletal import)
+		//! (residual: LT_ZIP/LT_BIGZIP locations, skeletal import)
 		static void notImplementedOnce(char const * feature);
 	};
 }

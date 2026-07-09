@@ -77,7 +77,7 @@ namespace Orkige
 		//! map: classic=ManualObject + generated "Sprite/<tex>" material | next=ManualObject v2 + HlmsUnlit datablock | filament=quad VB/IB + unlit filamat instance
 		optr<SpriteQuad> createSpriteQuad(String const & textureName);
 		//! @brief create a world-space, single-texture N-quad batch (the 2D
-		//! particle-system building block, WP #82) - one draw call per system,
+		//! particle-system building block) - one draw call per system,
 		//! refilled from a CPU vertex array each frame (@see SpriteBatch)
 		//! map: classic=ManualObject + shared "Sprite/<tex>"/"SpriteAdd/<tex>" material | next=v2 ManualObject + shared HlmsUnlit datablock | filament=dynamic VB/IB + unlit filamat instance
 		optr<SpriteBatch> createSpriteBatch(String const & textureName,

@@ -8,10 +8,10 @@
 *********************************************************************/
 
 //! @file smoke_main.cpp
-//! @brief render_next_smoke - the B1 bar of a NEW render backend
+//! @brief render_next_smoke - the smoke bar of a NEW render backend
 //! @remarks Much smaller than the render_facade_selfcheck conformance
 //! suite (which needs the full content surface and stays DISABLED on
-//! the next flavor until B2): backend boots into a real window, a
+//! the next flavor until it lands): backend boots into a real window, a
 //! facade camera goes on the window, the window clears to a known
 //! non-black colour, a facade screenshot proves it, clean shutdown,
 //! exit 0. Backend-agnostic by construction (facade headers + the

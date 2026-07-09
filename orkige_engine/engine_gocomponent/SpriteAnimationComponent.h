@@ -94,7 +94,7 @@ namespace Orkige
 		inline int getGridColumns() const;
 		//! @see mGridRows
 		inline int getGridRows() const;
-		//! reflected grid setters (task #94 P2): set one axis, keep the other
+		//! reflected grid setters: set one axis, keep the other
 		inline void setGridColumnsValue(int columns) { this->setGrid(columns, this->mGridRows); }
 		inline void setGridRowsValue(int rows) { this->setGrid(this->mGridColumns, rows); }
 

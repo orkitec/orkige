@@ -1,4 +1,4 @@
-// jumper-native - the Jumper Native project's game module: the milestone-3
+// jumper-native - the Jumper Native project's game module: the
 // proof that a .orkproj project can carry COMPILED C++ game code which the
 // editor builds on Play (cmake/OrkigeGameModule.cmake) and runs as the play
 // process.

@@ -1,7 +1,7 @@
--- Script export properties fixture (task #94 P5b), driven by the
+-- Script export properties fixture, driven by the
 -- player_scriptprop_selfcheck ctest (ORKIGE_SCRIPTPROP_SELFCHECK). The
--- top-level `properties` table declares an EXPORTED property (Unity
--- public-field / Godot @export): the engine surfaces it in the inspector /
+-- top-level `properties` table declares an EXPORTED property (script-declared,
+-- auto-exposed in the inspector): the engine surfaces it in the inspector /
 -- debug protocol / MCP through the SAME reflection registry as a C++ component
 -- property, serializes it per-instance, and INJECTS its value onto `self`
 -- before init runs. The selfcheck sets moveSpeed to a distinctive value, then

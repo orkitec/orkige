@@ -57,26 +57,26 @@ namespace Orkige
 		//! active flag (GameObject::setActive). Additive since protocol v1:
 		//! old runtimes answer with an "unknown command" error, never crash.
 		extern ORKIGE_CORE_DLL const String MSG_SET_ACTIVE;
-		//! @brief Lua hot-reload (WP #77): the editor tells the RUNNING player
+		//! @brief Lua hot-reload: the editor tells the RUNNING player
 		//! to recompile-and-swap its ScriptComponents (compile-before-swap, so
 		//! a broken edit keeps the old instance ticking). Optional FIELD_ID
 		//! targets a single GameObject; ABSENT = reload every ScriptComponent
 		//! (v1 is reload-ALL). Player-directed by design: the editor never ticks
 		//! components, it only sends this; the player performs the swap. This is
 		//! the FIRST of the additive protocol-extension messages that ride the
-		//! ONE debug protocol - #83 (cvars, MSG_SET_CVAR) and #80 (the MCP play-
-		//! control verbs) extend the same processMessages else-if chain the same
+		//! ONE debug protocol - cvars (MSG_SET_CVAR) and the MCP play-
+		//! control verbs extend the same processMessages else-if chain the same
 		//! way. Additive since protocol v1: old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_RELOAD_SCRIPT;
-		//! @brief cvar tuning (WP #83): the editor tells the RUNNING player to
+		//! @brief cvar tuning: the editor tells the RUNNING player to
 		//! change a console variable live. FIELD_CVAR_NAME names the cvar,
 		//! FIELD_VALUE carries the new value (a string, parsed per the cvar's
 		//! registered type on the player). The player drives it through
 		//! CVarManager::setString, so the cvar's onChange fires and the change
 		//! takes effect immediately; a bad name/value answers with an error
 		//! (never crashes). The SECOND additive protocol-extension message that
-		//! rides the ONE debug protocol (after MSG_RELOAD_SCRIPT); #80 (the MCP
-		//! play-control verbs) extends the same else-if chain the same way.
+		//! rides the ONE debug protocol (after MSG_RELOAD_SCRIPT); the MCP
+		//! play-control verbs extend the same else-if chain the same way.
 		//! Additive since protocol v1: old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_SET_CVAR;
 
@@ -104,13 +104,13 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
-		//! @brief request-correlation id (WP #80): a REQUEST/RESPONSE protocol
+		//! @brief request-correlation id: a REQUEST/RESPONSE protocol
 		//! (the MCP editor control port) echoes the request's "req" value back
 		//! in its ok/err reply so an async caller can match answers to
 		//! outstanding requests. Additive since protocol v1: absent on the
 		//! fire-and-forget player messages, which never carry or expect it.
 		extern ORKIGE_CORE_DLL const String FIELD_REQ;
-		//! @brief auth token (WP #80): a control port that guards mutation
+		//! @brief auth token: a control port that guards mutation
 		//! reads a secret the editor wrote to a file; the host presents it here
 		//! in a "hello". Absent on the intra-machine player link (loopback +
 		//! single-client is its trust model). Additive since protocol v1.
@@ -125,7 +125,7 @@ namespace Orkige
 		//! LIST_IDS (effective activeInHierarchy is derived through the
 		//! parents). Additive since protocol v1 like LIST_PARENTS.
 		extern ORKIGE_CORE_DLL const String LIST_ACTIVE;
-		//! @brief object_state reflection metadata (task #94 P3): four parallel
+		//! @brief object_state reflection metadata: four parallel
 		//! lists describing the streamed properties so the editor picks a TYPED
 		//! widget without a local schema. LIST_PROP_KEYS holds the ordered
 		//! "<Component>.<property>" keys (the same keys the flat value fields use);

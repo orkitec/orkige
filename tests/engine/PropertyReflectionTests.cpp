@@ -6,7 +6,7 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Task #94, P1 - the engine half of the reflection proof: the Orkige
+	The engine half of the reflection proof: the Orkige
 	Vec3/Quat/Color <-> POD adapter (ComponentPropertyReflect.h, the Ogre
 	containment-safe seam) and the two converted real components. Runs on
 	DETACHED components (no Ogre::Root, no scene nodes), so it is headless like

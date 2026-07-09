@@ -119,7 +119,7 @@ namespace Orkige
 		//! desktops: holding LEFT/A / RIGHT/D turns a virtual tilt angle at
 		//! TILT_SIM_RATE (advanced once per frame on FrameStartedEvent), clamped
 		//! to +-TILT_SIM_MAX_ANGLE. Games poll this and derive gravity, e.g.
-		//! physics:setGravity(tilt * 9.81) - the Rolando mechanic.
+		//! physics:setGravity(tilt * 9.81) - the tilt-gravity mechanic.
 		Ogre::Vector3 getTilt() const;
 		//! is a real accelerometer feeding getTilt (false = key simulation)
 		bool isTiltSensorAvailable() const;

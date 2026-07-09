@@ -1,4 +1,4 @@
--- ball.lua - the Rolando half of the roller prototype, attached to the
+-- ball.lua - the ball/tilt-gravity half of the roller prototype, attached to the
 -- "Ball" object in scenes/main.oscene through a ScriptComponent.
 --
 -- The ball is a dynamic PLANAR sphere (RigidBodyComponent planar mode locks
@@ -8,18 +8,18 @@
 -- The tilt mechanic: InputManager:getTilt() answers the normalized gravity
 -- direction - accelerometer-backed on devices, LEFT/RIGHT(A/D) simulated on
 -- desktops - and every frame in play mode this script points world gravity
--- along it (physics:setGravity = the Rolando mechanic).
+-- along it (physics:setGravity = the tilt-gravity mechanic).
 --
 -- The 2D camera: init switches the engine camera to ORTHOGRAPHIC projection
 -- (Engine:setCameraOrthographic) framing the whole 2x2 tile grid; it never
 -- moves - the WORLD is what moves in this game.
 --
--- The win: the "Goal" object carries a STATIC SENSOR RigidBodyComponent (WP
--- #88) on the Trigger layer, which senses the dynamic ball. When the ball
+-- The win: the "Goal" object carries a STATIC SENSOR RigidBodyComponent
+-- on the Trigger layer, which senses the dynamic ball. When the ball
 -- rolls into it, the engine's contact drain calls onContactBegin(self, other)
 -- below with the goal as `other` - the OLD GOAL_RADIUS distance poll is gone.
 --
--- Coordination with game.lua (the Continuity half) through `shared.roller`:
+-- Coordination with game.lua (the world-sliding half) through `shared.roller`:
 --   mode ("play"/"move")  written by game.lua; gravity/win/respawn only run
 --                         while "play" (the sim is paused in "move" anyway)
 --   x, y, wins, respawns, tiltX, tiltY, ballReady   written HERE
@@ -27,7 +27,7 @@
 local TS = RenderNode.TransformSpace
 
 --- tuning --------------------------------------------------------------------
--- GRAVITY is promoted to the `roller_gravity` console variable (WP #83): its
+-- GRAVITY is promoted to the `roller_gravity` console variable: its
 -- default is 18.0, but it can be tuned LIVE from the editor Console ("set
 -- roller_gravity 30"), the Lua cvar table or the MSG_SET_CVAR debug message,
 -- and persists per project as the manifest Setting "cvar.roller_gravity". The
@@ -118,7 +118,7 @@ function update(self, dt)
 
 	local mode = shared.roller.mode or "play"
 	if mode == "play" then
-		-- Rolando: gravity follows the tilt every frame (magnitude from the
+		-- gravity follows the tilt every frame (magnitude from the
 		-- live roller_gravity cvar, so tuning it is felt immediately)
 		local g = gravity()
 		physics:setGravity(Vector3(tilt.x * g, tilt.y * g, 0))
@@ -139,13 +139,13 @@ function update(self, dt)
 			return
 		end
 		-- the win is no longer polled here: the goal SENSOR fires
-		-- onContactBegin below when the ball rolls into it (WP #88)
+		-- onContactBegin below when the ball rolls into it
 	end
 
 	publishState(position.x, position.y, tilt)
 end
 
--- WP #88: the goal's static sensor detected the ball. The engine drains the
+-- the goal's static sensor detected the ball. The engine drains the
 -- worker-thread contact on the main thread and calls this with the goal as
 -- `other`. Only "Goal" contacts win (the ball also contacts obstacle walls,
 -- but those are not sensors and never reach here). Guarded to "play" mode -
@@ -159,7 +159,7 @@ function onContactBegin(self, other)
 	end
 	wins = wins + 1
 	print("ball.lua: WIN #" .. wins .. " (goal sensor) - back to the start")
-	-- star-collect juice: a burst of golden particles (WP #82)
+	-- star-collect juice: a burst of golden particles
 	if self.particles ~= nil then
 		self.particles:burst(24)
 	end

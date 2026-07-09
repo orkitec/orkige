@@ -1,5 +1,5 @@
-// EditorAssetBrowserPanel.cpp - the project Asset browser (WP #76 -> v2, task
-// #93): a Unity-style two-pane FOLDER browser over the open project's assets/,
+// EditorAssetBrowserPanel.cpp - the project Asset browser (v2):
+// a two-pane FOLDER browser over the open project's assets/,
 // scripts/ and scenes/. It is the codebase's FIRST user of ImGui drag & drop
 // across panels (the "ORKIGE_ASSET" payload the Scene and Hierarchy panels
 // accept), the home of the generic asset-instantiation dispatch
@@ -185,7 +185,7 @@ void addTree(std::string const& directory, Orkige::Project const& project,
 
 //! delete an asset file AND its sidecar (a filesystem side effect, NOT
 //! undoable - like the import that created it; a scene reference to the gone
-//! asset self-heals to a placeholder on the next load, Unity-style)
+//! asset self-heals to a placeholder on the next load)
 void deleteAssetFile(std::string const& absolutePath)
 {
 	std::error_code ec;
@@ -664,7 +664,7 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 }
 
 //! the breadcrumb strip: the path from the project root to the current
-//! folder as clickable segments (Unity-style) - clicking one navigates up
+//! folder as clickable segments - clicking one navigates up
 void drawBreadcrumb(EditorState& state)
 {
 	const fs::path root(state.project.getRootDirectory());
@@ -882,7 +882,7 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 				ImGui::SetItemTooltip("no asset id yet (sidecar-less)");
 			}
 			// double-click: scene/prefab instantiate; script/image/other open
-			// with the OS default app (task #93 item 4)
+			// with the OS default app
 			if (ImGui::IsItemHovered() &&
 				ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 			{

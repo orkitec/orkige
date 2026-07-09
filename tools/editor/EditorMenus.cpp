@@ -63,7 +63,7 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 	settingsChanged |= ImGui::Checkbox("Reopen Last Project on Launch",
 		&viewSettings.reopenLastProject);
 	ImGui::SetItemTooltip(
-		"start the editor in the most recent project (Unity behavior)");
+		"start the editor in the most recent project");
 	ImGui::Separator();
 	ImGui::TextDisabled("Camera");
 	ImGui::SetNextItemWidth(160.0f);

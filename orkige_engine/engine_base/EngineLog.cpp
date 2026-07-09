@@ -10,7 +10,7 @@
 	that talks to the logging backend (OGRE's LogManager - incidentally
 	also present in Ogre-Next, and swappable behind this TU either way).
 	Extracted from engine_runtime/PlayerRuntime.cpp's PlayerLogForwarder
-	so the player runtimes and (in WP-A1.4) the editor share one capture.
+	so the player runtimes and the editor share one capture.
 ***************************************************************/
 
 #include "engine_base/EngineLog.h"
