@@ -531,62 +531,11 @@ namespace Orkige
 		PhysicsWorld::BodyDesc mAfter;
 	};
 
-	//! plain value bundle of the CameraComponent state the Inspector edits
-	//! (plain int/float on purpose - no engine enums/Ogre types in the UI seam)
-	struct EditorCameraSettings
-	{
-		int projectionMode = 0;		//!< CameraComponent::ProjectionMode value
-		float orthoSize = 5.0f;		//!< orthographic vertical half-extent
-	};
-
-	//! before/after CameraComponent projection change - mergeable like a drag
-	class CameraChangeCommand : public EditorCommand
-	{
-	public:
-		CameraChangeCommand(String const& objectId,
-			EditorCameraSettings const& before,
-			EditorCameraSettings const& after);
-		virtual bool execute(EditorCore& core) override;
-		virtual bool unexecute(EditorCore& core) override;
-		virtual String getDescription() const override;
-		virtual bool mergeWith(EditorCommand const& next) override;
-
-	private:
-		String mObjectId;
-		EditorCameraSettings mBefore;
-		EditorCameraSettings mAfter;
-	};
-
-	//! plain value bundle of the SpriteComponent state the Inspector edits
-	struct EditorSpriteSettings
-	{
-		String textureName;			//!< texture resource name ("" = no sprite)
-		float width = 0.0f;			//!< world units (<= 0 = from texture aspect)
-		float height = 0.0f;		//!< world units (<= 0 = from texture aspect)
-		float tint[4] = { 1.0f, 1.0f, 1.0f, 1.0f };	//!< RGBA colour tint
-		bool flipX = false;			//!< mirror horizontally
-		bool flipY = false;			//!< mirror vertically
-		int zOrder = 0;				//!< sprite sort order
-		bool visible = true;		//!< sprite visibility
-	};
-
-	//! before/after SpriteComponent change - mergeable like a drag
-	class SpriteChangeCommand : public EditorCommand
-	{
-	public:
-		SpriteChangeCommand(String const& objectId,
-			EditorSpriteSettings const& before,
-			EditorSpriteSettings const& after);
-		virtual bool execute(EditorCore& core) override;
-		virtual bool unexecute(EditorCore& core) override;
-		virtual String getDescription() const override;
-		virtual bool mergeWith(EditorCommand const& next) override;
-
-	private:
-		String mObjectId;
-		EditorSpriteSettings mBefore;
-		EditorSpriteSettings mAfter;
-	};
+	// (the Camera and Sprite typed value bundles + their per-component
+	// CameraChangeCommand/SpriteChangeCommand were retired in task #94 P5a: the
+	// auto-generated Inspector (P4) and the generic MCP get/set_component (P5a)
+	// now edit these components through the reflection registry and the ONE
+	// PropertyChangeCommand below - no per-component command/struct.)
 
 	//! @brief the GENERIC, reflection-driven property edit (task #94 P4): change
 	//! ONE reflected property of ONE component, captured purely as PropertyValue
@@ -802,16 +751,8 @@ namespace Orkige
 			PhysicsWorld::BodyDesc const& before,
 			PhysicsWorld::BodyDesc const& after,
 			unsigned int mergeSession = 0);
-		//! record a before/after CameraComponent projection change (undoable)
-		bool applyCameraChange(String const& id,
-			EditorCameraSettings const& before,
-			EditorCameraSettings const& after,
-			unsigned int mergeSession = 0);
-		//! record a before/after SpriteComponent change (undoable)
-		bool applySpriteChange(String const& id,
-			EditorSpriteSettings const& before,
-			EditorSpriteSettings const& after,
-			unsigned int mergeSession = 0);
+		// (applyCameraChange / applySpriteChange retired in task #94 P5a - the
+		// Inspector and MCP edit Camera/Sprite through applyPropertyChange.)
 
 		//--- generic reflected property edit (task #94 P4) ----
 		//! @brief read a reflected property (schema-driven) as its canonical
@@ -856,19 +797,6 @@ namespace Orkige
 		//! raw BodyDesc apply WITHOUT a command (commands call this)
 		bool setRigidBodyDesc(String const& id,
 			PhysicsWorld::BodyDesc const& desc);
-		//! read the CameraComponent's projection state; false if missing
-		bool getCameraSettings(String const& id,
-			EditorCameraSettings& out) const;
-		//! raw camera projection apply WITHOUT a command (commands call this)
-		bool setCameraSettings(String const& id,
-			EditorCameraSettings const& settings);
-		//! read the SpriteComponent's state; false if missing
-		bool getSpriteSettings(String const& id,
-			EditorSpriteSettings& out) const;
-		//! @brief raw sprite state apply WITHOUT a command (commands call this);
-		//! a changed texture name (re)loads the sprite, "" removes it
-		bool setSpriteSettings(String const& id,
-			EditorSpriteSettings const& settings);
 		//! raw mesh (re)load WITHOUT a command (commands call this); reloads
 		//! the old mesh and returns false if the new one fails to load
 		bool setObjectMesh(String const& id, String const& meshName);

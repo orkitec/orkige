@@ -7,12 +7,86 @@
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
+#include <core_game/GameObjectManager.h>
+#include <core_project/AssetDatabase.h>
 #include <core_util/StringUtil.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace
 {
+
+//! @brief does an asset file name belong to the asset-kind a reference property
+//! hints at? The AssetDatabase enumerates files, not kinds, so we match on the
+//! extension set the engine's resource pipeline associates with each kind
+//! (texture/mesh/sound/script/prefab). An unknown/empty hint matches every
+//! asset (a permissive picker beats an empty one).
+bool assetMatchesKind(std::string const& fileName, std::string const& kind)
+{
+	const std::string::size_type dot = fileName.find_last_of('.');
+	if (dot == std::string::npos)
+	{
+		return kind.empty();
+	}
+	std::string ext = fileName.substr(dot + 1);
+	std::transform(ext.begin(), ext.end(), ext.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (kind == "texture")
+	{
+		return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp" ||
+			ext == "tga" || ext == "dds";
+	}
+	if (kind == "mesh")
+	{
+		return ext == "mesh" || ext == "gltf" || ext == "glb" || ext == "obj";
+	}
+	if (kind == "sound")
+	{
+		return ext == "wav" || ext == "ogg" || ext == "mp3" || ext == "flac";
+	}
+	if (kind == "script")
+	{
+		return ext == "lua";
+	}
+	if (kind == "prefab")
+	{
+		return ext == "oprefab";
+	}
+	return true; // an unknown hint: offer everything rather than nothing
+}
+
+//! @brief the LOCAL inspector's reference-picker provider: AssetRef candidates
+//! come from the open project's AssetDatabase (filtered by asset-kind hint),
+//! ObjectRef candidates are the scene's GameObject ids. The remote inspector
+//! passes NO provider (keeps the text field) - this is the local-only half.
+std::vector<PropertyRefOption> collectReferenceOptions(EditorState& state,
+	Orkige::EditorCore& core, PropertyWidgetDesc const& widget)
+{
+	std::vector<PropertyRefOption> options;
+	if (widget.kind == Orkige::PropertyKind::AssetRef)
+	{
+		if (optr<Orkige::AssetDatabase> const& database =
+			state.project.getAssetDatabase())
+		{
+			for (Orkige::AssetEntry const& asset : database->listAssets())
+			{
+				if (assetMatchesKind(asset.fileName, widget.hint))
+				{
+					options.push_back({ asset.fileName, asset.fileName });
+				}
+			}
+		}
+	}
+	else if (widget.kind == Orkige::PropertyKind::ObjectRef)
+	{
+		for (auto const& entry : core.getGameObjectManager().getGameObjects())
+		{
+			options.push_back({ entry.first, entry.first });
+		}
+	}
+	return options;
+}
 
 //! @brief the widget hint a reflected property needs beyond its kind: Enum ->
 //! the "label=value,label=value,..." option table (from the EnumInfo registry),
@@ -95,7 +169,16 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		widget.hint = propertyWidgetHint(desc);
 		widget.readOnly = desc.isReadOnly();
 		std::string edited;
-		const bool committed = drawPropertyWidget(widget, value, edited);
+		// the reference-picker provider (AssetRef/ObjectRef): backed by the
+		// project's AssetDatabase and the scene's object ids. Scalar/math
+		// widgets ignore it; the remote inspector passes none (text field).
+		PropertyRefProvider refProvider =
+			[&state, &core](PropertyWidgetDesc const& w)
+			{
+				return collectReferenceOptions(state, core, w);
+			};
+		const bool committed =
+			drawPropertyWidget(widget, value, edited, refProvider);
 		// bracket a drag/interaction into ONE undo step: a fresh merge session
 		// opens when the widget becomes active (drag start / combo open / click)
 		// and every edited frame of that interaction shares it (mergeWith

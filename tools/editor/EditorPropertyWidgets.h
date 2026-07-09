@@ -14,7 +14,9 @@
 
 #include <core_base/PropertyValue.h> // Orkige::PropertyKind
 
+#include <functional>
 #include <string>
+#include <vector>
 
 //! @brief the minimal per-property description a typed widget needs. Both the
 //! remote path (parsed from the object_state metadata lists) and the future
@@ -30,13 +32,36 @@ struct PropertyWidgetDesc
 	bool readOnly = false;				//!< render disabled, never report an edit
 };
 
+//! @brief one candidate for a Reference-kind property picker: the value the
+//! setter receives (an asset file name / an object id) and its display label.
+struct PropertyRefOption
+{
+	std::string value;	//!< what the property is set to when picked
+	std::string label;	//!< the combo display text (usually == value)
+};
+
+//! @brief OPTIONAL supplier of picker candidates for a Reference-kind property.
+//! Given the widget descriptor (kind + asset-kind/object-type hint) it returns
+//! the candidate list. The LOCAL inspector passes a provider backed by the
+//! project's AssetDatabase (AssetRef) and the scene's object ids (ObjectRef);
+//! the REMOTE inspector passes an EMPTY provider (it has no local schema/asset
+//! database), so the reference field stays a free-text box - the widget layer
+//! is renderer-shared and must stay remote-safe. An empty return (no matching
+//! candidates) also falls back to the text field.
+typedef std::function<std::vector<PropertyRefOption>(
+	PropertyWidgetDesc const& desc)> PropertyRefProvider;
+
 //! @brief render the ImGui widget for a property whose current value is the
 //! canonical string `value` (PropertyValue::toString()). Returns true and fills
 //! `outValue` (the new canonical string) exactly when the user committed an
 //! edit; a read-only descriptor renders disabled and always returns false. The
 //! caller supplies id-scope uniqueness (e.g. ImGui::PushID(component)) when two
 //! components could carry the same property name.
+//! @param refProvider optional candidate supplier for the Reference kinds; when
+//! present AND it yields candidates, AssetRef/ObjectRef render a searchable
+//! combo, else they render the free-text field (the default remote-safe path).
 bool drawPropertyWidget(PropertyWidgetDesc const& desc,
-	std::string const& value, std::string& outValue);
+	std::string const& value, std::string& outValue,
+	PropertyRefProvider const& refProvider = PropertyRefProvider());
 
 #endif // __EditorPropertyWidgets_h__9_7_2026__16_00_00__

@@ -4,6 +4,8 @@
 
 #include <imgui.h>
 
+#include <cctype>
+#include <cfloat>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -102,10 +104,90 @@ bool drawTextField(char const* label, std::string const& value,
 	return false;
 }
 
+//! @brief render a Reference-kind property as a searchable combo over the
+//! provider's candidates. The current value is always selectable (shown even
+//! when the provider does not list it - a stale/missing reference stays
+//! visible), plus a "(none)" entry that clears the reference. Returns true and
+//! sets outValue when the user picks a different candidate. The picked value is
+//! the asset file name / object id the reflected setter consumes; rename safety
+//! is handled downstream by the assetId machinery at serialization time.
+bool drawRefCombo(char const* label, std::string const& value,
+	std::vector<PropertyRefOption> const& options, std::string& outValue)
+{
+	static std::unordered_map<ImGuiID, std::string> filters;
+	const ImGuiID id = ImGui::GetID(label);
+	const std::string preview = value.empty() ? "(none)" : value;
+	bool edited = false;
+	if (ImGui::BeginCombo(label, preview.c_str()))
+	{
+		std::string& filter = filters[id];
+		char buffer[256];
+		std::snprintf(buffer, sizeof(buffer), "%s", filter.c_str());
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::InputTextWithHint("##refsearch", "filter...", buffer,
+			sizeof(buffer)))
+		{
+			filter = buffer;
+		}
+		ImGui::Separator();
+		// the clear entry
+		if (ImGui::Selectable("(none)", value.empty()))
+		{
+			outValue.clear();
+			edited = !value.empty();
+		}
+		// keep the current value visible even if the provider dropped it
+		bool currentListed = value.empty();
+		for (PropertyRefOption const& option : options)
+		{
+			if (option.value == value)
+			{
+				currentListed = true;
+				break;
+			}
+		}
+		if (!currentListed)
+		{
+			ImGui::Selectable(value.c_str(), true);
+		}
+		for (PropertyRefOption const& option : options)
+		{
+			// case-insensitive substring filter over the label
+			if (!filter.empty())
+			{
+				std::string haystack = option.label;
+				std::string needle = filter;
+				for (char& c : haystack) c = static_cast<char>(std::tolower(c));
+				for (char& c : needle) c = static_cast<char>(std::tolower(c));
+				if (haystack.find(needle) == std::string::npos)
+				{
+					continue;
+				}
+			}
+			const bool selected = (option.value == value);
+			if (ImGui::Selectable(option.label.c_str(), selected))
+			{
+				if (option.value != value)
+				{
+					outValue = option.value;
+					edited = true;
+				}
+			}
+			if (selected)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+	return edited;
+}
+
 } // namespace
 
 bool drawPropertyWidget(PropertyWidgetDesc const& desc,
-	std::string const& value, std::string& outValue)
+	std::string const& value, std::string& outValue,
+	PropertyRefProvider const& refProvider)
 {
 	using Orkige::PropertyKind;
 	char const* label = desc.label.c_str();
@@ -232,9 +314,24 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 		}
 		break;
 	}
-	case PropertyKind::String:
 	case PropertyKind::AssetRef:
 	case PropertyKind::ObjectRef:
+	{
+		// a picker when a provider yields candidates (the LOCAL inspector);
+		// otherwise the free-text field (the remote-safe default path)
+		if (refProvider)
+		{
+			std::vector<PropertyRefOption> options = refProvider(desc);
+			if (!options.empty())
+			{
+				edited = drawRefCombo(label, value, options, outValue);
+				break;
+			}
+		}
+		edited = drawTextField(label, value, outValue);
+		break;
+	}
+	case PropertyKind::String:
 	default:
 	{
 		edited = drawTextField(label, value, outValue);

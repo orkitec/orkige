@@ -13,6 +13,8 @@
 #include "EditorControlServer.h"
 #include "EditorApp.h"
 
+#include <core_base/PropertySchema.h>
+#include <core_base/TypeManager.h>
 #include <core_debugnet/DebugSocket.h>
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
@@ -20,7 +22,6 @@
 #include <core_project/Project.h>
 #include <core_util/optr.h>
 
-#include <engine_gocomponent/ModelComponent.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/RenderWorld.h>
@@ -50,12 +51,6 @@ namespace Orkige
 
 	namespace
 	{
-		//! space-separated float bundle (the set_property wire convention the
-		//! player already speaks - reuses formatPlayFloats from EditorApp.h)
-		String floats(const float* values, int count)
-		{
-			return formatPlayFloats(values, count);
-		}
 		//! read an optional space-separated float bundle; false when the field
 		//! is absent or does not parse to exactly count floats (out untouched)
 		bool readFloats(DebugMessage const& message, String const& key,
@@ -74,6 +69,60 @@ namespace Orkige
 				type == "list_hierarchy" || type == "get_object" ||
 				type == "get_component" || type == "list_assets" ||
 				type == "console_tail" || type == "list_addable_components";
+		}
+		//---------------------------------------------------------
+		//--- generic reflected-property helpers (task #94 P5a) ---
+		//---------------------------------------------------------
+		//! @brief the agent-facing name of a PropertyKind ("float"/"vec3"/...),
+		//! so get_component's metadata is self-describing without the client
+		//! needing the C++ enum ordinals.
+		String kindName(PropertyKind kind)
+		{
+			switch (kind)
+			{
+			case PropertyKind::Int:			return "int";
+			case PropertyKind::Float:		return "float";
+			case PropertyKind::Bool:		return "bool";
+			case PropertyKind::String:		return "string";
+			case PropertyKind::Enum:		return "enum";
+			case PropertyKind::Vec3:		return "vec3";
+			case PropertyKind::Quat:		return "quat";
+			case PropertyKind::Color:		return "color";
+			case PropertyKind::AssetRef:	return "asset";
+			case PropertyKind::ObjectRef:	return "object";
+			}
+			return "string";
+		}
+		//! @brief the discovery hint for a property: Enum -> its
+		//! "label=value,label=value,..." table (from the enum registry),
+		//! AssetRef/ObjectRef -> the asset-kind / object-type hint, else "".
+		//! Mirrors PlayerRuntime::propertyHint / the inspector's local cousin.
+		String propertyHint(PropertyDesc const& desc)
+		{
+			if (desc.kind == PropertyKind::Enum)
+			{
+				String options;
+				if (EnumInfo const* enumInfo =
+					TypeManager::getSingleton().findEnum(desc.enumTypeName))
+				{
+					for (auto const& labelled : enumInfo->values())
+					{
+						if (!options.empty())
+						{
+							options += ",";
+						}
+						options += labelled.first + "=" +
+							std::to_string(labelled.second);
+					}
+				}
+				return options;
+			}
+			if (desc.kind == PropertyKind::AssetRef ||
+				desc.kind == PropertyKind::ObjectRef)
+			{
+				return desc.referenceHint;
+			}
+			return String();
 		}
 		//---------------------------------------------------------
 		//--- MCP argument / reply conversion -----------------
@@ -234,22 +283,28 @@ namespace Orkige
 				  "One GameObject: parent, active flags and its component list.",
 				  { { "id", "string", "GameObject id", true } } },
 				{ "get_component",
-				  "Read a typed component bundle (TransformComponent, "
-				  "ModelComponent, ScriptComponent, RigidBodyComponent, "
-				  "CameraComponent or SpriteComponent).",
+				  "Read a component's reflected properties. Returns every "
+				  "property as a name->value field plus parallel discovery "
+				  "lists: 'properties' (names), 'kinds' (int/float/bool/string/"
+				  "enum/vec3/quat/color/asset/object), 'hints' (enum options "
+				  "'label=value,...' or asset-kind), 'readonly' and 'transient' "
+				  "('1'/'0'). Values are canonical strings: vectors "
+				  "space-separated (vec3 'x y z', quat 'w x y z', color "
+				  "'r g b a'), bool '1'/'0', enum the integer value.",
 				  { { "id", "string", "GameObject id", true },
 				    { "component", "string", "component type name", true } } },
 				{ "set_component",
-				  "Write a typed component bundle (undoable). Pass the fields to "
-				  "change either at the top level or inside a 'properties' "
-				  "object; vectors are space-separated float strings.",
+				  "Write a component's reflected properties by NAME (undoable, "
+				  "one merged undo step). Pass the properties to change either "
+				  "at the top level or inside a 'properties' object; use the "
+				  "property names get_component reports. Values are canonical "
+				  "strings (vectors space-separated, bool '1'/'0', enum the "
+				  "integer value). An unknown or read-only property, or a value "
+				  "that does not parse, is refused without changing the object.",
 				  { { "id", "string", "GameObject id", true },
 				    { "component", "string", "component type name", true },
-				    { "properties", "object", "fields to set (optional)", false },
-				    { "position", "string", "e.g. '1 2 3' (Transform)", false },
-				    { "orientation", "string", "e.g. 'w x y z' (Transform)", false },
-				    { "scale", "string", "e.g. '1 1 1' (Transform)", false },
-				    { "mesh", "string", "mesh name (Model)", false } } },
+				    { "properties", "object",
+				      "name->value map of properties to set", false } } },
 				{ "create_object",
 				  "Create a GameObject (undoable). Defaults to a cube mesh.",
 				  { { "id", "string", "desired id (auto when omitted)", false },
@@ -851,254 +906,153 @@ namespace Orkige
 			return;
 		}
 
-		//--- typed property bundles (read) -------------------
+		//--- generic reflected property read (task #94 P5a) --
+		// GENERIC over the property registry: every reflected property of the
+		// named component crosses back as a field (name -> canonical string)
+		// plus four parallel metadata lists (names/kinds/hints/read-only) so an
+		// agent can DISCOVER the property set without a hardcoded allowlist. New
+		// components and script exports appear here with zero server code.
+		// TRANSIENT properties (runtime telemetry) ARE included and marked in
+		// the "transient" list - an agent inspecting a running object may want
+		// them; HIDDEN and getter-less properties are skipped.
 		if (type == "get_component")
 		{
 			const String id = request.get(DebugProtocol::FIELD_ID);
 			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			optr<GameObject> gameObject = manager.getGameObject(id).lock();
+			if (!gameObject)
+			{
+				this->sendErr(req, "no such object '" + id + "'");
+				return;
+			}
+			const TypeInfo componentType(component);
+			if (!gameObject->hasComponent(componentType))
+			{
+				this->sendErr(req, "no " + component + " on '" + id + "'");
+				return;
+			}
+			PropertySchema const* schema = TypeManager::getSingleton()
+				.getPropertySchema(componentType.getId());
 			DebugMessage ok(MSG_OK);
 			ok.set(DebugProtocol::FIELD_ID, id);
 			ok.set(DebugProtocol::FIELD_COMPONENT, component);
-			if (component == "TransformComponent")
+			StringVector names;
+			StringVector kinds;
+			StringVector hints;
+			StringVector readonly;
+			StringVector transient;
+			if (schema)
 			{
-				EditorTransform t;
-				if (!core.getObjectTransform(id, t))
+				for (PropertyDesc const& desc : schema->properties())
 				{
-					this->sendErr(req, "no TransformComponent on '" + id + "'");
-					return;
+					if (desc.hasFlag(PROP_HIDDEN) || !desc.get)
+					{
+						continue; // never expose a hidden / unreadable property
+					}
+					String value;
+					if (!core.getObjectProperty(id, component, desc.name, value))
+					{
+						continue;
+					}
+					ok.set(desc.name, value);
+					names.push_back(desc.name);
+					kinds.push_back(kindName(desc.kind));
+					hints.push_back(propertyHint(desc));
+					readonly.push_back(desc.isReadOnly() ? "1" : "0");
+					transient.push_back(
+						desc.hasFlag(PROP_TRANSIENT) ? "1" : "0");
 				}
-				const float pos[3] = { t.position.x, t.position.y, t.position.z };
-				const float rot[4] = { t.orientation.w, t.orientation.x,
-					t.orientation.y, t.orientation.z };
-				const float scl[3] = { t.scale.x, t.scale.y, t.scale.z };
-				ok.set("position", floats(pos, 3));
-				ok.set("orientation", floats(rot, 4));
-				ok.set("scale", floats(scl, 3));
 			}
-			else if (component == "ModelComponent")
-			{
-				optr<GameObject> gameObject = manager.getGameObject(id).lock();
-				if (!gameObject ||
-					!gameObject->hasComponent<ModelComponent>())
-				{
-					this->sendErr(req, "no ModelComponent on '" + id + "'");
-					return;
-				}
-				ok.set("mesh", gameObject->getComponentPtr<ModelComponent>()
-					->getCurrentModelFileName());
-			}
-			else if (component == "ScriptComponent")
-			{
-				String script;
-				bool enabled = false;
-				if (!core.getObjectScript(id, script, enabled))
-				{
-					this->sendErr(req, "no ScriptComponent on '" + id + "'");
-					return;
-				}
-				ok.set("script", script);
-				ok.set("enabled", enabled ? "1" : "0");
-			}
-			else if (component == "RigidBodyComponent")
-			{
-				PhysicsWorld::BodyDesc d;
-				if (!core.getRigidBodyDesc(id, d))
-				{
-					this->sendErr(req, "no RigidBodyComponent on '" + id + "'");
-					return;
-				}
-				const float halfExtents[3] = { d.halfExtents.x,
-					d.halfExtents.y, d.halfExtents.z };
-				ok.set("body_type", std::to_string(static_cast<int>(d.bodyType)));
-				ok.set("shape_type",
-					std::to_string(static_cast<int>(d.shapeType)));
-				ok.set("mass", std::to_string(d.mass));
-				ok.set("friction", std::to_string(d.friction));
-				ok.set("restitution", std::to_string(d.restitution));
-				ok.set("planar", d.planar ? "1" : "0");
-				ok.set("radius", std::to_string(d.radius));
-				ok.set("half_height", std::to_string(d.halfHeight));
-				ok.set("half_extents", floats(halfExtents, 3));
-			}
-			else if (component == "CameraComponent")
-			{
-				EditorCameraSettings c;
-				if (!core.getCameraSettings(id, c))
-				{
-					this->sendErr(req, "no CameraComponent on '" + id + "'");
-					return;
-				}
-				ok.set("projection_mode", std::to_string(c.projectionMode));
-				ok.set("ortho_size", std::to_string(c.orthoSize));
-			}
-			else if (component == "SpriteComponent")
-			{
-				EditorSpriteSettings s;
-				if (!core.getSpriteSettings(id, s))
-				{
-					this->sendErr(req, "no SpriteComponent on '" + id + "'");
-					return;
-				}
-				const float tint[4] = { s.tint[0], s.tint[1], s.tint[2],
-					s.tint[3] };
-				ok.set("texture", s.textureName);
-				ok.set("width", std::to_string(s.width));
-				ok.set("height", std::to_string(s.height));
-				ok.set("tint", floats(tint, 4));
-				ok.set("flip_x", s.flipX ? "1" : "0");
-				ok.set("flip_y", s.flipY ? "1" : "0");
-				ok.set("z_order", std::to_string(s.zOrder));
-				ok.set("visible", s.visible ? "1" : "0");
-			}
-			else
-			{
-				this->sendErr(req, "no typed property bundle for '" +
-					component + "' (v1 exposes Transform/Model/Script/"
-					"RigidBody/Camera/Sprite)");
-				return;
-			}
+			ok.setList("properties", names);
+			ok.setList("kinds", kinds);
+			ok.setList("hints", hints);
+			ok.setList("readonly", readonly);
+			ok.setList("transient", transient);
 			this->sendOk(req, ok);
 			return;
 		}
 
-		//--- typed property bundles (write, undoable) --------
+		//--- generic reflected property write (task #94 P5a) -
+		// GENERIC over the property registry, undoable: every request field
+		// that names a writable reflected property is applied through
+		// EditorCore::applyPropertyChange (the undoable PropertyChangeCommand /
+		// reflected setter - the change takes effect live). Validated first, so
+		// an unknown/read-only/unparseable property is reported as an isError
+		// WITHOUT touching the object (atomic). Pass changes at the top level or
+		// inside a 'properties' object (applyArguments flattens both).
 		if (type == "set_component")
 		{
 			const String id = request.get(DebugProtocol::FIELD_ID);
 			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
-			bool applied = false;
-			if (component == "TransformComponent")
+			optr<GameObject> gameObject = manager.getGameObject(id).lock();
+			if (!gameObject)
 			{
-				EditorTransform before;
-				if (!core.getObjectTransform(id, before))
-				{
-					this->sendErr(req, "no TransformComponent on '" + id + "'");
-					return;
-				}
-				EditorTransform after = before;
-				float v3[3];
-				float v4[4];
-				if (readFloats(request, "position", v3, 3))
-					after.position = Vec3(v3[0], v3[1], v3[2]);
-				if (readFloats(request, "orientation", v4, 4))
-					after.orientation = Quat(v4[0], v4[1], v4[2], v4[3]);
-				if (readFloats(request, "scale", v3, 3))
-					after.scale = Vec3(v3[0], v3[1], v3[2]);
-				applied = core.applyTransformChange(id, before, after);
-			}
-			else if (component == "ModelComponent")
-			{
-				if (!request.has("mesh"))
-				{
-					this->sendErr(req, "set ModelComponent needs a 'mesh' field");
-					return;
-				}
-				applied = core.changeObjectMesh(id, request.get("mesh"));
-			}
-			else if (component == "ScriptComponent")
-			{
-				String script;
-				bool enabled = false;
-				if (!core.getObjectScript(id, script, enabled))
-				{
-					this->sendErr(req, "no ScriptComponent on '" + id + "'");
-					return;
-				}
-				if (request.has("script")) script = request.get("script");
-				if (request.has("enabled"))
-					enabled = request.get("enabled") == "1";
-				applied = core.changeObjectScript(id, script, enabled);
-			}
-			else if (component == "RigidBodyComponent")
-			{
-				PhysicsWorld::BodyDesc before;
-				if (!core.getRigidBodyDesc(id, before))
-				{
-					this->sendErr(req, "no RigidBodyComponent on '" + id + "'");
-					return;
-				}
-				PhysicsWorld::BodyDesc after = before;
-				float v3[3];
-				if (request.has("body_type"))
-					after.bodyType = static_cast<PhysicsWorld::BodyType>(
-						std::atoi(request.get("body_type").c_str()));
-				if (request.has("shape_type"))
-					after.shapeType = static_cast<PhysicsWorld::ShapeType>(
-						std::atoi(request.get("shape_type").c_str()));
-				if (request.has("mass"))
-					after.mass = static_cast<float>(
-						std::atof(request.get("mass").c_str()));
-				if (request.has("friction"))
-					after.friction = static_cast<float>(
-						std::atof(request.get("friction").c_str()));
-				if (request.has("restitution"))
-					after.restitution = static_cast<float>(
-						std::atof(request.get("restitution").c_str()));
-				if (request.has("planar"))
-					after.planar = request.get("planar") == "1";
-				if (request.has("radius"))
-					after.radius = static_cast<float>(
-						std::atof(request.get("radius").c_str()));
-				if (request.has("half_height"))
-					after.halfHeight = static_cast<float>(
-						std::atof(request.get("half_height").c_str()));
-				if (readFloats(request, "half_extents", v3, 3))
-					after.halfExtents = Vec3(v3[0], v3[1], v3[2]);
-				applied = core.applyRigidBodyChange(id, before, after);
-			}
-			else if (component == "CameraComponent")
-			{
-				EditorCameraSettings before;
-				if (!core.getCameraSettings(id, before))
-				{
-					this->sendErr(req, "no CameraComponent on '" + id + "'");
-					return;
-				}
-				EditorCameraSettings after = before;
-				if (request.has("projection_mode"))
-					after.projectionMode =
-						std::atoi(request.get("projection_mode").c_str());
-				if (request.has("ortho_size"))
-					after.orthoSize = static_cast<float>(
-						std::atof(request.get("ortho_size").c_str()));
-				applied = core.applyCameraChange(id, before, after);
-			}
-			else if (component == "SpriteComponent")
-			{
-				EditorSpriteSettings before;
-				if (!core.getSpriteSettings(id, before))
-				{
-					this->sendErr(req, "no SpriteComponent on '" + id + "'");
-					return;
-				}
-				EditorSpriteSettings after = before;
-				float v4[4];
-				if (request.has("texture")) after.textureName =
-					request.get("texture");
-				if (request.has("width")) after.width = static_cast<float>(
-					std::atof(request.get("width").c_str()));
-				if (request.has("height")) after.height = static_cast<float>(
-					std::atof(request.get("height").c_str()));
-				if (readFloats(request, "tint", v4, 4))
-				{
-					after.tint[0] = v4[0]; after.tint[1] = v4[1];
-					after.tint[2] = v4[2]; after.tint[3] = v4[3];
-				}
-				if (request.has("flip_x")) after.flipX =
-					request.get("flip_x") == "1";
-				if (request.has("flip_y")) after.flipY =
-					request.get("flip_y") == "1";
-				if (request.has("z_order")) after.zOrder =
-					std::atoi(request.get("z_order").c_str());
-				if (request.has("visible")) after.visible =
-					request.get("visible") == "1";
-				applied = core.applySpriteChange(id, before, after);
-			}
-			else
-			{
-				this->sendErr(req, "no typed property bundle for '" +
-					component + "'");
+				this->sendErr(req, "no such object '" + id + "'");
 				return;
+			}
+			const TypeInfo componentType(component);
+			if (!gameObject->hasComponent(componentType))
+			{
+				this->sendErr(req, "no " + component + " on '" + id + "'");
+				return;
+			}
+			PropertySchema const* schema = TypeManager::getSingleton()
+				.getPropertySchema(componentType.getId());
+			// the request fields that are NOT properties (routing/control)
+			auto isReserved = [](String const& key) -> bool
+			{
+				return key == DebugProtocol::FIELD_ID ||
+					key == DebugProtocol::FIELD_COMPONENT ||
+					key == DebugProtocol::FIELD_REQ ||
+					key == DebugProtocol::FIELD_TOKEN ||
+					key == "force";
+			};
+			// validate every provided property before applying any (atomic)
+			struct Pending { String name; String before; String after; };
+			std::vector<Pending> pending;
+			for (auto const& field : request.fields)
+			{
+				if (isReserved(field.first))
+				{
+					continue;
+				}
+				PropertyDesc const* desc =
+					schema ? schema->find(field.first) : 0;
+				if (!desc)
+				{
+					this->sendErr(req, "unknown property '" + field.first +
+						"' on " + component);
+					return;
+				}
+				if (desc->isReadOnly())
+				{
+					this->sendErr(req, "property '" + field.first +
+						"' on " + component + " is read-only");
+					return;
+				}
+				String before;
+				core.getObjectProperty(id, component, field.first, before);
+				pending.push_back({ field.first, before, field.second });
+			}
+			if (pending.empty())
+			{
+				this->sendErr(req, "set_component: no writable properties given "
+					"for " + component);
+				return;
+			}
+			// merge the whole set into ONE undo step
+			const unsigned int session = core.beginMergeSession();
+			bool applied = true;
+			for (Pending const& change : pending)
+			{
+				if (!core.applyPropertyChange(id, component, change.name,
+					change.before, change.after, session))
+				{
+					applied = false;
+					this->sendErr(req, "set '" + change.name + "' on " +
+						component + " was refused (bad value?)");
+					return;
+				}
 			}
 			if (!applied)
 			{
@@ -1977,6 +1931,137 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - screenshot OK "
 				"(wrote '%s')", this->mScreenshotPath.c_str());
+		}
+
+		// a tools/call helper returning the structuredContent (or isError)
+		auto callTool = [&](String const& tool, JsonValue const& args,
+			bool withAuth, JsonValue& structured, bool& isError) -> bool
+		{
+			JsonValue params = JsonValue::object();
+			params.set("name", JsonValue(tool));
+			params.set("arguments", args);
+			JsonValue reply;
+			if (!post("tools/call", params, withAuth, true, reply))
+			{
+				return false;
+			}
+			JsonValue const& result = reply.get("result");
+			isError = result.get("isError").asBool(true);
+			structured = result.get("structuredContent");
+			return true;
+		};
+
+		// (8) GENERIC get_component (task #94 P5a): the reflected Transform
+		// property set crosses back by name, with discovery metadata lists.
+		// McpProbe was created at position "1 2 3".
+		{
+			JsonValue args = JsonValue::object();
+			args.set("id", JsonValue("McpProbe"));
+			args.set("component", JsonValue("TransformComponent"));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("get_component", args, false, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: generic get_component failed");
+				return;
+			}
+			// the value crosses back by property name
+			if (structured.get("position").asString() != "1 2 3")
+			{
+				finish(false, "control self-test: get_component TransformComponent "
+					"did not report position '1 2 3'");
+				return;
+			}
+			// the discovery list advertises the reflected property set
+			JsonValue const& names = structured.get("properties");
+			bool hasPosition = false;
+			for (size_t i = 0; i < names.size(); ++i)
+			{
+				if (names.at(i).asString() == "position") hasPosition = true;
+			}
+			if (!hasPosition || !structured.get("kinds").isArray())
+			{
+				finish(false, "control self-test: get_component missing the "
+					"property discovery lists");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - generic get_component OK "
+				"(%zu properties, position='1 2 3')", names.size());
+		}
+
+		// (9) GENERIC set_component by NAME (undoable): move the Transform via a
+		// 'properties' object, read it back through get_component.
+		{
+			JsonValue props = JsonValue::object();
+			props.set("position", JsonValue("4 5 6"));
+			JsonValue args = JsonValue::object();
+			args.set("id", JsonValue("McpProbe"));
+			args.set("component", JsonValue("TransformComponent"));
+			args.set("properties", props);
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("set_component", args, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: generic set_component "
+					"(Transform position) failed");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("id", JsonValue("McpProbe"));
+			readArgs.set("component", JsonValue("TransformComponent"));
+			if (!callTool("get_component", readArgs, false, structured, isError) ||
+				isError || structured.get("position").asString() != "4 5 6")
+			{
+				finish(false, "control self-test: set_component did not move the "
+					"Transform to '4 5 6'");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - generic set_component "
+				"(Transform position -> '4 5 6') OK");
+		}
+
+		// (10) a DIFFERENT component by name end to end: add a SpriteComponent,
+		// set its integer zOrder property, read it back. Proves the generic
+		// path is not Transform-specific.
+		{
+			JsonValue addArgs = JsonValue::object();
+			addArgs.set("id", JsonValue("McpProbe"));
+			addArgs.set("component", JsonValue("SpriteComponent"));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("add_component", addArgs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: add SpriteComponent failed");
+				return;
+			}
+			JsonValue props = JsonValue::object();
+			props.set("zOrder", JsonValue("7"));
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue("McpProbe"));
+			setArgs.set("component", JsonValue("SpriteComponent"));
+			setArgs.set("properties", props);
+			if (!callTool("set_component", setArgs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: set SpriteComponent zOrder "
+					"failed");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("id", JsonValue("McpProbe"));
+			readArgs.set("component", JsonValue("SpriteComponent"));
+			if (!callTool("get_component", readArgs, false, structured, isError) ||
+				isError || structured.get("zOrder").asString() != "7")
+			{
+				finish(false, "control self-test: SpriteComponent zOrder did not "
+					"read back as '7'");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - generic Sprite property "
+				"(zOrder -> 7) OK");
 		}
 
 		finish(true, "");
