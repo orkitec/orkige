@@ -22,6 +22,8 @@ add_executable(orkige_core_tests
     ProjectTests.cpp
     AssetDatabaseTests.cpp
     TweenTests.cpp
+    LevelGridTests.cpp
+    LevelSequenceTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

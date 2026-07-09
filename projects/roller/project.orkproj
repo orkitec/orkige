@@ -4,5 +4,6 @@
     <MainScene>scenes/main.oscene</MainScene>
     <Settings>
         <Setting key="physics.layers" value="physics.olayers"/>
+        <Setting key="levels" value="levels.olevels"/>
     </Settings>
 </OrkigeProject>

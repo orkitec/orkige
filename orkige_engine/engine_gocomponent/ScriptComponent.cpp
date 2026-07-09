@@ -18,6 +18,8 @@
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/LevelComponent.h>
+#include <core_game/LevelManager.h>
 #include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
@@ -499,6 +501,27 @@ namespace Orkige
 		// world.findByTag(tag) -> array of the GameObjects carrying that tag
 		// (empty table when none); tags are set in the editor Inspector or via
 		// GameObject:addTag, indexed by the GameObjectManager
+		runtime.registerFunction("world", "getLevel",
+			&worldGetComponent<LevelComponent>);
+		// world.loadScene(path) (#87): request a DEFERRED, re-entrant scene
+		// switch - the pending request is applied by the runtime at the frame
+		// boundary after physics (never mid-update), tearing the old world down
+		// through the GameObjectManager::clear hook. Honest no-op when no
+		// LevelManager exists (the editor never switches scenes); the richer
+		// index-based level/progression API lives on the LevelManager singleton.
+		runtime.registerFunction("world", "loadScene",
+			[](String const & path)
+		{
+			if(LevelManager::getSingletonPtr())
+			{
+				LevelManager::getSingleton().loadScenePath(path);
+			}
+			else
+			{
+				EngineLogCapture::logError("world.loadScene: no LevelManager "
+					"- this runtime does not switch scenes (editor edit mode?)");
+			}
+		});
 		runtime.registerFunction("world", "findByTag", &worldFindByTag);
 
 		// ================= THE `sound` TABLE (the mixer) ===================

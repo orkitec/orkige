@@ -2,7 +2,7 @@
 <XMLArchive Version="0">
     <String value="orkige.oscene"/>
     <int value="4"/>
-    <unsigned_int value="9"/>
+    <unsigned_int value="8"/>
     <String value="Game"/>
     <String value=""/>
     <bool value="1"/>
@@ -31,8 +31,8 @@
         <float value="6"/>
         <float value="-3"/>
         <float value="-3"/>
-        <int value="3"/>
         <int value="1"/>
+        <int value="0"/>
     </LevelComponent>
     <String value="Ball"/>
     <String value=""/>
@@ -173,65 +173,6 @@
         <float value="1"/>
         <float value="1"/>
     </TransformComponent>
-    <String value="TileA_Ledge"/>
-    <String value="TileA"/>
-    <bool value="1"/>
-    <unsigned_int value="0"/>
-    <String value=""/>
-    <unsigned_int value="3"/>
-    <String value="RigidBodyComponent"/>
-    <RigidBodyComponent create="0">
-        <unsigned_int value="0"/>
-        <String value=""/>
-        <int value="1"/>
-        <int value="0"/>
-        <float value="1.25"/>
-        <float value="0.25"/>
-        <float value="0.25"/>
-        <float value="0.5"/>
-        <float value="0.5"/>
-        <float value="1"/>
-        <float value="0.4"/>
-        <float value="0"/>
-        <bool value="0"/>
-        <String value="obstacle"/>
-        <bool value="0"/>
-    </RigidBodyComponent>
-    <String value="SpriteComponent"/>
-    <SpriteComponent create="0">
-        <unsigned_int value="0"/>
-        <String value=""/>
-        <String value="wall.png"/>
-        <float value="2.5"/>
-        <float value="0.5"/>
-        <float value="0"/>
-        <float value="0"/>
-        <float value="1"/>
-        <float value="1"/>
-        <float value="1"/>
-        <float value="1"/>
-        <float value="1"/>
-        <float value="1"/>
-        <bool value="0"/>
-        <bool value="0"/>
-        <int value="2"/>
-        <bool value="1"/>
-    </SpriteComponent>
-    <String value="TransformComponent"/>
-    <TransformComponent create="0">
-        <unsigned_int value="0"/>
-        <String value=""/>
-        <float value="-1"/>
-        <float value="-1"/>
-        <float value="0"/>
-        <float value="1"/>
-        <float value="0"/>
-        <float value="0"/>
-        <float value="0"/>
-        <float value="1"/>
-        <float value="1"/>
-        <float value="1"/>
-    </TransformComponent>
     <String value="TileB"/>
     <String value=""/>
     <bool value="1"/>
@@ -252,7 +193,7 @@
         <unsigned_int value="0"/>
         <String value=""/>
         <float value="3"/>
-        <float value="3"/>
+        <float value="-3"/>
         <float value="0"/>
         <float value="1"/>
         <float value="0"/>
@@ -381,7 +322,7 @@
         <unsigned_int value="0"/>
         <String value=""/>
         <float value="3"/>
-        <float value="-3"/>
+        <float value="3"/>
         <float value="0"/>
         <float value="1"/>
         <float value="0"/>

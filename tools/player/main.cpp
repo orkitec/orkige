@@ -50,6 +50,8 @@
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
+#include <core_game/LevelManager.h>
+#include <core_game/LevelSequence.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
 #include <core_debugnet/DebugServer.h>
@@ -459,6 +461,13 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_ROLLER_SCREENSHOT_DIR");
 		const std::string rollerShotDir =
 			rollerShotDirEnv ? rollerShotDirEnv : "";
+		// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
+		// deferred scene switch + progression save (WP #87) end to end against
+		// projects/roller: solve level 1 (the proven tile-slide + roll), assert
+		// the runtime SWITCHED to level 2 (shared.roller.levelIndex incremented,
+		// the progression file written), then solve the straight-shot level 2
+		const bool rollerProgressionCheck =
+			(std::getenv("ORKIGE_ROLLER_PROGRESSION_SELFCHECK") != nullptr);
 		// ORKIGE_ASSETID_SELFCHECK=<expected texture> verifies asset-id
 		// rename survival end to end (run with --project
 		// tests/projects/asset_rename): the scene's "Sprite" object carries a
@@ -486,7 +495,8 @@ int main(int argc, char** argv)
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
 		// uncapped nor tear
-		const bool automatedRun = jumperLuaCheck || rollerCheck || tweenCheck ||
+		const bool automatedRun = jumperLuaCheck || rollerCheck ||
+			rollerProgressionCheck || tweenCheck ||
 			hotreloadCheck || !assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -690,6 +700,63 @@ int main(int argc, char** argv)
 		// start them through the Lua `tween` table (scene clears reap them
 		// via the GameObjectManager::clear teardown hook)
 		Orkige::TweenManager tweenManager;
+		// the level director (#87): the ordered level sequence, the DEFERRED
+		// scene-load request that drives win->next-level and the progression
+		// save. Created like the TweenManager - the editor never makes one, so
+		// the Lua level/loadScene API is an honest no-op there. Only projects
+		// carrying a levels.olevels (manifest Settings "levels") get a sequence
+		// + persistence; scriptless games keep it inert.
+		Orkige::LevelManager levelManager;
+		if (project.isLoaded())
+		{
+			const std::string levelsRef =
+				project.getSetting(Orkige::LevelSequence::LEVELS_SETTING_KEY);
+			if (!levelsRef.empty())
+			{
+				const std::string levelsPath = project.resolvePath(levelsRef);
+				if (levelManager.sequence().load(levelsPath))
+				{
+					SDL_Log("orkige_player: level sequence '%s' (%d levels)",
+						levelsRef.c_str(), levelManager.count());
+				}
+				else
+				{
+					SDL_Log("orkige_player: level sequence '%s' could not be "
+						"loaded - single-scene run", levelsRef.c_str());
+				}
+				// progression save: the SAME directory the engine log uses
+				// (writable on every target - see engineLogPath above);
+				// ORKIGE_PROGRESS_DIR overrides it (test isolation) and
+				// ORKIGE_PROGRESS_RESET wipes it first (deterministic selfchecks)
+				std::string progressDir;
+				if (const char* progressDirEnv = std::getenv("ORKIGE_PROGRESS_DIR"))
+				{
+					progressDir = progressDirEnv;
+				}
+				else
+				{
+					progressDir = std::filesystem::path(engineLogPath)
+						.parent_path().string();
+				}
+				if (!progressDir.empty() && progressDir.back() != '/')
+				{
+					progressDir += '/';
+				}
+				if (!progressDir.empty())
+				{
+					std::error_code ignored;
+					std::filesystem::create_directories(progressDir, ignored);
+				}
+				const std::string saveFile = progressDir + "roller_progress.osave";
+				if (std::getenv("ORKIGE_PROGRESS_RESET") != nullptr)
+				{
+					std::error_code ignored;
+					std::filesystem::remove(saveFile, ignored);
+				}
+				levelManager.setSaveFile(saveFile);
+				levelManager.loadProgress();
+			}
+		}
 
 		if (!Orkige::SceneSerializer::loadScene(scenePath, gameObjectManager))
 		{
@@ -764,8 +831,9 @@ int main(int argc, char** argv)
 
 		// physics only when the scene needs it: RigidBodyComponents create
 		// their bodies lazily on the first component update, which requires
-		// an initialized PhysicsWorld
-		const bool physicsNeeded = sceneHasRigidBodies(gameObjectManager);
+		// an initialized PhysicsWorld. Not const: a deferred level load
+		// (#87) re-evaluates it for the new scene.
+		bool physicsNeeded = sceneHasRigidBodies(gameObjectManager);
 		if (physicsNeeded)
 		{
 			if (!physicsWorld.init())
@@ -776,6 +844,45 @@ int main(int argc, char** argv)
 			SDL_Log("orkige_player: physics world up (scene contains "
 				"rigid bodies)");
 		}
+
+		// the re-entrant scene load (#87): the SAME steps the initial load
+		// above runs, factored so the deferred-load pump at the frame boundary
+		// (PLAYER LOOP TICK ORDER, SLOT #87) can reuse them. SceneSerializer::
+		// loadScene tears the old world down via GameObjectManager::clear (the
+		// #86 teardown hook - scripts get their shutdown, tweens are reaped,
+		// rigid bodies leave the sim); we then re-apply the unlit fix, bring
+		// physics up lazily if the new level introduces bodies (PhysicsWorld
+		// persists - inited once, never torn down), drop the debug-link
+		// selection so a stale id cannot dangle and let the hierarchy
+		// re-stream. A failed load is logged but keeps the run alive.
+		auto reloadSceneFrom = [&](std::string const & newScenePath) -> bool
+		{
+			if (!Orkige::SceneSerializer::loadScene(newScenePath,
+				gameObjectManager))
+			{
+				SDL_Log("orkige_player: deferred load FAILED - could not load "
+					"scene '%s' (keeping the previous world)",
+					newScenePath.c_str());
+				return false;
+			}
+			applyUnlitFixToLoadedModels(gameObjectManager);
+			physicsNeeded = sceneHasRigidBodies(gameObjectManager);
+			if (physicsNeeded && !physicsWorld.isInitialized())
+			{
+				if (!physicsWorld.init())
+				{
+					SDL_Log("orkige_player: FAILED - PhysicsWorld::init failed "
+						"on deferred level load");
+					return false;
+				}
+			}
+			debugLink.onSceneReloaded();
+			scenePath = newScenePath;
+			SDL_Log("orkige_player: switched to scene '%s' (%zu GameObjects)",
+				newScenePath.c_str(),
+				gameObjectManager.getGameObjects().size());
+			return true;
+		};
 
 		// default view: matches the editor's initial orbit camera pose so a
 		// scene looks the same in the player as in a fresh editor viewport
@@ -1090,6 +1197,46 @@ int main(int argc, char** argv)
 			rollerCheckFailed = true;
 		};
 
+		// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
+		// DEFERRED scene switch + the progression save (WP #87), end to end
+		// against projects/roller. Same discipline as the roller selfcheck
+		// (synthetic keys through the real input path, C++ observes only
+		// shared.roller, the components and the LevelManager). Phased:
+		//   frame 5   scripts up, at level 1 (index 0), the sequence loaded
+		//   solve L1  TAB->move, DOWN slides tile B into the empty slot, TAB->
+		//             play, hold RIGHT until the ball rolls onto the goal (win)
+		//   switch    game.lua completes the level, records/persists progress
+		//             and, after the banner beat, the DEFERRED load switches to
+		//             level 2: assert shared.roller.levelIndex became 1, the
+		//             save file was written and resumeLevel persisted to 1
+		//   solve L2  the straight-shot level: hold RIGHT until the win
+		// note: the tilt phases are wall-clock paced, so they are condition-
+		// driven with fat frame deadlines (like the roller selfcheck).
+		enum class RollerProgPhase
+		{
+			Boot,			// scripts up + at level 0 at frame 5
+			L1Slide,		// TAB, DOWN-slide, TAB (frame-scripted from the anchor)
+			L1Roll,			// hold RIGHT until level 1's win
+			WaitSwitch,		// until the deferred load reaches level 2
+			L2Roll,			// hold RIGHT until level 2's win
+			Done
+		};
+		RollerProgPhase rollerProgPhase = RollerProgPhase::Boot;
+		unsigned long rollerProgStepFrame = 0;
+		unsigned long rollerProgDeadline = 0;
+		bool rollerProgCheckFailed = false;
+		auto rollerProgFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: ROLLER PROGRESSION SELFCHECK FAILED - %s "
+				"(levelIndex=%.0f mode '%s' slides=%.0f wins=%.0f saved=%d)",
+				what.c_str(), rollerStat("levelIndex", -1.0),
+				rollerMode().c_str(), rollerStat("slides", -1.0),
+				rollerStat("wins", -1.0),
+				static_cast<int>(Orkige::ScriptRuntime::getSingleton().getBool(
+					{"shared", "roller", "saved"}, false)));
+			rollerProgCheckFailed = true;
+		};
+
 		// --- ORKIGE_TWEEN_SELFCHECK=1: the tween system end to end against
 		// tests/projects/tween (run with --project tests/projects/tween).
 		// The scene's Tweener object runs scripts/tween_check.lua, which
@@ -1298,9 +1445,38 @@ int main(int argc, char** argv)
 						gameObjectManager);
 				}
 				//
-				// [5] SLOT(#87 deferred-load pump): scene switches tear down at
-				//     the END of the frame (through the GameObjectManager::clear
-				//     teardown hook) - keep this slot LAST.
+				// [5] SLOT(#87 deferred-load pump): a script asked for a scene
+				//     switch (world.loadScene / LevelManager:loadLevel set the
+				//     pending request during [2]). Apply it HERE, at the frame
+				//     boundary AFTER physics - never mid-update, where in-flight
+				//     script/update pointers would dangle. reloadSceneFrom tears
+				//     the old world down through the GameObjectManager::clear
+				//     teardown hook and reloads; the new scene's scripts init on
+				//     the NEXT frame. Keep this slot LAST.
+				{
+					int pendingLevelIndex = -1;
+					Orkige::String pendingScene;
+					if (levelManager.consumePendingLoad(pendingLevelIndex,
+						pendingScene))
+					{
+						// resolve project-relative scene paths through the open
+						// project (an already-existing path passes through)
+						Orkige::String resolvedScene = pendingScene;
+						std::error_code ignored;
+						if (project.isLoaded() &&
+							!std::filesystem::exists(resolvedScene, ignored))
+						{
+							resolvedScene = project.resolvePath(pendingScene);
+						}
+						if (reloadSceneFrom(resolvedScene))
+						{
+							if (pendingLevelIndex >= 0)
+							{
+								levelManager.setCurrentIndex(pendingLevelIndex);
+							}
+						}
+					}
+				}
 				// ================ end PLAYER LOOP TICK ORDER ====================
 
 				// audio listener follows the (script-driven) camera rig
@@ -2099,6 +2275,183 @@ int main(int argc, char** argv)
 				running = false;
 			}
 
+			// --- roller PROGRESSION selfcheck (see the block above the loop) --
+			if (rollerProgressionCheck && !rollerProgCheckFailed &&
+				rollerProgPhase == RollerProgPhase::Boot)
+			{
+				if (frameCount == 5)
+				{
+					if (!rollerFlag("gameReady") || !rollerFlag("ballReady"))
+					{
+						rollerProgFail("scripts did not publish shared.roller");
+					}
+					else if (levelManager.count() < 2)
+					{
+						rollerProgFail("the level sequence did not load (need "
+							">= 2 levels, got " +
+							std::to_string(levelManager.count()) + ")");
+					}
+					else if (static_cast<int>(rollerStat("levelIndex", -1.0)) != 0)
+					{
+						rollerProgFail("did not boot at level 1 (index 0)");
+					}
+					else
+					{
+						SDL_Log("orkige_player: roller progression selfcheck - "
+							"booted at level 1 of %d, solving...",
+							levelManager.count());
+						rollerProgPhase = RollerProgPhase::L1Slide;
+						rollerProgStepFrame = 0;
+					}
+				}
+			}
+			// solve level 1: TAB into move mode, DOWN slides tile B into the
+			// empty slot, TAB back to play (frame-scripted from the anchor)
+			else if (rollerProgressionCheck && !rollerProgCheckFailed &&
+				rollerProgPhase == RollerProgPhase::L1Slide)
+			{
+				if (rollerProgStepFrame == 0)
+				{
+					rollerProgStepFrame = frameCount;
+				}
+				const unsigned long step = frameCount - rollerProgStepFrame;
+				if (step == 5) { pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, true); }
+				if (step == 7) { pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, false); }
+				if (step == 15)
+				{
+					if (rollerMode() != "move")
+					{
+						rollerProgFail("TAB did not enter move-world mode");
+					}
+					else
+					{
+						pushKeyEvent(SDL_SCANCODE_DOWN, SDLK_DOWN, true);
+					}
+				}
+				if (step == 17) { pushKeyEvent(SDL_SCANCODE_DOWN, SDLK_DOWN, false); }
+				if (step == 27)
+				{
+					if (rollerStat("slides", 0.0) < 1.0)
+					{
+						rollerProgFail("DOWN in move mode did not slide a tile");
+					}
+					else
+					{
+						pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, true);
+					}
+				}
+				if (step == 29) { pushKeyEvent(SDL_SCANCODE_TAB, SDLK_TAB, false); }
+				if (step == 35)
+				{
+					if (rollerMode() != "play")
+					{
+						rollerProgFail("TAB did not resume play mode");
+					}
+					else
+					{
+						pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
+						rollerProgPhase = RollerProgPhase::L1Roll;
+						rollerProgDeadline = frameCount + 3600;
+					}
+				}
+			}
+			// hold RIGHT until the ball rolls onto the goal (level 1's win)
+			else if (rollerProgressionCheck && !rollerProgCheckFailed &&
+				rollerProgPhase == RollerProgPhase::L1Roll)
+			{
+				if (rollerStat("wins", 0.0) >= 1.0)
+				{
+					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
+					SDL_Log("orkige_player: roller progression selfcheck - "
+						"level 1 solved (slides=%.0f), waiting for the deferred "
+						"switch to level 2", rollerStat("slides", -1.0));
+					rollerProgPhase = RollerProgPhase::WaitSwitch;
+					// the complete banner lingers ADVANCE_SECONDS before the
+					// deferred load, then the level-2 scripts init - fat deadline
+					rollerProgDeadline = frameCount + 1800;
+				}
+				else if (frameCount >= rollerProgDeadline)
+				{
+					rollerProgFail("holding RIGHT never reached the goal on "
+						"level 1");
+				}
+			}
+			// wait for the deferred scene switch to reach level 2
+			else if (rollerProgressionCheck && !rollerProgCheckFailed &&
+				rollerProgPhase == RollerProgPhase::WaitSwitch)
+			{
+				if (static_cast<int>(rollerStat("levelIndex", -1.0)) == 1)
+				{
+					std::error_code ignored;
+					const bool saveWritten = !levelManager.getSaveFile().empty() &&
+						std::filesystem::exists(levelManager.getSaveFile(), ignored);
+					if (!saveWritten)
+					{
+						rollerProgFail("the progression save file was not "
+							"written on level complete ('" +
+							levelManager.getSaveFile() + "')");
+					}
+					else if (levelManager.resumeLevel() != 1)
+					{
+						rollerProgFail("the resume level did not persist to 1 "
+							"(got " + std::to_string(levelManager.resumeLevel()) +
+							")");
+					}
+					else if (levelManager.bestMoves(0) < 0)
+					{
+						rollerProgFail("level 1's best moves were not recorded");
+					}
+					else if (!rollerFlag("gameReady") || !rollerFlag("ballReady"))
+					{
+						rollerProgFail("the level-2 scripts did not re-init "
+							"after the switch");
+					}
+					else
+					{
+						SDL_Log("orkige_player: roller progression selfcheck - "
+							"SWITCHED to level 2 (save written, resume=1, "
+							"level 1 best=%d slides); solving level 2...",
+							levelManager.bestMoves(0));
+						pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
+						rollerProgPhase = RollerProgPhase::L2Roll;
+						rollerProgDeadline = frameCount + 3600;
+					}
+				}
+				else if (frameCount >= rollerProgDeadline)
+				{
+					rollerProgFail("the deferred load never switched to level 2 "
+						"(levelIndex still " +
+						std::to_string(static_cast<int>(
+							rollerStat("levelIndex", -1.0))) + ")");
+				}
+			}
+			// level 2 is the straight shot: hold RIGHT until the win
+			else if (rollerProgressionCheck && !rollerProgCheckFailed &&
+				rollerProgPhase == RollerProgPhase::L2Roll)
+			{
+				if (rollerStat("wins", 0.0) >= 1.0)
+				{
+					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
+					SDL_Log("orkige_player: roller progression selfcheck "
+						"complete - the level sequence, the deferred scene "
+						"switch, the progression save AND the straight-shot "
+						"level 2 win all verified");
+					rollerProgPhase = RollerProgPhase::Done;
+					running = false;
+				}
+				else if (frameCount >= rollerProgDeadline)
+				{
+					rollerProgFail("holding RIGHT never reached the goal on "
+						"level 2 (the straight-shot level is unsolvable as "
+						"scripted)");
+				}
+			}
+			if (rollerProgressionCheck && rollerProgCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
 			// --- tween selfcheck (see the block above the loop) -------------
 			if (tweenCheck && !tweenCheckFailed && !tweenCheckDone)
 			{
@@ -2399,6 +2752,13 @@ int main(int argc, char** argv)
 		{
 			SDL_Log("orkige_player: ROLLER SELFCHECK FAILED - run ended in "
 				"phase %d", static_cast<int>(rollerPhase));
+			exitCode = 1;
+		}
+		if (rollerProgressionCheck && !rollerProgCheckFailed &&
+			rollerProgPhase != RollerProgPhase::Done)
+		{
+			SDL_Log("orkige_player: ROLLER PROGRESSION SELFCHECK FAILED - run "
+				"ended in phase %d", static_cast<int>(rollerProgPhase));
 			exitCode = 1;
 		}
 		if (tweenCheck && !tweenCheckFailed && !tweenCheckDone)

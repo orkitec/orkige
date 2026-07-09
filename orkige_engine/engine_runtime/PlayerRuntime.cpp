@@ -369,6 +369,18 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::onSceneReloaded()
+	{
+		// the selected object belonged to the torn-down world - forget it so
+		// the object_state stream does not chase a dangling id
+		mSelectedObjectId.clear();
+		// the new scene's hierarchy differs; force a full re-send next stream()
+		mHierarchySent = false;
+		mLastSentHierarchy.clear();
+		mLastSentParents.clear();
+		mLastSentActives.clear();
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::shutdown()
 	{
 		if (!mActive)

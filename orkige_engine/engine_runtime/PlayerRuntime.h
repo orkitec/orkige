@@ -155,6 +155,13 @@ namespace Orkige
 		void stream(GameObjectManager & gameObjectManager,
 			unsigned long frameCount);
 
+		//! @brief a mid-play scene switch happened (#87 deferred level load):
+		//! the previous world was town down and a new one loaded, so any
+		//! remembered selection id now dangles and the last-sent hierarchy is
+		//! stale. Drop the selection and force the next stream() to re-send the
+		//! full hierarchy of the new scene.
+		void onSceneReloaded();
+
 		//! @brief orderly protocol shutdown: detach the log forwarder, tell
 		//! the editor we are going down (unless quit was its idea) and give
 		//! the socket a moment to flush; safe to call when never started

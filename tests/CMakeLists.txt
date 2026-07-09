@@ -497,11 +497,27 @@ if(TARGET orkige_player)
         # arrow/TAB keys through the real input path and asserts the tilt
         # roll, the paused tile slide (sprite AND body probed) and the win
         # (see the ORKIGE_ROLLER_SELFCHECK block in tools/player/main.cpp)
+        # ORKIGE_PROGRESS_DIR/RESET isolate the #87 progression save into the
+        # build tree (a unique dir per test) and wipe it before each run so the
+        # single-level win path stays deterministic and never resumes from a
+        # stale save (game.lua persists on the win but exits on the banner here)
         add_test(NAME player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/roller
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-            ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1")
+            ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/roller_progress_selfcheck")
+
+        # roller LEVELS + PROGRESSION, end to end (WP #87): solve level 1 (the
+        # proven slide + roll), assert the runtime SWITCHED to level 2 via the
+        # DEFERRED scene load (shared.roller.levelIndex incremented + the
+        # progression file written) and then solve the deterministic
+        # straight-shot level 2 (see the ORKIGE_ROLLER_PROGRESSION_SELFCHECK
+        # block in tools/player/main.cpp). Its own progress dir, reset each run.
+        add_test(NAME player_roller_progression_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project projects/roller
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_roller_progression_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/roller_progression_selfcheck")
 
         # the tween + audio-mixer surface, end to end: tests/projects/tween's
         # fixture script runs the whole Lua tween vocabulary (tween.to closure
@@ -666,6 +682,8 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
         player_example_scene player_example_project player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_roller_progression_selfcheck
+        player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
         player_hotreload_selfcheck player_hotreload_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next
@@ -697,6 +715,8 @@ foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_roller_progression_selfcheck
+        player_roller_progression_selfcheck_next
         # the export tests package a whole bundle and (macos) run the
         # exported app for 90 frames; android runs javac/d8/aapt2
         export_macos_lua export_ios_simulator export_android)

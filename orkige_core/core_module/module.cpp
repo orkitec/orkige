@@ -24,6 +24,9 @@
 #include "core_game/GameObjectManager.h"
 #include "core_game/GameState.h"
 #include "core_game/GameStateManager.h"
+#include "core_game/LevelComponent.h"
+#include "core_game/TileComponent.h"
+#include "core_game/LevelManager.h"
 
 #include "core_tween/TweenManager.h"
 
@@ -68,6 +71,35 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORT(GameObjectManager)
 	OEXPORT(GameState)
 	OEXPORT(GameStateManager)
+
+	// the tile-slide level tier (#87): the data-only LevelComponent (grid
+	// geometry the game snaps tiles into, its LevelGrid math re-exposed to
+	// Lua) and the thin TileComponent marker; both are plain GameObject
+	// components registered like the rest.
+	OEXPORT(LevelComponent)
+	OEXPORT(TileComponent)
+
+	// the runtime level director (#87): sequence + current index + the
+	// deferred scene-load request + progression save, reached from Lua as
+	// LevelManager.getSingleton(). Like InputActions it is a plain Singleton
+	// (not an OOBJECT), so its Lua face is spelled out here. Honest no-op in
+	// the editor, where no LevelManager exists.
+	OSIMPLEEXPORT(Orkige::LevelManager,LevelManager)
+		OSINGLETON()
+		OFUNC(count)			// count()            - number of levels
+		OFUNC(currentIndex)		// currentIndex()     - the live level index
+		OFUNC(levelName)		// levelName(i)       - display name
+		OFUNC(levelPar)			// levelPar(i)        - par slide count
+		OFUNC(levelScene)		// levelScene(i)      - project-relative scene path
+		OFUNC(hasNext)			// hasNext()          - is there a level after the current
+		OFUNC(loadLevel)		// loadLevel(i)       - request the deferred load of level i
+		OFUNC(loadScenePath)	// loadScenePath(path)- deferred load of any scene path
+		OFUNC(resumeLevel)		// resumeLevel()      - persisted resume index
+		OFUNC(setResumeLevel)	// setResumeLevel(i)
+		OFUNC(bestMoves)		// bestMoves(i)       - fewest recorded slides (-1 = none)
+		OFUNC(recordBestMoves)	// recordBestMoves(i, moves)
+		OFUNC(saveProgress)		// saveProgress()     - write the save file
+	OSIMPLEEXPORT_END
 
 	//the value handle the tween Lua API returns (core_tween/TweenManager.h);
 	//the tween functions themselves are registered through the ScriptRuntime

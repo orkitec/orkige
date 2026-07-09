@@ -1,34 +1,39 @@
 -- game.lua - the Continuity half of the roller prototype, attached to the
--- "Game" object in scenes/main.oscene through a ScriptComponent.
+-- "Game" object in every level scene through a ScriptComponent.
 --
 -- This script owns everything AROUND the rolling: the fastgui HUD, the
--- play/move mode state machine and the sliding-tile "move the world" logic.
+-- play/move mode state machine, the sliding-tile "move the world" logic AND
+-- the level progression (win -> next level via a DEFERRED scene load, star
+-- rating, resume-on-boot).
 --
 --   play  the ball rolls under tilt gravity (ball.lua); TAB enters...
 --   move  ...move-world mode: physics PAUSES (PhysicsWorld:setPaused), the
 --         cursor sprite highlights the EMPTY grid slot and an arrow key
 --         slides the neighboring tile INTO the empty slot, moving in the
 --         pressed direction (15-puzzle style). Each tile is ONE GameObject
---         subtree ("TileA"/"TileB"/"TileC" parents, frame/walls/goal as
---         children - scene format v2): the slide is a single
---         TransformComponent:teleport of the parent, and the engine snaps
---         every kinematic wall body in the subtree along, even while
---         paused. TAB again resumes play (and re-centers the simulated
---         tilt - the arrows meant "slide", not "tilt", while in move mode).
+--         subtree (a "Tile<key>" prefab instance root, frame/walls/goal as
+--         children): the slide is a single TransformComponent:teleport of the
+--         parent, and the engine snaps every kinematic wall body in the
+--         subtree along, even while paused. TAB again resumes play.
+--   complete  the goal was reached: the sim freezes, the banner shows, the
+--         run is scored/persisted and after a beat the DEFERRED load switches
+--         to the next level (looping to level 1 after the last).
 --
--- v1 honesty: a tile carrying the BALL refuses to slide (warning flash) -
--- true Continuity edge-compatibility rules are future work. The tiles'
--- slot assignments are DERIVED from the parents' scene positions at init -
--- the scene is the single source of the world layout.
+-- THE SLOT MAP IS DERIVED FROM THE SCENE (#87): the grid geometry lives once,
+-- in the "Level" object's LevelComponent (cols/rows/tileSize/origin/goal/par).
+-- init snaps every tile root (world.findByTag("tile")) through the component's
+-- grid to recover which slot it sits in - the empty slot is the cell with no
+-- tile. The old hand-kept, triplicated SLOTS Lua table is gone.
 --
 -- Coordination with ball.lua through `shared.roller`:
---   mode, slides, refusals, emptySlot, gameReady   written HERE
---   x, y, wins, respawns, ballReady                written by ball.lua
+--   mode, slides, refusals, emptySlot, gameReady, moves, par, stars,
+--     levelIndex, levelComplete, saved   written HERE
+--   x, y, wins, respawns, ballReady                          written by ball.lua
 --
--- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the
--- facade HUD replaces it in phase A3). engine:hasUISystem() answers which
--- world we are in - without a UI system this script skips the HUD/banners;
--- modes, tile slides, cursor sprite and the win flow work identically.
+-- RENDER FLAVORS (B3): fastgui exists only on the classic backend (the facade
+-- HUD replaces it later). engine:hasUISystem() answers which world we are in -
+-- without a UI system this script skips the HUD/banners; modes, tile slides,
+-- cursor sprite, the win flow and progression work identically.
 
 -- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
 -- system (engine:hasUISystem(), see init) - LA is only read on that path
@@ -39,42 +44,41 @@ local FONT_TITLE = 24	-- 20x28 px glyphs
 local Z_HUD, Z_WARN, Z_WIN = 12, 13, 14
 local PROJECT_RESOURCE_GROUP = "OrkigeProject"
 
-local TILE = 6.0
--- slot index -> center (grid: 0 bottom-left, 1 bottom-right, 2 top-left,
--- 3 top-right). @todo desync risk: TILE and this 2x2 grid layout mirror
--- Util/make_roller_assets.py (SLOTS/TILE there) - the tiles' slot
--- ASSIGNMENTS are derived from the scene at init, but the grid geometry
--- itself still lives in both places.
-local SLOTS = {
-	[0] = { x = -TILE / 2, y = -TILE / 2, col = 0, row = 0 },
-	[1] = { x =  TILE / 2, y = -TILE / 2, col = 1, row = 0 },
-	[2] = { x = -TILE / 2, y =  TILE / 2, col = 0, row = 1 },
-	[3] = { x =  TILE / 2, y =  TILE / 2, col = 1, row = 1 },
-}
 local WARN_SECONDS = 1.2
 local WIN_BANNER_SECONDS = 2.5
+-- how long the level-complete banner lingers before the DEFERRED load switches
+-- to the next level (a beat of celebration; the sim is frozen meanwhile)
+local ADVANCE_SECONDS = 2.5
 
 --- per-instance state --------------------------------------------------------
 local input                  -- InputManager singleton (tilt reset only)
 local actions                -- InputActionMap singleton (named menu actions)
 local physics                -- PhysicsWorld singleton
+local levels                 -- LevelManager singleton (sequence + progression)
+local level                  -- LevelComponent of the "Level" object (grid geometry)
 local hasUI = false          -- engine:hasUISystem() (false = HUD-less flavor)
 local gui, factory           -- the Lua-booted UI system (nil when HUD-less)
+local winBanner              -- win banner label (retitled on level complete)
 local layers = {}            -- hud/warn/win layers
 local hud = {}               -- mode, wins, hint labels
 local mode = "play"
 local warnTimer = 0.0
 local winTimer = 0.0
+local advanceTimer = 0.0     -- > 0 while the complete banner lingers
+local advancePending = false -- a level advance is scheduled
 local winsSeen = 0
 
--- the movable world: one entry per "Tile<key>" parent GameObject, slot
--- assignments DERIVED from the scene in init (the frame/walls/goal are
--- CHILDREN of the parent - no id lists to keep in sync anymore); the Ball
--- is NOT in a group
-local tiles = {}
-local emptySlot = 1
+-- the movable world: one entry per tile root GameObject id (slot assignments
+-- DERIVED from the scene in init), plus the tile geometry (from LevelComponent)
+local slots = {}             -- slot index -> { x, y, col, row } (from the grid)
+local slotCount = 0
+local tileSize = 6.0
+local tiles = {}             -- tile id -> { slot = index }
+local emptySlot = 0
 local slides = 0
 local refusals = 0
+local par = 0
+local levelIndex = 0
 
 --- helpers ---------------------------------------------------------------
 
@@ -84,47 +88,62 @@ local function centeredLabel(id, font, text, y, z)
 	return label
 end
 
-local function slotAt(col, row)
-	for index, slot in pairs(SLOTS) do
-		if slot.col == col and slot.row == row then
-			return index
-		end
+-- the grid geometry, built from the level's LevelComponent (the single source)
+local function buildSlots()
+	slots = {}
+	slotCount = level:getSlotCount()
+	tileSize = level:getTileSize()
+	par = level:getPar()
+	for s = 0, slotCount - 1 do
+		slots[s] = {
+			x = level:slotCenterX(s),
+			y = level:slotCenterY(s),
+			col = level:slotCol(s),
+			row = level:slotRow(s),
+		}
 	end
-	return nil
+end
+
+local function slotAt(col, row)
+	local s = level:slotForCell(col, row)
+	if s < 0 then
+		return nil
+	end
+	return s
 end
 
 local function tileAtSlot(slotIndex)
-	for key, tile in pairs(tiles) do
+	for id, tile in pairs(tiles) do
 		if tile.slot == slotIndex then
-			return key, tile
+			return id, tile
 		end
 	end
 	return nil, nil
 end
 
 -- derive the tiles' slot assignments (and thereby the empty slot) from the
--- "Tile<key>" parents' scene positions - the scene is the single source of
--- the world layout, nothing here to keep in sync with the generator
+-- tile roots' scene positions - the scene is the single source of the world
+-- layout. Tile roots carry the "tile" tag (set by the generator / the editor's
+-- 2D authoring), so there is no id list to keep in sync anymore.
 local function discoverTiles()
 	tiles = {}
 	local occupied = {}
-	for _, key in ipairs({ "A", "B", "C" }) do
-		local transform = world.getTransform("Tile" .. key)
+	for _, tileObject in ipairs(world.findByTag("tile")) do
+		local id = tileObject.id
+		local transform = world.getTransform(id)
 		if transform ~= nil then
 			local position = transform:getWorldPosition()
-			for index, slot in pairs(SLOTS) do
-				if math.abs(position.x - slot.x) < 0.5 and
-					math.abs(position.y - slot.y) < 0.5 then
-					tiles[key] = { slot = index }
-					occupied[index] = true
-					break
-				end
+			local s = level:slotForPosition(position.x, position.y)
+			if s >= 0 then
+				tiles[id] = { slot = s }
+				occupied[s] = true
 			end
 		end
 	end
-	for index in pairs(SLOTS) do
-		if not occupied[index] then
-			emptySlot = index
+	emptySlot = 0
+	for s = 0, slotCount - 1 do
+		if not occupied[s] then
+			emptySlot = s
 			break
 		end
 	end
@@ -133,7 +152,7 @@ end
 local function moveCursorToEmpty()
 	local cursor = world.getTransform("Cursor")
 	if cursor ~= nil then
-		local slot = SLOTS[emptySlot]
+		local slot = slots[emptySlot]
 		cursor:setPosition(Vector3(slot.x, slot.y, 0))
 	end
 end
@@ -145,11 +164,20 @@ local function setCursorVisible(visible)
 	end
 end
 
+local function stars()
+	return level:starsForMoves(slides)
+end
+
 local function publishState()
 	shared.roller.mode = mode
 	shared.roller.slides = slides
+	shared.roller.moves = slides
 	shared.roller.refusals = refusals
 	shared.roller.emptySlot = emptySlot
+	shared.roller.par = par
+	shared.roller.stars = stars()
+	shared.roller.levelIndex = levelIndex
+	shared.roller.levelComplete = (mode == "complete")
 end
 
 local function setMode(newMode)
@@ -181,9 +209,9 @@ local function ballInTile(tile)
 	if ball == nil then
 		return false
 	end
-	local slot = SLOTS[tile.slot]
+	local slot = slots[tile.slot]
 	local position = ball:getWorldPosition()
-	local half = TILE / 2.0 + 0.05
+	local half = tileSize / 2.0 + 0.05
 	return math.abs(position.x - slot.x) <= half and
 		math.abs(position.y - slot.y) <= half
 end
@@ -191,12 +219,12 @@ end
 -- slide the tile NEXT TO the empty slot into it, moving in direction
 -- (dx, dy) - i.e. the tile at (empty - direction). 15-puzzle semantics.
 local function trySlide(dx, dy)
-	local empty = SLOTS[emptySlot]
+	local empty = slots[emptySlot]
 	local sourceSlot = slotAt(empty.col - dx, empty.row - dy)
 	if sourceSlot == nil then
 		return	-- the source would be outside the grid
 	end
-	local key, tile = tileAtSlot(sourceSlot)
+	local id, tile = tileAtSlot(sourceSlot)
 	if tile == nil then
 		return	-- no tile there (cannot happen with one hole, but honest)
 	end
@@ -210,21 +238,71 @@ local function trySlide(dx, dy)
 		publishState()
 		return
 	end
-	local to = SLOTS[emptySlot]
-	local transform = world.getTransform("Tile" .. key)
+	local to = slots[emptySlot]
+	local transform = world.getTransform(id)
 	if transform == nil then
 		return
 	end
 	-- ONE teleport of the tile parent: the child sprites follow through the
-	-- render node graph and the engine snaps every rigid body in the
-	-- subtree to its new world pose - even while the simulation is paused
+	-- render node graph and the engine snaps every rigid body in the subtree
+	-- to its new world pose - even while the simulation is paused
 	transform:teleport(Vector3(to.x, to.y, 0), Quaternion(1, 0, 0, 0))
 	emptySlot, tile.slot = tile.slot, emptySlot
 	slides = slides + 1
 	moveCursorToEmpty()
 	publishState()
-	print("game.lua: tile " .. key .. " slid to slot " .. tile.slot ..
+	print("game.lua: tile " .. id .. " slid to slot " .. tile.slot ..
 		" (empty now " .. emptySlot .. ")")
+end
+
+-- the goal was reached: freeze the world, celebrate, score+persist, and queue
+-- the DEFERRED switch to the next level
+local function completeLevel()
+	mode = "complete"
+	physics:setPaused(true)
+	setCursorVisible(false)
+	advanceTimer = ADVANCE_SECONDS
+	advancePending = true
+
+	-- score: keep the best (fewest) slides for this level and resume from the
+	-- NEXT level on a fresh boot; write the small versioned progression save
+	if levels ~= nil then
+		levels:recordBestMoves(levelIndex, slides)
+		local nextIndex = levelIndex + 1
+		if nextIndex >= levels:count() then
+			nextIndex = 0	-- looped the sequence: replayable from the top
+		end
+		levels:setResumeLevel(nextIndex)
+		shared.roller.saved = levels:saveProgress()
+	end
+
+	if hasUI then
+		hud.wins:setText("STARS: " .. stars() .. "/3")
+		if winBanner ~= nil then
+			winBanner:setText("LEVEL COMPLETE - " .. stars() .. "/3 stars")
+		end
+		layers.win:setVisible(true)
+	end
+	publishState()
+	print("game.lua: level " .. levelIndex .. " complete in " .. slides ..
+		" slides (" .. stars() .. "/3 stars)")
+end
+
+-- apply the queued level advance (called when the banner beat elapsed)
+local function advanceLevel()
+	advancePending = false
+	if levels == nil or levels:count() == 0 then
+		return
+	end
+	local nextIndex = levelIndex + 1
+	if nextIndex >= levels:count() then
+		nextIndex = 0
+	end
+	-- DEFERRED, re-entrant scene load: the runtime applies it at the frame
+	-- boundary (never mid-update), tearing this world down through the
+	-- GameObjectManager::clear hook; the next level's scripts init next frame
+	levels:loadLevel(nextIndex)
+	print("game.lua: advancing to level " .. nextIndex)
 end
 
 --- ScriptComponent lifecycle -----------------------------------------------
@@ -236,20 +314,44 @@ function init(self)
 	-- the tilt reset in setMode
 	actions = InputActions.getSingleton()
 	physics = PhysicsWorld.getSingleton()
+	levels = LevelManager.getSingleton()
+
+	-- the grid geometry lives on the "Level" object's LevelComponent
+	level = world.getLevel("Level")
+	if level == nil then
+		print("game.lua: FATAL - no Level object with a LevelComponent")
+		return
+	end
+	levelIndex = levels:currentIndex()
 
 	local engine = Engine.getSingleton()
 	hasUI = engine:hasUISystem()
 
+	buildSlots()
 	discoverTiles()
 
+	shared.roller = shared.roller or {}
+	shared.roller.gameReady = true
+	-- the `shared` table survives the scene switch, so a previous level's win
+	-- count lingers - reset it here (and our watch baseline) so the new level
+	-- only completes on a FRESH win, never on the stale carry-over
+	shared.roller.wins = 0
+	winsSeen = 0
+
+	-- resume-on-boot: if progress was saved past level 0, jump straight there
+	-- (a fresh save file starts at 0 - the honest fallback). The deferred load
+	-- re-inits this script on the resumed level; nothing below matters then.
+	if levelIndex == 0 and levels:resumeLevel() > 0 then
+		print("game.lua: resuming at level " .. levels:resumeLevel())
+		levels:loadLevel(levels:resumeLevel())
+	end
+
 	if not hasUI then
-		-- HUD-less flavor (Ogre-Next until the A3 facade HUD): no widgets;
-		-- modes, slides and wins still run and publish through shared.roller
-		shared.roller = shared.roller or {}
-		shared.roller.gameReady = true
+		-- HUD-less flavor (Ogre-Next until the facade HUD): no widgets; modes,
+		-- slides, wins and progression still run and publish through shared.roller
 		setMode("play")
 		print("game.lua: no UI system on this flavor - HUD skipped, "
-			.. "TAB still moves the world")
+			.. "TAB still moves the world, levels still advance")
 		return
 	end
 
@@ -258,11 +360,12 @@ function init(self)
 
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 
-	-- HUD (z 12): mode indicator, wins counter, controls hint
+	-- HUD (z 12): mode indicator, stars counter, controls hint
 	hud.mode = factory:createLabel("hud.mode", FONT_HUD, "", Vector2(16, 16),
 		"", Z_HUD, false)
-	hud.wins = factory:createLabel("hud.wins", FONT_HUD, "WINS: 0",
-		Vector2(w - 148, 16), "", Z_HUD, false)
+	hud.wins = factory:createLabel("hud.wins", FONT_HUD,
+		"LEVEL " .. (levelIndex + 1) .. "  PAR " .. par,
+		Vector2(w - 220, 16), "", Z_HUD, false)
 	hud.hint = centeredLabel("hud.hint", FONT_HUD,
 		"roll the ball to the star - rearrange the world to get there",
 		h - 34, Z_HUD)
@@ -271,25 +374,38 @@ function init(self)
 	local warn = centeredLabel("warn.label", FONT_TITLE, "BALL IN TILE!",
 		math.floor(h * 0.42), Z_WARN)
 	-- win banner (z 14)
-	local win = centeredLabel("win.banner", FONT_TITLE, "YOU WIN!",
+	winBanner = centeredLabel("win.banner", FONT_TITLE, "LEVEL COMPLETE!",
 		math.floor(h * 0.30), Z_WIN)
 
 	layers.hud = hud.mode:getLayer()
 	layers.warn = warn:getLayer()
-	layers.win = win:getLayer()
+	layers.win = winBanner:getLayer()
 	layers.warn:setVisible(false)
 	layers.win:setVisible(false)
 
-	shared.roller = shared.roller or {}
-	shared.roller.gameReady = true
 	setMode("play")
-	print("game.lua: world of " .. slides .. " slides ready - TAB moves the world")
+	print("game.lua: level " .. levelIndex .. " (\"" ..
+		levels:levelName(levelIndex) .. "\") ready - " ..
+		slides .. " slides, par " .. par)
 end
 
 function update(self, dt)
-	-- TAB toggles between rolling and rearranging the world (menu_toggle);
-	-- actions:pressed is the once-per-frame edge the keyWasDown table used to
-	-- track by hand
+	if level == nil then
+		return
+	end
+
+	-- level-complete: freeze input, count down the banner, then advance
+	if mode == "complete" then
+		if advanceTimer > 0.0 then
+			advanceTimer = advanceTimer - dt
+			if advanceTimer <= 0.0 and advancePending then
+				advanceLevel()
+			end
+		end
+		return
+	end
+
+	-- TAB toggles between rolling and rearranging the world (menu_toggle)
 	if actions:pressed("menu_toggle") then
 		setMode(mode == "play" and "move" or "play")
 	end
@@ -314,21 +430,13 @@ function update(self, dt)
 		end
 	end
 
-	-- win watch: ball.lua counts wins, the banner celebrates them
+	-- win watch: ball.lua counts wins, reaching the goal completes the level.
+	-- Strictly INCREASING (not just changed) so a reset carry-over can never
+	-- trip it.
 	local ballWins = shared.roller.wins or 0
-	if ballWins ~= winsSeen then
+	if ballWins > winsSeen then
 		winsSeen = ballWins
-		if hasUI then
-			hud.wins:setText("WINS: " .. winsSeen)
-			winTimer = WIN_BANNER_SECONDS
-			layers.win:setVisible(true)
-		end
-	end
-	if winTimer > 0.0 then
-		winTimer = winTimer - dt
-		if winTimer <= 0.0 and hasUI then
-			layers.win:setVisible(false)
-		end
+		completeLevel()
 	end
 end
 
@@ -338,8 +446,8 @@ function shutdown(self)
 		gui:destroyAllWidgets()
 	end
 	hud, layers = {}, {}
-	gui, factory = nil, nil
-	-- never leave the simulation paused behind
+	gui, factory, winBanner = nil, nil, nil
+	-- never leave the simulation paused behind (the next level starts fresh)
 	if physics ~= nil then
 		physics:setPaused(false)
 	end

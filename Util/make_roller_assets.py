@@ -40,7 +40,16 @@ projects/jumper-lua/scenes/main.oscene for a native reference):
     Cursor  cursor.png highlight over the empty slot (hidden in play mode)
     Goal    goal.png sprite inside tile B (moves with the tile group)
 
-Each tile is ONE prefab INSTANCE (scene format v3): a "Tile<key>" root at
+This is now a SEED-LEVEL generator (#87): it emits the tile prefab + textures
+plus a small set of DETERMINISTIC seed level scenes (scenes/main.oscene =
+level 1, scenes/level2.oscene = level 2) and the ordered levels.olevels
+sequence. Each scene also carries a data-only "Level" object (LevelComponent:
+the tile-grid geometry game.lua snaps the tiles into) and tags every tile root
+"tile" (scene format v4) so game.lua discovers them via world.findByTag.
+Editor 2D authoring becomes the primary path for NEW levels later; these seed
+levels stay as CI fixtures (fixed geometry, stable .orkmeta ids).
+
+Each tile is ONE prefab INSTANCE (scene format v4): a "Tile<key>" root at
 the slot center referencing assets/tile.oprefab, with the open edges as
 suppressedChildren (structural overrides) - the loader instantiates the
 prefab subtree under the deterministic ids "Tile<key>/Frame",
@@ -369,6 +378,29 @@ class ComponentWriter:
             '<bool value="%s"/>' % fmt(enabled),
         ])
 
+    def level(self, cols, rows, tile_size, origin_x, origin_y, goal_slot, par):
+        """LevelComponent (core_game/LevelComponent): the tile-grid GEOMETRY
+        the game snaps tile roots into - cols/rows/tileSize/origin plus the
+        goal slot and the par slide count. Field ORDER mirrors
+        LevelComponent::save exactly."""
+        return self._component("LevelComponent", [
+            '<int value="%d"/>' % cols,
+            '<int value="%d"/>' % rows,
+            '<float value="%s"/>' % fmt(float(tile_size)),
+            '<float value="%s"/>' % fmt(float(origin_x)),
+            '<float value="%s"/>' % fmt(float(origin_y)),
+            '<int value="%d"/>' % goal_slot,
+            '<int value="%d"/>' % par,
+        ])
+
+    def tile(self, open_edges_mask=0):
+        """TileComponent (core_game/TileComponent): the thin tile marker - one
+        open-edges bitmask (top 1, bottom 2, left 4, right 8; future slide
+        validation). Mirrors TileComponent::save."""
+        return self._component("TileComponent", [
+            '<int value="%d"/>' % open_edges_mask,
+        ])
+
     def particles(self, texture, burst_count=24, max_particles=48,
                   z_order=6, blend_mode=1,
                   start_color=(1.0, 0.9, 0.4, 1.0),
@@ -408,14 +440,19 @@ class ComponentWriter:
         ])
 
     @staticmethod
-    def _object_lines(name, parent, active, prefab_lines, components):
-        """One scene-v3/prefab-v1 per-object block (they share the shape);
-        prefab_lines carries the prefabRef element plus, on instance roots,
-        the suppressed-children count and ids."""
+    def _object_lines(name, parent, active, tags, prefab_lines, components):
+        """One scene-v4/prefab-v1 per-object block (they share the shape).
+        tags is a list of tag strings for the v4 tag block, or None to OMIT it
+        entirely (the prefab format v1 has no tags); prefab_lines carries the
+        prefabRef element plus, on instance roots, the suppressed-children
+        count and ids."""
         lines = []
         lines.append('    <String value="%s"/>' % name)
         lines.append('    <String value="%s"/>' % parent)
         lines.append('    <bool value="%s"/>' % fmt(active))
+        if tags is not None:
+            lines.append('    <unsigned_int value="%d"/>' % len(tags))
+            lines.extend('    <String value="%s"/>' % tag for tag in tags)
         lines.extend(prefab_lines)
         lines.append('    <unsigned_int value="%d"/>' % len(components))
         for type_name, fields in components:
@@ -427,23 +464,25 @@ class ComponentWriter:
 
 
 class SceneWriter(ComponentWriter):
-    """Writes scene format VERSION 3: every object carries its parent id
-    ("" = root), its activeSelf flag and its prefabRef ("" = plain object;
-    instance roots additionally list their suppressed prefab children) next
-    to the components (core_game/SceneSerializer.cpp)."""
+    """Writes scene format VERSION 4: every object carries its parent id
+    ("" = root), its activeSelf flag, its free-form tag list and its prefabRef
+    ("" = plain object; instance roots additionally list their suppressed
+    prefab children) next to the components (core_game/SceneSerializer.cpp).
+    Tile roots are tagged "tile" so game.lua discovers them via
+    world.findByTag - no hardcoded id list."""
 
     def __init__(self):
-        # list of (name, parent, active, prefabRef, prefabAssetId,
+        # list of (name, parent, active, tags, prefabRef, prefabAssetId,
         #          suppressed locals, [ (componentType, [lines]) ])
         self.objects = []
 
-    def add(self, name, *components, parent="", active=True, prefab_ref="",
-            prefab_asset_id="", suppressed=()):
+    def add(self, name, *components, parent="", active=True, tags=(),
+            prefab_ref="", prefab_asset_id="", suppressed=()):
         # keep the component order SceneSerializer produces (sorted by type
         # name) so a re-save in the editor diffs minimally. Objects with a
         # parent carry LOCAL transforms (relative to the parent's center).
         self.objects.append(
-            (name, parent, active, prefab_ref, prefab_asset_id,
+            (name, parent, active, tuple(tags), prefab_ref, prefab_asset_id,
              tuple(suppressed), sorted(components, key=lambda c: c[0])))
 
     def write(self, path):
@@ -451,11 +490,11 @@ class SceneWriter(ComponentWriter):
             "<?1.0, UTF-8, yes?>",
             '<XMLArchive Version="0">',
             '    <String value="orkige.oscene"/>',
-            '    <int value="3"/>',
+            '    <int value="4"/>',
             '    <unsigned_int value="%d"/>' % len(self.objects),
         ]
-        for (name, parent, active, prefab_ref, prefab_asset_id, suppressed,
-             components) in self.objects:
+        for (name, parent, active, tags, prefab_ref, prefab_asset_id,
+             suppressed, components) in self.objects:
             if prefab_ref and prefab_asset_id:
                 prefab_lines = ['    <String value="%s" assetId="%s"/>'
                                 % (prefab_ref, prefab_asset_id)]
@@ -468,7 +507,7 @@ class SceneWriter(ComponentWriter):
                 prefab_lines.extend(
                     '    <String value="%s"/>' % local for local in suppressed)
             lines.extend(self._object_lines(
-                name, parent, active, prefab_lines, components))
+                name, parent, active, list(tags), prefab_lines, components))
         lines.append('</XMLArchive>')
         path.write_text("\n".join(lines) + "\n")
 
@@ -500,7 +539,7 @@ class PrefabWriter(ComponentWriter):
         ]
         for local_id, parent, components in self.objects:
             lines.extend(self._object_lines(
-                local_id, parent, True, ['    <String value=""/>'],
+                local_id, parent, True, None, ['    <String value=""/>'],
                 components))
         lines.append('</XMLArchive>')
         path.write_text("\n".join(lines) + "\n")
@@ -535,6 +574,14 @@ def wall_components(writer, cx, cy, horizontal, length):
 EDGE_LOCALS = (("top", "WallTop"), ("bottom", "WallBottom"),
                ("left", "WallLeft"), ("right", "WallRight"))
 
+#: TileComponent open-edge bitmask bits (must match TileComponent::OpenEdge)
+EDGE_BITS = {"top": 1, "bottom": 2, "left": 4, "right": 8}
+
+
+def open_edges_mask(open_edges):
+    """bitmask of the tile's open (suppressed-wall) edges for TileComponent."""
+    return sum(EDGE_BITS[edge] for edge in open_edges)
+
 
 def build_tile_prefab():
     """The reusable tile subtree: root "Tile" + frame sprite + all FOUR edge
@@ -557,18 +604,23 @@ def build_tile_prefab():
     return prefab
 
 
-def add_tile(scene, key, slot, open_edges, tile_asset_id, ledge=False):
+def add_tile(scene, key, slot, open_edges, tile_asset_id, ledge=False,
+             goal=False):
     """A tile at its INITIAL slot: ONE prefab INSTANCE root ("Tile<key>") at
     the slot center referencing assets/tile.oprefab - the frame and walls
     come from the prefab ("Tile<key>/Frame", "Tile<key>/WallTop", ...), the
-    open edges are suppressedChildren. Sliding the tile is ONE teleport of
-    the root (the GameObject tree replaced the historical Lua-side group
-    tables); scene-side EXTRAS (the ledge) stay plain serialized children."""
+    open edges are suppressedChildren. The root carries a TileComponent marker
+    (open-edges bitmask) and the "tile" tag so game.lua discovers it via
+    world.findByTag (no hardcoded id list). Sliding the tile is ONE teleport of
+    the root; scene-side EXTRAS (the ledge, the goal star) stay plain
+    serialized children of the instance root."""
     cx, cy = SLOTS[slot]
     parent = "Tile%s" % key
     suppressed = [local_id for edge, local_id in EDGE_LOCALS
                   if edge in open_edges]
     scene.add(parent, scene.transform(cx, cy),
+              scene.tile(open_edges_mask(open_edges)),
+              tags=("tile",),
               prefab_ref="assets/tile.oprefab",
               prefab_asset_id=tile_asset_id,
               suppressed=suppressed)
@@ -578,12 +630,62 @@ def add_tile(scene, key, slot, open_edges, tile_asset_id, ledge=False):
         scene.add("Tile%s_Ledge" % key,
                   *wall_components(scene, -1.0, -1.0, True, 2.5),
                   parent=parent)
+    if goal:
+        # the goal star inside the tile - a CHILD of the tile group (local
+        # offset on the floor near the right wall), so it slides along. A
+        # STATIC SENSOR (WP #88) on the Trigger layer detects the dynamic ball
+        # rolling into it: ball.lua's onContactBegin fires the win. The sensor
+        # body rides the tile slide through the subtree teleport, exactly like
+        # the kinematic walls.
+        scene.add("Goal", scene.transform(1.6, -HALF + WALL + 0.5),
+                  scene.sprite("goal.png", 1.0, 1.0, Z_GOAL),
+                  scene.rigid_sensor_box(0.6, 0.6, WALL_HALF, layer="Trigger"),
+                  parent=parent)
 
 
-def build_scene(tile_asset_id):
+#: The deterministic SEED levels - fixed geometry + stable ids so CI can
+#: regenerate them byte-for-byte. Editor 2D authoring becomes the primary path
+#: for NEW levels later; these stay as fixtures. Level 0 (main.oscene) is the
+#: original one-slide puzzle the player_roller_selfcheck drives; level 1
+#: (level2.oscene) is the straight-shot the progression selfcheck solves by
+#: holding RIGHT (tile B already sits next to A, so no slide is needed).
+LEVELS = [
+    {
+        "file": "main.oscene",
+        "name": "First Slide",
+        "par": 1,
+        "goal_slot": 3,
+        "tiles": [
+            ("A", 0, ("right",), {"ledge": True}),
+            ("B", 3, ("left",), {"goal": True}),
+            ("C", 2, (), {}),
+        ],
+        "empty": 1,
+    },
+    {
+        "file": "level2.oscene",
+        "name": "Straight Shot",
+        "par": 0,
+        "goal_slot": 1,
+        "tiles": [
+            ("A", 0, ("right",), {}),
+            ("B", 1, ("left",), {"goal": True}),
+            ("C", 2, (), {}),
+        ],
+        "empty": 3,
+    },
+]
+
+
+def build_scene(level, tile_asset_id):
     scene = SceneWriter()
-    # game flow / UI / tile sliding
+    # game flow / UI / tile sliding / level progression
     scene.add("Game", scene.script("scripts/game.lua"))
+    # the level metadata: the grid GEOMETRY game.lua snaps the tiles into
+    # (2x2, tile size 6, cell (0,0) at (-3,-3)), the goal slot and the par
+    # slide count. Data-only - no transform, no render cost.
+    scene.add("Level", scene.level(2, 2, TILE, -HALF, -HALF,
+                                   level["goal_slot"], level["par"]))
     # the ball: dynamic planar sphere, spawn on tile A's floor
     ball_spawn_y = SLOTS[0][1] - HALF + WALL + 0.4  # floor top + radius
     scene.add(
@@ -597,28 +699,34 @@ def build_scene(tile_asset_id):
         # on the win - a golden additive shower of the goal-star texture
         scene.particles("goal.png"),
     )
-    # tiles: A = spawn (right edge open), B = goal (left open, starts top
-    # right), C = filler (closed), slot 1 stays empty
-    add_tile(scene, "A", 0, open_edges=("right",),
-             tile_asset_id=tile_asset_id, ledge=True)
-    add_tile(scene, "B", 3, open_edges=("left",),
-             tile_asset_id=tile_asset_id)
-    add_tile(scene, "C", 2, open_edges=(), tile_asset_id=tile_asset_id)
-    # the goal star inside tile B - a CHILD of the TileB group (local
-    # offset on B's floor near the right wall), so it slides along. A STATIC
-    # SENSOR (WP #88) on the Trigger layer detects the dynamic ball rolling
-    # into it: ball.lua's onContactBegin fires the win (the old GOAL_RADIUS
-    # distance hack is gone). The sensor body rides the tile slide through the
-    # subtree teleport, exactly like the kinematic walls.
-    scene.add("Goal", scene.transform(1.6, -HALF + WALL + 0.5),
-              scene.sprite("goal.png", 1.0, 1.0, Z_GOAL),
-              scene.rigid_sensor_box(0.6, 0.6, WALL_HALF, layer="Trigger"),
-              parent="TileB")
+    for key, slot, open_edges, extra in level["tiles"]:
+        add_tile(scene, key, slot, open_edges=open_edges,
+                 tile_asset_id=tile_asset_id, **extra)
     # move-mode cursor: highlights the EMPTY slot; game.lua repositions and
-    # shows/hides it (start: hidden over slot 1)
-    scene.add("Cursor", scene.transform(SLOTS[1][0], SLOTS[1][1]),
+    # shows/hides it (start: hidden over the level's empty slot)
+    ex, ey = SLOTS[level["empty"]]
+    scene.add("Cursor", scene.transform(ex, ey),
               scene.sprite("cursor.png", TILE, TILE, Z_CURSOR, visible=False))
     return scene
+
+
+def write_levels(path, levels):
+    """levels.olevels (core_game/LevelSequence, XMLArchive) - the ORDERED level
+    list: scenePath + name + par per level. Manifest-referenced (Settings key
+    "levels"), bundled into exports via CONFIG_SETTING_KEYS."""
+    lines = [
+        "<?1.0, UTF-8, yes?>",
+        '<XMLArchive Version="0">',
+        '    <String value="orkige.olevels"/>',
+        '    <int value="1"/>',
+        '    <unsigned_int value="%d"/>' % len(levels),
+    ]
+    for level in levels:
+        lines.append('    <String value="scenes/%s"/>' % level["file"])
+        lines.append('    <String value="%s"/>' % level["name"])
+        lines.append('    <int value="%d"/>' % level["par"])
+    lines.append('</XMLArchive>')
+    path.write_text("\n".join(lines) + "\n")
 
 
 def write_layers(path):
@@ -679,10 +787,16 @@ def main():
     print("wrote %s (%d objects)" % (assets / "tile.oprefab",
                                      len(prefab.objects)))
 
-    scene = build_scene(tile_asset_id)
-    scene.write(scenes / "main.oscene")
-    print("wrote %s (%d objects)" % (scenes / "main.oscene",
-                                     len(scene.objects)))
+    # the deterministic SEED level scenes + the ordered sequence
+    for level in LEVELS:
+        scene = build_scene(level, tile_asset_id)
+        scene.write(scenes / level["file"])
+        print("wrote %s (%d objects, par %d)" % (scenes / level["file"],
+                                                 len(scene.objects),
+                                                 level["par"]))
+    write_levels(project_dir / "levels.olevels", LEVELS)
+    print("wrote %s (%d levels)" % (project_dir / "levels.olevels",
+                                    len(LEVELS)))
 
     # collision layers (project-config, referenced from the manifest by the
     # Settings key "physics.layers")
