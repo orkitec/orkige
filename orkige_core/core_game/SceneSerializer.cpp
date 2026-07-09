@@ -12,18 +12,24 @@
 #include "core_project/AssetDatabase.h"
 #include "core_serialization/XMLArchive.h"
 
+#include <algorithm>
 #include <filesystem>
 
 namespace Orkige
 {
-	// version 4 (2026-07): per-object tag list (free-form multi-tag labels,
-	// GameObjectManager tag index); version 3 added the per-object prefabRef
-	// (+assetId attribute, like every asset reference) and, on prefab instance
-	// roots, the list of suppressed prefab children (structural overrides - see
+	// version 5 (2026-07): per prefab-instance-root, per prefab-PROVIDED child,
+	// component-property OVERRIDES (prefab-local id -> component type name ->
+	// the component's serialized state, diffed against the pristine prefab
+	// default so unmodified children store nothing; re-applied over the prefab
+	// on load - see GameObject::getPrefabChildOverrides); version 4 added the
+	// per-object tag list (free-form multi-tag labels, GameObjectManager tag
+	// index); version 3 added the per-object prefabRef (+assetId attribute, like
+	// every asset reference) and, on prefab instance roots, the list of
+	// suppressed prefab children (structural overrides - see
 	// core_game/PrefabSerializer.h); version 2 added the per-object parent id +
 	// activeSelf flag (Unity-style GameObject tree); version 1 scenes load as
 	// all-root, all-active, prefab-less, tag-less worlds
-	const int SceneSerializer::SCENE_FORMAT_VERSION = 4;
+	const int SceneSerializer::SCENE_FORMAT_VERSION = 5;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------
 	namespace
@@ -56,6 +62,102 @@ namespace Orkige
 				}
 			}
 			return String();
+		}
+		//! @brief diff every prefab-PROVIDED child of the instance root against
+		//! its instantiate-time baseline and collect the components that differ
+		//! (the honest override unit under opaque component serialization: a
+		//! whole component's serialized block). A component with no baseline (an
+		//! editor-added component the prefab does not provide) counts as an
+		//! override; a suppressed child is skipped (it is gone anyway). Order is
+		//! deterministic (std::map keys), so re-saves are byte-stable.
+		GameObject::ChildOverrideMap computeChildOverrides(
+			GameObjectManager & gameObjectManager, GameObject & root)
+		{
+			GameObject::ChildOverrideMap overrides;
+			String const & rootId = root.getObjectID();
+			StringVector const & suppressed = root.getSuppressedPrefabChildren();
+			const StringVector subtreeIds = gameObjectManager.collectSubtreeIds(rootId);
+			foreach(String const & childId, subtreeIds)
+			{
+				if(childId == rootId ||
+					!PrefabSerializer::isInstanceChildId(rootId, childId))
+				{
+					// the root itself and scene-side extra children (outside the
+					// "<rootId>/" namespace) are serialized normally, not diffed
+					continue;
+				}
+				optr<GameObject> child = gameObjectManager.getGameObject(childId).lock();
+				if(!child)
+				{
+					continue;
+				}
+				const String localId = PrefabSerializer::localIdForChild(rootId, childId);
+				if(std::find(suppressed.begin(), suppressed.end(), localId) != suppressed.end())
+				{
+					continue;
+				}
+				GameObject::ComponentStateMap const & baseline = child->getPrefabComponentBaseline();
+				GameObject::ComponentStateMap changed;
+				GameObject::ComponentMap const & components = child->getComponents();
+				foreach(GameObject::ComponentMap::value_type const & componentEntry, components)
+				{
+					String const & typeName = componentEntry.first.getName();
+					const String state = SceneSerializer::serializeComponentState(*componentEntry.second);
+					GameObject::ComponentStateMap::const_iterator baseIt = baseline.find(typeName);
+					if(baseIt == baseline.end() || baseIt->second != state)
+					{
+						changed[typeName] = state;
+					}
+				}
+				if(!changed.empty())
+				{
+					overrides[localId] = changed;
+				}
+			}
+			return overrides;
+		}
+		//! @brief re-apply the loaded per-child overrides over the freshly
+		//! instantiated prefab subtree (load order: prefab subtree -> suppressed
+		//! drop -> HERE -> root overlay). A child that no longer exists (a
+		//! prefab that dropped it, or a suppressed one) is left logged; its
+		//! override stays in the instance's map so a later heal re-applies it.
+		void applyChildOverrides(GameObjectManager & gameObjectManager,
+			String const & instanceRootId,
+			GameObject::ChildOverrideMap const & overrides, String const & fileName)
+		{
+			foreach(GameObject::ChildOverrideMap::value_type const & childEntry, overrides)
+			{
+				const String childId =
+					PrefabSerializer::instanceChildId(instanceRootId, childEntry.first);
+				optr<GameObject> child = gameObjectManager.getGameObject(childId).lock();
+				if(!child)
+				{
+					oDebugMsg("scene",0,"SceneSerializer: prefab child override for \""
+						<<childEntry.first<<"\" (instance \""<<instanceRootId<<"\" in "
+						<<fileName<<") has no target child - kept for a later heal");
+					continue;
+				}
+				foreach(GameObject::ComponentStateMap::value_type const & componentEntry, childEntry.second)
+				{
+					TypeInfo componentType(componentEntry.first);
+					if(!GameObject::isComponentRegistered(componentType))
+					{
+						oDebugMsg("scene",0,"SceneSerializer: prefab child override component \""
+							<<componentEntry.first<<"\" is not registered - ignored");
+						continue;
+					}
+					if(!child->hasComponent(componentType) &&
+						!child->addComponent(componentType))
+					{
+						continue;
+					}
+					GameObjectComponent* component = child->getComponentPtr(componentType);
+					if(component)
+					{
+						SceneSerializer::applyComponentState(componentEntry.second, *component);
+					}
+				}
+			}
 		}
 	}
 	//---------------------------------------------------------
@@ -134,6 +236,41 @@ namespace Orkige
 				{
 					String suppressedId = localId;
 					ar << suppressedId;
+				}
+
+				// v5: per prefab-provided-child component-property overrides.
+				// When the prefab resolves, diff every provided child's live
+				// components against the pristine baseline captured at
+				// instantiate (an unmodified component stores NOTHING); when it
+				// does not (a placeholder instance), keep the overrides loaded
+				// from the scene so a re-save loses none of them (Unity-style)
+				GameObject::ChildOverrideMap overrides;
+				const String prefabPath = resolvePrefabPath(prefabRef, fileName);
+				if(!prefabPath.empty())
+				{
+					overrides = computeChildOverrides(gameObjectManager, *gameObject);
+					gameObject->setPrefabChildOverrides(overrides);
+				}
+				else
+				{
+					overrides = gameObject->getPrefabChildOverrides();
+				}
+				unsigned int overrideChildCount = static_cast<unsigned int>(overrides.size());
+				ar << overrideChildCount;
+				foreach(GameObject::ChildOverrideMap::value_type const & childEntry, overrides)
+				{
+					String childLocalId = childEntry.first;
+					ar << childLocalId;
+					unsigned int componentOverrideCount =
+						static_cast<unsigned int>(childEntry.second.size());
+					ar << componentOverrideCount;
+					foreach(GameObject::ComponentStateMap::value_type const & componentEntry, childEntry.second)
+					{
+						String componentTypeName = componentEntry.first;
+						ar << componentTypeName;
+						String componentState = componentEntry.second;
+						ar << componentState;
+					}
 				}
 			}
 
@@ -267,6 +404,36 @@ namespace Orkige
 					gameObject->setPrefabRef(prefabRef, prefabAssetId);
 					gameObject->setSuppressedPrefabChildren(suppressed);
 
+					// v5: the per-child component-property overrides ride here in
+					// the file (must be consumed even for a placeholder so the
+					// cursor stays aligned); they are re-APPLIED after the prefab
+					// subtree instantiates (load order: subtree -> suppressed
+					// drop -> child overrides -> root overlay)
+					GameObject::ChildOverrideMap overrides;
+					if(version >= 5)
+					{
+						unsigned int overrideChildCount = 0;
+						ar >> overrideChildCount;
+						for(unsigned int childIndex = 0; childIndex < overrideChildCount; ++childIndex)
+						{
+							String localId;
+							ar >> localId;
+							unsigned int componentOverrideCount = 0;
+							ar >> componentOverrideCount;
+							GameObject::ComponentStateMap componentStates;
+							for(unsigned int componentIndex = 0; componentIndex < componentOverrideCount; ++componentIndex)
+							{
+								String componentTypeName;
+								ar >> componentTypeName;
+								String componentState;
+								ar >> componentState;
+								componentStates[componentTypeName] = componentState;
+							}
+							overrides[localId] = componentStates;
+						}
+						gameObject->setPrefabChildOverrides(overrides);
+					}
+
 					// the prefab subtree comes FIRST; the root's own component
 					// block (read below) then overlays the prefab defaults
 					const String prefabPath = resolvePrefabPath(prefabRef, fileName);
@@ -296,6 +463,13 @@ namespace Orkige
 								<<prefabPath<<"\" for instance \""<<id<<"\" - cannot load scene: "<<fileName);
 							loaded = false;
 							break;
+						}
+						else
+						{
+							// the prefab-provided children now exist (minus the
+							// suppressed): overlay the per-child overrides before
+							// the root's own block reads below
+							applyChildOverrides(gameObjectManager, id, overrides, fileName);
 						}
 					}
 				}
@@ -395,6 +569,36 @@ namespace Orkige
 			// (GameObjectComponent::createBeforeLoad is false)
 			ar->read(static_cast<ISerializeable&>(*component));
 		}
+		return true;
+	}
+	//---------------------------------------------------------
+	String SceneSerializer::serializeComponentState(GameObjectComponent & component)
+	{
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startWritingMemory())
+		{
+			return String();
+		}
+		// the same opaque per-component element writeComponents emits (type
+		// name + create flag + the component's own save block), on its own
+		ar->write(static_cast<ISerializeable&>(component));
+		return ar->stopWritingMemory();
+	}
+	//---------------------------------------------------------
+	bool SceneSerializer::applyComponentState(String const & xml,
+		GameObjectComponent & component)
+	{
+		if(xml.empty())
+		{
+			return false;
+		}
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startReadingMemory(xml))
+		{
+			return false;
+		}
+		ar->read(static_cast<ISerializeable&>(component));
+		ar->stopReading();
 		return true;
 	}
 	//---------------------------------------------------------

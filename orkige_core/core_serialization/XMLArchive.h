@@ -44,6 +44,20 @@ namespace Orkige
 		virtual bool startWriting(String const & fileName);
 		virtual bool stopWriting();
 
+		//! @brief begin an in-memory write session (no file IO): the archive
+		//! builds the same "XMLArchive" element tree startWriting does, but
+		//! stopWritingMemory returns the serialized text instead of writing a
+		//! file. The unit prefab child overrides / baselines are captured in
+		//! (a component's serialized state as a standalone string).
+		bool startWritingMemory();
+		//! finish an in-memory write session, returning the serialized XML text
+		//! (empty on error); the archive is reset afterwards
+		String stopWritingMemory();
+		//! @brief begin an in-memory read session over a string produced by
+		//! stopWritingMemory; the cursor is positioned like startReading (at the
+		//! first value element). stopReading tears it down. False on parse error.
+		bool startReadingMemory(String const & xml);
+
 		virtual void read(bool & t);
 		virtual void read(char & t);
 		virtual void read(signed char & t);

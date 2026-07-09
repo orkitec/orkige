@@ -733,6 +733,15 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 // re-makes (overwrites) the instance's own prefab file instead
 bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core);
 
+// Prefab > Apply / Revert on the selected prefab instance root. Apply writes
+// the instance's current state (per-child overrides baked in) back to its
+// .oprefab so every instance picks it up on reload (NOT undoable - a fs write).
+// Revert drops the instance's overrides + suppressions to the pristine prefab
+// (undoable). Both resolve the prefab file through the open project's root and
+// log refusals to the Console.
+bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core);
+bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core);
+
 //--- console Lua REPL (EditorConsole.cpp) ----------------------------------
 
 // run the console input line: a set/get/find/reset line routes to the cvar

@@ -113,6 +113,70 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	bool XMLArchive::startWritingMemory()
+	{
+		oAssert(!writeMode);
+		oAssert(!readMode);
+		// mirror startWriting but WITHOUT any file IO (no SaveFile, no name):
+		// the tree is built in memory and handed back as text by
+		// stopWritingMemory
+		this->fileName.clear();
+		this->readMode = false;
+		this->writeMode = true;
+		this->file = onew(new tinyxml2::XMLDocument());
+		if(!this->file || this->file->Error())
+		{
+			oDebugMsg("serialize",0,"XMLArchive: could not create in-memory document");
+			return false;
+		}
+		this->currentElement = this->file->NewElement("XMLArchive");
+		this->currentElement->SetAttribute("Version", (int)0);
+		return true;
+	}
+	//---------------------------------------------------------
+	String XMLArchive::stopWritingMemory()
+	{
+		oAssert(writeMode);
+		oAssert(!readMode);
+		this->file->InsertEndChild(this->currentElement);
+		tinyxml2::XMLPrinter printer;
+		this->file->Print(&printer);
+		String xml = printer.CStr() ? printer.CStr() : "";
+		this->readMode = false;
+		this->writeMode = false;
+		this->currentElement = NULL;
+		this->file.reset();
+		return xml;
+	}
+	//---------------------------------------------------------
+	bool XMLArchive::startReadingMemory(String const & xml)
+	{
+		oAssert(!writeMode);
+		oAssert(!readMode);
+		this->fileName.clear();
+		this->readMode = true;
+		this->writeMode = false;
+		this->file = onew(new tinyxml2::XMLDocument());
+		if(this->file->Parse(xml.c_str()) != tinyxml2::XML_SUCCESS)
+		{
+			oDebugMsg("serialize",0,"XMLArchive: could not parse in-memory document");
+			this->file.reset();
+			this->readMode = false;
+			return false;
+		}
+		this->currentElement = this->file->RootElement();
+		if(!this->currentElement)
+		{
+			this->file.reset();
+			this->readMode = false;
+			return false;
+		}
+		// like startReading: descend to the first value element (the memory
+		// writer never emits a declaration, so there is nothing else to skip)
+		this->currentElement = this->currentElement->FirstChildElement();
+		return true;
+	}
+	//---------------------------------------------------------
 	bool XMLArchive::startReading(String const & fileName)
 	{
 		oAssert(!writeMode);

@@ -10,6 +10,7 @@
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_render/RenderWorld.h>
 #include <core_game/PrefabSerializer.h>
+#include <core_game/SceneSerializer.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <algorithm>
@@ -952,6 +953,232 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- SuppressPrefabChildCommand ---------------------------
+	//---------------------------------------------------------
+	SuppressPrefabChildCommand::SuppressPrefabChildCommand(String const& childId)
+		: mChildId(childId)
+	{
+	}
+	//---------------------------------------------------------
+	bool SuppressPrefabChildCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> child = manager.getGameObject(mChildId).lock();
+		if (!child)
+		{
+			return false;
+		}
+		// resolve the owning instance root + the child's prefab-local id fresh
+		// on every execute (redo must suppress the same child again)
+		mRootId = PrefabSerializer::instanceRootIdOf(manager, *child);
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root)
+		{
+			return false;
+		}
+		mLocalId = PrefabSerializer::localIdForChild(mRootId, mChildId);
+		mWasSelected = core.isSelected(mChildId);
+
+		// snapshot the provided subtree (DFS, parents first) so undo can bring
+		// it back with its full serialized state - the SUBTREE, because
+		// suppression drops the child and all its descendants on reload
+		mSubtreeIds = manager.collectSubtreeIds(mChildId);
+		mSubtreeSnapshots.clear();
+		for (String const& id : mSubtreeIds)
+		{
+			EditorObjectSnapshot snapshot;
+			if (!snapshot.capture(manager, id))
+			{
+				return false;
+			}
+			mSubtreeSnapshots.push_back(snapshot);
+		}
+
+		// record the suppression on the instance root (skip if already listed -
+		// then undo must NOT remove it)
+		StringVector suppressed = root->getSuppressedPrefabChildren();
+		mAddedSuppression = false;
+		if (std::find(suppressed.begin(), suppressed.end(), mLocalId) ==
+			suppressed.end())
+		{
+			suppressed.push_back(mLocalId);
+			root->setSuppressedPrefabChildren(suppressed);
+			mAddedSuppression = true;
+		}
+
+		// remove the child subtree (deepest first)
+		for (auto it = mSubtreeIds.rbegin(); it != mSubtreeIds.rend(); ++it)
+		{
+			core.deselectObject(*it);
+			manager.delGameObject(*it);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool SuppressPrefabChildCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root)
+		{
+			return false;
+		}
+		// drop the suppression entry we added (leave a pre-existing one alone)
+		if (mAddedSuppression)
+		{
+			StringVector suppressed = root->getSuppressedPrefabChildren();
+			suppressed.erase(std::remove(suppressed.begin(), suppressed.end(),
+				mLocalId), suppressed.end());
+			root->setSuppressedPrefabChildren(suppressed);
+		}
+		// restore the removed subtree from its snapshots (DFS order = parents
+		// first, so each object's parent already exists when it re-attaches)
+		bool restored = true;
+		for (std::size_t index = 0; index < mSubtreeIds.size(); ++index)
+		{
+			if (!mSubtreeSnapshots[index].restore(manager, mSubtreeIds[index]))
+			{
+				oDebugMsg("editor", 0, "SuppressPrefabChildCommand: could not "
+					"restore " << mSubtreeIds[index]);
+				restored = false;
+				continue;
+			}
+			core.applyModelFixups(mSubtreeIds[index]);
+		}
+		if (mWasSelected && manager.objectExists(mChildId))
+		{
+			core.addToSelection(mChildId);
+		}
+		return restored;
+	}
+	//---------------------------------------------------------
+	String SuppressPrefabChildCommand::getDescription() const
+	{
+		return "Delete " + mChildId;
+	}
+
+	//---------------------------------------------------------
+	//--- RevertPrefabCommand ----------------------------------
+	//---------------------------------------------------------
+	RevertPrefabCommand::RevertPrefabCommand(String const& rootId,
+		String const& prefabFilePath)
+		: mRootId(rootId), mPrefabFilePath(prefabFilePath)
+	{
+	}
+	//---------------------------------------------------------
+	bool RevertPrefabCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root || root->getPrefabRef().empty())
+		{
+			return false;
+		}
+		// capture the pre-revert instance state so undo can reconstruct it
+		mOldSuppressed = root->getSuppressedPrefabChildren();
+		mOldOverrides = root->getPrefabChildOverrides();
+		mOldChildIds.clear();
+		mOldChildSnapshots.clear();
+		const StringVector subtree = manager.collectSubtreeIds(mRootId);
+		for (String const& id : subtree)
+		{
+			if (id == mRootId ||
+				!PrefabSerializer::isInstanceChildId(mRootId, id))
+			{
+				continue;	// the root and scene-side extra children stay put
+			}
+			EditorObjectSnapshot snapshot;
+			if (!snapshot.capture(manager, id))
+			{
+				return false;
+			}
+			mOldChildIds.push_back(id);
+			mOldChildSnapshots.push_back(snapshot);
+		}
+
+		// drop the provided children + the local overrides/suppressions, then
+		// re-instantiate the pristine prefab subtree
+		removeProvidedChildren(core);
+		root->setSuppressedPrefabChildren(StringVector());
+		root->setPrefabChildOverrides(GameObject::ChildOverrideMap());
+		if (PrefabSerializer::instantiatePrefab(mPrefabFilePath, manager,
+			mRootId, StringVector()) != PrefabSerializer::INSTANTIATE_OK)
+		{
+			oDebugMsg("editor", 0, "RevertPrefabCommand: instantiating '"
+				<< mPrefabFilePath << "' failed - restoring the pre-revert "
+				"state of " << mRootId);
+			// roll back to the captured state (the command refuses cleanly)
+			removeProvidedChildren(core);
+			root->setSuppressedPrefabChildren(mOldSuppressed);
+			root->setPrefabChildOverrides(mOldOverrides);
+			restoreCapturedChildren(core);
+			return false;
+		}
+		for (String const& id : manager.collectSubtreeIds(mRootId))
+		{
+			core.applyModelFixups(id);
+		}
+		core.selectObject(mRootId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool RevertPrefabCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root)
+		{
+			return false;
+		}
+		// tear the pristine children down and bring the pre-revert instance
+		// back (children + overrides + suppressions exactly as captured)
+		removeProvidedChildren(core);
+		root->setSuppressedPrefabChildren(mOldSuppressed);
+		root->setPrefabChildOverrides(mOldOverrides);
+		const bool restored = restoreCapturedChildren(core);
+		core.selectObject(mRootId);
+		return restored;
+	}
+	//---------------------------------------------------------
+	String RevertPrefabCommand::getDescription() const
+	{
+		return "Revert Prefab " + mRootId;
+	}
+	//---------------------------------------------------------
+	void RevertPrefabCommand::removeProvidedChildren(EditorCore& core) const
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		const StringVector subtree = manager.collectSubtreeIds(mRootId);
+		for (auto it = subtree.rbegin(); it != subtree.rend(); ++it)
+		{
+			if (*it != mRootId &&
+				PrefabSerializer::isInstanceChildId(mRootId, *it))
+			{
+				core.deselectObject(*it);
+				manager.delGameObject(*it);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	bool RevertPrefabCommand::restoreCapturedChildren(EditorCore& core) const
+	{
+		bool restored = true;
+		for (std::size_t index = 0; index < mOldChildIds.size(); ++index)
+		{
+			if (!mOldChildSnapshots[index].restore(core.getGameObjectManager(),
+				mOldChildIds[index]))
+			{
+				oDebugMsg("editor", 0, "RevertPrefabCommand: could not restore "
+					<< mOldChildIds[index]);
+				restored = false;
+				continue;
+			}
+			core.applyModelFixups(mOldChildIds[index]);
+		}
+		return restored;
+	}
+
+	//---------------------------------------------------------
 	//--- CompositeCommand -------------------------------------
 	//---------------------------------------------------------
 	CompositeCommand::CompositeCommand(String const& description)
@@ -1472,16 +1699,27 @@ namespace Orkige
 		{
 			return false;
 		}
+		// deleting a prefab-PROVIDED child is a SUPPRESSION (the prefab would
+		// otherwise bring it back on reload); a plain object / instance root is
+		// a normal delete
+		auto makeDeleteCommand = [this](String const& id) -> optr<EditorCommand>
+			{
+				if (isPrefabProvidedChild(id))
+				{
+					return onew(new SuppressPrefabChildCommand(id));
+				}
+				return onew(new DeleteObjectCommand(id));
+			};
 		if (doomedIds.size() == 1)
 		{
-			return executeCommand(onew(new DeleteObjectCommand(doomedIds[0])));
+			return executeCommand(makeDeleteCommand(doomedIds[0]));
 		}
 		// multi-select: ONE undo step restores the whole batch
 		optr<CompositeCommand> batch = onew(new CompositeCommand(
 			"Delete " + std::to_string(doomedIds.size()) + " Objects"));
 		for (String const& id : doomedIds)
 		{
-			batch->addCommand(onew(new DeleteObjectCommand(id)));
+			batch->addCommand(makeDeleteCommand(id));
 		}
 		return executeCommand(batch);
 	}
@@ -1705,6 +1943,81 @@ namespace Orkige
 		}
 		return executeCommand(onew(new MakePrefabCommand(id, prefabFilePath,
 			prefabRef, prefabAssetId)));
+	}
+	//---------------------------------------------------------
+	bool EditorCore::isPrefabProvidedChild(String const& id) const
+	{
+		optr<GameObject> gameObject =
+			const_cast<GameObjectManager&>(mGameObjectManager)
+			.getGameObject(id).lock();
+		if (!gameObject)
+		{
+			return false;
+		}
+		return PrefabSerializer::isPrefabProvided(
+			const_cast<GameObjectManager&>(mGameObjectManager), *gameObject);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::canApplyOrRevertPrefab(String const& id) const
+	{
+		optr<GameObject> gameObject =
+			const_cast<GameObjectManager&>(mGameObjectManager)
+			.getGameObject(id).lock();
+		return gameObject && !gameObject->getPrefabRef().empty();
+	}
+	//---------------------------------------------------------
+	bool EditorCore::applyPrefabToSource(String const& id,
+		String const& prefabFilePath)
+	{
+		optr<GameObject> root = mGameObjectManager.getGameObject(id).lock();
+		if (!root || root->getPrefabRef().empty())
+		{
+			return false;
+		}
+		// write the whole live subtree (the per-child overrides are already
+		// baked into the children's live state) as the new prefab asset
+		if (!PrefabSerializer::savePrefab(prefabFilePath, mGameObjectManager, id))
+		{
+			return false;
+		}
+		// the file now IS the live subtree: the instance carries no more local
+		// overrides/suppressions, and every provided child's baseline becomes
+		// its current state (so a later diff starts clean)
+		root->setSuppressedPrefabChildren(StringVector());
+		root->setPrefabChildOverrides(GameObject::ChildOverrideMap());
+		for (String const& childId : mGameObjectManager.collectSubtreeIds(id))
+		{
+			if (childId == id ||
+				!PrefabSerializer::isInstanceChildId(id, childId))
+			{
+				continue;
+			}
+			optr<GameObject> child =
+				mGameObjectManager.getGameObject(childId).lock();
+			if (!child)
+			{
+				continue;
+			}
+			GameObject::ComponentStateMap baseline;
+			for (auto const& [componentType, component] : child->getComponents())
+			{
+				baseline[componentType.getName()] =
+					SceneSerializer::serializeComponentState(*component);
+			}
+			child->setPrefabComponentBaseline(baseline);
+		}
+		markSceneDirty();
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::revertPrefabInstance(String const& id,
+		String const& prefabFilePath)
+	{
+		if (!canApplyOrRevertPrefab(id))
+		{
+			return false;
+		}
+		return executeCommand(onew(new RevertPrefabCommand(id, prefabFilePath)));
 	}
 	//---------------------------------------------------------
 	bool EditorCore::applyTransformChange(String const& id,

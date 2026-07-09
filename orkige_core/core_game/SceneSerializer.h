@@ -55,6 +55,19 @@ namespace Orkige
 		//! fileName only labels the error message.
 		static bool readComponents(optr<XMLArchive> const & ar,
 			optr<GameObject> const & gameObject, String const & fileName);
+
+		//--- single-component state (prefab child override / baseline unit) ---
+		//! @brief serialize ONE component's opaque save/load block to a
+		//! standalone XML string (through an in-memory XMLArchive). Because
+		//! components serialize opaquely (no per-property reflection), a whole
+		//! component's state IS the honest override unit; this is how a prefab
+		//! instance captures a child's per-component override and its pristine
+		//! baseline. "" on error.
+		static String serializeComponentState(GameObjectComponent & component);
+		//! @brief apply a state string from serializeComponentState back onto an
+		//! (existing) component. False when the string cannot be read.
+		static bool applyComponentState(String const & xml,
+			GameObjectComponent & component);
 	protected:
 	private:
 	};

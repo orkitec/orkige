@@ -240,6 +240,78 @@ TEST_CASE("Scene round-trips a prefab instance with structural + root overrides"
 	manager.clear();
 }
 
+TEST_CASE("A prefab-provided child property override round-trips and re-applies "
+	"over the prefab default", "[prefab]")
+{
+	Orkige::GameObjectManager & manager = freshPrefabWorld();
+	TempFile prefab("orkige_test_tile_override.oprefab");
+	TempFile scene("orkige_test_prefab_override_scene.oscene");
+
+	buildTilePrototype(manager);
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefab.path, manager,
+		"TileProto"));
+	manager.clear();
+
+	// instantiate and OVERRIDE a single provided child's component (the tile
+	// whose one wall carries a different value); the other children stay
+	// pristine so the diff must store NOTHING for them
+	REQUIRE(Orkige::PrefabSerializer::instantiatePrefab(prefab.path, manager,
+		"Tile1", Orkige::StringVector()) ==
+		Orkige::PrefabSerializer::INSTANTIATE_OK);
+	optr<Orkige::GameObject> root = manager.getGameObject("Tile1").lock();
+	REQUIRE(root);
+	root->setPrefabRef(prefab.fileName, "");
+	REQUIRE(healthOf(manager, "Tile1/A") == 1);		// the prefab default
+	manager.getGameObject("Tile1/A").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->setHealth(99);
+
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+
+	// the save-time diff records the modified child ONLY (unmodified B / B_Sub
+	// store nothing) - the honest per-component override under opaque state
+	Orkige::GameObject::ChildOverrideMap const & saved =
+		root->getPrefabChildOverrides();
+	CHECK(saved.size() == 1);
+	REQUIRE(saved.count("A") == 1);
+	CHECK(saved.count("B") == 0);
+	CHECK(saved.count("B_Sub") == 0);
+
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+
+	// the override re-applies OVER the freshly instantiated prefab default,
+	// the untouched children keep the prefab values
+	CHECK(healthOf(manager, "Tile1/A") == 99);		// the child override
+	CHECK(healthOf(manager, "Tile1/B") == 2);		// the prefab default
+	CHECK(healthOf(manager, "Tile1/B_Sub") == 3);	// the prefab default
+	CHECK(healthOf(manager, "Tile1") == 10);		// no root override here
+
+	// a second round-trip stays stable (the deterministic remap + baseline
+	// diff re-match; the override neither vanishes nor multiplies)
+	optr<Orkige::GameObject> loadedRoot = manager.getGameObject("Tile1").lock();
+	REQUIRE(loadedRoot);
+	CHECK(loadedRoot->getPrefabChildOverrides().size() == 1);
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+	CHECK(loadedRoot->getPrefabChildOverrides().size() == 1);
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	CHECK(healthOf(manager, "Tile1/A") == 99);
+	CHECK(healthOf(manager, "Tile1/B") == 2);
+
+	// reverting the child back to the prefab default drops the override (the
+	// diff is honest both ways - no phantom override lingers)
+	manager.getGameObject("Tile1/A").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->setHealth(1);
+	REQUIRE(Orkige::SceneSerializer::saveScene(scene.path, manager));
+	CHECK(manager.getGameObject("Tile1").lock()
+		->getPrefabChildOverrides().empty());
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	CHECK(healthOf(manager, "Tile1/A") == 1);
+
+	manager.clear();
+}
+
 TEST_CASE("A missing prefab loads as a placeholder root keeping its reference",
 	"[prefab]")
 {
@@ -339,6 +411,65 @@ TEST_CASE("Nested prefabs are refused on save and hard-error on load",
 			"orkige_no_such.oprefab").string(), manager, "Inst",
 		Orkige::StringVector()) ==
 		Orkige::PrefabSerializer::INSTANTIATE_FILE_MISSING);
+
+	manager.clear();
+}
+
+TEST_CASE("Legacy version 4 prefab-instance scenes load without child overrides",
+	"[prefab]")
+{
+	Orkige::GameObjectManager & manager = freshPrefabWorld();
+	TempFile prefab("orkige_test_v4_tile.oprefab");
+	TempFile scene("orkige_test_v4_prefab_scene.oscene");
+
+	// a real prefab on disk (the v4 roller format carries no per-child
+	// overrides - the loader must not expect a v5 block)
+	buildTilePrototype(manager);
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefab.path, manager,
+		"TileProto"));
+	manager.clear();
+
+	// hand-craft the exact v4 instance-root block: id, parent, activeSelf,
+	// tag list, prefabRef, suppressed children, then the root component block
+	// (NO v5 override block)
+	{
+		optr<Orkige::XMLArchive> ar = Orkige::onew(new Orkige::XMLArchive());
+		REQUIRE(ar->startWriting(scene.path));
+		ar << Orkige::SceneSerializer::SCENE_FORMAT_MAGIC;
+		int version = 4;
+		ar << version;
+		unsigned int objectCount = 1;
+		ar << objectCount;
+		Orkige::String id = "Tile1";
+		ar << id;
+		Orkige::String parentId = "";
+		ar << parentId;
+		bool activeSelf = true;
+		ar << activeSelf;
+		unsigned int tagCount = 0;
+		ar << tagCount;
+		ar->writeAttributed(prefab.fileName,
+			Orkige::AssetDatabase::REFERENCE_ID_ATTRIBUTE, "");
+		unsigned int suppressedCount = 1;
+		ar << suppressedCount;
+		Orkige::String suppressed = "B";
+		ar << suppressed;
+		unsigned int componentCount = 0;	// no root override
+		ar << componentCount;
+		REQUIRE(ar->stopWriting());
+	}
+
+	REQUIRE(Orkige::SceneSerializer::loadScene(scene.path, manager));
+	CHECK(manager.objectExists("Tile1"));
+	CHECK(manager.objectExists("Tile1/A"));
+	CHECK_FALSE(manager.objectExists("Tile1/B"));		// suppressed subtree
+	CHECK_FALSE(manager.objectExists("Tile1/B_Sub"));
+	CHECK(healthOf(manager, "Tile1/A") == 1);			// pristine prefab value
+	optr<Orkige::GameObject> root = manager.getGameObject("Tile1").lock();
+	REQUIRE(root);
+	CHECK(root->getPrefabChildOverrides().empty());
+	REQUIRE(root->getSuppressedPrefabChildren().size() == 1);
+	CHECK(root->getSuppressedPrefabChildren()[0] == "B");
 
 	manager.clear();
 }

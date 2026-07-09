@@ -244,6 +244,19 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 		{
 			createPrefabFromSelection(state, core);
 		}
+		// Apply / Revert on a prefab instance root (Unity's prefab overflow
+		// menu); enabled only when THIS object is an instance root
+		if (core.canApplyOrRevertPrefab(id))
+		{
+			if (ImGui::MenuItem("Apply to Prefab"))
+			{
+				applyPrefabOverrides(state, core);
+			}
+			if (ImGui::MenuItem("Revert to Prefab"))
+			{
+				revertPrefabInstance(state, core);
+			}
+		}
 		if (!gameObject->getParentId().empty() &&
 			ImGui::MenuItem("Unparent"))
 		{

@@ -225,6 +225,23 @@ namespace Orkige
 				loaded = false;
 				break;
 			}
+			// capture the PRISTINE per-component state of every prefab-provided
+			// child right after it is read (before any scene-side override is
+			// overlaid): this baseline is what SceneSerializer::saveScene diffs
+			// the live child against so an unmodified child stores no override
+			// (the root is not a provided child - its own block is the v1 root
+			// override, handled by the scene loader)
+			if(!isRoot)
+			{
+				GameObject::ComponentStateMap baseline;
+				GameObject::ComponentMap const & childComponents = gameObject->getComponents();
+				foreach(GameObject::ComponentMap::value_type const & componentEntry, childComponents)
+				{
+					baseline[componentEntry.first.getName()] =
+						SceneSerializer::serializeComponentState(*componentEntry.second);
+				}
+				gameObject->setPrefabComponentBaseline(baseline);
+			}
 		}
 		ar->stopReading();
 
@@ -323,6 +340,12 @@ namespace Orkige
 	bool PrefabSerializer::isPrefabProvided(GameObjectManager & gameObjectManager,
 		GameObject const & gameObject)
 	{
+		return !PrefabSerializer::instanceRootIdOf(gameObjectManager, gameObject).empty();
+	}
+	//---------------------------------------------------------
+	String PrefabSerializer::instanceRootIdOf(GameObjectManager & gameObjectManager,
+		GameObject const & gameObject)
+	{
 		String const & id = gameObject.getObjectID();
 		// walk the ancestor chain: provided means SOME ancestor is an
 		// instance root AND the id lies inside that ancestor's namespace
@@ -339,11 +362,11 @@ namespace Orkige
 			if(!ancestor->getPrefabRef().empty() &&
 				PrefabSerializer::isInstanceChildId(ancestorId, id))
 			{
-				return true;
+				return ancestorId;
 			}
 			ancestorId = ancestor->getParentId();
 		}
-		return false;
+		return String();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

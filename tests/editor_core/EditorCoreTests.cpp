@@ -23,10 +23,18 @@
 
 #include <EditorCore.h>
 #include <core_game/PrefabSerializer.h>
+#include <core_game/SceneSerializer.h>
+#include <core_project/AssetDatabase.h>
 #include <engine_gocomponent/ScriptComponent.h>
 
 #include <algorithm>
 #include <filesystem>
+#ifdef _WIN32
+#include <process.h>
+#define getpid _getpid
+#else
+#include <unistd.h>	// getpid - unique temp fixture names (parallel ctest)
+#endif
 
 namespace
 {
@@ -1164,6 +1172,178 @@ TEST_CASE("EditorCore MakePrefab refuses cleanly when the prefab file is "
 	CHECK(manager.getGameObject("Tile_Frame").lock()->getParentId() == "Tile");
 	CHECK(manager.getGameObject("Tile").lock()->getPrefabRef().empty());
 
+	manager.clear();
+}
+
+namespace
+{
+	//! PID-suffixed temp path (parallel ctest processes share the temp dir)
+	std::string prefabTempPath(std::string const& name)
+	{
+		return (std::filesystem::temp_directory_path() /
+			(std::to_string(::getpid()) + "_" + name)).string();
+	}
+
+	int healthOf(Orkige::GameObjectManager& manager, Orkige::String const& id)
+	{
+		optr<Orkige::GameObject> gameObject = manager.getGameObject(id).lock();
+		REQUIRE(gameObject);
+		REQUIRE(gameObject->hasComponent<Orkige::TestHealthComponent>());
+		return gameObject->getComponentPtr<Orkige::TestHealthComponent>()
+			->getHealth();
+	}
+
+	//! build "Tile" (health 10) + "Tile_Frame" (1) + "Tile_Frame_Bolt" (2),
+	//! write the prefab and convert to an instance (Tile/Frame, Tile/Frame_Bolt).
+	//! prefabRef is the bare (pid-suffixed) file name so the scene loader
+	//! resolves it relative to the scene file's own temp directory.
+	void buildTileInstance(Orkige::GameObjectManager& manager,
+		Orkige::EditorCore& core, std::string const& prefabPath)
+	{
+		const std::string prefabRef =
+			std::filesystem::path(prefabPath).filename().string();
+		makeHealthObject(manager, "Tile", 10);
+		makeHealthObject(manager, "Tile_Frame", 1);
+		makeHealthObject(manager, "Tile_Frame_Bolt", 2);
+		REQUIRE(manager.getGameObject("Tile_Frame").lock()->setParent("Tile"));
+		REQUIRE(manager.getGameObject("Tile_Frame_Bolt").lock()
+			->setParent("Tile_Frame"));
+		REQUIRE(Orkige::PrefabSerializer::savePrefab(prefabPath, manager, "Tile"));
+		REQUIRE(core.makePrefabInstance("Tile", prefabPath, prefabRef, ""));
+		core.clearHistory();
+	}
+}
+
+TEST_CASE("EditorCore deleting a prefab-provided child SUPPRESSES it (survives "
+	"reload) and undo restores it", "[editor][prefab]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::AssetDatabase::setActive(optr<Orkige::AssetDatabase>());
+	Orkige::EditorCore core(manager);
+	const std::string prefabRef = "tile_suppress.oprefab";
+	const std::string prefabPath = prefabTempPath(prefabRef);
+	std::filesystem::remove(prefabPath);
+	buildTileInstance(manager, core, prefabPath);
+
+	// deleting a provided child records a suppression AND removes the subtree
+	core.selectObject("Tile/Frame");
+	REQUIRE(core.deleteSelected());
+	CHECK_FALSE(manager.objectExists("Tile/Frame"));
+	CHECK_FALSE(manager.objectExists("Tile/Frame_Bolt"));	// subtree-deep
+	optr<Orkige::GameObject> root = manager.getGameObject("Tile").lock();
+	REQUIRE(root);
+	REQUIRE(root->getSuppressedPrefabChildren().size() == 1);
+	CHECK(root->getSuppressedPrefabChildren()[0] == "Frame");
+	CHECK(core.getUndoDescription() == "Delete Tile/Frame");
+
+	// undo brings the child subtree back with its state AND drops the entry
+	REQUIRE(core.undo());
+	REQUIRE(manager.objectExists("Tile/Frame"));
+	REQUIRE(manager.objectExists("Tile/Frame_Bolt"));
+	CHECK(healthOf(manager, "Tile/Frame") == 1);
+	CHECK(healthOf(manager, "Tile/Frame_Bolt") == 2);
+	CHECK(manager.getGameObject("Tile").lock()
+		->getSuppressedPrefabChildren().empty());
+
+	// redo suppresses again
+	REQUIRE(core.redo());
+	CHECK_FALSE(manager.objectExists("Tile/Frame"));
+	CHECK(manager.getGameObject("Tile").lock()
+		->getSuppressedPrefabChildren().size() == 1);
+
+	// the suppression survives a scene save/load (the concrete v1 bug this
+	// closes: without it the child silently comes back)
+	const std::string scenePath = prefabTempPath("tile_suppress.oscene");
+	std::filesystem::remove(scenePath);
+	REQUIRE(Orkige::SceneSerializer::saveScene(scenePath, manager));
+	manager.clear();
+	REQUIRE(Orkige::SceneSerializer::loadScene(scenePath, manager));
+	CHECK(manager.objectExists("Tile"));
+	CHECK_FALSE(manager.objectExists("Tile/Frame"));
+	CHECK(manager.getGameObject("Tile").lock()
+		->getSuppressedPrefabChildren().size() == 1);
+
+	std::filesystem::remove(prefabPath);
+	std::filesystem::remove(scenePath);
+	manager.clear();
+}
+
+TEST_CASE("EditorCore Apply writes an instance's overrides into the .oprefab",
+	"[editor][prefab]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::AssetDatabase::setActive(optr<Orkige::AssetDatabase>());
+	Orkige::EditorCore core(manager);
+	const std::string prefabRef = "tile_apply.oprefab";
+	const std::string prefabPath = prefabTempPath(prefabRef);
+	std::filesystem::remove(prefabPath);
+	buildTileInstance(manager, core, prefabPath);
+
+	// override a provided child, then Apply back to the source prefab
+	manager.getGameObject("Tile/Frame").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->setHealth(77);
+	REQUIRE(core.canApplyOrRevertPrefab("Tile"));
+	REQUIRE(core.applyPrefabToSource("Tile", prefabPath));
+	// the instance no longer carries local overrides (they are in the asset)
+	CHECK(manager.getGameObject("Tile").lock()
+		->getPrefabChildOverrides().empty());
+
+	// a fresh instance of the same prefab now carries the applied value
+	REQUIRE(Orkige::PrefabSerializer::instantiatePrefab(prefabPath, manager,
+		"Tile2", Orkige::StringVector()) ==
+		Orkige::PrefabSerializer::INSTANTIATE_OK);
+	CHECK(healthOf(manager, "Tile2/Frame") == 77);
+
+	std::filesystem::remove(prefabPath);
+	manager.clear();
+}
+
+TEST_CASE("EditorCore Revert drops overrides + suppressions to the pristine "
+	"prefab and undoes", "[editor][prefab]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::AssetDatabase::setActive(optr<Orkige::AssetDatabase>());
+	Orkige::EditorCore core(manager);
+	const std::string prefabRef = "tile_revert.oprefab";
+	const std::string prefabPath = prefabTempPath(prefabRef);
+	std::filesystem::remove(prefabPath);
+	buildTileInstance(manager, core, prefabPath);
+
+	// author a dirty instance: suppress one child, override another, then bake
+	// the override into the root's map via a save (what the editor does on Cmd+S)
+	core.selectObject("Tile/Frame_Bolt");
+	REQUIRE(core.deleteSelected());		// suppress "Frame_Bolt"
+	manager.getGameObject("Tile/Frame").lock()
+		->getComponentPtr<Orkige::TestHealthComponent>()->setHealth(55);
+	const std::string scenePath = prefabTempPath("tile_revert.oscene");
+	std::filesystem::remove(scenePath);
+	REQUIRE(Orkige::SceneSerializer::saveScene(scenePath, manager));
+	optr<Orkige::GameObject> root = manager.getGameObject("Tile").lock();
+	REQUIRE(root);
+	CHECK(root->getPrefabChildOverrides().size() == 1);		// "Frame"
+	CHECK(root->getSuppressedPrefabChildren().size() == 1);	// "Frame_Bolt"
+	core.clearHistory();
+
+	// Revert: pristine children back, overrides + suppressions gone
+	REQUIRE(core.revertPrefabInstance("Tile", prefabPath));
+	CHECK(manager.getGameObject("Tile").lock()->getPrefabChildOverrides().empty());
+	CHECK(manager.getGameObject("Tile").lock()
+		->getSuppressedPrefabChildren().empty());
+	REQUIRE(manager.objectExists("Tile/Frame_Bolt"));	// suppression undone
+	CHECK(healthOf(manager, "Tile/Frame") == 1);		// override reverted
+	CHECK(healthOf(manager, "Tile/Frame_Bolt") == 2);
+
+	// undo the revert: the dirty instance comes back exactly
+	REQUIRE(core.undo());
+	CHECK_FALSE(manager.objectExists("Tile/Frame_Bolt"));	// suppressed again
+	CHECK(healthOf(manager, "Tile/Frame") == 55);			// override back
+	optr<Orkige::GameObject> undone = manager.getGameObject("Tile").lock();
+	REQUIRE(undone);
+	CHECK(undone->getSuppressedPrefabChildren().size() == 1);
+	CHECK(undone->getPrefabChildOverrides().size() == 1);
+
+	std::filesystem::remove(prefabPath);
+	std::filesystem::remove(scenePath);
 	manager.clear();
 }
 

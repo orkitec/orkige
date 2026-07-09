@@ -95,6 +95,12 @@ namespace Orkige
 		//! prefab-provided - the scene serializes them normally.
 		static bool isPrefabProvided(GameObjectManager & gameObjectManager,
 			GameObject const & gameObject);
+		//! @brief id of the nearest ancestor prefab-instance ROOT whose
+		//! "<rootId>/" id namespace contains the given object, or "" when the
+		//! object is not prefab-provided (a plain object or a scene-side extra
+		//! child under an instance). isPrefabProvided is this returning non-"".
+		static String instanceRootIdOf(GameObjectManager & gameObjectManager,
+			GameObject const & gameObject);
 	protected:
 	private:
 	};

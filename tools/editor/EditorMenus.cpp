@@ -278,6 +278,18 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			{
 				createPrefabFromSelection(state, core);
 			}
+			// Apply / Revert the selected prefab INSTANCE (enabled only on an
+			// instance root); refusals log to the Console
+			const bool onInstance = core.hasSelection() &&
+				core.canApplyOrRevertPrefab(core.getSelectedObjectId());
+			if (ImGui::MenuItem("Apply to Prefab", nullptr, false, onInstance))
+			{
+				applyPrefabOverrides(state, core);
+			}
+			if (ImGui::MenuItem("Revert to Prefab", nullptr, false, onInstance))
+			{
+				revertPrefabInstance(state, core);
+			}
 			ImGui::EndMenu();
 		}
 		// project export (async - Util/orkige_export.py; the output lands in

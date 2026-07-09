@@ -440,3 +440,90 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 		assetId.empty() ? "<none>" : assetId.c_str());
 	return true;
 }
+
+namespace
+{
+	//! resolve the selected prefab-instance root's .oprefab path through the
+	//! open project; "" (and a Console line) when the selection is not a live
+	//! instance root or the file is missing. out receives the root id.
+	std::string resolveSelectedInstancePrefab(EditorState& state,
+		Orkige::EditorCore& core, std::string const& action, std::string& outRootId)
+	{
+		if (!core.hasSelection())
+		{
+			SDL_Log("orkige_editor: %s needs a selected prefab instance",
+				action.c_str());
+			return "";
+		}
+		outRootId = core.getSelectedObjectId();
+		if (!core.canApplyOrRevertPrefab(outRootId))
+		{
+			SDL_Log("orkige_editor: %s refused - '%s' is not a prefab instance "
+				"root", action.c_str(), outRootId.c_str());
+			return "";
+		}
+		optr<Orkige::GameObject> root =
+			core.getGameObjectManager().getGameObject(outRootId).lock();
+		oAssert(root);
+		const std::string prefabRef = root->getPrefabRef();
+		std::string prefabPath = prefabRef;
+		if (state.project.isLoaded())
+		{
+			prefabPath = state.project.getRootDirectory() + "/" + prefabRef;
+		}
+		std::error_code ignored;
+		if (!std::filesystem::exists(prefabPath, ignored))
+		{
+			SDL_Log("orkige_editor: %s refused - prefab '%s' not found (%s)",
+				action.c_str(), prefabRef.c_str(), prefabPath.c_str());
+			return "";
+		}
+		return prefabPath;
+	}
+}
+
+bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core)
+{
+	std::string rootId;
+	const std::string prefabPath =
+		resolveSelectedInstancePrefab(state, core, "Apply Prefab", rootId);
+	if (prefabPath.empty())
+	{
+		return false;
+	}
+	if (!core.applyPrefabToSource(rootId, prefabPath))
+	{
+		SDL_Log("orkige_editor: Apply Prefab failed - could not write '%s' "
+			"(see the log above)", prefabPath.c_str());
+		return false;
+	}
+	// re-import so the asset database picks up the rewritten file
+	if (optr<Orkige::AssetDatabase> const& assetDatabase =
+		state.project.getAssetDatabase())
+	{
+		assetDatabase->importAsset(prefabPath);
+	}
+	SDL_Log("orkige_editor: applied instance '%s' back to its prefab",
+		rootId.c_str());
+	return true;
+}
+
+bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core)
+{
+	std::string rootId;
+	const std::string prefabPath =
+		resolveSelectedInstancePrefab(state, core, "Revert Prefab", rootId);
+	if (prefabPath.empty())
+	{
+		return false;
+	}
+	if (!core.revertPrefabInstance(rootId, prefabPath))
+	{
+		SDL_Log("orkige_editor: Revert Prefab failed for '%s' (see the log "
+			"above)", rootId.c_str());
+		return false;
+	}
+	SDL_Log("orkige_editor: reverted instance '%s' to its pristine prefab",
+		rootId.c_str());
+	return true;
+}

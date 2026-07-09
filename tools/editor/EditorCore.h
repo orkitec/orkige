@@ -359,6 +359,58 @@ namespace Orkige
 		std::vector<EditorObjectSnapshot> mOldChildSnapshots;	//!< parallel to mOldChildIds
 	};
 
+	//! @brief delete a prefab-PROVIDED child by SUPPRESSING it (Unity: a
+	//! provided child cannot just be removed - the prefab would bring it back
+	//! on reload). Execute records the child's prefab-LOCAL id in the instance
+	//! root's suppressedChildren AND removes the child subtree; undo drops the
+	//! suppression entry and restores the subtree from its snapshots. Routed to
+	//! from EditorCore::deleteSelected when the target is prefab-provided.
+	class SuppressPrefabChildCommand : public EditorCommand
+	{
+	public:
+		explicit SuppressPrefabChildCommand(String const& childId);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mChildId;
+		String mRootId;			//!< instance root, resolved on execute
+		String mLocalId;		//!< the child's prefab-local id, resolved on execute
+		bool mAddedSuppression = false;	//!< did execute actually add the entry
+		bool mWasSelected = false;
+		StringVector mSubtreeIds;	//!< the removed provided subtree (DFS, parents first)
+		std::vector<EditorObjectSnapshot> mSubtreeSnapshots;	//!< parallel to mSubtreeIds
+	};
+
+	//! @brief Revert a prefab instance to the pristine prefab: drops the
+	//! instance's per-child property OVERRIDES and structural SUPPRESSIONS and
+	//! re-instantiates the provided children from the .oprefab (the root's own
+	//! components - its placement / v1 root override - are kept). Undoable: undo
+	//! restores the exact pre-revert overrides, suppressions and provided
+	//! children. Refused (and not entered) when the prefab file is unavailable.
+	class RevertPrefabCommand : public EditorCommand
+	{
+	public:
+		RevertPrefabCommand(String const& rootId, String const& prefabFilePath);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		//! restore the captured provided children (DFS, parents first)
+		bool restoreCapturedChildren(EditorCore& core) const;
+		//! remove the current provided subtree (deepest first)
+		void removeProvidedChildren(EditorCore& core) const;
+
+		String mRootId;
+		String mPrefabFilePath;
+		StringVector mOldSuppressed;		//!< suppressed list before revert
+		GameObject::ChildOverrideMap mOldOverrides;	//!< overrides before revert
+		StringVector mOldChildIds;			//!< provided subtree before revert (DFS)
+		std::vector<EditorObjectSnapshot> mOldChildSnapshots;	//!< parallel to mOldChildIds
+	};
+
 	//! @brief a batch of commands that does/undoes as ONE undo step
 	//! (multi-select delete/duplicate). Execute runs the children in order
 	//! and rolls the already-executed prefix back if one refuses; unexecute
@@ -664,6 +716,23 @@ namespace Orkige
 		//! side effect is not undoable, the conversion is.
 		bool makePrefabInstance(String const& id, String const& prefabFilePath,
 			String const& prefabRef, String const& prefabAssetId);
+		//! @brief is the object a prefab-PROVIDED child (some ancestor is an
+		//! instance root and the id lies in its namespace)? Deleting such a
+		//! child suppresses it rather than plainly removing it.
+		bool isPrefabProvidedChild(String const& id) const;
+		//! @brief may Apply / Revert run on this object right now? True only for
+		//! a live prefab instance ROOT (getPrefabRef non-empty).
+		bool canApplyOrRevertPrefab(String const& id) const;
+		//! @brief Apply an instance's current state back to its .oprefab: writes
+		//! the whole live subtree (with its per-child overrides baked in) as the
+		//! new prefab, then clears the instance's local overrides + suppressions
+		//! (they are now part of the asset) and re-baselines the children.
+		//! NOT undoable - the filesystem overwrite is a side effect (like
+		//! re-importing a mesh); refused for a non-instance or a failed write.
+		bool applyPrefabToSource(String const& id, String const& prefabFilePath);
+		//! @brief Revert an instance to the pristine prefab (undoable): see
+		//! RevertPrefabCommand. Refused when the prefab file is unavailable.
+		bool revertPrefabInstance(String const& id, String const& prefabFilePath);
 		//! record a before/after transform change as one undoable command;
 		//! pass a merge session id to collapse a whole drag into one step
 		bool applyTransformChange(String const& id,

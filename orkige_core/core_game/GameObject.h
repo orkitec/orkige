@@ -14,6 +14,8 @@
 
 #include "core_game/GameObjectComponent.h"
 
+#include <map>
+
 namespace Orkige
 {
 	//! Component Based GameObject
@@ -22,6 +24,14 @@ namespace Orkige
 		OOBJECT(GameObject,ComponentHolder<GameObjectComponent>)
 		//--- Types -------------------------------------------
 	public:
+		//! serialized state of a set of components, keyed by component type
+		//! name (the honest override unit under OPAQUE component serialization:
+		//! a whole component's save/load block as a standalone XML string - see
+		//! SceneSerializer::serializeComponentState)
+		typedef std::map<String, String> ComponentStateMap;
+		//! per prefab-provided child (prefab-LOCAL id) the components an
+		//! instance overrides against the prefab default (the v2 prefab feature)
+		typedef std::map<String, ComponentStateMap> ChildOverrideMap;
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -35,6 +45,8 @@ namespace Orkige
 		String										prefabRef;				//!< project-relative .oprefab path ("" = not a prefab instance root)
 		String										prefabAssetId;			//!< stable asset id riding next to prefabRef (rename survival)
 		StringVector								suppressedPrefabChildren;	//!< prefab-LOCAL ids dropped at instantiate (structural override)
+		ChildOverrideMap							prefabChildOverrides;	//!< on an instance ROOT: per prefab-provided child the overridden component states (serialized, survives save/load)
+		ComponentStateMap							prefabComponentBaseline;	//!< on a prefab-provided CHILD: pristine component states captured at instantiate (RUNTIME only, drives the save-time override diff)
 		StringVector								tags;					//!< free-form multi-tag labels (Unity tags, but many per object); indexed by GameObjectManager
 	private:
 		//--- Methods -----------------------------------------
@@ -99,6 +111,20 @@ namespace Orkige
 		inline StringVector const & getSuppressedPrefabChildren() const;
 		//! replace the suppressed-children list (prefab-LOCAL ids)
 		inline void setSuppressedPrefabChildren(StringVector const & localIds);
+		//! @brief on an instance ROOT: the per prefab-provided-child component
+		//! overrides (prefab-LOCAL id -> component type name -> serialized
+		//! state). Empty on a plain object; the SceneSerializer diffs the live
+		//! children against their instantiate-time baseline to fill it on save
+		//! and re-applies it over the prefab defaults on load.
+		inline ChildOverrideMap const & getPrefabChildOverrides() const;
+		//! replace the per-child override map (see getPrefabChildOverrides)
+		inline void setPrefabChildOverrides(ChildOverrideMap const & overrides);
+		//! @brief on a prefab-provided CHILD: the pristine component states the
+		//! prefab instantiate captured (component type name -> serialized state);
+		//! RUNTIME-only, the save-time override diff compares against it
+		inline ComponentStateMap const & getPrefabComponentBaseline() const;
+		//! set the pristine component-state baseline (called at instantiate)
+		inline void setPrefabComponentBaseline(ComponentStateMap const & baseline);
 		//--- TAGS (multi-tag labels, indexed by GameObjectManager) ---
 		//! the tags on this object (order preserved, no duplicates)
 		inline StringVector const & getTags() const;
@@ -178,8 +204,10 @@ namespace Orkige
 		this->prefabAssetId = prefabAssetId;
 		if(prefabRef.empty())
 		{
-			// a plain GameObject carries no structural overrides
+			// a plain GameObject carries no prefab overrides (structural OR
+			// per-child property)
 			this->suppressedPrefabChildren.clear();
+			this->prefabChildOverrides.clear();
 		}
 	}
 	//---------------------------------------------------------
@@ -191,6 +219,26 @@ namespace Orkige
 	inline void GameObject::setSuppressedPrefabChildren(StringVector const & localIds)
 	{
 		this->suppressedPrefabChildren = localIds;
+	}
+	//---------------------------------------------------------
+	inline GameObject::ChildOverrideMap const & GameObject::getPrefabChildOverrides() const
+	{
+		return this->prefabChildOverrides;
+	}
+	//---------------------------------------------------------
+	inline void GameObject::setPrefabChildOverrides(ChildOverrideMap const & overrides)
+	{
+		this->prefabChildOverrides = overrides;
+	}
+	//---------------------------------------------------------
+	inline GameObject::ComponentStateMap const & GameObject::getPrefabComponentBaseline() const
+	{
+		return this->prefabComponentBaseline;
+	}
+	//---------------------------------------------------------
+	inline void GameObject::setPrefabComponentBaseline(ComponentStateMap const & baseline)
+	{
+		this->prefabComponentBaseline = baseline;
 	}
 	//---------------------------------------------------------
 	inline StringVector const & GameObject::getTags() const
