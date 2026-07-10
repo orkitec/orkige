@@ -108,13 +108,19 @@ endif()
 # (zlib.lib / zlibd.lib) - seed the variables per configuration there
 if(VCPKG_TARGET_IS_WINDOWS)
     set(ZLIB_SEED_OPTIONS
-        "-DZLIB_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include")
+        "-DZLIB_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include"
+        # ogre-next's in-tree FindVulkan searches the Unix library name
+        # ('vulkan'); the Windows import library is vulkan-1.lib - seed the
+        # probe the same way as zlib so the Vulkan RS is not silently dropped
+        "-DVulkan_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include")
     set(ZLIB_SEED_OPTIONS_RELEASE
         "-DZLIB_LIBRARY_REL=${CURRENT_INSTALLED_DIR}/lib/zlib.lib"
-        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/zlib.lib")
+        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/zlib.lib"
+        "-DVulkan_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/vulkan-1.lib")
     set(ZLIB_SEED_OPTIONS_DEBUG
         "-DZLIB_LIBRARY_DBG=${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib"
-        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib")
+        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib"
+        "-DVulkan_LIBRARY=${CURRENT_INSTALLED_DIR}/debug/lib/vulkan-1.lib")
 else()
     set(ZLIB_SEED_OPTIONS "")
     set(ZLIB_SEED_OPTIONS_RELEASE "")

@@ -1648,10 +1648,12 @@ void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 		}
 		return;
 	}
-	if (tile)
+	if (tile && !isFolder)
 	{
-		// a subtle rounded backing tints toward the kind so unloaded tiles are
-		// not just a floating glyph on the grid
+		// a subtle rounded backing tints toward the kind so unloaded FILE
+		// tiles are not just a floating glyph on the grid; folders stay bare -
+		// the folder glyph is its own large filled shape, and a tinted box
+		// behind it reads as a second, muddier folder
 		const ImU32 backing = dimIfNeeded(
 			(assetKindColor(kind, isFolder) & 0x00FFFFFFu) | 0x22000000u, dimmed);
 		drawList->AddRectFilled(minCorner, maxCorner, backing, rounding);

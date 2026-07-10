@@ -11,9 +11,9 @@
 #                  backend): build + headless units + Vulkan smoke under
 #                  lavapipe. Hard gate.
 #   macos-next     - the default flavor on Apple hardware: build + headless
-#                  units (promote once proven).
-#   windows-next   - EXPERIMENTAL: the Windows port's verification loop
-#                  (the codebase is being brought up on MSVC).
+#                  units. Hard gate.
+#   windows-next   - the Windows port's verification loop (being brought up
+#                  on MSVC); a red job means a red run - no masked failures.
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
 # set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
@@ -301,7 +301,6 @@ jobs:
     # macos-15's default toolchain: openal-soft 1.25 needs a newer AppleClang
     # than the macos-14 image ships (CTAD in its event handling)
     runs-on: macos-15
-    continue-on-error: true
     timeout-minutes: 240
     env:
       VCPKG_ROOT_DIR: /Users/runner/Development/vcpkg
@@ -366,10 +365,11 @@ jobs:
   # Windows on the default (Ogre-Next) flavor: EXPERIMENTAL - the codebase
   # has never compiled on Windows; this job is the verification loop for
   # that port. Promote once green.
+  # The Windows port bring-up: every failure is VISIBLE (no
+  # continue-on-error - a red job is a red run, by owner policy)
   windows-next:
-    name: Windows next (Vulkan) - EXPERIMENTAL build + unit
+    name: Windows next (Vulkan) - build + unit
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 240
     env:
       VCPKG_ROOT_DIR: C:/Users/runneradmin/Development/vcpkg
