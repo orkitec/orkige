@@ -41,6 +41,7 @@
 // Split out of main.cpp's per-panel decomposition (see EditorApp.h).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorApp.h"
+#include "AssetTilePresentation.h"
 #include "EditorTheme.h"
 #include "IconsFontAwesome6.h"
 #include "ImGuiFacadeRenderer.h"
@@ -1625,20 +1626,25 @@ void drawCheckerboard(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner)
 
 //! the ONE seam for a content item's visual across grid, list and tree: the
 //! real texture thumbnail when one is loaded, otherwise the kind's icon.
-//! @param tile when true (grid tiles) the icon/thumbnail sits on a subtle
-//!        rounded backing (a checkerboard behind alpha textures); false for the
-//!        compact list/tree/rename rows where a bare icon reads better
+//! @param tile when true (grid tiles) a loaded texture thumbnail sits on a
+//!        checkerboard backing (so alpha reads against any tile colour) with
+//!        rounded corners; every glyph fallback draws bare (tileDrawsBacking),
+//!        as do the compact list/tree/rename rows (tile false)
 void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 	AssetKind kind, bool isFolder, bool dimmed, ImTextureID thumb,
 	bool tile = false)
 {
 	const float rounding = tile
 		? std::min(6.0f, (maxCorner.y - minCorner.y) * 0.14f) : 0.0f;
-	if (thumb)
+	const bool hasThumbnail = thumb != 0;
+	if (tile && Orkige::tileDrawsBacking(isFolder, hasThumbnail))
+	{
+		drawCheckerboard(drawList, minCorner, maxCorner);
+	}
+	if (hasThumbnail)
 	{
 		if (tile)
 		{
-			drawCheckerboard(drawList, minCorner, maxCorner);
 			drawList->AddImageRounded(thumb, minCorner, maxCorner,
 				ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, rounding);
 		}
@@ -1647,16 +1653,6 @@ void drawAssetIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 			drawList->AddImage(thumb, minCorner, maxCorner);
 		}
 		return;
-	}
-	if (tile && !isFolder)
-	{
-		// a subtle rounded backing tints toward the kind so unloaded FILE
-		// tiles are not just a floating glyph on the grid; folders stay bare -
-		// the folder glyph is its own large filled shape, and a tinted box
-		// behind it reads as a second, muddier folder
-		const ImU32 backing = dimIfNeeded(
-			(assetKindColor(kind, isFolder) & 0x00FFFFFFu) | 0x22000000u, dimmed);
-		drawList->AddRectFilled(minCorner, maxCorner, backing, rounding);
 	}
 	drawKindIcon(drawList, minCorner, maxCorner, kind, isFolder, dimmed);
 }

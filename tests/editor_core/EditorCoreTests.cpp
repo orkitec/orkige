@@ -21,6 +21,7 @@
 #include "CoreTestEnvironment.h"
 #include "TestComponents.h"
 
+#include <AssetTilePresentation.h>
 #include <EditorCore.h>
 #include <core_game/LevelGrid.h>
 #include <core_game/PrefabSerializer.h>
@@ -1504,4 +1505,22 @@ TEST_CASE("CreateSpriteObjectCommand describes its object and undoes cleanly",
 	CHECK_FALSE(core.isSelected("Sprite1"));
 
 	manager.clear();
+}
+
+TEST_CASE("tileDrawsBacking backs ONLY loaded texture thumbnails, never a "
+	"glyph tile", "[editor][assetbrowser]")
+{
+	// a real texture thumbnail (a non-folder tile with a loaded texture) earns
+	// the transparency checkerboard behind it
+	CHECK(Orkige::tileDrawsBacking(false, true));
+
+	// every glyph fallback draws bare: a folder, and any non-folder tile whose
+	// thumbnail has not (or cannot) load - scenes, prefabs, scripts, audio,
+	// unknown all reach the draw site with no thumbnail
+	CHECK_FALSE(Orkige::tileDrawsBacking(false, false));
+	CHECK_FALSE(Orkige::tileDrawsBacking(true, false));
+
+	// a folder never carries a thumbnail, but even if one were passed it stays
+	// bare - the decision hangs off "is this a real texture thumbnail"
+	CHECK_FALSE(Orkige::tileDrawsBacking(true, true));
 }
