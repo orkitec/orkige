@@ -123,6 +123,39 @@
       }
     },
     {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "VCPKG_ROOT": "$penv{USERPROFILE}/Development/vcpkg",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/triplets",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/ports"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug (Ogre-Next / Vulkan - the default backend)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
       "name": "ios-simulator-debug",
       "displayName": "iOS Simulator Debug (arm64, Ogre-Next/Metal - the default backend)",
       "inherits": "base",
@@ -233,6 +266,10 @@
       "configurePreset": "linux-debug-next"
     },
     {
+      "name": "windows-debug",
+      "configurePreset": "windows-debug"
+    },
+    {
       "name": "ios-simulator-debug",
       "configurePreset": "ios-simulator-debug"
     },
@@ -320,6 +357,38 @@
       },
       "execution": {
         "jobs": 10
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-macos-ci",
+      "displayName": "macOS CI: headless unit tests on the default (next) tree",
+      "configurePreset": "macos-debug",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 3
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-windows",
+      "displayName": "Windows CI: headless unit tests (Ogre-Next flavor)",
+      "configurePreset": "windows-debug",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 4
       },
       "output": {
         "outputOnFailure": true

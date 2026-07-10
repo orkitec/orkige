@@ -1,20 +1,19 @@
 # Orkige CI - Linux build + test on every push and pull request.
 #
-# Two jobs:
-#   linux-classic  (REQUIRED) - the classic OGRE / GL3Plus flavor: builds the
-#                  engine + editor + player + samples + tests, runs the
-#                  headless unit suite (must pass), then the full windowed
-#                  desktop suite under xvfb + Mesa llvmpipe (best-effort
-#                  while it proves out). Also builds + unit-tests the
-#                  ORKIGE_SCRIPTING=OFF configuration (must pass) - the
-#                  compile-time guard that keeps Lua an implementation
-#                  detail behind the core_script seam.
-#   linux-next     (EXPERIMENTAL, continue-on-error) - the Ogre-Next / Vulkan
-#                  flavor: the ports/ogre-next Linux extension (Vulkan RS via
-#                  vcpkg vulkan-headers/loader + glslang) and the backend's
-#                  VulkanPlugin/SDL2x11 boot are authored but have never run
-#                  on real Linux; this job IS their verification loop.
-#                  Promote it to required once it is green.
+# Jobs:
+#   linux-classic  - the classic OGRE / GL3Plus compatibility flavor: full
+#                  build, headless unit gate, the full windowed desktop suite
+#                  under xvfb + Mesa llvmpipe, and the ORKIGE_SCRIPTING=OFF
+#                  configuration (the compile-time guard that keeps Lua an
+#                  implementation detail behind the core_script seam). All
+#                  hard gates.
+#   linux-next     - the Ogre-Next / Vulkan flavor (the engine's DEFAULT
+#                  backend): build + headless units + Vulkan smoke under
+#                  lavapipe. Hard gate.
+#   macos-next     - the default flavor on Apple hardware: build + headless
+#                  units (promote once proven).
+#   windows-next   - EXPERIMENTAL: the Windows port's verification loop
+#                  (the codebase is being brought up on MSVC).
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
 # set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
@@ -32,6 +31,11 @@ name: CI
 on:
   push:
   pull_request:
+
+# a newer push supersedes the previous run of the same branch
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   # vcpkg commit the dependency set is proven against locally (the manifest
@@ -162,15 +166,10 @@ jobs:
           cmake --build --preset linux-debug-noscript
           ctest --preset unit-linux-noscript
 
-      # TODO(ci): promote this step to a hard gate (drop continue-on-error)
-      # once the full desktop suite has proven stable on llvmpipe over a few
-      # runs. Expectations: GL3Plus on llvmpipe advertises GL 4.5 core, so
-      # boots should succeed; the risks are pixel-probe strictness, editor
-      # runs under a virtual display, and timing under software
-      # rasterization. Audio is routed to openal-soft's null backend (no
-      # audio device on runners).
-      - name: Windowed desktop suite (xvfb + Mesa llvmpipe - best-effort)
-        continue-on-error: true
+      # A hard gate: the full desktop suite under a virtual display. GL3Plus
+      # renders via llvmpipe (software GL 4.5); audio routes to openal-soft's
+      # null backend (no audio device on runners).
+      - name: Windowed desktop suite (xvfb + Mesa llvmpipe - MUST pass)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: llvmpipe
@@ -193,18 +192,11 @@ jobs:
             *.log
           if-no-files-found: ignore
 
-  # EXPERIMENTAL: the Ogre-Next flavor on Linux (Vulkan RS + lavapipe).
-  # continue-on-error at the job level - a red linux-next never blocks a
-  # commit; it is the verification loop for the authored-but-unproven Linux
-  # port of the next backend (ports/ogre-next Vulkan build, glslang link
-  # interface, VulkanPlugin boot, SDL2x11 external window).
-  # TODO(linux): once this job is green, (a) drop continue-on-error, (b)
-  # consider making linux-debug-next the default Linux preset to mirror
-  # macOS (next is the engine's default backend).
+  # The Ogre-Next flavor on Linux (Vulkan RS + lavapipe) - the engine's
+  # DEFAULT backend, verified per push: build, headless units, Vulkan smoke.
   linux-next:
-    name: Linux next (Vulkan) - EXPERIMENTAL build + unit + smoke
+    name: Linux next (Vulkan) - build + unit + smoke
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
@@ -300,3 +292,130 @@ jobs:
             build/linux-debug-next/tests/**/*.log
             *.log
           if-no-files-found: ignore
+
+  # macOS on the default (Ogre-Next) flavor: build everything + the headless
+  # unit suite. Same architecture as the primary dev machines, so this job
+  # is expected to be stable; promote to required once proven.
+  macos-next:
+    name: macOS next (Metal) - build + unit
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 240
+    env:
+      VCPKG_ROOT_DIR: /Users/runner/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
+      CCACHE_DIR: /Users/runner/.ccache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: brew install ninja ccache autoconf automake autoconf-archive libtool
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /Users/runner/vcpkg-binary-cache
+          key: vcpkg-macos-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-macos-next-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-macos-next-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-next-${{ runner.os }}-
+
+      - name: Configure (macos-debug)
+        run: |
+          cmake --preset macos-debug \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: /Users/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build (engine + editor + player + tests)
+        run: cmake --build --preset macos-debug
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Unit tests (headless)
+        run: ctest --preset unit-macos-ci
+
+  # Windows on the default (Ogre-Next) flavor: EXPERIMENTAL - the codebase
+  # has never compiled on Windows; this job is the verification loop for
+  # that port. Promote once green.
+  windows-next:
+    name: Windows next (Vulkan) - EXPERIMENTAL build + unit
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 240
+    env:
+      VCPKG_ROOT_DIR: C:/Users/runneradmin/Development/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: C:/Users/runneradmin/vcpkg-binary-cache
+      # MSVC, not the workflow-level clang (that setting serves the POSIX jobs)
+      CC: cl
+      CXX: cl
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the MSVC environment for Ninja
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Check out pinned vcpkg
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT_DIR"
+          git -C "$env:VCPKG_ROOT_DIR" checkout "$env:VCPKG_COMMIT"
+          & "$env:VCPKG_ROOT_DIR/bootstrap-vcpkg.bat" -disableMetrics
+          New-Item -ItemType Directory -Force -Path "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: C:/Users/runneradmin/vcpkg-binary-cache
+          key: vcpkg-windows-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-windows-next-${{ runner.os }}-
+
+      - name: Configure (windows-debug)
+        shell: pwsh
+        run: |
+          cmake --preset windows-debug -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:/Users/runneradmin/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build (engine + editor + player + tests)
+        shell: pwsh
+        run: cmake --build --preset windows-debug
+
+      - name: Unit tests (headless)
+        shell: pwsh
+        run: ctest --preset unit-windows

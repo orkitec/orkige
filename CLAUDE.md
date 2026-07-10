@@ -135,11 +135,13 @@ The rule: every change ships with tests that verify it — unit tests for core
 logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
 pass before committing.
 
-CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds + tests the
-Linux classic flavor (required: unit gate, plus the full windowed desktop
-suite best-effort under xvfb/llvmpipe), the `ORKIGE_SCRIPTING=OFF`
-configuration (required: build + unit — the script-seam enforcement leg,
-preset `linux-debug-noscript`), and Linux next (experimental). The local
+CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds + tests
+Linux classic (unit gate + the full windowed desktop suite under
+xvfb/llvmpipe, both hard gates), the `ORKIGE_SCRIPTING=OFF` configuration
+(build + unit, hard gate — the script-seam enforcement leg, preset
+`linux-debug-noscript`), Linux next (Vulkan — the default backend, hard
+gate), macOS next (build + unit), and an EXPERIMENTAL Windows next job
+(the MSVC port's verification loop, preset `windows-debug`). The local
 noscript tree is preset-encoded too: `cmake --preset macos-debug-noscript`,
 `ctest --preset unit-noscript`. A `pre-push` git
 hook (install once per clone: `Util/install_git_hooks.sh`) spawns
@@ -382,17 +384,18 @@ look when touching one:
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push. The required
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push. The
 **Linux-classic** job (GL3Plus) builds engine/editor/player/samples, runs the
-headless unit suite (hard gate), runs the full windowed desktop suite under
-xvfb/llvmpipe (best-effort until proven, then promote), and builds + unit-tests the
-**`ORKIGE_SCRIPTING=OFF`** configuration (hard gate — the script-seam enforcement
-leg; scripting is a CMake-level switch, so it reuses the job's vcpkg binary
-cache). It builds with **clang** (`CC/CXX` in the workflow env;
+headless unit suite, the full windowed desktop suite under xvfb/llvmpipe, and
+builds + unit-tests the **`ORKIGE_SCRIPTING=OFF`** configuration (all hard
+gates; scripting is a CMake-level switch, so it reuses the job's vcpkg binary
+cache). **Linux-next** (Vulkan, the default backend) is a hard gate too:
+build + units + smoke under lavapipe. **macOS-next** builds the default
+flavor on Apple hardware + units. **Windows-next** is the experimental MSVC
+bring-up loop (preset `windows-debug`, x64-windows-static-md triplet).
+Linux builds with **clang** (`CC/CXX` in the workflow env;
 matches the clang-oriented codebase), and needs a few system dev packages the cold
 vcpkg build surfaced (autoconf-archive, libltdl-dev, libxtst/libxinerama; SDL's builtin
-iconv via the `triplets/x64-linux.cmake` overlay). **Linux-next** (Vulkan) is
-experimental/`continue-on-error` — currently red on an ogre-next Vulkan RS packaging
-gap. A `pre-push` hook (`Util/install_git_hooks.sh`) spawns `Util/watch_ci.sh` to report
+iconv via the `triplets/x64-linux.cmake` overlay). A `pre-push` hook (`Util/install_git_hooks.sh`) spawns `Util/watch_ci.sh` to report
 each push's result.
 

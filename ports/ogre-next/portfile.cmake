@@ -69,6 +69,15 @@ elseif(VCPKG_TARGET_IS_ANDROID)
         # no XCB on Android: the Vulkan ANativeWindow surface auto-selects via
         # the dependent option's ANDROID condition
     )
+elseif(VCPKG_TARGET_IS_WINDOWS)
+    set(RENDERSYSTEM_OPTIONS
+        # Vulkan with the Win32 window surface (auto-selected); Direct3D stays
+        # off - the engine's render facade drives Vulkan on every non-Apple
+        # platform
+        -DOGRE_BUILD_RENDERSYSTEM_METAL=OFF
+        -DOGRE_BUILD_RENDERSYSTEM_VULKAN=ON
+        -DOGRE_BUILD_RENDERSYSTEM_D3D11=OFF
+    )
 else()
     set(RENDERSYSTEM_OPTIONS
         -DOGRE_BUILD_RENDERSYSTEM_METAL=OFF
@@ -166,10 +175,15 @@ vcpkg_cmake_install()
 # assert the RS actually landed - fail here, in the port build, not later in
 # the consumer's generate step where the missing interface include dir is the
 # only symptom.
-if(VCPKG_TARGET_IS_LINUX OR VCPKG_TARGET_IS_ANDROID)
+if(VCPKG_TARGET_IS_LINUX OR VCPKG_TARGET_IS_ANDROID OR VCPKG_TARGET_IS_WINDOWS)
     # the RS plugins install under lib/OGRE-Next/ on non-Apple
     # (OGRE_PLUGIN_PATH=/OGRE-Next), unlike lib/ directly on Apple
-    if(NOT EXISTS "${CURRENT_PACKAGES_DIR}/lib/OGRE-Next/libRenderSystem_VulkanStatic.a")
+    if(VCPKG_TARGET_IS_WINDOWS)
+        set(_vulkan_rs_lib "${CURRENT_PACKAGES_DIR}/lib/OGRE-Next/RenderSystem_VulkanStatic.lib")
+    else()
+        set(_vulkan_rs_lib "${CURRENT_PACKAGES_DIR}/lib/OGRE-Next/libRenderSystem_VulkanStatic.a")
+    endif()
+    if(NOT EXISTS "${_vulkan_rs_lib}")
         message(FATAL_ERROR "Vulkan render system static library missing - the Vulkan find-probe or build was silently disabled")
     endif()
     if(NOT IS_DIRECTORY "${CURRENT_PACKAGES_DIR}/include/OGRE-Next/RenderSystems/Vulkan/include")

@@ -84,6 +84,11 @@ buys nothing there), Vulkan on Linux and Android:
   include `Xt;Xaw;Xrandr` for the GLX config dialog compiled into OgreMain;
   the xcb/Xt/Xaw dev packages come from the system package manager, same rule
   as classic ogre on Linux.
+- **Windows** - Vulkan with the Win32 window surface (Direct3D stays off -
+  the render facade drives Vulkan on every non-Apple platform); loader and
+  headers from the vcpkg `vulkan-*` ports, glslang from vcpkg; static libs
+  follow the MSVC `<name>.lib` layout (the shipped config resolves both
+  naming schemes).
 - **Android** - Vulkan with the ANativeWindow surface (no X11/xcb). The Vulkan
   loader and headers come from the **NDK sysroot** (API 28 >= Vulkan 1.1),
   NOT from vcpkg: Vulkan on a device is driver-tier, the same doctrine as

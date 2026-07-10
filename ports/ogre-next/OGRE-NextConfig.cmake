@@ -30,6 +30,11 @@ if(_ogre_next_ios OR _ogre_next_android)
 else()
     set(_ogre_next_mobile FALSE)
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(_ogre_next_windows TRUE)
+else()
+    set(_ogre_next_windows FALSE)
+endif()
 
 include(CMakeFindDependencyMacro)
 find_dependency(ZLIB)
@@ -66,6 +71,15 @@ else()
     set(_ogre_next_dbg_suffix "_d")
     set(_ogre_next_plugin_subdir "OGRE-Next/")
 endif()
+# static archive naming: lib<name>.a on Unix-family platforms, <name>.lib on
+# Windows (MSVC/clang-cl layout)
+if(_ogre_next_windows)
+    set(_ogre_next_lib_prefix "")
+    set(_ogre_next_lib_ext ".lib")
+else()
+    set(_ogre_next_lib_prefix "lib")
+    set(_ogre_next_lib_ext ".a")
+endif()
 
 # is_plugin TRUE routes through the RS plugin subdirectory (non-Apple only)
 function(_ogre_next_add_library target libname is_plugin)
@@ -80,10 +94,10 @@ function(_ogre_next_add_library target libname is_plugin)
     add_library(${target} STATIC IMPORTED)
     set_target_properties(${target} PROPERTIES
         IMPORTED_CONFIGURATIONS "RELEASE;DEBUG"
-        IMPORTED_LOCATION_RELEASE "${_ogre_next_prefix}/lib/${_sub}lib${libname}.a"
-        IMPORTED_LOCATION_DEBUG "${_ogre_next_prefix}/debug/lib/${_sub}lib${libname}${_ogre_next_dbg_suffix}.a"
+        IMPORTED_LOCATION_RELEASE "${_ogre_next_prefix}/lib/${_sub}${_ogre_next_lib_prefix}${libname}${_ogre_next_lib_ext}"
+        IMPORTED_LOCATION_DEBUG "${_ogre_next_prefix}/debug/lib/${_sub}${_ogre_next_lib_prefix}${libname}${_ogre_next_dbg_suffix}${_ogre_next_lib_ext}"
         # single-name fallback for configurations beyond Release/Debug
-        IMPORTED_LOCATION "${_ogre_next_prefix}/lib/${_sub}lib${libname}.a"
+        IMPORTED_LOCATION "${_ogre_next_prefix}/lib/${_sub}${_ogre_next_lib_prefix}${libname}${_ogre_next_lib_ext}"
     )
 endfunction()
 
@@ -96,6 +110,9 @@ elseif(_ogre_next_android)
     # Android: the NDK platform libs OgreMain's logging/native-window plumbing
     # references (no X11/pthread - the NDK folds pthread into libc)
     set(_ogre_next_main_platform_libs "android;log;dl")
+elseif(_ogre_next_windows)
+    # Windows: OgreMain's timers/window plumbing (the Win32 platform sources)
+    set(_ogre_next_main_platform_libs "winmm")
 else()
     # Linux: OgreMain's threading/plugin loading + X11 window-event plumbing.
     # Xt/Xaw/Xrandr back the GLX config dialog compiled into OgreMain (system
@@ -153,7 +170,8 @@ else()
     # (+SPIRV) for the runtime shader compile, and - on Linux only - the
     # xcb/Xlib bridge libs of VulkanXcbWindow (system packages: libx11-xcb-dev,
     # libxcb-randr0-dev). Android uses the ANativeWindow surface (no X11/xcb).
-    if(_ogre_next_android)
+    if(_ogre_next_android OR _ogre_next_windows)
+        # ANativeWindow / Win32 window surfaces - no X11/xcb bridge libs
         set(_ogre_next_vulkan_libs "OgreNext::Main;Vulkan::Vulkan;glslang::glslang;glslang::SPIRV")
     else()
         set(_ogre_next_vulkan_libs "OgreNext::Main;Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;xcb-randr")
