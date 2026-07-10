@@ -48,6 +48,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <vector>
 
 namespace Orkige
@@ -986,7 +987,10 @@ namespace Orkige
 				{ "get_state",
 				  "Snapshot of the editor: project/scene paths, dirty flag, "
 				  "selection, object count, undo/redo availability, play mode. "
-				  "While/after a compile-on-Play native build it also carries "
+				  "While a play session runs it also carries the streamed-music "
+				  "snapshot (parallel 'music_ids'/'music_files' arrays plus a "
+				  "'music_info' string per track: 'playing pos dur base group eff "
+				  "loop'). While/after a compile-on-Play native build it also carries "
 				  "'build_status' (none/building/ok/failed), 'build_target' and, "
 				  "on a failure, the 'build_errors' compiler tail (kept after the "
 				  "session reverts to edit mode).",
@@ -1917,6 +1921,34 @@ namespace Orkige
 			// reads the current value against the peak to spot growth
 			ok.set("mem_rss", std::to_string(play.remoteMemRss));
 			ok.set("mem_rss_peak", std::to_string(play.remoteMemRssPeak));
+			// streamed music (MSG_STATS): the per-track snapshot an agent reads
+			// to confirm background music is playing and at the right gain.
+			// Parallel arrays keep the structuredContent flat: music_ids /
+			// music_files, plus one "playing pos dur base group eff loop" info
+			// string per id. Empty when nothing streams (or no live player).
+			{
+				StringVector musicIds;
+				StringVector musicFiles;
+				StringVector musicInfo;
+				for (PlaySession::RemoteMusicTrack const& track :
+					play.remoteMusic)
+				{
+					musicIds.push_back(track.id);
+					musicFiles.push_back(track.file);
+					std::ostringstream info;
+					info << (track.playing ? 1 : 0) << ' '
+						<< track.positionSec << ' '
+						<< track.durationSec << ' '
+						<< track.baseGain << ' '
+						<< track.groupVolume << ' '
+						<< track.effectiveGain << ' '
+						<< (track.loop ? 1 : 0);
+					musicInfo.push_back(info.str());
+				}
+				ok.setList("music_ids", musicIds);
+				ok.setList("music_files", musicFiles);
+				ok.setList("music_info", musicInfo);
+			}
 			// compile-on-Play build verdict (native-module projects): the
 			// structured signal an agent reads instead of scraping [build] lines
 			// out of console_tail - none/building/ok/failed, the module target,
@@ -4822,6 +4854,28 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - runtime debug tools "
 				"error cleanly with no player + reject unauthenticated "
 				"mutations");
+		}
+
+		// (7b) get_state exposes the streamed-music snapshot as a flat array an
+		// agent polls to see what music is playing - headless (no live player)
+		// it must be present and EMPTY (a real playing track is asserted by the
+		// demo_music integration run and the runtime debug loop)
+		{
+			JsonValue state;
+			if (!getState(state))
+			{
+				finish(false, "control self-test: get_state failed");
+				return;
+			}
+			JsonValue const& musicIds = state.get("music_ids");
+			if (!musicIds.isArray() || musicIds.size() != 0)
+			{
+				finish(false, "control self-test: get_state music_ids is not an "
+					"empty array with no live player");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - get_state music "
+				"snapshot present (empty, no live player)");
 		}
 
 		// (8) GENERIC get_component: the reflected Transform

@@ -16,6 +16,7 @@ add_executable(orkige_engine_tests
     PhysicsContactTests.cpp
     ParticleSimTests.cpp
     SoundMixerTests.cpp
+    MusicStreamTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp
     CVarProtocolBehaviourTests.cpp
@@ -31,6 +32,9 @@ target_link_libraries(orkige_engine_tests PRIVATE
 # jumper_selfcheck integration run)
 target_compile_definitions(orkige_engine_tests PRIVATE
     ORKIGE_FASTGUI_ATLAS_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
+    # the committed tiny OGG fixture MusicStreamTests decodes (headless, no
+    # device): read straight off disk to exercise the decode + refill seam
+    ORKIGE_MUSIC_TEST_OGG="${Orkige_SOURCE_DIR}/tests/assets/blip.ogg"
 )
 if(TARGET orkige_generate_atlases)
     add_dependencies(orkige_engine_tests orkige_generate_atlases)

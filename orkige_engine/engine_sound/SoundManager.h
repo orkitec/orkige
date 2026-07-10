@@ -10,10 +10,12 @@
 #define __SoundManager_h__31_8_2010__13_58_35__
 
 #include "engine_sound/SoundSource.h"
+#include "engine_sound/MusicStream.h"
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderNode.h"
 
 #include <map>
+#include <vector>
 
 namespace Orkige
 {
@@ -30,6 +32,7 @@ namespace Orkige
 	public:
 	protected:
 		typedef std::map<String, optr<SoundSource> > SoundRegistry;		//!< registry of sound sources with id's
+		typedef std::map<String, optr<MusicStream> > MusicRegistry;		//!< streamed tracks (survive scene clears)
 		typedef std::map<String, float>	InterruptedSoundRegistry;		//!< interrupted sound ids and play offset
 		typedef std::map<String, float>	GroupVolumeMap;					//!< mixer group name -> volume 0..1
 	private:
@@ -39,6 +42,7 @@ namespace Orkige
 	protected:
 		bool isInitialized;
 		SoundRegistry				sounds;				//!< created SoundSource collection
+		MusicRegistry				music;				//!< streamed music tracks (own the mMusic registry, not components)
 		InterruptedSoundRegistry	interruptedSounds;	//!< all currently interrupted sounds
 #ifdef ORKIGE_OPENAL_SOUND
 		ALCcontext*					context;			//!< OpenAL context
@@ -90,6 +94,49 @@ namespace Orkige
 		bool stopSound(String const & id);
 		//! is given sound playing
 		bool isPlaying(String const & id);
+
+		//--- STREAMED MUSIC ------------------------------------------------
+		//! @brief stream a track: decode a compressed audio file (OGG Vorbis)
+		//! a little at a time through a small ring of OpenAL buffers. Tracks
+		//! live on the manager (not on a component), so they survive scene
+		//! switches. A new track joins the "music" mixer group and starts
+		//! playing. Re-using an existing id is a no-op (returns the running
+		//! track's state). Honest no-op without audio (registers the track
+		//! uninitialized so the volume model stays queryable, like createSound).
+		//! @param id unique registry id
+		//! @param fileName resource-relative audio file (e.g. "music/x.ogg")
+		//! @param loop restart from the start on end of stream (default true)
+		bool playMusic(String const & id, String const & fileName, bool loop = true);
+		//! stop a track and free it
+		bool stopMusic(String const & id);
+		//! stop and free every streamed track
+		void stopAllMusic();
+		//! is the given track currently playing
+		bool isMusicPlaying(String const & id) const;
+		//! set a track's own volume (0..1); multiplies the "music" group volume
+		void setMusicVolume(String const & id, float baseGain);
+		//! get a streamed track by id (NULL when unknown)
+		MusicStreamPtr getMusic(String const & id) const;
+
+		//! @brief a read-only snapshot of one streamed track, gathered for the
+		//! runtime-state readback (the debug protocol / MCP get_state surface)
+		struct MusicTrackInfo
+		{
+			String	id;				//!< registry id
+			String	file;			//!< resource-relative file
+			bool	playing;		//!< currently playing
+			float	positionSec;	//!< decoded playhead in seconds
+			float	durationSec;	//!< track length in seconds
+			float	baseGain;		//!< the track's own volume (0..1)
+			float	groupVolume;	//!< the "music" group volume (0..1)
+			float	effectiveGain;	//!< baseGain * groupVolume
+			bool	loop;			//!< restarts on end of stream
+		};
+		//! snapshot every streamed track (empty when none are registered)
+		std::vector<MusicTrackInfo> snapshotMusic() const;
+		//! refill the ring of every streamed track (called from update())
+		void updateMusic();
+
 		//! pause all sounds
 		void pause();
 		//! resume all sounds

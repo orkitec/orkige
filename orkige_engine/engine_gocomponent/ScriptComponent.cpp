@@ -700,6 +700,66 @@ namespace Orkige
 				? SoundManager::getSingleton().getMasterVolume() : 1.0f;
 		});
 
+		// ================= THE `music` TABLE (streamed tracks) =============
+		// Streamed background music, keyed by id, living on the SoundManager so
+		// a track survives scene switches (unlike a component, which the scene
+		// teardown destroys). Files resolve through the resource system like any
+		// sound, so `file` is the project-relative asset name (e.g.
+		// "music/level1.ogg"). Tracks sit in the "music" mixer group; group and
+		// master volume stay on the `sound` table (sound.setGroupVolume("music",
+		// v) / tween.volume("music", ...) reach streams transparently) - this
+		// table carries only the per-track own volume. Honest without audio: no
+		// SoundManager (or a failed OpenAL init) makes every call a no-op and the
+		// readbacks return their defaults.
+		runtime.registerFunction("music", "play",
+			[](String const & id, String const & file, ScriptArgs args) -> bool
+		{
+			if (!SoundManager::getSingletonPtr())
+			{
+				return false;
+			}
+			// loop defaults to true (background music); an explicit 0/false stops
+			// at the end of the track
+			const bool loop = ScriptRuntime::numberArg(args, 0, 1.0) != 0.0;
+			return SoundManager::getSingleton().playMusic(id, file, loop);
+		});
+		runtime.registerFunction("music", "stop", [](String const & id) -> bool
+		{
+			return SoundManager::getSingletonPtr()
+				? SoundManager::getSingleton().stopMusic(id) : false;
+		});
+		runtime.registerFunction("music", "stopAll", []()
+		{
+			if (SoundManager::getSingletonPtr())
+			{
+				SoundManager::getSingleton().stopAllMusic();
+			}
+		});
+		runtime.registerFunction("music", "isPlaying",
+			[](String const & id) -> bool
+		{
+			return SoundManager::getSingletonPtr()
+				? SoundManager::getSingleton().isMusicPlaying(id) : false;
+		});
+		runtime.registerFunction("music", "setVolume",
+			[](String const & id, float volume)
+		{
+			if (SoundManager::getSingletonPtr())
+			{
+				SoundManager::getSingleton().setMusicVolume(id, volume);
+			}
+		});
+		runtime.registerFunction("music", "getPosition",
+			[](String const & id) -> float
+		{
+			if (!SoundManager::getSingletonPtr())
+			{
+				return 0.0f;
+			}
+			MusicStreamPtr track = SoundManager::getSingleton().getMusic(id);
+			return track ? track->getPlayPosition() : 0.0f;
+		});
+
 		// ================= THE `tween` TABLE (juice) =======================
 		// Callback-based tweening on core_tween/TweenManager, ticked by the
 		// player loop (scripts -> tweens -> physics). Ease names come from

@@ -33,6 +33,7 @@
 #include "engine_input/InputManager.h"
 #include "engine_input/InputActionMap.h"
 #include "engine_sound/SoundManager.h"
+#include "engine_sound/MusicStream.h"
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_render/RenderSystem.h"
@@ -86,6 +87,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(PhysicsWorld)
 	OEXPORT(SoundManager)
 	OEXPORT(SoundSource)
+	OEXPORT(MusicStream)
 
 	// PhysicsWorld::castRayHit answers with this plain value type
 	OSIMPLEEXPORT(Orkige::PhysicsWorld::RayHit,RayHit)

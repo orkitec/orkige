@@ -640,6 +640,22 @@ struct PlaySession
 		bool visible = true;
 	};
 	std::vector<RemoteWidgetRect> remoteUiLayout;
+	//! running-game streamed music (MSG_STATS): one entry per track. The MCP
+	//! get_state verb folds these into structuredContent so an agent sees what
+	//! is playing, its playhead and its effective gain. Reset by clearRemoteState.
+	struct RemoteMusicTrack
+	{
+		std::string id;
+		std::string file;
+		bool playing = false;
+		float positionSec = 0.0f;
+		float durationSec = 0.0f;
+		float baseGain = 1.0f;
+		float groupVolume = 1.0f;
+		float effectiveGain = 1.0f;
+		bool loop = true;
+	};
+	std::vector<RemoteMusicTrack> remoteMusic;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;

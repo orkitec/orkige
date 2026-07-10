@@ -86,6 +86,7 @@ void clearRemoteState(PlaySession& session)
 	session.remoteSafeRight = -1;
 	session.remoteSafeBottom = -1;
 	session.remoteUiLayout.clear();
+	session.remoteMusic.clear();
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -1206,6 +1207,34 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			readInt(Protocol::FIELD_SAFE_TOP, session.remoteSafeTop);
 			readInt(Protocol::FIELD_SAFE_RIGHT, session.remoteSafeRight);
 			readInt(Protocol::FIELD_SAFE_BOTTOM, session.remoteSafeBottom);
+			// streamed-music snapshot (parallel ids/files/info lists; each info a
+			// flat "playing pos dur base group eff loop" string): the get_state
+			// music surface. Rebuilt each MSG_STATS; empty when nothing streams.
+			const Orkige::StringVector& musicIds =
+				message.getList(Protocol::LIST_MUSIC_IDS);
+			const Orkige::StringVector& musicFiles =
+				message.getList(Protocol::LIST_MUSIC_FILES);
+			const Orkige::StringVector& musicInfo =
+				message.getList(Protocol::LIST_MUSIC_INFO);
+			session.remoteMusic.clear();
+			for (std::size_t i = 0; i < musicIds.size(); ++i)
+			{
+				PlaySession::RemoteMusicTrack track;
+				track.id = musicIds[i];
+				track.file = (i < musicFiles.size()) ? musicFiles[i] : "";
+				if (i < musicInfo.size())
+				{
+					std::istringstream infoStream(musicInfo[i]);
+					int playing = 0;
+					int loop = 1;
+					infoStream >> playing >> track.positionSec
+						>> track.durationSec >> track.baseGain
+						>> track.groupVolume >> track.effectiveGain >> loop;
+					track.playing = playing != 0;
+					track.loop = loop != 0;
+				}
+				session.remoteMusic.push_back(track);
+			}
 		}
 		else if (message.type == Protocol::MSG_UI_LAYOUT)
 		{

@@ -27,6 +27,7 @@
     },
     "sdl3",
     "openal-soft",
+    "stb",
     "lua",
     "sol2",
     "joltphysics",

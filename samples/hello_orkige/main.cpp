@@ -207,6 +207,15 @@ int main(int, char**)
 		{
 			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 		}
+		// ORKIGE_DEMO_MUSIC=1: the streamed-music selfcheck (below) needs the
+		// committed loopable OGG on a resource location so playMusic resolves
+		// it (music_loop.ogg lives in the sample media dir)
+		const bool demoMusic =
+			(std::getenv("ORKIGE_DEMO_MUSIC") != nullptr);
+		if (demoMusic)
+		{
+			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+		}
 		render->initialiseResourceGroups();
 
 		// the window camera on a facade rig (the createDefaultCameraAndViewport
@@ -265,6 +274,42 @@ int main(int, char**)
 			{
 				SDL_Log("hello_orkige: FAILED - beep did not start");
 				return 1;
+			}
+		}
+
+		// ORKIGE_DEMO_MUSIC=1: stream a committed loopable OGG through the
+		// queued-buffer MusicStream path. Device-tolerant: when OpenAL opens a
+		// device the selfcheck asserts the track plays and its playhead ADVANCES
+		// across frames (proving the ring refilled); headless (no device) it
+		// asserts the honest no-op path instead (the track registers but stays
+		// silent and the queries never crash).
+		bool musicAudioUp = false;
+		if (demoMusic)
+		{
+			musicAudioUp = soundManager.init();
+			const bool played =
+				soundManager.playMusic("bgm", "music_loop.ogg", true);
+			if (musicAudioUp)
+			{
+				if (!played || !soundManager.isMusicPlaying("bgm"))
+				{
+					SDL_Log("hello_orkige: FAILED - music did not start");
+					return 1;
+				}
+				SDL_Log("hello_orkige: music streaming music_loop.ogg "
+					"(OGG Vorbis, queued buffers)");
+			}
+			else
+			{
+				// no audio device (headless CI): the honest no-op path
+				if (soundManager.isMusicPlaying("bgm"))
+				{
+					SDL_Log("hello_orkige: FAILED - music reports playing "
+						"with no audio device");
+					return 1;
+				}
+				SDL_Log("hello_orkige: no audio device - music honest no-op "
+					"path");
 			}
 		}
 
@@ -977,6 +1022,9 @@ int main(int, char**)
 
 		bool running = true;
 		unsigned long frameCount = 0;
+		// music selfcheck: the playhead sampled early, compared late to prove it
+		// advanced (device present) or stayed put at 0 (headless no-op)
+		float musicPosStart = 0.0f;
 		std::chrono::steady_clock::time_point lastFrameTime =
 			std::chrono::steady_clock::now();
 		while (running)
@@ -1026,6 +1074,14 @@ int main(int, char**)
 				// fixed tick: the emitter ages its particles deterministically
 				// (burst-only, so nothing spawns until frame 20)
 				gameObjectManager.update(0.05f);
+			}
+			if (demoMusic)
+			{
+				// refill the ring on the main thread; the small real-time delay
+				// lets OpenAL actually advance the playhead between the sampled
+				// frames (audio plays wall-clock, not per rendered frame)
+				soundManager.update(0.016f);
+				SDL_Delay(4);
 			}
 			cubeNode->yaw(Orkige::Degree(0.4f));
 			cubeNode->pitch(Orkige::Degree(0.13f));
@@ -1228,6 +1284,49 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: particle selfcheck passed (burst raised "
 					"then decayed, single-draw batch)");
+			}
+			if (demoMusic && frameCount == 20)
+			{
+				// sample the playhead early (after the ring primed and a little
+				// audio has played)
+				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
+				musicPosStart = track ? track->getPlayPosition() : 0.0f;
+			}
+			if (demoMusic && frameCount == 110)
+			{
+				Orkige::MusicStreamPtr track = soundManager.getMusic("bgm");
+				const float musicPosEnd =
+					track ? track->getPlayPosition() : 0.0f;
+				const bool playing = soundManager.isMusicPlaying("bgm");
+				SDL_Log("hello_orkige: music posStart=%.4f posEnd=%.4f "
+					"playing=%d audioUp=%d", musicPosStart, musicPosEnd,
+					static_cast<int>(playing), static_cast<int>(musicAudioUp));
+				if (musicAudioUp)
+				{
+					// device present: the track must be playing AND its playhead
+					// must have advanced (proves the queued-buffer ring refilled)
+					if (!playing || !(musicPosEnd > musicPosStart))
+					{
+						SDL_Log("hello_orkige: FAILED - music playhead did not "
+							"advance (ring did not refill)");
+						return 1;
+					}
+					SDL_Log("hello_orkige: music selfcheck passed (streamed OGG "
+						"playhead advanced across frames)");
+				}
+				else
+				{
+					// headless: the honest no-op path - nothing plays, nothing
+					// advances, and no query crashed to get here
+					if (playing || musicPosEnd != 0.0f)
+					{
+						SDL_Log("hello_orkige: FAILED - music no-op path "
+							"reported playback with no device");
+						return 1;
+					}
+					SDL_Log("hello_orkige: music selfcheck passed (honest no-op "
+						"without an audio device)");
+				}
 			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{

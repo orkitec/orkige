@@ -27,6 +27,9 @@
 # --- dependencies shared by both flavors ------------------------------------
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
+# stb: header/single-file only - ships stb_vorbis.c (the OGG Vorbis decoder
+# engine_sound/StbVorbisImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
+find_package(Stb REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
 find_package(Jolt CONFIG REQUIRED)
 
@@ -131,6 +134,12 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/SoundManager.h
     engine_sound/SoundManager.cpp
     engine_sound/LoadWavData.cpp
+    # streamed music: the queued-buffer streamer + the ONE TU that compiles the
+    # single-file OGG Vorbis decoder (StbVorbisImpl.cpp - nothing else includes
+    # it, so the decoder never touches the umbrella or the PCH)
+    engine_sound/MusicStream.h
+    engine_sound/MusicStream.cpp
+    engine_sound/StbVorbisImpl.cpp
     # fastgui: flavor-neutral (the UiRenderer
     # submits to engine_render/DrawLayer2D; atlas parsing/glyph metrics/
     # widget math were always renderer-blind). Gorilla is DELETED - the
@@ -300,6 +309,13 @@ orkige_pch_ccache_compat(orkige_engine)
 # self-contained (no Ogre.h umbrella) - the target PCH would mask that.
 set_source_files_properties(engine_render/RenderFacadeCheck.cpp
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
+# the single-file OGG Vorbis decoder is compiled in exactly one TU: give ONLY
+# that TU the stb include and keep it off the PCH (the decoder stays out of the
+# sol2/Ogre precompiled header). Nothing else sees the stb headers.
+set_source_files_properties(engine_sound/StbVorbisImpl.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.

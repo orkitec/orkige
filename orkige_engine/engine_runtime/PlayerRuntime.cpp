@@ -32,6 +32,7 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_util/PlatformWindow.h"
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_sound/SoundManager.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
 #include <SDL3/SDL_filesystem.h>
@@ -1104,6 +1105,42 @@ namespace Orkige
 			stats.set(Protocol::FIELD_SAFE_BOTTOM,
 				std::to_string(insets.mBottom));
 			anyField = true;
+		}
+		// streamed-music snapshot: one entry per track (id, file, and a flat
+		// numeric info string), so the editor Stats panel and the MCP get_state
+		// surface can answer "what is playing, where, and how loud". Rides
+		// MSG_STATS as three parallel lists (no nested objects). Omitted when
+		// no track is registered or there is no SoundManager (headless).
+		if (SoundManager::getSingletonPtr() != NULL)
+		{
+			std::vector<SoundManager::MusicTrackInfo> tracks =
+				SoundManager::getSingleton().snapshotMusic();
+			if (!tracks.empty())
+			{
+				StringVector ids;
+				StringVector files;
+				StringVector infos;
+				for (SoundManager::MusicTrackInfo const & track : tracks)
+				{
+					ids.push_back(track.id);
+					files.push_back(track.file);
+					// "<playing> <positionSec> <durationSec> <baseGain>
+					// <groupVolume> <effectiveGain> <loop>"
+					std::ostringstream info;
+					info << (track.playing ? 1 : 0) << ' '
+						<< track.positionSec << ' '
+						<< track.durationSec << ' '
+						<< track.baseGain << ' '
+						<< track.groupVolume << ' '
+						<< track.effectiveGain << ' '
+						<< (track.loop ? 1 : 0);
+					infos.push_back(info.str());
+				}
+				stats.setList(Protocol::LIST_MUSIC_IDS, ids);
+				stats.setList(Protocol::LIST_MUSIC_FILES, files);
+				stats.setList(Protocol::LIST_MUSIC_INFO, infos);
+				anyField = true;
+			}
 		}
 		if (anyField)
 		{

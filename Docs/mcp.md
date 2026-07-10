@@ -98,7 +98,7 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 
 | Tool | Maps to |
 |------|---------|
-| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play) |
+| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |

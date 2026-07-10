@@ -215,6 +215,16 @@ namespace Orkige
 		//! is "1"/"0"). Two lists keep the message flat (no nested objects).
 		extern ORKIGE_CORE_DLL const String LIST_UI_IDS;
 		extern ORKIGE_CORE_DLL const String LIST_UI_RECTS;
+		//! @brief MSG_STATS: the streamed-music snapshot as three parallel lists
+		//! (kept flat, no nested objects, like LIST_UI_IDS/RECTS). LIST_MUSIC_IDS
+		//! holds the track ids; LIST_MUSIC_FILES the resource-relative file per id;
+		//! LIST_MUSIC_INFO one flat "<playing> <positionSec> <durationSec>
+		//! <baseGain> <groupVolume> <effectiveGain> <loop>" string per id (playing
+		//! and loop are "1"/"0"). Streamed alongside the memory/safe-area fields;
+		//! absent (empty) when no track is registered. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String LIST_MUSIC_IDS;
+		extern ORKIGE_CORE_DLL const String LIST_MUSIC_FILES;
+		extern ORKIGE_CORE_DLL const String LIST_MUSIC_INFO;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

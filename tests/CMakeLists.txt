@@ -201,6 +201,15 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_sound PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_SOUND=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_MUSIC: the streamed-music selfcheck - stream a committed
+    # loopable OGG through the queued-buffer MusicStream path and assert the
+    # playhead advances (audio device present) or the honest no-op path (device
+    # absent, headless CI). Device-tolerant; runs on both render flavors.
+    add_test(NAME demo_music COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_music PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_MUSIC=1;ORKIGE_DEMO_FRAMES=120")
+
     # ORKIGE_DEMO_SPRITEANIM: the sprite flipbook (SpriteAnimationComponent)
     # headed selfcheck - a 4x1 grid clip ticked through the GameObjectManager;
     # asserts the sibling sprite's UV rect advances across frames and wraps on
@@ -807,7 +816,7 @@ if(APPLE AND TARGET orkige_editor AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
 endif()
 
 # shared properties for all integration tests
-foreach(integration_test demo_plain demo_mesh demo_physics demo_sound
+foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next

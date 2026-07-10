@@ -275,7 +275,11 @@ material, zOrder → render-queue painter's sorting (its header documents the
 alpha/sorting rules), `RigidBodyComponent` on Jolt via the
 backend-agnostic `engine_physic/PhysicsWorld` (planar 2D mode, `teleport` moves body +
 transform even while the sim is `setPaused` — the tile-slide/"move world" API),
-`SoundComponent` on OpenAL Soft,
+`SoundComponent` on OpenAL Soft (fully-buffered WAV/CAF sfx; streamed OGG Vorbis
+music rides `engine_sound/MusicStream` — a queued-buffer ring decoded a little at a
+time via stb_vorbis, main-thread refill in `SoundManager::update`, owned by the
+`SoundManager` music registry so tracks survive scene switches; the Lua `music` table
+= play/stop/stopAll/isPlaying/setVolume/getPosition, in the "music" mixer group),
 `AnimationComponent`, `CameraComponent` (projection mode + orthoSize serialize; ortho =
 the 2D camera, also reachable via `Engine::setCameraOrthographic`), the Lua
 `ScriptComponent` — dormant unless a

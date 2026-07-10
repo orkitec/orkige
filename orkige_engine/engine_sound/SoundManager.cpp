@@ -95,6 +95,22 @@ namespace Orkige
 			alListenerfv(AL_ORIENTATION, orientation);
 #endif //ORKIGE_OPENAL_SOUND
 		}
+
+		// streamed music: refill each track's ring on the main thread (the
+		// 4x0.5s AL cushion tolerates the occasional long frame)
+		this->updateMusic();
+	}
+	//---------------------------------------------------------
+	void SoundManager::updateMusic()
+	{
+		if (!this->isInitialized)
+		{
+			return;
+		}
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			vt.second->update();
+		}
 	}
 	//---------------------------------------------------------
 	bool SoundManager::deinit()
@@ -113,6 +129,8 @@ namespace Orkige
 			}
 		}
 		this->sounds.clear();
+		// streamed tracks free their AL objects + decoder in their destructor
+		this->music.clear();
 		if (this->isInitialized)
 		{
 			return this->deinitOpenAl();
@@ -240,6 +258,116 @@ namespace Orkige
 		return playing;
 	}
 	//---------------------------------------------------------
+	//--- streamed music --------------------------------------
+	//---------------------------------------------------------
+	bool SoundManager::playMusic(String const & id, String const & fileName, bool loop)
+	{
+		MusicRegistry::const_iterator it = this->music.find(id);
+		if(it != this->music.end())
+		{
+			// an already-registered track: keep it playing (idempotent)
+			return it->second->isPlaying();
+		}
+		optr<MusicStream> stream = onew(new MusicStream(id, fileName, loop));
+		// AL objects + decoding only happen while OpenAL is up; an
+		// uninitialized manager still REGISTERS the track (the gain model stays
+		// queryable headlessly), exactly like createSound does for SoundSource
+		bool started = false;
+		if(this->isInitialized)
+		{
+			if(stream->open())
+			{
+				started = stream->play();
+			}
+			else
+			{
+				oDebugMsg("sound",0,"Music failed to open: " << fileName << "!");
+			}
+		}
+		// a new track sits in the "music" group - push that group's volume
+		stream->setGroupVolume(this->getGroupVolume(stream->getGroup()));
+		this->music[id] = stream;
+		return started;
+	}
+	//---------------------------------------------------------
+	bool SoundManager::stopMusic(String const & id)
+	{
+		MusicRegistry::iterator it = this->music.find(id);
+		if(it == this->music.end())
+		{
+			return false;
+		}
+		if(it->second->isPrimed())
+		{
+			it->second->stop();
+		}
+		this->music.erase(it);
+		return true;
+	}
+	//---------------------------------------------------------
+	void SoundManager::stopAllMusic()
+	{
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			if(vt.second->isPrimed())
+			{
+				vt.second->stop();
+			}
+		}
+		this->music.clear();
+	}
+	//---------------------------------------------------------
+	bool SoundManager::isMusicPlaying(String const & id) const
+	{
+		MusicRegistry::const_iterator it = this->music.find(id);
+		if(it == this->music.end())
+		{
+			return false;
+		}
+		return it->second->isPlaying();
+	}
+	//---------------------------------------------------------
+	void SoundManager::setMusicVolume(String const & id, float baseGain)
+	{
+		MusicRegistry::const_iterator it = this->music.find(id);
+		if(it != this->music.end())
+		{
+			it->second->setBaseGain(baseGain);
+		}
+	}
+	//---------------------------------------------------------
+	MusicStreamPtr SoundManager::getMusic(String const & id) const
+	{
+		MusicRegistry::const_iterator it = this->music.find(id);
+		if(it == this->music.end())
+		{
+			return oNULL(MusicStream);
+		}
+		return it->second;
+	}
+	//---------------------------------------------------------
+	std::vector<SoundManager::MusicTrackInfo> SoundManager::snapshotMusic() const
+	{
+		std::vector<MusicTrackInfo> out;
+		out.reserve(this->music.size());
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			optr<MusicStream> const & stream = vt.second;
+			MusicTrackInfo info;
+			info.id = vt.first;
+			info.file = stream->getFile();
+			info.playing = stream->isPlaying();
+			info.positionSec = stream->getPlayPosition();
+			info.durationSec = stream->getDuration();
+			info.baseGain = stream->getBaseGain();
+			info.groupVolume = this->getGroupVolume(stream->getGroup());
+			info.effectiveGain = stream->getEffectiveGain();
+			info.loop = stream->isLoop();
+			out.push_back(info);
+		}
+		return out;
+	}
+	//---------------------------------------------------------
 	void SoundManager::pause()
 	{
 		if (!this->isInitialized)
@@ -247,6 +375,10 @@ namespace Orkige
 			return;
 		}
 		foreach(SoundRegistry::value_type const & vt, sounds)
+		{
+			vt.second->pause();
+		}
+		foreach(MusicRegistry::value_type const & vt, music)
 		{
 			vt.second->pause();
 		}
@@ -262,6 +394,10 @@ namespace Orkige
 		{
 			vt.second->resume();
 		}
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			vt.second->resume();
+		}
 	}
 	//---------------------------------------------------------
 	void SoundManager::setGroupVolume(String const & group, float volume)
@@ -270,6 +406,16 @@ namespace Orkige
 		this->groupVolumes[group] = volume;
 		// recompute every source of the group (effective = base * group)
 		foreach(SoundRegistry::value_type const & vt, sounds)
+		{
+			if(vt.second->getGroup() == group)
+			{
+				vt.second->setGroupVolume(volume);
+			}
+		}
+		// streamed tracks share the same mixer model - the "music" group's
+		// volume must reach them too, so sound.setGroupVolume("music", ...) and
+		// tween.volume("music", ...) transparently control streamed volume
+		foreach(MusicRegistry::value_type const & vt, music)
 		{
 			if(vt.second->getGroup() == group)
 			{
@@ -352,6 +498,12 @@ namespace Orkige
 				src->deinit();
 			}
 		}
+		// streamed tracks release their AL objects too (they die with the
+		// context); the decoder + resident bytes are kept for the restore below
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			vt.second->suspend();
+		}
 
 		//deinit al
 		this->deinitOpenAl();
@@ -376,6 +528,13 @@ namespace Orkige
 			src->play();
 		}
 		this->interruptedSounds.clear();
+
+		// recreate each streamed track's AL ring and resume the ones that were
+		// playing when the interruption began
+		foreach(MusicRegistry::value_type const & vt, music)
+		{
+			vt.second->restore();
+		}
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------

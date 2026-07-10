@@ -33,6 +33,7 @@
   "orkige_engine/engine_sound/SoundSource.h": "math-only residue (listener/source positions) - alias vocabulary pending",
   "orkige_engine/engine_sound/SoundSource.cpp": "math-only residue - alias vocabulary pending",
   "orkige_engine/engine_sound/LoadWavData.cpp": "loads wav bytes through the resource system (Ogre::DataStream) - portable to Next; impl-side VFS on Filament",
+  "orkige_engine/engine_sound/MusicStream.cpp": "reads compressed music bytes through the resource system (Ogre::DataStream) - same portable VFS path as LoadWavData",
   "orkige_engine/engine_util/MeshUtil.h": "backend-private vertex/index buffer extraction; only referenced by the unbuilt sceneoptimizer",
   "orkige_engine/engine_util/PrimitiveUtil.h": "backend-private ManualObject mesh building; called by the classic backend (createVertexColourCubeMesh)",
   "orkige_engine/engine_util/StringConverter.h": "math-adjacent converters - follow the math decision (aliases keep it working on both Ogre backends)",
