@@ -217,7 +217,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 58 tools cover the whole
+player debug protocol — never a second player port. The 59 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),
@@ -419,6 +419,23 @@ look when touching one:
   **level system** (`core_game/Level*`: deferred mid-play scene switch via the
   `LevelManager` pending-load applied at the player-loop frame boundary;
   `levels.olevels`; progression save in `getDocumentsDirectory`).
+- **Device polish**: **haptics** (`engine_input/HapticManager`: phone-body
+  vibration — iOS UIFeedbackGenerator in `HapticBridgeApple.mm`, Android
+  `Vibrator`/`VibrationEffect` over JNI, desktop honest no-op; Lua `haptics`
+  table — `play`/`pattern`/`isAvailable`/`setEnabled`; SDL3 has NO device-body
+  vibration API, so this is a platform shim); **tilt calibration**
+  (`InputManager::calibrateTilt` captures the current pose as neutral — a Z-offset
+  applied in `getTilt`, pure math in `core_util/TiltCalibration.h`, persisted
+  per-device; Lua `input:calibrateTilt`/`clearTiltCalibration`/`getTiltCalibration`);
+  **screen fades** (`engine_graphic/ScreenFade`: a facade-only full-window
+  `DrawLayer2D` overlay animated through `EaseLibrary`, both flavors, ticked last;
+  Lua `screen` table — `fadeOut`/`fadeIn`/`setFadeColor`/`isFading`/`loadScene`
+  which wipes over a deferred scene switch).
+- **Crash breadcrumbs**: `core_debug/Breadcrumbs` — an always-on, bounded ring of
+  engine events (scene loads, script errors, warnings, boot/shutdown) FLUSHED to
+  disk per entry so a hard crash leaves a readable trail; rotated on boot
+  (`breadcrumbs.jsonl` → `.prev.jsonl`); the player writes it to the writable app
+  dir, the editor reads the survived file over the MCP `get_breadcrumbs` verb.
 - **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
   MCP section above + `Docs/mcp.md`.
 - **CONVENTIONS to preserve**: the **config-asset** pattern (project-config files —

@@ -23,6 +23,7 @@
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_fastgui/FastGuiFactory.h>
+#include <engine_fastgui/FastGuiSlider.h>
 #include <engine_fastgui/UiAtlas.h>
 #include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
@@ -1041,6 +1042,37 @@ int main(int, char**)
 				else
 				{
 					SDL_Log("hello_orkige: FAILED - select menu not created");
+					uiOk = false;
+				}
+
+				// a bound slider (shares the select-menu value API + pin/arrow
+				// sprites) - and a live setSize resize, previously unimplemented:
+				// the resize must not assert and must keep the selected value
+				Orkige::woptr<Orkige::FastGuiSlider> slider =
+					factory->createSlider("uiSlider", "uiSliderButton",
+						"select_menu_field", 9, "Volume", Orkige::Vec2(100, 470),
+						Orkige::FastGuiLabel::LA_CENTER, Orkige::Vec2(180, 40),
+						"", 6);
+				if (slider.lock())
+				{
+					Orkige::StringVector items;
+					items.push_back("0");
+					items.push_back("50");
+					items.push_back("100");
+					slider.lock()->setItems(items);
+					slider.lock()->selectItemIndex(1, false);
+					slider.lock()->setSize(220, 44);	// the implemented path
+					if (slider.lock()->getSelectedItemIndex() != 1)
+					{
+						SDL_Log("hello_orkige: FAILED - slider index is %zu after "
+							"resize, expected 1",
+							slider.lock()->getSelectedItemIndex());
+						uiOk = false;
+					}
+				}
+				else
+				{
+					SDL_Log("hello_orkige: FAILED - slider not created");
 					uiOk = false;
 				}
 

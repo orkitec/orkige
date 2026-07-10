@@ -82,6 +82,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/Engine.h
     engine_graphic/FrameEventData.h
     engine_graphic/FrameEventData.cpp
+    engine_graphic/ScreenFade.h
+    engine_graphic/ScreenFade.cpp
     engine_base/EngineLog.h
     engine_base/EngineLog.cpp
     engine_input/KeyEventData.h
@@ -96,6 +98,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_input/AccelerationEventData.cpp
     engine_input/InputManager.h
     engine_input/InputManager.cpp
+    engine_input/HapticManager.h
+    engine_input/HapticManager.cpp
     engine_input/InputAction.h
     engine_input/InputActionMap.h
     engine_input/InputActionMap.cpp
@@ -258,6 +262,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Objective-C UIKit calls - the file was always ObjC++ on iOS
     set_source_files_properties(engine_graphic/Engine.cpp
         PROPERTIES LANGUAGE OBJCXX)
+    # the taptic-engine bridge behind HapticManager (UIFeedbackGenerator, UIKit);
+    # iOS-only - macOS has no phone vibrator and takes the desktop no-op path.
+    # UIKit resolves at the final app link (SDL's UIKit main already pulls it).
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_input/HapticBridgeApple.mm)
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         # iOS attaches the Ogre-Next Metal view into SDL's UIKit window via a
         # small ObjC++ bridge (the render-system-created view is otherwise

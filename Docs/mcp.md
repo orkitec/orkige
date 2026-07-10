@@ -133,6 +133,7 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
 | `get_ui_layout()` | the RUNNING game's fastgui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible"`, pixels; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box |
+| `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir` |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
@@ -188,6 +189,30 @@ visible widget from `get_ui_layout`, its rect lies inside
 `[safe_left, window_w-safe_right] × [safe_top, window_h-safe_bottom]` from
 `get_safe_area` (the `player_safearea_device` ctest runs exactly this against a
 booted iPhone 16 simulator).
+
+### Haptics, tilt calibration, screen fades — Lua-authored, no new verb
+
+Three device/presentation features are reachable through the SAME
+authoring-in-Lua + readback path as game UI, so they need no dedicated MCP verb:
+
+- **Haptics** (`haptics.play(strength, ms)` / `haptics.pattern(name)` /
+  `haptics.isAvailable()` / `haptics.setEnabled()`) — phone-body vibration, a
+  device-only effect (desktop is an honest no-op). An agent authors the calls in
+  a `ScriptComponent` via `write_project_file` and iterates with `reload_script`;
+  there is no headless "did it buzz" to read back.
+- **Tilt calibration** (`input:calibrateTilt()` / `input:clearTiltCalibration()`
+  / `input:getTiltCalibration()`) — captures the current pose as neutral. Authored
+  in Lua (a settings "Calibrate" button); the resulting offset is a reflected-ish
+  input value the game reads through `input:getTilt()`.
+- **Screen fades** (`screen.fadeOut(secs)` / `screen.fadeIn(secs)` /
+  `screen.loadScene(path, out, in)` / `screen.setFadeColor` / `screen.isFading`) —
+  a full-screen wipe over a scene switch, authored in Lua and observable via
+  `screenshot_game` (the overlay renders into the captured frame).
+
+All three are driven by writing/reloading project scripts and confirmed with the
+existing readback verbs (`screenshot_game`, `console_tail`, `get_breadcrumbs`),
+so the standing "every feature reachable or justified" rule is met without a new
+tool.
 
 ## Test runner (the evidence loop)
 

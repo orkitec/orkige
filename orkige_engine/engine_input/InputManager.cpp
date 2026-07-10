@@ -21,9 +21,12 @@
 #include "engine_graphic/FrameEventData.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_util/StringUtil.h"
+#include "core_util/TiltCalibration.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <fstream>
 
 //! maximum number of simultaneously tracked touch sequences (OIS tracked 4)
 #define ORKIGE_MAX_NUM_TOUCHES 10
@@ -262,6 +265,8 @@ namespace Orkige
 		SDL_Sensor* accelSensor;		//!< the opened SDL accelerometer or NULL
 		SDL_SensorID accelSensorId;		//!< instance id matched in injectEvent
 		float sensorAccel[3];			//!< latest raw accelerometer sample (m/s^2)
+		float tiltCalibAngle;			//!< neutral-pose calibration offset (radians)
+		String calibSaveFile;			//!< calibration save path ("" = no persistence)
 
 		InputManagerImpl()
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -319,6 +324,7 @@ namespace Orkige
 			this->sensorAccel[0] = 0.0f;
 			this->sensorAccel[1] = 0.0f;
 			this->sensorAccel[2] = 0.0f;
+			this->tiltCalibAngle = 0.0f;
 		}
 		~InputManagerImpl()
 		{
@@ -632,6 +638,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	Ogre::Vector3 InputManager::getTilt() const
 	{
+		Ogre::Vector3 tilt = this->rawTilt();
+		// apply the neutral-pose calibration (a planar rotation about Z); the
+		// raw pose the calibration was captured at reads as upright afterwards
+		if(this->impl->tiltCalibAngle != 0.0f)
+		{
+			TiltCalibration::apply(tilt.x, tilt.y, this->impl->tiltCalibAngle);
+			if(tilt.length() >= 0.5f)
+			{
+				tilt = tilt.normalisedCopy();
+			}
+		}
+		return tilt;
+	}
+	//---------------------------------------------------------
+	Ogre::Vector3 InputManager::rawTilt() const
+	{
 		if(this->impl->tiltSensorAvailable)
 		{
 			// SDL accelerometers report the reaction to gravity (device at
@@ -648,6 +670,77 @@ namespace Orkige
 			return tilt.normalisedCopy();
 		}
 		return tiltVectorFromAngle(this->impl->tiltAngle);
+	}
+	//---------------------------------------------------------
+	void InputManager::calibrateTilt()
+	{
+		// the pose captured is the RAW (pre-calibration) gravity direction, so
+		// re-calibrating from an already-calibrated state captures the new
+		// physical pose, never the corrected one
+		Ogre::Vector3 pose = this->rawTilt();
+		this->impl->tiltCalibAngle =
+			TiltCalibration::angleForPose(pose.x, pose.y);
+		this->saveCalibration();
+	}
+	//---------------------------------------------------------
+	void InputManager::clearTiltCalibration()
+	{
+		this->impl->tiltCalibAngle = 0.0f;
+		this->saveCalibration();
+	}
+	//---------------------------------------------------------
+	float InputManager::getTiltCalibration() const
+	{
+		return this->impl->tiltCalibAngle;
+	}
+	//---------------------------------------------------------
+	void InputManager::setTiltCalibration(float radians)
+	{
+		this->impl->tiltCalibAngle = radians;
+	}
+	//---------------------------------------------------------
+	void InputManager::setCalibrationSaveFile(String const & path)
+	{
+		this->impl->calibSaveFile = path;
+	}
+	//---------------------------------------------------------
+	bool InputManager::saveCalibration() const
+	{
+		if(this->impl->calibSaveFile.empty())
+		{
+			return false;
+		}
+		std::ofstream file(this->impl->calibSaveFile.c_str(), std::ios::binary);
+		if(!file)
+		{
+			return false;
+		}
+		// magic + version + the offset, so a garbage/foreign file is rejected
+		file << "orkige.tilt\n1\n" << this->impl->tiltCalibAngle << "\n";
+		return file.good();
+	}
+	//---------------------------------------------------------
+	bool InputManager::loadCalibration()
+	{
+		if(this->impl->calibSaveFile.empty())
+		{
+			return false;
+		}
+		std::ifstream file(this->impl->calibSaveFile.c_str(), std::ios::binary);
+		if(!file)
+		{
+			return false;
+		}
+		std::string magic;
+		int version = 0;
+		float angle = 0.0f;
+		if(!(file >> magic >> version >> angle) ||
+			magic != "orkige.tilt" || version != 1)
+		{
+			return false;	// honest fallback: keep the current (no) calibration
+		}
+		this->impl->tiltCalibAngle = angle;
+		return true;
 	}
 	//---------------------------------------------------------
 	bool InputManager::isTiltSensorAvailable() const
@@ -752,5 +845,10 @@ namespace Orkige
 		OFUNC(isTiltSensorAvailable)
 		OFUNC(setTiltAngle)
 		OFUNC(getTiltAngle)
+		// tilt calibration: input:calibrateTilt() makes the current pose the
+		// neutral (0,-1,0); clear reverts to the raw pose; get reads the offset
+		OFUNC(calibrateTilt)
+		OFUNC(clearTiltCalibration)
+		OFUNC(getTiltCalibration)
 	OOBJECT_END
 }

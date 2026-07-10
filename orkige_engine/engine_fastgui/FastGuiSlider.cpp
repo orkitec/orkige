@@ -158,7 +158,49 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiSlider::setSize( Ogre::Real width, Ogre::Real height )
 	{
-		oAssertDesc(false, "not implemented");
+		// re-lay-out the compound slider around the new field size, mirroring the
+		// constructor's proportional geometry: the decor is the field, the arrows
+		// hug its sides, the main button + pin track sit centred inside it.
+		const Ogre::Vector2 origin = this->decor->getPosition();
+		this->decor->setSize( width, height );
+		this->label->setSize( width, height );
+
+		this->leftArrow->setSize( width * 0.2f, height * 0.9f );
+		this->rightArrow->setSize( width * 0.2f, height * 0.9f );
+		this->leftArrow->setPosition(
+			origin.x - this->leftArrow->getSize().x,
+			origin.y + (height / 2.0f) - (this->leftArrow->getSize().y / 2.0f) );
+		this->rightArrow->setPosition(
+			origin.x + width,
+			origin.y + (height / 2.0f) - (this->rightArrow->getSize().y / 2.0f) );
+
+		this->buttonMainSelection->setSize( width * 0.8f, height * 0.3f );
+		float positionX = origin.x + (width / 2.0f) -
+			(this->buttonMainSelection->getSize().x / 2.0f);
+		float positionY = origin.y + (height / 2.0f);
+		this->buttonMainSelection->setPosition( floor(positionX), floor(positionY) );
+
+		this->pin_area->setSize(
+			this->buttonMainSelection->getSize().x,
+			this->buttonMainSelection->getSize().y );
+		this->pin_area->setPosition(
+			this->buttonMainSelection->getPosition().x,
+			this->buttonMainSelection->getPosition().y );
+
+		// rebuild the pin snap track for the new geometry, keeping the selection
+		const int keep = this->selectedIndex;
+		if (!this->items.empty())
+		{
+			this->setItems( this->items );	// recomputes itemsPinSnap (selects 0)
+			if (keep >= 0 && keep < static_cast<int>(this->items.size()))
+			{
+				this->selectItemIndex( keep, false );
+			}
+		}
+		else
+		{
+			this->showItem();				// just reposition/hide the pin
+		}
 	}
 	//----------------------------------------------------
 	void FastGuiSlider::onCursorPressed( Ogre::Vector2 const & cursorPos )

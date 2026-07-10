@@ -104,6 +104,15 @@ movement, buffered jumping, camera follow) and `projects/roller/scripts/ball.lua
 (tilt gravity via `InputManager:getTilt()`, a sensor `onContactBegin(self, other)`
 win, `self.rigidbody:teleport(...)`).
 
+Beyond `world`/`shared`/`InputActions`, scripts reach a handful of global tables:
+`sound` and `music` (the mixer + streamed tracks), `tween` (animate values),
+`screen` (`fadeOut`/`fadeIn`/`setFadeColor`/`isFading`, and `loadScene(path, out,
+in)` to wipe over a scene switch), `haptics` (`play(strength, ms)` /
+`pattern("light".."selection")` / `isAvailable` / `setEnabled` — phone-body
+vibration, a no-op on desktop) and `loc(key, …)` (localisation). Tilt games can let
+the player recalibrate the neutral pose with `InputManager.getSingleton():
+calibrateTilt()` (and `clearTiltCalibration()`), persisted per-device.
+
 ## 6. Press Play
 
 Hit **Play** in the toolbar or **Cmd/Ctrl+P**. Orkige launches the standalone

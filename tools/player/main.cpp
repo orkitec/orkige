@@ -28,6 +28,7 @@
 // on iOS it wraps main() in SDL's UIKit application bootstrap
 #include <SDL3/SDL_main.h>
 #include <engine_graphic/Engine.h>
+#include <engine_graphic/ScreenFade.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderNode.h>
@@ -41,6 +42,7 @@
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#include <engine_input/HapticManager.h>
 #include <engine_input/InputActionMap.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/PlatformWindow.h>
@@ -57,7 +59,9 @@
 #include <core_game/LevelSequence.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
+#include <core_debug/Breadcrumbs.h>
 #include <core_debugnet/DebugServer.h>
+#include <engine_base/EngineLog.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
@@ -73,6 +77,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_set>
 
 // the engine's shared-ownership alias, used throughout this TU
 using Orkige::optr;
@@ -452,6 +457,45 @@ int main(int argc, char** argv)
 				"orkige_player.log"
 			: "orkige_player.log";
 #endif
+		// crash breadcrumbs: an always-on, flush-per-entry trail of engine events
+		// (scene loads, script errors, warnings, boot/shutdown) that survives a
+		// hard crash (SIGSEGV/OOM/watchdog kill). Written to the writable app dir
+		// (getSupportDirectory on desktop, getDocumentsDirectory on mobile) so the
+		// editor can read the PREVIOUS session's trail after an abnormal exit;
+		// ORKIGE_BREADCRUMB_DIR overrides it (test isolation). rotate() at boot
+		// moves the last run's file to breadcrumbs.prev.jsonl.
+		Orkige::Breadcrumbs breadcrumbs;
+		{
+			std::string breadcrumbDir;
+			if (const char* dirEnv = std::getenv("ORKIGE_BREADCRUMB_DIR"))
+			{
+				breadcrumbDir = dirEnv;
+			}
+#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
+			else
+			{
+				breadcrumbDir = Orkige::PlatformUtil::getDocumentsDirectory();
+			}
+#else
+			else
+			{
+				breadcrumbDir =
+					Orkige::PlatformUtil::getSupportDirectory("Orkige Player");
+			}
+#endif
+			if (!breadcrumbDir.empty() && breadcrumbDir.back() != '/')
+			{
+				breadcrumbDir += '/';
+			}
+			if (!breadcrumbDir.empty())
+			{
+				std::error_code ignored;
+				std::filesystem::create_directories(breadcrumbDir, ignored);
+				breadcrumbs.setFile(breadcrumbDir + "breadcrumbs.jsonl");
+				breadcrumbs.rotate();
+				breadcrumbs.record("boot", scenePath);
+			}
+		}
 		// automation hooks (read before engine setup - they gate the vsync
 		// and frame-pacing decisions): ORKIGE_DEMO_FRAMES frame-limits the
 		// run, ORKIGE_JUMPER_LUA_SELFCHECK runs the scripted verification
@@ -527,6 +571,21 @@ int main(int argc, char** argv)
 		// script lifecycle + teardown in one run.
 		const bool integrationLevelCheck =
 			(std::getenv("ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK") != nullptr);
+		// ORKIGE_BREADCRUMB_SELFCHECK verifies the crash breadcrumb trail against
+		// tests/projects/breadcrumb: a ScriptComponent raises a Lua error at init;
+		// the player must record it as a "script_error" line in breadcrumbs.jsonl
+		// (flushed to disk) while the game keeps running. Isolate the trail with
+		// ORKIGE_BREADCRUMB_DIR.
+		const bool breadcrumbCheck =
+			(std::getenv("ORKIGE_BREADCRUMB_SELFCHECK") != nullptr);
+		// ORKIGE_FADE_SELFCHECK verifies the full-screen fade transition against
+		// tests/projects/fade: drive a screen.loadScene-style fade (out -> switch
+		// sceneA to sceneB while opaque -> in) and assert the overlay alpha climbs
+		// to opacity, the deferred scene switch applies WHILE the screen is
+		// covered, and the fade clears afterwards. Exercises the real render loop
+		// on BOTH flavors (see the ORKIGE_FADE_SELFCHECK block in this file).
+		const bool fadeCheck =
+			(std::getenv("ORKIGE_FADE_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -535,6 +594,7 @@ int main(int argc, char** argv)
 			rollerProgressionCheck || tweenCheck ||
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
+			breadcrumbCheck || fadeCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -642,6 +702,12 @@ int main(int argc, char** argv)
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
 
+		// mirror the engine log's warning/error lines into the breadcrumb trail
+		// (a dedicated capture - the debug link owns its own). Drained once per
+		// frame in the loop below; a no-op when no breadcrumb file is set.
+		Orkige::EngineLogCapture breadcrumbLog;
+		breadcrumbLog.attach();
+
 		// the window camera on a facade rig (createDefaultCameraAndViewport
 		// successor, same pattern as the samples). The fixed yaw axis keeps
 		// per-frame lookAt calls roll-free - project scripts drive this rig
@@ -731,6 +797,112 @@ int main(int argc, char** argv)
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
 		Orkige::InputManager inputManager;
+		// phone-body vibration for mobile games (Lua `haptics` table). A device
+		// build drives the taptic engine / Vibrator; desktop is an honest no-op
+		// (isAvailable() == false). Like the InputManager, the editor never makes
+		// one, so `haptics.*` is a no-op in edit mode.
+		Orkige::HapticManager hapticManager;
+		// tilt calibration persists per-device next to the engine log (writable
+		// on every target - see engineLogPath); a calibrated neutral pose sticks
+		// across runs. input:calibrateTilt() auto-writes it. ORKIGE_TILT_CALIB_FILE
+		// overrides the path for test isolation; the editor never sets one (so
+		// calibration persistence is an honest no-op in edit mode).
+		{
+			std::string calibFile;
+			if (const char* calibEnv = std::getenv("ORKIGE_TILT_CALIB_FILE"))
+			{
+				calibFile = calibEnv;
+			}
+			else
+			{
+				calibFile = std::filesystem::path(engineLogPath)
+					.parent_path().string();
+				if (!calibFile.empty() && calibFile.back() != '/')
+				{
+					calibFile += '/';
+				}
+				calibFile += "tilt_calibration.osave";
+			}
+			inputManager.setCalibrationSaveFile(calibFile);
+			inputManager.loadCalibration();
+		}
+		// ORKIGE_TILT_CALIB_SELFCHECK: the calibration wiring end to end,
+		// synchronous (no render loop needed) - set a simulated tilt pose,
+		// calibrate so it reads as neutral (0,-1,0), steer further to confirm it
+		// deflects again, then round-trip the auto-written save file. Exercises
+		// what the pure-math unit test cannot: getTilt applying the offset and
+		// setCalibrationSaveFile/save/load persistence. Runs against any scene.
+		if (std::getenv("ORKIGE_TILT_CALIB_SELFCHECK") != nullptr)
+		{
+			bool ok = true;
+			std::string detail;
+			inputManager.clearTiltCalibration();
+			inputManager.setTiltAngle(0.6f);
+			const Orkige::Vec3 rawPose = inputManager.getTilt();
+			if (std::abs(rawPose.x) < 0.3f)
+			{
+				ok = false;
+				detail = "raw pose not tilted";
+			}
+			inputManager.calibrateTilt();
+			const Orkige::Vec3 neutral = inputManager.getTilt();
+			if (ok && (std::abs(neutral.x) > 0.02f || neutral.y > -0.98f))
+			{
+				ok = false;
+				detail = "calibrated pose did not read as neutral";
+			}
+			inputManager.setTiltAngle(1.0f);
+			const Orkige::Vec3 deflected = inputManager.getTilt();
+			if (ok && std::abs(deflected.x) < 0.3f)
+			{
+				ok = false;
+				detail = "steering past the neutral pose did not deflect";
+			}
+			// persistence: calibrateTilt above auto-wrote the file; drop the
+			// in-memory value and reload it
+			const float savedAngle = inputManager.getTiltCalibration();
+			inputManager.setTiltCalibration(0.0f);
+			if (ok && (!inputManager.loadCalibration() ||
+				std::abs(inputManager.getTiltCalibration() - savedAngle) > 1.0e-4f))
+			{
+				ok = false;
+				detail = "calibration save/load did not round-trip";
+			}
+			SDL_Log("orkige_player: TILT CALIB SELFCHECK %s%s%s",
+				ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+			return ok ? 0 : 1;
+		}
+		// ORKIGE_HAPTIC_SELFCHECK: the honest desktop no-op + API shape (device
+		// vibration itself cannot be asserted headlessly). Asserts isAvailable()
+		// is false on desktop, the play/pattern calls do not throw and no-op
+		// cleanly (incl. while muted), and the pure name->pattern mapping defaults
+		// an unknown name. Synchronous - no render loop needed.
+		if (std::getenv("ORKIGE_HAPTIC_SELFCHECK") != nullptr)
+		{
+			bool ok = true;
+			std::string detail;
+			if (hapticManager.isAvailable())
+			{
+				ok = false;
+				detail = "isAvailable() reported true on desktop";
+			}
+			// these must all return cleanly (honest no-op on desktop)
+			hapticManager.play(0.6f, 120);
+			hapticManager.playPatternByName("success");
+			hapticManager.playPatternByName("unknown-name-defaults-to-medium");
+			hapticManager.setEnabled(false);
+			hapticManager.play(1.0f, 50);
+			hapticManager.setEnabled(true);
+			if (ok && Orkige::HapticManager::patternFromName("nope") !=
+				Orkige::HapticManager::Pattern::Medium)
+			{
+				ok = false;
+				detail = "unknown pattern name did not default to Medium";
+			}
+			SDL_Log("orkige_player: HAPTIC SELFCHECK %s%s%s",
+				ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+			return ok ? 0 : 1;
+		}
 		// action mapping layered on top: named, rebindable actions the scripts
 		// query by intent (actions:pressed("jump")). Built-in defaults cover
 		// the reference games; a project's input.oactions (manifest Settings
@@ -804,6 +976,11 @@ int main(int argc, char** argv)
 		// carrying a levels.olevels (manifest Settings "levels") get a sequence
 		// + persistence; scriptless games keep it inert.
 		Orkige::LevelManager levelManager;
+		// full-screen fade transitions (engine-owned overlay on a reserved high
+		// draw layer, both flavors): scripts drive it through the Lua `screen`
+		// table. Ticked LAST in the loop (a presentation overlay). Like the
+		// TweenManager, the editor never makes one, so `screen.*` is a no-op there.
+		Orkige::ScreenFade screenFade;
 		if (project.isLoaded())
 		{
 			const std::string levelsRef =
@@ -975,6 +1152,10 @@ int main(int argc, char** argv)
 			}
 			debugLink.onSceneReloaded();
 			scenePath = newScenePath;
+			if (Orkige::Breadcrumbs::getSingletonPtr())
+			{
+				Orkige::Breadcrumbs::getSingleton().record("scene", newScenePath);
+			}
 			SDL_Log("orkige_player: switched to scene '%s' (%zu GameObjects)",
 				newScenePath.c_str(),
 				gameObjectManager.getGameObjects().size());
@@ -1570,6 +1751,39 @@ int main(int argc, char** argv)
 
 		bool running = true;
 		unsigned long frameCount = 0;
+		// breadcrumbs: record each ScriptComponent failure once (a running game
+		// may keep ticking with a failed script; the trail wants it, not a
+		// per-frame repeat). Also drain the engine log's warnings/errors below.
+		// fade selfcheck state (see the ORKIGE_FADE_SELFCHECK block below)
+		bool fadeStarted = false;
+		bool fadeSwitched = false;
+		bool fadeSawClearAfterSwitch = false;
+		float fadeMaxAlpha = 0.0f;
+		float fadeAlphaAtSwitch = -1.0f;
+		std::unordered_set<std::string> breadcrumbedScriptErrors;
+		auto recordScriptErrorBreadcrumbs = [&]()
+		{
+			if (!Orkige::Breadcrumbs::getSingletonPtr())
+			{
+				return;
+			}
+			for (auto const& [id, gameObject] :
+				gameObjectManager.getGameObjects())
+			{
+				if (!gameObject->hasComponent<Orkige::ScriptComponent>())
+				{
+					continue;
+				}
+				Orkige::ScriptComponent* script =
+					gameObject->getComponentPtr<Orkige::ScriptComponent>();
+				if (script->hasScriptError() &&
+					breadcrumbedScriptErrors.insert(id).second)
+				{
+					Orkige::Breadcrumbs::getSingleton().record("script_error",
+						script->getScriptError(), { { "object", id } });
+				}
+			}
+		};
 		std::chrono::steady_clock::time_point lastFrameTime =
 			std::chrono::steady_clock::now();
 		while (running)
@@ -1706,12 +1920,33 @@ int main(int argc, char** argv)
 
 				// audio listener follows the (script-driven) camera rig
 				soundManager.update(deltaTime);
+
+				// the fade overlay is a PRESENTATION layer: ticked last, after
+				// the deferred-load pump, so its alpha reflects the frame about to
+				// render and a mid-fade scene switch is hidden under full opacity
+				screenFade.update(deltaTime);
 			}
 
 			// streaming: hierarchy on change (checked every N frames),
 			// selected object state at ~15Hz, queued log lines - also while
 			// paused
 			debugLink.stream(gameObjectManager, frameCount);
+
+			// crash breadcrumbs: mirror engine warnings/errors and record any
+			// newly-failed ScriptComponent (both once, flushed to disk)
+			if (Orkige::Breadcrumbs::getSingletonPtr())
+			{
+				for (Orkige::EngineLogCapture::Line const& line :
+					breadcrumbLog.drain())
+				{
+					if (line.level == "warning" || line.level == "error")
+					{
+						Orkige::Breadcrumbs::getSingleton().record("log",
+							line.text, { { "level", line.level } });
+					}
+				}
+			}
+			recordScriptErrorBreadcrumbs();
 
 			if (!render->renderOneFrame())
 			{
@@ -3295,10 +3530,110 @@ int main(int argc, char** argv)
 					render->saveWindowContents(shotPath);
 				}
 			}
+			// ORKIGE_FADE_SELFCHECK: drive a fade-out -> scene switch -> fade-in
+			// and observe the overlay alpha and the switch through the real loop
+			if (fadeCheck)
+			{
+				if (frameCount == 5)
+				{
+					// the exact coordination the Lua screen.loadScene does: the
+					// deferred switch is requested at full opacity
+					screenFade.transition(0.2f, 0.2f, [&levelManager]()
+					{
+						levelManager.loadScenePath("scenes/sceneB.oscene");
+					});
+					fadeStarted = true;
+				}
+				if (fadeStarted)
+				{
+					fadeMaxAlpha = std::max(fadeMaxAlpha, screenFade.getAlpha());
+					const bool markerBHere =
+						gameObjectManager.getGameObject("MarkerB").lock() != nullptr;
+					if (markerBHere && !fadeSwitched)
+					{
+						fadeSwitched = true;
+						fadeAlphaAtSwitch = screenFade.getAlpha();
+					}
+					if (fadeSwitched && !screenFade.isFading() &&
+						screenFade.getAlpha() < 0.02f)
+					{
+						fadeSawClearAfterSwitch = true;
+					}
+				}
+				if (frameCount == 90)
+				{
+					bool ok = true;
+					std::string detail;
+					if (!fadeStarted || fadeMaxAlpha < 0.9f)
+					{
+						ok = false;
+						detail = "overlay never reached opacity (max alpha " +
+							std::to_string(fadeMaxAlpha) + ")";
+					}
+					else if (!fadeSwitched)
+					{
+						ok = false;
+						detail = "scene never switched to sceneB";
+					}
+					else if (fadeAlphaAtSwitch < 0.5f)
+					{
+						ok = false;
+						detail = "scene switched while the screen was not covered "
+							"(alpha " + std::to_string(fadeAlphaAtSwitch) + ")";
+					}
+					else if (!fadeSawClearAfterSwitch)
+					{
+						ok = false;
+						detail = "fade never cleared after the switch";
+					}
+					SDL_Log("orkige_player: FADE SELFCHECK %s%s%s",
+						ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+					exitCode = ok ? 0 : 1;
+					running = false;
+				}
+			}
+			// ORKIGE_BREADCRUMB_SELFCHECK: by now (a dozen frames) the Crasher's
+			// init has run, failed, and been recorded; read the trail off disk
+			// and assert the script_error line is there with the object id
+			if (breadcrumbCheck && frameCount == 15)
+			{
+				bool ok = true;
+				std::string detail;
+				const std::string file =
+					Orkige::Breadcrumbs::getSingleton().getFile();
+				Orkige::String trail;
+				if (file.empty() || !Orkige::Breadcrumbs::loadFile(file, trail))
+				{
+					ok = false;
+					detail = "breadcrumbs.jsonl not written";
+				}
+				else if (trail.find("\"script_error\"") == std::string::npos ||
+					trail.find("Crasher") == std::string::npos)
+				{
+					ok = false;
+					detail = "no script_error breadcrumb for the Crasher object";
+				}
+				else if (trail.find("\"boot\"") == std::string::npos)
+				{
+					ok = false;
+					detail = "boot marker missing";
+				}
+				SDL_Log("orkige_player: BREADCRUMB SELFCHECK %s%s%s",
+					ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+				exitCode = ok ? 0 : 1;
+				running = false;
+			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
 				running = false;
 			}
+		}
+
+		// breadcrumbs: an orderly shutdown marker distinguishes a clean exit
+		// from a crash trail (whose last line is whatever happened before death)
+		if (Orkige::Breadcrumbs::getSingletonPtr())
+		{
+			Orkige::Breadcrumbs::getSingleton().record("shutdown", scenePath);
 		}
 
 		if (jumperLuaCheck && !jumperCheckFailed &&

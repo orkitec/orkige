@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XMLArchive Version="0">
+    <String value="orkige.oscene"/>
+    <int value="7"/>
+    <unsigned_int value="1"/>
+    <String value="MarkerB"/>
+    <String value=""/>
+    <bool value="1"/>
+    <unsigned_int value="0"/>
+    <String value=""/>
+    <unsigned_int value="1"/>
+    <String value="TransformComponent"/>
+    <TransformComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="3"/>
+        <String value="position"/>
+        <int value="5"/>
+        <String value="0 0 0"/>
+        <String value=""/>
+        <String value="orientation"/>
+        <int value="6"/>
+        <String value="1 0 0 0"/>
+        <String value=""/>
+        <String value="scale"/>
+        <int value="5"/>
+        <String value="1 1 1"/>
+        <String value=""/>
+    </TransformComponent>
+</XMLArchive>

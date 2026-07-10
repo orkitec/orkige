@@ -15,7 +15,7 @@
 
 #include "core_util/StringTable.h"
 
-#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -79,7 +79,7 @@ TEST_CASE("StringTable parses a sectioned multi-language file", "[unit][loc]")
 {
 	// write a small localisation file with [lang] section headers
 	const std::string path =
-		std::string(std::tmpnam(nullptr)) + "_orkige_loc.txt";
+		(std::filesystem::temp_directory_path() / "orkige_loc_test.txt").string();
 	{
 		std::ofstream file(path.c_str());
 		file << "# comment line\n";
@@ -101,7 +101,8 @@ TEST_CASE("StringTable parses a sectioned multi-language file", "[unit][loc]")
 	CHECK(table.format("hud.wins", args) == "WINS: 3");
 	table.setLanguage("de");
 	CHECK(table.format("hud.wins", args) == "SIEGE: 3");
-	std::remove(path.c_str());
+	std::error_code ignored;
+	std::filesystem::remove(path, ignored);
 }
 
 TEST_CASE("StringTable loadFile returns false for a missing file",

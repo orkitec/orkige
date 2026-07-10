@@ -20,6 +20,8 @@ add_executable(orkige_engine_tests
     TweenScriptTests.cpp
     InputActionTests.cpp
     CVarProtocolBehaviourTests.cpp
+    ScreenFadeTests.cpp
+    HapticTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE

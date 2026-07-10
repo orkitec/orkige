@@ -395,6 +395,11 @@ def build_atlas(out_dir, atlas_name):
     add_sprite("select_menu_field_right", 184, y0 + 72, 16, 24,
                lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 3, button_over, white))
+    # the draggable knob the Slider rides along its track (a lighter accent so
+    # it stands out over the field); the Slider also tints the track with it
+    slider_pin_fill = (150, 190, 245, 255)
+    add_sprite("select_menu_pin", 204, y0 + 72, 20, 24, lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 5, slider_pin_fill, white))
 
     for name, x, y, w, h in sprite_defs:
         ogui.append(f"{name} {x} {y} {w} {h}")

@@ -22,7 +22,9 @@
 #include <core_game/PrefabSerializer.h>
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
+#include <core_debug/Breadcrumbs.h>
 #include <core_util/optr.h>
+#include <core_util/PlatformUtil.h>
 
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
@@ -676,7 +678,7 @@ namespace Orkige
 				type == "read_project_file" || type == "list_project_files" ||
 				type == "list_play_targets" || type == "get_export_results" ||
 				type == "list_paint_prefabs" || type == "get_safe_area" ||
-				type == "get_ui_layout";
+				type == "get_ui_layout" || type == "get_breadcrumbs";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -1149,6 +1151,19 @@ namespace Orkige
 				  "Play; empty until the game builds its UI. Combine with "
 				  "get_safe_area to check every visible widget sits inside the "
 				  "safe box.",
+				  {} },
+				{ "get_breadcrumbs",
+				  "The crash breadcrumb trail the player leaves on disk: an "
+				  "always-on, flush-per-entry ring of engine events (scene "
+				  "loads, script errors, warnings, boot/shutdown), so after an "
+				  "ABNORMAL exit (crash / OOM / device kill) you can still read "
+				  "what happened up to the instant of death - the player is dead, "
+				  "so this is pure file I/O, not the live debug link. Returns "
+				  "'live' (this/most-recent session's breadcrumbs.jsonl text) and "
+				  "'previous' (the prior session's, rotated aside at boot - the "
+				  "one to read after a crash), each one JSON object per line, plus "
+				  "the resolved 'dir'. Empty strings when a file is absent. "
+				  "Read-only.",
 				  {} },
 				{ "runtime_select",
 				  "Choose which running-game object streams its component state "
@@ -1836,7 +1851,7 @@ namespace Orkige
 		EditorControlContext const& context)
 	{
 		const String type = request.type;
-		const String req = request.get(DebugProtocol::FIELD_REQ);
+		const String& req = request.get(DebugProtocol::FIELD_REQ);
 		EditorState& state = *context.state;
 		EditorCore& core = *context.core;
 		GameObjectManager& manager = *context.gameObjectManager;
@@ -1986,7 +2001,7 @@ namespace Orkige
 		}
 		if (type == "get_object")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			optr<GameObject> gameObject = manager.getGameObject(id).lock();
 			if (!gameObject)
 			{
@@ -2021,8 +2036,8 @@ namespace Orkige
 		// them; HIDDEN and getter-less properties are skipped.
 		if (type == "get_component")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& component = request.get(DebugProtocol::FIELD_COMPONENT);
 			optr<GameObject> gameObject = manager.getGameObject(id).lock();
 			if (!gameObject)
 			{
@@ -2091,8 +2106,8 @@ namespace Orkige
 		// inside a 'properties' object (applyArguments flattens both).
 		if (type == "set_component")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& component = request.get(DebugProtocol::FIELD_COMPONENT);
 			optr<GameObject> gameObject = manager.getGameObject(id).lock();
 			if (!gameObject)
 			{
@@ -2210,7 +2225,7 @@ namespace Orkige
 		}
 		if (type == "delete_object")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			if (!manager.objectExists(id))
 			{
 				this->sendErr(req, "no such object '" + id + "'");
@@ -2226,7 +2241,7 @@ namespace Orkige
 		}
 		if (type == "duplicate_object")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			if (!manager.objectExists(id))
 			{
 				this->sendErr(req, "no such object '" + id + "'");
@@ -2246,8 +2261,8 @@ namespace Orkige
 		}
 		if (type == "rename_object")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String newId = request.get("new_id");
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& newId = request.get("new_id");
 			if (!core.renameObject(id, newId))
 			{
 				this->sendErr(req, "rename '" + id + "' -> '" + newId +
@@ -2261,8 +2276,8 @@ namespace Orkige
 		}
 		if (type == "reparent_object")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String parent = request.get("parent");	// "" = make a root
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& parent = request.get("parent");	// "" = make a root
 			if (!core.reparentObject(id, parent))
 			{
 				this->sendErr(req, "reparent '" + id + "' onto '" + parent +
@@ -2274,7 +2289,7 @@ namespace Orkige
 		}
 		if (type == "set_active")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			if (!core.setObjectActive(id,
 				request.get(DebugProtocol::FIELD_VALUE) == "1"))
 			{
@@ -2300,8 +2315,8 @@ namespace Orkige
 		//--- component add/remove ----------------------------
 		if (type == "add_component")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& component = request.get(DebugProtocol::FIELD_COMPONENT);
 			if (!core.addComponentToObject(id, component))
 			{
 				this->sendErr(req, "add_component '" + component + "' on '" +
@@ -2313,8 +2328,8 @@ namespace Orkige
 		}
 		if (type == "remove_component")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& component = request.get(DebugProtocol::FIELD_COMPONENT);
 			String blockedBy;
 			if (!core.canRemoveComponent(id, component, &blockedBy))
 			{
@@ -2343,7 +2358,7 @@ namespace Orkige
 		//--- selection / undo-redo ---------------------------
 		if (type == "select")
 		{
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			if (id.empty())
 			{
 				core.clearSelection();
@@ -2471,7 +2486,7 @@ namespace Orkige
 			// (same as open_scene). Honors the dirty-state policy - opening a
 			// different scene discards the current unsaved edit world unless
 			// force=1.
-			const String scene = request.get(DebugProtocol::FIELD_SCENE);
+			const String& scene = request.get(DebugProtocol::FIELD_SCENE);
 			if (!scene.empty())
 			{
 				if (clobberRefused()) return;
@@ -2500,7 +2515,7 @@ namespace Orkige
 			// 'desktop' runs the local player; a simulator UDID or an adb serial
 			// (as list_play_targets reports them) runs on that device. Device
 			// boots stay async (poll get_state), same as the toolbar.
-			const String target = request.get("target");
+			const String& target = request.get("target");
 			String targetError;
 			if (!applyPlayTarget(*context.play, target, targetError))
 			{
@@ -2725,6 +2740,40 @@ namespace Orkige
 			this->sendOk(req, ok);
 			return;
 		}
+		// get_breadcrumbs: read the player's on-disk crash trail (pure file I/O -
+		// the player may be dead, so this never touches the live link). The
+		// player writes breadcrumbs.jsonl into its writable app dir
+		// (getSupportDirectory on desktop), rotating the prior run's file to
+		// breadcrumbs.prev.jsonl at boot. ORKIGE_BREADCRUMB_DIR overrides the
+		// directory (matches the player's own override, used for test isolation).
+		if (type == "get_breadcrumbs")
+		{
+			std::string dir;
+			if (const char* dirEnv = std::getenv("ORKIGE_BREADCRUMB_DIR"))
+			{
+				dir = dirEnv;
+			}
+			else
+			{
+				dir = PlatformUtil::getSupportDirectory("Orkige Player");
+			}
+			if (!dir.empty() && dir.back() != '/')
+			{
+				dir += '/';
+			}
+			String live;
+			String previous;
+			Breadcrumbs::loadFile(dir + "breadcrumbs.jsonl", live);
+			Breadcrumbs::loadFile(dir + "breadcrumbs.prev.jsonl", previous);
+			DebugMessage ok(MSG_OK);
+			ok.set("dir", dir);
+			ok.set("live", live);
+			ok.set("previous", previous);
+			ok.set("live_bytes", std::to_string(live.size()));
+			ok.set("previous_bytes", std::to_string(previous.size()));
+			this->sendOk(req, ok);
+			return;
+		}
 		if (type == "runtime_select")
 		{
 			if (!context.play->client.isConnected())
@@ -2732,7 +2781,7 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			// "" is a legal clear (stop streaming); a non-empty id is validated
 			// by the player, which errors over the log if it is unknown
 			selectRemoteObject(*context.play, id);
@@ -2748,10 +2797,10 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			const String id = request.get(DebugProtocol::FIELD_ID);
-			const String component = request.get(DebugProtocol::FIELD_COMPONENT);
-			const String property = request.get(DebugProtocol::FIELD_PROPERTY);
-			const String value = request.get(DebugProtocol::FIELD_VALUE);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			const String& component = request.get(DebugProtocol::FIELD_COMPONENT);
+			const String& property = request.get(DebugProtocol::FIELD_PROPERTY);
+			const String& value = request.get(DebugProtocol::FIELD_VALUE);
 			if (id.empty() || component.empty() || property.empty())
 			{
 				this->sendErr(req, "set_runtime_property needs id, component and "
@@ -2773,7 +2822,7 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			const String name = request.get(DebugProtocol::FIELD_CVAR_NAME);
+			const String& name = request.get(DebugProtocol::FIELD_CVAR_NAME);
 			if (name.empty())
 			{
 				this->sendErr(req, "set_cvar needs a 'name'");
@@ -2794,7 +2843,7 @@ namespace Orkige
 			// reload one object's scripts (FIELD_ID) or ALL of them (absent).
 			// reloadRemoteScripts sends reload-ALL; a per-object reload sends
 			// MSG_RELOAD_SCRIPT with the id directly.
-			const String id = request.get(DebugProtocol::FIELD_ID);
+			const String& id = request.get(DebugProtocol::FIELD_ID);
 			if (id.empty())
 			{
 				reloadRemoteScripts(*context.play, *context.console);
@@ -2822,7 +2871,7 @@ namespace Orkige
 					"path lives on the player's filesystem)");
 				return;
 			}
-			const String path = request.get("path");
+			const String& path = request.get("path");
 			if (path.empty())
 			{
 				this->sendErr(req, "screenshot_game needs a 'path'");
@@ -2855,7 +2904,7 @@ namespace Orkige
 					"lives on the player's filesystem)");
 				return;
 			}
-			const String path = request.get("path");
+			const String& path = request.get("path");
 			if (path.empty())
 			{
 				this->sendErr(req, "record_trace needs a 'path'");
@@ -2863,7 +2912,7 @@ namespace Orkige
 			}
 			const float seconds = request.getFloat("seconds", 5.0f);
 			const float every = request.getFloat("everyNth", 2.0f);
-			const String objects = request.get("objects");
+			const String& objects = request.get("objects");
 			// async: the player samples over the next frames and answers with
 			// record_saved; poll get_state (record_path/record_ok/record_seq)
 			// for the confirmation. Report the accepted request + the sequence
@@ -2896,7 +2945,7 @@ namespace Orkige
 		//--- screenshot (out of band; returns the written path) --
 		if (type == "screenshot")
 		{
-			const String path = request.get("path");
+			const String& path = request.get("path");
 			if (path.empty())
 			{
 				this->sendErr(req, "screenshot needs a 'path'");
@@ -3108,7 +3157,7 @@ namespace Orkige
 					"' is not a directory");
 				return;
 			}
-			const String glob = request.get("glob");
+			const String& glob = request.get("glob");
 			StringVector names;
 			StringVector paths;
 			StringVector types;
@@ -3167,7 +3216,7 @@ namespace Orkige
 					"to copy the file into");
 				return;
 			}
-			const String source = request.get("sourcePath");
+			const String& source = request.get("sourcePath");
 			if (source.empty())
 			{
 				this->sendErr(req, "import_asset needs a 'sourcePath'");
@@ -3197,7 +3246,7 @@ namespace Orkige
 			// an optional targetDir relocates the import within the project (id
 			// survives - AssetDatabase::moveAsset carries the sidecar). The dir
 			// is jailed like any authoring path.
-			const String targetDir = request.get("targetDir");
+			const String& targetDir = request.get("targetDir");
 			if (!targetDir.empty() && database)
 			{
 				std::filesystem::path targetAbsolute;
@@ -3238,7 +3287,7 @@ namespace Orkige
 					"project's assets/");
 				return;
 			}
-			const String objectId = request.get("objectId");
+			const String& objectId = request.get("objectId");
 			std::filesystem::path absolute;
 			String relative;
 			String error;
@@ -3322,7 +3371,7 @@ namespace Orkige
 					"' is not a .oprefab file");
 				return;
 			}
-			const String parentId = request.get("parent");
+			const String& parentId = request.get("parent");
 			if (!parentId.empty() && !manager.objectExists(parentId))
 			{
 				this->sendErr(req, "instantiate_prefab: no such parent '" +
@@ -3614,7 +3663,7 @@ namespace Orkige
 		// get_test_results: poll a run_tests job for the structured verdict
 		if (type == "get_test_results")
 		{
-			const String jobId = request.get("jobId");
+			const String& jobId = request.get("jobId");
 			EditorTestJob* job = nullptr;
 			for (auto const& candidate : this->mTestJobs)
 			{
@@ -3676,7 +3725,7 @@ namespace Orkige
 		//--- project export (drives Util/orkige_export.py) ---
 		if (type == "export_project")
 		{
-			const String platform = request.get("platform");
+			const String& platform = request.get("platform");
 			if (platform != "macos" && platform != "ios-simulator" &&
 				platform != "android")
 			{
@@ -3739,7 +3788,7 @@ namespace Orkige
 		// get_export_results: poll an export_project job for the artifact path
 		if (type == "get_export_results")
 		{
-			const String jobId = request.get("jobId");
+			const String& jobId = request.get("jobId");
 			EditorExportJob* job = nullptr;
 			for (auto const& candidate : this->mExportJobs)
 			{
@@ -4779,6 +4828,29 @@ namespace Orkige
 				}
 				SDL_Log("orkige_editor: control self-test - get_ui_layout OK "
 					"(%zu widgets)", layout.get("ids").size());
+			}
+			// (R8d) get_breadcrumbs (read, no auth): the booted player wrote a
+			// "boot" breadcrumb to the shared ORKIGE_BREADCRUMB_DIR; the editor
+			// reads the same file off disk over MCP. Proves the crash trail is
+			// reachable from the editor's side (the primary readback path).
+			{
+				JsonValue crumbs;
+				if (!callTool("get_breadcrumbs", JsonValue::object(), false,
+						crumbs, isError) || isError)
+				{
+					finish(false, "control self-test: get_breadcrumbs failed");
+					return;
+				}
+				if (crumbs.get("live").asString().find("\"boot\"") ==
+					String::npos)
+				{
+					finish(false, "control self-test: get_breadcrumbs live trail "
+						"has no boot marker from the running player");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - get_breadcrumbs OK "
+					"(%s live bytes)",
+					crumbs.get("live_bytes").asString().c_str());
 			}
 
 			// an unauthenticated mutation on the LIVE player must still be

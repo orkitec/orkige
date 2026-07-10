@@ -135,11 +135,41 @@ namespace Orkige
 		//! @brief pure mapping: tilt angle -> normalized gravity direction;
 		//! 0 = (0,-1,0), positive angles tilt toward +X
 		static Ogre::Vector3 tiltVectorFromAngle(float angleRadians);
+
+		//--- tilt calibration (neutral-pose capture) ----------
+		//! @brief capture the CURRENT (raw, un-calibrated) tilt pose as the new
+		//! neutral: every subsequent getTilt() rotates the raw gravity direction
+		//! so this pose reads as upright (0,-1,0). Works on a device (captures
+		//! the live accelerometer pose) and on desktop (captures the current
+		//! simulated angle). Auto-persists when a calibration save file is set.
+		void calibrateTilt();
+		//! @brief drop the calibration - getTilt() returns the raw pose again
+		//! (auto-persists the cleared state when a save file is set)
+		void clearTiltCalibration();
+		//! the current calibration offset in radians (0 = none); for a settings UI
+		float getTiltCalibration() const;
+		//! set the calibration offset directly (persistence load path)
+		void setTiltCalibration(float radians);
+		//! @brief set the file the calibration persists to ("" disables it);
+		//! mirrors LevelManager::setSaveFile - the player sets a per-device path,
+		//! the editor never does (so calibration persistence is an honest no-op
+		//! in edit mode). Calibration is engine-input state, kept in its own file.
+		void setCalibrationSaveFile(String const & path);
+		//! @brief write the calibration save (magic + version + the offset);
+		//! false (no-op) when no save file is set
+		bool saveCalibration() const;
+		//! @brief load the calibration save; a missing/garbage/too-new file is an
+		//! honest fallback to no calibration and returns false without disturbing
+		//! anything else
+		bool loadCalibration();
 	protected:
 	private:
 		bool onFrameStarted(Event const & event);
 		void initialise();
 		void capture( void );
+		//! the raw (un-calibrated) gravity direction; getTilt applies the
+		//! calibration offset to it, calibrateTilt captures it
+		Ogre::Vector3 rawTilt() const;
 	};
 	//---------------------------------------------------------
 }

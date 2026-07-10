@@ -13,6 +13,7 @@ add_executable(orkige_core_tests
     PropertyReflectionTests.cpp
     DebugProtocolTests.cpp
     TraceWriterTests.cpp
+    BreadcrumbsTests.cpp
     MemorySamplerTests.cpp
     JsonTests.cpp
     HttpServerTests.cpp
@@ -31,6 +32,7 @@ add_executable(orkige_core_tests
     LevelGridTests.cpp
     LevelSequenceTests.cpp
     SafeAreaTests.cpp
+    TiltCalibrationTests.cpp
     StringTableTests.cpp
     VectorTessellatorTests.cpp
     VectorShapeAssetTests.cpp

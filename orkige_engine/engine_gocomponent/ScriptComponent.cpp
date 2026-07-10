@@ -15,6 +15,8 @@
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_sound/SoundManager.h"
+#include "engine_graphic/ScreenFade.h"
+#include "engine_input/HapticManager.h"
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
@@ -628,6 +630,107 @@ namespace Orkige
 			}
 		});
 		runtime.registerFunction("world", "findByTag", &worldFindByTag);
+
+		// ================= THE `screen` TABLE (fade wipes) =================
+		// Full-screen fade transitions over the finished frame + HUD (a
+		// reserved high draw layer). screen.fadeOut(secs)/fadeIn(secs) ramp
+		// the overlay; screen.loadScene(path, outSecs, inSecs) is the wipe
+		// games want - fade out, switch the scene while the screen is opaque
+		// (the deferred load applies at the frame boundary), then fade in.
+		// setFadeColor(r,g,b) picks the colour (default black); isFading()
+		// gates input. Only-a-runtime-ticks: no ScreenFade (editor) -> honest
+		// no-op; screen.loadScene without a LevelManager falls through to a
+		// plain deferred load (no wipe), like world.loadScene.
+		runtime.registerFunction("screen", "fadeOut", [](float seconds)
+		{
+			if(ScreenFade::getSingletonPtr())
+			{
+				ScreenFade::getSingleton().fadeOut(seconds);
+			}
+		});
+		runtime.registerFunction("screen", "fadeIn", [](float seconds)
+		{
+			if(ScreenFade::getSingletonPtr())
+			{
+				ScreenFade::getSingleton().fadeIn(seconds);
+			}
+		});
+		runtime.registerFunction("screen", "setFadeColor",
+			[](float r, float g, float b)
+		{
+			if(ScreenFade::getSingletonPtr())
+			{
+				ScreenFade::getSingleton().setFadeColor(r, g, b);
+			}
+		});
+		runtime.registerFunction("screen", "isFading", []() -> bool
+		{
+			return ScreenFade::getSingletonPtr() &&
+				ScreenFade::getSingleton().isFading();
+		});
+		runtime.registerFunction("screen", "loadScene",
+			[](String const & path, float outSeconds, float inSeconds)
+		{
+			// coordinate the fade with the DEFERRED scene switch: request the
+			// load at full opacity so the teardown/reload is hidden. The
+			// coordination lives HERE (not in ScreenFade, which stays free of
+			// LevelManager) via the at-opaque callback.
+			if(ScreenFade::getSingletonPtr() && LevelManager::getSingletonPtr())
+			{
+				ScreenFade::getSingleton().transition(outSeconds, inSeconds,
+					[path]()
+				{
+					LevelManager::getSingleton().loadScenePath(path);
+				});
+			}
+			else if(LevelManager::getSingletonPtr())
+			{
+				// no fade overlay - fall through to a plain deferred load
+				LevelManager::getSingleton().loadScenePath(path);
+			}
+			else
+			{
+				EngineLogCapture::logError("screen.loadScene: no LevelManager "
+					"- this runtime does not switch scenes (editor edit mode?)");
+			}
+		});
+
+		// ================= THE `haptics` TABLE (rumble) ===================
+		// Phone-body vibration for mobile games. Named patterns are preferred
+		// (iOS taptics ARE named generators; Android maps them to duration/
+		// amplitude): haptics.pattern("light".."selection"). haptics.play(strength,
+		// ms) is the generic escape hatch. haptics.isAvailable() is true only on a
+		// device with a vibrator; haptics.setEnabled(false) honours an in-game
+		// "vibration off" setting. Honest no-op without a HapticManager (editor)
+		// or on desktop (no vibrator).
+		runtime.registerFunction("haptics", "play",
+			[](float strength, int durationMs)
+		{
+			if(HapticManager::getSingletonPtr())
+			{
+				HapticManager::getSingleton().play(strength, durationMs);
+			}
+		});
+		runtime.registerFunction("haptics", "pattern",
+			[](String const & name)
+		{
+			if(HapticManager::getSingletonPtr())
+			{
+				HapticManager::getSingleton().playPatternByName(name);
+			}
+		});
+		runtime.registerFunction("haptics", "isAvailable", []() -> bool
+		{
+			return HapticManager::getSingletonPtr() &&
+				HapticManager::getSingleton().isAvailable();
+		});
+		runtime.registerFunction("haptics", "setEnabled", [](bool enabled)
+		{
+			if(HapticManager::getSingletonPtr())
+			{
+				HapticManager::getSingleton().setEnabled(enabled);
+			}
+		});
 
 		// ================= THE `loc` GLOBAL (localisation) =================
 		// loc("key") -> the active-language string for the key (the key itself
