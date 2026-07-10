@@ -103,9 +103,32 @@ else()
     )
 endif()
 
+# ogre-next resolves zlib through its own FindPkgMacros-based finder, which
+# searches Unix library names and misses vcpkg's Windows archives
+# (zlib.lib / zlibd.lib) - seed the variables per configuration there
+if(VCPKG_TARGET_IS_WINDOWS)
+    set(ZLIB_SEED_OPTIONS
+        "-DZLIB_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include")
+    set(ZLIB_SEED_OPTIONS_RELEASE
+        "-DZLIB_LIBRARY_REL=${CURRENT_INSTALLED_DIR}/lib/zlib.lib"
+        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/lib/zlib.lib")
+    set(ZLIB_SEED_OPTIONS_DEBUG
+        "-DZLIB_LIBRARY_DBG=${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib"
+        "-DZLIB_LIBRARY=${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib")
+else()
+    set(ZLIB_SEED_OPTIONS "")
+    set(ZLIB_SEED_OPTIONS_RELEASE "")
+    set(ZLIB_SEED_OPTIONS_DEBUG "")
+endif()
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS_RELEASE
+        ${ZLIB_SEED_OPTIONS_RELEASE}
+    OPTIONS_DEBUG
+        ${ZLIB_SEED_OPTIONS_DEBUG}
     OPTIONS
+        ${ZLIB_SEED_OPTIONS}
         # OgreNext* libs + OGRE-Next include prefix: THE coexistence switch
         -DOGRE_USE_NEW_PROJECT_NAME=ON
         -DOGRE_STATIC=ON
