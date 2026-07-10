@@ -1,0 +1,65 @@
+# Orkige clang-tidy configuration - advisory static analysis for new/changed
+# code, run with a compilation database (build/<preset>/compile_commands.json):
+#
+#   clang-tidy --quiet -p build/macos-debug <file.cpp>
+#
+# It is deliberately NARROW. The check list starts from nothing (-*) and turns
+# on exactly two things: the identifier-naming rules that encode the house
+# naming convention, and a small curated set of high-signal correctness /
+# performance checks. The broad packs (modernize-*, cppcoreguidelines-*, the
+# rest of readability-*) are intentionally OFF: the reflection macros
+# (OTYPE_INFO / OOBJECT and friends), the engine-wide optr smart-pointer alias,
+# and the tab + m-prefix house style trip them by the thousand, which would
+# drown the findings that matter.
+Checks: >
+  -*,
+  readability-identifier-naming,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-integer-division,
+  bugprone-suspicious-semicolon,
+  bugprone-string-constructor,
+  bugprone-suspicious-missing-comma,
+  bugprone-macro-repeated-side-effects,
+  performance-for-range-copy,
+  performance-implicit-conversion-in-loop,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization
+
+# Advisory only: findings are reported, never promoted to build errors here.
+WarningsAsErrors: ''
+
+# Analyze only the engine's own headers, not vcpkg / SDK / build-tree headers.
+HeaderFilterRegex: '(orkige_core|orkige_engine|tools|samples)/'
+SystemHeaders: false
+
+# clang-tidy's own fix-its should format through the project .clang-format.
+FormatStyle: file
+
+CheckOptions:
+  # Types: PascalCase (a.k.a. clang-tidy "CamelCase").
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.UnionCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+
+  # Functions and methods: camelBack (first letter lower, no underscores).
+  readability-identifier-naming.FunctionCase: camelBack
+  readability-identifier-naming.MethodCase: camelBack
+
+  # Encapsulated members carry the 'm' prefix over a CamelCase tail: mRootDir,
+  # mQuad, mTextureName. (Prefix stripped, the remainder must be CamelCase.)
+  readability-identifier-naming.PrivateMemberPrefix: m
+  readability-identifier-naming.PrivateMemberCase: CamelCase
+  readability-identifier-naming.ProtectedMemberPrefix: m
+  readability-identifier-naming.ProtectedMemberCase: CamelCase
+
+  # Public data members - the fields of passive structs (PlaySession,
+  # AssetBrowserState, EditorState, PropertyDesc) - are plain camelBack, no
+  # prefix. camelBack only requires a lower-case first letter, so a struct that
+  # still m-prefixes a public field is not flagged.
+  readability-identifier-naming.PublicMemberCase: camelBack
+
+  # A trailing "_h_" digit run in the date-suffixed include guards is not an
+  # identifier we lint; nothing above touches macros, so the guards and the
+  # OTYPE_INFO/OENUM_* macro vocabulary are left alone.

@@ -46,13 +46,54 @@ is easy to give.
 
 ## Code style
 
-The codebase carries a decade of history, and the older files follow an older
-house style: tabs for indentation, `m`-prefixed member names, Doxygen-style
-`//!` comments, and `#ifndef` include guards with a date suffix. **Match the file
-you are editing** — consistency within a file matters more than any global rule.
-New standalone code should be clean, modern C++20.
+The umbrella rule is **match the file you are editing** — consistency within a
+file matters more than any global rule, and the tree spans a decade, so styles
+vary between the old core/engine code and the newer tooling. New standalone code
+should be clean, modern C++20.
+
+The house conventions, which most of the tree already follows:
+
+- **Indentation is tabs**, four columns wide; wrapped lines target 80 columns.
+- **Braces go on their own line** (namespaces, types, functions, control
+  blocks), and a `namespace` body is indented.
+- **Members of a class with encapsulation carry an `m` prefix over a CamelCase
+  tail** — `mRootDirectory`, `mTextureName`, `mServer`. This holds in old and
+  new classes alike (`AssetDatabase`, `EditorControlServer`).
+- **Fields of a passive data struct are plain camelCase, no prefix** — the
+  aggregates that are just grouped state, such as the editor's `PlaySession`
+  and `AssetBrowserState` (`mode`, `process`, `currentDir`, `thumbnailSize`).
+- **Types are CamelCase; functions and methods are camelCase.**
+- **Shared ownership is spelled `optr<T>`** (with `woptr<T>` for the weak
+  counterpart) — the namespaced alias template in `core_util/optr.h`. Use it
+  everywhere shared ownership is meant rather than writing `std::shared_ptr`
+  directly; a translation unit outside `namespace Orkige` imports it with
+  `using Orkige::optr;` after its includes (see `tools/player/main.cpp`).
+  `std::unique_ptr` stays spelled out for single ownership — the distinction
+  between the two is intentional and must stay visible. Review-enforced (no
+  lint can choose between equivalent types).
+- **Comments are Doxygen `//!` / `//!<`.** They are wrapped by hand — describe
+  behavior, not the mechanics of the surrounding line.
+- **Include guards are `#ifndef` with a date suffix** (core/engine headers).
+- **Line endings are LF everywhere**, enforced by `.gitattributes`.
+
+`.clang-format` and `.clang-tidy` at the repository root encode these rules for
+tools. The tree is deliberately **not** reformatted wholesale (that would bury
+real changes in history), so run them per hunk on what you touched rather than
+across whole files:
+
+```sh
+git clang-format               # format only your staged/changed lines
+clang-tidy --quiet -p build/macos-debug <file.cpp>   # advisory checks
+```
+
+Some of the house style — the tab-aligned declaration columns and the
+hand-wrapped Doxygen prose — cannot be expressed in `.clang-format`; those it
+leaves to you. `.clang-tidy` is advisory (naming rules plus a small curated set
+of correctness/performance checks), never a build gate.
 
 ## Two hard rules for contributions
+
+These are about content, and apply on top of the mechanical style above:
 
 1. **Comments describe the code, never the development process.** No references to
    tasks, milestones, phases, tickets, or who wrote what. A comment explains what

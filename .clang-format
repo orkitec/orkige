@@ -1,0 +1,76 @@
+# Orkige C++ formatting rules - the house style the tree already follows.
+#
+# The tree is NOT reformatted wholesale: line-for-line reflowing a decade of
+# history would bury real changes. This file exists so NEW and CHANGED code can
+# be checked/formatted per hunk with git-clang-format, and so the conventions
+# are written down in one machine-readable place. Some of the house style
+# (tab-aligned declaration columns, hand-wrapped Doxygen prose) is expressed in
+# ways clang-format cannot reproduce; those it leaves to the author. See the
+# style section of CONTRIBUTING.md for the prose version.
+Language: Cpp
+Standard: c++20
+BasedOnStyle: LLVM
+
+# Tabs for indentation, four columns wide; wrapped code lines target 80.
+UseTab: ForContinuationAndIndentation
+TabWidth: 4
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 80
+
+# Braces on their own line (namespaces, types, functions, control blocks).
+BreakBeforeBraces: Allman
+
+# Namespaces indent their body (namespace Orkige { ... }). File-scope anonymous
+# namespaces in some .cpp files keep their body at column 0 instead - a
+# minority the tree does not rewrite; clang-format follows this rule there.
+NamespaceIndentation: All
+FixNamespaceComments: false
+
+# Access specifiers sit at the class-brace column, one level out from members.
+AccessModifierOffset: -4
+
+# Pointer/reference alignment is analyzed per file: the older core/engine code
+# spaces both sides ("Type const & name"), the newer app code binds to the name
+# ("Type const& name"). DerivePointerAlignment picks whichever a file uses (Left
+# or Right); Left is the fallback for a file with no signal.
+DerivePointerAlignment: true
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+
+# A space before control-statement parens (if / for / while / switch), none
+# before a call's.
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+
+# switch cases are not indented past the switch body.
+IndentCaseLabels: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# Short accessor bodies defined inside a class may stay on one line
+# ("Type get() const { return mX; }"); statements never collapse onto their
+# control line.
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+
+# Continuation lines indent one level; they do not align to an open paren (the
+# tree wraps long parameter lists this way rather than column-aligning them).
+AlignAfterOpenBracket: DontAlign
+BinPackParameters: true
+BinPackArguments: true
+Cpp11BracedListStyle: false
+
+# Leave comments and include order as written: the Doxygen blocks are wrapped by
+# hand, and include groups are ordered by layer, not alphabetically. Trailing
+# comments are not re-aligned into columns.
+ReflowComments: false
+SortIncludes: Never
+IndentPPDirectives: None
+AlignTrailingComments:
+  Kind: Never
+AlignConsecutiveDeclarations: None
+AlignConsecutiveAssignments: None
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: true
