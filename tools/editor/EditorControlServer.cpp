@@ -19,6 +19,7 @@
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectComponent.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/PrefabSerializer.h>
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_util/optr.h>
@@ -37,6 +38,8 @@
 #	include <sys/time.h>
 #endif
 
+#include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -466,7 +469,112 @@ namespace Orkige
 				type == "get_component" || type == "list_assets" ||
 				type == "console_tail" || type == "list_addable_components" ||
 				type == "list_tests" || type == "get_test_results" ||
-				type == "runtime_hierarchy" || type == "runtime_state";
+				type == "runtime_hierarchy" || type == "runtime_state" ||
+				type == "read_project_file" || type == "list_project_files";
+		}
+		//---------------------------------------------------------
+		//--- project-root path jail (write/read/list authoring) --
+		//---------------------------------------------------------
+		//! @brief jail a caller-supplied path inside the open project's root. The
+		//! authoring verbs (write/read/list_project_file(s)) never touch anything
+		//! outside the project. Mirrors AssetDatabase::resolveInsideRoot's lexical
+		//! containment (an outside path relativizes to a "../"-led one) and adds
+		//! two guards it does not need: ABSOLUTE paths are refused outright (an
+		//! authoring path is always project-relative), and a symlink escape is
+		//! caught by re-checking the containment on the weakly-canonical forms
+		//! (which resolve symlinks over the path's existing prefix). false (+ a
+		//! reason in outError) when refused; on success outAbsolute is the
+		//! lexically-normal absolute path and outRelative its generic
+		//! project-relative form.
+		bool jailProjectPath(String const& root, String const& rel,
+			std::filesystem::path& outAbsolute, String& outRelative,
+			String& outError)
+		{
+			namespace fs = std::filesystem;
+			if (root.empty())
+			{
+				outError = "no project open";
+				return false;
+			}
+			if (rel.empty())
+			{
+				outError = "path must not be empty";
+				return false;
+			}
+			const fs::path requested(rel);
+			if (requested.is_absolute() || requested.has_root_name())
+			{
+				outError = "path must be project-relative (absolute paths are "
+					"refused)";
+				return false;
+			}
+			auto escapes = [](fs::path const& base, fs::path const& target) -> bool
+			{
+				const fs::path relative = target.lexically_relative(base);
+				return relative.empty() ||
+					(relative.begin() != relative.end() &&
+						*relative.begin() == fs::path(".."));
+			};
+			const fs::path rootPath(root);
+			const fs::path absolute = (rootPath / requested).lexically_normal();
+			// lexical containment (the "../" escape) - matches resolveInsideRoot
+			if (escapes(rootPath.lexically_normal(), absolute))
+			{
+				outError = "path escapes the project root";
+				return false;
+			}
+			// symlink containment: resolve symlinks over the existing prefix of
+			// both paths and re-check (a component symlinked outside the root
+			// would pass the lexical test but fail here)
+			std::error_code ec;
+			const fs::path canonicalRoot = fs::weakly_canonical(rootPath, ec);
+			const fs::path canonicalTarget = fs::weakly_canonical(absolute, ec);
+			if (!canonicalRoot.empty() && !canonicalTarget.empty() &&
+				escapes(canonicalRoot, canonicalTarget))
+			{
+				outError = "path escapes the project root (symlink)";
+				return false;
+			}
+			outAbsolute = absolute;
+			outRelative = absolute.lexically_relative(rootPath).generic_string();
+			return true;
+		}
+		//! @brief glob one path segment: '*' matches any run (including empty),
+		//! '?' any single character, everything else literally. Used by
+		//! list_project_files to filter entries by name without pulling in a
+		//! regex. Matches the WHOLE string (anchored both ends).
+		bool globMatch(String const& pattern, String const& text)
+		{
+			// classic two-pointer wildcard match with backtracking on '*'
+			size_t p = 0, t = 0, star = String::npos, mark = 0;
+			while (t < text.size())
+			{
+				if (p < pattern.size() &&
+					(pattern[p] == '?' || pattern[p] == text[t]))
+				{
+					++p;
+					++t;
+				}
+				else if (p < pattern.size() && pattern[p] == '*')
+				{
+					star = p++;
+					mark = t;
+				}
+				else if (star != String::npos)
+				{
+					p = star + 1;
+					t = ++mark;
+				}
+				else
+				{
+					return false;
+				}
+			}
+			while (p < pattern.size() && pattern[p] == '*')
+			{
+				++p;
+			}
+			return p == pattern.size();
 		}
 		//---------------------------------------------------------
 		//--- generic reflected-property helpers ---
@@ -830,6 +938,71 @@ namespace Orkige
 				  { { "path", "string", "output PNG path", true } } },
 				{ "list_assets",
 				  "List the open project's assets and scenes.", {} },
+				{ "write_project_file",
+				  "Author a TEXT file under the OPEN project's root (create the "
+				  "parent dirs, LF endings) - the DEVELOP primitive for an "
+				  "MCP-only agent: write scripts/<name>.lua, a config asset "
+				  "(input.oactions / physics.olayers / levels.olevels), etc. The "
+				  "path is project-root-relative and JAILED (absolute paths, '..' "
+				  "escapes and symlink escapes are refused). Writing a "
+				  "scripts/*.lua while a Play session is live is picked up by the "
+				  "editor's scripts/ watcher, which hot-reloads the running game. "
+				  "Returns the written 'path' and byte count.",
+				  { { "path", "string",
+				      "project-relative file path (e.g. 'scripts/player.lua')",
+				      true },
+				    { "content", "string", "the file's full text content",
+				      true } } },
+				{ "read_project_file",
+				  "Read a TEXT file under the open project's root (same jail as "
+				  "write_project_file; 1 MiB cap, honest error beyond). Returns "
+				  "'content' and the byte count.",
+				  { { "path", "string", "project-relative file path", true } } },
+				{ "list_project_files",
+				  "List one directory level under the open project's root (jailed) "
+				  "so an agent can discover scripts and config files. Returns "
+				  "parallel lists 'names', 'paths' (project-relative) and 'types' "
+				  "('file'/'dir'). Optional 'dir' (default the root) and 'glob' (a "
+				  "'*'/'?' filter on the entry name, e.g. '*.lua').",
+				  { { "dir", "string",
+				      "project-relative directory (default: the root)", false },
+				    { "glob", "string", "name filter ('*'/'?', e.g. '*.lua')",
+				      false } } },
+				{ "import_asset",
+				  "Import an OUTSIDE file into the open project (copy into "
+				  "assets/, mint its stable .orkmeta id, refresh the resource "
+				  "locations) - the MCP equivalent of dragging a file into the "
+				  "editor (same trust model; needs auth). 'sourcePath' is an "
+				  "absolute path on the editor's filesystem. Optional 'targetDir' "
+				  "(project-relative, jailed) relocates the import within the "
+				  "project, id preserved. Returns the project-relative 'path' and "
+				  "the minted 'assetId'.",
+				  { { "sourcePath", "string",
+				      "absolute path of the file to import", true },
+				    { "targetDir", "string",
+				      "project-relative destination dir (default: assets/)",
+				      false } } },
+				{ "create_prefab",
+				  "Write a GameObject's subtree as a .oprefab asset and convert "
+				  "the live subtree into a prefab INSTANCE (undoable). 'path' is "
+				  "project-relative and jailed, must end in .oprefab and must not "
+				  "already exist. Returns the instance-root 'id', the 'path' and "
+				  "the minted 'assetId'.",
+				  { { "objectId", "string",
+				      "the subtree-root GameObject to capture", true },
+				    { "path", "string",
+				      "project-relative .oprefab path (e.g. 'assets/Foo.oprefab')",
+				      true } } },
+				{ "instantiate_prefab",
+				  "Instantiate a .oprefab asset into the current scene as a NEW "
+				  "prefab instance (undoable). 'path' is the project-relative, "
+				  "jailed .oprefab file. Optional 'parent' reparents the new "
+				  "instance root under an existing object. Returns the new "
+				  "instance-root 'id'.",
+				  { { "path", "string",
+				      "project-relative .oprefab path", true },
+				    { "parent", "string",
+				      "parent GameObject id (default: a scene root)", false } } },
 				{ "console_tail",
 				  "The last N editor Console lines (default 50, max 200).",
 				  { { "count", "integer", "how many lines (1-200)", false } } },
@@ -2194,6 +2367,400 @@ namespace Orkige
 			return;
 		}
 
+		//--- project file authoring --------------------------
+		// The DEVELOP surface: an MCP-only agent authors project files (scripts,
+		// config assets) without a filesystem tool. Every path is JAILED to the
+		// open project's root (jailProjectPath - relative only, no "../" or
+		// symlink escape). Writing scripts/*.lua during a live Play session is
+		// picked up by the editor's existing scripts/ watcher, which triggers the
+		// hot-reload - no separate reload hook here (see Docs/mcp.md).
+		if (type == "write_project_file")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - write_project_file needs an "
+					"open project to jail the path to");
+				return;
+			}
+			std::filesystem::path absolute;
+			String relative;
+			String error;
+			if (!jailProjectPath(state.project.getRootDirectory(),
+				request.get("path"), absolute, relative, error))
+			{
+				this->sendErr(req, "write_project_file refused: " + error);
+				return;
+			}
+			// text file, LF endings: normalize any CRLF the client sent, write
+			// binary so the bytes land verbatim (no platform newline translation)
+			String content = request.get("content");
+			String normalized;
+			normalized.reserve(content.size());
+			for (size_t i = 0; i < content.size(); ++i)
+			{
+				if (content[i] == '\r' &&
+					(i + 1 >= content.size() || content[i + 1] != '\n'))
+				{
+					normalized += '\n';	// a lone CR -> LF
+				}
+				else if (content[i] != '\r')
+				{
+					normalized += content[i];
+				}
+			}
+			std::error_code ec;
+			std::filesystem::create_directories(absolute.parent_path(), ec);
+			std::ofstream out(absolute, std::ios::binary | std::ios::trunc);
+			if (!out)
+			{
+				this->sendErr(req, "write_project_file could not open '" +
+					relative + "' for writing");
+				return;
+			}
+			out.write(normalized.data(),
+				static_cast<std::streamsize>(normalized.size()));
+			out.close();
+			if (!out)
+			{
+				this->sendErr(req, "write_project_file failed writing '" +
+					relative + "'");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("path", relative);
+			ok.set("bytes", std::to_string(normalized.size()));
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "read_project_file")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open");
+				return;
+			}
+			std::filesystem::path absolute;
+			String relative;
+			String error;
+			if (!jailProjectPath(state.project.getRootDirectory(),
+				request.get("path"), absolute, relative, error))
+			{
+				this->sendErr(req, "read_project_file refused: " + error);
+				return;
+			}
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(absolute, ec))
+			{
+				this->sendErr(req, "read_project_file: no such file '" +
+					relative + "'");
+				return;
+			}
+			const std::uintmax_t size = std::filesystem::file_size(absolute, ec);
+			const std::uintmax_t maxSize = 1024 * 1024;	// 1 MiB text cap
+			if (size > maxSize)
+			{
+				this->sendErr(req, "read_project_file: '" + relative + "' is " +
+					std::to_string(size) + " bytes (over the " +
+					std::to_string(maxSize) + "-byte text cap)");
+				return;
+			}
+			std::ifstream in(absolute, std::ios::binary);
+			if (!in)
+			{
+				this->sendErr(req, "read_project_file could not open '" +
+					relative + "'");
+				return;
+			}
+			String content((std::istreambuf_iterator<char>(in)),
+				std::istreambuf_iterator<char>());
+			DebugMessage ok(MSG_OK);
+			ok.set("path", relative);
+			ok.set("bytes", std::to_string(content.size()));
+			ok.set("content", content);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "list_project_files")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open");
+				return;
+			}
+			// default dir is the project root; a glob (optional) filters entry
+			// NAMES. Listing is one directory level (like `ls`) so an agent
+			// navigates predictably.
+			String dirArg = request.get("dir");
+			if (dirArg.empty())
+			{
+				dirArg = ".";
+			}
+			std::filesystem::path absolute;
+			String relative;
+			String error;
+			if (!jailProjectPath(state.project.getRootDirectory(), dirArg,
+				absolute, relative, error))
+			{
+				this->sendErr(req, "list_project_files refused: " + error);
+				return;
+			}
+			std::error_code ec;
+			if (!std::filesystem::is_directory(absolute, ec))
+			{
+				this->sendErr(req, "list_project_files: '" + relative +
+					"' is not a directory");
+				return;
+			}
+			const String glob = request.get("glob");
+			StringVector names;
+			StringVector paths;
+			StringVector types;
+			const std::filesystem::path rootPath(
+				state.project.getRootDirectory());
+			const size_t maxEntries = 1000;
+			bool truncated = false;
+			std::vector<std::filesystem::directory_entry> entries;
+			for (std::filesystem::directory_iterator it(absolute, ec), end;
+				!ec && it != end; it.increment(ec))
+			{
+				entries.push_back(*it);
+			}
+			std::sort(entries.begin(), entries.end(),
+				[](std::filesystem::directory_entry const& a,
+					std::filesystem::directory_entry const& b)
+				{
+					return a.path().filename().string() <
+						b.path().filename().string();
+				});
+			for (std::filesystem::directory_entry const& entry : entries)
+			{
+				const String name = entry.path().filename().string();
+				if (!glob.empty() && !globMatch(glob, name))
+				{
+					continue;
+				}
+				if (names.size() >= maxEntries)
+				{
+					truncated = true;
+					break;
+				}
+				names.push_back(name);
+				paths.push_back(entry.path().lexically_relative(rootPath)
+					.generic_string());
+				types.push_back(entry.is_directory(ec) ? "dir" : "file");
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("dir", relative);
+			ok.set("truncated", truncated ? "1" : "0");
+			ok.setList("names", names);
+			ok.setList("paths", paths);
+			ok.setList("types", types);
+			this->sendOk(req, ok);
+			return;
+		}
+		// import_asset: copy an OUTSIDE file into the project (sidecar minted, id
+		// returned). The source is by nature outside the jail - this is the MCP
+		// equivalent of the human dragging a file into the editor, so it needs
+		// auth (the trust boundary the drag has by sitting at the machine).
+		if (type == "import_asset")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - import_asset needs a project "
+					"to copy the file into");
+				return;
+			}
+			const String source = request.get("sourcePath");
+			if (source.empty())
+			{
+				this->sendErr(req, "import_asset needs a 'sourcePath'");
+				return;
+			}
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(source, ec))
+			{
+				this->sendErr(req, "import_asset: source '" + source +
+					"' is not a file");
+				return;
+			}
+			// the existing import path (copy into assets/ + resource-location
+			// refresh + sidecar mint), reused wholesale
+			String importError;
+			const std::string destPath =
+				importAssetFile(state, source, &importError);
+			if (destPath.empty())
+			{
+				this->sendErr(req, "import_asset failed: " +
+					(importError.empty() ? "see the editor log" : importError));
+				return;
+			}
+			String relative = state.project.makeProjectRelative(destPath);
+			optr<AssetDatabase> const& database = state.project.getAssetDatabase();
+			String assetId = database ? database->idForPath(relative) : String();
+			// an optional targetDir relocates the import within the project (id
+			// survives - AssetDatabase::moveAsset carries the sidecar). The dir
+			// is jailed like any authoring path.
+			const String targetDir = request.get("targetDir");
+			if (!targetDir.empty() && database)
+			{
+				std::filesystem::path targetAbsolute;
+				String targetRelative;
+				String jailError;
+				if (!jailProjectPath(state.project.getRootDirectory(), targetDir,
+					targetAbsolute, targetRelative, jailError))
+				{
+					this->sendErr(req, "import_asset targetDir refused: " +
+						jailError);
+					return;
+				}
+				const String fileName =
+					std::filesystem::path(destPath).filename().string();
+				const String moved = targetRelative.empty()
+					? fileName : (targetRelative + "/" + fileName);
+				if (moved != relative && database->moveAsset(relative, moved))
+				{
+					relative = moved;
+					registerProjectAssetLocations(targetAbsolute.string());
+				}
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("path", relative);
+			ok.set("assetId", assetId);
+			this->sendOk(req, ok);
+			return;
+		}
+		// create_prefab: write objectId's subtree as a .oprefab and convert the
+		// live subtree into an instance - the exact seams GameObject > Create
+		// Prefab uses (PrefabSerializer::savePrefab + AssetDatabase::importAsset +
+		// EditorCore::makePrefabInstance), but at a caller-chosen jailed path.
+		if (type == "create_prefab")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - prefabs live in the "
+					"project's assets/");
+				return;
+			}
+			const String objectId = request.get("objectId");
+			std::filesystem::path absolute;
+			String relative;
+			String error;
+			if (!jailProjectPath(state.project.getRootDirectory(),
+				request.get("path"), absolute, relative, error))
+			{
+				this->sendErr(req, "create_prefab refused: " + error);
+				return;
+			}
+			if (absolute.extension() != ".oprefab")
+			{
+				this->sendErr(req, "create_prefab: 'path' must end in .oprefab");
+				return;
+			}
+			String reason;
+			if (!core.canMakePrefab(objectId, &reason))
+			{
+				this->sendErr(req, "create_prefab refused for '" + objectId +
+					"': " + reason);
+				return;
+			}
+			std::error_code ec;
+			if (std::filesystem::exists(absolute, ec))
+			{
+				this->sendErr(req, "create_prefab: '" + relative +
+					"' already exists");
+				return;
+			}
+			std::filesystem::create_directories(absolute.parent_path(), ec);
+			if (!PrefabSerializer::savePrefab(absolute.string(), manager,
+				objectId))
+			{
+				this->sendErr(req, "create_prefab could not write '" + relative +
+					"' (see the editor log)");
+				return;
+			}
+			String assetId;
+			if (optr<AssetDatabase> const& database =
+				state.project.getAssetDatabase())
+			{
+				assetId = database->importAsset(absolute.string());
+			}
+			if (!core.makePrefabInstance(objectId, absolute.string(), relative,
+				assetId))
+			{
+				this->sendErr(req, "create_prefab: wrote '" + relative +
+					"' but could not convert '" + objectId + "' into an instance");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set(DebugProtocol::FIELD_ID, objectId);
+			ok.set("path", relative);
+			ok.set("assetId", assetId);
+			this->sendOk(req, ok);
+			return;
+		}
+		// instantiate_prefab: create a NEW instance of a .oprefab into the scene
+		// (the Asset browser's instantiate flow: CreatePrefabInstanceCommand,
+		// undoable), optionally reparented under parentId.
+		if (type == "instantiate_prefab")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open");
+				return;
+			}
+			std::filesystem::path absolute;
+			String relative;
+			String error;
+			if (!jailProjectPath(state.project.getRootDirectory(),
+				request.get("path"), absolute, relative, error))
+			{
+				this->sendErr(req, "instantiate_prefab refused: " + error);
+				return;
+			}
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(absolute, ec) ||
+				absolute.extension() != ".oprefab")
+			{
+				this->sendErr(req, "instantiate_prefab: '" + relative +
+					"' is not a .oprefab file");
+				return;
+			}
+			const String parentId = request.get("parent");
+			if (!parentId.empty() && !manager.objectExists(parentId))
+			{
+				this->sendErr(req, "instantiate_prefab: no such parent '" +
+					parentId + "'");
+				return;
+			}
+			optr<AssetDatabase> const& database = state.project.getAssetDatabase();
+			const String assetId = database ? database->idForPath(relative)
+				: String();
+			String stem = absolute.stem().string();
+			if (stem.empty())
+			{
+				stem = "Prefab";
+			}
+			const String rootId = core.generateObjectId(stem);
+			if (!core.executeCommand(onew(new CreatePrefabInstanceCommand(
+				rootId, absolute.string(), relative, assetId, Vec3::ZERO))))
+			{
+				this->sendErr(req, "instantiate_prefab: could not instantiate '" +
+					relative + "' (see the editor log)");
+				return;
+			}
+			if (!parentId.empty() && !core.reparentObject(rootId, parentId))
+			{
+				this->sendErr(req, "instantiate_prefab: instantiated '" + rootId +
+					"' but could not reparent it under '" + parentId + "'");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set(DebugProtocol::FIELD_ID, rootId);
+			ok.set("path", relative);
+			this->sendOk(req, ok);
+			return;
+		}
+
 		//--- console tail ------------------------------------
 		if (type == "console_tail")
 		{
@@ -3424,6 +3991,294 @@ namespace Orkige
 				"(1 pass, 1 fail with a captured log tail)");
 		}
 
+		// --- the AUTHORING (DEVELOP) tools: an MCP-only agent writes/reads/lists
+		// project files, imports an outside asset and round-trips a prefab. These
+		// need an open project (the path jail is rooted at it), so open a throwaway
+		// one first. Runs in the edit-world conversation (no live player needed).
+		namespace fs = std::filesystem;
+		const fs::path authRoot = fs::temp_directory_path() /
+			("orkige_mcp_authoring_" + std::to_string(port));
+		std::error_code authIgnored;
+		fs::remove_all(authRoot, authIgnored);
+
+		// (14) new_project (authed, force past the dirty McpProbe scene)
+		{
+			JsonValue args = JsonValue::object();
+			args.set("path", JsonValue(authRoot.string()));
+			args.set("force", JsonValue("1"));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("new_project", args, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: new_project for the authoring "
+					"tools failed");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - authoring project opened "
+				"('%s')", authRoot.string().c_str());
+		}
+
+		// (15) write_project_file -> read_project_file round-trip. The content
+		// carries a CR the server must normalize to LF (the repo's LF rule).
+		const String scriptRel = "scripts/mcp_probe.lua";
+		const String scriptContent =
+			"-- mcp authoring probe\r\nfunction update() end\n";
+		const String scriptExpected =
+			"-- mcp authoring probe\nfunction update() end\n";
+		{
+			JsonValue args = JsonValue::object();
+			args.set("path", JsonValue(scriptRel));
+			args.set("content", JsonValue(scriptContent));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("write_project_file", args, true, structured,
+					isError) || isError ||
+				structured.get("path").asString() != scriptRel)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: write_project_file did not "
+					"report the written path");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("path", JsonValue(scriptRel));
+			if (!callTool("read_project_file", readArgs, false, structured,
+					isError) || isError ||
+				structured.get("content").asString() != scriptExpected)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: read_project_file did not "
+					"round-trip the written (LF-normalized) content");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - write/read_project_file "
+				"round-trip OK (CRLF normalized to LF)");
+		}
+
+		// (16) JAIL VIOLATIONS: an absolute path and a '..' escape must BOTH be
+		// refused (isError), without writing anything
+		{
+			const char* badPaths[] = {
+				"/etc/orkige_mcp_probe_escape", "../orkige_mcp_probe_escape" };
+			for (const char* bad : badPaths)
+			{
+				JsonValue args = JsonValue::object();
+				args.set("path", JsonValue(String(bad)));
+				args.set("content", JsonValue("nope"));
+				JsonValue structured;
+				bool isError = false;
+				if (!callTool("write_project_file", args, true, structured,
+						isError) || !isError)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, String("control self-test: write_project_file "
+						"did NOT refuse the jailed path '") + bad + "'");
+					return;
+				}
+			}
+			// neither escape wrote its file
+			if (fs::exists("/etc/orkige_mcp_probe_escape", authIgnored) ||
+				fs::exists(authRoot.parent_path() / "orkige_mcp_probe_escape",
+					authIgnored))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: a jailed write_project_file "
+					"nonetheless wrote outside the project");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - write_project_file jail "
+				"refuses absolute + '..' paths");
+		}
+
+		// (17) AUTH REJECTION on an authoring mutation: no token -> refused
+		{
+			JsonValue args = JsonValue::object();
+			args.set("path", JsonValue(String("scripts/mcp_unauthed.lua")));
+			args.set("content", JsonValue("nope"));
+			JsonValue structured;
+			bool isError = false;
+			if (!callTool("write_project_file", args, false, structured,
+					isError) || !isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated "
+					"write_project_file was NOT rejected");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - unauthenticated "
+				"write_project_file correctly rejected");
+		}
+
+		// (18) list_project_files: the scripts/ dir, filtered to *.lua, must
+		// include the file we just wrote
+		{
+			JsonValue args = JsonValue::object();
+			args.set("dir", JsonValue(String("scripts")));
+			args.set("glob", JsonValue(String("*.lua")));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("list_project_files", args, false, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_project_files failed");
+				return;
+			}
+			JsonValue const& names = structured.get("names");
+			bool found = false;
+			for (size_t i = 0; i < names.size(); ++i)
+			{
+				if (names.at(i).asString() == "mcp_probe.lua")
+				{
+					found = true;
+				}
+			}
+			if (!found)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_project_files did not list "
+					"the written script");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - list_project_files OK "
+				"(scripts/*.lua lists the written file)");
+		}
+
+		// (19) import_asset: copy an OUTSIDE temp file into the project, assert a
+		// stable id is minted and the file lands under assets/
+		{
+			const fs::path outside = fs::temp_directory_path() /
+				("orkige_mcp_import_" + std::to_string(port) + ".txt");
+			{
+				std::ofstream f(outside, std::ios::binary);
+				f << "imported by mcp";
+			}
+			JsonValue args = JsonValue::object();
+			args.set("sourcePath", JsonValue(outside.string()));
+			JsonValue structured;
+			bool isError = true;
+			const bool ok = callTool("import_asset", args, true, structured,
+				isError) && !isError;
+			const String importedPath = structured.get("path").asString();
+			const String importedId = structured.get("assetId").asString();
+			fs::remove(outside, authIgnored);
+			if (!ok || importedId.empty() ||
+				importedPath.rfind("assets/", 0) != 0)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: import_asset did not mint an id "
+					"for the copied-in file");
+				return;
+			}
+			// AUTH: the same import without a token must be rejected
+			bool unauthError = false;
+			if (!callTool("import_asset", args, false, structured, unauthError) ||
+				!unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated import_asset was "
+					"NOT rejected");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - import_asset OK "
+				"(minted id %s at '%s')", importedId.c_str(),
+				importedPath.c_str());
+		}
+
+		// (20) create_prefab -> instantiate_prefab round-trip: make an object, of
+		// it a prefab, then instantiate a fresh instance of that prefab
+		{
+			JsonValue createArgs = JsonValue::object();
+			createArgs.set("name", JsonValue("create_object"));
+			JsonValue objArgs = JsonValue::object();
+			objArgs.set("id", JsonValue("PrefabSource"));
+			createArgs.set("arguments", objArgs);
+			JsonValue reply;
+			if (!post("tools/call", createArgs, true, true, reply) ||
+				reply.get("result").get("isError").asBool(true))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: could not create the prefab "
+					"source object");
+				return;
+			}
+			// create_prefab (authed): write the .oprefab and convert the subtree
+			JsonValue prefabArgs = JsonValue::object();
+			prefabArgs.set("objectId", JsonValue("PrefabSource"));
+			prefabArgs.set("path", JsonValue(String("assets/McpProbe.oprefab")));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("create_prefab", prefabArgs, true, structured,
+					isError) || isError ||
+				structured.get("path").asString() != "assets/McpProbe.oprefab")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_prefab did not write the "
+					".oprefab and convert the object");
+				return;
+			}
+			// the .oprefab actually exists on disk
+			if (!fs::exists(authRoot / "assets" / "McpProbe.oprefab",
+				authIgnored))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_prefab reported success "
+					"but no .oprefab file was written");
+				return;
+			}
+			// instantiate_prefab (authed): a fresh instance root appears
+			JsonValue instArgs = JsonValue::object();
+			instArgs.set("path", JsonValue(String("assets/McpProbe.oprefab")));
+			if (!callTool("instantiate_prefab", instArgs, true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: instantiate_prefab failed");
+				return;
+			}
+			const String instanceId = structured.get("id").asString();
+			if (instanceId.empty())
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: instantiate_prefab did not "
+					"report a new instance id");
+				return;
+			}
+			// the new instance is present in the hierarchy
+			JsonValue listReply;
+			JsonValue listArgs = JsonValue::object();
+			bool listError = true;
+			if (!callTool("list_hierarchy", listArgs, false, listReply,
+					listError) || listError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_hierarchy after "
+					"instantiate_prefab failed");
+				return;
+			}
+			JsonValue const& ids = listReply.get("ids");
+			bool found = false;
+			for (size_t i = 0; i < ids.size(); ++i)
+			{
+				if (ids.at(i).asString() == instanceId)
+				{
+					found = true;
+				}
+			}
+			if (!found)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the instantiated prefab is "
+					"missing from the hierarchy");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - create/instantiate_prefab "
+				"round-trip OK (instance '%s')", instanceId.c_str());
+		}
+
+		fs::remove_all(authRoot, authIgnored);
 		finish(true, "");
 	}
 }

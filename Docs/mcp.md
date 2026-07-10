@@ -107,6 +107,12 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
+| `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
+| `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
+| `list_project_files(dir?, glob?)` | list one directory level under the project root (jailed) → `names`/`paths`/`types` |
+| `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`) |
+| `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
+| `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
@@ -176,6 +182,64 @@ restitution/planar/radius/half_height/half_extents), `CameraComponent`
 (projection_mode/ortho_size), `SpriteComponent` (texture/width/height/tint/
 flip_x/flip_y/z_order/visible). `set_component` accepts the fields either at the
 top level or inside a `properties` object.
+
+## Authoring a project over MCP
+
+`get_component`/`set_component` mutate objects already in a scene, but a scene is
+built out of files an agent also has to author: game logic lives in Lua scripts,
+behaviour in prefabs, tuning in config assets. `write_project_file`,
+`read_project_file`, `list_project_files`, `import_asset` and the two prefab
+verbs close that gap so an MCP-only agent never needs a separate filesystem tool.
+
+**Path safety.** Every file verb is JAILED to the open project's root: the path
+is project-root-relative, absolute paths are refused, and any `..` or symlink
+escape is rejected (the same lexical containment `AssetDatabase::resolveInsideRoot`
+uses for asset imports, plus an absolute-path refusal and a
+weakly-canonical symlink-escape re-check). `import_asset` is the one exception —
+its *source* is by nature outside the project (it copies a file IN) — so it
+needs auth, exactly like a human dragging a file into the editor.
+
+**Config assets** (`input.oactions` / `physics.olayers` / `levels.olevels`) are
+project-root-relative files referenced from the manifest `Settings`, so they are
+authored with plain `write_project_file` — there is no dedicated verb. The editor
+does not cache them in edit mode (it re-reads them at Play/export time and the
+Inspector reloads the physics layers on `open_project`), so no reload hook is
+needed; a running player picks up a rewritten config on its next Play.
+
+**Scripts + hot-reload.** Writing a `scripts/*.lua` file during a live Play
+session needs no explicit reload verb: the editor already polls `scripts/` (~4 Hz,
+`watchProjectScripts`) and fires the hot-reload on any change, so an MCP write is
+picked up like an editor-side edit. `reload_script` (see below) is still there to
+force a reload on demand.
+
+The develop → verify loop:
+
+```
+// 1. write the logic
+tools/call write_project_file { "path":"scripts/player.lua",
+    "content":"function update(dt)\n  self.y = self.y + dt\nend\n" }
+//   → { "path":"scripts/player.lua", "bytes":"41" }
+
+// 2. discover / read files back
+tools/call list_project_files { "dir":"scripts", "glob":"*.lua" }
+//   → { "names":["player.lua"], "paths":["scripts/player.lua"], "types":["file"] }
+tools/call read_project_file { "path":"scripts/player.lua" }   // → { "content":"..." }
+
+// 3. bring an outside asset in (sidecar minted, stable id returned)
+tools/call import_asset { "sourcePath":"/tmp/hero.png" }
+//   → { "path":"assets/hero.png", "assetId":"5f2c..." }
+
+// 4. capture a subtree as a reusable prefab, then stamp instances of it
+tools/call create_prefab { "objectId":"Enemy", "path":"assets/Enemy.oprefab" }
+//   → { "id":"Enemy", "path":"assets/Enemy.oprefab", "assetId":"a1b2..." }
+tools/call instantiate_prefab { "path":"assets/Enemy.oprefab", "parent":"Spawner" }
+//   → { "id":"Enemy 2" }
+
+// 5. run the project's selfcheck for evidence (the loop above, run_tests)
+tools/call run_tests { "filter":"player_jumper_lua_selfcheck" }
+```
+
+Then verify with `run_tests` + a `screenshot` (or `screenshot_game` during Play).
 
 ## Debugging a running game
 
@@ -271,7 +335,16 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   It also proves the runtime debug tools' NEGATIVE paths headlessly: `tools/list`
   advertises them, the runtime READS (`runtime_hierarchy` / `runtime_state`)
   error cleanly with no player, and every runtime MUTATION is rejected without a
-  bearer token. Proves the whole C++ MCP endpoint with no Python.
+  bearer token. Finally it drives the AUTHORING tools against a throwaway project
+  it opens with `new_project`: a `write_project_file` → `read_project_file`
+  round-trip (asserting CRLF is normalized to LF), two jail violations REFUSED (an
+  absolute path and a `..` escape, verifying nothing was written outside the
+  root), an auth-rejected `write_project_file`, `list_project_files` (the written
+  script appears under a `*.lua` glob), `import_asset` from a temp file (a stable
+  id is minted, an unauthenticated import rejected), and a `create_prefab` →
+  `instantiate_prefab` round-trip (the `.oprefab` lands on disk and the fresh
+  instance appears in `list_hierarchy`). Proves the whole C++ MCP endpoint with no
+  Python.
 - `editor_control_debug` (ctest, integration; needs the built player): the same
   socket-driven MCP client, but the RUNTIME DEBUG loop end to end against the
   live player — `play` (boots the player over the debug protocol), then
