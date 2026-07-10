@@ -117,9 +117,9 @@ tests/            unit + integration       Util/           asset generator scrip
 ports/ triplets/  vcpkg overlays           Docs/           ports rationale, upstream PRs
 ```
 
-Modern work happens on `modernize` (the default branch); the deep history
-carries the engine's 2009–2012 origins. The games shipped on the original
-engine live in a private archive.
+Modern work happens on `main`; the deep history carries the engine's
+2009–2012 origins. The games shipped on the original engine live in a
+private archive.
 
 ## Upstream
 

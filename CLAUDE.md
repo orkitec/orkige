@@ -6,13 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Orkige is a custom C++ game engine ("orkitec game engine", ~2009–2012) being revived and
 modernized to build mobile games (iOS + Android) with desktop (macOS/Windows) as dev targets.
-Original author: Steffen Römer. The modernization happens on the `modernize` branch; `master`
-holds the historical state. Old game projects live in archived branches (`watermaze`,
-`ThinkBlue`, `CigaretteGame`, tag `PuddingPanic-Appstore-version-1.1`).
+Original author: Steffen Römer. This public repository carries the modernized engine on
+`main` (its history reaches back to 2009). The pre-modernization state, the old game
+projects and the removed vendored dependencies live in the PRIVATE archive repository
+`orkitec/orkige-archive` (remote `archive` on dev machines).
 
 Anything that seems missing (vendored `Dependencies/`, OgreLite forks, Ogitor, `engine_swf`,
 `engine_video`, the CMake 2.6 build) was deliberately deleted during modernization and is
-recoverable from git history — do not reintroduce it.
+recoverable from history (the private archive holds everything) — do not reintroduce it.
 
 ## Build
 
@@ -337,7 +338,7 @@ rationale), `Docs/upstream/` (OGRE PR package — submitted as OGRECave/ogre #36
 
 ## Feature systems (the 2026 build)
 
-Landed on `modernize` on top of the revival, each verified on both flavors. Where to
+Landed on top of the revival, each verified on both flavors. Where to
 look when touching one:
 
 - **Scene model**: GameObject **parent/child hierarchy + active state** (`core_game`;
