@@ -12,8 +12,8 @@
 #                  lavapipe. Hard gate.
 #   macos-next     - the default flavor on Apple hardware: build + headless
 #                  units. Hard gate.
-#   windows-next   - the Windows port's verification loop (being brought up
-#                  on MSVC); a red job means a red run - no masked failures.
+#   windows-next   - the default flavor on MSVC: build + headless units.
+#                  Hard gate; a red job means a red run - no masked failures.
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
 # set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
@@ -373,8 +373,6 @@ jobs:
   # Windows on the default (Ogre-Next) flavor: EXPERIMENTAL - the codebase
   # has never compiled on Windows; this job is the verification loop for
   # that port. Promote once green.
-  # The Windows port bring-up: every failure is VISIBLE (no
-  # continue-on-error - a red job is a red run, by owner policy)
   windows-next:
     name: Windows next (Vulkan) - build + unit
     runs-on: windows-latest

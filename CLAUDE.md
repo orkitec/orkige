@@ -140,8 +140,8 @@ Linux classic (unit gate + the full windowed desktop suite under
 xvfb/llvmpipe, both hard gates), the `ORKIGE_SCRIPTING=OFF` configuration
 (build + unit, hard gate — the script-seam enforcement leg, preset
 `linux-debug-noscript`), Linux next (Vulkan — the default backend, hard
-gate), macOS next (build + unit), and an EXPERIMENTAL Windows next job
-(the MSVC port's verification loop, preset `windows-debug`). The local
+gate), macOS next (build + unit, hard gate), and Windows next (MSVC,
+build + unit, hard gate; preset `windows-debug`). The local
 noscript tree is preset-encoded too: `cmake --preset macos-debug-noscript`,
 `ctest --preset unit-noscript`. A `pre-push` git
 hook (install once per clone: `Util/install_git_hooks.sh`) spawns
@@ -391,8 +391,9 @@ builds + unit-tests the **`ORKIGE_SCRIPTING=OFF`** configuration (all hard
 gates; scripting is a CMake-level switch, so it reuses the job's vcpkg binary
 cache). **Linux-next** (Vulkan, the default backend) is a hard gate too:
 build + units + smoke under lavapipe. **macOS-next** builds the default
-flavor on Apple hardware + units. **Windows-next** is the experimental MSVC
-bring-up loop (preset `windows-debug`, x64-windows-static-md triplet).
+flavor on Apple hardware + units. **Windows-next** builds the default
+flavor on MSVC + units (preset `windows-debug`, x64-windows-static-md
+triplet, NOMINMAX/WIN32_LEAN_AND_MEAN globally).
 Linux builds with **clang** (`CC/CXX` in the workflow env;
 matches the clang-oriented codebase), and needs a few system dev packages the cold
 vcpkg build surfaced (autoconf-archive, libltdl-dev, libxtst/libxinerama; SDL's builtin
