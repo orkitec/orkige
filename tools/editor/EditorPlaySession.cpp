@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <sstream>
 
 //! parse exactly count whitespace-separated floats; false on any junk
@@ -962,7 +963,10 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 		return;
 	}
 	session.lastScriptCheck = now;
-	long long newest = 0;
+	// file_clock's epoch is implementation-defined - on libstdc++ it lies in
+	// the FUTURE, making every real mtime count negative. A zero-initialized
+	// fold would therefore never observe any file; start from the minimum.
+	long long newest = std::numeric_limits<long long>::min();
 	const std::filesystem::path scriptsDir =
 		std::filesystem::path(session.projectRoot) / "scripts";
 	std::error_code ec;
