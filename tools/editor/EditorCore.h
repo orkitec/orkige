@@ -26,13 +26,57 @@ namespace Orkige
 {
 	class EditorCore;
 
-	//! the classic tool set (Q/W/E/R)
+	//! the classic tool set (Q/W/E/R) plus the 2D grid paint tool (B)
 	enum class EditorTool
 	{
 		Select,		//!< selection only, no gizmo (Q)
 		Translate,	//!< move gizmo (W)
 		Rotate,		//!< rotate gizmo (E)
-		Scale		//!< scale gizmo (R)
+		Scale,		//!< scale gizmo (R)
+		Paint		//!< prefab grid painting in 2D mode (B)
+	};
+
+	//! @brief the paint grid the 2D grid-paint tool snaps to. Cells are square
+	//! and UNBOUNDED (an off-grid cell paints fine); when the scene carries a
+	//! LevelComponent the cells coincide with the game's slots, otherwise the
+	//! editor's translate snap step defines the cell size at the world origin.
+	struct EditorPaintGrid
+	{
+		float originX = 0.0f;	//!< world X of cell (0,0)'s center
+		float originY = 0.0f;	//!< world Y of cell (0,0)'s center
+		float cellSize = 1.0f;	//!< cell edge length (always > 0)
+	};
+
+	//! integer cell coordinate for a world coordinate on one axis (nearest
+	//! cell center; unbounded, so negatives are valid)
+	int paintCellCoord(float world, float origin, float cellSize);
+	//! world coordinate of a cell's center on one axis
+	float paintCellCenter(int cell, float origin, float cellSize);
+
+	//! @brief one component-property stamp the paint tool applies to a painted
+	//! root - generic and reflection-driven (the palette uses it to stamp
+	//! TileComponent.openEdges). addComponent is true when the prefab root does
+	//! not already carry the component (then it is added before the property).
+	struct EditorPaintStamp
+	{
+		String componentTypeName;	//!< the component to stamp
+		bool addComponent = false;	//!< add the component first (missing on root)
+		String propertyName;		//!< reflected property to set ("" = none)
+		String value;				//!< canonical string form of the value
+	};
+
+	//! @brief everything ONE paint action places: the prefab to instantiate,
+	//! the prefab-local children to suppress, the tags to stamp on the root and
+	//! the reflected property stamps to apply. Built by the palette; consumed
+	//! by EditorCore::paintPrefabAtCell.
+	struct EditorPaintDesc
+	{
+		String prefabFilePath;			//!< absolute .oprefab source
+		String prefabRef;				//!< project-relative ref stored on the root
+		String prefabAssetId;			//!< stable .orkmeta id
+		StringVector suppressedChildren;	//!< prefab-local ids dropped at instantiate
+		StringVector tags;				//!< tags stamped on the root (empty = none)
+		std::vector<EditorPaintStamp> stamps;	//!< reflected property stamps
 	};
 
 	//! gizmo reference frame (X toggles)
@@ -192,9 +236,13 @@ namespace Orkige
 	class CreatePrefabInstanceCommand : public EditorCommand
 	{
 	public:
+		//! suppressedChildren (optional) drops those prefab-local children on
+		//! the new instance right at creation - the grid paint tool passes the
+		//! open-edge wall locals; the asset-browser drop leaves it empty
 		CreatePrefabInstanceCommand(String const& instanceRootId,
 			String const& prefabFilePath, String const& prefabRef,
-			String const& prefabAssetId, Vec3 const& position);
+			String const& prefabAssetId, Vec3 const& position,
+			StringVector const& suppressedChildren = StringVector());
 		virtual bool execute(EditorCore& core) override;
 		virtual bool unexecute(EditorCore& core) override;
 		virtual String getDescription() const override;
@@ -205,6 +253,34 @@ namespace Orkige
 		String mPrefabRef;		//!< project-relative reference stored on the root
 		String mPrefabAssetId;	//!< stable .orkmeta id riding next to the reference
 		Vec3 mPosition;
+		StringVector mSuppressedChildren;	//!< prefab-local ids dropped at instantiate
+	};
+
+	//! @brief delete a WHOLE object subtree as one undoable step, preserving
+	//! prefab identity. Unlike DeleteObjectCommand (single object, children
+	//! promote to the grandparent, prefabRef/suppressions lost), this captures
+	//! the entire subtree (DFS, parents first) PLUS the root's
+	//! prefabRef/assetId/suppressed list, deletes deepest first and on undo
+	//! restores the subtree parents-first then re-marks the root as the prefab
+	//! instance it was. The grid paint tool's erase/replace routes here so a
+	//! painted instance (its "<root>/..." provided children and any scene-side
+	//! extra children) comes back intact.
+	class DeleteSubtreeCommand : public EditorCommand
+	{
+	public:
+		explicit DeleteSubtreeCommand(String const& rootId);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mRootId;
+		StringVector mSubtreeIds;	//!< captured subtree (DFS, parents first)
+		std::vector<EditorObjectSnapshot> mSubtreeSnapshots;	//!< parallel to mSubtreeIds
+		String mPrefabRef;			//!< root's prefab ref (re-marked on undo)
+		String mPrefabAssetId;		//!< root's prefab asset id
+		StringVector mSuppressed;	//!< root's suppressed-children list
+		bool mWasSelected = false;
 	};
 
 	//! @brief delete an object; undo restores the full serialized component
@@ -426,6 +502,12 @@ namespace Orkige
 		virtual bool execute(EditorCore& core) override;
 		virtual bool unexecute(EditorCore& core) override;
 		virtual String getDescription() const override;
+		//! @brief absorb a follow-up CompositeCommand of the same interactive
+		//! session by appending its (already executed) children - so a whole
+		//! paint stroke (one composite per cell, all sharing the stroke's merge
+		//! session) collapses into ONE undo step. Unexecute already runs in
+		//! reverse, so the merged children unwind in the right order.
+		virtual bool mergeWith(EditorCommand const& next) override;
 
 	private:
 		String mDescription;
@@ -717,6 +799,36 @@ namespace Orkige
 			EditorTransform const& before, EditorTransform const& after,
 			unsigned int mergeSession = 0);
 
+		//--- 2D grid painting (undoable) ---------------------
+		//! @brief the paint grid for the current scene: the geometry of the
+		//! first object carrying a LevelComponent when one exists, otherwise
+		//! {origin (0,0), cellSize = the translate snap step}. Cells coincide
+		//! with the game's slots whenever a LevelComponent is present.
+		EditorPaintGrid resolvePaintGrid() const;
+		//! @brief the id of the prefab INSTANCE occupying the cell centered at
+		//! (centerX, centerY), or "" when the cell is free. A cell is occupied by
+		//! a ROOT-level object (no parent) carrying a non-empty prefabRef whose
+		//! TransformComponent position lies within half a cell of the center in
+		//! BOTH axes. Non-prefab scene objects (a Ball, a Level) are never
+		//! returned - they cannot be painted over or erased.
+		String findPrefabInstanceAtCell(float centerX, float centerY,
+			float cellSize) const;
+		//! @brief paint a prefab instance into the cell centered at
+		//! (centerX, centerY) as ONE undoable step: an occupant of the same cell
+		//! is replaced (erase then create). Returns false (no-op) when the cell
+		//! already holds an instance with the SAME prefab, suppressed set and
+		//! stamp values - so dragging across a painted cell does not churn the
+		//! undo stack. Pass the stroke's merge session so consecutive cells
+		//! collapse into one undo step. Requires a booted engine.
+		bool paintPrefabAtCell(EditorPaintDesc const& desc,
+			float centerX, float centerY, float cellSize,
+			unsigned int mergeSession = 0);
+		//! @brief erase the prefab instance in the cell centered at
+		//! (centerX, centerY) as one undoable step (DeleteSubtreeCommand);
+		//! false (no-op) when the cell is free. Pass the stroke's merge session.
+		bool erasePrefabAtCell(float centerX, float centerY, float cellSize,
+			unsigned int mergeSession = 0);
+
 		//--- component operations (undoable) ------------------
 		//! all component type names the Add Component popup may offer
 		//! (everything registered in the GameObjectComponent factory), sorted
@@ -863,11 +975,14 @@ namespace Orkige
 		//! @brief create a NEW prefab instance from a .oprefab file: the
 		//! deterministic instance-namespace subtree plus the marked root at the
 		//! given position (NOT undoable - CreatePrefabInstanceCommand wraps it).
-		//! On a failed instantiate the partial subtree is torn down again.
-		//! Requires a booted engine.
+		//! suppressedChildren (optional) drops those prefab-local children right
+		//! at instantiation and records them on the root. On a failed
+		//! instantiate the partial subtree is torn down again. Requires a booted
+		//! engine.
 		bool instantiatePrefabInstance(String const& instanceRootId,
 			String const& prefabFilePath, String const& prefabRef,
-			String const& prefabAssetId, Vec3 const& position);
+			String const& prefabAssetId, Vec3 const& position,
+			StringVector const& suppressedChildren = StringVector());
 		//! re-apply the unlit vertex-colour render state after a (re)load -
 		//! ModelComponent does not serialize material tweaks yet. Safe to
 		//! call on objects without a ModelComponent (does nothing).

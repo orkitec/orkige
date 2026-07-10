@@ -12,11 +12,13 @@
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
 #include <core_game/GameObjectComponent.h>
+#include <core_game/LevelComponent.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <atomic>
 #include <filesystem>
@@ -395,16 +397,17 @@ namespace Orkige
 	CreatePrefabInstanceCommand::CreatePrefabInstanceCommand(
 		String const& instanceRootId, String const& prefabFilePath,
 		String const& prefabRef, String const& prefabAssetId,
-		Vec3 const& position)
+		Vec3 const& position, StringVector const& suppressedChildren)
 		: mRootId(instanceRootId), mPrefabFilePath(prefabFilePath),
-		mPrefabRef(prefabRef), mPrefabAssetId(prefabAssetId), mPosition(position)
+		mPrefabRef(prefabRef), mPrefabAssetId(prefabAssetId), mPosition(position),
+		mSuppressedChildren(suppressedChildren)
 	{
 	}
 	//---------------------------------------------------------
 	bool CreatePrefabInstanceCommand::execute(EditorCore& core)
 	{
 		if (!core.instantiatePrefabInstance(mRootId, mPrefabFilePath,
-			mPrefabRef, mPrefabAssetId, mPosition))
+			mPrefabRef, mPrefabAssetId, mPosition, mSuppressedChildren))
 		{
 			return false;
 		}
@@ -433,6 +436,91 @@ namespace Orkige
 	String CreatePrefabInstanceCommand::getDescription() const
 	{
 		return "Instantiate Prefab " + mRootId;
+	}
+
+	//---------------------------------------------------------
+	//--- DeleteSubtreeCommand ---------------------------------
+	//---------------------------------------------------------
+	DeleteSubtreeCommand::DeleteSubtreeCommand(String const& rootId)
+		: mRootId(rootId)
+	{
+	}
+	//---------------------------------------------------------
+	bool DeleteSubtreeCommand::execute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (!root)
+		{
+			return false;
+		}
+		// capture the prefab identity of the root so undo restores it (the
+		// snapshots below carry component state + hierarchy, not the prefab mark)
+		mPrefabRef = root->getPrefabRef();
+		mPrefabAssetId = root->getPrefabAssetId();
+		mSuppressed = root->getSuppressedPrefabChildren();
+		mWasSelected = core.isSelected(mRootId);
+
+		// snapshot the WHOLE subtree (DFS, parents first) so undo brings the
+		// prefab-provided children AND any scene-side extra children back with
+		// full serialized state
+		mSubtreeIds = manager.collectSubtreeIds(mRootId);
+		mSubtreeSnapshots.clear();
+		for (String const& id : mSubtreeIds)
+		{
+			EditorObjectSnapshot snapshot;
+			if (!snapshot.capture(manager, id))
+			{
+				return false;
+			}
+			mSubtreeSnapshots.push_back(snapshot);
+		}
+
+		// remove deepest first (a plain delGameObject on the root would promote
+		// the children to the grandparent)
+		for (auto it = mSubtreeIds.rbegin(); it != mSubtreeIds.rend(); ++it)
+		{
+			core.deselectObject(*it);
+			manager.delGameObject(*it);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	bool DeleteSubtreeCommand::unexecute(EditorCore& core)
+	{
+		GameObjectManager& manager = core.getGameObjectManager();
+		// restore the subtree parents-first (DFS order), so each object's parent
+		// exists again when it re-attaches
+		bool restored = true;
+		for (std::size_t index = 0; index < mSubtreeIds.size(); ++index)
+		{
+			if (!mSubtreeSnapshots[index].restore(manager, mSubtreeIds[index]))
+			{
+				oDebugMsg("editor", 0, "DeleteSubtreeCommand: could not restore "
+					<< mSubtreeIds[index]);
+				restored = false;
+				continue;
+			}
+			core.applyModelFixups(mSubtreeIds[index]);
+		}
+		// re-mark the root as the prefab instance it was (snapshots do not carry
+		// prefabRef/suppressions)
+		optr<GameObject> root = manager.getGameObject(mRootId).lock();
+		if (root)
+		{
+			root->setPrefabRef(mPrefabRef, mPrefabAssetId);
+			root->setSuppressedPrefabChildren(mSuppressed);
+		}
+		if (mWasSelected && manager.objectExists(mRootId))
+		{
+			core.addToSelection(mRootId);
+		}
+		return restored;
+	}
+	//---------------------------------------------------------
+	String DeleteSubtreeCommand::getDescription() const
+	{
+		return "Delete " + mRootId;
 	}
 
 	//---------------------------------------------------------
@@ -1231,6 +1319,29 @@ namespace Orkige
 	{
 		return mDescription;
 	}
+	//---------------------------------------------------------
+	bool CompositeCommand::mergeWith(EditorCommand const& next)
+	{
+		// only fold another composite of the SAME nonzero session (the paint
+		// stroke): append its already-executed children so undo unwinds the
+		// whole stroke at once (unexecute runs mCommands in reverse)
+		if (getMergeSession() == 0 ||
+			next.getMergeSession() != getMergeSession())
+		{
+			return false;
+		}
+		CompositeCommand const* other =
+			dynamic_cast<CompositeCommand const*>(&next);
+		if (!other)
+		{
+			return false;
+		}
+		for (optr<EditorCommand> const& child : other->mCommands)
+		{
+			mCommands.push_back(child);
+		}
+		return true;
+	}
 
 	//---------------------------------------------------------
 	//--- AddComponentCommand ----------------------------------
@@ -2004,6 +2115,188 @@ namespace Orkige
 		return executeCommand(command);
 	}
 	//---------------------------------------------------------
+	//--- 2D grid painting ------------------------------------
+	//---------------------------------------------------------
+	int paintCellCoord(float world, float origin, float cellSize)
+	{
+		if (cellSize <= 0.0f)
+		{
+			return 0;
+		}
+		return static_cast<int>(std::lround((world - origin) / cellSize));
+	}
+	//---------------------------------------------------------
+	float paintCellCenter(int cell, float origin, float cellSize)
+	{
+		return origin + static_cast<float>(cell) * cellSize;
+	}
+	//---------------------------------------------------------
+	EditorPaintGrid EditorCore::resolvePaintGrid() const
+	{
+		// the first object carrying a LevelComponent defines the grid (cells
+		// then coincide with the game's slots)
+		for (auto const& [id, gameObject] : mGameObjectManager.getGameObjects())
+		{
+			(void)id;
+			if (gameObject && gameObject->hasComponent<LevelComponent>())
+			{
+				LevelComponent const* level =
+					gameObject->getComponentPtr<LevelComponent>();
+				EditorPaintGrid grid;
+				grid.originX = level->getOriginX();
+				grid.originY = level->getOriginY();
+				grid.cellSize = level->getTileSize() > 0.0f
+					? level->getTileSize() : 1.0f;
+				return grid;
+			}
+		}
+		// no level object: cells are the translate snap step at the world origin
+		EditorPaintGrid grid;
+		grid.originX = 0.0f;
+		grid.originY = 0.0f;
+		grid.cellSize = mSnapTranslate > 0.0f ? mSnapTranslate : 1.0f;
+		return grid;
+	}
+	//---------------------------------------------------------
+	String EditorCore::findPrefabInstanceAtCell(float centerX, float centerY,
+		float cellSize) const
+	{
+		const float halfCell = cellSize * 0.5f;
+		// only ROOT-level prefab instances occupy a paint cell (a Ball or a
+		// Level object, and every prefab-provided child, are never candidates)
+		for (String const& id : mGameObjectManager.getRootObjectIds())
+		{
+			optr<GameObject> gameObject =
+				mGameObjectManager.getGameObject(id).lock();
+			if (!gameObject || gameObject->getPrefabRef().empty() ||
+				!gameObject->hasComponent<TransformComponent>())
+			{
+				continue;
+			}
+			Vec3 const position =
+				gameObject->getComponentPtr<TransformComponent>()->getPosition();
+			if (std::fabs(position.x - centerX) <= halfCell &&
+				std::fabs(position.y - centerY) <= halfCell)
+			{
+				return id;
+			}
+		}
+		return String();
+	}
+	//---------------------------------------------------------
+	bool EditorCore::paintPrefabAtCell(EditorPaintDesc const& desc,
+		float centerX, float centerY, float cellSize, unsigned int mergeSession)
+	{
+		if (desc.prefabFilePath.empty())
+		{
+			return false;
+		}
+		const String occupantId =
+			findPrefabInstanceAtCell(centerX, centerY, cellSize);
+		if (!occupantId.empty())
+		{
+			// dragging back over a cell that already holds an identical instance
+			// must not churn the undo stack
+			optr<GameObject> occupant =
+				mGameObjectManager.getGameObject(occupantId).lock();
+			if (occupant && occupant->getPrefabRef() == desc.prefabRef)
+			{
+				StringVector const& occupantSuppressed =
+					occupant->getSuppressedPrefabChildren();
+				bool sameSuppressed =
+					occupantSuppressed.size() == desc.suppressedChildren.size();
+				for (String const& localId : desc.suppressedChildren)
+				{
+					if (std::find(occupantSuppressed.begin(),
+						occupantSuppressed.end(), localId) ==
+						occupantSuppressed.end())
+					{
+						sameSuppressed = false;
+						break;
+					}
+				}
+				bool sameStamps = true;
+				for (EditorPaintStamp const& stamp : desc.stamps)
+				{
+					if (stamp.propertyName.empty())
+					{
+						continue;
+					}
+					String current;
+					if (!getObjectProperty(occupantId, stamp.componentTypeName,
+						stamp.propertyName, current) || current != stamp.value)
+					{
+						sameStamps = false;
+						break;
+					}
+				}
+				if (sameSuppressed && sameStamps)
+				{
+					return false;
+				}
+			}
+		}
+
+		const String stem =
+			std::filesystem::path(desc.prefabFilePath).stem().string();
+		const String rootId = generateObjectId(stem.empty() ? "Prefab" : stem);
+
+		optr<CompositeCommand> composite = onew(new CompositeCommand(
+			"Paint " + (stem.empty() ? String("Prefab") : stem)));
+		// replace: erase whatever prefab instance already sits in this cell
+		if (!occupantId.empty())
+		{
+			composite->addCommand(onew(new DeleteSubtreeCommand(occupantId)));
+		}
+		composite->addCommand(onew(new CreatePrefabInstanceCommand(rootId,
+			desc.prefabFilePath, desc.prefabRef, desc.prefabAssetId,
+			Vec3(centerX, centerY, 0.0f), desc.suppressedChildren)));
+		// generic reflected stamps (the palette uses this to stamp
+		// TileComponent.openEdges): add the component when the prefab root does
+		// not carry it, then set the property. The before value only feeds an
+		// undo that removes the just-added component, so it need not be exact.
+		for (EditorPaintStamp const& stamp : desc.stamps)
+		{
+			if (stamp.componentTypeName.empty())
+			{
+				continue;
+			}
+			if (stamp.addComponent)
+			{
+				composite->addCommand(onew(new AddComponentCommand(rootId,
+					stamp.componentTypeName)));
+			}
+			if (!stamp.propertyName.empty())
+			{
+				composite->addCommand(onew(new PropertyChangeCommand(rootId,
+					stamp.componentTypeName, stamp.propertyName,
+					stamp.value, stamp.value)));
+			}
+		}
+		if (!desc.tags.empty())
+		{
+			composite->addCommand(onew(new SetTagsCommand(rootId, desc.tags)));
+		}
+		composite->setMergeSession(mergeSession);
+		return executeCommand(composite);
+	}
+	//---------------------------------------------------------
+	bool EditorCore::erasePrefabAtCell(float centerX, float centerY,
+		float cellSize, unsigned int mergeSession)
+	{
+		const String occupantId =
+			findPrefabInstanceAtCell(centerX, centerY, cellSize);
+		if (occupantId.empty())
+		{
+			return false;
+		}
+		optr<CompositeCommand> composite =
+			onew(new CompositeCommand("Erase " + occupantId));
+		composite->addCommand(onew(new DeleteSubtreeCommand(occupantId)));
+		composite->setMergeSession(mergeSession);
+		return executeCommand(composite);
+	}
+	//---------------------------------------------------------
 	StringVector EditorCore::getAddableComponentTypes() const
 	{
 		StringVector typeNames;
@@ -2570,16 +2863,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EditorCore::instantiatePrefabInstance(String const& instanceRootId,
 		String const& prefabFilePath, String const& prefabRef,
-		String const& prefabAssetId, Vec3 const& position)
+		String const& prefabAssetId, Vec3 const& position,
+		StringVector const& suppressedChildren)
 	{
 		if (mGameObjectManager.objectExists(instanceRootId))
 		{
 			return false;
 		}
 		// instantiatePrefab creates the root (it does not exist yet) plus every
-		// prefab-provided child under the "<root>/<localId>" namespace
+		// prefab-provided child under the "<root>/<localId>" namespace, dropping
+		// the suppressed prefab-local children subtree-deep
 		if (PrefabSerializer::instantiatePrefab(prefabFilePath,
-			mGameObjectManager, instanceRootId, StringVector()) !=
+			mGameObjectManager, instanceRootId, suppressedChildren) !=
 			PrefabSerializer::INSTANTIATE_OK)
 		{
 			// tear the partial subtree down again (deepest first)
@@ -2600,6 +2895,12 @@ namespace Orkige
 		if (root)
 		{
 			root->setPrefabRef(prefabRef, prefabAssetId);
+			// record the structural override so a save/reload re-drops the same
+			// children (the suppressed list already took effect above)
+			if (!suppressedChildren.empty())
+			{
+				root->setSuppressedPrefabChildren(suppressedChildren);
+			}
 			if (root->hasComponent<TransformComponent>())
 			{
 				root->getComponentPtr<TransformComponent>()

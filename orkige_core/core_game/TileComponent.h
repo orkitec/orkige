@@ -33,6 +33,18 @@ namespace Orkige
 			EDGE_LEFT	= 1 << 2,
 			EDGE_RIGHT	= 1 << 3
 		};
+		//! number of edges a tile has (top/bottom/left/right)
+		static const int EDGE_COUNT = 4;
+		//! @brief the conventional prefab-local id of the wall child on each
+		//! edge, in top/bottom/left/right order (EDGE_WALL_LOCAL_IDS[0] =
+		//! "WallTop", ...). This is the tile-prefab contract the 2D grid
+		//! authoring reads: an OPEN edge is expressed as that wall child being
+		//! suppressed on the instance, and the bit set in openEdges. Kept here
+		//! as the single source so the mapping does not drift between the
+		//! authoring tool, the runtime and the asset generators.
+		static const char * const EDGE_WALL_LOCAL_IDS[EDGE_COUNT];
+		//! the OpenEdge bit for an edge index (0..EDGE_COUNT-1) = 1 << index
+		static int edgeBitForIndex(int index);
 		//--- Variables ---------------------------------------
 	private:
 		int	mOpenEdges;		//!< bitmask of OpenEdge (0 = fully walled)

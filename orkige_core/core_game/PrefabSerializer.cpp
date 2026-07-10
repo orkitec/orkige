@@ -303,6 +303,73 @@ namespace Orkige
 		return INSTANTIATE_ERROR;
 	}
 	//---------------------------------------------------------
+	bool PrefabSerializer::listPrefabInfo(String const & fileName,
+		StringVector & outLocalIds, StringVector & outRootComponentTypes)
+	{
+		outLocalIds.clear();
+		outRootComponentTypes.clear();
+		oAssert(!fileName.empty());
+		std::error_code ignored;
+		if(!std::filesystem::exists(fileName, ignored))
+		{
+			return false;
+		}
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startReading(fileName))
+		{
+			return false;
+		}
+		String magic;
+		ar >> magic;
+		if(magic != PREFAB_FORMAT_MAGIC)
+		{
+			ar->stopReading();
+			return false;
+		}
+		int version = 0;
+		ar >> version;
+		if(version > PREFAB_FORMAT_VERSION)
+		{
+			ar->stopReading();
+			return false;
+		}
+		String rootLocalId;
+		ar >> rootLocalId;
+		unsigned int objectCount = 0;
+		ar >> objectCount;
+		for(unsigned int objectIndex = 0; objectIndex < objectCount; ++objectIndex)
+		{
+			String localId;
+			ar >> localId;
+			String parentLocalId;
+			ar >> parentLocalId;
+			bool activeSelf = true;
+			ar >> activeSelf;
+			String prefabRef;
+			String prefabAssetId;
+			ar->readAttributed(prefabRef,
+				AssetDatabase::REFERENCE_ID_ATTRIBUTE, prefabAssetId);
+			outLocalIds.push_back(localId);
+			const bool isRoot = (localId == rootLocalId);
+			unsigned int componentCount = 0;
+			ar >> componentCount;
+			for(unsigned int componentIndex = 0; componentIndex < componentCount; ++componentIndex)
+			{
+				String componentTypeName;
+				ar >> componentTypeName;
+				if(isRoot)
+				{
+					outRootComponentTypes.push_back(componentTypeName);
+				}
+				// step over the component's serialized state element unread -
+				// the probe never instantiates a component
+				ar->skipElement();
+			}
+		}
+		ar->stopReading();
+		return true;
+	}
+	//---------------------------------------------------------
 	String PrefabSerializer::instanceChildId(String const & instanceRootId,
 		String const & localId)
 	{

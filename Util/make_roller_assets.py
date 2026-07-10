@@ -591,7 +591,8 @@ def wall_components(writer, cx, cy, horizontal, length):
 
 
 #: prefab-local wall id per tile edge (fixed order - the suppressed lists
-#: stay deterministic across regenerations)
+#: stay deterministic across regenerations). This mapping is the engine-side
+#: TileComponent::EDGE_WALL_LOCAL_IDS contract; keep the two in step.
 EDGE_LOCALS = (("top", "WallTop"), ("bottom", "WallBottom"),
                ("left", "WallLeft"), ("right", "WallRight"))
 

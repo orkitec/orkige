@@ -328,7 +328,10 @@ bool drawSceneGizmo(EditorState& state, Orkige::EditorCore& core,
 	// relative to its parent); the undoable command stores LOCAL values
 	Orkige::EditorTransform current;
 	Orkige::EditorTransform currentLocal;
-	if (tool == Orkige::EditorTool::Select || !core.hasSelection() ||
+	// Select and Paint show no transform gizmo (Paint consumes clicks for grid
+	// painting; the pick path is bypassed for both)
+	if (tool == Orkige::EditorTool::Select ||
+		tool == Orkige::EditorTool::Paint || !core.hasSelection() ||
 		!core.getObjectWorldTransform(core.getSelectedObjectId(), current) ||
 		!core.getObjectTransform(core.getSelectedObjectId(), currentLocal))
 	{
@@ -538,11 +541,21 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				}
 			}
 			ImGuiIO& io = ImGui::GetIO();
+			// the 2D grid-paint tool consumes clicks for painting/erasing (the
+			// pick path stands down); pan + scroll-zoom keep working
+			bool paintOwnsMouse = false;
+			if (state.scenePanelHovered && !gizmoOwnsMouse &&
+				!viewGizmoOwnsMouse)
+			{
+				paintOwnsMouse = handleScenePaintInput(state, core,
+					sceneTarget.camera, rectMin, avail, editMode, viewSettings);
+			}
 			if (state.scenePanelHovered && !gizmoOwnsMouse &&
 				!viewGizmoOwnsMouse)
 			{
 				// Alt+left starts an orbit drag, a plain left click picks
-				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
+				if (!paintOwnsMouse &&
+					ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 				{
 					// Cmd/Ctrl+click toggles selection-set membership
 					pickObjectAtCursor(core, sceneTarget.camera,

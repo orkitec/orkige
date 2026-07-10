@@ -221,3 +221,53 @@ When you only need to confirm what's on screen right now, `screenshot_game`
 gives the frame; and the zero-cost DETERMINISTIC alternative is a
 `pause`/`step`/`screenshot_game` loop (step advances exactly one frame), which
 needs no real-time capture at all.
+
+---
+
+## 4. Author levels
+
+Build a tile-based level by stamping prefabs onto a snap grid, then wire the
+finished scene into the game's level sequence and play it — the same grid-paint
+loop the editor's paint tool drives, done over MCP. Assumes a project is open and
+a scene is loaded (the grid coincides with the scene's slots when it carries a
+level, otherwise it is the translate snap step at the world origin).
+
+```jsonc
+// 1. see the tile palette and the grid the paint verbs snap to
+list_paint_prefabs {}
+//   → { "paths":["assets/Wall.oprefab","assets/Floor.oprefab"],
+//       "names":["Wall","Floor"], "count":"2",
+//       "origin_x":"0", "origin_y":"0", "cell_size":"0.5" }
+
+// 2. stamp a few cells. Give a cell by { col, row }, or a world "position" that
+//    snaps to the nearest cell — either way the reply reports the SNAPPED cell.
+//    Painting the same cell replaces its occupant; the identical tile again is a
+//    no-op (painted:"0"), so a sweep never churns the undo stack.
+paint_prefab { "prefab":"assets/Floor.oprefab", "cell": { "col":0, "row":0 } }  // authed
+//   → { "id":"Floor", "painted":"1", "col":"0", "row":"0", "x":"0", "y":"0" }
+paint_prefab { "prefab":"assets/Floor.oprefab", "cell": { "col":1, "row":0 } }  // authed
+//   → { "id":"Floor 2", "painted":"1", "col":"1", "row":"0", "x":"0.5", "y":"0" }
+paint_prefab { "prefab":"assets/Wall.oprefab", "position":"0 0.5" }             // authed
+//   → { "id":"Wall", "painted":"1", "col":"0", "row":"1", "x":"0", "y":"0.5" }
+
+// 3. evidence the tiles landed (the painted roots appear in the EDIT hierarchy)
+list_hierarchy {}                           // → { "ids":[...,"Floor","Floor 2","Wall"], ... }
+
+// 4. drop a wrong tile? erase that cell (undoable). undo/redo work too.
+erase_cell { "cell": { "col":0, "row":1 } }  // authed → { "erased":"1", "col":"0", "row":"1", ... }
+undo {}                                      // authed → the erased tile comes back
+
+// 5. save, then append the scene to the project's level sequence (levels.olevels;
+//    mints the manifest "levels" setting the first time). NOT undoable, and it
+//    needs a SAVED scene inside the project — save_scene first.
+save_scene { "scene":"scenes/level2.oscene" }   // authed → { "scene_path":".../level2.oscene" }
+add_scene_to_levels {}                          // authed → { "scene_path":".../level2.oscene" }
+
+// 6. play the level for proof (async; poll get_state), or run its selfcheck
+play { "scene":"scenes/level2.oscene", "target":"desktop" }   // authed
+get_state {}                                //   → poll until play_mode:"playing"
+```
+
+`add_scene_to_levels` refuses (isError) when no project is open, the scene is
+unsaved or outside the project root, or the scene is already in the sequence —
+read the reply back rather than assuming the append took.

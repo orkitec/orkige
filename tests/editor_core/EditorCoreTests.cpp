@@ -22,6 +22,7 @@
 #include "TestComponents.h"
 
 #include <EditorCore.h>
+#include <core_game/LevelGrid.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
@@ -29,6 +30,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #ifdef _WIN32
 #include <process.h>
 #define getpid _getpid
@@ -605,6 +607,131 @@ TEST_CASE("CompositeCommand executes in order, undoes in reverse and rolls "
 	CHECK(log == std::vector<std::string>{ "A:do", "A:undo" });
 	CHECK_FALSE(core.canUndo());
 	CHECK_FALSE(core.isSceneDirty());
+}
+
+TEST_CASE("CompositeCommand merges a same-session follow-up into ONE undo "
+	"step (the paint stroke)", "[editor][paint]")
+{
+	Orkige::EditorCore core(freshWorld());
+	std::vector<std::string> log;
+
+	const unsigned int stroke = core.beginMergeSession();
+
+	// cell 1: a composite of one child, carrying the stroke session
+	optr<Orkige::CompositeCommand> cell1 =
+		Orkige::onew(new Orkige::CompositeCommand("Paint tile"));
+	cell1->addCommand(Orkige::onew(new ProbeCommand(log, "A")));
+	cell1->setMergeSession(stroke);
+	REQUIRE(core.executeCommand(cell1));
+	CHECK(core.getUndoStackSize() == 1);
+
+	// cell 2: another composite, SAME session - folds into cell1
+	optr<Orkige::CompositeCommand> cell2 =
+		Orkige::onew(new Orkige::CompositeCommand("Paint tile"));
+	cell2->addCommand(Orkige::onew(new ProbeCommand(log, "B")));
+	cell2->setMergeSession(stroke);
+	REQUIRE(core.executeCommand(cell2));
+	CHECK(core.getUndoStackSize() == 1);	// still one step
+	CHECK(log == std::vector<std::string>{ "A:do", "B:do" });
+
+	// undo unwinds the WHOLE stroke, children in reverse order
+	REQUIRE(core.undo());
+	CHECK(log == std::vector<std::string>{ "A:do", "B:do", "B:undo", "A:undo" });
+
+	// a DIFFERENT session does not merge
+	REQUIRE(core.redo());
+	const unsigned int otherStroke = core.beginMergeSession();
+	optr<Orkige::CompositeCommand> cell3 =
+		Orkige::onew(new Orkige::CompositeCommand("Paint tile"));
+	cell3->addCommand(Orkige::onew(new ProbeCommand(log, "C")));
+	cell3->setMergeSession(otherStroke);
+	REQUIRE(core.executeCommand(cell3));
+	CHECK(core.getUndoStackSize() == 2);
+
+	// session 0 (the default) never merges
+	optr<Orkige::CompositeCommand> cell4 =
+		Orkige::onew(new Orkige::CompositeCommand("Paint tile"));
+	cell4->addCommand(Orkige::onew(new ProbeCommand(log, "D")));
+	REQUIRE(core.executeCommand(cell4));
+	CHECK(core.getUndoStackSize() == 3);
+}
+
+TEST_CASE("paintCellCoord/paintCellCenter round-trip on off-origin grids and "
+	"agree with LevelGrid", "[editor][paint]")
+{
+	// a 3x2 grid of 6-unit cells centred at (-3, -3), like the roller level
+	const float origin = -3.0f;
+	const float cell = 6.0f;
+
+	// a cell's center snaps back to that cell, negatives included
+	for (int c = -2; c <= 3; ++c)
+	{
+		const float center = Orkige::paintCellCenter(c, origin, cell);
+		CHECK(Orkige::paintCellCoord(center, origin, cell) == c);
+		// anywhere within half a cell of the center rounds to the same cell
+		CHECK(Orkige::paintCellCoord(center + 2.9f, origin, cell) == c);
+		CHECK(Orkige::paintCellCoord(center - 2.9f, origin, cell) == c);
+	}
+
+	// inside a bounded grid the cell coords match LevelGrid's slot cell
+	Orkige::LevelGrid grid(3, 2, cell, origin, origin);
+	for (int row = 0; row < 2; ++row)
+	{
+		for (int col = 0; col < 3; ++col)
+		{
+			const float x = grid.slotCenterX(grid.slotForCell(col, row));
+			const float y = grid.slotCenterY(grid.slotForCell(col, row));
+			CHECK(Orkige::paintCellCoord(x, origin, cell) == col);
+			CHECK(Orkige::paintCellCoord(y, origin, cell) == row);
+		}
+	}
+}
+
+TEST_CASE("PrefabSerializer::listPrefabInfo reports local ids + root components "
+	"and refuses a non-prefab file", "[editor][prefab][paint]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	// PID-suffixed temp path (parallel ctest processes share the temp dir)
+	const std::string prefabPath = (std::filesystem::temp_directory_path() /
+		(std::to_string(::getpid()) + "_listinfo.oprefab")).string();
+	std::filesystem::remove(prefabPath);
+
+	// root "Tile" (with a component) + two children in the prefab-local namespace
+	makeHealthObject(manager, "Tile", 10);
+	makeHealthObject(manager, "Tile_Frame", 1);
+	makeHealthObject(manager, "Tile_WallTop", 2);
+	REQUIRE(manager.getGameObject("Tile_Frame").lock()->setParent("Tile"));
+	REQUIRE(manager.getGameObject("Tile_WallTop").lock()->setParent("Tile"));
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefabPath, manager, "Tile"));
+
+	Orkige::StringVector locals;
+	Orkige::StringVector rootComponents;
+	REQUIRE(Orkige::PrefabSerializer::listPrefabInfo(prefabPath, locals,
+		rootComponents));
+	CHECK(std::find(locals.begin(), locals.end(), "Tile") != locals.end());
+	CHECK(std::find(locals.begin(), locals.end(), "Frame") != locals.end());
+	CHECK(std::find(locals.begin(), locals.end(), "WallTop") != locals.end());
+	CHECK(std::find(rootComponents.begin(), rootComponents.end(),
+		"TestHealthComponent") != rootComponents.end());
+
+	// a file that is not a prefab is refused and the outputs are cleared
+	const std::string junkPath = (std::filesystem::temp_directory_path() /
+		(std::to_string(::getpid()) + "_listinfo_junk.txt")).string();
+	{
+		std::ofstream junk(junkPath);
+		junk << "not a prefab";
+	}
+	Orkige::StringVector locals2{ "stale" };
+	Orkige::StringVector components2{ "stale" };
+	CHECK_FALSE(Orkige::PrefabSerializer::listPrefabInfo(junkPath, locals2,
+		components2));
+	CHECK(locals2.empty());
+	CHECK(components2.empty());
+
+	std::filesystem::remove(prefabPath);
+	std::filesystem::remove(junkPath);
+	manager.clear();
 }
 
 TEST_CASE("EditorCore add component pulls dependencies in and undo removes "

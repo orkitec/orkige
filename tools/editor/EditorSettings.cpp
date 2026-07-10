@@ -76,6 +76,10 @@ void ViewSettings::load()
 		{
 			this->showAssetBrowserPanel = (value == "1");
 		}
+		else if (key == "panel_tilepalette")
+		{
+			this->showTilePalettePanel = (value == "1");
+		}
 		else if (key == "snap_enabled")
 		{
 			this->snapEnabled = (value == "1");
@@ -156,6 +160,7 @@ void ViewSettings::save() const
 		<< "panel_stats=" << (this->showStatsPanel ? 1 : 0) << "\n"
 		<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n"
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
+		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
 		<< "snap_translate=" << this->snapTranslate << "\n"
 		<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"
@@ -225,6 +230,7 @@ void ViewSettings::showAllPanels()
 	this->showStatsPanel = true;
 	this->showScenePanel = true;
 	this->showAssetBrowserPanel = true;
+	this->showTilePalettePanel = true;
 }
 
 // the editor-wide globals (declared extern in EditorApp.h)

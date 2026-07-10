@@ -317,6 +317,20 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     set_tests_properties(editor_play_crash${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PLAYTEST=crash")
 
+    # the tile-prefab level-authoring loop end to end: on a temp copy of the
+    # roller project, paint/replace/erase prefab instances snapped to a
+    # LevelComponent grid through the EditorCore paint seams (one undo step per
+    # stroke, DeleteSubtree-based erase, the openEdges/tag stamps), round-trip
+    # the scene (the suppressed walls + openEdges + tags survive), append it to
+    # the level sequence, then PLAY the painted scene and require the painted
+    # roots + their non-suppressed wall children to arrive over the debug
+    # protocol. Both flavors. Deadline-driven; the TIMEOUT is a coarse backstop.
+    add_test(NAME editor_level_paint${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_level_paint${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_LEVELPAINT=${Orkige_SOURCE_DIR}/projects/roller"
+        LABELS integration TIMEOUT 120)
+
     # MCP runtime debug tools end to end: the editor hosts its MCP endpoint on
     # an ephemeral in-process port and, on a worker thread, drives the WHOLE
     # runtime debug loop over a real socket - initialize, then play (boots the

@@ -74,6 +74,16 @@ namespace Orkige
 			GameObjectManager & gameObjectManager,
 			String const & instanceRootId,
 			StringVector const & suppressedChildren);
+		//! @brief read-only probe of a .oprefab file: fills outLocalIds with
+		//! every prefab-local id (root first, in file order) and
+		//! outRootComponentTypes with the component type names on the prefab
+		//! ROOT. Nothing is instantiated - the archive is walked and each
+		//! component's serialized state is stepped over unread. false (and the
+		//! outputs cleared) on a missing/wrong-magic/too-new file. The palette
+		//! uses it to know a prefab's edge-wall children and whether its root
+		//! already carries a component the paint tool would stamp.
+		static bool listPrefabInfo(String const & fileName,
+			StringVector & outLocalIds, StringVector & outRootComponentTypes);
 		//! the instance-namespace id of one prefab-local id
 		static String instanceChildId(String const & instanceRootId,
 			String const & localId);

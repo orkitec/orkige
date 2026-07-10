@@ -357,6 +357,17 @@ look when touching one:
   import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
+- **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
+  and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
+  snapped to a grid in 2D mode — the cell size comes from a scene
+  `LevelComponent` else the translate snap step, a stroke is ONE undo step
+  (`CompositeCommand::mergeWith`), erase/replace is instance-safe
+  (`DeleteSubtreeCommand`), and open edges become suppressed prefab wall children
+  + a `TileComponent.openEdges` stamp (the wall-local convention lives in
+  `TileComponent::EDGE_WALL_LOCAL_IDS`). File > **Add Scene to Level Sequence**
+  appends the scene to `levels.olevels`. Reachable by agents via the MCP verbs
+  `list_paint_prefabs` / `paint_prefab` / `erase_cell` / `add_scene_to_levels`.
+  Verified by `editor_level_paint` (paint → save → reload → PLAYS, both flavors).
 - **Physics** (`engine_physic/PhysicsWorld`, Jolt): a data-driven **collision layer
   matrix** (`physics.olayers`), `RigidBodyComponent` layer + **sensor** flag, and
   **contact events** (worker-thread callbacks → mutex queue → main-thread drain →

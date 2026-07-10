@@ -185,6 +185,8 @@ struct ViewSettings
 	bool showScenePanel = true;
 	//! project Asset browser panel (project-only content)
 	bool showAssetBrowserPanel = true;
+	//! Tile Palette panel (project-only; arms a prefab for 2D grid painting)
+	bool showTilePalettePanel = true;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -317,6 +319,35 @@ struct AssetBrowserState
 	double statusMessageExpiry = 0.0;
 };
 
+//! @brief Tile Palette panel state: the prefab currently ARMED for grid
+//! painting plus the paint options applied to every painted cell, and the
+//! in-progress stroke bookkeeping. Arming a prefab switches the active tool to
+//! Paint; the Scene panel then paints/erases instances snapped to the grid in
+//! 2D editor mode. A passive data struct (plain camelCase fields).
+struct TilePaletteState
+{
+	//! the armed prefab ("" = nothing armed, the Paint tool paints nothing)
+	std::string armedPrefabPath;		//!< absolute .oprefab path
+	std::string armedPrefabRef;			//!< project-relative reference
+	std::string armedPrefabAssetId;		//!< stable .orkmeta id
+	//! prefab probe results, refreshed on arm (PrefabSerializer::listPrefabInfo)
+	std::vector<std::string> prefabLocalIds;	//!< every local id in the file
+	bool hasEdgeWalls = false;			//!< all four TileComponent wall locals present
+	bool rootHasTileComponent = false;	//!< the prefab root already carries one
+	//! paint options: which edges to leave open (top/bottom/left/right) and the
+	//! comma-separated tags stamped on each painted root
+	bool edgeOpen[4] = {};
+	char paintTags[256] = "";
+	//! stroke bookkeeping (reset on mouse release / tool switch): one undo step
+	//! per stroke rides strokeSession, lastCol/lastRow throttle same-cell repaints
+	unsigned int strokeSession = 0;
+	bool strokeActive = false;
+	int lastCol = 0;
+	int lastRow = 0;
+	//! the panel held keyboard focus while drawing
+	bool focused = false;
+};
+
 // Editor UI state that lives across frames. Everything UI-independent
 // (selection, dirty flag, tools, undo/redo) lives in EditorCore instead.
 struct EditorState
@@ -397,6 +428,9 @@ struct EditorState
 	//! Asset browser panel state (navigation, filter, thumbnails, asset-op
 	//! working set) - see AssetBrowserState
 	AssetBrowserState assetBrowser;
+	//! Tile Palette panel state (the armed prefab + paint options + stroke
+	//! bookkeeping) - see TilePaletteState
+	TilePaletteState tilePalette;
 	//! inline rename in the Hierarchy (F2 / context menu)
 	std::string renamingObjectId;
 	char renameBuffer[256] = "";
@@ -919,6 +953,15 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core);
 bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core);
 bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core);
 
+//! @brief Project > "Add Scene to Level Sequence": append the CURRENT scene to
+//! the open project's levels.olevels (created if missing; the manifest "levels"
+//! Setting is minted when absent). The display name is the scene's file stem
+//! and par is read from the scene's LevelComponent (0 when none). Refused (and
+//! logged to the Console) when there is no open project, the scene is unsaved or
+//! lies outside the project root, or it is already in the sequence. A filesystem
+//! side effect, NOT undoable - the same policy as prefab Apply.
+bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core);
+
 //--- console Lua REPL (EditorConsole.cpp) ----------------------------------
 
 // run the console input line: a set/get/find/reset line routes to the cvar
@@ -1240,5 +1283,36 @@ int deleteAssetEntries(EditorState& state,
 //! sidecar-less assets render dimmed - EditorAssetBrowserPanel.cpp
 void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible);
+
+//--- Tile Palette (EditorTilePalettePanel.cpp) ------------------------------
+
+//! @brief arm a prefab for grid painting (the palette click AND the test/MCP
+//! seam): derive its project-relative ref + asset id, probe it for its local
+//! ids / edge-wall children / root TileComponent, store it in
+//! state.tilePalette and switch the active tool to Paint. Passing "" disarms
+//! (tool back to Translate). False when the probe fails (not a prefab file).
+bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
+	std::string const& absolutePath);
+
+//! @brief build the EditorPaintDesc the armed prefab + paint options describe:
+//! the open edges become suppressed wall-child locals + the openEdges bitmask
+//! stamp (a TileComponent added when the prefab root lacks one), and the tags
+//! field is parsed comma-separated. The Scene panel paint path and the MCP
+//! paint verb both feed this to EditorCore::paintPrefabAtCell.
+Orkige::EditorPaintDesc paletteMakePaintDesc(TilePaletteState const& palette);
+
+//! @brief the Tile Palette panel: lists the open project's prefabs (click to
+//! arm), the armed prefab's edge-open toggles + tags field, a 2D-mode hint and
+//! the resolved paint grid. Project-only content (like the Asset browser).
+void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
+	bool* visible);
+
+//! @brief the Scene panel's 2D grid-paint input (left = paint, right/Alt+left =
+//! erase, drag = one undo step), plus the hovered-cell highlight overlay. A
+//! no-op unless the Paint tool is armed and the view is in 2D editor mode.
+//! Returns true when it consumed the mouse (the pick/camera paths stand down).
+bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, bool editMode, ViewSettings const& viewSettings);
 
 #endif // ORKIGE_EDITORAPP_H_09072026

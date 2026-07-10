@@ -628,6 +628,41 @@ namespace Orkige
 			}
 			return parsePlayFloats(message.get(key), out, count);
 		}
+		//! @brief resolve the grid-paint verbs' target cell CENTER from the
+		//! request: either an explicit cell (col/row integer fields, flattened
+		//! from the 'cell' object) or a world 'position' ("x y"/"x y z") snapped
+		//! to the nearest cell (the same paintCellCoord snap the paint tool uses).
+		//! false (+ a reason in outError) when neither is present or a supplied
+		//! one does not parse.
+		bool resolvePaintCell(DebugMessage const& request,
+			EditorPaintGrid const& grid, float& centerX, float& centerY,
+			String& outError)
+		{
+			if (request.has("col") && request.has("row"))
+			{
+				const int col = std::atoi(request.get("col").c_str());
+				const int row = std::atoi(request.get("row").c_str());
+				centerX = paintCellCenter(col, grid.originX, grid.cellSize);
+				centerY = paintCellCenter(row, grid.originY, grid.cellSize);
+				return true;
+			}
+			if (request.has("position"))
+			{
+				float xy[2] = { 0.0f, 0.0f };
+				if (!parsePlayFloats(request.get("position"), xy, 2))
+				{
+					outError = "'position' must be a world 'x y' (or 'x y z')";
+					return false;
+				}
+				const int col = paintCellCoord(xy[0], grid.originX, grid.cellSize);
+				const int row = paintCellCoord(xy[1], grid.originY, grid.cellSize);
+				centerX = paintCellCenter(col, grid.originX, grid.cellSize);
+				centerY = paintCellCenter(row, grid.originY, grid.cellSize);
+				return true;
+			}
+			outError = "needs a 'cell' {col,row} or a world 'position'";
+			return false;
+		}
 		//! is this verb a pure read (allowed before authentication)?
 		bool isReadVerb(String const& type)
 		{
@@ -638,7 +673,8 @@ namespace Orkige
 				type == "list_tests" || type == "get_test_results" ||
 				type == "runtime_hierarchy" || type == "runtime_state" ||
 				type == "read_project_file" || type == "list_project_files" ||
-				type == "list_play_targets" || type == "get_export_results";
+				type == "list_play_targets" || type == "get_export_results" ||
+				type == "list_paint_prefabs";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -1290,6 +1326,53 @@ namespace Orkige
 				  "failure, plus the exporter's 'outputTail'.",
 				  { { "jobId", "string", "the id export_project returned",
 				      true } } },
+				{ "list_paint_prefabs",
+				  "List the open project's prefab palette for the grid-paint level "
+				  "workflow and report the paint grid the paint verbs snap to. "
+				  "Returns parallel lists 'paths' (project-relative .oprefab paths) "
+				  "and 'names' (their stems), 'count', and the grid geometry "
+				  "'origin_x'/'origin_y'/'cell_size' (the grid coincides with the "
+				  "game's slots when the scene carries a level, else the editor's "
+				  "translate snap step at the world origin).",
+				  {} },
+				{ "paint_prefab",
+				  "Paint a prefab instance into one grid cell as ONE undoable step "
+				  "- the MCP equivalent of the editor's grid-paint tool (needs "
+				  "auth). An occupant of the SAME cell is replaced; painting the "
+				  "identical instance again is a no-op. Give the tile by 'cell' "
+				  "{col,row} OR a world 'position' ('x y'/'x y z') snapped to the "
+				  "nearest cell. 'prefab' is a project-relative or absolute .oprefab "
+				  "path. Optional 'suppressed' drops those prefab-local child ids on "
+				  "the instance. Returns the painted-root 'id', the snapped 'col'/"
+				  "'row' and cell-center 'x'/'y', and 'painted' ('1', or '0' on a "
+				  "no-op).",
+				  { { "prefab", "string",
+				      "project-relative or absolute .oprefab path", true },
+				    { "cell", "object", "the target cell { col: int, row: int }",
+				      false },
+				    { "position", "string",
+				      "world position 'x y' (or 'x y z') snapped to a cell", false },
+				    { "suppressed", "array",
+				      "prefab-local child ids to drop on the instance", false } } },
+				{ "erase_cell",
+				  "Erase the prefab instance in one grid cell as ONE undoable step "
+				  "(needs auth). Give the tile by 'cell' {col,row} OR a world "
+				  "'position' snapped to the nearest cell (same snap as "
+				  "paint_prefab). Returns the snapped 'col'/'row', cell-center "
+				  "'x'/'y' and 'erased' ('1' when a tile was removed, '0' when the "
+				  "cell was already free).",
+				  { { "cell", "object", "the target cell { col: int, row: int }",
+				      false },
+				    { "position", "string",
+				      "world position 'x y' (or 'x y z') snapped to a cell",
+				      false } } },
+				{ "add_scene_to_levels",
+				  "Append the current saved scene to the project's level sequence "
+				  "(levels.olevels), minting the manifest 'levels' setting the first "
+				  "time (needs auth). NOT undoable. Refused (honest error) when no "
+				  "project is open, the scene is unsaved or outside the project "
+				  "root, or the scene is already in the sequence.",
+				  {} },
 			};
 			return specs;
 		}
@@ -3172,6 +3255,154 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.set(DebugProtocol::FIELD_ID, rootId);
 			ok.set("path", relative);
+			this->sendOk(req, ok);
+			return;
+		}
+
+		//--- 2D grid painting (level authoring) --------------
+		// list_paint_prefabs: the project's .oprefab palette + the grid the paint
+		// verbs snap to. Parallel 'paths'/'names' lists (the list_project_files
+		// shape); a loopback listing is harmless, so it is a read (no auth).
+		if (type == "list_paint_prefabs")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - grid painting sources "
+					"prefabs from the project's assets/");
+				return;
+			}
+			const unsigned int prefabMask =
+				1u << static_cast<unsigned int>(AssetKind::Prefab);
+			std::vector<AssetBrowserItem> const items = searchAssets(
+				state.project, state.project.getRootDirectory(), String(), true,
+				prefabMask);
+			StringVector paths;
+			StringVector names;
+			for (AssetBrowserItem const& item : items)
+			{
+				paths.push_back(item.relativePath);
+				names.push_back(
+					std::filesystem::path(item.relativePath).stem().string());
+			}
+			const EditorPaintGrid grid = core.resolvePaintGrid();
+			DebugMessage ok(MSG_OK);
+			ok.setList("paths", paths);
+			ok.setList("names", names);
+			ok.set("count", std::to_string(paths.size()));
+			ok.setFloat("origin_x", grid.originX);
+			ok.setFloat("origin_y", grid.originY);
+			ok.setFloat("cell_size", grid.cellSize);
+			this->sendOk(req, ok);
+			return;
+		}
+		// paint_prefab: instantiate a prefab into one grid cell (undoable, same
+		// cell replaces its occupant) - the grid-paint tool's core action, kept
+		// generic (no tag/stamp sugar; those are the editor palette's tile layer).
+		if (type == "paint_prefab")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - grid painting needs a "
+					"project");
+				return;
+			}
+			String prefabArg = request.get("prefab");
+			if (prefabArg.empty())
+			{
+				this->sendErr(req, "paint_prefab needs a 'prefab' .oprefab path");
+				return;
+			}
+			// resolve the prefab to an absolute path (a relative ref resolves
+			// against the project root), then derive its stored reference + id the
+			// same way the asset-browser instantiate does
+			std::filesystem::path absolute(prefabArg);
+			if (!absolute.is_absolute())
+			{
+				absolute = std::filesystem::path(
+					state.project.resolvePath(prefabArg));
+			}
+			std::error_code ec;
+			if (!std::filesystem::is_regular_file(absolute, ec) ||
+				absolute.extension() != ".oprefab")
+			{
+				this->sendErr(req, "paint_prefab: '" + prefabArg +
+					"' is not a .oprefab file");
+				return;
+			}
+			const String prefabRef =
+				state.project.makeProjectRelative(absolute.string());
+			optr<AssetDatabase> const& database =
+				state.project.getAssetDatabase();
+			const String assetId = (database && !prefabRef.empty())
+				? database->idForPath(prefabRef) : String();
+			const EditorPaintGrid grid = core.resolvePaintGrid();
+			float centerX = 0.0f;
+			float centerY = 0.0f;
+			String cellError;
+			if (!resolvePaintCell(request, grid, centerX, centerY, cellError))
+			{
+				this->sendErr(req, "paint_prefab " + cellError);
+				return;
+			}
+			EditorPaintDesc desc;
+			desc.prefabFilePath = absolute.string();
+			desc.prefabRef = prefabRef;
+			desc.prefabAssetId = assetId;
+			desc.suppressedChildren = request.getList("suppressed");
+			const bool painted =
+				core.paintPrefabAtCell(desc, centerX, centerY, grid.cellSize, 0);
+			const String rootId =
+				core.findPrefabInstanceAtCell(centerX, centerY, grid.cellSize);
+			DebugMessage ok(MSG_OK);
+			ok.set(DebugProtocol::FIELD_ID, rootId);
+			ok.set("painted", painted ? "1" : "0");
+			ok.set("col", std::to_string(
+				paintCellCoord(centerX, grid.originX, grid.cellSize)));
+			ok.set("row", std::to_string(
+				paintCellCoord(centerY, grid.originY, grid.cellSize)));
+			ok.setFloat("x", centerX);
+			ok.setFloat("y", centerY);
+			this->sendOk(req, ok);
+			return;
+		}
+		// erase_cell: remove the prefab instance in one grid cell (undoable)
+		if (type == "erase_cell")
+		{
+			const EditorPaintGrid grid = core.resolvePaintGrid();
+			float centerX = 0.0f;
+			float centerY = 0.0f;
+			String cellError;
+			if (!resolvePaintCell(request, grid, centerX, centerY, cellError))
+			{
+				this->sendErr(req, "erase_cell " + cellError);
+				return;
+			}
+			const bool erased =
+				core.erasePrefabAtCell(centerX, centerY, grid.cellSize, 0);
+			DebugMessage ok(MSG_OK);
+			ok.set("erased", erased ? "1" : "0");
+			ok.set("col", std::to_string(
+				paintCellCoord(centerX, grid.originX, grid.cellSize)));
+			ok.set("row", std::to_string(
+				paintCellCoord(centerY, grid.originY, grid.cellSize)));
+			ok.setFloat("x", centerX);
+			ok.setFloat("y", centerY);
+			this->sendOk(req, ok);
+			return;
+		}
+		// add_scene_to_levels: append the current saved scene to the project's
+		// level sequence (not undoable - it writes levels.olevels, like an import)
+		if (type == "add_scene_to_levels")
+		{
+			if (!addCurrentSceneToLevels(state, core))
+			{
+				this->sendErr(req, "add_scene_to_levels refused - a saved scene "
+					"inside the open project that is not already in the sequence "
+					"is required (see the editor log)");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("scene_path", state.currentScenePath);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -5140,6 +5371,149 @@ namespace Orkige
 		{
 			SDL_Log("orkige_editor: control self-test - classic tree: leaving the "
 				"real macos export to the export_* ctests");
+		}
+
+		// (21) GRID PAINTING (level authoring): the paint palette lists the
+		// project's prefab, painting a cell instantiates it, erasing removes it
+		// and undo brings it back - the whole grid-paint loop over MCP. The
+		// authoring project is still open and carries assets/McpProbe.oprefab
+		// from (20), so it is a ready-made palette (no LevelComponent, so the
+		// grid is the default snap-step grid at the world origin).
+		{
+			JsonValue structured;
+			bool isError = true;
+			// list_paint_prefabs (read): the prefab must be in the palette and
+			// the grid must report a positive cell size
+			if (!callTool("list_paint_prefabs", JsonValue::object(), false,
+					structured, isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_paint_prefabs failed");
+				return;
+			}
+			JsonValue const& prefabPaths = structured.get("paths");
+			bool hasPrefab = false;
+			for (size_t i = 0; i < prefabPaths.size(); ++i)
+			{
+				if (prefabPaths.at(i).asString() == "assets/McpProbe.oprefab")
+				{
+					hasPrefab = true;
+				}
+			}
+			if (!hasPrefab ||
+				std::atof(structured.get("cell_size").asString().c_str()) <= 0.0)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_paint_prefabs did not list "
+					"the prefab / report a grid");
+				return;
+			}
+
+			// a cell far from the fixture's origin objects, to paint cleanly
+			JsonValue cell = JsonValue::object();
+			cell.set("col", JsonValue(20));
+			cell.set("row", JsonValue(-20));
+			JsonValue paintArgs = JsonValue::object();
+			paintArgs.set("prefab", JsonValue(String("assets/McpProbe.oprefab")));
+			paintArgs.set("cell", cell);
+
+			// AUTH: painting without a token must be rejected
+			bool unauthError = false;
+			if (!callTool("paint_prefab", paintArgs, false, structured,
+					unauthError) || !unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated paint_prefab was "
+					"NOT rejected");
+				return;
+			}
+
+			// paint_prefab (authed): a fresh instance root lands in the cell
+			isError = true;
+			if (!callTool("paint_prefab", paintArgs, true, structured, isError) ||
+				isError || structured.get("painted").asString() != "1")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: paint_prefab did not paint a tile "
+					"into the cell");
+				return;
+			}
+			const String tileId = structured.get("id").asString();
+			if (tileId.empty())
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: paint_prefab did not report the "
+					"painted-root id");
+				return;
+			}
+
+			// a hierarchy membership check reused across the paint/erase/undo
+			// assertions (the same read verb the earlier steps use)
+			auto tileInHierarchy = [&](String const& id) -> bool
+			{
+				JsonValue list;
+				bool listError = true;
+				if (!callTool("list_hierarchy", JsonValue::object(), false, list,
+						listError) || listError)
+				{
+					return false;
+				}
+				JsonValue const& ids = list.get("ids");
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == id)
+					{
+						return true;
+					}
+				}
+				return false;
+			};
+			if (!tileInHierarchy(tileId))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the painted tile is missing from "
+					"the hierarchy");
+				return;
+			}
+
+			// erase_cell (authed) removes the tile from that same cell
+			JsonValue eraseArgs = JsonValue::object();
+			eraseArgs.set("cell", cell);
+			isError = true;
+			if (!callTool("erase_cell", eraseArgs, true, structured, isError) ||
+				isError || structured.get("erased").asString() != "1")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: erase_cell did not erase the "
+					"painted tile");
+				return;
+			}
+			if (tileInHierarchy(tileId))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the tile survived erase_cell");
+				return;
+			}
+
+			// undo (authed) restores the erased tile (DeleteSubtreeCommand brings
+			// the subtree back under the same ids)
+			isError = true;
+			if (!callTool("undo", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: undo after erase_cell failed");
+				return;
+			}
+			if (!tileInHierarchy(tileId))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: undo did not restore the erased "
+					"tile");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - grid paint loop OK "
+				"(paint/list/erase/undo tile '%s')", tileId.c_str());
 		}
 
 		fs::remove_all(authRoot, authIgnored);

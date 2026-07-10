@@ -60,6 +60,8 @@ namespace Orkige
 		std::function<void(std::string const& path)> openRecentScene;
 		std::function<void()> saveScene;
 		std::function<void()> saveSceneAs;
+		//! File > Add Scene to Level Sequence (needs an open project + saved scene)
+		std::function<void()> addSceneToLevels;
 		std::function<void()> importMesh;
 		std::function<void()> quit;
 		// Edit
@@ -94,6 +96,7 @@ namespace Orkige
 		std::string redoLabel = "Redo";
 		bool hasSelection = false;			//!< gates Duplicate/Delete
 		bool projectOpen = false;			//!< gates Close Project + (with a selection) Create Prefab
+		bool sceneInProject = false;		//!< gates Add Scene to Level Sequence (project open + saved scene)
 		bool canExport = false;				//!< gates the Build menu (project open, no export running)
 		bool panelVisible[PANEL_COUNT] = { true, true, true, true, true };
 		//! File > Open Recent entries, newest first (empty = placeholder item)

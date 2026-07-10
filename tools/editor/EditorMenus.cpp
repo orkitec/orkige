@@ -49,6 +49,8 @@ bool drawPanelToggleItems(ViewSettings& viewSettings)
 		&viewSettings.showScenePanel);
 	changed |= ImGui::MenuItem("Assets", nullptr,
 		&viewSettings.showAssetBrowserPanel);
+	changed |= ImGui::MenuItem("Tile Palette", nullptr,
+		&viewSettings.showTilePalettePanel);
 	return changed;
 }
 
@@ -210,6 +212,15 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			{
 				requestFileDialog(state, window,
 					Orkige::FileDialogAction::SaveSceneAs);
+			}
+			ImGui::Separator();
+			// append the current (saved) scene to the project's level sequence
+			// (levels.olevels) - a filesystem side effect, not undoable;
+			// refusals log to the Console
+			if (ImGui::MenuItem("Add Scene to Level Sequence", nullptr, false,
+				state.project.isLoaded() && !state.currentScenePath.empty()))
+			{
+				addCurrentSceneToLevels(state, core);
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Import Mesh..."))
@@ -561,6 +572,9 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Down, 0.30f,
 		&bottomId, &centerId);
 	ImGui::DockBuilderDockWindow(HIERARCHY_WINDOW_EDIT, leftId);
+	// the Tile Palette shares the left node with the Hierarchy (painting
+	// alternates with hierarchy inspection; the bottom node is already tabbed)
+	ImGui::DockBuilderDockWindow("Tile Palette###TilePalette", leftId);
 	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);

@@ -288,6 +288,18 @@ namespace Orkige
 			element = static_cast<tinyxml2::XMLElement*>(node);
 	}
 	//---------------------------------------------------------
+	void XMLArchive::skipElement()
+	{
+		oAssert(this->isReading());
+		oAssert(!this->isWriting());
+		oAssert(this->currentElement);
+		// step to the next sibling - NextSibling passes over the current
+		// element's whole subtree, so a nested block is skipped as one unit
+		tinyxml2::XMLNode* node = this->currentElement->NextSibling();
+		this->currentElement = node
+			? static_cast<tinyxml2::XMLElement*>(node) : nullptr;
+	}
+	//---------------------------------------------------------
 	void XMLArchive::read(bool & t)
 	{
 		XMLArchiveReadElement(this, this->currentElement, t);

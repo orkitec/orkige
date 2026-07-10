@@ -13,6 +13,21 @@
 namespace Orkige
 {
 	//---------------------------------------------------------
+	// top/bottom/left/right, matching the OpenEdge bit order (1<<index)
+	const char * const TileComponent::EDGE_WALL_LOCAL_IDS[TileComponent::EDGE_COUNT] =
+	{
+		"WallTop", "WallBottom", "WallLeft", "WallRight"
+	};
+	//---------------------------------------------------------
+	int TileComponent::edgeBitForIndex(int index)
+	{
+		if(index < 0 || index >= EDGE_COUNT)
+		{
+			return 0;
+		}
+		return 1 << index;
+	}
+	//---------------------------------------------------------
 	TileComponent::TileComponent()
 		: mOpenEdges(0)
 	{

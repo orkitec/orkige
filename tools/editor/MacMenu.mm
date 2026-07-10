@@ -19,6 +19,7 @@ namespace
 		TAG_CLOSE_PROJECT,
 		TAG_SAVE_SCENE,
 		TAG_SAVE_SCENE_AS,
+		TAG_ADD_SCENE_TO_LEVELS,
 		TAG_IMPORT_MESH,
 		TAG_QUIT,
 		TAG_UNDO,
@@ -104,6 +105,7 @@ namespace
 	case TAG_CLOSE_PROJECT:		action = &gActions.closeProject; break;
 	case TAG_SAVE_SCENE:		action = &gActions.saveScene; break;
 	case TAG_SAVE_SCENE_AS:		action = &gActions.saveSceneAs; break;
+	case TAG_ADD_SCENE_TO_LEVELS:	action = &gActions.addSceneToLevels; break;
 	case TAG_IMPORT_MESH:		action = &gActions.importMesh; break;
 	case TAG_QUIT:				action = &gActions.quit; break;
 	case TAG_UNDO:				action = &gActions.undo; break;
@@ -137,6 +139,7 @@ namespace
 	case TAG_CREATE_PREFAB:
 		return (gStatus.hasSelection && gStatus.projectOpen) ? YES : NO;
 	case TAG_CLOSE_PROJECT:	return gStatus.projectOpen ? YES : NO;
+	case TAG_ADD_SCENE_TO_LEVELS:	return gStatus.sceneInProject ? YES : NO;
 	case TAG_EXPORT_MACOS:
 	case TAG_EXPORT_IOS_SIMULATOR:
 	case TAG_EXPORT_ANDROID:
@@ -301,6 +304,9 @@ namespace Orkige
 			NSEventModifierFlagCommand);
 		addItem(fileMenu, @"Save Scene As…", TAG_SAVE_SCENE_AS, @"s",
 			NSEventModifierFlagCommand | NSEventModifierFlagShift);
+		[fileMenu addItem:[NSMenuItem separatorItem]];
+		addItem(fileMenu, @"Add Scene to Level Sequence",
+			TAG_ADD_SCENE_TO_LEVELS, @"", 0);
 		[fileMenu addItem:[NSMenuItem separatorItem]];
 		addItem(fileMenu, @"Import Mesh…", TAG_IMPORT_MESH, @"i",
 			NSEventModifierFlagCommand | NSEventModifierFlagShift);

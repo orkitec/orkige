@@ -5,6 +5,8 @@
 #include "EditorApp.h"
 #include "MeshImport.h"
 
+#include <core_game/LevelComponent.h>
+#include <core_game/LevelSequence.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
@@ -552,5 +554,80 @@ bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core)
 	}
 	SDL_Log("orkige_editor: reverted instance '%s' to its pristine prefab",
 		rootId.c_str());
+	return true;
+}
+
+bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
+{
+	if (!state.project.isLoaded())
+	{
+		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - no open "
+			"project");
+		return false;
+	}
+	if (state.currentScenePath.empty())
+	{
+		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - save the "
+			"scene first");
+		return false;
+	}
+	const Orkige::String rel =
+		state.project.makeProjectRelative(state.currentScenePath);
+	if (rel.empty())
+	{
+		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - the scene "
+			"lies outside the project root");
+		return false;
+	}
+
+	const Orkige::String levelsRel = state.project.getSetting(
+		Orkige::LevelSequence::LEVELS_SETTING_KEY, "levels.olevels");
+	const Orkige::String levelsAbs = state.project.resolvePath(levelsRel);
+
+	Orkige::LevelSequence sequence;
+	sequence.load(levelsAbs);	// a missing file just starts an empty sequence
+	int levelIndex = 1;
+	for (Orkige::LevelSequence::Entry const& entry : sequence.getEntries())
+	{
+		if (entry.scenePath == rel)
+		{
+			SDL_Log("orkige_editor: Add Scene to Level Sequence refused - '%s' "
+				"is already level %d", rel.c_str(), levelIndex);
+			return false;
+		}
+		++levelIndex;
+	}
+
+	// par comes from the scene's LevelComponent (the first object carrying one)
+	int par = 0;
+	for (auto const& [id, gameObject] :
+		core.getGameObjectManager().getGameObjects())
+	{
+		(void)id;
+		if (gameObject && gameObject->hasComponent<Orkige::LevelComponent>())
+		{
+			par = gameObject->getComponentPtr<Orkige::LevelComponent>()->getPar();
+			break;
+		}
+	}
+
+	const Orkige::String name = std::filesystem::path(rel).stem().string();
+	sequence.addEntry(Orkige::LevelSequence::Entry(rel, name, par));
+	if (!sequence.save(levelsAbs))
+	{
+		SDL_Log("orkige_editor: Add Scene to Level Sequence failed - could not "
+			"write '%s'", levelsAbs.c_str());
+		return false;
+	}
+	// mint the manifest setting the first time so the game (and export) find
+	// the sequence file
+	if (!state.project.hasSetting(Orkige::LevelSequence::LEVELS_SETTING_KEY))
+	{
+		state.project.setSetting(Orkige::LevelSequence::LEVELS_SETTING_KEY,
+			levelsRel);
+		state.project.save();
+	}
+	SDL_Log("orkige_editor: added scene '%s' as level %d of '%s'", rel.c_str(),
+		sequence.getCount(), levelsRel.c_str());
 	return true;
 }

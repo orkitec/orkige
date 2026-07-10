@@ -46,7 +46,11 @@
 #include <engine_render/DrawLayer2D.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/LevelComponent.h>
+#include <core_game/LevelSequence.h>
+#include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
+#include <core_game/TileComponent.h>
 #include <core_project/Project.h>
 #include <core_util/StringUtil.h>
 #include <core_util/Timer.h>
@@ -222,6 +226,7 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -694,6 +699,8 @@ int main(int argc, char** argv)
 			menuActions.saveSceneAs = [statePtr, windowPtr]()
 				{ requestFileDialog(*statePtr, windowPtr,
 					Orkige::FileDialogAction::SaveSceneAs); };
+			menuActions.addSceneToLevels = [statePtr, corePtr]()
+				{ addCurrentSceneToLevels(*statePtr, *corePtr); };
 			menuActions.importMesh = [statePtr, windowPtr]()
 				{ requestFileDialog(*statePtr, windowPtr,
 					Orkige::FileDialogAction::ImportMesh); };
@@ -1052,6 +1059,23 @@ int main(int argc, char** argv)
 		unsigned long playtestScreenshotFrame = 0;
 		unsigned long playtestInterfereFrame = 0;
 
+		// ORKIGE_EDITOR_LEVELPAINT=<roller project dir>: the level-paint state
+		// seam test (editor_level_paint ctest). Frame 10 copies the project to a
+		// temp dir, paints/erases prefab instances through the EditorCore paint
+		// seams (grid from a LevelComponent), round-trips the scene and appends
+		// it to the level sequence; then it PLAYS the painted scene and requires
+		// the painted roots + their non-suppressed wall children to arrive over
+		// the debug protocol. Both flavors.
+		const char* levelPaintEnv = std::getenv("ORKIGE_EDITOR_LEVELPAINT");
+		enum class LevelPaintPhase
+		{
+			Idle, WaitRemote, WaitRevert, Done
+		};
+		LevelPaintPhase levelPaintPhase = LevelPaintPhase::Idle;
+		std::chrono::steady_clock::time_point levelPaintDeadline;
+		std::string levelPaintTempRoot;
+		Orkige::StringVector levelPaintExpectedRoots;
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
@@ -1219,10 +1243,11 @@ int main(int argc, char** argv)
 
 			// snapshot the panel visibility: a close-button click (the x in
 			// a docked tab) must persist exactly like a View-menu toggle
-			const bool panelsBefore[6] = { viewSettings.showHierarchyPanel,
+			const bool panelsBefore[7] = { viewSettings.showHierarchyPanel,
 				viewSettings.showInspectorPanel, viewSettings.showConsolePanel,
 				viewSettings.showStatsPanel, viewSettings.showScenePanel,
-				viewSettings.showAssetBrowserPanel };
+				viewSettings.showAssetBrowserPanel,
+				viewSettings.showTilePalettePanel };
 #ifdef __APPLE__
 			// the native NSMenu bar replaces the ImGui menu bar on mac; the
 			// ImGui bar only steps in when AppKit gave us no menu (headless)
@@ -1296,12 +1321,22 @@ int main(int argc, char** argv)
 				drawAssetBrowserPanel(state, editorCore,
 					&viewSettings.showAssetBrowserPanel);
 			}
+			if (viewSettings.showTilePalettePanel)
+			{
+				drawTilePalettePanel(state, editorCore,
+					&viewSettings.showTilePalettePanel);
+			}
+			else
+			{
+				state.tilePalette.focused = false;
+			}
 			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
 				panelsBefore[1] != viewSettings.showInspectorPanel ||
 				panelsBefore[2] != viewSettings.showConsolePanel ||
 				panelsBefore[3] != viewSettings.showStatsPanel ||
 				panelsBefore[4] != viewSettings.showScenePanel ||
-				panelsBefore[5] != viewSettings.showAssetBrowserPanel)
+				panelsBefore[5] != viewSettings.showAssetBrowserPanel ||
+				panelsBefore[6] != viewSettings.showTilePalettePanel)
 			{
 				viewSettings.save();
 			}
@@ -1319,6 +1354,8 @@ int main(int argc, char** argv)
 					: std::string("Redo");
 				menuStatus.hasSelection = editorCore.hasSelection();
 				menuStatus.projectOpen = state.project.isLoaded();
+				menuStatus.sceneInProject =
+					state.project.isLoaded() && !state.currentScenePath.empty();
 				menuStatus.canExport =
 					state.project.isLoaded() && !exportJob.isActive();
 				menuStatus.panelVisible[Orkige::PANEL_HIERARCHY] =
@@ -2387,6 +2424,370 @@ int main(int argc, char** argv)
 					exitCode = 9;
 				}
 				running = false;
+			}
+			// --- level-paint state-seam test (ORKIGE_EDITOR_LEVELPAINT) ---
+			if (levelPaintEnv)
+			{
+				const std::chrono::steady_clock::time_point lpNow =
+					std::chrono::steady_clock::now();
+				bool lpFailed = false;
+				std::string lpFail;
+				const auto cellRoot = [&](float x, float y)
+				{
+					return editorCore.findPrefabInstanceAtCell(x, y, 6.0f);
+				};
+				if (levelPaintPhase == LevelPaintPhase::Idle && frameCount == 10)
+				{
+					std::error_code lpErr;
+					levelPaintTempRoot = (std::filesystem::temp_directory_path() /
+						("orkige_levelpaint_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::filesystem::copy(levelPaintEnv, levelPaintTempRoot,
+						std::filesystem::copy_options::recursive, lpErr);
+					if (lpErr ||
+						!openProjectFromPath(state, editorCore, levelPaintTempRoot))
+					{
+						lpFailed = true;
+						lpFail = "could not prepare/open the temp copy";
+					}
+					// a fresh scene carrying a Level object = the paint grid source
+					if (!lpFailed)
+					{
+						newScene(state, editorCore);
+						gameObjectManager.createGameObject("Level");
+						editorCore.addComponentToObject("Level", "LevelComponent");
+						editorCore.setObjectProperty("Level", "LevelComponent",
+							"cols", "3");
+						editorCore.setObjectProperty("Level", "LevelComponent",
+							"rows", "2");
+						editorCore.setObjectProperty("Level", "LevelComponent",
+							"tileSize", "6");
+						editorCore.setObjectProperty("Level", "LevelComponent",
+							"originX", "-3");
+						editorCore.setObjectProperty("Level", "LevelComponent",
+							"originY", "-3");
+						editorCore.clearHistory();
+						const Orkige::EditorPaintGrid grid =
+							editorCore.resolvePaintGrid();
+						if (std::fabs(grid.originX + 3.0f) > 1e-3f ||
+							std::fabs(grid.originY + 3.0f) > 1e-3f ||
+							std::fabs(grid.cellSize - 6.0f) > 1e-3f)
+						{
+							lpFailed = true;
+							lpFail = "resolvePaintGrid did not come from the Level";
+						}
+					}
+					// arm the tile prefab and probe it
+					if (!lpFailed)
+					{
+						const std::string tilePrefab =
+							(std::filesystem::path(levelPaintTempRoot) / "assets" /
+								"tile.oprefab").string();
+						if (!paletteArmPrefab(state, editorCore, tilePrefab))
+						{
+							lpFailed = true;
+							lpFail = "paletteArmPrefab failed";
+						}
+						else if (editorCore.getActiveTool() !=
+								Orkige::EditorTool::Paint ||
+							!state.tilePalette.hasEdgeWalls ||
+							state.tilePalette.rootHasTileComponent)
+						{
+							lpFailed = true;
+							lpFail = "prefab probe wrong (tool/edgeWalls/rootTile)";
+						}
+					}
+					// paint two cells in ONE stroke (right edge open, tagged)
+					if (!lpFailed)
+					{
+						state.tilePalette.edgeOpen[3] = true;	// right
+						SDL_strlcpy(state.tilePalette.paintTags, "tile",
+							sizeof(state.tilePalette.paintTags));
+						const std::size_t undoBefore =
+							editorCore.getUndoStackSize();
+						const unsigned int stroke = editorCore.beginMergeSession();
+						editorCore.paintPrefabAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							-3.0f, -3.0f, 6.0f, stroke);
+						editorCore.paintPrefabAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							3.0f, -3.0f, 6.0f, stroke);
+						const std::string r0 = cellRoot(-3.0f, -3.0f);
+						const std::string r1 = cellRoot(3.0f, -3.0f);
+						if (r0.empty() || r1.empty() || r0 == r1)
+						{
+							lpFailed = true;
+							lpFail = "two painted cells not found";
+						}
+						else if (editorCore.getUndoStackSize() != undoBefore + 1)
+						{
+							lpFailed = true;
+							lpFail = "stroke did not collapse into one undo step";
+						}
+						else
+						{
+							optr<Orkige::GameObject> root =
+								gameObjectManager.getGameObject(r0).lock();
+							Orkige::StringVector supp = root
+								? root->getSuppressedPrefabChildren()
+								: Orkige::StringVector();
+							std::string edges;
+							editorCore.getObjectProperty(r0, "TileComponent",
+								"openEdges", edges);
+							Orkige::StringVector tags;
+							editorCore.getObjectTags(r0, tags);
+							const bool ok = root &&
+								root->getPrefabRef() == "assets/tile.oprefab" &&
+								!gameObjectManager.objectExists(r0 + "/WallRight") &&
+								gameObjectManager.objectExists(r0 + "/WallTop") &&
+								supp.size() == 1 && supp[0] == "WallRight" &&
+								edges == "8" &&
+								std::find(tags.begin(), tags.end(), "tile") !=
+									tags.end();
+							if (!ok)
+							{
+								lpFailed = true;
+								lpFail = "painted root structural asserts wrong";
+							}
+						}
+					}
+					// undo/redo the whole stroke as one step
+					if (!lpFailed)
+					{
+						editorCore.undo();
+						const bool bothGone = cellRoot(-3.0f, -3.0f).empty() &&
+							cellRoot(3.0f, -3.0f).empty();
+						editorCore.redo();
+						const bool bothBack = !cellRoot(-3.0f, -3.0f).empty() &&
+							!cellRoot(3.0f, -3.0f).empty();
+						if (!bothGone || !bothBack)
+						{
+							lpFailed = true;
+							lpFail = "stroke undo/redo did not restore both cells";
+						}
+					}
+					// replace a cell (left open now) + identical repaint is a no-op
+					if (!lpFailed)
+					{
+						state.tilePalette.edgeOpen[3] = false;	// right
+						state.tilePalette.edgeOpen[2] = true;	// left
+						editorCore.paintPrefabAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							-3.0f, -3.0f, 6.0f, 0);
+						const std::string rNew = cellRoot(-3.0f, -3.0f);
+						optr<Orkige::GameObject> root =
+							gameObjectManager.getGameObject(rNew).lock();
+						Orkige::StringVector supp = root
+							? root->getSuppressedPrefabChildren()
+							: Orkige::StringVector();
+						const bool replaced =
+							supp.size() == 1 && supp[0] == "WallLeft";
+						const bool noop = !editorCore.paintPrefabAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							-3.0f, -3.0f, 6.0f, 0);
+						if (!replaced || !noop)
+						{
+							lpFailed = true;
+							lpFail = "replace / no-op-repaint wrong";
+						}
+					}
+					// erase a cell + undo restores it with its paint data
+					if (!lpFailed)
+					{
+						const bool erased =
+							editorCore.erasePrefabAtCell(3.0f, -3.0f, 6.0f, 0);
+						const bool gone = cellRoot(3.0f, -3.0f).empty();
+						editorCore.undo();
+						const std::string back = cellRoot(3.0f, -3.0f);
+						std::string edges;
+						editorCore.getObjectProperty(back, "TileComponent",
+							"openEdges", edges);
+						if (!erased || !gone || back.empty() || edges != "8")
+						{
+							lpFailed = true;
+							lpFail = "erase / undo did not round-trip the tile";
+						}
+					}
+					// a NON-prefab object at a cell is never painted over/erased
+					if (!lpFailed)
+					{
+						gameObjectManager.createGameObject("Decoration");
+						editorCore.addComponentToObject("Decoration",
+							"TransformComponent");
+						editorCore.setObjectProperty("Decoration",
+							"TransformComponent", "position", "3 -3 0");
+						const std::string at = cellRoot(3.0f, -3.0f);
+						editorCore.erasePrefabAtCell(3.0f, -3.0f, 6.0f, 0);
+						const bool decorationSurvives =
+							gameObjectManager.objectExists("Decoration");
+						editorCore.undo();	// bring the erased tile back
+						if (at == "Decoration" || !decorationSurvives)
+						{
+							lpFailed = true;
+							lpFail = "a non-prefab object was painted over/erased";
+						}
+					}
+					// scene round-trip preserves the painted structure
+					if (!lpFailed)
+					{
+						const std::string scenePath =
+							(std::filesystem::path(
+								state.project.getScenesDirectory()) /
+								"painted.oscene").string();
+						const bool saved =
+							saveSceneToPath(state, editorCore, scenePath);
+						newScene(state, editorCore);
+						const bool reopened = saved &&
+							openSceneFromPath(state, editorCore, scenePath);
+						const std::string r0 = cellRoot(-3.0f, -3.0f);
+						const std::string r1 = cellRoot(3.0f, -3.0f);
+						bool ok = reopened && !r0.empty() && !r1.empty();
+						if (ok)
+						{
+							// r1 (the right-open tile): WallRight suppressed,
+							// openEdges 8, tag "tile", provided children back
+							optr<Orkige::GameObject> root =
+								gameObjectManager.getGameObject(r1).lock();
+							Orkige::StringVector supp = root
+								? root->getSuppressedPrefabChildren()
+								: Orkige::StringVector();
+							std::string edges;
+							editorCore.getObjectProperty(r1, "TileComponent",
+								"openEdges", edges);
+							Orkige::StringVector tags;
+							editorCore.getObjectTags(r1, tags);
+							ok = supp.size() == 1 && supp[0] == "WallRight" &&
+								edges == "8" &&
+								std::find(tags.begin(), tags.end(), "tile") !=
+									tags.end() &&
+								!gameObjectManager.objectExists(r1 + "/WallRight") &&
+								gameObjectManager.objectExists(r1 + "/WallTop");
+						}
+						if (!ok)
+						{
+							lpFailed = true;
+							lpFail = "scene round-trip lost the paint data";
+						}
+						else
+						{
+							levelPaintExpectedRoots.clear();
+							levelPaintExpectedRoots.push_back(r0);
+							levelPaintExpectedRoots.push_back(r1);
+						}
+					}
+					// append the scene to the level sequence; a duplicate refuses
+					if (!lpFailed)
+					{
+						const bool added =
+							addCurrentSceneToLevels(state, editorCore);
+						Orkige::LevelSequence seq;
+						const bool loaded = seq.load(
+							state.project.resolvePath("levels.olevels"));
+						bool hasOurs = false;
+						for (Orkige::LevelSequence::Entry const& entry :
+							seq.getEntries())
+						{
+							if (entry.scenePath == "scenes/painted.oscene")
+							{
+								hasOurs = true;
+							}
+						}
+						const bool dupRefused =
+							!addCurrentSceneToLevels(state, editorCore);
+						if (!added || !loaded || !hasOurs || !dupRefused)
+						{
+							lpFailed = true;
+							lpFail = "add-to-levels / duplicate refusal wrong";
+						}
+					}
+					// ACCEPTANCE: the painted scene must PLAY in the player
+					if (!lpFailed)
+					{
+						if (!startPlay(playSession, gameObjectManager,
+							state.project))
+						{
+							lpFailed = true;
+							lpFail = "startPlay on the painted scene failed";
+						}
+						else
+						{
+							levelPaintPhase = LevelPaintPhase::WaitRemote;
+							levelPaintDeadline =
+								lpNow + std::chrono::seconds(60);
+						}
+					}
+				}
+				else if (levelPaintPhase == LevelPaintPhase::WaitRemote)
+				{
+					if (playSession.mode == PlaySession::Mode::Playing &&
+						playSession.helloReceived &&
+						playSession.hierarchyReceived)
+					{
+						const auto inRemote = [&](std::string const& id)
+						{
+							return std::find(playSession.remoteHierarchy.begin(),
+								playSession.remoteHierarchy.end(), id) !=
+								playSession.remoteHierarchy.end();
+						};
+						bool ok = !levelPaintExpectedRoots.empty();
+						for (std::string const& root : levelPaintExpectedRoots)
+						{
+							// the root AND its non-suppressed provided children
+							// (Frame, WallTop) must have reached the player
+							if (!inRemote(root) || !inRemote(root + "/Frame") ||
+								!inRemote(root + "/WallTop"))
+							{
+								ok = false;
+							}
+						}
+						if (!ok)
+						{
+							lpFailed = true;
+							lpFail = "painted tiles missing in the remote hierarchy";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: level-paint - painted scene "
+								"plays (%zu remote objects)",
+								playSession.remoteHierarchy.size());
+							requestStopPlay(playSession);
+							levelPaintPhase = LevelPaintPhase::WaitRevert;
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						lpFailed = true;
+						lpFail = "play ended before the remote hierarchy arrived";
+					}
+				}
+				else if (levelPaintPhase == LevelPaintPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						SDL_Log("orkige_editor: level-paint test - OK");
+						levelPaintPhase = LevelPaintPhase::Done;
+						running = false;
+					}
+				}
+				// deadline backstop for the play phases
+				if (!lpFailed &&
+					(levelPaintPhase == LevelPaintPhase::WaitRemote ||
+						levelPaintPhase == LevelPaintPhase::WaitRevert) &&
+					lpNow > levelPaintDeadline)
+				{
+					lpFailed = true;
+					lpFail = "play phase timed out";
+				}
+				if (lpFailed)
+				{
+					SDL_Log("orkige_editor: level-paint test - FAILED: %s",
+						lpFail.c_str());
+					exitCode = 11;
+					std::error_code cleanupErr;
+					std::filesystem::remove_all(levelPaintTempRoot, cleanupErr);
+					running = false;
+				}
 			}
 			// --- scripted scene-open test (ORKIGE_EDITOR_OPEN_SCENE=path) ---
 			if (openSceneEnv && frameCount == 10)

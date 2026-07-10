@@ -57,6 +57,7 @@ add_executable(orkige_editor
     EditorSettings.cpp
     EditorShortcuts.cpp
     EditorStatsPanel.cpp
+    EditorTilePalettePanel.cpp
     EditorToolbar.cpp
     ImGuiFacadeRenderer.h
     ImGuiFacadeRenderer.cpp

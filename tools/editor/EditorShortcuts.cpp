@@ -134,6 +134,13 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		{
 			core.setActiveTool(Orkige::EditorTool::Scale);
 		}
+		// B arms the 2D grid-paint tool - only meaningful once a prefab is
+		// armed in the Tile Palette (a no-op otherwise)
+		if (ImGui::IsKeyPressed(ImGuiKey_B, false) &&
+			!state.tilePalette.armedPrefabPath.empty())
+		{
+			core.setActiveTool(Orkige::EditorTool::Paint);
+		}
 		if (ImGui::IsKeyPressed(ImGuiKey_X, false))
 		{
 			core.toggleTransformSpace();

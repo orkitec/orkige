@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 50 tools (the `toolSpecs` table in
+The endpoint advertises 54 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -127,6 +127,10 @@ The endpoint advertises 50 tools (the `toolSpecs` table in
 | `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`) |
 | `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
 | `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
+| `list_paint_prefabs()` | `searchAssets` (the project's `.oprefab` palette) + `EditorCore::resolvePaintGrid` → parallel `paths`/`names`, `count` and the grid `origin_x`/`origin_y`/`cell_size` |
+| `paint_prefab(prefab, cell?, position?, suppressed?)` | **auth** — `EditorCore::paintPrefabAtCell` (paint a prefab into one grid cell as one undo step; same cell replaces its occupant) → the painted-root `id`, snapped `col`/`row`/`x`/`y`, `painted` |
+| `erase_cell(cell?, position?)` | **auth** — `EditorCore::erasePrefabAtCell` (erase the prefab instance in one grid cell as one undo step) → snapped `col`/`row`/`x`/`y`, `erased` |
+| `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
@@ -450,9 +454,13 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   absolute path and a `..` escape, verifying nothing was written outside the
   root), an auth-rejected `write_project_file`, `list_project_files` (the written
   script appears under a `*.lua` glob), `import_asset` from a temp file (a stable
-  id is minted, an unauthenticated import rejected), and a `create_prefab` →
+  id is minted, an unauthenticated import rejected), a `create_prefab` →
   `instantiate_prefab` round-trip (the `.oprefab` lands on disk and the fresh
-  instance appears in `list_hierarchy`). It also covers the RUN tools:
+  instance appears in `list_hierarchy`), and the GRID-PAINT loop over that same
+  prefab (`list_paint_prefabs` lists it and reports a grid, an auth-rejected
+  `paint_prefab`, then `paint_prefab` into a cell — the painted root appears in
+  `list_hierarchy` — `erase_cell` removes it and `undo` brings it back). It also
+  covers the RUN tools:
   `list_play_targets` reports the desktop target, and `export_project` refuses an
   unauthenticated request, a no-project request, an unknown platform and (on a
   next-flavored editor tree) the classic-pinned flavor check — all as fast

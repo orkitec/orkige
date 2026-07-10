@@ -269,6 +269,31 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		toolButton("W", Orkige::EditorTool::Translate);
 		toolButton("E", Orkige::EditorTool::Rotate);
 		toolButton("R", Orkige::EditorTool::Scale);
+		// Paint (B): 2D grid painting, usable once a prefab is armed in the
+		// Tile Palette - the button greys out until then
+		{
+			const bool armed = !state.tilePalette.armedPrefabPath.empty();
+			const bool active =
+				(core.getActiveTool() == Orkige::EditorTool::Paint);
+			ImGui::BeginDisabled(!armed);
+			if (active)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button,
+					ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+			}
+			if (ImGui::Button("B"))
+			{
+				core.setActiveTool(Orkige::EditorTool::Paint);
+			}
+			if (active)
+			{
+				ImGui::PopStyleColor();
+			}
+			ImGui::EndDisabled();
+			ImGui::SetItemTooltip(armed ? "paint prefab on the grid (2D)"
+				: "paint prefab (arm one in the Tile Palette)");
+			ImGui::SameLine();
+		}
 		if (ImGui::Button(core.getTransformSpace() ==
 			Orkige::EditorTransformSpace::World ? "World" : "Local"))
 		{

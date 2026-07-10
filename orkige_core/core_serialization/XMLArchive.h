@@ -58,6 +58,15 @@ namespace Orkige
 		//! first value element). stopReading tears it down. False on parse error.
 		bool startReadingMemory(String const & xml);
 
+		//! @brief is the read cursor positioned on a value element (false past
+		//! the last one). Lets a reader walk a variable block defensively.
+		bool hasMoreElements() const { return this->currentElement != nullptr; }
+		//! @brief advance the read cursor past the current element WITHOUT
+		//! decoding it (the whole subtree of a nested element is stepped over) -
+		//! the read-only counterpart to read() for skipping a block whose
+		//! payload the caller does not need.
+		void skipElement();
+
 		virtual void read(bool & t);
 		virtual void read(char & t);
 		virtual void read(signed char & t);
