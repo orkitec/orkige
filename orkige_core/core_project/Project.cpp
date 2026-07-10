@@ -169,7 +169,11 @@ namespace Orkige
 			root->FirstChildElement(ELEMENT_MAIN_SCENE);
 		const String mainScene = (mainSceneElement && mainSceneElement->GetText())
 			? mainSceneElement->GetText() : String();
-		if (!mainScene.empty() && std::filesystem::path(mainScene).is_absolute())
+		// rooted, not just absolute: a leading slash is not "absolute" under
+		// Windows path rules (no drive), but it is still not project-relative
+		const std::filesystem::path mainScenePath(mainScene);
+		if (!mainScene.empty() && (mainScenePath.has_root_directory() ||
+			mainScenePath.has_root_name()))
 		{
 			projectError(errorMessage, "'" + manifestPath + "' has an absolute "
 				"<" + String(ELEMENT_MAIN_SCENE) + "> ('" + mainScene +
@@ -323,7 +327,10 @@ namespace Orkige
 			return String();
 		}
 		const std::filesystem::path relative(projectRelativePath);
-		if (relative.is_absolute())
+		// rooted paths pass through unresolved (see the manifest validation:
+		// a leading slash is rooted on every platform even where it is not
+		// "absolute" by the local drive rules)
+		if (relative.has_root_directory() || relative.has_root_name())
 		{
 			return projectRelativePath;
 		}
