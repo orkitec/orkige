@@ -149,6 +149,11 @@ if(WIN32)
     # windows headers keep the winsock2 includes conflict-free
     add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
+if(MSVC)
+    # the script-binding TUs (engine_module/module.cpp especially) expand past
+    # the default COFF section limit; /bigobj lifts it with no codegen impact
+    add_compile_options(/bigobj)
+endif()
 
 add_subdirectory(orkige_core)
 
