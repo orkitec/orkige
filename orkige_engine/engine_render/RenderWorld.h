@@ -12,6 +12,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
 #include "engine_render/SpriteBatch.h"
+#include "engine_render/VectorMesh.h"
 #include <core_util/String.h>
 #include <vector>
 
@@ -82,6 +83,13 @@ namespace Orkige
 		//! map: classic=ManualObject + shared "Sprite/<tex>"/"SpriteAdd/<tex>" material | next=v2 ManualObject + shared HlmsUnlit datablock | filament=dynamic VB/IB + unlit filamat instance
 		optr<SpriteBatch> createSpriteBatch(String const & textureName,
 			SpriteBatch::BlendMode blendMode = SpriteBatch::BLEND_ALPHA);
+		//! @brief create a world-space untextured vertex-coloured triangle mesh
+		//! - the flat-colour vector-shape building block (fills + alpha-feather
+		//! edge), refilled from a CPU vertex+index array (@see VectorMesh)
+		//! map: classic=ManualObject + shared "VectorFill" material | next=v2
+		//! ManualObject + shared HlmsUnlit vertex-colour datablock | filament=
+		//! dynamic VB/IB + unlit filamat instance
+		optr<VectorMesh> createVectorMesh();
 		//! @brief create a camera (attach it to a node to place it)
 		//! map: classic/next=SceneManager::createCamera | filament=Engine::createCamera(entity)
 		optr<RenderCamera> createCamera(String const & name = "");

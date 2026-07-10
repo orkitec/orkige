@@ -30,10 +30,17 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_render/SpriteQuad.h>
+#include <engine_render/VectorMesh.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/RenderLight.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/DrawLayer2D.h>
+
+// the pure, renderer-free tessellator (orkige_core) that produces the vector
+// shape's triangles - the ONE non-facade include, and deliberate: it proves
+// the whole flat-colour-shape pipeline (tessellate -> facade VectorMesh ->
+// render), and the parity gate compares the RTT it draws into on both flavors
+#include <core_util/VectorTessellator.h>
 
 #include <cmath>
 #include <cstdio>
@@ -255,6 +262,54 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	sprite->setZOrder(5);
 	sprite->setVisible(true);
 
+	//--- vector shape (untextured tessellated fill + feather) -------------
+	// a concave blob tessellated headlessly (VectorTessellator, the .oshape
+	// runtime producer), fed to the facade VectorMesh and placed in the ortho
+	// camera's view at the RTT's top-left corner - clear of the sprite. Proves
+	// createVectorMesh + concave tessellation + the shared untextured
+	// vertex-colour datablock render, on BOTH flavors (the parity gate compares
+	// this RTT screenshot).
+	std::vector<VectorTessellator::Region> shapeRegions;
+	{
+		VectorTessellator::Region region;
+		region.fill = VectorTessellator::Colour(0.2f, 0.8f, 0.3f, 1.0f);
+		// a small concave arrow/blob (~0.5 world units), notched at the top
+		region.outer.push_back(VectorTessellator::Point(-0.25f, -0.25f));
+		region.outer.push_back(VectorTessellator::Point(0.25f, -0.25f));
+		region.outer.push_back(VectorTessellator::Point(0.25f, 0.25f));
+		region.outer.push_back(VectorTessellator::Point(0.0f, 0.05f));
+		region.outer.push_back(VectorTessellator::Point(-0.25f, 0.25f));
+		shapeRegions.push_back(region);
+	}
+	VectorTessellator::Mesh shapeMesh;
+	VectorTessellator::build(shapeRegions, 0.01f, shapeMesh);
+	SELFCHECK(shapeMesh.triangleCount() > 0,
+		"the vector tessellator produced triangles");
+	std::vector<VectorMesh::Vertex> shapeVertices;
+	for(std::size_t each = 0; each < shapeMesh.positions.size(); ++each)
+	{
+		VectorMesh::Vertex vertex;
+		vertex.position = Vec2(shapeMesh.positions[each].x,
+			shapeMesh.positions[each].y);
+		vertex.colour = Color(shapeMesh.colours[each].r,
+			shapeMesh.colours[each].g, shapeMesh.colours[each].b,
+			shapeMesh.colours[each].a);
+		shapeVertices.push_back(vertex);
+	}
+	optr<VectorMesh> vectorShape = world->createVectorMesh();
+	SELFCHECK(vectorShape != NULL, "createVectorMesh works");
+	vectorShape->setMesh(shapeVertices.data(), shapeVertices.size(),
+		shapeMesh.indices.data(), shapeMesh.indices.size());
+	SELFCHECK(vectorShape->getTriangleCount() == shapeMesh.triangleCount(),
+		"the facade mesh reports the triangle count it was filled with");
+	optr<RenderNode> shapeNode = world->createNode("selfcheck.shapeNode");
+	// top-left of the RTT ortho view (camera at x=100, half-width 3,
+	// half-height 1.5) - well clear of the sprite at the centre
+	shapeNode->setPosition(Vec3(97.8f, 1.0f, 0.1f));
+	vectorShape->attachTo(shapeNode);
+	vectorShape->setZOrder(6);
+	vectorShape->setVisible(true);
+
 	optr<RenderCamera> orthoCamera = world->createCamera("selfcheck.ortho");
 	optr<RenderNode> orthoNode = world->createNode("selfcheck.orthoNode");
 	orthoNode->setPosition(Vec3(100, 0, 5));
@@ -348,6 +403,17 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		"the window screenshot is not black");
 	SELFCHECK(SelfcheckBootstrap::imageHasNonBlackPixel(rttShot),
 		"the RTT capture is not black (the sprite rendered)");
+	// the vector shape sits at the RTT's top-left corner (world (97.8,1.0) ->
+	// ~pixel (43,27) in the 320x160 ortho view); its interior must read the
+	// green fill against the black RTT background. A DOMINANCE check (green
+	// clearly above red/blue), tolerant of the flavor's sRGB drift.
+	{
+		float shapeRed = 0, shapeGreen = 0, shapeBlue = 0;
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(rttShot, 43, 27,
+			shapeRed, shapeGreen, shapeBlue), "the vector-shape probe decodes");
+		SELFCHECK(shapeGreen > shapeRed + 0.2f && shapeGreen > shapeBlue + 0.2f,
+			"the vector shape's green fill rendered into the RTT");
+	}
 
 	//--- 2D draw layers (the DrawLayer2D conformance pattern) --------------
 	// a known pattern in the top-left corner, pixel-verified from a window
@@ -548,6 +614,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	//--- RAII teardown of content while frames keep rendering ---------------
 	sprite.reset();
 	platform.reset();
+	vectorShape.reset();
 	SELFCHECK(renderFrames(renderSystem, 2),
 		"frames render after content handles were dropped (RAII teardown)");
 

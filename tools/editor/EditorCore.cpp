@@ -5,6 +5,7 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
@@ -387,6 +388,36 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	String CreateSpriteObjectCommand::getDescription() const
+	{
+		return "Create " + mObjectId;
+	}
+
+	//---------------------------------------------------------
+	//--- CreateVectorShapeObjectCommand -----------------------
+	//---------------------------------------------------------
+	CreateVectorShapeObjectCommand::CreateVectorShapeObjectCommand(
+		String const& objectId, String const& shapeName, Vec3 const& position)
+		: mObjectId(objectId), mShapeName(shapeName), mPosition(position)
+	{
+	}
+	//---------------------------------------------------------
+	bool CreateVectorShapeObjectCommand::execute(EditorCore& core)
+	{
+		if (!core.instantiateVectorShapeObject(mObjectId, mShapeName, mPosition))
+		{
+			return false;
+		}
+		core.selectObject(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool CreateVectorShapeObjectCommand::unexecute(EditorCore& core)
+	{
+		core.deselectObject(mObjectId);
+		return core.getGameObjectManager().delGameObject(mObjectId);
+	}
+	//---------------------------------------------------------
+	String CreateVectorShapeObjectCommand::getDescription() const
 	{
 		return "Create " + mObjectId;
 	}
@@ -2855,6 +2886,28 @@ namespace Orkige
 		if (!textureName.empty())
 		{
 			gameObject->getComponentPtr<SpriteComponent>()->loadSprite(textureName);
+		}
+		gameObject->getComponentPtr<TransformComponent>()
+			->setPosition(position);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::instantiateVectorShapeObject(String const& id,
+		String const& shapeName, Vec3 const& position)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.createGameObject(id).lock();
+		// VectorShapeComponent depends on TransformComponent - added automatically
+		if (!gameObject || !gameObject->addComponent<VectorShapeComponent>())
+		{
+			return false;
+		}
+		// loadShape logs (not throws) on a missing/malformed shape - the object
+		// still exists, empty. An empty name would trip loadShape's assert.
+		if (!shapeName.empty())
+		{
+			gameObject->getComponentPtr<VectorShapeComponent>()
+				->loadShape(shapeName);
 		}
 		gameObject->getComponentPtr<TransformComponent>()
 			->setPosition(position);

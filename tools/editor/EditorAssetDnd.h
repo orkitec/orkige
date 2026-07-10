@@ -22,7 +22,8 @@ enum class AssetKind
 	Script,		//!< .lua (not instantiable on its own)
 	Scene,		//!< .oscene (double-click / drop opens it)
 	Prefab,		//!< .oprefab (CreatePrefabInstanceCommand)
-	Audio		//!< .wav/.ogg/... (added to an object as a SoundComponent)
+	Audio,		//!< .wav/.ogg/... (added to an object as a SoundComponent)
+	VectorShape	//!< .oshape (CreateVectorShapeObjectCommand)
 };
 
 //! the single-item drag-drop payload bytes: kind + absolute path, fixed size so

@@ -107,6 +107,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/ModelComponent.cpp
     engine_gocomponent/SpriteComponent.h
     engine_gocomponent/SpriteComponent.cpp
+    engine_gocomponent/VectorShapeComponent.h
+    engine_gocomponent/VectorShapeComponent.cpp
     engine_gocomponent/SpriteAnimationComponent.h
     engine_gocomponent/SpriteAnimationComponent.cpp
     engine_gocomponent/ParticleSim.h
@@ -214,6 +216,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_render_classic/MeshInstanceClassic.cpp
         engine_render_classic/SpriteQuadClassic.cpp
         engine_render_classic/SpriteBatchClassic.cpp
+        engine_render_classic/VectorMeshClassic.cpp
         engine_render_classic/RenderCameraClassic.cpp
         engine_render_classic/RenderLightClassic.cpp
         engine_render_classic/RenderTextureClassic.cpp
@@ -235,6 +238,7 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         engine_render_next/MeshLoaderNext.cpp
         engine_render_next/SpriteQuadNext.cpp
         engine_render_next/SpriteBatchNext.cpp
+        engine_render_next/VectorMeshNext.cpp
         engine_render_next/RenderCameraNext.cpp
         engine_render_next/RenderLightNext.cpp
         engine_render_next/RenderTextureNext.cpp

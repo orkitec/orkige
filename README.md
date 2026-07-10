@@ -31,7 +31,9 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   serialization (`.oscene`).
 - **2D pipeline** — sprites, **flipbook animation**, a batched **2D particle
   system** (one draw call per emitter), sprite atlases + per-platform **texture
-  import settings**, an ortho 2D camera and painter-order z-sorting.
+  import settings**, **flat-colour vector shapes** (`.oshape` path assets or
+  imported SVG, tessellated with anti-aliased edges — resolution-independent
+  organic art), an ortho 2D camera and painter-order z-sorting.
 - **Physics** — Jolt Physics (with a planar "2D mode"), a data-driven **collision
   layer matrix**, object **tags**, and **sensor/trigger contact events** delivered
   to script (`onContactBegin`/`onContactEnd`).

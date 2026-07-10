@@ -361,6 +361,15 @@ look when touching one:
   import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
+  **Flat-colour organic vector shapes**: `VectorShapeComponent` renders a
+  tessellated `.oshape` (agent-authorable text asset, or SVG-cooked via
+  `Util/cook_shapes.py`) through the facade `VectorMesh` (SpriteBatch's
+  untextured arbitrary-triangle sibling, one "VectorFill" unlit vertex-colour
+  datablock, same zOrder painter window as sprites, both flavors). The pure
+  geometry core is `core_util/VectorTessellator` (bezier flatten + earcut
+  triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
+  headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
+  `projects/vectorshapes/` sample.
 - **Game UI** (`engine_fastgui`, both flavors): the retained widget set (label/
   button/checkbox/slider/select-menu/progressbar/decor) is Lua-authored via
   `FastGuiFactory` (`createCheckBox`/`createSlider`/`createSelectMenu`/

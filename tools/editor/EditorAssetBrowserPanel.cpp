@@ -217,6 +217,15 @@ optr<Orkige::EditorCommand> makeInstantiateCommand(EditorState& state,
 		return Orkige::onew(new Orkige::CreateSpriteObjectCommand(
 			id, fileName, Orkige::Vec3::ZERO));
 	}
+	case AssetKind::VectorShape:
+	{
+		// VectorShapeComponent::loadShape resolves the .oshape by bare file name
+		// across all resource groups (the project assets/ group among them)
+		const std::string id = reserveObjectId(manager, reserved,
+			stem.empty() ? "Shape" : stem);
+		return Orkige::onew(new Orkige::CreateVectorShapeObjectCommand(
+			id, fileName, Orkige::Vec3::ZERO));
+	}
 	case AssetKind::Prefab:
 	{
 		// carry the project-relative reference + the stable asset id onto the
@@ -1110,6 +1119,10 @@ AssetKind classifyAsset(std::string const& path)
 	{
 		return AssetKind::Audio;
 	}
+	if (ext == ".oshape")
+	{
+		return AssetKind::VectorShape;
+	}
 	return AssetKind::Unknown;
 }
 
@@ -1123,6 +1136,7 @@ const char* assetKindLabel(AssetKind kind)
 	case AssetKind::Scene:		return "scene";
 	case AssetKind::Prefab:		return "prefab";
 	case AssetKind::Audio:		return "audio";
+	case AssetKind::VectorShape:	return "shape";
 	case AssetKind::Unknown:	break;
 	}
 	return "file";
@@ -1498,6 +1512,7 @@ ImU32 assetKindColor(AssetKind kind, bool isFolder)
 	case AssetKind::Scene:		return IM_COL32(150, 122, 202, 255);
 	case AssetKind::Prefab:		return IM_COL32(212, 150, 88, 255);
 	case AssetKind::Audio:		return IM_COL32(200, 110, 152, 255);
+	case AssetKind::VectorShape:	return IM_COL32(198, 132, 196, 255);
 	case AssetKind::Unknown:
 	default:					return IM_COL32(122, 122, 122, 255);
 	}
@@ -1518,6 +1533,7 @@ const char* assetKindTag(AssetKind kind, bool isFolder)
 	case AssetKind::Scene:		return "SCN";
 	case AssetKind::Prefab:		return "PFB";
 	case AssetKind::Audio:		return "SND";
+	case AssetKind::VectorShape:	return "SHP";
 	case AssetKind::Unknown:
 	default:					return "?";
 	}
@@ -1538,6 +1554,7 @@ const char* assetKindIcon(AssetKind kind, bool isFolder)
 	case AssetKind::Scene:		return ICON_FA_FILM;
 	case AssetKind::Prefab:		return ICON_FA_CLONE;
 	case AssetKind::Audio:		return ICON_FA_MUSIC;
+	case AssetKind::VectorShape:	return ICON_FA_SHAPES;
 	case AssetKind::Unknown:
 	default:					return ICON_FA_FILE;
 	}

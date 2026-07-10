@@ -32,6 +32,7 @@
 #include "engine_render/MeshInstance.h"
 #include "engine_render/SpriteQuad.h"
 #include "engine_render/SpriteBatch.h"
+#include "engine_render/VectorMesh.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
@@ -131,6 +132,20 @@ namespace Orkige
 		//! (re)build the manual object from a CPU vertex array (4 verts/quad,
 		//! TL/TR/BR/BL); an empty array leaves the object with no geometry
 		void rebuild(SpriteBatch::Vertex const * vertices, std::size_t quadCount);
+	};
+
+	struct VectorMesh::Impl
+	{
+		Ogre::ManualObject*	mesh = NULL;
+		Ogre::SceneManager*	creator = NULL;
+		int					zOrder = 0;
+		std::size_t			triangleCount = 0;		//!< triangles in the mesh right now
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the manual object from an arbitrary CPU vertex + index
+		//! array (untextured, vertex colour); empty arrays leave it geometry-free
+		void rebuild(VectorMesh::Vertex const * vertices, std::size_t vertexCount,
+			unsigned int const * indices, std::size_t indexCount);
 	};
 
 	struct RenderCamera::Impl
@@ -235,6 +250,9 @@ namespace Orkige
 		static optr<SpriteBatch> createSpriteBatch(
 			Ogre::SceneManager* sceneManager, String const & textureName,
 			SpriteBatch::BlendMode blendMode);
+		//! create a world-space untextured vertex-coloured triangle mesh
+		//! (@see VectorMesh; the shared "VectorFill" material)
+		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
 		static optr<RenderCamera> createCamera(
 			Ogre::SceneManager* sceneManager, String const & name);
 		//! wrap an EXISTING backend camera into a facade handle (owned=false
@@ -301,6 +319,11 @@ namespace Orkige
 		//! src.rgb*src.a + dst, order-independent glow). Idempotent per name.
 		static Ogre::MaterialPtr getOrCreateSpriteBatchMaterial(
 			Ogre::TexturePtr const & texture, SpriteBatch::BlendMode blendMode);
+		//! @brief the ONE shared untextured vertex-colour "VectorFill" material:
+		//! unlit, vertex colours tracked (TVC_DIFFUSE), alpha-blended,
+		//! depth-checked/not-written, two-sided, NO texture unit. Idempotent -
+		//! every vector shape renders through this one material.
+		static Ogre::MaterialPtr getOrCreateVectorFillMaterial();
 		//! zOrder -> render queue id (painter's sorting around MAIN)
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
 	};

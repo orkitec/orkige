@@ -227,6 +227,25 @@ namespace Orkige
 		Vec3 mPosition;
 	};
 
+	//! @brief create a new GameObject carrying a VectorShapeComponent showing
+	//! the given .oshape asset (Asset browser drag/double-click of a shape).
+	//! instantiates + selects, undo deselects + deletes; a shape that fails to
+	//! load leaves the (empty) shape object like the sprite variant does.
+	class CreateVectorShapeObjectCommand : public EditorCommand
+	{
+	public:
+		CreateVectorShapeObjectCommand(String const& objectId,
+			String const& shapeName, Vec3 const& position);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mShapeName;
+		Vec3 mPosition;
+	};
+
 	//! @brief instantiate a .oprefab asset into the scene as a NEW prefab
 	//! instance (Asset browser drag/double-click). Unlike
 	//! MakePrefabCommand (which converts an EXISTING subtree), this creates the
@@ -971,6 +990,12 @@ namespace Orkige
 		//! undoable - CreateSpriteObjectCommand wraps it). A missing texture
 		//! only logs (the sprite stays empty); requires a booted engine.
 		bool instantiateSpriteObject(String const& id, String const& textureName,
+			Vec3 const& position);
+		//! @brief create a GameObject carrying a flat-colour vector shape through
+		//! TransformComponent + VectorShapeComponent (loadShape(shapeName), NOT
+		//! undoable - CreateVectorShapeObjectCommand wraps it). A missing/malformed
+		//! shape only logs (the shape stays empty); requires a booted engine.
+		bool instantiateVectorShapeObject(String const& id, String const& shapeName,
 			Vec3 const& position);
 		//! @brief create a NEW prefab instance from a .oprefab file: the
 		//! deterministic instance-namespace subtree plus the marked root at the

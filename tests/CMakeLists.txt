@@ -53,6 +53,15 @@ add_test(NAME cook_textures_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(cook_textures_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# vector-shape SVG cook self-validation: cook_shapes.py flattens a synthetic
+# SVG (rect + path + circle) to an .oshape and re-parses it, asserting
+# well-formed regions with round-tripped fill colours and vertex counts.
+# Stdlib-only, headless - the SVG->.oshape on-ramp at the tooling level.
+add_test(NAME cook_shapes_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_shapes.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(cook_shapes_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:
@@ -241,6 +250,17 @@ if(TARGET hello_orkige)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_particles PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_PARTICLES=1;ORKIGE_DEMO_FRAMES=120")
+
+    # ORKIGE_DEMO_VECTORSHAPE: the flat-colour vector-shape headed selfcheck -
+    # a VectorShapeComponent loads demo_blob.oshape (concave blob + accent
+    # region), which is tessellated (earcut) with a baked alpha-feather edge
+    # into a facade VectorMesh; asserts the mesh tessellated (triangle count >
+    # 0) and that toggling its visibility moves the frame-stats triangle count
+    # (it renders). Reads stats, not pixels - runs on both render flavors.
+    add_test(NAME demo_vectorshape COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_vectorshape PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_VECTORSHAPE=1;ORKIGE_DEMO_FRAMES=120")
 
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
@@ -558,6 +578,17 @@ if(TARGET orkige_player)
     set_tests_properties(player_example_project PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
 
+    # the flat-colour vector-shape demo project (Util/make_vectorshape_demo.py):
+    # loads scenes/main.oscene which places three VectorShapeComponent instances
+    # (blob + concave star .oshape assets) at rising zOrders and distinct tints -
+    # a clean-load + render smoke that the .oshape assets tessellate and the
+    # scene round-trips through serialization. Runs on both render flavors.
+    add_test(NAME player_vectorshape_scene
+        COMMAND orkige_player --project projects/vectorshapes
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(player_vectorshape_scene PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_FRAMES=90")
+
     # THE scripting proof, end to end: the jumper game reimplemented in
     # pure Lua (projects/jumper-lua, scripts/player.lua on a ScriptComponent
     # - zero compiled game code). The player's selfcheck injects synthetic
@@ -817,10 +848,11 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
-        demo_spriteanim demo_spriteatlas demo_particles
+        demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
-        player_example_scene player_example_project player_debug_pause
+        player_example_scene player_example_project player_vectorshape_scene
+        player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
         player_roller_progression_selfcheck

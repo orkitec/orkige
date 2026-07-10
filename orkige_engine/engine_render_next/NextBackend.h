@@ -49,6 +49,7 @@
 #include "engine_render/MeshInstance.h"
 #include "engine_render/SpriteQuad.h"
 #include "engine_render/SpriteBatch.h"
+#include "engine_render/VectorMesh.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"
 #include "engine_render/RenderTexture.h"
@@ -176,6 +177,20 @@ namespace Orkige
 		void rebuild(SpriteBatch::Vertex const * vertices, std::size_t quadCount);
 	};
 
+	struct VectorMesh::Impl
+	{
+		Ogre::ManualObject*	mesh = NULL;			//!< v2 manual object (VaoManager-backed)
+		Ogre::SceneManager*	creator = NULL;
+		int					zOrder = 0;
+		std::size_t			triangleCount = 0;		//!< triangles in the mesh right now
+		optr<RenderNode>	attachedTo;
+
+		//! (re)build the v2 manual object from an arbitrary CPU vertex + index
+		//! array (untextured, vertex colour); empty arrays leave it geometry-free
+		void rebuild(VectorMesh::Vertex const * vertices, std::size_t vertexCount,
+			unsigned int const * indices, std::size_t indexCount);
+	};
+
 	struct RenderCamera::Impl
 	{
 		Ogre::Camera*		camera = NULL;
@@ -294,6 +309,9 @@ namespace Orkige
 		static optr<SpriteBatch> createSpriteBatch(
 			Ogre::SceneManager* sceneManager, String const & textureName,
 			SpriteBatch::BlendMode blendMode);
+		//! create a world-space untextured vertex-coloured triangle mesh
+		//! (@see VectorMesh; the shared "VectorFill" HlmsUnlit datablock)
+		static optr<VectorMesh> createVectorMesh(Ogre::SceneManager* sceneManager);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
@@ -382,6 +400,11 @@ namespace Orkige
 		static Ogre::HlmsDatablock* getOrCreateSpriteBatchDatablock(
 			String const & textureName, Ogre::TextureGpu* texture,
 			SpriteBatch::BlendMode blendMode);
+		//! @brief the ONE shared untextured vertex-colour "VectorFill" HlmsUnlit
+		//! datablock: unlit, alpha-blended, depth-checked/not-written, two-sided;
+		//! colour flows from VES_DIFFUSE (the DrawLayer2D empty-texture recipe).
+		//! Idempotent - every vector shape renders through this one datablock.
+		static Ogre::HlmsDatablock* getOrCreateVectorFillDatablock();
 		//! an unlit datablock named datablockName that renders vertex
 		//! colours (times the optional texture); idempotent per name -
 		//! backs setVertexColourUnlit and the cube-mesh service

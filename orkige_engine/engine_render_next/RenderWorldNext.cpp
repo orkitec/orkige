@@ -87,6 +87,11 @@ namespace Orkige
 			this->mImpl->sceneManager, textureName, blendMode);
 	}
 	//---------------------------------------------------------
+	optr<VectorMesh> RenderWorld::createVectorMesh()
+	{
+		return RenderBackend::createVectorMesh(this->mImpl->sceneManager);
+	}
+	//---------------------------------------------------------
 	optr<RenderCamera> RenderWorld::createCamera(String const & name)
 	{
 		return RenderBackend::createCamera(this->mImpl->sceneManager,

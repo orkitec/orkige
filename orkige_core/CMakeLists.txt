@@ -50,6 +50,17 @@ target_include_directories(orkige_core PUBLIC
 
 find_package(tinyxml2 CONFIG REQUIRED)
 target_link_libraries(orkige_core PRIVATE tinyxml2::tinyxml2)
+
+# earcut-hpp: single-header polygon triangulation (concave + holes), the one
+# library the vector-shape tessellator takes. Header-only, no CMake config -
+# the include path is scoped to core_util/VectorTessellator.cpp ALONE (nothing
+# else includes it), so the triangulator stays out of every other TU and the
+# precompiled header, exactly like engine_sound/StbVorbisImpl.cpp confines
+# stb_vorbis.
+find_path(EARCUT_INCLUDE_DIR "mapbox/earcut.hpp" REQUIRED)
+set_source_files_properties(
+    "${CMAKE_CURRENT_SOURCE_DIR}/core_util/VectorTessellator.cpp"
+    PROPERTIES INCLUDE_DIRECTORIES "${EARCUT_INCLUDE_DIR}")
 if(WIN32)
     # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
     target_link_libraries(orkige_core PUBLIC ws2_32)

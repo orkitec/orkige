@@ -15,8 +15,6 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/PrimitiveUtil.h"
 
-#include <algorithm>
-
 namespace Orkige
 {
 	const unsigned int RenderWorld::QUERYFLAG_DEFAULT = 1;
@@ -78,6 +76,11 @@ namespace Orkige
 	{
 		return RenderBackend::createSpriteBatch(
 			this->mImpl->sceneManager, textureName, blendMode);
+	}
+	//---------------------------------------------------------
+	optr<VectorMesh> RenderWorld::createVectorMesh()
+	{
+		return RenderBackend::createVectorMesh(this->mImpl->sceneManager);
 	}
 	//---------------------------------------------------------
 	optr<RenderCamera> RenderWorld::createCamera(String const & name)

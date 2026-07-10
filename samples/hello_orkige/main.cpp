@@ -16,6 +16,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
+#include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 // fastgui is flavor-neutral - the
@@ -213,6 +214,14 @@ int main(int, char**)
 		const bool demoMusic =
 			(std::getenv("ORKIGE_DEMO_MUSIC") != nullptr);
 		if (demoMusic)
+		{
+			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+		}
+		// ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck
+		// (below) loads the committed demo_blob.oshape from the sample media dir
+		const bool demoVectorShape =
+			(std::getenv("ORKIGE_DEMO_VECTORSHAPE") != nullptr);
+		if (demoVectorShape)
 		{
 			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 		}
@@ -547,6 +556,48 @@ int main(int, char**)
 			particles->setTexture("player.png");	// creates the batch
 			SDL_Log("hello_orkige: particle emitter up (max=%d, additive burst)",
 				particleMax);
+		}
+
+		// --- ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck.
+		// A GameObject carrying a VectorShapeComponent (auto-adds its
+		// TransformComponent dependency) loads demo_blob.oshape - a concave blob
+		// silhouette + an accent region - which is tessellated (earcut) with a
+		// baked alpha-feather edge into a facade VectorMesh. The check asserts
+		// the mesh tessellated (triangle count > 0) at load, then toggles its
+		// visibility across frames and reads the frame-stats triangle delta to
+		// prove it actually renders. Reads stats, not pixels - runs identically
+		// on both render flavors.
+		Orkige::VectorShapeComponent* vectorShape = nullptr;
+		std::size_t vectorShapeHiddenTriangles = 0;
+		if (demoVectorShape)
+		{
+			optr<Orkige::GameObject> shapeObject =
+				gameObjectManager.createGameObject("blob").lock();
+			if (!shapeObject ||
+				!shapeObject->addComponent<Orkige::VectorShapeComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - VectorShapeComponent creation "
+					"failed");
+				return 1;
+			}
+			vectorShape =
+				shapeObject->getComponentPtr<Orkige::VectorShapeComponent>();
+			if (!vectorShape)
+			{
+				SDL_Log("hello_orkige: FAILED - VectorShapeComponent missing");
+				return 1;
+			}
+			vectorShape->setZOrder(6);
+			vectorShape->setTint(1.0f, 1.0f, 1.0f, 1.0f);
+			vectorShape->loadShape("demo_blob.oshape");
+			if (vectorShape->getTriangleCount() == 0)
+			{
+				SDL_Log("hello_orkige: FAILED - vector shape did not "
+					"tessellate (0 triangles)");
+				return 1;
+			}
+			SDL_Log("hello_orkige: vector shape up (%zu triangles from "
+				"demo_blob.oshape)", vectorShape->getTriangleCount());
 		}
 
 		// ORKIGE_DEMO_MESH=1: a real mesh asset next to the procedural cubes -
@@ -1284,6 +1335,40 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: particle selfcheck passed (burst raised "
 					"then decayed, single-draw batch)");
+			}
+			if (demoVectorShape && frameCount == 20)
+			{
+				// hide the shape, then sample the frame's triangle count with it
+				// gone at frame 25 - the baseline the shown count must exceed
+				vectorShape->setShapeVisible(false);
+			}
+			if (demoVectorShape && frameCount == 25)
+			{
+				vectorShapeHiddenTriangles =
+					render->getFrameStats().triangleCount;
+				vectorShape->setShapeVisible(true);
+			}
+			if (demoVectorShape && frameCount == 35)
+			{
+				// with the shape shown again the frame carries its triangles: the
+				// count must have risen by ~the shape's own triangle count
+				const std::size_t shownTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(shownTriangles > vectorShapeHiddenTriangles)
+					? shownTriangles - vectorShapeHiddenTriangles : 0;
+				SDL_Log("hello_orkige: vector shape triangles shown=%zu "
+					"(hidden %zu, +%zu, mesh %zu)", shownTriangles,
+					vectorShapeHiddenTriangles, risen,
+					vectorShape->getTriangleCount());
+				if (risen == 0)
+				{
+					SDL_Log("hello_orkige: FAILED - showing the vector shape did "
+						"not raise the triangle count (it did not render)");
+					return 1;
+				}
+				SDL_Log("hello_orkige: vector-shape selfcheck passed (tessellated "
+					"+ rendered on this flavor)");
 			}
 			if (demoMusic && frameCount == 20)
 			{

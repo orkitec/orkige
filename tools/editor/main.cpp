@@ -40,6 +40,8 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
+#include <engine_gocomponent/VectorShapeComponent.h>
+#include <core_base/PropertySchema.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_project/AssetDatabase.h>
 #include <engine_input/InputManager.h>
@@ -1774,6 +1776,78 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "undo did not remove the sprite object";
+					}
+				}
+				// (3b) vector shape: an agent-authorable .oshape written straight
+				// into assets/ (the write_project_file story), instantiated
+				// through the drag path (CreateVectorShapeObjectCommand), then
+				// its reflected properties exercised the way MCP/the Inspector do
+				// (applyPropertyChange + getComponentPropertySchema) and undone.
+				if (assetOk)
+				{
+					const std::string shapePath =
+						state.project.getAssetsDirectory() + "/test_blob.oshape";
+					{
+						std::ofstream f(shapePath,
+							std::ios::binary | std::ios::trunc);
+						f << "version 1\n"
+							<< "fill 0.9 0.4 0.4 1\n"
+							<< "contour 4\n"
+							<< "v -1 -1\nv 1 -1\nv 1 1\nv -1 1\n";
+					}
+					instantiateAssetIntoScene(state, editorCore,
+						AssetKind::VectorShape, shapePath);
+					const std::string shapeId = editorCore.getSelectedObjectId();
+					optr<Orkige::GameObject> shapeObj =
+						gameObjectManager.getGameObject(shapeId).lock();
+					Orkige::VectorShapeComponent* shapeComp = shapeObj
+						? shapeObj->getComponentPtr<Orkige::VectorShapeComponent>()
+						: nullptr;
+					if (!shapeComp)
+					{
+						assetOk = false;
+						assetFail = "shape object/VectorShapeComponent missing";
+					}
+					else if (shapeComp->getTriangleCount() == 0)
+					{
+						assetOk = false;
+						assetFail = "instantiated shape did not tessellate";
+					}
+					else
+					{
+						// the reflected surface MCP get/set_component relies on:
+						// the schema lists the shape's props, and a reflected
+						// write drives the component
+						const Orkige::PropertySchema schema =
+							editorCore.getComponentPropertySchema(shapeId,
+								"VectorShapeComponent");
+						const bool reflected = schema.find("shape") &&
+							schema.find("tint") && schema.find("zOrder");
+						editorCore.applyPropertyChange(shapeId,
+							"VectorShapeComponent", "zOrder", "0", "7");
+						if (!reflected)
+						{
+							assetOk = false;
+							assetFail = "shape reflected schema missing properties";
+						}
+						else if (shapeComp->getZOrder() != 7)
+						{
+							assetOk = false;
+							assetFail = "reflected zOrder write did not apply";
+						}
+						// undo the property change, then the create: proves both
+						// the reflected write and the create are undoable steps
+						else if (!editorCore.undo() || shapeComp->getZOrder() != 0)
+						{
+							assetOk = false;
+							assetFail = "undo did not revert the reflected zOrder";
+						}
+						else if (!editorCore.undo() ||
+							gameObjectManager.objectExists(shapeId))
+						{
+							assetOk = false;
+							assetFail = "undo did not remove the shape object";
+						}
 					}
 				}
 				// (4) prefab via the drag path: make a prefab from an object,

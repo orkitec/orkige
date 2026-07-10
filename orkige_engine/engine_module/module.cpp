@@ -24,6 +24,7 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
+#include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/SpriteAnimationComponent.h"
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/AnimationComponent.h"
@@ -47,6 +48,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TransformComponent)
 	OEXPORT(ModelComponent)
 	OEXPORT(SpriteComponent)
+	OEXPORT(VectorShapeComponent)
 	OEXPORT(SpriteAnimationComponent)
 	OEXPORT(ParticleComponent)
 	OEXPORT(AnimationComponent)

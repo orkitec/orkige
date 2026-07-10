@@ -156,6 +156,23 @@ by property NAME (an unknown, read-only or unparseable value is refused without
 touching the object) and accepts the changed fields either at the top level or
 inside a `properties` object, merged into one undo step.
 
+### Flat-colour vector shapes — no new verb
+
+`VectorShapeComponent` (the flat-colour organic-shape 2D content) needs NO
+dedicated MCP verb: it rides the generic surfaces above. Author the asset by
+writing an `.oshape` directly with `write_project_file` — it is plain text (a
+`fill r g b a` colour + `contour N` / `v x y` polylines, holes via `hole M`),
+the strong agent path — or `import_asset` an `.svg` (the editor cooks it to
+`.oshape` via `Util/cook_shapes.py`). Create and place with `create_object` +
+`add_component` (`VectorShapeComponent` is a reflected type, so it appears in the
+component registry MCP already exposes) + `set_component` on `transform`.
+Configure `shape` (the AssetRef, set by resource name like a sprite `texture`),
+`tint`, `scale`, `edgeSoftness`, `zOrder` and `visible` through
+`get_component` / `set_component` — they are reflected properties, so the single
+`OOBJECT_IMPL` registration feeds the inspector, serialization AND MCP at once
+with no per-surface wiring. Verify with `screenshot_game` / the scene RTT and
+run it with `play`.
+
 ### Game UI (fastgui) — authoring vs. readback
 
 Game UI is authored entirely in Lua and project files — screens are built by
