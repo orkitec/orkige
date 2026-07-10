@@ -715,14 +715,18 @@ if(TARGET orkige_player)
 
     # remote-debug contract: the driver spawns a real player on the falling
     # cube scene and asserts hello/hierarchy/select/pause/resume/step/
-    # set_property/quit end to end (see player_debug_driver.cpp)
-    add_executable(player_debug_driver
-        integration_driver/player_debug_driver.cpp)
-    target_link_libraries(player_debug_driver PRIVATE Orkige::Core)
-    add_test(NAME player_debug_pause
-        COMMAND player_debug_driver $<TARGET_FILE:orkige_player>
-            "${Orkige_SOURCE_DIR}/tests/scenes/falling_cube.oscene"
-        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    # set_property/quit end to end (see player_debug_driver.cpp).
+    # posix_spawn-based - excluded on Windows until the driver grows a
+    # CreateProcess (or SDL process) backend.
+    if(NOT WIN32)
+        add_executable(player_debug_driver
+            integration_driver/player_debug_driver.cpp)
+        target_link_libraries(player_debug_driver PRIVATE Orkige::Core)
+        add_test(NAME player_debug_pause
+            COMMAND player_debug_driver $<TARGET_FILE:orkige_player>
+                "${Orkige_SOURCE_DIR}/tests/scenes/falling_cube.oscene"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    endif()
 endif()
 
 # --- Vulkan render system runs (macOS via MoltenVK) -------------------------

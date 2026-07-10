@@ -26,7 +26,12 @@
 
 #include <algorithm>
 #include <filesystem>
+#ifdef _WIN32
+#include <process.h>	// _getpid - unique temp fixture names (parallel ctest)
+#define getpid _getpid
+#else
 #include <unistd.h> // getpid - unique temp fixture names (parallel ctest!)
+#endif
 
 using Orkige::optr;
 using Orkige::woptr;

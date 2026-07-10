@@ -9,7 +9,12 @@
 
 #include <filesystem>
 #include <fstream>
+#ifdef _WIN32
+#include <process.h>	// _getpid - unique temp fixture names (parallel ctest)
+#define getpid _getpid
+#else
 #include <unistd.h> // getpid - unique temp fixture name
+#endif
 
 namespace
 {
