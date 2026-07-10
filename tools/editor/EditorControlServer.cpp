@@ -3465,7 +3465,12 @@ namespace Orkige
 		}
 		//! connect a BLOCKING TCP socket to 127.0.0.1:port (with a short retry so
 		//! a not-quite-ready listener is tolerated); INVALID on failure. A recv
-		//! timeout guards against a stuck read hanging the ctest.
+		//! timeout is a coarse anti-hang backstop only (never a per-request
+		//! latency budget): every reply is produced on the editor's main thread
+		//! when the server is pumped once per frame, so under a heavily loaded
+		//! machine the gap between pumps can widen - the ceiling stays well above
+		//! any plausible pump gap so a slow frame never false-fails a read, while
+		//! still bounding a genuinely wedged socket below the ctest TIMEOUT.
 		DebugSocketUtil::SocketHandle connectBlocking(unsigned short port)
 		{
 			DebugSocketUtil::initialise();
@@ -3479,12 +3484,12 @@ namespace Orkige
 					return DebugSocketUtil::INVALID_SOCKET_HANDLE;
 				}
 #ifdef _WIN32
-				DWORD timeoutMs = 15000;
+				DWORD timeoutMs = 45000;
 				::setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO,
 					reinterpret_cast<char*>(&timeoutMs), sizeof(timeoutMs));
 #else
 				struct timeval tv;
-				tv.tv_sec = 15;
+				tv.tv_sec = 45;
 				tv.tv_usec = 0;
 				::setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
@@ -3917,6 +3922,14 @@ namespace Orkige
 		{
 			JsonValue structured;
 			bool isError = true;
+			// generous ceiling for waits that hinge on the SPAWNED PLAYER's frame
+			// cadence (live state stream, pause/step ack, property read-back,
+			// screenshot/trace confirmation). When the full suite runs in
+			// parallel, the player competes for the GPU with other windowed tests
+			// and its frame rate can dip, so these polls need a wide margin over
+			// the ~sub-second typical latency; the outer ctest TIMEOUT is the real
+			// backstop. Boot (heaviest) and stop keep their own wider ceilings.
+			const int kPlayerPollAttempts = 300;	// 300 * 100ms = 30s
 			// poll get_state until a predicate holds (or a timeout); returns the
 			// final state. 0.1s between polls; the verbs run on the editor's main
 			// thread, so a live player boots over these frames.
@@ -4042,7 +4055,8 @@ namespace Orkige
 			}
 			bool stateReady = false;
 			JsonValue runtimeState;
-			for (int attempt = 0; attempt < 100 && !stateReady; ++attempt)
+			for (int attempt = 0; attempt < kPlayerPollAttempts && !stateReady;
+				++attempt)
 			{
 				bool stateError = true;
 				if (callTool("runtime_state", JsonValue::object(), false,
@@ -4090,7 +4104,7 @@ namespace Orkige
 			if (!pollState([](JsonValue const& s)
 				{
 					return s.get("play_mode").asString() == "paused";
-				}, 100, state))
+				}, kPlayerPollAttempts, state))
 			{
 				finish(false, "control self-test: running game did not pause");
 				return;
@@ -4117,7 +4131,8 @@ namespace Orkige
 				return;
 			}
 			bool moved = false;
-			for (int attempt = 0; attempt < 100 && !moved; ++attempt)
+			for (int attempt = 0; attempt < kPlayerPollAttempts && !moved;
+				++attempt)
 			{
 				bool stateError = true;
 				if (callTool("runtime_state", JsonValue::object(), false,
@@ -4168,7 +4183,7 @@ namespace Orkige
 				{
 					return std::atoi(s.get("screenshot_seq").asString()
 						.c_str()) > prevSeq;
-				}, 100, state))
+				}, kPlayerPollAttempts, state))
 			{
 				finish(false, "control self-test: running game never confirmed "
 					"the screenshot");
@@ -4239,7 +4254,7 @@ namespace Orkige
 					{
 						return std::atoi(s.get("record_seq").asString()
 							.c_str()) > prevRecordSeq;
-					}, 100, state))
+					}, kPlayerPollAttempts, state))
 				{
 					finish(false, "control self-test: running game never confirmed "
 						"the trace");

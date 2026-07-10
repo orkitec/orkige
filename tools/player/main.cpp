@@ -38,6 +38,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
+#include <engine_gocomponent/ParticleComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
 #include <engine_input/InputActionMap.h>
@@ -501,6 +502,22 @@ int main(int argc, char** argv)
 		// round-trips per-instance.
 		const bool scriptPropCheck =
 			(std::getenv("ORKIGE_SCRIPTPROP_SELFCHECK") != nullptr);
+		// ORKIGE_INTEGRATION_CONTACT_SELFCHECK verifies a CROSS-FEATURE chain
+		// against tests/projects/integration (scenes/contact.oscene): a scripted
+		// ball discovers the goal by TAG (world.findByTag), an injected named
+		// INPUT ACTION ("jump") turns gravity on, the PHYSICS drop overlaps the
+		// goal SENSOR and the CONTACT EVENT (onContactBegin) fires - tags +
+		// input actions + physics + contact events cooperating in one run.
+		const bool integrationContactCheck =
+			(std::getenv("ORKIGE_INTEGRATION_CONTACT_SELFCHECK") != nullptr);
+		// ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK verifies a DEFERRED level
+		// switch (scenes/levelA -> levelB) fired WHILE a TWEEN and a live
+		// PARTICLE emitter run: the switch must tear the running tween + emitter
+		// down cleanly (GameObjectManager::clear), the new level must tick and
+		// the shared table must survive - level system + tweens + particles +
+		// script lifecycle + teardown in one run.
+		const bool integrationLevelCheck =
+			(std::getenv("ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -508,6 +525,7 @@ int main(int argc, char** argv)
 		const bool automatedRun = jumperLuaCheck || rollerCheck ||
 			rollerProgressionCheck || tweenCheck ||
 			hotreloadCheck || scriptPropCheck ||
+			integrationContactCheck || integrationLevelCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -1432,6 +1450,93 @@ int main(int argc, char** argv)
 				scriptPropNumber("x", -999.0),
 				scriptPropNumber("elapsed", -1.0));
 			scriptPropCheckFailed = true;
+		};
+
+		// --- ORKIGE_INTEGRATION_CONTACT_SELFCHECK=1: tags + input action +
+		// physics + contact events, end to end against
+		// tests/projects/integration/scenes/contact.oscene. ball_probe.lua
+		// discovers the goal BY TAG at init, then hangs still (gravity off)
+		// until the injected "jump" action turns gravity on; the ensuing drop
+		// overlaps the goal SENSOR and fires onContactBegin. Condition-driven:
+		//   [VerifyTags]   the script published exactly one tag-found goal
+		//                  ("Goal"), then inject a HELD SPACE (the "jump" edge)
+		//   [DriveInput]   release SPACE a few frames later; the action must
+		//                  have reached the script (input count advanced)
+		//   [AwaitContact] the input-driven fall must fire onContactBegin with
+		//                  the tagged goal as the other body
+		enum class IntegContactPhase { VerifyTags, DriveInput, AwaitContact,
+			Done };
+		IntegContactPhase integContactPhase = IntegContactPhase::VerifyTags;
+		bool integContactFailed = false;
+		unsigned long integContactInputFrame = 0;
+		auto integContactNum = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "integration", key}, fallback);
+		};
+		auto integContactStr = [](const char* key) -> std::string
+		{
+			return Orkige::ScriptRuntime::getSingleton().getString(
+				{"shared", "integration", key}, "");
+		};
+		auto integContactFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: INTEGRATION CONTACT SELFCHECK FAILED - %s "
+				"(found=%.0f foundGoal='%s' input=%.0f contact=%.0f "
+				"contactOther='%s')", what.c_str(),
+				integContactNum("found", -1.0),
+				integContactStr("foundGoal").c_str(),
+				integContactNum("input", -1.0),
+				integContactNum("contact", -1.0),
+				integContactStr("contactOther").c_str());
+			integContactFailed = true;
+		};
+
+		// --- ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK=1: a deferred level
+		// switch fired while a tween + a live particle emitter run, end to end
+		// against tests/projects/integration/scenes/levelA.oscene ->
+		// levelB.oscene. director.lua starts a 1.5s tween.move and a particle
+		// burst, then requests world.loadScene mid-tween; survivor.lua on level
+		// B proves the switched-to world ticks and that the shared table (a
+		// carry marker) survived the GameObjectManager::clear teardown.
+		// Condition-driven:
+		//   [ObserveA]     on level A, confirm the tween is moving Mover AND the
+		//                  Fx emitter has live particles (both mid-flight)
+		//   [AwaitSwitch]  wait for level B to boot (the deferred switch applied)
+		//   [VerifyB]      Mover is GONE (clean teardown), the carry survived,
+		//                  and level B keeps ticking
+		enum class IntegLevelPhase { ObserveA, AwaitSwitch, VerifyB, Done };
+		IntegLevelPhase integLevelPhase = IntegLevelPhase::ObserveA;
+		bool integLevelFailed = false;
+		double integLevelTicksAtEntry = -1.0;
+		unsigned long integLevelVerifyFrame = 0;
+		auto integLevelNum = [](const char* key, double fallback) -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "integ2", key}, fallback);
+		};
+		auto integFxLiveCount = [&gameObjectManager]() -> int
+		{
+			optr<Orkige::GameObject> fx =
+				gameObjectManager.getGameObject("Fx").lock();
+			if (!fx || !fx->hasComponent<Orkige::ParticleComponent>())
+			{
+				return -1;
+			}
+			return fx->getComponentPtr<Orkige::ParticleComponent>()
+				->getLiveCount();
+		};
+		auto integLevelFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: INTEGRATION LEVELSWITCH SELFCHECK FAILED - "
+				"%s (aliveA=%.0f moverX=%.3f switched=%.0f levelBBooted=%.0f "
+				"carrySeen=%.0f levelBTicks=%.0f)", what.c_str(),
+				integLevelNum("aliveA", -1.0), integLevelNum("moverX", -999.0),
+				integLevelNum("switched", -1.0),
+				integLevelNum("levelBBooted", -1.0),
+				integLevelNum("carrySeen", -1.0),
+				integLevelNum("levelBTicks", -1.0));
+			integLevelFailed = true;
 		};
 
 		bool running = true;
@@ -2979,6 +3084,179 @@ int main(int argc, char** argv)
 				running = false;
 			}
 
+			// --- integration: contact + tags + input action (see the block
+			// above the loop). Condition-driven with a fat frame ceiling: the
+			// physics drop takes a variable number of frames, so every wait is a
+			// poll-until, never a fixed frame.
+			if (integrationContactCheck && !integContactFailed &&
+				integContactPhase != IntegContactPhase::Done)
+			{
+				if (integContactPhase == IntegContactPhase::VerifyTags)
+				{
+					if (integContactNum("found", -1.0) >= 0.0 && frameCount >= 3)
+					{
+						if (integContactNum("found", -1.0) != 1.0)
+						{
+							integContactFail("world.findByTag(\"goal\") did not "
+								"find exactly one goal");
+						}
+						else if (integContactStr("foundGoal") != "Goal")
+						{
+							integContactFail("the tag-discovered goal was not "
+								"the 'Goal' object");
+						}
+						else
+						{
+							// fire the named "jump" action: hold SPACE so the
+							// action layer samples a down edge (released below)
+							pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, true);
+							integContactInputFrame = frameCount;
+							integContactPhase = IntegContactPhase::DriveInput;
+							SDL_Log("orkige_player: integration contact "
+								"selfcheck - goal found by tag; injecting "
+								"the 'jump' action");
+						}
+					}
+					else if (frameCount > 600)
+					{
+						integContactFail("the ball script never published its "
+							"tag discovery");
+					}
+				}
+				else if (integContactPhase == IntegContactPhase::DriveInput)
+				{
+					if (frameCount == integContactInputFrame + 5)
+					{
+						pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, false);
+					}
+					if (integContactNum("input", 0.0) >= 1.0)
+					{
+						integContactPhase = IntegContactPhase::AwaitContact;
+					}
+					else if (frameCount > integContactInputFrame + 300)
+					{
+						integContactFail("the injected 'jump' action never "
+							"reached the ball script");
+					}
+				}
+				else if (integContactPhase == IntegContactPhase::AwaitContact)
+				{
+					if (integContactNum("contact", 0.0) >= 1.0)
+					{
+						if (integContactStr("contactOther") != "Goal")
+						{
+							integContactFail("onContactBegin fired for a body "
+								"other than the tagged goal");
+						}
+						else
+						{
+							SDL_Log("orkige_player: integration contact "
+								"selfcheck complete - tag lookup + 'jump' action "
+								"+ physics drop + goal-sensor onContactBegin all "
+								"fired");
+							integContactPhase = IntegContactPhase::Done;
+							running = false;
+						}
+					}
+					else if (frameCount > integContactInputFrame + 900)
+					{
+						integContactFail("the input-driven ball never contacted "
+							"the goal sensor");
+					}
+				}
+			}
+			if (integrationContactCheck && integContactFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
+			// --- integration: level switch with a live tween + particles (see
+			// the block above the loop). Condition-driven throughout.
+			if (integrationLevelCheck && !integLevelFailed &&
+				integLevelPhase != IntegLevelPhase::Done)
+			{
+				if (integLevelPhase == IntegLevelPhase::ObserveA)
+				{
+					// director.lua's init published aliveA + moverStartX and
+					// kicked off the tween + burst; confirm the tween is
+					// advancing Mover AND the emitter has live particles, both
+					// mid-flight (before the ~0.3s deferred switch)
+					const double startX = integLevelNum("moverStartX", -999.0);
+					const double moverX = integLevelNum("moverX", -999.0);
+					if (integLevelNum("levelBBooted", 0.0) >= 1.0)
+					{
+						integLevelFail("the level switched before the live "
+							"tween + particles could be observed on level A");
+					}
+					else if (integLevelNum("aliveA", 0.0) >= 1.0 &&
+						startX > -900.0 && moverX > startX + 0.02 &&
+						integFxLiveCount() > 0)
+					{
+						SDL_Log("orkige_player: integration levelswitch "
+							"selfcheck - level A live (tween moved Mover to "
+							"%.3f, %d particles alive)", moverX,
+							integFxLiveCount());
+						integLevelPhase = IntegLevelPhase::AwaitSwitch;
+					}
+					else if (frameCount > 600)
+					{
+						integLevelFail("never observed a live tween + particles "
+							"on level A");
+					}
+				}
+				else if (integLevelPhase == IntegLevelPhase::AwaitSwitch)
+				{
+					if (integLevelNum("levelBBooted", 0.0) >= 1.0)
+					{
+						integLevelTicksAtEntry =
+							integLevelNum("levelBTicks", 0.0);
+						integLevelVerifyFrame = frameCount;
+						integLevelPhase = IntegLevelPhase::VerifyB;
+					}
+					else if (frameCount > 600)
+					{
+						integLevelFail("the deferred level switch never applied "
+							"(level B never booted)");
+					}
+				}
+				else if (integLevelPhase == IntegLevelPhase::VerifyB)
+				{
+					const bool moverGone =
+						gameObjectManager.getGameObject("Mover").lock() ==
+						nullptr;
+					if (!moverGone)
+					{
+						integLevelFail("the old level's Mover survived the "
+							"switch (scene teardown did not clear it)");
+					}
+					else if (integLevelNum("carrySeen", -1.0) != 4242.0)
+					{
+						integLevelFail("the shared table did not survive the "
+							"switch (carry marker lost)");
+					}
+					else if (integLevelNum("levelBTicks", 0.0) >
+						integLevelTicksAtEntry)
+					{
+						SDL_Log("orkige_player: integration levelswitch "
+							"selfcheck complete - deferred switch tore down a "
+							"live tween + emitter, shared state survived and "
+							"level B ticks");
+						integLevelPhase = IntegLevelPhase::Done;
+						running = false;
+					}
+					else if (frameCount > integLevelVerifyFrame + 300)
+					{
+						integLevelFail("level B booted but never ticked");
+					}
+				}
+			}
+			if (integrationLevelCheck && integLevelFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
@@ -3019,6 +3297,22 @@ int main(int argc, char** argv)
 		{
 			SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
 				"the check completed");
+			exitCode = 1;
+		}
+		if (integrationContactCheck && !integContactFailed &&
+			integContactPhase != IntegContactPhase::Done)
+		{
+			SDL_Log("orkige_player: INTEGRATION CONTACT SELFCHECK FAILED - "
+				"run ended in phase %d",
+				static_cast<int>(integContactPhase));
+			exitCode = 1;
+		}
+		if (integrationLevelCheck && !integLevelFailed &&
+			integLevelPhase != IntegLevelPhase::Done)
+		{
+			SDL_Log("orkige_player: INTEGRATION LEVELSWITCH SELFCHECK FAILED "
+				"- run ended in phase %d",
+				static_cast<int>(integLevelPhase));
 			exitCode = 1;
 		}
 		if (hotreloadCheck)
