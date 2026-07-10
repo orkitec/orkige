@@ -158,6 +158,24 @@
         "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "OFF"
       }
+    },
+    {
+      "name": "ios-simulator-debug-next",
+      "displayName": "iOS Simulator Debug (arm64, Ogre-Next/Metal)",
+      "inherits": "ios-simulator-debug",
+      "cacheVariables": {
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "android-debug-next",
+      "displayName": "Android Debug (arm64-v8a, API 28+, Ogre-Next/Vulkan)",
+      "inherits": "android-debug",
+      "cacheVariables": {
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
     }
   ],
   "buildPresets": [
@@ -200,6 +218,14 @@
     {
       "name": "android-debug",
       "configurePreset": "android-debug"
+    },
+    {
+      "name": "ios-simulator-debug-next",
+      "configurePreset": "ios-simulator-debug-next"
+    },
+    {
+      "name": "android-debug-next",
+      "configurePreset": "android-debug-next"
     }
   ],
   "testPresets": [

@@ -17,8 +17,9 @@
 #   classes.dex               <- SDL3's Java glue (taken from the exact SDL
 #                                source vcpkg built, see sdl_java_sources) +
 #                                OrkigeActivity
-#   assets/                   <- same media set as the iOS bundle: OGRE RTSS
-#                                shader lib, sample assets, jumper media,
+#   assets/                   <- same media set as the iOS bundle: the backend
+#                                shader media (classic = RTSS shader lib, next
+#                                = Hlms templates), sample assets, jumper media,
 #                                example.oscene + orkige_assets.txt manifest
 #                                (the player extracts them at first launch,
 #                                see tools/player/main.cpp)
@@ -71,6 +72,11 @@ STRIP="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
 JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"
 VCPKG_ROOT="${VCPKG_ROOT:-$HOME/Development/vcpkg}"
 VCPKG_INSTALLED="$BUILD_DIR/vcpkg_installed/arm64-android"
+
+# render flavor of the build tree (classic ships the RTSS shader lib, next
+# ships the Hlms shader templates) - read from the tree's CMake cache
+RENDER_BACKEND="$(grep -m1 '^ORKIGE_RENDER_BACKEND' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | cut -d= -f2 || true)"
+RENDER_BACKEND="${RENDER_BACKEND:-classic}"
 
 NATIVE_LIB="$BUILD_DIR/tools/player/libmain.so"
 if [ -n "$OUTPUT" ]; then
@@ -146,11 +152,17 @@ find "$OUT_DIR/classes" -name '*.class' > "$OUT_DIR/classlist.txt"
 cp "$OUT_DIR/dex/classes.dex" "$STAGE/classes.dex"
 
 # --- assets (mirror of the iOS bundle layout) -----------------------------
-echo "== staging assets"
-cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media_Main_tmp"
+echo "== staging assets ($RENDER_BACKEND flavor)"
 mkdir -p "$STAGE/assets/Media"
-mv "$STAGE/assets/Media_Main_tmp" "$STAGE/assets/Media/Main"
-cp -R "$VCPKG_INSTALLED/share/ogre/Media/RTShaderLib" "$STAGE/assets/Media/RTShaderLib"
+if [ "$RENDER_BACKEND" = "next" ]; then
+    # next flavor: the Hlms shader templates (main.cpp points setHlmsMediaDir
+    # at <extracted>/Media)
+    cp -R "$VCPKG_INSTALLED/share/ogre-next/Media/Hlms" "$STAGE/assets/Media/Hlms"
+else
+    # classic flavor: the RTSS shader library
+    cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media/Main"
+    cp -R "$VCPKG_INSTALLED/share/ogre/Media/RTShaderLib" "$STAGE/assets/Media/RTShaderLib"
+fi
 cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"

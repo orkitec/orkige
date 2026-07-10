@@ -150,10 +150,13 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     set(ORKIGE_EDITOR_PLAYER_CLASSIC
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_classic}/tools/player/orkige_player")
     set(ORKIGE_EDITOR_PLAYER_NEXT "$<TARGET_FILE:orkige_player>")
+    # the iOS player app of this (next) flavor rides in its own preset tree
+    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug-next")
 else()
     set(ORKIGE_EDITOR_PLAYER_CLASSIC "$<TARGET_FILE:orkige_player>")
     set(ORKIGE_EDITOR_PLAYER_NEXT
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_next}/tools/player/orkige_player")
+    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug")
 endif()
 
 # Editor-only: point at the RTSS shader library shipping with the
@@ -177,9 +180,10 @@ target_compile_definitions(orkige_editor PRIVATE
     # play mode spawns this binary (Play toolbar button / playtest hooks)
     ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"
     # the iOS-simulator player app the editor auto-installs onto a simulator
-    # that does not have it yet (produced by the ios-simulator-debug preset;
-    # Play surfaces an honest error when neither installed nor built)
-    ORKIGE_EDITOR_IOS_PLAYER_APP="${CMAKE_SOURCE_DIR}/build/ios-simulator-debug/tools/player/OrkigePlayer.app"
+    # that does not have it yet (produced by the matching-flavor iOS preset -
+    # a next editor installs the Ogre-Next player, a classic editor the classic
+    # one; Play surfaces an honest error when neither installed nor built)
+    ORKIGE_EDITOR_IOS_PLAYER_APP="${CMAKE_SOURCE_DIR}/build/${ORKIGE_EDITOR_IOS_PLAYER_TREE}/tools/player/OrkigePlayer.app"
     # native project modules (compile-on-Play): the module build links
     # against THIS build tree with the SAME toolchain settings - see
     # cmake/OrkigeGameModule.cmake and startPlay's native branch

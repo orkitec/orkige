@@ -409,8 +409,10 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # straight off the host filesystem, debug link over the shared loopback).
     # "auto" prefers a booted simulator with the app installed and falls back
     # to booting a shutdown one (auto-installing the built app). SKIPPED
-    # (exit 77) when neither exists - build the ios-simulator-debug preset.
-    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    # (exit 77) when neither exists - build the matching-flavor iOS preset
+    # (ios-simulator-debug for classic, ios-simulator-debug-next for next; the
+    # editor installs the flavor its own build was configured with).
+    if(APPLE)
         add_test(NAME editor_play_simulator COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_simulator PROPERTIES
@@ -441,7 +443,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # host-side adb/packaging flow is a dev-machine concern today.
     # TODO(linux): the adb flow itself is host-portable - ungate once a
     # Linux machine actually drives Android devices.
-    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    if(APPLE)
         add_test(NAME editor_play_android COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_android PROPERTIES

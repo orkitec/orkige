@@ -52,11 +52,22 @@
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
 #include <vector>
+
+#if defined(ORKIGE_IPHONE)
+//! Splice a render-system-created Metal view into the SDL-hosted UIKit
+//! window (defined in engine_util/OgreMetalViewBridge.mm - takes opaque
+//! pointers so the ObjC++ bridge stays free of Ogre types). metalView is
+//! the OgreMetalView* fetched from the window's "UIView" attribute;
+//! uiWindow is SDL's UIWindow* (the stringified native handle).
+extern "C" void orkige_ios_attach_metal_view(void* metalView, void* uiWindow);
+#endif
 
 namespace Orkige
 {
@@ -189,10 +200,22 @@ namespace Orkige
 		if(!options.nativeWindowHandle.empty() &&
 			options.nativeWindowHandle != "0")
 		{
-#if defined(__APPLE__)
+#if defined(ORKIGE_IPHONE)
+			// iOS: the Metal window only honours an external handle that is
+			// already an OgreMetalView; SDL's UIWindow is silently ignored,
+			// so pass no handle here and let the render system build its own
+			// view, then splice it into the SDL UIKit window afterwards
+			// (see the UIView attach below).
+#elif defined(__APPLE__)
 			// the SDL-hosted window (Next's Metal window embeds its own
 			// OgreMetalView into the NSWindow's content view)
 			windowParams["externalWindowHandle"] = options.nativeWindowHandle;
+#elif defined(__ANDROID__)
+			// Android: the Vulkan window attaches its swapchain surface
+			// directly to the ANativeWindow* - its required misc param
+			// (no external-handle or X11 route exists on this platform).
+			// engine_util/SDLNativeWindowAndroid.cpp hands out that pointer.
+			windowParams["ANativeWindow"] = options.nativeWindowHandle;
 #else
 			// Linux: VulkanXcbWindow's external-window path is the "SDL2x11"
 			// misc param - a (stringified) pointer to {Display*, ::Window},
@@ -219,6 +242,22 @@ namespace Orkige
 		// on framebufferOnly layers unless the window opts in
 		window->setWantsToDownload(true);
 		window->_setVisible(true);
+
+#if defined(ORKIGE_IPHONE)
+		// iOS: the render system created its own OgreMetalView detached from
+		// SDL's UIWindow (which the Metal window path could not adopt). Fetch
+		// that view and add it into the SDL window so it becomes visible and
+		// tracks the screen; the ObjC++ bridge sets frame + contentScaleFactor.
+		if(!options.nativeWindowHandle.empty() &&
+			options.nativeWindowHandle != "0")
+		{
+			void* metalView = NULL;
+			window->getCustomAttribute("UIView", &metalView);
+			void* uiWindow = reinterpret_cast<void*>(static_cast<uintptr_t>(
+				std::strtoull(options.nativeWindowHandle.c_str(), NULL, 10)));
+			orkige_ios_attach_metal_view(metalView, uiWindow);
+		}
+#endif
 
 		registerHlms(options.hlmsMediaDir);
 

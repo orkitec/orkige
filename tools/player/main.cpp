@@ -584,9 +584,16 @@ int main(int argc, char** argv)
 			playerMediaDir + "/RTShaderLib", "FileSystem",
 			Ogre::RGN_INTERNAL);
 #else
-		// keep the exported-app media resolution alive on this flavor too
-		// (unused until next-flavor export exists)
+#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
+		// next flavor on device: the Hlms shader templates ride in the app
+		// bundle under Media/Hlms (the engine's baked default is a build-tree
+		// path, invalid here); point registration at the bundled Media dir
+		engine.setHlmsMediaDir(playerMediaDir);
+#else
+		// desktop next: the baked default is valid; the exported-app media
+		// resolution takes over once next-flavor export exists
 		(void)playerMediaDir;
+#endif
 #endif
 
 		if (!engine.setup("Orkige Player", Orkige::Engine::SHOW_NEVER,

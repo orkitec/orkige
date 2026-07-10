@@ -243,6 +243,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # Objective-C UIKit calls - the file was always ObjC++ on iOS
     set_source_files_properties(engine_graphic/Engine.cpp
         PROPERTIES LANGUAGE OBJCXX)
+    if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+        # iOS attaches the Ogre-Next Metal view into SDL's UIKit window via a
+        # small ObjC++ bridge (the render-system-created view is otherwise
+        # detached - see engine_render_next/NextBackend.cpp)
+        list(APPEND ORKIGE_ENGINE_SOURCES engine_util/OgreMetalViewBridge.mm)
+    endif()
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
