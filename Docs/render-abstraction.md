@@ -252,9 +252,11 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
 - **Presets**: `macos-debug/-release` started as classic (no reconfigure churn).
   The next flavor adds `macos-debug-next` (inherits base, sets `ORKIGE_RENDER_BACKEND=next`,
   `binaryDir` `build/macos-debug-next`) + matching build preset and `unit-next` /
-  `desktop-next` test presets. Mobile presets stay classic until mobile-backend evaluation.
+  `desktop-next` test presets. Mobile presets started classic pending mobile-backend evaluation.
   *(Later superseded by the default flip: `macos-debug/-release` = next,
-  classic moved to `macos-*-classic` — see "Default backend" at the end.)*
+  classic moved to `macos-*-classic`; the mobile presets flipped the same way
+  — `ios-simulator-debug`/`android-debug` = next, `-classic` variants added —
+  once next rendered on both devices. See "Default backend" at the end.)*
 - **Directory layout** (recommendation):
   - `engine_render/` — interfaces only (no implementation). Never includes backend headers.
   - `engine_render_classic/` — NEW home for facade impls (`RenderNodeClassic.cpp`, ...)
@@ -671,7 +673,7 @@ the test suite, unchanged:
 Dependency/flavor, boot skeleton, full facade conformance and games-run are
 all in place. **Flavor capability matrix**:
 
-| Capability | classic (`macos-debug`) | next (`macos-debug-next`) |
+| Capability | classic (`macos-debug-classic`) | next (`macos-debug`) |
 |---|---|---|
 | engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
 | components/game objects/serialization | yes | yes |
@@ -684,7 +686,9 @@ all in place. **Flavor capability matrix**:
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
 | jumper sample (C++ fastgui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
 | BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
-| export pipeline, Vulkan/GL runtime RS pick | yes | no (classic-backend concerns; next boots Metal) |
+| project export (macOS/iOS/Android) | yes (RTSS media) | yes (bundles Hlms shader media) |
+| Vulkan/GL runtime RS pick | yes | no (classic-backend concern; next boots Metal) |
+| mobile: iOS + Android runtime | yes (GLES2) | yes (iOS Metal, Android Vulkan — the default) |
 | root-motion animation backdoor | yes | no (classic-only backdoor) |
 
 Remaining known gaps on next (all logged once at runtime):
@@ -841,17 +845,18 @@ classic-backend app is SUPERSEDED.** What landed:
 ### Default backend: Ogre-Next becomes the DEFAULT backend
 
 Owner decision: with the editor, games, UI and pixel parity proven on both
-flavors, **Ogre-Next is the engine's default render backend**; classic stays
-the fully supported **compatibility flavor** — kept because it OWNS what next
-doesn't do yet: the mobile GLES2 path (iOS/Android presets stay classic;
-mobile-on-Next is future work), the export pipeline, native game modules,
-BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample.
+flavors, **Ogre-Next is the engine's default render backend** on desktop AND
+mobile (iOS boots Metal, Android boots Vulkan — the unsuffixed
+`ios-simulator-debug`/`android-debug` presets are next); classic stays the
+fully supported **compatibility flavor** — kept because it OWNS what next
+doesn't do yet: native game modules, BigZip, the Vulkan/GL runtime RS pick and
+the jumper C++ sample. (The mobile GLES2 path is now the classic flavor's
+`-classic` mobile presets; project export ships on both flavors.)
 
 - **`ORKIGE_RENDER_BACKEND` defaults to `next`** in the root CMakeLists. Every
   preset still forces its backend EXPLICITLY (nothing relies on the default;
-  the ios/android presets set `classic` — with a `next` default they would
-  otherwise require the `render-next` manifest feature they deliberately
-  don't list, so ogre-next never builds on the mobile triplets).
+  the `-classic` presets set `classic` and omit the `render-next` manifest
+  feature, so ogre-next never builds in a classic tree).
 - **Preset/directory mapping** (muscle-memory commands get the default = next):
 
   | Old preset (flavor) | New preset (flavor) | Build dir |
@@ -865,6 +870,12 @@ BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample.
   | test `desktop` (classic) | test `desktop-classic` | runs in `build/macos-debug-classic` |
   | test `unit` (classic) | test `unit` (next) | runs in `build/macos-debug` |
   | test `all` (classic incl. device) | test `all` (classic incl. device) | runs in `build/macos-debug-classic` |
+  | `ios-simulator-debug` (classic) | `ios-simulator-debug` (**next**, Metal) | `build/ios-simulator-debug` — old classic tree must be deleted |
+  | `ios-simulator-debug-next` (next) | `ios-simulator-debug` (**next**) | `build/ios-simulator-debug` (fresh) |
+  | — | `ios-simulator-debug-classic` (classic) | `build/ios-simulator-debug-classic` |
+  | `android-debug` (classic) | `android-debug` (**next**, Vulkan) | `build/android-debug` — old classic tree must be deleted |
+  | `android-debug-next` (next) | `android-debug` (**next**) | `build/android-debug` (fresh) |
+  | — | `android-debug-classic` (classic) | `build/android-debug-classic` |
 
 - **Cache guard**: build trees are flavor-bound (CMake cache, vcpkg manifest
   installs and objects encode one backend). The root CMakeLists refuses an
@@ -872,14 +883,14 @@ BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample.
   preset") via the internal `ORKIGE_RENDER_BACKEND_CONFIGURED` cache variable;
   legacy trees from before the guard are fingerprinted by their
   `OGRE_DIR`/`OGRE-Next_DIR` find_package cache entries.
-- **Exports stay classic-pinned**: `Util/orkige_export.py` refuses a
-  next-flavor `--engine-build` tree honestly (cache probe) and its shippable
-  release player comes from the sibling `build/macos-release-classic` tree.
-  TODO(next-export): bundling the Hlms shader-template media +
-  `Engine::setHlmsMediaDir` through `PlayerBundle` is what a next-flavor
-  export needs. Native game modules are equally classic-pinned
-  (`cmake/OrkigeGameModule.cmake` links the classic closure and FATAL_ERRORs
-  on a next engine tree).
+- **Exports ship on both flavors**: `Util/orkige_export.py` reads the
+  `--engine-build` tree's `ORKIGE_RENDER_BACKEND` and bundles the matching
+  engine media — the classic RTSS library (Media/Main + RTShaderLib) or the
+  Ogre-Next Hlms shader templates (Media/Hlms, registered via
+  `Engine::setHlmsMediaDir`, wired through `PlayerBundle::resolveMediaDirectory`).
+  Each flavor prefers its own Release sibling for the shippable player
+  (`build/macos-release-classic` vs `build/macos-release`). Native game modules
+  stay classic-pinned (`cmake/OrkigeGameModule.cmake`).
 - **Editor Play targets**: the default Play target is the editor's OWN flavor
   (unchanged mechanics); the baked cross-flavor player paths follow the new
   conventional trees (`build/macos-debug` = next, `build/macos-debug-classic`

@@ -27,29 +27,34 @@ Presets: `macos-debug`, `macos-release` (**Ogre-Next — the DEFAULT render
 backend** since 2026-07-08: `ORKIGE_RENDER_BACKEND=next`, vcpkg feature
 `render-next`), `macos-debug-classic`, `macos-release-classic` (**classic
 OGRE — the compatibility flavor**), `ios-simulator-debug`, `android-debug`
-(classic-flavored — mobile runs the classic GLES2 path; mobile-on-Next is
-future work). Output in `build/<preset>/`.
+(**Ogre-Next too — the DEFAULT on mobile since the mobile flip: iOS boots
+Metal, Android boots Vulkan**), `ios-simulator-debug-classic`,
+`android-debug-classic` (the classic GLES2 mobile flavor). Output in
+`build/<preset>/`.
 The two flavors implement the same `engine_render` facade
 (`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
 (player, hello_orkige, projects/), fastgui AND the editor (ImGui on
 DrawLayer2D) run on both flavors and must render the SAME image (WYSIWYG —
 enforced by the `render_backend_parity` pixel test). Classic remains fully
-supported because it OWNS what next doesn't do yet: the mobile GLES2 path,
-the export pipeline (pinned to the classic presets; next-flavor export needs
-Hlms media bundling — future work), native game modules, BigZip, the
-Vulkan/GL runtime RS pick and the jumper C++ sample. See the flavor
-capability matrix in `Docs/render-abstraction.md`.
+supported because it OWNS what next doesn't do yet: native game modules,
+BigZip, the Vulkan/GL runtime RS pick and the jumper C++ sample. Project
+export ships on BOTH flavors now (the exporter bundles the tree's engine
+media — classic RTSS media or the Ogre-Next Hlms shader templates —
+resolved at boot via `PlayerBundle`); the classic GLES2 mobile path lives
+on in the `-classic` mobile presets. See the flavor capability matrix in
+`Docs/render-abstraction.md`.
 Build trees are flavor-bound: reconfiguring a tree with the other backend
 would silently poison its CMake/vcpkg caches, so the root CMakeLists
 FATAL_ERRORs instead — delete the build dir or use the matching preset
 (guard `ORKIGE_RENDER_BACKEND_CONFIGURED`).
 The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
-(GLES2 render system, SDL3 UIKit main, media bundled in) for the arm64
-simulator via `triplets/arm64-ios-simulator.cmake`; deploy with
-`xcrun simctl boot/install/launch`.
+(Ogre-Next Metal by default / GLES2 on `-classic`, SDL3 UIKit main, media
+bundled in) for the arm64 simulator via `triplets/arm64-ios-simulator.cmake`;
+deploy with `xcrun simctl boot/install/launch`.
 The Android preset (`triplets/arm64-android.cmake`, NDK 27 via
 `ANDROID_NDK_HOME`, API 28+) builds the player as `tools/player/libmain.so`
-(GLES2 render system, everything incl. SDL3 statically linked);
+(Ogre-Next Vulkan by default / GLES2 on `-classic`, everything incl. SDL3
+statically linked);
 `tools/player/android/package_apk.sh` assembles + signs
 `build/android-debug/apk/OrkigePlayer.apk` directly with javac/d8/aapt2/
 apksigner (no Gradle - the machine's JDK 26 predates Gradle support; SDL3's
@@ -258,8 +263,9 @@ dispatches: classic bootstrapper vs. the facade-only `EngineNext.h` sibling;
 `DrawLayer2D` facade, so it and the ImGui editor run on next as well; the probe
 stays only so a hypothetical future UI-less flavor could answer honestly). Classic render
 system selection via `ORKIGE_RENDERSYSTEM` env: GL3Plus default; Vulkan renders via
-MoltenVK on macOS; GLES2 on iOS/Android; Metal builds but can't render RTSS content —
-see Docs/ports.md. The next flavor boots Ogre-Next's Metal RS. `engine_gocomponent` bridges core game objects to the scene
+MoltenVK on macOS; GLES2 on iOS/Android (the `-classic` mobile presets); Metal builds but
+can't render RTSS content — see Docs/ports.md. The next flavor boots Ogre-Next's Metal RS
+on macOS/iOS and its Vulkan RS on Android. `engine_gocomponent` bridges core game objects to the scene
 (`TransformComponent`, `ModelComponent`, `SpriteComponent` — the 2D building block: a
 textured alpha-blended quad in the XY plane, per-texture generated `Sprite/<tex>`
 material, zOrder → render-queue painter's sorting (its header documents the

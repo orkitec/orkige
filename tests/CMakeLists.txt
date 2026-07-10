@@ -599,19 +599,17 @@ if(TARGET orkige_player)
         ENVIRONMENT "ORKIGE_ASSETID_SELFCHECK=ball_renamed.png;ORKIGE_DEMO_FRAMES=60")
 
     # --- project export (Util/orkige_export.py) ---------------------------
-    # Classic-only: the exporter bundles the classic media set (RTSS libs)
-    # and the exported-app contract is classic-verified. The export
-    # machinery is PINNED to the classic presets (this tree for Debug, the
-    # sibling build/macos-release-classic for the shippable Release player -
-    # see sibling_release_tree in Util/orkige_export.py, which also refuses
-    # a next tree honestly). TODO(next-export): a next-flavor export needs
-    # the Hlms shader-template media bundled + Engine::setHlmsMediaDir wired
-    # into PlayerBundle before orkige_export.py can ship the next player.
+    # Both render flavors: the exporter bundles the tree's engine media
+    # (classic RTSS libs or Ogre-Next Hlms templates - keyed off
+    # ORKIGE_RENDER_BACKEND) and each flavor prefers its own Release sibling
+    # (build/macos-release-classic vs build/macos-release - see
+    # sibling_release_tree in Util/orkige_export.py). The exported-app
+    # contract is verified on the running tree's flavor.
     # APPLE-gated: the export driver checks/runs .app bundles with otool -
     # macOS host machinery (a Linux registration would hard-fail at otool).
     # TODO(linux): a Linux export target needs its own bundle layout +
     # driver checks in Util/orkige_export.py first.
-    if(APPLE AND ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    if(APPLE)
         # The driver (integration_driver/run_export_test.py) runs the exporter,
         # asserts the artifact's structure and self-containment, and - on macOS -
         # RUNS the exported app from a NEUTRAL cwd (the output dir, never the
@@ -632,14 +630,20 @@ if(TARGET orkige_player)
 
         # the native-module jumper: the exporter builds the module executable
         # (arch-pinned, into native/build-export - separate from the editor's
-        # compile-on-Play tree) and ships IT instead of the generic player
-        add_test(NAME export_macos_native
-            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
-                --repo "${Orkige_SOURCE_DIR}"
-                --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
-                --platform macos --engine-build "${CMAKE_BINARY_DIR}"
-                --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
-            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        # compile-on-Play tree) and ships IT instead of the generic player.
+        # CLASSIC-only: native modules link the classic OGRE closure
+        # (cmake/OrkigeGameModule.cmake FATAL_ERRORs on a next engine tree), so
+        # this test registers only on the classic flavor - the exporter refuses
+        # a native+next combo honestly.
+        if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+            add_test(NAME export_macos_native
+                COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --project "${Orkige_SOURCE_DIR}/projects/jumper-native"
+                    --platform macos --engine-build "${CMAKE_BINARY_DIR}"
+                    --output "${CMAKE_CURRENT_BINARY_DIR}/export/macos-native"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        endif()
 
         # mobile exports: structural assertions only (no simulator/emulator
         # boots, so these stay desktop-runnable); SKIPPED (exit 77) when the

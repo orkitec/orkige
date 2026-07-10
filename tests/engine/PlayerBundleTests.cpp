@@ -99,8 +99,19 @@ TEST_CASE("bundled media overrides the fallback only when Media/Main exists",
 	std::filesystem::create_directories(fixture.base / "Media");
 	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback",
 		fixture.base.string()) == "/dev/fallback");
-	// the real bundled layout wins
+	// the real classic bundled layout wins (Media/Main = RTSS library)
 	std::filesystem::create_directories(fixture.base / "Media" / "Main");
+	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback",
+		fixture.base.string()) == (fixture.base / "Media").string());
+}
+
+TEST_CASE("bundled next-flavor media (Media/Hlms) also overrides the fallback",
+	"[engine][playerbundle]")
+{
+	BundleFixture fixture;
+	// the Ogre-Next flavor bundles its Hlms shader templates instead of the
+	// classic Main/RTShaderLib set - Media/Hlms alone marks a bundled Media
+	std::filesystem::create_directories(fixture.base / "Media" / "Hlms");
 	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback",
 		fixture.base.string()) == (fixture.base / "Media").string());
 }

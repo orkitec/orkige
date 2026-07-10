@@ -73,9 +73,11 @@ namespace Orkige
 		//! exported app), the marker is empty or the named path is missing.
 		String findBundledProject(String const & baseDir = String());
 
-		//! @brief the engine media dir (Main/ + RTShaderLib/) a runtime
-		//! should register: "<baseDir>/Media" when an exported app bundled
-		//! it (detected via Media/Main), else the given build-tree fallback
+		//! @brief the engine media dir a runtime should register:
+		//! "<baseDir>/Media" when an exported app bundled it, else the given
+		//! build-tree fallback. A bundle is detected via its flavor-specific
+		//! shader media - the classic RTSS library (Media/Main) or the
+		//! Ogre-Next Hlms shader templates (Media/Hlms).
 		String resolveMediaDirectory(String const & fallbackMediaDir,
 			String const & baseDir = String());
 	}

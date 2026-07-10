@@ -6,7 +6,7 @@ Originally written 2009–2012 and shipped on the App Store (*Pudding Panic*),
 revived and fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
 
 ![Editor](https://img.shields.io/badge/editor-ImGui%20docked-blue)
-![Renderer](https://img.shields.io/badge/renderer-OGRE%2014%20·%20GL3%2B%20·%20Vulkan%2FMoltenVK%20·%20GLES2-green)
+![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)
 ![Physics](https://img.shields.io/badge/physics-Jolt%205-orange)
 ![Scripting](https://img.shields.io/badge/scripting-Lua%20(sol2)-purple)
 ![CI](https://img.shields.io/badge/CI-Linux%20build%20%2B%20tests-brightgreen)
@@ -15,10 +15,10 @@ revived and fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
 
 A full 3D engine with a first-class 2D layer on top — not a 2D engine.
 
-- **Rendering** — dual backends behind one facade: **Ogre-Next (default, Metal on
-  macOS)** and classic OGRE 14.5 (GL3+ on desktop, Vulkan-via-MoltenVK on macOS,
-  GLES2 on iOS/Android), pixel-identical output selected at build time and enforced
-  by a parity test. SDL3 windowing/input, glTF asset loading (assimp). The homegrown
+- **Rendering** — dual backends behind one facade: **Ogre-Next (the default —
+  Metal on macOS/iOS, Vulkan on Android)** and classic OGRE 14.5 (GL3+ on desktop,
+  Vulkan-via-MoltenVK on macOS, GLES2 on iOS/Android), pixel-identical output
+  selected at build time and enforced by a parity test. SDL3 windowing/input, glTF asset loading (assimp). The homegrown
   *fastgui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on
   **both** backends (as does the ImGui-based editor).
 - **Scene model** — a GameObject/component system with a **parent/child hierarchy**
@@ -79,12 +79,14 @@ open build/macos-debug/tools/editor/Orkige.app       # the editor (use macos-rel
 
 Presets: `macos-debug`, `macos-release` build the **default Ogre-Next render
 backend**; `macos-debug-classic`, `macos-release-classic` build the fully
-supported **classic OGRE compatibility flavor** — it still owns the mobile
-GLES2 path, project exports, native game modules and the Vulkan runtime pick,
-and both flavors must render pixel-identical output (enforced by a parity
-test). Use a release preset when *working in* the editor — it's ~19× faster.
-Mobile presets: `ios-simulator-debug`, `android-debug` (classic-flavored);
-deploy flows are documented in CLAUDE.md.
+supported **classic OGRE compatibility flavor** — it still owns native game
+modules and the Vulkan runtime pick, and both flavors must render
+pixel-identical output (enforced by a parity test) and ship project exports.
+Use a release preset when *working in* the editor — it's ~19× faster.
+Mobile presets: `ios-simulator-debug`, `android-debug` are Ogre-Next (Metal on
+iOS, Vulkan on Android — the default); `ios-simulator-debug-classic`,
+`android-debug-classic` build the classic GLES2 mobile flavor. Deploy flows
+are documented in CLAUDE.md.
 
 ## Testing
 

@@ -59,7 +59,18 @@ def project_names(project_dir):
     return name, re.sub(r"[^A-Za-z0-9]", "", name)
 
 
-def check_macos(app_dir, exe_name, run_frames):
+def read_cmake_cache(build_dir, variable):
+    cache_path = os.path.join(build_dir, "CMakeCache.txt")
+    if not os.path.isfile(cache_path):
+        return ""
+    with open(cache_path, "r", errors="replace") as cache:
+        for line in cache:
+            if line.startswith(variable + ":"):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+def check_macos(app_dir, exe_name, run_frames, flavor):
     contents = os.path.join(app_dir, "Contents")
     executable = os.path.join(contents, "MacOS", exe_name)
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
@@ -78,7 +89,11 @@ def check_macos(app_dir, exe_name, run_frames):
             "project manifest bundled")
     require(os.path.isdir(os.path.join(resources, "project", "scenes")),
             "project scenes/ bundled")
-    for media_subdir in ("Main", "RTShaderLib"):
+    # the bundled engine media is flavor-specific: the classic flavor ships the
+    # RTSS shader library (Main + RTShaderLib), the Ogre-Next flavor the Hlms
+    # shader templates (Media/Hlms) the runtime registers via setHlmsMediaDir
+    media_subdirs = ("Hlms",) if flavor == "next" else ("Main", "RTShaderLib")
+    for media_subdir in media_subdirs:
         media = os.path.join(resources, "Media", media_subdir)
         require(os.path.isdir(media) and os.listdir(media),
                 "engine media Media/%s bundled" % media_subdir)
@@ -112,7 +127,7 @@ def check_macos(app_dir, exe_name, run_frames):
             "exported app ran standalone and exited 0")
 
 
-def check_ios(app_dir):
+def check_ios(app_dir, flavor):
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
     require(os.path.isfile(os.path.join(app_dir, "OrkigePlayer")),
             "player binary present")
@@ -123,8 +138,11 @@ def check_ios(app_dir):
     require(os.path.isfile(os.path.join(app_dir, "project",
                                         "project.orkproj")),
             "project manifest bundled")
-    require(os.path.isdir(os.path.join(app_dir, "Media", "Main")),
-            "engine media bundled")
+    # flavor-specific engine media (see check_macos): classic RTSS (Main) vs
+    # Ogre-Next Hlms shader templates
+    media_subdir = "Hlms" if flavor == "next" else "Main"
+    require(os.path.isdir(os.path.join(app_dir, "Media", media_subdir)),
+            "engine media Media/%s bundled" % media_subdir)
 
 
 def check_android(apk_path):
@@ -180,12 +198,14 @@ def main():
         fail("exporter exited nonzero")
 
     name, exe_name = project_names(args.project)
+    flavor = read_cmake_cache(args.engine_build,
+                              "ORKIGE_RENDER_BACKEND") or "classic"
     if args.platform == "macos":
         artifact = os.path.join(args.output, name + ".app")
-        check_macos(artifact, exe_name, args.run_frames)
+        check_macos(artifact, exe_name, args.run_frames, flavor)
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
-        check_ios(artifact)
+        check_ios(artifact, flavor)
     else:
         artifact = os.path.join(args.output, exe_name + ".apk")
         check_android(artifact)

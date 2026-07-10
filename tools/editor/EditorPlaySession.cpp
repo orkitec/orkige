@@ -1243,8 +1243,17 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			return;
 		}
 		// the player needs a few seconds to boot before it listens: keep
-		// re-connecting (a refused attempt ends in Failed, not Connecting)
-		if (!session.client.isConnecting() &&
+		// re-connecting (a refused attempt ends in Failed, not Connecting).
+		// NEVER reconnect while a socket is already live: on Android we sit
+		// here CONNECTED-but-pre-hello (the gate above also needs helloReceived),
+		// and DebugClient::connect() tears the live socket down first - churning
+		// it every retry would drop each freshly-accepted connection before the
+		// player can deliver its hello. A player whose frame loop is slow to
+		// service the accept (e.g. the first FIFO-present frames on a software
+		// GPU) then never completes the handshake. Hold the connection and wait
+		// for the hello; if adb drops the bridge (device not up yet) the state
+		// falls back to Disconnected and the retry naturally resumes.
+		if (!session.client.isConnected() && !session.client.isConnecting() &&
 			now - session.lastConnectAttempt >
 				std::chrono::milliseconds(PLAY_CONNECT_RETRY_MS))
 		{

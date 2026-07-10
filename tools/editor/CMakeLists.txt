@@ -150,13 +150,15 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
     set(ORKIGE_EDITOR_PLAYER_CLASSIC
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_classic}/tools/player/orkige_player")
     set(ORKIGE_EDITOR_PLAYER_NEXT "$<TARGET_FILE:orkige_player>")
-    # the iOS player app of this (next) flavor rides in its own preset tree
-    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug-next")
+    # the iOS player app of this (next, the default) flavor rides in the
+    # unsuffixed simulator preset tree
+    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug")
 else()
     set(ORKIGE_EDITOR_PLAYER_CLASSIC "$<TARGET_FILE:orkige_player>")
     set(ORKIGE_EDITOR_PLAYER_NEXT
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_next}/tools/player/orkige_player")
-    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug")
+    # the classic-flavor iOS player rides in the -classic simulator preset tree
+    set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug-classic")
 endif()
 
 # Editor-only: point at the RTSS shader library shipping with the

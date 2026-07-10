@@ -32,9 +32,11 @@ build of the project's own module). Per platform:
                                               the binary ad-hoc re-signed - the
                                               bundle must not depend on this
                                               machine's build trees.
-                   Contents/Resources/        Media/{Main,RTShaderLib} (the
-                                              OGRE RTSS shader library from
-                                              the build's vcpkg), project/
+                   Contents/Resources/        Media/ (the engine shader media
+                                              from the build's vcpkg - the
+                                              classic RTSS library Main +
+                                              RTShaderLib, or the Ogre-Next
+                                              Hlms shader templates), project/
                                               (manifest, scenes/, assets/,
                                               scripts/) and the
                                               orkige_project.txt marker.
@@ -259,7 +261,14 @@ def vcpkg_triplet_dir(build_dir):
     return ""
 
 
+def render_backend(build_dir):
+    """the tree's render flavor ("next" or "classic"); classic when the cache
+    does not name one (the historical default)"""
+    return read_cmake_cache(build_dir, "ORKIGE_RENDER_BACKEND") or "classic"
+
+
 def ogre_media_dir(build_dir):
+    """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
     if not triplet:
         return ""
@@ -267,16 +276,25 @@ def ogre_media_dir(build_dir):
     return media if os.path.isdir(media) else ""
 
 
-def sibling_release_tree(engine_build):
-    """build/macos-release-classic next to the given tree, when it exists.
+def ogre_next_media_dir(build_dir):
+    """the Ogre-Next flavor's media root (contains Hlms/ - the shader templates
+    the runtime registers via Engine::setHlmsMediaDir)"""
+    triplet = vcpkg_triplet_dir(build_dir)
+    if not triplet:
+        return ""
+    media = os.path.join(triplet, "share", "ogre-next", "Media")
+    return media if os.path.isdir(media) else ""
 
-    The export pipeline is PINNED to the classic render backend (the bundled
-    media is the classic RTSS set; macos-release is the Ogre-Next flavor
-    since the default flip). TODO(next-export): shipping the next player
-    needs the Hlms shader-template media bundled + Engine::setHlmsMediaDir
-    wired through PlayerBundle."""
-    return os.path.join(os.path.dirname(os.path.abspath(engine_build)),
-                        "macos-release-classic")
+
+def sibling_release_tree(engine_build):
+    """the shippable Release tree next to the given tree, when it exists: each
+    flavor's release tree is its own (trees are flavor-bound) - build/macos-
+    release for the Ogre-Next flavor, build/macos-release-classic for the
+    classic flavor. Debug players run ~19x slower, so export prefers the
+    Release sibling of the SAME flavor."""
+    name = ("macos-release" if render_backend(engine_build) == "next"
+            else "macos-release-classic")
+    return os.path.join(os.path.dirname(os.path.abspath(engine_build)), name)
 
 
 def engine_tree_arch(build_dir):
@@ -400,14 +418,24 @@ def macos_build_native_module(project, target, engine_build, cmake, ninja):
     if not arch:
         fail("cannot derive the target architecture from '%s' (no vcpkg "
              "triplet dir)" % engine_tree)
-    if (os.path.isfile(os.path.join(build_dir, "CMakeCache.txt"))
-            and read_cmake_cache(build_dir, "CMAKE_OSX_ARCHITECTURES")
-            != arch):
-        # a cache without the arch pin (or with the wrong one) produces
-        # objects that cannot link against the engine libs - heal it
-        warn("export build tree '%s' is not pinned to %s - reconfiguring"
-             % (build_dir, arch))
-        shutil.rmtree(build_dir)
+    if os.path.isfile(os.path.join(build_dir, "CMakeCache.txt")):
+        cached_engine = os.path.abspath(read_cmake_cache(
+            build_dir, "ORKIGE_ENGINE_BUILD_DIR")) if read_cmake_cache(
+            build_dir, "ORKIGE_ENGINE_BUILD_DIR") else ""
+        if read_cmake_cache(build_dir, "CMAKE_OSX_ARCHITECTURES") != arch:
+            # a cache without the arch pin (or with the wrong one) produces
+            # objects that cannot link against the engine libs - heal it
+            warn("export build tree '%s' is not pinned to %s - reconfiguring"
+                 % (build_dir, arch))
+            shutil.rmtree(build_dir)
+        elif cached_engine != os.path.abspath(engine_tree):
+            # the module was built against a DIFFERENT engine tree before (e.g.
+            # the other render flavor): its objects link the wrong backend
+            # closure and the bundled media would not match - heal it
+            warn("export build tree '%s' targeted a different engine tree "
+                 "('%s' != '%s') - reconfiguring"
+                 % (build_dir, cached_engine, os.path.abspath(engine_tree)))
+            shutil.rmtree(build_dir)
     if not os.path.isfile(os.path.join(build_dir, "CMakeCache.txt")):
         configure = [cmake, "-G", "Ninja", "-S", source_dir, "-B", build_dir,
                      "-DCMAKE_BUILD_TYPE=" + build_type,
@@ -434,6 +462,16 @@ def macos_build_native_module(project, target, engine_build, cmake, ninja):
 
 def export_macos(project, engine_build, output_dir, cmake, ninja):
     native_target = project.native_target()
+    if native_target and render_backend(engine_build) == "next":
+        # native modules link the classic OGRE closure and are refused against a
+        # next engine tree by cmake/OrkigeGameModule.cmake - refuse here too,
+        # honestly, instead of failing deep in the module's cmake configure.
+        # (The Lua/scene parts of such a project export fine on next without a
+        # module; the compiled module is desktop-classic-only for now.)
+        fail("project '%s' has a native module ('%s') - native modules link "
+             "the classic OGRE closure and are classic-flavor-only; pass a "
+             "classic engine tree (macos-debug-classic or macos-release-"
+             "classic)" % (project.name, native_target))
     if native_target:
         executable, source_tree = macos_build_native_module(
             project, native_target, engine_build, cmake, ninja)
@@ -457,9 +495,15 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
             fail("no player binary at '%s' - build the preset first"
                  % executable)
 
-    media_dir = ogre_media_dir(source_tree)
-    if not media_dir:
-        fail("no vcpkg OGRE media under '%s'" % source_tree)
+    flavor = render_backend(source_tree)
+    if flavor == "next":
+        media_dir = ogre_next_media_dir(source_tree)
+        if not media_dir:
+            fail("no vcpkg Ogre-Next media under '%s'" % source_tree)
+    else:
+        media_dir = ogre_media_dir(source_tree)
+        if not media_dir:
+            fail("no vcpkg OGRE media under '%s'" % source_tree)
 
     app_dir = os.path.join(output_dir, project.name + ".app")
     if os.path.exists(app_dir):
@@ -482,8 +526,13 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                               os.path.join(contents, "Frameworks"),
                               macos_rpaths(bundled_exe) + search_dirs)
 
-    # engine media: the RTSS shader library the runtimes register
-    for media_subdir in ("Main", "RTShaderLib"):
+    # engine media, per flavor: the classic RTSS shader library (Main +
+    # RTShaderLib) or the Ogre-Next Hlms shader templates (Hlms). The runtimes
+    # resolve <Resources>/Media at boot (PlayerBundle::resolveMediaDirectory)
+    # and register it - RTSS locations on classic, Engine::setHlmsMediaDir on
+    # next - so the bundle carries no vcpkg or source-tree path.
+    media_subdirs = ("Hlms",) if flavor == "next" else ("Main", "RTShaderLib")
+    for media_subdir in media_subdirs:
         shutil.copytree(os.path.join(media_dir, media_subdir),
                         os.path.join(resources, "Media", media_subdir))
 
@@ -589,11 +638,12 @@ def main():
     parser.add_argument("--platform", required=True,
                         choices=["macos", "ios-simulator", "ios", "android"])
     parser.add_argument("--engine-build", required=True,
-                        help="the preset build tree to package from - the "
-                             "export pipeline is classic-flavor-only (macos: "
-                             "build/macos-debug-classic or -release-classic, "
-                             "ios-simulator: build/ios-simulator-debug, "
-                             "android: build/android-debug)")
+                        help="the preset build tree to package from (either "
+                             "render flavor; the bundled engine media follows "
+                             "the tree's ORKIGE_RENDER_BACKEND) - macos: "
+                             "build/macos-debug[-classic] or -release[-classic], "
+                             "ios-simulator: build/ios-simulator-debug[-next], "
+                             "android: build/android-debug[-next]")
     parser.add_argument("--output",
                         help="output directory (default: "
                              "<project>/builds/<platform>)")
@@ -613,14 +663,6 @@ def main():
     engine_build = os.path.abspath(args.engine_build)
     if not os.path.isdir(engine_build):
         fail("engine build tree '%s' does not exist" % engine_build)
-    # the export pipeline ships the CLASSIC player/media set - refuse a
-    # next-flavor tree honestly instead of packaging a bundle that cannot
-    # boot (no Hlms media in the bundle contract yet, see sibling_release_tree)
-    if read_cmake_cache(engine_build, "ORKIGE_RENDER_BACKEND") == "next":
-        fail("engine build tree '%s' is the Ogre-Next render flavor - the "
-             "export pipeline is classic-only for now; build and pass a "
-             "classic tree (preset macos-debug-classic or "
-             "macos-release-classic)" % engine_build)
     output_dir = os.path.abspath(
         args.output or os.path.join(project.root, "builds", args.platform))
     os.makedirs(output_dir, exist_ok=True)

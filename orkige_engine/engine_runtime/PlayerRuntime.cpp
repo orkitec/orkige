@@ -282,8 +282,13 @@ namespace Orkige
 			{
 				const String bundledMediaDir = base + "Media";
 				std::error_code ignored;
+				// an exported app carries its engine media under Media/: the
+				// classic RTSS library (Media/Main) or the Ogre-Next Hlms
+				// shader templates (Media/Hlms). Either marks a bundled Media.
 				if (std::filesystem::is_directory(bundledMediaDir + "/Main",
-					ignored))
+						ignored) ||
+					std::filesystem::is_directory(bundledMediaDir + "/Hlms",
+						ignored))
 				{
 					return bundledMediaDir;
 				}

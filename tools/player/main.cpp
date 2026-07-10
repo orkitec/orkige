@@ -590,9 +590,15 @@ int main(int argc, char** argv)
 		// path, invalid here); point registration at the bundled Media dir
 		engine.setHlmsMediaDir(playerMediaDir);
 #else
-		// desktop next: the baked default is valid; the exported-app media
-		// resolution takes over once next-flavor export exists
-		(void)playerMediaDir;
+		// desktop next: a normal dev run keeps the engine's baked Hlms default;
+		// an exported .app carries the Hlms shader templates under
+		// Contents/Resources/Media, and resolveMediaDirectory returns that
+		// bundled dir instead of the baked classic fallback - point Hlms
+		// registration at it so the bundle touches no vcpkg/source path.
+		if (playerMediaDir != std::string(ORKIGE_PLAYER_MEDIA_DIR))
+		{
+			engine.setHlmsMediaDir(playerMediaDir);
+		}
 #endif
 #endif
 
