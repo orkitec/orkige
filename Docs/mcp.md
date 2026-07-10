@@ -8,6 +8,11 @@ the running editor as a *remote* MCP server and drives it: open projects, edit
 and save scenes, inspect and mutate the GameObject hierarchy, read and write
 component properties, control play mode, take screenshots and list assets.
 
+This document is the **reference** (endpoint, auth, transport, the tool table and
+per-tool semantics). For worked agent walkthroughs — authoring a feature, the
+edit→test loop, debugging a live game — see the tutorial companion
+[`Docs/mcp-workflows.md`](mcp-workflows.md).
+
 There is **no Python sidecar and no extra pip dependency** — the editor now
 hosts the endpoint in-process, retiring the old `Util/orkige_mcp.py` stdio
 bridge (and its `mcp` SDK requirement). The HTTP
@@ -87,14 +92,18 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
+The endpoint advertises 50 tools (the `toolSpecs` table in
+`EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
+`EditorDocument` free function — nothing bypasses the verb handler.
+
 | Tool | Maps to |
 |------|---------|
 | `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |
-| `get_component(id, component)` | the six typed bundles `EditorCore` exposes |
-| `set_component(id, component, properties)` | the typed undoable setters (`applyTransformChange`, `changeObjectMesh`, `changeObjectScript`, `applyRigidBodyChange`, `applyCameraChange`, `applySpriteChange`) |
+| `get_component(id, component)` | a component's reflected properties (generic over the property registry) + the discovery lists `kinds`/`hints`/`readonly`/`transient` |
+| `set_component(id, component, properties)` | the undoable reflected setter (`EditorCore::applyPropertyChange`, validated then merged into one undo step) |
 | `create_object(id, mesh, position)` / `delete_object(id)` / `duplicate_object(id)` | `CreateObjectCommand` / `DeleteObjectCommand` / `DuplicateObjectCommand` |
 | `rename_object(id, new_id)` / `reparent_object(id, parent)` / `set_active(id, value)` | `EditorCore::renameObject` / `reparentObject` / `setObjectActive` |
 | `add_component(id, component)` / `remove_component(id, component)` / `list_addable_components()` | `addComponentToObject` / `removeComponentFromObject` / `getAddableComponentTypes` |
@@ -122,6 +131,22 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `get_test_results(jobId)` | the structured verdict of a `run_tests` job |
 | `export_project(platform)` | async `Util/orkige_export.py` (macos/ios-simulator/android) → a jobId; poll `get_export_results` (classic-flavor tree required) |
 | `get_export_results(jobId)` | the structured verdict of an `export_project` job (`ok`/`artifactPath`/`error`) |
+
+### Component properties (reflected)
+
+`get_component` / `set_component` are GENERIC over the property registry — there
+is no fixed per-component field list. `get_component` reports every reflected
+property of the named component as a `name`->`value` field plus the parallel
+discovery lists `properties` (names), `kinds` (`int`/`float`/`bool`/`string`/
+`enum`/`vec3`/`quat`/`color`/`asset`/`object`), `hints` (enum options
+`label=value,...`, or an asset/object kind), `readonly` and `transient`
+(`1`/`0`), so an agent discovers the field set with no hardcoded allowlist — a
+`ScriptComponent`'s exported script properties surface here too. Values are
+canonical strings: vectors space-separated (`vec3` `x y z`, `quat` `w x y z`,
+`color` `r g b a`), bool `1`/`0`, enum the integer value. `set_component` writes
+by property NAME (an unknown, read-only or unparseable value is refused without
+touching the object) and accepts the changed fields either at the top level or
+inside a `properties` object, merged into one undo step.
 
 ## Test runner (the evidence loop)
 
@@ -178,15 +203,6 @@ tools/call get_test_results { "jobId": "a1b2..." }
 //   → { "status": "done", "buildFailed": "1",
 //       "buildErrors": "player.lua:12: ... error: ..." }
 ```
-
-The six typed component bundles (v1 — no generic reflection):
-`TransformComponent` (position/orientation/scale, space-separated float strings;
-orientation is `w x y z`), `ModelComponent` (mesh), `ScriptComponent`
-(script/enabled), `RigidBodyComponent` (body_type/shape_type/mass/friction/
-restitution/planar/radius/half_height/half_extents), `CameraComponent`
-(projection_mode/ortho_size), `SpriteComponent` (texture/width/height/tint/
-flip_x/flip_y/z_order/visible). `set_component` accepts the fields either at the
-top level or inside a `properties` object.
 
 ## Authoring a project over MCP
 

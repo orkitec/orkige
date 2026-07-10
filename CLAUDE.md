@@ -209,14 +209,19 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The ~17 tools (open_project,
-open/save/new scene, list_hierarchy, get/set_component over the six typed bundles,
-create/delete/reparent object, add/remove component, play/stop, screenshot → file
-path, list_assets, console_tail, …) map onto existing `EditorCore` methods + the
-`EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
+player debug protocol — never a second player port. The 50 tools cover the whole
+agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
+get/set_component generically over the reflected property registry, prefabs),
+project-file authoring (write/read/list jailed to the project root, import_asset),
+running (play {scene, target}, list_play_targets, async export_project + build
+status in get_state), testing (run_tests/list_tests/get_test_results with
+build-errors-first short-circuit) and live debugging (runtime_* state, pause/step,
+set_runtime_property/set_cvar/reload_script, screenshot_game) — all mapped onto
+existing `EditorCore` methods + the `EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
 (a worker thread drives a raw socket through the whole MCP conversation incl. auth
 rejection) plus the `JsonTests`/`HttpServerTests` unit tests. Full reference:
-`Docs/mcp.md`.
+`Docs/mcp.md`; `Docs/mcp-workflows.md` is the agent-workflow guide (worked
+develop/test/debug walkthroughs with real call sequences).
 
 ## Architecture
 
