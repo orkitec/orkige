@@ -50,6 +50,10 @@ target_include_directories(orkige_core PUBLIC
 
 find_package(tinyxml2 CONFIG REQUIRED)
 target_link_libraries(orkige_core PRIVATE tinyxml2::tinyxml2)
+if(WIN32)
+    # the debug-net socket layer's winsock backend (WSAStartup, closesocket)
+    target_link_libraries(orkige_core PUBLIC ws2_32)
+endif()
 
 if(APPLE)
     # core_util/PlatformUtil.mm uses Foundation (NSFileManager & co) and

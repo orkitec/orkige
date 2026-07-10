@@ -48,10 +48,6 @@ purpose:	Memory manager & tracking software
 #include <queue>
 #include <bitset>
 
-#ifdef WIN32
-#include <hash_set>
-#include <hash_map>
-#endif
 
 // STL algorithms & functions
 #include <algorithm>
