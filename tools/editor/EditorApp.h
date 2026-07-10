@@ -307,6 +307,11 @@ struct AssetBrowserState
 	//! from disk, so the section always reflects the selected texture)
 	Orkige::TextureImport editImport;
 	std::string editImportPath;
+	//! transient footer notice (e.g. a create that failed): shown in the status
+	//! footer until statusMessageExpiry (ImGui::GetTime seconds) passes. A
+	//! failed filesystem op is otherwise invisible, so it surfaces here.
+	std::string statusMessage;
+	double statusMessageExpiry = 0.0;
 };
 
 // Editor UI state that lives across frames. Everything UI-independent
@@ -1022,6 +1027,7 @@ struct AssetBrowserItem
 	std::string absolutePath;	//!< absolute filesystem path
 	std::string relativePath;	//!< project-relative path ("assets/ball.png")
 	AssetKind kind = AssetKind::Unknown;
+	bool isFolder = false;		//!< a directory (search results carry folders too)
 	bool hasId = false;			//!< an AssetDatabase id resolves for it
 	bool dimmed = false;		//!< sidecar-less id-trackable asset (assets/, scripts/)
 	long long mtime = 0;		//!< last-write time (keys the thumbnail cache)
@@ -1112,6 +1118,17 @@ std::string createScriptInDir(EditorState& state, std::string const& dir,
 //! Scenes are not id-tracked, so no sidecar is minted. Returns the scene's
 //! absolute path, or "" on failure. A missing ".oscene" extension is appended.
 std::string createSceneInDir(std::string const& dir, std::string const& name);
+
+//! @brief the Create menu actions (New Folder / Script / Scene): make a
+//! uniquely-named item in the browser's CURRENT folder, then REVEAL it - drop
+//! any active search/type filter (so the fresh item is never hidden by a stale
+//! filter), select it and open the inline rename so the user names it at once.
+//! A folder no longer navigates INTO its own empty interior. On a filesystem
+//! failure a notice is posted to the browser's status footer (the op is
+//! otherwise silent). Returns the new item's absolute path, or "" on failure.
+std::string createFolderAndReveal(EditorState& state);
+std::string createScriptAndReveal(EditorState& state);
+std::string createSceneAndReveal(EditorState& state);
 
 //! @brief the file:// URL SDL_OpenURL opens for a local absolute path (RFC
 //! 8089; the path is percent-encoded, '/' kept). Exposed so the selfcheck can

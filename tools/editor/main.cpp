@@ -2279,6 +2279,83 @@ int main(int argc, char** argv)
 						assetFail = "multi-drop did not create/undo as one step";
 					}
 				}
+				// (19) searchAssets returns matching FOLDERS, not only files -
+				// the interactive symptom was "in the tree we only show files
+				// not folders": any search term switched the content pane into a
+				// files-only listing. A search that names a folder must surface
+				// that folder (isFolder set), and a type filter must NOT gate it
+				// out (folders carry no asset kind - they stay navigable).
+				if (assetOk)
+				{
+					const std::string zebra = (std::filesystem::path(
+						state.project.getAssetsDirectory()) / "ZebraDir")
+						.string();
+					std::filesystem::create_directories(zebra, assetErr);
+					const auto hasFolderHit = [](
+						std::vector<AssetBrowserItem> const& hits)
+					{
+						for (AssetBrowserItem const& hit : hits)
+						{
+							if (hit.isFolder && std::filesystem::path(
+								hit.absolutePath).filename() == "ZebraDir")
+							{
+								return true;
+							}
+						}
+						return false;
+					};
+					const std::string rootDir =
+						state.project.getRootDirectory();
+					const bool folderInSearch = hasFolderHit(searchAssets(
+						state.project, rootDir, "ZebraDir", true, 0));
+					const unsigned int texBit = 1u <<
+						static_cast<unsigned int>(AssetKind::Texture);
+					const bool folderSurvivesFilter = hasFolderHit(searchAssets(
+						state.project, rootDir, "ZebraDir", true, texBit));
+					if (!folderInSearch || !folderSurvivesFilter)
+					{
+						assetOk = false;
+						assetFail = "searchAssets hid matching folders";
+					}
+				}
+				// (20) createFolderAndReveal reveals in place + clears any active
+				// search/filter - the interactive symptom was "creating folders
+				// does not seem to work": New Folder navigated INTO the new empty
+				// folder (blank pane), and a stale search/filter would hide the
+				// fresh item. The fix keeps the current folder, drops the filter,
+				// selects the new item and opens its inline rename.
+				if (assetOk)
+				{
+					AssetBrowserState& browser = state.assetBrowser;
+					const std::string assetsDir =
+						state.project.getAssetsDirectory();
+					browser.currentDir = assetsDir;
+					browser.backHistory.clear();
+					browser.forwardHistory.clear();
+					SDL_strlcpy(browser.searchText, "zzz",
+						sizeof(browser.searchText));	// a stale, non-matching search
+					browser.kindFilterMask = 1u <<
+						static_cast<unsigned int>(AssetKind::Texture);
+					browser.selection.clear();
+					browser.renamingPath.clear();
+					const std::string created = createFolderAndReveal(state);
+					const std::string createdRel =
+						state.project.makeProjectRelative(created);
+					const bool stayedPut = std::filesystem::equivalent(
+						browser.currentDir, assetsDir, assetErr);
+					const bool filterCleared = browser.searchText[0] == '\0' &&
+						browser.kindFilterMask == 0;
+					const bool revealed =
+						browser.selection.count(createdRel) == 1 &&
+						browser.renamingPath == createdRel;
+					if (created.empty() || !stayedPut || !filterCleared ||
+						!revealed ||
+						!std::filesystem::is_directory(created, assetErr))
+					{
+						assetOk = false;
+						assetFail = "createFolderAndReveal did not reveal in place";
+					}
+				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);
 				SDL_Log("orkige_editor: asset browser test - %s%s%s",
 					assetOk ? "OK" : "FAILED", assetOk ? "" : ": ",

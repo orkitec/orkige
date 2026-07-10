@@ -690,6 +690,19 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 	std::transform(needle.begin(), needle.end(), needle.begin(),
 		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	optr<Orkige::AssetDatabase> const& database = project.getAssetDatabase();
+	// true when a path's file name contains the (already lower-cased) needle;
+	// an empty needle matches everything (a pure type-filter with no text)
+	const auto nameMatches = [&](fs::path const& path)
+	{
+		if (needle.empty())
+		{
+			return true;
+		}
+		std::string lowered = path.filename().string();
+		std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return lowered.find(needle) != std::string::npos;
+	};
 	const auto consider = [&](fs::path const& file)
 	{
 		if (lowerExtension(file.string()) ==
@@ -697,12 +710,7 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 		{
 			return;		// the sidecars themselves are never listed
 		}
-		std::string name = file.filename().string();
-		std::string lowered = name;
-		std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		if (!needle.empty() &&
-			lowered.find(needle) == std::string::npos)
+		if (!nameMatches(file))
 		{
 			return;
 		}
@@ -715,6 +723,26 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 		const bool idTracked = isIdTrackedPath(project, file.string());
 		results.push_back(makeItem(file.string(), project, database, idTracked));
 	};
+	// a name-matched folder is a result too: the content pane must show folders,
+	// not only files, so a stray search term never hides the whole tree. Folders
+	// carry no asset kind, so the type-filter mask does not gate them - they stay
+	// as navigation targets regardless.
+	const auto considerFolder = [&](fs::path const& dir)
+	{
+		if (!nameMatches(dir))
+		{
+			return;
+		}
+		AssetBrowserItem entry;
+		entry.absolutePath = dir.string();
+		entry.relativePath = project.makeProjectRelative(dir.string());
+		if (entry.relativePath.empty())
+		{
+			entry.relativePath = dir.filename().string();
+		}
+		entry.isFolder = true;
+		results.push_back(std::move(entry));
+	};
 	if (recursive)
 	{
 		for (fs::recursive_directory_iterator it(rootDir, ec), end;
@@ -723,6 +751,10 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 			if (it->is_regular_file(ec))
 			{
 				consider(it->path());
+			}
+			else if (it->is_directory(ec))
+			{
+				considerFolder(it->path());
 			}
 		}
 	}
@@ -735,11 +767,23 @@ std::vector<AssetBrowserItem> searchAssets(Orkige::Project const& project,
 			{
 				consider(it->path());
 			}
+			else if (it->is_directory(ec))
+			{
+				considerFolder(it->path());
+			}
 		}
 	}
+	// folders first, then files, each group by project-relative path (the same
+	// folders-before-files order a plain folder listing shows)
 	std::sort(results.begin(), results.end(),
 		[](AssetBrowserItem const& a, AssetBrowserItem const& b)
-		{ return a.relativePath < b.relativePath; });
+		{
+			if (a.isFolder != b.isFolder)
+			{
+				return a.isFolder;
+			}
+			return a.relativePath < b.relativePath;
+		});
 	return results;
 }
 
@@ -911,6 +955,85 @@ std::string createSceneInDir(std::string const& dir, std::string const& name)
 	}
 	SDL_Log("orkige_editor: created scene '%s'", scenePath.c_str());
 	return scenePath;
+}
+
+namespace
+{
+
+//! post a transient notice to the browser status footer (see AssetBrowserState);
+//! a silent filesystem failure (createFolderInDir returning "") surfaces here
+void postBrowserStatus(AssetBrowserState& browser, std::string message)
+{
+	browser.statusMessage = std::move(message);
+	browser.statusMessageExpiry = ImGui::GetTime() + 4.0;
+}
+
+//! reveal a freshly created item in the CURRENT folder: drop any active
+//! search text and type filter (so the new item is never hidden by a stale
+//! filter), select it alone and open the inline rename so the user names it at
+//! once. The browser stays in the current folder - a new folder is shown IN
+//! PLACE, not navigated into (its empty interior looked like nothing happened).
+void revealCreatedItem(EditorState& state, std::string const& absolutePath)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	browser.searchText[0] = '\0';
+	browser.kindFilterMask = 0;
+	const std::string rel = state.project.makeProjectRelative(absolutePath);
+	browser.selection.clear();
+	browser.selection.insert(rel);
+	browser.selectionAnchor = rel;
+	browser.renamingPath = rel;
+	SDL_strlcpy(browser.renameBuffer,
+		fs::path(absolutePath).filename().string().c_str(),
+		sizeof(browser.renameBuffer));
+	browser.renameFocusPending = true;
+}
+
+} // namespace
+
+std::string createFolderAndReveal(EditorState& state)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string name = fs::path(uniqueFileName(browser.currentDir,
+		"New Folder", "")).filename().string();
+	const std::string created = createFolderInDir(browser.currentDir, name);
+	if (created.empty())
+	{
+		postBrowserStatus(browser, "Could not create a folder in this location.");
+		return "";
+	}
+	revealCreatedItem(state, created);
+	return created;
+}
+
+std::string createScriptAndReveal(EditorState& state)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string name = fs::path(uniqueFileName(browser.currentDir,
+		"NewScript", ".lua")).filename().string();
+	const std::string created = createScriptInDir(state, browser.currentDir, name);
+	if (created.empty())
+	{
+		postBrowserStatus(browser, "Could not create a script in this location.");
+		return "";
+	}
+	revealCreatedItem(state, created);
+	return created;
+}
+
+std::string createSceneAndReveal(EditorState& state)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string name = fs::path(uniqueFileName(browser.currentDir,
+		"NewScene", ".oscene")).filename().string();
+	const std::string created = createSceneInDir(browser.currentDir, name);
+	if (created.empty())
+	{
+		postBrowserStatus(browser, "Could not create a scene in this location.");
+		return "";
+	}
+	revealCreatedItem(state, created);
+	return created;
 }
 
 std::string fileUrlForPath(std::string const& absolutePath)
@@ -2011,25 +2134,15 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	{
 		if (ImGui::MenuItem("New Folder"))
 		{
-			const std::string created = createFolderInDir(browser.currentDir,
-				fs::path(uniqueFileName(browser.currentDir,
-					"New Folder", "")).filename().string());
-			if (!created.empty())
-			{
-				navigateTo(browser, created);
-			}
+			createFolderAndReveal(state);
 		}
 		if (ImGui::MenuItem("New Script"))
 		{
-			createScriptInDir(state, browser.currentDir,
-				fs::path(uniqueFileName(browser.currentDir,
-					"NewScript", ".lua")).filename().string());
+			createScriptAndReveal(state);
 		}
 		if (ImGui::MenuItem("New Scene"))
 		{
-			createSceneInDir(browser.currentDir,
-				fs::path(uniqueFileName(browser.currentDir,
-					"NewScene", ".oscene")).filename().string());
+			createSceneAndReveal(state);
 		}
 		ImGui::EndPopup();
 	}
@@ -2160,12 +2273,20 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 			browser.kindFilterMask))
 		{
 			GridEntry entry;
+			entry.isFolder = found.isFolder;
 			entry.item = found;
 			entry.name = fs::path(found.absolutePath).filename().string();
 			entry.containingFolder =
 				fs::path(found.relativePath).parent_path().string();
 			entries.push_back(std::move(entry));
-			++fileCount;
+			if (found.isFolder)
+			{
+				++folderCount;
+			}
+			else
+			{
+				++fileCount;
+			}
 		}
 	}
 	else
@@ -2301,26 +2422,15 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		{
 			if (ImGui::MenuItem("New Folder"))
 			{
-				const std::string created = createFolderInDir(
-					browser.currentDir, fs::path(uniqueFileName(
-						browser.currentDir, "New Folder", "")).filename()
-						.string());
-				if (!created.empty())
-				{
-					navigateTo(browser, created);
-				}
+				createFolderAndReveal(state);
 			}
 			if (ImGui::MenuItem("New Script"))
 			{
-				createScriptInDir(state, browser.currentDir,
-					fs::path(uniqueFileName(browser.currentDir, "NewScript",
-						".lua")).filename().string());
+				createScriptAndReveal(state);
 			}
 			if (ImGui::MenuItem("New Scene"))
 			{
-				createSceneInDir(browser.currentDir,
-					fs::path(uniqueFileName(browser.currentDir, "NewScene",
-						".oscene")).filename().string());
+				createSceneAndReveal(state);
 			}
 			ImGui::EndPopup();
 		}
@@ -2332,7 +2442,7 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	std::string status;
 	if (searchMode)
 	{
-		status = std::to_string(fileCount) + " results";
+		status = std::to_string(folderCount + fileCount) + " results";
 	}
 	else
 	{
@@ -2348,7 +2458,19 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	{
 		status += ", " + std::to_string(browser.selection.size()) + " selected";
 	}
-	ImGui::TextUnformatted(status.c_str());
+	// a transient notice (a failed create) overrides the count line for a few
+	// seconds so a silent filesystem failure becomes visible
+	if (!browser.statusMessage.empty() &&
+		ImGui::GetTime() < browser.statusMessageExpiry)
+	{
+		ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram),
+			"%s", browser.statusMessage.c_str());
+	}
+	else
+	{
+		browser.statusMessage.clear();
+		ImGui::TextUnformatted(status.c_str());
+	}
 	// right-aligned footer controls: the current-folder path, then a thin,
 	// unlabeled thumbnail-size slider tucked into the far corner
 	std::string here = state.project.makeProjectRelative(browser.currentDir);
