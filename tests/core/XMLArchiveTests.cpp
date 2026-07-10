@@ -16,6 +16,9 @@
 
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! RAII temp file below std::filesystem::temp_directory_path()

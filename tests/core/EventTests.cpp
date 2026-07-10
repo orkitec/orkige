@@ -16,6 +16,9 @@
 
 #include <vector>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! member-function (FastDelegate MakeDelegate path) event probe

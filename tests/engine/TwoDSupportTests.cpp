@@ -31,6 +31,9 @@
 
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 using Catch::Approx;
 
 namespace

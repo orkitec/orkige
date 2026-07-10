@@ -10,6 +10,9 @@
 #include <cfloat>
 #include <map>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 void startRenameSelected(EditorState& state, Orkige::EditorCore& core)
 {
 	if (!core.hasSelection())

@@ -16,6 +16,9 @@
 #include <cstring>
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 

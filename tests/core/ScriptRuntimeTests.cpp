@@ -23,6 +23,9 @@
 #include <filesystem>
 #include <fstream>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! a throwaway directory with a scripts/ subfolder (mirror of the

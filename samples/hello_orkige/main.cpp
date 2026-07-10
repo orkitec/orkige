@@ -41,6 +41,9 @@
 #include <utility>
 #include <vector>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
 // C++-side receiver for the event the Lua smoke-test script triggers -

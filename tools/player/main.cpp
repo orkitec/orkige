@@ -72,6 +72,10 @@
 #include <fstream>
 #include <string>
 
+// the engine's shared-ownership alias, used throughout this TU
+using Orkige::optr;
+using Orkige::woptr;
+
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
 namespace

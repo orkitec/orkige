@@ -29,6 +29,9 @@
 
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	using Orkige::PhysicsWorld;

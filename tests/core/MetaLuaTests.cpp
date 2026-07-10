@@ -22,6 +22,9 @@
 #include <core_base/TypeManager.h>
 #include <core_game/GameObjectManager.h>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace Orkige
 {
 	//! test type exported to Lua through the standard OOBJECT macro dance

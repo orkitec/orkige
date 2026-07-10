@@ -8,6 +8,9 @@
 
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 // every quit path (File > Quit, ESC with nothing selected, the window close
 // button / Cmd+Q via SDL_EVENT_QUIT, the native mac menu) funnels through
 // here: unsaved changes raise the "Unsaved Changes" confirm modal instead of

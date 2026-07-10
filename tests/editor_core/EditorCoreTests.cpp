@@ -34,6 +34,9 @@
 #define getpid _getpid
 #else
 #include <unistd.h>	// getpid - unique temp fixture names (parallel ctest)
+
+using Orkige::optr;
+using Orkige::woptr;
 #endif
 
 namespace

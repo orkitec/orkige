@@ -26,6 +26,9 @@
 #include <core_tween/TweenManager.h>
 #include <core_tween/EaseLibrary.h>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 using Catch::Approx;
 
 namespace

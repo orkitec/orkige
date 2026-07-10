@@ -14,6 +14,9 @@
 #include <cstdlib>
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 // File > New Scene: clear all GameObjects - removing the components tears
 // down their scene nodes (TransformComponent::onRemove wipes via NodeUtil)
 void newScene(EditorState& state, Orkige::EditorCore& core)

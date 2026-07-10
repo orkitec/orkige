@@ -22,6 +22,9 @@
 #include <algorithm>
 #include <filesystem>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	struct TempScene

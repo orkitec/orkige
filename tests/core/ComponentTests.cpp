@@ -16,6 +16,9 @@
 
 #include <algorithm>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 TEST_CASE("ComponentHolder add/get/has/remove lifecycle", "[components]")
 {
 	Orkige::CoreTestEnvironment::get();

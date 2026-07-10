@@ -23,6 +23,9 @@
 #include <filesystem>
 #include <vector>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 TEST_CASE("LevelGrid maps slots to cells and world centers", "[level]")
 {
 	// the roller 2x2 grid: tile size 6, cell (0,0) centered at (-3, -3) - so

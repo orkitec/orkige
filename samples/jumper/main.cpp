@@ -87,6 +87,9 @@
 #include <cstring>
 #include <string>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
 namespace

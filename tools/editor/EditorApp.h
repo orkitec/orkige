@@ -39,6 +39,9 @@
 #include <string>
 #include <vector>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace Orkige
 {
 	class ImGuiFacadeRenderer;

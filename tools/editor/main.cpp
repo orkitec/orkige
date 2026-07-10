@@ -88,6 +88,9 @@
 
 #ifndef _WIN32
 #include <signal.h> // ORKIGE_EDITOR_PLAYTEST=crash kills the player with SIGKILL
+
+using Orkige::optr;
+using Orkige::woptr;
 #endif
 
 extern "C" void* orkige_native_window_handle(SDL_Window* window);

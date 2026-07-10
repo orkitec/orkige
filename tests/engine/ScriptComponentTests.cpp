@@ -30,6 +30,9 @@
 #include <filesystem>
 #include <fstream>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! a throwaway project-like directory with a scripts/ subfolder

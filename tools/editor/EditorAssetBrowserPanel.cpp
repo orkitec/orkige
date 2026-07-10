@@ -61,6 +61,9 @@
 #include <filesystem>
 #include <fstream>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 // the drag-drop payload tags (declared extern in EditorAssetDnd.h)
 const char* const ASSET_DND_PAYLOAD = "ORKIGE_ASSET";
 const char* const ASSET_DND_PAYLOAD_MULTI = "ORKIGE_ASSET_MULTI";

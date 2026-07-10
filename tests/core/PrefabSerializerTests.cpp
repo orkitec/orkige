@@ -28,6 +28,9 @@
 #include <filesystem>
 #include <unistd.h> // getpid - unique temp fixture names (parallel ctest!)
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! PID-suffixed temp file: every TEST_CASE runs as its own ctest process

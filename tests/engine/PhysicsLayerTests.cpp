@@ -27,6 +27,9 @@
 #include <filesystem>
 #include <fstream>
 
+using Orkige::optr;
+using Orkige::woptr;
+
 using Catch::Approx;
 
 namespace

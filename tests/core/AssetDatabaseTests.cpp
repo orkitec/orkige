@@ -31,6 +31,9 @@
 #include <fstream>
 #include <unistd.h> // getpid - unique temp fixture names (parallel ctest!)
 
+using Orkige::optr;
+using Orkige::woptr;
+
 namespace
 {
 	//! RAII temp project directory (PID-suffixed - ctest runs in parallel)

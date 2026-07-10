@@ -31,10 +31,14 @@ namespace Orkige
 		return std::shared_ptr<Type>(t,NullDeleter());
 	}
 
-	//! defines a shared pointer
-#define optr std::shared_ptr
-	//! defines a weak shared pointer
-#define woptr std::weak_ptr
+	//! the engine-wide alias for SHARED ownership: use optr<T> where the old
+	//! code does; single ownership uses std::unique_ptr directly. An alias
+	//! template (not a macro), so the name stays inside namespace Orkige.
+	template<class Type>
+	using optr = std::shared_ptr<Type>;
+	//! the weak counterpart of optr
+	template<class Type>
+	using woptr = std::weak_ptr<Type>;
 
 	//! alloc optr
 	template<class Type>
