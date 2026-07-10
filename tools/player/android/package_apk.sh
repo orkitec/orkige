@@ -38,6 +38,13 @@
 #                            their package - the manifest names them fully
 #                            qualified for exactly this reason)
 #   --label <text>           app label (default "Orkige Player")
+#   --res-dir <dir>          a staged res/ tree (launcher mipmaps) to compile
+#                            into the APK; enables the launcher icon + a
+#                            windowBackground launch theme. Without it the
+#                            manifest stays resource-free (framework theme, no
+#                            icon) so a bare packaging run needs no res/.
+#   --launch-color <#RRGGBB> cold-start window background colour (needs
+#                            --res-dir; default #12161f)
 #   --output <apk>           output APK path (intermediates go to
 #                            <dir-of-apk>/apk-work instead of <build-dir>/apk)
 set -euo pipefail
@@ -50,6 +57,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PROJECT_PAYLOAD=""
 PACKAGE=""
 LABEL=""
+RES_DIR=""
+LAUNCH_COLOR="#12161f"
 OUTPUT=""
 BUILD_DIR=""
 while [ $# -gt 0 ]; do
@@ -57,6 +66,8 @@ while [ $# -gt 0 ]; do
         --project-payload) PROJECT_PAYLOAD="$2"; shift 2 ;;
         --package)         PACKAGE="$2"; shift 2 ;;
         --label)           LABEL="$2"; shift 2 ;;
+        --res-dir)         RES_DIR="$2"; shift 2 ;;
+        --launch-color)    LAUNCH_COLOR="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
         -*)                fail "unknown option '$1'" ;;
         *)                 BUILD_DIR="$1"; shift ;;
@@ -182,23 +193,66 @@ fi
     > "$STAGE/assets/orkige_assets.txt"
 echo "   $(wc -l < "$STAGE/assets/orkige_assets.txt" | tr -d ' ') bundled files"
 
+# --- resources (launcher icon + launch theme) -----------------------------
+# Compiled only when --res-dir is given (project export). A bare run stays
+# resource-free: the checked-in manifest then keeps the framework theme and no
+# icon, so aapt2 links against no res/.
+RES_LINK=()
+if [ -n "$RES_DIR" ]; then
+    [ -d "$RES_DIR" ] || fail "no res dir at $RES_DIR"
+    echo "$LAUNCH_COLOR" | grep -Eq '^#[0-9A-Fa-f]{6}$' \
+        || fail "launch-color '$LAUNCH_COLOR' is not #RRGGBB"
+    # generate the launch-screen theme + colour alongside the staged mipmaps
+    mkdir -p "$RES_DIR/values"
+    cat > "$RES_DIR/values/colors.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="launch_bg">$LAUNCH_COLOR</color>
+</resources>
+EOF
+    cat > "$RES_DIR/values/styles.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="OrkigeLaunch" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@color/launch_bg</item>
+    </style>
+</resources>
+EOF
+    echo "== aapt2 compile (res)"
+    "$BUILD_TOOLS/aapt2" compile --dir "$RES_DIR" -o "$OUT_DIR/res.zip"
+    # compiled resources are a positional link input (not -R, which is for
+    # overlaying an existing table)
+    RES_LINK=("$OUT_DIR/res.zip")
+fi
+
 # --- link + pack ----------------------------------------------------------
 # project export: package name / app label overrides go through a substituted
 # manifest copy (the activity is named fully qualified in the template, so a
-# renamed package cannot break the component resolution)
+# renamed package cannot break the component resolution). The launcher icon +
+# launch theme references only resolve once res/ is linked in, so they are
+# swapped in ONLY when --res-dir is set (a bare run keeps the resource-free
+# framework theme).
 MANIFEST="$SCRIPT_DIR/AndroidManifest.xml"
-if [ -n "$PACKAGE" ] || [ -n "$LABEL" ]; then
+if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$RES_DIR" ]; then
     MANIFEST="$OUT_DIR/AndroidManifest.xml"
-    sed -e "s|package=\"com.orkitec.orkigeplayer\"|package=\"${PACKAGE:-com.orkitec.orkigeplayer}\"|" \
-        -e "s|android:label=\"Orkige Player\"|android:label=\"${LABEL:-Orkige Player}\"|" \
-        "$SCRIPT_DIR/AndroidManifest.xml" > "$MANIFEST"
-    echo "== manifest: package ${PACKAGE:-com.orkitec.orkigeplayer}, label '${LABEL:-Orkige Player}'"
+    SED_ARGS=(
+        -e "s|package=\"com.orkitec.orkigeplayer\"|package=\"${PACKAGE:-com.orkitec.orkigeplayer}\"|"
+        -e "s|android:label=\"Orkige Player\"|android:label=\"${LABEL:-Orkige Player}\"|"
+    )
+    if [ -n "$RES_DIR" ]; then
+        SED_ARGS+=(
+            -e "s|android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\"|android:icon=\"@mipmap/ic_launcher\"\n        android:theme=\"@style/OrkigeLaunch\"|"
+        )
+    fi
+    sed "${SED_ARGS[@]}" "$SCRIPT_DIR/AndroidManifest.xml" > "$MANIFEST"
+    echo "== manifest: package ${PACKAGE:-com.orkitec.orkigeplayer}, label '${LABEL:-Orkige Player}'${RES_DIR:+, launcher icon + launch theme}"
 fi
 echo "== aapt2 link"
 "$BUILD_TOOLS/aapt2" link \
     --manifest "$MANIFEST" \
     -I "$PLATFORM_JAR" \
-    -o "$OUT_DIR/unaligned.apk"
+    -o "$OUT_DIR/unaligned.apk" \
+    ${RES_LINK[@]+"${RES_LINK[@]}"}
 echo "== packing"
 (cd "$STAGE" && zip -q -r -X "$OUT_DIR/unaligned.apk" classes.dex lib assets)
 

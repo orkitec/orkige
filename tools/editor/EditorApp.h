@@ -772,6 +772,16 @@ bool simulatorPlayerUpToDate(std::string const& udid);
 //! gated on one - see EditorDeviceTargets.cpp)
 bool hasCodesignIdentity();
 
+//! @brief is a provisioning profile configured? A signed device install needs
+//! both an identity AND a profile bound to the app id + device; the profile
+//! path comes from ORKIGE_IOS_PROVISIONING_PROFILE (machine-local, never
+//! committed - see Docs/ios-signing.md).
+bool hasProvisioningProfile();
+
+//! @brief is iOS device signing fully configured (identity AND profile)? The
+//! hardware play targets stay enumerated-but-gated until this is true.
+bool isIosSigningConfigured();
+
 //! a physically connected iOS device (enumerated, not yet deployable)
 struct IosHardwareDevice
 {

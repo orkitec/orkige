@@ -2,4 +2,6 @@
 <OrkigeProject version="1">
     <Name>Jumper Lua</Name>
     <MainScene>scenes/main.oscene</MainScene>
+    <Setting key="export.icon" value="assets/icon.png"/>
+    <Setting key="export.launch.background" value="#e9782c"/>
 </OrkigeProject>

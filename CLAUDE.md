@@ -333,8 +333,16 @@ media + project payload; a marker file makes the app boot its bundled project wi
 arguments — `PlayerBundle` in `engine_runtime/PlayerRuntime.h`), an iOS-simulator .app or
 an Android APK (via `package_apk.sh`; native-module projects are desktop-only). Output:
 `<project>/builds/<platform>/`; bundle/package ids come from the manifest Settings
-`export.macos.bundleId` / `export.android.package`. Covered by the `export_*` ctests
-(the macOS ones RUN the exported app from a neutral cwd).
+`export.macos.bundleId` / `export.android.package` / `export.ios.bundleId`. Every export
+gets a **per-project app icon** (`export.icon` source PNG resized by `Util/orkige_icons.py`
+→ macOS `.icns` / iOS loose `CFBundleIconFiles` / Android launcher mipmaps; a neutral engine
+default — `Util/make_default_icon.py` → `Util/media/orkige_default_icon.png` — when unset) and
+a **launch screen** (iOS `UILaunchScreen` for native resolution, Android `windowBackground`
+from `export.launch.background`). Signed **iOS device** builds (`--platform ios`) are gated on
+an identity + provisioning profile resolved from CLI/env (NEVER the manifest — only
+`export.ios.teamId` is committed; see `Docs/ios-signing.md`). Covered by the `export_*` ctests
+(the macOS ones RUN the exported app from a neutral cwd) plus the `orkige_icons` /
+`make_default_icon` / `orkige_export` (`--selftest`) unit ctests.
 The 2012 legacy tools and prebuilt binaries were removed from the tree (recoverable
 from history); `Util/*.py` are the live asset generators.
 

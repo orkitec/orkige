@@ -273,6 +273,28 @@ bool hasCodesignIdentity()
 		output.find("valid identities found") != std::string::npos;
 }
 
+//! @brief is a provisioning profile configured (path in
+//! ORKIGE_IOS_PROVISIONING_PROFILE, and the file exists)? The identity/profile
+//! are developer-machine specific and read from the environment, never the
+//! committed project - see Docs/ios-signing.md.
+bool hasProvisioningProfile()
+{
+	const char* profile = std::getenv("ORKIGE_IOS_PROVISIONING_PROFILE");
+	if (!profile || !*profile)
+	{
+		return false;
+	}
+	std::error_code ignored;
+	return std::filesystem::exists(profile, ignored);
+}
+
+//! iOS device signing is configured only when BOTH a codesigning identity and a
+//! provisioning profile resolve
+bool isIosSigningConfigured()
+{
+	return hasCodesignIdentity() && hasProvisioningProfile();
+}
+
 //! @brief connected iOS hardware via 'xcrun devicectl list devices'. The
 //! human-readable table has fixed labels; rather than depending on column
 //! widths, ask for the json dump and scan it crudely for the

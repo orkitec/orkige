@@ -62,6 +62,31 @@ add_test(NAME cook_shapes_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(cook_shapes_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# export app-icon pipeline self-validation: orkige_icons.py synthesises a source
+# PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
+# tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
+# headless - the icon-resize step at the tooling level.
+add_test(NAME orkige_icons_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_icons.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_icons_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
+# the checked-in engine default icon renders (corner/centre alpha invariant),
+# mirroring make_editor_icon's own self-check.
+add_test(NAME make_default_icon_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_default_icon.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_default_icon_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
+# export signing-config logic (cert-free): the iOS entitlements composition, the
+# identity/profile resolution precedence (arg over env) and the launch-colour
+# validation - the pure parts that gate a signed device export, unit-testable
+# without a certificate.
+add_test(NAME orkige_export_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_export.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:

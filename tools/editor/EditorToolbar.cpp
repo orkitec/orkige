@@ -78,10 +78,11 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			{
 #ifdef __APPLE__
 				availableSimulators = listSimulators();
-				// iOS hardware needs signed builds: only enumerate once a
-				// codesigning identity exists (the devicectl call is the
-				// slower one, so gate it too)
-				codesignIdentityPresent = hasCodesignIdentity();
+				// iOS hardware needs signed builds: only enumerate once
+				// signing is fully configured - a codesigning identity AND a
+				// provisioning profile (the devicectl call is the slower
+				// one, so gate it too)
+				codesignIdentityPresent = isIosSigningConfigured();
 				iosHardware = codesignIdentityPresent
 					? listIosHardwareDevices()
 					: std::vector<IosHardwareDevice>();
@@ -179,7 +180,9 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
 				{
 					ImGui::SetTooltip(
-						"requires an Apple Developer signing identity");
+						"requires iOS signing configuration (an Apple "
+						"Developer identity + a provisioning profile - see "
+						"Docs/ios-signing.md)");
 				}
 			}
 			for (IosHardwareDevice const& device : iosHardware)

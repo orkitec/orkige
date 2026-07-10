@@ -79,8 +79,15 @@ import sys
 import xml.etree.ElementTree as ET
 
 import cook_textures  # sibling Util helper (export-time texture cook)
+import orkige_icons  # sibling Util helper (export-time app-icon generation)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# launch-screen background colour when a project sets no export.launch.background
+# (the engine dark, matching the default icon's gradient bottom). Consumed at
+# package time to generate platform launch resources - NOT copied into the
+# payload, so it is deliberately NOT a CONFIG_SETTING_KEYS entry.
+DEFAULT_LAUNCH_BACKGROUND = "#12161f"
 
 # --platform value -> the texture-cook / import-settings platform token
 # (desktop uses the default block; the mobile flavors resolve their overrides)
@@ -212,6 +219,18 @@ def stage_project_payload(project, dest_dir, platform="macos"):
         log("cooked %d texture(s) for platform '%s'"
             % (cooked, COOK_PLATFORM.get(platform, "")))
     return staged
+
+
+def launch_background(project):
+    """the project's launch-screen background as a validated #RRGGBB string
+    (falls back to the engine default on an absent or malformed value)."""
+    value = project.settings.get("export.launch.background", "").strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+        return value
+    if value:
+        warn("export.launch.background '%s' is not a #RRGGBB colour - using "
+             "the default %s" % (value, DEFAULT_LAUNCH_BACKGROUND))
+    return DEFAULT_LAUNCH_BACKGROUND
 
 
 def write_marker(directory):
@@ -542,6 +561,16 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
     write_marker(resources)
     log("project payload: %d files" % staged)
 
+    # app icon: Contents/Resources/AppIcon.icns from export.icon (or the engine
+    # default). macOS has no launch-image concept, so this is icon-only.
+    source = orkige_icons.resolve_icon_source(project, log=log)
+    iconset = os.path.join(output_dir, project.exe_name + ".iconset")
+    orkige_icons.make_macos_iconset(
+        orkige_icons.load_square_source(source), iconset)
+    run(["iconutil", "-c", "icns", iconset,
+         "-o", os.path.join(resources, "AppIcon.icns")])
+    shutil.rmtree(iconset, ignore_errors=True)
+
     bundle_id = project.settings.get(
         "export.macos.bundleId", "com.orkitec." + project.id_slug)
     with open(os.path.join(contents, "Info.plist"), "wb") as plist:
@@ -557,6 +586,10 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
             "CFBundleVersion": "1",
             "LSMinimumSystemVersion": "11.0",
             "NSHighResolutionCapable": True,
+            # CFBundleIconFile is what macOS reads; CFBundleIconName is the
+            # modern spelling (harmless, future-proofs an asset-catalog move)
+            "CFBundleIconFile": "AppIcon",
+            "CFBundleIconName": "AppIcon",
         }, plist)
     log("bundle id %s" % bundle_id)
     return app_dir
@@ -587,7 +620,132 @@ def export_ios_simulator(project, engine_build, output_dir):
                                    "ios-simulator")
     write_marker(app_dir)
     log("project payload: %d files" % staged)
+
+    # per-project icons + Info.plist identity. The prebuilt player bundle ships
+    # the generic player identity; rewrite it to the project's and add the loose
+    # CFBundleIconFiles PNGs the simulator honours at the bundle root (no asset
+    # catalog / actool - those need non-stdlib tools). UILaunchScreen (added to
+    # the player template) opts the app into native full resolution.
+    icon_source = orkige_icons.load_square_source(
+        orkige_icons.resolve_icon_source(project, log=log))
+    icon_files = orkige_icons.make_ios_icons(icon_source, app_dir)
+    plist_path = os.path.join(app_dir, "Info.plist")
+    with open(plist_path, "rb") as handle:
+        info = plistlib.load(handle)
+    info["CFBundleIdentifier"] = project.settings.get(
+        "export.ios.bundleId", "com.orkitec." + project.id_slug)
+    info["CFBundleName"] = project.name
+    info["CFBundleDisplayName"] = project.name
+    info["CFBundleIcons"] = {"CFBundlePrimaryIcon": {
+        "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
+    info.setdefault("UILaunchScreen", {})  # native full-resolution launch
+    with open(plist_path, "wb") as handle:
+        plistlib.dump(info, handle)
+    log("bundle id %s" % info["CFBundleIdentifier"])
     log("install: xcrun simctl install <udid> '%s'" % app_dir)
+    return app_dir
+
+
+# --- iOS device (signed) ---------------------------------------------------
+# The signing IDENTITY and the provisioning PROFILE are developer-machine
+# specific and must never be committed - they come from CLI args or the
+# environment. Only the Team ID (export.ios.teamId) is a project-level, safe-to-
+# commit value. See Docs/ios-signing.md for the one-time Apple-side setup.
+
+IOS_SIGNING_IDENTITY_ENV = "ORKIGE_IOS_SIGNING_IDENTITY"
+IOS_PROVISIONING_PROFILE_ENV = "ORKIGE_IOS_PROVISIONING_PROFILE"
+
+
+def resolve_ios_signing(identity_arg, profile_arg, environ):
+    """resolve (identity, profile) for a signed iOS build: the CLI arg wins,
+    else the environment. Returns a (identity, profile) pair of strings, each
+    empty when unresolved (pure - no filesystem/subprocess, so it is unit-
+    testable without a certificate)."""
+    identity = (identity_arg or environ.get(IOS_SIGNING_IDENTITY_ENV, "")
+                ).strip()
+    profile = (profile_arg or environ.get(IOS_PROVISIONING_PROFILE_ENV, "")
+               ).strip()
+    return identity, profile
+
+
+def ios_entitlements(team_id, bundle_id):
+    """the development entitlements dict for a signed device build. Pure - the
+    same input always yields the same dict, so the composition is unit-testable
+    without codesign."""
+    app_identifier = ((team_id + "." + bundle_id) if team_id else bundle_id)
+    return {
+        "application-identifier": app_identifier,
+        "com.apple.developer.team-identifier": team_id,
+        "get-task-allow": True,  # development builds allow the debugger to attach
+    }
+
+
+def export_ios(project, engine_build, output_dir, identity, profile):
+    """package + codesign a device .app. Requires an arm64-ios (device) player
+    build - only the simulator player exists today, so this fails honestly until
+    a device player preset lands (see Docs/ios-signing.md). The signing plumbing
+    itself (entitlements, embedded profile, codesign order) is in place."""
+    if project.native_target():
+        fail("project '%s' has a native module - mobile native builds are "
+             "future work" % project.name)
+    if not os.path.isfile(profile):
+        fail("provisioning profile '%s' does not exist" % profile)
+    source_app = os.path.join(engine_build, "tools", "player",
+                              "OrkigePlayer.app")
+    if not os.path.isdir(source_app):
+        fail("no device OrkigePlayer.app at '%s' - a signed device install "
+             "needs an arm64-ios (device, not simulator) player build, which "
+             "is not wired up yet (see Docs/ios-signing.md)" % source_app)
+    bundle_id = project.settings.get(
+        "export.ios.bundleId", "com.orkitec." + project.id_slug)
+    team_id = project.settings.get("export.ios.teamId", "").strip()
+
+    app_dir = os.path.join(output_dir, project.name + ".app")
+    if os.path.exists(app_dir):
+        shutil.rmtree(app_dir)
+    shutil.copytree(source_app, app_dir, symlinks=True)
+    staged = stage_project_payload(project,
+                                   os.path.join(app_dir, PAYLOAD_DIR_NAME),
+                                   "ios")
+    write_marker(app_dir)
+    log("project payload: %d files" % staged)
+
+    icon_source = orkige_icons.load_square_source(
+        orkige_icons.resolve_icon_source(project, log=log))
+    icon_files = orkige_icons.make_ios_icons(icon_source, app_dir)
+    plist_path = os.path.join(app_dir, "Info.plist")
+    with open(plist_path, "rb") as handle:
+        info = plistlib.load(handle)
+    info["CFBundleIdentifier"] = bundle_id
+    info["CFBundleName"] = project.name
+    info["CFBundleDisplayName"] = project.name
+    info["CFBundleIcons"] = {"CFBundlePrimaryIcon": {
+        "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
+    info.setdefault("UILaunchScreen", {})
+    with open(plist_path, "wb") as handle:
+        plistlib.dump(info, handle)
+
+    # embed the provisioning profile + write the entitlements the codesign call
+    # binds into the signature
+    shutil.copy2(profile, os.path.join(app_dir, "embedded.mobileprovision"))
+    entitlements_path = os.path.join(output_dir, "entitlements.plist")
+    with open(entitlements_path, "wb") as handle:
+        plistlib.dump(ios_entitlements(team_id, bundle_id), handle)
+
+    # sign inside-out: nested dylibs/frameworks first, then the bundle (the same
+    # order the macOS self-contain step respects)
+    frameworks = os.path.join(app_dir, "Frameworks")
+    if os.path.isdir(frameworks):
+        for name in sorted(os.listdir(frameworks)):
+            run(["codesign", "--force", "--sign", identity,
+                 os.path.join(frameworks, name)])
+    run(["codesign", "--force", "--sign", identity,
+         "--entitlements", entitlements_path, "--generate-entitlement-der",
+         app_dir])
+    os.remove(entitlements_path)
+    log("signed with identity '%s' (team %s)" % (identity, team_id or "?"))
+    log("install: xcrun devicectl device install app --device <udid> '%s'"
+        % app_dir)
     return app_dir
 
 
@@ -613,6 +771,17 @@ def export_android(project, engine_build, output_dir):
     if not re.fullmatch(r"[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+", package):
         fail("'%s' is not a valid Android package name "
              "(export.android.package)" % package)
+
+    # app icon (launcher mipmaps) + launch-screen colour: stage a res/ tree the
+    # packager compiles with aapt2. The launcher label is the project name.
+    res_dir = os.path.join(output_dir, "res-staging")
+    if os.path.exists(res_dir):
+        shutil.rmtree(res_dir)
+    icon_source = orkige_icons.load_square_source(
+        orkige_icons.resolve_icon_source(project, log=log))
+    orkige_icons.make_android_mipmaps(icon_source, res_dir)
+    launch_color = launch_background(project)
+
     apk_path = os.path.join(output_dir, project.exe_name + ".apk")
     run(["bash",
          os.path.join(REPO_ROOT, "tools", "player", "android",
@@ -620,9 +789,12 @@ def export_android(project, engine_build, output_dir):
          "--project-payload", payload_dir,
          "--package", package,
          "--label", project.name,
+         "--res-dir", res_dir,
+         "--launch-color", launch_color,
          "--output", apk_path,
          engine_build])
     shutil.rmtree(payload_dir)
+    shutil.rmtree(res_dir, ignore_errors=True)
     if not os.path.isfile(apk_path):
         fail("package_apk.sh produced no '%s'" % apk_path)
     log("install: adb install -r '%s'" % apk_path)
@@ -652,13 +824,15 @@ def main():
                         help="cmake executable for native-module builds")
     parser.add_argument("--ninja", default=shutil.which("ninja") or "",
                         help="ninja executable for native-module builds")
+    # iOS device signing (--platform ios): machine-local, never committed - the
+    # arg wins, else the environment (see resolve_ios_signing)
+    parser.add_argument("--signing-identity", default="",
+                        help="iOS codesigning identity name/SHA (or env "
+                             + IOS_SIGNING_IDENTITY_ENV + ")")
+    parser.add_argument("--provisioning-profile", default="",
+                        help="path to the .mobileprovision (or env "
+                             + IOS_PROVISIONING_PROFILE_ENV + ")")
     args = parser.parse_args()
-
-    if args.platform == "ios":
-        fail("physical-device iOS export is gated on a codesigning identity "
-             "+ provisioning profile (unsigned apps cannot be installed on "
-             "hardware - the same gate as the editor's Play on an iPhone); "
-             "use --platform ios-simulator until signed deploys land")
 
     project = Project(args.project)
     engine_build = os.path.abspath(args.engine_build)
@@ -674,6 +848,18 @@ def main():
                                 args.cmake, args.ninja)
     elif args.platform == "ios-simulator":
         artifact = export_ios_simulator(project, engine_build, output_dir)
+    elif args.platform == "ios":
+        identity, profile = resolve_ios_signing(
+            args.signing_identity, args.provisioning_profile, os.environ)
+        if not identity or not profile:
+            fail("physical-device iOS export needs a codesigning identity AND "
+                 "a provisioning profile (unsigned apps cannot install on "
+                 "hardware - the same gate as the editor's Play on an iPhone). "
+                 "Set --signing-identity/" + IOS_SIGNING_IDENTITY_ENV + " and "
+                 "--provisioning-profile/" + IOS_PROVISIONING_PROFILE_ENV
+                 + ", or use --platform ios-simulator. See Docs/ios-signing.md")
+        artifact = export_ios(project, engine_build, output_dir,
+                              identity, profile)
     else:
         artifact = export_android(project, engine_build, output_dir)
 
@@ -681,5 +867,47 @@ def main():
     print("orkige_export: OK %s" % artifact, flush=True)
 
 
+def selftest():
+    """cert-free validation of the signing-config logic: the entitlements
+    composition and the identity/profile resolution precedence (arg over env).
+    The codesign call itself needs a real identity and is left to a machine with
+    one; this covers the pure parts that gate it."""
+    entitlements = ios_entitlements("ABCDE12345", "com.example.game")
+    assert entitlements["application-identifier"] == \
+        "ABCDE12345.com.example.game", "app-identifier composition"
+    assert entitlements["com.apple.developer.team-identifier"] == "ABCDE12345"
+    assert entitlements["get-task-allow"] is True
+    # no team id -> the bundle id stands alone (still a valid entitlements dict)
+    assert ios_entitlements("", "com.example.game")["application-identifier"] \
+        == "com.example.game", "app-identifier without a team id"
+
+    # resolution precedence: arg beats env, env fills a blank arg, both blank
+    # stays blank (the gate then refuses)
+    ident, profile = resolve_ios_signing("cli-id", "cli.mobileprovision", {})
+    assert (ident, profile) == ("cli-id", "cli.mobileprovision"), "args win"
+    ident, profile = resolve_ios_signing("", "", {
+        IOS_SIGNING_IDENTITY_ENV: "env-id",
+        IOS_PROVISIONING_PROFILE_ENV: "env.mobileprovision"})
+    assert (ident, profile) == ("env-id", "env.mobileprovision"), "env fallback"
+    ident, profile = resolve_ios_signing("cli-id", "", {
+        IOS_PROVISIONING_PROFILE_ENV: "env.mobileprovision"})
+    assert (ident, profile) == ("cli-id", "env.mobileprovision"), "arg+env mix"
+    assert resolve_ios_signing("", "", {}) == ("", ""), "unresolved stays blank"
+
+    # launch-background validation: a good hex passes, a bad/absent one defaults
+    class _Stub:
+        def __init__(self, value):
+            self.settings = {"export.launch.background": value} if value else {}
+    assert launch_background(_Stub("#a1b2c3")) == "#a1b2c3", "valid hex kept"
+    assert launch_background(_Stub("blue")) == DEFAULT_LAUNCH_BACKGROUND, \
+        "malformed hex -> default"
+    assert launch_background(_Stub("")) == DEFAULT_LAUNCH_BACKGROUND, \
+        "absent -> default"
+    print("orkige_export: selftest OK")
+
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) >= 2 and sys.argv[1] == "--selftest":
+        selftest()
+    else:
+        main()

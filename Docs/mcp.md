@@ -459,6 +459,17 @@ tools/call export_project { "platform":"macos" }   // authed → { accepted:"1",
 tools/call get_export_results { "jobId":"..." }     // poll → status:"done", ok:"1", artifactPath:".../MyGame.app"
 ```
 
+**Icon / launch-screen / signing config — no new verb.** The exporter now
+generates a per-project app icon (from the manifest `export.icon`, or a neutral
+engine default) and launch screen, and gates a signed `--platform ios` device
+build on a resolvable identity + provisioning profile. Every new failure mode —
+a missing/too-small `export.icon`, an `iconutil`/`aapt2` failure, an absent
+signing identity — is emitted by the exporter to stdout and flows through the
+**existing** `get_export_results` `error` + `outputTail` fields unchanged. No new
+tool and no new schema field are needed; the export verb already surfaces these
+honestly. (A signed `ios` device platform is not yet an `export_project` enum
+value — it lands as a one-line enum addition once a device player build exists.)
+
 ## Dirty-state policy
 
 Destructive verbs (`new_scene`, `open_scene`, `open_project`, `new_project`,

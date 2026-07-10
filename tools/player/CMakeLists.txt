@@ -17,6 +17,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.orkitec.orkige-player"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        # custom plist: adds UILaunchScreen so the app boots at native full
+        # resolution (the CMake default omits it -> scaled compatibility mode).
+        # The project exporter rewrites identity/name and adds icons on top.
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist.in"
     )
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # Android (preset android-debug): SDL3's application model - the APK's

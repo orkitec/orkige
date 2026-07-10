@@ -14,6 +14,7 @@ SKIP_RETURN_CODE), anything else fail.
 
 import argparse
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -79,6 +80,14 @@ def check_macos(app_dir, exe_name, run_frames, flavor):
     require(os.path.isfile(executable) and os.access(executable, os.X_OK),
             "executable Contents/MacOS/" + exe_name)
     resources = os.path.join(contents, "Resources")
+    # app icon: a non-empty AppIcon.icns + the plist key that points at it
+    icns = os.path.join(resources, "AppIcon.icns")
+    require(os.path.isfile(icns) and os.path.getsize(icns) > 0,
+            "app icon Resources/AppIcon.icns present")
+    with open(os.path.join(contents, "Info.plist"), "rb") as plist_file:
+        info = plistlib.load(plist_file)
+    require(info.get("CFBundleIconFile") == "AppIcon",
+            "Info.plist CFBundleIconFile names the icon")
     marker = os.path.join(resources, "orkige_project.txt")
     require(os.path.isfile(marker), "default-project marker present")
     with open(marker) as marker_file:
@@ -131,8 +140,8 @@ def check_ios(app_dir, flavor):
     require(os.path.isdir(app_dir), "app bundle exists: " + app_dir)
     require(os.path.isfile(os.path.join(app_dir, "OrkigePlayer")),
             "player binary present")
-    require(os.path.isfile(os.path.join(app_dir, "Info.plist")),
-            "Info.plist present")
+    plist_path = os.path.join(app_dir, "Info.plist")
+    require(os.path.isfile(plist_path), "Info.plist present")
     marker = os.path.join(app_dir, "orkige_project.txt")
     require(os.path.isfile(marker), "default-project marker present")
     require(os.path.isfile(os.path.join(app_dir, "project",
@@ -143,9 +152,22 @@ def check_ios(app_dir, flavor):
     media_subdir = "Hlms" if flavor == "next" else "Main"
     require(os.path.isdir(os.path.join(app_dir, "Media", media_subdir)),
             "engine media Media/%s bundled" % media_subdir)
+    # icon + launch screen + rewritten identity: the export must replace the
+    # generic player identity and add the loose icons + a launch screen
+    with open(plist_path, "rb") as plist_file:
+        info = plistlib.load(plist_file)
+    require("UILaunchScreen" in info, "Info.plist has a UILaunchScreen key")
+    icon_files = (info.get("CFBundleIcons", {})
+                  .get("CFBundlePrimaryIcon", {}).get("CFBundleIconFiles"))
+    require(bool(icon_files), "Info.plist lists CFBundleIconFiles")
+    require(any(name.startswith("AppIcon") and name.endswith(".png")
+                for name in os.listdir(app_dir)),
+            "loose AppIcon*.png at the bundle root")
+    require(info.get("CFBundleIdentifier") != "com.orkitec.orkige-player",
+            "CFBundleIdentifier rewritten off the generic player identity")
 
 
-def check_android(apk_path):
+def check_android(apk_path, aapt2):
     require(os.path.isfile(apk_path), "APK exists: " + apk_path)
     with zipfile.ZipFile(apk_path) as apk:
         names = set(apk.namelist())
@@ -158,6 +180,14 @@ def check_android(apk_path):
         for listed in ("orkige_project.txt", "project/project.orkproj"):
             require(listed in extraction_list.splitlines(),
                     "extraction manifest lists " + listed)
+    # launcher icon + label via aapt2 (build-tools are guaranteed by the skip
+    # guard): badging reports the compiled application-icon densities + label
+    badging = subprocess.run([aapt2, "dump", "badging", apk_path],
+                             capture_output=True, text=True, check=True).stdout
+    require("application-icon" in badging,
+            "aapt2 badging reports a launcher icon (mipmaps linked)")
+    require("mipmap" not in badging or "ic_launcher" in badging,
+            "launcher icon resolves to ic_launcher")
 
 
 def main():
@@ -176,14 +206,15 @@ def main():
             os.path.join(player_dir, "OrkigePlayer.app")):
         skip("no built iOS player app under '%s' - build the "
              "ios-simulator-debug preset to enable this test" % player_dir)
+    aapt2 = ""
     if args.platform == "android":
         if not os.path.isfile(os.path.join(player_dir, "libmain.so")):
             skip("no built Android player under '%s' - build the "
                  "android-debug preset to enable this test" % player_dir)
         sdk = os.environ.get("ANDROID_HOME",
                              os.path.expanduser("~/Library/Android/sdk"))
-        if not os.path.isfile(os.path.join(sdk, "build-tools", "35.0.0",
-                                           "aapt2")):
+        aapt2 = os.path.join(sdk, "build-tools", "35.0.0", "aapt2")
+        if not os.path.isfile(aapt2):
             skip("no Android build-tools 35.0.0 under '%s'" % sdk)
 
     # a fresh output dir per run - stale artifacts must not mask a failure
@@ -208,7 +239,7 @@ def main():
         check_ios(artifact, flavor)
     else:
         artifact = os.path.join(args.output, exe_name + ".apk")
-        check_android(artifact)
+        check_android(artifact, aapt2)
 
     log("artifact %s (%.1f MiB)" % (artifact,
         directory_size(artifact) / (1024.0 * 1024.0)))
