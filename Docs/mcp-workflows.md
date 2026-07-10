@@ -205,6 +205,16 @@ get_state {}
 // the series rises above its start then falls back - the arc is in the numbers.
 // Event lines interleave, e.g. {"t":0.5,"frame":60,"event":"contactBegin","a":"Player","b":"Ground"}.
 
+// 5c. check the HUD respects the device safe area (notch / home indicator).
+//     get_safe_area reports the window size + insets; get_ui_layout the widget
+//     rects. Assert every VISIBLE widget lies inside the safe box.
+get_safe_area {}
+//   → { "window_w":"1179", "window_h":"2556", "safe_top":"120", "safe_left":"0", ... }
+get_ui_layout {}
+//   → { "ids":["hud.mode","hud.wins"], "rects":["16 120 180 28 1","959 120 200 28 1"] }
+// for each rect "l t w h v" with v=1: assert l>=safe_left, t>=safe_top,
+// l+w<=window_w-safe_right, t+h<=window_h-safe_bottom.
+
 // 6. let it run again, then stop back to edit mode
 resume {}                                    // authed → {}
 stop {}                                      // authed → {}

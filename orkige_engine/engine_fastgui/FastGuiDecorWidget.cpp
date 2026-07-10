@@ -18,6 +18,18 @@ namespace Orkige
 	FastGuiDecorWidget::FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z) : FastGuiWidget(id, atlas, z)
 	{
 		oAssert(this->layer);
+		// empty / "none" sprite -> a SOLID whitepixel fill (panels, dimmed
+		// pause/menu backdrops); a named sprite -> the atlas region
+		const bool solid = spriteName.empty() || spriteName == "none";
+		if(solid)
+		{
+			oAssertDesc(size != Ogre::Vector2::ZERO,
+				"A spriteless (solid) decor widget needs an explicit size");
+			this->rect = this->layer->createRectangle(position, size);
+			oAssert(this->rect);
+			this->rect->background_image("none");	// solid whitepixel fill
+			return;
+		}
 		UiSprite const * sprite = this->view.lock()->getScreen()->getAtlas()->getSprite(spriteName);
 		oAssertDesc(sprite, "Warning: sprite not found: " << spriteName);
 
@@ -29,7 +41,7 @@ namespace Orkige
 		{
 			this->rect = this->layer->createRectangle(position, size);
 		}
-		
+
 		oAssert(this->rect);
 		this->rect->background_image(spriteName);
 	}
@@ -66,6 +78,17 @@ namespace Orkige
 		this->rect->background_image(spriteName);
 	}
 	//---------------------------------------------------------
+	void FastGuiDecorWidget::setColour(float red, float green, float blue,
+		float alpha)
+	{
+		this->rect->background_colour(Color(red, green, blue, alpha));
+	}
+	//---------------------------------------------------------
+	void FastGuiDecorWidget::setAlpha(float alpha)
+	{
+		this->rect->setAlpha(alpha);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -73,5 +96,10 @@ namespace Orkige
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiDecorWidget)
+		// position/size accessors are inherited from FastGuiWidget; only the
+		// decor-specific sprite/colour/alpha controls register here
+		OFUNC(setSprite)
+		OFUNC(setColour)
+		OFUNC(setAlpha)
 	OOBJECT_END
 }

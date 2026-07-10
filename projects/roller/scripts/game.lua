@@ -38,10 +38,12 @@
 -- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
 -- system (engine:hasUISystem(), see init) - LA is only read on that path
 local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
+-- keycode alias (the Lua convention: KeyEventData.KeyCode) for the pause toggle
+local KC = KeyEventData.KeyCode
 
 local FONT_HUD   = 9	-- 10x14 px glyphs in the atlas
 local FONT_TITLE = 24	-- 20x28 px glyphs
-local Z_HUD, Z_WARN, Z_WIN = 12, 13, 14
+local Z_HUD, Z_WARN, Z_WIN, Z_PAUSE = 12, 13, 14, 15
 local PROJECT_RESOURCE_GROUP = "OrkigeProject"
 
 local WARN_SECONDS = 1.2
@@ -67,6 +69,8 @@ local winTimer = 0.0
 local advanceTimer = 0.0     -- > 0 while the complete banner lingers
 local advancePending = false -- a level advance is scheduled
 local winsSeen = 0
+local paused = false         -- pause overlay up (P toggles it)
+local pauseWasDown = false   -- edge-detect the pause key
 
 -- the movable world: one entry per tile root GameObject id (slot assignments
 -- DERIVED from the scene in init), plus the tile geometry (from LevelComponent)
@@ -360,15 +364,20 @@ function init(self)
 
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 
+	-- safe-area insets (notch / rounded corners / home indicator; all zero on
+	-- desktop): keep the HUD inside the drawable box on a notched phone. Top/
+	-- side corners hug the top inset, the bottom hint sits above the home bar.
+	local safe = engine:getSafeAreaInsets()
+
 	-- HUD (z 12): mode indicator, stars counter, controls hint
-	hud.mode = factory:createLabel("hud.mode", FONT_HUD, "", Vector2(16, 16),
-		"", Z_HUD, false)
+	hud.mode = factory:createLabel("hud.mode", FONT_HUD, "",
+		Vector2(16 + safe.mLeft, 16 + safe.mTop), "", Z_HUD, false)
 	hud.wins = factory:createLabel("hud.wins", FONT_HUD,
 		"LEVEL " .. (levelIndex + 1) .. "  PAR " .. par,
-		Vector2(w - 220, 16), "", Z_HUD, false)
+		Vector2(w - 220 - safe.mRight, 16 + safe.mTop), "", Z_HUD, false)
 	hud.hint = centeredLabel("hud.hint", FONT_HUD,
 		"roll the ball to the star - rearrange the world to get there",
-		h - 34, Z_HUD)
+		h - 34 - safe.mBottom, Z_HUD)
 
 	-- warning flash (z 13): shown when a slide is refused
 	local warn = centeredLabel("warn.label", FONT_TITLE, "BALL IN TILE!",
@@ -377,11 +386,24 @@ function init(self)
 	winBanner = centeredLabel("win.banner", FONT_TITLE, "LEVEL COMPLETE!",
 		math.floor(h * 0.30), Z_WIN)
 
+	-- pause overlay (z 15, above everything): the reference pattern for a
+	-- modal screen - a full-window DecorWidget with an EMPTY sprite name (a
+	-- solid whitepixel fill) tinted dark and faded to a scrim, plus a title,
+	-- both on one top z layer toggled as a unit. P shows/hides it.
+	local pauseBackdrop = factory:createDecorWidget("pause.backdrop", "",
+		Vector2(0, 0), Vector2(w, h), "", Z_PAUSE)
+	pauseBackdrop:setColour(0.0, 0.0, 0.0, 1.0)
+	pauseBackdrop:setAlpha(0.6)
+	centeredLabel("pause.label", FONT_TITLE, "PAUSED",
+		math.floor(h * 0.42), Z_PAUSE)
+
 	layers.hud = hud.mode:getLayer()
 	layers.warn = warn:getLayer()
 	layers.win = winBanner:getLayer()
+	layers.pause = pauseBackdrop:getLayer()
 	layers.warn:setVisible(false)
 	layers.win:setVisible(false)
+	layers.pause:setVisible(false)
 
 	setMode("play")
 	print("game.lua: level " .. levelIndex .. " (\"" ..
@@ -392,6 +414,20 @@ end
 function update(self, dt)
 	if level == nil then
 		return
+	end
+
+	-- pause overlay: P toggles the dimmed modal screen; while it is up the
+	-- gameplay freezes (early return) but the HUD keeps drawing under the scrim
+	if hasUI and input ~= nil then
+		local pauseDown = input:isKeyDown(KC.KC_P)
+		if pauseDown and not pauseWasDown then
+			paused = not paused
+			layers.pause:setVisible(paused)
+		end
+		pauseWasDown = pauseDown
+		if paused then
+			return
+		end
 	end
 
 	-- level-complete: freeze input, count down the banner, then advance

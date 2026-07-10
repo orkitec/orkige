@@ -62,6 +62,7 @@
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_fastgui/FastGuiLabel.h>
 #include <engine_fastgui/FastGuiProgressBar.h>
+#include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
@@ -577,6 +578,7 @@ int main(int argc, char** argv)
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return 1;
 	}
+	Orkige::PlatformWindow::setActiveWindow(window);
 	// SDL may have clamped the request to the usable display bounds
 	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 

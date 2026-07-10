@@ -139,5 +139,10 @@ namespace Orkige
     //- private: -----------------------------------------
     //----------------------------------------------------
 	OABSTRACT_IMPL(FastGuiCheckBox)
-		OOBJECT_END
-} 
+		// settings toggle: scripts poll isChecked() and drive setChecked/toggle
+		// (position/size accessors are inherited from FastGuiWidget)
+		OFUNC(isChecked)
+		OFUNC(setChecked)
+		OFUNC(toggle)
+	OOBJECT_END
+}

@@ -19,6 +19,7 @@
 #include "engine_render_next/NextBackend.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderCamera.h"
+#include "engine_util/PlatformWindow.h"
 #include <core_event/GlobalEventManager.h>
 
 #include <OgreRoot.h>
@@ -183,6 +184,19 @@ namespace Orkige
 		return height;
 	}
 	//---------------------------------------------------------
+	SafeAreaInsets Engine::getSafeAreaInsets()
+	{
+		unsigned int width = 0;
+		unsigned int height = 0;
+		this->getRenderSystem()->getWindowSize(width, height);
+		return PlatformWindow::getSafeAreaInsets(width, height);
+	}
+	//---------------------------------------------------------
+	float Engine::getContentScale()
+	{
+		return PlatformWindow::getContentScale();
+	}
+	//---------------------------------------------------------
 	void Engine::setCameraOrthographic(float verticalHalfExtent)
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -244,6 +258,10 @@ namespace Orkige
 		// window size in pixels for UI layout
 		OFUNC(getWindowWidth)
 		OFUNC(getWindowHeight)
+		// safe-area insets (notch/home indicator) + display density: scripts
+		// anchor HUD/menus inside engine:getSafeAreaInsets()
+		OFUNC(getSafeAreaInsets)
+		OFUNC(getContentScale)
 		// 2D projection switches: engine:setCameraOrthographic(orthoSize)
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)

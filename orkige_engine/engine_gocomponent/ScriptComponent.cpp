@@ -24,6 +24,7 @@
 #include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
+#include <core_util/StringTable.h>
 #include <core_tween/TweenManager.h>
 #include <core_game/PropertyTween.h>
 
@@ -627,6 +628,41 @@ namespace Orkige
 			}
 		});
 		runtime.registerFunction("world", "findByTag", &worldFindByTag);
+
+		// ================= THE `loc` GLOBAL (localisation) =================
+		// loc("key") -> the active-language string for the key (the key itself
+		// when untranslated, so UI stays readable). loc("key", a, b, ...) -> the
+		// same with %%0%%, %%1%% ... substituted by the trailing string args.
+		// Backed by core_util/StringTable (the player loads the project's
+		// localisation file per the config-asset convention); honest without a
+		// table - returns the key.
+		runtime.registerGlobalFunction("loc",
+			[](String const & key, ScriptArgs args) -> String
+		{
+			if (!StringTable::getSingletonPtr())
+			{
+				return key;
+			}
+			// sentinel default distinguishes an absent positional arg from a
+			// legitimately empty one, so the loop stops at the real end
+			static const String kAbsent = String("\x01") + "__orkige_loc_absent__";
+			StringVector formatArgs;
+			for (int index = 0; index < 16; ++index)
+			{
+				const String value =
+					ScriptRuntime::stringArg(args, index, kAbsent);
+				if (value == kAbsent)
+				{
+					break;
+				}
+				formatArgs.push_back(value);
+			}
+			if (formatArgs.empty())
+			{
+				return StringTable::getSingleton().get(key);
+			}
+			return StringTable::getSingleton().format(key, formatArgs);
+		});
 
 		// ================= THE `sound` TABLE (the mixer) ===================
 		// Global mixer controls (per-sound volume/group live on the

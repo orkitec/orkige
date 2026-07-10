@@ -30,6 +30,8 @@
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderCamera.h"
+#include "engine_util/PlatformWindow.h"
+#include "engine_fastgui/FastGuiManager.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
 #include <SDL3/SDL_filesystem.h>
@@ -614,6 +616,9 @@ namespace Orkige
 			// check (~4 Hz) - the memory footprint moves slowly, so a few
 			// samples a second is plenty and keeps the query cost negligible
 			streamStats();
+			// the fastgui widget rects ride the same cadence: the safe-area
+			// device test reads them to assert the HUD sits inside the notch box
+			streamUiLayout();
 		}
 		streamObjectState(gameObjectManager);
 		// forward the engine-log lines captured since the last frame
@@ -1070,16 +1075,73 @@ namespace Orkige
 		{
 			return;
 		}
-		const std::size_t residentBytes = sampleMemory();
-		if (residentBytes == 0)
-		{
-			return;	// no memory query on this platform - omit the metric
-		}
 		DebugMessage stats(Protocol::MSG_STATS);
-		stats.set(Protocol::FIELD_MEM_RSS, std::to_string(residentBytes));
-		stats.set(Protocol::FIELD_MEM_RSS_PEAK,
-			std::to_string(mPeakResidentBytes));
-		mServer.send(stats);
+		bool anyField = false;
+		const std::size_t residentBytes = sampleMemory();
+		if (residentBytes != 0)	// omit the metric where the platform has none
+		{
+			stats.set(Protocol::FIELD_MEM_RSS, std::to_string(residentBytes));
+			stats.set(Protocol::FIELD_MEM_RSS_PEAK,
+				std::to_string(mPeakResidentBytes));
+			anyField = true;
+		}
+		// window size + safe-area insets (pixels): the notch-aware readback an
+		// agent asserts the HUD against. Pulled from the platform window
+		// (no Ogre spelling here - renderer containment). Absent without a
+		// render system (headless).
+		if (RenderSystem::get() != NULL)
+		{
+			unsigned int windowWidth = 0;
+			unsigned int windowHeight = 0;
+			RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+			const SafeAreaInsets insets = PlatformWindow::getSafeAreaInsets(
+				windowWidth, windowHeight);
+			stats.set(Protocol::FIELD_WINDOW_W, std::to_string(windowWidth));
+			stats.set(Protocol::FIELD_WINDOW_H, std::to_string(windowHeight));
+			stats.set(Protocol::FIELD_SAFE_LEFT, std::to_string(insets.mLeft));
+			stats.set(Protocol::FIELD_SAFE_TOP, std::to_string(insets.mTop));
+			stats.set(Protocol::FIELD_SAFE_RIGHT, std::to_string(insets.mRight));
+			stats.set(Protocol::FIELD_SAFE_BOTTOM,
+				std::to_string(insets.mBottom));
+			anyField = true;
+		}
+		if (anyField)
+		{
+			mServer.send(stats);
+		}
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::streamUiLayout()
+	{
+		if (!mServer.hasClient())
+		{
+			return;
+		}
+		FastGuiManager* manager = FastGuiManager::getSingletonPtr();
+		if (manager == NULL)
+		{
+			return;	// scriptless / HUD-less game: nothing to report
+		}
+		StringVector ids;
+		StringVector rects;
+		for (FastGuiManager::WidgetLayout const & layout :
+			manager->getWidgetLayouts())
+		{
+			ids.push_back(layout.id);
+			// one flat "left top width height visible" string per widget keeps
+			// the message a pair of parallel lists (no nested objects)
+			std::ostringstream rect;
+			rect << (long)std::lround(layout.left) << ' '
+				<< (long)std::lround(layout.top) << ' '
+				<< (long)std::lround(layout.width) << ' '
+				<< (long)std::lround(layout.height) << ' '
+				<< (layout.visible ? 1 : 0);
+			rects.push_back(rect.str());
+		}
+		DebugMessage message(Protocol::MSG_UI_LAYOUT);
+		message.setList(Protocol::LIST_UI_IDS, ids);
+		message.setList(Protocol::LIST_UI_RECTS, rects);
+		mServer.send(message);
 	}
 	//---------------------------------------------------------
 }

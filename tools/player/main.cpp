@@ -43,6 +43,8 @@
 #include <engine_input/InputManager.h>
 #include <engine_input/InputActionMap.h>
 #include <engine_sound/SoundManager.h>
+#include <engine_util/PlatformWindow.h>
+#include <core_util/StringTable.h>
 // fastgui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
 #include <engine_fastgui/FastGuiManager.h>
@@ -413,6 +415,9 @@ int main(int argc, char** argv)
 	int windowWidth = 1280;
 	int windowHeight = 720;
 	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	// register the window so the Engine can read its content scale and
+	// safe-area insets (SDL_GetWindowDisplayScale / SDL_GetWindowSafeArea)
+	Orkige::PlatformWindow::setActiveWindow(window);
 
 	int exitCode = 0;
 	{
@@ -734,6 +739,26 @@ int main(int argc, char** argv)
 		if (project.isLoaded())
 		{
 			inputActions.loadForProject(project);
+		}
+		// localisation: the Lua loc() accessor reads the active-language
+		// strings from this table. A project's localisation file (manifest
+		// Settings "localisation", config-asset convention) loads it; games
+		// without one just see the keys echoed back.
+		Orkige::StringTable stringTable;
+		if (project.isLoaded())
+		{
+			const std::string localisationRef = project.getSetting(
+				Orkige::StringTable::LOCALISATION_SETTING_KEY);
+			if (!localisationRef.empty())
+			{
+				const std::string localisationPath =
+					project.resolvePath(localisationRef);
+				if (!stringTable.loadFile(localisationPath))
+				{
+					SDL_Log("orkige_player: localisation file '%s' not loaded",
+						localisationPath.c_str());
+				}
+			}
 		}
 		QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> escapeListener =

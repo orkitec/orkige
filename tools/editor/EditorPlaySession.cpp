@@ -79,6 +79,13 @@ void clearRemoteState(PlaySession& session)
 	session.recordSeq = 0;
 	session.remoteMemRss = -1;
 	session.remoteMemRssPeak = -1;
+	session.remoteWindowW = -1;
+	session.remoteWindowH = -1;
+	session.remoteSafeLeft = -1;
+	session.remoteSafeTop = -1;
+	session.remoteSafeRight = -1;
+	session.remoteSafeBottom = -1;
+	session.remoteUiLayout.clear();
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -1183,6 +1190,42 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				session.remoteMemRssPeak = std::strtoll(
 					message.get(Protocol::FIELD_MEM_RSS_PEAK).c_str(),
 					nullptr, 10);
+			}
+			// window size + safe-area insets (pixels): the notch-safe box an
+			// agent asserts the HUD against via get_safe_area
+			auto readInt = [&](Orkige::String const& field, long long& out)
+			{
+				if (message.has(field))
+				{
+					out = std::strtoll(message.get(field).c_str(), nullptr, 10);
+				}
+			};
+			readInt(Protocol::FIELD_WINDOW_W, session.remoteWindowW);
+			readInt(Protocol::FIELD_WINDOW_H, session.remoteWindowH);
+			readInt(Protocol::FIELD_SAFE_LEFT, session.remoteSafeLeft);
+			readInt(Protocol::FIELD_SAFE_TOP, session.remoteSafeTop);
+			readInt(Protocol::FIELD_SAFE_RIGHT, session.remoteSafeRight);
+			readInt(Protocol::FIELD_SAFE_BOTTOM, session.remoteSafeBottom);
+		}
+		else if (message.type == Protocol::MSG_UI_LAYOUT)
+		{
+			// fastgui widget rects (parallel ids/rects, each rect a flat
+			// "left top width height visible" string): the get_ui_layout source
+			const Orkige::StringVector& ids =
+				message.getList(Protocol::LIST_UI_IDS);
+			const Orkige::StringVector& rects =
+				message.getList(Protocol::LIST_UI_RECTS);
+			session.remoteUiLayout.clear();
+			for (std::size_t i = 0; i < ids.size() && i < rects.size(); ++i)
+			{
+				PlaySession::RemoteWidgetRect widget;
+				widget.id = ids[i];
+				std::istringstream rectStream(rects[i]);
+				int visible = 1;
+				rectStream >> widget.left >> widget.top >> widget.width
+					>> widget.height >> visible;
+				widget.visible = visible != 0;
+				session.remoteUiLayout.push_back(widget);
 			}
 		}
 		else if (message.type == Protocol::MSG_BYE)

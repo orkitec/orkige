@@ -674,7 +674,8 @@ namespace Orkige
 				type == "runtime_hierarchy" || type == "runtime_state" ||
 				type == "read_project_file" || type == "list_project_files" ||
 				type == "list_play_targets" || type == "get_export_results" ||
-				type == "list_paint_prefabs";
+				type == "list_paint_prefabs" || type == "get_safe_area" ||
+				type == "get_ui_layout";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -1127,6 +1128,23 @@ namespace Orkige
 				  "and 'readonly'. Call runtime_select first, then poll this until "
 				  "ready='1' (the stream is asynchronous). Errors when no player "
 				  "is connected.",
+				  {} },
+				{ "get_safe_area",
+				  "The RUNNING game's window size and safe-area insets (notch / "
+				  "rounded corners / home indicator), in pixels: 'window_w', "
+				  "'window_h' and 'safe_left','safe_top','safe_right', "
+				  "'safe_bottom'. -1 until the player streams them; desktop "
+				  "insets are 0. Read-only - assert the HUD lies inside "
+				  "[safe_left, window_w-safe_right] x [safe_top, "
+				  "window_h-safe_bottom].",
+				  {} },
+				{ "get_ui_layout",
+				  "The RUNNING game's fastgui widget rects: parallel lists "
+				  "'ids' and 'rects' (each rect a flat 'left top width height "
+				  "visible' string, pixels; visible is 1/0). Streamed during "
+				  "Play; empty until the game builds its UI. Combine with "
+				  "get_safe_area to check every visible widget sits inside the "
+				  "safe box.",
 				  {} },
 				{ "runtime_select",
 				  "Choose which running-game object streams its component state "
@@ -2623,6 +2641,55 @@ namespace Orkige
 			ok.setList("kinds", kinds);
 			ok.setList("hints", hints);
 			ok.setList("readonly", readonly);
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_safe_area: the running game's window size + safe-area insets
+		// (streamed on MSG_STATS). Read-only; -1 fields = not reported yet.
+		if (type == "get_safe_area")
+		{
+			PlaySession const& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("window_w", std::to_string(play.remoteWindowW));
+			ok.set("window_h", std::to_string(play.remoteWindowH));
+			ok.set("safe_left", std::to_string(play.remoteSafeLeft));
+			ok.set("safe_top", std::to_string(play.remoteSafeTop));
+			ok.set("safe_right", std::to_string(play.remoteSafeRight));
+			ok.set("safe_bottom", std::to_string(play.remoteSafeBottom));
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_ui_layout: the running game's fastgui widget rects (streamed on
+		// MSG_UI_LAYOUT). Parallel ids/rects lists; each rect a flat
+		// "left top width height visible" string in pixels.
+		if (type == "get_ui_layout")
+		{
+			PlaySession const& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			StringVector ids;
+			StringVector rects;
+			for (PlaySession::RemoteWidgetRect const& widget :
+				play.remoteUiLayout)
+			{
+				ids.push_back(widget.id);
+				rects.push_back(std::to_string(widget.left) + " " +
+					std::to_string(widget.top) + " " +
+					std::to_string(widget.width) + " " +
+					std::to_string(widget.height) + " " +
+					(widget.visible ? "1" : "0"));
+			}
+			DebugMessage ok(MSG_OK);
+			ok.setList("ids", ids);
+			ok.setList("rects", rects);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -4622,6 +4689,66 @@ namespace Orkige
 				finish(false, "control self-test: reload_script failed");
 				return;
 			}
+			// (R8b) get_safe_area (read, no auth): the running player streams
+			// its window size + safe-area insets on MSG_STATS. Poll until the
+			// window size is reported (>0); desktop insets are 0, so the top
+			// inset is a non-negative number, and window_w must be positive.
+			if (!pollState([&](JsonValue const&) -> bool
+				{
+					JsonValue safeArea;
+					bool safeError = true;
+					return callTool("get_safe_area", JsonValue::object(), false,
+						safeArea, safeError) && !safeError &&
+						std::strtoll(safeArea.get("window_w").asString().c_str(),
+							nullptr, 10) > 0;
+				}, kPlayerPollAttempts, state))
+			{
+				finish(false, "control self-test: get_safe_area never reported a "
+					"window size for the running player");
+				return;
+			}
+			{
+				JsonValue safeArea;
+				if (!callTool("get_safe_area", JsonValue::object(), false,
+						safeArea, isError) || isError)
+				{
+					finish(false, "control self-test: get_safe_area failed");
+					return;
+				}
+				const long long topInset = std::strtoll(
+					safeArea.get("safe_top").asString().c_str(), nullptr, 10);
+				if (topInset < 0)
+				{
+					finish(false, "control self-test: get_safe_area reported a "
+						"negative top inset");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - get_safe_area OK "
+					"(window %s x %s, top inset %lld)",
+					safeArea.get("window_w").asString().c_str(),
+					safeArea.get("window_h").asString().c_str(), topInset);
+			}
+			// (R8c) get_ui_layout (read, no auth): the fixture scene carries no
+			// fastgui HUD, so the widget list is empty - but the verb must
+			// answer cleanly with the parallel ids/rects lists.
+			{
+				JsonValue layout;
+				if (!callTool("get_ui_layout", JsonValue::object(), false,
+						layout, isError) || isError)
+				{
+					finish(false, "control self-test: get_ui_layout failed");
+					return;
+				}
+				if (layout.get("ids").size() != layout.get("rects").size())
+				{
+					finish(false, "control self-test: get_ui_layout ids/rects "
+						"lists have mismatched lengths");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - get_ui_layout OK "
+					"(%zu widgets)", layout.get("ids").size());
+			}
+
 			// an unauthenticated mutation on the LIVE player must still be
 			// rejected (the auth gate holds during Play)
 			if (!callTool("pause", JsonValue::object(), false, structured,

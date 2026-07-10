@@ -11,6 +11,7 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
+#include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
@@ -20,6 +21,9 @@
 // fastgui is flavor-neutral - the
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
 #include <engine_fastgui/FastGuiManager.h>
+#include <engine_fastgui/FastGuiFactory.h>
+#include <engine_fastgui/UiAtlas.h>
+#include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
@@ -88,6 +92,7 @@ int main(int, char**)
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return 1;
 	}
+	Orkige::PlatformWindow::setActiveWindow(window);
 
 	{
 		// engine singletons normally created by Orkige::Application; the demo
@@ -796,6 +801,170 @@ int main(int, char**)
 				"lifecycle + clean no-atlas constructor failure, "
 				"engine.hasUISystem()=%d)",
 				static_cast<int>(engine.hasUISystem()));
+		}
+
+		// ORKIGE_DEMO_UI_SCALE=1: the DPI + safe-area + settings-widget
+		// selfcheck (flavor-neutral). Injects a fake content scale
+		// (ORKIGE_FAKE_CONTENT_SCALE, default 3) and a fake top safe-area inset
+		// (ORKIGE_FAKE_SAFE_TOP, default 96) through the PlatformWindow override
+		// seam, boots a real FastGuiManager on the committed fastgui atlas and
+		// asserts: UiGlyph::scale snaps to the integer content scale, an
+		// authored 160x40 button grows to a tappable size, getSafeAreaInsets
+		// reports the inset and a top-anchored label lands below it, and the
+		// bound checkbox + select menu change value.
+		if (std::getenv("ORKIGE_DEMO_UI_SCALE"))
+		{
+			const float fakeScale = std::getenv("ORKIGE_FAKE_CONTENT_SCALE")
+				? std::strtof(std::getenv("ORKIGE_FAKE_CONTENT_SCALE"), nullptr)
+				: 3.0f;
+			const unsigned int fakeTop = std::getenv("ORKIGE_FAKE_SAFE_TOP")
+				? static_cast<unsigned int>(std::strtoul(
+					std::getenv("ORKIGE_FAKE_SAFE_TOP"), nullptr, 10))
+				: 96u;
+			Orkige::PlatformWindow::setContentScaleOverride(fakeScale);
+			Orkige::SafeAreaInsets fakeInsets;
+			fakeInsets.mTop = fakeTop;
+			Orkige::PlatformWindow::setSafeAreaInsetsOverride(fakeInsets);
+
+			// the committed fastgui atlas (fastgui_default.ogui/.png)
+			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+
+			bool uiOk = true;
+			{
+				Orkige::optr<Orkige::FastGuiFactory> factory =
+					Orkige::onew(new Orkige::FastGuiFactory());
+				// the ctor drives UiGlyph::scale from the (overridden) scale
+				Orkige::FastGuiManager gui(factory, "fastgui_default");
+
+				const float expectedScale =
+					std::max(1.0f, std::round(fakeScale));
+				if (Orkige::UiGlyph::scale.x != expectedScale ||
+					Orkige::UiGlyph::scale.y != expectedScale)
+				{
+					SDL_Log("hello_orkige: FAILED - UiGlyph::scale is (%.1f,%.1f)"
+						", expected (%.1f,%.1f)", Orkige::UiGlyph::scale.x,
+						Orkige::UiGlyph::scale.y, expectedScale, expectedScale);
+					uiOk = false;
+				}
+
+				// an authored 160x40 button must scale to a tappable size
+				Orkige::woptr<Orkige::FastGuiButton> button =
+					factory->createButton("uiScaleButton", "button", 9, "OK",
+						Orkige::Vec2(100, 100), Orkige::FastGuiLabel::LA_CENTER,
+						Orkige::Vec2(160, 40), "", 5, false,
+						Orkige::FastGuiButtonBlink::BBLINK_NONE);
+				if (button.lock())
+				{
+					const float widthPx = button.lock()->getSize().x;
+					if (widthPx < 120.0f)
+					{
+						SDL_Log("hello_orkige: FAILED - a 160px button scaled to "
+							"%.1fpx, below the 120px tappable floor", widthPx);
+						uiOk = false;
+					}
+				}
+				else
+				{
+					SDL_Log("hello_orkige: FAILED - button not created");
+					uiOk = false;
+				}
+
+				// safe-area insets flow through the Engine, and a top-anchored
+				// label lands below the (injected) top inset
+				const Orkige::SafeAreaInsets insets = engine.getSafeAreaInsets();
+				if (insets.mTop != fakeTop)
+				{
+					SDL_Log("hello_orkige: FAILED - getSafeAreaInsets top=%u, "
+						"expected %u", insets.mTop, fakeTop);
+					uiOk = false;
+				}
+				float anchoredX = 0.0f;
+				float anchoredY = 0.0f;
+				Orkige::UiAnchor::place(200, 40, 8, 8,
+					engine.getWindowWidth(), engine.getWindowHeight(), insets,
+					false, false, anchoredX, anchoredY);
+				Orkige::woptr<Orkige::FastGuiLabel> hudLabel =
+					factory->createLabel("uiSafeLabel", 9, "HUD",
+						Orkige::Vec2(anchoredX, anchoredY), "", 5, false);
+				if (hudLabel.lock() &&
+					hudLabel.lock()->getPosition().y <
+						static_cast<float>(insets.mTop))
+				{
+					SDL_Log("hello_orkige: FAILED - top-anchored label y=%.1f "
+						"crosses the top inset %u",
+						hudLabel.lock()->getPosition().y, insets.mTop);
+					uiOk = false;
+				}
+
+				// a bound checkbox toggles
+				Orkige::woptr<Orkige::FastGuiCheckBox> checkBox =
+					factory->createCheckBox("uiCheck", "checkbox", 9, "SFX",
+						Orkige::Vec2(100, 300), Orkige::FastGuiLabel::LA_CENTER,
+						Orkige::Vec2::ZERO, "", 6, false);
+				if (checkBox.lock())
+				{
+					const bool before = checkBox.lock()->isChecked();
+					checkBox.lock()->toggle();
+					if (checkBox.lock()->isChecked() == before)
+					{
+						SDL_Log("hello_orkige: FAILED - checkbox toggle did not "
+							"change isChecked()");
+						uiOk = false;
+					}
+				}
+				else
+				{
+					SDL_Log("hello_orkige: FAILED - checkbox not created");
+					uiOk = false;
+				}
+
+				// a bound select menu reports a value change (the slider shares
+				// this value API)
+				Orkige::woptr<Orkige::FastGuiSelectMenu> selectMenu =
+					factory->createSelectMenu("uiSelect", "uiSelectButton",
+						"panel", 9, "Quality", Orkige::Vec2(100, 400),
+						Orkige::FastGuiLabel::LA_CENTER, Orkige::Vec2::ZERO,
+						"", 6);
+				if (selectMenu.lock())
+				{
+					Orkige::StringVector items;
+					items.push_back("Low");
+					items.push_back("Medium");
+					items.push_back("High");
+					selectMenu.lock()->setItems(items);
+					selectMenu.lock()->selectItemIndex(2, false);
+					if (selectMenu.lock()->getSelectedItemIndex() != 2)
+					{
+						SDL_Log("hello_orkige: FAILED - select menu index is "
+							"%zu, expected 2",
+							selectMenu.lock()->getSelectedItemIndex());
+						uiOk = false;
+					}
+				}
+				else
+				{
+					SDL_Log("hello_orkige: FAILED - select menu not created");
+					uiOk = false;
+				}
+
+				// the whole UI must compose a frame without crashing
+				if (!render->renderOneFrame())
+				{
+					SDL_Log("hello_orkige: FAILED - UI-scale frame did not "
+						"render");
+					uiOk = false;
+				}
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			Orkige::PlatformWindow::clearSafeAreaInsetsOverride();
+			if (!uiOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: UI-scale selfcheck passed (UiGlyph::scale "
+				"snapped, button + text scaled, safe-area anchoring, checkbox "
+				"toggle + select-menu value)");
 		}
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs

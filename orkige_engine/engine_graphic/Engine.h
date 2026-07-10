@@ -29,6 +29,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include <core_util/StringUtil.h>
 #include <core_util/PlatformUtil.h>
+#include <core_util/SafeArea.h>
 #include "engine_filesystem/BigZipArchiveFactory.h"
 
 #define MAX_MUMBER_OF_WINDOWS 8
@@ -274,6 +275,16 @@ protected:
 		unsigned int getWindowWidth();
 		//! main-window drawable height in pixels (UI layout)
 		unsigned int getWindowHeight();
+		//! @brief window-safe insets in PIXELS (notch / rounded corners / home
+		//! indicator); all zero on an unnotched desktop window. Queried from
+		//! the platform window (SDL_GetWindowSafeArea) each call. Games anchor
+		//! HUD/menu content inside the box these describe (@see UiAnchor).
+		SafeAreaInsets getSafeAreaInsets();
+		//! @brief the display's content scale: 1.0 on standard-DPI desktops,
+		//! ~2-3 on retina / phone screens. The fastgui UI system snaps this to
+		//! an integer and drives UiGlyph::scale from it at boot so pixel text
+		//! and touch targets keep a stable physical size.
+		float getContentScale();
 		//! @brief switch the window camera to ORTHOGRAPHIC projection (2D games)
 		//! @param verticalHalfExtent world units from the view center to the
 		//! top edge (the camera sees 2x this height; width follows the

@@ -255,9 +255,12 @@ namespace Orkige
 		//! query the process resident set size, fold it into the session peak
 		//! and return the current value (0 when the platform cannot query it)
 		std::size_t sampleMemory();
-		//! send an MSG_STATS metrics line (process memory) to the editor; a
-		//! no-op when the platform reports no memory (the fields are omitted)
+		//! send an MSG_STATS metrics line (process memory + window size +
+		//! safe-area insets) to the editor; a no-op when neither is available
 		void streamStats();
+		//! send an MSG_UI_LAYOUT line (fastgui widget ids + pixel rects +
+		//! visibility) to the editor; a no-op when the game has no UI system
+		void streamUiLayout();
 	};
 }
 

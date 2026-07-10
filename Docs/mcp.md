@@ -131,6 +131,8 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 | `paint_prefab(prefab, cell?, position?, suppressed?)` | **auth** — `EditorCore::paintPrefabAtCell` (paint a prefab into one grid cell as one undo step; same cell replaces its occupant) → the painted-root `id`, snapped `col`/`row`/`x`/`y`, `painted` |
 | `erase_cell(cell?, position?)` | **auth** — `EditorCore::erasePrefabAtCell` (erase the prefab instance in one grid cell as one undo step) → snapped `col`/`row`/`x`/`y`, `erased` |
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
+| `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
+| `get_ui_layout()` | the RUNNING game's fastgui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible"`, pixels; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
@@ -153,6 +155,22 @@ canonical strings: vectors space-separated (`vec3` `x y z`, `quat` `w x y z`,
 by property NAME (an unknown, read-only or unparseable value is refused without
 touching the object) and accepts the changed fields either at the top level or
 inside a `properties` object, merged into one undo step.
+
+### Game UI (fastgui) — authoring vs. readback
+
+Game UI is authored entirely in Lua and project files — screens are built by
+`ScriptComponent` scripts (see `projects/jumper-lua`, `projects/roller`). Agents
+therefore create and edit UI through the existing project-file verbs
+(`write_project_file` / `read_project_file` / `list_project_files`) and iterate
+live with `reload_script`; no UI-specific authoring tool is required. What agents
+cannot otherwise observe — the platform safe area and the resolved on-screen
+widget rects on a real device — is exposed as runtime readback: `get_safe_area`
+(the notch/home-bar insets) and `get_ui_layout` (per-widget pixel rects), both
+read-only. The machine-checkable "HUD respects the notch" assertion is: for every
+visible widget from `get_ui_layout`, its rect lies inside
+`[safe_left, window_w-safe_right] × [safe_top, window_h-safe_bottom]` from
+`get_safe_area` (the `player_safearea_device` ctest runs exactly this against a
+booted iPhone 16 simulator).
 
 ## Test runner (the evidence loop)
 

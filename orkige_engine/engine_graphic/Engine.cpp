@@ -14,6 +14,7 @@
 // root/window/scene-manager plumbing it already owns
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/StringUtil.h"
+#include "engine_util/PlatformWindow.h"
 #include <core_event/GlobalEventManager.h>
 #include <core_debug/Profile.h>
 #ifdef OGRE_STATIC_LIB
@@ -855,6 +856,19 @@ namespace Orkige
 		return height;
 	}
 	//---------------------------------------------------------
+	SafeAreaInsets Engine::getSafeAreaInsets()
+	{
+		unsigned int width = 0;
+		unsigned int height = 0;
+		this->getRenderSystem()->getWindowSize(width, height);
+		return PlatformWindow::getSafeAreaInsets(width, height);
+	}
+	//---------------------------------------------------------
+	float Engine::getContentScale()
+	{
+		return PlatformWindow::getContentScale();
+	}
+	//---------------------------------------------------------
 	void Engine::setCameraOrthographic(float verticalHalfExtent)
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -900,6 +914,11 @@ namespace Orkige
 		// getActualWidth/Height successor)
 		OFUNC(getWindowWidth)
 		OFUNC(getWindowHeight)
+		// safe-area insets (notch/home indicator) as a SafeAreaInsets value:
+		// scripts anchor HUD/menus inside engine:getSafeAreaInsets()
+		OFUNC(getSafeAreaInsets)
+		// display density for resolution-aware layout math
+		OFUNC(getContentScale)
 		// 2D projection switches: engine:setCameraOrthographic(orthoSize)
 		OFUNC(setCameraOrthographic)
 		OFUNC(setCameraPerspective)

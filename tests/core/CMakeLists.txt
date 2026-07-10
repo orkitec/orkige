@@ -30,6 +30,8 @@ add_executable(orkige_core_tests
     PropertyTweenTests.cpp
     LevelGridTests.cpp
     LevelSequenceTests.cpp
+    SafeAreaTests.cpp
+    StringTableTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

@@ -139,6 +139,14 @@ namespace Orkige
 		//! old editors ignore unknown message types, and a runtime whose
 		//! platform cannot query memory simply omits the fields.
 		extern ORKIGE_CORE_DLL const String MSG_STATS;
+		//! @brief periodic fastgui LAYOUT readback from the running game: the
+		//! id + on-screen pixel rect + visibility of every widget, so an agent
+		//! (and the safe-area device test) can assert "every visible HUD widget
+		//! lies inside the safe box". Parallel lists LIST_UI_IDS / LIST_UI_RECTS
+		//! (each rect entry "left top width height visible"). Streamed alongside
+		//! MSG_STATS when the game has a UI system; fire-and-forget like it.
+		//! Additive since protocol v1: old editors ignore unknown message types.
+		extern ORKIGE_CORE_DLL const String MSG_UI_LAYOUT;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -156,6 +164,16 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
 		extern ORKIGE_CORE_DLL const String FIELD_MEM_RSS;			//!< MSG_STATS: current resident set size in bytes
 		extern ORKIGE_CORE_DLL const String FIELD_MEM_RSS_PEAK;		//!< MSG_STATS: peak resident set size this session (bytes)
+		//! @brief MSG_STATS: the drawable window size and the safe-area insets
+		//! (all in PIXELS), so the editor/MCP can answer "is the HUD inside the
+		//! notch-safe box?" without a widget dump. Additive since protocol v1:
+		//! a runtime that cannot report them simply omits the fields.
+		extern ORKIGE_CORE_DLL const String FIELD_WINDOW_W;			//!< MSG_STATS: drawable width in pixels
+		extern ORKIGE_CORE_DLL const String FIELD_WINDOW_H;			//!< MSG_STATS: drawable height in pixels
+		extern ORKIGE_CORE_DLL const String FIELD_SAFE_LEFT;		//!< MSG_STATS: left safe-area inset (pixels)
+		extern ORKIGE_CORE_DLL const String FIELD_SAFE_TOP;			//!< MSG_STATS: top safe-area inset (pixels)
+		extern ORKIGE_CORE_DLL const String FIELD_SAFE_RIGHT;		//!< MSG_STATS: right safe-area inset (pixels)
+		extern ORKIGE_CORE_DLL const String FIELD_SAFE_BOTTOM;		//!< MSG_STATS: bottom safe-area inset (pixels)
 		//! @brief request-correlation id: a REQUEST/RESPONSE protocol
 		//! (the MCP editor control port) echoes the request's "req" value back
 		//! in its ok/err reply so an async caller can match answers to
@@ -192,6 +210,11 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String LIST_PROP_KINDS;
 		extern ORKIGE_CORE_DLL const String LIST_PROP_HINTS;
 		extern ORKIGE_CORE_DLL const String LIST_PROP_FLAGS;
+		//! @brief MSG_UI_LAYOUT: the widget ids and, parallel to them, one
+		//! "left top width height visible" rect string per id (pixels; visible
+		//! is "1"/"0"). Two lists keep the message flat (no nested objects).
+		extern ORKIGE_CORE_DLL const String LIST_UI_IDS;
+		extern ORKIGE_CORE_DLL const String LIST_UI_RECTS;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

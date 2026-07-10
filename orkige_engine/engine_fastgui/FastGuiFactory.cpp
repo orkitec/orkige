@@ -9,6 +9,7 @@
 
 #include "engine_fastgui/FastGuiFactory.h"
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_fastgui/UiAtlas.h"
 #include "engine_util/StringUtil.h"
 #include <core_util/PlatformUtil.h>
 #include <core_util/foreach.h>
@@ -25,6 +26,26 @@
 
 namespace Orkige
 {
+	namespace
+	{
+		//! @brief scale an authored pixel SIZE to the display density so a
+		//! touch target authored at e.g. 160x40 design pixels keeps a stable
+		//! physical size on a 2x-3x screen. Driven by the global UiGlyph::scale
+		//! (integer-snapped from the content scale at fastgui boot); a ZERO size
+		//! ("use the sprite's own size") passes through untouched. Positions are
+		//! left in physical pixels - they already come from getWindowWidth, and
+		//! centerHorizontal re-derives centering from the scaled size.
+		Ogre::Vector2 scaleAuthoredSize(Ogre::Vector2 const & size)
+		{
+			if(size == Ogre::Vector2::ZERO)
+			{
+				return size;
+			}
+			const float uiScale = UiGlyph::scale.x >= 1.0f
+				? UiGlyph::scale.x : 1.0f;
+			return Ogre::Vector2(size.x * uiScale, size.y * uiScale);
+		}
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -87,10 +108,11 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
+		const Ogre::Vector2 scaledSize = scaleAuthoredSize(size);
 		if (blinkState != FastGuiButtonBlink::BBLINK_NONE)
-			widget = onew(new FastGuiButtonBlink(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, _nostate, blinkState));
+			widget = onew(new FastGuiButtonBlink(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaledSize, atlas, z, _nostate, blinkState));
 		else
-			widget = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, _nostate));
+			widget = onew(new FastGuiButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaledSize, atlas, z, _nostate));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -104,7 +126,7 @@ namespace Orkige
  			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
  			return widget;
  		}
- 		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z, useCheckbox));
+ 		widget = onew(new FastGuiCheckBox(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z, useCheckbox));
  		FastGuiManager::getSingleton().addWidget(widget);
  		return widget;
  	}
@@ -118,7 +140,7 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiSelectMenu(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		widget = onew(new FastGuiSelectMenu(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -132,7 +154,7 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << " already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiDragDropButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		widget = onew(new FastGuiDragDropButton(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -146,7 +168,7 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiProgressBar(id, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		widget = onew(new FastGuiProgressBar(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}
@@ -160,7 +182,7 @@ namespace Orkige
 			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
 			return widget;
 		}
-		widget = onew(new FastGuiSlider(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, size, atlas, z));
+		widget = onew(new FastGuiSlider(id,buttonId, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
 	}

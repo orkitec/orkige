@@ -110,6 +110,30 @@ ORKIGE_MODULE(orkige_engine)
 		// (id, sprite, glyphIndex, text, position, textAlignment, size,
 		//  atlas, z) - sprite is the frame, "<sprite>_bar" the fill
 		OFUNCWEAK(createProgressBar)
+		// (id, sprite, glyphIndex, text, position, textAlignment, size,
+		//  atlas, z, useCheckbox) - settings toggle; poll isChecked()
+		OFUNCWEAK(createCheckBox)
+		// (id, buttonId, sprite, glyphIndex, text, position, textAlignment,
+		//  size, atlas, z) - settings slider; poll getSelectedItemIndex(),
+		//  set options with setItems({...})
+		OFUNCWEAK(createSlider)
+		// (id, buttonId, sprite, glyphIndex, text, position, textAlignment,
+		//  size, atlas, z) - option cycler; same value API as the slider
+		OFUNCWEAK(createSelectMenu)
+		// (id, sprite, position, size, atlas, z) - a sprite panel OR, with an
+		// empty/"none" sprite, a SOLID fill: the dimmed pause/menu backdrop
+		// (tint + fade it via setColour/setAlpha on a top z layer)
+		OFUNCWEAK(createDecorWidget)
+	OSIMPLEEXPORT_END
+
+	// safe-area insets (notch / rounded corners / home indicator) in PIXELS:
+	// engine:getSafeAreaInsets() answers this value type; scripts read the
+	// fields to anchor HUD/menus inside the drawable box (all zero on desktop)
+	OSIMPLEEXPORT(Orkige::SafeAreaInsets,SafeAreaInsets)
+		OVAR(mLeft)
+		OVAR(mTop)
+		OVAR(mRight)
+		OVAR(mBottom)
 	OSIMPLEEXPORT_END
 
 	// widget visibility rides on the shared per-z UiLayer

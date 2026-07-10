@@ -27,6 +27,10 @@ namespace Orkige
 	private:
 		//--- Methods -----------------------------------------------
 	public:
+		//! @brief create a decor rect. An empty or "none" spriteName makes a
+		//! SOLID whitepixel fill (size REQUIRED) instead of an atlas sprite -
+		//! the building block for panels and dimmed pause/menu backdrops; tint
+		//! and fade it with setColour/setAlpha.
 		FastGuiDecorWidget(String const & id, String const & spriteName, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
 		virtual ~FastGuiDecorWidget();
 
@@ -36,6 +40,11 @@ namespace Orkige
 		virtual Ogre::Vector2 getPosition();
 
 		void setSprite(String const & spriteName);
+		//! @brief tint colour (multiplies a sprite; the solid fill colour for a
+		//! spriteless decor - e.g. a semi-transparent pause scrim). 0..1 channels.
+		void setColour(float red, float green, float blue, float alpha = 1.0f);
+		//! @brief overall transparency of the rect (0..1); 0 = fully clear
+		void setAlpha(float alpha);
 		inline UiRect* getRectangle();
 	protected:
 	private:

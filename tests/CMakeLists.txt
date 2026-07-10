@@ -169,6 +169,23 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_plain PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=120;ORKIGE_DEMO_GUI=1")
 
+    # ORKIGE_DEMO_UI_SCALE: the DPI selfcheck - fake a content scale of 3 and
+    # assert UiGlyph::scale snaps to (3,3) and an authored 160px button scales
+    # to a tappable size (>= 120px). Flavor-neutral (fastgui on DrawLayer2D).
+    add_test(NAME demo_ui_scale COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_ui_scale PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_UI_SCALE=1;ORKIGE_FAKE_CONTENT_SCALE=3;ORKIGE_FAKE_SAFE_TOP=96;ORKIGE_DEMO_FRAMES=4")
+
+    # ORKIGE_DEMO_UI_SCALE with a larger injected top inset: the safe-area +
+    # settings-widget selfcheck - a top-anchored HUD label lands below the
+    # inset, and the bound checkbox / select menu change value. Same block,
+    # different inset, so the anchoring math is exercised against a real value.
+    add_test(NAME demo_ui_safe_area COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_ui_safe_area PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_UI_SCALE=1;ORKIGE_FAKE_CONTENT_SCALE=2;ORKIGE_FAKE_SAFE_TOP=140;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES
@@ -457,6 +474,20 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         set_tests_properties(editor_play_simulator_boot PROPERTIES
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_SIMULATOR=auto-shutdown"
+            SKIP_RETURN_CODE 77)
+
+        # the safe-area DEVICE gate: play roller (its Lua HUD anchors to the
+        # safe area) on a booted iPhone 16 simulator - a Dynamic Island device,
+        # so a real non-zero top inset - and assert over the debug protocol that
+        # the reported top inset is > 0 and every visible HUD widget sits inside
+        # the safe box (MSG_STATS safe-area + MSG_UI_LAYOUT). SKIPPED (exit 77)
+        # when no simulator with the player app is prepared - build the
+        # ios-simulator-debug(-next) preset and boot an iPhone 16 sim first.
+        add_test(NAME player_safearea_device COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_safearea_device PROPERTIES
+            ENVIRONMENT
+                "ORKIGE_EDITOR_SAFEAREA_CHECK=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_EDITOR_PLAY_SIMULATOR=auto"
             SKIP_RETURN_CODE 77)
     endif()
 
@@ -861,7 +892,7 @@ endif()
 # (ctest --preset desktop) can exclude them; run them via ctest --preset all
 # when deploy/device code changed or before handing work over.
 foreach(device_test editor_play_simulator editor_play_simulator_boot
-        editor_play_android)
+        editor_play_android player_safearea_device)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

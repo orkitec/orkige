@@ -618,6 +618,28 @@ struct PlaySession
 	//! as n/a. Reset by clearRemoteState.
 	long long remoteMemRss = -1;
 	long long remoteMemRssPeak = -1;
+	//! running-game window size + safe-area insets (MSG_STATS), in pixels;
+	//! -1 = not reported yet. The MCP get_safe_area verb surfaces these so an
+	//! agent can assert the HUD sits inside the notch-safe box. Reset by
+	//! clearRemoteState.
+	long long remoteWindowW = -1;
+	long long remoteWindowH = -1;
+	long long remoteSafeLeft = -1;
+	long long remoteSafeTop = -1;
+	long long remoteSafeRight = -1;
+	long long remoteSafeBottom = -1;
+	//! running-game fastgui widget layout (MSG_UI_LAYOUT): one entry per widget,
+	//! parallel ids/rects. The MCP get_ui_layout verb serves these.
+	struct RemoteWidgetRect
+	{
+		std::string id;
+		long long left = 0;
+		long long top = 0;
+		long long width = 0;
+		long long height = 0;
+		bool visible = true;
+	};
+	std::vector<RemoteWidgetRect> remoteUiLayout;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;

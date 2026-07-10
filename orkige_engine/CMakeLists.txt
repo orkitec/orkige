@@ -70,6 +70,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_util/ResourceUtil.cpp
     engine_util/NodeUtil.h
     engine_util/FrameStatsUtil.h
+    engine_util/PlatformWindow.h
+    engine_util/PlatformWindow.cpp
     engine_util/SceneNodeGuard.h
     engine_util/SceneNodeGuard.cpp
     # Engine.h dispatches per flavor: the classic bootstrapper below or the

@@ -31,6 +31,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include <core_event/Event.h>
 #include <core_util/StringUtil.h>
+#include <core_util/SafeArea.h>
 
 #include <map>
 #include <memory>
@@ -102,6 +103,10 @@ namespace Orkige
 		unsigned int getWindowWidth();
 		//! main-window drawable height in pixels (UI layout)
 		unsigned int getWindowHeight();
+		//! @copydoc Engine::getSafeAreaInsets (classic)
+		SafeAreaInsets getSafeAreaInsets();
+		//! @copydoc Engine::getContentScale (classic)
+		float getContentScale();
 		//! @copydoc Engine::setCameraOrthographic (classic)
 		void setCameraOrthographic(float verticalHalfExtent);
 		//! switch the window camera back to PERSPECTIVE projection

@@ -42,6 +42,7 @@ namespace Orkige
 		const String MSG_SCREENSHOT_SAVED	= "screenshot_saved";
 		const String MSG_RECORD_SAVED		= "record_saved";
 		const String MSG_STATS				= "stats";
+		const String MSG_UI_LAYOUT			= "ui_layout";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";
@@ -58,6 +59,12 @@ namespace Orkige
 		const String FIELD_LEVEL			= "level";
 		const String FIELD_MEM_RSS			= "mem_rss";
 		const String FIELD_MEM_RSS_PEAK		= "mem_rss_peak";
+		const String FIELD_WINDOW_W			= "win_w";
+		const String FIELD_WINDOW_H			= "win_h";
+		const String FIELD_SAFE_LEFT		= "safe_l";
+		const String FIELD_SAFE_TOP			= "safe_t";
+		const String FIELD_SAFE_RIGHT		= "safe_r";
+		const String FIELD_SAFE_BOTTOM		= "safe_b";
 		const String FIELD_REQ				= "req";
 		const String FIELD_TOKEN			= "token";
 		const String LIST_IDS				= "ids";
@@ -68,6 +75,8 @@ namespace Orkige
 		const String LIST_PROP_KINDS		= "pkinds";
 		const String LIST_PROP_HINTS		= "phints";
 		const String LIST_PROP_FLAGS		= "pflags";
+		const String LIST_UI_IDS			= "ui_ids";
+		const String LIST_UI_RECTS			= "ui_rects";
 	}
 
 	namespace

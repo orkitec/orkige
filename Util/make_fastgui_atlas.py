@@ -11,6 +11,8 @@ license-clean generator:
   * procedurally drawn UI sprites (rounded rects with borders): panel,
     button + _over/_down/_disabled states, progressbar frame and
     progressbar_bar fill (the name FastGuiProgressBar hardcodes),
+    checkbox_off / checkbox_on (the settings toggle states) and the
+    select_menu_field / _left / _right fields the SelectMenu+Slider use,
   * the designated 4x4 whitepixel block the UI renderer uses for solid fills.
 
 .ogui format (what Orkige::UiAtlas actually parses - see
@@ -157,10 +159,16 @@ FONT_ROWS = 7
 RANGE_BEGIN = 33
 RANGE_END = 126
 
-TEXTURE_SIZE = 512
+# 1024 so the larger integer font scales (Font.36/Font.48, for high-DPI
+# titles) fit alongside Font.9/Font.24 and the sprites. The runtime normalizes
+# every metric by the actual texture size (RenderSystem::getTextureSize), so
+# the size is not baked into any consumer.
+TEXTURE_SIZE = 1024
 
-#: (glyphDataIndex, pixel scale) - Font.9 = HUD text, Font.24 = titles
-FONTS = [(9, 2), (24, 4)]
+#: (glyphDataIndex, pixel scale) - Font.9 = HUD text, Font.24 = titles,
+#: Font.36 / Font.48 = the crisp integer upscales high-DPI screens pick so big
+#: text stays sharp when the UI scales (point-filtered, so scale must be whole)
+FONTS = [(9, 2), (24, 4), (36, 6), (48, 8)]
 
 TEXT_COLOUR = (255, 255, 255, 255)
 
@@ -367,6 +375,26 @@ def build_atlas(out_dir, atlas_name):
                draw_rounded_rect(canvas, x, y, w, h, 2, bar_fill_top,
                                  (200, 255, 190, 255),
                                  fill_gradient=bar_fill_bottom))
+
+    # settings widgets: the checkbox toggle states and the select-menu /
+    # slider field + arrows. Unused by the HUD games but present so a settings
+    # screen (FastGuiCheckBox / FastGuiSelectMenu / FastGuiSlider) has art.
+    checkbox_off_fill = (40, 46, 58, 255)
+    checkbox_on_fill = (110, 214, 92, 255)
+    add_sprite("checkbox_off", 0, y0 + 72, 28, 28, lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 4, checkbox_off_fill,
+                                 white))
+    add_sprite("checkbox_on", 32, y0 + 72, 28, 28, lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 4, checkbox_on_fill,
+                                 (200, 255, 190, 255)))
+    add_sprite("select_menu_field", 64, y0 + 72, 96, 24, lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white))
+    add_sprite("select_menu_field_left", 164, y0 + 72, 16, 24,
+               lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 3, button_over, white))
+    add_sprite("select_menu_field_right", 184, y0 + 72, 16, 24,
+               lambda x, y, w, h:
+               draw_rounded_rect(canvas, x, y, w, h, 3, button_over, white))
 
     for name, x, y, w, h in sprite_defs:
         ogui.append(f"{name} {x} {y} {w} {h}")

@@ -237,6 +237,22 @@ namespace Orkige
 			(void)function;
 #endif
 		}
+
+		//! @brief register a C++ callable as a top-level global function (not
+		//! under a table) - the loc() localisation accessor uses it so scripts
+		//! call loc("key") directly. No-op without a backend.
+		template<typename Callable>
+		void registerGlobalFunction(char const * functionName,
+			Callable && function)
+		{
+#ifdef ORKIGE_LUA
+			this->luaManager.state()[functionName] =
+				std::forward<Callable>(function);
+#else
+			(void)functionName;
+			(void)function;
+#endif
+		}
 	protected:
 	private:
 		//! the honest OFF-configuration error message

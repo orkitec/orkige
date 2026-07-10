@@ -29,6 +29,18 @@ namespace Orkige
 		typedef std::list<optr<FastGuiView> > FastGuiViewList;
 		typedef std::map<String, optr<FastGuiWidget> > FastGuiWidgetMap;
 		typedef std::list<optr<FastGuiWidget> > FastGuiWidgetList;
+		//! @brief flattened on-screen layout of one widget for remote
+		//! inspection (the MSG_UI_LAYOUT debug readback): id + pixel rect +
+		//! effective visibility (its layer's visible flag)
+		struct WidgetLayout
+		{
+			String	id;
+			float	left = 0.0f;
+			float	top = 0.0f;
+			float	width = 0.0f;
+			float	height = 0.0f;
+			bool	visible = true;
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -119,6 +131,10 @@ namespace Orkige
 
 		//! returns true if given point is over any widget
 		bool isPointOverWidget(Ogre::Vector2 const & point);
+		//! @brief snapshot every widget's id, pixel rect and visibility - the
+		//! source of the MSG_UI_LAYOUT readback an agent asserts "HUD inside the
+		//! safe box" against. Order follows the widget map (stable by id).
+		std::vector<WidgetLayout> getWidgetLayouts();
 	protected:
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameStarted(Orkige::Event const & event);

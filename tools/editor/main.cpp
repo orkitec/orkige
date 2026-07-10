@@ -45,6 +45,7 @@
 #include <engine_input/InputManager.h>
 #include <engine_render/DrawLayer2D.h>
 #include <engine_util/StringUtil.h>
+#include <engine_util/PlatformWindow.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelSequence.h>
@@ -184,6 +185,9 @@ int main(int argc, char** argv)
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return 1;
 	}
+	// let the Engine read this window's content scale / safe area (harmless in
+	// the editor - it drives the fastgui UI scale a spawned player uses too)
+	Orkige::PlatformWindow::setActiveWindow(window);
 
 	int exitCode = 0;
 	{
@@ -876,6 +880,19 @@ int main(int argc, char** argv)
 		// (instantiateAssetIntoScene). Exits non-zero on any failed assertion.
 		const char* assetTestEnv = std::getenv("ORKIGE_EDITOR_ASSETTEST");
 
+		// ORKIGE_EDITOR_SAFEAREA_CHECK=<project dir>: the safe-area DEVICE run
+		// (the player_safearea_device ctest). Combined with
+		// ORKIGE_EDITOR_PLAY_SIMULATOR=auto it opens the project, plays it on a
+		// booted iOS simulator (iPhone 16 - a Dynamic Island device, so a
+		// non-zero top inset) and, once the player streams its window size +
+		// safe-area insets (MSG_STATS) and its fastgui widget rects
+		// (MSG_UI_LAYOUT), asserts the reported top inset is > 0 and every
+		// visible HUD widget lies inside the safe box. Then Stop. The simulator
+		// selection above already SKIPs (exit 77) when no sim is prepared, so
+		// this run only executes on a real notched-device profile.
+		const char* safeAreaCheckEnv =
+			std::getenv("ORKIGE_EDITOR_SAFEAREA_CHECK");
+
 		// a plain interactive launch reopens the last project
 		// (toggleable in View Settings; automation runs are exempt via
 		// automatedRun so every scripted test keeps its empty-start
@@ -1058,6 +1075,13 @@ int main(int argc, char** argv)
 		size_t playtestLocalObjects = 0;
 		unsigned long playtestScreenshotFrame = 0;
 		unsigned long playtestInterfereFrame = 0;
+
+		// safe-area device run state (ORKIGE_EDITOR_SAFEAREA_CHECK)
+		enum class SafeAreaPhase { Idle, WaitStream, WaitStop, Done };
+		SafeAreaPhase safeAreaPhase = SafeAreaPhase::Idle;
+		std::chrono::steady_clock::time_point safeAreaDeadline;
+		bool safeAreaFailed = false;
+		std::string safeAreaFailure;
 
 		// ORKIGE_EDITOR_LEVELPAINT=<roller project dir>: the level-paint state
 		// seam test (editor_level_paint ctest). Frame 10 copies the project to a
@@ -4422,6 +4446,142 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_editor: playtest FAILED - %s",
 						playtestFailure.c_str());
+					exitCode = 2;
+					running = false;
+				}
+			}
+
+			// --- scripted safe-area DEVICE run (ORKIGE_EDITOR_SAFEAREA_CHECK) -
+			// plays a project on a booted iOS simulator and asserts, over the
+			// debug protocol, that the notch top inset is reported > 0 and every
+			// visible HUD widget sits inside the safe box. The simulator
+			// selection earlier already exited 77 (skip) when no sim exists.
+			if (safeAreaCheckEnv)
+			{
+				const std::chrono::steady_clock::time_point safeAreaNow =
+					std::chrono::steady_clock::now();
+				if (safeAreaPhase == SafeAreaPhase::Idle && frameCount == 10)
+				{
+					if (!openProjectFromPath(state, editorCore,
+						safeAreaCheckEnv))
+					{
+						safeAreaFailed = true;
+						safeAreaFailure = std::string("could not open project '")
+							+ safeAreaCheckEnv + "'";
+					}
+				}
+				else if (safeAreaPhase == SafeAreaPhase::Idle &&
+					frameCount == 40)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						safeAreaFailed = true;
+						safeAreaFailure = "startPlay failed";
+					}
+					else
+					{
+						safeAreaPhase = SafeAreaPhase::WaitStream;
+						safeAreaDeadline =
+							safeAreaNow + std::chrono::seconds(240);
+					}
+				}
+				else if (safeAreaPhase == SafeAreaPhase::WaitStream)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						safeAreaFailed = true;
+						safeAreaFailure =
+							"play session ended before the safe-area stream";
+					}
+					// wait for BOTH the safe-area insets (MSG_STATS) and at
+					// least one widget rect (MSG_UI_LAYOUT) to arrive
+					else if (playSession.remoteSafeTop >= 0 &&
+						playSession.remoteWindowW > 0 &&
+						!playSession.remoteUiLayout.empty())
+					{
+						if (playSession.remoteSafeTop <= 0)
+						{
+							safeAreaFailed = true;
+							safeAreaFailure = "reported top safe-area inset is "
+								"not > 0 (expected a notch on the iPhone 16 "
+								"profile)";
+						}
+						else
+						{
+							const long long boxLeft = playSession.remoteSafeLeft;
+							const long long boxTop = playSession.remoteSafeTop;
+							const long long boxRight = playSession.remoteWindowW -
+								playSession.remoteSafeRight;
+							const long long boxBottom =
+								playSession.remoteWindowH -
+								playSession.remoteSafeBottom;
+							for (auto const& widget : playSession.remoteUiLayout)
+							{
+								if (!widget.visible)
+								{
+									continue;
+								}
+								if (widget.left < boxLeft ||
+									widget.top < boxTop ||
+									(widget.left + widget.width) > boxRight ||
+									(widget.top + widget.height) > boxBottom)
+								{
+									safeAreaFailed = true;
+									safeAreaFailure = "widget '" + widget.id +
+										"' lies outside the safe box";
+									break;
+								}
+							}
+						}
+						if (!safeAreaFailed)
+						{
+							SDL_Log("orkige_editor: safe-area device run - top "
+								"inset %lld px, %zu HUD widgets inside the safe "
+								"box", playSession.remoteSafeTop,
+								playSession.remoteUiLayout.size());
+						}
+						requestStopPlay(playSession);
+						safeAreaPhase = SafeAreaPhase::WaitStop;
+						safeAreaDeadline =
+							safeAreaNow + std::chrono::seconds(30);
+					}
+				}
+				else if (safeAreaPhase == SafeAreaPhase::WaitStop)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						SDL_Log("orkige_editor: safe-area device run PASSED");
+#ifdef __APPLE__
+						if (playSession.simulatorBootedByEditor &&
+							!playSession.simulatorUdid.empty())
+						{
+							const char* shutdownArgs[] = { "/usr/bin/xcrun",
+								"simctl", "shutdown",
+								playSession.simulatorUdid.c_str(), nullptr };
+							std::string shutdownOutput;
+							int shutdownExit = 0;
+							runProcessCaptured(shutdownArgs, shutdownOutput,
+								shutdownExit);
+						}
+#endif
+						safeAreaPhase = SafeAreaPhase::Done;
+						running = false;
+					}
+				}
+				if (!safeAreaFailed &&
+					safeAreaPhase != SafeAreaPhase::Idle &&
+					safeAreaPhase != SafeAreaPhase::Done &&
+					safeAreaNow >= safeAreaDeadline)
+				{
+					safeAreaFailed = true;
+					safeAreaFailure = "deadline exceeded in safe-area phase " +
+						std::to_string(static_cast<int>(safeAreaPhase));
+				}
+				if (safeAreaFailed)
+				{
+					SDL_Log("orkige_editor: safe-area device run FAILED - %s",
+						safeAreaFailure.c_str());
 					exitCode = 2;
 					running = false;
 				}

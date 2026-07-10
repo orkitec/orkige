@@ -16,6 +16,8 @@
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_game/GameStateManager.h>
+#include <algorithm>
+#include <cmath>
 
 namespace Orkige
 {
@@ -26,6 +28,17 @@ namespace Orkige
 	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false)
 	{
 		oAssert(this->factory);
+		// drive the pixel-font UI scale from the display density so a 14px
+		// glyph stays ~14pt physical on a retina / phone screen; integer-snap
+		// keeps the point-filtered atlas crisp (fractional sampling blurs it).
+		// Engine is the app singleton on both flavors; without one (a pure
+		// headless atlas-parse test) the scale stays the default 1.
+		if(Engine::getSingletonPtr())
+		{
+			const float contentScale = Engine::getSingleton().getContentScale();
+			const float uiScale = std::max(1.0f, std::round(contentScale));
+			UiGlyph::scale = Vec2(uiScale, uiScale);
+		}
 		this->getCreateView(this->defaultAtlas, group);
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&FastGuiManager::onFrameRenderingQueued,	this);
 		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&FastGuiManager::onGameStateChanged,		this);
@@ -384,6 +397,34 @@ namespace Orkige
 			}
 		}
 		return false;
+	}
+	//---------------------------------------------------------
+	std::vector<FastGuiManager::WidgetLayout> FastGuiManager::getWidgetLayouts()
+	{
+		std::vector<WidgetLayout> layouts;
+		layouts.reserve(this->widgets.size());
+		foreach(FastGuiWidgetMap::value_type const & entry, this->widgets)
+		{
+			optr<FastGuiWidget> widget = entry.second;
+			if(!widget)
+			{
+				continue;
+			}
+			WidgetLayout layout;
+			layout.id = entry.first;
+			Ogre::Vector2 position = widget->getPosition();
+			Ogre::Vector2 size = widget->getSize();
+			layout.left = position.x;
+			layout.top = position.y;
+			layout.width = size.x;
+			layout.height = size.y;
+			// on-screen visibility rides on the widget's z layer (games toggle
+			// whole screens by their layer, @see the win-screen trick)
+			layout.visible = widget->getLayer() != NULL
+				? widget->getLayer()->isVisible() : true;
+			layouts.push_back(layout);
+		}
+		return layouts;
 	}
 	//---------------------------------------------------------
 	//---------------------------------------------------------

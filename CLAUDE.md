@@ -357,6 +357,23 @@ look when touching one:
   import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
+- **Game UI** (`engine_fastgui`, both flavors): the retained widget set (label/
+  button/checkbox/slider/select-menu/progressbar/decor) is Lua-authored via
+  `FastGuiFactory` (`createCheckBox`/`createSlider`/`createSelectMenu`/
+  `createDecorWidget` bound — a spriteless DecorWidget is a solid scrim for pause
+  overlays). **UI scale**: `Engine::getContentScale()` (SDL display scale) drives
+  the dormant `UiGlyph::scale` at fastgui boot (integer-snapped) and scales
+  authored widget sizes in `FastGuiFactory`, so pixel text/touch targets keep a
+  physical size on 2×–3× screens (larger integer font atlas entries in
+  `make_fastgui_atlas.py`). **Safe areas**: `Engine::getSafeAreaInsets()`
+  (`SDL_GetWindowSafeArea`, via `engine_util/PlatformWindow`; the app registers
+  its SDL window) + the pure `core_util/SafeArea.h` `UiAnchor::place`; scripts read
+  `engine:getSafeAreaInsets()` to keep the HUD off the notch/home bar.
+  **Localisation**: `core_util/StringTable` (backend-neutral, `[lang]` key=value
+  files, `%%0%%` formatting, config-asset `Settings "localisation"`) with the Lua
+  `loc(key[, args…])` accessor (classic `engine_base/Localisation` stays as-is —
+  Ogre-tied, unused by the Lua/next ship path). MCP readback: `get_safe_area` /
+  `get_ui_layout` over `MSG_STATS` safe-area fields + `MSG_UI_LAYOUT`.
 - **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
   and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
   snapped to a grid in 2D mode — the cell size comes from a scene

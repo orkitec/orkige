@@ -189,7 +189,18 @@ namespace Orkige
 	//- private: -----------------------------------------
 	//----------------------------------------------------
 	OABSTRACT_IMPL(FastGuiSelectMenu)
-		OOBJECT_END
+		// option cycler / settings value: scripts poll getSelectedItemIndex()
+		// and drive it via selectItemIndex/selectItem; setItems takes a Lua
+		// array of option strings. FastGuiSlider inherits all of this - its
+		// grip value IS the selected item index.
+		OFUNC(setItems)
+		OFUNC(getSelectedItemIndex)
+		OFUNC(getSelectedItem)
+		OFUNC(selectItemIndex)
+		OFUNC(selectItem)
+		OFUNC(getCaption)
+		OFUNC(setCaption)
+	OOBJECT_END
 
 
 } 
