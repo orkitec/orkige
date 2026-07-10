@@ -298,7 +298,9 @@ jobs:
   # is expected to be stable; promote to required once proven.
   macos-next:
     name: macOS next (Metal) - build + unit
-    runs-on: macos-14
+    # macos-15's default toolchain: openal-soft 1.25 needs a newer AppleClang
+    # than the macos-14 image ships (CTAD in its event handling)
+    runs-on: macos-15
     continue-on-error: true
     timeout-minutes: 240
     env:
