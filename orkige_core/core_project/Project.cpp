@@ -342,7 +342,9 @@ namespace Orkige
 			absolutePath, fsError).lexically_normal();
 		const std::filesystem::path relative =
 			absolute.lexically_relative(mRootDirectory);
-		if (relative.empty() || relative.native().starts_with(".."))
+		// generic_string: path::native() is wide on Windows, and the ".."
+		// containment probe wants one portable spelling
+		if (relative.empty() || relative.generic_string().starts_with(".."))
 		{
 			return String(); // outside the project root
 		}
