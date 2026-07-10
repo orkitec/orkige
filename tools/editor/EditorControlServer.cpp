@@ -97,6 +97,29 @@ namespace Orkige
 		std::mutex mutex;
 		TestRunResult result;
 	};
+	//! the structured outcome of one export_project job. Filled by the worker,
+	//! read by get_export_results. Either error (the run could not even start /
+	//! the exporter failed) OR ok + artifactPath.
+	struct ExportRunResult
+	{
+		String platform;		//!< the requested platform (echoed back)
+		String engineBuild;		//!< the build tree the exporter packaged from
+		String error;			//!< non-empty: the export failed / was refused
+		bool ok = false;
+		String artifactPath;	//!< from the exporter's "OK <path>" line
+		String outputTail;		//!< tail of the exporter's combined output
+	};
+	//! one asynchronous export. Same lifecycle as EditorTestJob: a worker thread
+	//! runs Util/orkige_export.py, parks the verdict under mutex and flips done;
+	//! get_export_results reports "running" until then, the result after.
+	struct EditorExportJob
+	{
+		std::string id;
+		std::thread worker;
+		std::atomic<bool> done{ false };
+		std::mutex mutex;
+		ExportRunResult result;
+	};
 
 	namespace
 	{
@@ -450,6 +473,150 @@ namespace Orkige
 			job->result = std::move(result);
 			job->done.store(true);
 		}
+		//---------------------------------------------------------
+		//--- export helpers (export_project / get_export_results) --
+		//---------------------------------------------------------
+		//! read a variable's value out of a build tree's CMakeCache.txt (the
+		//! "KEY:TYPE=value" lines), "" when the cache or key is absent. Used to
+		//! check an export tree's render flavor before spawning the exporter.
+		String readCmakeCacheVar(String const& buildDir, String const& key)
+		{
+			std::ifstream cache(
+				(std::filesystem::path(buildDir) / "CMakeCache.txt").string(),
+				std::ios::binary);
+			if (!cache)
+			{
+				return String();
+			}
+			String line;
+			const String needle = key + ":";
+			while (std::getline(cache, line))
+			{
+				if (line.rfind(needle, 0) == 0)
+				{
+					const size_t eq = line.find('=');
+					if (eq != String::npos)
+					{
+						String value = line.substr(eq + 1);
+						if (!value.empty() && value.back() == '\r')
+						{
+							value.pop_back();
+						}
+						return value;
+					}
+				}
+			}
+			return String();
+		}
+		//! @brief resolve the engine build tree the exporter packages from for a
+		//! platform - mirrors EditorExport.cpp's startExport: THIS editor's tree
+		//! for macOS, the mobile preset trees for the device targets.
+		String resolveExportTree(String const& platform)
+		{
+			namespace fs = std::filesystem;
+			if (platform == "ios-simulator")
+			{
+				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
+					"ios-simulator-debug").string();
+			}
+			if (platform == "android")
+			{
+				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
+					"android-debug").string();
+			}
+			return ORKIGE_EDITOR_ENGINE_BUILD_DIR;	// macos: this editor's tree
+		}
+		//! @brief point a play session at a target the picker enumerates, by the
+		//! id list_play_targets reports: ''/'desktop' = the local player, an iOS
+		//! simulator UDID or an adb serial = that device. Sets the same session
+		//! fields the toolbar picker does; false (+ reason) for an unknown id.
+		bool applyPlayTarget(PlaySession& session, String const& target,
+			String& outError)
+		{
+			// reset to the desktop player first (a fresh pick each time)
+			session.simulatorUdid.clear();
+			session.simulatorLabel.clear();
+			session.androidSerial.clear();
+			session.androidLabel.clear();
+			if (target.empty() || target == "desktop")
+			{
+				return true;
+			}
+#ifdef __APPLE__
+			for (SimulatorDevice const& device : listSimulators())
+			{
+				if (device.udid == target)
+				{
+					session.simulatorUdid = device.udid;
+					session.simulatorLabel = device.name;
+					return true;
+				}
+			}
+#endif
+			for (AndroidDevice const& device : listAdbDevices())
+			{
+				if (device.serial == target)
+				{
+					session.androidSerial = device.serial;
+					session.androidLabel = device.label;
+					return true;
+				}
+			}
+			outError = "unknown play target '" + target +
+				"' (call list_play_targets for the available ids)";
+			return false;
+		}
+		//! @brief the export_project worker body: run Util/orkige_export.py for
+		//! the project and parse its "orkige_export: OK <path>" line. Runs on its
+		//! own thread; parks the verdict under job->mutex and flips job->done.
+		//! The command is built on the main thread (Project is not thread-safe)
+		//! and handed in whole.
+		void runExportJobWorker(EditorExportJob* job, ExportRunResult params,
+			std::vector<std::string> command)
+		{
+			ExportRunResult result = params;
+			std::string output;
+			int exitCode = 0;
+			const bool spawned = runProcessCapture(command, output, exitCode);
+			result.outputTail = lastLines(output, 60);
+			if (!spawned)
+			{
+				result.error = "could not start the exporter: " + output;
+			}
+			else if (exitCode != 0)
+			{
+				result.error = "export failed (exit " +
+					std::to_string(exitCode) + ")";
+			}
+			else
+			{
+				// the exporter prints "orkige_export: OK <path>" on success
+				const String marker = "orkige_export: OK ";
+				const size_t at = output.rfind(marker);
+				if (at != String::npos)
+				{
+					size_t end = output.find('\n', at);
+					String path = output.substr(at + marker.size(),
+						end == String::npos ? String::npos
+							: end - (at + marker.size()));
+					while (!path.empty() &&
+						(path.back() == '\r' || path.back() == '\n'))
+					{
+						path.pop_back();
+					}
+					result.artifactPath = path;
+					result.ok = true;
+				}
+				else
+				{
+					result.error = "exporter reported success but printed no "
+						"artifact path";
+				}
+			}
+			std::lock_guard<std::mutex> lock(job->mutex);
+			job->result = std::move(result);
+			job->done.store(true);
+		}
 		//! read an optional space-separated float bundle; false when the field
 		//! is absent or does not parse to exactly count floats (out untouched)
 		bool readFloats(DebugMessage const& message, String const& key,
@@ -470,7 +637,8 @@ namespace Orkige
 				type == "console_tail" || type == "list_addable_components" ||
 				type == "list_tests" || type == "get_test_results" ||
 				type == "runtime_hierarchy" || type == "runtime_state" ||
-				type == "read_project_file" || type == "list_project_files";
+				type == "read_project_file" || type == "list_project_files" ||
+				type == "list_play_targets" || type == "get_export_results";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -780,7 +948,11 @@ namespace Orkige
 			static const std::vector<ToolSpec> specs = {
 				{ "get_state",
 				  "Snapshot of the editor: project/scene paths, dirty flag, "
-				  "selection, object count, undo/redo availability, play mode.",
+				  "selection, object count, undo/redo availability, play mode. "
+				  "While/after a compile-on-Play native build it also carries "
+				  "'build_status' (none/building/ok/failed), 'build_target' and, "
+				  "on a failure, the 'build_errors' compiler tail (kept after the "
+				  "session reverts to edit mode).",
 				  {} },
 				{ "list_hierarchy",
 				  "List every GameObject id with its parent and active flags.",
@@ -870,7 +1042,30 @@ namespace Orkige
 				  "Close the current project.",
 				  { { "force", "string", "'1' to discard unsaved changes", false } } },
 				{ "play",
-				  "Enter play mode (async: returns accepted; poll get_state).",
+				  "Enter play mode (async: returns accepted; poll get_state). "
+				  "Optional 'scene' opens that scene into the editor first, then "
+				  "plays it (project-relative and jailed when a project is open; "
+				  "honors the unsaved-changes policy, force with force='1'). "
+				  "Optional 'target' picks WHERE to run - '' or 'desktop' for the "
+				  "local player, or an id from list_play_targets (an iOS simulator "
+				  "UDID / an adb serial); a shutdown simulator boots async (poll "
+				  "get_state).",
+				  { { "scene", "string",
+				      "scene to open+play (project-relative; default: the current "
+				      "scene)", false },
+				    { "target", "string",
+				      "'desktop' (default) or a list_play_targets id", false },
+				    { "force", "string",
+				      "'1' to discard unsaved changes when opening 'scene'",
+				      false } } },
+				{ "list_play_targets",
+				  "Enumerate the Play targets the editor's target picker shows: "
+				  "the desktop player, iOS simulators (booted/shutdown), "
+				  "enumerated iOS hardware (gated) and adb devices/emulators. "
+				  "Returns 'target_count' and the parallel lists 'target_kinds' "
+				  "(desktop/ios-simulator/ios-device/android), 'target_ids' (the "
+				  "id to pass to play's 'target'), 'target_names' and "
+				  "'target_states' (ready/booted/shutdown/gated/device).",
 				  {} },
 				{ "stop", "Stop play mode.", {} },
 				{ "pause", "Pause the running player.", {} },
@@ -1049,6 +1244,24 @@ namespace Orkige
 				  "'failed_durations', 'failed_logtails' (index-aligned; each "
 				  "logtail is the tail of that test's captured output).",
 				  { { "jobId", "string", "the id run_tests returned", true } } },
+				{ "export_project",
+				  "Package the open project as a distributable via the export "
+				  "pipeline (Util/orkige_export.py). ASYNC: returns { accepted, "
+				  "jobId }; poll get_export_results. 'platform' is macos, "
+				  "ios-simulator or android. The pipeline is pinned to the CLASSIC "
+				  "render flavor - a missing or next-flavored engine tree is "
+				  "refused up front with an honest error (build the matching "
+				  "classic preset first). Native-module projects export desktop "
+				  "only.",
+				  { { "platform", "string",
+				      "macos | ios-simulator | android", true } } },
+				{ "get_export_results",
+				  "Poll an export_project job. Returns status 'running' until the "
+				  "export finishes, then 'done' with 'ok' ('1'/'0'), the "
+				  "'artifactPath' (the built app/apk) on success or the 'error' on "
+				  "failure, plus the exporter's 'outputTail'.",
+				  { { "jobId", "string", "the id export_project returned",
+				      true } } },
 			};
 			return specs;
 		}
@@ -1104,6 +1317,7 @@ namespace Orkige
 	{
 		this->mServer.stop();
 		this->joinTestJobs();
+		this->joinExportJobs();
 		if (!this->mTokenFilePath.empty())
 		{
 			std::error_code ignored;
@@ -1126,6 +1340,20 @@ namespace Orkige
 			}
 		}
 		this->mTestJobs.clear();
+	}
+	//---------------------------------------------------------
+	void EditorControlServer::joinExportJobs()
+	{
+		// wait for any in-flight exporter to exit before dropping the jobs
+		// (same shutdown contract as the test workers)
+		for (auto const& job : this->mExportJobs)
+		{
+			if (job->worker.joinable())
+			{
+				job->worker.join();
+			}
+		}
+		this->mExportJobs.clear();
 	}
 	//---------------------------------------------------------
 	void EditorControlServer::update(EditorControlContext const& context)
@@ -1548,6 +1776,13 @@ namespace Orkige
 			ok.set("screenshot_path", play.lastScreenshotPath);
 			ok.set("screenshot_ok", play.lastScreenshotOk ? "1" : "0");
 			ok.set("screenshot_seq", std::to_string(play.screenshotSeq));
+			// compile-on-Play build verdict (native-module projects): the
+			// structured signal an agent reads instead of scraping [build] lines
+			// out of console_tail - none/building/ok/failed, the module target,
+			// and the compiler error tail on a failure (kept after Stop)
+			ok.set("build_status", playSessionBuildName(play));
+			ok.set("build_target", play.buildStatusTarget);
+			ok.set("build_errors", lastLines(play.buildErrorLog, 40));
 			this->sendOk(req, ok);
 			return;
 		}
@@ -2057,6 +2292,48 @@ namespace Orkige
 				this->sendErr(req, "already playing");
 				return;
 			}
+			// optional 'scene': open that scene into the edit world FIRST, then
+			// play it. Jailed inside the open project (an absolute path or a
+			// '..' escape is refused); with no project open the raw path is used
+			// (same as open_scene). Honors the dirty-state policy - opening a
+			// different scene discards the current unsaved edit world unless
+			// force=1.
+			const String scene = request.get(DebugProtocol::FIELD_SCENE);
+			if (!scene.empty())
+			{
+				if (clobberRefused()) return;
+				String openPath = scene;
+				if (state.project.isLoaded())
+				{
+					std::filesystem::path absolute;
+					String relative;
+					String jailError;
+					if (!jailProjectPath(state.project.getRootDirectory(), scene,
+						absolute, relative, jailError))
+					{
+						this->sendErr(req, "play scene: " + jailError);
+						return;
+					}
+					openPath = absolute.string();
+				}
+				if (!openSceneFromPath(state, core, openPath))
+				{
+					this->sendErr(req, "play: could not open scene '" + scene +
+						"'");
+					return;
+				}
+			}
+			// optional 'target': mirror the editor's Play target picker. ''/
+			// 'desktop' runs the local player; a simulator UDID or an adb serial
+			// (as list_play_targets reports them) runs on that device. Device
+			// boots stay async (poll get_state), same as the toolbar.
+			const String target = request.get("target");
+			String targetError;
+			if (!applyPlayTarget(*context.play, target, targetError))
+			{
+				this->sendErr(req, targetError);
+				return;
+			}
 			if (!startPlay(*context.play, manager, state.project))
 			{
 				this->sendErr(req, "play could not start (see the editor log)");
@@ -2067,6 +2344,53 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.set("accepted", "1");
 			ok.set("play_mode", playSessionModeName(*context.play));
+			ok.set("target", target.empty() ? String("desktop") : target);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "list_play_targets")
+		{
+			// what the Play target picker shows: the desktop player, iOS
+			// simulators (APPLE), enumerated iOS hardware (gated) and adb
+			// devices/emulators. Parallel lists keyed by index.
+			DebugMessage ok(MSG_OK);
+			StringVector kinds;
+			StringVector ids;
+			StringVector names;
+			StringVector states;
+			kinds.push_back("desktop");
+			ids.push_back("desktop");
+			names.push_back("Desktop");
+			states.push_back("ready");
+#ifdef __APPLE__
+			for (SimulatorDevice const& device : listSimulators())
+			{
+				kinds.push_back("ios-simulator");
+				ids.push_back(device.udid);
+				names.push_back(device.name);
+				states.push_back(device.booted ? "booted" : "shutdown");
+			}
+			for (IosHardwareDevice const& device : listIosHardwareDevices())
+			{
+				// enumerated but not yet deployable (signed deploys are gated)
+				kinds.push_back("ios-device");
+				ids.push_back(device.udid);
+				names.push_back(device.name);
+				states.push_back("gated");
+			}
+#endif
+			for (AndroidDevice const& device : listAdbDevices())
+			{
+				kinds.push_back("android");
+				ids.push_back(device.serial);
+				names.push_back(device.label);
+				states.push_back("device");
+			}
+			ok.set("target_count", std::to_string(ids.size()));
+			ok.setList("target_kinds", kinds);
+			ok.setList("target_ids", ids);
+			ok.setList("target_names", names);
+			ok.setList("target_states", states);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -2928,6 +3252,111 @@ namespace Orkige
 			return;
 		}
 
+		//--- project export (drives Util/orkige_export.py) ---
+		if (type == "export_project")
+		{
+			const String platform = request.get("platform");
+			if (platform != "macos" && platform != "ios-simulator" &&
+				platform != "android")
+			{
+				this->sendErr(req, "export_project needs a 'platform' of macos, "
+					"ios-simulator or android");
+				return;
+			}
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open");
+				return;
+			}
+			const String tree = resolveExportTree(platform);
+			// honest, structured preconditions BEFORE spawning: the export
+			// pipeline ships the CLASSIC player/media set, so it needs a present,
+			// classic-flavored engine tree. A missing or next-flavored tree is
+			// refused up front (no exporter run, no new export machinery here).
+			std::error_code treeIgnored;
+			if (!std::filesystem::exists(
+				std::filesystem::path(tree) / "CMakeCache.txt", treeIgnored))
+			{
+				this->sendErr(req, "no " + platform + " build tree at '" + tree +
+					"' - build the matching classic preset first (project export "
+					"is pinned to the classic flavor)");
+				return;
+			}
+			if (readCmakeCacheVar(tree, "ORKIGE_RENDER_BACKEND") == "next")
+			{
+				this->sendErr(req, "project export is pinned to the classic "
+					"flavor; the " + platform + " engine tree at '" + tree +
+					"' is next-flavored - build a classic preset (e.g. "
+					"macos-debug-classic) to export");
+				return;
+			}
+			// build the exporter command on the main thread (Project is not
+			// thread-safe), then hand it to the worker - same invocation as the
+			// editor's Build menu (EditorExport.cpp)
+			const String exporter =
+				String(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/orkige_export.py";
+			std::vector<std::string> command = { "python3", exporter,
+				"--project", state.project.getRootDirectory(),
+				"--platform", platform, "--engine-build", tree };
+			auto job = std::make_unique<EditorExportJob>();
+			job->id = AssetDatabase::generateId();
+			ExportRunResult params;
+			params.platform = platform;
+			params.engineBuild = tree;
+			EditorExportJob* jobPtr = job.get();
+			job->worker = std::thread(runExportJobWorker, jobPtr, params,
+				command);
+			this->mExportJobs.push_back(std::move(job));
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("jobId", jobPtr->id);
+			ok.set("platform", platform);
+			ok.set("engineBuild", tree);
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_export_results: poll an export_project job for the artifact path
+		if (type == "get_export_results")
+		{
+			const String jobId = request.get("jobId");
+			EditorExportJob* job = nullptr;
+			for (auto const& candidate : this->mExportJobs)
+			{
+				if (candidate->id == jobId)
+				{
+					job = candidate.get();
+					break;
+				}
+			}
+			if (!job)
+			{
+				this->sendErr(req, "no such export job '" + jobId + "'");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("jobId", jobId);
+			if (!job->done.load())
+			{
+				ok.set("status", "running");
+				this->sendOk(req, ok);
+				return;
+			}
+			std::lock_guard<std::mutex> lock(job->mutex);
+			ExportRunResult const& result = job->result;
+			ok.set("status", "done");
+			ok.set("platform", result.platform);
+			ok.set("engineBuild", result.engineBuild);
+			ok.set("ok", result.ok ? "1" : "0");
+			ok.set("artifactPath", result.artifactPath);
+			if (!result.error.empty())
+			{
+				ok.set("error", result.error);
+			}
+			ok.set("outputTail", result.outputTail);
+			this->sendOk(req, ok);
+			return;
+		}
+
 		//--- unknown -----------------------------------------
 		this->sendErr(req, "unknown command '" + type + "'");
 	}
@@ -3421,12 +3850,47 @@ namespace Orkige
 				return false;
 			};
 
-			// (R1) play (authed) -> accepted
-			if (!callTool("play", JsonValue::object(), true, structured,
-					isError) || isError)
+			// (R1) play a SPECIFIC scene on the desktop target: save the fixture
+			// world to a temp scene, clear the edit world, then play that scene
+			// path - so a running Cube proves 'play { scene }' opened+played it
+			// (not just whatever was already loaded).
+			const std::string playSceneFile =
+				(std::filesystem::temp_directory_path() /
+					("orkige_ctrl_playscene_" + std::to_string(port) +
+						".oscene")).string();
 			{
-				finish(false, "control self-test: runtime - play was not "
-					"accepted");
+				JsonValue saveArgs = JsonValue::object();
+				saveArgs.set("scene", JsonValue(String(playSceneFile)));
+				if (!callTool("save_scene", saveArgs, true, structured, isError) ||
+					isError)
+				{
+					finish(false, "control self-test: runtime - could not save the "
+						"play-scene fixture");
+					return;
+				}
+				JsonValue clearArgs = JsonValue::object();
+				clearArgs.set("force", JsonValue("1"));
+				if (!callTool("new_scene", clearArgs, true, structured, isError) ||
+					isError)
+				{
+					finish(false, "control self-test: runtime - could not clear the "
+						"scene before the scene-play");
+					return;
+				}
+			}
+			JsonValue playArgs = JsonValue::object();
+			playArgs.set("scene", JsonValue(String(playSceneFile)));
+			playArgs.set("target", JsonValue("desktop"));
+			if (!callTool("play", playArgs, true, structured, isError) || isError)
+			{
+				finish(false, "control self-test: runtime - play { scene, target } "
+					"was not accepted");
+				return;
+			}
+			if (structured.get("target").asString() != "desktop")
+			{
+				finish(false, "control self-test: runtime - play did not echo the "
+					"desktop target");
 				return;
 			}
 			// (R2) wait for the player to boot + connect (fat window - it spawns
@@ -3446,7 +3910,9 @@ namespace Orkige
 				"(%s remote objects)",
 				state.get("remote_object_count").asString().c_str());
 
-			// (R3) runtime_hierarchy (read) must list the running objects
+			// (R3) runtime_hierarchy (read) must list the running objects - and
+			// specifically Cube1 from the scene we asked play to open, proving
+			// the scene path took effect
 			if (!callTool("runtime_hierarchy", JsonValue::object(), false,
 					structured, isError) || isError)
 			{
@@ -3460,6 +3926,23 @@ namespace Orkige
 					"objects");
 				return;
 			}
+			bool playedSceneLoaded = false;
+			for (size_t i = 0; i < ids.size(); ++i)
+			{
+				if (ids.at(i).asString() == "Cube1") playedSceneLoaded = true;
+			}
+			if (!playedSceneLoaded)
+			{
+				std::error_code sceneIgnored;
+				std::filesystem::remove(playSceneFile, sceneIgnored);
+				finish(false, "control self-test: play { scene } did not play the "
+					"requested scene (Cube1 missing from the running game)");
+				return;
+			}
+			std::error_code sceneIgnored;
+			std::filesystem::remove(playSceneFile, sceneIgnored);
+			SDL_Log("orkige_editor: control self-test - play { scene, target } "
+				"opened+played the requested scene (Cube1 running)");
 			const String firstId = ids.at(0).asString();
 
 			// (R4) runtime_select (authed), then poll runtime_state until it
@@ -3991,6 +4474,76 @@ namespace Orkige
 				"(1 pass, 1 fail with a captured log tail)");
 		}
 
+		// (RUN tools) list_play_targets: the desktop target is always present
+		// (device targets depend on the host, so only 'desktop' is asserted -
+		// this stays green on any machine and never boots a simulator/emulator)
+		{
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("list_play_targets", JsonValue::object(), false,
+					structured, isError) || isError)
+			{
+				finish(false, "control self-test: list_play_targets failed");
+				return;
+			}
+			JsonValue const& ids = structured.get("target_ids");
+			bool hasDesktop = false;
+			for (size_t i = 0; i < ids.size(); ++i)
+			{
+				if (ids.at(i).asString() == "desktop") hasDesktop = true;
+			}
+			if (!hasDesktop || !structured.get("target_kinds").isArray())
+			{
+				finish(false, "control self-test: list_play_targets did not report "
+					"the desktop target");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - list_play_targets OK "
+				"(%zu targets, desktop present)", ids.size());
+		}
+
+		// (RUN tools) export_project preconditions - asserted as REFUSALS so the
+		// self-test stays fast and deterministic (a real export is a multi-minute
+		// job the export_* ctests own): a mutation without the token is rejected,
+		// and with the token but no project open it refuses honestly. No project
+		// is open here yet (the authoring project is opened below).
+		{
+			JsonValue exportArgs = JsonValue::object();
+			exportArgs.set("platform", JsonValue("macos"));
+			JsonValue structured;
+			bool isError = false;
+			// unauthenticated mutation -> rejected by the auth gate
+			if (!callTool("export_project", exportArgs, false, structured,
+					isError) || !isError)
+			{
+				finish(false, "control self-test: unauthenticated export_project "
+					"was NOT rejected");
+				return;
+			}
+			// authed but no project open -> honest structured refusal
+			isError = false;
+			if (!callTool("export_project", exportArgs, true, structured,
+					isError) || !isError)
+			{
+				finish(false, "control self-test: export_project with no project "
+					"open was NOT refused");
+				return;
+			}
+			// an unknown platform is refused too (still no exporter spawned)
+			JsonValue badArgs = JsonValue::object();
+			badArgs.set("platform", JsonValue("playstation"));
+			isError = false;
+			if (!callTool("export_project", badArgs, true, structured, isError) ||
+				!isError)
+			{
+				finish(false, "control self-test: export_project accepted an "
+					"unknown platform");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - export_project refuses "
+				"unauthenticated / no-project / bad-platform requests");
+		}
+
 		// --- the AUTHORING (DEVELOP) tools: an MCP-only agent writes/reads/lists
 		// project files, imports an outside asset and round-trips a prefab. These
 		// need an open project (the path jail is rooted at it), so open a throwaway
@@ -4276,6 +4829,36 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - create/instantiate_prefab "
 				"round-trip OK (instance '%s')", instanceId.c_str());
+		}
+
+		// (RUN tools) export_project flavor pre-check, with the authoring project
+		// OPEN so the request reaches the tree check. Exports are pinned to the
+		// classic flavor: a NEXT-flavored editor tree must refuse honestly. Only
+		// asserted when THIS editor build is next-flavored - on a classic tree
+		// the request would pass the pre-check and start a real multi-minute
+		// export, which is the export_* ctests' job, so we skip it there.
+		if (readCmakeCacheVar(ORKIGE_EDITOR_ENGINE_BUILD_DIR,
+			"ORKIGE_RENDER_BACKEND") == "next")
+		{
+			JsonValue exportArgs = JsonValue::object();
+			exportArgs.set("platform", JsonValue("macos"));
+			JsonValue structured;
+			bool isError = false;
+			if (!callTool("export_project", exportArgs, true, structured,
+					isError) || !isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: export_project on a "
+					"next-flavored tree was NOT refused");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - export_project refuses a "
+				"next-flavored tree (classic-pinned)");
+		}
+		else
+		{
+			SDL_Log("orkige_editor: control self-test - classic tree: leaving the "
+				"real macos export to the export_* ctests");
 		}
 
 		fs::remove_all(authRoot, authIgnored);

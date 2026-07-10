@@ -460,7 +460,7 @@ void pumpBuildOutput(PlaySession& session, EditorConsole& console,
 	}
 	std::size_t lineStart = 0;
 	std::size_t newline = std::string::npos;
-	auto emitLine = [&console](std::string const& text)
+	auto emitLine = [&console, &session](std::string const& text)
 	{
 		ConsoleLevel level = ConsoleLevel::Info;
 		if (text.find("error") != std::string::npos ||
@@ -473,6 +473,20 @@ void pumpBuildOutput(PlaySession& session, EditorConsole& console,
 			level = ConsoleLevel::Warning;
 		}
 		console.addLine(level, "[build] " + text);
+		// keep the error lines for the control port's structured build_errors -
+		// the compiler diagnostics an agent needs to fix a failed compile-on-Play
+		if (level == ConsoleLevel::Error)
+		{
+			session.buildErrorLog += text;
+			session.buildErrorLog += '\n';
+			// cap the tail so a runaway build cannot grow it without bound
+			const std::size_t maxErrorLog = 8192;
+			if (session.buildErrorLog.size() > maxErrorLog)
+			{
+				session.buildErrorLog.erase(0,
+					session.buildErrorLog.size() - maxErrorLog);
+			}
+		}
 	};
 	while ((newline = session.buildOutputBuffer.find('\n', lineStart)) !=
 		std::string::npos)
@@ -512,6 +526,12 @@ bool startPlay(PlaySession& session,
 	{
 		return false;
 	}
+	// a fresh run starts with no build verdict; the native branch below flips
+	// it to Building. clearRemoteState/endPlaySession leave these alone so the
+	// outcome outlives the session for the control port's get_state.
+	session.buildOutcome = PlaySession::BuildOutcome::None;
+	session.buildStatusTarget.clear();
+	session.buildErrorLog.clear();
 	const std::string projectRoot = project.getRootDirectory();
 	const Orkige::NativeModule::Config nativeConfig = project.isLoaded()
 		? Orkige::NativeModule::configFromProject(project)
@@ -622,6 +642,8 @@ bool startPlay(PlaySession& session,
 		session.nativeTarget = nativeConfig.target;
 		clearRemoteState(session);
 		session.mode = PlaySession::Mode::Building;
+		session.buildOutcome = PlaySession::BuildOutcome::Building;
+		session.buildStatusTarget = nativeConfig.target;
 		session.launchStatus = "building native module '" +
 			nativeConfig.target + "'...";
 		SDL_Log("[build] building native module '%s' of project '%s' "
@@ -1116,6 +1138,9 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			console.addLine(ConsoleLevel::Error, "[build] native module '" +
 				session.nativeTarget + "' failed (exit " +
 				std::to_string(buildExit) + ") - staying in edit mode");
+			// record the failure BEFORE the teardown reverts to edit mode; the
+			// outcome survives endPlaySession for get_state to report
+			session.buildOutcome = PlaySession::BuildOutcome::Failed;
 			endPlaySession(session, "native build failed");
 			return;
 		}
@@ -1124,6 +1149,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			startNextBuildStep(session);
 			return;
 		}
+		session.buildOutcome = PlaySession::BuildOutcome::Ok;
 		console.addLine(ConsoleLevel::Info, "[build] native module '" +
 			session.nativeTarget + "' built - launching " +
 			session.nativeExecutable);

@@ -60,6 +60,10 @@ namespace Orkige
 	//! here; defined in the .cpp. A worker thread does the build+ctest work and
 	//! parks the structured verdict for a later get_test_results poll.
 	struct EditorTestJob;
+	//! @brief one asynchronous project export (export_project ->
+	//! get_export_results). Opaque here; defined in the .cpp. A worker thread
+	//! drives Util/orkige_export.py and parks the artifact path / error tail.
+	struct EditorExportJob;
 
 	//! @brief everything the control-port handler bridges to (all owned by
 	//! main; the server holds raw pointers, never ownership). The Project the
@@ -138,6 +142,8 @@ namespace Orkige
 
 		//! join every finished/outstanding test-run worker (called on stop)
 		void joinTestJobs();
+		//! join every finished/outstanding export worker (called on stop)
+		void joinExportJobs();
 
 		HttpServer mServer;
 		std::string mToken;				//!< the auth secret (empty = auth off)
@@ -148,6 +154,9 @@ namespace Orkige
 		//! outstanding/finished async test runs, keyed by their generated jobId;
 		//! run_tests appends, get_test_results reads, stop() joins the workers
 		std::vector<std::unique_ptr<EditorTestJob>> mTestJobs;
+		//! outstanding/finished async exports, same lifecycle as mTestJobs;
+		//! export_project appends, get_export_results reads, stop() joins
+		std::vector<std::unique_ptr<EditorExportJob>> mExportJobs;
 	};
 
 	//! @brief the in-process MCP endpoint self-test (the editor_control ctest).

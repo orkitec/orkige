@@ -501,6 +501,17 @@ struct PlaySession
 	std::string buildOutputBuffer;		//!< partial (unterminated) last line
 	std::string nativeExecutable;		//!< built play-process executable
 	std::string nativeTarget;			//!< the module's CMake target name
+	//! last compile-on-Play build outcome, KEPT after the session reverts to
+	//! edit mode (clearRemoteState/endPlaySession leave it alone) so an agent
+	//! can read whether the module compiled - a failed build stays in edit mode
+	//! and launches nothing, and the reason must survive for the control port's
+	//! get_state (build_status/build_target/build_errors). None until the first
+	//! native Play; Building while a build runs; Ok/Failed once it finishes.
+	//! Reset to None at the start of every startPlay.
+	enum class BuildOutcome { None, Building, Ok, Failed };
+	BuildOutcome buildOutcome = BuildOutcome::None;
+	std::string buildStatusTarget;		//!< the module target the outcome is for
+	std::string buildErrorLog;			//!< accumulated [build] error-line tail
 	//! remote state streamed by the player
 	std::string remoteScenePath;
 	bool helloReceived = false;
@@ -571,6 +582,21 @@ inline const char* playSessionModeName(PlaySession const& session)
 	case PlaySession::Mode::Stopping:	return "stopping";
 	}
 	return "edit";
+}
+
+//! lower-case name of the last compile-on-Play build outcome (none/building/
+//! ok/failed) - the MCP control port reports it in get_state so an agent can
+//! tell whether a native-module project compiled before it launched
+inline const char* playSessionBuildName(PlaySession const& session)
+{
+	switch (session.buildOutcome)
+	{
+	case PlaySession::BuildOutcome::None:		return "none";
+	case PlaySession::BuildOutcome::Building:	return "building";
+	case PlaySession::BuildOutcome::Ok:			return "ok";
+	case PlaySession::BuildOutcome::Failed:		return "failed";
+	}
+	return "none";
 }
 
 //! seconds the editor keeps re-connecting while the player engine boots

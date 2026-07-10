@@ -77,17 +77,19 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
   return an *accepted* result and are polled via `get_state`.
 - **Auth**: a mutation needs `Authorization: Bearer <token>` (the token from the
   token file). Read verbs are open. No token file ⇒ auth off (dev convenience).
-- **Play control** (`play`/`stop`/`pause`/`resume`/`step`) and the **runtime
-  debug tools** (`runtime_hierarchy`/`runtime_select`/`runtime_state`/
-  `set_runtime_property`/`set_cvar`/`reload_script`/`screenshot_game` — see
-  "Debugging a running game") are translated into the ONE existing player debug
-  protocol — the MCP endpoint is editor-side, never a second player port.
+- **Play control** (`play`/`stop`/`pause`/`resume`/`step`), the **run tools**
+  (`list_play_targets`, `play`'s `scene`/`target`, the `build_*` fields of
+  `get_state`) and the **runtime debug tools** (`runtime_hierarchy`/
+  `runtime_select`/`runtime_state`/`set_runtime_property`/`set_cvar`/
+  `reload_script`/`screenshot_game` — see "Debugging a running game") are
+  translated into the ONE existing player debug protocol — the MCP endpoint is
+  editor-side, never a second player port.
 
 ## Tools
 
 | Tool | Maps to |
 |------|---------|
-| `get_state` | project/scene/dirty/selection/play-mode snapshot |
+| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |
@@ -97,7 +99,8 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `rename_object(id, new_id)` / `reparent_object(id, parent)` / `set_active(id, value)` | `EditorCore::renameObject` / `reparentObject` / `setObjectActive` |
 | `add_component(id, component)` / `remove_component(id, component)` / `list_addable_components()` | `addComponentToObject` / `removeComponentFromObject` / `getAddableComponentTypes` |
 | `select(id)` / `undo()` / `redo()` | `EditorCore::selectObject` / `undo` / `redo` |
-| `play()` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` / pause·resume·step over the player protocol |
+| `play(scene?, target?, force?)` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` / pause·resume·step over the player protocol; `scene` opens+plays a scene (jailed), `target` picks the device (`applyPlayTarget`) |
+| `list_play_targets()` | the Play target picker's enumeration (`listSimulators`/`listIosHardwareDevices`/`listAdbDevices`) → `target_kinds`/`target_ids`/`target_names`/`target_states` |
 | `screenshot(path, window)` | the EDITOR: `RenderTexture::writeContentsToFile` (chrome-free viewport) / `RenderSystem::saveWindowContents` (whole window) → returns the written path |
 | `runtime_hierarchy()` | the RUNNING game's live hierarchy (ids/parents/active), streamed from the player |
 | `runtime_select(id)` | choose which running object streams its component state (`MSG_SELECT`) |
@@ -117,6 +120,8 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
 | `get_test_results(jobId)` | the structured verdict of a `run_tests` job |
+| `export_project(platform)` | async `Util/orkige_export.py` (macos/ios-simulator/android) → a jobId; poll `get_export_results` (classic-flavor tree required) |
+| `get_export_results(jobId)` | the structured verdict of an `export_project` job (`ok`/`artifactPath`/`error`) |
 
 ## Test runner (the evidence loop)
 
@@ -311,6 +316,65 @@ tools/call get_state {}                             // poll until screenshot_seq
 tools/call stop {}                                 // authed → back to edit mode
 ```
 
+## Running: what plays, and where
+
+`play` is the RUN half of the loop. Two optional arguments control WHAT runs and
+WHERE:
+
+- `scene` opens a scene into the editor first, then plays it. It is
+  project-relative and **jailed** inside the open project (an absolute path or a
+  `..`/symlink escape is refused); with no project open the raw path is used, as
+  for `open_scene`. Opening a different scene discards the current unsaved edit
+  world, so it honors the dirty-state policy — pass `force:"1"` to override.
+- `target` picks the device. `""`/`"desktop"` runs the local player;
+  otherwise pass an id from `list_play_targets` — an iOS simulator UDID or an adb
+  serial. A shutdown simulator boots asynchronously (the toolbar's boot flow),
+  so `play` returns `{ accepted:"1" }` and you poll `get_state` (`play_mode`
+  walks `launching`→`playing`). Native-module projects are desktop-only.
+
+`list_play_targets` (a read) enumerates exactly what the editor's target picker
+shows: `target_count` plus the parallel lists `target_kinds`
+(`desktop`/`ios-simulator`/`ios-device`/`android`), `target_ids` (what you pass
+to `target`), `target_names` and `target_states`
+(`ready`/`booted`/`shutdown`/`gated`/`device`).
+
+```jsonc
+tools/call list_play_targets {}                    // → target_ids:["desktop", "<udid>", ...]
+tools/call play { "scene":"scenes/level1.oscene", "target":"desktop" }  // authed → { accepted:"1", target:"desktop" }
+tools/call get_state {}                            // poll → play_mode:"playing"
+```
+
+**Reading build errors (compile-on-Play).** For a native-module project, Play
+first compiles the module; a failed build stays in edit mode and launches
+nothing. The `[build]` lines stream into the Console (read them with
+`console_tail`), and `get_state` carries the STRUCTURED signal an agent acts on:
+`build_status` (`none`/`building`/`ok`/`failed`), `build_target`, and — on a
+failure — `build_errors` (the compiler-diagnostic tail, kept after the session
+reverts to edit mode so you can read it post-hoc). Poll `get_state` after `play`:
+`build_status:"failed"` with a non-empty `build_errors` is the "fix the compile"
+signal; `build_status:"ok"` then `play_mode:"playing"` is the "it launched".
+
+## Exporting a project
+
+`export_project(platform)` packages the open project as a distributable through
+the same pipeline as the editor's Build menu (`Util/orkige_export.py`).
+`platform` is `macos`, `ios-simulator` or `android`. It is **async** (a
+multi-minute job): it returns `{ accepted:"1", jobId }`; poll
+`get_export_results(jobId)` — `status:"running"` until it finishes, then
+`status:"done"` with `ok` (`"1"`/`"0"`), the `artifactPath` (the built `.app`/
+`.apk`) on success or the `error` on failure, plus the exporter's `outputTail`.
+
+The export pipeline is **pinned to the classic render flavor** (it bundles the
+classic player/media set). `export_project` checks the target engine tree up
+front and returns an honest structured error — WITHOUT running the exporter —
+when that tree is missing or next-flavored (build the matching classic preset,
+e.g. `macos-debug-classic`, first). Native-module projects export desktop only.
+
+```jsonc
+tools/call export_project { "platform":"macos" }   // authed → { accepted:"1", jobId:"..." }
+tools/call get_export_results { "jobId":"..." }     // poll → status:"done", ok:"1", artifactPath:".../MyGame.app"
+```
+
 ## Dirty-state policy
 
 Destructive verbs (`new_scene`, `open_scene`, `open_project`, `new_project`,
@@ -343,11 +407,17 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   script appears under a `*.lua` glob), `import_asset` from a temp file (a stable
   id is minted, an unauthenticated import rejected), and a `create_prefab` →
   `instantiate_prefab` round-trip (the `.oprefab` lands on disk and the fresh
-  instance appears in `list_hierarchy`). Proves the whole C++ MCP endpoint with no
-  Python.
+  instance appears in `list_hierarchy`). It also covers the RUN tools:
+  `list_play_targets` reports the desktop target, and `export_project` refuses an
+  unauthenticated request, a no-project request, an unknown platform and (on a
+  next-flavored editor tree) the classic-pinned flavor check — all as fast
+  structured refusals, leaving real exports to the `export_*` ctests. Proves the
+  whole C++ MCP endpoint with no Python.
 - `editor_control_debug` (ctest, integration; needs the built player): the same
   socket-driven MCP client, but the RUNTIME DEBUG loop end to end against the
-  live player — `play` (boots the player over the debug protocol), then
+  live player — `play { scene, target }` (saves a fixture scene, clears the edit
+  world, then plays that scene on the desktop target — a running `Cube1` proves
+  the scene path took effect), then
   `runtime_hierarchy` / `runtime_select` / `runtime_state` (live inspection),
   `pause` + `step`, `set_runtime_property` (a live Transform write read back
   through `runtime_state`), `screenshot_game` (the running-game frame, verified
