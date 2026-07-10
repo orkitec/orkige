@@ -263,6 +263,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # TODO(linux) inside the TU). Flavor-aware: classic hands out the X11
     # Window id, next the {Display*, Window} pair VulkanXcbWindow expects.
     list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowLinux.cpp)
+elseif(WIN32)
+    # the Win32 HWND bridge (same extern-C contract as the other platforms,
+    # engine_util/SDLNativeWindowWindows.cpp)
+    list(APPEND ORKIGE_ENGINE_SOURCES engine_util/SDLNativeWindowWindows.cpp)
 endif()
 
 add_library(orkige_engine STATIC ${ORKIGE_ENGINE_SOURCES})

@@ -45,6 +45,8 @@ CheckOptions:
 
   # Functions and methods: camelBack (first letter lower, no underscores).
   readability-identifier-naming.FunctionCase: camelBack
+  # extern "C" bridge symbols are namespaced by prefix, snake_case by design
+  readability-identifier-naming.FunctionIgnoredRegexp: '^orkige_[a-z0-9_]+$'
   readability-identifier-naming.MethodCase: camelBack
 
   # Encapsulated members carry the 'm' prefix over a CamelCase tail: mRootDir,
