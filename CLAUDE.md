@@ -317,8 +317,8 @@ an Android APK (via `package_apk.sh`; native-module projects are desktop-only). 
 `<project>/builds/<platform>/`; bundle/package ids come from the manifest Settings
 `export.macos.bundleId` / `export.android.package`. Covered by the `export_*` ctests
 (the macOS ones RUN the exported app from a neutral cwd).
-Legacy tool sources (`orkige_fontconverter` etc.) and `Util/`'s 2012 binaries remain
-unbuilt reference material; `Util/*.py` are the live asset generators.
+The 2012 legacy tools and prebuilt binaries were removed from the tree (recoverable
+from history); `Util/*.py` are the live asset generators.
 
 **Docs/**: historical API docs (`OrkigeAPI`, `LuaAPI`), `Docs/ports.md` (overlay-port
 rationale), `Docs/upstream/` (OGRE PR package — submitted as OGRECave/ogre #3667-3669),
