@@ -933,6 +933,7 @@ void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 	}
 	// reload-ALL (v1): no FIELD_ID means every ScriptComponent on the player
 	session.client.send(Orkige::DebugMessage(Protocol::MSG_RELOAD_SCRIPT));
+	SDL_Log("orkige_editor: script change detected - reload sent to the player");
 	console.addLine(ConsoleLevel::Info,
 		"[reload] scripts changed - hot-reloading the running player");
 	// optimistic: assume the reload heals whatever was broken. The player

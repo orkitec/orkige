@@ -4402,8 +4402,16 @@ int main(int argc, char** argv)
 					hotreloadNow >= hotreloadDeadline)
 				{
 					hotreloadFailed = true;
+					// carry the chain evidence: what the remote stream last
+					// showed tells WHERE the reload pipeline stopped
+					const float lastX = hotreloadRemoteX();
 					hotreloadFailure = "deadline exceeded in phase " +
-						std::to_string(static_cast<int>(hotreloadPhase));
+						std::to_string(static_cast<int>(hotreloadPhase)) +
+						" (last remote x=" +
+						(std::isnan(lastX) ? std::string("none")
+							: std::to_string(lastX)) +
+						", mode=" + std::to_string(
+							static_cast<int>(playSession.mode)) + ")";
 				}
 				if (hotreloadFailed)
 				{

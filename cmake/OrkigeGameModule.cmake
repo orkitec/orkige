@@ -187,7 +187,12 @@ function(orkige_game_module target)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         target_compile_definitions(${target} PRIVATE ORKIGE_LUA)
         target_include_directories(${target} PRIVATE ${LUA_INCLUDE_DIR})
-        target_link_libraries(${target} PRIVATE sol2::sol2 ${LUA_LIBRARIES})
+        # sol2 is header-only; the Lua archive itself is linked AFTER the
+        # engine archives below - GNU ld resolves archives left to right, so
+        # a provider listed before its consumers drops the symbols the
+        # engine archives need (luaL_error etc.); ld64 does not care, which
+        # is why the wrong order never surfaced on macOS
+        target_link_libraries(${target} PRIVATE sol2::sol2)
     else()
         target_compile_definitions(${target} PRIVATE ORKIGE_NOSCRIPT)
     endif()
@@ -206,6 +211,10 @@ function(orkige_game_module target)
         OpenAL::OpenAL
         Jolt::Jolt
     )
+    if(ORKIGE_SCRIPTING STREQUAL "LUA")
+        # after the engine archives (see the ordering note above)
+        target_link_libraries(${target} PRIVATE ${LUA_LIBRARIES})
+    endif()
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "Android")
         message(FATAL_ERROR "native game modules are desktop-only for now "
             "(mobile builds go through the export pipeline once it exists)")
