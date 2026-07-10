@@ -21,7 +21,9 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   Vulkan-via-MoltenVK on macOS, GLES2 on iOS/Android), pixel-identical output
   selected at build time and enforced by a parity test. SDL3 windowing/input, glTF asset loading (assimp). The homegrown
   *fastgui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on
-  **both** backends (as does the ImGui-based editor).
+  **both** backends (as does the ImGui-based editor) — **display-scale aware**
+  (text and touch targets keep their physical size on 2×–3× screens) and
+  **safe-area aware** (HUDs anchor inside the notch/home-indicator box).
 - **Scene model** — a GameObject/component system with a **parent/child hierarchy**
   and active/inactive state, **prefabs** (`.oprefab` assets with per-instance
   structural + property overrides, Apply/Revert), a **stable-ID asset database**
@@ -34,17 +36,21 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   layer matrix**, object **tags**, and **sensor/trigger contact events** delivered
   to script (`onContactBegin`/`onContactEnd`).
 - **Gameplay systems** — **named input actions** (keys/tilt → actions, mobile +
-  desktop unified), an **audio mixer** (groups + master) and a **tween/easing
-  library**, **console variables** for live tuning, and **Lua hot-reload during
-  Play** (compile-before-swap: a broken save keeps the old code running).
+  desktop unified), an **audio mixer** (groups + master) with **streamed OGG
+  music** that survives level switches, a **tween/easing library**, **string-table
+  localisation** (`loc()` in Lua), **console variables** for live tuning, and
+  **Lua hot-reload during Play** (compile-before-swap: a broken save keeps the
+  old code running).
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
 - **Editor** — a full scene-authoring tool built on the engine itself: docked Hierarchy /
   Inspector / Console / Stats / RTT Scene viewport, a two-pane **asset browser**
   (folder tree, texture thumbnails, create/import, two-way drag-&-drop), a **2D
-  editor mode** (ortho, plane-locked gizmos), transform gizmos with Q/W/E/R,
-  undo/redo, multi-select, native macOS menu + file dialogs. Ships as `Orkige.app`.
+  editor mode** (ortho, plane-locked gizmos), a **Tile Palette with grid
+  painting** for tile-based levels (paint/erase prefab instances, one undo step
+  per stroke), transform gizmos with Q/W/E/R, undo/redo, multi-select, native
+  macOS menu + file dialogs. Ships as `Orkige.app`.
 - **Play mode, out of process** — Play spawns the standalone player as a separate
   process over a TCP debug protocol: live remote hierarchy/inspector, pause/step/
   stop, live property + cvar editing, script hot-reload. A crashing game can never
