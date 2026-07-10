@@ -144,6 +144,11 @@ elseif(ORKIGE_SCRIPTING STREQUAL "OFF")
 else()
     message(FATAL_ERROR "ORKIGE_SCRIPTING must be LUA or OFF (got '${ORKIGE_SCRIPTING}')")
 endif()
+if(WIN32)
+    # windows.h min/max macros shred the std:: and OGRE headers; lean
+    # windows headers keep the winsock2 includes conflict-free
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 
 add_subdirectory(orkige_core)
 

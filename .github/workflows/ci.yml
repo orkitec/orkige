@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         # - toolchain: build-essential, ninja, ccache, python3 (lint +
@@ -108,7 +108,7 @@ jobs:
       # the expensive cold build converges across runs instead of restarting
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-classic-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -117,7 +117,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /home/runner/.ccache
           key: ccache-classic-${{ runner.os }}-${{ github.sha }}
@@ -135,7 +135,7 @@ jobs:
         # save right after configure (which is when vcpkg builds/installs) -
         # and even when a later step fails
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -145,7 +145,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-classic-logs
           path: |
@@ -199,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
         # superset of the classic job plus the Mesa Vulkan software driver
@@ -229,7 +229,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /home/runner/vcpkg-binary-cache
           key: vcpkg-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -238,7 +238,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /home/runner/.ccache
           key: ccache-next-${{ runner.os }}-${{ github.sha }}
@@ -252,7 +252,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -262,7 +262,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /home/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -273,18 +273,22 @@ jobs:
       - name: Vulkan smoke subset (xvfb + Mesa lavapipe - best-effort)
         continue-on-error: true
         env:
-          # steer the Vulkan loader to the software rasterizer
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           ALSOFT_DRIVERS: "null"
           SDL_VIDEO_DRIVER: x11
         run: |
-          vulkaninfo --summary > /dev/null 2>&1 || true
+          # steer the Vulkan loader to the software rasterizer; the ICD
+          # manifest name varies across Mesa versions, so discover it
+          ls /usr/share/vulkan/icd.d/ || true
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          echo "using ICD: $LVP_ICD"
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          vulkaninfo --summary || true
           xvfb-run -a -s "-screen 0 1280x1024x24" \
             ctest --preset smoke-linux-next --timeout 300
 
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-next-logs
           path: |
@@ -307,10 +311,14 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
       CCACHE_DIR: /Users/runner/.ccache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install system dependencies
-        run: brew install ninja ccache autoconf automake autoconf-archive libtool
+        run: |
+          # the runner image ships an untrusted third-party tap that makes
+          # every brew call warn - drop it, it serves nothing here
+          brew untap aws/tap 2>/dev/null || true
+          brew install ninja ccache autoconf automake autoconf-archive libtool
 
       - name: Check out pinned vcpkg
         run: |
@@ -321,7 +329,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: vcpkg-macos-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -330,7 +338,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: /Users/runner/.ccache
           key: ccache-macos-next-${{ runner.os }}-${{ github.sha }}
@@ -344,7 +352,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
@@ -354,7 +362,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
@@ -378,10 +386,10 @@ jobs:
       CC: cl
       CXX: cl
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up the MSVC environment for Ninja
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@v1.13.0
         with:
           arch: x64
 
@@ -395,7 +403,7 @@ jobs:
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: vcpkg-windows-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
@@ -409,7 +417,7 @@ jobs:
 
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: C:/Users/runneradmin/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
