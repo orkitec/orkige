@@ -55,11 +55,16 @@ namespace Orkige
 		TraceWriter(size_t maxBytes = DEFAULT_MAX_BYTES,
 			size_t maxObjectsPerSample = DEFAULT_MAX_OBJECTS);
 
-		//! @brief append a SAMPLE line: {"t","frame","dt","objects":[...]} plus
-		//! a "capped" total when the object list overflows the per-sample cap.
-		//! dt is the last frame's delta seconds (agents assert on it).
+		//! @brief append a SAMPLE line:
+		//! {"t","frame","dt","mem"?,"objects":[...]} plus a "capped" total when
+		//! the object list overflows the per-sample cap. dt is the last frame's
+		//! delta seconds (agents assert on it). memRss is the process resident
+		//! set size in bytes at the sample - written as "mem" when >= 0, omitted
+		//! otherwise (a platform without a memory query); agents assert "no
+		//! unbounded growth" off it.
 		void addSample(double t, unsigned long frame, double dt,
-			std::vector<ObjectSample> const & objects);
+			std::vector<ObjectSample> const & objects,
+			long long memRss = -1);
 
 		//! @brief append an EVENT line: {"t","frame","event", <fields...>}. The
 		//! fields are string key/value pairs (e.g. both object names for a

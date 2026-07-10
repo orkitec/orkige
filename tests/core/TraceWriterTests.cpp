@@ -80,6 +80,7 @@ TEST_CASE("TraceWriter emits parseable sample + event lines", "[unit][trace]")
 	REQUIRE(sample.isObject());
 	REQUIRE(sample.get("frame").asNumber(-1) == 0);
 	REQUIRE(sample.get("dt").asNumber(-1) > 0.0);
+	REQUIRE_FALSE(sample.has("mem"));	// no memRss given -> field omitted
 	JsonValue const & objects = sample.get("objects");
 	REQUIRE(objects.size() == 2);
 	JsonValue const & first = objects.at(0);
@@ -100,6 +101,26 @@ TEST_CASE("TraceWriter emits parseable sample + event lines", "[unit][trace]")
 	REQUIRE(event.get("frame").asNumber(-1) == 15);
 	REQUIRE(event.get("a").asString() == "Player");
 	REQUIRE(event.get("b").asString() == "Wall");
+}
+
+TEST_CASE("TraceWriter writes the process memory footprint", "[unit][trace]")
+{
+	TraceWriter writer;
+	TraceWriter::ObjectSample object;
+	object.id = "Ball";
+	object.name = "Ball";
+	// a realistic resident set size: large enough that the compact float
+	// format WOULD have rounded it (200 MB), proving the exact-integer path
+	const long long memRss = 209715200LL;	// 200 * 1024 * 1024
+	writer.addSample(0.5, 30, 0.016, { object }, memRss);
+
+	std::vector<String> lines = splitLines(writer.buffer());
+	REQUIRE(lines.size() == 1);
+	JsonValue sample;
+	REQUIRE(JsonValue::parse(lines[0], sample));
+	REQUIRE(sample.has("mem"));
+	// the exact byte count survives (no float rounding)
+	REQUIRE(sample.get("mem").asNumber(-1) == static_cast<double>(memRss));
 }
 
 TEST_CASE("TraceWriter caps the per-sample object list", "[unit][trace]")

@@ -13,6 +13,7 @@ add_executable(orkige_core_tests
     PropertyReflectionTests.cpp
     DebugProtocolTests.cpp
     TraceWriterTests.cpp
+    MemorySamplerTests.cpp
     JsonTests.cpp
     HttpServerTests.cpp
     EventTests.cpp

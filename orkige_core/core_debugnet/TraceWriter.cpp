@@ -108,7 +108,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	void TraceWriter::addSample(double t, unsigned long frame, double dt,
-		std::vector<ObjectSample> const & objects)
+		std::vector<ObjectSample> const & objects, long long memRss)
 	{
 		String line;
 		line.reserve(64 + objects.size() * 48);
@@ -118,6 +118,15 @@ namespace Orkige
 		appendNumber(line, static_cast<double>(frame));
 		line += ",\"dt\":";
 		appendNumber(line, dt);
+		if (memRss >= 0)
+		{
+			// bytes as an exact integer - the compact %g float format would
+			// round a large footprint (200 MB prints as 2e+08, losing bytes)
+			char memBuffer[32];
+			std::snprintf(memBuffer, sizeof(memBuffer), "%lld", memRss);
+			line += ",\"mem\":";
+			line += memBuffer;
+		}
 		if (objects.size() > this->mMaxObjects)
 		{
 			line += ",\"capped\":";

@@ -77,6 +77,8 @@ void clearRemoteState(PlaySession& session)
 	session.lastRecordError.clear();
 	session.lastRecordOk = false;
 	session.recordSeq = 0;
+	session.remoteMemRss = -1;
+	session.remoteMemRssPeak = -1;
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -1163,6 +1165,24 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			{
 				console.addLine(ConsoleLevel::Error,
 					"[remote] trace FAILED: " + session.lastRecordError);
+			}
+		}
+		else if (message.type == Protocol::MSG_STATS)
+		{
+			// periodic runtime metrics: the process memory footprint the Stats
+			// panel and get_state surface. Absent fields (a player predating the
+			// metric or a platform without a memory query) leave the values at
+			// -1 (n/a); an empty string parses to 0, so guard on presence.
+			if (message.has(Protocol::FIELD_MEM_RSS))
+			{
+				session.remoteMemRss = std::strtoll(
+					message.get(Protocol::FIELD_MEM_RSS).c_str(), nullptr, 10);
+			}
+			if (message.has(Protocol::FIELD_MEM_RSS_PEAK))
+			{
+				session.remoteMemRssPeak = std::strtoll(
+					message.get(Protocol::FIELD_MEM_RSS_PEAK).c_str(),
+					nullptr, 10);
 			}
 		}
 		else if (message.type == Protocol::MSG_BYE)

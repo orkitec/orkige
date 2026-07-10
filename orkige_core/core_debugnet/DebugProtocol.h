@@ -130,6 +130,15 @@ namespace Orkige
 		//! on failure (FIELD_MESSAGE then carries the reason). Additive since
 		//! protocol v1: old editors ignore unknown message types.
 		extern ORKIGE_CORE_DLL const String MSG_RECORD_SAVED;
+		//! @brief periodic runtime METRICS from the running game: the process
+		//! memory footprint (FIELD_MEM_RSS current, FIELD_MEM_RSS_PEAK the
+		//! session high-water mark, both resident-set-size bytes) streamed a few
+		//! times a second so the editor Stats panel and the MCP get_state
+		//! surface can answer "is the game growing?". Fire-and-forget like the
+		//! object_state stream (no request, no ack). Additive since protocol v1:
+		//! old editors ignore unknown message types, and a runtime whose
+		//! platform cannot query memory simply omits the fields.
+		extern ORKIGE_CORE_DLL const String MSG_STATS;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -145,6 +154,8 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"
+		extern ORKIGE_CORE_DLL const String FIELD_MEM_RSS;			//!< MSG_STATS: current resident set size in bytes
+		extern ORKIGE_CORE_DLL const String FIELD_MEM_RSS_PEAK;		//!< MSG_STATS: peak resident set size this session (bytes)
 		//! @brief request-correlation id: a REQUEST/RESPONSE protocol
 		//! (the MCP editor control port) echoes the request's "req" value back
 		//! in its ok/err reply so an async caller can match answers to

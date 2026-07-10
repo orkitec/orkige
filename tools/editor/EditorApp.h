@@ -578,6 +578,12 @@ struct PlaySession
 	std::string lastRecordError;
 	bool lastRecordOk = false;
 	unsigned int recordSeq = 0;
+	//! running-game memory metrics (MSG_STATS): the latest resident set size
+	//! and the session peak, both in bytes. -1 = no reading yet (the player
+	//! has not streamed one, or its platform cannot query memory) - surfaced
+	//! as n/a. Reset by clearRemoteState.
+	long long remoteMemRss = -1;
+	long long remoteMemRssPeak = -1;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;
@@ -1002,7 +1008,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	SDL_Window* window);
 
 // the Stats panel (4 Hz windowed frame stats + rolling plot)
-void drawStatsPanel(bool* visible);
+void drawStatsPanel(PlaySession const& play, bool* visible);
 
 // the Console panel: Log tab (engine/editor/remote lines) + Lua REPL tab
 // (the session lets a `set` cvar line during Play tune the running player)

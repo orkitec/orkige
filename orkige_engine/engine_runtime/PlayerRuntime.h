@@ -13,6 +13,7 @@
 #include "core_debugnet/DebugServer.h"
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <set>
 #include <utility>
@@ -150,6 +151,9 @@ namespace Orkige
 		std::set<String>	mReportedScriptErrors;
 		//! default-constructed = clock epoch, so the first send never waits
 		std::chrono::steady_clock::time_point mLastStateSend;
+		//! peak resident set size observed while streaming (bytes); 0 until the
+		//! first sample or on a platform without a memory query
+		std::size_t		mPeakResidentBytes = 0;
 		//! engine-log -> editor-Console capture (attached while active)
 		Orkige::uptr<EngineLogCapture> mLogCapture;
 		//--- Methods -----------------------------------------
@@ -248,6 +252,12 @@ namespace Orkige
 			std::vector<std::pair<String, String>> const & fields);
 		void processMessages(GameObjectManager & gameObjectManager);
 		void streamObjectState(GameObjectManager & gameObjectManager);
+		//! query the process resident set size, fold it into the session peak
+		//! and return the current value (0 when the platform cannot query it)
+		std::size_t sampleMemory();
+		//! send an MSG_STATS metrics line (process memory) to the editor; a
+		//! no-op when the platform reports no memory (the fields are omitted)
+		void streamStats();
 	};
 }
 

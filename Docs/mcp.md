@@ -118,7 +118,7 @@ The endpoint advertises 50 tools (the `toolSpecs` table in
 | `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) |
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` |
-| `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
+| `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt + `mem` process footprint) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
 | `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
@@ -335,7 +335,12 @@ mode is never ambiguous.
 `get_state` is the poll target for all of the above: besides the editor snapshot
 it carries `remote_connected`, `remote_scene`, `remote_selected`,
 `remote_object_count`, the `screenshot_*` fields and the `recording`/`record_*`
-fields while a play session is up.
+fields while a play session is up. It also carries the running game's **memory
+footprint** — `mem_rss` (the process resident set size in bytes) and
+`mem_rss_peak` (the session high-water mark) — streamed by the player a few
+times a second (`MSG_STATS`). Both read `"-1"` until the first reading arrives
+(or on a platform without a memory query); read `mem_rss` against `mem_rss_peak`,
+or the `mem` field on trace sample lines (below), to spot unbounded growth.
 
 Example loop — inspect and poke the running game, then capture evidence:
 

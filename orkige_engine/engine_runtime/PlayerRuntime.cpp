@@ -18,6 +18,7 @@
 #include "core_base/PropertySchema.h"
 #include "core_base/PropertyValue.h"
 #include "core_debug/CVarManager.h"
+#include "core_debug/MemorySampler.h"
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
 #include "core_debugnet/TraceWriter.h"
@@ -485,7 +486,11 @@ namespace Orkige
 			}
 			samples.push_back(std::move(sample));
 		}
-		mTrace->addSample(mRecordElapsed, frameCount, deltaSeconds, samples);
+		// the process footprint rides every sample line ("mem" bytes) so an
+		// agent can assert "no unbounded growth" straight off the trace
+		const std::size_t residentBytes = sampleMemory();
+		mTrace->addSample(mRecordElapsed, frameCount, deltaSeconds, samples,
+			residentBytes > 0 ? static_cast<long long>(residentBytes) : -1);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::traceContact(String const & nameA, String const & nameB,
@@ -605,6 +610,10 @@ namespace Orkige
 		{
 			sendHierarchyIfChanged(gameObjectManager, false);
 			sendNewScriptErrors(gameObjectManager);
+			// runtime metrics ride the same slow cadence as the hierarchy
+			// check (~4 Hz) - the memory footprint moves slowly, so a few
+			// samples a second is plenty and keeps the query cost negligible
+			streamStats();
 		}
 		streamObjectState(gameObjectManager);
 		// forward the engine-log lines captured since the last frame
@@ -1043,6 +1052,34 @@ namespace Orkige
 		}
 		mServer.send(buildObjectState(gameObject));
 		mLastStateSend = now;
+	}
+	//---------------------------------------------------------
+	std::size_t PlayerDebugLink::sampleMemory()
+	{
+		const std::size_t residentBytes = MemorySampler::residentBytes();
+		if (residentBytes > mPeakResidentBytes)
+		{
+			mPeakResidentBytes = residentBytes;
+		}
+		return residentBytes;
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::streamStats()
+	{
+		if (!mServer.hasClient())
+		{
+			return;
+		}
+		const std::size_t residentBytes = sampleMemory();
+		if (residentBytes == 0)
+		{
+			return;	// no memory query on this platform - omit the metric
+		}
+		DebugMessage stats(Protocol::MSG_STATS);
+		stats.set(Protocol::FIELD_MEM_RSS, std::to_string(residentBytes));
+		stats.set(Protocol::FIELD_MEM_RSS_PEAK,
+			std::to_string(mPeakResidentBytes));
+		mServer.send(stats);
 	}
 	//---------------------------------------------------------
 }

@@ -41,6 +41,7 @@ namespace Orkige
 		const String MSG_SCRIPT_ERROR		= "script_error";
 		const String MSG_SCREENSHOT_SAVED	= "screenshot_saved";
 		const String MSG_RECORD_SAVED		= "record_saved";
+		const String MSG_STATS				= "stats";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";
@@ -55,6 +56,8 @@ namespace Orkige
 		const String FIELD_SCENE			= "scene";
 		const String FIELD_MESSAGE			= "message";
 		const String FIELD_LEVEL			= "level";
+		const String FIELD_MEM_RSS			= "mem_rss";
+		const String FIELD_MEM_RSS_PEAK		= "mem_rss_peak";
 		const String FIELD_REQ				= "req";
 		const String FIELD_TOKEN			= "token";
 		const String LIST_IDS				= "ids";

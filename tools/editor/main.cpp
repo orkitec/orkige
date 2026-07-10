@@ -1284,7 +1284,7 @@ int main(int argc, char** argv)
 			}
 			if (viewSettings.showStatsPanel)
 			{
-				drawStatsPanel(&viewSettings.showStatsPanel);
+				drawStatsPanel(playSession, &viewSettings.showStatsPanel);
 			}
 			if (viewSettings.showConsolePanel)
 			{

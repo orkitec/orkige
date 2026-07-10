@@ -1810,6 +1810,12 @@ namespace Orkige
 			ok.set("record_path", play.lastRecordPath);
 			ok.set("record_ok", play.lastRecordOk ? "1" : "0");
 			ok.set("record_seq", std::to_string(play.recordSeq));
+			// running-game memory (streamed as MSG_STATS): the process resident
+			// set size and the session peak, in bytes; "-1" until the player
+			// streams one (or on a platform without a memory query) - an agent
+			// reads the current value against the peak to spot growth
+			ok.set("mem_rss", std::to_string(play.remoteMemRss));
+			ok.set("mem_rss_peak", std::to_string(play.remoteMemRssPeak));
 			// compile-on-Play build verdict (native-module projects): the
 			// structured signal an agent reads instead of scraping [build] lines
 			// out of console_tail - none/building/ok/failed, the module target,
@@ -4215,6 +4221,32 @@ namespace Orkige
 					finish(false, "control self-test: resume before record failed");
 					return;
 				}
+				// the running game streams its memory footprint (MSG_STATS): by
+				// now (play has been up through boot, inspect and screenshot)
+				// get_state must carry a positive mem_rss and a peak at least
+				// as large. Poll briefly in case the first stats line is in
+				// flight (the player samples at ~4 Hz).
+				{
+					JsonValue memState;
+					const bool haveMem = pollState(
+						[](JsonValue const& s)
+						{
+							return std::atoll(s.get("mem_rss").asString()
+								.c_str()) > 0;
+						}, 40, memState);
+					const long long memRss = haveMem ? std::atoll(
+						memState.get("mem_rss").asString().c_str()) : -1;
+					const long long memPeak = haveMem ? std::atoll(
+						memState.get("mem_rss_peak").asString().c_str()) : -1;
+					if (!haveMem || memRss <= 0 || memPeak < memRss)
+					{
+						finish(false, "control self-test: get_state did not report "
+							"a positive running-game mem_rss with peak >= current");
+						return;
+					}
+					SDL_Log("orkige_editor: control self-test - running-game "
+						"mem_rss %lld bytes (peak %lld)", memRss, memPeak);
+				}
 				const std::string tracePath =
 					std::filesystem::path(this->mScreenshotPath)
 						.replace_extension(".jsonl").string();
@@ -4281,6 +4313,10 @@ namespace Orkige
 				size_t lineCount = 0;
 				bool everyLineParsed = true;
 				bool everySampleHasDt = true;
+				// the process memory footprint rides every sample line ("mem"
+				// bytes) on a platform with a memory query (all the CI targets
+				// have one) - assert it is present and positive
+				bool everySampleHasMem = true;
 				std::string rawLine;
 				while (std::getline(traceFile, rawLine))
 				{
@@ -4305,6 +4341,10 @@ namespace Orkige
 					{
 						everySampleHasDt = false;
 					}
+					if (parsed.get("mem").asNumber(-1.0) <= 0.0)
+					{
+						everySampleHasMem = false;
+					}
 					for (size_t i = 0; i < objects.size(); ++i)
 					{
 						if (objects.at(i).get("id").asString() == firstId)
@@ -4324,6 +4364,12 @@ namespace Orkige
 				{
 					finish(false, "control self-test: a trace sample was missing a "
 						"positive dt");
+					return;
+				}
+				if (!everySampleHasMem)
+				{
+					finish(false, "control self-test: a trace sample was missing a "
+						"positive mem (process memory footprint)");
 					return;
 				}
 				if (movingX.size() < 2)

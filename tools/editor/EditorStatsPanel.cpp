@@ -5,13 +5,38 @@
 
 #include <engine_render/RenderSystem.h>
 
+#include <cstdio>
+#include <string>
+
 // Stats panel: samples getFrameStats() every frame but refreshes the
 // DISPLAYED numbers at ~4 Hz - lastFPS is the reciprocal of a single frame's
 // duration, so printing it raw turns sub-millisecond timing noise into a
 // wildly flickering label. The window shows avg/min/max over the refresh
 // interval, frame time in ms (the budget number) next to FPS, and a rolling
 // frame-time plot of the last 120 samples.
-void drawStatsPanel(bool* visible)
+// format a byte count as a compact human string (KB/MB/GB, two decimals)
+static std::string formatBytes(long long bytes)
+{
+	const double value = static_cast<double>(bytes);
+	char buffer[32];
+	if (bytes >= 1024LL * 1024LL * 1024LL)
+	{
+		std::snprintf(buffer, sizeof(buffer), "%.2f GB",
+			value / (1024.0 * 1024.0 * 1024.0));
+	}
+	else if (bytes >= 1024LL * 1024LL)
+	{
+		std::snprintf(buffer, sizeof(buffer), "%.1f MB",
+			value / (1024.0 * 1024.0));
+	}
+	else
+	{
+		std::snprintf(buffer, sizeof(buffer), "%.0f KB", value / 1024.0);
+	}
+	return buffer;
+}
+
+void drawStatsPanel(PlaySession const& play, bool* visible)
 {
 	if (ImGui::Begin("Stats", visible))
 	{
@@ -72,6 +97,35 @@ void drawStatsPanel(bool* visible)
 			ImVec2(-FLT_MIN, 60.0f));
 		ImGui::Text("Triangles: %zu", sShownTriangles);
 		ImGui::Text("Batches: %zu", sShownBatches);
+
+		// running-game memory (streamed from the player over the debug link
+		// while Play is up): the process resident set size + the session peak.
+		// The FPS/triangle/batch numbers above are the EDITOR's own frame; this
+		// block is the RUNTIME, so it only shows during a live session. -1 =
+		// no reading yet (a player that has not streamed one, or a platform
+		// without a memory query) - shown honestly as n/a.
+		if (play.isActive())
+		{
+			ImGui::SeparatorText("Game memory");
+			if (play.remoteMemRss >= 0)
+			{
+				ImGui::Text("RSS: %s",
+					formatBytes(play.remoteMemRss).c_str());
+			}
+			else
+			{
+				ImGui::TextUnformatted("RSS: n/a");
+			}
+			if (play.remoteMemRssPeak >= 0)
+			{
+				ImGui::Text("Peak: %s",
+					formatBytes(play.remoteMemRssPeak).c_str());
+			}
+			else
+			{
+				ImGui::TextUnformatted("Peak: n/a");
+			}
+		}
 	}
 	ImGui::End();
 }
