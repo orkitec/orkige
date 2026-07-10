@@ -97,8 +97,11 @@ elseif(_ogre_next_android)
     # references (no X11/pthread - the NDK folds pthread into libc)
     set(_ogre_next_main_platform_libs "android;log;dl")
 else()
-    # Linux: OgreMain's threading/plugin loading + X11 window-event plumbing
-    set(_ogre_next_main_platform_libs "X11;pthread;dl")
+    # Linux: OgreMain's threading/plugin loading + X11 window-event plumbing.
+    # Xt/Xaw/Xrandr back the GLX config dialog compiled into OgreMain (system
+    # packages libxt-dev/libxaw7-dev/libxrandr-dev - the same set the classic
+    # OGRE build needs).
+    set(_ogre_next_main_platform_libs "X11;Xt;Xaw;Xrandr;pthread;dl")
 endif()
 
 if(_ogre_next_mobile)

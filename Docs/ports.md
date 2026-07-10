@@ -80,8 +80,10 @@ buys nothing there), Vulkan on Linux and Android:
   the RS's runtime GLSL->SPIR-V compile. The upstream static archive has no
   link interface, so the shipped config carries
   `Vulkan::Vulkan;glslang::glslang;glslang::SPIRV;xcb;X11-xcb;xcb-randr` on
-  `OgreNext::RenderSystem_Vulkan`; the xcb/Xt/Xaw dev packages come from the
-  system package manager, same rule as classic ogre on Linux.
+  `OgreNext::RenderSystem_Vulkan`, and `OgreNext::Main`'s Linux platform libs
+  include `Xt;Xaw;Xrandr` for the GLX config dialog compiled into OgreMain;
+  the xcb/Xt/Xaw dev packages come from the system package manager, same rule
+  as classic ogre on Linux.
 - **Android** - Vulkan with the ANativeWindow surface (no X11/xcb). The Vulkan
   loader and headers come from the **NDK sysroot** (API 28 >= Vulkan 1.1),
   NOT from vcpkg: Vulkan on a device is driver-tier, the same doctrine as
