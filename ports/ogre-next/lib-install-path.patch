@@ -1,0 +1,47 @@
+diff --git a/CMake/Utils/OgreConfigTargets.cmake b/CMake/Utils/OgreConfigTargets.cmake
+index 930dd36..4019ca8 100644
+--- a/CMake/Utils/OgreConfigTargets.cmake
++++ b/CMake/Utils/OgreConfigTargets.cmake
+@@ -42,15 +42,20 @@ if (NOT OGRE_RUNTIME_OUTPUT)
+ endif ()
+ 
+ if (WIN32)
+-  set(OGRE_RELEASE_PATH "/Release")
+-  set(OGRE_RELWDBG_PATH "/RelWithDebInfo")
+-  set(OGRE_MINSIZE_PATH "/MinSizeRel")
+-  set(OGRE_DEBUG_PATH "/Debug")
+-  set(OGRE_LIB_RELEASE_PATH "/Release")
+-  set(OGRE_LIB_RELWDBG_PATH "/RelWithDebInfo")
+-  set(OGRE_LIB_MINSIZE_PATH "/MinSizeRel")
+-  set(OGRE_LIB_DEBUG_PATH "/Debug")
+-  set(OGRE_PLUGIN_PATH "/opt")
++  # Keep the standard single-directory bin/lib layout: per-configuration
++  # "/Release"-style subdirs break a packaged config's lib/<name>.lib
++  # expectations (each configuration already installs into its own prefix
++  # tree), and plugins live under the project prefix as on the other
++  # platforms rather than an "/opt" oddity.
++  set(OGRE_RELEASE_PATH "")
++  set(OGRE_RELWDBG_PATH "")
++  set(OGRE_MINSIZE_PATH "")
++  set(OGRE_DEBUG_PATH "")
++  set(OGRE_LIB_RELEASE_PATH "")
++  set(OGRE_LIB_RELWDBG_PATH "")
++  set(OGRE_LIB_MINSIZE_PATH "")
++  set(OGRE_LIB_DEBUG_PATH "")
++  set(OGRE_PLUGIN_PATH "/${OGRE_NEXT_PREFIX}")
+   set(OGRE_SAMPLE_PATH "/opt/samples")
+ elseif (UNIX)
+   set(OGRE_RELEASE_PATH "")
+@@ -61,9 +66,9 @@ elseif (UNIX)
+   set(OGRE_LIB_RELWDBG_PATH "")
+   set(OGRE_LIB_MINSIZE_PATH "")
+   set(OGRE_LIB_DEBUG_PATH "")
+-  if(APPLE AND OGRE_BUILD_PLATFORM_APPLE_IOS)
+-    set(OGRE_LIB_RELEASE_PATH "/Release")
+-  endif(APPLE AND OGRE_BUILD_PLATFORM_APPLE_IOS)
++  # Keep the standard single-directory lib/ layout on iOS too: a per-config
++  # "/Release" subdir breaks the packaged config's lib/lib*.a expectations
++  # (the release install already lands in the release-prefixed tree).
+   if (APPLE)
+     set(OGRE_PLUGIN_PATH "/")
+   else()

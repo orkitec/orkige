@@ -26,7 +26,7 @@ vcpkg_from_github(
         apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber CMAKE_OSX_SYSROOT (macOS "macosx" and iOS "iphoneos") with a symbolic name under single-config generators (Xcode-only assumptions upstream)
         apple-ninja-no-framework-postbuild.patch  # macOS: the framework-header POST_BUILD uses Xcode $(PLATFORM_NAME) vars - guard it behind OGRE_BUILD_LIBS_AS_FRAMEWORKS
         vulkan-no-shaderc-probe.patch             # the Vulkan RS compiles GLSL via glslang only - stop the find-probe from requiring shaderc_combined (absent from vcpkg and the NDK), which silently disabled the whole RS
-        ios-lib-install-path.patch                # iOS: keep the standard vcpkg lib/ layout (upstream installs iOS release static libs into lib/Release)
+        lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
 )
 
 # Render system per platform: Metal is Ogre-Next's first-class RS on Apple

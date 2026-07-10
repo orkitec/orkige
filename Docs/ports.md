@@ -176,7 +176,7 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
   entries to `Vulkan_LIBRARIES` when found (an absent shaderc otherwise leaves
   a dangling `optimized` keyword that reaches `target_link_libraries` and
   hard-errors). Needed on both Linux and Android.
-- `ios-lib-install-path.patch` - `CMake/Utils/OgreConfigTargets.cmake`
+- `lib-install-path.patch` - `CMake/Utils/OgreConfigTargets.cmake`
   installs iOS release static libs into `lib/Release` (an Xcode-layout
   leftover); drop that so iOS keeps the standard vcpkg `lib/` layout the
   shipped config's `lib/lib*.a` paths expect. (The `$(PLATFORM_NAME)`-under-
