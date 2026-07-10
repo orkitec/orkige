@@ -63,4 +63,15 @@ namespace Orkige
 	//! programmer-art glyph icons instead). Also the "are icons available?"
 	//! probe: non-null implies the merged inline icons are present too.
 	ImFont* editorIconFont();
+
+	//! @brief the standalone icon font's native (1:1) draw size in font-size
+	//! units, or 0 when no icon font is loaded. Grid draws clamp their requested
+	//! glyph size to this so an icon only ever downscales from the crisp atlas.
+	float editorIconFontRasterPixels();
+
+	//! @brief an ImGui::Checkbox whose square is ~20% smaller than the themed
+	//! default, for compact form rows. Pushes a reduced FramePadding for this one
+	//! widget only (the global style is unchanged); same signature/return as
+	//! ImGui::Checkbox. Use for form-style toggles, not menu items.
+	bool compactCheckbox(const char* label, bool* value);
 }

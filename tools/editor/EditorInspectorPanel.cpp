@@ -4,6 +4,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "EditorPropertyWidgets.h"
+#include "EditorTheme.h"
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
@@ -310,7 +311,7 @@ void drawRemoteInspector(PlaySession& session)
 				continue;
 			}
 			bool activeSelf = session.remoteActive[index] != "0";
-			if (ImGui::Checkbox("##remoteActive", &activeSelf))
+			if (Orkige::compactCheckbox("##remoteActive", &activeSelf))
 			{
 				setRemoteObjectActive(session, session.stateObjectId,
 					activeSelf);
@@ -411,8 +412,8 @@ void drawTextureSettingsFields(Orkige::TextureImportSettings& settings)
 	}
 	ImGui::SetItemTooltip("longest-side texel cap the export cook downscales "
 		"to; 0 = uncapped");
-	ImGui::Checkbox("Premultiply Alpha", &settings.premultiply);
-	ImGui::Checkbox("Generate Mips", &settings.generateMips);
+	Orkige::compactCheckbox("Premultiply Alpha", &settings.premultiply);
+	Orkige::compactCheckbox("Generate Mips", &settings.generateMips);
 }
 
 //! the "Texture Import Settings" Inspector section: shown when the SCENE
@@ -446,7 +447,7 @@ bool drawTextureImportSection(EditorState& state)
 	drawTextureSettingsFields(browser.editImport.base);
 	// per-platform overrides: enabling one seeds it from the resolved default
 	ImGui::PushID("android");
-	if (ImGui::Checkbox("Android override", &browser.editImport.hasAndroid) &&
+	if (Orkige::compactCheckbox("Android override", &browser.editImport.hasAndroid) &&
 		browser.editImport.hasAndroid)
 	{
 		browser.editImport.android = browser.editImport.base;
@@ -457,7 +458,7 @@ bool drawTextureImportSection(EditorState& state)
 	}
 	ImGui::PopID();
 	ImGui::PushID("ios");
-	if (ImGui::Checkbox("iOS override", &browser.editImport.hasIos) &&
+	if (Orkige::compactCheckbox("iOS override", &browser.editImport.hasIos) &&
 		browser.editImport.hasIos)
 	{
 		browser.editImport.ios = browser.editImport.base;
@@ -512,7 +513,7 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 			// flag (activeSelf) - a checked box on an object annotated
 			// "inactive via parent" means an ancestor is deactivated
 			bool activeSelf = gameObject->isActiveSelf();
-			if (ImGui::Checkbox("##activeSelf", &activeSelf))
+			if (Orkige::compactCheckbox("##activeSelf", &activeSelf))
 			{
 				core.setObjectActive(objectId, activeSelf);
 			}

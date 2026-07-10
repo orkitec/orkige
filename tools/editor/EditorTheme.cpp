@@ -70,10 +70,16 @@ namespace Orkige
 		//! successful loadEditorIconFont, which is also the "icons available" flag
 		ImFont* gIconFontLarge = nullptr;
 
-		//! the pixel size the standalone icon font is rasterised at: big enough
-		//! that grid tiles (drawn at tile size, up to ~128 px) only mildly upscale
-		//! while small tiles / list rows downscale crisply
-		constexpr float ICON_FONT_ATLAS_PIXELS = 48.0f;
+		//! the size (in font-size units) the standalone icon font was rasterised
+		//! at, i.e. its native 1:1 draw size; grid draws clamp to it so an icon
+		//! only ever downscales from the crisp atlas, never upscales past it
+		float gIconFontLargePixels = 0.0f;
+
+		//! the pixel size the standalone icon font is rasterised at: large enough
+		//! that even the biggest grid tile (drawn at tile size) downscales from a
+		//! crisp atlas rather than upscaling a small one. Only a handful of glyphs
+		//! are rasterised, so the larger atlas footprint is negligible.
+		constexpr float ICON_FONT_ATLAS_PIXELS = 128.0f;
 
 		//! the FA6 codepoints the editor actually draws (asset kinds + folders) -
 		//! a tight glyph range so the atlas rasterises ~a dozen glyphs, not the
@@ -84,6 +90,7 @@ namespace Orkige
 			0xf008, 0xf008,		// film (scene)
 			0xf03e, 0xf03e,		// image (texture)
 			0xf07b, 0xf07c,		// folder / folder-open
+			0xf0b0, 0xf0b0,		// filter (the type-filter funnel button)
 			0xf15b, 0xf15b,		// file (unknown)
 			0xf1b2, 0xf1b2,		// cube (mesh)
 			0xf1c9, 0xf1c9,		// file-code (script)
@@ -248,14 +255,40 @@ namespace Orkige
 			ImFontConfig config;
 			config.OversampleH = 2;
 			config.OversampleV = 2;
+			const float rasterPixels = ICON_FONT_ATLAS_PIXELS * contentScale;
 			gIconFontLarge = io.Fonts->AddFontFromFileTTF(fontPath,
-				ICON_FONT_ATLAS_PIXELS * contentScale, &config,
-				ICON_GLYPH_RANGES);
+				rasterPixels, &config, ICON_GLYPH_RANGES);
+			gIconFontLargePixels = gIconFontLarge ? rasterPixels : 0.0f;
 		}
 	}
 	//---------------------------------------------------------
 	ImFont* editorIconFont()
 	{
 		return gIconFontLarge;
+	}
+	//---------------------------------------------------------
+	float editorIconFontRasterPixels()
+	{
+		return gIconFontLargePixels;
+	}
+	//---------------------------------------------------------
+	bool compactCheckbox(const char* label, bool* value)
+	{
+		// the checkbox square is FontSize + FramePadding.y*2; trim ~20% off it by
+		// pushing a reduced vertical frame padding for just this widget (the
+		// global FramePadding is untouched, so surrounding controls keep their
+		// size). Clamp to zero so a large font never asks for negative padding.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		const float square = ImGui::GetFontSize() + style.FramePadding.y * 2.0f;
+		float padY = (square * 0.8f - ImGui::GetFontSize()) * 0.5f;
+		if (padY < 0.0f)
+		{
+			padY = 0.0f;
+		}
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+			ImVec2(style.FramePadding.x, padY));
+		const bool changed = ImGui::Checkbox(label, value);
+		ImGui::PopStyleVar();
+		return changed;
 	}
 }

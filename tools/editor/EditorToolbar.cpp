@@ -2,6 +2,7 @@
 // the desktop/simulator/adb target picker and the session status line.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTheme.h"
 
 #include <imgui_internal.h> // SeparatorEx (the vertical toolbar separators)
 
@@ -299,7 +300,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			ImGui::SameLine();
 		}
 		bool snapEnabled = core.isSnapEnabled();
-		if (ImGui::Checkbox("Snap", &snapEnabled))
+		if (Orkige::compactCheckbox("Snap", &snapEnabled))
 		{
 			core.setSnapEnabled(snapEnabled);
 			if (gViewSettings)

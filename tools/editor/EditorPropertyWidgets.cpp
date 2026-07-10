@@ -2,6 +2,7 @@
 // See EditorPropertyWidgets.h for the contract.
 #include "EditorPropertyWidgets.h"
 #include "EditorAssetDnd.h"
+#include "EditorTheme.h"
 
 #include <imgui.h>
 
@@ -297,7 +298,7 @@ bool drawPropertyWidget(PropertyWidgetDesc const& desc,
 	case PropertyKind::Bool:
 	{
 		bool flag = (value == "1");
-		if (ImGui::Checkbox(label, &flag))
+		if (Orkige::compactCheckbox(label, &flag))
 		{
 			outValue = flag ? "1" : "0";
 			edited = true;

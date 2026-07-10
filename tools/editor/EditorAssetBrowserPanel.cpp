@@ -1175,6 +1175,10 @@ bool applyTextureImportEdit(EditorState& state,
 namespace
 {
 
+//! the accent colour of a kind's glyph icon (defined below; forward-declared so
+//! the folder tree can share the one warm folder tone with the content grid)
+ImU32 assetKindColor(AssetKind kind, bool isFolder);
+
 //! a MOVE drop target for a folder (absolute path): accepts a dragged asset (or
 //! multi-selection) and moves it into destDir. Call right after the widget the
 //! folder is drawn as (a tree node, a breadcrumb segment, a grid folder tile).
@@ -1275,10 +1279,24 @@ void drawFolderTree(EditorState& state, std::string const& dir, int depth)
 	}
 	ImGui::PushID(dir.c_str());
 	// the same folder icon the content grid uses, inline via the merged icon
-	// font (rendered in text colour); bare label when the icon font is absent
-	std::string label = Orkige::editorIconFont()
+	// font; bare label when the icon font is absent. The widget draws the whole
+	// label in text colour, so afterwards the icon glyph is over-painted in the
+	// shared warm folder tone (the grid's folder colour) while the name stays
+	// normal text colour - one folder colour everywhere.
+	const bool haveIcon = Orkige::editorIconFont() != nullptr;
+	std::string label = haveIcon
 		? std::string(ICON_FA_FOLDER "  ") + name : name;
+	// the label's icon is painted at CursorPos + GetTreeNodeToLabelSpacing()
+	// (== text_offset_x) for an unframed node; capture the origin first
+	const ImVec2 nodeOrigin = ImGui::GetCursorScreenPos();
 	const bool open = ImGui::TreeNodeEx(label.c_str(), flags);
+	if (haveIcon)
+	{
+		const ImVec2 iconAt(nodeOrigin.x + ImGui::GetTreeNodeToLabelSpacing(),
+			nodeOrigin.y);
+		ImGui::GetWindowDrawList()->AddText(iconAt,
+			assetKindColor(AssetKind::Unknown, true), ICON_FA_FOLDER);
+	}
 	// a dragged asset dropped onto a folder node moves into it
 	folderDropTarget(state, dir);
 	// a click on the label (not the expand arrow) navigates
@@ -1442,7 +1460,14 @@ void drawKindIcon(ImDrawList* drawList, ImVec2 minCorner, ImVec2 maxCorner,
 	const char* glyph = assetKindIcon(kind, isFolder);
 	const float side = std::min(maxCorner.x - minCorner.x,
 		maxCorner.y - minCorner.y);
-	const float pixels = side * (isFolder ? 0.94f : 0.82f);
+	float pixels = side * (isFolder ? 0.94f : 0.82f);
+	// never upscale past the atlas raster size - an icon only ever downscales
+	// from the crisp standalone font, so big tiles stay sharp instead of soft
+	const float rasterPixels = Orkige::editorIconFontRasterPixels();
+	if (rasterPixels > 0.0f && pixels > rasterPixels)
+	{
+		pixels = rasterPixels;
+	}
 	const ImVec2 size = iconFont->CalcTextSizeA(pixels, FLT_MAX, 0.0f, glyph);
 	const ImVec2 at((minCorner.x + maxCorner.x) * 0.5f - size.x * 0.5f,
 		(minCorner.y + maxCorner.y) * 0.5f - size.y * 0.5f);
@@ -2013,66 +2038,112 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::SameLine();
 	drawBreadcrumb(state);
 
-	// --- toolbar row 2: search + recursive + kind chips + size slider ------
+	// --- toolbar row 2: search + type-filter funnel + recursive ------------
 	ImGui::SetNextItemWidth(180.0f);
 	ImGui::InputTextWithHint("##assetSearch", "Search", browser.searchText,
 		sizeof(browser.searchText));
 	ImGui::SameLine();
-	ImGui::Checkbox("Recursive", &browser.searchRecursive);
+	// the type filter lives behind a funnel button: it opens a checklist of
+	// asset kinds, each toggling its AssetKind bit in the mask (0 = every kind).
+	// A small badge on the button shows how many kinds are currently selected.
+	const struct { AssetKind kind; const char* label; } kindFilters[] = {
+		{ AssetKind::Texture, "Textures" }, { AssetKind::Mesh, "Meshes" },
+		{ AssetKind::Audio, "Audio" }, { AssetKind::Script, "Scripts" },
+		{ AssetKind::Prefab, "Prefabs" }, { AssetKind::Scene, "Scenes" } };
+	int activeFilters = 0;
+	for (auto const& f : kindFilters)
+	{
+		if (browser.kindFilterMask & (1u << static_cast<unsigned int>(f.kind)))
+		{
+			++activeFilters;
+		}
+	}
+	const bool anyFilter = browser.kindFilterMask != 0;
+	if (anyFilter)
+	{
+		ImGui::PushStyleColor(ImGuiCol_Button,
+			ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+	}
+	const ImVec2 funnelMin = ImGui::GetCursorScreenPos();
+	const char* funnelLabel =
+		Orkige::editorIconFont() ? ICON_FA_FILTER : "Filter";
+	if (ImGui::Button(funnelLabel))
+	{
+		ImGui::OpenPopup("##kindFilter");
+	}
+	if (anyFilter)
+	{
+		ImGui::PopStyleColor();
+	}
+	ImGui::SetItemTooltip("filter by asset type");
+	// the active-count badge: a small accent disc on the button's top-right
+	if (anyFilter)
+	{
+		const ImVec2 funnelMax = ImGui::GetItemRectMax();
+		const std::string count = std::to_string(activeFilters);
+		const ImVec2 textSize = ImGui::CalcTextSize(count.c_str());
+		const float radius = std::max(textSize.x, textSize.y) * 0.5f + 2.0f;
+		const ImVec2 center(funnelMax.x - 1.0f, funnelMin.y + 1.0f);
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddCircleFilled(center, radius,
+			ImGui::GetColorU32(ImGuiCol_CheckMark));
+		drawList->AddText(ImVec2(center.x - textSize.x * 0.5f,
+			center.y - textSize.y * 0.5f), IM_COL32(255, 255, 255, 255),
+			count.c_str());
+	}
+	if (ImGui::BeginPopup("##kindFilter"))
+	{
+		for (auto const& f : kindFilters)
+		{
+			const unsigned int bit = 1u << static_cast<unsigned int>(f.kind);
+			bool on = (browser.kindFilterMask & bit) != 0;
+			if (Orkige::compactCheckbox(f.label, &on))
+			{
+				if (on)
+				{
+					browser.kindFilterMask |= bit;
+				}
+				else
+				{
+					browser.kindFilterMask &= ~bit;
+				}
+			}
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Clear", nullptr, false, anyFilter))
+		{
+			browser.kindFilterMask = 0;
+		}
+		ImGui::EndPopup();
+	}
 	ImGui::SameLine();
-	// per-kind filter chips: an active chip renders in the accent colour and
-	// flips its AssetKind bit in the mask (0 = every kind)
-	const struct { AssetKind kind; const char* label; } kindChips[] = {
-		{ AssetKind::Texture, "IMG" }, { AssetKind::Mesh, "MESH" },
-		{ AssetKind::Audio, "SND" }, { AssetKind::Script, "LUA" },
-		{ AssetKind::Prefab, "PFB" }, { AssetKind::Scene, "SCN" } };
-	for (auto const& chip : kindChips)
-	{
-		const unsigned int bit = 1u << static_cast<unsigned int>(chip.kind);
-		const bool active = (browser.kindFilterMask & bit) != 0;
-		if (active)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Button,
-				ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-		}
-		ImGui::PushID(chip.label);
-		if (ImGui::SmallButton(chip.label))
-		{
-			browser.kindFilterMask ^= bit;
-		}
-		ImGui::PopID();
-		if (active)
-		{
-			ImGui::PopStyleColor();
-		}
-		ImGui::SameLine();
-	}
-	// thumbnail-size slider, right-aligned
-	const float sliderWidth = 120.0f;
-	const float regionWidth = ImGui::GetWindowContentRegionMax().x -
-		ImGui::GetWindowContentRegionMin().x;
-	ImGui::SameLine(std::max(0.0f, regionWidth - sliderWidth));
-	ImGui::SetNextItemWidth(sliderWidth);
-	ImGui::SliderFloat("##thumbsize", &browser.thumbnailSize,
-		AssetBrowserState::THUMBNAIL_MIN, AssetBrowserState::THUMBNAIL_MAX, "");
-	if (ImGui::IsItemDeactivatedAfterEdit() && gRecordRecents && gViewSettings)
-	{
-		// persist the zoom (interactive runs only, like the other view prefs)
-		gViewSettings->assetThumbnailSize = browser.thumbnailSize;
-		gViewSettings->save();
-	}
+	Orkige::compactCheckbox("Recursive", &browser.searchRecursive);
 	ImGui::Separator();
 
+	// both panes and the divider share the height above the one-line footer
+	const float footerHeight =
+		ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y;
+
 	// --- two panes: folder tree (left) + content grid (right) --------------
+	// a SINGLE vertical hairline separates the tree from the content pane (no
+	// child-frame box); the tree still resizes by dragging its right edge
 	const float treeWidth = std::min(220.0f,
 		ImGui::GetContentRegionAvail().x * 0.35f);
-	if (ImGui::BeginChild("##assetTree", ImVec2(treeWidth, 0.0f),
-		ImGuiChildFlags_ResizeX | ImGuiChildFlags_Borders))
+	const float panesTop = ImGui::GetCursorScreenPos().y;
+	const float paneHeight = ImGui::GetContentRegionAvail().y - footerHeight;
+	if (ImGui::BeginChild("##assetTree", ImVec2(treeWidth, paneHeight),
+		ImGuiChildFlags_ResizeX))
 	{
 		drawFolderTree(state, root, 0);
 	}
 	ImGui::EndChild();
 	ImGui::SameLine();
+	// the divider sits in the item-spacing gap between the two panes
+	const ImVec2 contentTop = ImGui::GetCursorScreenPos();
+	const float dividerX = contentTop.x - style.ItemSpacing.x * 0.5f;
+	ImGui::GetWindowDrawList()->AddLine(ImVec2(dividerX, panesTop),
+		ImVec2(dividerX, panesTop + paneHeight),
+		ImGui::GetColorU32(ImGuiCol_Separator));
 
 	// enumerate the content pane: search mode (a recursive/flat name search)
 	// or folder mode (the current folder's subfolders + files); the kind mask
@@ -2140,8 +2211,6 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 	const bool listMode =
 		browser.thumbnailSize < AssetBrowserState::LIST_THRESHOLD;
 	// the content grid sits above a one-line status footer
-	const float footerHeight =
-		ImGui::GetTextLineHeightWithSpacing() + style.ItemSpacing.y;
 	if (ImGui::BeginChild("##assetContents", ImVec2(0.0f, -footerHeight)))
 	{
 		const int count = static_cast<int>(entries.size());
@@ -2280,15 +2349,34 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 		status += ", " + std::to_string(browser.selection.size()) + " selected";
 	}
 	ImGui::TextUnformatted(status.c_str());
+	// right-aligned footer controls: the current-folder path, then a thin,
+	// unlabeled thumbnail-size slider tucked into the far corner
 	std::string here = state.project.makeProjectRelative(browser.currentDir);
 	if (here.empty() || here == ".")
 	{
 		here = "/";
 	}
 	const float hereWidth = ImGui::CalcTextSize(here.c_str()).x;
-	ImGui::SameLine(std::max(0.0f, ImGui::GetWindowContentRegionMax().x -
-		ImGui::GetWindowContentRegionMin().x - hereWidth));
+	const float sliderWidth = 96.0f;
+	const float contentWidth = ImGui::GetWindowContentRegionMax().x -
+		ImGui::GetWindowContentRegionMin().x;
+	ImGui::SameLine(std::max(0.0f, contentWidth - sliderWidth -
+		style.ItemSpacing.x - hereWidth));
 	ImGui::TextDisabled("%s", here.c_str());
+	ImGui::SameLine(std::max(0.0f, contentWidth - sliderWidth));
+	ImGui::SetNextItemWidth(sliderWidth);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+		ImVec2(style.FramePadding.x, 2.0f));	// keep the footer slider thin
+	ImGui::SliderFloat("##thumbsize", &browser.thumbnailSize,
+		AssetBrowserState::THUMBNAIL_MIN, AssetBrowserState::THUMBNAIL_MAX, "");
+	ImGui::PopStyleVar();
+	ImGui::SetItemTooltip("thumbnail size");
+	if (ImGui::IsItemDeactivatedAfterEdit() && gRecordRecents && gViewSettings)
+	{
+		// persist the zoom (interactive runs only, like the other view prefs)
+		gViewSettings->assetThumbnailSize = browser.thumbnailSize;
+		gViewSettings->save();
+	}
 
 	// --- panel-local keyboard shortcuts (only while the panel has focus, and
 	// never mid-rename) - the Hierarchy/global handlers stand down through the

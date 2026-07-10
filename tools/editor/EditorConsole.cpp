@@ -2,6 +2,7 @@
 // store pump, the SDL log output hook, the Lua REPL and the Console panel.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorTheme.h"
 
 #include <core_debug/CVarCommand.h>
 #include <core_debugnet/DebugProtocol.h>
@@ -132,7 +133,7 @@ void drawConsoleLogTab(EditorConsole& console)
 		console.clear();
 	}
 	ImGui::SameLine();
-	ImGui::Checkbox("Auto-scroll", &console.autoScroll);
+	Orkige::compactCheckbox("Auto-scroll", &console.autoScroll);
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(-FLT_MIN);
 	console.filter.Draw("##consolefilter");
