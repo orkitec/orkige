@@ -31,14 +31,17 @@ namespace Orkige
 		return std::shared_ptr<Type>(t,NullDeleter());
 	}
 
-	//! the engine-wide alias for SHARED ownership: use optr<T> where the old
-	//! code does; single ownership uses std::unique_ptr directly. An alias
-	//! template (not a macro), so the name stays inside namespace Orkige.
+	//! the engine's ownership vocabulary, one family of alias templates
+	//! (not macros - the names stay inside namespace Orkige):
+	//! optr = shared ownership, woptr = weak observer, uptr = single owner.
 	template<class Type>
 	using optr = std::shared_ptr<Type>;
 	//! the weak counterpart of optr
 	template<class Type>
 	using woptr = std::weak_ptr<Type>;
+	//! the single-ownership member of the family
+	template<class Type, class Deleter = std::default_delete<Type>>
+	using uptr = std::unique_ptr<Type, Deleter>;
 
 	//! alloc optr
 	template<class Type>

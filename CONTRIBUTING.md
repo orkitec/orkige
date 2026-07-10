@@ -63,14 +63,14 @@ The house conventions, which most of the tree already follows:
   aggregates that are just grouped state, such as the editor's `PlaySession`
   and `AssetBrowserState` (`mode`, `process`, `currentDir`, `thumbnailSize`).
 - **Types are CamelCase; functions and methods are camelCase.**
-- **Shared ownership is spelled `optr<T>`** (with `woptr<T>` for the weak
-  counterpart) — the namespaced alias template in `core_util/optr.h`. Use it
-  everywhere shared ownership is meant rather than writing `std::shared_ptr`
-  directly; a translation unit outside `namespace Orkige` imports it with
-  `using Orkige::optr;` after its includes (see `tools/player/main.cpp`).
-  `std::unique_ptr` stays spelled out for single ownership — the distinction
-  between the two is intentional and must stay visible. Review-enforced (no
-  lint can choose between equivalent types).
+- **Ownership is spelled with the engine's alias family** from
+  `core_util/optr.h`: `optr<T>` for shared ownership, `woptr<T>` for a weak
+  observer, `uptr<T>` for a single owner. Use them rather than writing the
+  `std::` names directly — the family keeps ownership intent readable and
+  uniform. A translation unit outside `namespace Orkige` imports what it uses
+  with `using Orkige::optr;` after its includes (see `tools/player/main.cpp`);
+  headers qualify (`Orkige::uptr<Impl>`) instead of importing.
+  Review-enforced (no lint can choose between equivalent types).
 - **Comments are Doxygen `//!` / `//!<`.** They are wrapped by hand — describe
   behavior, not the mechanics of the surrounding line.
 - **Include guards are `#ifndef` with a date suffix** (core/engine headers).

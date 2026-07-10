@@ -33,7 +33,7 @@
 // - return an accepted result and are polled via get_state).
 #ifndef ORKIGE_EDITORCONTROLSERVER_H_09072026
 #define ORKIGE_EDITORCONTROLSERVER_H_09072026
-
+#include "core_util/optr.h"
 #include <core_debugnet/DebugProtocol.h>
 #include <core_debugnet/HttpServer.h>
 #include <core_debugnet/Json.h>
@@ -44,6 +44,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+
 
 // forward declarations (the shells live in EditorApp.h; the header stays free
 // of the SDL/ImGui pull EditorApp.h carries so main can include it cheaply)
@@ -153,10 +154,10 @@ namespace Orkige
 		bool mReplyIsError = false;		//!< was the buffered reply an error
 		//! outstanding/finished async test runs, keyed by their generated jobId;
 		//! run_tests appends, get_test_results reads, stop() joins the workers
-		std::vector<std::unique_ptr<EditorTestJob>> mTestJobs;
+		std::vector<Orkige::uptr<EditorTestJob>> mTestJobs;
 		//! outstanding/finished async exports, same lifecycle as mTestJobs;
 		//! export_project appends, get_export_results reads, stop() joins
-		std::vector<std::unique_ptr<EditorExportJob>> mExportJobs;
+		std::vector<Orkige::uptr<EditorExportJob>> mExportJobs;
 	};
 
 	//! @brief the in-process MCP endpoint self-test (the editor_control ctest).

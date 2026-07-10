@@ -8,12 +8,13 @@
 ***************************************************************/
 #ifndef __EngineLog_h__8_7_2026__21_00_00__
 #define __EngineLog_h__8_7_2026__21_00_00__
-
+#include "core_util/optr.h"
 #include "core_module/OrkigePrerequisites.h"
 #include <core_util/String.h>
 
 #include <memory>
 #include <vector>
+
 
 //! same export rule as engine_module/EnginePrerequisites.h - duplicated
 //! (guarded) so this header stays free of the Ogre-including umbrella;
@@ -67,7 +68,7 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	public:
 	protected:
-		std::unique_ptr<Impl>	mImpl;
+		Orkige::uptr<Impl>	mImpl;
 	private:
 		//--- Methods -----------------------------------------
 	public:

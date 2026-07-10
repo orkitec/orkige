@@ -131,7 +131,7 @@ namespace Orkige
 		//! the backend frame-listener bridge firing the events above
 		//! (defined in EngineNext.cpp - the one place naming backend types)
 		struct FrameBridge;
-		std::unique_ptr<FrameBridge>	frameBridge;
+		uptr<FrameBridge>	frameBridge;
 		std::map<String, String>		windowParams;
 		String							logFileName;
 		String							hlmsMediaDir;

@@ -22,7 +22,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool LogConfig::readConfig(const char* configFileName)
 	{
-		std::unique_ptr<tinyxml2::XMLDocument> config(new ::tinyxml2::XMLDocument(true));
+		uptr<tinyxml2::XMLDocument> config(new ::tinyxml2::XMLDocument(true));
 		config->LoadFile(configFileName);
 
 		if(config->Error())

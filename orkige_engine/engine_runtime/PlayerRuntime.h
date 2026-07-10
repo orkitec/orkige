@@ -8,7 +8,7 @@
 ***************************************************************/
 #ifndef __PlayerRuntime_h__8_7_2026__12_00_00__
 #define __PlayerRuntime_h__8_7_2026__12_00_00__
-
+#include "core_util/optr.h"
 #include "core_util/String.h"
 #include "core_debugnet/DebugServer.h"
 
@@ -17,6 +17,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+
 
 namespace Orkige
 {
@@ -138,7 +139,7 @@ namespace Orkige
 		unsigned long	mRecordLastFrame = 0;		//!< frame number of the last tick (event line frame)
 		bool			mRecordShouldFinish = false;//!< budget spent / stop asked
 		std::set<String>	mRecordFilter;			//!< id/name allowlist (empty = all named objects)
-		std::unique_ptr<TraceWriter> mTrace;		//!< the JSONL flight recorder (null when idle)
+		Orkige::uptr<TraceWriter> mTrace;		//!< the JSONL flight recorder (null when idle)
 		String			mSelectedObjectId;		//!< object whose state is streamed
 		StringVector	mLastSentHierarchy;
 		StringVector	mLastSentParents;		//!< parent ids parallel to mLastSentHierarchy
@@ -150,7 +151,7 @@ namespace Orkige
 		//! default-constructed = clock epoch, so the first send never waits
 		std::chrono::steady_clock::time_point mLastStateSend;
 		//! engine-log -> editor-Console capture (attached while active)
-		std::unique_ptr<EngineLogCapture> mLogCapture;
+		Orkige::uptr<EngineLogCapture> mLogCapture;
 		//--- Methods -----------------------------------------
 	public:
 		PlayerDebugLink();

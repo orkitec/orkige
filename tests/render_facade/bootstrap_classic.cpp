@@ -30,6 +30,8 @@
 #include <memory>
 #include <vector>
 
+using Orkige::uptr;
+
 extern "C" void* orkige_native_window_handle(SDL_Window* window);
 
 namespace SelfcheckBootstrap
@@ -37,9 +39,9 @@ namespace SelfcheckBootstrap
 	namespace
 	{
 		SDL_Window* gWindow = NULL;
-		std::unique_ptr<Orkige::GlobalEventManager> gEventManager;
-		std::unique_ptr<Orkige::ScriptRuntime> gScriptRuntime;
-		std::unique_ptr<Orkige::Engine> gEngine;
+		uptr<Orkige::GlobalEventManager> gEventManager;
+		uptr<Orkige::ScriptRuntime> gScriptRuntime;
+		uptr<Orkige::Engine> gEngine;
 	}
 	//---------------------------------------------------------
 	Orkige::RenderSystem* boot(unsigned int width, unsigned int height,
