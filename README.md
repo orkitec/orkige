@@ -102,8 +102,9 @@ ctest --preset desktop-classic # the classic-flavor suite (exports, Vulkan, nati
 ctest --preset all             # classic + simulator/emulator device tests
 ```
 
-Every push runs a GitHub Actions job that builds the engine, editor, player and
-samples on Linux and runs the headless unit suite (`.github/workflows/ci.yml`).
+Every push builds and tests on Linux (both render flavors plus the
+scripting-off configuration, including the full windowed desktop suite under
+a virtual display), macOS and Windows (`.github/workflows/ci.yml`).
 
 ## Repository layout
 
