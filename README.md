@@ -1,9 +1,10 @@
 # Orkige
 
-**The orkitec game engine** — a C++20 game engine for mobile games (iOS + Android)
-with desktop (macOS, Linux CI-verified; Windows planned) as development targets.
-Originally written 2009–2012 and shipped on the App Store (*Pudding Panic*),
-revived and fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
+**The orkitec game engine** — a C++20 game engine for desktop and mobile games
+(macOS, iOS, Android; Linux CI-verified, Windows planned), with an AI-native
+editor that lets agents create, run, test and debug games over MCP. Originally
+written 2009–2012 and shipped on the App Store (*Pudding Panic*), revived and
+fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
 
 ![Editor](https://img.shields.io/badge/editor-ImGui%20docked-blue)
 ![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)
