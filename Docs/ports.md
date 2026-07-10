@@ -56,10 +56,10 @@ Locally authored port (3.0.0, pinned tag `v3.0.0` - the latest stable of
 OGRECave/ogre-next; no upstream vcpkg port exists). The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
-never builds it. Static, `supports: (osx & arm64) | (linux & x64) | (ios &
-arm64) | (android & arm64)` - the Linux half is the CI `linux-next` job's
-Vulkan flavor; the iOS (Metal) and Android (Vulkan) halves carry the mobile
-next backend.
+never builds it. Static, `supports: (osx & arm64) | (linux & x64) | (windows & x64 & !uwp) |
+(ios & arm64) | (android & arm64)` - Linux and Windows are the desktop Vulkan
+flavors (the CI `linux-next`/`windows-next` jobs); the iOS (Metal) and
+Android (Vulkan) halves carry the mobile next backend.
 
 **Coexistence with classic `ogre` in one installed tree** is a hard
 requirement and holds by construction: `OGRE_USE_NEW_PROJECT_NAME=ON` gives

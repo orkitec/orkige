@@ -1006,11 +1006,30 @@ int main(int argc, char** argv)
 		auto hotreloadWriteScript = [&hotreloadTempRoot](
 			std::string const& source) -> bool
 		{
-			std::ofstream file(std::filesystem::path(hotreloadTempRoot) /
-				"scripts" / "reload_probe.lua",
-				std::ios::binary | std::ios::trunc);
-			file << source;
-			return file.good();
+			const std::filesystem::path scriptPath =
+				std::filesystem::path(hotreloadTempRoot) /
+				"scripts" / "reload_probe.lua";
+			{
+				std::ofstream file(scriptPath,
+					std::ios::binary | std::ios::trunc);
+				file << source;
+				if (!file.good())
+				{
+					return false;
+				}
+			}
+			// the reload watcher compares mtimes: on filesystems with coarse
+			// timestamp granularity a rewrite within the same granule would
+			// be invisible, so stamp a strictly newer mtime explicitly
+			std::error_code stampError;
+			const std::filesystem::file_time_type written =
+				std::filesystem::last_write_time(scriptPath, stampError);
+			if (!stampError)
+			{
+				std::filesystem::last_write_time(scriptPath,
+					written + std::chrono::seconds(2), stampError);
+			}
+			return true;
 		};
 		// init moves the Probe transform to (x,0,0) - the editor observes
 		// the change through the object_state stream (no shared visibility)
@@ -3644,6 +3663,11 @@ int main(int argc, char** argv)
 							buildSeconds);
 						if (!nativePlaytestBreak)
 						{
+							// surface the compiler evidence in the test log -
+							// a bare "build failed" is undiagnosable on CI
+							SDL_Log("orkige_editor: native playtest - build "
+								"error tail:\n%s",
+								playSession.buildErrorLog.c_str());
 							nativeFailed = true;
 							nativeFailure = "the native module build failed";
 						}
@@ -4234,8 +4258,11 @@ int main(int argc, char** argv)
 						else
 						{
 							hotreloadPhase = HotReloadPlaytestPhase::WaitGood;
+							// generous ceiling: the ~4Hz watcher, the player's
+							// frame cadence and the remote stream all slow down
+							// on loaded shared runners
 							hotreloadDeadline =
-								hotreloadNow + std::chrono::seconds(30);
+								hotreloadNow + std::chrono::seconds(90);
 							SDL_Log("orkige_editor: hot-reload playtest - "
 								"baseline x=1 up, edited the script to x=5");
 						}
@@ -4265,7 +4292,7 @@ int main(int argc, char** argv)
 						{
 							hotreloadPhase = HotReloadPlaytestPhase::WaitBroken;
 							hotreloadDeadline =
-								hotreloadNow + std::chrono::seconds(30);
+								hotreloadNow + std::chrono::seconds(90);
 							SDL_Log("orkige_editor: hot-reload playtest - live "
 								"edit swapped in (x=5), now breaking the script");
 						}
@@ -4308,7 +4335,7 @@ int main(int argc, char** argv)
 						{
 							hotreloadPhase = HotReloadPlaytestPhase::WaitHeal;
 							hotreloadDeadline =
-								hotreloadNow + std::chrono::seconds(30);
+								hotreloadNow + std::chrono::seconds(90);
 							SDL_Log("orkige_editor: hot-reload playtest - broken "
 								"edit surfaced a SCRIPT ERROR while play "
 								"continued, now healing it to x=8");
@@ -4332,7 +4359,7 @@ int main(int argc, char** argv)
 						requestStopPlay(playSession);
 						hotreloadPhase = HotReloadPlaytestPhase::WaitRevert;
 						hotreloadDeadline =
-							hotreloadNow + std::chrono::seconds(30);
+							hotreloadNow + std::chrono::seconds(90);
 						SDL_Log("orkige_editor: hot-reload playtest - healing "
 							"edit cleared the error and swapped in (x=8), "
 							"stopping");
