@@ -158,6 +158,13 @@ namespace Orkige
 		//! SKIPPED (v1: both sides must resolve, so a script never sees a nil
 		//! `other`) - the stale-id tolerance the drain requires.
 		static void dispatchContacts(GameObjectManager & gameObjectManager);
+		//! @brief resolve a physics body back to its owning GameObject through
+		//! the body user tag, re-validated NOW (getBodyUserData returns 0 for a
+		//! destroyed body, so a stale id never dereferences a dead object -
+		//! returns NULL then). THE body<->object bridge, shared by
+		//! dispatchContacts and observers like the player's trace recorder.
+		static GameObject* bodyOwner(PhysicsWorld & physicsWorld,
+			PhysicsWorld::BodyId bodyId);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

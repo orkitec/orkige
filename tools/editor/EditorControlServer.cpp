@@ -1131,6 +1131,34 @@ namespace Orkige
 				  "exceeds it, then screenshot_path/screenshot_ok carry the "
 				  "result. Errors when no player is connected.",
 				  { { "path", "string", "output PNG path", true } } },
+				{ "record_trace",
+				  "Record a TEMPORAL TRACE of the RUNNING game to a .jsonl file "
+				  "at 'path' - the flight-recorder evidence an agent READS (one "
+				  "JSON object per line): per-frame samples of the named objects "
+				  "(world pos, velocity when a rigid body exists, active/visible, "
+				  "plus the frame dt) every 'everyNth' frame, with contact / "
+				  "scene-load / script-error / warning events interleaved. "
+				  "Desktop play only; the path is on the player's filesystem, "
+				  "shared with the editor. Records for up to 'seconds' wall-clock "
+				  "(default 5, capped at 60); 'objects' narrows to a "
+				  "comma-separated id/name allowlist. ASYNC: returns accepted + "
+				  "prev_record_seq; poll get_state until record_seq exceeds it, "
+				  "then record_path/record_ok carry the result. Use stop_recording "
+				  "to end early. Errors when no player is connected.",
+				  { { "path", "string", "output .jsonl path", true },
+				    { "seconds", "number", "max wall-clock seconds (default 5)",
+				      false },
+				    { "everyNth", "number", "sample every Nth frame (default 2)",
+				      false },
+				    { "objects", "string",
+				      "comma-separated id/name allowlist (default: all)",
+				      false } } },
+				{ "stop_recording",
+				  "Stop an in-progress record_trace early; the player writes what "
+				  "it captured and confirms via get_state (record_seq advances, "
+				  "record_path/record_ok carry the trace). Errors when no player "
+				  "is connected.",
+				  {} },
 				{ "list_assets",
 				  "List the open project's assets and scenes.", {} },
 				{ "write_project_file",
@@ -1776,6 +1804,12 @@ namespace Orkige
 			ok.set("screenshot_path", play.lastScreenshotPath);
 			ok.set("screenshot_ok", play.lastScreenshotOk ? "1" : "0");
 			ok.set("screenshot_seq", std::to_string(play.screenshotSeq));
+			// running-game trace (record_trace / stop_recording): the last
+			// confirmed trace + a sequence a poller waits to advance
+			ok.set("recording", play.recordingActive ? "1" : "0");
+			ok.set("record_path", play.lastRecordPath);
+			ok.set("record_ok", play.lastRecordOk ? "1" : "0");
+			ok.set("record_seq", std::to_string(play.recordSeq));
 			// compile-on-Play build verdict (native-module projects): the
 			// structured signal an agent reads instead of scraping [build] lines
 			// out of console_tail - none/building/ok/failed, the module target,
@@ -2616,6 +2650,57 @@ namespace Orkige
 			ok.set("path", path);
 			ok.set("prev_screenshot_seq", std::to_string(play.screenshotSeq));
 			requestRemoteScreenshot(play, path);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "record_trace")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (play.onSimulator || play.onAndroid)
+			{
+				this->sendErr(req, "record_trace is desktop-play only (the path "
+					"lives on the player's filesystem)");
+				return;
+			}
+			const String path = request.get("path");
+			if (path.empty())
+			{
+				this->sendErr(req, "record_trace needs a 'path'");
+				return;
+			}
+			const float seconds = request.getFloat("seconds", 5.0f);
+			const float every = request.getFloat("everyNth", 2.0f);
+			const String objects = request.get("objects");
+			// async: the player samples over the next frames and answers with
+			// record_saved; poll get_state (record_path/record_ok/record_seq)
+			// for the confirmation. Report the accepted request + the sequence
+			// BEFORE it so a poller knows a fresh save is a higher record_seq.
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("path", path);
+			ok.set("prev_record_seq", std::to_string(play.recordSeq));
+			requestRemoteRecord(play, path, seconds,
+				every < 1.0f ? 1u : static_cast<unsigned int>(every), objects);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "stop_recording")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("accepted", "1");
+			ok.set("prev_record_seq", std::to_string(play.recordSeq));
+			stopRemoteRecord(play);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -4103,6 +4188,140 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - screenshot_game wrote "
 				"'%s'", this->mScreenshotPath.c_str());
 
+			// (R7b) record_trace (authed): record the RUNNING game to a
+			// .jsonl flight recorder while nudging the object's Transform so its
+			// position changes across samples, then verify the trace parses line
+			// by line and the moving object's samples differ + carry dt
+			{
+				// resume so the trace covers the running (not paused) game
+				if (!callTool("resume", JsonValue::object(), true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: resume before record failed");
+					return;
+				}
+				const std::string tracePath =
+					std::filesystem::path(this->mScreenshotPath)
+						.replace_extension(".jsonl").string();
+				const int prevRecordSeq = std::atoi(
+					state.get("record_seq").asString().c_str());
+				JsonValue recordArgs = JsonValue::object();
+				recordArgs.set("path", JsonValue(String(tracePath)));
+				recordArgs.set("seconds", JsonValue(3.0));
+				recordArgs.set("everyNth", JsonValue(1.0));
+				if (!callTool("record_trace", recordArgs, true, structured,
+						isError) || isError)
+				{
+					finish(false, "control self-test: record_trace was not accepted");
+					return;
+				}
+				// drive movement WHILE recording so samples span positions
+				for (int step = 1; step <= 4; ++step)
+				{
+					JsonValue moveArgs = JsonValue::object();
+					moveArgs.set("id", JsonValue(firstId));
+					moveArgs.set("component", JsonValue("TransformComponent"));
+					moveArgs.set("property", JsonValue("position"));
+					moveArgs.set("value",
+						JsonValue(String(std::to_string(step) + " 0 0")));
+					callTool("set_runtime_property", moveArgs, true, structured,
+						isError);
+					std::this_thread::sleep_for(std::chrono::milliseconds(120));
+				}
+				// end promptly (do not wait out the whole budget)
+				if (!callTool("stop_recording", JsonValue::object(), true,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: stop_recording failed");
+					return;
+				}
+				if (!pollState([prevRecordSeq](JsonValue const& s)
+					{
+						return std::atoi(s.get("record_seq").asString()
+							.c_str()) > prevRecordSeq;
+					}, 100, state))
+				{
+					finish(false, "control self-test: running game never confirmed "
+						"the trace");
+					return;
+				}
+				if (state.get("record_ok").asString() != "1" ||
+					state.get("record_path").asString() != tracePath)
+				{
+					finish(false, "control self-test: record_trace did not report a "
+						"written trace");
+					return;
+				}
+				// parse the trace: every line valid JSON; the moving object's
+				// sampled pos.x must take at least two distinct values and every
+				// sample must carry a positive dt
+				std::ifstream traceFile(tracePath);
+				if (!traceFile)
+				{
+					finish(false, "control self-test: record_trace wrote no file");
+					return;
+				}
+				std::set<double> movingX;
+				size_t sampleCount = 0;
+				size_t lineCount = 0;
+				bool everyLineParsed = true;
+				bool everySampleHasDt = true;
+				std::string rawLine;
+				while (std::getline(traceFile, rawLine))
+				{
+					if (rawLine.empty())
+					{
+						continue;
+					}
+					++lineCount;
+					JsonValue parsed;
+					if (!JsonValue::parse(rawLine, parsed))
+					{
+						everyLineParsed = false;
+						break;
+					}
+					JsonValue const& objects = parsed.get("objects");
+					if (!objects.isArray())
+					{
+						continue;	// an event line
+					}
+					++sampleCount;
+					if (parsed.get("dt").asNumber(-1.0) <= 0.0)
+					{
+						everySampleHasDt = false;
+					}
+					for (size_t i = 0; i < objects.size(); ++i)
+					{
+						if (objects.at(i).get("id").asString() == firstId)
+						{
+							movingX.insert(
+								objects.at(i).get("pos").at(0).asNumber(0));
+						}
+					}
+				}
+				if (lineCount < 2 || !everyLineParsed)
+				{
+					finish(false, "control self-test: record_trace produced an "
+						"unparseable / trivial trace");
+					return;
+				}
+				if (!everySampleHasDt)
+				{
+					finish(false, "control self-test: a trace sample was missing a "
+						"positive dt");
+					return;
+				}
+				if (movingX.size() < 2)
+				{
+					finish(false, "control self-test: the moving object's position "
+						"did not change across trace samples");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - record_trace wrote "
+					"'%s' (%zu lines, %zu samples, %zu distinct positions)",
+					tracePath.c_str(), lineCount, sampleCount, movingX.size());
+			}
+
 			// (R8) reload_script (authed): a smoke over the running player (the
 			// fixtures carry no scripts, so this reloads zero but must succeed)
 			if (!callTool("reload_script", JsonValue::object(), true, structured,
@@ -4168,7 +4387,8 @@ namespace Orkige
 			}
 			// each runtime mutation WITHOUT auth must be rejected
 			const char* mutations[] = { "runtime_select", "set_runtime_property",
-				"set_cvar", "reload_script", "screenshot_game" };
+				"set_cvar", "reload_script", "screenshot_game", "record_trace",
+				"stop_recording" };
 			for (const char* mutation : mutations)
 			{
 				isError = false;

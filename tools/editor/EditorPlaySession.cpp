@@ -71,6 +71,11 @@ void clearRemoteState(PlaySession& session)
 	session.lastScreenshotError.clear();
 	session.lastScreenshotOk = false;
 	session.screenshotSeq = 0;
+	session.recordingActive = false;
+	session.lastRecordPath.clear();
+	session.lastRecordError.clear();
+	session.lastRecordOk = false;
+	session.recordSeq = 0;
 }
 
 //! @brief tear the session down (reap/kill the player, drop the link,
@@ -887,6 +892,38 @@ void requestRemoteScreenshot(PlaySession& session, std::string const& path)
 	session.client.send(shot);
 }
 
+//! ask the running game to record a .jsonl flight-recorder trace
+void requestRemoteRecord(PlaySession& session, std::string const& path,
+	float maxSeconds, unsigned int everyNth, std::string const& objects)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage record(Protocol::MSG_RECORD_START);
+	record.set(Protocol::FIELD_PATH, path);
+	record.setFloat(Protocol::FIELD_SECONDS, maxSeconds);
+	record.setFloat(Protocol::FIELD_EVERY,
+		static_cast<float>(everyNth == 0 ? 1u : everyNth));
+	if (!objects.empty())
+	{
+		record.set(Protocol::FIELD_FILTER, objects);
+	}
+	session.client.send(record);
+	session.recordingActive = true;
+}
+
+//! ask the running game to stop an in-progress trace early
+void stopRemoteRecord(PlaySession& session)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage stop(Protocol::MSG_RECORD_STOP);
+	session.client.send(stop);
+}
+
 //! Lua hot-reload: tell the running player to recompile-and-swap
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 {
@@ -1101,6 +1138,26 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			{
 				console.addLine(ConsoleLevel::Error,
 					"[remote] screenshot FAILED: " + session.lastScreenshotError);
+			}
+		}
+		else if (message.type == Protocol::MSG_RECORD_SAVED)
+		{
+			// the running game confirmed (or failed) a trace; record it so the
+			// MCP record_trace poller sees the fresh artifact
+			session.lastRecordPath = message.get(Protocol::FIELD_PATH);
+			session.lastRecordOk = message.get(Protocol::FIELD_VALUE) == "1";
+			session.lastRecordError = message.get(Protocol::FIELD_MESSAGE);
+			session.recordingActive = false;
+			++session.recordSeq;
+			if (session.lastRecordOk)
+			{
+				console.addLine(ConsoleLevel::Info,
+					"[remote] trace saved: " + session.lastRecordPath);
+			}
+			else
+			{
+				console.addLine(ConsoleLevel::Error,
+					"[remote] trace FAILED: " + session.lastRecordError);
 			}
 		}
 		else if (message.type == Protocol::MSG_BYE)

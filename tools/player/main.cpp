@@ -1593,6 +1593,41 @@ int main(int argc, char** argv)
 						captured ? "written" : "FAILED", screenshotPath.c_str());
 				}
 			}
+			// editor-requested TRACE recording (MSG_RECORD_START): while active,
+			// sample the world every Nth frame and interleave this frame's
+			// physics contacts as events, until the time budget is spent (or
+			// Stop arrives), then write the .jsonl trace and acknowledge. The
+			// world sampling lives in the debug link; contacts are resolved here
+			// where the player already owns the physics world.
+			if (debugLink.isRecording())
+			{
+				debugLink.traceFrame(gameObjectManager, frameCount, deltaTime);
+				// harvest THIS frame's contacts only when physics advanced (a
+				// paused frame reuses the last drained list - do not re-emit)
+				if (advanceWorld && physicsNeeded)
+				{
+					for (Orkige::PhysicsWorld::ContactEvent const & contact :
+						physicsWorld.getFrameContacts())
+					{
+						Orkige::GameObject* objectA =
+							Orkige::RigidBodyComponent::bodyOwner(
+								physicsWorld, contact.bodyA);
+						Orkige::GameObject* objectB =
+							Orkige::RigidBodyComponent::bodyOwner(
+								physicsWorld, contact.bodyB);
+						if (objectA && objectB)
+						{
+							debugLink.traceContact(objectA->getObjectID(),
+								objectB->getObjectID(), contact.began);
+						}
+					}
+				}
+				if (debugLink.recordingShouldFinish())
+				{
+					debugLink.finishRecording();
+					SDL_Log("orkige_player: debug trace finished");
+				}
+			}
 			++frameCount;
 
 			// --- jumper-lua selfcheck script (see the block above the loop) --

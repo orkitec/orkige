@@ -306,6 +306,22 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	GameObject* RigidBodyComponent::bodyOwner(PhysicsWorld & physicsWorld,
+		PhysicsWorld::BodyId bodyId)
+	{
+		// getBodyUserData returns 0 for a destroyed body (its tag was erased in
+		// destroyBody), so a stale id never dereferences a dead object. The tag
+		// is a RigidBodyComponent*; a non-zero tag means the body still lives,
+		// hence the component (which owns the body) still lives too.
+		const PhysicsWorld::BodyUserData tag =
+			physicsWorld.getBodyUserData(bodyId);
+		if (tag == 0)
+		{
+			return NULL;
+		}
+		return reinterpret_cast<RigidBodyComponent*>(tag)->getGameObject();
+	}
+	//---------------------------------------------------------
 	void RigidBodyComponent::dispatchContacts(GameObjectManager & gameObjectManager)
 	{
 		PhysicsWorld* physicsWorld = PhysicsWorld::getSingletonPtr();
@@ -313,21 +329,10 @@ namespace Orkige
 		{
 			return;
 		}
-		// resolve a body's user tag to its owning GameObject, re-validated NOW:
-		// getBodyUserData returns 0 for a destroyed body (its tag was erased in
-		// destroyBody), so a stale end-contact never dereferences a dead object.
-		// The tag is a RigidBodyComponent*; a non-zero tag means the body still
-		// lives, hence the component (which owns the body) still lives too.
+		// resolve a body's user tag to its owning GameObject (@see bodyOwner)
 		auto ownerOf = [physicsWorld](PhysicsWorld::BodyId bodyId) -> GameObject*
 		{
-			const PhysicsWorld::BodyUserData tag =
-				physicsWorld->getBodyUserData(bodyId);
-			if (tag == 0)
-			{
-				return NULL;
-			}
-			RigidBodyComponent* body = reinterpret_cast<RigidBodyComponent*>(tag);
-			return body->getGameObject();
+			return RigidBodyComponent::bodyOwner(*physicsWorld, bodyId);
 		};
 		(void)gameObjectManager;	// resolution goes through the body tag, not a scan
 		for (PhysicsWorld::ContactEvent const & contact :

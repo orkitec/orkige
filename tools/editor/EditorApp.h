@@ -560,6 +560,16 @@ struct PlaySession
 	std::string lastScreenshotError;
 	bool lastScreenshotOk = false;
 	unsigned int screenshotSeq = 0;
+	//! running-game trace recording (MSG_RECORD_START/STOP / MSG_RECORD_SAVED):
+	//! recordingActive is set the moment a record request goes out and cleared
+	//! on the player's confirmation; lastRecordPath/Ok/Error hold the last
+	//! written .jsonl trace and recordSeq increments per confirmation so a
+	//! poller tells a fresh save from a stale one. All reset by clearRemoteState.
+	bool recordingActive = false;
+	std::string lastRecordPath;
+	std::string lastRecordError;
+	bool lastRecordOk = false;
+	unsigned int recordSeq = 0;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;
@@ -747,6 +757,20 @@ void setRemoteCvar(PlaySession& session, std::string const& name,
 //! no-op when no player is connected. Desktop play only - the path lives on the
 //! player's filesystem, shared with the editor there.
 void requestRemoteScreenshot(PlaySession& session, std::string const& path);
+
+//! @brief ask the RUNNING game to record a .jsonl flight-recorder trace to path
+//! (MSG_RECORD_START), sampling the world every everyNth frame for up to
+//! maxSeconds wall-clock, optionally narrowed to the objects allowlist
+//! (comma-separated ids/names, "" = all). The player answers with
+//! MSG_RECORD_SAVED, which updatePlaySession records in lastRecordPath/Ok/Error
+//! + recordSeq. A no-op when no player is connected. Desktop play only - the
+//! path lives on the player's filesystem.
+void requestRemoteRecord(PlaySession& session, std::string const& path,
+	float maxSeconds, unsigned int everyNth, std::string const& objects);
+//! @brief stop an in-progress trace early (MSG_RECORD_STOP): the player writes
+//! what it captured and answers with MSG_RECORD_SAVED. A no-op when no player
+//! is connected.
+void stopRemoteRecord(PlaySession& session);
 
 //! per-frame pump: connection progress, protocol messages, build/process
 //! supervision, crash detection

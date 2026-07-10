@@ -118,6 +118,8 @@ The endpoint advertises 50 tools (the `toolSpecs` table in
 | `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) |
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` |
+| `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
+| `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |
 | `list_assets()` | `AssetDatabase::listAssets` + `Project::listScenes` |
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
 | `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
@@ -311,10 +313,29 @@ mode is never ambiguous.
   next frame and confirms, and `get_state` then carries `screenshot_seq` (bumped
   on each confirmation), `screenshot_ok` and `screenshot_path`. Poll `get_state`
   until `screenshot_seq` exceeds the returned `prev_screenshot_seq`.
+- `record_trace(path, seconds?, everyNth?, objects?)` is the TEMPORAL sibling of
+  `screenshot_game` — evidence for behaviour that unfolds over time, in the form
+  an agent can actually READ: a `.jsonl` flight recorder (one JSON object per
+  line), NOT pixels. Every `everyNth` rendered frame (default 2) it writes a
+  sample line — `{"t", "frame", "dt", "objects":[…]}` — carrying, per named
+  object, its world `pos`, `vel` (only when a rigid body exists), `active` and
+  `visible` (in the window camera's view). Event lines interleave as they occur:
+  `contactBegin`/`contactEnd` (both object names), `sceneLoad`, `scriptError`
+  and `warning` (warning-and-above log lines). Records for up to `seconds`
+  wall-clock (default 5, capped at 60); `objects` narrows to a comma-separated
+  id/name allowlist. The trace is byte-capped (~2MB) with an honest
+  `{"truncated":1}` marker line if hit. Desktop play only, and ASYNC like
+  `screenshot_game`: it returns `{ accepted:"1", path, prev_record_seq }`;
+  `get_state` then carries `recording` (in progress), `record_seq` (bumped on
+  each confirmation), `record_ok` and `record_path`. Poll until `record_seq`
+  exceeds the returned `prev_record_seq`, or call `stop_recording()` to end it
+  early. The dt field lets an agent assert on performance; the position series
+  lets it assert on movement — e.g. "the player's y rose then fell" (a jump).
 
 `get_state` is the poll target for all of the above: besides the editor snapshot
 it carries `remote_connected`, `remote_scene`, `remote_selected`,
-`remote_object_count` and the `screenshot_*` fields while a play session is up.
+`remote_object_count`, the `screenshot_*` fields and the `recording`/`record_*`
+fields while a play session is up.
 
 Example loop — inspect and poke the running game, then capture evidence:
 
@@ -329,6 +350,9 @@ tools/call set_runtime_property {                  // authed; live write
     "id":"Player","component":"TransformComponent","property":"position","value":"2 3 4" }
 tools/call screenshot_game { "path":"/tmp/frame.png" }  // → { accepted:"1", prev_screenshot_seq:"0" }
 tools/call get_state {}                             // poll until screenshot_seq > 0, screenshot_ok:"1"
+tools/call resume {}                               // authed; let it run while we record
+tools/call record_trace { "path":"/tmp/run.jsonl", "seconds":3, "everyNth":2 }  // → { accepted:"1", prev_record_seq:"0" }
+tools/call get_state {}                             // poll until record_seq > 0, record_ok:"1"; then READ /tmp/run.jsonl
 tools/call stop {}                                 // authed → back to edit mode
 ```
 
@@ -438,7 +462,11 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   `pause` + `step`, `set_runtime_property` (a live Transform write read back
   through `runtime_state`), `screenshot_game` (the running-game frame, verified
   non-empty on disk via `get_state`'s `screenshot_seq`/`screenshot_ok`),
-  `reload_script`, an auth-rejected mutation on the LIVE player, then `stop` and a
+  `record_trace` (records the running game while nudging its Transform, then
+  parses the written `.jsonl` line by line and asserts the moving object's
+  sampled position changes across samples and every sample carries a positive
+  `dt`, via `get_state`'s `record_seq`/`record_ok`), `reload_script`, an
+  auth-rejected mutation on the LIVE player, then `stop` and a
   clean revert to edit mode. Every step runs through the MCP tools, exactly as an
   agent would drive them.
 - `JsonTests` / `HttpServerTests` (ctest, unit): the nested-JSON codec

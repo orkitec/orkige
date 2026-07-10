@@ -29,10 +29,11 @@ result back through the matching read tool:
 - changed a component → `get_component` (edit world) or `runtime_state` (live game)
 - ran the game → `get_state` (play mode), `runtime_hierarchy`, `console_tail`
 - verified behaviour → `run_tests` + `get_test_results`, or `screenshot_game`
+  (a frame) / `record_trace` (a .jsonl of motion + events over time, read back)
 
 All scalar fields cross the wire as STRINGS (`"1"`/`"0"` for flags), matching the
 debug-protocol convention. The async tools (`play`, `run_tests`, `export_project`,
-`screenshot_game`) return an `accepted` acknowledgement and are POLLED — treat
+`screenshot_game`, `record_trace`) return an `accepted` acknowledgement and are POLLED — treat
 "accepted" as "started", and keep polling the stated field until it settles.
 Mutations need the `Authorization: Bearer <token>` header; pure reads are open.
 
@@ -188,13 +189,35 @@ screenshot_game { "path":"/tmp/level1.png" }  // authed
 get_state {}
 //   → poll until { "screenshot_seq":"1", "screenshot_ok":"1", "screenshot_path":"/tmp/level1.png" }
 
+// 5b. for behaviour that unfolds over time, record a TRACE - a .jsonl flight
+//     recorder you READ back (agents can't watch video). record_trace is ASYNC
+//     the same way (poll record_seq), auto-stops at the time budget (or
+//     stop_recording), and samples the world every everyNth frame.
+resume {}                                    // authed → let it move while we record
+record_trace { "path":"/tmp/level1.jsonl", "seconds":3, "everyNth":2 }  // authed
+//   → { "accepted":"1", "path":"/tmp/level1.jsonl", "prev_record_seq":"0" }
+get_state {}
+//   → poll until { "record_seq":"1", "record_ok":"1", "record_path":"/tmp/level1.jsonl" }
+// then READ the file and ASSERT on it. Each sample line looks like:
+//   {"t":0.28,"frame":34,"dt":0.0166,"objects":[
+//      {"id":"Player","name":"Player","pos":[3.5,1.2,0],"vel":[2,4.1,0],"active":1,"visible":1}]}
+// e.g. an agent proving a jump: read every sample's Player pos[1] (y) and assert
+// the series rises above its start then falls back - the arc is in the numbers.
+// Event lines interleave, e.g. {"t":0.5,"frame":60,"event":"contactBegin","a":"Player","b":"Ground"}.
+
 // 6. let it run again, then stop back to edit mode
 resume {}                                    // authed → {}
 stop {}                                      // authed → {}
 ```
 
-Every `runtime_*` verb (and `pause`/`resume`/`step`/`screenshot_game`) returns
-`isError` with `"no live player - start Play first"` when nothing is playing, so
-the edit-world / live-game boundary is never ambiguous. `screenshot_game` is
-desktop-play only (the path lives on the player's filesystem, which the editor
-shares only on desktop).
+Every `runtime_*` verb (and `pause`/`resume`/`step`/`screenshot_game`/
+`record_trace`/`stop_recording`) returns `isError` with `"no live player - start
+Play first"` when nothing is playing, so the edit-world / live-game boundary is
+never ambiguous. `screenshot_game` and `record_trace` are desktop-play only (the
+path lives on the player's filesystem, which the editor shares only on desktop).
+Prefer `record_trace` when the evidence is motion or timing over a window — a
+jump arc, a tween, a physics settle, a contact — and read the numbers back.
+When you only need to confirm what's on screen right now, `screenshot_game`
+gives the frame; and the zero-cost DETERMINISTIC alternative is a
+`pause`/`step`/`screenshot_game` loop (step advances exactly one frame), which
+needs no real-time capture at all.

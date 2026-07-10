@@ -15,11 +15,14 @@
 #include <chrono>
 #include <memory>
 #include <set>
+#include <utility>
+#include <vector>
 
 namespace Orkige
 {
 	class GameObjectManager;
 	class EngineLogCapture;
+	class TraceWriter;
 
 	//! @brief THE player CLI contract, parsed: every runtime the editor's
 	//! play mode can launch (tools/player, a project's native module built
@@ -80,7 +83,7 @@ namespace Orkige
 	//! @brief the player side of the editor's play-mode debug protocol,
 	//! shared by tools/player and native game modules: owns the DebugServer,
 	//! answers editor commands (pause/resume/step/quit/select/set_property/
-	//! set_cvar/reload_script/screenshot/request_hierarchy), streams the
+	//! set_cvar/reload_script/screenshot/record/request_hierarchy), streams the
 	//! hierarchy on change and the selected
 	//! object's state at ~15Hz, pushes a script_error message for every
 	//! GameObject whose ScriptComponent fails (once per object per
@@ -119,6 +122,21 @@ namespace Orkige
 		//! renderer-agnostic protocol code on purpose)
 		bool			mHasPendingScreenshot = false;
 		String			mPendingScreenshotPath;
+		//! a MSG_RECORD_START trace is active: the main loop samples the world
+		//! every Nth frame (positions/velocities/flags) and this class records
+		//! interleaved events (contacts, scene loads, script errors, warnings)
+		//! until the time budget is spent or MSG_RECORD_STOP arrives, then
+		//! writes the .jsonl trace and reports back with notifyTraceSaved
+		bool			mRecording = false;
+		String			mRecordPath;			//!< output .jsonl trace path
+		unsigned int	mRecordEveryNth = 1;	//!< sample every Nth frame
+		float			mRecordMaxSeconds = 0.0f;	//!< wall-clock budget
+		float			mRecordElapsed = 0.0f;		//!< seconds recorded so far (event line t)
+		unsigned long	mRecordFrameCounter = 0;	//!< frames seen while recording
+		unsigned long	mRecordLastFrame = 0;		//!< frame number of the last tick (event line frame)
+		bool			mRecordShouldFinish = false;//!< budget spent / stop asked
+		std::set<String>	mRecordFilter;			//!< id/name allowlist (empty = all named objects)
+		std::unique_ptr<TraceWriter> mTrace;		//!< the JSONL flight recorder (null when idle)
 		String			mSelectedObjectId;		//!< object whose state is streamed
 		StringVector	mLastSentHierarchy;
 		StringVector	mLastSentParents;		//!< parent ids parallel to mLastSentHierarchy
@@ -162,6 +180,30 @@ namespace Orkige
 		void notifyScreenshotSaved(String const & path, bool ok,
 			String const & error = String());
 
+		//! @brief is a MSG_RECORD_START trace in progress? The player's main
+		//! loop gates its per-frame sampling on this.
+		bool isRecording() const { return mActive && mRecording; }
+		//! @brief advance the active trace by one rendered frame: accrue the
+		//! wall-clock budget (finishing when it is spent) and, on every Nth
+		//! frame, sample the world (named objects' world position, velocity
+		//! when a rigid body exists, active + in-view flags) into the trace.
+		//! Reuses the render facade's window camera for the visibility test.
+		void traceFrame(GameObjectManager & gameObjectManager,
+			unsigned long frameCount, float deltaSeconds);
+		//! @brief record a physics contact as a trace event AT the frame it
+		//! occurred (both object names). A no-op when not recording. The main
+		//! loop resolves the contact bodies to names and calls this.
+		void traceContact(String const & nameA, String const & nameB,
+			bool began);
+		//! @brief should the trace be wrapped up now (budget spent or
+		//! MSG_RECORD_STOP received)? The main loop polls this and calls
+		//! finishRecording on a true.
+		bool recordingShouldFinish() const;
+		//! @brief write the sampled trace to its path and send MSG_RECORD_SAVED
+		//! (path echoed, ok flag, error text on failure), then end the trace.
+		//! A no-op when nothing is recording.
+		void finishRecording();
+
 		//! @brief per-frame pump BEFORE stepping the world: accept/lose the
 		//! client (hello + initial hierarchy on connect, un-pause on a
 		//! vanished editor) and act on every queued editor command
@@ -196,6 +238,11 @@ namespace Orkige
 		void handleReloadScript(GameObjectManager & gameObjectManager,
 			DebugMessage const & message);
 		void handleSetCvar(DebugMessage const & message);
+		void handleRecordStart(DebugMessage const & message);
+		//! record an event on the active trace (a no-op when idle): the hook
+		//! the scene-reload / script-error / warning observers funnel through
+		void traceEvent(String const & event,
+			std::vector<std::pair<String, String>> const & fields);
 		void processMessages(GameObjectManager & gameObjectManager);
 		void streamObjectState(GameObjectManager & gameObjectManager);
 	};

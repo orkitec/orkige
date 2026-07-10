@@ -20,19 +20,25 @@
 #include "core_debug/CVarManager.h"
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
+#include "core_debugnet/TraceWriter.h"
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_render/RenderMath.h"
+#include "engine_render/RenderSystem.h"
+#include "engine_render/RenderCamera.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
 #include <SDL3/SDL_filesystem.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <utility>
 #include <fstream>
 #include <sstream>
 #include <system_error>
@@ -351,6 +357,205 @@ namespace Orkige
 		mServer.send(saved);
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::handleRecordStart(DebugMessage const & message)
+	{
+		const String path = message.get(Protocol::FIELD_PATH);
+		if (path.empty())
+		{
+			sendError("record: missing path");
+			return;
+		}
+		// a fresh request supersedes any trace already in flight (the editor
+		// drives one recording at a time)
+		mRecording = true;
+		mRecordPath = path;
+		// clamp to sane bounds: the trace byte cap is the memory backstop, this
+		// keeps a stray request from tying up the player for minutes
+		const float seconds = message.getFloat(Protocol::FIELD_SECONDS, 5.0f);
+		mRecordMaxSeconds = std::clamp(seconds, 0.1f, 60.0f);
+		const float every = message.getFloat(Protocol::FIELD_EVERY, 2.0f);
+		mRecordEveryNth = every < 1.0f
+			? 1u : static_cast<unsigned int>(every);
+		// optional id/name allowlist: comma-separated, whitespace-trimmed
+		mRecordFilter.clear();
+		String const & filter = message.get(Protocol::FIELD_FILTER);
+		size_t start = 0;
+		while (start <= filter.size())
+		{
+			const size_t comma = filter.find(',', start);
+			const size_t end = comma == String::npos ? filter.size() : comma;
+			size_t a = start, b = end;
+			while (a < b && std::isspace(static_cast<unsigned char>(filter[a])))
+			{
+				++a;
+			}
+			while (b > a && std::isspace(static_cast<unsigned char>(filter[b - 1])))
+			{
+				--b;
+			}
+			if (b > a)
+			{
+				mRecordFilter.insert(filter.substr(a, b - a));
+			}
+			if (comma == String::npos)
+			{
+				break;
+			}
+			start = comma + 1;
+		}
+		mRecordElapsed = 0.0f;
+		mRecordFrameCounter = 0;
+		mRecordLastFrame = 0;
+		mRecordShouldFinish = false;
+		mTrace = std::make_unique<TraceWriter>();
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::traceFrame(GameObjectManager & gameObjectManager,
+		unsigned long frameCount, float deltaSeconds)
+	{
+		if (!mActive || !mRecording || !mTrace)
+		{
+			return;
+		}
+		mRecordElapsed += deltaSeconds;
+		mRecordLastFrame = frameCount;
+		if (mRecordElapsed >= mRecordMaxSeconds)
+		{
+			mRecordShouldFinish = true;
+		}
+		const bool sampleFrame = (mRecordFrameCounter % mRecordEveryNth) == 0;
+		++mRecordFrameCounter;
+		if (!sampleFrame)
+		{
+			return;
+		}
+		// the window camera drives the cheap in-view test (projectPoint);
+		// absent (UI-only/no camera) -> the visible field is omitted
+		optr<RenderCamera> camera;
+		if (RenderSystem* renderSystem = RenderSystem::get())
+		{
+			camera = renderSystem->getWindowCamera();
+		}
+		std::vector<TraceWriter::ObjectSample> samples;
+		for (auto const & [id, gameObject] : gameObjectManager.getGameObjects())
+		{
+			if (id.empty() || !gameObject)
+			{
+				continue;	// only NAMED objects
+			}
+			if (!mRecordFilter.empty() &&
+				mRecordFilter.find(id) == mRecordFilter.end())
+			{
+				continue;	// narrowed by the record filter
+			}
+			if (!gameObject->hasComponent<TransformComponent>())
+			{
+				continue;	// no transform -> no position to trace
+			}
+			TransformComponent* transform =
+				gameObject->getComponentPtr<TransformComponent>();
+			TraceWriter::ObjectSample sample;
+			sample.id = id;
+			sample.name = id;	// the object id is its human name in this engine
+			const Vec3 position = transform->getWorldPosition();
+			sample.pos[0] = position.x;
+			sample.pos[1] = position.y;
+			sample.pos[2] = position.z;
+			if (gameObject->hasComponent<RigidBodyComponent>())
+			{
+				const Vec3 velocity = gameObject
+					->getComponentPtr<RigidBodyComponent>()->getLinearVelocity();
+				sample.hasVelocity = true;
+				sample.vel[0] = velocity.x;
+				sample.vel[1] = velocity.y;
+				sample.vel[2] = velocity.z;
+			}
+			sample.active = gameObject->isActiveInHierarchy();
+			if (camera)
+			{
+				Real nx = 0.0f, ny = 0.0f;
+				const bool inView = camera->projectPoint(position, nx, ny) &&
+					nx >= 0.0f && nx <= 1.0f && ny >= 0.0f && ny <= 1.0f;
+				sample.visible = inView ? 1 : 0;
+			}
+			samples.push_back(std::move(sample));
+		}
+		mTrace->addSample(mRecordElapsed, frameCount, deltaSeconds, samples);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::traceContact(String const & nameA, String const & nameB,
+		bool began)
+	{
+		if (!mActive || !mRecording || !mTrace)
+		{
+			return;
+		}
+		// respect the filter: skip a contact unless a named side is in scope
+		if (!mRecordFilter.empty() &&
+			mRecordFilter.find(nameA) == mRecordFilter.end() &&
+			mRecordFilter.find(nameB) == mRecordFilter.end())
+		{
+			return;
+		}
+		mTrace->addEvent(mRecordElapsed, mRecordLastFrame,
+			began ? "contactBegin" : "contactEnd",
+			{ { "a", nameA }, { "b", nameB } });
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::recordingShouldFinish() const
+	{
+		return mActive && mRecording && mRecordShouldFinish;
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::finishRecording()
+	{
+		if (!mActive || !mRecording)
+		{
+			return;
+		}
+		mRecording = false;
+		mRecordShouldFinish = false;
+		bool ok = false;
+		String error;
+		if (mTrace && !mTrace->empty())
+		{
+			ok = mTrace->save(mRecordPath);
+			if (!ok)
+			{
+				error = "trace wrote no file";
+			}
+		}
+		else
+		{
+			error = "no frames sampled";
+		}
+		if (mServer.hasClient())
+		{
+			DebugMessage saved(Protocol::MSG_RECORD_SAVED);
+			saved.set(Protocol::FIELD_PATH, mRecordPath);
+			saved.set(Protocol::FIELD_VALUE, ok ? "1" : "0");
+			if (!ok)
+			{
+				saved.set(Protocol::FIELD_MESSAGE, error);
+			}
+			mServer.send(saved);
+		}
+		mTrace.reset();
+		mRecordFilter.clear();
+		mRecordPath.clear();
+	}
+	//---------------------------------------------------------
+	//! record an event on the active trace (a no-op when idle) - the internal
+	//! hook the scene-reload / script-error / warning observers call
+	void PlayerDebugLink::traceEvent(String const & event,
+		std::vector<std::pair<String, String>> const & fields)
+	{
+		if (mActive && mRecording && mTrace)
+		{
+			mTrace->addEvent(mRecordElapsed, mRecordLastFrame, event, fields);
+		}
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::update(GameObjectManager & gameObjectManager,
 		String const & scenePath)
 	{
@@ -404,6 +609,12 @@ namespace Orkige
 			log.set(Protocol::FIELD_MESSAGE, line.text);
 			log.set(Protocol::FIELD_LEVEL, line.level);
 			mServer.send(log);
+			// warning-and-above lines also land in an active trace as events
+			if (line.level == "warning" || line.level == "error")
+			{
+				traceEvent("warning",
+					{ { "level", line.level }, { "message", line.text } });
+			}
 		}
 	}
 	//---------------------------------------------------------
@@ -417,6 +628,8 @@ namespace Orkige
 		mLastSentHierarchy.clear();
 		mLastSentParents.clear();
 		mLastSentActives.clear();
+		// a deferred level/scene switch happened mid-play - mark it in the trace
+		traceEvent("sceneLoad", {});
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::shutdown()
@@ -512,12 +725,16 @@ namespace Orkige
 			}
 			// a hot-reload failure is the fresher, more actionable message when
 			// present (the old instance is still alive); otherwise the fatal one
+			const String message = script->hasReloadError()
+				? script->getLastReloadError() : script->getScriptError();
 			DebugMessage error(Protocol::MSG_SCRIPT_ERROR);
 			error.set(Protocol::FIELD_ID, id);
-			error.set(Protocol::FIELD_MESSAGE, script->hasReloadError()
-				? script->getLastReloadError() : script->getScriptError());
+			error.set(Protocol::FIELD_MESSAGE, message);
 			mServer.send(error);
 			mReportedScriptErrors.insert(id);
+			// mirror it into an active trace as an event
+			traceEvent("scriptError",
+				{ { "object", id }, { "message", message } });
 		}
 	}
 	//---------------------------------------------------------
@@ -758,6 +975,25 @@ namespace Orkige
 				{
 					mHasPendingScreenshot = true;
 					mPendingScreenshotPath = path;
+				}
+			}
+			else if (message.type == Protocol::MSG_RECORD_START)
+			{
+				// arm a trace of the running game: the main loop samples the
+				// world every Nth frame and answers with MSG_RECORD_SAVED
+				handleRecordStart(message);
+			}
+			else if (message.type == Protocol::MSG_RECORD_STOP)
+			{
+				// end an in-flight trace early; the main loop wraps it up
+				// (write + ack) on its next recording check
+				if (mRecording)
+				{
+					mRecordShouldFinish = true;
+				}
+				else
+				{
+					sendError("record: not recording");
 				}
 			}
 			// --- protocol-extension slot -------------------------------------

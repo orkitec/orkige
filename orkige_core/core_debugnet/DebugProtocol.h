@@ -89,6 +89,23 @@ namespace Orkige
 		//! Renderer-agnostic on the wire - the capture stays in the player's main
 		//! loop (renderer containment), the link only carries the request/ack.
 		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT;
+		//! @brief start a TRACE recording of the RUNNING game: the editor asks
+		//! the player to sample the world every FIELD_EVERY-th rendered frame
+		//! for up to FIELD_SECONDS wall-clock seconds and write a JSON-lines
+		//! (.jsonl) flight recorder to FIELD_PATH (a path on the player's
+		//! filesystem, shared with the editor on desktop play). Each sample
+		//! line carries the frame's dt and the named objects' positions /
+		//! velocities / active+visible flags; event lines (contacts, scene
+		//! loads, script errors, warnings) interleave as they occur. Optional
+		//! FIELD_FILTER is a comma-separated id/name allowlist. The player
+		//! auto-stops at the time budget and answers with MSG_RECORD_SAVED;
+		//! MSG_RECORD_STOP ends it early. The sampling stays in the player (it
+		//! observes the world); the link only carries the request/ack.
+		//! Additive since protocol v1: old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_RECORD_START;
+		//! @brief stop an in-progress trace NOW and write what was captured
+		//! (@see MSG_RECORD_START). A no-op when nothing is recording.
+		extern ORKIGE_CORE_DLL const String MSG_RECORD_STOP;
 
 		//--- runtime -> editor ---
 		extern ORKIGE_CORE_DLL const String MSG_HELLO;				//!< first message after connect; FIELD_SCENE: loaded scene path
@@ -108,6 +125,11 @@ namespace Orkige
 		//! (FIELD_MESSAGE then carries the reason). Additive since protocol v1:
 		//! old editors ignore unknown message types.
 		extern ORKIGE_CORE_DLL const String MSG_SCREENSHOT_SAVED;
+		//! @brief the answer to MSG_RECORD_START/MSG_RECORD_STOP: FIELD_PATH
+		//! echoes the written .jsonl trace, FIELD_VALUE is "1" on success / "0"
+		//! on failure (FIELD_MESSAGE then carries the reason). Additive since
+		//! protocol v1: old editors ignore unknown message types.
+		extern ORKIGE_CORE_DLL const String MSG_RECORD_SAVED;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -116,7 +138,10 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String FIELD_PROPERTY;		//!< property name (e.g. "position")
 		extern ORKIGE_CORE_DLL const String FIELD_VALUE;			//!< property value (floats space-separated)
 		extern ORKIGE_CORE_DLL const String FIELD_CVAR_NAME;		//!< MSG_SET_CVAR: the console variable's name
-		extern ORKIGE_CORE_DLL const String FIELD_PATH;				//!< MSG_SCREENSHOT: output file path
+		extern ORKIGE_CORE_DLL const String FIELD_PATH;				//!< MSG_SCREENSHOT/MSG_RECORD_START: output file path
+		extern ORKIGE_CORE_DLL const String FIELD_SECONDS;			//!< MSG_RECORD_START: max wall-clock seconds to record
+		extern ORKIGE_CORE_DLL const String FIELD_EVERY;			//!< MSG_RECORD_START: sample every Nth frame
+		extern ORKIGE_CORE_DLL const String FIELD_FILTER;			//!< MSG_RECORD_START: comma-separated id/name allowlist ("" = all)
 		extern ORKIGE_CORE_DLL const String FIELD_SCENE;			//!< scene file path
 		extern ORKIGE_CORE_DLL const String FIELD_MESSAGE;			//!< human-readable log/error text
 		extern ORKIGE_CORE_DLL const String FIELD_LEVEL;			//!< log severity: "info", "warning" or "error"

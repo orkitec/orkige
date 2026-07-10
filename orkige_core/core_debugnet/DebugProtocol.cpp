@@ -30,6 +30,8 @@ namespace Orkige
 		const String MSG_RELOAD_SCRIPT		= "reload_script";
 		const String MSG_SET_CVAR			= "set_cvar";
 		const String MSG_SCREENSHOT			= "screenshot";
+		const String MSG_RECORD_START		= "record_start";
+		const String MSG_RECORD_STOP		= "record_stop";
 
 		const String MSG_HELLO				= "hello";
 		const String MSG_HIERARCHY			= "hierarchy";
@@ -38,6 +40,7 @@ namespace Orkige
 		const String MSG_ERROR				= "error";
 		const String MSG_SCRIPT_ERROR		= "script_error";
 		const String MSG_SCREENSHOT_SAVED	= "screenshot_saved";
+		const String MSG_RECORD_SAVED		= "record_saved";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";
@@ -46,6 +49,9 @@ namespace Orkige
 		const String FIELD_VALUE			= "value";
 		const String FIELD_CVAR_NAME		= "cvar";
 		const String FIELD_PATH				= "path";
+		const String FIELD_SECONDS			= "seconds";
+		const String FIELD_EVERY			= "every";
+		const String FIELD_FILTER			= "filter";
 		const String FIELD_SCENE			= "scene";
 		const String FIELD_MESSAGE			= "message";
 		const String FIELD_LEVEL			= "level";
