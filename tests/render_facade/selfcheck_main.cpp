@@ -647,6 +647,25 @@ int main(int, char**)
 			"render_facade_selfcheck: FAILED - backend boot\n");
 		return 1;
 	}
+	// dimensions sidecar for the render_backend_parity driver: it cross-checks
+	// that both flavors report the SAME logical (points) window AND the SAME
+	// drawable (pixel) surface for the same request - a genuine flavor density
+	// disagreement (e.g. one flavor ignoring the backing scale) is caught here,
+	// not resized away.
+	{
+		unsigned int logicalWidth = 0, logicalHeight = 0;
+		SelfcheckBootstrap::getLogicalWindowSize(logicalWidth, logicalHeight);
+		unsigned int pixelWidth = 0, pixelHeight = 0;
+		renderSystem->getWindowSize(pixelWidth, pixelHeight);
+		std::FILE* dims = std::fopen((outDir + "/dimensions.txt").c_str(), "w");
+		if(dims)
+		{
+			std::fprintf(dims, "logical %u %u\npixel %u %u\n",
+				logicalWidth, logicalHeight, pixelWidth, pixelHeight);
+			std::fclose(dims);
+		}
+	}
+
 	// all facade handles live and die inside runChecks - they must be
 	// released before the backend shuts down
 	const int result = runChecks(renderSystem, outDir);

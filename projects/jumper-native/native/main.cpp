@@ -436,8 +436,11 @@ int main(int argc, char** argv)
 		SDL_Log("SDL_Init failed: %s", SDL_GetError());
 		return 1;
 	}
+	// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale, so
+	// both render flavors derive the same drawable from the same request (the
+	// engine window policy - see the render_backend_parity gate).
 	SDL_Window* window = SDL_CreateWindow("Orkige Jumper (native module)",
-		1280, 720, 0);
+		1280, 720, SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	if (!window)
 	{
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());

@@ -181,7 +181,8 @@ int main(int argc, char** argv)
 		return 1;
 	}
 	SDL_Window* window =
-		SDL_CreateWindow("Orkige Editor", 1280, 720, SDL_WINDOW_RESIZABLE);
+		SDL_CreateWindow("Orkige Editor", 1280, 720,
+			SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	if (!window)
 	{
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());

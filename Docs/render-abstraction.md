@@ -826,7 +826,25 @@ classic-backend app is SUPERSEDED.** What landed:
   (stdlib-only PNG decode, `tests/integration_driver/
   compare_backend_screenshots.py`; mean ≤ 6/255, ≤ 2% pixels off by > 48).
   Cross-preset honestly: it runs the classic tree's selfcheck binary when
-  present and SKIPs (exit 77) when that preset was never built.
+  present and SKIPs (exit 77) when that preset was never built. It also gates
+  window PIXEL DENSITY: each selfcheck writes a `dimensions.txt` sidecar
+  (logical points + drawable pixels) and the driver asserts both flavors report
+  the SAME logical AND the SAME pixel size — a flavor that ignores the backing
+  scale is caught directly, not resized away.
+- **Window pixel-density policy**: engine-hosted windows are created with
+  `SDL_WINDOW_HIGH_PIXEL_DENSITY`, so the render surface tracks the OS backing
+  scale on every flavor. This is not a free choice: the Ogre-Next Metal window
+  renders at the view's `screen.backingScaleFactor` with no override hook, so
+  the only way both flavors can agree BY CONSTRUCTION (rather than by luck of
+  the display config) is for classic to follow the same backing scale — which
+  it does automatically once the window is high-density (960 points → 1920 px
+  drawable on a 2× display, matching Metal). Everything downstream consumes
+  window PIXELS consistently (`getWindowSize`, input point→pixel mapping,
+  `DrawLayer2D` pixel space, fastgui `getContentScale`-driven UI scale,
+  safe-area insets), and the editor derives its ImGui content scale from the
+  drawable/points ratio, so all of it stays coherent at native density. Mobile
+  is unaffected: the player's fullscreen window renders at native scale through
+  the Metal/EAGL2 view's own `contentScaleFactor` and keeps SDL in points.
 - **Cross-flavor Play targets**: the editor toolbar picker now offers
   "Desktop (classic OGRE)" and "Desktop (Ogre-Next)" — its own flavor's
   player is the TARGET_FILE, the other flavor's binary path is baked in

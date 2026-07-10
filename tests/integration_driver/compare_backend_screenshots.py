@@ -151,6 +151,53 @@ def compare_pair(classic_path, next_path):
     return ok, summary
 
 
+def read_dimensions(out_dir):
+    """Parse a selfcheck's dimensions.txt sidecar.
+
+    Returns {"logical": (w, h), "pixel": (w, h)} or None when absent/malformed.
+    The sidecar lets the parity gate assert both flavors agree on the LOGICAL
+    (points) window and the PIXEL (drawable) surface for the same request -
+    the density-disagreement signal, kept independent of the host's display
+    scale (both flavors track the same OS backing scale, so they must match on
+    any machine).
+    """
+    path = os.path.join(out_dir, "dimensions.txt")
+    if not os.path.exists(path):
+        return None
+    result = {}
+    with open(path) as handle:
+        for line in handle:
+            parts = line.split()
+            if len(parts) == 3 and parts[0] in ("logical", "pixel"):
+                result[parts[0]] = (int(parts[1]), int(parts[2]))
+    if "logical" not in result or "pixel" not in result:
+        return None
+    return result
+
+
+def compare_dimensions(classic_dims, next_dims):
+    """Assert the two flavors made the same pixel-density choice.
+
+    Returns (ok, summary). Fails if either the logical (points) request or the
+    resulting pixel (drawable) surface differs between flavors - the exact
+    class of bug the HiDPI gap was (Metal at 2x backing vs GL at 1x logical).
+    """
+    if classic_dims is None or next_dims is None:
+        return False, ("dimensions.txt missing - cannot verify the flavors "
+                       "agree on window pixel density")
+    ok = True
+    notes = []
+    for key in ("logical", "pixel"):
+        cw, ch = classic_dims[key]
+        nw, nh = next_dims[key]
+        if (cw, ch) != (nw, nh):
+            ok = False
+            notes.append(f"{key} mismatch: classic {cw}x{ch} vs next {nw}x{nh}")
+        else:
+            notes.append(f"{key} {cw}x{ch}")
+    return ok, "; ".join(notes)
+
+
 def run_selfcheck(binary, out_dir, cwd):
     os.makedirs(out_dir, exist_ok=True)
     environment = dict(os.environ)
@@ -190,6 +237,17 @@ def main():
     run_selfcheck(args.next_binary, next_out, args.repo)
 
     failures = 0
+
+    # density gate FIRST: both flavors must make the same pixel-density choice
+    # for the same window request (logical points AND drawable pixels). This is
+    # the WYSIWYG contract at the surface level - if it fails, the per-pixel
+    # compare below would also fail on dimensions, but this reports the real
+    # cause (a flavor ignoring the OS backing scale) directly.
+    dims_ok, dims_summary = compare_dimensions(
+        read_dimensions(classic_out), read_dimensions(next_out))
+    print(f"{'ok  ' if dims_ok else 'FAIL'} window density: {dims_summary}")
+    failures += 0 if dims_ok else 1
+
     for shot in COMPARED_SHOTS:
         classic_path = os.path.join(classic_out, shot)
         next_path = os.path.join(next_out, shot)

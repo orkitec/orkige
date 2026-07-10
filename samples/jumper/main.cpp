@@ -571,8 +571,11 @@ int main(int argc, char** argv)
 			windowHeight = height;
 		}
 	}
+	// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale, so
+	// both render flavors derive the same drawable from the same request (the
+	// engine window policy - see the render_backend_parity gate).
 	SDL_Window* window = SDL_CreateWindow("Orkige Jumper",
-		windowWidth, windowHeight, 0);
+		windowWidth, windowHeight, SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	if (!window)
 	{
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());

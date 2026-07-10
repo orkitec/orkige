@@ -28,8 +28,18 @@ namespace SelfcheckBootstrap
 	//! @brief bring the render backend up with a real window of the given
 	//! size (incl. whatever internal media/shader libs the backend needs)
 	//! @return the live render system, or NULL on failure (test aborts)
+	//! @remarks the window is created with SDL_WINDOW_HIGH_PIXEL_DENSITY: the
+	//! engine policy is that render surfaces track the OS backing scale, so
+	//! both flavors derive the SAME drawable size from the same window request
+	//! (the render_backend_parity gate). The passed width/height are the
+	//! LOGICAL (points) request; the drawable comes out points x backingScale.
 	Orkige::RenderSystem* boot(unsigned int width, unsigned int height,
 		Orkige::String const & logFileName);
+	//! @brief the host window's LOGICAL size in points (what SDL_CreateWindow
+	//! was asked for), independent of the backing scale. The parity driver
+	//! cross-checks this against the backend's drawable (pixel) size so a
+	//! flavor that mis-maps points->pixels is caught, not resized away.
+	void getLogicalWindowSize(unsigned int & outWidth, unsigned int & outHeight);
 	//! @brief pump the host window/event loop once (per rendered frame)
 	//! @param outQuitRequested set when the host asks the app to close
 	void pumpHostEvents(bool & outQuitRequested);

@@ -88,7 +88,11 @@ int main(int, char**)
 		SDL_Log("SDL_Init failed: %s", SDL_GetError());
 		return 1;
 	}
-	SDL_Window* window = SDL_CreateWindow("hello orkige", 1280, 720, 0);
+	// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale, so
+	// both render flavors derive the same drawable from the same request (the
+	// engine window policy - see the render_backend_parity gate).
+	SDL_Window* window = SDL_CreateWindow("hello orkige", 1280, 720,
+		SDL_WINDOW_HIGH_PIXEL_DENSITY);
 	if (!window)
 	{
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());

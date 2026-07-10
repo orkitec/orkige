@@ -48,8 +48,14 @@ namespace SelfcheckBootstrap
 				SDL_GetError());
 			return NULL;
 		}
+		// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale.
+		// The Metal window already renders at the view's backing scale; the
+		// flag makes SDL's own point/pixel accounting agree, and keeps this
+		// request identical to the classic bootstrap so both flavors report
+		// the same drawable (the render_backend_parity WYSIWYG gate).
 		gWindow = SDL_CreateWindow("render facade (next backend)",
-			static_cast<int>(width), static_cast<int>(height), 0);
+			static_cast<int>(width), static_cast<int>(height),
+			SDL_WINDOW_HIGH_PIXEL_DENSITY);
 		if(!gWindow)
 		{
 			SDL_Log("render_facade next bootstrap: SDL_CreateWindow "
@@ -82,6 +88,20 @@ namespace SelfcheckBootstrap
 			{
 				outQuitRequested = true;
 			}
+		}
+	}
+	//---------------------------------------------------------
+	void getLogicalWindowSize(unsigned int & outWidth,
+		unsigned int & outHeight)
+	{
+		outWidth = 0;
+		outHeight = 0;
+		if(gWindow)
+		{
+			int pointsW = 0, pointsH = 0;
+			SDL_GetWindowSize(gWindow, &pointsW, &pointsH);
+			outWidth = pointsW > 0 ? static_cast<unsigned int>(pointsW) : 0;
+			outHeight = pointsH > 0 ? static_cast<unsigned int>(pointsH) : 0;
 		}
 	}
 	//---------------------------------------------------------

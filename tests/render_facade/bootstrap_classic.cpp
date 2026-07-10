@@ -53,8 +53,14 @@ namespace SelfcheckBootstrap
 				SDL_GetError());
 			return NULL;
 		}
+		// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale.
+		// classic OGRE then auto-detects the scaled backing store (960 points
+		// -> 1920 px drawable on a 2x display) exactly as the Next Metal window
+		// does, so both flavors report the same drawable for the same request
+		// (the render_backend_parity WYSIWYG gate).
 		gWindow = SDL_CreateWindow("render facade selfcheck",
-			static_cast<int>(width), static_cast<int>(height), 0);
+			static_cast<int>(width), static_cast<int>(height),
+			SDL_WINDOW_HIGH_PIXEL_DENSITY);
 		if(!gWindow)
 		{
 			SDL_Log("render_facade_selfcheck: SDL_CreateWindow failed: %s",
@@ -115,6 +121,20 @@ namespace SelfcheckBootstrap
 			{
 				outQuitRequested = true;
 			}
+		}
+	}
+	//---------------------------------------------------------
+	void getLogicalWindowSize(unsigned int & outWidth,
+		unsigned int & outHeight)
+	{
+		outWidth = 0;
+		outHeight = 0;
+		if(gWindow)
+		{
+			int pointsW = 0, pointsH = 0;
+			SDL_GetWindowSize(gWindow, &pointsW, &pointsH);
+			outWidth = pointsW > 0 ? static_cast<unsigned int>(pointsW) : 0;
+			outHeight = pointsH > 0 ? static_cast<unsigned int>(pointsH) : 0;
 		}
 	}
 	//---------------------------------------------------------

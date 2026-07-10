@@ -407,8 +407,13 @@ int main(int argc, char** argv)
 	SDL_Window* window = SDL_CreateWindow("Orkige Player", 1280, 720,
 		SDL_WINDOW_FULLSCREEN);
 #else
+	// desktop: HIGH_PIXEL_DENSITY so the render surface tracks the OS backing
+	// scale - both render flavors then derive the same drawable from the same
+	// window request (mobile already renders at native scale via fullscreen +
+	// the Metal/EAGL2 view's own contentScaleFactor, so it stays in points).
 	SDL_Window* window = SDL_CreateWindow(
-		("Orkige Player - " + scenePath).c_str(), 1280, 720, 0);
+		("Orkige Player - " + scenePath).c_str(), 1280, 720,
+		SDL_WINDOW_HIGH_PIXEL_DENSITY);
 #endif
 	if (!window)
 	{
