@@ -179,6 +179,9 @@ target_compile_definitions(orkige_editor PRIVATE
     # icon font source dir (fa-solid-900.ttf) - the out-of-bundle fallback the
     # editor loads from when running straight out of the build tree
     ORKIGE_EDITOR_ICON_FONT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
+    # the engine-default font dir (Nunito) the editor registers so a project's
+    # .ogui can reference the font by name (matches what the player/exports do)
+    ORKIGE_EDITOR_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
     ORKIGE_EDITOR_VERSION="${PROJECT_VERSION}"
     # play mode spawns this binary (Play toolbar button / playtest hooks)
     ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"

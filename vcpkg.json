@@ -28,6 +28,7 @@
     "sdl3",
     "openal-soft",
     "stb",
+    "nanosvg",
     "earcut-hpp",
     "lua",
     "sol2",

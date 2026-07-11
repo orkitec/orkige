@@ -321,6 +321,14 @@ int main(int argc, char** argv)
 		// jumper sample assets (textured .glb meshes from
 		// Util/make_jumper_assets.py) so samples/jumper/level1.oscene opens
 		render->addResourceLocation(ORKIGE_EDITOR_JUMPER_ASSET_DIR);
+		// the engine-default font (Nunito) directory so a project's .ogui can
+		// reference the font by name (font-atlas baking resolves the ttf by
+		// resource name across all groups); is_directory keeps it a silent skip
+		std::error_code fontDirError;
+		if (std::filesystem::is_directory(ORKIGE_EDITOR_FONT_DIR, fontDirError))
+		{
+			render->addResourceLocation(ORKIGE_EDITOR_FONT_DIR);
+		}
 
 		// The scene no longer renders into the window (that was
 		// Engine::createDefaultCameraAndViewport): the editor's scene camera

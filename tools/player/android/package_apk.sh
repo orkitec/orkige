@@ -174,6 +174,11 @@ else
     cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media/Main"
     cp -R "$VCPKG_INSTALLED/share/ogre/Media/RTShaderLib" "$STAGE/assets/Media/RTShaderLib"
 fi
+# the engine-default font (Nunito, SIL OFL) - flavor-independent; rides in the
+# same bundled Media dir so a project referencing it by name ships self-
+# contained (the player registers <extracted>/Media/fonts at boot)
+[ -d "$REPO_ROOT/orkige_engine/media/fonts" ] \
+    && cp -R "$REPO_ROOT/orkige_engine/media/fonts" "$STAGE/assets/Media/fonts"
 cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"

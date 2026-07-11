@@ -62,4 +62,9 @@ target_compile_definitions(hello_orkige PRIVATE
     # real widgets (generated into the build tree below - flavor-independent,
     # so hello builds on BOTH render flavors without the classic-only jumper)
     ORKIGE_DEMO_FASTGUI_ATLAS_DIR="${ORKIGE_FASTGUI_ATLAS_DIR}"
+    # the ORKIGE_DEMO_TTF selfcheck: a committed runtime-baked atlas
+    # (fastgui_ttf_demo.ogui + ui_star.svg) under the demo media dir, and the
+    # engine-default TrueType face it references (Nunito, SIL OFL)
+    ORKIGE_DEMO_TTF_ATLAS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
+    ORKIGE_ENGINE_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
 )

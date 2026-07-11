@@ -20,6 +20,7 @@
 namespace Orkige
 {
 	class FastGuiTextEntry;
+	class FontAtlas;
 
 	class ORKIGE_ENGINE_DLL FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
 	{
@@ -51,6 +52,10 @@ namespace Orkige
 	private:
 		//! loaded atlases by name (the views' screens reference them)
 		std::map<String, optr<UiAtlas> > atlases;
+		//! runtime-baked (TTF/SVG) atlases by name: they OWN the UiAtlas the
+		//! screen references, so they must outlive their view; flushed once a
+		//! frame so lazily-baked glyphs reach the GPU
+		std::map<String, optr<FontAtlas> > fontAtlases;
 		optr<FastGuiFactory> factory;
 		FastGuiViewMap views;
 		FastGuiWidgetMap widgets;

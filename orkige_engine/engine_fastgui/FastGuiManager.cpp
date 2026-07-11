@@ -10,6 +10,7 @@
 *********************************************************************/
 
 #include "engine_fastgui/FastGuiManager.h"
+#include "engine_fastgui/FontAtlas.h"
 #include "engine_render/RenderSystem.h"
 #include <OgreStringConverter.h>
 #include "engine_input/InputManager.h"
@@ -62,7 +63,10 @@ namespace Orkige
 		this->sortedWidgets.clear();
 		this->widgets.clear();
 		this->views.clear();
+		// the runtime atlases own the UiAtlas the screens referenced, so they
+		// die only after every view is gone
 		this->atlases.clear();
+		this->fontAtlases.clear();
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::enableInputEvents()
@@ -141,11 +145,26 @@ namespace Orkige
 	woptr<FastGuiView> FastGuiManager::createView(String const & atlas, String const & group)
 	{
 		oAssertDesc(!this->hasView(atlas), "Screen with atlas: " << atlas << " already exists!");
-		optr<UiAtlas> uiAtlas = onew(new UiAtlas(atlas + ".ogui", group));
-		this->atlases[atlas] = uiAtlas;
+		// runtime-baked atlas (TTF fonts / SVG sprites declared in the .ogui)
+		// vs. the classic bitmap .png atlas - one .ogui format, two builders.
+		// The FontAtlas OWNS its UiAtlas view; a bitmap atlas is the UiAtlas.
+		UiAtlas const * atlasView = NULL;
+		const String oguiFile = atlas + ".ogui";
+		if(FontAtlas::oguiDeclaresRuntimeContent(oguiFile, group))
+		{
+			optr<FontAtlas> fontAtlas = onew(new FontAtlas(oguiFile, group));
+			this->fontAtlases[atlas] = fontAtlas;
+			atlasView = fontAtlas->atlas();
+		}
+		else
+		{
+			optr<UiAtlas> uiAtlas = onew(new UiAtlas(oguiFile, group));
+			this->atlases[atlas] = uiAtlas;
+			atlasView = uiAtlas.get();
+		}
 		// one screen per atlas = ONE draw batch per view; the compositing
 		// order among views is (re)assigned by reorderViews via setZOrder
-		UiScreen* screen = new UiScreen(uiAtlas.get(),
+		UiScreen* screen = new UiScreen(atlasView,
 			RenderSystem::get()->createDrawLayer2D());
 		optr<FastGuiView> view = onew(new FastGuiView(screen));
 		this->views[atlas] = view;
@@ -162,6 +181,9 @@ namespace Orkige
 		// atlas reuses it)
 		this->views.erase(this->views.find(atlas));
 		this->atlases.erase(atlas);
+		// the runtime atlas (if this view used one) outlived its screen: safe
+		// to drop now the view is gone
+		this->fontAtlases.erase(atlas);
 	}
 	//---------------------------------------------------------
 	void FastGuiManager::destroyViewWithWidgets(String const & atlas)
@@ -446,6 +468,13 @@ namespace Orkige
 		foreach(FastGuiViewMap::value_type const & vt, this->views)
 		{
 			vt.second->getScreen()->update();
+		}
+		// screen rebuilds above may have baked new glyphs on demand into a
+		// runtime atlas' page; push any changed page to the GPU before the
+		// frame renders (a no-op when nothing was baked this frame)
+		for(auto const & entry : this->fontAtlases)
+		{
+			entry.second->flush();
 		}
 		return false;
 	}

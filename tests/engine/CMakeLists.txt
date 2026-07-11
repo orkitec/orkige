@@ -8,6 +8,9 @@ add_executable(orkige_engine_tests
     EngineTestEnvironment.h
     RenderSystemSelectionTests.cpp
     FastGuiAtlasTests.cpp
+    FontPackerTests.cpp
+    FontBakeTests.cpp
+    FontAtlasTests.cpp
     ScriptComponentTests.cpp
     PlayerBundleTests.cpp
     TwoDSupportTests.cpp
@@ -36,6 +39,9 @@ target_link_libraries(orkige_engine_tests PRIVATE
 # jumper_selfcheck integration run)
 target_compile_definitions(orkige_engine_tests PRIVATE
     ORKIGE_FASTGUI_ATLAS_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
+    # the committed engine-default TrueType face (Nunito, SIL OFL) the font
+    # bake + runtime atlas tests rasterise headlessly, straight off disk
+    ORKIGE_ENGINE_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
     # the committed tiny OGG fixture MusicStreamTests decodes (headless, no
     # device): read straight off disk to exercise the decode + refill seam
     ORKIGE_MUSIC_TEST_OGG="${Orkige_SOURCE_DIR}/tests/assets/blip.ogg"

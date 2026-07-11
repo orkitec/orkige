@@ -184,7 +184,19 @@ live with `reload_script`; no UI-specific authoring tool is required. What agent
 cannot otherwise observe — the platform safe area and the resolved on-screen
 widget rects on a real device — is exposed as runtime readback: `get_safe_area`
 (the notch/home-bar insets) and `get_ui_layout` (per-widget pixel rects), both
-read-only. The machine-checkable "HUD respects the notch" assertion is: for every
+read-only.
+
+Real fonts and vector UI sprites need **no new verb** either: a runtime font/
+sprite atlas is a plain `.ogui` text asset plus its `.ttf`/`.svg` sources under
+`assets/`. An agent authors the atlas by writing the `.ogui` with
+`write_project_file` (a `[Font.N]` section with `ttf <asset>`/`size <designPx>`,
+or a `[Sprites]` `name svg <asset> <designWidth>` entry) and brings the source
+files in with `import_asset` (or `write_project_file` for an inline `.svg`); the
+runtime bakes them at load. The engine-default font ships with every build, so a
+project can reference `Nunito-Regular.ttf` by name with no import at all. Text
+laid out with these fonts appears in `get_ui_layout` like any other widget.
+
+The machine-checkable "HUD respects the notch" assertion is: for every
 visible widget from `get_ui_layout`, its rect lies inside
 `[safe_left, window_w-safe_right] × [safe_top, window_h-safe_bottom]` from
 `get_safe_area` (the `player_safearea_device` ctest runs exactly this against a

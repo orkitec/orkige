@@ -778,8 +778,11 @@ namespace Orkige
 				lineHeight = font->getLineHeightScaled();
 				continue;
 			}
-			if(thisChar < font->getRangeBegin() ||
-				thisChar > font->getRangeEnd())
+			// skip control codes below the range; codepoints ABOVE it fall
+			// through to getGlyph, which bakes them on demand for a runtime
+			// (TTF) font and returns NULL for a bitmap font (skipped below,
+			// exactly as before) - this is what lets markup text page CJK too
+			if(thisChar < font->getRangeBegin())
 			{
 				lastChar = 0;
 				continue;

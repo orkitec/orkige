@@ -28,8 +28,14 @@
 find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 # stb: header/single-file only - ships stb_vorbis.c (the OGG Vorbis decoder
-# engine_sound/StbVorbisImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
+# engine_sound/StbVorbisImpl.cpp compiles) + stb_truetype.h (the glyph
+# rasteriser engine_fastgui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
 find_package(Stb REQUIRED)
+# nanosvg: the vector-sprite rasteriser the fastgui runtime atlas bakes .svg
+# sprites with. The vcpkg port precompiles the implementation into static libs
+# (NanoSVG::nanosvg / NanoSVG::nanosvgrast); engine_fastgui/SvgRasterImpl.cpp is
+# the only TU that includes its headers (Docs/ports.md).
+find_package(NanoSVG CONFIG REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
 find_package(Jolt CONFIG REQUIRED)
 
@@ -154,6 +160,17 @@ set(ORKIGE_ENGINE_SOURCES
     # .ogui atlas lives in UiAtlas, the 2D renderer in UiRenderer.
     engine_fastgui/UiAtlas.h
     engine_fastgui/UiAtlas.cpp
+    # runtime font/vector-sprite baking: the pure shelf packer, the single-
+    # file-lib seams (stb_truetype / nanosvg confined to their *Impl.cpp like
+    # StbVorbisImpl.cpp) and the mutable baked atlas built on them
+    engine_fastgui/FontPacker.h
+    engine_fastgui/FontPacker.cpp
+    engine_fastgui/FontBake.h
+    engine_fastgui/FontBakeImpl.cpp
+    engine_fastgui/SvgRaster.h
+    engine_fastgui/SvgRasterImpl.cpp
+    engine_fastgui/FontAtlas.h
+    engine_fastgui/FontAtlas.cpp
     engine_fastgui/UiRenderer.h
     engine_fastgui/UiRenderer.cpp
     engine_fastgui/IGuiObject.h
@@ -334,6 +351,18 @@ set_source_files_properties(engine_sound/StbVorbisImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
+# the single-file TrueType rasteriser (stb_truetype.h) is likewise compiled in
+# exactly one TU: only it sees the stb include, and it stays off the PCH.
+set_source_files_properties(engine_fastgui/FontBakeImpl.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
+
+# nanosvg is confined to SvgRasterImpl.cpp; keep it off the PCH so its headers
+# never join the sol2/Ogre precompiled header (the NanoSVG:: link targets carry
+# the include dir).
+set_source_files_properties(engine_fastgui/SvgRasterImpl.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON)
+
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the
 # fixed-function fallbacks from the 1.7 era are gone for good.
 # ORKIGE_OPENAL_SOUND: engine_sound compiles against OpenAL Soft (vcpkg
@@ -374,6 +403,9 @@ target_link_libraries(orkige_engine
         # backend-agnostic physics: Jolt types never leave the engine_physic
         # translation units, so the dependency stays private
         Jolt::Jolt
+        # vector-sprite rasteriser: nanosvg symbols never leave SvgRasterImpl.cpp
+        NanoSVG::nanosvg
+        NanoSVG::nanosvgrast
 )
 
 if(ORKIGE_RENDER_BACKEND STREQUAL "next")

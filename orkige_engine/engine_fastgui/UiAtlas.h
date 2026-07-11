@@ -27,6 +27,7 @@
 #include "engine_module/EnginePrerequisites.h"
 
 #include <map>
+#include <unordered_map>
 #include <vector>
 
 namespace Ogre
@@ -194,22 +195,56 @@ namespace Orkige
 		Vec2	texCoords[4];						//!< @see QuadCorner
 	};
 
+	class UiFont;
+
+	//! @brief the lazy glyph baker a runtime (TTF) font consults for a
+	//! codepoint outside its eager base range: bakes the glyph into free
+	//! atlas space, records it in the font's sparse page and returns it.
+	//! @remarks FontAtlas is the only implementer; bitmap fonts have no
+	//! provider (getGlyph answers NULL outside the range as before). Kept
+	//! abstract here so UiFont/UiAtlas stay free of the baker's headers.
+	class ORKIGE_ENGINE_DLL UiGlyphProvider
+	{
+	public:
+		virtual ~UiGlyphProvider() {}
+		//! bake `codepoint` for `font`, store it in the font's sparse page
+		//! and return it (NULL when the face has no such glyph)
+		virtual UiGlyph const * provideGlyph(UiFont const & font,
+			uint codepoint) = 0;
+	};
+
 	//! one [Font.N] section: all glyphs of one size + the line metrics
 	class ORKIGE_ENGINE_DLL UiFont
 	{
 		friend class UiAtlas;
+		friend class FontAtlas;			//!< the runtime TTF baker
 		friend struct UiAtlasLoader;	//!< the cpp-local section loaders
 	public:
 		UiFont() : mRangeBegin(0), mRangeEnd(0), mSpaceLength(0),
 			mLineHeight(0), mBaseline(0), mLetterSpacing(0), mMonoWidth(0) {}
 
-		//! glyph of a character, NULL outside the range (do not free)
+		//! glyph of a character (do not free). NULL outside the range for a
+		//! bitmap font; a runtime TTF font bakes the glyph on first use
 		inline UiGlyph const * getGlyph(uint character) const
 		{
 			const uint safeCharacter = character - this->mRangeBegin;
 			if(safeCharacter < this->mGlyphs.size())
 			{
 				return &this->mGlyphs[safeCharacter];
+			}
+			// baked-on-demand page (runtime TTF fonts): a codepoint outside
+			// the eager base range lives in the sparse map, baked into free
+			// atlas space on first use. This is the CJK/Cyrillic unblocker;
+			// bitmap fonts have no provider and answer NULL as before.
+			if(this->mProvider != NULL)
+			{
+				std::unordered_map<uint, UiGlyph>::const_iterator it =
+					this->mSparseGlyphs.find(character);
+				if(it != this->mSparseGlyphs.end())
+				{
+					return &it->second;
+				}
+				return this->mProvider->provideGlyph(*this, character);
 			}
 			return NULL;
 		}
@@ -226,6 +261,11 @@ namespace Orkige
 		std::vector<UiGlyph>	mGlyphs;	//!< contiguous, index = code - rangeBegin
 		uint	mRangeBegin, mRangeEnd;
 		Real	mSpaceLength, mLineHeight, mBaseline, mLetterSpacing, mMonoWidth;
+		//! baked-on-demand glyphs outside the eager base range (runtime TTF
+		//! fonts only). mutable: getGlyph is const but bakes lazily
+		mutable std::unordered_map<uint, UiGlyph>	mSparseGlyphs;
+		//! the lazy baker (runtime TTF font), or NULL for a bitmap font
+		UiGlyphProvider*		mProvider = NULL;
 	};
 
 	//! @brief a parsed .ogui atlas: ONE texture whose regions are sprites,
@@ -236,6 +276,7 @@ namespace Orkige
 	//! materials or GPU objects on any backend.
 	class ORKIGE_ENGINE_DLL UiAtlas
 	{
+		friend class FontAtlas;	//!< the runtime TTF/SVG baker builds one directly
 	public:
 		//! load "<name>.ogui" through the resource system; the texture
 		//! size (all metrics normalize against it) comes from
@@ -291,6 +332,11 @@ namespace Orkige
 		//! (FastGuiManager::replaceAtlasTexture forces that)
 		void replaceTexture(String const & texture);
 	protected:
+		//! @brief empty atlas over a KNOWN, named texture - the runtime baker
+		//! (FontAtlas) builds one directly, filling fonts/sprites/whitepixel
+		//! itself (its glyphs carry pre-normalized UVs, so _calculateCoordinates
+		//! is not run over them). Friend-only.
+		UiAtlas(String const & textureName, Vec2 const & textureSize);
 		//! parse every section (the cpp-local section loaders fill the
 		//! members) and normalize all coordinates
 		void _load(Ogre::ConfigFile & configFile,

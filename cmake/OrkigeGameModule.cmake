@@ -149,6 +149,9 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
+# the fastgui runtime atlas rasterises SVG UI sprites through nanosvg's
+# precompiled static libs; the engine archive references their symbols
+find_package(NanoSVG CONFIG REQUIRED)
 if(ORKIGE_SCRIPTING STREQUAL "LUA")
     # the lua wrapper redirects to the multi-config-correct unofficial-lua
     # package and fills LUA_INCLUDE_DIR/LUA_LIBRARIES
@@ -210,6 +213,8 @@ function(orkige_game_module target)
         SDL3::SDL3
         OpenAL::OpenAL
         Jolt::Jolt
+        NanoSVG::nanosvg
+        NanoSVG::nanosvgrast
     )
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         # after the engine archives (see the ordering note above)

@@ -89,4 +89,8 @@ target_compile_definitions(orkige_player PRIVATE
     # jumper sample assets (textured .glb meshes) so the editor's play mode
     # works on samples/jumper/level1.oscene too
     ORKIGE_PLAYER_JUMPER_ASSET_DIR="${CMAKE_SOURCE_DIR}/samples/jumper/media"
+    # the engine-default font dir (Nunito) - the out-of-bundle fallback the
+    # player registers when running straight out of the build tree (an exported
+    # bundle carries the same fonts under its Media/ dir instead)
+    ORKIGE_PLAYER_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
 )

@@ -408,6 +408,26 @@ look when touching one:
   `loc(key[, args…])` accessor (classic `engine_base/Localisation` stays as-is —
   Ogre-tied, unused by the Lua/next ship path). MCP readback: `get_safe_area` /
   `get_ui_layout` over `MSG_STATS` safe-area fields + `MSG_UI_LAYOUT`.
+  **Real fonts + vector sprites** (`engine_fastgui/FontAtlas`, both flavors): a
+  `.ogui` `[Font.N]` section carrying `ttf <asset>`/`size <designPx>` is a
+  runtime TrueType font (vs. `glyph_*` bitmap rects — one format, two builders);
+  a `[Sprites]` entry `name svg <asset> <designWidth>` is a vector sprite.
+  FontAtlas bakes glyph pages + rasterised SVGs into ONE GPU page at boot at the
+  display's integer content scale (crisp, point-filtered, no facade change:
+  `RenderSystem::createTexture2D`), exposed through the UNCHANGED
+  `UiAtlas`/`UiFont`/`UiGlyph` surface so every widget renders verbatim. Metrics
+  are design px (`UiGlyph::scale` multiplies to device px 1:1 with the texels);
+  kerning from the font tables. **Lazy glyph paging**: ASCII + Latin-1 bake
+  eagerly, any codepoint beyond that bakes on demand into free page space
+  (`UiGlyphProvider` + `UiFont::mSparseGlyphs`) — the CJK/Cyrillic `loc()`
+  unblocker. The stb_truetype / nanosvg single-file libs are confined to
+  `FontBakeImpl.cpp` / `SvgRasterImpl.cpp` (the `StbVorbisImpl.cpp` precedent);
+  the pure shelf packer is `FontPacker`. Engine-default font: `orkige_engine/
+  media/fonts/Nunito-Regular.ttf` (SIL OFL, verbatim `OFL.txt` beside it),
+  registered by the player/editor and bundled to exports under `Media/fonts/`;
+  per-project fonts are id-tracked `assets/` referenced by name from a `.ogui`.
+  Existing bitmap atlases (jumper/roller/hello) are unchanged. Reference:
+  `samples/hello_orkige/media/fastgui_ttf_demo.ogui` (the `demo_ttf` selfcheck).
 - **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
   and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
   snapped to a grid in 2D mode — the cell size comes from a scene

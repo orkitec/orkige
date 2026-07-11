@@ -95,6 +95,10 @@ namespace Orkige
 		//! resizes, rebuild dirty layers, resubmit the batch
 		void update();
 
+		//! vertices submitted on the last update (the retained batch size) -
+		//! a render probe for selfchecks ("did the HUD actually draw?")
+		inline size_t getLastVertexCount() const { return this->mScratch.size(); }
+
 		//! layer callback: content changed, resubmit on the next update
 		inline void _markDirty() { this->mDirty = true; }
 	protected:

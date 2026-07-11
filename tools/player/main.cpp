@@ -712,6 +712,21 @@ int main(int argc, char** argv)
 		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
 		Orkige::RenderWorld* world = render->getWorld();
 
+		// the engine-default font (Nunito) directory as a resource location so a
+		// project's .ogui can reference the font by name (font-atlas baking
+		// resolves the ttf by resource name across all groups). Register the
+		// bundled dir (present in an exported/device bundle) and the dev-tree
+		// dir (build tree); is_directory keeps a missing one a silent skip.
+		std::error_code fontDirError;
+		if (std::filesystem::is_directory(playerMediaDir + "/fonts", fontDirError))
+		{
+			render->addResourceLocation(playerMediaDir + "/fonts");
+		}
+		if (std::filesystem::is_directory(ORKIGE_PLAYER_FONT_DIR, fontDirError))
+		{
+			render->addResourceLocation(ORKIGE_PLAYER_FONT_DIR);
+		}
+
 		// mirror the engine log's warning/error lines into the breadcrumb trail
 		// (a dedicated capture - the debug link owns its own). Drained once per
 		// frame in the loop below; a no-op when no breadcrumb file is set.

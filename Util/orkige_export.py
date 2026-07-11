@@ -287,6 +287,14 @@ def render_backend(build_dir):
     return read_cmake_cache(build_dir, "ORKIGE_RENDER_BACKEND") or "classic"
 
 
+def engine_font_dir():
+    """the engine-default font directory committed to the tree (Nunito, SIL
+    OFL) - registered as a resource location at runtime so a project's .ogui
+    can reference the font by name. Empty when the dir is absent."""
+    fonts = os.path.join(REPO_ROOT, "orkige_engine", "media", "fonts")
+    return fonts if os.path.isdir(fonts) else ""
+
+
 def ogre_media_dir(build_dir):
     """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
@@ -555,6 +563,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
     for media_subdir in media_subdirs:
         shutil.copytree(os.path.join(media_dir, media_subdir),
                         os.path.join(resources, "Media", media_subdir))
+    # the engine-default font (Nunito, SIL OFL) rides in the same bundled Media
+    # dir so a project referencing it by name ships self-contained
+    if engine_font_dir():
+        shutil.copytree(engine_font_dir(),
+                        os.path.join(resources, "Media", "fonts"),
+                        dirs_exist_ok=True)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos")
@@ -615,6 +629,12 @@ def export_ios_simulator(project, engine_build, output_dir):
     # project payload + marker at the flat bundle root (= SDL_GetBasePath()
     # on iOS). No re-signing needed on the simulator.
     shutil.copytree(source_app, app_dir, symlinks=True)
+    # the engine-default font (Nunito, SIL OFL) alongside the bundled engine
+    # media so a project referencing it by name ships self-contained
+    if engine_font_dir():
+        shutil.copytree(engine_font_dir(),
+                        os.path.join(app_dir, "Media", "fonts"),
+                        dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
                                    "ios-simulator")
@@ -704,6 +724,12 @@ def export_ios(project, engine_build, output_dir, identity, profile):
     if os.path.exists(app_dir):
         shutil.rmtree(app_dir)
     shutil.copytree(source_app, app_dir, symlinks=True)
+    # the engine-default font (Nunito, SIL OFL) alongside the bundled engine
+    # media so a project referencing it by name ships self-contained
+    if engine_font_dir():
+        shutil.copytree(engine_font_dir(),
+                        os.path.join(app_dir, "Media", "fonts"),
+                        dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
                                    "ios")

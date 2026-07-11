@@ -294,6 +294,18 @@ namespace Orkige
 		this->_calculateCoordinates();
 	}
 	//---------------------------------------------------------
+	UiAtlas::UiAtlas(String const & textureName, Vec2 const & textureSize)
+		: mTextureName(textureName), mTextureSize(textureSize),
+		mInverseTextureSize(
+			textureSize.x > 0 ? 1.0f / textureSize.x : 0.0f,
+			textureSize.y > 0 ? 1.0f / textureSize.y : 0.0f),
+		mWhitePixel(0, 0)
+	{
+		// the baker (FontAtlas) fills mFonts/mSprites/mWhitePixel with
+		// already-normalized UVs; nothing here parses or normalizes further
+		this->refreshMarkupColours();
+	}
+	//---------------------------------------------------------
 	UiAtlas::~UiAtlas()
 	{
 	}

@@ -1100,6 +1100,110 @@ int main(int, char**)
 				"toggle + select-menu value)");
 		}
 
+		// ORKIGE_DEMO_TTF=1: the runtime TrueType-font + vector-sprite selfcheck
+		// (flavor-neutral). Boots a real FastGuiManager on a runtime-baked atlas
+		// (fastgui_ttf_demo.ogui: Nunito TTF fonts + an SVG star, all rasterised
+		// into one GPU page at boot by FontAtlas), then asserts: the TTF fonts +
+		// the SVG sprite baked, a Latin label AND a Cyrillic label render (the
+		// Cyrillic glyphs are BEYOND the eager Latin-1 page, so they exercise the
+		// lazy-paging baker - the loc()/CJK localisation unblocker), and the HUD
+		// submits a non-empty batch. Runs identically on classic + next (fastgui
+		// draws through DrawLayer2D), so a runtime font looks the same on both.
+		if (std::getenv("ORKIGE_DEMO_TTF"))
+		{
+			// the runtime atlas .ogui + its committed .svg, and the engine
+			// default font the .ogui references by name
+			render->addResourceLocation(ORKIGE_DEMO_TTF_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_ENGINE_FONT_DIR);
+			render->initialiseResourceGroups();
+
+			bool ttfOk = true;
+			{
+				Orkige::optr<Orkige::FastGuiFactory> factory =
+					Orkige::onew(new Orkige::FastGuiFactory());
+				// loads fastgui_ttf_demo.ogui -> FontAtlas bakes the TTF pages +
+				// the SVG sprite into one page and uploads it
+				Orkige::FastGuiManager gui(factory, "fastgui_ttf_demo");
+
+				Orkige::woptr<Orkige::FastGuiView> view =
+					gui.getView("fastgui_ttf_demo");
+				Orkige::UiAtlas const* atlas = view.lock()
+					? view.lock()->getScreen()->getAtlas() : nullptr;
+				if (atlas == nullptr)
+				{
+					SDL_Log("hello_orkige: FAILED - runtime TTF atlas view missing");
+					ttfOk = false;
+				}
+				else
+				{
+					// the TTF fonts baked (metrics from the font tables)
+					if (atlas->getFont(9) == nullptr ||
+						atlas->getFont(24) == nullptr)
+					{
+						SDL_Log("hello_orkige: FAILED - runtime TTF fonts not baked");
+						ttfOk = false;
+					}
+					// the SVG rasterised into a normal UiSprite
+					Orkige::UiSprite const* star = atlas->getSprite("star");
+					if (star == nullptr || star->spriteWidth <= 0.0f)
+					{
+						SDL_Log("hello_orkige: FAILED - SVG sprite not baked");
+						ttfOk = false;
+					}
+
+					// a Latin label (eager page) + a Cyrillic label (lazy page)
+					factory->createLabel("ttfLatin", 9, "Hello Orkige",
+						Orkige::Vec2(80, 80), "", 5, false);
+					// UTF-8 for "АБВ" (Cyrillic, U+0410..U+0412) - beyond Latin-1
+					factory->createLabel("ttfCyrillic", 9,
+						"\xD0\x90\xD0\x91\xD0\x92", Orkige::Vec2(80, 140),
+						"", 5, false);
+					if (star != nullptr)
+					{
+						factory->createDecorWidget("ttfStar", "star",
+							Orkige::Vec2(80, 200),
+							Orkige::Vec2(star->spriteWidth, star->spriteHeight),
+							"fastgui_ttf_demo", 5);
+					}
+
+					// compose a frame: the widgets lay out, the screen submits
+					// its batch, and any lazily-baked glyph reaches the GPU
+					if (!render->renderOneFrame())
+					{
+						SDL_Log("hello_orkige: FAILED - runtime TTF frame did not "
+							"render");
+						ttfOk = false;
+					}
+
+					// the HUD actually drew (non-empty submitted batch)
+					if (view.lock() &&
+						view.lock()->getScreen()->getLastVertexCount() == 0)
+					{
+						SDL_Log("hello_orkige: FAILED - runtime TTF HUD submitted "
+							"no vertices");
+						ttfOk = false;
+					}
+
+					// the Cyrillic codepoints were baked on demand into the
+					// sparse page (they were never in the eager Latin-1 range)
+					if (atlas->getFont(9) != nullptr &&
+						atlas->getFont(9)->getGlyph(0x0410) == nullptr)
+					{
+						SDL_Log("hello_orkige: FAILED - lazy glyph paging did not "
+							"bake the Cyrillic glyph");
+						ttfOk = false;
+					}
+				}
+			}
+			if (!ttfOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: runtime TTF + SVG selfcheck passed (TTF fonts "
+				"+ SVG sprite baked, Latin + lazy-paged Cyrillic text rendered, "
+				"non-empty HUD batch)");
+		}
+
 		// ORKIGE_DEMO_TEXTENTRY=1: the fastgui TextEntry selfcheck (flavor-
 		// neutral). Boots a real FastGuiManager on the committed atlas, creates a
 		// text field and drives it entirely through synthetic SDL events on the

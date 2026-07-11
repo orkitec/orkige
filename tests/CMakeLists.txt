@@ -230,6 +230,16 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_textentry PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_TEXTENTRY=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_TTF: the runtime TrueType-font + vector-sprite selfcheck -
+    # boots a real FastGuiManager on a runtime-baked atlas (Nunito TTF + an SVG
+    # star baked into one page at boot), renders a Latin + a lazily-paged
+    # Cyrillic label and the sprite, and asserts a non-empty HUD batch.
+    # Flavor-neutral (fastgui on DrawLayer2D), so it runs on classic + next.
+    add_test(NAME demo_ttf COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_ttf PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_TTF=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES
@@ -942,7 +952,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
-        demo_ui_scale demo_ui_safe_area demo_textentry
+        demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene
