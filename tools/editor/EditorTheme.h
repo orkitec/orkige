@@ -1,11 +1,20 @@
-// EditorTheme - the editor's macOS-dark-mode-inspired ImGui style.
+// EditorTheme - the editor's macOS-inspired ImGui style, in light and dark.
 //
-// applyMacDarkTheme builds the whole ImGuiStyle from named palette constants
-// (see EditorTheme.cpp) so the look is reviewable and tweakable in one place:
-// macOS dark surfaces (~#232323 windows, #3a3a3c controls), the macOS accent
-// blue #0a84ff for selection/checkmarks/sliders/focus, generous rounding and
-// comfortable spacing. Stock ImGui has no hover animations - the theme is
-// palette/rounding/spacing only, on purpose.
+// applyEditorTheme builds the whole ImGuiStyle from a named EditorPalette (see
+// EditorTheme.cpp) so the look is reviewable and tweakable in one place. The
+// colour->slot mapping is shared between the two variants; only the palette
+// values differ (darkPalette / lightPalette), each hand-tuned after its macOS
+// counterpart - dark surfaces (~#232323) or light surfaces (~#ECECEC), the
+// macOS accent blue for selection/checkmarks/sliders/focus, generous rounding
+// and comfortable spacing (metrics are identical across variants). Stock ImGui
+// has no hover animations - the theme is palette/rounding/spacing only, on
+// purpose.
+//
+// The variant is chosen by resolveEditorTheme from an EditorThemeMode (the
+// persisted user preference): System follows SDL_GetSystemTheme, or the user
+// pins Dark/Light. currentEditorThemeVariant reports what is live so the few
+// colours drawn outside the ImGuiStyle (console log lines, asset-kind tints)
+// can pick a legible value for the active background.
 //
 // loadMacSystemFont loads the San Francisco system font straight from the OS
 // (/System/Library/Fonts/SFNS.ttf) AT RUNTIME - the font file is Apple's and
@@ -20,18 +29,56 @@
 
 namespace Orkige
 {
-	//! @brief restyle the given ImGuiStyle as "macOS dark mode".
+	//! the persisted theme preference (View > Theme). System defers to the OS
+	//! appearance (and tracks live changes); Dark/Light pin one look.
+	enum class EditorThemeMode
+	{
+		System,
+		Dark,
+		Light,
+	};
+
+	//! a concrete resolved look - what applyEditorTheme actually paints.
+	enum class EditorThemeVariant
+	{
+		Dark,
+		Light,
+	};
+
+	//! resolve a preference to a concrete variant. System reads the live OS
+	//! appearance (SDL_GetSystemTheme); an unknown OS appearance falls back to
+	//! Dark (the editor's historical default).
+	EditorThemeVariant resolveEditorTheme(EditorThemeMode mode);
+
+	//! @brief restyle the given ImGuiStyle as the chosen variant.
+	//! Records the variant as the live one (see currentEditorThemeVariant).
 	//! @param style the style to overwrite (typically ImGui::GetStyle())
+	//! @param variant Dark or Light
 	//! @param contentScale UI scale factor (render-target pixels per window
 	//!        point, 1.0 on non-retina surfaces); sizes/rounding are scaled
 	//!        through ImGuiStyle::ScaleAllSizes with it
-	void applyMacDarkTheme(ImGuiStyle& style, float contentScale = 1.0f);
+	void applyEditorTheme(ImGuiStyle& style, EditorThemeVariant variant,
+		float contentScale = 1.0f);
+
+	//! the variant applyEditorTheme last painted (defaults to Dark before any
+	//! call). Colours drawn outside the ImGuiStyle branch on this.
+	EditorThemeVariant currentEditorThemeVariant();
+
+	//! the dockspace/empty-area background of the active variant, as an engine
+	//! window clear colour (r,g,b in 0..1 packed into an ImVec4, alpha unused).
+	//! The UI-only editor window clears to this so the gaps between docked
+	//! panels match the theme.
+	ImVec4 editorDockspaceBackground();
+
+	//! console log line colours for the active variant: a warning amber and an
+	//! error red picked to stay legible on the variant's console background.
+	ImVec4 editorWarningTextColor();
+	ImVec4 editorErrorTextColor();
 
 	//! @brief try to load the macOS system font (San Francisco) from
 	//! /System/Library/Fonts/SFNS.ttf into the given atlas.
 	//! Must be called BEFORE the font atlas is built (for the editor: after
-	//! the Ogre::ImGuiOverlay is constructed - it owns the ImGui context -
-	//! but before ImGuiOverlay::show(), which builds and uploads the atlas).
+	//! the ImGui context exists but before the atlas is built and uploaded).
 	//! @param io the ImGui IO whose atlas receives the font
 	//! @param sizePoints font size in points (~13-15 is macOS-like)
 	//! @param contentScale render-target pixels per point (DPI scale)

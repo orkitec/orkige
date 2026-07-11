@@ -19,6 +19,7 @@
 #include "EditorAssetDnd.h"
 #include "EditorCamera.h"
 #include "EditorCore.h"
+#include "EditorTheme.h"
 #include "FileDialog.h"
 
 #include <core_debugnet/DebugClient.h>
@@ -207,6 +208,15 @@ struct ViewSettings
 	//! reopen the most recent project on launch; automation
 	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
 	bool reopenLastProject = true;
+	//! editor chrome appearance (View > Theme): System follows the OS, or the
+	//! user pins Dark/Light. Applied at boot and on every change.
+	Orkige::EditorThemeMode themeMode = Orkige::EditorThemeMode::System;
+	//! the content scale the persisted dock layout was saved at. A layout is a
+	//! set of absolute-pixel node sizes; restoring one saved at a different
+	//! scale (e.g. moved from a 1x to a 2x display) mis-proportions the panels,
+	//! so drawDockspace rebuilds the ratio-based default when this differs from
+	//! the live scale. 0 = unknown (older ini / never saved).
+	float layoutContentScale = 0.0f;
 	//! most-recently-used scene paths (newest first) for File > Open Recent;
 	//! filled by every successful open/save, capped at MAX_RECENT_SCENES
 	std::vector<std::string> recentScenes;
@@ -238,6 +248,13 @@ struct ViewSettings
 // open/save functions so every successful open/save feeds File > Open Recent
 // without threading a ViewSettings& through all their call sites.
 extern ViewSettings* gViewSettings;
+
+// The live EditorState (owned by main). Global so the shared menu widgets
+// (drawn from both the ImGui View menu and the floating View Settings window)
+// can raise one-shot requests - e.g. a Theme change flagging a re-apply - back
+// to the main loop without threading EditorState& through every widget helper.
+struct EditorState; // defined below
+extern EditorState* gEditorState;
 
 // the ImGui-on-facade renderer (owned by main; global so drawScenePanel can
 // register the scene RTT for ImGui::Image without threading it through every
@@ -432,6 +449,9 @@ struct EditorState
 	bool showViewSettingsWindow = false;
 	//! View > Reset Layout: rebuild the default dock layout next frame
 	bool resetDockLayout = false;
+	//! View > Theme changed: re-apply the ImGui style (and refresh the window
+	//! clear colour) next frame; the main loop consumes and clears it
+	bool themeReapplyRequested = false;
 	//! Scene panel interaction state recorded while drawing (gates the tool
 	//! shortcuts to "Scene panel hovered/focused")
 	bool scenePanelHovered = false;
@@ -1115,9 +1135,12 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core);
 float drawToolbar(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core);
 
-// fullscreen dockspace + first-run DockBuilder layout - EditorMenus.cpp
+// fullscreen dockspace + first-run DockBuilder layout - EditorMenus.cpp.
+// contentScale is the live UI scale: a persisted layout saved at a different
+// scale is rebuilt from the ratio-based default rather than restored verbatim
+// (absolute-pixel node sizes would otherwise mis-proportion the panels).
 void drawDockspace(EditorState& state, float toolbarHeight,
-	ViewSettings& viewSettings);
+	ViewSettings& viewSettings, float contentScale);
 
 // the Scene panel: RTT image, gizmos, picking, camera navigation -
 // EditorScenePanel.cpp

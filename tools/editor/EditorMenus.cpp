@@ -62,6 +62,26 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 	optr<Orkige::RenderCamera> const& sceneCamera)
 {
 	bool settingsChanged = false;
+	// appearance: System follows the OS, Dark/Light pin one look. A change flags
+	// a re-apply for the main loop (it owns the content scale + window clear).
+	{
+		const char* const themeLabels[] = { "System", "Dark", "Light" };
+		int themeIndex = static_cast<int>(viewSettings.themeMode);
+		ImGui::SetNextItemWidth(160.0f);
+		if (ImGui::Combo("Theme", &themeIndex, themeLabels,
+			IM_ARRAYSIZE(themeLabels)))
+		{
+			viewSettings.themeMode =
+				static_cast<Orkige::EditorThemeMode>(themeIndex);
+			if (gEditorState)
+			{
+				gEditorState->themeReapplyRequested = true;
+			}
+			settingsChanged = true;
+		}
+		ImGui::SetItemTooltip("editor colour scheme (System tracks macOS)");
+	}
+	ImGui::Separator();
 	settingsChanged |= ImGui::Checkbox("Show Grid", &viewSettings.showGrid);
 	settingsChanged |= ImGui::Checkbox("Orientation Gizmo",
 		&viewSettings.showViewGizmo);
@@ -511,7 +531,7 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 // state.resetDockLayout, which reruns the builder from scratch (and re-opens
 // every panel).
 void drawDockspace(EditorState& state, float toolbarHeight,
-	ViewSettings& viewSettings)
+	ViewSettings& viewSettings, float contentScale)
 {
 	const ImGuiViewport* mainViewport = ImGui::GetMainViewport();
 	ImGui::SetNextWindowPos(ImVec2(mainViewport->WorkPos.x,
@@ -553,10 +573,25 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	else
 	{
 		ImGuiDockNode* rootNode = ImGui::DockBuilderGetNode(dockspaceId);
-		if (rootNode && rootNode->IsSplitNode())
+		// keep an imgui.ini-restored layout, but only when it was saved at the
+		// live content scale - its node sizes are absolute pixels, so a layout
+		// authored at another density (moved between a 1x and a retina display)
+		// would load mis-proportioned. On a scale mismatch, fall through and
+		// rebuild the ratio-based default at the current density.
+		const bool scaleMatches =
+			std::abs(viewSettings.layoutContentScale - contentScale) < 0.01f;
+		if (rootNode && rootNode->IsSplitNode() && scaleMatches)
 		{
-			return; // imgui.ini restored a layout - keep it
+			return;
 		}
+	}
+	// (re)building the default layout adopts the live density; persist it only
+	// on interactive runs (automated runs rebuild fresh every launch and must
+	// not race on the shared settings file - see gRecordRecents)
+	viewSettings.layoutContentScale = contentScale;
+	if (gRecordRecents)
+	{
+		viewSettings.save();
 	}
 	ImGui::DockBuilderRemoveNode(dockspaceId);
 	ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);

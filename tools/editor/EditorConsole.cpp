@@ -153,11 +153,11 @@ void drawConsoleLogTab(EditorConsole& console)
 			{
 			case ConsoleLevel::Warning:
 				ImGui::PushStyleColor(ImGuiCol_Text,
-					ImVec4(0.95f, 0.80f, 0.25f, 1.0f));
+					Orkige::editorWarningTextColor());
 				break;
 			case ConsoleLevel::Error:
 				ImGui::PushStyleColor(ImGuiCol_Text,
-					ImVec4(0.95f, 0.35f, 0.30f, 1.0f));
+					Orkige::editorErrorTextColor());
 				break;
 			case ConsoleLevel::Info:
 			default:

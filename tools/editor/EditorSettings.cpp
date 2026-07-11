@@ -104,6 +104,17 @@ void ViewSettings::load()
 		{
 			this->reopenLastProject = (value == "1");
 		}
+		else if (key == "theme_mode")
+		{
+			// "system" (default) / "dark" / "light"
+			this->themeMode = (value == "dark") ? Orkige::EditorThemeMode::Dark
+				: (value == "light") ? Orkige::EditorThemeMode::Light
+				: Orkige::EditorThemeMode::System;
+		}
+		else if (key == "layout_content_scale")
+		{
+			this->layoutContentScale = std::strtof(value.c_str(), nullptr);
+		}
 		else if (key == "recent_scene")
 		{
 			// one line per entry, newest first (the save order)
@@ -167,7 +178,13 @@ void ViewSettings::save() const
 		<< "snap_scale=" << this->snapScale << "\n"
 		<< "asset_thumb_size=" << this->assetThumbnailSize << "\n"
 		<< "reopen_last_project="
-		<< (this->reopenLastProject ? 1 : 0) << "\n";
+		<< (this->reopenLastProject ? 1 : 0) << "\n"
+		<< "theme_mode="
+		<< (this->themeMode == Orkige::EditorThemeMode::Dark ? "dark"
+			: this->themeMode == Orkige::EditorThemeMode::Light ? "light"
+			: "system")
+		<< "\n"
+		<< "layout_content_scale=" << this->layoutContentScale << "\n";
 	for (std::string const& recent : this->recentScenes)
 	{
 		file << "recent_scene=" << recent << "\n";
@@ -235,6 +252,7 @@ void ViewSettings::showAllPanels()
 
 // the editor-wide globals (declared extern in EditorApp.h)
 ViewSettings* gViewSettings = nullptr;
+EditorState* gEditorState = nullptr;
 Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 bool gRecordRecents = true;
 

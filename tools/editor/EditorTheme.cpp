@@ -1,7 +1,9 @@
-// EditorTheme - macOS-dark-mode-inspired ImGui style (see header).
+// EditorTheme - macOS-inspired ImGui style, light and dark (see header).
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorTheme.h"
 #include "IconsFontAwesome6.h"
+
+#include <SDL3/SDL.h>
 
 #include <cfloat>
 #include <filesystem>
@@ -10,6 +12,8 @@ namespace Orkige
 {
 	namespace
 	{
+		constexpr ImVec4 TRANSPARENT_ = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+
 		//! sRGB hex -> ImVec4 (straight conversion, no gamma games - matches
 		//! how the reference values are picked from macOS screenshots)
 		constexpr ImVec4 rgba(unsigned int rgb, float alpha = 1.0f)
@@ -21,39 +25,129 @@ namespace Orkige
 				alpha);
 		}
 
-		// --- the palette (named after their macOS dark mode counterparts) ---
-		// window/panel surfaces
-		constexpr ImVec4 WINDOW_BG        = rgba(0x232323);	//!< panel body
-		constexpr ImVec4 DOCKSPACE_BG     = rgba(0x1a1a1a);	//!< empty dock area (darker than panels)
-		constexpr ImVec4 POPUP_BG         = rgba(0x2a2a2c, 0.98f);	//!< menus/popups (elevated)
-		constexpr ImVec4 TITLE_BG         = rgba(0x2d2d2d);	//!< flat title/tab strip
-		constexpr ImVec4 MENUBAR_BG       = rgba(0x282828);
-		// controls (buttons, input fields, combos)
-		constexpr ImVec4 CONTROL_BG       = rgba(0x3a3a3c);
-		constexpr ImVec4 CONTROL_HOVER    = rgba(0x48484a);
-		constexpr ImVec4 CONTROL_ACTIVE   = rgba(0x545456);
-		// the macOS accent blue
-		constexpr ImVec4 ACCENT           = rgba(0x0a84ff);
-		constexpr ImVec4 ACCENT_HOVER     = rgba(0x409cff);
-		constexpr ImVec4 ACCENT_SELECTION = rgba(0x0a84ff, 0.55f);	//!< list selection fill
-		constexpr ImVec4 ACCENT_SOFT      = rgba(0x0a84ff, 0.30f);	//!< hover/soft highlight
-		// text
-		constexpr ImVec4 TEXT_PRIMARY     = rgba(0xe5e5e7);
-		constexpr ImVec4 TEXT_SECONDARY   = rgba(0x98989d);
-		// hairlines: macOS separators are ~10% white on dark
-		constexpr ImVec4 SEPARATOR        = rgba(0xffffff, 0.10f);
-		constexpr ImVec4 BORDER           = rgba(0xffffff, 0.08f);
-		// scrollbars
-		constexpr ImVec4 SCROLL_GRAB      = rgba(0x5a5a5e, 0.80f);
-		constexpr ImVec4 SCROLL_GRAB_HOVER = rgba(0x6e6e73, 0.90f);
-		// docked tabs styled like a macOS segmented control: resting segments
-		// blend into the strip, the selected one is a lighter grey pill - no
-		// blue, no overline (that is the "flatter" part)
-		constexpr ImVec4 TAB_RESTING      = rgba(0x2d2d2d);
-		constexpr ImVec4 TAB_HOVER        = rgba(0x3a3a3c);
-		constexpr ImVec4 TAB_SELECTED     = rgba(0x48484a);
-		constexpr ImVec4 TAB_DIMMED       = rgba(0x262626);
-		constexpr ImVec4 TRANSPARENT_     = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+		//! One named surface/accent set. Both variants fill the SAME fields
+		//! (each after its macOS counterpart) so the colour->ImGuiCol mapping in
+		//! applyEditorTheme stays single-sourced - only these values change.
+		struct EditorPalette
+		{
+			// window/panel surfaces
+			ImVec4 windowBg;		//!< panel body
+			ImVec4 dockspaceBg;		//!< empty dock area (recessed vs panels)
+			ImVec4 popupBg;			//!< menus/popups (elevated)
+			ImVec4 titleBg;			//!< flat title/tab strip
+			ImVec4 menubarBg;
+			// controls (buttons, input fields, combos) - lighter than the panel
+			// in dark, whiter/raised than the panel in light
+			ImVec4 controlBg;
+			ImVec4 controlHover;
+			ImVec4 controlActive;
+			// the macOS accent blue and its derivatives
+			ImVec4 accent;
+			ImVec4 accentHover;
+			ImVec4 accentSelection;	//!< list selection fill (translucent)
+			ImVec4 accentSoft;		//!< hover/soft highlight (translucent)
+			// text
+			ImVec4 textPrimary;
+			ImVec4 textSecondary;
+			// hairlines (translucent so they read on any surface)
+			ImVec4 separator;
+			ImVec4 border;
+			// scrollbars
+			ImVec4 scrollGrab;
+			ImVec4 scrollGrabHover;
+			// docked tabs styled like a macOS segmented control: resting
+			// segments blend into the strip, the selected one is a raised pill -
+			// no blue, no overline (the "flatter" part)
+			ImVec4 tabResting;
+			ImVec4 tabHover;
+			ImVec4 tabSelected;
+			ImVec4 tabDimmed;
+			// zebra table stripe (translucent overlay on the row)
+			ImVec4 rowStripe;
+			// dimming scrims (modal/nav) - always a black wash
+			ImVec4 navDim;
+			ImVec4 modalDim;
+			// console log lines, tuned to stay legible on this variant's panel
+			ImVec4 warningText;
+			ImVec4 errorText;
+		};
+
+		//! macOS dark mode: dark surfaces, controls a step lighter than panels.
+		constexpr EditorPalette DARK_PALETTE = {
+			/*windowBg*/        rgba(0x232323),
+			/*dockspaceBg*/     rgba(0x1a1a1a),
+			/*popupBg*/         rgba(0x2a2a2c, 0.98f),
+			/*titleBg*/         rgba(0x2d2d2d),
+			/*menubarBg*/       rgba(0x282828),
+			/*controlBg*/       rgba(0x3a3a3c),
+			/*controlHover*/    rgba(0x48484a),
+			/*controlActive*/   rgba(0x545456),
+			/*accent*/          rgba(0x0a84ff),
+			/*accentHover*/     rgba(0x409cff),
+			/*accentSelection*/ rgba(0x0a84ff, 0.55f),
+			/*accentSoft*/      rgba(0x0a84ff, 0.30f),
+			/*textPrimary*/     rgba(0xe5e5e7),
+			/*textSecondary*/   rgba(0x98989d),
+			/*separator*/       rgba(0xffffff, 0.10f),
+			/*border*/          rgba(0xffffff, 0.08f),
+			/*scrollGrab*/      rgba(0x5a5a5e, 0.80f),
+			/*scrollGrabHover*/ rgba(0x6e6e73, 0.90f),
+			/*tabResting*/      rgba(0x2d2d2d),
+			/*tabHover*/        rgba(0x3a3a3c),
+			/*tabSelected*/     rgba(0x48484a),
+			/*tabDimmed*/       rgba(0x262626),
+			/*rowStripe*/       rgba(0xffffff, 0.03f),
+			/*navDim*/          rgba(0x000000, 0.35f),
+			/*modalDim*/        rgba(0x000000, 0.45f),
+			/*warningText*/     rgba(0xf2cc40),
+			/*errorText*/       rgba(0xf25a4d),
+		};
+
+		//! macOS light mode: light-grey window, white raised controls, near-
+		//! black text; the accent stays the system blue. The dark/light
+		//! relationships are mirrored (controls step AWAY from the panel toward
+		//! the extreme; the dockspace gap is recessed = darker than panels; the
+		//! selected tab is a raised = brighter pill), so future tweaks to one
+		//! variant have an obvious counterpart in the other.
+		constexpr EditorPalette LIGHT_PALETTE = {
+			/*windowBg*/        rgba(0xececec),
+			/*dockspaceBg*/     rgba(0xd2d2d2),
+			/*popupBg*/         rgba(0xffffff, 0.98f),
+			/*titleBg*/         rgba(0xe0e0e0),
+			/*menubarBg*/       rgba(0xe6e6e6),
+			/*controlBg*/       rgba(0xffffff),
+			/*controlHover*/    rgba(0xf1f1f3),
+			/*controlActive*/   rgba(0xe3e3e6),
+			/*accent*/          rgba(0x007aff),
+			/*accentHover*/     rgba(0x2f95ff),
+			/*accentSelection*/ rgba(0x007aff, 0.28f),
+			/*accentSoft*/      rgba(0x007aff, 0.16f),
+			/*textPrimary*/     rgba(0x1d1d1f),
+			/*textSecondary*/   rgba(0x76767b),
+			/*separator*/       rgba(0x000000, 0.12f),
+			/*border*/          rgba(0x000000, 0.14f),
+			/*scrollGrab*/      rgba(0x000000, 0.28f),
+			/*scrollGrabHover*/ rgba(0x000000, 0.42f),
+			/*tabResting*/      rgba(0xdedede),
+			/*tabHover*/        rgba(0xe9e9e9),
+			/*tabSelected*/     rgba(0xffffff),
+			/*tabDimmed*/       rgba(0xd8d8d8),
+			/*rowStripe*/       rgba(0x000000, 0.04f),
+			/*navDim*/          rgba(0x000000, 0.20f),
+			/*modalDim*/        rgba(0x000000, 0.30f),
+			/*warningText*/     rgba(0x9a6a00),
+			/*errorText*/       rgba(0xc4372b),
+		};
+
+		//! the live variant (what applyEditorTheme last painted); the out-of-
+		//! style colour accessors branch on it. Dark until the first apply.
+		EditorThemeVariant gActiveVariant = EditorThemeVariant::Dark;
+
+		const EditorPalette& activePalette()
+		{
+			return gActiveVariant == EditorThemeVariant::Light
+				? LIGHT_PALETTE : DARK_PALETTE;
+		}
 
 		//! system UI font candidates, best first: the macOS system font
 		//! (San Francisco, present on every macOS install) and common Linux
@@ -100,8 +194,47 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
-	void applyMacDarkTheme(ImGuiStyle& style, float contentScale)
+	EditorThemeVariant resolveEditorTheme(EditorThemeMode mode)
 	{
+		switch (mode)
+		{
+		case EditorThemeMode::Dark:		return EditorThemeVariant::Dark;
+		case EditorThemeMode::Light:	return EditorThemeVariant::Light;
+		case EditorThemeMode::System:
+		default:
+			// SDL reports the OS appearance; an unknown one keeps the editor's
+			// historical dark default
+			return SDL_GetSystemTheme() == SDL_SYSTEM_THEME_LIGHT
+				? EditorThemeVariant::Light : EditorThemeVariant::Dark;
+		}
+	}
+	//---------------------------------------------------------
+	EditorThemeVariant currentEditorThemeVariant()
+	{
+		return gActiveVariant;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorDockspaceBackground()
+	{
+		return activePalette().dockspaceBg;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorWarningTextColor()
+	{
+		return activePalette().warningText;
+	}
+	//---------------------------------------------------------
+	ImVec4 editorErrorTextColor()
+	{
+		return activePalette().errorText;
+	}
+	//---------------------------------------------------------
+	void applyEditorTheme(ImGuiStyle& style, EditorThemeVariant variant,
+		float contentScale)
+	{
+		gActiveVariant = variant;
+		const EditorPalette& p = activePalette();
+
 		style = ImGuiStyle(); // start from stock metrics, then restyle
 
 		// --- metrics: generous rounding, comfortable spacing ---
@@ -129,67 +262,67 @@ namespace Orkige
 		style.WindowTitleAlign = ImVec2(0.5f, 0.5f);	// centered, like macOS
 		style.SeparatorTextBorderSize = 1.0f;
 
-		// --- palette ---
+		// --- palette (mapping shared by both variants; p supplies the values) ---
 		ImVec4* colors = style.Colors;
-		colors[ImGuiCol_Text] = TEXT_PRIMARY;
-		colors[ImGuiCol_TextDisabled] = TEXT_SECONDARY;
-		colors[ImGuiCol_WindowBg] = WINDOW_BG;
+		colors[ImGuiCol_Text] = p.textPrimary;
+		colors[ImGuiCol_TextDisabled] = p.textSecondary;
+		colors[ImGuiCol_WindowBg] = p.windowBg;
 		colors[ImGuiCol_ChildBg] = TRANSPARENT_;
-		colors[ImGuiCol_PopupBg] = POPUP_BG;
-		colors[ImGuiCol_Border] = BORDER;
+		colors[ImGuiCol_PopupBg] = p.popupBg;
+		colors[ImGuiCol_Border] = p.border;
 		colors[ImGuiCol_BorderShadow] = TRANSPARENT_;
-		colors[ImGuiCol_FrameBg] = CONTROL_BG;
-		colors[ImGuiCol_FrameBgHovered] = CONTROL_HOVER;
-		colors[ImGuiCol_FrameBgActive] = CONTROL_ACTIVE;
+		colors[ImGuiCol_FrameBg] = p.controlBg;
+		colors[ImGuiCol_FrameBgHovered] = p.controlHover;
+		colors[ImGuiCol_FrameBgActive] = p.controlActive;
 		// flat title/tab strips (docked panels mostly show tabs, not titles)
-		colors[ImGuiCol_TitleBg] = TITLE_BG;
-		colors[ImGuiCol_TitleBgActive] = TITLE_BG;
-		colors[ImGuiCol_TitleBgCollapsed] = TITLE_BG;
-		colors[ImGuiCol_MenuBarBg] = MENUBAR_BG;
+		colors[ImGuiCol_TitleBg] = p.titleBg;
+		colors[ImGuiCol_TitleBgActive] = p.titleBg;
+		colors[ImGuiCol_TitleBgCollapsed] = p.titleBg;
+		colors[ImGuiCol_MenuBarBg] = p.menubarBg;
 		colors[ImGuiCol_ScrollbarBg] = TRANSPARENT_;
-		colors[ImGuiCol_ScrollbarGrab] = SCROLL_GRAB;
-		colors[ImGuiCol_ScrollbarGrabHovered] = SCROLL_GRAB_HOVER;
-		colors[ImGuiCol_ScrollbarGrabActive] = SCROLL_GRAB_HOVER;
-		colors[ImGuiCol_CheckMark] = ACCENT;
-		colors[ImGuiCol_SliderGrab] = ACCENT;
-		colors[ImGuiCol_SliderGrabActive] = ACCENT_HOVER;
-		colors[ImGuiCol_Button] = CONTROL_BG;
-		colors[ImGuiCol_ButtonHovered] = CONTROL_HOVER;
-		colors[ImGuiCol_ButtonActive] = ACCENT;
+		colors[ImGuiCol_ScrollbarGrab] = p.scrollGrab;
+		colors[ImGuiCol_ScrollbarGrabHovered] = p.scrollGrabHover;
+		colors[ImGuiCol_ScrollbarGrabActive] = p.scrollGrabHover;
+		colors[ImGuiCol_CheckMark] = p.accent;
+		colors[ImGuiCol_SliderGrab] = p.accent;
+		colors[ImGuiCol_SliderGrabActive] = p.accentHover;
+		colors[ImGuiCol_Button] = p.controlBg;
+		colors[ImGuiCol_ButtonHovered] = p.controlHover;
+		colors[ImGuiCol_ButtonActive] = p.accent;
 		// Header drives Selectable/TreeNode selection - accent, like macOS lists
-		colors[ImGuiCol_Header] = ACCENT_SELECTION;
-		colors[ImGuiCol_HeaderHovered] = ACCENT_SOFT;
-		colors[ImGuiCol_HeaderActive] = ACCENT_SELECTION;
-		colors[ImGuiCol_Separator] = SEPARATOR;
-		colors[ImGuiCol_SeparatorHovered] = ACCENT_SOFT;
-		colors[ImGuiCol_SeparatorActive] = ACCENT;
+		colors[ImGuiCol_Header] = p.accentSelection;
+		colors[ImGuiCol_HeaderHovered] = p.accentSoft;
+		colors[ImGuiCol_HeaderActive] = p.accentSelection;
+		colors[ImGuiCol_Separator] = p.separator;
+		colors[ImGuiCol_SeparatorHovered] = p.accentSoft;
+		colors[ImGuiCol_SeparatorActive] = p.accent;
 		colors[ImGuiCol_ResizeGrip] = TRANSPARENT_;
-		colors[ImGuiCol_ResizeGripHovered] = ACCENT_SOFT;
-		colors[ImGuiCol_ResizeGripActive] = ACCENT;
-		colors[ImGuiCol_Tab] = TAB_RESTING;
-		colors[ImGuiCol_TabHovered] = TAB_HOVER;
-		colors[ImGuiCol_TabSelected] = TAB_SELECTED;
+		colors[ImGuiCol_ResizeGripHovered] = p.accentSoft;
+		colors[ImGuiCol_ResizeGripActive] = p.accent;
+		colors[ImGuiCol_Tab] = p.tabResting;
+		colors[ImGuiCol_TabHovered] = p.tabHover;
+		colors[ImGuiCol_TabSelected] = p.tabSelected;
 		colors[ImGuiCol_TabSelectedOverline] = TRANSPARENT_;
-		colors[ImGuiCol_TabDimmed] = TAB_DIMMED;
-		colors[ImGuiCol_TabDimmedSelected] = TAB_SELECTED;
+		colors[ImGuiCol_TabDimmed] = p.tabDimmed;
+		colors[ImGuiCol_TabDimmedSelected] = p.tabSelected;
 		colors[ImGuiCol_TabDimmedSelectedOverline] = TRANSPARENT_;
-		colors[ImGuiCol_DockingPreview] = ACCENT_SOFT;
-		colors[ImGuiCol_DockingEmptyBg] = DOCKSPACE_BG;
-		colors[ImGuiCol_PlotLines] = TEXT_SECONDARY;
-		colors[ImGuiCol_PlotLinesHovered] = ACCENT_HOVER;
-		colors[ImGuiCol_PlotHistogram] = ACCENT;
-		colors[ImGuiCol_PlotHistogramHovered] = ACCENT_HOVER;
-		colors[ImGuiCol_TableHeaderBg] = TITLE_BG;
-		colors[ImGuiCol_TableBorderStrong] = SEPARATOR;
-		colors[ImGuiCol_TableBorderLight] = BORDER;
+		colors[ImGuiCol_DockingPreview] = p.accentSoft;
+		colors[ImGuiCol_DockingEmptyBg] = p.dockspaceBg;
+		colors[ImGuiCol_PlotLines] = p.textSecondary;
+		colors[ImGuiCol_PlotLinesHovered] = p.accentHover;
+		colors[ImGuiCol_PlotHistogram] = p.accent;
+		colors[ImGuiCol_PlotHistogramHovered] = p.accentHover;
+		colors[ImGuiCol_TableHeaderBg] = p.titleBg;
+		colors[ImGuiCol_TableBorderStrong] = p.separator;
+		colors[ImGuiCol_TableBorderLight] = p.border;
 		colors[ImGuiCol_TableRowBg] = TRANSPARENT_;
-		colors[ImGuiCol_TableRowBgAlt] = rgba(0xffffff, 0.03f);
-		colors[ImGuiCol_TextSelectedBg] = ACCENT_SOFT;
-		colors[ImGuiCol_DragDropTarget] = ACCENT;
-		colors[ImGuiCol_NavCursor] = ACCENT;
-		colors[ImGuiCol_NavWindowingHighlight] = ACCENT_SOFT;
-		colors[ImGuiCol_NavWindowingDimBg] = rgba(0x000000, 0.35f);
-		colors[ImGuiCol_ModalWindowDimBg] = rgba(0x000000, 0.45f);
+		colors[ImGuiCol_TableRowBgAlt] = p.rowStripe;
+		colors[ImGuiCol_TextSelectedBg] = p.accentSoft;
+		colors[ImGuiCol_DragDropTarget] = p.accent;
+		colors[ImGuiCol_NavCursor] = p.accent;
+		colors[ImGuiCol_NavWindowingHighlight] = p.accentSoft;
+		colors[ImGuiCol_NavWindowingDimBg] = p.navDim;
+		colors[ImGuiCol_ModalWindowDimBg] = p.modalDim;
 
 		if (contentScale > 1.0f)
 		{

@@ -188,6 +188,24 @@ int main(int argc, char** argv)
 		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return 1;
 	}
+	// testing/multi-display hook: ORKIGE_EDITOR_WINDOW_DISPLAY=<index> centers
+	// the window on the given display BEFORE the render context is built, so the
+	// drawable adopts that display's backing scale (the content-scale probe below
+	// then reads e.g. 2.0 on a Retina panel). Lets the visual selfcheck capture
+	// the HiDPI chrome on machines whose primary display is 1x.
+	if (const char* displayEnv = std::getenv("ORKIGE_EDITOR_WINDOW_DISPLAY"))
+	{
+		int displayCount = 0;
+		SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
+		const int wanted = std::atoi(displayEnv);
+		if (displays && wanted >= 0 && wanted < displayCount)
+		{
+			SDL_SetWindowPosition(window,
+				SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]),
+				SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]));
+		}
+		SDL_free(displays);
+	}
 	// let the Engine read this window's content scale / safe area (harmless in
 	// the editor - it drives the gui UI scale a spawned player uses too)
 	Orkige::PlatformWindow::setActiveWindow(window);
@@ -234,7 +252,8 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr;
+			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
 		// --- per-flavor boot block (the app rule + flavor split,
@@ -343,9 +362,9 @@ int main(int argc, char** argv)
 
 		// UI-only main window (facade): only the window background colour
 		// and the ImGui 2D layer reach the screen - all scene content
-		// renders offscreen into the Scene panel's RenderTexture. The
-		// colour matches the theme's dockspace background (EditorTheme
-		// DOCKSPACE_BG).
+		// renders offscreen into the Scene panel's RenderTexture. This is a
+		// provisional dark clear; applyEditorThemeNow (below) re-sets it to the
+		// resolved theme's dockspace colour so the gaps between panels match.
 		render->setWindowBackgroundColour(
 			Orkige::Color(0.102f, 0.102f, 0.102f));
 		render->showUIOnlyWindow();
@@ -379,7 +398,9 @@ int main(int argc, char** argv)
 					static_cast<float>(sdlWindowWidth);
 			}
 		}
-		Orkige::applyMacDarkTheme(ImGui::GetStyle(), editorContentScale);
+		// the theme colours are applied AFTER the view settings load (below)
+		// so the persisted System/Dark/Light choice is honoured; only the font
+		// atlas has to be built here (before the renderer initialises).
 		if (!Orkige::loadMacSystemFont(ImGui::GetIO(), 14.0f,
 			editorContentScale))
 		{
@@ -421,7 +442,11 @@ int main(int argc, char** argv)
 		static const std::string imguiIniPath =
 			std::string(sdlBasePath ? sdlBasePath : "") +
 			"orkige_editor_imgui.ini";
-		ImGui::GetIO().IniFilename = imguiIniPath.c_str();
+		// automated runs neither read nor write the persisted layout: they build
+		// the fresh ratio-based default every time, so the suite's captures are
+		// deterministic and correctly proportioned at whatever density the run
+		// has (a layout persisted at another density would load mis-scaled).
+		ImGui::GetIO().IniFilename = automatedRun ? nullptr : imguiIniPath.c_str();
 
 		// viewport settings (grid/orientation gizmo/camera feel) persist in
 		// a simple key=value file next to the imgui ini
@@ -434,6 +459,49 @@ int main(int argc, char** argv)
 		// scripted runs must not rewrite the user's recents (see gRecordRecents)
 		gRecordRecents = !automatedRun;
 		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
+
+		// resolve + apply the editor theme now that the persisted preference is
+		// loaded. A lambda so the settings toggle and the live OS-appearance
+		// event can re-apply it (the content scale and the window clear colour
+		// both live in this scope).
+		const auto applyEditorThemeNow = [&](Orkige::EditorThemeMode mode)
+		{
+			const Orkige::EditorThemeVariant variant =
+				Orkige::resolveEditorTheme(mode);
+			Orkige::applyEditorTheme(ImGui::GetStyle(), variant,
+				editorContentScale);
+			// the UI-only editor window clears to the theme's dockspace colour
+			// so the gaps between docked panels match the chrome
+			const ImVec4 dockBg = Orkige::editorDockspaceBackground();
+			render->setWindowBackgroundColour(
+				Orkige::Color(dockBg.x, dockBg.y, dockBg.z));
+		};
+		// the visual selfcheck forces a variant with ORKIGE_EDITOR_THEME=dark|
+		// light|system (capture-only - it never overwrites the saved preference)
+		Orkige::EditorThemeMode bootThemeMode = viewSettings.themeMode;
+		if (const char* themeEnv = std::getenv("ORKIGE_EDITOR_THEME"))
+		{
+			const std::string requested = themeEnv;
+			bootThemeMode = (requested == "light")
+				? Orkige::EditorThemeMode::Light
+				: (requested == "dark") ? Orkige::EditorThemeMode::Dark
+				: Orkige::EditorThemeMode::System;
+		}
+		applyEditorThemeNow(bootThemeMode);
+		// the ImGuizmo overlay draws its gizmos with pixel line thicknesses;
+		// scale them with the content scale so they keep a constant physical
+		// weight on retina (matching the themed chrome and the view-cube inset)
+		{
+			ImGuizmo::Style& gizmoStyle = ImGuizmo::GetStyle();
+			gizmoStyle.TranslationLineThickness *= editorContentScale;
+			gizmoStyle.TranslationLineArrowSize *= editorContentScale;
+			gizmoStyle.RotationLineThickness *= editorContentScale;
+			gizmoStyle.RotationOuterLineThickness *= editorContentScale;
+			gizmoStyle.ScaleLineThickness *= editorContentScale;
+			gizmoStyle.ScaleLineCircleSize *= editorContentScale;
+			gizmoStyle.HatchedAxisLineThickness *= editorContentScale;
+			gizmoStyle.CenterCircleSize *= editorContentScale;
+		}
 
 		// offscreen scene viewport: initial size is a placeholder, the Scene
 		// panel drives resizes from its content region (with hysteresis)
@@ -650,6 +718,9 @@ int main(int argc, char** argv)
 		// work instantly on the blank scene. The scripted test runs create
 		// their fixture objects themselves at frame 2 (see the frame loop).
 		EditorState state;
+		// reachable from the shared menu widgets (e.g. the Theme selector raises
+		// state.themeReapplyRequested for the loop below)
+		gEditorState = &state;
 		// the Asset browser opens at the persisted thumbnail-size zoom
 		state.assetBrowser.thumbnailSize = viewSettings.assetThumbnailSize;
 
@@ -836,6 +907,11 @@ int main(int argc, char** argv)
 			frameLimit = std::strtoul(demoFrames, nullptr, 10);
 		}
 		const bool selfCheck = (std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr);
+		// ORKIGE_EDITOR_THEME_SWITCH=1: drive the live theme re-apply path
+		// (View > Theme / OS-appearance change) at fixed frames and assert the
+		// active variant follows - the editor_theme_switch ctest
+		const bool themeSwitchTest =
+			(std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr);
 		const bool resizeTest =
 			(std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr);
 		// ORKIGE_EDITOR_EDITTEST=1: scripted editing run (tools, command
@@ -1209,6 +1285,12 @@ int main(int argc, char** argv)
 					// ORKIGE_EDITOR_RESIZE_TEST hook below exercises this)
 					render->notifyWindowResized();
 				}
+				if (event.type == SDL_EVENT_SYSTEM_THEME_CHANGED &&
+					viewSettings.themeMode == Orkige::EditorThemeMode::System)
+				{
+					// the OS appearance flipped and we follow it: re-apply live
+					state.themeReapplyRequested = true;
+				}
 				if (event.type == SDL_EVENT_DROP_FILE && event.drop.data)
 				{
 					// Finder drop: a mesh file imports AND instantiates (as
@@ -1248,6 +1330,15 @@ int main(int argc, char** argv)
 			if (state.quitRequested)
 			{
 				running = false;
+			}
+
+			// View > Theme change or a live OS-appearance flip: re-apply the
+			// style + window clear colour (viewSettings.themeMode already holds
+			// the new selection; System re-resolves the OS appearance)
+			if (state.themeReapplyRequested)
+			{
+				state.themeReapplyRequested = false;
+				applyEditorThemeNow(viewSettings.themeMode);
 			}
 
 			// apply Scene-panel-driven RTT resizes with hysteresis: only
@@ -1376,7 +1467,8 @@ int main(int argc, char** argv)
 				!viewSettings.editor2D);
 			const float toolbarHeight =
 				drawToolbar(state, playSession, editorCore);
-			drawDockspace(state, toolbarHeight, viewSettings);
+			drawDockspace(state, toolbarHeight, viewSettings,
+				editorContentScale);
 			if (viewSettings.showScenePanel)
 			{
 				drawScenePanel(state, editorCore, !playSession.isActive(),
@@ -4037,6 +4129,53 @@ int main(int argc, char** argv)
 				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT"))
 				{
 					render->saveWindowContents(shotPath);
+				}
+			}
+
+			// live theme-switch selfcheck: pin Dark then Light through the same
+			// path the settings toggle uses (viewSettings.themeMode +
+			// themeReapplyRequested), asserting the active variant follows; then
+			// return to System (variant is OS-dependent, so only assert no crash
+			// and a valid resolve)
+			if (themeSwitchTest)
+			{
+				auto forceTheme = [&](Orkige::EditorThemeMode mode)
+				{
+					viewSettings.themeMode = mode;
+					state.themeReapplyRequested = true;
+				};
+				if (frameCount == 10)
+				{
+					forceTheme(Orkige::EditorThemeMode::Dark);
+				}
+				else if (frameCount == 12 &&
+					Orkige::currentEditorThemeVariant() !=
+						Orkige::EditorThemeVariant::Dark)
+				{
+					SDL_Log("orkige_editor: FAILED theme switch (Dark)");
+					exitCode = 8;
+					running = false;
+				}
+				else if (frameCount == 20)
+				{
+					forceTheme(Orkige::EditorThemeMode::Light);
+				}
+				else if (frameCount == 22 &&
+					Orkige::currentEditorThemeVariant() !=
+						Orkige::EditorThemeVariant::Light)
+				{
+					SDL_Log("orkige_editor: FAILED theme switch (Light)");
+					exitCode = 8;
+					running = false;
+				}
+				else if (frameCount == 30)
+				{
+					forceTheme(Orkige::EditorThemeMode::System);
+				}
+				else if (frameCount == 40)
+				{
+					SDL_Log("orkige_editor: theme switch selfcheck OK");
+					running = false;
 				}
 			}
 

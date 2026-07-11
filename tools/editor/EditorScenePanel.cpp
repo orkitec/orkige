@@ -501,7 +501,12 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				!state.flyActive &&
 				!state.orbitActive && !state.panActive)
 			{
-				const float viewGizmoSize = 96.0f;
+				// the corner gizmo and its inset are drawn straight into the
+				// draw list in render-target pixels, so they must scale with the
+				// content scale to keep a constant physical size on retina (the
+				// themed chrome already does via ScaleAllSizes)
+				const float viewGizmoSize = 96.0f * contentScale;
+				const float viewGizmoInset = 8.0f * contentScale;
 				if (avail.x > viewGizmoSize * 1.5f &&
 					avail.y > viewGizmoSize * 1.5f)
 				{
@@ -512,8 +517,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 					float viewBefore[16];
 					std::memcpy(viewBefore, view, sizeof(view));
 					ImGuizmo::ViewManipulate(view, state.camera.distance,
-						ImVec2(rectMin.x + avail.x - viewGizmoSize - 8.0f,
-							rectMin.y + 8.0f),
+						ImVec2(rectMin.x + avail.x - viewGizmoSize - viewGizmoInset,
+							rectMin.y + viewGizmoInset),
 						ImVec2(viewGizmoSize, viewGizmoSize), 0x00000000);
 					viewGizmoOwnsMouse = ImGuizmo::IsUsingViewManipulate() ||
 						ImGuizmo::IsViewManipulateHovered();

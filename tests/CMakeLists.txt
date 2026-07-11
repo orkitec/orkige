@@ -444,6 +444,33 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_asset_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_ASSETTEST=${Orkige_SOURCE_DIR}/projects/example;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 90)
+
+    # Editor chrome visual evidence: boot the editor in each theme at the run's
+    # native display density and dump a whole-window PNG under a stable build
+    # path (build/<preset>/tests/visual/editor_<theme>[_next].png). Every suite
+    # run leaves a reviewable capture of both looks - no golden compare, but the
+    # wrapper fails if the editor cannot boot or produce the shot. The two
+    # themes run as separate processes (one variant per boot, before the atlas).
+    foreach(_visualTheme dark light)
+        add_test(NAME editor_visual_${_visualTheme}${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND ${CMAKE_COMMAND}
+                -DEDITOR_EXE=$<TARGET_FILE:orkige_editor>
+                "-DOUT_PNG=${CMAKE_CURRENT_BINARY_DIR}/visual/editor_${_visualTheme}${ORKIGE_FLAVOR_TEST_SUFFIX}.png"
+                -DTHEME=${_visualTheme}
+                -P "${Orkige_SOURCE_DIR}/Util/run_editor_visual_shot.cmake"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_visual_${_visualTheme}${ORKIGE_FLAVOR_TEST_SUFFIX}
+            PROPERTIES LABELS integration TIMEOUT 90)
+    endforeach()
+
+    # live theme switching: drive the runtime re-apply path (the settings
+    # toggle / OS-appearance change) between Dark, Light and System and assert
+    # the active variant follows - guards the reapply lambda + the accessor.
+    add_test(NAME editor_theme_switch${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_theme_switch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_THEME_SWITCH=1;ORKIGE_DEMO_FRAMES=60"
+        LABELS integration TIMEOUT 90)
 endif()
 
 # (the Python MCP sidecar Util/orkige_mcp.py and its mcp_bridge_selftest ctest
