@@ -636,6 +636,125 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"2D pattern: dropped layers stop rendering");
 	}
 
+	//--- offscreen 2D composition (RenderTexture::createLayer) -------------
+	// the per-target generalization of the DrawLayer2D contract: a whole 2D
+	// layer composited INTO an offscreen RenderTexture at the target's own
+	// pixel size (the editor GUI Preview stage). Absolute assertions within
+	// this flavor; the case is Ogre-Next only (classic reports canOwnLayers
+	// false and the editor disables the GUI Preview tab there), so it is
+	// skipped on a backend without offscreen 2D and never joins the
+	// cross-flavor parity comparison.
+	if(RenderTexture::canOwnLayers())
+	{
+		auto makeQuad = [](Real left, Real top, Real right, Real bottom,
+			Color const & colour) -> std::vector<DrawLayer2D::Vertex2D>
+		{
+			std::vector<DrawLayer2D::Vertex2D> quad;
+			quad.push_back(DrawLayer2D::Vertex2D(left, top, 0, 0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, top, 1, 0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, bottom, 1, 1, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(left, top, 0, 0, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(right, bottom, 1, 1, colour));
+			quad.push_back(DrawLayer2D::Vertex2D(left, bottom, 0, 1, colour));
+			return quad;
+		};
+		// a UI-only preview surface: no 3D camera, an opaque background, and
+		// its own 2D layers (200x160 - a made-up "device" size). The same gui
+		// stack renders into one of these in the editor.
+		optr<RenderTexture> previewSurface =
+			renderSystem->createRenderTexture("selfcheck.uisurface", 200, 160);
+		SELFCHECK(previewSurface != NULL, "createRenderTexture (UI surface) works");
+		previewSurface->setBackgroundColour(Color(0, 0, 0, 1));
+		optr<DrawLayer2D> targetLayer = previewSurface->createLayer(0);
+		SELFCHECK(targetLayer != NULL,
+			"RenderTexture::createLayer returns a layer on this flavor");
+
+		// a fresh WINDOW layer at the SAME pixel coords but a different colour:
+		// isolation must keep the two surfaces from bleeding into each other
+		optr<DrawLayer2D> windowLayer = renderSystem->createDrawLayer2D(5);
+		std::vector<DrawLayer2D::Vertex2D> windowRed =
+			makeQuad(20, 20, 120, 120, Color(1, 0, 0, 1));
+		windowLayer->addTriangles("", windowRed.data(), windowRed.size());
+
+		// the target's own content: a green field, a half-transparent white
+		// over it (alpha), and a textured batch (resource-system binding)
+		std::vector<DrawLayer2D::Vertex2D> targetGreen =
+			makeQuad(20, 20, 120, 120, Color(0, 1, 0, 1));
+		targetLayer->addTriangles("", targetGreen.data(), targetGreen.size());
+		std::vector<DrawLayer2D::Vertex2D> targetBlend =
+			makeQuad(20, 20, 70, 70, Color(1, 1, 1, 0.5f));
+		targetLayer->addTriangles("", targetBlend.data(), targetBlend.size());
+		std::vector<DrawLayer2D::Vertex2D> targetTex =
+			makeQuad(130, 20, 190, 80, Color(1, 1, 1, 1));
+		targetLayer->addTriangles("platform.png",
+			targetTex.data(), targetTex.size());
+
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with an offscreen 2D layer");
+		const std::string surfaceShot = outDir + "/selfcheck_ui_surface.png";
+		previewSurface->writeContentsToFile(surfaceShot);
+		const std::string windowShot = outDir + "/selfcheck_ui_window.png";
+		renderSystem->saveWindowContents(windowShot);
+
+		float red = 0, green = 0, blue = 0;
+		// the target composited its own green field
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(surfaceShot, 90, 100,
+			red, green, blue), "UI surface green probe decodes");
+		SELFCHECK(green > red + 0.3f && green > blue + 0.3f,
+			"offscreen 2D: the target's own layer composited into it");
+		// isolation A: the WINDOW's red layer did NOT bleed into the target
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(surfaceShot, 40, 100,
+			red, green, blue), "UI surface isolation probe decodes");
+		SELFCHECK(!(red > green + 0.3f),
+			"offscreen 2D: window 2D layers never leak into the target");
+		// alpha blending inside the target (white over green -> pale)
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(surfaceShot, 40, 40,
+			red, green, blue), "UI surface alpha probe decodes");
+		SELFCHECK(red > 0.3f && green > 0.6f && blue > 0.3f,
+			"offscreen 2D: alpha blends inside the target (white over green)");
+		// the target background stays its own clear colour where nothing drew
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(surfaceShot, 180, 150,
+			red, green, blue), "UI surface background probe decodes");
+		SELFCHECK(red + green + blue < 0.2f,
+			"offscreen 2D: the target background is its clear colour");
+		// the textured batch bound through the resource system
+		{
+			bool texturedRendered = false;
+			const unsigned int probes[4][2] =
+				{ {150, 40}, {170, 50}, {140, 60}, {180, 30} };
+			for(int each = 0; each < 4; ++each)
+			{
+				if(!SelfcheckBootstrap::readImagePixel(surfaceShot,
+					probes[each][0], probes[each][1], red, green, blue))
+				{
+					continue;
+				}
+				if(red + green + blue > 0.2f)
+				{
+					texturedRendered = true;
+					break;
+				}
+			}
+			SELFCHECK(texturedRendered,
+				"offscreen 2D: a textured batch binds inside the target");
+		}
+		// isolation B: the window still shows its OWN red layer, not the
+		// target's green (same pixel coords, different surface)
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(windowShot, 70, 70,
+			red, green, blue), "window isolation probe decodes");
+		SELFCHECK(red > green + 0.3f && red > blue + 0.3f,
+			"offscreen 2D: the target's layer never leaks onto the window");
+
+		// RAII: dropping the target layer then the target keeps frames rendering
+		targetLayer.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the offscreen layer was dropped");
+		previewSurface.reset();
+		windowLayer.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the preview surface was dropped (RAII)");
+	}
+
 	//--- visibility affects rendering --------------------------------------
 	const size_t trianglesBefore = renderSystem->getFrameStats().triangleCount;
 	mesh->setVisible(false);

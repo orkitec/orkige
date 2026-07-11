@@ -50,6 +50,9 @@ add_executable(orkige_editor
     EditorHierarchyPanel.cpp
     EditorInspectorPanel.cpp
     EditorMenus.cpp
+    GuiPreviewStage.h
+    GuiPreviewStage.cpp
+    EditorGuiPreviewPanel.cpp
     EditorPlaySession.cpp
     EditorPropertyWidgets.h
     EditorPropertyWidgets.cpp
@@ -177,6 +180,9 @@ target_compile_definitions(orkige_editor PRIVATE
     ORKIGE_EDITOR_ASSET_DIR="${CMAKE_SOURCE_DIR}/samples/hello_orkige/media"
     # jumper sample assets (textured .glb meshes, Util/make_jumper_assets.py)
     ORKIGE_EDITOR_JUMPER_ASSET_DIR="${CMAKE_SOURCE_DIR}/samples/jumper/media"
+    # the jumper-lua project (carries a gui_default atlas) - the control
+    # self-test copies it to a temp dir for the preview_ui/write_project_file leg
+    ORKIGE_EDITOR_JUMPER_LUA_PROJECT="${CMAKE_SOURCE_DIR}/projects/jumper-lua"
     # default directory the Scene Path modal offers for .oscene files
     ORKIGE_EDITOR_SCENE_DIR="${CMAKE_SOURCE_DIR}/samples/scenes"
     # icon font source dir (fa-solid-900.ttf) - the out-of-bundle fallback the

@@ -539,6 +539,28 @@ allowNone = false                  # optional
   input path, so modal/disabled semantics apply (a button under a scrim does NOT
   fire; a disabled widget stays inert).
 - `dismiss_modal` — close a modal by id, or the topmost one.
+- `preview_ui` — render a `.oui` screen at a SIMULATED device context (resolution
+  + content scale + safe-area notch) into an offscreen target and return a
+  screenshot + the resolved widget rects, **with no running player**. Single
+  context via `width`/`height`/`scale`/`insets`, or a device-matrix sweep via
+  `contexts`. The agent's half of the collaborative loop below.
+
+## The GUI Preview tab (the collaborative design loop)
+
+The editor's **GUI Preview** panel (View ▸ GUI Preview) renders a project screen
+through the SAME real gui stack the game uses — an isolated instance, never the
+running game's — into an offscreen target, at a simulated device you pick
+(resolution presets phone/tablet/desktop + custom, content scale 1×/2×/3×, a
+notch preset). It **watches the previewed `.oui`'s mtime and rebuilds on change**,
+so an agent editing the file over MCP (`write_project_file`) is reflected live in
+the human's tab. The optional widget-rect overlay outlines every resolved widget.
+
+That is the loop: an agent authors a screen (`write_project_file`), `preview_ui`
+screenshots it across device contexts and reads back the rects, a human watches
+the tab update, both iterate on the one shared `.oui`. The preview needs offscreen
+2D composition (a `DrawLayer2D` compositing into a `RenderTexture`), which is an
+**Ogre-Next capability**; on the classic editor the tab shows a disabled note and
+`preview_ui` returns an honest error (see `Docs/render-abstraction.md`).
 
 See `Docs/mcp.md` for the full endpoint.
 

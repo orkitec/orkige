@@ -12,6 +12,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
 #include <core_util/String.h>
+#include <memory>
 
 namespace Orkige
 {
@@ -27,7 +28,13 @@ namespace Orkige
 	//! next = TextureGpuManager::createTexture(RenderToTexture) + compositor
 	//! workspace targeting it; filament = Texture(SAMPLEABLE|COLOR_ATTACHMENT)
 	//! + RenderTarget::Builder + a dedicated View.
+	//!
+	//! Inherits enable_shared_from_this so a target can hand its own handle
+	//! to the layers it owns (createLayer): a layer keeps its target alive,
+	//! so the target's per-surface state (its 2D visibility band) outlives
+	//! every layer that composites into it.
 	class ORKIGE_ENGINE_DLL RenderTexture
+		: public std::enable_shared_from_this<RenderTexture>
 	{
 		//--- Types -------------------------------------------------
 	public:
@@ -69,6 +76,30 @@ namespace Orkige
 		void resize(unsigned int width, unsigned int height);
 		unsigned int getWidth() const;
 		unsigned int getHeight() const;
+
+		//--- offscreen 2D composition (the GUI Preview stage) ---
+		//! @brief does this backend support 2D layers compositing INTO the
+		//! target (createLayer)? The generalization of the window-only
+		//! DrawLayer2D contract to per-target surfaces. Ogre-Next: yes;
+		//! classic OGRE: no (the compositor hook is main-window-only there,
+		//! so the editor shows its GUI Preview tab disabled - see the flavor
+		//! capability matrix in Docs/render-abstraction.md).
+		//! map: classic=false | next=true | filament=true (dedicated UI View)
+		static bool canOwnLayers();
+		//! @brief create a 2D overlay layer that composites INTO this target
+		//! (not the main window) at the target's OWN pixel size - the same
+		//! DrawLayer2D contract (@see DrawLayer2D) but with this RenderTexture
+		//! as the surface. The GUI Preview stage points a whole gui at a
+		//! preview RTT this way. Empty (NULL) on a backend where
+		//! canOwnLayers() is false. Ordering among a target's layers follows
+		//! zOrder then creation order, exactly like the window layers.
+		//! @remarks a target that owns layers composites them AFTER its 3D
+		//! scene pass (when a camera is set) or over its clear colour (when
+		//! none is - a pure UI surface, the preview case). The layers are
+		//! their own painter band per target; the window's 2D layers never
+		//! leak in and vice versa.
+		//! map: classic=unsupported (NULL) | next=per-target UI pass in the target workspace, own visibility band | filament=dedicated UI View on the target
+		optr<DrawLayer2D> createLayer(int zOrder = 0);
 
 		//--- consumption ---
 		//! @brief opaque renderer-API texture id (invalidated by resize -

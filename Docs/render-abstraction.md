@@ -682,6 +682,7 @@ all in place. **Flavor capability matrix**:
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
 | gui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
+| offscreen 2D composition (DrawLayer2D into an RTT; the editor GUI Preview tab + `preview_ui`) | no (honest `RenderTexture::canOwnLayers()==false`; the tab is disabled with a note) | yes (per-target UI pass + visibility band; `render_facade_selfcheck` pixel case) |
 | IngameConsole | yes | no — classic Overlay zone (rebuild on gui/DrawLayer2D when wanted) |
 | editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (the editor-stays-classic decision was superseded, see the editor-on-both-flavors section) |
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
@@ -919,3 +920,42 @@ the jumper C++ sample. (The mobile GLES2 path is now the classic flavor's
   classic Engine/console/debug renderables, BigZip, Localisation,
   PrimitiveUtil/MeshUtil, jumper sample, classic-gated tests) is served from
   `build/macos-debug-classic`.
+
+---
+
+### Offscreen 2D composition (`DrawLayer2D` into RenderTextures)
+
+The DrawLayer2D contract was originally main-window-only (composite the 2D
+layers over the finished window frame). The editor GUI Preview tab and the
+`preview_ui` MCP verb need a whole gui composited into an offscreen target at a
+simulated device size — so the facade grew per-target 2D layer ownership:
+
+- **Facade**: `RenderTexture::createLayer(zOrder)` makes a `DrawLayer2D` that
+  composites into THAT target (instead of the window) at the target's own pixel
+  size; `RenderTexture::canOwnLayers()` is the capability probe. The window path
+  (`RenderSystem::createDrawLayer2D`) is unchanged and byte-identical for games —
+  every existing selfcheck/parity output holds. The two surfaces are isolated
+  (a window layer never leaks into a target and vice versa).
+- **Ogre-Next** (`canOwnLayers()==true`): all 2D batches — window and every
+  target — live in the ONE UI render queue; per-surface separation is by
+  **visibility flag** (bit 0 = the window, bits 1..N handed out per target from
+  `allocateUiVisibilityFlag`). A target that owns layers grows a UI pass in its
+  compositor workspace (masked to its bit, drawn through a per-target pixel-space
+  UI camera sized to the target); a UI-only target (no 3D camera - the preview
+  case) is one clear + UI pass. `render_facade_selfcheck` pixel-verifies a
+  gui-like pattern composited into an RTT plus the bidirectional isolation.
+- **classic OGRE** (`canOwnLayers()==false`): the 2D compositor hook is a
+  `RenderQueueListener` gated on the main-window viewport; routing it into an
+  offscreen viewport was judged disproportionate for the one feature that needs
+  it, so classic reports honest no-support (`createLayer` returns NULL, logged
+  once) and the editor disables the GUI Preview tab with a note. The facade
+  surface stays backend-neutral; the capability matrix row records it.
+- **filament** (future): a dedicated UI View on the target.
+
+The gui stack renders into a preview target through
+`GuiManager`'s optional **preview surface** (`GuiManager::PreviewSurface`): the
+views' layers are created via `RenderTexture::createLayer`, and layout reads the
+surface's simulated size + safe-area insets + content scale instead of the live
+window (`UiScreen::setSurfaceSize` pins the layout size). The editor's shared
+`GuiPreviewStage` owns the target + gui and is driven by both the tab and the
+verb.

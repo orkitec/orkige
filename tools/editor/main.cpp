@@ -77,6 +77,7 @@
 
 #include "EditorApp.h"
 #include "EditorControlServer.h"
+#include "GuiPreviewStage.h"
 
 #include <algorithm>
 #include <chrono>
@@ -730,6 +731,9 @@ int main(int argc, char** argv)
 		// former Python sidecar is retired. Off unless --mcp-port / the control
 		// self-test asked for it. The context bundles the objects the handler
 		// bridges to (all owned here). Pumped once per frame below.
+		// the shared GUI Preview stage: one gui-into-offscreen-target stack
+		// driven by BOTH the GUI Preview tab and the preview_ui MCP verb
+		OrkigeEditor::GuiPreviewStage guiPreviewStage;
 		Orkige::EditorControlServer controlServer;
 		Orkige::EditorControlContext controlContext;
 		controlContext.state = &state;
@@ -738,6 +742,7 @@ int main(int argc, char** argv)
 		controlContext.console = &console;
 		controlContext.sceneTarget = &sceneTarget;
 		controlContext.gameObjectManager = &gameObjectManager;
+		controlContext.previewStage = &guiPreviewStage;
 		// the control self-test drives an ephemeral in-process port; a real
 		// host passes an explicit --control-port. Two self-test flavors: the
 		// edit-world conversation (ORKIGE_EDITOR_CONTROL_TEST) and the runtime-
@@ -1462,11 +1467,12 @@ int main(int argc, char** argv)
 
 			// snapshot the panel visibility: a close-button click (the x in
 			// a docked tab) must persist exactly like a View-menu toggle
-			const bool panelsBefore[7] = { viewSettings.showHierarchyPanel,
+			const bool panelsBefore[8] = { viewSettings.showHierarchyPanel,
 				viewSettings.showInspectorPanel, viewSettings.showConsolePanel,
 				viewSettings.showStatsPanel, viewSettings.showScenePanel,
 				viewSettings.showAssetBrowserPanel,
-				viewSettings.showTilePalettePanel };
+				viewSettings.showTilePalettePanel,
+				viewSettings.showGuiPreviewPanel };
 #ifdef __APPLE__
 			// the native NSMenu bar replaces the ImGui menu bar on mac; the
 			// ImGui bar only steps in when AppKit gave us no menu (headless)
@@ -1550,13 +1556,19 @@ int main(int argc, char** argv)
 			{
 				state.tilePalette.focused = false;
 			}
+			if (viewSettings.showGuiPreviewPanel)
+			{
+				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
+					viewSettings);
+			}
 			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
 				panelsBefore[1] != viewSettings.showInspectorPanel ||
 				panelsBefore[2] != viewSettings.showConsolePanel ||
 				panelsBefore[3] != viewSettings.showStatsPanel ||
 				panelsBefore[4] != viewSettings.showScenePanel ||
 				panelsBefore[5] != viewSettings.showAssetBrowserPanel ||
-				panelsBefore[6] != viewSettings.showTilePalettePanel)
+				panelsBefore[6] != viewSettings.showTilePalettePanel ||
+				panelsBefore[7] != viewSettings.showGuiPreviewPanel)
 			{
 				viewSettings.save();
 			}

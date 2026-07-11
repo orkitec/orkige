@@ -34,17 +34,38 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group, PreviewSurface const * previewSurface) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false), previewActive(false), previewWidth(0), previewHeight(0)
 	{
 		oAssert(this->factory);
+		// the editor GUI Preview stage points this whole manager at an offscreen
+		// target and a simulated device context; a game leaves it null (the live
+		// window). Set BEFORE the default view is created so its layer composites
+		// into the right surface (@see createView).
+		if(previewSurface && previewSurface->target &&
+			previewSurface->width > 0 && previewSurface->height > 0)
+		{
+			this->previewActive = true;
+			this->previewTarget = previewSurface->target;
+			this->previewWidth = previewSurface->width;
+			this->previewHeight = previewSurface->height;
+			this->previewSafeArea = previewSurface->safeArea;
+		}
 		// drive the pixel-font UI scale from the display density so a 14px
 		// glyph stays ~14pt physical on a retina / phone screen; integer-snap
 		// keeps the point-filtered atlas crisp (fractional sampling blurs it).
-		// Engine is the app singleton on both flavors; without one (a pure
-		// headless atlas-parse test) the scale stays the default 1.
-		if(Engine::getSingletonPtr())
+		// The preview stage simulates a device density; otherwise Engine's
+		// live content scale drives it (default 1 without an Engine - a pure
+		// headless atlas-parse test).
 		{
-			const float contentScale = Engine::getSingleton().getContentScale();
+			float contentScale = 1.0f;
+			if(this->previewActive)
+			{
+				contentScale = previewSurface->contentScale;
+			}
+			else if(Engine::getSingletonPtr())
+			{
+				contentScale = Engine::getSingleton().getContentScale();
+			}
 			const float uiScale = std::max(1.0f, std::round(contentScale));
 			UiGlyph::scale = Vec2(uiScale, uiScale);
 		}
@@ -173,9 +194,18 @@ namespace Orkige
 			atlasView = uiAtlas.get();
 		}
 		// one screen per atlas = ONE draw batch per view; the compositing
-		// order among views is (re)assigned by reorderViews via setZOrder
-		UiScreen* screen = new UiScreen(atlasView,
-			RenderSystem::get()->createDrawLayer2D());
+		// order among views is (re)assigned by reorderViews via setZOrder.
+		// The preview stage composites into its offscreen target at the
+		// simulated device size instead of the live window.
+		optr<DrawLayer2D> drawLayer = this->previewActive
+			? this->previewTarget->createLayer()
+			: RenderSystem::get()->createDrawLayer2D();
+		UiScreen* screen = new UiScreen(atlasView, drawLayer);
+		if(this->previewActive)
+		{
+			screen->setSurfaceSize(Real(this->previewWidth),
+				Real(this->previewHeight));
+		}
 		optr<GuiView> view = onew(new GuiView(screen));
 		this->views[atlas] = view;
 		return view;
@@ -1202,7 +1232,7 @@ namespace Orkige
 		const uint fontIndex = 9;
 		const float uiScale = UiGlyph::scale.x >= 1.0f ? UiGlyph::scale.x : 1.0f;
 		unsigned int winW = 0, winH = 0;
-		RenderSystem::get()->getWindowSize(winW, winH);
+		this->surfaceSize(winW, winH);
 
 		optr<GuiFactory> f = this->factory;
 		const float margin = 20.0f * uiScale;
@@ -1324,13 +1354,9 @@ namespace Orkige
 		}
 		const float uiScale = UiGlyph::scale.x >= 1.0f ? UiGlyph::scale.x : 1.0f;
 		unsigned int winW = 0, winH = 0;
-		RenderSystem::get()->getWindowSize(winW, winH);
+		this->surfaceSize(winW, winH);
 		const Ogre::Vector2 size(300.0f * uiScale, 56.0f * uiScale);
-		unsigned int safeBottom = 0;
-		if(Engine::getSingletonPtr())
-		{
-			safeBottom = Engine::getSingleton().getSafeAreaInsets().mBottom;
-		}
+		unsigned int safeBottom = this->surfaceSafeArea().mBottom;
 		const float x = Ogre::Math::Floor((Real(winW) - size.x) * 0.5f);
 		const float y = Ogre::Math::Floor(Real(winH) - size.y - 40.0f * uiScale
 			- Real(safeBottom));
@@ -1453,9 +1479,35 @@ namespace Orkige
 	float GuiManager::getLayoutScale() const
 	{
 		unsigned int windowWidth = 0, windowHeight = 0;
-		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+		this->surfaceSize(windowWidth, windowHeight);
 		return this->layoutPolicy.referenceScale(Real(windowWidth),
 			Real(windowHeight));
+	}
+	//---------------------------------------------------------
+	void GuiManager::surfaceSize(unsigned int & width, unsigned int & height) const
+	{
+		if(this->previewActive)
+		{
+			width = this->previewWidth;
+			height = this->previewHeight;
+			return;
+		}
+		width = 0;
+		height = 0;
+		RenderSystem::get()->getWindowSize(width, height);
+	}
+	//---------------------------------------------------------
+	SafeAreaInsets GuiManager::surfaceSafeArea() const
+	{
+		if(this->previewActive)
+		{
+			return this->previewSafeArea;
+		}
+		if(Engine::getSingletonPtr())
+		{
+			return Engine::getSingleton().getSafeAreaInsets();
+		}
+		return SafeAreaInsets();
 	}
 	//---------------------------------------------------------
 	void GuiManager::markLayoutDirty()
@@ -1465,9 +1517,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::resolveLayouts()
 	{
-		// re-resolve only when a layout property changed or the window resized
+		// re-resolve only when a layout property changed or the surface resized
 		unsigned int windowWidth = 0, windowHeight = 0;
-		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+		this->surfaceSize(windowWidth, windowHeight);
 		if(windowWidth != this->lastLayoutWidth ||
 			windowHeight != this->lastLayoutHeight)
 		{
@@ -1491,9 +1543,9 @@ namespace Orkige
 		// the safe root subsumes the manual "+ safe.mLeft" HUD math: a widget
 		// anchored to it stays off the notch/home bar with no script maths
 		LayoutRect safeRoot = fullRoot;
-		if(Engine::getSingletonPtr())
+		if(this->previewActive || Engine::getSingletonPtr())
 		{
-			const SafeAreaInsets insets = Engine::getSingleton().getSafeAreaInsets();
+			const SafeAreaInsets insets = this->surfaceSafeArea();
 			safeRoot.x = Real(insets.mLeft);
 			safeRoot.y = Real(insets.mTop);
 			safeRoot.w = Real(windowWidth) - Real(insets.mLeft) - Real(insets.mRight);

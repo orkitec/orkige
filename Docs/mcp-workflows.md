@@ -281,3 +281,54 @@ get_state {}                                //   → poll until play_mode:"playi
 `add_scene_to_levels` refuses (isError) when no project is open, the scene is
 unsaved or outside the project root, or the scene is already in the sequence —
 read the reply back rather than assuming the append took.
+
+## 5. Design a UI screen (the collaborative preview loop)
+
+Author a `.oui` screen, see it rendered at real device sizes WITHOUT booting the
+game, and iterate — while a human watching the editor's **GUI Preview** tab sees
+every edit live (the tab shares the same offscreen stage and reloads the file on
+change). `preview_ui` renders through the real gui stack into an offscreen target,
+so it needs no running player; it is Ogre-Next only (the classic editor errors
+honestly). Assumes a project carrying a `gui_default` atlas is open.
+
+```jsonc
+// 1. author a screen as plain text (jailed to the project root)
+write_project_file {                                                 // authed
+  "path":"screens/title.oui",
+  "content":"[Layout]\natlas = gui_default\n\n[Button play]\nz = 2\nsprite = button\nfont = 9\ntext = Play\nposition = 40 40\nsize = 300 96\n"
+}
+//   → { "path":"screens/title.oui", "bytes":"..." }
+
+// 2. preview it at a phone context; get a screenshot + the resolved rects
+preview_ui {                                                         // authed
+  "file":"screens/title.oui",
+  "width":1179, "height":2556, "scale":3, "insets":"0 141 0 102"
+}
+//   → { "path":"/tmp/orkige_preview_ui.png", "width":"1179", "height":"2556",
+//       "batch_count":"1",
+//       "ids":["play"], "rects":["40 40 300 96 1 1 0"] }
+//   read the png back to SEE it (rendered at the device size + content scale);
+//   read the rects to CHECK the layout ("left top w h visible enabled modal").
+
+// 3. a device-matrix sweep in ONE call (phone + tablet) - one png per context
+preview_ui {                                                         // authed
+  "file":"screens/title.oui",
+  "contexts":"1179x2556@3/0,141,0,102; 2048x1536@2"
+}
+//   → { "paths":["/tmp/orkige_preview_ui_0.png","/tmp/orkige_preview_ui_1.png"],
+//       "context_labels":["1179x2556@3","2048x1536@2"],
+//       "ids":["play"], "rects":[...] }   // rects are the FIRST context
+
+// 4. the button sits too high on the tablet? edit the file and preview again -
+//    the human's GUI Preview tab updates live (it watches the file's mtime)
+write_project_file { "path":"screens/title.oui", "content":"...position = 40 200..." }  // authed
+preview_ui { "file":"screens/title.oui", "width":2048, "height":1536, "scale":2 }       // authed
+//   → the returned rect for "play" moved - proof the edit took, no player booted
+```
+
+Evidence, not assumption: `preview_ui` returns `batch_count` (> 0 means the gui
+actually submitted geometry) and the resolved `rects`; compare the rects across
+edits/contexts to confirm the layout holds. A missing `file` returns `isError`
+(an honest error, not a silent success). The whole loop is exercised end to end by
+the `editor_control` self-test (write → preview → edit → preview → assert the rect
+moved → a missing file errors).

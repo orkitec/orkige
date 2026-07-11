@@ -234,6 +234,15 @@ namespace Orkige
 		bool				visible = true;
 		int					zOrder = 0;
 		std::vector<Batch>	batches;
+		//! the surface this layer composites onto: NULL = the main window;
+		//! set = an offscreen RenderTexture (RenderTexture::createLayer). The
+		//! target is kept alive by the layer while the layer references it.
+		optr<RenderTexture>	target;
+		//! the visibility flag every batch object of this layer carries, so
+		//! only the matching UI pass (window or the target's) draws it
+		//! (RenderBackend::UI_WINDOW_VISIBILITY == bit 0 for a window layer;
+		//! RenderBackend is defined below, so the literal is spelled here)
+		unsigned int		visibilityFlags = 0x00000001u;
 
 		//! (re)build one batch's manual object from its triangle list
 		void buildBatchObject(Batch & batch);
@@ -256,11 +265,25 @@ namespace Orkige
 		bool				overlaysEnabled = true;
 		bool				shadowsEnabled = true;
 
+		//--- offscreen 2D composition (RenderTexture::createLayer) ---
+		//! this target owns 2D layers: its workspace grows a UI pass drawing
+		//! the 2D queue through the per-target pixel-space UI camera, masked
+		//! to uiVisibilityFlag (the GUI Preview surface)
+		bool				hostsLayers = false;
+		//! the per-target 2D visibility bit (0 until the first createLayer),
+		//! shared by every layer this target owns and its UI pass mask
+		unsigned int		uiVisibilityFlag = 0;
+		//! per-target pixel-space ortho UI camera (owned by the scene manager;
+		//! sized to width/height - the simulated device resolution)
+		Ogre::Camera*		uiCamera = NULL;
+
 		//! (re)create texture + workspace from the state above
 		//! (resize-by-recreate, same contract as the classic backend)
 		void recreate();
 		//! drop workspace + texture (dtor and the recreate path)
 		void destroyTarget();
+		//! the per-target UI camera's backend name (unique per target)
+		String uiCameraName() const;
 	};
 
 	//--- the backend hub -----------------------------------------------
@@ -326,6 +349,13 @@ namespace Orkige
 		//! objects in the UI render queue, drawn by the window workspace's
 		//! second scene pass through the pixel-space UI camera)
 		static optr<DrawLayer2D> createDrawLayer2D(int zOrder);
+		//! create a 2D layer that composites into an OFFSCREEN target instead
+		//! of the window (RenderTexture::createLayer; the GUI Preview stage).
+		//! Its batches carry the target's visibility flag so only the target's
+		//! own UI pass draws them (@see RenderTextureNext.cpp)
+		static optr<DrawLayer2D> createTargetDrawLayer2D(
+			optr<RenderTexture> const & target, unsigned int visibilityFlag,
+			int zOrder);
 		//! drop a dying layer from the registry again (facade dtor)
 		static void unregisterDrawLayer2D(DrawLayer2D* layer);
 		//! layer content/order changed - painter depths get reassigned
@@ -338,13 +368,32 @@ namespace Orkige
 		//! statics - the backend objects die with the root
 		static void resetDrawLayer2DState();
 		//! the UI render queue id (v2 FAST by default; the window
-		//! workspace's scene pass ends BELOW it, the UI pass draws only it)
+		//! workspace's scene pass ends BELOW it, the UI pass draws only it).
+		//! ALL 2D batches (window and offscreen targets) live in this one
+		//! queue; per-surface separation is by visibility flag, not by queue.
 		static unsigned char const DRAWLAYER2D_RENDER_QUEUE = 200;
-		//! name of the pixel-space ortho camera the UI pass renders with
+		//! visibility flag of the WINDOW's 2D batches: the window UI pass
+		//! masks to exactly this bit, so an offscreen target's UI pass (a
+		//! different bit) never draws window batches and vice versa. Bit 0 of
+		//! the user-usable RESERVED_VISIBILITY_FLAGS range; offscreen targets
+		//! draw their bits from allocateUiVisibilityFlag (bits 1..N)
+		static unsigned int const UI_WINDOW_VISIBILITY = 0x00000001u;
+		//! @brief hand out a fresh per-target 2D visibility bit (bits 1..N of
+		//! the user range; bit 0 is the window). Returns 0 when the pool is
+		//! exhausted (logged once) - the caller falls back to the window bit.
+		static unsigned int allocateUiVisibilityFlag();
+		//! @brief return a target bit to the pool (RenderTexture teardown)
+		static void freeUiVisibilityFlag(unsigned int flag);
+		//! name of the pixel-space ortho camera the (window) UI pass renders with
 		static char const * drawLayer2DCameraName();
 		//! lazily create the UI camera (recreateWindowWorkspace needs it
 		//! before it can reference it by name in the pass definition)
 		static Ogre::Camera* ensureDrawLayer2DCamera();
+		//! @brief shape a pixel-space ortho UI camera to a surface size
+		//! (top-left origin, +y down via the negated-rect convention). Shared
+		//! by the window UI camera and every per-target preview UI camera.
+		static void shapeUICamera(Ogre::Camera* camera,
+			unsigned int width, unsigned int height);
 
 		//--- mesh import (MeshLoaderNext.cpp) ------------------------
 		//! @brief make sure a v2 mesh named meshName exists (idempotent)

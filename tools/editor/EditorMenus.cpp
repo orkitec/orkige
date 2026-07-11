@@ -51,6 +51,8 @@ bool drawPanelToggleItems(ViewSettings& viewSettings)
 		&viewSettings.showAssetBrowserPanel);
 	changed |= ImGui::MenuItem("Tile Palette", nullptr,
 		&viewSettings.showTilePalettePanel);
+	changed |= ImGui::MenuItem("GUI Preview", nullptr,
+		&viewSettings.showGuiPreviewPanel);
 	return changed;
 }
 
@@ -615,5 +617,8 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
 	ImGui::DockBuilderDockWindow("Scene", centerId);
+	// the GUI Preview shares the center node with the Scene (a tab beside
+	// it - the human flips between the 3D scene and the UI screen)
+	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
 }

@@ -12,6 +12,7 @@
 // See EditorControlServer.h for the design.
 #include "EditorControlServer.h"
 #include "EditorApp.h"
+#include "GuiPreviewStage.h"
 #include "GeneratedLuaApi.h"
 
 #include <core_base/PropertySchema.h>
@@ -1279,6 +1280,39 @@ namespace Orkige
 				  { { "dir", "string",
 				      "project-relative directory (default: the root)", false },
 				    { "glob", "string", "name filter ('*'/'?', e.g. '*.lua')",
+				      false } } },
+				{ "preview_ui",
+				  "Render a project GUI screen (.oui) at a SIMULATED device "
+				  "context into an offscreen target and return a screenshot + the "
+				  "resolved widget rects - no running player needed. The centerpiece "
+				  "of the collaborative UI loop: author a screen with "
+				  "write_project_file, preview_ui it, iterate. Renders through the "
+				  "REAL gui stack (the same one the game uses), isolated from any "
+				  "running game. 'file' is a project-relative .oui. A single context "
+				  "comes from 'width'/'height' (device pixels), 'scale' (content "
+				  "scale 1/2/3) and 'insets' ('l t r b' safe-area pixels); OR pass "
+				  "'contexts' for a device-matrix sweep: ';'-separated 'WxH[@scale]"
+				  "[/l,t,r,b]' entries (e.g. '1179x2556@3/0,141,0,102; 2048x1536@2'). "
+				  "Returns 'path' (single) or 'paths' + 'context_labels' (sweep), the "
+				  "resolved 'width'/'height', and parallel 'ids'/'rects' (each rect "
+				  "'left top width height visible enabled modal', pixels; the first "
+				  "context for a sweep). Ogre-Next only (the classic editor reports "
+				  "an honest error). Does not disturb the human's GUI Preview tab.",
+				  { { "file", "string",
+				      "project-relative .oui path (e.g. 'screens/title.oui')", true },
+				    { "width", "number", "device width in pixels (default 1179)",
+				      false },
+				    { "height", "number", "device height in pixels (default 2556)",
+				      false },
+				    { "scale", "number", "content scale 1/2/3 (default 3)", false },
+				    { "insets", "string",
+				      "safe-area insets 'l t r b' in pixels (default '0 0 0 0')",
+				      false },
+				    { "contexts", "string",
+				      "device-matrix sweep: ';'-separated 'WxH[@scale][/l,t,r,b]'",
+				      false },
+				    { "path", "string",
+				      "output PNG path (default a temp file; a sweep appends an index)",
 				      false } } },
 				{ "import_asset",
 				  "Import an OUTSIDE file into the open project (copy into "
@@ -2773,6 +2807,254 @@ namespace Orkige
 			this->sendOk(req, ok);
 			return;
 		}
+			// preview_ui: render a project .oui at a simulated device context into
+			// an offscreen target and return a screenshot + widget rects. The same
+			// GuiPreviewStage the GUI Preview tab uses; snapshot/restore keeps the
+			// human's tab undisturbed. No running player needed.
+			if (type == "preview_ui")
+			{
+				OrkigeEditor::GuiPreviewStage* stage = context.previewStage;
+				if (!stage)
+				{
+					this->sendErr(req, "preview stage unavailable");
+					return;
+				}
+				if (!state.project.isLoaded())
+				{
+					this->sendErr(req, "no project open - preview_ui needs an "
+						"open project");
+					return;
+				}
+				if (!Orkige::RenderTexture::canOwnLayers())
+				{
+					this->sendErr(req, "preview_ui is Ogre-Next only (offscreen "
+						"2D composition is not supported on the classic backend)");
+					return;
+				}
+				const String file = request.get("file");
+				if (file.empty())
+				{
+					this->sendErr(req, "preview_ui needs a 'file' (project-"
+						"relative .oui path)");
+					return;
+				}
+				const std::string root = state.project.getRootDirectory();
+
+				auto trim = [](std::string s) -> std::string
+				{
+					size_t a = s.find_first_not_of(" \t");
+					size_t b = s.find_last_not_of(" \t");
+					return a == std::string::npos ? std::string()
+						: s.substr(a, b - a + 1);
+				};
+				// parse a single "WxH[@scale][/l,t,r,b]" into a context
+				auto parseContext = [&](std::string const& spec,
+					OrkigeEditor::GuiPreviewContext& out) -> bool
+				{
+					std::string s = trim(spec);
+					std::string insetPart;
+					const size_t slash = s.find('/');
+					if (slash != std::string::npos)
+					{
+						insetPart = s.substr(slash + 1);
+						s = s.substr(0, slash);
+					}
+					std::string scalePart;
+					const size_t at = s.find('@');
+					if (at != std::string::npos)
+					{
+						scalePart = s.substr(at + 1);
+						s = s.substr(0, at);
+					}
+					const size_t x = s.find('x');
+					if (x == std::string::npos)
+					{
+						return false;
+					}
+					out.width = static_cast<unsigned int>(
+						std::atoi(trim(s.substr(0, x)).c_str()));
+					out.height = static_cast<unsigned int>(
+						std::atoi(trim(s.substr(x + 1)).c_str()));
+					if (!scalePart.empty())
+					{
+						out.contentScale = static_cast<float>(
+							std::atof(trim(scalePart).c_str()));
+					}
+					if (!insetPart.empty())
+					{
+						unsigned int v[4] = { 0, 0, 0, 0 };
+						std::stringstream ss(insetPart);
+						std::string tok;
+						int n = 0;
+						while (n < 4 && std::getline(ss, tok, ','))
+						{
+							v[n++] = static_cast<unsigned int>(
+								std::atoi(trim(tok).c_str()));
+						}
+						out.insets.mLeft = v[0];
+						out.insets.mTop = v[1];
+						out.insets.mRight = v[2];
+						out.insets.mBottom = v[3];
+					}
+					return out.width > 0 && out.height > 0;
+				};
+
+				std::vector<OrkigeEditor::GuiPreviewContext> contexts;
+				const String contextsArg = request.get("contexts");
+				if (!contextsArg.empty())
+				{
+					std::stringstream ss(contextsArg);
+					std::string entry;
+					while (std::getline(ss, entry, ';'))
+					{
+						if (trim(entry).empty())
+						{
+							continue;
+						}
+						OrkigeEditor::GuiPreviewContext ctx;
+						if (!parseContext(entry, ctx))
+						{
+							this->sendErr(req, "preview_ui: bad context '" +
+								trim(entry) + "' (expected 'WxH[@scale][/l,t,r,b]')");
+							return;
+						}
+						contexts.push_back(ctx);
+					}
+					if (contexts.empty())
+					{
+						this->sendErr(req, "preview_ui: 'contexts' had no entries");
+						return;
+					}
+				}
+				else
+				{
+					OrkigeEditor::GuiPreviewContext ctx;	// defaults 1179x2556@3
+					if (!request.get("width").empty())
+					{
+						ctx.width = static_cast<unsigned int>(
+							std::atoi(request.get("width").c_str()));
+					}
+					if (!request.get("height").empty())
+					{
+						ctx.height = static_cast<unsigned int>(
+							std::atoi(request.get("height").c_str()));
+					}
+					if (!request.get("scale").empty())
+					{
+						ctx.contentScale = static_cast<float>(
+							std::atof(request.get("scale").c_str()));
+					}
+					if (!request.get("insets").empty())
+					{
+						unsigned int v[4] = { 0, 0, 0, 0 };
+						std::stringstream ss(request.get("insets"));
+						unsigned int val;
+						int n = 0;
+						while (n < 4 && (ss >> val))
+						{
+							v[n++] = val;
+						}
+						ctx.insets.mLeft = v[0];
+						ctx.insets.mTop = v[1];
+						ctx.insets.mRight = v[2];
+						ctx.insets.mBottom = v[3];
+					}
+					if (ctx.width == 0 || ctx.height == 0)
+					{
+						this->sendErr(req, "preview_ui: width/height must be > 0");
+						return;
+					}
+					contexts.push_back(ctx);
+				}
+
+				// snapshot the human's tab so we can restore it afterwards
+				const OrkigeEditor::GuiPreviewContext savedContext =
+					stage->getContext();
+				const std::string savedFile = stage->getLoadedFile();
+
+				const bool sweep = contexts.size() > 1;
+				const std::string basePath = request.get("path").empty()
+					? (std::filesystem::temp_directory_path() /
+						"orkige_preview_ui.png").string()
+					: request.get("path");
+
+				StringVector paths;
+				StringVector labels;
+				StringVector ids;
+				StringVector rects;
+				size_t primaryBatchCount = 0;
+				std::string err;
+				bool ok = true;
+				for (size_t i = 0; i < contexts.size(); ++i)
+				{
+					stage->setContext(contexts[i]);
+					if (!stage->show(root, file, err))
+					{
+						ok = false;
+						break;
+					}
+					std::string outPath = basePath;
+					if (sweep)
+					{
+						const std::filesystem::path p(basePath);
+						outPath = (p.parent_path() / (p.stem().string() + "_" +
+							std::to_string(i) + p.extension().string())).string();
+					}
+					if (!stage->renderAndCapture(outPath, err))
+					{
+						ok = false;
+						break;
+					}
+					paths.push_back(outPath);
+					labels.push_back(std::to_string(contexts[i].width) + "x" +
+						std::to_string(contexts[i].height) + "@" +
+						std::to_string(static_cast<int>(contexts[i].contentScale)));
+					if (i == 0)
+					{
+						primaryBatchCount = stage->getLastBatchCount();
+						for (OrkigeEditor::GuiPreviewWidgetRect const& r :
+							stage->getWidgetRects())
+						{
+							ids.push_back(r.id);
+							rects.push_back(
+								std::to_string(static_cast<int>(r.left)) + " " +
+								std::to_string(static_cast<int>(r.top)) + " " +
+								std::to_string(static_cast<int>(r.width)) + " " +
+								std::to_string(static_cast<int>(r.height)) + " " +
+								(r.visible ? "1" : "0") + " " +
+								(r.enabled ? "1" : "0") + " " +
+								(r.modal ? "1" : "0"));
+						}
+					}
+				}
+
+				// restore the tab's previous view (undisturbed collaboration)
+				std::string restoreErr;
+				stage->setContext(savedContext);
+				stage->show(root, savedFile, restoreErr);
+
+				if (!ok)
+				{
+					this->sendErr(req, "preview_ui failed: " + err);
+					return;
+				}
+				DebugMessage okMsg(MSG_OK);
+				okMsg.set("file", file);
+				okMsg.set("width", std::to_string(contexts[0].width));
+				okMsg.set("height", std::to_string(contexts[0].height));
+				okMsg.set("batch_count", std::to_string(primaryBatchCount));
+				if (!sweep)
+				{
+					okMsg.set("path", paths[0]);
+				}
+				okMsg.setList("paths", paths);
+				okMsg.setList("context_labels", labels);
+				okMsg.setList("ids", ids);
+				okMsg.setList("rects", rects);
+				this->sendOk(req, okMsg);
+				return;
+			}
+
 		// get_lua_api: the generated Lua scripting API signature index (embedded
 		// at build time from Docs/lua-api.md's generated block via
 		// GeneratedLuaApi.h). Read-only, needs no project or player - it lets any
@@ -5911,6 +6193,164 @@ namespace Orkige
 		}
 
 		fs::remove_all(authRoot, authIgnored);
+		// (9) preview_ui - the collaborative UI loop end to end (edit-world only;
+		// a project carrying gui_default is open): author a .oui, preview it,
+		// MODIFY it, preview again, assert the rects followed the edit, and a bad
+		// file returns an honest error. This IS the acceptance demo.
+		if (!this->mRuntimeDebug)
+		{
+			// this leg needs an open project carrying a gui_default atlas; copy
+			// jumper-lua to a temp dir (never touch the repo) and open it
+			{
+				std::error_code prepErr;
+				const std::string previewRoot =
+					(std::filesystem::temp_directory_path() /
+						("orkige_preview_project_" + std::to_string(port))).string();
+				std::filesystem::remove_all(previewRoot, prepErr);
+				std::filesystem::copy(ORKIGE_EDITOR_JUMPER_LUA_PROJECT, previewRoot,
+					std::filesystem::copy_options::recursive, prepErr);
+				JsonValue openArgs = JsonValue::object();
+				openArgs.set("path", JsonValue(String(previewRoot)));
+				openArgs.set("force", JsonValue("1"));
+				JsonValue s;
+				bool e = true;
+				if (prepErr || !callTool("open_project", openArgs, true, s, e) || e)
+				{
+					finish(false, "control self-test: preview_ui - could not open "
+						"the temp project copy");
+					return;
+				}
+			}
+			JsonValue structured;
+			bool isError = true;
+			const std::string previewOui = "screens/preview_test.oui";
+			const std::string previewPng =
+				(std::filesystem::temp_directory_path() /
+					("orkige_preview_ui_test_" + std::to_string(port) +
+						".png")).string();
+			auto writeOui = [&](int boxTop) -> bool
+			{
+				JsonValue args = JsonValue::object();
+				args.set("path", JsonValue(String(previewOui)));
+				const std::string content =
+					"[Layout]\natlas = gui_default\n\n"
+					"[decorwidget box]\nz = 2\nsprite = none\n"
+					"color = 0.2 0.6 1.0 1.0\nposition = 40 " +
+					std::to_string(boxTop) + "\nsize = 300 200\n";
+				args.set("content", JsonValue(String(content)));
+				JsonValue s;
+				bool e = true;
+				return callTool("write_project_file", args, true, s, e) && !e;
+			};
+			auto boxTopOf = [&](JsonValue const& sc, int& outTop) -> bool
+			{
+				JsonValue const& ids = sc.get("ids");
+				JsonValue const& rects = sc.get("rects");
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == "box")
+					{
+						std::stringstream ss(rects.at(i).asString());
+						int left = 0, top = 0;
+						ss >> left >> top;
+						outTop = top;
+						return true;
+					}
+				}
+				return false;
+			};
+			// author v1 (box near the top) and preview it
+			if (!writeOui(40))
+			{
+				finish(false, "control self-test: preview_ui - write (v1) failed");
+				return;
+			}
+			JsonValue pargs = JsonValue::object();
+			pargs.set("file", JsonValue(String(previewOui)));
+			pargs.set("path", JsonValue(String(previewPng)));
+			// classic OGRE cannot composite 2D into an offscreen target, so
+			// preview_ui reports an honest error there (the tab is disabled) -
+			// assert that path instead of the render loop
+			if (!Orkige::RenderTexture::canOwnLayers())
+			{
+				if (!callTool("preview_ui", pargs, true, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: preview_ui should return an "
+						"honest error on the classic backend");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - preview_ui correctly "
+					"unsupported on the classic backend");
+			}
+			else
+			{
+			pargs.set("width", JsonValue("1179"));
+			pargs.set("height", JsonValue("2556"));
+			pargs.set("scale", JsonValue("3"));
+			if (!callTool("preview_ui", pargs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: preview_ui (v1) returned an "
+					"error");
+				return;
+			}
+			// it actually rendered (a submitted batch) and wrote a non-empty png
+			const int batchCount = std::atoi(
+				structured.get("batch_count").asString().c_str());
+			std::error_code ig;
+			if (batchCount <= 0 ||
+				!std::filesystem::exists(previewPng, ig) ||
+				std::filesystem::file_size(previewPng, ig) == 0)
+			{
+				finish(false, "control self-test: preview_ui (v1) did not render "
+					"(no batch / empty screenshot)");
+				return;
+			}
+			int topV1 = -1;
+			if (!boxTopOf(structured, topV1))
+			{
+				finish(false, "control self-test: preview_ui (v1) did not return "
+					"the 'box' widget rect");
+				return;
+			}
+			// MODIFY the screen (move the box down) and preview again - the rect
+			// must follow the edit (auto-reload of the shared stage)
+			if (!writeOui(900))
+			{
+				finish(false, "control self-test: preview_ui - write (v2) failed");
+				return;
+			}
+			if (!callTool("preview_ui", pargs, true, structured, isError) ||
+				isError)
+			{
+				finish(false, "control self-test: preview_ui (v2) returned an "
+					"error");
+				return;
+			}
+			int topV2 = -1;
+			if (!boxTopOf(structured, topV2) || topV2 == topV1)
+			{
+				finish(false, "control self-test: preview_ui - the widget rect did "
+					"not follow the .oui edit");
+				return;
+			}
+			// bad file => honest error (not a crash, not a silent success)
+			JsonValue badArgs = JsonValue::object();
+			badArgs.set("file", JsonValue("screens/does_not_exist.oui"));
+			if (!callTool("preview_ui", badArgs, true, structured, isError) ||
+				!isError)
+			{
+				finish(false, "control self-test: preview_ui did not error on a "
+					"missing file");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - preview_ui OK (write -> "
+				"preview top=%d -> edit -> preview top=%d; missing file errored)",
+				topV1, topV2);
+			}
+		}
+
 		finish(true, "");
 	}
 }

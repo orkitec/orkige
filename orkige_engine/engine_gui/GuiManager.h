@@ -18,7 +18,9 @@
 #include <core_util/ToastQueue.h>
 #include <core_util/UiTransition.h>
 #include <core_util/ScreenStack.h>
+#include <core_util/SafeArea.h>
 #include <core_tween/TweenManager.h>
+#include "engine_render/RenderTexture.h"
 
 #include <OgreResourceGroupManager.h>	// the resource-group default arguments
 
@@ -63,6 +65,20 @@ namespace Orkige
 		{
 			RS_FullWindow = 0,	//!< the whole window (0,0,W,H)
 			RS_SafeArea			//!< the window minus the notch/home-bar insets
+		};
+		//! @brief an offscreen preview surface: a whole gui composited into a
+		//! RenderTexture at a SIMULATED device context (resolution + safe-area
+		//! insets + content scale) instead of the live window. The editor GUI
+		//! Preview stage builds a GuiManager with one of these; games/the
+		//! running HUD leave it default (a null target = the normal window
+		//! path). @see the GUI Preview tab / the preview_ui MCP verb.
+		struct PreviewSurface
+		{
+			optr<RenderTexture>	target;			//!< the offscreen surface the views composite into
+			unsigned int		width = 0;		//!< simulated device width (pixels)
+			unsigned int		height = 0;		//!< simulated device height (pixels)
+			SafeAreaInsets		safeArea;		//!< simulated notch/home-bar insets
+			float				contentScale = 1.0f;	//!< simulated display density (1/2/3x)
 		};
 		//! @brief a resolved confirm/alert dialog's outcome (poll-once via
 		//! getDialogResult); DR_YES doubles as the alert's OK
@@ -197,10 +213,22 @@ namespace Orkige
 		//! the current screen's back hook: consulted before the default pop (@see
 		//! ScreenBackInterceptor). Cleared whenever a new screen is materialized.
 		ScreenBackInterceptor screenBackInterceptor;
+		//--- offscreen preview surface (the editor GUI Preview stage) ---
+		//! true when this manager composites into previewTarget at a simulated
+		//! device context instead of the live window (@see PreviewSurface)
+		bool previewActive;
+		//! the offscreen target the views' layers composite into (null = window)
+		optr<RenderTexture> previewTarget;
+		//! the simulated device context used for layout while previewActive
+		unsigned int previewWidth, previewHeight;
+		SafeAreaInsets previewSafeArea;
 		//--- Methods -----------------------------------------------
 	public:
-		GuiManager(optr<GuiFactory> _factory, String const & defaultAtlas = "gui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		GuiManager(optr<GuiFactory> _factory, String const & defaultAtlas = "gui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, PreviewSurface const * previewSurface = NULL);
 		virtual ~GuiManager();
+		//! @brief is this manager rendering into an offscreen preview surface
+		//! (the editor GUI Preview stage) rather than the live window?
+		bool hasPreviewSurface() const { return this->previewActive; }
 		//! enable key and mouse events
 		void enableInputEvents();
 		//! disable key and mouse events
@@ -458,6 +486,14 @@ namespace Orkige
 		//! safe box" against. Order follows the widget map (stable by id).
 		std::vector<WidgetLayout> getWidgetLayouts();
 	protected:
+		//! @brief the layout surface size: the preview surface when previewActive,
+		//! else the live window (RenderSystem::getWindowSize). ALL layout code
+		//! reads this, so the preview stage lays out at the simulated device size.
+		void surfaceSize(unsigned int & width, unsigned int & height) const;
+		//! @brief the safe-area insets in effect: the simulated insets when
+		//! previewActive, else the engine's live insets. Returns zero insets when
+		//! neither is available.
+		SafeAreaInsets surfaceSafeArea() const;
 		//! @brief the per-frame gui pipeline (deferred actions, widget ticks, modal
 		//! drain, toast, layout + cascade-alpha resolve, screen rebuild + submit).
 		//! Shared by the FrameStarted handler and profileTick (the perf probe).

@@ -51,6 +51,11 @@ namespace Orkige
 	class RenderWorld;
 }
 
+namespace OrkigeEditor
+{
+	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+}
+
 //--- Console (engine/editor/remote log streaming) --------------------------
 
 //! severity of one Console line (drives the line colour)
@@ -197,6 +202,9 @@ struct ViewSettings
 	bool showAssetBrowserPanel = true;
 	//! Tile Palette panel (project-only; arms a prefab for 2D grid painting)
 	bool showTilePalettePanel = true;
+	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
+	//! device context into an offscreen target - the collaborative UI loop)
+	bool showGuiPreviewPanel = false;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -1192,6 +1200,11 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderNode> const& cameraNode,
 	ViewSettings& viewSettings, float contentScale,
 	Orkige::ImGuiSDL3Input& imguiInput);
+
+// the GUI Preview panel: a real gui screen (.oui) rendered at a simulated
+// device context into an offscreen target, shown here - EditorGuiPreviewPanel.cpp
+void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stage,
+	Orkige::EditorCore& core, ViewSettings& viewSettings);
 
 // the Scene Hierarchy panel (edit mode: EditorCore world; play mode: the
 // remote hierarchy) - EditorHierarchyPanel.cpp

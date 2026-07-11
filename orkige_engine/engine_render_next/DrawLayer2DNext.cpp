@@ -66,6 +66,16 @@ namespace Orkige
 		//! textures that already logged their load failure (log once)
 		std::set<String> gFailedTextures;
 
+		//! per-target 2D visibility bits handed out (bit 0 is the window's
+		//! UI_WINDOW_VISIBILITY; targets take bits 1..29 of the user range).
+		//! A simple free-bit mask - the editor uses at most one preview target
+		unsigned int gUiVisibilityInUse = RenderBackend::UI_WINDOW_VISIBILITY;
+		//! highest usable user visibility bit (Ogre-Next reserves the top 2
+		//! bits for LAYER_VISIBILITY/LAYER_SHADOW_CASTER; the user range is the
+		//! low 30, so bit 29 is the last one we can hand out)
+		const unsigned int UI_VISIBILITY_LAST_BIT = 29u;
+		bool gUiVisibilityExhaustedLogged = false;
+
 		//! depth spacing between consecutive batches: comfortably above
 		//! the render queue's transparent depth quantization at our far
 		//! clip, so the painter order can never collapse into one key
@@ -79,6 +89,54 @@ namespace Orkige
 	char const * RenderBackend::drawLayer2DCameraName()
 	{
 		return "Orkige/DrawLayer2D/Camera";
+	}
+	//---------------------------------------------------------
+	unsigned int RenderBackend::allocateUiVisibilityFlag()
+	{
+		for(unsigned int bit = 1u; bit <= UI_VISIBILITY_LAST_BIT; ++bit)
+		{
+			const unsigned int flag = 1u << bit;
+			if((gUiVisibilityInUse & flag) == 0u)
+			{
+				gUiVisibilityInUse |= flag;
+				return flag;
+			}
+		}
+		if(!gUiVisibilityExhaustedLogged)
+		{
+			gUiVisibilityExhaustedLogged = true;
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: offscreen 2D visibility bits exhausted - "
+				"further preview targets fall back to the window band");
+		}
+		return 0u;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::freeUiVisibilityFlag(unsigned int flag)
+	{
+		// never free the window bit (bit 0)
+		if(flag != 0u && flag != RenderBackend::UI_WINDOW_VISIBILITY)
+		{
+			gUiVisibilityInUse &= ~flag;
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::shapeUICamera(Ogre::Camera* camera,
+		unsigned int width, unsigned int height)
+	{
+		oAssert(camera);
+		if(width == 0u || height == 0u)
+		{
+			return;
+		}
+		// pixel-space ortho: (0,0) at the top-left, +x right, +y down
+		// (vertex y is negated into the world's y-up at build time)
+		camera->setOrthoWindow(Ogre::Real(width), Ogre::Real(height));
+		camera->setPosition(Ogre::Vector3(
+			Ogre::Real(width) * Ogre::Real(0.5),
+			Ogre::Real(height) * Ogre::Real(-0.5),
+			Ogre::Real(0.0)));
+		camera->setOrientation(Ogre::Quaternion::IDENTITY);	// looks -Z
 	}
 	//---------------------------------------------------------
 	Ogre::Camera* RenderBackend::ensureDrawLayer2DCamera()
@@ -115,15 +173,7 @@ namespace Orkige
 		if(windowWidth > 0 && windowHeight > 0 &&
 			(windowWidth != gUICameraWidth || windowHeight != gUICameraHeight))
 		{
-			// pixel-space ortho: (0,0) at the top-left, +x right, +y down
-			// (vertex y is negated into the world's y-up at build time)
-			gUICamera->setOrthoWindow(Ogre::Real(windowWidth),
-				Ogre::Real(windowHeight));
-			gUICamera->setPosition(Ogre::Vector3(
-				Ogre::Real(windowWidth) * Ogre::Real(0.5),
-				Ogre::Real(windowHeight) * Ogre::Real(-0.5),
-				Ogre::Real(0.0)));
-			gUICamera->setOrientation(Ogre::Quaternion::IDENTITY);	// looks -Z
+			RenderBackend::shapeUICamera(gUICamera, windowWidth, windowHeight);
 			gUICameraWidth = windowWidth;
 			gUICameraHeight = windowHeight;
 		}
@@ -173,6 +223,25 @@ namespace Orkige
 		return handle;
 	}
 	//---------------------------------------------------------
+	optr<DrawLayer2D> RenderBackend::createTargetDrawLayer2D(
+		optr<RenderTexture> const & target, unsigned int visibilityFlag,
+		int zOrder)
+	{
+		oAssert(target);
+		optr<DrawLayer2D> handle(new DrawLayer2D());
+		handle->mImpl->zOrder = zOrder;
+		handle->mImpl->target = target;	// composites into the target, not the window
+		// the target's UI pass masks to its own bit; the layer's batches carry
+		// it so no other surface's pass draws them (RenderTexture::createLayer
+		// ensured the bit + the per-target UI camera + workspace UI pass). A
+		// 0 flag (pool exhausted) falls back to the window band, honestly.
+		handle->mImpl->visibilityFlags = visibilityFlag != 0u
+			? visibilityFlag : RenderBackend::UI_WINDOW_VISIBILITY;
+		gDrawLayers.push_back(handle.get());
+		gOrderDirty = true;
+		return handle;
+	}
+	//---------------------------------------------------------
 	void RenderBackend::unregisterDrawLayer2D(DrawLayer2D* layer)
 	{
 		gDrawLayers.erase(std::remove(gDrawLayers.begin(),
@@ -195,6 +264,8 @@ namespace Orkige
 		gDrawLayers.clear();
 		gFailedTextures.clear();
 		gOrderDirty = false;
+		gUiVisibilityInUse = RenderBackend::UI_WINDOW_VISIBILITY;
+		gUiVisibilityExhaustedLogged = false;
 	}
 	//---------------------------------------------------------
 	Ogre::HlmsDatablock* RenderBackend::getOrCreateDrawLayer2DDatablock(
@@ -372,6 +443,10 @@ namespace Orkige
 		// v2 asserts on setVisible for unattached objects - visibility
 		// only after the attach
 		batch.object->setVisible(this->visible);
+		// the surface band: window batches carry UI_WINDOW_VISIBILITY, an
+		// offscreen-target layer carries the target's bit, so only the
+		// matching UI pass draws this batch (window vs. the target's pass)
+		batch.object->setVisibilityFlags(this->visibilityFlags);
 		gOrderDirty = true;
 	}
 	//---------------------------------------------------------

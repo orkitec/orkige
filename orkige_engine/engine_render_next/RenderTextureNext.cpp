@@ -98,6 +98,11 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	String RenderTexture::Impl::uiCameraName() const
+	{
+		return "Orkige/DrawLayer2D/TargetCamera/" + this->name;
+	}
+	//---------------------------------------------------------
 	void RenderTexture::Impl::recreate()
 	{
 		this->destroyTarget();
@@ -119,16 +124,27 @@ namespace Orkige
 		this->texture->scheduleTransitionTo(Ogre::GpuResidency::Resident);
 
 		Ogre::Camera* backendCamera = RenderBackend::ogreCamera(this->camera);
-		if(!backendCamera)
+		// the target renders its 2D layers when it hosts any (createLayer):
+		// re-shape the per-target pixel-space UI camera to the current size
+		if(this->hostsLayers && this->uiCamera)
 		{
-			return;	// workspace arrives with setCamera
+			RenderBackend::shapeUICamera(this->uiCamera, this->width,
+				this->height);
 		}
-		// one (clear + scene) workspace per target incarnation; the
-		// background colour bakes into the definition's clear pass.
-		// Hand-built instead of createBasicWorkspaceDef:
-		// the scene pass stops BELOW the UI render
-		// queue, so 2D layers never leak into offscreen targets (the
-		// facade contract - they composite over the main window only)
+		const bool hasScenePass = (backendCamera != NULL);
+		const bool hasUIPass = (this->hostsLayers && this->uiCamera != NULL);
+		if(!hasScenePass && !hasUIPass)
+		{
+			return;	// workspace arrives with setCamera / createLayer
+		}
+		// one workspace per target incarnation; the background colour bakes
+		// into the FIRST pass' clear. Hand-built instead of
+		// createBasicWorkspaceDef: the scene pass stops BELOW the UI render
+		// queue (so an ordinary RTT never shows 2D layers - the facade
+		// contract), and a target that OWNS layers (the GUI Preview surface)
+		// adds a UI pass that draws ONLY that queue, masked to the target's
+		// own visibility bit, through the per-target pixel-space UI camera.
+		// A pure UI surface (no scene camera) is one clear + UI pass.
 		Ogre::CompositorManager2* compositorManager =
 			root->getCompositorManager2();
 		const String definitionName =
@@ -140,7 +156,9 @@ namespace Orkige
 		nodeDefinition->setNumTargetPass(1);
 		Ogre::CompositorTargetDef* targetDefinition =
 			nodeDefinition->addTargetPass("TargetRT");
-		targetDefinition->setNumPasses(1);
+		targetDefinition->setNumPasses((hasScenePass ? 1 : 0) +
+			(hasUIPass ? 1 : 0));
+		if(hasScenePass)
 		{
 			Ogre::CompositorPassSceneDef* scenePass =
 				static_cast<Ogre::CompositorPassSceneDef*>(
@@ -150,14 +168,39 @@ namespace Orkige
 			scenePass->mFirstRQ = 0;
 			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
 		}
+		if(hasUIPass)
+		{
+			Ogre::CompositorPassSceneDef* uiPass =
+				static_cast<Ogre::CompositorPassSceneDef*>(
+					targetDefinition->addPass(Ogre::PASS_SCENE));
+			if(hasScenePass)
+			{
+				uiPass->setAllLoadActions(Ogre::LoadAction::Load);
+			}
+			else
+			{
+				uiPass->setAllLoadActions(Ogre::LoadAction::Clear);
+				uiPass->setAllClearColours(this->background);
+			}
+			uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+			uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
+			uiPass->mCameraName = this->uiCameraName();
+			// draw ONLY this target's 2D batches (its own visibility bit),
+			// never the window's or another target's
+			uiPass->setVisibilityMask(this->uiVisibilityFlag);
+		}
 		Ogre::CompositorWorkspaceDef* workspaceDefinition =
 			compositorManager->addWorkspaceDefinition(definitionName);
 		workspaceDefinition->connectExternal(0, definitionName + "/Node", 0);
 		this->workspace = compositorManager->addWorkspace(
 			RenderBackend::worldSceneManager(), this->texture,
-			backendCamera, definitionName, true /*enabled*/);
-		backendCamera->setAspectRatio(
-			Ogre::Real(this->width) / Ogre::Real(this->height));
+			backendCamera ? backendCamera : this->uiCamera, definitionName,
+			true /*enabled*/);
+		if(backendCamera)
+		{
+			backendCamera->setAspectRatio(
+				Ogre::Real(this->width) / Ogre::Real(this->height));
+		}
 	}
 	//---------------------------------------------------------
 	RenderTexture::RenderTexture()
@@ -168,6 +211,17 @@ namespace Orkige
 	RenderTexture::~RenderTexture()
 	{
 		this->mImpl->destroyTarget();
+		// the per-target UI camera + its visibility bit outlive the workspace
+		// across resizes, so they are freed only here (not in destroyTarget).
+		// Any layers that composited into this target are already gone: they
+		// held the target alive (optr), so the target dtor runs after them.
+		if(this->mImpl->uiCamera && RenderBackend::ogreRoot())
+		{
+			RenderBackend::worldSceneManager()->destroyCamera(
+				this->mImpl->uiCamera);
+		}
+		this->mImpl->uiCamera = NULL;
+		RenderBackend::freeUiVisibilityFlag(this->mImpl->uiVisibilityFlag);
 		delete this->mImpl;
 	}
 	//---------------------------------------------------------
@@ -239,5 +293,38 @@ namespace Orkige
 		image.convertFromTexture(this->mImpl->texture, 0u, 0u);
 		RenderBackend::makeImageAlphaOpaque(image);
 		image.save(fileName, 0u, 1u);
+	}
+	//---------------------------------------------------------
+	bool RenderTexture::canOwnLayers()
+	{
+		return true;	// the Ogre-Next backend composites 2D layers per target
+	}
+	//---------------------------------------------------------
+	optr<DrawLayer2D> RenderTexture::createLayer(int zOrder)
+	{
+		// first layer: allocate this target's visibility bit + its pixel-space
+		// UI camera, then rebuild the workspace to grow a UI pass (@see
+		// recreate). Later layers reuse them (one bit, one camera per target)
+		if(!this->mImpl->hostsLayers)
+		{
+			this->mImpl->uiVisibilityFlag =
+				RenderBackend::allocateUiVisibilityFlag();
+			Ogre::SceneManager* sceneManager =
+				RenderBackend::worldSceneManager();
+			oAssert(sceneManager);
+			this->mImpl->uiCamera =
+				sceneManager->createCamera(this->mImpl->uiCameraName());
+			this->mImpl->uiCamera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);
+			this->mImpl->uiCamera->setNearClipDistance(Ogre::Real(1.0));
+			this->mImpl->uiCamera->setFarClipDistance(Ogre::Real(20000.0));
+			// pure view-space depth: the batch nodes' z alone decides the
+			// painter order (same rule as the window UI camera)
+			this->mImpl->uiCamera->mSortMode =
+				Ogre::Camera::SortModeDepthRadiusIgnoring;
+			this->mImpl->hostsLayers = true;
+			this->mImpl->recreate();	// grows the UI pass, shapes the camera
+		}
+		return RenderBackend::createTargetDrawLayer2D(
+			this->shared_from_this(), this->mImpl->uiVisibilityFlag, zOrder);
 	}
 }

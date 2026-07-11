@@ -44,8 +44,12 @@ namespace Orkige
 	//! - scissor rects clip exactly (implemented as analytic triangle
 	//!   clipping at submission time, so every backend behaves
 	//!   identically without touching render-state plumbing),
-	//! - the layer only ever composites onto the MAIN WINDOW - offscreen
-	//!   RenderTextures and other cameras never see 2D layers.
+	//! - a layer composites onto exactly ONE surface: the MAIN WINDOW by
+	//!   default (RenderSystem::createDrawLayer2D), or an offscreen
+	//!   RenderTexture at that target's own pixel size when the target
+	//!   owns it (RenderTexture::createLayer - the GUI Preview stage). The
+	//!   two surfaces are isolated: a window layer never leaks into a
+	//!   target and vice versa. A 3D-scene camera never sees 2D layers.
 	//!
 	//! Textures bind per batch BY RESOURCE NAME (resolved through the
 	//! resource system across all groups, like SpriteQuad); an empty name

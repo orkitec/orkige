@@ -53,6 +53,11 @@ struct PlaySession;
 struct EditorConsole;
 struct SceneRenderTarget;
 
+namespace OrkigeEditor
+{
+	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+}
+
 namespace Orkige
 {
 	class EditorCore;
@@ -77,6 +82,9 @@ namespace Orkige
 		EditorConsole* console = nullptr;
 		SceneRenderTarget* sceneTarget = nullptr;
 		GameObjectManager* gameObjectManager = nullptr;
+		//! the shared GUI Preview stage (the preview_ui verb drives it; the
+		//! GUI Preview tab shares the same instance) - GuiPreviewStage.h
+		OrkigeEditor::GuiPreviewStage* previewStage = nullptr;
 	};
 
 	//! @brief the editor's MCP endpoint: a loopback HttpServer plus the JSON-RPC

@@ -433,6 +433,10 @@ namespace Orkige
 			uiPass->mFirstRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
 			uiPass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE + 1;
 			uiPass->mCameraName = RenderBackend::drawLayer2DCameraName();
+			// draw ONLY the window's 2D batches: offscreen preview targets
+			// put their batches in the same queue under a different visibility
+			// bit, and this mask keeps them out of the window (and vice versa)
+			uiPass->setVisibilityMask(RenderBackend::UI_WINDOW_VISIBILITY);
 		}
 		Ogre::CompositorWorkspaceDef* workspaceDefinition =
 			compositorManager->addWorkspaceDefinition(definitionName);

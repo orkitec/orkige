@@ -116,6 +116,13 @@ namespace Orkige
 		inline Real getWidth() const { return this->mWidth; }
 		inline Real getHeight() const { return this->mHeight; }
 
+		//! @brief pin the layout surface to an explicit pixel size instead of
+		//! the live window - the editor GUI Preview stage lays a gui out at a
+		//! SIMULATED device resolution and composites it into an offscreen
+		//! target. Pass 0,0 to follow the window again (the default). Forces a
+		//! relayout on the next update.
+		void setSurfaceSize(Real width, Real height);
+
 		inline bool isVisible() const { return this->mIsVisible; }
 		//! show/hide the whole screen (the submitted batch stays; batch
 		//! count drops by one while hidden)
@@ -175,6 +182,9 @@ namespace Orkige
 		std::vector<UiLayer*>	mLayers;		//!< creation order
 		std::vector<UiVertex>	mScratch;		//!< retained batch buffer
 		Real					mWidth, mHeight;
+		//! when true, mWidth/mHeight are pinned (setSurfaceSize) and update()
+		//! does NOT follow the live window - the GUI Preview surface
+		bool					mHasSurfaceSize;
 		bool					mIsVisible;
 		bool					mDirty;
 		bool					mForceRedraw;

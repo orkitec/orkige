@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 62 tools (the `toolSpecs` table in
+The endpoint advertises 63 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -124,6 +124,7 @@ The endpoint advertises 62 tools (the `toolSpecs` table in
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
 | `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
 | `list_project_files(dir?, glob?)` | list one directory level under the project root (jailed) → `names`/`paths`/`types` |
+| `preview_ui(file, width?, height?, scale?, insets?, contexts?, path?)` | **auth** — render a project `.oui` screen at a SIMULATED device context into an offscreen target and return a screenshot + resolved widget rects, **no running player needed** (the centrepiece of the collaborative UI loop). Renders through the REAL gui stack, isolated from any running game. Single context from `width`/`height` (pixels) + `scale` (1/2/3) + `insets` (`"l t r b"`); OR `contexts` for a device-matrix sweep (`;`-separated `WxH[@scale][/l,t,r,b]`). Returns `path` (single) or `paths`+`context_labels` (sweep), `width`/`height`, `batch_count`, and parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, first context for a sweep). **Ogre-Next only** (classic reports an honest error); does not disturb the human's GUI Preview tab |
 | `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`). An `.svg` source is cooked to a native `.oshape` on the way in (`Util/cook_shapes.py`); the returned `path`/`assetId` point at the produced `.oshape` |
 | `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
 | `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
@@ -248,7 +249,24 @@ read back through the existing `get_ui_layout` (no change needed: the resolve ru
 before the screens rebuild, so `get_ui_layout`'s per-widget pixel rects already
 reflect the anchors/groups/scroll offset), so an agent confirms the `.oui` took
 effect the same way it verifies any widget (and combines it with `get_safe_area`
-for the notch check). No `editor_control` self-test change was required.
+for the notch check).
+
+The **one** UI verb that does earn its place is `preview_ui` — because it fills a
+gap the readback verbs cannot: seeing a screen at a chosen device context WITHOUT
+booting the game. `get_ui_layout` reports the running game's rects at the running
+window's size; `preview_ui` renders a project `.oui` through the same real gui
+stack into an offscreen target at a SIMULATED device (resolution + content scale +
+safe-area notch), and returns a screenshot plus the resolved rects for that
+context (or a matrix of contexts in one call). It is the agent's half of the
+collaborative UI loop: author a screen with `write_project_file`, `preview_ui` it
+across a phone and a tablet, read the rects to check the layout holds on both,
+iterate — while a human watching the editor's **GUI Preview** tab (which shares
+the same offscreen stage) sees each edit live, because the tab watches the `.oui`
+file's mtime. The `editor_control` self-test drives exactly this loop
+(write → preview → edit → preview → assert the rects moved; a missing file errors).
+It is Ogre-Next only (the offscreen 2D composition the preview needs is a
+Next-flavor capability — see `Docs/render-abstraction.md`); the classic editor
+reports an honest error and disables the tab.
 
 The machine-checkable "HUD respects the notch" assertion is: for every
 visible widget from `get_ui_layout`, its rect lies inside

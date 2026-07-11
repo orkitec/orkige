@@ -85,6 +85,7 @@ namespace Orkige
 	UiScreen::UiScreen(UiAtlas const * atlas,
 		optr<DrawLayer2D> const & drawLayer)
 		: mAtlas(atlas), mDrawLayer(drawLayer), mWidth(0), mHeight(0),
+		mHasSurfaceSize(false),
 		mIsVisible(true), mDirty(false), mForceRedraw(false), mLastVertexCount(0),
 		mLastBatchCount(0), mRebuildCount(0), mGeometryRebuildCount(0)
 	{
@@ -94,6 +95,21 @@ namespace Orkige
 		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
 		this->mWidth = Real(windowWidth);
 		this->mHeight = Real(windowHeight);
+	}
+	//---------------------------------------------------------
+	void UiScreen::setSurfaceSize(Real width, Real height)
+	{
+		if(width > 0 && height > 0)
+		{
+			this->mHasSurfaceSize = true;
+			this->mWidth = width;
+			this->mHeight = height;
+		}
+		else
+		{
+			this->mHasSurfaceSize = false;
+		}
+		this->requestFullRedraw();
 	}
 	//---------------------------------------------------------
 	UiScreen::~UiScreen()
@@ -155,15 +171,21 @@ namespace Orkige
 		// window resizes force a full relayout: widget positions are
 		// pixels, and the atlas metrics stay pixel-exact on any size
 		bool force = this->mForceRedraw;
-		unsigned int windowWidth = 0, windowHeight = 0;
-		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
-		if(windowWidth > 0 && windowHeight > 0 &&
-			(this->mWidth != Real(windowWidth) ||
-			 this->mHeight != Real(windowHeight)))
+		// a pinned surface (the GUI Preview stage) lays out at its own fixed
+		// size; otherwise the live window size drives it, and a window resize
+		// forces a full relayout (widget positions are pixels)
+		if(!this->mHasSurfaceSize)
 		{
-			this->mWidth = Real(windowWidth);
-			this->mHeight = Real(windowHeight);
-			force = true;
+			unsigned int windowWidth = 0, windowHeight = 0;
+			RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+			if(windowWidth > 0 && windowHeight > 0 &&
+				(this->mWidth != Real(windowWidth) ||
+				 this->mHeight != Real(windowHeight)))
+			{
+				this->mWidth = Real(windowWidth);
+				this->mHeight = Real(windowHeight);
+				force = true;
+			}
 		}
 		if(!this->mDirty && !force)
 		{
