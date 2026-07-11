@@ -547,6 +547,28 @@ look when touching one:
   disk per entry so a hard crash leaves a readable trail; rotated on boot
   (`breadcrumbs.jsonl` → `.prev.jsonl`); the player writes it to the writable app
   dir, the editor reads the survived file over the MCP `get_breadcrumbs` verb.
+- **Mobile app lifecycle** (`core_game/AppLifecycle` — the backgrounding contract
+  as a pure, headless-unit-tested state machine; the player owns the wiring in the
+  poll loop). SDL raises the lifecycle events on iOS/Android only (desktop
+  minimizing is NOT a background — desktop behavior is unchanged). On **background**
+  (`WILL_ENTER_BACKGROUND`): FLUSH the save store (a backgrounded mobile app may be
+  killed silently — the crash-safe autosave point), deliver `onAppPause(self)` to
+  scripts, pause the sim (an `advanceWorld` gate like the editor's pause), suspend
+  audio (`SoundManager::onInterruptBegin` — tears the AL device down), drop a
+  "background" breadcrumb; on `DID_ENTER_BACKGROUND` STOP rendering (mobile GPU work
+  in the background = an OS kill — the loop skips `renderOneFrame` until foreground).
+  On **foreground** (`WILL_ENTER_FOREGROUND` resumes rendering + audio;
+  `DID_ENTER_FOREGROUND`) the sim resumes RUNNING by default and `onAppResume(self)`
+  fires so the GAME decides whether to re-pause behind an overlay; "foreground"
+  breadcrumb. `TERMINATING`/`LOW_MEMORY` do a final/cheap save flush + crumb. The
+  **Android back button** is TRAPPED (`SDL_HINT_ANDROID_TRAP_BACK_BUTTON`) and
+  delivered as a `KC_WEBBACK` key event (game handles it — default is deliver, never
+  exit); the APK activity's `configChanges` already keeps rotation from recreating
+  the activity. Transient audio-focus loss WITHOUT a background (a phone call, another
+  app grabbing audio) is not separately surfaced by SDL — it is handled at the
+  background boundaries. Verified by `AppLifecycleTests` (unit) + the
+  `player_lifecycle_selfcheck` ctest (synthetic SDL events through the real loop,
+  both flavors).
 - **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
   MCP section above + `Docs/mcp.md`.
 - **CONVENTIONS to preserve**: the **config-asset** pattern (project-config files —

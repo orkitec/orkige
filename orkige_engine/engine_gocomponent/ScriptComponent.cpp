@@ -344,6 +344,38 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void ScriptComponent::dispatchAppLifecycle(bool paused)
+	{
+		// same gate as dispatchContact: only a loaded, healthy, running instance
+		// receives the hook (a no-op in ORKIGE_SCRIPTING=OFF, where mInstance is
+		// never set)
+		if (!this->mScriptEnabled || this->mFailed || !this->mStarted ||
+			!this->mInstance)
+		{
+			return;
+		}
+		const char* const hook = paused ? "onAppPause" : "onAppResume";
+		String error;
+		if (!this->mInstance->callFunction(hook, &error))
+		{
+			this->failScript(String(hook) + ": " + error);
+		}
+	}
+	//---------------------------------------------------------
+	void ScriptComponent::dispatchAppLifecycle(
+		GameObjectManager & gameObjectManager, bool paused)
+	{
+		for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
+		{
+			(void)id;
+			if (gameObject->hasComponent<ScriptComponent>())
+			{
+				gameObject->getComponentPtr<ScriptComponent>()
+					->dispatchAppLifecycle(paused);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void ScriptComponent::onAdd()

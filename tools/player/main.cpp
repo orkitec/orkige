@@ -59,6 +59,7 @@
 #include <core_game/LevelManager.h>
 #include <core_game/LevelSequence.h>
 #include <core_game/SaveStore.h>
+#include <core_game/AppLifecycle.h>
 #include <core_game/TimeControl.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
@@ -356,6 +357,13 @@ int main(int argc, char** argv)
 	}
 #endif
 
+	// Android back button: TRAP it so SDL delivers it as an
+	// SDL_SCANCODE_AC_BACK key event (-> KC_WEBBACK, readable by scripts / an
+	// input action) instead of letting the system finish the activity. The
+	// engine default is DELIVER, don't exit - a game handles Back as "pause /
+	// go up a menu"; a game that wants the old exit behavior can undo it. A
+	// harmless no-op off Android.
+	SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
 	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		SDL_Log("SDL_Init failed: %s", SDL_GetError());
@@ -596,6 +604,17 @@ int main(int argc, char** argv)
 		// on BOTH flavors (see the ORKIGE_FADE_SELFCHECK block in this file).
 		const bool fadeCheck =
 			(std::getenv("ORKIGE_FADE_SELFCHECK") != nullptr);
+		// ORKIGE_LIFECYCLE_SELFCHECK verifies the mobile app-lifecycle contract
+		// end to end against tests/projects/lifecycle, driving the REAL player
+		// wiring with SYNTHETIC SDL lifecycle events (SDL_PushEvent, the same
+		// path a device's background/foreground takes): background the app and
+		// assert the sim gate engaged, the save store was FLUSHED (its dirty flag
+		// cleared, the value the script wrote from onAppPause persisted) and a
+		// "background" breadcrumb landed; then foreground it and assert the sim
+		// resumed, onAppResume fired and a "foreground" breadcrumb landed. See
+		// the ORKIGE_LIFECYCLE_SELFCHECK block near the loop below.
+		const bool lifecycleCheck =
+			(std::getenv("ORKIGE_LIFECYCLE_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -604,7 +623,7 @@ int main(int argc, char** argv)
 			rollerProgressionCheck || tweenCheck ||
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
-			breadcrumbCheck || fadeCheck ||
+			breadcrumbCheck || fadeCheck || lifecycleCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -1970,6 +1989,54 @@ int main(int argc, char** argv)
 			integLevelFailed = true;
 		};
 
+		// mobile app lifecycle: the backgrounding contract as a pure state
+		// machine (core_game/AppLifecycle.h). The poll loop below translates the
+		// SDL_EVENT_* lifecycle events into it; applyLifecycle performs the
+		// returned actions against the live subsystems, and the loop reads the
+		// sim/render gates back (isSimPaused / isRenderingStopped). Desktop
+		// windows minimizing is NOT a background - SDL only raises these events
+		// on mobile - so desktop behavior is unchanged.
+		Orkige::AppLifecycle lifecycle;
+		auto applyLifecycle = [&](Orkige::AppLifecycle::Event event)
+		{
+			const Orkige::AppLifecycle::Actions actions = lifecycle.handle(event);
+			if (actions.breadcrumb && Orkige::Breadcrumbs::getSingletonPtr())
+			{
+				Orkige::Breadcrumbs::getSingleton().record(actions.breadcrumb,
+					scenePath);
+			}
+			// pause path: let the game react (it may write its own save state)
+			// BEFORE the engine flushes the store to disk
+			if (actions.notifyPause)
+			{
+				Orkige::ScriptComponent::dispatchAppLifecycle(gameObjectManager,
+					true);
+			}
+			if (actions.flushSave)
+			{
+				saveStore.flush();
+			}
+			if (actions.suspendAudio)
+			{
+				soundManager.onInterruptBegin();
+			}
+			// resume path: bring audio back before the game's onAppResume runs
+			if (actions.resumeAudio)
+			{
+				soundManager.onInterruptEnd();
+			}
+			if (actions.notifyResume)
+			{
+				Orkige::ScriptComponent::dispatchAppLifecycle(gameObjectManager,
+					false);
+			}
+		};
+		// ORKIGE_LIFECYCLE_SELFCHECK phased state (the block lives at the loop
+		// bottom): Init -> Backgrounded -> Foregrounded -> Done
+		enum class LifecyclePhase { Init, Backgrounded, Foregrounded, Done };
+		LifecyclePhase lifecyclePhase = LifecyclePhase::Init;
+		bool lifecycleFailed = false;
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		// breadcrumbs: record each ScriptComponent failure once (a running game
@@ -2012,9 +2079,42 @@ int main(int argc, char** argv)
 			SDL_Event event;
 			while (SDL_PollEvent(&event))
 			{
-				if (event.type == SDL_EVENT_QUIT)
+				switch (event.type)
 				{
+				case SDL_EVENT_QUIT:
 					running = false;
+					break;
+				// mobile app lifecycle (SDL raises these on iOS/Android only):
+				// route them through the AppLifecycle contract. The back button
+				// is NOT here - it arrives as a KC_WEBBACK key event through
+				// injectEvent, delivered to the game, never quitting.
+				case SDL_EVENT_WILL_ENTER_BACKGROUND:
+					applyLifecycle(
+						Orkige::AppLifecycle::Event::WillEnterBackground);
+					break;
+				case SDL_EVENT_DID_ENTER_BACKGROUND:
+					applyLifecycle(
+						Orkige::AppLifecycle::Event::DidEnterBackground);
+					break;
+				case SDL_EVENT_WILL_ENTER_FOREGROUND:
+					applyLifecycle(
+						Orkige::AppLifecycle::Event::WillEnterForeground);
+					break;
+				case SDL_EVENT_DID_ENTER_FOREGROUND:
+					applyLifecycle(
+						Orkige::AppLifecycle::Event::DidEnterForeground);
+					break;
+				case SDL_EVENT_LOW_MEMORY:
+					applyLifecycle(Orkige::AppLifecycle::Event::LowMemory);
+					break;
+				case SDL_EVENT_TERMINATING:
+					// the OS is killing us: final flush + marker, then leave the
+					// loop so the orderly shutdown path still runs if it can
+					applyLifecycle(Orkige::AppLifecycle::Event::Terminating);
+					running = false;
+					break;
+				default:
+					break;
 				}
 				inputManager.injectEvent(event);
 			}
@@ -2049,8 +2149,12 @@ int main(int argc, char** argv)
 			deltaTime = std::clamp(deltaTime,
 				automatedRun ? 1.0f / 60.0f : 0.0001f, 0.1f);
 			// pause gates the stepping only - rendering and the debug
-			// protocol stay alive; a step is exactly one fixed physics tick
-			const bool advanceWorld = !debugLink.isPaused() || stepOnce;
+			// protocol stay alive; a step is exactly one fixed physics tick.
+			// The lifecycle sim gate (isSimPaused) pauses gameplay while the app
+			// is backgrounded, the same way the editor's pause does; a debug
+			// step still forces exactly one tick for inspection.
+			const bool advanceWorld =
+				(!debugLink.isPaused() && !lifecycle.isSimPaused()) || stepOnce;
 			if (stepOnce)
 			{
 				deltaTime = Orkige::PhysicsWorld::FIXED_TIMESTEP;
@@ -2181,7 +2285,20 @@ int main(int argc, char** argv)
 			}
 			recordScriptErrorBreadcrumbs();
 
-			if (!render->renderOneFrame())
+			// backgrounded: mobile GPU work in the background is an OS kill (iOS
+			// especially), so the loop must not draw until the app returns. Idle
+			// the loop at a cheap poll pace so the foreground event is still
+			// picked up promptly; automated runs skip the sleep so they stay
+			// fast. Desktop never stops rendering (SDL raises no background
+			// events there).
+			if (lifecycle.isRenderingStopped())
+			{
+				if (!automatedRun)
+				{
+					SDL_Delay(32);
+				}
+			}
+			else if (!render->renderOneFrame())
 			{
 				running = false;
 			}
@@ -3856,6 +3973,116 @@ int main(int argc, char** argv)
 				exitCode = ok ? 0 : 1;
 				running = false;
 			}
+			// ORKIGE_LIFECYCLE_SELFCHECK: drive the real player wiring with
+			// synthetic SDL lifecycle events (SDL_PushEvent - processed at the
+			// top of the NEXT iteration, exactly like a device's events) and
+			// assert the backgrounding contract across a few frames.
+			if (lifecycleCheck && !lifecycleFailed)
+			{
+				auto lifecycleFail = [&](std::string const& what)
+				{
+					SDL_Log("orkige_player: LIFECYCLE SELFCHECK FAILED - %s "
+						"(frame %lu)", what.c_str(), frameCount);
+					lifecycleFailed = true;
+					exitCode = 1;
+					running = false;
+				};
+				auto crumbSeen = [](char const* kind) -> bool
+				{
+					const std::string needle = std::string("\"") + kind + "\"";
+					return Orkige::Breadcrumbs::getSingleton().contents()
+						.find(needle) != std::string::npos;
+				};
+				if (lifecyclePhase == LifecyclePhase::Init && frameCount == 5)
+				{
+					// the App script must be up - its onAppPause/onAppResume
+					// hooks are what this selfcheck exercises
+					optr<Orkige::GameObject> app =
+						gameObjectManager.getGameObject("App").lock();
+					Orkige::ScriptComponent* script = (app &&
+						app->hasComponent<Orkige::ScriptComponent>()) ?
+						app->getComponentPtr<Orkige::ScriptComponent>() : nullptr;
+					if (!script || !script->isScriptStarted() ||
+						script->hasScriptError())
+					{
+						lifecycleFail("App script never started cleanly");
+					}
+					else
+					{
+						SDL_Event evt{};
+						evt.type = SDL_EVENT_WILL_ENTER_BACKGROUND;
+						SDL_PushEvent(&evt);
+						evt.type = SDL_EVENT_DID_ENTER_BACKGROUND;
+						SDL_PushEvent(&evt);
+						lifecyclePhase = LifecyclePhase::Backgrounded;
+					}
+				}
+				else if (lifecyclePhase == LifecyclePhase::Backgrounded &&
+					frameCount == 8)
+				{
+					// the background contract: sim gated, rendering stopped, the
+					// save FLUSHED (dirty cleared) with the value onAppPause wrote
+					// persisted, a "background" breadcrumb recorded
+					if (!lifecycle.isSimPaused())
+					{
+						lifecycleFail("sim not paused after background");
+					}
+					else if (!lifecycle.isRenderingStopped())
+					{
+						lifecycleFail("rendering not stopped after background");
+					}
+					else if (saveStore.getNumber("lifecycle.pauses", -1.0) < 1.0)
+					{
+						lifecycleFail("onAppPause did not run (no saved value)");
+					}
+					else if (saveStore.isDirty())
+					{
+						lifecycleFail("save store not flushed on background");
+					}
+					else if (!crumbSeen("background"))
+					{
+						lifecycleFail("no background breadcrumb");
+					}
+					else
+					{
+						SDL_Event evt{};
+						evt.type = SDL_EVENT_WILL_ENTER_FOREGROUND;
+						SDL_PushEvent(&evt);
+						evt.type = SDL_EVENT_DID_ENTER_FOREGROUND;
+						SDL_PushEvent(&evt);
+						lifecyclePhase = LifecyclePhase::Foregrounded;
+					}
+				}
+				else if (lifecyclePhase == LifecyclePhase::Foregrounded &&
+					frameCount == 11)
+				{
+					// the foreground contract: sim resumed running, rendering
+					// back, onAppResume fired, a "foreground" breadcrumb recorded
+					if (lifecycle.isSimPaused())
+					{
+						lifecycleFail("sim still paused after foreground");
+					}
+					else if (lifecycle.isRenderingStopped())
+					{
+						lifecycleFail("rendering still stopped after foreground");
+					}
+					else if (saveStore.getNumber("lifecycle.resumes", -1.0) < 1.0)
+					{
+						lifecycleFail("onAppResume did not run (no saved value)");
+					}
+					else if (!crumbSeen("foreground"))
+					{
+						lifecycleFail("no foreground breadcrumb");
+					}
+					else
+					{
+						SDL_Log("orkige_player: LIFECYCLE SELFCHECK PASSED");
+						lifecyclePhase = LifecyclePhase::Done;
+						exitCode = 0;
+						running = false;
+					}
+				}
+			}
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
 				running = false;
@@ -3899,6 +4126,13 @@ int main(int argc, char** argv)
 		{
 			SDL_Log("orkige_player: TWEEN SELFCHECK FAILED - run ended before "
 				"the check completed");
+			exitCode = 1;
+		}
+		if (lifecycleCheck && !lifecycleFailed &&
+			lifecyclePhase != LifecyclePhase::Done)
+		{
+			SDL_Log("orkige_player: LIFECYCLE SELFCHECK FAILED - run ended in "
+				"phase %d", static_cast<int>(lifecyclePhase));
 			exitCode = 1;
 		}
 		if (integrationContactCheck && !integContactFailed &&

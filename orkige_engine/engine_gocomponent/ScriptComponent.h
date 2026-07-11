@@ -22,6 +22,7 @@ namespace Orkige
 {
 	class ScriptInstance;	//core_script/ScriptRuntime.h - only the .cpp needs it
 	class GameObject;		//the OTHER object of a contact event (dispatchContact)
+	class GameObjectManager;	//the fan-out target of dispatchAppLifecycle
 
 	//! @brief attaches a Lua behavior script to a GameObject - game logic in
 	//! project scripts instead of C++ (the successor of the dead luabind-era
@@ -158,6 +159,20 @@ namespace Orkige
 		//! Mutating the world here (spawn/destroy) is safe: it goes through the
 		//! GameObjectManager delete queue, never mid-drain.
 		void dispatchContact(GameObject* other, bool began);
+		//! @brief deliver an app lifecycle event to the script: calls the
+		//! OPTIONAL onAppPause(self) (paused == true) or onAppResume(self) hook.
+		//! The engine pauses/suspends on its own (sim + audio); this hook only
+		//! lets the GAME react - save its own state, show/hide a pause overlay,
+		//! re-pause gameplay behind it on resume. A no-op unless a script is
+		//! loaded and healthy and defines the hook; a hook error disables the
+		//! instance like any other script error.
+		void dispatchAppLifecycle(bool paused);
+		//! @brief broadcast an app lifecycle event to EVERY GameObject carrying a
+		//! ScriptComponent (the player calls this on background/foreground - see
+		//! the AppLifecycle contract). Runs on the MAIN thread, mirrors the
+		//! RigidBodyComponent::dispatchContacts fan-out.
+		static void dispatchAppLifecycle(GameObjectManager & gameObjectManager,
+			bool paused);
 		//! @brief the DYNAMIC schema of the attached script's exported properties
 		//! the per-instance half of the reflection union. Empty
 		//! until a script declaring a `properties` table is attached (and always

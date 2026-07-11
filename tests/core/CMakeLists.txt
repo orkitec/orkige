@@ -32,6 +32,7 @@ add_executable(orkige_core_tests
     LevelGridTests.cpp
     LevelSequenceTests.cpp
     SaveStoreTests.cpp
+    AppLifecycleTests.cpp
     CameraFitTests.cpp
     SafeAreaTests.cpp
     UiLayoutResolverTests.cpp
