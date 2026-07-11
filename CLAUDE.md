@@ -357,8 +357,19 @@ default — `Util/make_default_icon.py` → `Util/media/orkige_default_icon.png`
 a **launch screen** (iOS `UILaunchScreen` for native resolution, Android `windowBackground`
 from `export.launch.background`). Signed **iOS device** builds (`--platform ios`) are gated on
 an identity + provisioning profile resolved from CLI/env (NEVER the manifest — only
-`export.ios.teamId` is committed; see `Docs/ios-signing.md`). Covered by the `export_*` ctests
-(the macOS ones RUN the exported app from a neutral cwd) plus the `orkige_icons` /
+`export.ios.teamId` is committed; see `Docs/ios-signing.md`). The **store-submittable**
+layer adds two more platforms: `android-aab` (a release-signed Android App Bundle via
+`tools/player/android/build_aab.sh` — `aapt2 --proto-format` → bundle module →
+`bundletool build-bundle` → `jarsigner`, off an `android-release` tree, version from
+`export.android.versionCode`/`versionName`) and `ios-ipa` (a distribution-signed `.ipa`
+under `Payload/`). Both gate + degrade honestly on this machine's absent developer
+credentials (release keystore + passwords / Apple distribution cert + profile, all
+machine-local env, NEVER committed; bundletool is a separate download resolved via
+`ORKIGE_BUNDLETOOL`) — like the iOS device path, they refuse rather than emit a
+half-signed artifact, and stay CLI-only (a headless MCP agent lacks the secrets). See
+`Docs/store-release.md`. Covered by the `export_*` ctests
+(the macOS ones RUN the exported app from a neutral cwd; `export_android_aab` asserts the
+unsigned bundle-module structure) plus the `orkige_icons` /
 `make_default_icon` / `orkige_export` (`--selftest`) unit ctests.
 The 2012 legacy tools and prebuilt binaries were removed from the tree (recoverable
 from history); `Util/*.py` are the live asset generators.

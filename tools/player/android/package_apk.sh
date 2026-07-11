@@ -47,6 +47,12 @@
 #                            --res-dir; default #12161f)
 #   --output <apk>           output APK path (intermediates go to
 #                            <dir-of-apk>/apk-work instead of <build-dir>/apk)
+#   --stage-only             stage the payload (classes.dex + lib/ + assets/)
+#                            and stop before the binary-format link / pack /
+#                            sign, printing "STAGE_DIR: <dir>". build_aab.sh
+#                            drives this to reuse the staging for the release
+#                            App Bundle (which links the same tree in protobuf
+#                            format instead).
 set -euo pipefail
 
 fail() { echo "package_apk.sh: ERROR: $*" >&2; exit 1; }
@@ -60,6 +66,7 @@ LABEL=""
 RES_DIR=""
 LAUNCH_COLOR="#12161f"
 OUTPUT=""
+STAGE_ONLY=""
 BUILD_DIR=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -69,6 +76,7 @@ while [ $# -gt 0 ]; do
         --res-dir)         RES_DIR="$2"; shift 2 ;;
         --launch-color)    LAUNCH_COLOR="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
+        --stage-only)      STAGE_ONLY=1; shift ;;
         -*)                fail "unknown option '$1'" ;;
         *)                 BUILD_DIR="$1"; shift ;;
     esac
@@ -197,6 +205,15 @@ fi
 (cd "$STAGE/assets" && find . -type f ! -name orkige_assets.txt | sed 's|^\./||' | LC_ALL=C sort) \
     > "$STAGE/assets/orkige_assets.txt"
 echo "   $(wc -l < "$STAGE/assets/orkige_assets.txt" | tr -d ' ') bundled files"
+
+# --- stage-only seam (release App Bundle path) ----------------------------
+# build_aab.sh reuses everything up to here (dex + native lib + assets) and
+# links the SAME tree into a protobuf bundle module instead of a binary-format
+# APK, so it stops here and takes over. A normal (APK) run never sets this.
+if [ -n "$STAGE_ONLY" ]; then
+    echo "STAGE_DIR: $STAGE"
+    exit 0
+fi
 
 # --- resources (launcher icon + launch theme) -----------------------------
 # Compiled only when --res-dir is given (project export). A bare run stays

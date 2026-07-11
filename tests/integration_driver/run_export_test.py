@@ -190,12 +190,39 @@ def check_android(apk_path, aapt2):
             "launcher icon resolves to ic_launcher")
 
 
+def check_android_aab_module(module_path):
+    """assert the STRUCTURE of the proto bundle module (the bundletool input) -
+    the signing-free slice the release-bundle path can always build. A real
+    bundletool build-bundle + jarsigner is gated on machine-local secrets."""
+    require(os.path.isfile(module_path), "bundle module exists: " + module_path)
+    with zipfile.ZipFile(module_path) as module:
+        names = set(module.namelist())
+        for required in ("manifest/AndroidManifest.xml", "dex/classes.dex",
+                         "resources.pb", "lib/arm64-v8a/libmain.so",
+                         "assets/orkige_project.txt",
+                         "assets/project/project.orkproj",
+                         "assets/orkige_assets.txt"):
+            require(required in names, "module carries " + required)
+        # the manifest must be PROTOBUF-encoded (bundletool rejects binary AXML
+        # or plain-text XML). A proto manifest is not valid XML text; assert it
+        # does not start with the XML declaration a text/binary manifest would.
+        manifest = module.read("manifest/AndroidManifest.xml")
+        require(not manifest.lstrip().startswith(b"<?xml"),
+                "manifest is protobuf-encoded (not plain-text XML)")
+        # the renamed release package + version live as plaintext inside the
+        # protobuf; the debuggable attribute name is present (release flips it
+        # to false)
+        require(b"com.orkitec.jumperlua" in manifest,
+                "manifest carries the release package name")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
     parser.add_argument("--project", required=True)
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "ios-simulator", "android"])
+                        choices=["macos", "ios-simulator", "android",
+                                 "android-aab"])
     parser.add_argument("--engine-build", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--run-frames", type=int, default=90)
@@ -207,7 +234,7 @@ def main():
         skip("no built iOS player app under '%s' - build the "
              "ios-simulator-debug preset to enable this test" % player_dir)
     aapt2 = ""
-    if args.platform == "android":
+    if args.platform in ("android", "android-aab"):
         if not os.path.isfile(os.path.join(player_dir, "libmain.so")):
             skip("no built Android player under '%s' - build the "
                  "android-debug preset to enable this test" % player_dir)
@@ -224,6 +251,12 @@ def main():
                 os.path.join(args.repo, "Util", "orkige_export.py"),
                 "--project", args.project, "--platform", args.platform,
                 "--engine-build", args.engine_build, "--output", args.output]
+    if args.platform == "android-aab":
+        # the release-bundle test asserts the STRUCTURE of the bundle module -
+        # the bundletool-free, keystore-free slice. The signed .aab needs
+        # machine-local secrets this machine (and CI) does not have; that path
+        # is gated + documented, exercised by the exporter's selftest.
+        exporter.append("--aab-unsigned-module")
     log("$ " + " ".join(exporter))
     if subprocess.run(exporter).returncode != 0:
         fail("exporter exited nonzero")
@@ -237,6 +270,9 @@ def main():
     elif args.platform == "ios-simulator":
         artifact = os.path.join(args.output, name + ".app")
         check_ios(artifact, flavor)
+    elif args.platform == "android-aab":
+        artifact = os.path.join(args.output, exe_name + ".aab.module.zip")
+        check_android_aab_module(artifact)
     else:
         artifact = os.path.join(args.output, exe_name + ".apk")
         check_android(artifact, aapt2)

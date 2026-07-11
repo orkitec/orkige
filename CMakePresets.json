@@ -195,6 +195,27 @@
       }
     },
     {
+      "name": "android-release",
+      "displayName": "Android Release (arm64-v8a, API 28+, Ogre-Next/Vulkan - optimized libmain.so for a store App Bundle)",
+      "inherits": "base",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{HOME}/Library/Android/sdk/ndk/27.2.12479018"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_SYSROOT": null,
+        "VCPKG_TARGET_TRIPLET": "arm64-android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "ios-simulator-debug-classic",
       "displayName": "iOS Simulator Debug (arm64, classic OGRE/GLES2 - the compatibility flavor)",
       "inherits": "base",
@@ -220,6 +241,26 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": null,
+        "VCPKG_TARGET_TRIPLET": "arm64-android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ORKIGE_RENDER_BACKEND": "classic",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "android-release-classic",
+      "displayName": "Android Release (arm64-v8a, API 28+, classic OGRE/GLES2 - optimized libmain.so for a store App Bundle)",
+      "inherits": "base",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{HOME}/Library/Android/sdk/ndk/27.2.12479018"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_OSX_SYSROOT": null,
         "VCPKG_TARGET_TRIPLET": "arm64-android",
         "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
@@ -331,12 +372,20 @@
       "configurePreset": "android-debug"
     },
     {
+      "name": "android-release",
+      "configurePreset": "android-release"
+    },
+    {
       "name": "ios-simulator-debug-classic",
       "configurePreset": "ios-simulator-debug-classic"
     },
     {
       "name": "android-debug-classic",
       "configurePreset": "android-debug-classic"
+    },
+    {
+      "name": "android-release-classic",
+      "configurePreset": "android-release-classic"
     },
     {
       "name": "ios-device-debug",

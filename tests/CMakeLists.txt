@@ -1052,6 +1052,22 @@ if(TARGET orkige_player)
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-lua"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_android PROPERTIES SKIP_RETURN_CODE 77)
+
+        # the RELEASE App Bundle (.aab) path: asserts the proto bundle MODULE
+        # structure (the bundletool-free, keystore-free slice). A real signed
+        # .aab needs bundletool + a release keystore (machine-local secrets the
+        # exporter gates on, exercised cert-free by its --selftest); the driver
+        # passes --aab-unsigned-module. SKIPPED (77) without the android tree /
+        # build-tools, like export_android.
+        add_test(NAME export_android_aab
+            COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
+                --repo "${Orkige_SOURCE_DIR}"
+                --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
+                --platform android-aab
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug"
+                --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-aab-lua"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(export_android_aab PROPERTIES SKIP_RETURN_CODE 77)
     endif()
 
     # remote-debug contract: the driver spawns a real player on the falling
@@ -1128,7 +1144,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device
         export_macos_lua export_macos_native
-        export_ios_simulator export_android
+        export_ios_simulator export_android export_android_aab
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
         jumper_selfcheck editor_open_jumper_level render_facade_selfcheck)
     if(TEST ${integration_test})

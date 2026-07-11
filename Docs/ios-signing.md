@@ -3,7 +3,9 @@
 Installing an Orkige game on a **physical iPhone/iPad** (as opposed to the
 simulator) requires the app to be code-signed with an Apple Developer identity
 and a matching provisioning profile. This is the one-time, owner-facing setup.
-Scope here is **development device installs only** - not App Store submission.
+Scope here is **development device installs only**. For **App Store submission**
+(distribution signing + the `.ipa` upload path) see
+[`store-release.md`](store-release.md).
 
 The split is deliberate: the **Team ID** identifies the project and is safe to
 commit; the **signing certificate** and **provisioning profile** are specific to

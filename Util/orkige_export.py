@@ -3,8 +3,14 @@
 "Build Settings" step of the project ladder (python3 stdlib only, same rules
 as the other Util/ generators).
 
-    orkige_export.py --project <dir> --platform macos|ios-simulator|android
+    orkige_export.py --project <dir>
+                     --platform macos|ios-simulator|ios|ios-ipa|android|android-aab
                      --engine-build <preset build dir> [--output <dir>]
+
+The `ios-ipa` and `android-aab` platforms are the STORE-SUBMITTABLE layer (a
+distribution-signed .ipa and a release-signed Android App Bundle); the others
+package device/dev installs. The store paths gate + degrade honestly on this
+machine's absent developer credentials (see Docs/store-release.md).
 
 The exporter never builds the ENGINE - it packages what a preset build tree
 already produced (plus, for native-module projects on macOS, an incremental
@@ -87,6 +93,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
 
 import cook_textures  # sibling Util helper (export-time texture cook)
 import orkige_icons  # sibling Util helper (export-time app-icon generation)
@@ -684,13 +691,17 @@ def export_ios_simulator(project, engine_build, output_dir):
 
 IOS_SIGNING_IDENTITY_ENV = "ORKIGE_IOS_SIGNING_IDENTITY"
 IOS_PROVISIONING_PROFILE_ENV = "ORKIGE_IOS_PROVISIONING_PROFILE"
+# distribution (App Store) signing: a SEPARATE identity + profile from the
+# development pair, also machine-local and never committed.
+IOS_DISTRIBUTION_IDENTITY_ENV = "ORKIGE_IOS_DISTRIBUTION_IDENTITY"
+IOS_DISTRIBUTION_PROFILE_ENV = "ORKIGE_IOS_DISTRIBUTION_PROFILE"
 
 
 def resolve_ios_signing(identity_arg, profile_arg, environ):
-    """resolve (identity, profile) for a signed iOS build: the CLI arg wins,
-    else the environment. Returns a (identity, profile) pair of strings, each
-    empty when unresolved (pure - no filesystem/subprocess, so it is unit-
-    testable without a certificate)."""
+    """resolve (identity, profile) for a signed iOS DEVELOPMENT build: the CLI
+    arg wins, else the environment. Returns a (identity, profile) pair of
+    strings, each empty when unresolved (pure - no filesystem/subprocess, so it
+    is unit-testable without a certificate)."""
     identity = (identity_arg or environ.get(IOS_SIGNING_IDENTITY_ENV, "")
                 ).strip()
     profile = (profile_arg or environ.get(IOS_PROVISIONING_PROFILE_ENV, "")
@@ -698,36 +709,77 @@ def resolve_ios_signing(identity_arg, profile_arg, environ):
     return identity, profile
 
 
-def ios_entitlements(team_id, bundle_id):
-    """the development entitlements dict for a signed device build. Pure - the
-    same input always yields the same dict, so the composition is unit-testable
-    without codesign."""
+def resolve_ios_distribution_signing(identity_arg, profile_arg, environ):
+    """resolve (identity, profile) for a DISTRIBUTION (App Store) build - the
+    distribution certificate + App Store provisioning profile. Same arg-over-env
+    precedence as the development pair; pure, so unit-testable without a cert."""
+    identity = (identity_arg or environ.get(IOS_DISTRIBUTION_IDENTITY_ENV, "")
+                ).strip()
+    profile = (profile_arg or environ.get(IOS_DISTRIBUTION_PROFILE_ENV, "")
+               ).strip()
+    return identity, profile
+
+
+def ios_entitlements(team_id, bundle_id, for_distribution=False):
+    """the entitlements dict for a signed iOS build. Development builds set
+    get-task-allow (the debugger attaches); a DISTRIBUTION build clears it (the
+    App Store rejects get-task-allow=true). Pure - the same input always yields
+    the same dict, so the composition is unit-testable without codesign."""
     app_identifier = ((team_id + "." + bundle_id) if team_id else bundle_id)
     return {
         "application-identifier": app_identifier,
         "com.apple.developer.team-identifier": team_id,
-        "get-task-allow": True,  # development builds allow the debugger to attach
+        # development attaches a debugger; distribution must NOT (App Store gate)
+        "get-task-allow": not for_distribution,
     }
 
 
-def export_ios(project, engine_build, output_dir, identity, profile):
-    """package + codesign a device .app. Requires an arm64-ios (device, not
-    simulator) player build - the ios-device-debug / ios-device-release presets
-    produce it. The signing (entitlements, embedded profile, inside-out codesign
-    order) runs here with the resolved identity/profile; the owner-side setup is
-    in Docs/ios-signing.md."""
-    if project.native_target():
-        fail("project '%s' has a native module - mobile native builds are "
-             "future work" % project.name)
-    if not os.path.isfile(profile):
-        fail("provisioning profile '%s' does not exist" % profile)
+def ipa_arcname(app_dir, file_path):
+    """the archive name of a bundle file inside an .ipa: Payload/<App>.app/...
+    (an .ipa is a zip whose single top-level dir is Payload/). Pure, so the
+    layout is unit-testable without a real signed app."""
+    return os.path.join("Payload", os.path.basename(app_dir),
+                        os.path.relpath(file_path, app_dir))
+
+
+def package_ipa(app_dir, ipa_path):
+    """zip a (signed) .app into an .ipa under Payload/ - the App Store upload
+    container. Regular files only; the iOS device bundle is flat (no macOS-style
+    version symlinks)."""
+    if os.path.exists(ipa_path):
+        os.remove(ipa_path)
+    with zipfile.ZipFile(ipa_path, "w", zipfile.ZIP_DEFLATED) as ipa:
+        for parent, _, files in os.walk(app_dir):
+            for name in files:
+                full = os.path.join(parent, name)
+                if os.path.islink(full):
+                    continue
+                ipa.write(full, ipa_arcname(app_dir, full))
+    return ipa_path
+
+
+def require_ios_device_app(engine_build):
+    """the arm64-ios (device, not simulator) OrkigePlayer.app the ios-device-*
+    presets build; fail()s honestly when absent."""
     source_app = os.path.join(engine_build, "tools", "player",
                               "OrkigePlayer.app")
     if not os.path.isdir(source_app):
-        fail("no device OrkigePlayer.app at '%s' - a signed device install "
+        fail("no device OrkigePlayer.app at '%s' - a signed device/store build "
              "needs an arm64-ios (device, not simulator) player build; "
              "configure + build the ios-device-debug (or -release) preset "
              "first (see Docs/ios-signing.md)" % source_app)
+    return source_app
+
+
+def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
+                            for_distribution):
+    """assemble the project into the device player bundle and codesign it
+    inside-out with the resolved identity/profile. Shared by the development
+    device export and the distribution .ipa export - the ONLY difference is the
+    entitlements' get-task-allow (cleared for distribution). Returns the signed
+    .app dir."""
+    if not os.path.isfile(profile):
+        fail("provisioning profile '%s' does not exist" % profile)
     bundle_id = project.settings.get(
         "export.ios.bundleId", "com.orkitec." + project.id_slug)
     team_id = project.settings.get("export.ios.teamId", "").strip()
@@ -768,7 +820,8 @@ def export_ios(project, engine_build, output_dir, identity, profile):
     shutil.copy2(profile, os.path.join(app_dir, "embedded.mobileprovision"))
     entitlements_path = os.path.join(output_dir, "entitlements.plist")
     with open(entitlements_path, "wb") as handle:
-        plistlib.dump(ios_entitlements(team_id, bundle_id), handle)
+        plistlib.dump(ios_entitlements(team_id, bundle_id, for_distribution),
+                      handle)
 
     # sign inside-out: nested dylibs/frameworks first, then the bundle (the same
     # order the macOS self-contain step respects)
@@ -781,13 +834,127 @@ def export_ios(project, engine_build, output_dir, identity, profile):
          "--entitlements", entitlements_path, "--generate-entitlement-der",
          app_dir])
     os.remove(entitlements_path)
-    log("signed with identity '%s' (team %s)" % (identity, team_id or "?"))
+    log("signed with identity '%s' (team %s%s)" % (identity, team_id or "?",
+        ", distribution" if for_distribution else ", development"))
+    return app_dir
+
+
+def export_ios(project, engine_build, output_dir, identity, profile):
+    """package + development-codesign a device .app for a direct device install.
+    Requires an arm64-ios (device, not simulator) player build; the owner-side
+    setup is in Docs/ios-signing.md."""
+    if project.native_target():
+        fail("project '%s' has a native module - mobile native builds are "
+             "future work" % project.name)
+    source_app = require_ios_device_app(engine_build)
+    app_dir = build_signed_ios_bundle(project, source_app, output_dir,
+                                      identity, profile, for_distribution=False)
     log("install: xcrun devicectl device install app --device <udid> '%s'"
         % app_dir)
     return app_dir
 
 
+def export_ios_ipa(project, engine_build, output_dir, identity, profile):
+    """package + DISTRIBUTION-codesign a device .app and wrap it into an .ipa -
+    the App Store Connect upload container. Requires a distribution certificate
+    + an App Store provisioning profile (this machine has neither, so the caller
+    gates on their presence); the owner-side setup + upload step are in
+    Docs/store-release.md."""
+    if project.native_target():
+        fail("project '%s' has a native module - mobile native builds are "
+             "future work" % project.name)
+    source_app = require_ios_device_app(engine_build)
+    app_dir = build_signed_ios_bundle(project, source_app, output_dir,
+                                      identity, profile, for_distribution=True)
+    ipa_path = os.path.join(output_dir, project.exe_name + ".ipa")
+    package_ipa(app_dir, ipa_path)
+    log("artifact %s" % ipa_path)
+    log("upload: xcrun altool --upload-package '%s' --type ios "
+        "--apple-id <app-id> --bundle-id <bundle-id> "
+        "--apiKey <key> --apiIssuer <issuer> (see Docs/store-release.md)"
+        % ipa_path)
+    return ipa_path
+
+
 # --- Android ---------------------------------------------------------------
+# Release-bundle signing config, all machine-local and never committed: the
+# keystore + its passwords come from CLI args or the environment (like the iOS
+# identity/profile). bundletool is a separate download (NOT part of the SDK
+# build-tools), also resolved from arg/env/PATH. Google Play's current
+# target-SDK floor for new uploads.
+ANDROID_KEYSTORE_ENV = "ORKIGE_ANDROID_KEYSTORE"
+ANDROID_KEY_ALIAS_ENV = "ORKIGE_ANDROID_KEY_ALIAS"
+ANDROID_KEYSTORE_PASS_ENV = "ORKIGE_ANDROID_KEYSTORE_PASS"
+ANDROID_KEY_PASS_ENV = "ORKIGE_ANDROID_KEY_PASS"
+BUNDLETOOL_ENV = "ORKIGE_BUNDLETOOL"
+PLAY_TARGET_SDK_FLOOR = 35
+
+
+def android_version(settings):
+    """(versionCode:int, versionName:str) for a release bundle from the manifest
+    settings export.android.versionCode / .versionName. versionCode must be a
+    positive integer - Google Play requires a STRICTLY INCREASING integer across
+    uploads (see Docs/store-release.md). Pure (no I/O), so it is unit-testable;
+    raises ValueError on a malformed versionCode - the caller turns that into a
+    fail()."""
+    code_text = (settings.get("export.android.versionCode", "") or "").strip()
+    code_text = code_text or "1"
+    if not re.fullmatch(r"[0-9]+", code_text) or int(code_text) < 1:
+        raise ValueError(
+            "export.android.versionCode '%s' is not a positive integer "
+            "(Google Play requires a strictly increasing integer version code "
+            "- see Docs/store-release.md)" % code_text)
+    name = (settings.get("export.android.versionName", "") or "").strip() or "1.0"
+    return int(code_text), name
+
+
+def resolve_android_keystore(keystore_arg, alias_arg, environ):
+    """resolve the release keystore + alias for a signed .aab: the CLI arg wins,
+    else the environment. Passwords are NOT returned - they stay in the
+    environment (ORKIGE_ANDROID_KEYSTORE_PASS / _KEY_PASS) and are read straight
+    by jarsigner via -storepass:env, so no secret ever reaches a command line.
+    Returns (keystore, alias, has_store_pass) - keystore/alias empty when
+    unresolved. Pure (only reads the passed environ), so unit-testable without a
+    keystore."""
+    keystore = (keystore_arg or environ.get(ANDROID_KEYSTORE_ENV, "")).strip()
+    alias = (alias_arg or environ.get(ANDROID_KEY_ALIAS_ENV, "")).strip()
+    has_store_pass = bool((environ.get(ANDROID_KEYSTORE_PASS_ENV, "") or "").strip())
+    return keystore, alias, has_store_pass
+
+
+def resolve_bundletool(bundletool_arg, environ, which=shutil.which):
+    """resolve the bundletool jar: the CLI arg wins, else ORKIGE_BUNDLETOOL, else
+    a `bundletool` launcher on PATH. Returns the path (or launcher name) or an
+    empty string when unresolved. `which` is injectable so the arg/env
+    precedence is unit-testable without bundletool installed."""
+    explicit = (bundletool_arg or environ.get(BUNDLETOOL_ENV, "")).strip()
+    if explicit:
+        return explicit
+    return which("bundletool") or ""
+
+
+def stage_android_res(project, output_dir):
+    """stage the launcher-icon res/ tree + resolve the launch-screen colour,
+    shared by the APK and the App Bundle paths. Returns (res_dir, launch_color)."""
+    res_dir = os.path.join(output_dir, "res-staging")
+    if os.path.exists(res_dir):
+        shutil.rmtree(res_dir)
+    icon_source = orkige_icons.load_square_source(
+        orkige_icons.resolve_icon_source(project, log=log))
+    orkige_icons.make_android_mipmaps(icon_source, res_dir)
+    return res_dir, launch_background(project)
+
+
+def android_package_name(project):
+    """the validated Android package name from export.android.package (default
+    com.orkitec.<slug>); fail()s on a malformed value."""
+    package = project.settings.get(
+        "export.android.package", "com.orkitec." + project.id_slug)
+    if not re.fullmatch(r"[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+", package):
+        fail("'%s' is not a valid Android package name "
+             "(export.android.package)" % package)
+    return package
+
 
 def export_android(project, engine_build, output_dir):
     if project.native_target():
@@ -804,21 +971,11 @@ def export_android(project, engine_build, output_dir):
         shutil.rmtree(payload_dir)
     staged = stage_project_payload(project, payload_dir, "android")
     log("project payload: %d files" % staged)
-    package = project.settings.get(
-        "export.android.package", "com.orkitec." + project.id_slug)
-    if not re.fullmatch(r"[a-zA-Z_][\w]*(\.[a-zA-Z_][\w]*)+", package):
-        fail("'%s' is not a valid Android package name "
-             "(export.android.package)" % package)
+    package = android_package_name(project)
 
     # app icon (launcher mipmaps) + launch-screen colour: stage a res/ tree the
     # packager compiles with aapt2. The launcher label is the project name.
-    res_dir = os.path.join(output_dir, "res-staging")
-    if os.path.exists(res_dir):
-        shutil.rmtree(res_dir)
-    icon_source = orkige_icons.load_square_source(
-        orkige_icons.resolve_icon_source(project, log=log))
-    orkige_icons.make_android_mipmaps(icon_source, res_dir)
-    launch_color = launch_background(project)
+    res_dir, launch_color = stage_android_res(project, output_dir)
 
     apk_path = os.path.join(output_dir, project.exe_name + ".apk")
     run(["bash",
@@ -839,6 +996,107 @@ def export_android(project, engine_build, output_dir):
     return apk_path
 
 
+def export_android_bundle(project, engine_build, output_dir, args, environ):
+    """package a RELEASE Android App Bundle (.aab) - the Google-Play-submittable
+    artifact. Drives tools/player/android/build_aab.sh against the engine tree
+    (a build/android-release tree is preferred for an optimized libmain.so; a
+    Debug tree packages too, with a warning). Two modes:
+
+      - module-only (args.aab_unsigned_module): produce ONLY the proto bundle
+        module (no bundletool, no keystore) - the structural / CI slice.
+      - signed (default): require a resolvable bundletool jar AND a release
+        keystore, then build-bundle + jarsigner. Absent either, it REFUSES and
+        produces nothing (the honest gate, like the iOS device path).
+    """
+    if project.native_target():
+        fail("project '%s' has a native module ('%s') - native modules are "
+             "desktop-only for now, mobile native builds are future work"
+             % (project.name, project.native_target()))
+    native_lib = os.path.join(engine_build, "tools", "player", "libmain.so")
+    if not os.path.isfile(native_lib):
+        fail("no libmain.so at '%s' - build the android-release (or "
+             "android-debug) preset first" % native_lib)
+    if read_cmake_cache(engine_build, "CMAKE_BUILD_TYPE") != "Release":
+        warn("engine tree '%s' is a %s build - the release bundle will carry a "
+             "non-optimized libmain.so; build the android-release preset for a "
+             "shippable bundle" % (engine_build,
+             read_cmake_cache(engine_build, "CMAKE_BUILD_TYPE") or "?"))
+
+    package = android_package_name(project)
+    try:
+        version_code, version_name = android_version(project.settings)
+    except ValueError as error:
+        fail(str(error))
+    log("release bundle: versionCode %d, versionName %s"
+        % (version_code, version_name))
+
+    module_only = bool(getattr(args, "aab_unsigned_module", False))
+    keystore, alias, has_store_pass = resolve_android_keystore(
+        args.android_keystore, args.android_key_alias, environ)
+    bundletool = resolve_bundletool(args.bundletool, environ)
+    if not module_only:
+        # the honest gate: a signed, submittable .aab needs both, so refuse and
+        # produce nothing rather than a half-artifact (mirrors the iOS gate)
+        missing = []
+        if not bundletool:
+            missing.append("a bundletool jar (--bundletool / " + BUNDLETOOL_ENV
+                           + " / a `bundletool` on PATH)")
+        if not keystore:
+            missing.append("a release keystore (--android-keystore / "
+                           + ANDROID_KEYSTORE_ENV + ")")
+        if keystore and not alias:
+            missing.append("a key alias (--android-key-alias / "
+                           + ANDROID_KEY_ALIAS_ENV + ")")
+        if keystore and not has_store_pass:
+            missing.append("the keystore password (" + ANDROID_KEYSTORE_PASS_ENV
+                           + ")")
+        if missing:
+            fail("a signed Android App Bundle needs " + "; ".join(missing)
+                 + ". See Docs/store-release.md for the one-time setup, or pass "
+                 "--aab-unsigned-module to build just the unsigned bundle "
+                 "module for inspection/CI.")
+
+    payload_dir = os.path.join(output_dir, "payload-staging")
+    if os.path.exists(payload_dir):
+        shutil.rmtree(payload_dir)
+    staged = stage_project_payload(project, payload_dir, "android")
+    log("project payload: %d files" % staged)
+    res_dir, launch_color = stage_android_res(project, output_dir)
+
+    if module_only:
+        artifact = os.path.join(output_dir, project.exe_name + ".aab.module.zip")
+    else:
+        artifact = os.path.join(output_dir, project.exe_name + ".aab")
+    command = ["bash",
+               os.path.join(REPO_ROOT, "tools", "player", "android",
+                            "build_aab.sh"),
+               "--project-payload", payload_dir,
+               "--package", package,
+               "--label", project.name,
+               "--res-dir", res_dir,
+               "--launch-color", launch_color,
+               "--version-code", str(version_code),
+               "--version-name", version_name,
+               "--output", artifact,
+               engine_build]
+    if module_only:
+        command.append("--module-only")
+    else:
+        command += ["--keystore", keystore, "--key-alias", alias,
+                    "--bundletool", bundletool]
+    run(command)
+    shutil.rmtree(payload_dir, ignore_errors=True)
+    shutil.rmtree(res_dir, ignore_errors=True)
+    if not os.path.isfile(artifact):
+        fail("build_aab.sh produced no '%s'" % artifact)
+    if module_only:
+        log("unsigned bundle module (NOT submittable) - see Docs/store-release.md")
+    else:
+        log("upload: submit '%s' to Google Play (see Docs/store-release.md)"
+            % artifact)
+    return artifact
+
+
 # --- entry point -----------------------------------------------------------
 
 def main():
@@ -847,7 +1105,8 @@ def main():
     parser.add_argument("--project", required=True,
                         help="project directory (or its .orkproj)")
     parser.add_argument("--platform", required=True,
-                        choices=["macos", "ios-simulator", "ios", "android"])
+                        choices=["macos", "ios-simulator", "ios", "ios-ipa",
+                                 "android", "android-aab"])
     parser.add_argument("--engine-build", required=True,
                         help="the preset build tree to package from (either "
                              "render flavor; the bundled engine media follows "
@@ -871,6 +1130,29 @@ def main():
     parser.add_argument("--provisioning-profile", default="",
                         help="path to the .mobileprovision (or env "
                              + IOS_PROVISIONING_PROFILE_ENV + ")")
+    # iOS distribution signing (--platform ios-ipa): the App Store cert + profile
+    parser.add_argument("--distribution-identity", default="",
+                        help="iOS distribution codesigning identity (or env "
+                             + IOS_DISTRIBUTION_IDENTITY_ENV + ")")
+    parser.add_argument("--distribution-profile", default="",
+                        help="path to the App Store .mobileprovision (or env "
+                             + IOS_DISTRIBUTION_PROFILE_ENV + ")")
+    # Android release bundle signing (--platform android-aab): machine-local
+    parser.add_argument("--android-keystore", default="",
+                        help="release keystore path (or env "
+                             + ANDROID_KEYSTORE_ENV + "); passwords stay in "
+                             + ANDROID_KEYSTORE_PASS_ENV + "/"
+                             + ANDROID_KEY_PASS_ENV)
+    parser.add_argument("--android-key-alias", default="",
+                        help="release key alias (or env " + ANDROID_KEY_ALIAS_ENV
+                             + ")")
+    parser.add_argument("--bundletool", default="",
+                        help="bundletool jar path (or env " + BUNDLETOOL_ENV
+                             + ", or a `bundletool` on PATH)")
+    parser.add_argument("--aab-unsigned-module", action="store_true",
+                        help="android-aab: build only the unsigned proto bundle "
+                             "module (no bundletool/keystore) - for "
+                             "inspection/CI, NOT submittable")
     args = parser.parse_args()
 
     project = Project(args.project)
@@ -899,6 +1181,20 @@ def main():
                  + ", or use --platform ios-simulator. See Docs/ios-signing.md")
         artifact = export_ios(project, engine_build, output_dir,
                               identity, profile)
+    elif args.platform == "ios-ipa":
+        identity, profile = resolve_ios_distribution_signing(
+            args.distribution_identity, args.distribution_profile, os.environ)
+        if not identity or not profile:
+            fail("App Store .ipa export needs a DISTRIBUTION codesigning "
+                 "identity AND an App Store provisioning profile. Set "
+                 "--distribution-identity/" + IOS_DISTRIBUTION_IDENTITY_ENV
+                 + " and --distribution-profile/" + IOS_DISTRIBUTION_PROFILE_ENV
+                 + ". See Docs/store-release.md")
+        artifact = export_ios_ipa(project, engine_build, output_dir,
+                                  identity, profile)
+    elif args.platform == "android-aab":
+        artifact = export_android_bundle(project, engine_build, output_dir,
+                                         args, os.environ)
     else:
         artifact = export_android(project, engine_build, output_dir)
 
@@ -919,6 +1215,11 @@ def selftest():
     # no team id -> the bundle id stands alone (still a valid entitlements dict)
     assert ios_entitlements("", "com.example.game")["application-identifier"] \
         == "com.example.game", "app-identifier without a team id"
+    # distribution entitlements clear get-task-allow (the App Store rejects it)
+    dist = ios_entitlements("ABCDE12345", "com.example.game",
+                            for_distribution=True)
+    assert dist["get-task-allow"] is False, "distribution clears get-task-allow"
+    assert dist["application-identifier"] == "ABCDE12345.com.example.game"
 
     # resolution precedence: arg beats env, env fills a blank arg, both blank
     # stays blank (the gate then refuses)
@@ -941,6 +1242,67 @@ def selftest():
         IOS_SIGNING_IDENTITY_ENV: "  ",
         IOS_PROVISIONING_PROFILE_ENV: "  "}) == ("", ""), \
         "whitespace-only env -> blank"
+
+    # distribution signing resolves off its OWN env pair (independent of the
+    # development one), same arg-over-env precedence
+    ident, profile = resolve_ios_distribution_signing("", "", {
+        IOS_DISTRIBUTION_IDENTITY_ENV: "dist-id",
+        IOS_DISTRIBUTION_PROFILE_ENV: "AppStore.mobileprovision"})
+    assert (ident, profile) == ("dist-id", "AppStore.mobileprovision"), \
+        "distribution env"
+    assert resolve_ios_distribution_signing("cli", "", {}) == ("cli", ""), \
+        "distribution arg wins"
+    assert resolve_ios_distribution_signing("", "", {
+        IOS_SIGNING_IDENTITY_ENV: "dev-id"}) == ("", ""), \
+        "distribution ignores the development env"
+
+    # .ipa layout: every bundle file lands under Payload/<App>.app/...
+    assert ipa_arcname("/out/MyGame.app", "/out/MyGame.app/Info.plist") == \
+        os.path.join("Payload", "MyGame.app", "Info.plist"), "ipa top-level"
+    assert ipa_arcname("/out/MyGame.app",
+                       "/out/MyGame.app/Frameworks/libx.dylib") == \
+        os.path.join("Payload", "MyGame.app", "Frameworks", "libx.dylib"), \
+        "ipa nested"
+
+    # Android release version: a positive integer versionCode passes; a
+    # missing one defaults to 1; a non-integer or non-positive one raises
+    assert android_version({"export.android.versionCode": "7",
+                            "export.android.versionName": "1.2.3"}) == \
+        (7, "1.2.3"), "explicit version"
+    assert android_version({}) == (1, "1.0"), "version defaults"
+    # a whitespace-only versionCode is treated as absent -> default 1
+    assert android_version({"export.android.versionCode": "  "}) == (1, "1.0"), \
+        "blank versionCode defaults"
+    for bad in ("0", "-1", "1.0", "v3", "abc"):
+        try:
+            android_version({"export.android.versionCode": bad})
+            assert False, "versionCode '%s' should have raised" % bad
+        except ValueError:
+            pass
+
+    # Android keystore resolution: arg over env, passwords stay in the env
+    ks, alias, has_pass = resolve_android_keystore("cli.jks", "cliAlias", {
+        ANDROID_KEYSTORE_ENV: "env.jks", ANDROID_KEY_ALIAS_ENV: "envAlias",
+        ANDROID_KEYSTORE_PASS_ENV: "secret"})
+    assert (ks, alias, has_pass) == ("cli.jks", "cliAlias", True), \
+        "keystore args win, store pass detected"
+    ks, alias, has_pass = resolve_android_keystore("", "", {
+        ANDROID_KEYSTORE_ENV: "env.jks", ANDROID_KEY_ALIAS_ENV: "envAlias"})
+    assert (ks, alias, has_pass) == ("env.jks", "envAlias", False), \
+        "keystore env fallback, no store pass"
+    assert resolve_android_keystore("", "", {}) == ("", "", False), \
+        "keystore unresolved stays blank"
+
+    # bundletool resolution: arg > env > a `which` hit; the `which` is injected
+    assert resolve_bundletool("cli.jar", {}, which=lambda _: None) == "cli.jar", \
+        "bundletool arg wins"
+    assert resolve_bundletool("", {BUNDLETOOL_ENV: "env.jar"},
+                              which=lambda _: None) == "env.jar", \
+        "bundletool env fallback"
+    assert resolve_bundletool("", {}, which=lambda _: "/opt/bin/bundletool") == \
+        "/opt/bin/bundletool", "bundletool from PATH"
+    assert resolve_bundletool("", {}, which=lambda _: None) == "", \
+        "bundletool unresolved stays blank"
 
     # launch-background validation: a good hex passes, a bad/absent one defaults
     class _Stub:

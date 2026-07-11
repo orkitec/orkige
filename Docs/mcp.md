@@ -601,6 +601,17 @@ tool and no new schema field are needed; the export verb already surfaces these
 honestly. (A signed `ios` device platform is not yet an `export_project` enum
 value — it lands as a one-line enum addition once a device player build exists.)
 
+**Store packaging stays CLI-only, deliberately.** The store-submittable
+platforms (`android-aab` — a release-signed Android App Bundle; `ios-ipa` — a
+distribution-signed `.ipa`) are NOT `export_project` enum values. They require
+machine-local secrets — a release keystore + its passwords, an Apple
+distribution certificate + App Store profile — that a remote agent does not (and
+should not) hold, so a store verb over MCP could never do more than gate. The
+gating logic itself (version-code/keystore config validation, the honest refusal
+when a credential is missing) lives in `Util/orkige_export.py` and is exercised
+cert-free by its `--selftest`; run store packaging from the shell, where the
+secrets live. See `Docs/store-release.md`.
+
 ## Dirty-state policy
 
 Destructive verbs (`new_scene`, `open_scene`, `open_project`, `new_project`,
