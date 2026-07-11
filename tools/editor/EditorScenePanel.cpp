@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 // (re)size the scene RTT: first call creates it (camera + editor viewport
 // state), later calls resize-by-recreate behind the facade - the ImGui
@@ -77,6 +78,10 @@ static const float EDITOR_2D_FAR = 2000.0f;
 // camera near/far the boot block documents, 1 / 100000)
 static const float EDITOR_PERSPECTIVE_NEAR = 1.0f;
 static const float EDITOR_PERSPECTIVE_FAR = 100000.0f;
+// marquee (rubber-band) select: pixels the cursor must travel from the press
+// point before a left-drag on empty space becomes a band select rather than a
+// plain click (content-scaled by the caller)
+static const float MARQUEE_DRAG_THRESHOLD = 4.0f;
 
 // 2D editor mode: point the editor's own camera straight down the -Z
 // axis at the XY plane and switch it to orthographic. Identity orientation IS
@@ -279,6 +284,143 @@ bool pickGameObjectThroughScenePanel(Orkige::EditorCore& core,
 	return true;
 }
 
+// non-mutating variant of the pick ray-cast: does the cursor ray hit ANY
+// GameObject? The marquee uses it at press time to tell an on-object click
+// (which selects that object) from an empty-space click (which begins a
+// rubber-band). Mirrors pickObjectAtCursor's hit walk without touching the
+// selection.
+static bool rayHitsGameObject(Orkige::RenderCamera const& camera,
+	float normalizedX, float normalizedY)
+{
+	const Orkige::Ray3 ray = camera.viewportPointToRay(normalizedX, normalizedY);
+	for (Orkige::RenderWorld::RayQueryHit const& hit :
+		Orkige::RenderSystem::get()->getWorld()->queryRay(ray))
+	{
+		if (!hit.userPointer)
+		{
+			continue;
+		}
+		if (static_cast<Orkige::TransformComponent*>(hit.userPointer)
+				->getComponentOwner())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// project a GameObject's world bounds to a screen-space rectangle inside the
+// Scene image (render-target pixels). Uses the object's world AABB when it is
+// finite, falling back to its world position as a zero-size point rect (an
+// object with no renderable bounds is still band-selectable by its origin).
+// Returns false only when nothing projects in front of the camera.
+static bool projectObjectScreenRect(Orkige::TransformComponent* transform,
+	Orkige::RenderCamera const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, Orkige::ScreenRect& out)
+{
+	std::vector<Orkige::Vec3> samples;
+	const Orkige::AABB box = transform->getWorldAABB();
+	if (box.isFinite() && !box.isNull())
+	{
+		const Orkige::Vec3 mn = box.getMinimum();
+		const Orkige::Vec3 mx = box.getMaximum();
+		samples.reserve(8);
+		for (int corner = 0; corner < 8; ++corner)
+		{
+			samples.push_back(Orkige::Vec3((corner & 1) ? mx.x : mn.x,
+				(corner & 2) ? mx.y : mn.y, (corner & 4) ? mx.z : mn.z));
+		}
+	}
+	else
+	{
+		samples.push_back(transform->getWorldPosition());
+	}
+
+	bool any = false;
+	float minX = 0.0f;
+	float minY = 0.0f;
+	float maxX = 0.0f;
+	float maxY = 0.0f;
+	for (Orkige::Vec3 const& point : samples)
+	{
+		Orkige::Real nx = 0.0f;
+		Orkige::Real ny = 0.0f;
+		if (!camera.projectPoint(point, nx, ny))
+		{
+			continue;	// behind the camera - skip this sample
+		}
+		const float sx = rectMin.x + nx * rectSize.x;
+		const float sy = rectMin.y + ny * rectSize.y;
+		if (!any)
+		{
+			minX = maxX = sx;
+			minY = maxY = sy;
+			any = true;
+		}
+		else
+		{
+			minX = std::min(minX, sx);
+			minY = std::min(minY, sy);
+			maxX = std::max(maxX, sx);
+			maxY = std::max(maxY, sy);
+		}
+	}
+	if (!any)
+	{
+		return false;
+	}
+	out = Orkige::ScreenRect{ minX, minY, maxX, maxY };
+	return true;
+}
+
+Orkige::StringVector objectsInMarquee(Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, Orkige::ScreenRect const& marquee)
+{
+	Orkige::StringVector hits;
+	if (rectSize.x < 1.0f || rectSize.y < 1.0f)
+	{
+		return hits;
+	}
+	for (auto const& [id, gameObject] :
+		core.getGameObjectManager().getGameObjects())
+	{
+		if (!gameObject ||
+			!gameObject->hasComponent<Orkige::TransformComponent>())
+		{
+			continue;
+		}
+		// band-select ROOT objects only (like most DCC tools): a prefab
+		// instance is picked as a whole, never its internal children
+		if (!gameObject->getParentId().empty())
+		{
+			continue;
+		}
+		Orkige::ScreenRect bounds;
+		if (projectObjectScreenRect(
+				gameObject->getComponentPtr<Orkige::TransformComponent>(),
+				*camera, rectMin, rectSize, bounds) &&
+			Orkige::screenRectsIntersect(bounds, marquee))
+		{
+			hits.push_back(id);
+		}
+	}
+	return hits;
+}
+
+void applyMarqueeSelection(Orkige::EditorCore& core,
+	Orkige::StringVector const& hits, bool extend)
+{
+	if (!extend)
+	{
+		core.clearSelection();
+	}
+	for (Orkige::String const& id : hits)
+	{
+		core.addToSelection(id);
+	}
+}
+
 namespace
 {
 
@@ -469,6 +611,10 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				avail);
 			const ImVec2 rectMin = ImGui::GetItemRectMin();
 			state.scenePanelHovered = ImGui::IsItemHovered();
+			// record the image's screen rect (render-target pixels) so the
+			// selfchecks can synthesise mouse events at known viewport positions
+			state.sceneImageMin = rectMin;
+			state.sceneImageSize = avail;
 			// Asset browser drop: a mesh/texture/prefab dragged from the
 			// Assets panel onto the viewport instantiates at the origin
 			// (ray/ground-plane placement is deferred - origin on the
@@ -476,7 +622,8 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 			// local scene (the panels show the remote scene during play).
 			if (editMode)
 			{
-				handleAssetDropTarget(state, core);
+				handleSceneDropTarget(state, core, sceneTarget.camera,
+					rectMin, avail, viewSettings.editor2D);
 			}
 			// gizmo first: while it is hovered/dragged the click-pick and
 			// the camera drags stand down (input priority). Editing the
@@ -562,17 +709,39 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				if (!paintOwnsMouse &&
 					ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 				{
-					// Cmd/Ctrl+click toggles selection-set membership
-					pickObjectAtCursor(core, sceneTarget.camera,
-						(io.MousePos.x - rectMin.x) / avail.x,
-						(io.MousePos.y - rectMin.y) / avail.y,
-						io.KeySuper || io.KeyCtrl);
-					// double-click: the pick above selected the
-					// hit - frame it too (a double-click on empty space just
-					// cleared the selection; frameSelectedObject no-ops then)
-					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					const float nx = (io.MousePos.x - rectMin.x) / avail.x;
+					const float ny = (io.MousePos.y - rectMin.y) / avail.y;
+					// marquee tools (Select/Translate): a press on EMPTY space
+					// arms a rubber-band box select; a press ON an object falls
+					// through to the pick below (a Translate gizmo already owns
+					// the mouse before we get here when the object is hovered).
+					// Screen-space band test, so it works under both projections.
+					const Orkige::EditorTool tool = core.getActiveTool();
+					const bool marqueeTool =
+						(tool == Orkige::EditorTool::Select ||
+							tool == Orkige::EditorTool::Translate);
+					if (marqueeTool &&
+						!rayHitsGameObject(*sceneTarget.camera, nx, ny))
 					{
-						frameSelectedObject(state, core, sceneTarget.camera);
+						state.marqueePending = true;
+						state.marqueeActive = false;
+						state.marqueeExtend =
+							io.KeySuper || io.KeyCtrl || io.KeyShift;
+						state.marqueeStart = io.MousePos;
+						state.marqueeCurrent = io.MousePos;
+					}
+					else
+					{
+						// Cmd/Ctrl+click toggles selection-set membership
+						pickObjectAtCursor(core, sceneTarget.camera, nx, ny,
+							io.KeySuper || io.KeyCtrl);
+						// double-click: the pick above selected the hit - frame
+						// it too (a double-click on empty space just cleared the
+						// selection; frameSelectedObject no-ops then)
+						if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						{
+							frameSelectedObject(state, core, sceneTarget.camera);
+						}
 					}
 				}
 				if (io.MouseWheel != 0.0f && !state.flyActive)
@@ -712,6 +881,54 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 								-io.MouseDelta.x / contentScale * panScale,
 								io.MouseDelta.y / contentScale * panScale, 0.0f);
 					}
+				}
+			}
+			// marquee (rubber-band) box select: continues while the left
+			// button is held, even if the cursor leaves the panel mid-drag
+			// (like the camera drags above). A press that never travels past
+			// the drag threshold falls back to the plain empty-space deselect.
+			if (state.marqueePending)
+			{
+				state.marqueeCurrent = io.MousePos;
+				if (!state.marqueeActive && Orkige::marqueeIsDrag(
+						state.marqueeStart.x, state.marqueeStart.y,
+						state.marqueeCurrent.x, state.marqueeCurrent.y,
+						MARQUEE_DRAG_THRESHOLD * contentScale))
+				{
+					state.marqueeActive = true;
+				}
+				if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+				{
+					if (state.marqueeActive)
+					{
+						const Orkige::ScreenRect box =
+							Orkige::screenRectFromCorners(
+								state.marqueeStart.x, state.marqueeStart.y,
+								state.marqueeCurrent.x, state.marqueeCurrent.y);
+						applyMarqueeSelection(core, objectsInMarquee(core,
+							sceneTarget.camera, rectMin, avail, box),
+							state.marqueeExtend);
+					}
+					else if (!state.marqueeExtend)
+					{
+						// empty-space click with no drag: clear the selection
+						// (what the plain pick used to do on empty space)
+						core.clearSelection();
+					}
+					state.marqueePending = false;
+					state.marqueeActive = false;
+				}
+				else if (state.marqueeActive)
+				{
+					ImDrawList* drawList = ImGui::GetWindowDrawList();
+					const ImVec2 a(
+						std::min(state.marqueeStart.x, state.marqueeCurrent.x),
+						std::min(state.marqueeStart.y, state.marqueeCurrent.y));
+					const ImVec2 b(
+						std::max(state.marqueeStart.x, state.marqueeCurrent.x),
+						std::max(state.marqueeStart.y, state.marqueeCurrent.y));
+					drawList->AddRectFilled(a, b, IM_COL32(90, 150, 240, 40));
+					drawList->AddRect(a, b, IM_COL32(120, 175, 255, 220));
 				}
 			}
 			if (viewSettings.editor2D)

@@ -49,6 +49,93 @@ namespace
 		}
 		return tags;
 	}
+
+	//! @brief probe a prefab for a representative preview image: instantiate it
+	//! once under a throwaway id, read the first SpriteComponent texture (else
+	//! the first VectorShapeComponent shape), then tear the probe subtree down.
+	//! Runs only at arm time (a palette click / a grid drop) BEFORE any render,
+	//! so nothing draws and no scene/undo state changes. Returns "" for a pure-
+	//! logic prefab with no drawable (the paint tool then shows only the outline).
+	std::string probePrefabPreviewRef(Orkige::EditorCore& core,
+		std::string const& prefabPath)
+	{
+		Orkige::GameObjectManager& gm = core.getGameObjectManager();
+		Orkige::String probeRoot = "__orkige_ghost_probe__";
+		while (gm.objectExists(probeRoot))
+		{
+			probeRoot += "_";
+		}
+		const bool ok = Orkige::PrefabSerializer::instantiatePrefab(prefabPath,
+			gm, probeRoot, Orkige::StringVector()) ==
+			Orkige::PrefabSerializer::INSTANTIATE_OK;
+		const Orkige::StringVector ids = gm.collectSubtreeIds(probeRoot);
+		std::string ref;
+		if (ok)
+		{
+			for (Orkige::String const& id : ids)
+			{
+				std::string value;
+				if (core.getObjectProperty(id, "SpriteComponent", "texture",
+						value) && !value.empty())
+				{
+					ref = value;
+					break;
+				}
+			}
+			if (ref.empty())
+			{
+				for (Orkige::String const& id : ids)
+				{
+					std::string value;
+					if (core.getObjectProperty(id, "VectorShapeComponent",
+							"shape", value) && !value.empty())
+					{
+						ref = value;
+						break;
+					}
+				}
+			}
+		}
+		// teardown: delete leaves-first (collectSubtreeIds is root-first) so no
+		// child is reparented up mid-removal
+		for (auto it = ids.rbegin(); it != ids.rend(); ++it)
+		{
+			gm.delGameObject(*it);
+		}
+		return ref;
+	}
+
+	//! @brief resolve a bare asset ref (texture/shape file name) to an absolute
+	//! path under the open project's assets/, so the thumbnail machinery can load
+	//! it. "" when no project is open or the file is not found.
+	std::string resolvePreviewImagePath(Orkige::Project const& project,
+		std::string const& ref)
+	{
+		if (ref.empty() || !project.isLoaded())
+		{
+			return std::string();
+		}
+		const std::string assetsDir = project.getAssetsDirectory();
+		std::error_code ec;
+		if (assetsDir.empty() || !fs::exists(assetsDir, ec))
+		{
+			return std::string();
+		}
+		for (fs::recursive_directory_iterator it(assetsDir, ec), end;
+			it != end; it.increment(ec))
+		{
+			if (ec)
+			{
+				break;
+			}
+			if (it->is_regular_file(ec) &&
+				it->path().filename().string() == ref)
+			{
+				return it->path().string();
+			}
+		}
+		return std::string();
+	}
 }
 
 bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
@@ -61,6 +148,8 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 		palette.armedPrefabPath.clear();
 		palette.armedPrefabRef.clear();
 		palette.armedPrefabAssetId.clear();
+		palette.previewImageRef.clear();
+		palette.previewImagePath.clear();
 		palette.prefabLocalIds.clear();
 		palette.hasEdgeWalls = false;
 		palette.rootHasTileComponent = false;
@@ -116,6 +205,13 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 	palette.rootHasTileComponent = std::find(rootComponents.begin(),
 		rootComponents.end(), "TileComponent") != rootComponents.end();
 	palette.strokeActive = false;
+
+	// ghost preview: probe the prefab for a representative texture/shape and
+	// resolve it to an absolute path the thumbnail machinery loads (empty for a
+	// pure-logic prefab - the paint tool then falls back to the outline only)
+	palette.previewImageRef = probePrefabPreviewRef(core, absolutePath);
+	palette.previewImagePath =
+		resolvePreviewImagePath(state.project, palette.previewImageRef);
 
 	core.setActiveTool(Orkige::EditorTool::Paint);
 	return true;
@@ -215,6 +311,20 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 			paletteArmPrefab(state, core, armed ? std::string()
 				: item.absolutePath);
 		}
+		// a palette row is ALSO a drag source: dropping it on the 2D grid paints
+		// the drop cell (the Scene panel's handleSceneDropTarget), the same
+		// ORKIGE_ASSET prefab payload the Asset browser emits
+		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+		{
+			AssetDragDropPayload payload;
+			payload.kind = AssetKind::Prefab;
+			SDL_strlcpy(payload.path, item.absolutePath.c_str(),
+				sizeof(payload.path));
+			ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload,
+				sizeof(payload));
+			ImGui::TextUnformatted(stem.c_str());
+			ImGui::EndDragDropSource();
+		}
 	}
 	ImGui::EndChild();
 
@@ -296,6 +406,23 @@ bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (onScreen)
 	{
+		// ghost preview: the armed prefab's texture/shape thumbnail, drawn in the
+		// hovered cell at ~50% alpha under the outline (corners run bottom-left,
+		// bottom-right, top-right, top-left in world XY; the image's top row maps
+		// to the cell's +Y edge). Falls back to the outline alone when the prefab
+		// has no drawable preview (previewImagePath empty / not yet cached).
+		if (!palette.previewImagePath.empty())
+		{
+			const ImTextureID ghost =
+				assetThumbnailFor(state, palette.previewImagePath);
+			if (ghost)
+			{
+				drawList->AddImageQuad(ghost, corners[3], corners[2],
+					corners[1], corners[0], ImVec2(0.0f, 0.0f),
+					ImVec2(1.0f, 0.0f), ImVec2(1.0f, 1.0f), ImVec2(0.0f, 1.0f),
+					IM_COL32(255, 255, 255, 128));
+			}
+		}
 		drawList->AddQuad(corners[0], corners[1], corners[2], corners[3],
 			IM_COL32(255, 220, 80, 220), 2.0f);
 	}

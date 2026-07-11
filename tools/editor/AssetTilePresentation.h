@@ -18,4 +18,15 @@ namespace Orkige
 	{
 		return hasThumbnail && !isFolder;
 	}
+
+	//! @brief does a SELECTED item paint a filled highlight behind its icon, or
+	//! just an outline accent? A grid tile draws its selection as an OUTLINE only
+	//! (a filled box hid the thumbnail's transparency checkerboard and the kind
+	//! glyph); the compact list/tree rows, which have no thumbnail area to
+	//! obscure, keep the classic filled highlight.
+	//! @param isTile the item draws as a grid tile (false = a list/tree row)
+	inline bool tileSelectionDrawsFill(bool isTile)
+	{
+		return !isTile;
+	}
 }

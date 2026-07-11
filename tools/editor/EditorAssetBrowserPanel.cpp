@@ -1366,6 +1366,76 @@ void handleAssetDropTarget(EditorState& state, Orkige::EditorCore& core)
 	ImGui::EndDragDropTarget();
 }
 
+bool handleSceneDropTarget(EditorState& state, Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, bool editor2D)
+{
+	if (!ImGui::BeginDragDropTarget())
+	{
+		return false;
+	}
+	bool tileDrop = false;
+	// 2D editor mode: a single PREFAB dragged onto the grid paints into the
+	// hovered cell (arming it first, exactly like a Tile Palette click). Peek to
+	// classify the payload before deciding - only a prefab claims the grid path,
+	// everything else (a non-prefab, a multi-drag, the 3D view) stays with the
+	// generic instantiate-at-origin below.
+	if (editor2D)
+	{
+		if (ImGuiPayload const* peek = ImGui::AcceptDragDropPayload(
+			ASSET_DND_PAYLOAD, ImGuiDragDropFlags_AcceptPeekOnly))
+		{
+			if (peek->Data && peek->DataSize ==
+				static_cast<int>(sizeof(AssetDragDropPayload)))
+			{
+				AssetDragDropPayload data;
+				std::memcpy(&data, peek->Data, sizeof(data));
+				data.path[sizeof(data.path) - 1] = '\0';
+				if (data.kind == AssetKind::Prefab)
+				{
+					tileDrop = true;	// the grid owns this payload
+					if (peek->IsDelivery() &&
+						paletteArmPrefab(state, core, data.path))
+					{
+						ImGuiIO& io = ImGui::GetIO();
+						const float nx =
+							(io.MousePos.x - rectMin.x) / rectSize.x;
+						const float ny =
+							(io.MousePos.y - rectMin.y) / rectSize.y;
+						// the 2D ortho camera looks straight down -Z, so the ray
+						// origin's XY is the world point under the drop
+						const Orkige::Vec3 world =
+							camera->viewportPointToRay(nx, ny).getOrigin();
+						const Orkige::EditorPaintGrid grid =
+							core.resolvePaintGrid();
+						const int col = Orkige::paintCellCoord(
+							world.x, grid.originX, grid.cellSize);
+						const int row = Orkige::paintCellCoord(
+							world.y, grid.originY, grid.cellSize);
+						core.paintPrefabAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							Orkige::paintCellCenter(col, grid.originX,
+								grid.cellSize),
+							Orkige::paintCellCenter(row, grid.originY,
+								grid.cellSize),
+							grid.cellSize, 0);
+					}
+				}
+			}
+		}
+	}
+	if (!tileDrop)
+	{
+		const std::vector<std::string> paths = acceptDroppedAssetPaths();
+		if (!paths.empty())
+		{
+			instantiateAssetsIntoScene(state, core, paths);
+		}
+	}
+	ImGui::EndDragDropTarget();
+	return tileDrop;
+}
+
 bool selectedBrowserTextureMeta(EditorState& state, std::string& metaFilePath,
 	std::string& assetId)
 {
@@ -2061,13 +2131,29 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 	ImGui::PopStyleColor(3);
 	{
 		const bool hovered = ImGui::IsItemHovered();
-		if (selected || hovered)
+		const bool isTile = !listMode;
+		const ImVec2 hlMin(pos.x, pos.y);
+		const ImVec2 hlMax(pos.x + cellW, pos.y + cellH);
+		const float rounding = ImGui::GetStyle().FrameRounding;
+		if (selected && !Orkige::tileSelectionDrawsFill(isTile))
 		{
-			const ImVec2 hlMin(pos.x, pos.y);
-			const ImVec2 hlMax(pos.x + cellW, pos.y + cellH);
+			// grid tiles show selection as an OUTLINE in the kind accent colour -
+			// a filled box hid the thumbnail's transparency checkerboard and the
+			// kind glyph. A faint hover fill still gives motion feedback under it.
+			if (hovered)
+			{
+				drawList->AddRectFilled(hlMin, hlMax, hoverFill, rounding);
+			}
+			drawList->AddRect(hlMin, hlMax,
+				assetKindColor(entry.item.kind, entry.isFolder), rounding,
+				ImDrawFlags_None, 2.0f);
+		}
+		else if (selected || hovered)
+		{
+			// list/tree rows (no thumbnail area to obscure) keep the classic
+			// filled highlight
 			drawList->AddRectFilled(hlMin, hlMax,
-				selected ? selFill : hoverFill,
-				ImGui::GetStyle().FrameRounding);
+				selected ? selFill : hoverFill, rounding);
 		}
 	}
 

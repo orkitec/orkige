@@ -192,14 +192,21 @@ void drawAddComponentButton(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::GameObject> const& gameObject)
 {
 	ImGui::Spacing();
-	const float buttonWidth = 180.0f;
+	// size the button to its label instead of a fixed width: the scaled font at
+	// 2x/3x display scale (and the denser theme padding) overflowed the old
+	// 180pt box, clipping "Add Component". Text width + both frame paddings + a
+	// little breathing room, clamped so a very narrow Inspector still fits.
+	const char* addLabel = "Add Component";
+	const float labelWidth = ImGui::CalcTextSize(addLabel).x +
+		ImGui::GetStyle().FramePadding.x * 2.0f + ImGui::GetTextLineHeight();
 	const float availableWidth = ImGui::GetContentRegionAvail().x;
+	const float buttonWidth = std::min(labelWidth, availableWidth);
 	if (availableWidth > buttonWidth)
 	{
 		ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
 			(availableWidth - buttonWidth) * 0.5f);
 	}
-	if (ImGui::Button("Add Component", ImVec2(buttonWidth, 0.0f)))
+	if (ImGui::Button(addLabel, ImVec2(buttonWidth, 0.0f)))
 	{
 		state.addComponentSearch[0] = '\0';
 		state.addComponentFocusPending = true;

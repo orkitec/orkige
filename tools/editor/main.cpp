@@ -1234,6 +1234,28 @@ int main(int argc, char** argv)
 		std::string levelPaintTempRoot;
 		Orkige::StringVector levelPaintExpectedRoots;
 
+		// ORKIGE_EDITOR_MARQUEE=<roller project dir>: the 2D editing-ergonomics
+		// test (editor_marquee ctest). Frame 10 copies the project, paints three
+		// tiles in 2D mode (checking the ghost-preview handle and the undoable
+		// drop-cell paint on the way), then drives the REAL scene-panel input with
+		// synthetic SDL mouse events: a rubber-band drag over the tiles selects all
+		// three, a plain click selects one (no marquee), a Cmd-drag EXTENDS. Both
+		// flavors.
+		const char* marqueeEnv = std::getenv("ORKIGE_EDITOR_MARQUEE");
+		enum class MarqueePhase { Idle, Run, Done };
+		MarqueePhase marqueePhase = MarqueePhase::Idle;
+		int mqStep = 0;
+		std::string mqTempRoot;
+		Orkige::StringVector mqTileIds;		// the three painted tile roots
+		// screen points (render-target pixels), computed once the 2D layout is
+		// live: the all-tiles marquee box, the mid-tile click point, and the
+		// single-tile boxes over the left / right tiles (both press in the empty
+		// top strip so they begin a marquee, not a pick)
+		float mqStartX = 0.0f, mqStartY = 0.0f, mqEndX = 0.0f, mqEndY = 0.0f;
+		float mqMidX = 0.0f, mqMidY = 0.0f;
+		float mqLbSX = 0.0f, mqLbSY = 0.0f, mqLbEX = 0.0f, mqLbEY = 0.0f;
+		float mqRbSX = 0.0f, mqRbSY = 0.0f, mqRbEX = 0.0f, mqRbEY = 0.0f;
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
@@ -3207,6 +3229,373 @@ int main(int argc, char** argv)
 					std::error_code cleanupErr;
 					std::filesystem::remove_all(levelPaintTempRoot, cleanupErr);
 					running = false;
+				}
+			}
+			// --- 2D editing-ergonomics test (ORKIGE_EDITOR_MARQUEE) ---
+			// marquee box select + ghost preview + drop-cell paint, driven
+			// through the REAL scene-panel mouse path with synthetic SDL events
+			if (marqueeEnv)
+			{
+				// convert a Scene-image render-target pixel to a window-point
+				// SDL event coordinate (the inverse of ImGuiSDL3Input's mouse
+				// scale), so a pushed event lands at the intended io.MousePos
+				auto toWindow = [&](float px, float py, float& wx, float& wy)
+				{
+					int winW = 0, winH = 0;
+					SDL_GetWindowSize(window, &winW, &winH);
+					unsigned int drawW = 0, drawH = 0;
+					render->getWindowSize(drawW, drawH);
+					const float sx = (winW > 0 && drawW > 0)
+						? static_cast<float>(drawW) / winW : 1.0f;
+					const float sy = (winH > 0 && drawH > 0)
+						? static_cast<float>(drawH) / winH : 1.0f;
+					wx = px / sx;
+					wy = py / sy;
+				};
+				auto pushMove = [&](float px, float py)
+				{
+					float wx = 0.0f, wy = 0.0f;
+					toWindow(px, py, wx, wy);
+					SDL_Event e = {};
+					e.type = SDL_EVENT_MOUSE_MOTION;
+					e.motion.windowID = SDL_GetWindowID(window);
+					e.motion.x = wx;
+					e.motion.y = wy;
+					SDL_PushEvent(&e);
+				};
+				auto pushButton = [&](bool down, float px, float py)
+				{
+					float wx = 0.0f, wy = 0.0f;
+					toWindow(px, py, wx, wy);
+					SDL_Event e = {};
+					e.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN
+						: SDL_EVENT_MOUSE_BUTTON_UP;
+					e.button.windowID = SDL_GetWindowID(window);
+					e.button.button = SDL_BUTTON_LEFT;
+					e.button.down = down;
+					e.button.clicks = 1;
+					e.button.x = wx;
+					e.button.y = wy;
+					SDL_PushEvent(&e);
+				};
+				auto pushSuper = [&](bool down)
+				{
+					SDL_Event e = {};
+					e.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+					e.key.windowID = SDL_GetWindowID(window);
+					e.key.key = SDLK_LGUI;
+					e.key.scancode = SDL_SCANCODE_LGUI;
+					e.key.mod = down ? SDL_KMOD_LGUI : SDL_KMOD_NONE;
+					e.key.down = down;
+					SDL_PushEvent(&e);
+				};
+				auto frac = [&](float fx, float fy, float& px, float& py)
+				{
+					px = state.sceneImageMin.x + fx * state.sceneImageSize.x;
+					py = state.sceneImageMin.y + fy * state.sceneImageSize.y;
+				};
+				auto projectTile = [&](float wx, float wy, float& px,
+					float& py) -> bool
+				{
+					Orkige::Real nx = 0.0f, ny = 0.0f;
+					if (!sceneTarget.camera->projectPoint(
+						Orkige::Vec3(wx, wy, 0.0f), nx, ny))
+					{
+						return false;
+					}
+					px = state.sceneImageMin.x + nx * state.sceneImageSize.x;
+					py = state.sceneImageMin.y + ny * state.sceneImageSize.y;
+					return true;
+				};
+				auto mqAbort = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: marquee test - FAILED: %s",
+						why.c_str());
+					exitCode = 12;
+					std::error_code cleanupErr;
+					std::filesystem::remove_all(mqTempRoot, cleanupErr);
+					running = false;
+				};
+
+				if (marqueePhase == MarqueePhase::Idle && frameCount == 10)
+				{
+					std::error_code mqErr;
+					mqTempRoot = (std::filesystem::temp_directory_path() /
+						("orkige_marquee_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::filesystem::copy(marqueeEnv, mqTempRoot,
+						std::filesystem::copy_options::recursive, mqErr);
+					if (mqErr || !openProjectFromPath(state, editorCore,
+						mqTempRoot))
+					{
+						mqAbort("could not prepare/open the temp copy");
+					}
+					else
+					{
+						newScene(state, editorCore);
+						// 2D top-down view centred on the origin, framed so the
+						// three tiles at x = -16/0/+16 (y = 0) sit in the middle
+						// with a clear screen gap between them (the single-tile
+						// marquees need to bracket one tile without touching its
+						// neighbour)
+						viewSettings.editor2D = true;
+						state.camera.target = Orkige::Vec3(0.0f, 0.0f, 0.0f);
+						state.camera.distance = 24.0f;
+						apply2DCamera(state, sceneTarget.camera, sceneCameraNode);
+						const std::string tilePrefab =
+							(std::filesystem::path(mqTempRoot) / "assets" /
+								"tile.oprefab").string();
+						if (!paletteArmPrefab(state, editorCore, tilePrefab))
+						{
+							mqAbort("paletteArmPrefab failed");
+						}
+						// GHOST PREVIEW: arming a sprite-bearing prefab yields a
+						// non-null preview handle (the tile's texture thumbnail)
+						else if (state.tilePalette.previewImageRef.empty() ||
+							state.tilePalette.previewImagePath.empty() ||
+							assetThumbnailFor(state,
+								state.tilePalette.previewImagePath) == 0)
+						{
+							mqAbort("ghost preview handle is null while armed");
+						}
+						else
+						{
+							const Orkige::EditorPaintDesc desc =
+								paletteMakePaintDesc(state.tilePalette);
+							editorCore.paintPrefabAtCell(desc, -16.0f, 0.0f,
+								6.0f, 0);
+							editorCore.paintPrefabAtCell(desc, 0.0f, 0.0f,
+								6.0f, 0);
+							editorCore.paintPrefabAtCell(desc, 16.0f, 0.0f,
+								6.0f, 0);
+							// DROP-CELL PAINT is undoable: the same seam a Tile
+							// Palette drag-drop uses (paint a cell, one undo
+							// step that removes it)
+							editorCore.paintPrefabAtCell(desc, 32.0f, 0.0f,
+								6.0f, 0);
+							const bool dropped = !editorCore
+								.findPrefabInstanceAtCell(32.0f, 0.0f, 6.0f)
+								.empty();
+							editorCore.undo();
+							const bool undone = editorCore
+								.findPrefabInstanceAtCell(32.0f, 0.0f, 6.0f)
+								.empty();
+							mqTileIds.clear();
+							mqTileIds.push_back(editorCore
+								.findPrefabInstanceAtCell(-16.0f, 0.0f, 6.0f));
+							mqTileIds.push_back(editorCore
+								.findPrefabInstanceAtCell(0.0f, 0.0f, 6.0f));
+							mqTileIds.push_back(editorCore
+								.findPrefabInstanceAtCell(16.0f, 0.0f, 6.0f));
+							if (!dropped || !undone || mqTileIds[0].empty() ||
+								mqTileIds[1].empty() || mqTileIds[2].empty())
+							{
+								mqAbort("tile setup / drop-cell undo wrong");
+							}
+							else
+							{
+								editorCore.clearHistory();
+								editorCore.clearSelection();
+								editorCore.setActiveTool(
+									Orkige::EditorTool::Select);
+								marqueePhase = MarqueePhase::Run;
+								mqStep = 0;
+							}
+						}
+					}
+				}
+				else if (marqueePhase == MarqueePhase::Run)
+				{
+					// project the tile screen points once the 2D layout is live
+					// (the panel has recorded its image rect)
+					const bool layoutReady = state.sceneImageSize.x > 1.0f &&
+						state.sceneImageSize.y > 1.0f;
+					switch (mqStep)
+					{
+					case 4:
+						if (!layoutReady)
+						{
+							mqStep = 3;	// hold until the panel has drawn
+							break;
+						}
+						// marquee box corners as image fractions (start in the
+						// empty top strip; the box spans the tile row)
+						frac(0.15f, 0.12f, mqStartX, mqStartY);
+						frac(0.85f, 0.85f, mqEndX, mqEndY);
+						pushMove(mqStartX, mqStartY);
+						break;
+					case 7:
+						pushButton(true, mqStartX, mqStartY);	// press empty
+						break;
+					case 10:
+						pushMove(mqEndX, mqEndY);				// drag
+						break;
+					case 13:
+						pushButton(false, mqEndX, mqEndY);		// release
+						break;
+					case 16:
+					{
+						// EVERY tile ROOT is now selected, and the marquee closed
+						const Orkige::StringVector& sel =
+							editorCore.getSelection();
+						bool all = sel.size() == mqTileIds.size();
+						for (std::string const& id : mqTileIds)
+						{
+							all = all && editorCore.isSelected(id);
+						}
+						if (!all || state.marqueePending || state.marqueeActive)
+						{
+							mqAbort("marquee did not select all tiles");
+						}
+						else
+						{
+							// project the three tiles to place: the mid-tile click
+							// point, and the single-tile boxes over left / right
+							// (each box presses in the empty top strip so it starts
+							// a marquee, and stops at the mid-gap so it catches only
+							// its own tile - marquee band-selects ROOTS, so this is
+							// unambiguous)
+							float lx = 0.0f, ly = 0.0f, rx = 0.0f, ry = 0.0f;
+							if (!projectTile(0.0f, 0.0f, mqMidX, mqMidY) ||
+								!projectTile(-16.0f, 0.0f, lx, ly) ||
+								!projectTile(16.0f, 0.0f, rx, ry))
+							{
+								mqAbort("tile projection failed");
+							}
+							else
+							{
+								const float topY = state.sceneImageMin.y +
+									0.12f * state.sceneImageSize.y;
+								const float botY = state.sceneImageMin.y +
+									0.85f * state.sceneImageSize.y;
+								// bracket each side tile by 40% of the screen gap
+								// to its neighbour - wide enough to cover the tile,
+								// tight enough to miss the mid tile
+								const float gap = (mqMidX - lx) * 0.4f;
+								// left box (press in the empty strip above the left
+								// tile, drag down over it)
+								mqLbSX = lx - gap;
+								mqLbSY = topY;
+								mqLbEX = lx + gap;
+								mqLbEY = botY;
+								// right box (same, over the right tile)
+								mqRbSX = rx - gap;
+								mqRbSY = topY;
+								mqRbEX = rx + gap;
+								mqRbEY = botY;
+							}
+						}
+						break;
+					}
+					case 19:
+						pushMove(mqMidX, mqMidY);				// over mid tile
+						break;
+					case 22:
+						pushButton(true, mqMidX, mqMidY);		// click (down)
+						break;
+					case 25:
+						pushButton(false, mqMidX, mqMidY);		// click (up)
+						break;
+					case 28:
+					{
+						// a plain click that STARTS ON a tile picks a single
+						// object (no rubber-band) - which exact object (root vs a
+						// prefab child sprite) is the pre-existing 2D-pick rule, so
+						// assert only "one object, and no marquee ran"
+						const Orkige::StringVector& sel =
+							editorCore.getSelection();
+						if (sel.size() != 1 || state.marqueeActive ||
+							state.marqueePending)
+						{
+							mqAbort("click did not select exactly one object");
+						}
+						break;
+					}
+					// left tile via a plain marquee (REPLACE): selection -> {left}
+					case 31:
+						pushMove(mqLbSX, mqLbSY);
+						break;
+					case 34:
+						pushButton(true, mqLbSX, mqLbSY);		// press empty
+						break;
+					case 37:
+						pushMove(mqLbEX, mqLbEY);				// drag over left
+						break;
+					case 40:
+						pushButton(false, mqLbEX, mqLbEY);		// release
+						break;
+					case 43:
+					{
+						const Orkige::StringVector& sel =
+							editorCore.getSelection();
+						if (sel.size() != 1 ||
+							!editorCore.isSelected(mqTileIds[0]))
+						{
+							mqAbort("marquee over the left tile did not "
+								"replace-select it");
+						}
+						break;
+					}
+					// right tile via a Cmd-marquee (EXTEND): -> {left, right}
+					case 46:
+						pushSuper(true);						// hold Cmd
+						break;
+					case 49:
+						pushMove(mqRbSX, mqRbSY);
+						break;
+					case 52:
+						pushButton(true, mqRbSX, mqRbSY);		// Cmd-press empty
+						break;
+					case 55:
+						pushMove(mqRbEX, mqRbEY);				// drag over right
+						break;
+					case 58:
+						pushButton(false, mqRbEX, mqRbEY);		// release
+						break;
+					case 61:
+						pushSuper(false);						// release Cmd
+						break;
+					case 64:
+					{
+						// EXTEND kept the left tile AND added the right (never
+						// cleared it)
+						const Orkige::StringVector& sel =
+							editorCore.getSelection();
+						if (sel.size() != 2 ||
+							!editorCore.isSelected(mqTileIds[0]) ||
+							!editorCore.isSelected(mqTileIds[2]))
+						{
+							SDL_Log("orkige_editor: marquee extend diag - "
+								"selCount=%zu left=%d right=%d",
+								sel.size(),
+								editorCore.isSelected(mqTileIds[0]) ? 1 : 0,
+								editorCore.isSelected(mqTileIds[2]) ? 1 : 0);
+							mqAbort("Cmd-drag did not extend the selection");
+						}
+						else
+						{
+							SDL_Log("orkige_editor: marquee test - OK "
+								"(select-all, click, replace, Cmd-extend, "
+								"ghost, drop)");
+							marqueePhase = MarqueePhase::Done;
+							std::error_code cleanupErr;
+							std::filesystem::remove_all(mqTempRoot, cleanupErr);
+							running = false;
+						}
+						break;
+					}
+					default:
+						break;
+					}
+					++mqStep;
+				}
+				// deadline backstop: never let the demo-frame cap turn a stuck
+				// run into a false pass
+				if (marqueePhase != MarqueePhase::Done && exitCode == 0 &&
+					frameCount >= 140)
+				{
+					mqAbort("did not complete before the deadline");
 				}
 			}
 			// --- scripted scene-open test (ORKIGE_EDITOR_OPEN_SCENE=path) ---

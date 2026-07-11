@@ -21,6 +21,7 @@
 #include "EditorCore.h"
 #include "EditorTheme.h"
 #include "FileDialog.h"
+#include "MarqueeSelection.h"
 
 #include <core_debugnet/DebugClient.h>
 #include <core_project/AssetDatabase.h>
@@ -360,6 +361,12 @@ struct TilePaletteState
 	std::string armedPrefabPath;		//!< absolute .oprefab path
 	std::string armedPrefabRef;			//!< project-relative reference
 	std::string armedPrefabAssetId;		//!< stable .orkmeta id
+	//! ghost-preview image for the armed prefab: the bare texture (else vector-
+	//! shape) ref probed from the prefab's visual at arm time, plus the resolved
+	//! absolute asset path the thumbnail machinery loads. Both empty for a pure-
+	//! logic prefab (no drawable) - the paint tool then shows only the outline.
+	std::string previewImageRef;
+	std::string previewImagePath;
 	//! prefab probe results, refreshed on arm (PrefabSerializer::listPrefabInfo)
 	std::vector<std::string> prefabLocalIds;	//!< every local id in the file
 	bool hasEdgeWalls = false;			//!< all four TileComponent wall locals present
@@ -460,6 +467,24 @@ struct EditorState
 	//! gizmo drag bracketing: the whole drag merges into ONE undo command
 	bool gizmoWasUsing = false;
 	unsigned int gizmoMergeSession = 0;
+	//! marquee (rubber-band) box select in the Scene viewport (Select/Translate
+	//! tools): a left-drag on EMPTY space band-selects every object whose
+	//! projected bounds fall inside the box; Cmd/Ctrl/Shift EXTEND the current
+	//! selection instead of replacing it. Tracked in render-target pixels
+	//! (io.MousePos space). marqueePending is a press that has not yet travelled
+	//! past the drag threshold (still a click, not a marquee); it flips
+	//! marqueeActive on once the cursor moves far enough. A press that never
+	//! becomes a drag falls back to the plain empty-space deselect on release.
+	bool marqueePending = false;
+	bool marqueeActive = false;
+	bool marqueeExtend = false;			//!< Cmd/Ctrl/Shift held at press
+	ImVec2 marqueeStart = ImVec2(0.0f, 0.0f);
+	ImVec2 marqueeCurrent = ImVec2(0.0f, 0.0f);
+	//! the Scene image's screen rect recorded each frame (render-target pixels):
+	//! the panel writes it while drawing so the selfchecks can synthesise mouse
+	//! events at known viewport positions (marquee/drag drives the real path)
+	ImVec2 sceneImageMin = ImVec2(0.0f, 0.0f);
+	ImVec2 sceneImageSize = ImVec2(0.0f, 0.0f);
 	//! inspector drag bracketing (only one drag widget is active at a time)
 	unsigned int inspectorMergeSession = 0;
 	//! Hierarchy search/filter box; ImGuiTextFilter supports
@@ -1006,6 +1031,19 @@ bool pickGameObjectThroughScenePanel(Orkige::EditorCore& core,
 	Orkige::GameObjectManager& gameObjectManager,
 	optr<Orkige::RenderCamera> const& camera, std::string const& id);
 
+// marquee (rubber-band) box select: the ids of every object with a
+// TransformComponent whose projected screen bounds intersect the marquee box
+// (render-target pixels within the Scene image rect). The Scene panel's mouse
+// path AND the selfcheck drive this - see EditorScenePanel.cpp
+Orkige::StringVector objectsInMarquee(Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, Orkige::ScreenRect const& marquee);
+
+// apply a marquee result to the selection set: replace it, or (extend) union the
+// hits onto the current selection - see EditorScenePanel.cpp
+void applyMarqueeSelection(Orkige::EditorCore& core,
+	Orkige::StringVector const& hits, bool extend);
+
 //--- scene/project document operations (EditorDocument.cpp) -----------------
 
 // File > New Scene: clear all GameObjects
@@ -1440,5 +1478,13 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
 	ImVec2 const& rectSize, bool editMode, ViewSettings const& viewSettings);
+
+//! @brief the Scene viewport's drop target (see the block comment above the
+//! declaration further up) - a prefab drop paints its cell in 2D mode, else the
+//! generic instantiate-at-origin runs. Returns true when it consumed a prefab
+//! drop into the grid.
+bool handleSceneDropTarget(EditorState& state, Orkige::EditorCore& core,
+	optr<Orkige::RenderCamera> const& camera, ImVec2 const& rectMin,
+	ImVec2 const& rectSize, bool editor2D);
 
 #endif // ORKIGE_EDITORAPP_H_09072026

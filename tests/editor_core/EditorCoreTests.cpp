@@ -23,6 +23,7 @@
 
 #include <AssetTilePresentation.h>
 #include <EditorCore.h>
+#include <MarqueeSelection.h>
 #include <core_game/LevelGrid.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
@@ -1523,4 +1524,54 @@ TEST_CASE("tileDrawsBacking backs ONLY loaded texture thumbnails, never a "
 	// a folder never carries a thumbnail, but even if one were passed it stays
 	// bare - the decision hangs off "is this a real texture thumbnail"
 	CHECK_FALSE(Orkige::tileDrawsBacking(true, true));
+}
+
+TEST_CASE("tileSelectionDrawsFill: grid tiles outline, list rows fill",
+	"[editor][assetbrowser]")
+{
+	// a grid TILE draws its selection as an outline only (a filled box hid the
+	// thumbnail checkerboard / kind glyph), so it does NOT draw a fill
+	CHECK_FALSE(Orkige::tileSelectionDrawsFill(true));
+
+	// a compact list/tree row has no thumbnail area to obscure and keeps the
+	// classic filled highlight
+	CHECK(Orkige::tileSelectionDrawsFill(false));
+}
+
+TEST_CASE("marquee screen-rect helpers normalise, intersect and gate the drag",
+	"[editor][marquee]")
+{
+	// a rect built from two arbitrary corners is normalised (min <= max) no
+	// matter which way the drag ran
+	const Orkige::ScreenRect forward = Orkige::screenRectFromCorners(
+		10.0f, 20.0f, 40.0f, 60.0f);
+	const Orkige::ScreenRect backward = Orkige::screenRectFromCorners(
+		40.0f, 60.0f, 10.0f, 20.0f);
+	CHECK(forward.minX == 10.0f);
+	CHECK(forward.minY == 20.0f);
+	CHECK(forward.maxX == 40.0f);
+	CHECK(forward.maxY == 60.0f);
+	// the reversed drag yields the identical box
+	CHECK(backward.minX == forward.minX);
+	CHECK(backward.maxY == forward.maxY);
+
+	// an object rect fully inside the marquee intersects it
+	CHECK(Orkige::screenRectsIntersect(forward,
+		Orkige::ScreenRect{ 20.0f, 30.0f, 25.0f, 35.0f }));
+	// a partial overlap counts
+	CHECK(Orkige::screenRectsIntersect(forward,
+		Orkige::ScreenRect{ 35.0f, 55.0f, 100.0f, 100.0f }));
+	// touching edges count (inclusive)
+	CHECK(Orkige::screenRectsIntersect(forward,
+		Orkige::ScreenRect{ 40.0f, 60.0f, 50.0f, 70.0f }));
+	// a fully-separated rect does not
+	CHECK_FALSE(Orkige::screenRectsIntersect(forward,
+		Orkige::ScreenRect{ 41.0f, 61.0f, 50.0f, 70.0f }));
+
+	// a press that barely moves stays a CLICK (below the threshold); once it
+	// travels past it, it is a DRAG (a marquee)
+	CHECK_FALSE(Orkige::marqueeIsDrag(100.0f, 100.0f, 102.0f, 101.0f, 4.0f));
+	CHECK(Orkige::marqueeIsDrag(100.0f, 100.0f, 105.0f, 100.0f, 4.0f));
+	// exactly at the threshold distance counts as a drag (inclusive)
+	CHECK(Orkige::marqueeIsDrag(0.0f, 0.0f, 4.0f, 0.0f, 4.0f));
 }
