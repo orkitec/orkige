@@ -249,12 +249,18 @@ by the `demo_gui_matrix` selfcheck (both flavors):
 
 - **One draw per screen per atlas.** Every visible layer of one atlas
   concatenates into a single `DrawLayer2D` batch. A modal (scrim + dialog) shares
-  its atlas' batch; only a scissored scroll region adds one; a second atlas adds
-  one screen. Probe: `gui:getLastBatchCount()`.
-- **Dirty-tracked.** A fully static screen rebuilds nothing; one content change
-  rebuilds exactly once; an animation rebuilds each active frame and stops the
-  frame it completes. Probe: `gui:getRebuildCount()` (read deltas). An unfocused
-  widget must never dirty per frame.
+  its atlas' batch (still 1); only a scissored scroll region adds one (→ 2); a
+  second atlas adds one screen (→ +1). Probe: `gui:getLastBatchCount()`.
+- **Dirty-tracked.** A fully static screen resubmits nothing; one content change
+  resubmits exactly once; an animation resubmits each active frame and stops the
+  frame it completes. Probe: `gui:getRebuildCount()` (batch resubmits, read
+  deltas). An unfocused widget must never dirty per frame.
+- **Transform-only animation rebuilds no geometry.** A scale/rotation/alpha
+  animation rides as a per-frame post-pass on the cached vertices, so it
+  RESUBMITS the batch but re-tessellates nothing. Probe:
+  `gui:getGeometryRebuildCount()` — flat while a transform animates, +1 per real
+  content change (a text/sprite edit). This distinction is the point of the
+  post-pass transform design.
 - **Zero steady-state allocation.** The retained scratch buffer keeps its
   capacity across identical rebuilt frames (no per-frame reallocation). Probe:
   `gui:getScratchCapacity()`, stable after warmup.

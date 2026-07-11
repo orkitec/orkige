@@ -86,7 +86,7 @@ namespace Orkige
 		optr<DrawLayer2D> const & drawLayer)
 		: mAtlas(atlas), mDrawLayer(drawLayer), mWidth(0), mHeight(0),
 		mIsVisible(true), mDirty(false), mForceRedraw(false), mLastVertexCount(0),
-		mLastBatchCount(0), mRebuildCount(0)
+		mLastBatchCount(0), mRebuildCount(0), mGeometryRebuildCount(0)
 	{
 		oAssert(this->mAtlas);
 		oAssert(this->mDrawLayer);

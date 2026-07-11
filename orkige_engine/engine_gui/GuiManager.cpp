@@ -1410,6 +1410,19 @@ namespace Orkige
 		return rebuilds;
 	}
 	//---------------------------------------------------------
+	size_t GuiManager::getGeometryRebuildCount() const
+	{
+		size_t rebuilds = 0;
+		for(GuiViewMap::value_type const & vt : this->views)
+		{
+			if(vt.second->getScreen())
+			{
+				rebuilds += vt.second->getScreen()->getGeometryRebuildCount();
+			}
+		}
+		return rebuilds;
+	}
+	//---------------------------------------------------------
 	size_t GuiManager::getScratchCapacity() const
 	{
 		size_t capacity = 0;
@@ -1817,5 +1830,11 @@ namespace Orkige
 		// timed notification: showToast(text, seconds); poll isToastVisible()
 		OFUNC(showToast)
 		OFUNC(isToastVisible)
+		// performance-contract probes (the enforceable "1 draw/atlas, dirty-
+		// tracked, no steady-state alloc" promise; read deltas across frames)
+		OFUNC(getLastBatchCount)
+		OFUNC(getRebuildCount)
+		OFUNC(getGeometryRebuildCount)
+		OFUNC(getScratchCapacity)
 	OOBJECT_END
 }

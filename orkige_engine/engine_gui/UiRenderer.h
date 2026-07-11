@@ -180,7 +180,8 @@ namespace Orkige
 		bool					mForceRedraw;
 		size_t					mLastVertexCount;	//!< sum over the last update's batches
 		size_t					mLastBatchCount;	//!< draw submissions in the last rebuild
-		size_t					mRebuildCount;		//!< monotonic full-rebuild counter
+		size_t					mRebuildCount;		//!< monotonic batch-resubmit counter
+		size_t					mGeometryRebuildCount;	//!< monotonic element vertex-rebuild counter
 	private:
 		UiScreen(UiScreen const &);					// non-copyable
 		UiScreen & operator=(UiScreen const &);		// non-copyable

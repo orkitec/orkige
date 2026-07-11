@@ -2468,6 +2468,24 @@ int main(int, char**)
 						render->renderOneFrame();
 					}
 				}
+				// a widget on a SECOND atlas = a second screen = +1 batch (a solid
+				// decor needs no font/sprite from that atlas, just the white pixel)
+				{
+					factory->createDecorWidget("perfSecondAtlas", "none",
+						Orkige::Vec2(600.0f, 400.0f), Orkige::Vec2(50.0f, 50.0f),
+						"gui_ttf_demo", 2);
+					render->renderOneFrame();
+					if (ok && gui.getLastBatchCount() != 2)
+					{
+						perfFail("a second atlas is not exactly +1 batch");
+					}
+					gui.destroyViewWithWidgets("gui_ttf_demo");
+					render->renderOneFrame();
+					if (ok && gui.getLastBatchCount() != 1)
+					{
+						perfFail("removing the second atlas did not return to 1 batch");
+					}
+				}
 
 				// (2) DIRTY TRACKING (rebuild counter deltas)
 				// a fully static screen: ZERO rebuilds over N frames
@@ -2486,11 +2504,17 @@ int main(int, char**)
 						gui.getWidgetAs<Orkige::GuiLabel>("mtxLabel").lock();
 					if (label)
 					{
+						const size_t g0 = gui.getGeometryRebuildCount();
 						label->setText("Changed");
 						render->renderOneFrame();
 						if (ok && gui.getRebuildCount() != r0 + 1)
 						{
 							perfFail("one label change was not exactly one rebuild");
+						}
+						// the label's caption actually re-tessellated: a geometry rebuild
+						if (ok && gui.getGeometryRebuildCount() <= g0)
+						{
+							perfFail("a text change did not rebuild any geometry");
 						}
 						for (int f = 0; f < 12; ++f) { render->renderOneFrame(); }
 						if (ok && gui.getRebuildCount() != r0 + 1)
@@ -2514,6 +2538,27 @@ int main(int, char**)
 					if (ok && gui.getRebuildCount() != rIdle)
 					{
 						perfFail("the screen kept rebuilding after the tween completed");
+					}
+					// THE POST-PASS DESIGN PROOF: a transform-only (rotation)
+					// animation RESUBMITS the batch each active frame but rebuilds
+					// ZERO geometry (the cached vertices are reused, the transform
+					// rides on the emitted copy). Resubmits go up; geometry is flat.
+					{
+						const size_t resubBefore = gui.getRebuildCount();
+						const size_t geomBefore = gui.getGeometryRebuildCount();
+						float spin = 45.0f;
+						gui.tweenWidget("mtxButton",
+							Orkige::GuiManager::WTC_Rotation, &spin, 0.15f, 0);
+						for (int f = 0; f < 12; ++f) { tick(1.0f / 60.0f); }
+						if (ok && gui.getRebuildCount() <= resubBefore)
+						{
+							perfFail("a transform animation did not resubmit the batch");
+						}
+						if (ok && gui.getGeometryRebuildCount() != geomBefore)
+						{
+							perfFail("a transform-only animation rebuilt geometry "
+								"(the post-pass design was violated)");
+						}
 					}
 				}
 

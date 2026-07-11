@@ -362,10 +362,15 @@ namespace Orkige
 		//! @brief total draw submissions across every visible screen this frame
 		//! (1 per atlas + 1 per scissored scroll region). @see UiScreen::getLastBatchCount
 		size_t getLastBatchCount() const;
-		//! @brief total monotonic full-rebuild count across screens; read deltas to
-		//! assert dirty-tracking (0 on a static frame, +1 per content change / per
-		//! active-animation frame). @see UiScreen::getRebuildCount
+		//! @brief total monotonic batch-resubmit count across screens; read deltas
+		//! to assert dirty-tracking (0 on a static frame, +1 per content change /
+		//! per active-animation frame). @see UiScreen::getRebuildCount
 		size_t getRebuildCount() const;
+		//! @brief total monotonic element GEOMETRY-rebuild count across screens.
+		//! A post-pass transform/alpha animation resubmits but rebuilds NO geometry,
+		//! so this stays flat while it runs (the transform-only design proof).
+		//! @see UiScreen::getGeometryRebuildCount
+		size_t getGeometryRebuildCount() const;
 		//! @brief total retained scratch-buffer capacity across screens (stable
 		//! across identical rebuilt frames = no per-frame reallocation)
 		size_t getScratchCapacity() const;
