@@ -133,6 +133,13 @@ ORKIGE_MODULE(orkige_engine)
 		//  set with setText()/setPlaceholder()/setMaxLength() (maxLength 0 =
 		//  unlimited). Focus follows a tap; the mobile keyboard rises on focus.
 		OFUNCWEAK(createTextEntry)
+		// (id, position, size, atlas, z) - a scroll viewport: parent content
+		// widgets (authored at the SAME z) under it; a taller child scrolls by
+		// drag / wheel, clipped to the viewport
+		OFUNCWEAK(createScrollView)
+		// (path) - load a declarative .oui layout at runtime (widgets, anchors,
+		// groups, nine-slice, scroll); the file the MCP write_project_file authors
+		OFUNC(loadLayout)
 	OSIMPLEEXPORT_END
 
 	// safe-area insets (notch / rounded corners / home indicator) in PIXELS:
@@ -168,6 +175,9 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(FastGuiCheckBox)
 	OEXPORT(FastGuiButtonBlink)
 	OEXPORT(FastGuiButton)
+	// the scroll viewport: setScroll(y)/getScroll()/getMaxScroll() plus the
+	// FastGuiWidget layout setters (setParent/setAnchorPreset/...)
+	OEXPORT(FastGuiScrollView)
 	OEXPORT(DragEventData)
 
 	// the math value types scripts actually compute with (the engine math

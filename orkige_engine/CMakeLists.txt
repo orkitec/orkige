@@ -202,6 +202,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_fastgui/FastGuiDragDropButton.cpp
     engine_fastgui/FastGuiDecorWidget.h
     engine_fastgui/FastGuiDecorWidget.cpp
+    engine_fastgui/FastGuiScrollView.h
+    engine_fastgui/FastGuiScrollView.cpp
+    engine_fastgui/GuiLayout.h
+    engine_fastgui/GuiLayout.cpp
     engine_fastgui/FastGuiCheckBox.h
     engine_fastgui/FastGuiCheckBox.cpp
     engine_fastgui/FastGuiButtonBlink.h

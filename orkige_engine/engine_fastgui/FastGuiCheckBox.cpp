@@ -52,10 +52,8 @@ namespace Orkige
 	//----------------------------------------------------
 	void FastGuiCheckBox::setPosition( Ogre::Real left, Ogre::Real top )
 	{
-		// TODO when executing this code the sprite appear completely white!
-		oAssertDesc(false, "CheckBox position not implemented");
-
-
+		// move the backing decor, then re-place the check glyph + label relative
+		// to it (the layout resolver / a scroll viewport drive this each relayout)
 		this->decor->setPosition(left, top);
 		if (this->checkbox != NULL)
 		{

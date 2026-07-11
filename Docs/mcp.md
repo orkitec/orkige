@@ -176,8 +176,9 @@ run it with `play`.
 
 ### Game UI (fastgui) — authoring vs. readback
 
-Game UI is authored entirely in Lua and project files — screens are built by
-`ScriptComponent` scripts (see `projects/jumper-lua`, `projects/roller`). Agents
+Game UI is authored in Lua and project files — screens are built by
+`ScriptComponent` scripts (see `projects/jumper-lua`, `projects/roller`) or loaded
+from a declarative `.oui` layout file (`gui:loadLayout`, see below). Agents
 therefore create and edit UI through the existing project-file verbs
 (`write_project_file` / `read_project_file` / `list_project_files`) and iterate
 live with `reload_script`; no UI-specific authoring tool is required. What agents
@@ -196,18 +197,32 @@ runtime bakes them at load. The engine-default font ships with every build, so a
 project can reference `Nunito-Regular.ttf` by name with no import at all. Text
 laid out with these fonts appears in `get_ui_layout` like any other widget.
 
-Nine-slice sprites and the rect-anchor layout model likewise need **no new
-verb**: both are plain-data widget properties an agent sets from the same Lua the
-game already uses (nine-slice = a 4-int inset suffix on a `[Sprites]` line +
-`setNineSlice(true)` on the widget; layout = `setParent`/`setAnchorPreset`/
-`setOffsets`/`setAnchoredPosition`/`setSizeDelta` on a widget plus
-`setDesignResolution`/`setRootSpace` on the manager). Because the layout
-descriptor (`core_util/UiLayout` `LayoutNode`) is pure plain data, it serialises
-1:1 into the future declarative UI file, so the same properties an agent writes in
-Lua today are exactly what a `.oui`-authoring verb would carry. The resolved
-absolute rects — the resolver's output — read back through the existing
-`get_ui_layout`, so an agent verifies an anchored/nine-sliced HUD the same way it
-verifies any widget (and combines it with `get_safe_area` for the notch check).
+Nine-slice sprites, the rect-anchor layout model, layout groups, content-size-fit
+and the scroll container likewise need **no new verb**: all are plain-data widget
+properties an agent sets from the same Lua the game already uses (nine-slice = a
+4-int inset suffix on a `[Sprites]` line + `setNineSlice(true)`; layout =
+`setParent`/`setAnchorPreset`/`setOffsets`/`setAnchoredPosition`/`setSizeDelta` on
+a widget plus `setDesignResolution`/`setRootSpace` on the manager; groups =
+`setLayoutGroup`/`setGroupPadding`/`setGroupSpacing`/`setContentSizeFit`; scroll =
+`createScrollView` + `setScroll`).
+
+The **declarative `.oui` file** makes this even more agent-native, and it is why
+`read_ui_layout` / `write_ui_layout` verbs are **deliberately NOT added**: an
+`.oui` is a plain text project file, so an agent authors a whole screen — widgets,
+anchors, pivots, offsets, groups, nine-slice, scroll — by writing it with the
+existing `write_project_file` (jailed to the project root), and the game loads it
+with `gui:loadLayout(path)`. Unlike the level-paint verbs (which mutate live
+editor scene state that has no file the agent can otherwise write), the `.oui`
+path already has the file as its source of truth, so `write_project_file` +
+`read_project_file` cover authoring completely and a dedicated verb would only
+duplicate them. The `core_util/UiLayout` descriptor is pure plain data that
+serialises 1:1 into the `.oui`, so the file and the Lua setters express exactly
+the same thing. The resolved absolute rects — the two-pass resolver's output —
+read back through the existing `get_ui_layout` (no change needed: the resolve runs
+before the screens rebuild, so `get_ui_layout`'s per-widget pixel rects already
+reflect the anchors/groups/scroll offset), so an agent confirms the `.oui` took
+effect the same way it verifies any widget (and combines it with `get_safe_area`
+for the notch check). No `editor_control` self-test change was required.
 
 The machine-checkable "HUD respects the notch" assertion is: for every
 visible widget from `get_ui_layout`, its rect lies inside

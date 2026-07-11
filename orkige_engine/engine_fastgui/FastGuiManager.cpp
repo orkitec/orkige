@@ -21,6 +21,7 @@
 #include <core_game/GameStateManager.h>
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace Orkige
 {
@@ -501,51 +502,6 @@ namespace Orkige
 		this->layoutDirty = true;
 	}
 	//---------------------------------------------------------
-	LayoutRect FastGuiManager::resolveWidget(FastGuiWidget* widget,
-		float layoutScale, LayoutRect const & fullRoot,
-		LayoutRect const & safeRoot,
-		std::map<FastGuiWidget*, LayoutRect> & cache)
-	{
-		std::map<FastGuiWidget*, LayoutRect>::iterator hit = cache.find(widget);
-		if(hit != cache.end())
-		{
-			return hit->second;
-		}
-		// the parent rect: a layout parent resolves first (recursively); a
-		// non-layout parent contributes its current pixel rect; a parentless
-		// widget resolves against the chosen screen root
-		LayoutRect parentRect;
-		optr<FastGuiWidget> parent = widget->getLayoutParent().lock();
-		if(parent)
-		{
-			if(parent->isLayoutEnabled())
-			{
-				parentRect = this->resolveWidget(parent.get(), layoutScale,
-					fullRoot, safeRoot, cache);
-			}
-			else
-			{
-				const Ogre::Vector2 pos = parent->getPosition();
-				const Ogre::Vector2 size = parent->getSize();
-				parentRect.x = pos.x;
-				parentRect.y = pos.y;
-				parentRect.w = size.x;
-				parentRect.h = size.y;
-			}
-		}
-		else
-		{
-			// a parentless widget resolves against the global root space, with
-			// a per-widget useSafeArea opting a single widget into the safe rect
-			parentRect = (widget->getUseSafeArea() ||
-				this->layoutRootSpace == RS_SafeArea) ? safeRoot : fullRoot;
-		}
-		const LayoutRect rect = resolveRect(parentRect,
-			widget->getLayoutNode(), layoutScale);
-		cache[widget] = rect;
-		return rect;
-	}
-	//---------------------------------------------------------
 	void FastGuiManager::resolveLayouts()
 	{
 		// re-resolve only when a layout property changed or the window resized
@@ -583,16 +539,91 @@ namespace Orkige
 			safeRoot.h = Real(windowHeight) - Real(insets.mTop) - Real(insets.mBottom);
 		}
 
-		std::map<FastGuiWidget*, LayoutRect> cache;
+		// build a transient LayoutItem forest from the opted-in widgets. std::map
+		// node pointers stay stable across inserts, so children link by address.
+		std::map<FastGuiWidget*, LayoutItem> items;
 		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
 			if(!widget->isLayoutEnabled())
 			{
 				continue;
 			}
-			const LayoutRect rect = this->resolveWidget(widget.get(),
-				layoutScale, fullRoot, safeRoot, cache);
-			widget->applyResolvedRect(rect.x, rect.y, rect.w, rect.h);
+			LayoutItem & item = items[widget.get()];
+			item.node = widget->getLayoutNode();
+			item.group = widget->getLayoutGroup();
+			item.fit = widget->getContentFit();
+			const Ogre::Vector2 preferred = widget->getPreferredSize();
+			item.contentSize.x = preferred.x;
+			item.contentSize.y = preferred.y;
+			item.scrollOffset = widget->getScrollOffset();
+			item.userData = widget.get();
+		}
+		// link children to their layout parents (a non-layout / absent parent
+		// leaves the widget a root, resolved against the screen root below)
+		std::set<FastGuiWidget*> isChild;
+		for(std::map<FastGuiWidget*, LayoutItem>::value_type & entry : items)
+		{
+			FastGuiWidget* widget = entry.first;
+			optr<FastGuiWidget> parent = widget->getLayoutParent().lock();
+			if(parent && parent->isLayoutEnabled())
+			{
+				std::map<FastGuiWidget*, LayoutItem>::iterator pit =
+					items.find(parent.get());
+				if(pit != items.end())
+				{
+					pit->second.children.push_back(&entry.second);
+					isChild.insert(widget);
+				}
+			}
+		}
+		// resolve each root subtree top-down (two-pass inside resolveTree)
+		for(std::map<FastGuiWidget*, LayoutItem>::value_type & entry : items)
+		{
+			FastGuiWidget* widget = entry.first;
+			if(isChild.count(widget) != 0)
+			{
+				continue;
+			}
+			LayoutRect parentRect;
+			optr<FastGuiWidget> parent = widget->getLayoutParent().lock();
+			if(parent)
+			{
+				// a non-layout parent contributes its current pixel rect
+				const Ogre::Vector2 pos = parent->getPosition();
+				const Ogre::Vector2 size = parent->getSize();
+				parentRect.x = pos.x;
+				parentRect.y = pos.y;
+				parentRect.w = size.x;
+				parentRect.h = size.y;
+			}
+			else
+			{
+				parentRect = (widget->getUseSafeArea() ||
+					this->layoutRootSpace == RS_SafeArea) ? safeRoot : fullRoot;
+			}
+			resolveTree(entry.second, parentRect, layoutScale);
+		}
+		// write the resolved rects back, then hand scroll viewports their
+		// viewport + content extent (its first child's preferred size)
+		for(std::map<FastGuiWidget*, LayoutItem>::value_type & entry : items)
+		{
+			FastGuiWidget* widget = entry.first;
+			LayoutItem const & item = entry.second;
+			widget->applyResolvedRect(item.resolved.x, item.resolved.y,
+				item.resolved.w, item.resolved.h);
+		}
+		for(std::map<FastGuiWidget*, LayoutItem>::value_type & entry : items)
+		{
+			FastGuiWidget* widget = entry.first;
+			LayoutItem const & item = entry.second;
+			Ogre::Vector2 viewport(item.resolved.w, item.resolved.h);
+			Ogre::Vector2 content = viewport;
+			if(!item.children.empty())
+			{
+				content.x = item.children[0]->preferred.x;
+				content.y = item.children[0]->preferred.y;
+			}
+			widget->onLayoutResolved(viewport, content);
 		}
 	}
 	//---------------------------------------------------------
@@ -778,6 +809,15 @@ namespace Orkige
 				break;
 			}
 			widget->onCursorMoved(cursorPos);
+		}
+		// the mouse wheel arrives as a moved event carrying a z delta; route it
+		// to scroll viewports (a no-op on every other widget)
+		if(data->relZ != 0)
+		{
+			foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
+			{
+				widget->onMouseWheel(cursorPos, data->relZ);
+			}
 		}
 		this->cancelInputUpdate = false;
 		return false;

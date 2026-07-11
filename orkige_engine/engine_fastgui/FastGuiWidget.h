@@ -41,6 +41,11 @@ namespace Orkige
 		//! resolve against the safe-area root rather than the full window (only
 		//! consulted for a parentless widget)
 		bool layoutUseSafeArea;
+		//! group arrangement (LGT_None = children keep their own anchors) and
+		//! content-size-fit; both feed the manager's two-pass resolve. Opt-in
+		//! like the anchor node - untouched leaves a plain absolute widget.
+		LayoutGroup layoutGroup;
+		LayoutContentFit layoutFit;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiWidget(String const & id, String const & atlas, uint z);
@@ -84,14 +89,59 @@ namespace Orkige
 		//! @brief resolve a parentless widget against the safe rect (window minus
 		//! the notch/home-bar insets) instead of the full window
 		void setUseSafeArea(bool enable);
+
+		//--- layout groups + content-size-fit (opt-in; @see the 2c core) ---
+		//! @brief make this widget a group that auto-arranges its layout
+		//! children, overriding their anchors ("none"/"horizontal"/"vertical"/
+		//! "grid"; case-insensitive). "none" reverts to plain anchor children.
+		void setLayoutGroup(String const & type);
+		//! @brief a group's inner padding, in design units (left/top/right/bottom)
+		void setGroupPadding(float left, float top, float right, float bottom);
+		//! @brief a group's between-children gap (design units); the second value
+		//! is the grid's row gap (<= 0 reuses the first for both axes)
+		void setGroupSpacing(float spacing, float spacingY = 0.0f);
+		//! @brief a horizontal/vertical group's cross-axis child alignment
+		//! ("start"/"center"/"end")
+		void setChildAlignment(String const & align);
+		//! @brief stretch a horizontal/vertical group's children across the cross axis
+		void setChildForceExpand(bool enable);
+		//! @brief a grid group's cell size in design units
+		void setGridCellSize(float width, float height);
+		//! @brief a grid group's constraint ("flexible"/"columns"/"rows") + count
+		void setGridConstraint(String const & constraint, int count);
+		//! @brief content-size-fit per axis ("none"/"preferred"): a preferred axis
+		//! sizes the widget to its measured content (a button to its label, a
+		//! group to its children)
+		void setContentSizeFit(String const & horizontal, String const & vertical);
+
 		//! @brief is this widget placed by the layout resolver?
 		inline bool isLayoutEnabled() const { return this->layoutEnabled; }
 		//! @brief the layout descriptor (the resolver's input; @see FastGuiManager)
 		inline LayoutNode const & getLayoutNode() const { return this->layout; }
+		//! @brief the group arrangement descriptor (LGT_None = not a group)
+		inline LayoutGroup const & getLayoutGroup() const { return this->layoutGroup; }
+		//! @brief the content-size-fit descriptor
+		inline LayoutContentFit const & getContentFit() const { return this->layoutFit; }
 		//! @brief the layout parent (empty for a screen-root child)
 		inline woptr<FastGuiWidget> getLayoutParent() const { return this->layoutParent; }
 		//! @brief resolve against the safe-area root (parentless widgets only)
 		inline bool getUseSafeArea() const { return this->layoutUseSafeArea; }
+		//! @brief the intrinsic preferred content size fed to content-size-fit and
+		//! group arrangement. The base is the widget's current size; text widgets
+		//! override to measure their caption.
+		virtual Ogre::Vector2 getPreferredSize();
+		//! @brief a scroll viewport's current scroll offset in window pixels
+		//! (0 for every other widget); the resolver shifts this widget's children
+		//! by it. @see FastGuiScrollView
+		virtual LayoutVec2 getScrollOffset() const { return LayoutVec2(); }
+		//! @brief the manager hands a scroll viewport its resolved size + the
+		//! content's preferred extent each relayout (a no-op on plain widgets)
+		virtual void onLayoutResolved(Ogre::Vector2 const & viewportSize,
+			Ogre::Vector2 const & contentExtent) { (void)viewportSize; (void)contentExtent; }
+		//! @brief a mouse-wheel notch over @p cursorPos (@p wheelDelta = 120 per
+		//! notch, sign = direction); a scroll viewport scrolls, others ignore it
+		virtual void onMouseWheel(Ogre::Vector2 const & cursorPos, int wheelDelta)
+		{ (void)cursorPos; (void)wheelDelta; }
 		//! @brief push a resolved absolute rect into the widget (setPosition +
 		//! setSize); the resolver calls this each relayout
 		void applyResolvedRect(float x, float y, float width, float height);

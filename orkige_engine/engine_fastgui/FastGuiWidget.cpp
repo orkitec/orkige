@@ -147,6 +147,113 @@ namespace Orkige
 		FastGuiManager::getSingleton().markLayoutDirty();
 	}
 	//---------------------------------------------------------
+	void FastGuiWidget::setLayoutGroup(String const & type)
+	{
+		this->ensureLayout();
+		String key = type;
+		Ogre::StringUtil::toLowerCase(key);
+		if(key == "horizontal")		this->layoutGroup.type = LGT_Horizontal;
+		else if(key == "vertical")	this->layoutGroup.type = LGT_Vertical;
+		else if(key == "grid")		this->layoutGroup.type = LGT_Grid;
+		else if(key == "none")		this->layoutGroup.type = LGT_None;
+		else
+		{
+			oAssertDesc(!"Unknown layout group", "Unknown layout group: " << type);
+		}
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setGroupPadding(float left, float top, float right, float bottom)
+	{
+		this->ensureLayout();
+		this->layoutGroup.padding.left = left;
+		this->layoutGroup.padding.top = top;
+		this->layoutGroup.padding.right = right;
+		this->layoutGroup.padding.bottom = bottom;
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setGroupSpacing(float spacing, float spacingY)
+	{
+		this->ensureLayout();
+		this->layoutGroup.spacing = spacing;
+		this->layoutGroup.spacingY = spacingY;
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setChildAlignment(String const & align)
+	{
+		this->ensureLayout();
+		String key = align;
+		Ogre::StringUtil::toLowerCase(key);
+		if(key == "start")			this->layoutGroup.childAlign = LAL_Start;
+		else if(key == "center" || key == "centre")	this->layoutGroup.childAlign = LAL_Center;
+		else if(key == "end")		this->layoutGroup.childAlign = LAL_End;
+		else
+		{
+			oAssertDesc(!"Unknown child alignment", "Unknown child alignment: " << align);
+		}
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setChildForceExpand(bool enable)
+	{
+		this->ensureLayout();
+		this->layoutGroup.childForceExpand = enable;
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setGridCellSize(float width, float height)
+	{
+		this->ensureLayout();
+		this->layoutGroup.cellSize.x = width;
+		this->layoutGroup.cellSize.y = height;
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setGridConstraint(String const & constraint, int count)
+	{
+		this->ensureLayout();
+		String key = constraint;
+		Ogre::StringUtil::toLowerCase(key);
+		if(key == "flexible")		this->layoutGroup.constraint = LGC_Flexible;
+		else if(key == "columns")	this->layoutGroup.constraint = LGC_FixedColumns;
+		else if(key == "rows")		this->layoutGroup.constraint = LGC_FixedRows;
+		else
+		{
+			oAssertDesc(!"Unknown grid constraint", "Unknown grid constraint: " << constraint);
+		}
+		this->layoutGroup.constraintCount = count;
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		LayoutFitMode parseFitMode(String const & mode)
+		{
+			String key = mode;
+			Ogre::StringUtil::toLowerCase(key);
+			if(key == "preferred")	return LFM_Preferred;
+			// "none"/"unconstrained"/empty all mean "size from the anchors"
+			return LFM_Unconstrained;
+		}
+	}
+	//---------------------------------------------------------
+	void FastGuiWidget::setContentSizeFit(String const & horizontal, String const & vertical)
+	{
+		this->ensureLayout();
+		this->layoutFit.horizontal = parseFitMode(horizontal);
+		this->layoutFit.vertical = parseFitMode(vertical);
+		FastGuiManager::getSingleton().markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	Ogre::Vector2 FastGuiWidget::getPreferredSize()
+	{
+		// the base preferred size is the widget's current pixel size; text
+		// widgets override to measure their caption instead
+		return this->getSize();
+	}
+	//---------------------------------------------------------
 	void FastGuiWidget::applyResolvedRect(float x, float y, float width, float height)
 	{
 		// captions assert on subpixel positions; the resolver output is pixels,
@@ -203,5 +310,15 @@ namespace Orkige
 		OFUNC(setAnchoredPosition)
 		OFUNC(setSizeDelta)
 		OFUNC(setUseSafeArea)
+		// layout groups + content-size-fit: make a widget arrange its children
+		// (h/v stack, grid) and/or size itself to its content
+		OFUNC(setLayoutGroup)
+		OFUNC(setGroupPadding)
+		OFUNC(setGroupSpacing)
+		OFUNC(setChildAlignment)
+		OFUNC(setChildForceExpand)
+		OFUNC(setGridCellSize)
+		OFUNC(setGridConstraint)
+		OFUNC(setContentSizeFit)
 	OOBJECT_END
 }

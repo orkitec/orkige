@@ -251,6 +251,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_layout PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_LAYOUT=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
+    # loads a whole settings screen from a committed .oui file (nine-slice
+    # panel + a scroll viewport whose vertical group of rows overflows) through
+    # FastGuiFactory::loadLayout, then asserts the content overflows, scrolling
+    # shifts the resolved rects, the content layer's scissor equals the
+    # viewport, and a checkbox in a scrolled row still hit-tests at its shifted
+    # position. Flavor-neutral (pure resolver, fastgui on DrawLayer2D).
+    add_test(NAME demo_oui COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_oui PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_OUI=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES

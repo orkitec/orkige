@@ -1364,6 +1364,130 @@ int main(int, char**)
 				"reference scale)");
 		}
 
+		// ORKIGE_DEMO_OUI=1: the declarative-UI + scroll + groups selfcheck
+		// (flavor-neutral). Loads a whole settings screen from a committed .oui
+		// file (an anchored nine-slice panel, a scroll viewport whose content is
+		// a vertical group of labelled rows that overflows) through
+		// FastGuiFactory::loadLayout - the acceptance proof that an agent can
+		// author a full screen as one text file. Asserts: the content overflows;
+		// scrolling shifts the resolved row rects up; the content layer carries a
+		// scissor equal to the viewport; and a checkbox in a scrolled row still
+		// hit-tests correctly (a synthetic click at its shifted position toggles
+		// it on the real input path). Runs identically on classic + next.
+		if (std::getenv("ORKIGE_DEMO_OUI"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			bool ouiOk = true;
+			{
+				Orkige::optr<Orkige::FastGuiFactory> factory =
+					Orkige::onew(new Orkige::FastGuiFactory());
+				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				gui.enableInputEvents();
+
+				// the whole screen, authored as one text file
+				factory->loadLayout("settings_screen.oui");
+				render->renderOneFrame();	// runs the two-pass resolve
+
+				Orkige::optr<Orkige::FastGuiScrollView> scroll;
+				Orkige::optr<Orkige::FastGuiCheckBox> check;
+				if (gui.widgetExists("settingsScroll"))
+				{
+					scroll = gui.getWidgetAs<Orkige::FastGuiScrollView>(
+						"settingsScroll").lock();
+				}
+				if (gui.widgetExists("rowSound"))
+				{
+					check = gui.getWidgetAs<Orkige::FastGuiCheckBox>(
+						"rowSound").lock();
+				}
+				if (!scroll || !check)
+				{
+					SDL_Log("hello_orkige: FAILED - .oui widgets not created");
+					ouiOk = false;
+				}
+				else if (scroll->getMaxScroll() <= 0.0f)
+				{
+					SDL_Log("hello_orkige: FAILED - scroll content did not "
+						"overflow the viewport (maxScroll %.1f)",
+						scroll->getMaxScroll());
+					ouiOk = false;
+				}
+				else
+				{
+					// the content layer is clipped to the viewport rect exactly
+					Orkige::UiLayer* clip = scroll->getLayer();
+					const Orkige::Vec2 vpPos = scroll->getPosition();
+					const Orkige::Vec2 vpSize = scroll->getSize();
+					if (!clip || !clip->hasScissor())
+					{
+						SDL_Log("hello_orkige: FAILED - no scissor on the scroll "
+							"content layer");
+						ouiOk = false;
+					}
+					else
+					{
+						const Orkige::DrawLayer2D::ScissorRect sc = clip->getScissor();
+						if (std::abs(sc.left - vpPos.x) > 1.5f ||
+							std::abs(sc.top - vpPos.y) > 1.5f ||
+							std::abs(sc.width - vpSize.x) > 1.5f ||
+							std::abs(sc.height - vpSize.y) > 1.5f)
+						{
+							SDL_Log("hello_orkige: FAILED - scissor (%d,%d %dx%d) "
+								"!= viewport (%.0f,%.0f %.0fx%.0f)", sc.left, sc.top,
+								sc.width, sc.height, vpPos.x, vpPos.y, vpSize.x,
+								vpSize.y);
+							ouiOk = false;
+						}
+					}
+
+					// scrolling shifts the resolved content rects UP
+					const Orkige::Vec2 checkBefore = check->getPosition();
+					const bool checkedBefore = check->isChecked();
+					scroll->setScroll(-50.0f);
+					render->renderOneFrame();
+					const Orkige::Vec2 checkAfter = check->getPosition();
+					if (checkAfter.y >= checkBefore.y - 1.0f)
+					{
+						SDL_Log("hello_orkige: FAILED - scroll did not move the "
+							"content (checkbox y %.1f -> %.1f)", checkBefore.y,
+							checkAfter.y);
+						ouiOk = false;
+					}
+
+					// a click at the checkbox's SHIFTED centre toggles it: the hit
+					// test accounts for the scroll offset (the rect moved with it)
+					const Orkige::Vec2 cPos = check->getPosition();
+					const Orkige::Vec2 cSize = check->getSize();
+					SDL_Event press{};
+					press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					press.button.button = SDL_BUTTON_LEFT;
+					press.button.down = true;
+					press.button.x = cPos.x + cSize.x * 0.5f;
+					press.button.y = cPos.y + cSize.y * 0.5f;
+					inputManager.injectEvent(press);
+					if (check->isChecked() == checkedBefore)
+					{
+						SDL_Log("hello_orkige: FAILED - checkbox in a scrolled row "
+							"did not toggle at its shifted position (%.1f,%.1f)",
+							press.button.x, press.button.y);
+						ouiOk = false;
+					}
+				}
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!ouiOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: .oui selfcheck passed (declarative settings "
+				"screen loaded from one file, vertical group + scroll, scissor "
+				"clip == viewport, scrolled checkbox hit-tests correctly)");
+		}
+
 		// ORKIGE_DEMO_TEXTENTRY=1: the fastgui TextEntry selfcheck (flavor-
 		// neutral). Boots a real FastGuiManager on the committed atlas, creates a
 		// text field and drives it entirely through synthetic SDL events on the

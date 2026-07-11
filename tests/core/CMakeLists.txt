@@ -36,6 +36,8 @@ add_executable(orkige_core_tests
     SafeAreaTests.cpp
     UiLayoutResolverTests.cpp
     ReferenceScaleTests.cpp
+    LayoutGroupTests.cpp
+    ScrollClipTests.cpp
     TiltCalibrationTests.cpp
     StringTableTests.cpp
     VectorTessellatorTests.cpp

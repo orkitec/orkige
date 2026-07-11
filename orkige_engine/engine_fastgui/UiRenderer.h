@@ -134,13 +134,17 @@ namespace Orkige
 		//! resizes, rebuild dirty layers, resubmit the batch
 		void update();
 
-		//! vertices submitted on the last update (the retained batch size) -
+		//! total vertices submitted on the last update (across every batch) -
 		//! a render probe for selfchecks ("did the HUD actually draw?")
-		inline size_t getLastVertexCount() const { return this->mScratch.size(); }
+		inline size_t getLastVertexCount() const { return this->mLastVertexCount; }
 
 		//! layer callback: content changed, resubmit on the next update
 		inline void _markDirty() { this->mDirty = true; }
 	protected:
+		//! submit the accumulated scratch buffer as one (optionally scissored)
+		//! batch and clear it; a no-op on an empty buffer
+		void _flushBatch(DrawLayer2D::ScissorRect const * scissor);
+
 		UiAtlas const *			mAtlas;
 		optr<DrawLayer2D>		mDrawLayer;
 		std::vector<UiLayer*>	mLayers;		//!< creation order
@@ -149,6 +153,7 @@ namespace Orkige
 		bool					mIsVisible;
 		bool					mDirty;
 		bool					mForceRedraw;
+		size_t					mLastVertexCount;	//!< sum over the last update's batches
 	private:
 		UiScreen(UiScreen const &);					// non-copyable
 		UiScreen & operator=(UiScreen const &);		// non-copyable
@@ -181,6 +186,16 @@ namespace Orkige
 		//! (0..1; fade whole widget groups)
 		void setAlphaModifier(Real alphaModifier);
 		inline Real getAlphaModifier() const { return this->mAlphaModifier; }
+
+		//! @brief clip this layer to a pixel rect - the whole layer submits as
+		//! its own scissored batch (a scroll viewport's content layer). Clears
+		//! it with clearScissor. The clip is analytic + backend-identical
+		//! (@see DrawLayer2D). Content on the clipped layer beyond the rect is
+		//! trimmed at submission.
+		void setScissor(DrawLayer2D::ScissorRect const & scissor);
+		void clearScissor();
+		inline bool hasScissor() const { return this->mHasScissor; }
+		inline DrawLayer2D::ScissorRect const & getScissor() const { return this->mScissor; }
 
 		//--- elements (create here, destroy here - the layer deletes) ---
 		UiRect* createRectangle(Real left, Real top,
@@ -237,6 +252,8 @@ namespace Orkige
 		std::vector<UiMarkupText*>	mMarkupTexts;
 		bool						mVisible;
 		Real						mAlphaModifier;
+		bool						mHasScissor;	//!< clip this layer to mScissor
+		DrawLayer2D::ScissorRect	mScissor;		//!< the clip rect (pixels)
 	private:
 		UiLayer(UiLayer const &);					// non-copyable
 		UiLayer & operator=(UiLayer const &);		// non-copyable

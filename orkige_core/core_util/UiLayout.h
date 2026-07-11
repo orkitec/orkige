@@ -22,6 +22,8 @@
 
 #include "core_module/OrkigePrerequisites.h"
 
+#include <vector>
+
 namespace Orkige
 {
 	//! @brief a 2D point / size in the layout's own units (plain data)
@@ -132,6 +134,136 @@ namespace Orkige
 		//! design resolution is set, so a game that never opts in is unscaled.
 		float referenceScale(float windowWidth, float windowHeight) const;
 	};
+
+	//==========================================================
+	//=== layout groups + content-size-fit (the two-pass core) =
+	//==========================================================
+
+	//! @brief a group arranges its children automatically, OVERRIDING their
+	//! anchor placement. LGT_None = a plain container (children keep resolving
+	//! by their own anchors against the parent rect).
+	enum LayoutGroupType
+	{
+		LGT_None = 0,		//!< not a group: children resolve by their anchors
+		LGT_Horizontal,		//!< place children left-to-right
+		LGT_Vertical,		//!< place children top-to-bottom
+		LGT_Grid			//!< place children on a fixed-cell grid
+	};
+
+	//! @brief how a grid decides its column/row count
+	enum LayoutGridConstraint
+	{
+		LGC_Flexible = 0,	//!< pick a near-square column count from the child count
+		LGC_FixedColumns,	//!< constraintCount columns, rows follow
+		LGC_FixedRows		//!< constraintCount rows, columns follow (column-major)
+	};
+
+	//! @brief cross-axis alignment of a horizontal/vertical group's children
+	enum LayoutAlign
+	{
+		LAL_Start = 0,		//!< left (vertical group) / top (horizontal group)
+		LAL_Center,			//!< centred on the cross axis
+		LAL_End				//!< right (vertical group) / bottom (horizontal group)
+	};
+
+	//! @brief how a content-size fitter drives an axis
+	enum LayoutFitMode
+	{
+		LFM_Unconstrained = 0,	//!< size comes from the anchors (default)
+		LFM_Preferred			//!< size the node to its preferred content extent
+	};
+
+	//! @brief inner padding of a group, in DESIGN units (scaled by layoutScale)
+	struct ORKIGE_CORE_DLL LayoutPadding
+	{
+		float left = 0.0f;
+		float top = 0.0f;
+		float right = 0.0f;
+		float bottom = 0.0f;
+	};
+
+	//! @brief a node's group arrangement (plain data; serialises into the .oui
+	//! and binds to Lua). Lengths (padding/spacing/cellSize) are DESIGN units.
+	struct ORKIGE_CORE_DLL LayoutGroup
+	{
+		LayoutGroupType			type = LGT_None;
+		LayoutPadding			padding;
+		float					spacing = 0.0f;		//!< main-axis gap; grid column gap
+		float					spacingY = 0.0f;	//!< grid row gap (<= 0 uses spacing)
+		LayoutAlign				childAlign = LAL_Start;	//!< H/V cross-axis alignment
+		bool					childForceExpand = false;//!< stretch children across the cross axis
+		LayoutVec2				cellSize{100.0f, 100.0f};//!< grid cell size (design units)
+		LayoutGridConstraint	constraint = LGC_Flexible;
+		int						constraintCount = 0;	//!< columns / rows count
+
+		inline bool isGroup() const { return this->type != LGT_None; }
+	};
+
+	//! @brief a node's content-size-fit: a Preferred axis sizes the node to its
+	//! measured preferred content (e.g. a button to its label + padding)
+	struct ORKIGE_CORE_DLL LayoutContentFit
+	{
+		LayoutFitMode	horizontal = LFM_Unconstrained;
+		LayoutFitMode	vertical = LFM_Unconstrained;
+	};
+
+	//! @brief one node of a layout tree the two-pass resolver walks. Plain data
+	//! owned by the caller (FastGuiManager rebuilds a transient forest of these
+	//! from its widget hierarchy each relayout; the unit tests build them
+	//! directly). @c children are NOT owned - the caller keeps the storage
+	//! alive across a resolve. @c userData is an opaque back-reference (the
+	//! FastGuiWidget*) the caller reads @c resolved out of.
+	struct ORKIGE_CORE_DLL LayoutItem
+	{
+		LayoutNode				node;			//!< anchor placement (for non-group parents)
+		LayoutGroup				group;			//!< child arrangement (LGT_None = passthrough)
+		LayoutContentFit		fit;			//!< content-size-fit
+		//! this leaf's intrinsic preferred content size in WINDOW pixels (a
+		//! widget measures it, e.g. a label's text). Ignored for a group (its
+		//! preferred size comes from its arranged children).
+		LayoutVec2				contentSize;
+		//! a pixel offset added to this node's children positions - the scroll
+		//! amount of a scroll viewport (0 for everything else). NOT scaled.
+		LayoutVec2				scrollOffset;
+		std::vector<LayoutItem*> children;		//!< child nodes (not owned)
+		void*					userData = nullptr;	//!< opaque back-reference
+
+		//--- outputs (filled by the resolver) ---
+		LayoutVec2				preferred;		//!< measurePreferred result
+		LayoutRect				resolved;		//!< assignRects result
+	};
+
+	//! @brief pass 1 (bottom-up): fill @c preferred for the whole subtree and
+	//! return this node's preferred size. A group's preferred size is the
+	//! extent of its arranged children (plus padding/spacing); a leaf's is its
+	//! @c contentSize. Lengths use @p layoutScale for the design-unit metrics.
+	ORKIGE_CORE_DLL LayoutVec2 measurePreferred(LayoutItem & item,
+		float layoutScale);
+
+	//! @brief pass 2 (top-down): @p itemRect is this node's final absolute rect;
+	//! place its children. A group arranges them sequentially (overriding their
+	//! anchors); a plain container resolves each child via resolveRect against
+	//! this node's (padding + scroll shifted) content rect. Recurses. Requires
+	//! measurePreferred to have run over the subtree.
+	ORKIGE_CORE_DLL void assignRects(LayoutItem & item,
+		LayoutRect const & itemRect, float layoutScale);
+
+	//! @brief this node's own absolute rect: resolveRect against @p parent, then
+	//! a Preferred content-fit axis overrides that axis' size (keeping the pivot
+	//! point fixed). Requires @c preferred to be set (measurePreferred ran).
+	ORKIGE_CORE_DLL LayoutRect resolveItemRect(LayoutRect const & parent,
+		LayoutItem const & item, float layoutScale);
+
+	//! @brief the whole two-pass resolve for one root against a parent rect:
+	//! measurePreferred, then resolveItemRect, then assignRects.
+	ORKIGE_CORE_DLL void resolveTree(LayoutItem & root,
+		LayoutRect const & parentRect, float layoutScale);
+
+	//! @brief clamp a scroll offset so the content stays pinned to the viewport:
+	//! the offset is <= 0 and >= min(0, viewportExtent - contentExtent). Content
+	//! that fits (content <= viewport) clamps to 0.
+	ORKIGE_CORE_DLL float clampScroll(float offset, float contentExtent,
+		float viewportExtent);
 }
 
 #endif //__UiLayout_h__11_7_2026__10_00_00__

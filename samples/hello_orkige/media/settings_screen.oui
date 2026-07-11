@@ -1,0 +1,161 @@
+# settings_screen.oui - a whole settings screen authored as one text file.
+# An anchored nine-slice panel holds a title and a scroll viewport; the
+# viewport's content is a vertical group of labelled rows (a checkbox, a
+# slider and a stack of option buttons) that overflows and scrolls.
+# Loaded at runtime by FastGuiFactory::loadLayout / gui:loadLayout, and the
+# same file an agent authors over the MCP write_project_file verb.
+
+[Layout]
+atlas = fastgui_default
+root = fullwindow
+
+[DecorWidget settingsPanel]
+sprite = panel
+z = 4
+anchor = center
+pivot = 0.5 0.5
+anchoredPos = 0 0
+sizeDelta = 460 460
+nineSlice = true
+
+[Label settingsTitle]
+parent = settingsPanel
+z = 5
+font = 9
+text = Settings
+anchor = stretchtop
+offsets = 24 16 -24 48
+textAlignment = topleft
+
+[ScrollView settingsScroll]
+parent = settingsPanel
+z = 6
+anchor = stretchall
+offsets = 16 64 -16 -16
+
+[DecorWidget settingsContent]
+parent = settingsScroll
+z = 6
+sprite = none
+size = 100 100
+color = 0 0 0 0
+anchor = stretchtop
+offsets = 0 0 0 0
+group = vertical
+padding = 8 8 8 8
+spacing = 10
+childExpand = true
+fit = none preferred
+
+[Button rowOption1]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Graphics
+size = 260 40
+
+[Button rowOption2]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Controls
+size = 260 40
+
+[Button rowOption3]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Language
+size = 260 40
+
+[CheckBox rowSound]
+parent = settingsContent
+z = 6
+font = 9
+sprite = checkbox
+text = Sound
+checkbox = false
+size = 260 44
+
+[Slider rowVolume]
+parent = settingsContent
+z = 6
+font = 9
+sprite = select_menu_field
+text = Volume
+size = 260 44
+
+[Button rowOption4]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Accessibility
+size = 260 40
+
+[Button rowOption5]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Notifications
+size = 260 40
+
+[Button rowOption6]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Account
+size = 260 40
+
+[Button rowOption7]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Privacy
+size = 260 40
+
+[Button rowOption8]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Storage
+size = 260 40
+
+[Button rowOption9]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = About
+size = 260 40
+
+[Button rowOption10]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Credits
+size = 260 40
+
+[Button rowOption11]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Reset
+size = 260 40
+
+[Button rowOption12]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = Restore Purchases
+size = 260 40

@@ -457,6 +457,32 @@ look when touching one:
   asserts it). Pure tests `UiLayoutResolverTests`/`ReferenceScaleTests`; the
   `demo_layout` selfcheck exercises an anchored nine-slice panel + a
   parent-relative child + a safe-area re-layout on both flavors.
+  **Layout groups + content-size-fit** (opt-in): a widget becomes a group
+  (`setLayoutGroup("horizontal"/"vertical"/"grid")` + padding/spacing/childAlign/
+  childExpand/grid cell+constraint) that auto-arranges its layout children, and a
+  `setContentSizeFit(h,v)` `preferred` axis sizes a node to its content (a group
+  to its children, a label to its measured text). Both live in the pure
+  `core_util/UiLayout` two-pass resolver (`measurePreferred` bottom-up →
+  `assignRects` top-down; nesting anchored rects inside groups inside groups
+  works); `FastGuiManager::resolveLayouts` builds a transient `LayoutItem` forest
+  and runs it. **Scroll container**: `FastGuiScrollView` (`createScrollView`) is a
+  clipping viewport whose taller layout child scrolls by drag / mouse wheel — the
+  content is offset through the resolver (children stay hit-testable at their
+  shifted rects, scroll-offset-aware) and clipped by a per-`UiLayer` `ScissorRect`
+  (`clampScroll` is pure/unit-tested; the clip is analytic + backend-identical,
+  batch count grows by one per scroll region). Author scroll content widgets with
+  the scroll view's z (the clip layer). Pure tests `LayoutGroupTests`/
+  `ScrollClipTests`. **Declarative `.oui`** (`FastGuiFactory::loadLayout` /
+  `gui:loadLayout`, both flavors, noscript-safe): a whole screen — widgets
+  (incl. checkbox/slider/scrollview), anchors/pivots/offsets, groups, nine-slice,
+  scroll — authored as one text file (the backend-neutral, `StringTable`-localised
+  successor to the classic `load()`; `@key` text routes through `loc`). The doc
+  model `engine_fastgui/GuiLayout.{h,cpp}` parses/serialises round-trippably
+  (`GuiLayoutIoTests`); `samples/hello_orkige/media/settings_screen.oui` + the
+  `demo_oui` selfcheck are the acceptance proof (a scrolling settings screen
+  loaded from one file, scroll shifts the rects, a scrolled checkbox still
+  hit-tests). Agents author `.oui` over MCP `write_project_file` and verify the
+  resolve via `get_ui_layout` — no new MCP verb (see `Docs/mcp.md`).
 - **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
   and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
   snapped to a grid in 2D mode — the cell size comes from a scene

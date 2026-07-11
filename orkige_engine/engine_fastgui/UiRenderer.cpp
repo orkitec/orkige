@@ -55,7 +55,7 @@ namespace Orkige
 	UiScreen::UiScreen(UiAtlas const * atlas,
 		optr<DrawLayer2D> const & drawLayer)
 		: mAtlas(atlas), mDrawLayer(drawLayer), mWidth(0), mHeight(0),
-		mIsVisible(true), mDirty(false), mForceRedraw(false)
+		mIsVisible(true), mDirty(false), mForceRedraw(false), mLastVertexCount(0)
 	{
 		oAssert(this->mAtlas);
 		oAssert(this->mDrawLayer);
@@ -141,31 +141,94 @@ namespace Orkige
 		this->mForceRedraw = false;
 		this->mDirty = false;
 
-		// concatenate every visible layer (ascending index) into the
-		// retained scratch buffer - capacity survives clear()
+		this->mDrawLayer->clear();
+		this->mLastVertexCount = 0;
 		this->mScratch.clear();
+
+		// The common case has no scissored layer: every visible layer
+		// concatenates into ONE batch = one draw call per screen (unchanged).
+		// A scroll viewport tags its content layer with a clip rect; such a
+		// layer flushes the pending unclipped batch, then submits its own
+		// scissored batch - batch count grows by one per scroll region only.
+		bool anyScissor = false;
 		for(UiLayer* layer : this->mLayers)
 		{
-			if(layer->mVisible)
+			if(layer->mVisible && layer->hasScissor())
+			{
+				anyScissor = true;
+				break;
+			}
+		}
+		if(!anyScissor)
+		{
+			for(UiLayer* layer : this->mLayers)
+			{
+				if(layer->mVisible)
+				{
+					layer->_render(this->mScratch, force);
+				}
+			}
+			this->_flushBatch(NULL);
+			return;
+		}
+		for(UiLayer* layer : this->mLayers)
+		{
+			if(!layer->mVisible)
+			{
+				continue;
+			}
+			if(layer->hasScissor())
+			{
+				// close the run of unclipped layers, then emit this layer clipped
+				this->_flushBatch(NULL);
+				layer->_render(this->mScratch, force);
+				const DrawLayer2D::ScissorRect scissor = layer->getScissor();
+				this->_flushBatch(&scissor);
+			}
+			else
 			{
 				layer->_render(this->mScratch, force);
 			}
 		}
-
-		// ONE batch on the atlas texture = one draw call per screen
-		this->mDrawLayer->clear();
-		if(!this->mScratch.empty())
+		this->_flushBatch(NULL);
+	}
+	//---------------------------------------------------------
+	void UiScreen::_flushBatch(DrawLayer2D::ScissorRect const * scissor)
+	{
+		if(this->mScratch.empty())
 		{
-			this->mDrawLayer->addTriangles(this->mAtlas->getTextureName(),
-				this->mScratch.data(), this->mScratch.size());
+			return;
 		}
+		this->mDrawLayer->addTriangles(this->mAtlas->getTextureName(),
+			this->mScratch.data(), this->mScratch.size(),
+			NULL, 0, scissor);
+		this->mLastVertexCount += this->mScratch.size();
+		this->mScratch.clear();
 	}
 	//---------------------------------------------------------
 	//--- UiLayer ---------------------------------------------
 	//---------------------------------------------------------
 	UiLayer::UiLayer(uint index, UiScreen* parent)
-		: mIndex(index), mParent(parent), mVisible(true), mAlphaModifier(1.0f)
+		: mIndex(index), mParent(parent), mVisible(true), mAlphaModifier(1.0f),
+		mHasScissor(false)
 	{
+	}
+	//---------------------------------------------------------
+	void UiLayer::setScissor(DrawLayer2D::ScissorRect const & scissor)
+	{
+		this->mHasScissor = true;
+		this->mScissor = scissor;
+		this->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiLayer::clearScissor()
+	{
+		if(!this->mHasScissor)
+		{
+			return;
+		}
+		this->mHasScissor = false;
+		this->_markDirty();
 	}
 	//---------------------------------------------------------
 	UiLayer::~UiLayer()

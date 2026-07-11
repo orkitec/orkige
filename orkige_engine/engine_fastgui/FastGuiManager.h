@@ -199,13 +199,13 @@ namespace Orkige
 		bool onGameStateChanged(Orkige::Event const & event);
 
 		//! @brief resolve every opted-in layout widget to absolute pixels and
-		//! push the result into it. Top-down, memoised per frame; parentless
-		//! widgets resolve against the (full-window or safe-area) root rect.
+		//! push the result into it. Builds a transient LayoutItem forest from the
+		//! widget hierarchy, runs the pure two-pass resolver (bottom-up preferred
+		//! sizes for groups/content-fit, then top-down rect assignment), and
+		//! writes the results back. Parentless widgets resolve against the
+		//! (full-window or safe-area) root rect. Runs only when the layout went
+		//! dirty or the window resized.
 		void resolveLayouts();
-		//! resolve one widget's rect (recursing to its parent first, memoised)
-		LayoutRect resolveWidget(FastGuiWidget* widget, float layoutScale,
-			LayoutRect const & fullRoot, LayoutRect const & safeRoot,
-			std::map<FastGuiWidget*, LayoutRect> & cache);
 
 		//! process committed text input (routed to the focused text-entry field)
 		bool onTextInput(Orkige::Event const & event);

@@ -20,6 +20,7 @@
 #include "engine_fastgui/FastGuiButtonBlink.h"
 #include "engine_fastgui/FastGuiSlider.h"
 #include "engine_fastgui/FastGuiTextEntry.h"
+#include "engine_fastgui/FastGuiScrollView.h"
 #include <core_util/StringUtil.h>
 
 #include <OgreConfigFile.h>
@@ -78,7 +79,17 @@ namespace Orkige
 		//! create a single-line TextEntry field (empty sprite/"none" = solid fill;
 		//! placeholder shows when empty/unfocused; maxLength 0 = unlimited)
 		virtual woptr<FastGuiTextEntry> createTextEntry(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & placeholder, Ogre::Vector2 const & position, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0, uint maxLength = 0);
+		//! create a scroll viewport (a clipping container). Author its content
+		//! widgets with the SAME z and parent them under it; a layout child that
+		//! is taller/wider than the viewport scrolls by drag / mouse wheel.
+		virtual woptr<FastGuiScrollView> createScrollView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
 
+
+		//! @brief load a declarative UI layout (.oui) at runtime: creates every
+		//! widget it declares (anchors/pivots/offsets, groups, nine-slice,
+		//! scroll) and parents them. The backend-neutral successor to load()
+		//! (no Ogre material/localisation ties); text routes through StringTable.
+		virtual void loadLayout(String const & filename);
 
 		virtual void load(String const & filename);
 	protected:

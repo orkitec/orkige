@@ -10,11 +10,16 @@
 #include "engine_fastgui/FastGuiFactory.h"
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_fastgui/UiAtlas.h"
+#include "engine_fastgui/GuiLayout.h"
 #include "engine_util/StringUtil.h"
 #include <core_util/PlatformUtil.h>
+#include <core_util/StringTable.h>
 #include <core_util/foreach.h>
 // boost string algorithms replaced by core_util/StringUtil.h + Ogre::StringUtil (no-boost rule)
 #include "engine_util/ConfigFileUtil.h"
+
+#include <OgreResourceGroupManager.h>
+#include <OgreDataStream.h>
 #ifdef ORKIGE_RENDER_CLASSIC
 // the Localisation service is still classic-only (Ogre::ConfigFile
 // internals + a scene-manager entity probe, no live cross-backend user);
@@ -44,6 +49,189 @@ namespace Orkige
 			const float uiScale = UiGlyph::scale.x >= 1.0f
 				? UiGlyph::scale.x : 1.0f;
 			return Ogre::Vector2(size.x * uiScale, size.y * uiScale);
+		}
+
+		//--- .oui declarative-layout helpers (backend-neutral) ---
+		//! a section value, or a default if the key is absent
+		String ouiValue(GuiLayoutSection const & section, String const & key,
+			String const & fallback = StringUtil::BLANK)
+		{
+			String const * v = section.find(key);
+			return v != NULL ? *v : fallback;
+		}
+		//! parse "x y" into a Vector2 (missing components stay 0)
+		Ogre::Vector2 parseVec2(String const & value)
+		{
+			Ogre::Vector2 out(0.0f, 0.0f);
+			std::istringstream stream(value);
+			stream >> out.x >> out.y;
+			return out;
+		}
+		bool parseBool(String const & value, bool fallback)
+		{
+			return Ogre::StringConverter::parseBool(value, fallback);
+		}
+		//! resolve authored text: a leading '@' looks the rest up in the
+		//! StringTable (backend-neutral localisation), else it is literal; "\n"
+		//! escapes become real newlines either way
+		String resolveText(String const & value)
+		{
+			String text = value;
+			if(!text.empty() && text[0] == '@')
+			{
+				const String key = text.substr(1);
+				if(StringTable::getSingletonPtr() != NULL)
+				{
+					text = StringTable::getSingleton().get(key);
+				}
+				else
+				{
+					text = key;
+				}
+			}
+			return Ogre::StringUtil::replaceAll(text, "\\n", "\n");
+		}
+		FastGuiLabel::LabelAlignment parseLabelAlignment(String const & value,
+			FastGuiLabel::LabelAlignment fallback)
+		{
+			String v = value;
+			Ogre::StringUtil::toLowerCase(v);
+			if(v == "topleft")		return FastGuiLabel::LA_TOPLEFT;
+			if(v == "top")			return FastGuiLabel::LA_TOP;
+			if(v == "topright")		return FastGuiLabel::LA_TOPRIGHT;
+			if(v == "left")			return FastGuiLabel::LA_LEFT;
+			if(v == "center" || v == "centre")	return FastGuiLabel::LA_CENTER;
+			if(v == "right")		return FastGuiLabel::LA_RIGHT;
+			if(v == "bottomleft")	return FastGuiLabel::LA_BOTTOMLEFT;
+			if(v == "bottom")		return FastGuiLabel::LA_BOTTOM;
+			if(v == "bottomright")	return FastGuiLabel::LA_BOTTOMRIGHT;
+			return fallback;
+		}
+		//! apply the shared rect-anchor / group / content-fit / draw-mode keys
+		//! to an already-created widget (the .oui pass-2 layout application)
+		void applyLayoutKeys(FastGuiWidget* widget, GuiLayoutSection const & s)
+		{
+			if(String const * v = s.find("parent"))
+			{
+				if(FastGuiManager::getSingleton().widgetExists(*v))
+				{
+					optr<FastGuiWidget> parent =
+						FastGuiManager::getSingleton().getWidget(*v).lock();
+					if(parent)
+					{
+						widget->setParent(parent);
+					}
+				}
+			}
+			if(String const * v = s.find("anchor"))
+			{
+				widget->setAnchorPreset(*v);
+			}
+			if(String const * v = s.find("anchorMin"))
+			{
+				const Ogre::Vector2 mn = parseVec2(*v);
+				const Ogre::Vector2 mx = parseVec2(ouiValue(s, "anchorMax", *v));
+				widget->setAnchors(mn.x, mn.y, mx.x, mx.y);
+			}
+			if(String const * v = s.find("pivot"))
+			{
+				const Ogre::Vector2 p = parseVec2(*v);
+				widget->setPivot(p.x, p.y);
+			}
+			if(String const * v = s.find("offsets"))
+			{
+				std::istringstream stream(*v);
+				float l = 0, t = 0, r = 0, b = 0;
+				stream >> l >> t >> r >> b;
+				widget->setOffsets(l, t, r, b);
+			}
+			if(String const * v = s.find("anchoredPos"))
+			{
+				const Ogre::Vector2 p = parseVec2(*v);
+				widget->setAnchoredPosition(p.x, p.y);
+			}
+			if(String const * v = s.find("sizeDelta"))
+			{
+				const Ogre::Vector2 sz = parseVec2(*v);
+				widget->setSizeDelta(sz.x, sz.y);
+			}
+			if(String const * v = s.find("useSafeArea"))
+			{
+				widget->setUseSafeArea(parseBool(*v, false));
+			}
+			if(String const * v = s.find("group"))
+			{
+				widget->setLayoutGroup(*v);
+			}
+			if(String const * v = s.find("padding"))
+			{
+				std::istringstream stream(*v);
+				float l = 0, t = 0, r = 0, b = 0;
+				stream >> l >> t >> r >> b;
+				widget->setGroupPadding(l, t, r, b);
+			}
+			if(String const * v = s.find("spacing"))
+			{
+				std::istringstream stream(*v);
+				float sp = 0, spy = 0;
+				stream >> sp >> spy;
+				widget->setGroupSpacing(sp, spy);
+			}
+			if(String const * v = s.find("childAlign"))
+			{
+				widget->setChildAlignment(*v);
+			}
+			if(String const * v = s.find("childExpand"))
+			{
+				widget->setChildForceExpand(parseBool(*v, false));
+			}
+			if(String const * v = s.find("cellSize"))
+			{
+				const Ogre::Vector2 sz = parseVec2(*v);
+				widget->setGridCellSize(sz.x, sz.y);
+			}
+			if(String const * v = s.find("gridConstraint"))
+			{
+				std::istringstream stream(*v);
+				String constraint;
+				int count = 0;
+				stream >> constraint >> count;
+				widget->setGridConstraint(constraint, count);
+			}
+			if(String const * v = s.find("fit"))
+			{
+				std::istringstream stream(*v);
+				String h = "none", vert = "none";
+				stream >> h >> vert;
+				widget->setContentSizeFit(h, vert);
+			}
+			// draw modes live on the decor widget (panels); a button/other widget
+			// keeps its default stretched fill
+			if(FastGuiDecorWidget* decor = dynamic_cast<FastGuiDecorWidget*>(widget))
+			{
+				if(String const * v = s.find("nineSlice"))
+				{
+					decor->setNineSlice(parseBool(*v, false));
+				}
+				if(String const * v = s.find("tiled"))
+				{
+					decor->setTiled(parseBool(*v, false));
+				}
+				if(String const * v = s.find("color"))
+				{
+					std::istringstream stream(*v);
+					float r = 1, g = 1, b = 1, a = 1;
+					stream >> r >> g >> b >> a;
+					decor->setColour(r, g, b, a);
+				}
+			}
+			if(FastGuiScrollView* scroll = dynamic_cast<FastGuiScrollView*>(widget))
+			{
+				if(String const * v = s.find("scroll"))
+				{
+					scroll->setScroll(Ogre::StringConverter::parseReal(*v));
+				}
+			}
 		}
 	}
 	//---------------------------------------------------------
@@ -199,6 +387,171 @@ namespace Orkige
 		widget = onew(new FastGuiTextEntry(id, spriteName, defaultGlyphIndex, placeholder, position, scaleAuthoredSize(size), atlas, z, maxLength));
 		FastGuiManager::getSingleton().addWidget(widget);
 		return widget;
+	}
+	//---------------------------------------------------------
+	woptr<FastGuiScrollView> FastGuiFactory::createScrollView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z)
+	{
+		optr<FastGuiScrollView> widget;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new FastGuiScrollView(id, position, scaleAuthoredSize(size), atlas, z));
+		FastGuiManager::getSingleton().addWidget(widget);
+		return widget;
+	}
+	//---------------------------------------------------------
+	void FastGuiFactory::loadLayout(String const & filename)
+	{
+		// read the .oui text through the resource system (cross-backend; the
+		// classic load() went through Ogre::ConfigFile, this does not)
+		String group = Ogre::ResourceGroupManager::getSingleton()
+			.findGroupContainingResource(filename);
+		Ogre::DataStreamPtr stream = Ogre::ResourceGroupManager::getSingleton()
+			.openResource(filename, group);
+		const String text = stream->getAsString();
+		this->resourceGroup = group;
+
+		GuiLayoutDoc doc;
+		String error;
+		if(!GuiLayoutDoc::parse(text, doc, error))
+		{
+			oAssertDesc(!"invalid .oui", "loadLayout(" << filename << "): "
+				<< error);
+			return;
+		}
+
+		// the optional global [Layout] section: default atlas + design/root policy
+		FastGuiManager & manager = FastGuiManager::getSingleton();
+		String defaultAtlas = StringUtil::BLANK;
+		if(GuiLayoutSection const * layout = doc.findSection("Layout"))
+		{
+			defaultAtlas = ouiValue(*layout, "atlas");
+			if(String const * design = layout->find("design"))
+			{
+				std::istringstream ds(*design);
+				float dw = 0, dh = 0, match = 0;
+				ds >> dw >> dh >> match;
+				manager.setDesignResolution(dw, dh, match);
+			}
+			if(String const * root = layout->find("root"))
+			{
+				manager.setRootSpace(*root);
+			}
+		}
+
+		// pass 1: create every widget (so a parent exists before pass 2 links it)
+		for(GuiLayoutSection const & s : doc.sections)
+		{
+			String type = s.type;
+			Ogre::StringUtil::toLowerCase(type);
+			if(type == "layout" || s.id.empty())
+			{
+				continue;	// the global section / an id-less section is not a widget
+			}
+			const String atlas = ouiValue(s, "atlas", defaultAtlas);
+			const uint z = Ogre::StringConverter::parseUnsignedInt(
+				ouiValue(s, "z", "0"), 0);
+			const String sprite = ouiValue(s, "sprite");
+			const uint font = Ogre::StringConverter::parseUnsignedInt(
+				ouiValue(s, "font", "9"), 9);
+			const String text = resolveText(ouiValue(s, "text"));
+			const Ogre::Vector2 position = parseVec2(ouiValue(s, "position", "0 0"));
+			const Ogre::Vector2 size = parseVec2(ouiValue(s, "size", "0 0"));
+			const FastGuiLabel::LabelAlignment textAlign = parseLabelAlignment(
+				ouiValue(s, "textAlignment"), FastGuiLabel::LA_CENTER);
+
+			if(type == "label")
+			{
+				const bool scaled = parseBool(ouiValue(s, "scaled", "true"), true);
+				woptr<FastGuiLabel> label = this->createLabel(s.id, font, text,
+					position, atlas, z, scaled);
+				if(label.lock())
+				{
+					label.lock()->setAlignment(textAlign);
+					if(String const * c = s.find("textColor"))
+					{
+						label.lock()->getCaption()->colour(
+							StringUtil::Converter::parseColourValue(*c));
+					}
+				}
+			}
+			else if(type == "textbox")
+			{
+				this->createTextbox(s.id, font, text, position, atlas, z, true);
+			}
+			else if(type == "button")
+			{
+				this->createButton(s.id, sprite, font, text, position, textAlign,
+					size, atlas, z, false, FastGuiButtonBlink::BBLINK_NONE);
+			}
+			else if(type == "checkbox")
+			{
+				const bool useCheckbox = parseBool(ouiValue(s, "checkbox", "false"), false);
+				this->createCheckBox(s.id, sprite, font, text, position, textAlign,
+					size, atlas, z, useCheckbox);
+			}
+			else if(type == "selectmenu")
+			{
+				this->createSelectMenu(s.id, "select_menu_button", sprite, font,
+					text, position, textAlign, size, atlas, z);
+			}
+			else if(type == "slider")
+			{
+				this->createSlider(s.id, "slider_menu_button", sprite, font, text,
+					position, textAlign, size, atlas, z);
+			}
+			else if(type == "progressbar")
+			{
+				this->createProgressBar(s.id, sprite, font, text, position,
+					textAlign, size, atlas, z);
+			}
+			else if(type == "textentry")
+			{
+				const uint maxLength = Ogre::StringConverter::parseUnsignedInt(
+					ouiValue(s, "maxLength", "0"), 0);
+				this->createTextEntry(s.id, sprite, font, text, position, size,
+					atlas, z, maxLength);
+			}
+			else if(type == "decorwidget" || type == "panel")
+			{
+				this->createDecorWidget(s.id, sprite, position, size, atlas, z);
+			}
+			else if(type == "scrollview")
+			{
+				this->createScrollView(s.id, position, size, atlas, z);
+			}
+			else
+			{
+				oAssertDesc(!"unknown .oui widget type", "loadLayout: unknown "
+					"widget type '" << s.type << "' for id '" << s.id << "'");
+			}
+		}
+
+		// pass 2: apply the rect-anchor / group / content-fit / draw-mode keys
+		// (parenting now resolves - every widget exists)
+		for(GuiLayoutSection const & s : doc.sections)
+		{
+			String type = s.type;
+			Ogre::StringUtil::toLowerCase(type);
+			if(type == "layout" || s.id.empty())
+			{
+				continue;
+			}
+			if(!manager.widgetExists(s.id))
+			{
+				continue;
+			}
+			optr<FastGuiWidget> widget = manager.getWidget(s.id).lock();
+			if(widget)
+			{
+				applyLayoutKeys(widget.get(), s);
+			}
+		}
+
+		manager.reorderViews();
 	}
 	//---------------------------------------------------------
 	void FastGuiFactory::load(String const & filename)

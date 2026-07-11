@@ -67,4 +67,7 @@ target_compile_definitions(hello_orkige PRIVATE
     # engine-default TrueType face it references (Nunito, SIL OFL)
     ORKIGE_DEMO_TTF_ATLAS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
     ORKIGE_ENGINE_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
+    # the ORKIGE_DEMO_OUI selfcheck: the committed declarative settings screen
+    # (settings_screen.oui) loaded through FastGuiFactory::loadLayout
+    ORKIGE_DEMO_OUI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
 )
