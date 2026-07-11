@@ -147,6 +147,16 @@ namespace Orkige
 		//! MSG_STATS when the game has a UI system; fire-and-forget like it.
 		//! Additive since protocol v1: old editors ignore unknown message types.
 		extern ORKIGE_CORE_DLL const String MSG_UI_LAYOUT;
+		//! @brief synthesize a press on a gui widget in the RUNNING game: the
+		//! editor asks the player to press-and-release the widget named by
+		//! FIELD_ID at its centre, routed through the REAL input path so modal
+		//! and disabled semantics apply (a press bound for a widget under a modal
+		//! scrim is eaten, a disabled widget stays inert). An additive
+		//! protocol-extension message; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_GUI_PRESS;
+		//! @brief dismiss a modal in the RUNNING game: FIELD_ID names the modal
+		//! to close, or (empty) the topmost one. Additive since protocol v1.
+		extern ORKIGE_CORE_DLL const String MSG_GUI_DISMISS_MODAL;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---

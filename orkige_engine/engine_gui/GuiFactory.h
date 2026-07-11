@@ -21,6 +21,7 @@
 #include "engine_gui/GuiSlider.h"
 #include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiScrollView.h"
+#include "engine_gui/GuiDropDown.h"
 #include <core_util/StringUtil.h>
 
 #include <OgreConfigFile.h>
@@ -83,6 +84,11 @@ namespace Orkige
 		//! widgets with the SAME z and parent them under it; a layout child that
 		//! is taller/wider than the viewport scrolls by drag / mouse wheel.
 		virtual woptr<GuiScrollView> createScrollView(String const & id, Ogre::Vector2 const & position, Ogre::Vector2 const & size, String const & atlas, uint z);
+		//! create a dropdown: a button that opens a scrollable option list on a
+		//! light-dismiss modal. Set the options with setItems({...}); poll
+		//! getSelectedIndex(). Use it for long option sets (the SelectMenu cycler
+		//! covers short ones).
+		virtual woptr<GuiDropDown> createDropDown(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment = GuiLabel::LA_CENTER, Ogre::Vector2 const & size = Ogre::Vector2::ZERO, String const & atlas = StringUtil::BLANK, uint z = 0);
 
 
 		//! @brief load a declarative UI layout (.oui) at runtime: creates every

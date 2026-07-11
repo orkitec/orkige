@@ -21,6 +21,9 @@ namespace Orkige
 		OOBJECT(GuiWidget, IGuiObject);
 		//--- Types -------------------------------------------------
 	public:
+		//! @brief the opacity a disabled widget dims its sprites/text to (the
+		//! widgets that lack a dedicated `_disabled` sprite fade instead)
+		static const float DISABLED_ALPHA;
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -30,6 +33,10 @@ namespace Orkige
 		woptr<GuiView> view;
 	private:
 		bool visible;
+		//! @brief input-inert when false: the manager's dispatch loop skips a
+		//! disabled widget (@see GuiManager) so it neither reacts nor consumes,
+		//! and the widget dims its visuals via onEnabledChanged. Default true.
+		bool enabled;
 		//! @brief rect-anchor layout (opt-in). A widget with layoutEnabled is
 		//! placed by GuiManager's per-frame resolve pass against its parent
 		//! (or the screen root) instead of the absolute pixels it was authored
@@ -65,6 +72,17 @@ namespace Orkige
 		inline woptr<GuiView> getView();
 		//! center widget horizontally on the screen
 		void centerHorizontal();
+
+		//! @brief enable/disable the widget. A disabled widget is input-inert
+		//! (the manager skips it) and dims its visuals. Gated uniformly for
+		//! every interactive widget in ONE place - the dispatch loop.
+		void setEnabled(bool enable);
+		//! @brief is the widget interactive (default true)?
+		inline bool isEnabled() const { return this->enabled; }
+		//! @brief is the widget interactive AND every layout ancestor enabled?
+		//! A disabled group/panel disables its whole subtree - the manager gates
+		//! input on this, not the local flag. Walks the layout-parent chain.
+		bool isEffectivelyEnabled() const;
 
 		//--- rect-anchor layout (opt-in; @see GuiManager resolve pass) ---
 		//! @brief parent this widget under another: it then resolves inside the
@@ -152,6 +170,10 @@ namespace Orkige
 		//! for priority sorting
 		inline bool operator < (GuiWidget const & other) const;
 	protected:
+		//! @brief called when the enabled state flips (setEnabled). The base is
+		//! a no-op; interactive widgets override it to swap a `_disabled` sprite
+		//! or dim their decor/text. @param enable the new state.
+		virtual void onEnabledChanged(bool enable) { (void)enable; }
 		//! opt into the layout system on the first layout setter, seeding the
 		//! node from the widget's current on-screen rect so it stays put until
 		//! anchors/offsets change

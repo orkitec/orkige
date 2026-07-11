@@ -177,6 +177,17 @@ namespace Orkige
 		this->state = bs;
 	}
 	//---------------------------------------------------------
+	void GuiButton::onEnabledChanged(bool enable)
+	{
+		// reuse the existing state machine: the DISABLED state already swaps to
+		// the `_disabled` sprite (and dims the label with it on a stateful skin)
+		this->setState(enable ? GuiButton::BS_UP : GuiButton::BS_DISABLED);
+		if(this->label)
+		{
+			this->label->setAlpha(enable ? 1.0f : GuiWidget::DISABLED_ALPHA);
+		}
+	}
+	//---------------------------------------------------------
 	void GuiButton::setNineSlice(bool enable)
 	{
 		if(this->decor)

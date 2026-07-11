@@ -9,6 +9,7 @@
 
 #include "engine_gui/GuiFactory.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiToggleGroup.h"
 #include "engine_gui/UiAtlas.h"
 #include "engine_gui/GuiLayout.h"
 #include "engine_util/StringUtil.h"
@@ -111,6 +112,10 @@ namespace Orkige
 		//! to an already-created widget (the .oui pass-2 layout application)
 		void applyLayoutKeys(GuiWidget* widget, GuiLayoutSection const & s)
 		{
+			if(String const * v = s.find("enabled"))
+			{
+				widget->setEnabled(parseBool(*v, true));
+			}
 			if(String const * v = s.find("parent"))
 			{
 				if(GuiManager::getSingleton().widgetExists(*v))
@@ -403,6 +408,20 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
+	woptr<GuiDropDown> GuiFactory::createDropDown(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z)
+	{
+		optr<GuiDropDown> widget;
+
+		if(GuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!GuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new GuiDropDown(id, spriteName, defaultGlyphIndex, text, position, textAlignment, scaleAuthoredSize(size), atlas, z));
+		GuiManager::getSingleton().addWidget(widget);
+		return widget;
+	}
+	//---------------------------------------------------------
 	void GuiFactory::loadLayout(String const & filename)
 	{
 		// read the .oui text through the resource system (cross-backend; the
@@ -442,18 +461,55 @@ namespace Orkige
 			}
 		}
 
+		// modal pass: raise each declared modal (a consuming scrim on its own
+		// layer) BEFORE the widgets, so a widget that names `modal = id` can be
+		// created on that modal's content layer and torn down with it
+		for(GuiLayoutSection const & s : doc.sections)
+		{
+			String type = s.type;
+			Ogre::StringUtil::toLowerCase(type);
+			if(type != "modal" || s.id.empty())
+			{
+				continue;
+			}
+			const bool lightDismiss = parseBool(ouiValue(s, "lightDismiss", "false"),
+				false);
+			manager.showModal(s.id, lightDismiss);
+			// optional scrim tint (r g b a); the scrim widget is <id>.scrim
+			if(String const * tint = s.find("scrim"))
+			{
+				std::istringstream stream(*tint);
+				float r = 0, g = 0, b = 0, a = 0.5f;
+				stream >> r >> g >> b >> a;
+				const String scrimId = s.id + ".scrim";
+				if(manager.widgetExists(scrimId))
+				{
+					if(GuiDecorWidget* scrim = dynamic_cast<GuiDecorWidget*>(
+						manager.getWidget(scrimId).lock().get()))
+					{
+						scrim->setColour(r, g, b, a);
+					}
+				}
+			}
+		}
+
 		// pass 1: create every widget (so a parent exists before pass 2 links it)
 		for(GuiLayoutSection const & s : doc.sections)
 		{
 			String type = s.type;
 			Ogre::StringUtil::toLowerCase(type);
-			if(type == "layout" || s.id.empty())
+			if(type == "layout" || type == "modal" || type == "togglegroup" ||
+				s.id.empty())
 			{
-				continue;	// the global section / an id-less section is not a widget
+				continue;	// non-widget sections are handled elsewhere
 			}
 			const String atlas = ouiValue(s, "atlas", defaultAtlas);
-			const uint z = Ogre::StringConverter::parseUnsignedInt(
-				ouiValue(s, "z", "0"), 0);
+			// a widget bound to a modal is created on that modal's content layer
+			// (above its scrim) and registered so dismissing the modal frees it
+			const String modalId = ouiValue(s, "modal");
+			const uint z = (!modalId.empty() && manager.widgetExists(modalId + ".scrim"))
+				? manager.getModalContentZ(modalId)
+				: Ogre::StringConverter::parseUnsignedInt(ouiValue(s, "z", "0"), 0);
 			const String sprite = ouiValue(s, "sprite");
 			const uint font = Ogre::StringConverter::parseUnsignedInt(
 				ouiValue(s, "font", "9"), 9);
@@ -523,10 +579,38 @@ namespace Orkige
 			{
 				this->createScrollView(s.id, position, size, atlas, z);
 			}
+			else if(type == "dropdown")
+			{
+				woptr<GuiDropDown> drop = this->createDropDown(s.id, sprite, font,
+					text, position, textAlign, size, atlas, z);
+				// options: "items = a | b | c" (pipe-separated so labels may hold
+				// spaces); resolves each via the StringTable when '@'-prefixed
+				if(optr<GuiDropDown> d = drop.lock())
+				{
+					if(String const * v = s.find("items"))
+					{
+						Ogre::StringVector resolved;
+						for(String const & part : Ogre::StringUtil::split(*v, "|"))
+						{
+							String label = part;
+							Ogre::StringUtil::trim(label);
+							resolved.push_back(resolveText(label));
+						}
+						d->setItems(resolved);
+					}
+				}
+			}
 			else
 			{
 				oAssertDesc(!"unknown .oui widget type", "loadLayout: unknown "
 					"widget type '" << s.type << "' for id '" << s.id << "'");
+			}
+
+			// bind the freshly created widget to its modal (teardown + layering)
+			if(!modalId.empty() && manager.widgetExists(s.id) &&
+				manager.getModalContentZ(modalId) != 0)
+			{
+				manager.registerModalWidget(modalId, s.id);
 			}
 		}
 
@@ -548,6 +632,42 @@ namespace Orkige
 			if(widget)
 			{
 				applyLayoutKeys(widget.get(), s);
+			}
+		}
+
+		// toggle-group pass: wire single-selection groups over checkboxes now
+		// that every member widget exists (members = space-separated ids)
+		for(GuiLayoutSection const & s : doc.sections)
+		{
+			String type = s.type;
+			Ogre::StringUtil::toLowerCase(type);
+			if(type != "togglegroup" || s.id.empty())
+			{
+				continue;
+			}
+			optr<GuiToggleGroup> group = manager.createToggleGroup(s.id).lock();
+			if(!group)
+			{
+				continue;
+			}
+			if(String const * v = s.find("allowNone"))
+			{
+				group->setAllowNone(parseBool(*v, false));
+			}
+			if(String const * v = s.find("members"))
+			{
+				for(String const & memberId : Ogre::StringUtil::split(*v))
+				{
+					if(manager.widgetExists(memberId))
+					{
+						group->addMember(manager.getWidgetAs<GuiCheckBox>(
+							memberId).lock());
+					}
+				}
+			}
+			if(String const * v = s.find("selected"))
+			{
+				group->setSelected(Ogre::StringConverter::parseInt(*v, -1));
 			}
 		}
 

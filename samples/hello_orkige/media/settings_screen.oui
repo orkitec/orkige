@@ -88,6 +88,18 @@ sprite = select_menu_field
 text = Volume
 size = 260 44
 
+# a dropdown row: tapping it drops a scrollable option list on a light-dismiss
+# modal (tap outside to close). Options are pipe-separated so labels may hold
+# spaces; picking one closes the list and updates the button caption.
+[DropDown rowLanguage]
+parent = settingsContent
+z = 6
+font = 9
+sprite = button
+text = English
+size = 260 44
+items = English | Deutsch | Français | Espanol
+
 [Button rowOption4]
 parent = settingsContent
 z = 6

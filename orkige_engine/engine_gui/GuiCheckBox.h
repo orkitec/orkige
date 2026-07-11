@@ -14,6 +14,8 @@ copyright:	(c) 2009-2011 orkitec
 
 namespace Orkige
 {
+	class GuiToggleGroup;
+
     class ORKIGE_ENGINE_DLL GuiCheckBox : public GuiWidget
     {
 		OOBJECT(GuiCheckBox, GuiWidget);
@@ -32,6 +34,9 @@ namespace Orkige
 		optr<GuiDecorWidget> decor;		//!< current CheckBox image
 		bool checked;						//!< current CheckBox state
 		String baseSpriteName;				//!< base name of the CheckBox state sprite;
+		//! when part of a toggle group, a tap routes there (single-selection)
+		//! instead of a plain local toggle. Not owned - the group outlives it.
+		GuiToggleGroup* toggleGroup;
     private:
         //-Methods------------------------------------------
     public:
@@ -53,6 +58,10 @@ namespace Orkige
 		//! toggle state and trigger CheckBox::CheckBoxToggledEvent if notifyListener = true
 		void toggle(bool notifyListener = true);
 
+		//! @brief attach/detach the single-selection group a tap routes through
+		//! (NULL detaches). Set by GuiToggleGroup::addMember.
+		void setToggleGroup(GuiToggleGroup* group) { this->toggleGroup = group; }
+
 		//! get text holding ui element
 		inline woptr<GuiLabel> getLabel();
 		//! get image ui element
@@ -62,6 +71,8 @@ namespace Orkige
 		//! set button text
 		void setCaption(String const & text);
     protected:
+		//! dim the box + glyph + label when disabled (no dedicated sprite)
+		virtual void onEnabledChanged(bool enable);
     private:
     };
     //----------------------------------------------------

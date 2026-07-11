@@ -1251,8 +1251,21 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				widget.id = ids[i];
 				std::istringstream rectStream(rects[i]);
 				int visible = 1;
+				int enabled = 1;
+				int modal = 0;
 				rectStream >> widget.left >> widget.top >> widget.width
 					>> widget.height >> visible;
+				// enabled/modal are additive trailing fields: an older player
+				// that streams only five keeps the defaults (interactive,
+				// non-modal)
+				if (rectStream >> enabled)
+				{
+					widget.enabled = enabled != 0;
+				}
+				if (rectStream >> modal)
+				{
+					widget.modal = modal != 0;
+				}
 				widget.visible = visible != 0;
 				session.remoteUiLayout.push_back(widget);
 			}

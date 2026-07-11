@@ -16,8 +16,12 @@
 #include <OgreStringConverter.h>
 #include "engine_input/InputManager.h"
 #include "engine_gui/GuiTextEntry.h"
+#include "engine_gui/GuiModalScrim.h"
+#include "engine_gui/GuiToggleGroup.h"
+#include "engine_gui/GuiToast.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
+#include <core_util/StringTable.h>
 #include <core_game/GameStateManager.h>
 #include <algorithm>
 #include <cmath>
@@ -29,7 +33,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0)
 	{
 		oAssert(this->factory);
 		// drive the pixel-font UI scale from the display density so a 14px
@@ -62,6 +66,9 @@ namespace Orkige
 		this->stats.reset();
 		this->statsValues.reset();
 		this->cursor.reset();
+		this->toast.reset();
+		this->toggleGroups.clear();
+		this->modalRecords.clear();
 		this->sortedWidgets.clear();
 		this->widgets.clear();
 		this->views.clear();
@@ -408,6 +415,382 @@ namespace Orkige
 		this->cancelInputUpdate = true;
 	}
 	//---------------------------------------------------------
+	void GuiManager::runDeferred(std::function<void()> const & action)
+	{
+		if(action)
+		{
+			this->deferredActions.push_back(action);
+		}
+	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! resolve authored text: a leading '@' looks the rest up in the
+		//! StringTable (backend-neutral localisation), else it is literal
+		String resolveDialogText(String const & value)
+		{
+			if(!value.empty() && value[0] == '@')
+			{
+				const String key = value.substr(1);
+				if(StringTable::getSingletonPtr() != NULL)
+				{
+					return StringTable::getSingleton().get(key);
+				}
+				return key;
+			}
+			return value;
+		}
+	}
+	//---------------------------------------------------------
+	String GuiManager::showModal(String const & id, bool lightDismiss)
+	{
+		String modalId = id;
+		if(modalId.empty())
+		{
+			modalId = "modal#" + Ogre::StringConverter::toString(++this->modalSerial);
+		}
+		if(this->modalRecords.find(modalId) != this->modalRecords.end())
+		{
+			return modalId;	// already raised
+		}
+		ModalStack::Entry entry = this->modalStack.push(modalId);
+		ModalRecord record;
+		record.layers = entry;
+		// the consuming backdrop (semi-transparent black); the dialog's own
+		// widgets sit on entry.contentZ, one layer above this scrim
+		const String scrimId = modalId + ".scrim";
+		optr<GuiModalScrim> scrim = onew(new GuiModalScrim(scrimId, modalId,
+			this->defaultAtlas, entry.scrimZ, Color(0.0f, 0.0f, 0.0f, 0.5f),
+			lightDismiss));
+		this->addWidget(scrim);
+		record.widgetIds.push_back(scrimId);
+		this->modalRecords[modalId] = record;
+		this->reorderViews();
+		return modalId;
+	}
+	//---------------------------------------------------------
+	uint GuiManager::getModalContentZ(String const & id) const
+	{
+		std::map<String, ModalRecord>::const_iterator it =
+			this->modalRecords.find(id);
+		return it != this->modalRecords.end() ? it->second.layers.contentZ : 0;
+	}
+	//---------------------------------------------------------
+	void GuiManager::registerModalWidget(String const & modalId,
+		String const & widgetId)
+	{
+		std::map<String, ModalRecord>::iterator it =
+			this->modalRecords.find(modalId);
+		if(it != this->modalRecords.end())
+		{
+			it->second.widgetIds.push_back(widgetId);
+		}
+	}
+	//---------------------------------------------------------
+	bool GuiManager::dismissModal(String const & id)
+	{
+		if(this->modalRecords.find(id) == this->modalRecords.end())
+		{
+			return false;
+		}
+		// deferred: the request may come from inside the input dispatch (a scrim
+		// tap), so we tear down at the next frame boundary, never mid-loop
+		if(std::find(this->pendingDismiss.begin(), this->pendingDismiss.end(),
+			id) == this->pendingDismiss.end())
+		{
+			this->pendingDismiss.push_back(id);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void GuiManager::dismissTopModal()
+	{
+		if(!this->modalStack.empty())
+		{
+			this->dismissModal(this->modalStack.topId());
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::dismissAllModals()
+	{
+		for(std::map<String, ModalRecord>::value_type const & entry :
+			this->modalRecords)
+		{
+			this->dismissModal(entry.first);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::drainModalDismissals()
+	{
+		if(this->pendingDismiss.empty())
+		{
+			return;
+		}
+		std::vector<String> ids;
+		ids.swap(this->pendingDismiss);
+		for(String const & id : ids)
+		{
+			std::map<String, ModalRecord>::iterator it =
+				this->modalRecords.find(id);
+			if(it == this->modalRecords.end())
+			{
+				continue;
+			}
+			// destroy the scrim + every registered dialog widget
+			for(String const & widgetId : it->second.widgetIds)
+			{
+				this->destroyWidget(widgetId);
+			}
+			this->modalStack.remove(id);
+			this->modalRecords.erase(it);
+		}
+		this->reorderViews();
+	}
+	//---------------------------------------------------------
+	void GuiManager::pollDialogButtons()
+	{
+		if(this->modalRecords.empty())
+		{
+			return;
+		}
+		// snapshot the ids: resolving a dialog queues a dismissal that mutates
+		// modalRecords, so iterate a copy of the keys
+		std::vector<String> dialogIds;
+		for(std::map<String, ModalRecord>::value_type const & entry :
+			this->modalRecords)
+		{
+			if(entry.second.isDialog)
+			{
+				dialogIds.push_back(entry.first);
+			}
+		}
+		for(String const & id : dialogIds)
+		{
+			std::map<String, ModalRecord>::iterator it =
+				this->modalRecords.find(id);
+			if(it == this->modalRecords.end())
+			{
+				continue;
+			}
+			ModalRecord const & record = it->second;
+			int result = DR_NONE;
+			if(!record.yesButtonId.empty() &&
+				this->widgetExists(record.yesButtonId))
+			{
+				optr<GuiButton> yes = this->getWidgetAs<GuiButton>(
+					record.yesButtonId).lock();
+				if(yes && yes->wasClicked())
+				{
+					result = DR_YES;
+				}
+			}
+			if(result == DR_NONE && !record.noButtonId.empty() &&
+				this->widgetExists(record.noButtonId))
+			{
+				optr<GuiButton> no = this->getWidgetAs<GuiButton>(
+					record.noButtonId).lock();
+				if(no && no->wasClicked())
+				{
+					result = DR_NO;
+				}
+			}
+			if(result != DR_NONE)
+			{
+				this->dialogResults[id] = result;
+				this->dismissModal(id);
+			}
+		}
+	}
+	//---------------------------------------------------------
+	int GuiManager::getDialogResult(String const & modalId)
+	{
+		std::map<String, int>::iterator it = this->dialogResults.find(modalId);
+		if(it == this->dialogResults.end())
+		{
+			return DR_NONE;
+		}
+		const int result = it->second;
+		this->dialogResults.erase(it);	// poll-once
+		return result;
+	}
+	//---------------------------------------------------------
+	String GuiManager::showConfirm(String const & title, String const & message,
+		String const & yesText, String const & noText)
+	{
+		return this->buildDialogModal(String(), title, message, yesText, noText,
+			true);
+	}
+	//---------------------------------------------------------
+	String GuiManager::showAlert(String const & title, String const & message,
+		String const & okText)
+	{
+		return this->buildDialogModal(String(), title, message, okText,
+			String(), false);
+	}
+	//---------------------------------------------------------
+	String GuiManager::buildDialogModal(String const & id, String const & title,
+		String const & message, String const & yesText, String const & noText,
+		bool twoButtons)
+	{
+		const String modalId = this->showModal(id, false);
+		const uint z = this->getModalContentZ(modalId);
+		const uint fontIndex = 9;
+		const float uiScale = UiGlyph::scale.x >= 1.0f ? UiGlyph::scale.x : 1.0f;
+		unsigned int winW = 0, winH = 0;
+		RenderSystem::get()->getWindowSize(winW, winH);
+
+		optr<GuiFactory> f = this->factory;
+		const float margin = 20.0f * uiScale;
+
+		// backing panel (nine-sliced), centred
+		optr<GuiDecorWidget> panel = f->createDecorWidget(modalId + ".panel",
+			"panel", Ogre::Vector2::ZERO, Ogre::Vector2(400.0f, 240.0f),
+			this->defaultAtlas, z).lock();
+		if(panel)
+		{
+			panel->setNineSlice(true);
+		}
+		const Ogre::Vector2 panelSize = panel ? panel->getSize()
+			: Ogre::Vector2(400.0f, 240.0f);
+		const Ogre::Vector2 panelPos(
+			Ogre::Math::Floor((Real(winW) - panelSize.x) * 0.5f),
+			Ogre::Math::Floor((Real(winH) - panelSize.y) * 0.5f));
+		if(panel)
+		{
+			panel->setPosition(panelPos.x, panelPos.y);
+		}
+		this->registerModalWidget(modalId, modalId + ".panel");
+
+		// title + message text
+		f->createTextbox(modalId + ".title", fontIndex, resolveDialogText(title),
+			Ogre::Vector2(panelPos.x + margin, panelPos.y + margin),
+			this->defaultAtlas, z, true);
+		this->registerModalWidget(modalId, modalId + ".title");
+		f->createTextbox(modalId + ".message", fontIndex,
+			resolveDialogText(message),
+			Ogre::Vector2(panelPos.x + margin, panelPos.y + margin * 3.0f),
+			this->defaultAtlas, z, true);
+		this->registerModalWidget(modalId, modalId + ".message");
+
+		// buttons along the bottom of the panel
+		optr<GuiButton> yes = f->createButton(modalId + ".yes", "button",
+			fontIndex, resolveDialogText(yesText), Ogre::Vector2::ZERO,
+			GuiLabel::LA_CENTER, Ogre::Vector2(140.0f, 44.0f), this->defaultAtlas,
+			z, false, GuiButtonBlink::BBLINK_NONE).lock();
+		const Ogre::Vector2 btnSize = yes ? yes->getSize()
+			: Ogre::Vector2(140.0f, 44.0f);
+		const float btnY = panelPos.y + panelSize.y - btnSize.y - margin;
+		if(twoButtons)
+		{
+			optr<GuiButton> no = f->createButton(modalId + ".no", "button",
+				fontIndex, resolveDialogText(noText), Ogre::Vector2::ZERO,
+				GuiLabel::LA_CENTER, Ogre::Vector2(140.0f, 44.0f),
+				this->defaultAtlas, z, false, GuiButtonBlink::BBLINK_NONE).lock();
+			if(no)
+			{
+				no->setPosition(panelPos.x + margin, btnY);
+			}
+			if(yes)
+			{
+				yes->setPosition(panelPos.x + panelSize.x - btnSize.x - margin,
+					btnY);
+			}
+			this->registerModalWidget(modalId, modalId + ".no");
+		}
+		else if(yes)
+		{
+			yes->setPosition(
+				panelPos.x + (panelSize.x - btnSize.x) * 0.5f, btnY);
+		}
+		this->registerModalWidget(modalId, modalId + ".yes");
+
+		ModalRecord & record = this->modalRecords[modalId];
+		record.isDialog = true;
+		record.yesButtonId = modalId + ".yes";
+		record.noButtonId = twoButtons ? (modalId + ".no") : String();
+		this->reorderViews();
+		return modalId;
+	}
+	//---------------------------------------------------------
+	woptr<GuiToggleGroup> GuiManager::createToggleGroup(String const & id)
+	{
+		std::map<String, optr<GuiToggleGroup> >::iterator it =
+			this->toggleGroups.find(id);
+		if(it != this->toggleGroups.end())
+		{
+			return it->second;
+		}
+		optr<GuiToggleGroup> group = onew(new GuiToggleGroup(id));
+		this->toggleGroups[id] = group;
+		return group;
+	}
+	//---------------------------------------------------------
+	woptr<GuiToggleGroup> GuiManager::getToggleGroup(String const & id)
+	{
+		std::map<String, optr<GuiToggleGroup> >::iterator it =
+			this->toggleGroups.find(id);
+		if(it != this->toggleGroups.end())
+		{
+			return it->second;
+		}
+		return woptr<GuiToggleGroup>();
+	}
+	//---------------------------------------------------------
+	void GuiManager::destroyToggleGroup(String const & id)
+	{
+		this->toggleGroups.erase(id);
+	}
+	//---------------------------------------------------------
+	void GuiManager::showToast(String const & text, float seconds)
+	{
+		this->toastQueue.enqueue(resolveDialogText(text), seconds);
+	}
+	//---------------------------------------------------------
+	void GuiManager::updateToast(float delta)
+	{
+		this->toastQueue.update(delta);
+		if(!this->toastQueue.hasActive())
+		{
+			if(this->toast)
+			{
+				this->toast->getLayer()->setVisible(false);
+			}
+			return;
+		}
+		const float uiScale = UiGlyph::scale.x >= 1.0f ? UiGlyph::scale.x : 1.0f;
+		unsigned int winW = 0, winH = 0;
+		RenderSystem::get()->getWindowSize(winW, winH);
+		const Ogre::Vector2 size(300.0f * uiScale, 56.0f * uiScale);
+		unsigned int safeBottom = 0;
+		if(Engine::getSingletonPtr())
+		{
+			safeBottom = Engine::getSingleton().getSafeAreaInsets().mBottom;
+		}
+		const float x = Ogre::Math::Floor((Real(winW) - size.x) * 0.5f);
+		const float y = Ogre::Math::Floor(Real(winH) - size.y - 40.0f * uiScale
+			- Real(safeBottom));
+		if(!this->toast)
+		{
+			// lazily create the single toast widget on a high layer, above the
+			// HUD but below any modal (modals start at z 1000)
+			this->toast = onew(new GuiToast("gui.toast", "panel", 9,
+				this->toastQueue.activeText(),
+				Ogre::Vector2(x, y), size, this->defaultAtlas, 950));
+			this->reorderViews();
+		}
+		this->toast->getLayer()->setVisible(true);
+		this->toast->setText(this->toastQueue.activeText());
+		this->toast->setPosition(x, y);
+		this->toast->setSize(size.x, size.y);
+		this->toast->setToastAlpha(this->toastQueue.activeAlpha());
+	}
+	//---------------------------------------------------------
+	bool GuiManager::isToastVisible() const
+	{
+		return this->toast && this->toast->getLayer() != NULL &&
+			this->toast->getLayer()->isVisible();
+	}
+	//---------------------------------------------------------
 	bool GuiManager::isPointOverWidget(Ogre::Vector2 const & point)
 	{
 		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
@@ -428,6 +811,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	std::vector<GuiManager::WidgetLayout> GuiManager::getWidgetLayouts()
 	{
+		// the set of widget ids that belong to an active modal (scrim + dialog);
+		// used to flag them so an agent can assert "a dialog is up"
+		std::set<String> modalWidgetIds;
+		for(std::map<String, ModalRecord>::value_type const & rec :
+			this->modalRecords)
+		{
+			for(String const & wid : rec.second.widgetIds)
+			{
+				modalWidgetIds.insert(wid);
+			}
+		}
 		std::vector<WidgetLayout> layouts;
 		layouts.reserve(this->widgets.size());
 		foreach(GuiWidgetMap::value_type const & entry, this->widgets)
@@ -439,6 +833,8 @@ namespace Orkige
 			}
 			WidgetLayout layout;
 			layout.id = entry.first;
+			layout.enabled = widget->isEffectivelyEnabled();
+			layout.modal = modalWidgetIds.count(entry.first) != 0;
 			Ogre::Vector2 position = widget->getPosition();
 			Ogre::Vector2 size = widget->getSize();
 			layout.left = position.x;
@@ -633,10 +1029,29 @@ namespace Orkige
 	bool GuiManager::onFrameStarted(Orkige::Event const & event)
 	{
 		optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
+		// frame-boundary work, all OUTSIDE any input-dispatch loop so widgets may
+		// be created/destroyed safely. Run queued actions first (popups opening,
+		// so their widgets exist for this frame's loop + resolve), then let every
+		// widget tick - a dropdown reads its option clicks in its tick, so the
+		// modal teardown must come AFTER the loop (else a light-dismiss scrim
+		// tears the list down before the pick is read).
+		if(!this->deferredActions.empty())
+		{
+			std::vector<std::function<void()> > actions;
+			actions.swap(this->deferredActions);
+			for(std::function<void()> const & action : actions)
+			{
+				action();
+			}
+		}
+		this->pollDialogButtons();
 		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
 		{
 			widget->onFrameStarted(*data);
 		}
+		// tear down any modal asked to close this frame, then advance the toast
+		this->drainModalDismissals();
+		this->updateToast(data->timeSinceLastFrame);
 		// resolve the opt-in rect-anchor layout tree to absolute pixels BEFORE
 		// the screens rebuild (each resolved widget's setPosition/setSize
 		// dirties its screen, which rebuilds just below). O(n) over the layout
@@ -675,11 +1090,24 @@ namespace Orkige
 	bool GuiManager::onKeyPressed(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
+		// Escape (desktop) / the Android back button map to "dismiss the top
+		// modal" while one is up; it consumes the key so nothing below reacts
+		if(data->key == KeyEventData::KC_ESCAPE && this->isModalActive())
+		{
+			this->dismissTopModal();
+			return false;
+		}
 		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
 		{
 			if(this->cancelInputUpdate)
 			{
 				break;
+			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
 			}
 			widget->onKeyPressed(*data);
 		}
@@ -695,6 +1123,12 @@ namespace Orkige
 			if(this->cancelInputUpdate)
 			{
 				break;
+			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
 			}
 			widget->onKeyReleased(*data);
 		}
@@ -768,6 +1202,12 @@ namespace Orkige
 			{
 				break;
 			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
+			}
 			widget->onCursorPressed(cursorPos);
 		}
 		if(!this->textEntryFocusClaimed && this->focusedTextEntry)
@@ -787,6 +1227,12 @@ namespace Orkige
 			if(this->cancelInputUpdate)
 			{
 				break;
+			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
 			}
 			widget->onCursorReleased(cursorPos);
 		}
@@ -808,6 +1254,12 @@ namespace Orkige
 			{
 				break;
 			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
+			}
 			widget->onCursorMoved(cursorPos);
 		}
 		// the mouse wheel arrives as a moved event carrying a z delta; route it
@@ -816,6 +1268,10 @@ namespace Orkige
 		{
 			foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
 			{
+				if(!widget->isEffectivelyEnabled())
+				{
+					continue;
+				}
 				widget->onMouseWheel(cursorPos, data->relZ);
 			}
 		}
@@ -834,6 +1290,12 @@ namespace Orkige
 			if(this->cancelInputUpdate)
 			{
 				break;
+			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
 			}
 			widget->onCursorPressed(cursorPos);
 		}
@@ -854,6 +1316,12 @@ namespace Orkige
 			{
 				break;
 			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
+			}
 			widget->onCursorReleased(cursorPos);
 		}
 		this->cancelInputUpdate = false;
@@ -873,6 +1341,12 @@ namespace Orkige
 			if(this->cancelInputUpdate)
 			{
 				break;
+			}
+			// disabled widgets are input-inert: skipped here so they neither
+			// react nor consume (uniform for every interactive widget type)
+			if(!widget->isEffectivelyEnabled())
+			{
+				continue;
 			}
 			widget->onCursorMoved(cursorPos);
 		}
@@ -903,5 +1377,29 @@ namespace Orkige
 		OFUNC(setLayoutMatchMode)
 		OFUNC(setRootSpace)
 		OFUNC(getLayoutScale)
+		// modal dialogs: showConfirm(title,message,yes,no) /
+		// showAlert(title,message,ok) build a dialog and return its modal id;
+		// poll getDialogResult(id) (1=yes/ok, 2=no, 0=pending). showModal(id,
+		// lightDismiss) raises a bare consuming scrim for a custom modal.
+		OFUNC(showModal)
+		OFUNC(getModalContentZ)
+		OFUNC(registerModalWidget)
+		OFUNC(dismissModal)
+		OFUNC(dismissTopModal)
+		OFUNC(dismissAllModals)
+		OFUNC(isModalActive)
+		OFUNC(getTopModalId)
+		OFUNC(getModalCount)
+		OFUNC(showConfirm)
+		OFUNC(showAlert)
+		OFUNC(getDialogResult)
+		OFUNC(cancelCurrentInputUpdate)
+		// single-selection groups: createToggleGroup(id):addMember(checkbox);
+		// poll group:getSelected() / group:pollChanged()
+		OFUNCWEAK(createToggleGroup)
+		OFUNCWEAK(getToggleGroup)
+		OFUNC(destroyToggleGroup)
+		// timed notification: showToast(text, seconds)
+		OFUNC(showToast)
 	OOBJECT_END
 }

@@ -261,6 +261,16 @@ namespace Orkige
 		this->mCaret->height(std::max(height - 2.0f * TEXT_ENTRY_PADDING, 4.0f));
 	}
 	//---------------------------------------------------------
+	void GuiTextEntry::onEnabledChanged(bool enable)
+	{
+		// input is gated in the manager; just fade the body + text so a
+		// disabled field reads as inactive
+		this->mBackground->setAlpha(enable ? 1.0f : GuiWidget::DISABLED_ALPHA);
+		Color colour = this->mCaption->colour();
+		colour.a = enable ? 1.0f : GuiWidget::DISABLED_ALPHA;
+		this->mCaption->colour(colour);
+	}
+	//---------------------------------------------------------
 	void GuiTextEntry::refresh()
 	{
 		const bool showPlaceholder = this->mText.empty() && !this->mFocused;

@@ -1,0 +1,71 @@
+# modal_screen.oui - the modal / disabled / toggle-group acceptance screen.
+# A normal background button and a disabled button sit under a modal dialog
+# whose consuming scrim must eat every press bound for the layers below it.
+# A single-selection toggle group over three checkboxes proves radio
+# semantics. Loaded by GuiFactory::loadLayout / gui:loadLayout, and the same
+# grammar an agent authors over the MCP write_project_file verb.
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+# a normal button on a low layer - it must NOT fire while the modal is up
+[Button bgButton]
+z = 2
+font = 9
+sprite = button
+text = Background
+position = 80 80
+size = 220 48
+
+# a disabled button - it never fires, modal or not
+[Button lockedButton]
+z = 2
+font = 9
+sprite = button
+text = Locked
+position = 80 160
+size = 220 48
+enabled = false
+
+# three checkboxes wired into a single-selection group below
+[CheckBox optLow]
+z = 2
+font = 9
+sprite = checkbox
+text = Low
+position = 80 260
+size = 220 40
+
+[CheckBox optMed]
+z = 2
+font = 9
+sprite = checkbox
+text = Med
+position = 80 304
+size = 220 40
+
+[CheckBox optHigh]
+z = 2
+font = 9
+sprite = checkbox
+text = High
+position = 80 348
+size = 220 40
+
+[ToggleGroup quality]
+members = optLow optMed optHigh
+selected = 0
+
+# the modal dialog: a consuming scrim (declared here) plus one button raised
+# onto the modal's content layer via `modal = dlg`
+[Modal dlg]
+scrim = 0 0 0 0.5
+
+[Button dlgOk]
+modal = dlg
+font = 9
+sprite = button
+text = OK
+position = 400 300
+size = 160 48

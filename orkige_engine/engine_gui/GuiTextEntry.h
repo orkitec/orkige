@@ -87,6 +87,8 @@ namespace Orkige
 		virtual bool onKeyPressed(KeyEventData const & data);
 		virtual bool onFrameStarted(FrameEventData const & data);
 	protected:
+		//! dim the field body + text when disabled (input is gated in the manager)
+		virtual void onEnabledChanged(bool enable);
 		//! reposition the body / caption / caret for the current position+size
 		void relayout();
 		//! refresh the caption text/colour and the caret x for the current state

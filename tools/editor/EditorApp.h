@@ -670,6 +670,8 @@ struct PlaySession
 		long long width = 0;
 		long long height = 0;
 		bool visible = true;
+		bool enabled = true;	//!< interactive (false = dimmed / input-inert)
+		bool modal = false;		//!< part of an active modal (scrim / dialog)
 	};
 	std::vector<RemoteWidgetRect> remoteUiLayout;
 	//! running-game streamed music (MSG_STATS): one entry per track. The MCP

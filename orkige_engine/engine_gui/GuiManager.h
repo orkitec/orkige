@@ -14,13 +14,21 @@
 #include "engine_gui/GuiFactory.h"
 #include <core_event/EventHandler.h>
 #include "engine_gui/GuiView.h"
+#include <core_util/ModalStack.h>
+#include <core_util/ToastQueue.h>
 
 #include <OgreResourceGroupManager.h>	// the resource-group default arguments
+
+#include <map>
+#include <vector>
+#include <functional>
 
 namespace Orkige
 {
 	class GuiTextEntry;
 	class FontAtlas;
+	class GuiToggleGroup;
+	class GuiToast;
 
 	class ORKIGE_ENGINE_DLL GuiManager : public Singleton<GuiManager>, public Interface, public EventHandler
 	{
@@ -43,6 +51,8 @@ namespace Orkige
 			float	width = 0.0f;
 			float	height = 0.0f;
 			bool	visible = true;
+			bool	enabled = true;		//!< interactive (false = dimmed/inert)
+			bool	modal = false;		//!< part of an active modal (scrim/dialog)
 		};
 		//! @brief which rect a parentless layout widget resolves against
 		enum RootSpace
@@ -50,7 +60,25 @@ namespace Orkige
 			RS_FullWindow = 0,	//!< the whole window (0,0,W,H)
 			RS_SafeArea			//!< the window minus the notch/home-bar insets
 		};
+		//! @brief a resolved confirm/alert dialog's outcome (poll-once via
+		//! getDialogResult); DR_YES doubles as the alert's OK
+		enum DialogResult
+		{
+			DR_NONE = 0,	//!< still open / no result yet
+			DR_YES = 1,		//!< the affirmative button (Yes / OK)
+			DR_NO = 2		//!< the negative button (No / Cancel)
+		};
 	protected:
+		//! @brief one active modal: its two z layers plus the widget ids to
+		//! destroy on dismissal, and (for a confirm/alert) its result buttons
+		struct ModalRecord
+		{
+			ModalStack::Entry		layers;			//!< scrim + content z layers
+			std::vector<String>		widgetIds;		//!< scrim + dialog widgets
+			bool					isDialog = false;	//!< a confirm/alert dialog
+			String					yesButtonId;	//!< affirmative (or OK) button id
+			String					noButtonId;		//!< negative button id ("" for alert)
+		};
 	private:
 		//--- Variables ---------------------------------------------
 	public:
@@ -86,6 +114,25 @@ namespace Orkige
 		//! resized): re-run the resolve pass on the next frame, else skip it
 		bool layoutDirty;
 		unsigned int lastLayoutWidth, lastLayoutHeight;
+		//! @brief the modal-dialog stack + z allocation (pure, @see ModalStack)
+		ModalStack modalStack;
+		//! active modals by id (scrim/dialog widgets + teardown bookkeeping)
+		std::map<String, ModalRecord> modalRecords;
+		//! modals asked to close: drained at the next frame boundary so we never
+		//! destroy widgets while the dispatch loop is still iterating them
+		std::vector<String> pendingDismiss;
+		//! poll-once dialog outcomes by modal id (@see getDialogResult)
+		std::map<String, int> dialogResults;
+		//! auto-id serial for showModal/showConfirm/showAlert
+		unsigned int modalSerial;
+		//! single-selection groups by id (owned so they outlive a script frame)
+		std::map<String, optr<GuiToggleGroup> > toggleGroups;
+		//! the single active toast + the pure queue that sequences/times toasts
+		optr<GuiToast> toast;
+		ToastQueue toastQueue;
+		//! actions to run at the next frame boundary - the safe place to create
+		//! or destroy widgets (never mid input-dispatch). @see runDeferred
+		std::vector<std::function<void()> > deferredActions;
 		//--- Methods -----------------------------------------------
 	public:
 		GuiManager(optr<GuiFactory> _factory, String const & defaultAtlas = "gui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -155,6 +202,69 @@ namespace Orkige
 		//! cancel current input dispatch
 		void cancelCurrentInputUpdate();
 
+		//! @brief run @p action at the next frame boundary. The only safe place
+		//! to add/remove widgets from inside an input handler (the dispatch loop
+		//! is iterating the widget list). Used by widgets that open/close a
+		//! popup on a tap (@see GuiDropDown).
+		void runDeferred(std::function<void()> const & action);
+
+		//--- modal dialogs ------------------------------------------
+		//! @brief raise a modal: a full-window consuming scrim on a fresh layer
+		//! above everything, so nothing below it reacts. Author the dialog's own
+		//! widgets at getModalContentZ(id) and register them with
+		//! registerModalWidget so dismissing tears them down. @param id the modal
+		//! id (empty -> an auto id, returned); @param lightDismiss a tap on the
+		//! scrim closes it (an outside-tap sheet/dropdown). @return the modal id.
+		String showModal(String const & id, bool lightDismiss = false);
+		//! @brief the z layer the modal's dialog widgets must sit on (one above
+		//! its scrim). 0 when no such modal exists.
+		uint getModalContentZ(String const & id) const;
+		//! @brief register a widget as part of a modal so dismissModal destroys it
+		void registerModalWidget(String const & modalId, String const & widgetId);
+		//! @brief request a modal be dismissed (deferred to the next frame
+		//! boundary). @return true when the modal was active.
+		bool dismissModal(String const & id);
+		//! @brief dismiss the topmost modal (the Escape / Android-back action)
+		void dismissTopModal();
+		//! @brief dismiss every active modal
+		void dismissAllModals();
+		//! is any modal currently up?
+		bool isModalActive() const { return !this->modalStack.entries.empty(); }
+		//! the topmost modal's id, or "" when none is up
+		String getTopModalId() const { return this->modalStack.topId(); }
+		//! number of stacked modals
+		int getModalCount() const { return static_cast<int>(this->modalStack.size()); }
+
+		//! @brief build and raise a confirm dialog (panel + message + two
+		//! buttons) as a modal. Poll the outcome with getDialogResult(id). Text
+		//! with a leading '@' is looked up in the StringTable. @return modal id.
+		String showConfirm(String const & title, String const & message,
+			String const & yesText = "Yes", String const & noText = "No");
+		//! @brief build and raise a one-button alert dialog as a modal. Poll with
+		//! getDialogResult(id) (DR_YES on OK). @return modal id.
+		String showAlert(String const & title, String const & message,
+			String const & okText = "OK");
+		//! @brief poll-and-consume a dialog's result: DR_YES / DR_NO once the
+		//! user chose, else DR_NONE. Clears the latch after returning a choice.
+		int getDialogResult(String const & modalId);
+
+		//--- toggle groups ------------------------------------------
+		//! @brief create a single-selection group; add checkboxes to it with
+		//! group:addMember(checkbox). Owned by the manager (outlives a frame).
+		woptr<GuiToggleGroup> createToggleGroup(String const & id);
+		//! @brief the group with the given id, or empty
+		woptr<GuiToggleGroup> getToggleGroup(String const & id);
+		//! @brief destroy a toggle group (its member checkboxes keep existing)
+		void destroyToggleGroup(String const & id);
+
+		//--- toasts -------------------------------------------------
+		//! @brief queue a timed notification. It slides no widgets and takes no
+		//! input; shown one at a time (queued if several), fading in and out.
+		void showToast(String const & text, float seconds = 2.5f);
+		//! @brief is a toast currently on screen? (its widget exists and its
+		//! layer is visible) - the readback a selfcheck asserts against
+		bool isToastVisible() const;
+
 		//! @brief give a text-entry field input focus (NULL clears focus): blurs
 		//! the previously focused field and opens/closes the InputManager
 		//! text-input session so exactly ONE field is focused at a time.
@@ -206,6 +316,19 @@ namespace Orkige
 		//! (full-window or safe-area) root rect. Runs only when the layout went
 		//! dirty or the window resized.
 		void resolveLayouts();
+
+		//! @brief tear down the modals queued for dismissal (frame-boundary safe)
+		void drainModalDismissals();
+		//! @brief poll a live dialog's buttons; a click latches the result and
+		//! requests the dialog be dismissed
+		void pollDialogButtons();
+		//! @brief drive the toast queue by @p delta and refresh the toast widget
+		void updateToast(float delta);
+		//! @brief assemble a confirm (two-button) or alert (one-button) dialog
+		//! on a fresh modal layer and register it. @return the modal id.
+		String buildDialogModal(String const & id, String const & title,
+			String const & message, String const & yesText,
+			String const & noText, bool twoButtons);
 
 		//! process committed text input (routed to the focused text-entry field)
 		bool onTextInput(Orkige::Event const & event);

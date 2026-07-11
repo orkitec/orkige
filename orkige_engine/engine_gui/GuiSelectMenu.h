@@ -76,6 +76,8 @@ namespace Orkige
     protected:
 		void updatePosition();
 		void updateSize();
+		//! dim the frame, arrows, value field and label when disabled
+		virtual void onEnabledChanged(bool enable);
 	private:
     };
 	//---------------------------------------------------------------

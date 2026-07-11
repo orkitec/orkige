@@ -43,6 +43,8 @@ namespace Orkige
 		const String MSG_RECORD_SAVED		= "record_saved";
 		const String MSG_STATS				= "stats";
 		const String MSG_UI_LAYOUT			= "ui_layout";
+		const String MSG_GUI_PRESS			= "gui_press";
+		const String MSG_GUI_DISMISS_MODAL	= "gui_dismiss_modal";
 		const String MSG_BYE				= "bye";
 
 		const String FIELD_ID				= "id";

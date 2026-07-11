@@ -263,6 +263,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_oui PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_OUI=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_GUI_MODAL: the modal / disabled / toggle-group / toast /
+    # dropdown selfcheck - loads a declarative screen with a [Modal] and a
+    # [ToggleGroup], then drives it with synthetic input on the real path: the
+    # consuming scrim blocks a press bound for a button under it, the dialog
+    # button still fires, dismiss frees the widgets, a disabled button is inert,
+    # the toggle group enforces single-selection, a toast surfaces and a
+    # dropdown opens/picks/closes. Flavor-neutral (gui on DrawLayer2D).
+    add_test(NAME demo_gui_modal COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_gui_modal PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_GUI_MODAL=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES

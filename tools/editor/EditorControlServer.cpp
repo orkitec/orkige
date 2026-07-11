@@ -1147,11 +1147,25 @@ namespace Orkige
 				{ "get_ui_layout",
 				  "The RUNNING game's gui widget rects: parallel lists "
 				  "'ids' and 'rects' (each rect a flat 'left top width height "
-				  "visible' string, pixels; visible is 1/0). Streamed during "
-				  "Play; empty until the game builds its UI. Combine with "
-				  "get_safe_area to check every visible widget sits inside the "
-				  "safe box.",
+				  "visible enabled modal' string, pixels; the three flags are "
+				  "1/0 - enabled=interactive, modal=part of an active modal "
+				  "dialog). Streamed during Play; empty until the game builds its "
+				  "UI. Combine with get_safe_area to check every visible widget "
+				  "sits inside the safe box, or read the modal flag to assert a "
+				  "dialog is up.",
 				  {} },
+				{ "gui_press",
+				  "Synthesize a press on a gui widget in the RUNNING game by id, "
+				  "routed through the REAL input path so modal and disabled "
+				  "semantics apply: pressing a button under a modal scrim does "
+				  "NOT fire, and a disabled widget stays inert. Use get_ui_layout "
+				  "to find widget ids/flags. Errors when no player is connected.",
+				  { { "id", "string", "gui widget id to press", true } } },
+				{ "dismiss_modal",
+				  "Close a modal dialog in the RUNNING game: 'id' names the modal "
+				  "to close, or omit it to close the topmost one. Errors when no "
+				  "player is connected.",
+				  { { "id", "string", "modal id (omit = topmost)", false } } },
 				{ "get_breadcrumbs",
 				  "The crash breadcrumb trail the player leaves on disk: an "
 				  "always-on, flush-per-entry ring of engine events (scene "
@@ -2713,7 +2727,8 @@ namespace Orkige
 		}
 		// get_ui_layout: the running game's gui widget rects (streamed on
 		// MSG_UI_LAYOUT). Parallel ids/rects lists; each rect a flat
-		// "left top width height visible" string in pixels.
+		// "left top width height visible enabled modal" string in pixels + flags
+		// (enabled = interactive, modal = part of an active modal dialog).
 		if (type == "get_ui_layout")
 		{
 			PlaySession const& play = *context.play;
@@ -2732,7 +2747,9 @@ namespace Orkige
 					std::to_string(widget.top) + " " +
 					std::to_string(widget.width) + " " +
 					std::to_string(widget.height) + " " +
-					(widget.visible ? "1" : "0"));
+					(widget.visible ? "1" : "0") + " " +
+					(widget.enabled ? "1" : "0") + " " +
+					(widget.modal ? "1" : "0"));
 			}
 			DebugMessage ok(MSG_OK);
 			ok.setList("ids", ids);
@@ -2854,6 +2871,40 @@ namespace Orkige
 				reload.set(DebugProtocol::FIELD_ID, id);
 				context.play->client.send(reload);
 			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "gui_press")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			const String& id = request.get(DebugProtocol::FIELD_ID);
+			if (id.empty())
+			{
+				this->sendErr(req, "gui_press needs a widget 'id'");
+				return;
+			}
+			DebugMessage press(DebugProtocol::MSG_GUI_PRESS);
+			press.set(DebugProtocol::FIELD_ID, id);
+			context.play->client.send(press);
+			this->sendOk(req);
+			return;
+		}
+		if (type == "dismiss_modal")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			// FIELD_ID may be "" = dismiss the topmost modal
+			DebugMessage dismiss(DebugProtocol::MSG_GUI_DISMISS_MODAL);
+			dismiss.set(DebugProtocol::FIELD_ID,
+				request.get(DebugProtocol::FIELD_ID));
+			context.play->client.send(dismiss);
 			this->sendOk(req);
 			return;
 		}
@@ -4828,6 +4879,43 @@ namespace Orkige
 				}
 				SDL_Log("orkige_editor: control self-test - get_ui_layout OK "
 					"(%zu widgets)", layout.get("ids").size());
+			}
+			// (R8c2) gui_press / dismiss_modal (authed mutations against the live
+			// player): the fixture has no gui, so a press on a bogus id forwards
+			// cleanly (the player logs a [remote] error), an EMPTY id is rejected
+			// up front, and dismiss_modal with nothing up is a harmless no-op.
+			// Proves the two verbs are wired, forwarded and auth-gated. The deep
+			// modal-blocks-input behaviour is covered by the demo_gui_modal
+			// selfcheck (a real gui + synthetic input).
+			{
+				JsonValue emptyArgs = JsonValue::object();
+				emptyArgs.set("id", JsonValue(String("")));
+				JsonValue result;
+				if (callTool("gui_press", emptyArgs, true, result, isError) &&
+					!isError)
+				{
+					finish(false, "control self-test: gui_press accepted an "
+						"empty widget id");
+					return;
+				}
+				JsonValue bogusArgs = JsonValue::object();
+				bogusArgs.set("id", JsonValue(String("no_such_widget")));
+				if (!callTool("gui_press", bogusArgs, true, result, isError) ||
+					isError)
+				{
+					finish(false, "control self-test: gui_press did not forward "
+						"to the player");
+					return;
+				}
+				if (!callTool("dismiss_modal", JsonValue::object(), true, result,
+						isError) || isError)
+				{
+					finish(false, "control self-test: dismiss_modal failed");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - gui_press / "
+					"dismiss_modal OK (empty id rejected, forward + no-op "
+					"accepted)");
 			}
 			// (R8d) get_breadcrumbs (read, no auth): the booted player wrote a
 			// "boot" breadcrumb to the shared ORKIGE_BREADCRUMB_DIR; the editor

@@ -19,7 +19,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), layoutEnabled(false), layoutUseSafeArea(false)
+	const float GuiWidget::DISABLED_ALPHA = 0.5f;
+	//---------------------------------------------------------
+	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), layoutEnabled(false), layoutUseSafeArea(false)
 	{
 		this->view = GuiManager::getSingleton().getCreateView(atlas);
 		oAssert(view.lock());
@@ -40,6 +42,36 @@ namespace Orkige
 		// floor to a whole pixel - Caption asserts on subpixel positions
 		pos.x = Ogre::Math::Floor((screenWidth/2.f)-(size.x/2.f));
 		this->setPosition(pos.x, pos.y);
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setEnabled(bool enable)
+	{
+		if(this->enabled == enable)
+		{
+			return;
+		}
+		this->enabled = enable;
+		this->onEnabledChanged(enable);
+	}
+	//---------------------------------------------------------
+	bool GuiWidget::isEffectivelyEnabled() const
+	{
+		// disabled if this widget OR any layout ancestor is disabled (a disabled
+		// group/panel disables its subtree). Bounded by the layout depth.
+		if(!this->enabled)
+		{
+			return false;
+		}
+		optr<GuiWidget> ancestor = this->layoutParent.lock();
+		while(ancestor)
+		{
+			if(!ancestor->enabled)
+			{
+				return false;
+			}
+			ancestor = ancestor->layoutParent.lock();
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	void GuiWidget::ensureLayout()
@@ -296,6 +328,10 @@ namespace Orkige
 		OFUNC(getSize)
 		OFUNC(getPosition)
 		OFUNC(centerHorizontal)
+		// uniform interactive state: a disabled widget is input-inert (skipped
+		// in the manager dispatch) and dims its visuals
+		OFUNC(setEnabled)
+		OFUNC(isEnabled)
 		// visibility rides on the shared per-z UiLayer (see the jumper
 		// HUD): widget:getLayer():hide()/show()/isVisible()
 		OFUNC(getLayer)

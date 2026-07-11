@@ -110,6 +110,13 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void GuiLabel::setAlpha(float alpha)
+	{
+		Color colour = this->caption->colour();
+		colour.a = alpha;
+		this->caption->colour(colour);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -119,6 +126,7 @@ namespace Orkige
 	OABSTRACT_IMPL(GuiLabel)
 		OFUNC(setText)
 		OFUNC(setAlignment)
+		OFUNC(setAlpha)
 		OENUM_START(LabelAlignment)
 			OENUM_VALUE(LA_TOPLEFT)
 			OENUM_VALUE(LA_TOP)

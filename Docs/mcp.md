@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 54 tools (the `toolSpecs` table in
+The endpoint advertises 61 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -132,7 +132,9 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 | `erase_cell(cell?, position?)` | **auth** — `EditorCore::erasePrefabAtCell` (erase the prefab instance in one grid cell as one undo step) → snapped `col`/`row`/`x`/`y`, `erased` |
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
-| `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible"`, pixels; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box |
+| `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, or read `modal` to assert a dialog is up |
+| `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
+| `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
@@ -199,8 +201,16 @@ therefore create and edit UI through the existing project-file verbs
 live with `reload_script`; no UI-specific authoring tool is required. What agents
 cannot otherwise observe — the platform safe area and the resolved on-screen
 widget rects on a real device — is exposed as runtime readback: `get_safe_area`
-(the notch/home-bar insets) and `get_ui_layout` (per-widget pixel rects), both
-read-only.
+(the notch/home-bar insets) and `get_ui_layout` (per-widget pixel rects, plus an
+`enabled` and a `modal` flag per widget), both read-only. Two authoring-adjacent
+verbs let an agent *drive* the live UI: `gui_press(id)` synthesizes a real press
+on a widget — routed through the actual input path, so a press on a button
+UNDER a modal scrim does not fire and a disabled widget stays inert — and
+`dismiss_modal(id?)` closes a dialog. Together with the `modal`/`enabled` flags
+an agent can assert "the dialog is up, it eats input below, and row X is
+disabled", then drive the dialog to completion. The full grammar (including the
+`.oui` `[Modal]` / `[ToggleGroup]` sections and `enabled` / `modal` keys) and the
+widget recipes live in `Docs/gui.md`.
 
 Real fonts and vector UI sprites need **no new verb** either: a runtime font/
 sprite atlas is a plain `.ogui` text asset plus its `.ttf`/`.svg` sources under

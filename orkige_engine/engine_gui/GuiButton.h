@@ -81,6 +81,8 @@ namespace Orkige
 		void setTiled(bool enable);
 
 	protected:
+		//! disabled -> the BS_DISABLED sprite (`_disabled`), enabled -> BS_UP
+		virtual void onEnabledChanged(bool enable);
 	private:
 	};
 	//---------------------------------------------------------------

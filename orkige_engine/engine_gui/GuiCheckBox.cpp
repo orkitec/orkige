@@ -9,6 +9,7 @@ copyright:	(c) 2009-2011 orkitec
 
 #include "engine_gui/GuiCheckBox.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiToggleGroup.h"
 #include <core_event/GlobalEventManager.h>
 
 #define GUICHECKBOX_MARGING 10.f
@@ -20,9 +21,10 @@ namespace Orkige
     //- public: ------------------------------------------
     //----------------------------------------------------
     GuiCheckBox::GuiCheckBox(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & text, Ogre::Vector2 const & position, GuiLabel::LabelAlignment textAlignment, Ogre::Vector2 const & size, String const & atlas, uint z, bool useCheckbox) : 
-		GuiWidget(id, atlas, z), 
+		GuiWidget(id, atlas, z),
 		checked(false),
-		baseSpriteName(spriteName)
+		baseSpriteName(spriteName),
+		toggleGroup(NULL)
     {
 		//oAssertDesc(size.x > 0.0 && size.y > 0.0, "Warning: button has invalid size and won't create any events: " << id);
 
@@ -91,9 +93,18 @@ namespace Orkige
 	//----------------------------------------------------
 	void GuiCheckBox::onCursorPressed( Ogre::Vector2 const & cursorPos )
 	{
-		if (this->decor->getRectangle()->intersects(cursorPos)) 
+		if (this->decor->getRectangle()->intersects(cursorPos))
 		{
-			this->toggle();
+			if (this->toggleGroup != NULL)
+			{
+				// single-selection: the group decides which member ends up
+				// checked (and clears the siblings)
+				this->toggleGroup->handleMemberTapped(this);
+			}
+			else
+			{
+				this->toggle();
+			}
 		}
 	}
 	//----------------------------------------------------
@@ -127,6 +138,23 @@ namespace Orkige
 	void GuiCheckBox::toggle( bool notifyListener /*= true*/ )
 	{
 		this->setChecked(!this->isChecked(), notifyListener);
+	}
+	//----------------------------------------------------
+	void GuiCheckBox::onEnabledChanged( bool enable )
+	{
+		const float alpha = enable ? 1.0f : GuiWidget::DISABLED_ALPHA;
+		if(this->decor)
+		{
+			this->decor->setAlpha(alpha);
+		}
+		if(this->checkbox)
+		{
+			this->checkbox->setAlpha(alpha);
+		}
+		if(this->label)
+		{
+			this->label->setAlpha(alpha);
+		}
 	}
 
     //----------------------------------------------------

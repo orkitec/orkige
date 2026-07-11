@@ -48,6 +48,8 @@ namespace Orkige
 		virtual void setItems(const Ogre::StringVector& items);
 
     protected:
+		//! dim the grip on top of the SelectMenu frame/label dim
+		virtual void onEnabledChanged(bool enable);
     private:
 		bool pinActive;
 		std::vector<Ogre::Vector2> itemsPinSnap;

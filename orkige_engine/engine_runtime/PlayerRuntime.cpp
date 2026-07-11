@@ -32,6 +32,8 @@
 #include "engine_render/RenderCamera.h"
 #include "engine_util/PlatformWindow.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_input/InputManager.h"
+#include <SDL3/SDL_events.h>
 #include "engine_sound/SoundManager.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
@@ -1016,6 +1018,61 @@ namespace Orkige
 					sendError("record: not recording");
 				}
 			}
+			else if (message.type == Protocol::MSG_GUI_PRESS)
+			{
+				// synthesize a press+release on a gui widget at its centre,
+				// routed through the REAL input path so modal/disabled semantics
+				// apply (an agent driving a dialog button, or asserting a button
+				// under a scrim stays inert)
+				const String id = message.get(Protocol::FIELD_ID);
+				GuiManager* gui = GuiManager::getSingletonPtr();
+				if (gui == NULL || !gui->widgetExists(id))
+				{
+					sendError("gui_press: unknown widget '" + id + "'");
+				}
+				else if (InputManager::getSingletonPtr() != NULL)
+				{
+					optr<GuiWidget> widget = gui->getWidget(id).lock();
+					if (widget)
+					{
+						const auto pos = widget->getPosition();
+						const auto size = widget->getSize();
+						const float cx = pos.x + size.x * 0.5f;
+						const float cy = pos.y + size.y * 0.5f;
+						SDL_Event down{};
+						down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+						down.button.button = SDL_BUTTON_LEFT;
+						down.button.down = true;
+						down.button.x = cx;
+						down.button.y = cy;
+						InputManager::getSingleton().injectEvent(down);
+						SDL_Event up{};
+						up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+						up.button.button = SDL_BUTTON_LEFT;
+						up.button.down = false;
+						up.button.x = cx;
+						up.button.y = cy;
+						InputManager::getSingleton().injectEvent(up);
+					}
+				}
+			}
+			else if (message.type == Protocol::MSG_GUI_DISMISS_MODAL)
+			{
+				// close a modal by id, or the topmost one when no id is given
+				GuiManager* gui = GuiManager::getSingletonPtr();
+				if (gui != NULL)
+				{
+					const String id = message.get(Protocol::FIELD_ID);
+					if (id.empty())
+					{
+						gui->dismissTopModal();
+					}
+					else
+					{
+						gui->dismissModal(id);
+					}
+				}
+			}
 			// --- protocol-extension slot -------------------------------------
 			// Additive editor->runtime messages ride THIS one debug protocol as
 			// new else-if branches (old players hit the unknown-else below and
@@ -1172,7 +1229,9 @@ namespace Orkige
 				<< (long)std::lround(layout.top) << ' '
 				<< (long)std::lround(layout.width) << ' '
 				<< (long)std::lround(layout.height) << ' '
-				<< (layout.visible ? 1 : 0);
+				<< (layout.visible ? 1 : 0) << ' '
+				<< (layout.enabled ? 1 : 0) << ' '
+				<< (layout.modal ? 1 : 0);
 			rects.push_back(rect.str());
 		}
 		DebugMessage message(Protocol::MSG_UI_LAYOUT);

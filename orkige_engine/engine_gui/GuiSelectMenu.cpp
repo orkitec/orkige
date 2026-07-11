@@ -186,6 +186,22 @@ namespace Orkige
 		this->rightArrow->setSize(this->decor->getSize().x * 0.2f, this->decor->getSize().y * 0.9f);
 	}
 	//----------------------------------------------------
+	void GuiSelectMenu::onEnabledChanged(bool enable)
+	{
+		const float alpha = enable ? 1.0f : GuiWidget::DISABLED_ALPHA;
+		if(this->decor)		this->decor->setAlpha(alpha);
+		if(this->leftArrow)	this->leftArrow->setAlpha(alpha);
+		if(this->rightArrow)this->rightArrow->setAlpha(alpha);
+		if(this->label)		this->label->setAlpha(alpha);
+		// the value field is an internal button; flip its enabled state so it
+		// dims with the same convention (it is not in the manager dispatch, so
+		// this only changes its look)
+		if(this->buttonMainSelection)
+		{
+			this->buttonMainSelection->setEnabled(enable);
+		}
+	}
+	//----------------------------------------------------
 	//- private: -----------------------------------------
 	//----------------------------------------------------
 	OABSTRACT_IMPL(GuiSelectMenu)

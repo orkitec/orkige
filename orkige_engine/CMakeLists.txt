@@ -212,6 +212,14 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gui/GuiButtonBlink.cpp
     engine_gui/GuiButton.h
     engine_gui/GuiButton.cpp
+    engine_gui/GuiModalScrim.h
+    engine_gui/GuiModalScrim.cpp
+    engine_gui/GuiToggleGroup.h
+    engine_gui/GuiToggleGroup.cpp
+    engine_gui/GuiToast.h
+    engine_gui/GuiToast.cpp
+    engine_gui/GuiDropDown.h
+    engine_gui/GuiDropDown.cpp
 )
 
 # --- classic-only sources (the classic umbrella zone) -----------------------

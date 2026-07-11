@@ -300,7 +300,13 @@ namespace Orkige
     //----------------------------------------------------
     //- protected: ---------------------------------------
     //----------------------------------------------------
-
+	void GuiSlider::onEnabledChanged(bool enable)
+	{
+		GuiSelectMenu::onEnabledChanged(enable);
+		const float alpha = enable ? 1.0f : GuiWidget::DISABLED_ALPHA;
+		if(this->pin)		this->pin->setAlpha(alpha);
+		if(this->pin_area)	this->pin_area->setAlpha(alpha);
+	}
     //----------------------------------------------------
     //- private: -----------------------------------------
     //----------------------------------------------------

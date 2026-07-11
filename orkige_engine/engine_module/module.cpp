@@ -37,6 +37,10 @@
 #include "engine_sound/MusicStream.h"
 #include "engine_gui/IGuiObject.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiToggleGroup.h"
+#include "engine_gui/GuiDropDown.h"
+#include "engine_gui/GuiToast.h"
+#include "engine_gui/GuiModalScrim.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderNode.h"
@@ -137,9 +141,26 @@ ORKIGE_MODULE(orkige_engine)
 		// widgets (authored at the SAME z) under it; a taller child scrolls by
 		// drag / wheel, clipped to the viewport
 		OFUNCWEAK(createScrollView)
+		// (id, sprite, glyphIndex, text, position, textAlignment, size, atlas,
+		//  z) - a button that drops a scrollable option list on tap; set the
+		//  options with :setItems({...}), poll :getSelectedIndex()
+		OFUNCWEAK(createDropDown)
 		// (path) - load a declarative .oui layout at runtime (widgets, anchors,
-		// groups, nine-slice, scroll); the file the MCP write_project_file authors
+		// groups, nine-slice, scroll, modals, toggle groups); the file the MCP
+		// write_project_file authors
 		OFUNC(loadLayout)
+	OSIMPLEEXPORT_END
+
+	// the single-selection (radio) group over checkboxes: created via
+	// gui:createToggleGroup(id), members added with :addMember(checkbox);
+	// scripts poll :getSelected() / :pollChanged()
+	OSIMPLEEXPORT(Orkige::GuiToggleGroup,GuiToggleGroup)
+		OFUNC(addMember)
+		OFUNC(getSelected)
+		OFUNC(setSelected)
+		OFUNC(setAllowNone)
+		OFUNC(getMemberCount)
+		OFUNC(pollChanged)
 	OSIMPLEEXPORT_END
 
 	// safe-area insets (notch / rounded corners / home indicator) in PIXELS:
@@ -175,6 +196,12 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(GuiCheckBox)
 	OEXPORT(GuiButtonBlink)
 	OEXPORT(GuiButton)
+	// the dropdown (a Button that opens a scrollable option list on a modal),
+	// the passive toast, and the modal scrim (a DecorWidget that consumes input
+	// for the layers below it)
+	OEXPORT(GuiDropDown)
+	OEXPORT(GuiToast)
+	OEXPORT(GuiModalScrim)
 	// the scroll viewport: setScroll(y)/getScroll()/getMaxScroll() plus the
 	// GuiWidget layout setters (setParent/setAnchorPreset/...)
 	OEXPORT(GuiScrollView)

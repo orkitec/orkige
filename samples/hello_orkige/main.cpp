@@ -23,6 +23,7 @@
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
 #include <engine_gui/GuiManager.h>
 #include <engine_gui/GuiFactory.h>
+#include <engine_gui/GuiToggleGroup.h>
 #include <engine_gui/GuiSlider.h>
 #include <engine_gui/GuiTextEdit.h>
 #include <engine_gui/UiAtlas.h>
@@ -1626,6 +1627,278 @@ int main(int, char**)
 			}
 			SDL_Log("hello_orkige: text-entry selfcheck passed (focus, typing, "
 				"backspace, caret move, max length, submit)");
+		}
+
+		// ORKIGE_DEMO_GUI_MODAL=1: the modal / disabled-state / toggle-group /
+		// toast / dropdown selfcheck (flavor-neutral, gui on DrawLayer2D). Loads
+		// a declarative screen with a [Modal] + a [ToggleGroup] and drives it via
+		// synthetic SDL events on the REAL input path (InputManager::injectEvent
+		// -> GuiManager routing). Asserts: the consuming scrim blocks a press
+		// bound for a button UNDER it; the dialog button on the modal layer still
+		// fires; dismissing the modal frees its widgets and re-enables the layers
+		// below; a disabled button never fires; a toggle group enforces
+		// single-selection; a toast surfaces; a dropdown opens, picks and closes.
+		if (std::getenv("ORKIGE_DEMO_GUI_MODAL"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			bool modalOk = true;
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				gui.enableInputEvents();
+				factory->loadLayout("modal_screen.oui");
+				render->renderOneFrame();	// resolve + first frame
+
+				auto clickAt = [&](float x, float y)
+				{
+					SDL_Event down{};
+					down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					down.button.button = SDL_BUTTON_LEFT;
+					down.button.down = true;
+					down.button.x = x;
+					down.button.y = y;
+					inputManager.injectEvent(down);
+					SDL_Event up{};
+					up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+					up.button.button = SDL_BUTTON_LEFT;
+					up.button.down = false;
+					up.button.x = x;
+					up.button.y = y;
+					inputManager.injectEvent(up);
+				};
+				auto centerOf = [&](const char* id, float& cx, float& cy) -> bool
+				{
+					if (!gui.widgetExists(id))
+					{
+						return false;
+					}
+					Orkige::optr<Orkige::GuiWidget> w = gui.getWidget(id).lock();
+					if (!w)
+					{
+						return false;
+					}
+					const Orkige::Vec2 p = w->getPosition();
+					const Orkige::Vec2 s = w->getSize();
+					cx = p.x + s.x * 0.5f;
+					cy = p.y + s.y * 0.5f;
+					return true;
+				};
+				auto button = [&](const char* id)
+				{
+					return gui.getWidgetAs<Orkige::GuiButton>(id).lock();
+				};
+
+				if (!gui.isModalActive())
+				{
+					SDL_Log("hello_orkige: FAILED - modal not active after load");
+					modalOk = false;
+				}
+
+				// a press on the background button UNDER the scrim must NOT fire
+				float bx = 0.0f, by = 0.0f;
+				if (modalOk && centerOf("bgButton", bx, by))
+				{
+					clickAt(bx, by);
+					Orkige::optr<Orkige::GuiButton> bg = button("bgButton");
+					if (bg && bg->wasClicked())
+					{
+						SDL_Log("hello_orkige: FAILED - background button fired "
+							"under the modal scrim");
+						modalOk = false;
+					}
+				}
+				// the dialog button on the modal's content layer DOES fire
+				float dx = 0.0f, dy = 0.0f;
+				if (modalOk && centerOf("dlgOk", dx, dy))
+				{
+					clickAt(dx, dy);
+					Orkige::optr<Orkige::GuiButton> ok = button("dlgOk");
+					if (!(ok && ok->wasClicked()))
+					{
+						SDL_Log("hello_orkige: FAILED - dialog button did not fire");
+						modalOk = false;
+					}
+				}
+				// dismiss the modal; the frame boundary tears down its widgets
+				gui.dismissModal("dlg");
+				render->renderOneFrame();
+				if (modalOk && gui.isModalActive())
+				{
+					SDL_Log("hello_orkige: FAILED - modal still active after "
+						"dismiss");
+					modalOk = false;
+				}
+				if (modalOk && gui.widgetExists("dlgOk"))
+				{
+					SDL_Log("hello_orkige: FAILED - dialog widget not torn down");
+					modalOk = false;
+				}
+				// with the modal gone, the background button works again
+				if (modalOk && centerOf("bgButton", bx, by))
+				{
+					clickAt(bx, by);
+					Orkige::optr<Orkige::GuiButton> bg = button("bgButton");
+					if (!(bg && bg->wasClicked()))
+					{
+						SDL_Log("hello_orkige: FAILED - background button did not "
+							"fire after the modal closed");
+						modalOk = false;
+					}
+				}
+				// a disabled button never fires (gated in the dispatch loop)
+				float lx = 0.0f, ly = 0.0f;
+				if (modalOk && centerOf("lockedButton", lx, ly))
+				{
+					clickAt(lx, ly);
+					Orkige::optr<Orkige::GuiButton> locked = button("lockedButton");
+					if (locked && locked->wasClicked())
+					{
+						SDL_Log("hello_orkige: FAILED - disabled button fired");
+						modalOk = false;
+					}
+				}
+				// toggle group: optLow preselected; tapping optMed steals it
+				Orkige::optr<Orkige::GuiCheckBox> low =
+					gui.getWidgetAs<Orkige::GuiCheckBox>("optLow").lock();
+				Orkige::optr<Orkige::GuiCheckBox> med =
+					gui.getWidgetAs<Orkige::GuiCheckBox>("optMed").lock();
+				if (modalOk && (!low || !med))
+				{
+					SDL_Log("hello_orkige: FAILED - toggle-group checkboxes "
+						"missing");
+					modalOk = false;
+				}
+				if (modalOk && !low->isChecked())
+				{
+					SDL_Log("hello_orkige: FAILED - toggle group did not "
+						"preselect index 0");
+					modalOk = false;
+				}
+				float mx = 0.0f, my = 0.0f;
+				if (modalOk && centerOf("optMed", mx, my))
+				{
+					clickAt(mx, my);
+					if (!med->isChecked() || low->isChecked())
+					{
+						SDL_Log("hello_orkige: FAILED - single-selection not "
+							"enforced (low %d, med %d)", low->isChecked(),
+							med->isChecked());
+						modalOk = false;
+					}
+				}
+				Orkige::optr<Orkige::GuiToggleGroup> group =
+					gui.getToggleGroup("quality").lock();
+				if (modalOk && (!group || group->getSelected() != 1))
+				{
+					SDL_Log("hello_orkige: FAILED - group selected index != 1");
+					modalOk = false;
+				}
+
+				// toast: queue one and tick a frame; it should be on screen
+				gui.showToast("Saved", 1.0f);
+				render->renderOneFrame();
+				if (modalOk && !gui.isToastVisible())
+				{
+					SDL_Log("hello_orkige: FAILED - toast did not surface");
+					modalOk = false;
+				}
+
+				// showConfirm: a built dialog (panel + message + Yes/No) resolves
+				// via getDialogResult and dismisses itself on a click
+				if (modalOk)
+				{
+					Orkige::String confirmId = gui.showConfirm("Reset?",
+						"Erase all settings?", "Yes", "No");
+					render->renderOneFrame();
+					if (!gui.isModalActive())
+					{
+						SDL_Log("hello_orkige: FAILED - showConfirm did not raise "
+							"a modal");
+						modalOk = false;
+					}
+					float yx = 0.0f, yy = 0.0f;
+					if (modalOk && centerOf((confirmId + ".yes").c_str(), yx, yy))
+					{
+						clickAt(yx, yy);
+						render->renderOneFrame();	// poll -> result + dismiss + drain
+						if (gui.getDialogResult(confirmId) !=
+							Orkige::GuiManager::DR_YES)
+						{
+							SDL_Log("hello_orkige: FAILED - confirm Yes did not "
+								"resolve to DR_YES");
+							modalOk = false;
+						}
+						if (gui.isModalActive())
+						{
+							SDL_Log("hello_orkige: FAILED - confirm dialog stayed "
+								"up after a choice");
+							modalOk = false;
+						}
+					}
+				}
+
+				// dropdown: opens a list on a light-dismiss modal, picks, closes
+				Orkige::woptr<Orkige::GuiDropDown> dropWeak =
+					factory->createDropDown("quality.dropdown", "button", 9,
+						"Low", Orkige::Vec2(80.0f, 440.0f), Orkige::GuiLabel::LA_CENTER,
+						Orkige::Vec2(220.0f, 44.0f), "", 2);
+				Orkige::optr<Orkige::GuiDropDown> drop = dropWeak.lock();
+				if (modalOk && drop)
+				{
+					Orkige::StringVector options;
+					options.push_back("Low");
+					options.push_back("Med");
+					options.push_back("High");
+					drop->setItems(options);
+					float ddx = 0.0f, ddy = 0.0f;
+					centerOf("quality.dropdown", ddx, ddy);
+					clickAt(ddx, ddy);			// request open (deferred)
+					render->renderOneFrame();	// deferred open + list resolve
+					if (!drop->isMenuOpen() || !gui.isModalActive())
+					{
+						SDL_Log("hello_orkige: FAILED - dropdown did not open");
+						modalOk = false;
+					}
+					else
+					{
+						// pick the third option (index 2)
+						float ox = 0.0f, oy = 0.0f;
+						if (centerOf("quality.dropdown.menu.opt2", ox, oy))
+						{
+							clickAt(ox, oy);
+							render->renderOneFrame();	// pollOptions picks + closes
+							render->renderOneFrame();	// dismissal drains
+							if (drop->getSelectedIndex() != 2)
+							{
+								SDL_Log("hello_orkige: FAILED - dropdown pick did "
+									"not select index 2 (got %zu)",
+									drop->getSelectedIndex());
+								modalOk = false;
+							}
+							if (drop->isMenuOpen())
+							{
+								SDL_Log("hello_orkige: FAILED - dropdown did not "
+									"close after a pick");
+								modalOk = false;
+							}
+						}
+					}
+				}
+				gui.disableInputEvents();
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!modalOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: gui-modal selfcheck passed (scrim blocks input "
+				"below, dialog button fires, dismiss frees widgets, disabled "
+				"inert, toggle group single-selection, toast, dropdown)");
 		}
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs
