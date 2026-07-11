@@ -244,11 +244,17 @@ namespace Orkige
 
 			Assimp::Importer importer;
 			// PreTransformVertices bakes the node hierarchy (static-only
-			// import, see the file remarks); SortByPType drops points/lines
+			// import, see the file remarks); SortByPType drops points/lines;
+			// FlipUVs flips V to a top-left texel origin - the texture codecs
+			// upload row 0 at V=0, so glTF's top-left UV origin needs the flip
+			// to render upright (classic gets this from Codec_Assimp, which
+			// enables aiProcess_FlipUVs; matching it keeps the two flavours
+			// pixel-identical)
 			aiScene const * scene = importer.ReadFileFromMemory(bytes.data(),
 				bytes.size(),
 				aiProcess_Triangulate | aiProcess_GenSmoothNormals |
-				aiProcess_PreTransformVertices | aiProcess_SortByPType,
+				aiProcess_PreTransformVertices | aiProcess_SortByPType |
+				aiProcess_FlipUVs,
 				extensionHint.c_str());
 			if(!scene || scene->mNumMeshes == 0)
 			{

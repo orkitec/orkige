@@ -310,6 +310,27 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	vectorShape->setZOrder(6);
 	vectorShape->setVisible(true);
 
+	//--- textured mesh with a vertical-gradient texture (V-flip gate) -----
+	// a glTF quad whose baseColor texture runs RED (top) -> BLUE (bottom);
+	// glTF's UV origin is top-left, so an upright import puts the red end at
+	// the quad's +Y (top) edge. Rendered vertex-colour unlit (no lighting
+	// variance) into the SAME ortho RTT the parity gate compares, on the
+	// right side clear of the sprite and vector shape. Two probes below
+	// assert the absolute orientation within one flavor; the parity gate
+	// catches any cross-flavor V-flip disagreement over the whole RTT.
+	optr<RenderNode> gradientNode = world->createNode("selfcheck.gradient");
+	gradientNode->setPosition(Vec3(101.8f, 0.0f, 0.1f));
+	gradientNode->setScale(Vec3(1.2f, 1.2f, 1.0f));
+	optr<MeshInstance> gradientMesh =
+		world->createMeshInstance("uvcheck_mesh.glb");
+	SELFCHECK(gradientMesh != NULL,
+		"createMeshInstance loads the UV-check gradient mesh");
+	SELFCHECK(gradientMesh->subMeshHasTexture(0),
+		"the UV-check mesh carries its embedded gradient texture");
+	gradientMesh->attachTo(gradientNode);
+	gradientMesh->setVertexColourUnlit();	// show the texture unlit
+	gradientMesh->setCastShadows(false);
+
 	optr<RenderCamera> orthoCamera = world->createCamera("selfcheck.ortho");
 	optr<RenderNode> orthoNode = world->createNode("selfcheck.orthoNode");
 	orthoNode->setPosition(Vec3(100, 0, 5));
@@ -413,6 +434,26 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			shapeRed, shapeGreen, shapeBlue), "the vector-shape probe decodes");
 		SELFCHECK(shapeGreen > shapeRed + 0.2f && shapeGreen > shapeBlue + 0.2f,
 			"the vector shape's green fill rendered into the RTT");
+	}
+	// the gradient quad (world ~(101.8,0), 1.2 units) covers RTT pixels
+	// ~x[224..288] y[48..112] in the 320x160 ortho view. Its texture runs red
+	// (top) -> blue (bottom); glTF's top-left UV origin means an upright import
+	// puts red at the quad's TOP. ABSOLUTE orientation probe (one flavor, not
+	// just cross-flavor agreement): the top interior must read red-dominant and
+	// the bottom interior blue-dominant. A V-flip swaps them and fails here.
+	{
+		float topRed = 0, topGreen = 0, topBlue = 0;
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(rttShot, 256, 60,
+			topRed, topGreen, topBlue), "the gradient top probe decodes");
+		SELFCHECK(topRed > topBlue + 0.2f,
+			"the gradient mesh renders upright: red end at the top (glTF "
+			"top-left UV origin)");
+		float bottomRed = 0, bottomGreen = 0, bottomBlue = 0;
+		SELFCHECK(SelfcheckBootstrap::readImagePixel(rttShot, 256, 100,
+			bottomRed, bottomGreen, bottomBlue),
+			"the gradient bottom probe decodes");
+		SELFCHECK(bottomBlue > bottomRed + 0.2f,
+			"the gradient mesh renders upright: blue end at the bottom");
 	}
 
 	//--- 2D draw layers (the DrawLayer2D conformance pattern) --------------
@@ -615,6 +656,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	sprite.reset();
 	platform.reset();
 	vectorShape.reset();
+	gradientMesh.reset();
 	SELFCHECK(renderFrames(renderSystem, 2),
 		"frames render after content handles were dropped (RAII teardown)");
 
