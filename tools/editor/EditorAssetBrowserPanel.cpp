@@ -2137,16 +2137,14 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 		const float rounding = ImGui::GetStyle().FrameRounding;
 		if (selected && !Orkige::tileSelectionDrawsFill(isTile))
 		{
-			// grid tiles show selection as an OUTLINE in the kind accent colour -
-			// a filled box hid the thumbnail's transparency checkerboard and the
-			// kind glyph. A faint hover fill still gives motion feedback under it.
+			// grid tiles draw NO selection fill and no extra border - a filled
+			// box hid the thumbnail's transparency checkerboard and the kind
+			// glyph, and the focus ring on the selectable already outlines the
+			// selected tile. A faint hover fill keeps motion feedback.
 			if (hovered)
 			{
 				drawList->AddRectFilled(hlMin, hlMax, hoverFill, rounding);
 			}
-			drawList->AddRect(hlMin, hlMax,
-				assetKindColor(entry.item.kind, entry.isFolder), rounding,
-				ImDrawFlags_None, 2.0f);
 		}
 		else if (selected || hovered)
 		{
