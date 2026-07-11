@@ -378,7 +378,11 @@ look when touching one:
   geometry core is `core_util/VectorTessellator` (bezier flatten + earcut
   triangulation + baked alpha-feather edge for portable AA — FSAA is 0),
   headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
-  `projects/vectorshapes/` sample.
+  `projects/vectorshapes/` sample. Editor integration: dropping/importing an
+  `.svg` (browser or MCP `import_asset`) cooks it to `.oshape` in-place via
+  `cook_shapes.py` (subprocess; the source `.svg` is not kept), and `.oshape`
+  assets show a real thumbnail — the tessellated fill CPU-rasterized by the pure
+  `core_util/VectorShapeRaster` and uploaded via `createTexture2D`.
 - **Game UI** (`engine_fastgui`, both flavors): the retained widget set (label/
   button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
   Lua-authored via `FastGuiFactory` (`createCheckBox`/`createSlider`/

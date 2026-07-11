@@ -1662,6 +1662,9 @@ int main(int argc, char** argv)
 				// the project-relative path of the real png imported in
 				// step (8), carried into the rename/move steps below
 				std::string realImportRel;
+				// the .oshape cooked from an SVG in step (3c),
+				// thumbnailed in step (8)
+				std::string cookedShapePath;
 				// work on a temp COPY - the real project is never touched
 				const std::string assetTempRoot =
 					(std::filesystem::temp_directory_path() /
@@ -1851,6 +1854,70 @@ int main(int argc, char** argv)
 						}
 					}
 				}
+				// (3c) SVG import cooks to .oshape: importAssetFile on an .svg runs
+				// cook_shapes.py (subprocess) and lands the native .oshape (NOT the
+				// .svg) in assets/ with a minted sidecar; it then instantiates +
+				// tessellates like any shape
+				if (assetOk)
+				{
+					const std::string svgSource = (std::filesystem::path(
+						assetTempRoot) / "import_shape.svg").string();
+					{
+						std::ofstream f(svgSource,
+							std::ios::binary | std::ios::trunc);
+						f << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+							<< "viewBox=\"0 0 100 100\">"
+							<< "<rect x=\"20\" y=\"20\" width=\"60\" "
+							<< "height=\"60\" fill=\"#4488cc\"/></svg>";
+					}
+					std::string svgError;
+					const std::string cooked =
+						importAssetFile(state, svgSource, &svgError);
+					const bool isOshape = !cooked.empty() &&
+						std::filesystem::path(cooked).extension() == ".oshape";
+					const bool sidecar = isOshape && std::filesystem::exists(
+						cooked + Orkige::AssetDatabase::META_FILE_EXTENSION,
+						assetErr);
+					// the source .svg is NOT copied into assets/ (the .oshape IS
+					// the asset, the .svg only the on-ramp)
+					const bool svgKept = std::filesystem::exists(
+						state.project.getAssetsDirectory() + "/import_shape.svg",
+						assetErr);
+					if (!isOshape || !sidecar)
+					{
+						assetOk = false;
+						assetFail = "SVG import did not cook to a sidecar'd "
+							".oshape: " + svgError;
+					}
+					else if (svgKept)
+					{
+						assetOk = false;
+						assetFail = "SVG import kept the source .svg in assets/";
+					}
+					else
+					{
+						instantiateAssetIntoScene(state, editorCore,
+							AssetKind::VectorShape, cooked);
+						const std::string cookedId =
+							editorCore.getSelectedObjectId();
+						optr<Orkige::GameObject> cookedObj =
+							gameObjectManager.getGameObject(cookedId).lock();
+						Orkige::VectorShapeComponent* cookedComp = cookedObj
+							? cookedObj->getComponentPtr<
+								Orkige::VectorShapeComponent>()
+							: nullptr;
+						if (!cookedComp || cookedComp->getTriangleCount() == 0)
+						{
+							assetOk = false;
+							assetFail = "cooked .oshape did not tessellate";
+						}
+						else
+						{
+							cookedShapePath = cooked;
+							editorCore.undo(); // remove the instantiated object
+						}
+					}
+				}
 				// (4) prefab via the drag path: make a prefab from an object,
 				// then instantiate it through instantiateAssetIntoScene (the
 				// exact code path a Scene/Hierarchy drop runs)
@@ -2017,6 +2084,16 @@ int main(int argc, char** argv)
 					{
 						realImportRel =
 							state.project.makeProjectRelative(realPngDest);
+						// a .oshape gets a REAL rasterized thumbnail too (not a
+						// glyph): CPU tessellate + raster + upload -> a bindable
+						// handle
+						const ImTextureID shapeThumb = cookedShapePath.empty()
+							? 0 : assetThumbnailFor(state, cookedShapePath);
+						if (shapeThumb == 0)
+						{
+							assetOk = false;
+							assetFail = "no thumbnail handle for a .oshape";
+						}
 					}
 				}
 				// (9) openWithDefaultApp resolver: the composed file:// URL is
@@ -5242,6 +5319,11 @@ int main(int argc, char** argv)
 			SDL_DestroyProcess(exportJob.process);
 			exportJob.process = nullptr;
 		}
+
+		// free the thumbnail cache's owned CPU uploads (vector shapes) while the
+		// render system is still up - manual textures are not resource-group
+		// content, so nothing else frees them in time for strict backends
+		clearCachedThumbnails(state.assetBrowser);
 
 		// ImGui teardown: destroying the context writes the ini; the facade
 		// 2D layer + font texture die with the renderer/engine afterwards

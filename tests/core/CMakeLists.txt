@@ -38,6 +38,7 @@ add_executable(orkige_core_tests
     StringTableTests.cpp
     VectorTessellatorTests.cpp
     VectorShapeAssetTests.cpp
+    VectorShapeRasterTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

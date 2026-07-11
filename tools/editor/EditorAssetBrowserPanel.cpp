@@ -51,6 +51,9 @@
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_serialization/XMLArchive.h>
+#include <core_util/VectorShapeAsset.h>
+#include <core_util/VectorShapeRaster.h>
+#include <core_util/VectorTessellator.h>
 #include <engine_render/RenderSystem.h>
 
 #include <SDL3/SDL.h>
@@ -61,6 +64,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <sstream>
 
 using Orkige::optr;
 using Orkige::woptr;
@@ -68,6 +73,12 @@ using Orkige::woptr;
 // the drag-drop payload tags (declared extern in EditorAssetDnd.h)
 const char* const ASSET_DND_PAYLOAD = "ORKIGE_ASSET";
 const char* const ASSET_DND_PAYLOAD_MULTI = "ORKIGE_ASSET_MULTI";
+
+// single-entry thumbnail eviction (defined next to assetThumbnailFor below):
+// the rename/move/delete asset ops above it destroy the owned shape upload on
+// the way out, so a CPU-rasterized .oshape thumbnail is not leaked
+// (clearCachedThumbnails, the wholesale form, is declared in EditorApp.h)
+void dropCachedThumbnail(AssetBrowserState& browser, std::string const& key);
 
 namespace
 {
@@ -390,7 +401,7 @@ bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
 	{
 		state.assetBrowser.selectionAnchor = newRel;
 	}
-	state.assetBrowser.thumbnails.erase(source.string());
+	dropCachedThumbnail(state.assetBrowser, source.string());
 	reindexProjectAssets(state);	// the new bare name resolves again
 	SDL_Log("orkige_editor: renamed '%s' to '%s'", item.relativePath.c_str(),
 		newRel.c_str());
@@ -489,7 +500,7 @@ int moveAssetsIntoFolder(EditorState& state,
 		{
 			state.assetBrowser.selection.insert(newRel);
 		}
-		state.assetBrowser.thumbnails.erase(source.string());
+		dropCachedThumbnail(state.assetBrowser, source.string());
 	}
 	if (moved > 0)
 	{
@@ -577,7 +588,7 @@ int deleteAssetEntries(EditorState& state,
 		}
 		state.assetBrowser.selection.erase(
 			state.project.makeProjectRelative(targetAbs));
-		state.assetBrowser.thumbnails.erase(targetAbs);
+		dropCachedThumbnail(state.assetBrowser, targetAbs);
 	}
 	// prune the stale id-map entries the raw removals left behind (cheap at
 	// project scale; the panel's live walk enumerates the disk regardless)
@@ -821,6 +832,86 @@ void pruneAssetSelection(AssetBrowserState& browser,
 	}
 }
 
+// drop one cached thumbnail, destroying a CPU-rasterized upload we own (vector
+// shapes) so the named GPU texture is not leaked; image thumbnails carry no
+// uploadName and just leave the map. Call BEFORE erasing/overwriting the entry.
+void dropCachedThumbnail(AssetBrowserState& browser, std::string const& key)
+{
+	auto it = browser.thumbnails.find(key);
+	if (it == browser.thumbnails.end())
+	{
+		return;
+	}
+	if (!it->second.uploadName.empty())
+	{
+		if (Orkige::RenderSystem* render = Orkige::RenderSystem::get())
+		{
+			render->destroyTexture2D(it->second.uploadName);
+		}
+	}
+	browser.thumbnails.erase(it);
+}
+
+// drop the whole thumbnail cache, destroying every owned upload first
+void clearCachedThumbnails(AssetBrowserState& browser)
+{
+	if (Orkige::RenderSystem* render = Orkige::RenderSystem::get())
+	{
+		for (auto const& entry : browser.thumbnails)
+		{
+			if (!entry.second.uploadName.empty())
+			{
+				render->destroyTexture2D(entry.second.uploadName);
+			}
+		}
+	}
+	browser.thumbnails.clear();
+}
+
+// rasterize a .oshape into a CPU RGBA buffer and upload it as a named texture,
+// returning the ImGui handle (0 on a parse/build/upload failure -> glyph
+// fallback). The upload name is destroyed on eviction (dropCachedThumbnail).
+ImTextureID buildShapeThumbnail(std::string const& absolutePath,
+	std::string& outUploadName)
+{
+	outUploadName.clear();
+	std::ifstream in(absolutePath, std::ios::binary);
+	if (!in)
+	{
+		return 0;
+	}
+	std::stringstream buffer;
+	buffer << in.rdbuf();
+	std::vector<Orkige::VectorTessellator::Region> regions;
+	if (!Orkige::VectorShapeAsset::parse(buffer.str(), regions))
+	{
+		return 0;
+	}
+	const Orkige::VectorTessellator::Bounds bounds =
+		Orkige::VectorTessellator::computeBounds(regions);
+	Orkige::VectorTessellator::Mesh mesh;
+	Orkige::VectorTessellator::build(regions,
+		Orkige::VectorTessellator::defaultFeatherWidth(bounds), mesh);
+	if (mesh.indices.empty())
+	{
+		return 0;
+	}
+	const int side = 128;
+	std::vector<unsigned char> pixels(
+		static_cast<std::size_t>(side) * side * 4, 0);
+	Orkige::VectorShapeRaster::rasterize(mesh, side, side, pixels.data());
+	const std::string uploadName = "__oshapethumb_" +
+		std::to_string(std::hash<std::string>{}(absolutePath));
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render ||
+		!render->createTexture2D(uploadName, pixels.data(), side, side))
+	{
+		return 0;
+	}
+	outUploadName = uploadName;
+	return gImGuiRenderer->textureIdForResource(uploadName);
+}
+
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath)
 {
@@ -838,27 +929,41 @@ ImTextureID assetThumbnailFor(EditorState& state,
 		return cached->second.textureId;
 	}
 	// bound the cache: a full clear is cheap and simple (the visible working
-	// set of a folder is small; nothing here needs true LRU eviction yet)
+	// set of a folder is small; nothing here needs true LRU eviction yet).
+	// clearCachedThumbnails destroys owned shape uploads first.
 	if (browser.thumbnails.size() >= ASSET_THUMBNAIL_CACHE_MAX)
 	{
-		browser.thumbnails.clear();
+		clearCachedThumbnails(browser);
 	}
-	// the DrawLayer2D named-texture path resolves by bare name across all
-	// resource groups (exactly as SpriteComponent does)
-	const std::string name = fs::path(absolutePath).filename().string();
+	// a re-decode of an EDITED file (changed mtime) must free the previous
+	// upload we own before replacing the entry
+	dropCachedThumbnail(browser, absolutePath);
 	ImTextureID id = 0;
-	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-	unsigned int width = 0;
-	unsigned int height = 0;
-	// getTextureSize LOADS the texture through the resource system (returns
-	// false + a log line for a missing/broken image, e.g. a non-image file
-	// with a .png name) - so a valid size means a real, bindable texture
-	if (render && render->getTextureSize(name, width, height) &&
-		width > 0 && height > 0)
+	std::string uploadName;
+	// vector shapes rasterize on the CPU (no resource-system image); everything
+	// else resolves as a named resource texture the DrawLayer2D path binds
+	if (lowerExtension(absolutePath) == ".oshape")
 	{
-		id = gImGuiRenderer->textureIdForResource(name);
+		id = buildShapeThumbnail(absolutePath, uploadName);
 	}
-	browser.thumbnails[absolutePath] = AssetThumbnail{ id, mtime };
+	else
+	{
+		// the DrawLayer2D named-texture path resolves by bare name across all
+		// resource groups (exactly as SpriteComponent does)
+		const std::string name = fs::path(absolutePath).filename().string();
+		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+		unsigned int width = 0;
+		unsigned int height = 0;
+		// getTextureSize LOADS the texture through the resource system (returns
+		// false + a log line for a missing/broken image, e.g. a non-image file
+		// with a .png name) - so a valid size means a real, bindable texture
+		if (render && render->getTextureSize(name, width, height) &&
+			width > 0 && height > 0)
+		{
+			id = gImGuiRenderer->textureIdForResource(name);
+		}
+	}
+	browser.thumbnails[absolutePath] = AssetThumbnail{ id, mtime, uploadName };
 	return id;
 }
 

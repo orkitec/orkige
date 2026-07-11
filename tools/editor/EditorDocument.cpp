@@ -13,8 +13,11 @@
 #include <core_script/ScriptRuntime.h>
 #include <engine_render/RenderSystem.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 
 using Orkige::optr;
 using Orkige::woptr;
@@ -265,19 +268,74 @@ std::string meshImportDestination(EditorState const& state)
 		projectImportDir);
 }
 
+// An .svg is COOKED to the native .oshape on import (the runtime never parses
+// SVG - it reads pre-flattened contours). The cook is Util/cook_shapes.py run
+// as a subprocess: the same Python-delegated transform the exporter uses for
+// textures, and the only SVG reader in the tree (there is no C++ SVG parser).
+// Unlike the async export it runs synchronously - import returns the produced
+// asset path to its callers (drop/browser/MCP). The source .svg is NOT kept in
+// assets/ (unlike a texture's directly-loadable source): the .oshape IS the
+// asset, the .svg is only the on-ramp. Returns the cooked .oshape path, or ""
+// (+ *error) on any failure.
+std::string cookSvgFileToDir(std::string const& sourcePath,
+	std::string const& destDir, std::string* error)
+{
+	auto fail = [error](std::string const& message) -> std::string
+	{
+		SDL_Log("orkige_editor: SVG cook failed - %s", message.c_str());
+		if (error)
+		{
+			*error = message;
+		}
+		return "";
+	};
+	std::error_code ec;
+	std::filesystem::create_directories(destDir, ec);
+	const std::string destPath = (std::filesystem::path(destDir) /
+		(std::filesystem::path(sourcePath).stem().string() + ".oshape"))
+			.string();
+	const std::string cook =
+		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/cook_shapes.py";
+	std::string output;
+	int exitCode = 0;
+	if (!runProcessCaptured({ "python3", cook, sourcePath, destPath },
+		output, exitCode))
+	{
+		return fail("could not launch python3 for cook_shapes.py");
+	}
+	if (exitCode != 0)
+	{
+		return fail("cook_shapes.py exited " + std::to_string(exitCode) +
+			" for '" + sourcePath + "'" +
+			(output.empty() ? "" : (" - " + output)));
+	}
+	if (!std::filesystem::is_regular_file(destPath, ec))
+	{
+		return fail("cook_shapes.py produced no .oshape for '" + sourcePath +
+			"'");
+	}
+	return destPath;
+}
+
 // The copy+register+sidecar-mint MIDDLE of the old importMeshFromPath, made
 // generic so any asset (texture/script/prefab/scene from a Finder drop or the
 // browser) rides the same path meshes always did - the copied file lands where
 // the resource groups (and SpriteComponent::loadSprite) resolve it, and gets
-// its stable .orkmeta id in a project. The mesh-instantiate tail stays below,
-// mesh-only.
+// its stable .orkmeta id in a project. An .svg source is cooked to .oshape
+// first (cookSvgFileToDir); everything else is a byte copy. The mesh-instantiate
+// tail stays below, mesh-only.
 std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 	std::string* error)
 {
 	const std::string destDir = meshImportDestination(state);
 	std::string localError;
-	const std::string destPath =
-		Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
+	std::string sourceExt =
+		std::filesystem::path(sourcePath).extension().string();
+	std::transform(sourceExt.begin(), sourceExt.end(), sourceExt.begin(),
+		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	const std::string destPath = (sourceExt == ".svg")
+		? cookSvgFileToDir(sourcePath, destDir, &localError)
+		: Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
 	if (destPath.empty())
 	{
 		SDL_Log("orkige_editor: import of '%s' failed - %s",

@@ -247,11 +247,16 @@ void recordRecentScene(std::string const& scenePath);
 void recordRecentProject(std::string const& projectRoot);
 
 //! one cached thumbnail: the ImGui texture id (0 = tried, not a loadable
-//! image) and the file mtime it was loaded at (a changed mtime reloads)
+//! image) and the file mtime it was loaded at (a changed mtime reloads).
+//! uploadName is non-empty only for CPU-rasterized thumbnails we own as a
+//! RenderSystem::createTexture2D upload (vector shapes) - the eviction sites
+//! destroy it so the named GPU texture is not leaked; resource-system
+//! textures (images) leave it empty (nothing per-tile to free).
 struct AssetThumbnail
 {
 	ImTextureID textureId = 0;
 	long long mtime = 0;
+	std::string uploadName;
 };
 
 //! Asset browser panel state that lives across frames: folder navigation with
@@ -1170,6 +1175,11 @@ AssetFolderListing enumerateAssetFolder(Orkige::Project const& project,
 //! pass and are a heavier follow-on - those kinds get a glyph type icon here.
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath);
+//! @brief drop the whole thumbnail cache, destroying every CPU-rasterized
+//! upload it owns (vector shapes) first - the owner calls this at shutdown
+//! while the render system is still up (manual textures are not resource-group
+//! content, so nothing else frees them in time for strict backends)
+void clearCachedThumbnails(AssetBrowserState& browser);
 //! thumbnail cache cap (see AssetBrowserState::thumbnails)
 const std::size_t ASSET_THUMBNAIL_CACHE_MAX = 512;
 

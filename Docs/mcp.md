@@ -124,7 +124,7 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 | `write_project_file(path, content)` | write a text file under the open project's root (jailed; LF endings; parent dirs created) |
 | `read_project_file(path)` | read a text file under the project root (jailed; 1 MiB cap) |
 | `list_project_files(dir?, glob?)` | list one directory level under the project root (jailed) → `names`/`paths`/`types` |
-| `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`) |
+| `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`). An `.svg` source is cooked to a native `.oshape` on the way in (`Util/cook_shapes.py`); the returned `path`/`assetId` point at the produced `.oshape` |
 | `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
 | `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
 | `list_paint_prefabs()` | `searchAssets` (the project's `.oprefab` palette) + `EditorCore::resolvePaintGrid` → parallel `paths`/`names`, `count` and the grid `origin_x`/`origin_y`/`cell_size` |
