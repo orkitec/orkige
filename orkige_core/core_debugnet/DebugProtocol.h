@@ -225,6 +225,12 @@ namespace Orkige
 		//! is "1"/"0"). Two lists keep the message flat (no nested objects).
 		extern ORKIGE_CORE_DLL const String LIST_UI_IDS;
 		extern ORKIGE_CORE_DLL const String LIST_UI_RECTS;
+		//! @brief MSG_UI_LAYOUT: the screen router's state - FIELD_UI_SCREEN is the
+		//! current (top) screen's name, FIELD_UI_SCREEN_STACK the space-joined
+		//! bottom-to-top screen path. Both empty when no screen stack is in use.
+		//! Additive fields (an older player omits them; the reader keeps "").
+		extern ORKIGE_CORE_DLL const String FIELD_UI_SCREEN;
+		extern ORKIGE_CORE_DLL const String FIELD_UI_SCREEN_STACK;
 		//! @brief MSG_STATS: the streamed-music snapshot as three parallel lists
 		//! (kept flat, no nested objects, like LIST_UI_IDS/RECTS). LIST_MUSIC_IDS
 		//! holds the track ids; LIST_MUSIC_FILES the resource-relative file per id;

@@ -308,6 +308,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_gui_matrix PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_GUI_MATRIX=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_GUI_FLOW: the screen-stack (screen-flow router) selfcheck.
+    # Registers a title + settings screen (.oui) and drives title -> settings ->
+    # back through the router with a synthetic Android-back key on the real input
+    # path, asserting enter/exit transitions fire, a covered/popped screen's
+    # widgets are torn down once its exit finishes, the back key pops the stack
+    # and a root back falls through. Flavor-neutral (gui on DrawLayer2D), so it
+    # runs on classic + next and both must agree.
+    add_test(NAME demo_gui_flow COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_gui_flow PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_GUI_FLOW=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_GUI_LUA: the FULLY-SCRIPTABLE contract - the whole widget
     # matrix authored/driven/asserted IN LUA through the ScriptRuntime surface
     # (C++ only injects one synthetic press + reads probes). A missing/renamed

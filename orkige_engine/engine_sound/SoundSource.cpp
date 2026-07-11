@@ -8,8 +8,24 @@
 *********************************************************************/
 #include "engine_sound/SoundSource.h"
 #include "engine_sound/SoundError.h"
+#include "core_util/SoundVariation.h"
 
 #include <algorithm>
+#include <random>
+
+namespace
+{
+	//! @brief a shared uniform sample source for per-play pitch/volume variation.
+	//! A fixed seed keeps a run reproducible (the value still varies play-to-play
+	//! within a run); the pure variation math is unit-tested separately with
+	//! fixed samples, so this only supplies the randomness.
+	float nextVariationSample()
+	{
+		static std::mt19937 engine(0x0A6C1235u);
+		static std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+		return dist(engine);
+	}
+}
 
 namespace Orkige
 {
@@ -19,6 +35,7 @@ namespace Orkige
 	SoundSource::SoundSource(String const & id, String const & file, bool loop, Ogre::Vector3 const & pos)
 		: Object(id), data(NULL), position(pos), fileName(file), looped(loop), initialized(false)
 		, baseGain(1.f), group("sfx"), groupVolume(1.f)
+		, pitchVariation(0.f), gainVariation(0.f), currentPitch(1.f)
 	{
 #ifdef ORKIGE_OPENAL_SOUND
 		this->source = 0;
@@ -227,11 +244,26 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool SoundSource::play()
 	{
+		// per-play randomization: the pitch the source WOULD play at is kept in a
+		// member so it stays queryable headlessly; a zero range leaves it at 1.0,
+		// so a source that never opts in behaves exactly as before.
+		this->currentPitch = variedPitch(this->pitchVariation,
+			this->pitchVariation != 0.f ? nextVariationSample() : 0.5f);
 #ifdef ORKIGE_OPENAL_SOUND
 		if(this->isPlaying())
 			return false;
 
 		ALenum error = AL_NO_ERROR;
+
+		// push this play's varied pitch/gain onto the source before it starts
+		if(this->initialized)
+		{
+			const float playGain = variedGain(this->getEffectiveGain(),
+				this->gainVariation,
+				this->gainVariation != 0.f ? nextVariationSample() : 0.5f);
+			alSourcef(this->source, AL_PITCH, this->currentPitch);
+			alSourcef(this->source, AL_GAIN, playGain);
+		}
 
 		// Begin playing our source file
 		alSourcePlay(this->source);
@@ -415,6 +447,44 @@ namespace Orkige
 	float SoundSource::getEffectiveGain() const
 	{
 		return this->baseGain * this->groupVolume;
+	}
+	//---------------------------------------------------------
+	void SoundSource::setPitchVariation(float range)
+	{
+		this->pitchVariation = range < 0.f ? -range : range;
+	}
+	//---------------------------------------------------------
+	float SoundSource::getPitchVariation() const
+	{
+		return this->pitchVariation;
+	}
+	//---------------------------------------------------------
+	void SoundSource::setVolumeVariation(float range)
+	{
+		this->gainVariation = range < 0.f ? -range : range;
+	}
+	//---------------------------------------------------------
+	float SoundSource::getVolumeVariation() const
+	{
+		return this->gainVariation;
+	}
+	//---------------------------------------------------------
+	float SoundSource::getCurrentPitch() const
+	{
+		return this->currentPitch;
+	}
+	//---------------------------------------------------------
+	float SoundSource::queryPitch() const
+	{
+#ifdef ORKIGE_OPENAL_SOUND
+		if(this->initialized)
+		{
+			float pitch = 0.f;
+			alGetSourcef(this->source, AL_PITCH, &pitch);
+			return pitch;
+		}
+#endif //ORKIGE_OPENAL_SOUND
+		return 0.f;
 	}
 	//---------------------------------------------------------
 	bool SoundSource::isInitialized() const

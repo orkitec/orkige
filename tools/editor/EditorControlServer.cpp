@@ -2766,6 +2766,10 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.setList("ids", ids);
 			ok.setList("rects", rects);
+			// the screen router state (empty when the game uses no screen stack):
+			// the current top screen + the space-joined bottom-to-top path
+			ok.set("screen", play.remoteScreenCurrent);
+			ok.set("screenStack", play.remoteScreenStack);
 			this->sendOk(req, ok);
 			return;
 		}

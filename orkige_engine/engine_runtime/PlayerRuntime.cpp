@@ -1237,6 +1237,19 @@ namespace Orkige
 		DebugMessage message(Protocol::MSG_UI_LAYOUT);
 		message.setList(Protocol::LIST_UI_IDS, ids);
 		message.setList(Protocol::LIST_UI_RECTS, rects);
+		// the screen router's state, so an agent can observe the navigation path
+		// (current top + the bottom-to-top stack) alongside the widget rects
+		message.set(Protocol::FIELD_UI_SCREEN, manager->currentScreen());
+		String screenPath;
+		for (String const & name : manager->screenPath())
+		{
+			if (!screenPath.empty())
+			{
+				screenPath += ' ';
+			}
+			screenPath += name;
+		}
+		message.set(Protocol::FIELD_UI_SCREEN_STACK, screenPath);
 		mServer.send(message);
 	}
 	//---------------------------------------------------------

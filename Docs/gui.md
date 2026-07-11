@@ -37,6 +37,68 @@ once.
 5. **Verify**: read back `get_ui_layout` over MCP (per-widget pixel rects + the
    visible/enabled/modal flags) and cross-check against `get_safe_area`.
 
+## Screen flow (the `screens` router)
+
+A game is a handful of full-screen pages — a title, a level-select, a settings
+page, the in-game HUD — and moving between them. The `screens` table is that
+router: **one `.oui` per screen, then `screens.push`**. It turns navigation
+from hand-wiring show/hide into a declaration.
+
+```lua
+function init(self)
+    screens.define("title",    "screens/title.oui")     -- a .oui-backed screen
+    screens.define("settings", "screens/settings.oui")
+    screens.defineBuilder("hud", function()             -- or a code-built screen
+        factory:loadLayout("screens/hud.oui")
+        -- ...any imperative widget wiring for this screen...
+    end)
+    screens.push("title")                               -- the first screen
+end
+```
+
+Then navigate from anywhere — a button poll, a game event:
+
+```lua
+if playBtn:wasClicked() then screens.push("hud") end      -- cover with a new screen
+if settingsBtn:wasClicked() then screens.push("settings") end
+if backBtn:wasClicked() then screens.pop() end            -- back to the one beneath
+screens.replace("gameover")                               -- swap the top, same depth
+local where = screens.current()                           -- "" when none is up
+```
+
+**Lifecycle — destroy-on-navigation, the `.oui` is the source of truth.** Only
+the top screen is materialized. A `push` plays the current screen's **exit
+transition**, tears its widgets down, then builds the new screen and plays its
+**enter transition**; a `pop` reverses it, rebuilding the revealed screen from
+its `.oui`/builder. Transitions come from each widget's own
+[`transition`](#show--hide-transitions) spec (`fade`, `slide-up`, `pop`, …), so
+screens fade/slide in and out for free. The router is **sequential** (the
+outgoing screen finishes leaving before the incoming one builds), so screen
+widget ids need not be unique across screens, and **transient widget state is
+not preserved across navigation** — a screen is cheap to rebuild, so rebuild it.
+Modals (`gui:showConfirm`/`showModal`) ride **above** the stack and are
+unaffected by screen navigation.
+
+**Back / Escape.** With a screen stack in play, the Android back button and
+desktop Escape **pop the stack** by default (but never past the root screen —
+there a back falls through, so Android backgrounds the app). A screen owns the
+back gesture by installing a handler; while one is installed the default pop is
+suppressed and the handler decides (pop, show a confirm, or ignore):
+
+```lua
+screens.setBackHandler(function()
+    gui:showConfirm("Quit?", "Leave the level?", "Quit", "Stay")
+    -- resolve the confirm elsewhere; call screens.pop() when the user confirms
+end)
+```
+
+The handler resets on every navigation, so each screen opts in fresh.
+
+**Readback (agents).** `get_ui_layout` carries the router state alongside the
+widget rects: `screen` (the current top) and `screenStack` (the space-joined
+bottom-to-top path). Drive it over MCP with `screens.push`/`pop` from a
+`ScriptComponent` and assert the path.
+
 ## `.oui` grammar cheat-sheet
 
 An ordered list of `[Type id]` sections, each a block of `key = value` lines

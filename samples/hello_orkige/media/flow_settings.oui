@@ -1,0 +1,25 @@
+# flow_settings.oui - the "settings" screen pushed over the title in the
+# screen-stack flow selfcheck. A label + a Back button, each fading, so the
+# push plays the title's exit and this screen's enter, and the synthetic back
+# key pops back to the title (destroying these widgets).
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+[Label settingsLabel]
+z = 2
+font = 9
+text = Settings
+position = 80 60
+size = 240 40
+transition = fade 0.2
+
+[Button settingsBack]
+z = 2
+font = 9
+sprite = button
+text = Back
+position = 80 120
+size = 240 48
+transition = fade 0.2

@@ -51,7 +51,7 @@ GENERATED_HEADER = os.path.join(ROOT, "tools", "editor", "GeneratedLuaApi.h")
 # Tables discovered in ScriptComponent.cpp but not listed here still render,
 # appended after these in discovery order.
 INDEX_TABLE_ORDER = [
-    "world", "screen", "sound", "music", "tween", "guitween",
+    "world", "screen", "sound", "music", "tween", "guitween", "screens",
     "haptics", "cvar", "save",
 ]
 # the value / singleton usertypes that belong in the compact TOP index (the

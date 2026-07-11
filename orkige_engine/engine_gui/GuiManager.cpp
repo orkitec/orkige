@@ -34,7 +34,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false), screenExiting(false)
 	{
 		oAssert(this->factory);
 		// drive the pixel-font UI scale from the display density so a 14px
@@ -764,6 +764,233 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	//--- the screen router: a whole-screen navigation stack layered on top of
+	//--- the widget/transition machinery. The pure name stack (ScreenStack) is
+	//--- the intent; widget lifecycles follow it one exit transition at a time
+	//--- through reconcileScreens. The .oui / builder is the source of truth -
+	//--- a screen is destroyed when it leaves the top and rebuilt when revealed,
+	//--- so no transient widget state carries across navigation.
+	//---------------------------------------------------------
+	void GuiManager::registerScreen(String const & name, String const & ouiPath)
+	{
+		ScreenDef def;
+		def.ouiPath = ouiPath;
+		this->screenDefs[name] = def;
+	}
+	//---------------------------------------------------------
+	void GuiManager::registerScreenBuilder(String const & name,
+		ScreenBuilder const & builder)
+	{
+		ScreenDef def;
+		def.builder = builder;
+		this->screenDefs[name] = def;
+	}
+	//---------------------------------------------------------
+	bool GuiManager::hasScreen(String const & name) const
+	{
+		return this->screenDefs.find(name) != this->screenDefs.end();
+	}
+	//---------------------------------------------------------
+	void GuiManager::pushScreen(String const & name)
+	{
+		this->screenStack.push(name);
+		this->reconcileScreens();	// settle immediately when there is no transition
+	}
+	//---------------------------------------------------------
+	void GuiManager::replaceScreen(String const & name)
+	{
+		this->screenStack.replace(name);
+		this->reconcileScreens();
+	}
+	//---------------------------------------------------------
+	String GuiManager::popScreen()
+	{
+		const String popped = this->screenStack.pop();
+		this->reconcileScreens();
+		return popped;
+	}
+	//---------------------------------------------------------
+	void GuiManager::clearScreens()
+	{
+		this->screenStack.clear();
+		this->reconcileScreens();
+	}
+	//---------------------------------------------------------
+	void GuiManager::setScreenBackInterceptor(
+		ScreenBackInterceptor const & interceptor)
+	{
+		this->screenBackInterceptor = interceptor;
+	}
+	//---------------------------------------------------------
+	bool GuiManager::handleScreenBack()
+	{
+		if(this->screenStack.empty())
+		{
+			return false;	// no stack in play - let the app-level back proceed
+		}
+		// the current screen's own hook wins first (it may show a confirm, pop
+		// manually, or veto). A true return means it consumed the back.
+		if(this->screenBackInterceptor && this->screenBackInterceptor())
+		{
+			return true;
+		}
+		// default: return to the screen beneath, but never pop the root empty -
+		// at depth 1 the back is not ours (Android backgrounds the app instead)
+		if(this->screenDepth() > 1)
+		{
+			this->popScreen();
+			return true;
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	void GuiManager::reconcileScreens()
+	{
+		const String target = this->screenStack.current();
+		if(this->screenExiting)
+		{
+			// navigated straight back onto the screen that is animating out:
+			// cancel the exit and play it back in (no rebuild, no id churn)
+			if(target == this->materializedScreen)
+			{
+				this->screenExiting = false;
+				foreach(String const & id, this->screenWidgetIds)
+				{
+					this->playWidgetTransition(id, true);
+				}
+				return;
+			}
+			if(this->anyScreenExitTweenActive())
+			{
+				return;	// still sliding/fading out
+			}
+			this->finishScreenExit();	// clears materializedScreen; fall through to build
+		}
+		if(target == this->materializedScreen)
+		{
+			return;	// widgets already match the stack top
+		}
+		if(!this->materializedScreen.empty())
+		{
+			this->beginScreenExit();
+			if(!this->materializedScreen.empty())
+			{
+				return;	// exit is animating; the new screen builds on a later tick
+			}
+		}
+		if(!target.empty())
+		{
+			this->materializeScreen(target);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::materializeScreen(String const & name)
+	{
+		ScreenDef def;
+		std::map<String, ScreenDef>::const_iterator it = this->screenDefs.find(name);
+		if(it != this->screenDefs.end())
+		{
+			def = it->second;
+		}
+		else if(name.size() > 4 && name.compare(name.size() - 4, 4, ".oui") == 0)
+		{
+			def.ouiPath = name;	// convenience: an unregistered ".oui" is its own path
+		}
+		else
+		{
+			oDebugMsg("gui", 0, "pushScreen: unknown screen '" << name
+				<< "' (register it with registerScreen / registerScreenBuilder)");
+			return;
+		}
+
+		// diff the widget map across the build so we know exactly which widgets
+		// this screen owns (and must tear down when it leaves the top)
+		std::set<String> before;
+		foreach(GuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			before.insert(vt.first);
+		}
+		if(def.builder)
+		{
+			def.builder();
+		}
+		else if(!def.ouiPath.empty() && this->factory)
+		{
+			this->factory->loadLayout(def.ouiPath);
+		}
+		this->screenWidgetIds.clear();
+		foreach(GuiWidgetMap::value_type const & vt, this->widgets)
+		{
+			if(before.find(vt.first) == before.end())
+			{
+				this->screenWidgetIds.push_back(vt.first);
+			}
+		}
+		this->materializedScreen = name;
+		// a fresh screen opts into back handling anew; a stale hook must not linger
+		this->screenBackInterceptor = ScreenBackInterceptor();
+		foreach(String const & id, this->screenWidgetIds)
+		{
+			this->playWidgetTransition(id, true);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::beginScreenExit()
+	{
+		foreach(String const & id, this->screenWidgetIds)
+		{
+			this->playWidgetTransition(id, false);
+		}
+		// a real transition started tweens - wait for them; a snap (no transition,
+		// or no TweenManager in the editor) leaves none active, so tear down now
+		if(this->anyScreenExitTweenActive())
+		{
+			this->screenExiting = true;
+		}
+		else
+		{
+			this->finishScreenExit();
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::finishScreenExit()
+	{
+		foreach(String const & id, this->screenWidgetIds)
+		{
+			this->destroyWidget(id);
+		}
+		this->screenWidgetIds.clear();
+		this->materializedScreen = "";
+		this->screenExiting = false;
+	}
+	//---------------------------------------------------------
+	bool GuiManager::anyScreenExitTweenActive() const
+	{
+		TweenManager* manager = TweenManager::getSingletonPtr();
+		if(!manager)
+		{
+			return false;
+		}
+		foreach(String const & id, this->screenWidgetIds)
+		{
+			std::map<String, std::map<int, TweenManager::TweenId> >::const_iterator
+				it = this->widgetTweens.find(id);
+			if(it == this->widgetTweens.end())
+			{
+				continue;
+			}
+			for(std::map<int, TweenManager::TweenId>::value_type const & entry :
+				it->second)
+			{
+				if(manager->isTweenActive(entry.second))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	//---------------------------------------------------------
 	String GuiManager::showModal(String const & id, bool lightDismiss)
 	{
 		String modalId = id;
@@ -1462,6 +1689,9 @@ namespace Orkige
 		// tear down any modal asked to close this frame, then advance the toast
 		this->drainModalDismissals();
 		this->updateToast(data->timeSinceLastFrame);
+		// drive the screen router: tear the old screen down once its exit
+		// transition tweens finish, then build the next screen
+		this->reconcileScreens();
 		// resolve the opt-in rect-anchor layout tree to absolute pixels BEFORE
 		// the screens rebuild (each resolved widget's setPosition/setSize
 		// dirties its screen, which rebuilds just below). O(n) over the layout
@@ -1502,11 +1732,14 @@ namespace Orkige
 	bool GuiManager::onKeyPressed(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-		// Escape (desktop) / the Android back button dismiss the TOP modal, but
-		// only when it is light-dismissable (a menu/dropdown); a confirm/alert
-		// must be answered by a button. Consumes the key either way while a modal
-		// is up so nothing below reacts.
-		if(data->key == KeyEventData::KC_ESCAPE && this->isModalActive())
+		// Escape (desktop) and the Android back button are the same "go back"
+		// gesture. Priority: a live modal first, then the screen stack.
+		const bool isBack = (data->key == KeyEventData::KC_ESCAPE ||
+			data->key == KeyEventData::KC_WEBBACK);
+		// a modal up: dismiss the TOP one, but only when it is light-dismissable
+		// (a menu/dropdown); a confirm/alert must be answered by a button. Consumes
+		// the key either way while a modal is up so nothing below reacts.
+		if(isBack && this->isModalActive())
 		{
 			std::map<String, ModalRecord>::const_iterator top =
 				this->modalRecords.find(this->modalStack.topId());
@@ -1514,6 +1747,12 @@ namespace Orkige
 			{
 				this->dismissTopModal();
 			}
+			return false;
+		}
+		// no modal: let the screen router pop the stack (or a screen's back hook
+		// veto). When it consumes the back, do not dispatch it to the widgets.
+		if(isBack && this->handleScreenBack())
+		{
 			return false;
 		}
 		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)

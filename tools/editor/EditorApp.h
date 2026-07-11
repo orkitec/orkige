@@ -694,6 +694,11 @@ struct PlaySession
 		bool modal = false;		//!< part of an active modal (scrim / dialog)
 	};
 	std::vector<RemoteWidgetRect> remoteUiLayout;
+	//! the running game's screen router state (MSG_UI_LAYOUT): the current (top)
+	//! screen name and the space-joined bottom-to-top stack path. Empty when the
+	//! game uses no screen stack. Served by get_ui_layout. Reset by clearRemoteState.
+	std::string remoteScreenCurrent;
+	std::string remoteScreenStack;
 	//! running-game streamed music (MSG_STATS): one entry per track. The MCP
 	//! get_state verb folds these into structuredContent so an agent sees what
 	//! is playing, its playhead and its effective gain. Reset by clearRemoteState.

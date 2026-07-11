@@ -53,6 +53,12 @@ namespace Orkige
 		bool setGroup(String const & sid, String const & group);
 		//! an attached sound's mixer group ("" when the sound is unknown)
 		String getGroup(String const & sid);
+		//! @brief randomize an attached sound's pitch on each play by +/- range
+		//! (0 = off, 0.1 = +/-10%) so a repeated effect never sounds identical
+		bool setPitchVariation(String const & sid, float range);
+		//! @brief randomize an attached sound's volume on each play by +/- range
+		//! (0 = off), around its own gain and clamped to 0..1
+		bool setVolumeVariation(String const & sid, float range);
 	protected:
 		//! component override gets called after the component is attached to a GameObject
 		virtual void onAdd();

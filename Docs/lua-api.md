@@ -83,6 +83,17 @@ guitween.show(id) -> bool  -- play the widget's enter transition
 guitween.hide(id) -> bool  -- play the exit transition, then park hidden
 guitween.stop(id)  -- cancel every running tween on the widget
 
+## screens
+screens.define(name, ouiPath)  -- register a .oui-backed screen
+screens.defineBuilder(name, builder)  -- register a Lua-built screen
+screens.push(name)  -- push a screen onto the stack
+screens.replace(name)  -- swap the top screen
+screens.pop() -> string  -- pop the top screen; returns its name
+screens.current() -> string  -- the top screen's name
+screens.depth() -> int  -- screens on the stack
+screens.clear()  -- pop every screen
+screens.setBackHandler(handler)  -- own the back gesture (handler decides)
+
 ## haptics
 haptics.play(strength, ms)  -- generic vibration; no-op off-device
 haptics.pattern(name)  -- named haptic (light..selection); preferred on iOS
@@ -592,6 +603,8 @@ SoundComponent:setVolume(...)
 SoundComponent:getVolume(...)
 SoundComponent:setGroup(...)
 SoundComponent:getGroup(...)
+SoundComponent:setPitchVariation(...)
+SoundComponent:setVolumeVariation(...)
 
 ## RigidBodyComponent
 RigidBodyComponent:setBodyType(...)

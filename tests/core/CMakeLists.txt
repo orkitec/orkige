@@ -48,6 +48,8 @@ add_executable(orkige_core_tests
     WobbleSpringTests.cpp
     SoftBodyDeformTests.cpp
     GuiAnimationTests.cpp
+    ScreenStackTests.cpp
+    SoundVariationTests.cpp
 )
 
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

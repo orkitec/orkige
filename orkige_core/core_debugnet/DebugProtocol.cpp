@@ -79,6 +79,8 @@ namespace Orkige
 		const String LIST_PROP_FLAGS		= "pflags";
 		const String LIST_UI_IDS			= "ui_ids";
 		const String LIST_UI_RECTS			= "ui_rects";
+		const String FIELD_UI_SCREEN		= "ui_screen";
+		const String FIELD_UI_SCREEN_STACK	= "ui_screen_stack";
 		const String LIST_MUSIC_IDS			= "music_ids";
 		const String LIST_MUSIC_FILES		= "music_files";
 		const String LIST_MUSIC_INFO		= "music_info";

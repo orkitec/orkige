@@ -82,6 +82,16 @@
     "guitween.hide":   { "sig": "(id) -> bool", "doc": "play the exit transition, then park hidden" },
     "guitween.stop":   { "sig": "(id)",         "doc": "cancel every running tween on the widget" },
 
+    "screens.define":        { "sig": "(name, ouiPath)",   "doc": "register a .oui-backed screen" },
+    "screens.defineBuilder": { "sig": "(name, builder)",   "doc": "register a Lua-built screen" },
+    "screens.push":          { "sig": "(name)",            "doc": "push a screen onto the stack" },
+    "screens.replace":       { "sig": "(name)",            "doc": "swap the top screen" },
+    "screens.pop":           { "sig": "() -> string",      "doc": "pop the top screen; returns its name" },
+    "screens.current":       { "sig": "() -> string",      "doc": "the top screen's name" },
+    "screens.depth":         { "sig": "() -> int",         "doc": "screens on the stack" },
+    "screens.clear":         { "sig": "()",                "doc": "pop every screen" },
+    "screens.setBackHandler":{ "sig": "(handler)",         "doc": "own the back gesture (handler decides)" },
+
     "cvar.registerNumber": { "sig": "(name, default)",          "doc": "register a Float cvar (idempotent)" },
     "cvar.getNumber":      { "sig": "(name [, fallback]) -> number", "doc": "read a cvar as a number" },
     "cvar.getBool":        { "sig": "(name [, fallback]) -> bool",   "doc": "read a cvar as a bool" },

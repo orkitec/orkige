@@ -86,6 +86,8 @@ void clearRemoteState(PlaySession& session)
 	session.remoteSafeRight = -1;
 	session.remoteSafeBottom = -1;
 	session.remoteUiLayout.clear();
+	session.remoteScreenCurrent.clear();
+	session.remoteScreenStack.clear();
 	session.remoteMusic.clear();
 }
 
@@ -1269,6 +1271,12 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				widget.visible = visible != 0;
 				session.remoteUiLayout.push_back(widget);
 			}
+			// the screen router's state (additive fields; an older player that
+			// omits them leaves these empty)
+			session.remoteScreenCurrent =
+				message.get(Protocol::FIELD_UI_SCREEN);
+			session.remoteScreenStack =
+				message.get(Protocol::FIELD_UI_SCREEN_STACK);
 		}
 		else if (message.type == Protocol::MSG_BYE)
 		{

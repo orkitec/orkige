@@ -1283,6 +1283,113 @@ namespace Orkige
 			}
 		});
 
+		// ============== THE `screens` TABLE (screen-flow router) ============
+		// A whole-screen navigation stack on top of the gui. A "screen" is one
+		// .oui layout (screens.define) or a Lua builder function
+		// (screens.defineBuilder) registered under a name; push/replace/pop drive
+		// which is current. Each push tears the old screen's widgets down (its
+		// .oui/builder is the source of truth - transient state is not preserved)
+		// and plays enter/exit transitions from the widgets' own `transition`
+		// specs. The Android back button / Escape pop the stack by default; a
+		// screen owns back by installing screens.setBackHandler.
+		//   screens.define("title", "screens/title.oui")   register a .oui screen
+		//   screens.defineBuilder("hud", function() ... end) register a code screen
+		//   screens.push("title") / screens.replace("settings") / screens.pop()
+		//   screens.current() -> name (""), screens.depth() -> count
+		//   screens.setBackHandler(function() ... end)   own the back gesture
+		//       (present handler = back is consumed; it pops/confirms itself)
+		runtime.registerFunction("screens", "define",
+			[](String const & name, String const & ouiPath)
+		{
+			if (!GuiManager::getSingletonPtr())
+			{
+				EngineLogCapture::logError("screens: no GuiManager - no UI booted");
+				return;
+			}
+			GuiManager::getSingleton().registerScreen(name, ouiPath);
+		});
+		runtime.registerFunction("screens", "defineBuilder",
+			[](String const & name, ScriptArgs extra)
+		{
+			if (!GuiManager::getSingletonPtr())
+			{
+				EngineLogCapture::logError("screens: no GuiManager - no UI booted");
+				return;
+			}
+			const ScriptCallback builder = ScriptCallback::fromArgs(extra, 0);
+			GuiManager::getSingleton().registerScreenBuilder(name, [builder]()
+			{
+				String error;
+				if (!builder.invoke(&error))
+				{
+					EngineLogCapture::logError("screen builder '" + error + "'");
+				}
+			});
+		});
+		runtime.registerFunction("screens", "push", [](String const & name)
+		{
+			if (GuiManager::getSingletonPtr())
+			{
+				GuiManager::getSingleton().pushScreen(name);
+			}
+		});
+		runtime.registerFunction("screens", "replace", [](String const & name)
+		{
+			if (GuiManager::getSingletonPtr())
+			{
+				GuiManager::getSingleton().replaceScreen(name);
+			}
+		});
+		runtime.registerFunction("screens", "pop", []() -> String
+		{
+			return GuiManager::getSingletonPtr()
+				? GuiManager::getSingleton().popScreen() : String("");
+		});
+		runtime.registerFunction("screens", "current", []() -> String
+		{
+			return GuiManager::getSingletonPtr()
+				? GuiManager::getSingleton().currentScreen() : String("");
+		});
+		runtime.registerFunction("screens", "depth", []() -> int
+		{
+			return GuiManager::getSingletonPtr()
+				? GuiManager::getSingleton().screenDepth() : 0;
+		});
+		runtime.registerFunction("screens", "clear", []()
+		{
+			if (GuiManager::getSingletonPtr())
+			{
+				GuiManager::getSingleton().clearScreens();
+			}
+		});
+		runtime.registerFunction("screens", "setBackHandler",
+			[](ScriptArgs extra)
+		{
+			if (!GuiManager::getSingletonPtr())
+			{
+				return;
+			}
+			const ScriptCallback handler = ScriptCallback::fromArgs(extra, 0);
+			if (!handler.valid())
+			{
+				// setBackHandler(nil): drop back to the default pop behavior
+				GuiManager::getSingleton().setScreenBackInterceptor(
+					GuiManager::ScreenBackInterceptor());
+				return;
+			}
+			GuiManager::getSingleton().setScreenBackInterceptor([handler]() -> bool
+			{
+				String error;
+				if (!handler.invoke(&error))
+				{
+					EngineLogCapture::logError("screen back handler '" + error + "'");
+				}
+				// a handler is installed -> the screen owns the back gesture; it
+				// pops / shows a confirm itself, so we always consume it here
+				return true;
+			});
+		});
+
 		// ================= THE `cvar` TABLE (live tuning) ==================
 		// A thin Lua face on core_debug/CVarManager - the SAME registry the
 		// console command grammar and the MSG_SET_CVAR protocol message drive,

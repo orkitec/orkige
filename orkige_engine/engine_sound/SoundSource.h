@@ -45,6 +45,11 @@ namespace Orkige
                 float			baseGain;		//!< this source's own volume 0..1 (default 1)
                 String			group;			//!< mixer group tag (default "sfx")
                 float			groupVolume;	//!< the group's volume 0..1, pushed by SoundManager
+                //--- per-play randomization (the "footstep never sounds the
+                //--- same twice" juice; @see core_util/SoundVariation.h) ---
+                float			pitchVariation;	//!< +/- pitch fraction (0 = none)
+                float			gainVariation;	//!< +/- gain fraction (0 = none)
+                float			currentPitch;	//!< the pitch the last play() applied (queryable headlessly)
         private:
                 //--- Methods -----------------------------------------------
         public:
@@ -112,6 +117,30 @@ namespace Orkige
                 //! baseGain * groupVolume - queryable headlessly (the state is
                 //! kept even while OpenAL is not initialized)
                 float getEffectiveGain() const;
+
+                //--- PER-PLAY VARIATION (a repeated effect never sounds
+                //--- mechanically identical; the math is core_util/SoundVariation.h) ---
+                //! @brief set the +/- pitch randomization range applied on each
+                //! play() (0 = off, 0.1 = +/-10%). A negative value is treated as
+                //! its magnitude; the applied pitch stays > 0.
+                void setPitchVariation(float range);
+                //! @see SoundSource::setPitchVariation
+                float getPitchVariation() const;
+                //! @brief set the +/- gain randomization range applied on each
+                //! play() (0 = off), around the source's effective gain, clamped
+                //! to the 0..1 mixer window.
+                void setVolumeVariation(float range);
+                //! @see SoundSource::setVolumeVariation
+                float getVolumeVariation() const;
+                //! @brief the pitch the most recent play() applied (1.0 before any
+                //! play, or with no variation). Kept even while OpenAL is not
+                //! initialized so a headless selfcheck can assert the variation math.
+                float getCurrentPitch() const;
+                //! @brief read the pitch OpenAL currently holds on this source
+                //! (0 when not initialized) - the device-side proof that a varied
+                //! pitch reached the source
+                float queryPitch() const;
+
                 //! true after SoundSource::init() succeeded
                 bool isInitialized() const;
         protected:

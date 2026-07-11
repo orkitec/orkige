@@ -1,0 +1,26 @@
+# flow_title.oui - the "title" screen for the screen-stack flow selfcheck.
+# One label + a Settings button, each with a fade transition so the router's
+# enter/exit animation drives (and its timed teardown) can be asserted. The
+# screen router loads this via GuiManager::registerScreen("title", ...) +
+# pushScreen("title"); the .oui is the source of truth for the screen.
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+[Label titleLabel]
+z = 2
+font = 9
+text = Title
+position = 80 60
+size = 240 40
+transition = fade 0.2
+
+[Button titleSettings]
+z = 2
+font = 9
+sprite = button
+text = Settings
+position = 80 120
+size = 240 48
+transition = fade 0.2

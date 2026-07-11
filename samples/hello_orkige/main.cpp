@@ -298,6 +298,50 @@ int main(int, char**)
 				SDL_Log("hello_orkige: FAILED - beep did not start");
 				return 1;
 			}
+
+			// SFX variation: a source with +/-20% pitch variation lands each
+			// play within the range, moves off 1.0 across a few plays, and the
+			// varied pitch actually reaches the AL source (queryPitch).
+			Orkige::SoundSourcePtr varied = soundManager.createSoundFromPCM(
+				"varied", samples.data(),
+				static_cast<int>(samples.size() * sizeof(int16_t)),
+				1, 16, sampleRate);
+			if (varied)
+			{
+				varied->setPitchVariation(0.2f);
+				bool anyOffOne = false;
+				for (int i = 0; i < 8; ++i)
+				{
+					varied->stop();		// clear AL_PLAYING so play() pushes this pitch
+					varied->play();
+					const float p = varied->getCurrentPitch();
+					if (p < 0.8f - 1e-3f || p > 1.2f + 1e-3f)
+					{
+						SDL_Log("hello_orkige: FAILED - varied pitch %f outside "
+							"the +/-20%% range", p);
+						return 1;
+					}
+					if (std::fabs(p - 1.0f) > 1e-3f)
+					{
+						anyOffOne = true;
+					}
+					if (varied->isInitialized() &&
+						std::fabs(varied->queryPitch() - p) > 1e-3f)
+					{
+						SDL_Log("hello_orkige: FAILED - varied pitch %f did not "
+							"reach the AL source (%f)", p, varied->queryPitch());
+						return 1;
+					}
+				}
+				if (!anyOffOne)
+				{
+					SDL_Log("hello_orkige: FAILED - pitch variation never moved "
+						"off 1.0 across 8 plays");
+					return 1;
+				}
+				SDL_Log("hello_orkige: sfx pitch variation reaches the source "
+					"(+/-20%%, varied across plays)");
+			}
 		}
 
 		// ORKIGE_DEMO_MUSIC=1: stream a committed loopable OGG through the
@@ -1981,6 +2025,154 @@ int main(int, char**)
 				"below, dialog button fires, Escape spares a confirm but closes a "
 				"dropdown, dismiss frees widgets, disabled + subtree inert, toggle "
 				"group single-selection, toast, dropdown open-on-press/pick)");
+		}
+
+		// ORKIGE_DEMO_GUI_FLOW=1: the screen-stack (screen-flow router) selfcheck.
+		// Registers a title + settings screen (.oui) and drives title -> settings
+		// -> back through the router, with a synthetic Android-back key on the REAL
+		// input path. Asserts: a screen's enter transition fires; a push tears the
+		// covered screen's widgets down once its EXIT transition finishes (not
+		// instantly); the back key pops the stack (the popped screen's widgets go,
+		// the revealed screen is rebuilt from its .oui); and a back at the root
+		// screen is NOT consumed. Flavor-neutral (gui on DrawLayer2D) - classic +
+		// next must agree.
+		if (std::getenv("ORKIGE_DEMO_GUI_FLOW"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			bool flowOk = true;
+			{
+				// a TweenManager makes the enter/exit transitions actually tick,
+				// exactly as the player loop does (the editor never creates one, so
+				// flows snap there); the router's teardown keys off these tweens.
+				Orkige::TweenManager tweenManager;
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				gui.enableInputEvents();
+
+				auto fail = [&](const char* msg)
+				{
+					SDL_Log("hello_orkige: FAILED - gui-flow: %s", msg);
+					flowOk = false;
+				};
+				// one "frame": tick the tweens (player-loop order) then render (the
+				// FrameStarted reconcile tears finished-exit screens down)
+				auto tick = [&](float dt)
+				{
+					tweenManager.update(dt);
+					render->renderOneFrame();
+				};
+				// advance frames until a widget is torn down (its exit transition
+				// finished), bounded by a cap
+				auto pumpUntilGone = [&](const char* id) -> bool
+				{
+					for (int i = 0; i < 240 && gui.widgetExists(id); ++i)
+					{
+						tick(0.25f);	// > the 0.2s fade, so a tick or two suffices
+					}
+					return !gui.widgetExists(id);
+				};
+				auto backKey = [&]()
+				{
+					SDL_Event e{};
+					e.type = SDL_EVENT_KEY_DOWN;
+					e.key.scancode = SDL_SCANCODE_AC_BACK;	// -> KC_WEBBACK (Android back)
+					e.key.down = true;
+					inputManager.injectEvent(e);
+				};
+
+				gui.registerScreen("title", "flow_title.oui");
+				gui.registerScreen("settings", "flow_settings.oui");
+
+				// push the title screen: its widgets build and the fade-in enter
+				// transition fires (a fade starts the widget at effective alpha ~0)
+				gui.pushScreen("title");
+				render->renderOneFrame();	// resolve
+				if (!gui.widgetExists("titleLabel") ||
+					!gui.widgetExists("titleSettings"))
+				{
+					fail("title screen widgets not built on push");
+				}
+				if (gui.currentScreen() != "title" || gui.screenDepth() != 1)
+				{
+					fail("stack state wrong after push(title)");
+				}
+				if (flowOk)
+				{
+					Orkige::optr<Orkige::GuiWidget> w =
+						gui.getWidget("titleLabel").lock();
+					if (!w || w->getEffectiveAlpha() > 0.5f)
+					{
+						fail("title enter (fade-in) transition did not fire");
+					}
+				}
+
+				// push settings over the title. The router is sequential: the title
+				// plays its exit transition FIRST (still present this frame - proof
+				// the exit animates, not an instant teardown), and the settings
+				// screen builds only once the title has cleared.
+				gui.pushScreen("settings");
+				render->renderOneFrame();
+				if (gui.currentScreen() != "settings" || gui.screenDepth() != 2)
+				{
+					fail("stack state wrong after push(settings)");
+				}
+				if (flowOk && !gui.widgetExists("titleLabel"))
+				{
+					fail("title torn down instantly - exit transition did not animate");
+				}
+				// let the title exit finish; the router tears its widgets down, then
+				// builds the settings screen (same reconcile once the title clears)
+				if (flowOk && !pumpUntilGone("titleLabel"))
+				{
+					fail("covered title widgets never torn down after its exit");
+				}
+				if (flowOk && !gui.widgetExists("settingsLabel"))
+				{
+					fail("settings screen not built after the title's exit");
+				}
+
+				// the Android back button pops settings -> back to the title
+				backKey();
+				if (gui.currentScreen() != "title" || gui.screenDepth() != 1)
+				{
+					fail("back key did not pop settings off the stack");
+				}
+				if (flowOk && !pumpUntilGone("settingsLabel"))
+				{
+					fail("popped settings widgets never torn down");
+				}
+				if (flowOk && (!gui.widgetExists("titleLabel") ||
+					!gui.widgetExists("titleSettings")))
+				{
+					fail("title screen not rebuilt when revealed by the pop");
+				}
+
+				// back at the ROOT screen: the router does NOT consume it (Android
+				// backgrounds the app instead); the title stays put
+				if (flowOk && gui.handleScreenBack())
+				{
+					fail("back consumed at the root screen (should fall through)");
+				}
+				if (flowOk && gui.currentScreen() != "title")
+				{
+					fail("root screen popped empty on back");
+				}
+
+				gui.disableInputEvents();
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!flowOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: gui-flow selfcheck passed (screen stack "
+				"push/pop, enter+exit transitions fire, covered/popped screens "
+				"torn down, back key pops, root back falls through)");
 		}
 
 		// ORKIGE_DEMO_GUI_MATRIX=1: the widget interaction MATRIX selfcheck. Boots

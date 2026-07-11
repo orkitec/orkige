@@ -17,6 +17,7 @@
 #include <core_util/ModalStack.h>
 #include <core_util/ToastQueue.h>
 #include <core_util/UiTransition.h>
+#include <core_util/ScreenStack.h>
 #include <core_tween/TweenManager.h>
 
 #include <OgreResourceGroupManager.h>	// the resource-group default arguments
@@ -84,7 +85,25 @@ namespace Orkige
 			WTC_Color,		//!< decor tint r,g,b,a (decor widgets only)
 			WTC_COUNT
 		};
+		//! @brief builds a screen's widgets (a code-authored screen; the .oui path
+		//! is the declarative alternative). Called each time the screen becomes
+		//! current - the widgets it creates ARE the screen and are torn down when
+		//! the screen leaves the top of the stack (the .oui/builder is the source
+		//! of truth; transient widget state is not preserved across navigation).
+		typedef std::function<void()> ScreenBuilder;
+		//! @brief consulted when the Android back button / Escape is pressed with a
+		//! non-empty screen stack and no modal up. Returning true CONSUMES the back
+		//! (the current screen handled it itself); returning false lets the router
+		//! run its default (pop when more than the root screen remains).
+		typedef std::function<bool()> ScreenBackInterceptor;
 	protected:
+		//! @brief a registered screen: EITHER a declarative `.oui` layout path OR a
+		//! code builder (exactly one is set). @see registerScreen / registerScreenBuilder
+		struct ScreenDef
+		{
+			String			ouiPath;	//!< the `.oui` to loadLayout (empty if a builder)
+			ScreenBuilder	builder;	//!< the code builder (null if a .oui path)
+		};
 		//! @brief one active modal: its two z layers plus the widget ids to
 		//! destroy on dismissal, and (for a confirm/alert) its result buttons
 		struct ModalRecord
@@ -160,6 +179,24 @@ namespace Orkige
 		//! same channel cancels the old (last-wins retarget). Cleared per widget
 		//! when it is destroyed (auto-kill). @see tweenWidget
 		std::map<String, std::map<int, TweenManager::TweenId> > widgetTweens;
+		//--- the screen router (@see pushScreen / reconcileScreens) ---
+		//! the pure LIFO stack of screen names (the navigation intent). Widget
+		//! lifecycles follow it asynchronously through transitions.
+		ScreenStack screenStack;
+		//! registered screens by name (a .oui path or a code builder)
+		std::map<String, ScreenDef> screenDefs;
+		//! the name of the screen whose widgets are currently live ("" = none).
+		//! Mid-transition this may lag screenStack.current() by one exit animation.
+		String materializedScreen;
+		//! the ids of the currently materialized screen's widgets (diffed at
+		//! build time), torn down when the screen leaves the top
+		std::vector<String> screenWidgetIds;
+		//! true while the materialized screen is playing its exit transition; it is
+		//! torn down once its transition tweens finish (@see anyScreenExitTweenActive)
+		bool screenExiting;
+		//! the current screen's back hook: consulted before the default pop (@see
+		//! ScreenBackInterceptor). Cleared whenever a new screen is materialized.
+		ScreenBackInterceptor screenBackInterceptor;
 		//--- Methods -----------------------------------------------
 	public:
 		GuiManager(optr<GuiFactory> _factory, String const & defaultAtlas = "gui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -357,6 +394,42 @@ namespace Orkige
 		//! when a transition (or snap) was applied (widget exists).
 		bool playWidgetTransition(String const & widgetId, bool entering);
 
+		//--- screen router (whole-screen navigation; @see ScreenStack) ---
+		//! @brief register a screen backed by a declarative `.oui` layout, under a
+		//! name push/replace refer to. Re-registering a name replaces its def.
+		void registerScreen(String const & name, String const & ouiPath);
+		//! @brief register a screen built by code (a Lua builder / a C++ callback);
+		//! the builder runs each time the screen becomes current.
+		void registerScreenBuilder(String const & name, ScreenBuilder const & builder);
+		//! @brief is a screen registered under this name
+		bool hasScreen(String const & name) const;
+		//! @brief push a screen on top of the stack: the current screen plays its
+		//! exit transition and is torn down, then the new screen is built and plays
+		//! its enter transition. An unregistered name ending in ".oui" is taken as a
+		//! layout path (a convenience for `push("screens/title.oui")`).
+		void pushScreen(String const & name);
+		//! @brief replace the top screen without growing the stack (a sideways
+		//! navigation); an empty stack makes this a push.
+		void replaceScreen(String const & name);
+		//! @brief pop the top screen and return to the one beneath it. @return the
+		//! popped name ("" when the stack was empty).
+		String popScreen();
+		//! @brief the current (top) screen's name, or "" when none is up
+		String currentScreen() const { return this->screenStack.current(); }
+		//! @brief the number of screens on the stack
+		int screenDepth() const { return static_cast<int>(this->screenStack.size()); }
+		//! @brief the whole bottom-to-top screen path (the agent readback)
+		std::vector<String> screenPath() const { return this->screenStack.path(); }
+		//! @brief pop every screen (and tear the current one down)
+		void clearScreens();
+		//! @brief set the current screen's back hook (@see ScreenBackInterceptor);
+		//! pass an empty function to clear it. Reset automatically on navigation.
+		void setScreenBackInterceptor(ScreenBackInterceptor const & interceptor);
+		//! @brief route an Android-back / Escape press through the screen stack:
+		//! the back hook first, then the default pop (only above the root screen).
+		//! @return true when the stack CONSUMED the back (so it is not passed on).
+		bool handleScreenBack();
+
 		//--- performance-contract probes (the "1 draw per screen per atlas,
 		//--- dirty-tracked" promise; @see the demo_gui_matrix perf assertions) ---
 		//! @brief total draw submissions across every visible screen this frame
@@ -410,6 +483,24 @@ namespace Orkige
 		//! static UI pays nothing. O(n * layout depth) over the widgets.
 		void resolveGroupAlpha();
 
+		//! @brief drive the materialized screen toward screenStack.current(): tear
+		//! the old screen down once its exit transition has finished, then build
+		//! the new top. Called once per frame and right after each navigation so a
+		//! no-transition flow settles immediately. One transition is in flight at
+		//! a time; teardown keys off the exit tweens completing, so it is exact at
+		//! any frame rate (and instant when a screen has no transition).
+		void reconcileScreens();
+		//! @brief build @p name's widgets (its builder or its .oui) and play each
+		//! one's enter transition; the created ids become screenWidgetIds
+		void materializeScreen(String const & name);
+		//! @brief start the current screen's exit: play each widget's exit
+		//! transition, then wait for those tweens (else tear down now if they snap)
+		void beginScreenExit();
+		//! @brief destroy the exiting screen's widgets and clear the materialized state
+		void finishScreenExit();
+		//! @brief is any of the exiting screen's widgets still running a transition
+		//! tween (the "exit still animating" test that gates teardown)
+		bool anyScreenExitTweenActive() const;
 		//! @brief tear down the modals queued for dismissal (frame-boundary safe)
 		void drainModalDismissals();
 		//! @brief poll a live dialog's buttons; a click latches the result and

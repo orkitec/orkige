@@ -163,6 +163,28 @@ namespace Orkige
                 return it->second->getGroup();
         }
         //---------------------------------------------------------
+        bool SoundComponent::setPitchVariation(String const & sid, float range)
+        {
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return false;
+                }
+                it->second->setPitchVariation(range);
+                return true;
+        }
+        //---------------------------------------------------------
+        bool SoundComponent::setVolumeVariation(String const & sid, float range)
+        {
+                SoundSourceMap::iterator it = this->attachedSoundObjects.find(sid);
+                if(it == this->attachedSoundObjects.end() || !it->second)
+                {
+                        return false;
+                }
+                it->second->setVolumeVariation(range);
+                return true;
+        }
+        //---------------------------------------------------------
         //--- protected: ------------------------------------------
         //---------------------------------------------------------
         void SoundComponent::onAdd()
@@ -252,6 +274,8 @@ namespace Orkige
                 //   snd:play("boing") / snd:stop("boing") / snd:stopAllSounds()
                 //   snd:setVolume("boing", 0.6)  -- 0..1, own gain
                 //   snd:setGroup("boing", "music")  -- mixer group (default "sfx")
+                //   snd:setPitchVariation("boing", 0.1)   -- +/-10% pitch per play
+                //   snd:setVolumeVariation("boing", 0.15)  -- +/-15% gain per play
                 // group/master volumes live on the global `sound` table (see
                 // ScriptComponent::ensureScriptApi); no default arguments
                 // across the binding - Lua passes every parameter explicitly
@@ -263,5 +287,7 @@ namespace Orkige
                 OFUNC(getVolume)
                 OFUNC(setGroup)
                 OFUNC(getGroup)
+                OFUNC(setPitchVariation)
+                OFUNC(setVolumeVariation)
         OOBJECT_END
 }

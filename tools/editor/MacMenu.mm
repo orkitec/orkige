@@ -272,6 +272,24 @@ namespace Orkige
 		}
 		gTarget = [[OrkigeMenuTarget alloc] init];
 
+		// Settings… in the app menu (the macOS-conventional Cmd+, home for
+		// preferences) - routes to the SAME View Settings window as View >
+		// View Settings…. SDL made the app menu (index 0); insert below About.
+		if ([NSApp mainMenu] && [[NSApp mainMenu] numberOfItems] > 0)
+		{
+			NSMenuItem* appItem = [[NSApp mainMenu] itemAtIndex:0];
+			if (NSMenu* appMenu = [appItem submenu])
+			{
+				NSMenuItem* settings = [[NSMenuItem alloc]
+					initWithTitle:@"Settings…" action:@selector(menuAction:)
+					keyEquivalent:@","];
+				[settings setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+				[settings setTarget:gTarget];
+				[settings setTag:TAG_VIEW_SETTINGS];
+				[appMenu insertItem:settings atIndex:1];
+			}
+		}
+
 		// File - the Cmd shortcuts have no ImGui-side competitors, so the
 		// menu may own them. Quit deliberately carries NO Cmd+Q: SDL's app
 		// menu already binds Cmd+Q (-> SDL_EVENT_QUIT -> the editor's
