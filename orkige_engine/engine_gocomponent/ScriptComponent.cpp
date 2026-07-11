@@ -16,6 +16,7 @@
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_graphic/ScreenFade.h"
+#include "engine_graphic/ScreenShake.h"
 #include "engine_input/HapticManager.h"
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
@@ -23,6 +24,8 @@
 #include <core_game/SceneSerializer.h>
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelManager.h>
+#include <core_game/SaveStore.h>
+#include <core_game/TimeControl.h>
 #include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
@@ -630,6 +633,24 @@ namespace Orkige
 			}
 		});
 		runtime.registerFunction("world", "findByTag", &worldFindByTag);
+		// world.setTimeScale(s) / getTimeScale(): the gameplay time scale the
+		// player loop applies to the delta it feeds scripts, tweens and physics
+		// (1 = normal, 0.5 = slow motion, 0 = hitstop - the world freezes but
+		// keeps rendering; the debug protocol and editor stay real-time). Honest
+		// no-op / 1.0 without a TimeControl (the editor never ticks gameplay).
+		runtime.registerFunction("world", "setTimeScale", [](double scale)
+		{
+			if(TimeControl::getSingletonPtr())
+			{
+				TimeControl::getSingleton().setTimeScale(
+					static_cast<float>(scale));
+			}
+		});
+		runtime.registerFunction("world", "getTimeScale", []() -> double
+		{
+			return TimeControl::getSingletonPtr()
+				? TimeControl::getSingleton().getTimeScale() : 1.0;
+		});
 
 		// ================= THE `screen` TABLE (fade wipes) =================
 		// Full-screen fade transitions over the finished frame + HUD (a
@@ -693,6 +714,35 @@ namespace Orkige
 				EngineLogCapture::logError("screen.loadScene: no LevelManager "
 					"- this runtime does not switch scenes (editor edit mode?)");
 			}
+		});
+		// screen.shake(amplitude, duration [, frequency]): a decaying camera-space
+		// wobble applied to the active camera each frame and restored exactly when
+		// it ends (works in 2D and 3D). `amplitude` is world units of peak offset,
+		// `duration` seconds, optional `frequency` in Hz (defaults sensibly). A
+		// fresh call while shaking stacks (stronger amplitude, longer remaining).
+		// screen.stopShake() ends it immediately; screen.isShaking() gates polish.
+		// Honest no-op without a ScreenShake (editor edit mode).
+		runtime.registerFunction("screen", "shake",
+			[](float amplitude, float duration, ScriptArgs args)
+		{
+			if(ScreenShake::getSingletonPtr())
+			{
+				const float frequency = static_cast<float>(
+					ScriptRuntime::numberArg(args, 0, 0.0));
+				ScreenShake::getSingleton().shake(amplitude, duration, frequency);
+			}
+		});
+		runtime.registerFunction("screen", "stopShake", []()
+		{
+			if(ScreenShake::getSingletonPtr())
+			{
+				ScreenShake::getSingleton().stop();
+			}
+		});
+		runtime.registerFunction("screen", "isShaking", []() -> bool
+		{
+			return ScreenShake::getSingletonPtr() &&
+				ScreenShake::getSingleton().isShaking();
 		});
 
 		// ================= THE `haptics` TABLE (rumble) ===================
@@ -1132,6 +1182,97 @@ namespace Orkige
 				return false;
 			}
 			return true;
+		});
+
+		// ================= THE `save` TABLE (persistence) ==================
+		// A general, per-project typed key -> value store (Number / Bool /
+		// String; values are FLAT - namespace keys with dots like "hero.coins"
+		// instead of nesting). Backed by core_game/SaveStore, written atomically
+		// (temp file + rename) to the writable app directory; the player loads it
+		// at boot and flushes it on a clean shutdown. Honest no-op / defaults
+		// without a SaveStore (the editor never creates one).
+		//   save.set(key, value)              store number/bool/string by its type
+		//   save.getNumber(key [, fallback])  read a number
+		//   save.getBool(key [, fallback])    read a bool
+		//   save.getString(key [, fallback])  read a string (get is its alias)
+		//   save.has(key)                     is the key present
+		//   save.remove(key)                  drop the key
+		//   save.flush()                      autosave point - write to disk NOW
+		// Crash semantics: only a flush (or the clean-shutdown autosave) reaches
+		// disk; a set marks the store dirty but does not write, so changes since
+		// the last flush are lost on a hard crash (the crash breadcrumb trail is
+		// the recovery aid for that window).
+		runtime.registerFunction("save", "set",
+			[](String const & key, ScriptArgs args)
+		{
+			if (!SaveStore::getSingletonPtr())
+			{
+				return;
+			}
+			SaveStore & store = SaveStore::getSingleton();
+			switch (ScriptRuntime::argType(args, 0))
+			{
+			case ScriptRuntime::AT_BOOL:
+				store.setBool(key, ScriptRuntime::boolArg(args, 0, false));
+				break;
+			case ScriptRuntime::AT_NUMBER:
+				store.setNumber(key, ScriptRuntime::numberArg(args, 0, 0.0));
+				break;
+			case ScriptRuntime::AT_STRING:
+				store.setString(key, ScriptRuntime::stringArg(args, 0, ""));
+				break;
+			default:
+				EngineLogCapture::logError("save.set: '" + key + "' - value must "
+					"be a number, bool or string");
+				break;
+			}
+		});
+		runtime.registerFunction("save", "getNumber",
+			[](String const & key, ScriptArgs args) -> double
+		{
+			const double fallback = ScriptRuntime::numberArg(args, 0, 0.0);
+			return SaveStore::getSingletonPtr()
+				? SaveStore::getSingleton().getNumber(key, fallback) : fallback;
+		});
+		runtime.registerFunction("save", "getBool",
+			[](String const & key, ScriptArgs args) -> bool
+		{
+			const bool fallback = ScriptRuntime::boolArg(args, 0, false);
+			return SaveStore::getSingletonPtr()
+				? SaveStore::getSingleton().getBool(key, fallback) : fallback;
+		});
+		runtime.registerFunction("save", "getString",
+			[](String const & key, ScriptArgs args) -> String
+		{
+			const String fallback = ScriptRuntime::stringArg(args, 0, "");
+			return SaveStore::getSingletonPtr()
+				? SaveStore::getSingleton().getString(key, fallback) : fallback;
+		});
+		// save.get is the string getter alias (the untyped "read whatever is
+		// there" accessor - a Number/Bool value comes back as its canonical text)
+		runtime.registerFunction("save", "get",
+			[](String const & key, ScriptArgs args) -> String
+		{
+			const String fallback = ScriptRuntime::stringArg(args, 0, "");
+			return SaveStore::getSingletonPtr()
+				? SaveStore::getSingleton().getString(key, fallback) : fallback;
+		});
+		runtime.registerFunction("save", "has", [](String const & key) -> bool
+		{
+			return SaveStore::getSingletonPtr() &&
+				SaveStore::getSingleton().has(key);
+		});
+		runtime.registerFunction("save", "remove", [](String const & key)
+		{
+			if (SaveStore::getSingletonPtr())
+			{
+				SaveStore::getSingleton().remove(key);
+			}
+		});
+		runtime.registerFunction("save", "flush", []() -> bool
+		{
+			return SaveStore::getSingletonPtr() &&
+				SaveStore::getSingleton().flush();
 		});
 	}
 	//---------------------------------------------------------

@@ -62,6 +62,11 @@ namespace Orkige
 		DECL_EVENTTYPE(GestureCancelledEvent);
 		//! triggered when Accelerometer changes
 		DECL_EVENTTYPE(AccelerationEvent);
+		//! @brief triggered when SDL delivers committed text (SDL_EVENT_TEXT_INPUT)
+		//! while text input is active - the composed, locale/shift-aware UTF-8
+		//! characters a TextEntry widget inserts. The KeyEventData carries the
+		//! text in its `textInput` field (its `key` is unset).
+		DECL_EVENTTYPE(TextInputEvent);
 		/** @} End of "addtogroup EngineEvents"*/
 
 		//--- tilt (accelerometer + desktop simulation) --------
@@ -103,6 +108,18 @@ namespace Orkige
 		String const & getAsString(KeyEventData::KeyCode kc);
 		//! check if given key is pressed
 		bool isKeyDown(KeyEventData::KeyCode kc);
+
+		//--- text input (SDL text-input session; the TextEntry widget) --------
+		//! @brief begin an SDL text-input session on the active window: SDL then
+		//! delivers SDL_EVENT_TEXT_INPUT (routed to TextInputEvent) and raises the
+		//! on-screen keyboard on mobile. Idempotent; a no-op without an active
+		//! window (e.g. the editor never registers one for the player).
+		void startTextInput();
+		//! @brief end the text-input session (hides the mobile keyboard). A no-op
+		//! when no session is active.
+		void stopTextInput();
+		//! is a text-input session currently active
+		bool isTextInputActive() const;
 		//! get current mouse data
 		optr<MouseEventData> const & getMouseData() const;
 		//! get last touch event data

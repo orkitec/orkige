@@ -31,6 +31,8 @@ add_executable(orkige_core_tests
     PropertyTweenTests.cpp
     LevelGridTests.cpp
     LevelSequenceTests.cpp
+    SaveStoreTests.cpp
+    CameraFitTests.cpp
     SafeAreaTests.cpp
     TiltCalibrationTests.cpp
     StringTableTests.cpp

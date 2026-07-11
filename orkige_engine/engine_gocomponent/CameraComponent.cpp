@@ -15,6 +15,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_gocomponent/CameraDefaultModes.h"
+#include <core_util/CameraFit.h>
 
 #include <algorithm>
 
@@ -27,6 +28,10 @@ namespace Orkige
 	{
 		this->projectionMode = CameraComponent::PM_PERSPECTIVE;
 		this->orthoSize = 5.0f;
+		this->fitMode = CameraComponent::FM_HEIGHT;
+		this->designWidth = 10.0f;
+		this->designHeight = 10.0f;
+		this->lastAspect = 0.0f;
 		this->addDependency<TransformComponent>();
 		this->setWantsUpdates(true);
 	}
@@ -39,6 +44,19 @@ namespace Orkige
 	//---------------------------------------------------------
 	void CameraComponent::onUpdateComponent(float deltaTime)
 	{
+		// aspect-driven ortho fit: FM_WIDTH/FM_EXPAND derive the half-extent from
+		// the live viewport aspect, so a window resize (or a device rotation)
+		// must re-apply the projection. FM_HEIGHT needs no per-frame work - the
+		// camera keeps a fixed half-height and lets the width follow the aspect.
+		if(this->camera && this->projectionMode == CameraComponent::PM_ORTHOGRAPHIC
+			&& this->fitMode != CameraComponent::FM_HEIGHT)
+		{
+			const float aspect = this->currentAspect();
+			if(std::abs(aspect - this->lastAspect) > 1.0e-4f)
+			{
+				this->applyProjection();
+			}
+		}
 		this->cameraFunction(this,deltaTime,1.0f);
 		// the historical Ogre auto-tracking, spelled out: the camera node
 		// always looks at the target node (fixed yaw axis keeps it roll-free)
@@ -126,6 +144,36 @@ namespace Orkige
 		this->applyProjection();
 	}
 	//---------------------------------------------------------
+	void CameraComponent::setFitMode(FitMode mode)
+	{
+		this->fitMode = mode;
+		this->applyProjection();
+	}
+	//---------------------------------------------------------
+	void CameraComponent::setDesignWidth(float worldWidth)
+	{
+		this->designWidth = std::max(worldWidth, 0.0f);
+		this->applyProjection();
+	}
+	//---------------------------------------------------------
+	void CameraComponent::setDesignHeight(float worldHeight)
+	{
+		this->designHeight = std::max(worldHeight, 0.0f);
+		this->applyProjection();
+	}
+	//---------------------------------------------------------
+	float CameraComponent::currentAspect() const
+	{
+		unsigned int width = 0;
+		unsigned int height = 0;
+		if(RenderSystem::get())
+		{
+			RenderSystem::get()->getWindowSize(width, height);
+		}
+		return (width > 0 && height > 0)
+			? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+	}
+	//---------------------------------------------------------
 	void CameraComponent::applyProjection()
 	{
 		if(!this->camera)
@@ -136,9 +184,20 @@ namespace Orkige
 		// never alters them (the historical behavior)
 		if(this->projectionMode == CameraComponent::PM_ORTHOGRAPHIC)
 		{
-			// the ortho half-extent keeps the camera's aspect ratio - the
-			// window width follows the viewport automatically
-			this->camera->setOrthographic(this->orthoSize,
+			// the effective half-extent depends on the 2D fit policy: FM_HEIGHT
+			// uses the authored orthoSize directly (width follows the aspect);
+			// FM_WIDTH/FM_EXPAND derive it from the design rect + live aspect
+			// through the pure CameraFit math.
+			float halfExtent = this->orthoSize;
+			if(this->fitMode != CameraComponent::FM_HEIGHT)
+			{
+				const float aspect = this->currentAspect();
+				this->lastAspect = aspect;
+				halfExtent = CameraFit::orthoHalfHeight(
+					static_cast<CameraFit::FitMode>(this->fitMode),
+					this->designWidth, this->designHeight, aspect);
+			}
+			this->camera->setOrthographic(halfExtent,
 				this->camera->getNearClip(), this->camera->getFarClip());
 		}
 		else
@@ -173,9 +232,20 @@ namespace Orkige
 		OFUNC(getProjectionMode)
 		OFUNC(setOrthoSize)
 		OFUNC(getOrthoSize)
+		OFUNC(setFitMode)
+		OFUNC(getFitMode)
+		OFUNC(setDesignWidth)
+		OFUNC(getDesignWidth)
+		OFUNC(setDesignHeight)
+		OFUNC(getDesignHeight)
 		OENUM_START(ProjectionMode)
 			OENUM_VALUE(PM_PERSPECTIVE)
 			OENUM_VALUE(PM_ORTHOGRAPHIC)
+		OENUM_END
+		OENUM_START(FitMode)
+			OENUM_VALUE(FM_HEIGHT)
+			OENUM_VALUE(FM_WIDTH)
+			OENUM_VALUE(FM_EXPAND)
 		OENUM_END
 		// neutral enum value<->label table so the reflected
 		// projectionMode property can resolve labels in every config (the sol
@@ -183,6 +253,11 @@ namespace Orkige
 		OENUM_REGISTER_START("ProjectionMode", CameraComponent::ProjectionMode)
 			OENUM_REGISTER_VALUE(PM_PERSPECTIVE)
 			OENUM_REGISTER_VALUE(PM_ORTHOGRAPHIC)
+		OENUM_REGISTER_END
+		OENUM_REGISTER_START("FitMode", CameraComponent::FitMode)
+			OENUM_REGISTER_VALUE(FM_HEIGHT)
+			OENUM_REGISTER_VALUE(FM_WIDTH)
+			OENUM_REGISTER_VALUE(FM_EXPAND)
 		OENUM_REGISTER_END
 		// reflected schema: projection mode (Enum) + orthoSize (Float with
 		// reserved inspector range metadata). The component's hand-written
@@ -195,5 +270,10 @@ namespace Orkige
 		orkigeOrthoMeta.step = 0.1f;
 		orkigeOrthoMeta.tooltip = "orthographic vertical half-extent in world units";
 		OPROPERTY_META("orthoSize", Orkige::PropertyKind::Float, getOrthoSize, setOrthoSize, Orkige::PROP_NONE, orkigeOrthoMeta)
+		// 2D aspect fit policy: the mode enum + the design rectangle it fits to.
+		// FM_HEIGHT (default) keeps orthoSize; FM_WIDTH/FM_EXPAND derive it.
+		OPROPERTY_ENUM("fitMode", "FitMode", getFitMode, setFitMode, Orkige::PROP_NONE)
+		OPROPERTY("designWidth", Orkige::PropertyKind::Float, getDesignWidth, setDesignWidth, Orkige::PROP_NONE)
+		OPROPERTY("designHeight", Orkige::PropertyKind::Float, getDesignHeight, setDesignHeight, Orkige::PROP_NONE)
 	OOBJECT_END
 }

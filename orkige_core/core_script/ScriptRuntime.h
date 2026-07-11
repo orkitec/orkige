@@ -217,6 +217,22 @@ namespace Orkige
 		//! (fallback when absent or not a string) - @see ScriptArgs
 		static String stringArg(ScriptArgs const & args, int index,
 			String const & fallback);
+		//! read optional trailing argument #index (0-based) as a bool (fallback
+		//! when absent or not a boolean) - @see ScriptArgs
+		static bool boolArg(ScriptArgs const & args, int index, bool fallback);
+
+		//! the natural Lua value type of a trailing argument, for functions that
+		//! store a value UNDER its type (the `save` table dispatches on this)
+		enum ArgType
+		{
+			AT_ABSENT = 0,	//!< no such argument (or nil)
+			AT_BOOL,		//!< a boolean
+			AT_NUMBER,		//!< a number
+			AT_STRING,		//!< a string
+			AT_OTHER		//!< some other Lua type (table/function/...)
+		};
+		//! @brief the value type of optional trailing argument #index - @see ArgType
+		static ArgType argType(ScriptArgs const & args, int index);
 
 		//! @brief register a C++ callable as <tableName>.<functionName>
 		//! (the table is created when missing) - no-op without a backend

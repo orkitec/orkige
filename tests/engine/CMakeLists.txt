@@ -21,6 +21,8 @@ add_executable(orkige_engine_tests
     InputActionTests.cpp
     CVarProtocolBehaviourTests.cpp
     ScreenFadeTests.cpp
+    ScreenShakeTests.cpp
+    TextEntryEditTests.cpp
     HapticTests.cpp
 )
 

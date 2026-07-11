@@ -84,6 +84,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_graphic/FrameEventData.cpp
     engine_graphic/ScreenFade.h
     engine_graphic/ScreenFade.cpp
+    engine_graphic/ScreenShake.h
+    engine_graphic/ScreenShake.cpp
     engine_base/EngineLog.h
     engine_base/EngineLog.cpp
     engine_input/KeyEventData.h
@@ -164,6 +166,9 @@ set(ORKIGE_ENGINE_SOURCES
     engine_fastgui/FastGuiView.cpp
     engine_fastgui/FastGuiTextbox.h
     engine_fastgui/FastGuiTextbox.cpp
+    engine_fastgui/FastGuiTextEntry.h
+    engine_fastgui/FastGuiTextEntry.cpp
+    engine_fastgui/FastGuiTextEdit.h
     engine_fastgui/FastGuiSlider.h
     engine_fastgui/FastGuiSlider.cpp
     engine_fastgui/FastGuiSelectMenu.h

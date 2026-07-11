@@ -214,6 +214,33 @@ existing readback verbs (`screenshot_game`, `console_tail`, `get_breadcrumbs`),
 so the standing "every feature reachable or justified" rule is met without a new
 tool.
 
+### Game-support pack (save / camera fit / screen shake / time scale / text entry) — no new verb
+
+The game-support features follow the same authored-in-Lua + reflected-property
+pattern, so none needs a dedicated verb:
+
+- **Persistence** (`save.set/getNumber/getBool/getString/has/remove/flush`) —
+  authored in a `ScriptComponent` via `write_project_file`, iterated with
+  `reload_script`. The on-disk store is a plain file in the writable app dir; an
+  agent confirms a write with `get_breadcrumbs`/`console_tail` (the store logs
+  its flush) or reads a value back through the game's own HUD via
+  `screenshot_game`.
+- **2D camera fit** — the `CameraComponent` `fitMode` / `designWidth` /
+  `designHeight` are REFLECTED properties, so they are already authored and read
+  back through the generic `get_component` / `set_component` (edit mode) and
+  `set_runtime_property` (live) — no bespoke verb, exactly like every other
+  component property. The script-driven `engine:setCameraOrthographicFit` is a
+  Lua call authored the same way as `setCameraOrthographic`.
+- **Screen shake** (`screen.shake` / `stopShake` / `isShaking`) and **time
+  scale** (`world.setTimeScale` / `getTimeScale`) — runtime Lua calls, authored +
+  `reload_script`-iterated; the shake is observable in `screenshot_game`, and
+  time scale is confirmed by watching `runtime_state` values advance at the
+  scaled rate (or not, at 0 = hitstop).
+- **Text entry** (`createTextEntry`, `getText/setText/setPlaceholder/
+  setMaxLength/wasSubmitted`) — a fastgui widget, authored in Lua like every
+  other widget and read back with `get_ui_layout` / `screenshot_game` (the
+  "authoring vs. readback" rule above already covers game UI).
+
 ## Test runner (the evidence loop)
 
 `run_tests` is the close-the-loop primitive: edit, run the relevant test, read

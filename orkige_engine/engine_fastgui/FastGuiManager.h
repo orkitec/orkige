@@ -19,6 +19,8 @@
 
 namespace Orkige
 {
+	class FastGuiTextEntry;
+
 	class ORKIGE_ENGINE_DLL FastGuiManager : public Singleton<FastGuiManager>, public Interface, public EventHandler
 	{
 		OOBJECT(FastGuiManager, Interface);
@@ -60,6 +62,10 @@ namespace Orkige
 		String defaultAtlas;
 		bool cancelInputUpdate;
         bool scaleStats;
+		//! the single focused text-entry field, or NULL (@see focusTextEntry)
+		FastGuiTextEntry* focusedTextEntry;
+		//! set true while a cursor press claimed a text field (tap-away blur)
+		bool textEntryFocusClaimed;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiManager(optr<FastGuiFactory> _factory, String const & defaultAtlas = "fastgui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -129,6 +135,16 @@ namespace Orkige
 		//! cancel current input dispatch
 		void cancelCurrentInputUpdate();
 
+		//! @brief give a text-entry field input focus (NULL clears focus): blurs
+		//! the previously focused field and opens/closes the InputManager
+		//! text-input session so exactly ONE field is focused at a time.
+		void focusTextEntry(FastGuiTextEntry* entry);
+		//! the focused text-entry field, or NULL
+		FastGuiTextEntry* getFocusedTextEntry() const { return this->focusedTextEntry; }
+		//! @brief a focused field being destroyed clears the focus + input session
+		//! (the widget calls this from its destructor)
+		void notifyTextEntryDestroyed(FastGuiTextEntry* entry);
+
 		//! returns true if given point is over any widget
 		bool isPointOverWidget(Ogre::Vector2 const & point);
 		//! @brief snapshot every widget's id, pixel rect and visibility - the
@@ -143,6 +159,8 @@ namespace Orkige
 		//! after changing a game state (with its possible loading times) reset the worst and best fps
 		bool onGameStateChanged(Orkige::Event const & event);
 
+		//! process committed text input (routed to the focused text-entry field)
+		bool onTextInput(Orkige::Event const & event);
 		//! process key pressed events
 		bool onKeyPressed(Orkige::Event const & event);
 		//! process key released events

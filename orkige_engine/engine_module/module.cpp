@@ -128,6 +128,11 @@ ORKIGE_MODULE(orkige_engine)
 		// empty/"none" sprite, a SOLID fill: the dimmed pause/menu backdrop
 		// (tint + fade it via setColour/setAlpha on a top z layer)
 		OFUNCWEAK(createDecorWidget)
+		// (id, sprite, glyphIndex, placeholder, position, size, atlas, z,
+		//  maxLength) - single-line text field; poll getText()/wasSubmitted(),
+		//  set with setText()/setPlaceholder()/setMaxLength() (maxLength 0 =
+		//  unlimited). Focus follows a tap; the mobile keyboard rises on focus.
+		OFUNCWEAK(createTextEntry)
 	OSIMPLEEXPORT_END
 
 	// safe-area insets (notch / rounded corners / home indicator) in PIXELS:
@@ -152,6 +157,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(FastGuiWidget)
 	OEXPORT(FastGuiView)
 	OEXPORT(FastGuiTextbox)
+	OEXPORT(FastGuiTextEntry)
 	OEXPORT(FastGuiSlider)
 	OEXPORT(FastGuiSelectMenu)
 	OEXPORT(FastGuiProgressBar)

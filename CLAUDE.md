@@ -280,8 +280,9 @@ music rides `engine_sound/MusicStream` — a queued-buffer ring decoded a little
 time via stb_vorbis, main-thread refill in `SoundManager::update`, owned by the
 `SoundManager` music registry so tracks survive scene switches; the Lua `music` table
 = play/stop/stopAll/isPlaying/setVolume/getPosition, in the "music" mixer group),
-`AnimationComponent`, `CameraComponent` (projection mode + orthoSize serialize; ortho =
-the 2D camera, also reachable via `Engine::setCameraOrthographic`), the Lua
+`AnimationComponent`, `CameraComponent` (projection mode + orthoSize + 2D
+aspect fit policy `fitMode`/`designWidth`/`designHeight` serialize; ortho =
+the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic
@@ -379,10 +380,18 @@ look when touching one:
   headless-unit-tested; `Util/make_vectorshape_demo.py` writes the
   `projects/vectorshapes/` sample.
 - **Game UI** (`engine_fastgui`, both flavors): the retained widget set (label/
-  button/checkbox/slider/select-menu/progressbar/decor) is Lua-authored via
-  `FastGuiFactory` (`createCheckBox`/`createSlider`/`createSelectMenu`/
-  `createDecorWidget` bound — a spriteless DecorWidget is a solid scrim for pause
-  overlays). **UI scale**: `Engine::getContentScale()` (SDL display scale) drives
+  button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
+  Lua-authored via `FastGuiFactory` (`createCheckBox`/`createSlider`/
+  `createSelectMenu`/`createDecorWidget`/`createTextEntry` bound — a spriteless
+  DecorWidget is a solid scrim for pause overlays). **TextEntry**
+  (`FastGuiTextEntry`): a single-line field on SDL text input — `InputManager`
+  routes `SDL_EVENT_TEXT_INPUT`→`TextInputEvent` and owns the
+  `startTextInput`/`stopTextInput` session (raises the mobile keyboard);
+  `FastGuiManager` coordinates single-field focus (tap to focus / tap-away or
+  Return to blur). Blinking caret, backspace/delete/left/right/home/end, max
+  length, dimmed placeholder; the pure UTF-8 edit model is `FastGuiTextEdit.h`.
+  Lua `getText/setText/setPlaceholder/setMaxLength/wasSubmitted` (poll idiom).
+  **UI scale**: `Engine::getContentScale()` (SDL display scale) drives
   the dormant `UiGlyph::scale` at fastgui boot (integer-snapped) and scales
   authored widget sizes in `FastGuiFactory`, so pixel text/touch targets keep a
   physical size on 2×–3× screens (larger integer font atlas entries in
@@ -414,6 +423,29 @@ look when touching one:
   `input.oactions`); `engine_sound` mixer groups + master; `core_tween`
   (`TweenManager` + `EaseLibrary`); `core_debug/CVarManager` (typed cvars, live-tunable
   over the debug protocol, `cvar.`-prefixed manifest persistence).
+- **Persistence**: general per-project save via `core_game/SaveStore` (flat typed
+  key→value store — Number/Bool/String, no nesting; atomic temp+rename write to
+  the writable app dir under a per-project file name, coexisting with the
+  LevelManager progression save; loaded at boot, autosaved at clean shutdown +
+  on `flush`). Lua `save` table (`set`/`getNumber`/`getBool`/`getString`/`has`/
+  `remove`/`flush` — `set` dispatches on the Lua value type). Crash semantics:
+  only a flush reaches disk (breadcrumbs cover the unflushed window). Editor
+  never makes one → honest no-op in edit mode.
+- **2D camera fit** (`core_util/CameraFit.h`, pure math): `CameraComponent`
+  reflected `fitMode` (FM_HEIGHT default / FM_WIDTH / FM_EXPAND) + `designWidth`/
+  `designHeight` derive `orthoSize` from the live viewport aspect (re-applied on
+  resize); `Engine::setCameraOrthographicFit(mode,w,h)` is the script-driven
+  window-camera counterpart on both flavors. Letterbox bars are pure-math only
+  (`CameraFit::letterboxRect`) — the facade exposes no viewport-rect control, so
+  drawn bars are descoped to games.
+- **Juice**: **screen shake** (`engine_graphic/ScreenShake`, both flavors, engine-
+  owned like `ScreenFade`): decaying camera-space wobble applied POST-transform to
+  the window-camera rig node and restored EXACTLY on finish (recover-then-reapply,
+  never fights a follow rig / accumulates); Lua `screen.shake`/`stopShake`/
+  `isShaking`, ticked last in the loop. **Time scale** (`core_game/TimeControl`):
+  Lua `world.setTimeScale`/`getTimeScale` scales the delta the player loop feeds
+  scripts/tweens/physics (0 = hitstop, still renders; input/render/debug stay
+  real-time). Both editor-inert (no singleton → no-op).
 - **Iteration**: **Lua hot-reload during Play** (`ScriptComponent::hotReload`,
   compile-before-swap; editor watches `scripts/` and sends `MSG_RELOAD_SCRIPT`);
   **level system** (`core_game/Level*`: deferred mid-play scene switch via the

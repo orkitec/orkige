@@ -220,6 +220,16 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_ui_safe_area PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_UI_SCALE=1;ORKIGE_FAKE_CONTENT_SCALE=2;ORKIGE_FAKE_SAFE_TOP=140;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_TEXTENTRY: the fastgui TextEntry selfcheck - boots a real
+    # FastGuiManager and drives a text field through synthetic SDL events on the
+    # real input path (tap-to-focus, SDL_EVENT_TEXT_INPUT typing, backspace,
+    # caret move + mid-string insert, max length, Return submit + blur).
+    # Flavor-neutral (fastgui on DrawLayer2D).
+    add_test(NAME demo_textentry COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_textentry PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_TEXTENTRY=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES
@@ -695,6 +705,21 @@ if(TARGET orkige_player)
         set_tests_properties(player_tween_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_TWEEN_SELFCHECK=1")
 
+        # the game-support pack (Lua `save` API + screen shake + time scale),
+        # end to end against the live player wiring (synchronous, any scene -
+        # reuses tests/projects/tween): the Lua save table round-trips typed
+        # values through the player's SaveStore file (write, flush, fresh-store
+        # reload = a restart), ScreenShake deflects then restores the window
+        # camera to its EXACT rest pose, and world.setTimeScale(0.5) halves a
+        # tween's progress. See the ORKIGE_GAMESUPPORT_SELFCHECK block in
+        # tools/player/main.cpp; the ortho fit policy is covered by the
+        # CameraFit unit tests. ORKIGE_PROGRESS_DIR isolates the save file.
+        add_test(NAME player_gamesupport_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project tests/projects/tween
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_gamesupport_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_GAMESUPPORT_SELFCHECK=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/gamesupport_selfcheck")
+
         # Lua hot-reload, end to end: tests/projects/hotreload runs a
         # Probe script publishing shared.hotreload.value. The selfcheck
         # overwrites the script on disk, drives ScriptComponent::hotReload()
@@ -917,6 +942,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
+        demo_ui_scale demo_ui_safe_area demo_textentry
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene
@@ -926,6 +952,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
+        player_gamesupport_selfcheck player_gamesupport_selfcheck_next
         player_hotreload_selfcheck player_hotreload_selfcheck_next
         player_scriptprop_selfcheck player_scriptprop_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next

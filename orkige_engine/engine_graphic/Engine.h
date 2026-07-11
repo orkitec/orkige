@@ -290,6 +290,18 @@ protected:
 		//! top edge (the camera sees 2x this height; width follows the
 		//! aspect); clip distances are preserved
 		void setCameraOrthographic(float verticalHalfExtent);
+		//! @brief switch the window camera to ORTHOGRAPHIC projection sized by a
+		//! 2D aspect FIT policy against a design rectangle (the script-driven
+		//! window-camera counterpart of CameraComponent's fit mode).
+		//! @param fitMode 0 = fit height (design height stays visible), 1 = fit
+		//! width (design width stays visible), 2 = expand (whole design rect
+		//! stays visible, growing the slack axis) - see core_util/CameraFit.h
+		//! @param designWidth design rectangle FULL world width
+		//! @param designHeight design rectangle FULL world height
+		//! @remarks one-shot: it applies against the CURRENT viewport aspect, so
+		//! a game that supports live rotation re-calls it on a size change
+		void setCameraOrthographicFit(int fitMode, float designWidth,
+			float designHeight);
 		//! switch the window camera back to PERSPECTIVE projection (FOV and
 		//! clip distances are preserved)
 		void setCameraPerspective();

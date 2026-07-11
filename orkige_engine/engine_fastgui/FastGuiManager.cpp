@@ -13,6 +13,7 @@
 #include "engine_render/RenderSystem.h"
 #include <OgreStringConverter.h>
 #include "engine_input/InputManager.h"
+#include "engine_fastgui/FastGuiTextEntry.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_game/GameStateManager.h>
@@ -25,7 +26,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false)
 	{
 		oAssert(this->factory);
 		// drive the pixel-font UI scale from the display density so a 14px
@@ -68,6 +69,7 @@ namespace Orkige
 	{
 		this->registerEvent(Orkige::InputManager::KeyPressedEvent,				&FastGuiManager::onKeyPressed,				this);
 		this->registerEvent(Orkige::InputManager::KeyReleasedEvent,				&FastGuiManager::onKeyReleased,				this);
+		this->registerEvent(Orkige::InputManager::TextInputEvent,				&FastGuiManager::onTextInput,				this);
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		this->registerEvent(Orkige::InputManager::TouchPressedEvent,			&FastGuiManager::onTouchPressed,			this);
 		this->registerEvent(Orkige::InputManager::TouchReleasedEvent,			&FastGuiManager::onTouchReleased,			this);
@@ -84,6 +86,7 @@ namespace Orkige
 	{
 		this->unregisterEvent(Orkige::InputManager::KeyPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::KeyReleasedEvent);
+		this->unregisterEvent(Orkige::InputManager::TextInputEvent);
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		this->unregisterEvent(Orkige::InputManager::TouchPressedEvent);
 		this->unregisterEvent(Orkige::InputManager::TouchReleasedEvent);
@@ -489,10 +492,66 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	bool FastGuiManager::onTextInput(Orkige::Event const & event)
+	{
+		// route committed text only to the focused field (a no-op when none is)
+		if(this->focusedTextEntry)
+		{
+			optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
+			this->focusedTextEntry->onTextInput(data->textInput);
+		}
+		return false;
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::focusTextEntry(FastGuiTextEntry* entry)
+	{
+		// a field claimed focus this press (used by the press handlers below to
+		// distinguish a tap-on-field from a tap-away)
+		if(entry)
+		{
+			this->textEntryFocusClaimed = true;
+		}
+		if(entry == this->focusedTextEntry)
+		{
+			return;
+		}
+		if(this->focusedTextEntry)
+		{
+			this->focusedTextEntry->setFocusedState(false);
+		}
+		this->focusedTextEntry = entry;
+		if(entry)
+		{
+			entry->setFocusedState(true);
+			if(InputManager::getSingletonPtr())
+			{
+				InputManager::getSingleton().startTextInput();
+			}
+		}
+		else if(InputManager::getSingletonPtr())
+		{
+			InputManager::getSingleton().stopTextInput();
+		}
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::notifyTextEntryDestroyed(FastGuiTextEntry* entry)
+	{
+		if(this->focusedTextEntry == entry)
+		{
+			this->focusedTextEntry = NULL;
+			if(InputManager::getSingletonPtr())
+			{
+				InputManager::getSingleton().stopTextInput();
+			}
+		}
+	}
+	//---------------------------------------------------------
 	bool FastGuiManager::onMousePressed(Orkige::Event const & event)
 	{
 		optr<MouseEventData> data = event.getDataPtr<MouseEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		// tap-away blur: a press that no field claims clears the focus
+		this->textEntryFocusClaimed = false;
 		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
 			if(this->cancelInputUpdate)
@@ -500,6 +559,10 @@ namespace Orkige
 				break;
 			}
 			widget->onCursorPressed(cursorPos);
+		}
+		if(!this->textEntryFocusClaimed && this->focusedTextEntry)
+		{
+			this->focusTextEntry(NULL);
 		}
 		this->cancelInputUpdate = false;
 		return false;
@@ -545,6 +608,8 @@ namespace Orkige
 	{
 		optr<TouchEventData> data = event.getDataPtr<TouchEventData>();
 		Ogre::Vector2 cursorPos((Ogre::Real)data->absX, (Ogre::Real)data->absY);
+		// tap-away blur (same as the mouse path): an unclaimed tap clears focus
+		this->textEntryFocusClaimed = false;
 		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
 		{
 			if(this->cancelInputUpdate)
@@ -552,6 +617,10 @@ namespace Orkige
 				break;
 			}
 			widget->onCursorPressed(cursorPos);
+		}
+		if(!this->textEntryFocusClaimed && this->focusedTextEntry)
+		{
+			this->focusTextEntry(NULL);
 		}
 		return false;
 	}

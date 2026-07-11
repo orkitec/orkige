@@ -109,6 +109,9 @@ namespace Orkige
 		float getContentScale();
 		//! @copydoc Engine::setCameraOrthographic (classic)
 		void setCameraOrthographic(float verticalHalfExtent);
+		//! @copydoc Engine::setCameraOrthographicFit (classic)
+		void setCameraOrthographicFit(int fitMode, float designWidth,
+			float designHeight);
 		//! switch the window camera back to PERSPECTIVE projection
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)

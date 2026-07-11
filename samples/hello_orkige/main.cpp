@@ -24,6 +24,7 @@
 #include <engine_fastgui/FastGuiManager.h>
 #include <engine_fastgui/FastGuiFactory.h>
 #include <engine_fastgui/FastGuiSlider.h>
+#include <engine_fastgui/FastGuiTextEdit.h>
 #include <engine_fastgui/UiAtlas.h>
 #include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
@@ -1097,6 +1098,146 @@ int main(int, char**)
 			SDL_Log("hello_orkige: UI-scale selfcheck passed (UiGlyph::scale "
 				"snapped, button + text scaled, safe-area anchoring, checkbox "
 				"toggle + select-menu value)");
+		}
+
+		// ORKIGE_DEMO_TEXTENTRY=1: the fastgui TextEntry selfcheck (flavor-
+		// neutral). Boots a real FastGuiManager on the committed atlas, creates a
+		// text field and drives it entirely through synthetic SDL events on the
+		// REAL input path (InputManager::injectEvent -> FastGuiManager routing):
+		// a mouse press focuses it, SDL_EVENT_TEXT_INPUT types text, backspace
+		// deletes, Home/Right move the caret + mid-string insert lands correctly,
+		// and Return submits (wasSubmitted latches once, then blurs).
+		if (std::getenv("ORKIGE_DEMO_TEXTENTRY"))
+		{
+			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+			bool entryOk = true;
+			{
+				Orkige::optr<Orkige::FastGuiFactory> factory =
+					Orkige::onew(new Orkige::FastGuiFactory());
+				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				gui.enableInputEvents();
+
+				const Orkige::Vec2 fieldPos(100.0f, 100.0f);
+				const Orkige::Vec2 fieldSize(320.0f, 50.0f);
+				Orkige::woptr<Orkige::FastGuiTextEntry> entryWeak =
+					factory->createTextEntry("uiTextEntry", "none", 9,
+						"type here", fieldPos, fieldSize, "", 5, 16);
+				Orkige::optr<Orkige::FastGuiTextEntry> entry = entryWeak.lock();
+				if (!entry)
+				{
+					SDL_Log("hello_orkige: FAILED - text entry not created");
+					entryOk = false;
+				}
+
+				// synthetic-event helpers on the REAL input path
+				auto pressAt = [&](float x, float y)
+				{
+					SDL_Event e{};
+					e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					e.button.button = SDL_BUTTON_LEFT;
+					e.button.down = true;
+					e.button.x = x;
+					e.button.y = y;
+					inputManager.injectEvent(e);
+				};
+				auto typeText = [&](const char* text)
+				{
+					SDL_Event e{};
+					e.type = SDL_EVENT_TEXT_INPUT;
+					e.text.text = text;
+					inputManager.injectEvent(e);
+				};
+				auto pressKey = [&](SDL_Scancode scancode)
+				{
+					SDL_Event e{};
+					e.type = SDL_EVENT_KEY_DOWN;
+					e.key.scancode = scancode;
+					e.key.down = true;
+					inputManager.injectEvent(e);
+				};
+
+				if (entryOk)
+				{
+					// tap to focus, then type
+					pressAt(fieldPos.x + 20.0f, fieldPos.y + 20.0f);
+					if (!entry->isFocused())
+					{
+						SDL_Log("hello_orkige: FAILED - tap did not focus the "
+							"text entry");
+						entryOk = false;
+					}
+					typeText("Hello");
+					if (entryOk && entry->getText() != "Hello")
+					{
+						SDL_Log("hello_orkige: FAILED - typed 'Hello', got '%s'",
+							entry->getText().c_str());
+						entryOk = false;
+					}
+					// backspace removes the last character
+					pressKey(SDL_SCANCODE_BACKSPACE);
+					if (entryOk && entry->getText() != "Hell")
+					{
+						SDL_Log("hello_orkige: FAILED - after backspace got '%s'",
+							entry->getText().c_str());
+						entryOk = false;
+					}
+					// Home + one Right, then insert -> lands after the first char
+					pressKey(SDL_SCANCODE_HOME);
+					pressKey(SDL_SCANCODE_RIGHT);
+					typeText("X");
+					if (entryOk && entry->getText() != "HXell")
+					{
+						SDL_Log("hello_orkige: FAILED - mid-string insert got '%s'"
+							", expected 'HXell'", entry->getText().c_str());
+						entryOk = false;
+					}
+					// max length 16: a long paste is clipped
+					typeText("0123456789ABCDEF");
+					if (entryOk &&
+						Orkige::TextEntryEdit::codepointCount(entry->getText())
+							!= 16)
+					{
+						SDL_Log("hello_orkige: FAILED - max length not enforced "
+							"(%zu code points)",
+							Orkige::TextEntryEdit::codepointCount(
+								entry->getText()));
+						entryOk = false;
+					}
+					// Return submits (latches once) and blurs
+					pressKey(SDL_SCANCODE_RETURN);
+					if (entryOk && !entry->wasSubmitted())
+					{
+						SDL_Log("hello_orkige: FAILED - Return did not submit");
+						entryOk = false;
+					}
+					if (entryOk && entry->wasSubmitted())
+					{
+						SDL_Log("hello_orkige: FAILED - wasSubmitted did not "
+							"clear after one poll");
+						entryOk = false;
+					}
+					if (entryOk && entry->isFocused())
+					{
+						SDL_Log("hello_orkige: FAILED - submit did not blur the "
+							"text entry");
+						entryOk = false;
+					}
+				}
+				if (entryOk && !render->renderOneFrame())
+				{
+					SDL_Log("hello_orkige: FAILED - text-entry frame did not "
+						"render");
+					entryOk = false;
+				}
+				gui.disableInputEvents();
+			}
+			if (!entryOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: text-entry selfcheck passed (focus, typing, "
+				"backspace, caret move, max length, submit)");
 		}
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs

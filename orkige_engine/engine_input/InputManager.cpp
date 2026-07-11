@@ -21,6 +21,7 @@
 #include "engine_graphic/FrameEventData.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_util/StringUtil.h"
+#include "engine_util/PlatformWindow.h"
 #include "core_util/TiltCalibration.h"
 
 #include <algorithm>
@@ -46,6 +47,7 @@ namespace Orkige
 	IMPL_OWNED_EVENTTYPE(InputManager, GestureEndedEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, GestureCancelledEvent);
 	IMPL_OWNED_EVENTTYPE(InputManager, AccelerationEvent);
+	IMPL_OWNED_EVENTTYPE(InputManager, TextInputEvent);
 
 	IMPL_OSINGLETON(InputManager);
 
@@ -239,6 +241,7 @@ namespace Orkige
 		Event gestureEndedEvent;
 		Event gestureCancelledEvent;
 		Event accelerationEvent;
+		Event textInputEvent;
 
 		optr<KeyEventData> keyData;
 		optr<MouseEventData> mouseData;
@@ -267,6 +270,7 @@ namespace Orkige
 		float sensorAccel[3];			//!< latest raw accelerometer sample (m/s^2)
 		float tiltCalibAngle;			//!< neutral-pose calibration offset (radians)
 		String calibSaveFile;			//!< calibration save path ("" = no persistence)
+		bool textInputActive;			//!< an SDL text-input session is running
 
 		InputManagerImpl()
 			: keyPressedEvent(InputManager::KeyPressedEvent),
@@ -282,6 +286,7 @@ namespace Orkige
 			gestureEndedEvent(InputManager::GestureEndedEvent),
 			gestureCancelledEvent(InputManager::GestureCancelledEvent),
 			accelerationEvent(InputManager::AccelerationEvent),
+			textInputEvent(InputManager::TextInputEvent),
 			windowWidth(0), windowHeight(0)
 		{
 			this->keyData = onew(new KeyEventData());
@@ -307,6 +312,9 @@ namespace Orkige
 			this->gestureCancelledEvent.setData(this->gestureData);
 
 			this->accelerationEvent.setData((this->accelerationData));
+			// the text-input event reuses the shared key data - its UTF-8 payload
+			// rides KeyEventData::textInput (the `key` field stays unset)
+			this->textInputEvent.setData(this->keyData);
 
 			for (int each = 0; each < ORKIGE_MAX_NUM_TOUCHES; each++)
 			{
@@ -325,6 +333,7 @@ namespace Orkige
 			this->sensorAccel[1] = 0.0f;
 			this->sensorAccel[2] = 0.0f;
 			this->tiltCalibAngle = 0.0f;
+			this->textInputActive = false;
 		}
 		~InputManagerImpl()
 		{
@@ -537,6 +546,14 @@ namespace Orkige
 			this->impl->sdlKeyToOrkige(event.key);
 			GlobalEventManager::getSingleton().trigger(this->impl->keyReleasedEvent);
 			return true;
+		case SDL_EVENT_TEXT_INPUT:
+			// committed text while a text-input session is active (SDL composes
+			// shifted/dead-key/IME text here, not on the key events): hand the
+			// UTF-8 string to listeners via the shared key data's textInput field
+			this->impl->keyData->textInput =
+				event.text.text ? event.text.text : "";
+			GlobalEventManager::getSingleton().trigger(this->impl->textInputEvent);
+			return true;
 		case SDL_EVENT_MOUSE_MOTION:
 			this->impl->sdlMouseMotionToOrkige(event.motion);
 			GlobalEventManager::getSingleton().trigger(this->impl->mouseMovedEvent);
@@ -617,6 +634,41 @@ namespace Orkige
 		// state array ignores application-pushed events, which would make
 		// scripted/synthetic input (selfchecks) invisible here
 		return this->impl->keyDownState[scancode];
+	}
+	//---------------------------------------------------------
+	void InputManager::startTextInput()
+	{
+		SDL_Window* window =
+			static_cast<SDL_Window*>(PlatformWindow::getActiveWindow());
+		if(!window)
+		{
+			return;	// no window registered (editor never registers one) - no-op
+		}
+		if(!this->impl->textInputActive)
+		{
+			SDL_StartTextInput(window);
+			this->impl->textInputActive = true;
+		}
+	}
+	//---------------------------------------------------------
+	void InputManager::stopTextInput()
+	{
+		if(!this->impl->textInputActive)
+		{
+			return;
+		}
+		this->impl->textInputActive = false;
+		SDL_Window* window =
+			static_cast<SDL_Window*>(PlatformWindow::getActiveWindow());
+		if(window)
+		{
+			SDL_StopTextInput(window);
+		}
+	}
+	//---------------------------------------------------------
+	bool InputManager::isTextInputActive() const
+	{
+		return this->impl->textInputActive;
 	}
 	//---------------------------------------------------------
 	void InputManager::setWindowExtents( int width, int height )

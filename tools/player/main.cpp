@@ -29,6 +29,7 @@
 #include <SDL3/SDL_main.h>
 #include <engine_graphic/Engine.h>
 #include <engine_graphic/ScreenFade.h>
+#include <engine_graphic/ScreenShake.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderWorld.h>
 #include <engine_render/RenderNode.h>
@@ -57,6 +58,8 @@
 #include <core_game/SceneSerializer.h>
 #include <core_game/LevelManager.h>
 #include <core_game/LevelSequence.h>
+#include <core_game/SaveStore.h>
+#include <core_game/TimeControl.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
 #include <core_debug/Breadcrumbs.h>
@@ -68,8 +71,10 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
+#include <core_tween/EaseLibrary.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -986,6 +991,19 @@ int main(int argc, char** argv)
 		// table. Ticked LAST in the loop (a presentation overlay). Like the
 		// TweenManager, the editor never makes one, so `screen.*` is a no-op there.
 		Orkige::ScreenFade screenFade;
+		// camera-space screen shake (engine-owned, both flavors): scripts drive
+		// it through the Lua `screen.shake` table. Ticked LAST in the loop (a
+		// presentation effect), like the fade. The editor never makes one.
+		Orkige::ScreenShake screenShake;
+		// the gameplay time scale the loop applies to the scripts/tweens/physics
+		// delta (Lua `world.setTimeScale`); the editor never makes one, so
+		// gameplay stays real-time in edit mode.
+		Orkige::TimeControl timeControl;
+		// general per-project persistence (Lua `save` table): a typed
+		// key->value store written atomically to the writable app dir. Set up for
+		// any loaded project below; the editor never makes one, so `save.*` is an
+		// honest no-op in edit mode.
+		Orkige::SaveStore saveStore;
 		if (project.isLoaded())
 		{
 			const std::string levelsRef =
@@ -1034,6 +1052,55 @@ int main(int argc, char** argv)
 				}
 				levelManager.setSaveFile(saveFile);
 				levelManager.loadProgress();
+			}
+
+			// general persistence (Lua `save` table): the SAME writable directory
+			// the progression save uses, under a PER-PROJECT file name so the two
+			// coexist. Loaded at boot; flushed on a clean shutdown (below) and on
+			// any explicit save.flush(). ORKIGE_PROGRESS_DIR / ORKIGE_PROGRESS_RESET
+			// isolate/reset it for selfchecks, exactly like the progression save.
+			{
+				std::string saveDir;
+				if (const char* saveDirEnv = std::getenv("ORKIGE_PROGRESS_DIR"))
+				{
+					saveDir = saveDirEnv;
+				}
+				else
+				{
+					saveDir = std::filesystem::path(engineLogPath)
+						.parent_path().string();
+				}
+				if (!saveDir.empty() && saveDir.back() != '/')
+				{
+					saveDir += '/';
+				}
+				if (!saveDir.empty())
+				{
+					std::error_code ignored;
+					std::filesystem::create_directories(saveDir, ignored);
+				}
+				// slug the project name into a safe file stem (spaces / path
+				// separators -> '_'); an unnamed project falls back to "orkige"
+				std::string slug = project.getName();
+				for (char& character : slug)
+				{
+					if (!std::isalnum(static_cast<unsigned char>(character)))
+					{
+						character = '_';
+					}
+				}
+				if (slug.empty())
+				{
+					slug = "orkige";
+				}
+				const std::string saveFile = saveDir + slug + "_save.osave";
+				if (std::getenv("ORKIGE_PROGRESS_RESET") != nullptr)
+				{
+					std::error_code ignored;
+					std::filesystem::remove(saveFile, ignored);
+				}
+				saveStore.setSaveFile(saveFile);
+				saveStore.load();
 			}
 		}
 
@@ -1172,6 +1239,140 @@ int main(int argc, char** argv)
 		// (project scripts may re-place the rig from their init())
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.5f, 9.0f));
 		cameraNode->lookAt(Orkige::Vec3::ZERO, Orkige::RenderNode::TS_WORLD);
+
+		// ORKIGE_GAMESUPPORT_SELFCHECK: the game-support pack verified end to end,
+		// synchronous (no render loop needed) against the live player wiring:
+		//  (1) SAVE - set typed values through the Lua `save` table (proving the
+		//      binding + the player's SaveStore file wiring), flush to disk, then
+		//      re-load into a FRESH store (a "restart") and read them back;
+		//  (2) SCREEN SHAKE - drive ScreenShake against the live window-camera rig
+		//      node: it must deflect mid-shake and restore the node to EXACTLY its
+		//      rest pose when the shake runs out;
+		//  (3) TIME SCALE - feed the TweenManager the loop's delta*timeScale and
+		//      assert timeScale 0.5 lands a tween at HALF the progress that
+		//      timeScale 1.0 reaches over the same updates.
+		// The ortho aspect-fit policy is proven headlessly by the CameraFit unit
+		// tests (visible world rect across 4:3..21:9).
+		if (std::getenv("ORKIGE_GAMESUPPORT_SELFCHECK") != nullptr)
+		{
+			bool ok = true;
+			std::string detail;
+
+			// (1) save round-trip through the Lua binding + a fresh-store reload
+			std::string saveDir;
+			if (const char* d = std::getenv("ORKIGE_PROGRESS_DIR"))
+			{
+				saveDir = d;
+			}
+			else
+			{
+				saveDir = std::filesystem::temp_directory_path().string();
+			}
+			if (!saveDir.empty() && saveDir.back() != '/')
+			{
+				saveDir += '/';
+			}
+			std::error_code saveDirErr;
+			std::filesystem::create_directories(saveDir, saveDirErr);
+			const std::string saveFile = saveDir + "gamesupport_save.osave";
+			std::filesystem::remove(saveFile, saveDirErr);
+			saveStore.setSaveFile(saveFile);
+			Orkige::ScriptComponent::ensureScriptApi();
+			Orkige::ScriptRuntime::Result saveResult =
+				Orkige::ScriptRuntime::getSingleton().runString(
+					"save.set('coins', 42)\n"
+					"save.set('player.name', 'Ada')\n"
+					"save.set('unlocked', true)\n"
+					"return save.flush()");
+			if (!saveResult.success)
+			{
+				ok = false;
+				detail = "save script error: " + saveResult.error;
+			}
+			if (ok)
+			{
+				// model the next launch: wipe the in-memory store and re-load
+				// from disk - the values must have reached the file via flush()
+				saveStore.clear();
+				if (!saveStore.load() ||
+					saveStore.getNumber("coins", 0.0) != 42.0 ||
+					saveStore.getString("player.name", "") != "Ada" ||
+					saveStore.getBool("unlocked", false) != true)
+				{
+					ok = false;
+					detail = "save did not round-trip through a reload from disk";
+				}
+			}
+
+			// (2) screen shake deflects then restores the camera EXACTLY
+			if (ok)
+			{
+				const Orkige::Vec3 rest = cameraNode->getPosition();
+				screenShake.shake(1.0f, 0.2f, 30.0f);
+				screenShake.update(0.05f);	// one frame into the shake
+				const Orkige::Vec3 shaken = cameraNode->getPosition();
+				if ((shaken - rest).length() < 1.0e-4f)
+				{
+					ok = false;
+					detail = "screen shake did not deflect the camera";
+				}
+				// run well past the 0.2s duration, then it must be back at rest
+				for (int i = 0; ok && i < 8; ++i)
+				{
+					screenShake.update(0.05f);
+				}
+				const Orkige::Vec3 after = cameraNode->getPosition();
+				if (ok && ((after - rest).length() > 1.0e-5f ||
+					screenShake.isShaking()))
+				{
+					ok = false;
+					detail = "screen shake did not restore the camera to rest";
+				}
+			}
+
+			// (3) time scale halves a tween's progress over the same updates
+			if (ok)
+			{
+				auto runTween = [&](float scale) -> float
+				{
+					timeControl.setTimeScale(scale);
+					float value = 0.0f;
+					const float from = 0.0f;
+					const float to = 1.0f;
+					tweenManager.startTween(&from, &to, 1, 1.0f,
+						&Orkige::Ease::linear,
+						[&value](float const* values, int) -> bool
+						{
+							value = values[0];
+							return true;
+						},
+						Orkige::TweenManager::CompleteFunction(), 0.0f,
+						Orkige::StringUtil::BLANK);
+					// ten updates of the loop's delta*timeScale (base dt 0.1)
+					for (int i = 0; i < 10; ++i)
+					{
+						tweenManager.update(0.1f * timeControl.getTimeScale());
+					}
+					tweenManager.clear();	// reap before the next run
+					return value;
+				};
+				const float fullProgress = runTween(1.0f);
+				const float halfProgress = runTween(0.5f);
+				timeControl.setTimeScale(1.0f);
+				if (std::abs(fullProgress - 1.0f) > 1.0e-3f ||
+					std::abs(halfProgress - 0.5f) > 1.0e-3f)
+				{
+					ok = false;
+					detail = "time scale did not halve tween progress (full=" +
+						std::to_string(fullProgress) + " half=" +
+						std::to_string(halfProgress) + ")";
+				}
+			}
+
+			SDL_Log("orkige_player: GAMESUPPORT SELFCHECK %s%s%s",
+				ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+			return ok ? 0 : 1;
+		}
 
 		// frame-time statistics: the ORKIGE_DEMO_FPS_LOG measurement hook and
 		// the one-time "this build is too slow to play" hint
@@ -1848,6 +2049,12 @@ int main(int argc, char** argv)
 				// appending elsewhere - a wrong position means silent
 				// one-frame-lag bugs.
 				//
+				// TIME SCALE: the gameplay tick (scripts, tweens, physics) runs on
+				// the SCALED delta (world.setTimeScale; 0 = hitstop, still renders);
+				// input sampling, presentation overlays (fade/shake), audio, the
+				// debug stream and rendering stay on the real delta.
+				const float gameplayDelta = deltaTime * timeControl.getTimeScale();
+				//
 				// [1] INPUT - the raw SDL events of this frame were polled and
 				//     injected at the top of the loop (inputManager.injectEvent).
 				//     SLOT(input-actions): map raw input state to actions
@@ -1860,13 +2067,13 @@ int main(int argc, char** argv)
 				//     runs the game code, rigid bodies create lazily and sync
 				//     their simulated pose into the transforms, sounds/sprites
 				//     follow their transforms.
-				gameObjectManager.update(deltaTime);
+				gameObjectManager.update(gameplayDelta);
 				//
 				// [3] TWEENS - after scripts (a tween started this frame takes
 				//     its first step this frame), before physics (tweened poses
 				//     are what the simulation sees). Dormant in the editor: only
 				//     runtimes that tick this block create a TweenManager.
-				tweenManager.update(deltaTime);
+				tweenManager.update(gameplayDelta);
 				//
 				// [4] PHYSICS - the fixed-timestep simulation, then the
 				//     sim->scene pose sync: dynamic bodies publish the pose
@@ -1875,7 +2082,7 @@ int main(int argc, char** argv)
 				//     stream would lag the simulation by one tick).
 				if (physicsNeeded)
 				{
-					physicsWorld.update(deltaTime);
+					physicsWorld.update(gameplayDelta);
 					Orkige::RigidBodyComponent::syncDynamicBodyPoses(
 						gameObjectManager);
 					// contacts + sensors/triggers: the worker-thread
@@ -1930,6 +2137,12 @@ int main(int argc, char** argv)
 				// the deferred-load pump, so its alpha reflects the frame about to
 				// render and a mid-fade scene switch is hidden under full opacity
 				screenFade.update(deltaTime);
+				// screen shake is a PRESENTATION effect too, ticked after the fade
+				// and the deferred-load pump: it reads the camera's base pose AFTER
+				// the scripts/physics of this frame set it, applies the wobble for
+				// the frame about to render, and restores it. On the real delta so
+				// it still animates during a hitstop (timeScale 0).
+				screenShake.update(deltaTime);
 			}
 
 			// streaming: hierarchy on change (checked every N frames),
@@ -3633,6 +3846,11 @@ int main(int argc, char** argv)
 				running = false;
 			}
 		}
+
+		// clean-shutdown autosave: persist any unflushed `save` changes now (a
+		// hard crash skips this - the documented crash-loses-unflushed window).
+		// A no-op when nothing changed or no save file is set.
+		saveStore.flush();
 
 		// breadcrumbs: an orderly shutdown marker distinguishes a clean exit
 		// from a crash trail (whose last line is whatever happened before death)

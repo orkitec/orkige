@@ -37,6 +37,19 @@ namespace Orkige
 			PM_PERSPECTIVE = 0,		//!< the classic 3D frustum (default)
 			PM_ORTHOGRAPHIC = 1		//!< parallel projection sized by orthoSize
 		};
+		//! @brief how the orthographic view reconciles the design rectangle with
+		//! the live viewport aspect (2D aspect policy). Mirrors CameraFit::FitMode
+		//! for reflection; the math itself lives in core_util/CameraFit.h.
+		enum FitMode
+		{
+			//! honour orthoSize as the half-height; width follows the aspect
+			//! (the historical default). designWidth/Height are ignored.
+			FM_HEIGHT = 0,
+			//! keep the full designWidth on screen; the half-height is derived
+			FM_WIDTH = 1,
+			//! keep the whole design rectangle visible, growing the slack axis
+			FM_EXPAND = 2
+		};
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -52,6 +65,10 @@ namespace Orkige
 		CameraModeFunction		cameraFunction;	//!< function that handles camera control (called once per frame)
 		ProjectionMode			projectionMode;	//!< perspective (default) or orthographic
 		float					orthoSize;		//!< orthographic vertical HALF-extent in world units
+		FitMode					fitMode;		//!< 2D aspect policy (FM_HEIGHT default)
+		float					designWidth;	//!< design rect FULL width (FM_WIDTH/FM_EXPAND)
+		float					designHeight;	//!< design rect FULL height (FM_EXPAND)
+		float					lastAspect;		//!< last viewport aspect an ortho fit applied at
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -90,9 +107,25 @@ namespace Orkige
 		void setOrthoSize(float verticalHalfExtent);
 		//! @see CameraComponent::orthoSize
 		inline float getOrthoSize() const;
+		//! @brief select the 2D aspect fit policy (@see FitMode). FM_WIDTH /
+		//! FM_EXPAND derive orthoSize from designWidth/Height and the live
+		//! viewport aspect; FM_HEIGHT keeps orthoSize as the authored half-height.
+		void setFitMode(FitMode mode);
+		//! @see CameraComponent::fitMode
+		inline FitMode getFitMode() const;
+		//! design rectangle FULL width in world units (FM_WIDTH / FM_EXPAND)
+		void setDesignWidth(float worldWidth);
+		//! @see CameraComponent::designWidth
+		inline float getDesignWidth() const;
+		//! design rectangle FULL height in world units (FM_EXPAND)
+		void setDesignHeight(float worldHeight);
+		//! @see CameraComponent::designHeight
+		inline float getDesignHeight() const;
 	protected:
 		//! push projectionMode/orthoSize onto the window camera (if one is attached)
 		void applyProjection();
+		//! the live viewport aspect (width/height); 1.0 without a render system
+		float currentAspect() const;
 		//! overridable to update the component
 		virtual void onUpdateComponent(float deltaTime);
 		//! Component override gets called after the Component is attached to a GameObject
@@ -117,6 +150,21 @@ namespace Orkige
 	inline float CameraComponent::getOrthoSize() const
 	{
 		return this->orthoSize;
+	}
+	//---------------------------------------------------------
+	inline CameraComponent::FitMode CameraComponent::getFitMode() const
+	{
+		return this->fitMode;
+	}
+	//---------------------------------------------------------
+	inline float CameraComponent::getDesignWidth() const
+	{
+		return this->designWidth;
+	}
+	//---------------------------------------------------------
+	inline float CameraComponent::getDesignHeight() const
+	{
+		return this->designHeight;
 	}
 	//---------------------------------------------------------
 	inline optr<RenderNode> const & CameraComponent::getControlNode()

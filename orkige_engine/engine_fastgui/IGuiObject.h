@@ -44,6 +44,9 @@ namespace Orkige
 		//! @brief overridable message gets called when cursor is moved
 		//! @param cursorPos absolute cursor screen position
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
+		//! @brief overridable message gets called when committed text arrives
+		//! while this object has input focus (the TextEntry widget); default no-op
+		virtual void onTextInput(String const & text);
 		//! overridable message gets called when a key is pressed
 		virtual bool onKeyPressed(KeyEventData const & data);
 		//! overridable message gets called when a key is released

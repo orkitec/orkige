@@ -20,6 +20,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_util/PlatformWindow.h"
+#include <core_util/CameraFit.h>
 #include <core_event/GlobalEventManager.h>
 
 #include <OgreRoot.h>
@@ -208,6 +209,23 @@ namespace Orkige
 			windowCamera->getNearClip(), windowCamera->getFarClip());
 	}
 	//---------------------------------------------------------
+	void Engine::setCameraOrthographicFit(int fitMode, float designWidth,
+		float designHeight)
+	{
+		optr<RenderCamera> windowCamera = this->getWindowCamera();
+		oAssert(windowCamera);
+		unsigned int width = 0;
+		unsigned int height = 0;
+		this->getRenderSystem()->getWindowSize(width, height);
+		const float aspect = (width > 0 && height > 0)
+			? static_cast<float>(width) / static_cast<float>(height) : 1.0f;
+		const float halfExtent = CameraFit::orthoHalfHeight(
+			static_cast<CameraFit::FitMode>(fitMode), designWidth, designHeight,
+			aspect);
+		windowCamera->setOrthographic(halfExtent,
+			windowCamera->getNearClip(), windowCamera->getFarClip());
+	}
+	//---------------------------------------------------------
 	void Engine::setCameraPerspective()
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -264,6 +282,7 @@ namespace Orkige
 		OFUNC(getContentScale)
 		// 2D projection switches: engine:setCameraOrthographic(orthoSize)
 		OFUNC(setCameraOrthographic)
+		OFUNC(setCameraOrthographicFit)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
 		// UI capability probe: true on BOTH flavors since the DrawLayer2D

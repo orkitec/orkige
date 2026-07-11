@@ -430,6 +430,45 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	bool ScriptRuntime::boolArg(ScriptArgs const & args, int index,
+		bool fallback)
+	{
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return fallback;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		return value.is<bool>() ? value.as<bool>() : fallback;
+#else
+		(void)args;
+		(void)index;
+		return fallback;
+#endif
+	}
+	//---------------------------------------------------------
+	ScriptRuntime::ArgType ScriptRuntime::argType(ScriptArgs const & args,
+		int index)
+	{
+#ifdef ORKIGE_LUA
+		if(index < 0 || static_cast<std::size_t>(index) >= args.size())
+		{
+			return AT_ABSENT;
+		}
+		const sol::object value = args.get<sol::object>(index);
+		// bool BEFORE number: Lua booleans and numbers are distinct types, and a
+		// value that is a boolean must not be mistaken for a 0/1 number
+		if(value.is<bool>())	{ return AT_BOOL; }
+		if(value.is<double>())	{ return AT_NUMBER; }
+		if(value.is<String>())	{ return AT_STRING; }
+		return AT_OTHER;
+#else
+		(void)args;
+		(void)index;
+		return AT_ABSENT;
+#endif
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 

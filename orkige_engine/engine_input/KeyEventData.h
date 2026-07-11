@@ -11,6 +11,7 @@
 
 #include <core_event/Event.h>
 #include "engine_module/EnginePrerequisites.h"
+#include "core_util/String.h"
 
 namespace Orkige
 {
@@ -179,6 +180,11 @@ namespace Orkige
                 KeyCode key;
                 //! Text character, depends on current TextTranslationMode
                 unsigned int text;
+                //! @brief the committed UTF-8 text of an InputManager
+                //! TextInputEvent (SDL_EVENT_TEXT_INPUT) - the composed,
+                //! locale/shift-aware characters a TextEntry widget inserts.
+                //! Empty on plain key press/release events.
+                String textInput;
         protected:
         private:
                 //--- Methods -----------------------------------------------

@@ -203,8 +203,14 @@ namespace Orkige
 		//! `self`; the siblings are re-fetched from the live GameObject, so a
 		//! hot-reloaded script sees the CURRENT engine-side state
 		void populateSelfTable(optr<ScriptInstance> const & instance);
-		//! register the global `world` and `shared` tables once per runtime
+	public:
+		//! @brief register the global scripting tables (world / screen / save /
+		//! tween / cvar / sound / music / haptics / loc) once per runtime -
+		//! idempotent. Normally called lazily the first time a ScriptComponent
+		//! loads; a host that drives the Lua API before any component runs (a
+		//! selfcheck) can prime them by calling this directly.
 		static void ensureScriptApi();
+	private:
 		//! log the error once and disable the instance
 		void failScript(String const & message);
 		//! @brief record a hotReload() failure: store it in mReloadError and

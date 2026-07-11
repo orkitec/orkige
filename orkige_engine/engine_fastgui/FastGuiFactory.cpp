@@ -187,6 +187,20 @@ namespace Orkige
 		return widget;
 	}
 	//---------------------------------------------------------
+	woptr<FastGuiTextEntry> FastGuiFactory::createTextEntry(String const & id, String const & spriteName, uint defaultGlyphIndex, String const & placeholder, Ogre::Vector2 const & position, Ogre::Vector2 const & size /*= Ogre::Vector2::ZERO*/, String const & atlas /*= StringUtil::BLANK*/, uint z /*= 0*/, uint maxLength /*= 0*/)
+	{
+		optr<FastGuiTextEntry> widget;
+
+		if(FastGuiManager::getSingleton().widgetExists(id))
+		{
+			oAssertDesc(!FastGuiManager::getSingleton().widgetExists(id), "Widget with id: " << id << "already exists!");
+			return widget;
+		}
+		widget = onew(new FastGuiTextEntry(id, spriteName, defaultGlyphIndex, placeholder, position, scaleAuthoredSize(size), atlas, z, maxLength));
+		FastGuiManager::getSingleton().addWidget(widget);
+		return widget;
+	}
+	//---------------------------------------------------------
 	void FastGuiFactory::load(String const & filename)
 	{
 		Ogre::ConfigFile::load(filename, Ogre::ResourceGroupManager::getSingleton().findGroupContainingResource(filename), "\t:=", true);
@@ -280,6 +294,10 @@ namespace Orkige
 		else if(widgetTypeName == "slider")
 		{
 			this->onLoadSlider(widgetId, settings);
+		}
+		else if(widgetTypeName == "textentry")
+		{
+			this->onLoadTextEntry(widgetId, settings);
 		}
 	}
 	//---------------------------------------------------------
@@ -731,6 +749,24 @@ namespace Orkige
 		oAssert(checkBox.lock());
 		//checkBox.lock()->getLabel().lock()->getCaption()->colour(color);
  	}
+	//---------------------------------------------------------
+	void FastGuiFactory::onLoadTextEntry(String const & id, SettingsMultiMap* settings)
+	{
+		// the base settings carry sprite/glyph/position/size/atlas/z; the widget's
+		// `text` doubles as the placeholder, plus an optional "maxlength"
+		BasicWidgetSettings baseSettings = this->getBaseWidgetSettings(settings);
+		uint maxLength = 0;
+		foreach(SettingsMultiMap::value_type const & vt, *settings)
+		{
+			String key = StringUtil::to_lower_copy(vt.first);
+			if(key == "maxlength")
+			{
+				maxLength = Ogre::StringConverter::parseUnsignedInt(vt.second, 0);
+			}
+		}
+		woptr<FastGuiTextEntry> entry = this->createTextEntry(id, baseSettings.sprite, baseSettings.defaultGlyphIndex, baseSettings.text, baseSettings.position, baseSettings.size, baseSettings.atlas, baseSettings.z, maxLength);
+		oAssert(entry.lock());
+	}
 	//---------------------------------------------------------
 	void FastGuiFactory::onLoadDragDropButton(String const & id, SettingsMultiMap* settings)
 	{

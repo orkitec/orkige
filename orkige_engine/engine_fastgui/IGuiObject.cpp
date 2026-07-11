@@ -34,6 +34,11 @@ namespace Orkige
 
 	}
 	//---------------------------------------------------------
+	void IGuiObject::onTextInput(String const & text)
+	{
+
+	}
+	//---------------------------------------------------------
 	bool IGuiObject::onKeyPressed(KeyEventData const & data)
 	{
 		return false;
