@@ -107,5 +107,8 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OSIMPLEEXPORT(Orkige::TweenHandle,TweenHandle)
 		OFUNC(cancel)
 		OFUNC(isActive)
+		// make the tween loop: setLoops(count, pingpong) - count total plays
+		// (<0 = forever), pingpong true runs it back and forth
+		OFUNC(setLoops)
 	OSIMPLEEXPORT_END
 ORKIGE_MODULE_END

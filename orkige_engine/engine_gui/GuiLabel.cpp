@@ -123,6 +123,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+	void GuiLabel::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->caption)
+		{
+			this->caption->renderTransform(transform);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiLabel::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->caption)
+		{
+			this->caption->renderAlpha(alphaMultiplier);
+		}
+	}
+	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiLabel)
 		OFUNC(setText)
 		OFUNC(setAlignment)

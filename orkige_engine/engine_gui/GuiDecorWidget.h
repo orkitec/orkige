@@ -45,6 +45,8 @@ namespace Orkige
 		void setColour(float red, float green, float blue, float alpha = 1.0f);
 		//! @brief overall transparency of the rect (0..1); 0 = fully clear
 		void setAlpha(float alpha);
+		//! @brief current tint colour (the read-back a colour tween starts from)
+		Color getColour() const;
 		//! @brief draw the sprite nine-sliced (fixed corners, stretched edges)
 		//! so a panel/button resizes without distorting its rounded corners.
 		//! Needs a sprite carrying slice insets in the atlas; a no-op otherwise.
@@ -52,6 +54,8 @@ namespace Orkige
 		//! @brief draw the sprite tiled (repeated) across the rect
 		void setTiled(bool enable);
 		inline UiRect* getRectangle();
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:
 	private:
 	};

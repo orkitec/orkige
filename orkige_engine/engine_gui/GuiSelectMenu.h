@@ -55,6 +55,10 @@ namespace Orkige
 
 		//! set all item names
 		virtual void setItems(const Ogre::StringVector& items);
+		//! @brief set the item names from a single pipe-delimited string
+		//! ("A | B | C", spaces trimmed) - the SCRIPT-friendly setter, since the
+		//! seam does not convert a Lua table to a string vector
+		void setItemsString(String const & pipeDelimited);
 		inline Ogre::StringVector& getItems();
 		virtual void showItem();
 		
@@ -72,6 +76,8 @@ namespace Orkige
 		String getCaption();
 		//! set title text
 		void setCaption(String const & text);
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 
     protected:
 		void updatePosition();

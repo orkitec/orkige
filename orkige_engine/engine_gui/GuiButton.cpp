@@ -24,6 +24,7 @@ namespace Orkige
 
 		this->nostate = _nostate;
 		this->clicked = false;
+		this->pressFeedback = false;
 		this->decor = onew(new GuiDecorWidget(id + ".decor", spriteName, position, size, atlas, z));
 		
 		if(!text.empty())
@@ -153,8 +154,31 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
+	void GuiButton::setPressFeedback(bool enable)
+	{
+		this->pressFeedback = enable;
+	}
+	//---------------------------------------------------------
 	void GuiButton::setState(const GuiButton::ButtonState& bs)
 	{
+		// press-feedback juice: snap smaller entering the pressed state, spring
+		// back (a slight overshoot) leaving it. Runs through the shared tween
+		// path so it retarget-replaces and auto-kills like any widget animation.
+		if (this->pressFeedback && bs != this->state)
+		{
+			if (bs == GuiButton::BS_DOWN)
+			{
+				GuiManager::getSingleton().cancelWidgetTween(this->getObjectID(),
+					GuiManager::WTC_Scale);
+				this->setRenderScale(0.94f, 0.94f);
+			}
+			else if (this->state == GuiButton::BS_DOWN)
+			{
+				const float to[2] = { 1.0f, 1.0f };
+				GuiManager::getSingleton().tweenWidget(this->getObjectID(),
+					GuiManager::WTC_Scale, to, 0.18f, &Ease::backOut);
+			}
+		}
 		if (!this->nostate)
 		{
 			if (bs == GuiButton::BS_UP)
@@ -206,6 +230,20 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+	void GuiButton::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		// decor + label transform as one unit about the button centre (the
+		// transform pivot is shared, computed by the owning widget)
+		if(this->decor)	this->decor->applyRenderTransform(transform);
+		if(this->label)	this->label->applyRenderTransform(transform);
+	}
+	//---------------------------------------------------------
+	void GuiButton::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->decor)	this->decor->applyRenderAlpha(alphaMultiplier);
+		if(this->label)	this->label->applyRenderAlpha(alphaMultiplier);
+	}
+	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiButton)
 		OFUNC(getCaption)
 		OFUNC(setCaption)
@@ -213,6 +251,7 @@ namespace Orkige
 		OFUNC(wasClicked)
 		OFUNC(setNineSlice)
 		OFUNC(setTiled)
+		OFUNC(setPressFeedback)
 		OENUM_START(ButtonState)
 			OENUM_VALUE(BS_DISABLED)
 			OENUM_VALUE(BS_UP)

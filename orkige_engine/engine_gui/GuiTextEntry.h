@@ -86,6 +86,8 @@ namespace Orkige
 		virtual void onTextInput(String const & text);
 		virtual bool onKeyPressed(KeyEventData const & data);
 		virtual bool onFrameStarted(FrameEventData const & data);
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:
 		//! dim the field body + text when disabled (input is gated in the manager)
 		virtual void onEnabledChanged(bool enable);

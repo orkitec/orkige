@@ -82,10 +82,10 @@ namespace Orkige
 	{
 		this->viewportExtent = viewportSize.y;
 		this->contentExtent = content.y;
-		// re-clamp against the fresh extents (a resize may shrink the range)
-		const float clamped = clampScroll(this->scrollY,
-			float(this->contentExtent), float(this->viewportExtent));
-		this->scrollY = clamped;
+		// the offset range is [-maxScroll, 0] (content shift convention); the
+		// momentum machine clamps to it (a resize may shrink the range)
+		this->momentum.setBounds(-this->getMaxScroll(), 0.0f);
+		this->scrollY = this->momentum.offset();
 		// clip the content layer to the viewport rect (pixels). The scroll view
 		// draws nothing itself; its content widgets sit on this same z layer.
 		if(this->layer != NULL)
@@ -99,18 +99,29 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
-	void GuiScrollView::clampAndApply()
+	void GuiScrollView::setScroll(float offsetY)
 	{
-		this->scrollY = clampScroll(this->scrollY, float(this->contentExtent),
-			float(this->viewportExtent));
-		// a changed offset re-runs the resolve so the content rects shift
+		// a programmatic scroll snaps (no inertia) - the momentum machine clamps
+		this->momentum.setBounds(-this->getMaxScroll(), 0.0f);
+		this->momentum.setOffset(offsetY);
+		this->scrollY = this->momentum.offset();
 		GuiManager::getSingleton().markLayoutDirty();
 	}
 	//---------------------------------------------------------
-	void GuiScrollView::setScroll(float offsetY)
+	bool GuiScrollView::onFrameStarted(FrameEventData const & data)
 	{
-		this->scrollY = offsetY;
-		this->clampAndApply();
+		// coast the flick / spring back from overscroll; re-resolve only when the
+		// offset actually moved (a settled view costs nothing)
+		if(this->dragging || this->momentum.isMoving())
+		{
+			const float before = this->scrollY;
+			this->scrollY = this->momentum.update(data.timeSinceLastFrame);
+			if(this->scrollY != before)
+			{
+				GuiManager::getSingleton().markLayoutDirty();
+			}
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	bool GuiScrollView::containsPoint(Ogre::Vector2 const & point) const
@@ -126,9 +137,11 @@ namespace Orkige
 		{
 			return;
 		}
-		// a notch up (positive) reveals content above -> offset toward 0
-		this->scrollY += (float(wheelDelta) / 120.0f) * SCROLL_WHEEL_STEP;
-		this->clampAndApply();
+		// a notch up (positive) reveals content above -> offset toward 0. The
+		// wheel bypasses momentum (discrete input, not a flick).
+		this->momentum.wheelBy((float(wheelDelta) / 120.0f) * SCROLL_WHEEL_STEP);
+		this->scrollY = this->momentum.offset();
+		GuiManager::getSingleton().markLayoutDirty();
 	}
 	//---------------------------------------------------------
 	void GuiScrollView::onCursorPressed(Ogre::Vector2 const & cursorPos)
@@ -137,13 +150,19 @@ namespace Orkige
 		{
 			this->dragging = true;
 			this->dragLastY = cursorPos.y;
+			this->momentum.beginDrag();
 		}
 	}
 	//---------------------------------------------------------
 	void GuiScrollView::onCursorReleased(Ogre::Vector2 const & cursorPos)
 	{
 		(void)cursorPos;
-		this->dragging = false;
+		if(this->dragging)
+		{
+			// the flick velocity measured over the drag becomes the coast
+			this->momentum.endDrag();
+			this->dragging = false;
+		}
 	}
 	//---------------------------------------------------------
 	void GuiScrollView::onCursorMoved(Ogre::Vector2 const & cursorPos)
@@ -152,13 +171,15 @@ namespace Orkige
 		{
 			return;
 		}
-		// dragging down (positive dy) pulls the content down (reveals its top)
+		// dragging down (positive dy) pulls the content down (reveals its top);
+		// travel past a bound is rubber-banded by the momentum machine
 		const float delta = cursorPos.y - float(this->dragLastY);
 		this->dragLastY = cursorPos.y;
 		if(delta != 0.0f)
 		{
-			this->scrollY += delta;
-			this->clampAndApply();
+			this->momentum.dragBy(delta);
+			this->scrollY = this->momentum.offset();
+			GuiManager::getSingleton().markLayoutDirty();
 		}
 	}
 	//---------------------------------------------------------

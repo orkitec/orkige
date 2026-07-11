@@ -56,6 +56,8 @@ namespace Orkige
 		void setAlpha(float alpha);
 		//! get gorilla Caption
 		inline UiCaption* getCaption();
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:
 	private:
 	};

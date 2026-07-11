@@ -84,6 +84,11 @@ namespace Orkige
 		this->rect->background_colour(Color(red, green, blue, alpha));
 	}
 	//---------------------------------------------------------
+	Color GuiDecorWidget::getColour() const
+	{
+		return this->rect ? this->rect->colour() : Color(1, 1, 1, 1);
+	}
+	//---------------------------------------------------------
 	void GuiDecorWidget::setAlpha(float alpha)
 	{
 		this->rect->setAlpha(alpha);
@@ -105,6 +110,22 @@ namespace Orkige
 
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
+	//---------------------------------------------------------
+	void GuiDecorWidget::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->rect)
+		{
+			this->rect->renderTransform(transform);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiDecorWidget::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->rect)
+		{
+			this->rect->renderAlpha(alphaMultiplier);
+		}
+	}
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiDecorWidget)
 		// position/size accessors are inherited from GuiWidget; only the

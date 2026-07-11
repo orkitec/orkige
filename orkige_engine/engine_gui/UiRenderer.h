@@ -35,6 +35,7 @@
 #include "engine_gui/UiAtlas.h"
 #include "engine_render/DrawLayer2D.h"
 #include <core_util/optr.h>
+#include <core_util/Ui2DTransform.h>
 
 #include <vector>
 
@@ -138,6 +139,30 @@ namespace Orkige
 		//! a render probe for selfchecks ("did the HUD actually draw?")
 		inline size_t getLastVertexCount() const { return this->mLastVertexCount; }
 
+		//--- performance-contract probes (the "1 draw per screen per atlas,
+		//--- dirty-tracked, zero steady-state allocation" promise made
+		//--- enforceable; @see the demo_gui_matrix perf assertions) ---
+		//! @brief draw submissions (DrawLayer2D batches) the screen holds after
+		//! its last rebuild: 1 for the common case (every layer of one atlas
+		//! concatenated), +1 per scissored (scroll) layer. The batch-count
+		//! contract a selfcheck pins.
+		inline size_t getLastBatchCount() const { return this->mLastBatchCount; }
+		//! @brief a monotonic count of batch RESUBMITS (the dirty path: clear +
+		//! re-emit + resubmit). A steady screen never advances it; one content
+		//! change advances it once; an active animation advances it each frame
+		//! and stops at completion. Read deltas to assert dirty-tracking.
+		inline size_t getRebuildCount() const { return this->mRebuildCount; }
+		//! @brief a monotonic count of element GEOMETRY rebuilds (a UiRect/
+		//! UiCaption/UiMarkupText actually re-tessellated its vertices). Distinct
+		//! from getRebuildCount: a post-pass scale/rotation/alpha animation
+		//! RESUBMITS the batch each frame but rebuilds NO geometry, so this stays
+		//! flat while it animates - the proof of the transform-only design claim.
+		inline size_t getGeometryRebuildCount() const { return this->mGeometryRebuildCount; }
+		//! @brief the retained scratch buffer's current capacity (elements). Stable
+		//! across identical rebuilt frames after warmup = no per-frame reallocation
+		//! (the steady-state-allocation contract, approximated by capacity).
+		inline size_t getScratchCapacity() const { return this->mScratch.capacity(); }
+
 		//! layer callback: content changed, resubmit on the next update
 		inline void _markDirty() { this->mDirty = true; }
 	protected:
@@ -154,6 +179,8 @@ namespace Orkige
 		bool					mDirty;
 		bool					mForceRedraw;
 		size_t					mLastVertexCount;	//!< sum over the last update's batches
+		size_t					mLastBatchCount;	//!< draw submissions in the last rebuild
+		size_t					mRebuildCount;		//!< monotonic full-rebuild counter
 	private:
 		UiScreen(UiScreen const &);					// non-copyable
 		UiScreen & operator=(UiScreen const &);		// non-copyable
@@ -337,6 +364,8 @@ namespace Orkige
 
 		//! tint colour (multiplies a sprite; fills solid otherwise)
 		void background_colour(Color const & colour);
+		//! current tint colour (the animation read-back for a colour tween)
+		inline Color const & colour() const { return this->mColour; }
 		//! skip drawing (alpha 0)
 		void no_background();
 		//! transparency of the whole rect
@@ -351,6 +380,18 @@ namespace Orkige
 		//! needs any sprite. A solid fill always draws stretched.
 		void setDrawMode(DrawMode mode);
 		inline DrawMode getDrawMode() const { return this->mDrawMode; }
+
+		//! @brief a per-frame scale/rotation about a pivot (window pixels) applied
+		//! to the emitted vertices - the widget-animation transform. Identity by
+		//! default; changing it resubmits the batch but does NOT rebuild the local
+		//! geometry (a cheap coast for an animating widget). @see UiLayer::_render
+		void renderTransform(Ui2DTransform const & transform);
+		inline Ui2DTransform const & renderTransform() const { return this->mRenderTransform; }
+		//! @brief a per-frame alpha multiplier folded into the emitted vertex alpha
+		//! (0..1) - the cascading group-alpha channel, independent of the base
+		//! colour. 1 = opaque.
+		void renderAlpha(Real alphaMultiplier);
+		inline Real renderAlpha() const { return this->mRenderAlpha; }
 
 		//! rebuild the vertices (dirty path; not for users)
 		void _redraw();
@@ -368,6 +409,8 @@ namespace Orkige
 		//! plain-stretch fill. Points into the atlas (owned by GuiManager,
 		//! outlives the rect, addresses stable in the atlas' sprite map).
 		UiSprite const *		mSprite;
+		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
+		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<UiVertex>	mVertices;
 	};
 
@@ -418,6 +461,13 @@ namespace Orkige
 		//! follows the global UiGlyph::scale, exactly like Gorilla did)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
 
+		//! @brief per-frame scale/rotation about a pivot (@see UiRect::renderTransform)
+		void renderTransform(Ui2DTransform const & transform);
+		inline Ui2DTransform const & renderTransform() const { return this->mRenderTransform; }
+		//! @brief per-frame cascade alpha multiplier (@see UiRect::renderAlpha)
+		void renderAlpha(Real alphaMultiplier);
+		inline Real renderAlpha() const { return this->mRenderAlpha; }
+
 		//! measure the text without drawing (single line, kerning +
 		//! letter spacing applied; x excludes the trailing kerning)
 		void _calculateDrawSize(Vec2 & size);
@@ -437,6 +487,8 @@ namespace Orkige
 		Color					mColour;
 		bool					mDirty;
 		bool					mScaled;
+		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
+		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<UiVertex>	mVertices;
 	};
 
@@ -467,6 +519,13 @@ namespace Orkige
 		//! historical flag (@see UiCaption::scaled)
 		inline void scaled(bool scaled) { this->mScaled = scaled; }
 
+		//! @brief per-frame scale/rotation about a pivot (@see UiRect::renderTransform)
+		void renderTransform(Ui2DTransform const & transform);
+		inline Ui2DTransform const & renderTransform() const { return this->mRenderTransform; }
+		//! @brief per-frame cascade alpha multiplier (@see UiRect::renderAlpha)
+		void renderAlpha(Real alphaMultiplier);
+		inline Real renderAlpha() const { return this->mRenderAlpha; }
+
 		//! lay the characters out (also refreshes width()/height());
 		//! runs automatically on dirty text before drawing
 		void _calculateCharacters();
@@ -491,6 +550,8 @@ namespace Orkige
 		String					mText;
 		bool					mDirty, mTextDirty;
 		bool					mScaled;
+		Ui2DTransform			mRenderTransform;	//!< animation transform (post-pass)
+		Real					mRenderAlpha;		//!< cascade alpha multiplier
 		std::vector<Character>	mCharacters;
 		std::vector<UiVertex>	mVertices;
 	};

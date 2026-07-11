@@ -12,6 +12,7 @@
 #include "engine_gui/GuiScrollView.h"
 
 #include <OgreStringConverter.h>
+#include <OgreString.h>
 #include <algorithm>
 
 namespace Orkige
@@ -42,6 +43,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void GuiDropDown::setItemsString(String const & pipeDelimited)
+	{
+		// script-friendly: split on '|' (labels may hold spaces), trim each piece
+		Ogre::StringVector items = Ogre::StringUtil::split(pipeDelimited, "|");
+		for(String & item : items)
+		{
+			Ogre::StringUtil::trim(item);
+		}
+		this->setItems(items);
+	}
+	//---------------------------------------------------------
 	String GuiDropDown::getSelectedItem() const
 	{
 		if(this->selectedIndex < this->items.size())
@@ -61,25 +73,22 @@ namespace Orkige
 		this->setCaption(this->items[index]);
 	}
 	//---------------------------------------------------------
-	void GuiDropDown::onCursorReleased(Ogre::Vector2 const & cursorPos)
+	void GuiDropDown::onCursorPressed(Ogre::Vector2 const & cursorPos)
 	{
-		GuiButton::onCursorReleased(cursorPos);
-		// a completed click toggles the list; the actual open/close touches the
-		// widget list, so defer it out of this dispatch loop
-		if(this->wasClicked())
+		GuiButton::onCursorPressed(cursorPos);
+		// a dropdown opens on PRESS (the established combobox behaviour). Opening
+		// touches the widget list, so defer it out of this dispatch loop. While
+		// open, a press on the dropdown falls under its own light-dismiss scrim,
+		// which closes the list - so only the closed case opens here.
+		if(!this->menuOpen && !this->wantOpen && this->decor &&
+			this->decor->getRectangle()->intersects(cursorPos) &&
+			this->layer->isVisible())
 		{
-			if(this->menuOpen)
+			this->wantOpen = true;
+			GuiManager::getSingleton().runDeferred([this]()
 			{
-				this->closeMenu();
-			}
-			else if(!this->wantOpen)
-			{
-				this->wantOpen = true;
-				GuiManager::getSingleton().runDeferred([this]()
-				{
-					this->openMenu();
-				});
-			}
+				this->openMenu();
+			});
 		}
 	}
 	//---------------------------------------------------------
@@ -167,6 +176,16 @@ namespace Orkige
 			{
 				option->setParent(content);
 			}
+			// highlight the currently-selected option so the open list shows
+			// where the value sits (a stable tint - a hover state would reset on
+			// the next cursor move)
+			if(option && i == this->selectedIndex)
+			{
+				if(optr<GuiDecorWidget> optDecor = option->getDecor().lock())
+				{
+					optDecor->setColour(0.72f, 0.83f, 1.0f, 1.0f);
+				}
+			}
 			manager.registerModalWidget(this->menuModalId, optionId);
 			this->optionIds.push_back(optionId);
 		}
@@ -209,6 +228,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiDropDown)
 		OFUNC(setItems)
+		OFUNC(setItemsString)
 		OFUNC(getSelectedIndex)
 		OFUNC(getSelectedItem)
 		OFUNC(selectIndex)

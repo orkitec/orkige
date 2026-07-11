@@ -10,6 +10,7 @@
 #define __GuiScrollView_h__11_7_2026__15_00_00__
 
 #include "engine_gui/GuiWidget.h"
+#include <core_util/ScrollMomentum.h>
 
 namespace Orkige
 {
@@ -50,6 +51,8 @@ namespace Orkige
 		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
 		virtual void onCursorMoved(Ogre::Vector2 const & cursorPos);
+		//! @brief advance the flick inertia + rubber-band spring-back each frame
+		virtual bool onFrameStarted(FrameEventData const & data);
 
 		//! @brief scroll to an absolute offset (clamped); +/- moves the content
 		void setScroll(float offsetY);
@@ -60,15 +63,15 @@ namespace Orkige
 		//! does a point fall inside the viewport rect?
 		bool containsPoint(Ogre::Vector2 const & point) const;
 	protected:
-		//! re-clamp the current offset against the stored extents + mark dirty
-		void clampAndApply();
-
 		Real left, top, width, height;		//!< the viewport rect (window pixels)
-		float scrollY;						//!< current vertical scroll (<= 0)
+		float scrollY;						//!< current vertical scroll (cache of the momentum offset; <= 0 inside bounds, transiently > 0 while rubber-banding)
 		Real viewportExtent;				//!< viewport height (clamp input)
 		Real contentExtent;					//!< content preferred height (clamp input)
 		bool dragging;						//!< a press claimed the viewport
 		Real dragLastY;						//!< last drag cursor y
+		//! @brief the flick-inertia + rubber-band physics (@see ScrollMomentum);
+		//! the widget forwards drags/wheel/frame ticks and reads back the offset
+		ScrollMomentum momentum;
 	private:
 	};
 }

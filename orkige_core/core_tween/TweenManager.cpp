@@ -11,6 +11,7 @@
 #include "core_game/GameObjectManager.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace Orkige
 {
@@ -51,12 +52,30 @@ namespace Orkige
 		tween.mEase = ease ? ease : &Ease::linear;
 		tween.mOnUpdate = onUpdate;
 		tween.mOnComplete = onComplete;
+		tween.mLoopsRemaining = 0;
+		tween.mLoopPingpong = false;
 		tween.mDone = false;
 		// safe while update() iterates: it walks by index over the size
 		// captured at entry, so a tween started from a callback takes its
 		// first step on the NEXT update
 		this->mTweens.push_back(tween);
 		return tween.mId;
+	}
+	//---------------------------------------------------------
+	void TweenManager::setTweenLoops(TweenId id, int loopCount, bool pingpong)
+	{
+		for(Tween & tween : this->mTweens)
+		{
+			if(tween.mId == id && !tween.mDone)
+			{
+				// loopCount is the TOTAL number of plays; store the repeats left
+				// after the current one (<0 = infinite)
+				tween.mLoopsRemaining = loopCount < 0 ? -1
+					: (loopCount <= 1 ? 0 : loopCount - 1);
+				tween.mLoopPingpong = pingpong;
+				return;
+			}
+		}
 	}
 	//---------------------------------------------------------
 	bool TweenManager::cancelTween(TweenId id)
@@ -156,6 +175,25 @@ namespace Orkige
 			}
 			if(finished && !this->mTweens[i].mDone)
 			{
+				if(this->mTweens[i].mLoopsRemaining != 0)
+				{
+					// another play: rewind (ping-pong swaps the endpoints so it
+					// runs back the other way). onComplete waits for the last play.
+					if(this->mTweens[i].mLoopsRemaining > 0)
+					{
+						--this->mTweens[i].mLoopsRemaining;
+					}
+					this->mTweens[i].mElapsed = 0.0f;
+					if(this->mTweens[i].mLoopPingpong)
+					{
+						for(int channel = 0; channel < channelCount; ++channel)
+						{
+							std::swap(this->mTweens[i].mFrom[channel],
+								this->mTweens[i].mTo[channel]);
+						}
+					}
+					continue;
+				}
 				// exactly once: marked done BEFORE the callback runs, so a
 				// reentrant cancel/complete cannot refire it
 				const CompleteFunction onComplete = this->mTweens[i].mOnComplete;
@@ -217,5 +255,14 @@ namespace Orkige
 	{
 		TweenManager* manager = TweenManager::getSingletonPtr();
 		return manager != 0 && this->mId != 0 && manager->isTweenActive(this->mId);
+	}
+	//---------------------------------------------------------
+	void TweenHandle::setLoops(int loopCount, bool pingpong)
+	{
+		TweenManager* manager = TweenManager::getSingletonPtr();
+		if(manager != 0 && this->mId != 0)
+		{
+			manager->setTweenLoops(this->mId, loopCount, pingpong);
+		}
 	}
 }

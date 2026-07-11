@@ -255,6 +255,19 @@ visible widget from `get_ui_layout`, its rect lies inside
 `get_safe_area` (the `player_safearea_device` ctest runs exactly this against a
 booted iPhone 16 simulator).
 
+### GUI animation — Lua/`.oui`-authored, no new verb
+
+Widget animation (the `guitween` table, `transition` in the `.oui`, cascading
+group alpha, button press feedback, scroll momentum) is authored in Lua and the
+declarative layout, so an agent drives it with the existing
+`write_project_file` / script-authoring verbs — no dedicated animation verb.
+Read-back needs none either: `get_ui_layout` reports the RESOLVED rects, so a
+poll mid-animation shows a widget's interpolating position/size (a `move`/`size`
+tween drives the layout inputs the resolver already reflects), and
+`screenshot_game` captures the scaled/rotated/faded frame. The pure animation
+logic is unit-tested headlessly (`GuiAnimationTests`, `TweenTests` loops) and
+the `demo_gui_matrix` selfcheck exercises the whole surface on both flavors.
+
 ### Haptics, tilt calibration, screen fades — Lua-authored, no new verb
 
 Three device/presentation features are reachable through the SAME

@@ -237,8 +237,15 @@ namespace Orkige
 			this->mBlinkTimer -= TEXT_ENTRY_BLINK_PERIOD;
 			this->mCaretVisible = !this->mCaretVisible;
 		}
-		this->mCaret->setAlpha(
-			(this->mFocused && this->mCaretVisible) ? 1.0f : 0.0f);
+		// only touch the caret when its opacity ACTUALLY changes - setAlpha dirties
+		// the screen, and an unfocused (or steadily-blinked) field must not force a
+		// per-frame rebuild (the dirty-tracking contract; @see the gui-perf check)
+		const float caretAlpha =
+			(this->mFocused && this->mCaretVisible) ? 1.0f : 0.0f;
+		if(this->mCaret->colour().a != caretAlpha)
+		{
+			this->mCaret->setAlpha(caretAlpha);
+		}
 		return false;
 	}
 	//---------------------------------------------------------
@@ -285,6 +292,22 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
+	//---------------------------------------------------------
+	void GuiTextEntry::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		// the field body, the visible caption and the caret transform together;
+		// the hidden measuring caption never draws, so it is left alone
+		if(this->mBackground)	this->mBackground->renderTransform(transform);
+		if(this->mCaption)		this->mCaption->renderTransform(transform);
+		if(this->mCaret)		this->mCaret->renderTransform(transform);
+	}
+	//---------------------------------------------------------
+	void GuiTextEntry::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->mBackground)	this->mBackground->renderAlpha(alphaMultiplier);
+		if(this->mCaption)		this->mCaption->renderAlpha(alphaMultiplier);
+		if(this->mCaret)		this->mCaret->renderAlpha(alphaMultiplier);
+	}
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiTextEntry)
 		OFUNC(setPosition)

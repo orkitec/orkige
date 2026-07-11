@@ -69,6 +69,18 @@ namespace Orkige
 		this->label->setAlpha(alpha);
 	}
 	//---------------------------------------------------------
+	void GuiToast::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->decor)	this->decor->applyRenderTransform(transform);
+		if(this->label)	this->label->applyRenderTransform(transform);
+	}
+	//---------------------------------------------------------
+	void GuiToast::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->decor)	this->decor->applyRenderAlpha(alphaMultiplier);
+		if(this->label)	this->label->applyRenderAlpha(alphaMultiplier);
+	}
+	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiToast)
 	OOBJECT_END
 }

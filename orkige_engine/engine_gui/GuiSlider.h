@@ -46,6 +46,8 @@ namespace Orkige
 
 		virtual void showItem();
 		virtual void setItems(const Ogre::StringVector& items);
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 
     protected:
 		//! dim the grip on top of the SelectMenu frame/label dim

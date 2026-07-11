@@ -19,6 +19,7 @@
 #include "engine_gui/GuiModalScrim.h"
 #include "engine_gui/GuiToggleGroup.h"
 #include "engine_gui/GuiToast.h"
+#include "engine_gui/GuiDecorWidget.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_util/StringTable.h>
@@ -33,7 +34,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0)
+	GuiManager::GuiManager(optr<GuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), modalSavedFocus(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0), modalSerial(0), groupAlphaDirty(false)
 	{
 		oAssert(this->factory);
 		// drive the pixel-font UI scale from the display density so a 14px
@@ -257,10 +258,23 @@ namespace Orkige
 		{
 			return false;
 		}
+		// auto-kill: a destroyed widget's running animations stop with it (its
+		// tween apply-closures re-fetch by id and would otherwise find nothing)
+		this->cancelWidgetTweens(id);
 		GuiWidgetList::iterator it2 = std::find(this->sortedWidgets.begin(), this->sortedWidgets.end(), it->second);
 		this->widgets.erase(it);
 		this->sortedWidgets.erase(it2);
 		return true;
+	}
+	//---------------------------------------------------------
+	woptr<GuiWidget> GuiManager::findWidget(String const & id)
+	{
+		GuiWidgetMap::iterator it = this->widgets.find(id);
+		if(it != this->widgets.end())
+		{
+			return it->second;
+		}
+		return oNULL(GuiWidget);
 	}
 	//---------------------------------------------------------
 	void GuiManager::destroyAllWidgets()
@@ -440,6 +454,314 @@ namespace Orkige
 			}
 			return value;
 		}
+
+		//! @brief read a widget's current value on an animation channel (the tween
+		//! `from`); @p count receives the channel count. Layout-driven widgets read
+		//! their LAYOUT INPUTS (anchoredPosition / sizeDelta) so a tween composes
+		//! with the resolver instead of fighting it.
+		void readWidgetChannel(GuiWidget* widget, int channel, float* out,
+			int& count)
+		{
+			switch(channel)
+			{
+			case GuiManager::WTC_Alpha:
+				out[0] = widget->getGroupAlpha(); count = 1; break;
+			case GuiManager::WTC_Scale:
+				out[0] = widget->getRenderScaleX();
+				out[1] = widget->getRenderScaleY(); count = 2; break;
+			case GuiManager::WTC_Rotation:
+				out[0] = widget->getRenderRotation(); count = 1; break;
+			case GuiManager::WTC_Position:
+				if(widget->isLayoutEnabled())
+				{
+					const LayoutVec2 ap = widget->getLayoutNode().anchoredPosition();
+					out[0] = ap.x; out[1] = ap.y;
+				}
+				else
+				{
+					const Ogre::Vector2 p = widget->getPosition();
+					out[0] = p.x; out[1] = p.y;
+				}
+				count = 2; break;
+			case GuiManager::WTC_Size:
+				if(widget->isLayoutEnabled())
+				{
+					const LayoutVec2 sd = widget->getLayoutNode().sizeDelta();
+					out[0] = sd.x; out[1] = sd.y;
+				}
+				else
+				{
+					const Ogre::Vector2 s = widget->getSize();
+					out[0] = s.x; out[1] = s.y;
+				}
+				count = 2; break;
+			case GuiManager::WTC_Color:
+			{
+				GuiDecorWidget* decor = dynamic_cast<GuiDecorWidget*>(widget);
+				const Color c = decor ? decor->getColour() : Color(1, 1, 1, 1);
+				out[0] = c.r; out[1] = c.g; out[2] = c.b; out[3] = c.a;
+				count = 4; break;
+			}
+			default:
+				out[0] = 0.0f; count = 1; break;
+			}
+		}
+
+		//! @brief write the eased channel value(s) back into the widget (the tween
+		//! apply). Mirrors readWidgetChannel (layout inputs for a layout widget).
+		void applyWidgetChannel(GuiWidget* widget, int channel,
+			float const* values, int n)
+		{
+			switch(channel)
+			{
+			case GuiManager::WTC_Alpha:
+				widget->setGroupAlpha(values[0]); break;
+			case GuiManager::WTC_Scale:
+				widget->setRenderScale(values[0], n > 1 ? values[1] : values[0]);
+				break;
+			case GuiManager::WTC_Rotation:
+				widget->setRenderRotation(values[0]); break;
+			case GuiManager::WTC_Position:
+				if(widget->isLayoutEnabled())
+					widget->setAnchoredPosition(values[0], values[1]);
+				else
+					widget->setPosition(values[0], values[1]);
+				break;
+			case GuiManager::WTC_Size:
+				if(widget->isLayoutEnabled())
+					widget->setSizeDelta(values[0], values[1]);
+				else
+					widget->setSize(values[0], values[1]);
+				break;
+			case GuiManager::WTC_Color:
+			{
+				GuiDecorWidget* decor = dynamic_cast<GuiDecorWidget*>(widget);
+				if(decor)
+				{
+					decor->setColour(values[0], values[1], values[2],
+						n > 3 ? values[3] : 1.0f);
+				}
+				break;
+			}
+			default: break;
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::markGroupAlphaDirty()
+	{
+		this->groupAlphaDirty = true;
+	}
+	//---------------------------------------------------------
+	void GuiManager::resolveGroupAlpha()
+	{
+		if(!this->groupAlphaDirty)
+		{
+			return;
+		}
+		this->groupAlphaDirty = false;
+		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
+		{
+			widget->applyRenderAlpha(widget->getEffectiveAlpha());
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::cancelWidgetTween(String const & widgetId, int channel)
+	{
+		std::map<String, std::map<int, TweenManager::TweenId> >::iterator it =
+			this->widgetTweens.find(widgetId);
+		if(it == this->widgetTweens.end())
+		{
+			return;
+		}
+		std::map<int, TweenManager::TweenId>::iterator cit =
+			it->second.find(channel);
+		if(cit == it->second.end())
+		{
+			return;
+		}
+		if(TweenManager::getSingletonPtr())
+		{
+			TweenManager::getSingleton().cancelTween(cit->second);
+		}
+		it->second.erase(cit);
+		if(it->second.empty())
+		{
+			this->widgetTweens.erase(it);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::cancelWidgetTweens(String const & widgetId)
+	{
+		std::map<String, std::map<int, TweenManager::TweenId> >::iterator it =
+			this->widgetTweens.find(widgetId);
+		if(it == this->widgetTweens.end())
+		{
+			return;
+		}
+		if(TweenManager::getSingletonPtr())
+		{
+			for(std::map<int, TweenManager::TweenId>::value_type const & entry :
+				it->second)
+			{
+				TweenManager::getSingleton().cancelTween(entry.second);
+			}
+		}
+		this->widgetTweens.erase(it);
+	}
+	//---------------------------------------------------------
+	TweenManager::TweenId GuiManager::tweenWidget(String const & widgetId,
+		int channel, float const * toValues, float duration,
+		Ease::Function ease, float delay,
+		TweenManager::CompleteFunction const & onComplete)
+	{
+		TweenManager* manager = TweenManager::getSingletonPtr();
+		if(!manager || !this->widgetExists(widgetId))
+		{
+			return 0;	// no tween tick (editor) or the widget is gone
+		}
+		optr<GuiWidget> widget = this->getWidget(widgetId).lock();
+		if(!widget)
+		{
+			return 0;
+		}
+		float from[TweenManager::MAX_CHANNELS];
+		int channels = 1;
+		readWidgetChannel(widget.get(), channel, from, channels);
+
+		// last-wins retarget: a running tween on this channel is replaced
+		this->cancelWidgetTween(widgetId, channel);
+
+		const String wid = widgetId;
+		const int ch = channel;
+		const TweenManager::TweenId id = manager->startTween(from, toValues,
+			channels, duration, ease,
+			[wid, ch](float const * values, int n) -> bool
+			{
+				// re-fetch by id every step (the widget may be destroyed between
+				// frames); a missing widget stops the tween
+				GuiManager* gui = GuiManager::getSingletonPtr();
+				if(!gui || !gui->widgetExists(wid))
+				{
+					return false;
+				}
+				optr<GuiWidget> w = gui->getWidget(wid).lock();
+				if(!w)
+				{
+					return false;
+				}
+				applyWidgetChannel(w.get(), ch, values, n);
+				return true;
+			},
+			onComplete, delay, StringUtil::BLANK);
+		this->widgetTweens[widgetId][channel] = id;
+		return id;
+	}
+	//---------------------------------------------------------
+	bool GuiManager::playWidgetTransition(String const & widgetId, bool entering)
+	{
+		if(!this->widgetExists(widgetId))
+		{
+			return false;
+		}
+		optr<GuiWidget> widget = this->getWidget(widgetId).lock();
+		if(!widget)
+		{
+			return false;
+		}
+		const UiTransitionSpec spec = widget->getTransition();
+		const Ogre::Vector2 size = widget->getSize();
+		const UiTransitionPlan plan = planTransition(spec, entering,
+			size.x > 0.0f ? size.x : 64.0f, size.y > 0.0f ? size.y : 64.0f);
+
+		// snap (no transition, or no runtime ticks tweens - the editor): jump to
+		// the end state. A show ends fully visible/upright; a hide parks hidden.
+		if(spec.isNone() || TweenManager::getSingletonPtr() == 0)
+		{
+			if(entering)
+			{
+				widget->setGroupAlpha(1.0f);
+				widget->setRenderScale(1.0f, 1.0f);
+			}
+			else
+			{
+				widget->setGroupAlpha(0.0f);
+			}
+			return true;
+		}
+
+		Ease::Function ease = Ease::byName(plan.ease);
+		// a hide parks the widget at effective-invisible once the exit finishes so
+		// it stops drawing AND hit-testing (a slide/pop leaves alpha 1 otherwise)
+		TweenManager::CompleteFunction park;
+		if(!entering)
+		{
+			const String wid = widgetId;
+			park = [wid]()
+			{
+				GuiManager* gui = GuiManager::getSingletonPtr();
+				if(gui && gui->widgetExists(wid))
+				{
+					optr<GuiWidget> w = gui->getWidget(wid).lock();
+					if(w)
+					{
+						w->setGroupAlpha(0.0f);
+					}
+				}
+			};
+		}
+		// a non-fade show must start fully opaque (it may have been parked hidden)
+		if(entering && !plan.animatesAlpha)
+		{
+			widget->setGroupAlpha(1.0f);
+		}
+		bool parkAttached = false;
+		if(plan.animatesAlpha)
+		{
+			widget->setGroupAlpha(plan.alphaFrom);
+			float to = plan.alphaTo;
+			this->tweenWidget(widgetId, WTC_Alpha, &to, plan.duration, ease, 0.0f,
+				park);
+			parkAttached = true;
+		}
+		if(plan.animatesScale)
+		{
+			widget->setRenderScale(plan.scaleFrom, plan.scaleFrom);
+			float to[2] = { plan.scaleTo, plan.scaleTo };
+			this->tweenWidget(widgetId, WTC_Scale, to, plan.duration, ease, 0.0f,
+				parkAttached ? TweenManager::CompleteFunction() : park);
+			parkAttached = true;
+		}
+		if(plan.animatesOffset)
+		{
+			// slide: read the rest position, jump to rest+awayOffset, tween back
+			float rest[2];
+			if(widget->isLayoutEnabled())
+			{
+				const LayoutVec2 ap = widget->getLayoutNode().anchoredPosition();
+				rest[0] = ap.x; rest[1] = ap.y;
+			}
+			else
+			{
+				const Ogre::Vector2 p = widget->getPosition();
+				rest[0] = p.x; rest[1] = p.y;
+			}
+			const float startX = rest[0] + plan.offsetFromX;
+			const float startY = rest[1] + plan.offsetFromY;
+			if(widget->isLayoutEnabled())
+			{
+				widget->setAnchoredPosition(startX, startY);
+			}
+			else
+			{
+				widget->setPosition(startX, startY);
+			}
+			float to[2] = { rest[0] + plan.offsetToX, rest[1] + plan.offsetToY };
+			this->tweenWidget(widgetId, WTC_Position, to, plan.duration, ease,
+				0.0f, parkAttached ? TweenManager::CompleteFunction() : park);
+			parkAttached = true;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	String GuiManager::showModal(String const & id, bool lightDismiss)
@@ -453,9 +775,18 @@ namespace Orkige
 		{
 			return modalId;	// already raised
 		}
+		// focus transfer: the first modal blurs and remembers the field focused
+		// below it, so typed text does not leak past the scrim; the last dismiss
+		// restores it (@see drainModalDismissals)
+		if(this->modalStack.empty() && this->focusedTextEntry != NULL)
+		{
+			this->modalSavedFocus = this->focusedTextEntry;
+			this->focusTextEntry(NULL);
+		}
 		ModalStack::Entry entry = this->modalStack.push(modalId);
 		ModalRecord record;
 		record.layers = entry;
+		record.lightDismiss = lightDismiss;
 		// the consuming backdrop (semi-transparent black); the dialog's own
 		// widgets sit on entry.contentZ, one layer above this scrim
 		const String scrimId = modalId + ".scrim";
@@ -543,6 +874,13 @@ namespace Orkige
 			}
 			this->modalStack.remove(id);
 			this->modalRecords.erase(it);
+		}
+		// the last modal closed: restore the field that was focused below it
+		if(this->modalStack.empty() && this->modalSavedFocus != NULL)
+		{
+			GuiTextEntry* restore = this->modalSavedFocus;
+			this->modalSavedFocus = NULL;
+			this->focusTextEntry(restore);
 		}
 		this->reorderViews();
 	}
@@ -1029,6 +1367,65 @@ namespace Orkige
 	bool GuiManager::onFrameStarted(Orkige::Event const & event)
 	{
 		optr<FrameEventData> data = event.getDataPtr<FrameEventData>();
+		this->tickFrame(*data);
+		return false;
+	}
+	//---------------------------------------------------------
+	void GuiManager::profileTick(float delta)
+	{
+		// run the exact per-frame gui pipeline once, off the event bus, so a
+		// selfcheck can TIME it (layout resolve + widget ticks + screen rebuild +
+		// submission) - the perf-budget probe
+		FrameEventData data;
+		data.timeSinceLastEvent = delta;
+		data.timeSinceLastFrame = delta;
+		this->tickFrame(data);
+	}
+	//---------------------------------------------------------
+	size_t GuiManager::getLastBatchCount() const
+	{
+		// draw submissions across every visible screen (one atlas = one screen)
+		size_t batches = 0;
+		for(GuiViewMap::value_type const & vt : this->views)
+		{
+			UiScreen* screen = vt.second->getScreen();
+			if(screen && screen->isVisible())
+			{
+				batches += screen->getLastBatchCount();
+			}
+		}
+		return batches;
+	}
+	//---------------------------------------------------------
+	size_t GuiManager::getRebuildCount() const
+	{
+		size_t rebuilds = 0;
+		for(GuiViewMap::value_type const & vt : this->views)
+		{
+			if(vt.second->getScreen())
+			{
+				rebuilds += vt.second->getScreen()->getRebuildCount();
+			}
+		}
+		return rebuilds;
+	}
+	//---------------------------------------------------------
+	size_t GuiManager::getScratchCapacity() const
+	{
+		size_t capacity = 0;
+		for(GuiViewMap::value_type const & vt : this->views)
+		{
+			if(vt.second->getScreen())
+			{
+				capacity += vt.second->getScreen()->getScratchCapacity();
+			}
+		}
+		return capacity;
+	}
+	//---------------------------------------------------------
+	void GuiManager::tickFrame(FrameEventData & frameData)
+	{
+		FrameEventData* const data = &frameData;
 		// frame-boundary work, all OUTSIDE any input-dispatch loop so widgets may
 		// be created/destroyed safely. Run queued actions first (popups opening,
 		// so their widgets exist for this frame's loop + resolve), then let every
@@ -1058,6 +1455,9 @@ namespace Orkige
 		// widgets, and only when a layout property changed or the window
 		// resized - steady clean frames skip it entirely.
 		this->resolveLayouts();
+		// re-apply cascaded group alpha when a fade changed it (a parent fade dims
+		// its subtree); a no-op on a steady UI
+		this->resolveGroupAlpha();
 		// after the widgets updated: rebuild dirty screens and resubmit
 		// their vertices to the DrawLayer2D facade for this frame (clean
 		// screens return immediately - no rebuild, no upload)
@@ -1072,7 +1472,6 @@ namespace Orkige
 		{
 			entry.second->flush();
 		}
-		return false;
 	}
 	//---------------------------------------------------------
 	bool GuiManager::onFrameRenderingQueued(Orkige::Event const & event)
@@ -1090,11 +1489,18 @@ namespace Orkige
 	bool GuiManager::onKeyPressed(Orkige::Event const & event)
 	{
 		optr<KeyEventData> data = event.getDataPtr<KeyEventData>();
-		// Escape (desktop) / the Android back button map to "dismiss the top
-		// modal" while one is up; it consumes the key so nothing below reacts
+		// Escape (desktop) / the Android back button dismiss the TOP modal, but
+		// only when it is light-dismissable (a menu/dropdown); a confirm/alert
+		// must be answered by a button. Consumes the key either way while a modal
+		// is up so nothing below reacts.
 		if(data->key == KeyEventData::KC_ESCAPE && this->isModalActive())
 		{
-			this->dismissTopModal();
+			std::map<String, ModalRecord>::const_iterator top =
+				this->modalRecords.find(this->modalStack.topId());
+			if(top != this->modalRecords.end() && top->second.lightDismiss)
+			{
+				this->dismissTopModal();
+			}
 			return false;
 		}
 		foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
@@ -1103,9 +1509,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1124,9 +1530,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1180,6 +1586,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::notifyTextEntryDestroyed(GuiTextEntry* entry)
 	{
+		// a field destroyed while remembered for post-modal restore must not be
+		// refocused (dangling pointer)
+		if(this->modalSavedFocus == entry)
+		{
+			this->modalSavedFocus = NULL;
+		}
 		if(this->focusedTextEntry == entry)
 		{
 			this->focusedTextEntry = NULL;
@@ -1202,9 +1614,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1228,9 +1640,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1254,9 +1666,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1268,7 +1680,7 @@ namespace Orkige
 		{
 			foreach(optr<GuiWidget> const & widget, this->sortedWidgets)
 			{
-				if(!widget->isEffectivelyEnabled())
+				if(!widget->acceptsInput())
 				{
 					continue;
 				}
@@ -1291,9 +1703,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1316,9 +1728,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1342,9 +1754,9 @@ namespace Orkige
 			{
 				break;
 			}
-			// disabled widgets are input-inert: skipped here so they neither
-			// react nor consume (uniform for every interactive widget type)
-			if(!widget->isEffectivelyEnabled())
+			// input-inert widgets are skipped: a disabled widget OR a faded-out
+			// (effectively invisible) subtree neither reacts nor consumes
+			if(!widget->acceptsInput())
 			{
 				continue;
 			}
@@ -1366,6 +1778,9 @@ namespace Orkige
 		OFUNC(enableInputEvents)
 		OFUNC(disableInputEvents)
 		OFUNC(widgetExists)
+		// the .oui <-> Lua bridge: find a declaratively-authored widget by id and
+		// wire behavior (setters, guitween.*, transitions) onto it
+		OFUNCWEAK(findWidget)
 		OFUNC(destroyWidget)
 		OFUNC(destroyAllWidgets)
 		OFUNC(hideAllViews)
@@ -1399,7 +1814,8 @@ namespace Orkige
 		OFUNCWEAK(createToggleGroup)
 		OFUNCWEAK(getToggleGroup)
 		OFUNC(destroyToggleGroup)
-		// timed notification: showToast(text, seconds)
+		// timed notification: showToast(text, seconds); poll isToastVisible()
 		OFUNC(showToast)
+		OFUNC(isToastVisible)
 	OOBJECT_END
 }

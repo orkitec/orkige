@@ -51,8 +51,9 @@ once.
 first-hit-wins consume** — overlapping widgets all see the same press. Two things
 change that:
 
-- A **disabled** widget (`setEnabled(false)`) is skipped in the dispatch loop:
-  input-inert AND visually dimmed. Uniform for every widget type.
+- A **disabled** widget (`setEnabled(false)`) is skipped by hit-testing
+  entirely — the dispatch loop never calls its handlers, so it is input-inert —
+  and rendered dimmed. Uniform for every widget type.
 - A **modal scrim** (`GuiModalScrim`) sits on a high layer and, on any cursor
   event, calls `GuiManager::cancelCurrentInputUpdate()`. That stops the dispatch
   for every LOWER layer for the rest of that event. The dialog's own widgets sit
@@ -63,11 +64,14 @@ change that:
 
 ```lua
 button:setEnabled(false)   -- input-inert + dimmed (Button swaps to its
-                           -- "_disabled" sprite; others fade to 40% alpha)
+                           -- "_disabled" sprite; others dim to 50% alpha)
 if button:isEnabled() then ... end
 ```
 
-In `.oui`, any widget takes `enabled = false` (default true).
+Disabling a container / panel disables its whole **subtree**: a widget is inert
+when it OR any layout ancestor is disabled (the manager gates input on
+`isEffectivelyEnabled`, which walks the layout-parent chain). In `.oui`, any
+widget takes `enabled = false` (default true).
 
 ## Modal dialogs
 
@@ -94,15 +98,29 @@ gui:dismissModal("pause")                 -- or gui:dismissTopModal()
 if gui:isModalActive() then ... end
 ```
 
-`lightDismiss = true` closes the modal when the scrim itself is tapped (an
-outside-tap sheet / dropdown). Escape (desktop) and the Android back button
-dismiss the topmost modal. Text with a leading `@` is looked up in the
-`StringTable` (localisation). Modals stack: the newest is raised above the rest
-and wins input.
+Established modal behavior, so instincts transfer:
+
+- The scrim blocks ALL input on the layers below it; the dialog's own widgets sit
+  one layer above and stay interactive.
+- **Outside-tap dismiss is opt-in per dialog** (`lightDismiss`): `showConfirm` /
+  `showAlert` default NOT light-dismissable (they must be answered by a button);
+  menus and dropdowns ARE. A tap on the scrim of a light-dismissable modal closes
+  it.
+- **Escape** (desktop) and the **Android back button** dismiss the TOP modal, but
+  only when it is light-dismissable — a confirm/alert is left up (answer it with a
+  button). Either way the key is consumed while a modal is up.
+- Modals **stack LIFO**: the newest is raised above the rest and wins input.
+- **Focus transfers**: the text-entry input session focused below the stack is
+  blurred while a modal is up (so typing never leaks past the scrim) and restored
+  when the last modal closes.
+
+Text with a leading `@` is looked up in the `StringTable` (localisation).
 
 ## Toggle groups (radio / single selection)
 
-Checking one member unchecks the others. The pure state machine is
+Radio semantics: exactly one member is selected; checking one unchecks the
+others, and clicking the already-selected member does NOT deselect it (a group
+never lands in an empty state unless you opt in). The pure state machine is
 `core_util/ToggleGroupState`.
 
 ```lua
@@ -115,28 +133,165 @@ group:setSelected(0)
 if group:pollChanged() then applyQuality(group:getSelected()) end
 ```
 
-`group:setAllowNone(true)` lets a member be tapped off (an empty selection).
+`group:setAllowNone(true)` (default off) opts into switch-off: tapping the
+selected member then deselects it, allowing the empty state.
 
 ## Toasts
 
-A timed, self-dismissing notification that takes no input and slides no widgets.
-Toasts show one at a time; queue several and they surface in turn (the pure
-`core_util/ToastQueue` sequences and fades them).
+A timed, self-dismissing notification. It is **non-interactive** and never blocks
+input. Toasts **queue FIFO with one visible at a time** (the common mobile
+convention); the default lifetime is ~2.5 s. The pure `core_util/ToastQueue`
+sequences and fades them.
 
 ```lua
-gui:showToast("Saved", 2.0)   -- text, seconds
+gui:showToast("Saved", 2.5)   -- text, seconds
 ```
+
+## Animation & juice
+
+Widgets animate through the same `TweenManager` the game tweens ride (ticked in
+the player loop; dormant in the editor, so animation never runs in edit mode).
+The Lua surface is the **`guitween`** table — one call per property, keyed by
+widget id:
+
+```lua
+guitween.alpha(id, alpha, duration [, ease [, delay [, onComplete]]])
+guitween.scale(id, scale, duration [, ...])    -- uniform scale about the centre
+guitween.rotate(id, degrees, duration [, ...]) -- Z rotation about the centre
+guitween.move(id, x, y, duration [, ...])      -- anchoredPosition (layout) / position
+guitween.size(id, w, h, duration [, ...])      -- sizeDelta (layout) / size
+guitween.color(id, r, g, b, a, duration [, ...]) -- decor tint (decor widgets)
+guitween.show(id) / guitween.hide(id)          -- play the widget's transition
+guitween.stop(id)                              -- cancel every tween on the widget
+```
+
+The default ease is ease-out quadratic (`quadOut`); pass any
+[`EaseLibrary`](../orkige_core/core_tween/EaseLibrary.h) name. Every call returns
+a handle:
+
+```lua
+local h = guitween.scale("badge", 1.2, 0.3, "quadInOut")
+h:setLoops(-1, true)   -- loop forever, ping-pong (back and forth); count<0 = infinite
+if not h:isActive() then ... end   -- the completion poll
+h:cancel()
+```
+
+Completion resolves BOTH ways, matching how confirm dialogs do: poll
+`handle:isActive()`, or pass an `onComplete` callback as the trailing argument.
+
+**Semantics (the conventions to rely on):**
+
+- **Replace-on-retarget (last-wins).** Starting a tween on a property that is
+  already animating on that widget cancels the running one — the newest target
+  wins. There is at most one tween per (widget, property).
+- **Auto-kill on destroy.** Destroying a widget stops its animations; a tween
+  never writes to a widget that no longer exists (the apply re-fetches by id).
+- **Compose with layout, don't fight it.** Animating a layout-driven widget
+  tweens its LAYOUT INPUTS — `move` drives `anchoredPosition`, `size` drives
+  `sizeDelta` — so the resolver and the animation cooperate. `scale` and
+  `rotate` are a render transform about the widget centre, layered on top of the
+  resolved rect (the layout geometry never changes).
+- **The batch stays one draw.** Scale/rotation transform the emitted vertices in
+  place; an animating widget resubmits its screen but rebuilds no geometry.
+
+### Cascading (group) alpha
+
+`widget:setGroupAlpha(a)` sets a 0..1 opacity that **multiplies down the
+layout-parent chain**: fading a panel dims every widget parented under it,
+multiplicatively through nesting. `widget:getEffectiveAlpha()` reads the
+resolved product. Below a small threshold the faded-out subtree also stops
+hit-testing (input falls through to whatever is behind it) — the standard
+convention; opt out per widget with `widget:setAlphaBlocksInput(false)`.
+
+### Show / hide transitions
+
+Widgets carry an enter/exit transition, declared in `.oui` or set from Lua:
+
+```
+[Panel menu]
+transition = fade 0.2        # or "slide-up 0.3", "slide-down", "slide-left",
+                             # "slide-right", "pop", "none"
+```
+
+```lua
+panel:setTransition("pop 0.25")
+guitween.show("menu")    -- plays the enter transition (fade in / slide in / pop up)
+guitween.hide("menu")    -- plays the exit (reverse) THEN parks the widget hidden
+```
+
+The exit reverses the enter (fade out, slide back out the way it came, pop
+down); a `hide` ends the widget at effective-invisible so it stops drawing AND
+hit-testing. A widget with `transition = none` (or unset) snaps.
+
+### Button press feedback
+
+`button:setPressFeedback(true)` opts a button into the tactile "juice": it
+scales down a touch on press and springs back with a slight overshoot on release
+(a short `backOut` scale tween through the same path).
+
+### Scroll momentum
+
+`GuiScrollView` flicks: releasing a drag with velocity coasts with exponential
+deceleration; dragging past an edge rubber-bands (diminishing resistance) and
+springs back on release; the mouse wheel bypasses momentum (discrete, not a
+flick). The feel is the pure
+[`ScrollMomentum`](../orkige_core/core_util/ScrollMomentum.h) state machine,
+unit-tested headlessly.
+
+The matrix selfcheck (`demo_gui_matrix`, both flavors) builds every widget type
+from `.oui` AND imperatively, drives each with synthetic input, and asserts its
+state/geometry plus this whole animation layer.
+
+## Performance contract
+
+Mobile is the target, so the renderer keeps a hard promise, made **enforceable**
+by the `demo_gui_matrix` selfcheck (both flavors):
+
+- **One draw per screen per atlas.** Every visible layer of one atlas
+  concatenates into a single `DrawLayer2D` batch. A modal (scrim + dialog) shares
+  its atlas' batch; only a scissored scroll region adds one; a second atlas adds
+  one screen. Probe: `gui:getLastBatchCount()`.
+- **Dirty-tracked.** A fully static screen rebuilds nothing; one content change
+  rebuilds exactly once; an animation rebuilds each active frame and stops the
+  frame it completes. Probe: `gui:getRebuildCount()` (read deltas). An unfocused
+  widget must never dirty per frame.
+- **Zero steady-state allocation.** The retained scratch buffer keeps its
+  capacity across identical rebuilt frames (no per-frame reallocation). Probe:
+  `gui:getScratchCapacity()`, stable after warmup.
+
+`gui:profileTick(dt)` runs the whole gui frame (layout resolve + tween tick +
+rebuild + submit) off the event bus so a selfcheck can time it; the matrix logs
+µs/frame for a settings-scale screen and a 200-widget stress.
+
+## Fully scriptable
+
+Every gui capability — creation of all widget types, every setter/getter
+(anchors/pivots/offsets/groups/fit, enabled, nine-slice/tiled, group alpha,
+render scale/rotation, transitions), modals (show/dismiss/confirm/alert/dialog
+results), toggle groups, dropdown items (`setItemsString`) + selection, toast,
+scroll offsets, `loadLayout`, and the `guitween` surface — is reachable from a
+`ScriptComponent`. Widgets authored in a `.oui` are found from Lua by id with
+`gui:findWidget(id)` (nil when absent), the bridge that lets a script wire
+behavior onto a declaratively-authored screen. The guarantee is enforced by
+construction: the `demo_gui_lua` selfcheck authors, drives and asserts the whole
+matrix **in Lua**, so a missing/renamed binding fails the suite rather than
+review.
 
 ## Dropdown vs. cycler
 
 `GuiSelectMenu` is a compact cycler (‹ value ›) — best for short option sets.
 `GuiDropDown` drops a scrollable list on a light-dismiss modal — best for long
-lists. Both share the value API.
+lists. Both share the value API. The dropdown follows the established combobox
+behavior: it **opens on press**, the list **overlays** the content (it does not
+push it), the **currently-selected option is highlighted**, the list **scrolls**
+when it is long, and it **closes on pick, on an outside tap, or on Escape**.
 
 ```lua
 local dd = factory:createDropDown("lang", "button", 9, "English",
     Vector2(40, 300), 0, Vector2(220, 44), "", 2)
-dd:setItems({ "English", "Deutsch", "Français", "日本語" })
+-- from Lua, set the options with a pipe-delimited string (setItemsString); the
+-- vector-taking setItems is the C++ face. GuiSelectMenu/GuiSlider share it.
+dd:setItemsString("English | Deutsch | Français | 日本語")
 -- each frame:
 local i = dd:getSelectedIndex()
 ```
@@ -239,13 +394,12 @@ end
 
 ### Show / hide transitions
 
-Fade or slide with `core_tween` (ticked in the player loop). A `GuiDecorWidget`
-carries its own alpha; a label fades through its layer.
+Declare the transition and play it — see [Animation & juice](#animation--juice).
 
 ```lua
-tween.to(0.0, 1.0, 0.25, "quadOut", function(v)
-    panel:setAlpha(v); return true
-end)
+panel:setTransition("slide-up 0.3")
+guitween.show("panel")   -- slide in
+guitween.hide("panel")   -- slide back out, then park hidden
 ```
 
 ### Value-label binding

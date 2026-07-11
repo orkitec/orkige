@@ -13,6 +13,7 @@
 #include "engine_graphic/Engine.h"
 
 #include <OgreString.h>
+#include <OgreMath.h>
 
 namespace Orkige
 {
@@ -20,8 +21,9 @@ namespace Orkige
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
 	const float GuiWidget::DISABLED_ALPHA = 0.5f;
+	const float GuiWidget::ALPHA_INPUT_THRESHOLD = 0.05f;
 	//---------------------------------------------------------
-	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), layoutEnabled(false), layoutUseSafeArea(false)
+	GuiWidget::GuiWidget(String const & id, String const & atlas, uint z) : IGuiObject(id), visible(true), enabled(true), layoutEnabled(false), layoutUseSafeArea(false), renderScaleX(1.0f), renderScaleY(1.0f), renderRotationDeg(0.0f), groupAlpha(1.0f), alphaBlocksInput(true)
 	{
 		this->view = GuiManager::getSingleton().getCreateView(atlas);
 		oAssert(view.lock());
@@ -70,6 +72,83 @@ namespace Orkige
 				return false;
 			}
 			ancestor = ancestor->layoutParent.lock();
+		}
+		return true;
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setRenderScale(float scaleX, float scaleY)
+	{
+		this->renderScaleX = scaleX;
+		this->renderScaleY = scaleY;
+		this->refreshRenderTransform();
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setRenderRotation(float degrees)
+	{
+		this->renderRotationDeg = degrees;
+		this->refreshRenderTransform();
+	}
+	//---------------------------------------------------------
+	void GuiWidget::refreshRenderTransform()
+	{
+		// scale + rotation about the widget CENTRE (window pixels): the visual
+		// grows/turns in place while the layout rect stays put. Recomputed from
+		// the live rect each call, so a widget that moves AND scales keeps its
+		// pivot centred.
+		Ui2DTransform transform;
+		const Ogre::Vector2 pos = this->getPosition();
+		const Ogre::Vector2 size = this->getSize();
+		transform.pivotX = pos.x + size.x * 0.5f;
+		transform.pivotY = pos.y + size.y * 0.5f;
+		transform.scaleX = this->renderScaleX;
+		transform.scaleY = this->renderScaleY;
+		transform.rotation = Ogre::Math::DegreesToRadians(this->renderRotationDeg);
+		this->applyRenderTransform(transform);
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setGroupAlpha(float alpha)
+	{
+		this->groupAlpha = alpha;
+		// this widget updates immediately; the manager re-runs the cascade over
+		// the subtree at the next frame (a parent fade dims its children)
+		this->applyRenderAlpha(this->getEffectiveAlpha());
+		GuiManager::getSingleton().markGroupAlphaDirty();
+	}
+	//---------------------------------------------------------
+	float GuiWidget::getEffectiveAlpha() const
+	{
+		float alpha = this->groupAlpha;
+		optr<GuiWidget> ancestor = this->layoutParent.lock();
+		while(ancestor)
+		{
+			alpha *= ancestor->groupAlpha;
+			ancestor = ancestor->layoutParent.lock();
+		}
+		return alpha;
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setAlphaBlocksInput(bool enable)
+	{
+		this->alphaBlocksInput = enable;
+	}
+	//---------------------------------------------------------
+	void GuiWidget::setTransition(String const & spec)
+	{
+		this->transition = parseTransition(spec);
+	}
+	//---------------------------------------------------------
+	bool GuiWidget::acceptsInput() const
+	{
+		if(!this->isEffectivelyEnabled())
+		{
+			return false;
+		}
+		// a faded-out subtree stops hit-testing (unless it opted out): input falls
+		// through to whatever is behind it
+		if(this->alphaBlocksInput &&
+			this->getEffectiveAlpha() < ALPHA_INPUT_THRESHOLD)
+		{
+			return false;
 		}
 		return true;
 	}
@@ -356,5 +435,17 @@ namespace Orkige
 		OFUNC(setGridCellSize)
 		OFUNC(setGridConstraint)
 		OFUNC(setContentSizeFit)
+		// widget animation: scale/rotation about the centre + cascading group
+		// alpha. Driven declaratively by widget:tween(...) but exposed raw too.
+		OFUNC(setRenderScale)
+		OFUNC(getRenderScaleX)
+		OFUNC(getRenderScaleY)
+		OFUNC(setRenderRotation)
+		OFUNC(getRenderRotation)
+		OFUNC(setGroupAlpha)
+		OFUNC(getGroupAlpha)
+		OFUNC(getEffectiveAlpha)
+		OFUNC(setAlphaBlocksInput)
+		OFUNC(setTransition)
 	OOBJECT_END
 }

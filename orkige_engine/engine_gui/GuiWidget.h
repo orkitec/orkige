@@ -13,6 +13,8 @@
 #include "engine_gui/GuiView.h"
 #include "engine_gui/UiRenderer.h"
 #include <core_util/UiLayout.h>
+#include <core_util/Ui2DTransform.h>
+#include <core_util/UiTransition.h>
 
 namespace Orkige
 {
@@ -24,6 +26,10 @@ namespace Orkige
 		//! @brief the opacity a disabled widget dims its sprites/text to (the
 		//! widgets that lack a dedicated `_disabled` sprite fade instead)
 		static const float DISABLED_ALPHA;
+		//! @brief below this effective (cascaded) alpha a widget stops hit-testing
+		//! - a faded-out subtree is passed through by input (the convention), unless
+		//! a widget opts out with setAlphaBlocksInput(false)
+		static const float ALPHA_INPUT_THRESHOLD;
 	protected:
 	private:
 		//--- Variables ---------------------------------------------
@@ -53,6 +59,24 @@ namespace Orkige
 		//! like the anchor node - untouched leaves a plain absolute widget.
 		LayoutGroup layoutGroup;
 		LayoutContentFit layoutFit;
+		//! @brief the widget-animation render transform (scale + Z rotation about
+		//! the widget centre) applied to the emitted vertices. Identity = no
+		//! transform. Driven by widget:tween(scale/rotation) and press feedback;
+		//! composes ON TOP of the layout rect so animation and layout coexist.
+		float renderScaleX;
+		float renderScaleY;
+		float renderRotationDeg;		//!< Z rotation in degrees (2D convention)
+		//! @brief this widget's own group-alpha 0..1 (setGroupAlpha). The EFFECTIVE
+		//! alpha multiplies this down the layout-parent chain (cascading), so a
+		//! parent fade dims its whole subtree. @see getEffectiveAlpha
+		float groupAlpha;
+		//! @brief does a faded-out (effective alpha < threshold) widget block input?
+		//! Default true (a hidden subtree is inert); false lets input pass through.
+		bool alphaBlocksInput;
+		//! @brief the show/hide transition this widget plays (from the .oui
+		//! `transition` key or setTransition). UTT_None = snap. @see GuiManager
+		//! playWidgetTransition
+		UiTransitionSpec transition;
 		//--- Methods -----------------------------------------------
 	public:
 		GuiWidget(String const & id, String const & atlas, uint z);
@@ -83,6 +107,51 @@ namespace Orkige
 		//! A disabled group/panel disables its whole subtree - the manager gates
 		//! input on this, not the local flag. Walks the layout-parent chain.
 		bool isEffectivelyEnabled() const;
+
+		//--- widget animation: render transform + cascading alpha (@see the tween
+		//--- surface widget:tween(...) and the manager's per-frame alpha pass) ---
+		//! @brief scale the widget about its centre (1 = natural size). The visual
+		//! grows/shrinks in place; the layout rect is untouched, so this composes
+		//! with the layout instead of fighting it. Applied to every visual element.
+		void setRenderScale(float scaleX, float scaleY);
+		inline float getRenderScaleX() const { return this->renderScaleX; }
+		inline float getRenderScaleY() const { return this->renderScaleY; }
+		//! @brief rotate the widget about its centre (degrees, Z axis - the 2D
+		//! convention). 0 = upright.
+		void setRenderRotation(float degrees);
+		inline float getRenderRotation() const { return this->renderRotationDeg; }
+		//! @brief this widget's own group alpha 0..1. The effective alpha cascades:
+		//! it multiplies through the layout-parent chain, so fading a panel fades
+		//! its children too. Applied through the manager's per-frame alpha pass.
+		void setGroupAlpha(float alpha);
+		inline float getGroupAlpha() const { return this->groupAlpha; }
+		//! @brief the effective (cascaded) alpha: this widget's group alpha times
+		//! every layout ancestor's. Drives the emitted vertex alpha and hit-testing.
+		float getEffectiveAlpha() const;
+		//! @brief let input pass through this widget once it fades out (default the
+		//! subtree blocks input while visible, and stops once effectively invisible)
+		void setAlphaBlocksInput(bool enable);
+		inline bool getAlphaBlocksInput() const { return this->alphaBlocksInput; }
+		//! @brief does the widget currently accept input? Effectively enabled AND
+		//! (visible enough OR not alpha-gated). The manager's dispatch gates on this.
+		bool acceptsInput() const;
+		//! @brief recompute the render transform from the current scale/rotation and
+		//! the widget's live centre, and push it to the visual elements. Called on a
+		//! scale/rotation change (and each animation step, so a moving+scaling widget
+		//! keeps its pivot at the centre).
+		void refreshRenderTransform();
+		//! @brief apply a resolved 2D transform to this widget's visual elements.
+		//! The base is a no-op; visual widgets (decor/label/textbox/text field) push
+		//! it to their UiRenderer elements, composites forward to their sub-widgets.
+		virtual void applyRenderTransform(Ui2DTransform const & transform) { (void)transform; }
+		//! @brief apply a resolved alpha multiplier (0..1) to this widget's visual
+		//! elements. Same override pattern as applyRenderTransform.
+		virtual void applyRenderAlpha(float alphaMultiplier) { (void)alphaMultiplier; }
+		//! @brief set the show/hide transition from a declarative string
+		//! ("fade 0.2", "slide-up 0.3", "pop", "none"). @see GuiManager::playWidgetTransition
+		void setTransition(String const & spec);
+		//! @brief the parsed transition spec (UTT_None = snap)
+		inline UiTransitionSpec const & getTransition() const { return this->transition; }
 
 		//--- rect-anchor layout (opt-in; @see GuiManager resolve pass) ---
 		//! @brief parent this widget under another: it then resolves inside the

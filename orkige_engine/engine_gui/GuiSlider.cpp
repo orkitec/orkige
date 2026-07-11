@@ -311,6 +311,20 @@ namespace Orkige
     //- private: -----------------------------------------
     //----------------------------------------------------
 
+	void GuiSlider::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		GuiSelectMenu::applyRenderTransform(transform);
+		if(this->pin)		this->pin->applyRenderTransform(transform);
+		if(this->pin_area)	this->pin_area->applyRenderTransform(transform);
+	}
+	//----------------------------------------------------
+	void GuiSlider::applyRenderAlpha(float alphaMultiplier)
+	{
+		GuiSelectMenu::applyRenderAlpha(alphaMultiplier);
+		if(this->pin)		this->pin->applyRenderAlpha(alphaMultiplier);
+		if(this->pin_area)	this->pin_area->applyRenderAlpha(alphaMultiplier);
+	}
+	//----------------------------------------------------
 	OABSTRACT_IMPL(GuiSlider)
 		OOBJECT_END
 

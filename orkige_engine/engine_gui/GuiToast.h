@@ -42,6 +42,8 @@ namespace Orkige
 		void setText(String const & text);
 		//! fade the whole toast (backing + text) to @p alpha (0..1)
 		void setToastAlpha(float alpha);
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:
 	private:
 	};

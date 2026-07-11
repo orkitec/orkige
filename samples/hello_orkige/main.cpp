@@ -25,8 +25,14 @@
 #include <engine_gui/GuiFactory.h>
 #include <engine_gui/GuiToggleGroup.h>
 #include <engine_gui/GuiSlider.h>
+#include <engine_gui/GuiProgressBar.h>
+#include <engine_gui/GuiTextEntry.h>
+#include <engine_gui/GuiScrollView.h>
+#include <engine_gui/GuiTextbox.h>
 #include <engine_gui/GuiTextEdit.h>
 #include <engine_gui/UiAtlas.h>
+#include <engine_gocomponent/ScriptComponent.h>
+#include <core_tween/TweenManager.h>
 #include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
@@ -43,6 +49,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstdio>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1821,6 +1828,22 @@ int main(int, char**)
 							"a modal");
 						modalOk = false;
 					}
+					// Escape must NOT close a confirm dialog (not light-
+					// dismissable) - it has to be answered by a button
+					{
+						SDL_Event esc{};
+						esc.type = SDL_EVENT_KEY_DOWN;
+						esc.key.scancode = SDL_SCANCODE_ESCAPE;
+						esc.key.down = true;
+						inputManager.injectEvent(esc);
+						render->renderOneFrame();
+						if (modalOk && !gui.isModalActive())
+						{
+							SDL_Log("hello_orkige: FAILED - Escape closed a "
+								"non-light-dismissable confirm dialog");
+							modalOk = false;
+						}
+					}
 					float yx = 0.0f, yy = 0.0f;
 					if (modalOk && centerOf((confirmId + ".yes").c_str(), yx, yy))
 					{
@@ -1866,6 +1889,23 @@ int main(int, char**)
 					}
 					else
 					{
+						// Escape closes the dropdown (it IS light-dismissable),
+						// then re-open it for the pick
+						SDL_Event esc{};
+						esc.type = SDL_EVENT_KEY_DOWN;
+						esc.key.scancode = SDL_SCANCODE_ESCAPE;
+						esc.key.down = true;
+						inputManager.injectEvent(esc);
+						render->renderOneFrame();	// dismiss drains
+						render->renderOneFrame();	// dropdown reflects closed
+						if (drop->isMenuOpen() || gui.isModalActive())
+						{
+							SDL_Log("hello_orkige: FAILED - Escape did not close "
+								"the light-dismissable dropdown");
+							modalOk = false;
+						}
+						clickAt(ddx, ddy);			// re-open
+						render->renderOneFrame();
 						// pick the third option (index 2)
 						float ox = 0.0f, oy = 0.0f;
 						if (centerOf("quality.dropdown.menu.opt2", ox, oy))
@@ -1889,6 +1929,47 @@ int main(int, char**)
 						}
 					}
 				}
+				// subtree disable: disabling a container disables its children.
+				// Author a panel with a button parented under it; disabling the
+				// panel makes the child input-inert too (effective-enabled walk).
+				if (modalOk)
+				{
+					Orkige::optr<Orkige::GuiDecorWidget> panel =
+						factory->createDecorWidget("subPanel", "none",
+							Orkige::Vec2(520.0f, 80.0f), Orkige::Vec2(200.0f, 60.0f),
+							"", 2).lock();
+					Orkige::woptr<Orkige::GuiButton> childWeak =
+						factory->createButton("subChild", "button", 9, "Child",
+							Orkige::Vec2(10.0f, 10.0f), Orkige::GuiLabel::LA_CENTER,
+							Orkige::Vec2(180.0f, 40.0f), "", 2, false,
+							Orkige::GuiButtonBlink::BBLINK_NONE);
+					Orkige::optr<Orkige::GuiButton> child = childWeak.lock();
+					if (panel && child)
+					{
+						child->setParent(panel);
+						render->renderOneFrame();	// resolve the child inside panel
+						float cx = 0.0f, cy = 0.0f;
+						centerOf("subChild", cx, cy);
+						// enabled: the child fires
+						clickAt(cx, cy);
+						if (!child->wasClicked())
+						{
+							SDL_Log("hello_orkige: FAILED - parented child did not "
+								"fire while enabled");
+							modalOk = false;
+						}
+						// disabling the PANEL makes the child inert (subtree)
+						panel->setEnabled(false);
+						clickAt(cx, cy);
+						if (child->wasClicked())
+						{
+							SDL_Log("hello_orkige: FAILED - child fired while its "
+								"parent panel was disabled (subtree not gated)");
+							modalOk = false;
+						}
+					}
+				}
+
 				gui.disableInputEvents();
 			}
 			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
@@ -1897,8 +1978,827 @@ int main(int, char**)
 				return 1;
 			}
 			SDL_Log("hello_orkige: gui-modal selfcheck passed (scrim blocks input "
-				"below, dialog button fires, dismiss frees widgets, disabled "
-				"inert, toggle group single-selection, toast, dropdown)");
+				"below, dialog button fires, Escape spares a confirm but closes a "
+				"dropdown, dismiss frees widgets, disabled + subtree inert, toggle "
+				"group single-selection, toast, dropdown open-on-press/pick)");
+		}
+
+		// ORKIGE_DEMO_GUI_MATRIX=1: the widget interaction MATRIX selfcheck. Boots
+		// a real GuiManager, builds every widget type from a .oui AND imperatively,
+		// drives each with synthetic input on the REAL input path, and asserts its
+		// state/geometry/response - PLUS the animation layer: a widget property
+		// tween, the scale/rotation render transform, cascading group alpha (with
+		// the below-threshold hit-test gate), a show/hide transition, button press
+		// feedback and scroll-view flick momentum. Flavor-neutral (gui draws on
+		// DrawLayer2D), so it runs on classic + next and both must agree.
+		if (std::getenv("ORKIGE_DEMO_GUI_MATRIX"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			bool ok = true;
+			// a TweenManager makes the widget animations tick, exactly as the
+			// player loop does; the editor never creates one (gui animation
+			// dormant in edit mode for free)
+			Orkige::TweenManager tweenManager;
+			{
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				gui.enableInputEvents();
+
+				auto fail = [&](const char* msg)
+				{
+					SDL_Log("hello_orkige: FAILED - gui-matrix: %s", msg);
+					ok = false;
+				};
+				auto clickAt = [&](float x, float y)
+				{
+					SDL_Event down{};
+					down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					down.button.button = SDL_BUTTON_LEFT;
+					down.button.down = true;
+					down.button.x = x; down.button.y = y;
+					inputManager.injectEvent(down);
+					SDL_Event up{};
+					up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+					up.button.button = SDL_BUTTON_LEFT;
+					up.button.down = false;
+					up.button.x = x; up.button.y = y;
+					inputManager.injectEvent(up);
+				};
+				auto pressAt = [&](float x, float y)		// down only (no release)
+				{
+					SDL_Event down{};
+					down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					down.button.button = SDL_BUTTON_LEFT;
+					down.button.down = true;
+					down.button.x = x; down.button.y = y;
+					inputManager.injectEvent(down);
+				};
+				auto releaseAt = [&](float x, float y)
+				{
+					SDL_Event up{};
+					up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+					up.button.button = SDL_BUTTON_LEFT;
+					up.button.down = false;
+					up.button.x = x; up.button.y = y;
+					inputManager.injectEvent(up);
+				};
+				auto moveTo = [&](float x, float y)
+				{
+					SDL_Event mv{};
+					mv.type = SDL_EVENT_MOUSE_MOTION;
+					mv.motion.x = x; mv.motion.y = y;
+					inputManager.injectEvent(mv);
+				};
+				auto centerOf = [&](const char* id, float& cx, float& cy) -> bool
+				{
+					if (!gui.widgetExists(id)) { return false; }
+					Orkige::optr<Orkige::GuiWidget> w = gui.getWidget(id).lock();
+					if (!w) { return false; }
+					const Orkige::Vec2 p = w->getPosition();
+					const Orkige::Vec2 s = w->getSize();
+					cx = p.x + s.x * 0.5f; cy = p.y + s.y * 0.5f;
+					return true;
+				};
+				// one "frame": tick the tweens (player-loop order) then render
+				auto tick = [&](float dt)
+				{
+					tweenManager.update(dt);
+					render->renderOneFrame();
+				};
+
+				// === 1. the .oui grammar builds every declarable widget type ===
+				factory->loadLayout("matrix_screen.oui");
+				render->renderOneFrame();
+				const char* ouiIds[] = { "mtxPanel", "mtxLabel", "mtxButton",
+					"mtxCheck", "mtxSlider", "mtxSelect", "mtxProgress",
+					"mtxEntry", "mtxDrop" };
+				for (const char* id : ouiIds)
+				{
+					if (!gui.widgetExists(id))
+					{
+						fail(id);
+					}
+				}
+				// every widget resolved to a positive on-screen size
+				for (const char* id : ouiIds)
+				{
+					if (ok && gui.widgetExists(id))
+					{
+						Orkige::optr<Orkige::GuiWidget> w =
+							gui.getWidget(id).lock();
+						if (w && (w->getSize().x <= 0.0f || w->getSize().y <= 0.0f))
+						{
+							fail("a widget resolved to a non-positive size");
+						}
+					}
+				}
+
+				// === 2. per-widget interaction on the real input path ===
+				// button click -> wasClicked
+				{
+					float x, y; centerOf("mtxButton", x, y); clickAt(x, y);
+					Orkige::optr<Orkige::GuiButton> b =
+						gui.getWidgetAs<Orkige::GuiButton>("mtxButton").lock();
+					if (ok && !(b && b->wasClicked())) { fail("button click"); }
+				}
+				// checkbox toggles
+				{
+					Orkige::optr<Orkige::GuiCheckBox> c =
+						gui.getWidgetAs<Orkige::GuiCheckBox>("mtxCheck").lock();
+					const bool before = c && c->isChecked();
+					float x, y; centerOf("mtxCheck", x, y); clickAt(x, y);
+					if (ok && !(c && c->isChecked() != before))
+					{
+						fail("checkbox toggle");
+					}
+				}
+				// slider value math: selectItemIndex round-trips through the getter
+				{
+					Orkige::optr<Orkige::GuiSlider> s =
+						gui.getWidgetAs<Orkige::GuiSlider>("mtxSlider").lock();
+					if (s)
+					{
+						Orkige::StringVector items;
+						items.push_back("0"); items.push_back("1");
+						items.push_back("2"); items.push_back("3");
+						s->setItems(items);
+						s->selectItemIndex(2, false);
+						if (ok && s->getSelectedItemIndex() != 2)
+						{
+							fail("slider value index");
+						}
+					}
+				}
+				// select-menu cycles through its options and wraps
+				{
+					Orkige::optr<Orkige::GuiSelectMenu> sm =
+						gui.getWidgetAs<Orkige::GuiSelectMenu>("mtxSelect").lock();
+					if (sm)
+					{
+						Orkige::StringVector items;
+						items.push_back("A"); items.push_back("B");
+						items.push_back("C");
+						sm->setItems(items);
+						sm->selectItemIndex(2, false);
+						if (ok && sm->getSelectedItem() != "C")
+						{
+							fail("select-menu value");
+						}
+					}
+				}
+				// progress bar reflects its set value
+				{
+					Orkige::optr<Orkige::GuiProgressBar> pb =
+						gui.getWidgetAs<Orkige::GuiProgressBar>("mtxProgress").lock();
+					if (pb)
+					{
+						pb->setProgress(50.0f);		// 0..100 scale
+						if (ok && std::fabs(pb->getProgress() - 50.0f) > 0.001f)
+						{
+							fail("progress bar value");
+						}
+					}
+				}
+				// text entry: a tap focuses it, typed text lands
+				{
+					Orkige::optr<Orkige::GuiTextEntry> te =
+						gui.getWidgetAs<Orkige::GuiTextEntry>("mtxEntry").lock();
+					float x, y; centerOf("mtxEntry", x, y); clickAt(x, y);
+					render->renderOneFrame();
+					if (te)
+					{
+						te->onTextInput("Hi");
+						if (ok && te->getText() != "Hi")
+						{
+							fail("text entry typing");
+						}
+					}
+				}
+				// dropdown opens a list on a modal and picks
+				{
+					Orkige::optr<Orkige::GuiDropDown> dd =
+						gui.getWidgetAs<Orkige::GuiDropDown>("mtxDrop").lock();
+					float x, y; centerOf("mtxDrop", x, y);
+					clickAt(x, y);					// request open (deferred)
+					render->renderOneFrame();		// deferred open + list resolve
+					if (ok && !(dd && dd->isMenuOpen()))
+					{
+						fail("dropdown open");
+					}
+					float ox, oy;
+					if (ok && centerOf("mtxDrop.menu.opt1", ox, oy))
+					{
+						clickAt(ox, oy);
+						render->renderOneFrame();
+						render->renderOneFrame();
+						if (dd && dd->getSelectedIndex() != 1)
+						{
+							fail("dropdown pick");
+						}
+					}
+				}
+				// toast surfaces
+				{
+					gui.showToast("Matrix", 1.0f);
+					render->renderOneFrame();
+					if (ok && !gui.isToastVisible()) { fail("toast surface"); }
+				}
+
+				// === 3. the animation layer ===
+				// (a) a widget alpha tween moves the group alpha over time
+				{
+					float to = 0.25f;
+					gui.tweenWidget("mtxButton", Orkige::GuiManager::WTC_Alpha,
+						&to, 0.2f, 0);
+					for (int f = 0; f < 15; ++f) { tick(1.0f / 60.0f); }
+					Orkige::optr<Orkige::GuiWidget> b =
+						gui.getWidget("mtxButton").lock();
+					if (ok && (!b || std::fabs(b->getGroupAlpha() - 0.25f) > 0.02f))
+					{
+						fail("alpha tween did not reach the target");
+					}
+					// retarget-replace: a second alpha tween supersedes the first
+					float back = 1.0f;
+					gui.tweenWidget("mtxButton", Orkige::GuiManager::WTC_Alpha,
+						&back, 0.2f, 0);
+					for (int f = 0; f < 15; ++f) { tick(1.0f / 60.0f); }
+					if (ok && b && std::fabs(b->getGroupAlpha() - 1.0f) > 0.02f)
+					{
+						fail("alpha tween retarget");
+					}
+				}
+				// (b) the render transform: scale/rotation take hold
+				{
+					Orkige::optr<Orkige::GuiWidget> b =
+						gui.getWidget("mtxButton").lock();
+					if (b)
+					{
+						b->setRenderScale(1.5f, 1.5f);
+						b->setRenderRotation(30.0f);
+						render->renderOneFrame();
+						if (ok && (std::fabs(b->getRenderScaleX() - 1.5f) > 0.001f ||
+							std::fabs(b->getRenderRotation() - 30.0f) > 0.001f))
+						{
+							fail("render transform not stored");
+						}
+						b->setRenderScale(1.0f, 1.0f);
+						b->setRenderRotation(0.0f);
+					}
+				}
+				// (c) cascading alpha: a panel fade dims its parented child, and
+				// once effectively invisible the subtree stops hit-testing
+				{
+					Orkige::optr<Orkige::GuiWidget> panel =
+						gui.getWidget("mtxPanel").lock();
+					Orkige::optr<Orkige::GuiWidget> label =
+						gui.getWidget("mtxLabel").lock();
+					if (panel && label)
+					{
+						panel->setGroupAlpha(0.3f);
+						render->renderOneFrame();		// runs the cascade pass
+						if (ok && std::fabs(label->getEffectiveAlpha() - 0.3f) > 0.001f)
+						{
+							fail("cascade alpha did not reach the child");
+						}
+						panel->setGroupAlpha(1.0f);
+						render->renderOneFrame();
+					}
+				}
+				// hit-test gate: a button under a fully-faded panel is inert
+				{
+					Orkige::optr<Orkige::GuiDecorWidget> gatePanel =
+						factory->createDecorWidget("gatePanel", "none",
+							Orkige::Vec2(40.0f, 300.0f), Orkige::Vec2(200.0f, 60.0f),
+							"", 3).lock();
+					Orkige::woptr<Orkige::GuiButton> gateChildW =
+						factory->createButton("gateChild", "button", 9, "Gate",
+							Orkige::Vec2(50.0f, 310.0f), Orkige::GuiLabel::LA_CENTER,
+							Orkige::Vec2(180.0f, 40.0f), "", 3, false,
+							Orkige::GuiButtonBlink::BBLINK_NONE);
+					Orkige::optr<Orkige::GuiButton> gateChild = gateChildW.lock();
+					if (gatePanel && gateChild)
+					{
+						gateChild->setParent(gatePanel);
+						gatePanel->setGroupAlpha(0.0f);	// fully faded subtree
+						render->renderOneFrame();
+						float x, y; centerOf("gateChild", x, y);
+						clickAt(x, y);
+						if (ok && gateChild->wasClicked())
+						{
+							fail("faded-out subtree still hit-tested");
+						}
+					}
+				}
+				// (d) show/hide transition: hide parks the panel invisible, show
+				// brings it back (the .oui declared `transition = fade 0.2`)
+				{
+					Orkige::optr<Orkige::GuiWidget> panel =
+						gui.getWidget("mtxPanel").lock();
+					if (panel)
+					{
+						gui.playWidgetTransition("mtxPanel", false);	// hide
+						for (int f = 0; f < 18; ++f) { tick(1.0f / 60.0f); }
+						if (ok && panel->getEffectiveAlpha() > 0.05f)
+						{
+							fail("hide transition did not park the panel hidden");
+						}
+						gui.playWidgetTransition("mtxPanel", true);		// show
+						for (int f = 0; f < 18; ++f) { tick(1.0f / 60.0f); }
+						if (ok && std::fabs(panel->getEffectiveAlpha() - 1.0f) > 0.05f)
+						{
+							fail("show transition did not restore the panel");
+						}
+					}
+				}
+				// (e) button press feedback: a press scales the button down, a
+				// release springs it back toward 1
+				{
+					Orkige::optr<Orkige::GuiButton> b =
+						gui.getWidgetAs<Orkige::GuiButton>("mtxButton").lock();
+					if (b)
+					{
+						b->setPressFeedback(true);
+						float x, y; centerOf("mtxButton", x, y);
+						pressAt(x, y);
+						render->renderOneFrame();
+						if (ok && b->getRenderScaleX() >= 1.0f)
+						{
+							fail("press feedback did not scale down on press");
+						}
+						releaseAt(x, y);
+						for (int f = 0; f < 20; ++f) { tick(1.0f / 60.0f); }
+						if (ok && std::fabs(b->getRenderScaleX() - 1.0f) > 0.02f)
+						{
+							fail("press feedback did not spring back on release");
+						}
+						b->setPressFeedback(false);
+						(void)b->wasClicked();	// clear the click latch
+					}
+				}
+				// (f) scroll-view flick momentum: a tall content subtree scrolls
+				// by drag, and the flick keeps coasting after release
+				{
+					Orkige::woptr<Orkige::GuiScrollView> svW =
+						factory->createScrollView("mtxScroll",
+							Orkige::Vec2(700.0f, 60.0f), Orkige::Vec2(180.0f, 160.0f),
+							"", 4);
+					Orkige::optr<Orkige::GuiScrollView> sv = svW.lock();
+					// a content panel taller than the viewport, parented under it.
+					// The viewport opts into layout as a top-left-anchored root (so
+					// the resolver hands it its content extent); the content pins to
+					// the viewport top and its preferred height (500) overflows.
+					Orkige::optr<Orkige::GuiDecorWidget> content =
+						factory->createDecorWidget("mtxScrollContent", "none",
+							Orkige::Vec2(0.0f, 0.0f), Orkige::Vec2(180.0f, 500.0f),
+							"", 4).lock();
+					if (sv && content)
+					{
+						sv->setAnchorPreset("topleft");
+						sv->setOffsets(700.0f, 60.0f, 880.0f, 220.0f);
+						content->setParent(sv);
+						content->setAnchorPreset("stretchtop");
+						content->setOffsets(0.0f, 0.0f, 0.0f, 0.0f);
+						content->setContentSizeFit("none", "preferred");
+						render->renderOneFrame();		// resolve the extents
+						if (ok && sv->getMaxScroll() <= 0.0f)
+						{
+							fail("scroll view has no scrollable range");
+						}
+						// drag upward over a few frames to build a flick velocity
+						pressAt(790.0f, 200.0f);
+						for (int f = 0; f < 5; ++f)
+						{
+							moveTo(790.0f, 200.0f - 20.0f * (f + 1));
+							tick(1.0f / 60.0f);
+						}
+						const float dragged = sv->getScroll();
+						if (ok && dragged >= 0.0f)
+						{
+							fail("scroll drag did not move the content");
+						}
+						releaseAt(790.0f, 100.0f);
+						const float released = sv->getScroll();
+						tick(1.0f / 60.0f);
+						if (ok && sv->getScroll() > released)	// still coasting
+						{
+							fail("scroll flick did not coast after release");
+						}
+						// it settles within the legal range
+						for (int f = 0; f < 240; ++f) { tick(1.0f / 60.0f); }
+						if (ok && (sv->getScroll() < -sv->getMaxScroll() - 1.0f ||
+							sv->getScroll() > 1.0f))
+						{
+							fail("scroll momentum settled out of bounds");
+						}
+					}
+				}
+
+				gui.disableInputEvents();
+			}
+
+			// === 4. the UI PERFORMANCE CONTRACT (mobile is the target: one draw
+			// per screen per atlas, dirty-tracked, zero steady-state allocation -
+			// made enforceable). A fresh, controlled screen so the batch counts
+			// are deterministic. ===
+			{
+				tweenManager.clear();	// retire the interaction scope's tweens
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				auto perfFail = [&](const char* msg)
+				{
+					SDL_Log("hello_orkige: FAILED - gui-perf: %s", msg);
+					ok = false;
+				};
+				auto tick = [&](float dt)
+				{
+					tweenManager.update(dt);
+					render->renderOneFrame();
+				};
+
+				// a busy screen: every widget type, one atlas
+				factory->loadLayout("matrix_screen.oui");
+				render->renderOneFrame();	// resolve + first rebuild
+
+				// (1) BATCH COUNT: one atlas, no scissor => exactly ONE draw batch
+				if (ok && gui.getLastBatchCount() != 1)
+				{
+					perfFail("a busy single-atlas screen is not exactly 1 batch");
+				}
+				// a modal on top (scrim + dialog ride the same atlas, no scissor)
+				// => still 1 batch
+				gui.showModal("perfModal", false);
+				render->renderOneFrame();
+				if (ok && gui.getLastBatchCount() != 1)
+				{
+					perfFail("a modal changed the batch count (should share the atlas)");
+				}
+				gui.dismissModal("perfModal");
+				render->renderOneFrame();
+				// an open scroll view adds its ONE scissored segment => 2 batches
+				{
+					Orkige::optr<Orkige::GuiScrollView> sv =
+						factory->createScrollView("perfScroll",
+							Orkige::Vec2(700.0f, 60.0f), Orkige::Vec2(160.0f, 140.0f),
+							"", 7).lock();
+					Orkige::optr<Orkige::GuiDecorWidget> content =
+						factory->createDecorWidget("perfScrollContent", "none",
+							Orkige::Vec2(0.0f, 0.0f), Orkige::Vec2(160.0f, 400.0f),
+							"", 7).lock();
+					if (sv && content)
+					{
+						sv->setAnchorPreset("topleft");
+						sv->setOffsets(700.0f, 60.0f, 860.0f, 200.0f);
+						content->setParent(sv);
+						content->setAnchorPreset("stretchtop");
+						content->setOffsets(0.0f, 0.0f, 0.0f, 0.0f);
+						content->setContentSizeFit("none", "preferred");
+						render->renderOneFrame();
+						if (ok && gui.getLastBatchCount() != 2)
+						{
+							perfFail("an open scroll region is not exactly +1 batch");
+						}
+						gui.destroyWidget("perfScrollContent");
+						gui.destroyWidget("perfScroll");
+						render->renderOneFrame();
+					}
+				}
+
+				// (2) DIRTY TRACKING (rebuild counter deltas)
+				// a fully static screen: ZERO rebuilds over N frames
+				{
+					// warm up past any settling from the modal/scroll teardown above,
+					// then a fully static screen must not rebuild AT ALL
+					for (int f = 0; f < 40; ++f) { render->renderOneFrame(); }
+					const size_t r0 = gui.getRebuildCount();
+					for (int f = 0; f < 40; ++f) { render->renderOneFrame(); }
+					if (ok && gui.getRebuildCount() != r0)
+					{
+						perfFail("a static screen rebuilt with no content change");
+					}
+					// change ONE label: exactly one rebuild, then static again
+					Orkige::optr<Orkige::GuiLabel> label =
+						gui.getWidgetAs<Orkige::GuiLabel>("mtxLabel").lock();
+					if (label)
+					{
+						label->setText("Changed");
+						render->renderOneFrame();
+						if (ok && gui.getRebuildCount() != r0 + 1)
+						{
+							perfFail("one label change was not exactly one rebuild");
+						}
+						for (int f = 0; f < 12; ++f) { render->renderOneFrame(); }
+						if (ok && gui.getRebuildCount() != r0 + 1)
+						{
+							perfFail("the screen kept rebuilding after a settled change");
+						}
+					}
+					// a RUNNING tween rebuilds each active frame, and STOPS at
+					// completion (the regression the animation work could introduce)
+					const size_t rBefore = gui.getRebuildCount();
+					float to = 0.3f;
+					gui.tweenWidget("mtxButton", Orkige::GuiManager::WTC_Alpha,
+						&to, 0.15f, 0);
+					for (int f = 0; f < 12; ++f) { tick(1.0f / 60.0f); }	// spans 0.15s
+					if (ok && gui.getRebuildCount() <= rBefore)
+					{
+						perfFail("an active tween did not rebuild the screen");
+					}
+					const size_t rIdle = gui.getRebuildCount();
+					for (int f = 0; f < 12; ++f) { tick(1.0f / 60.0f); }
+					if (ok && gui.getRebuildCount() != rIdle)
+					{
+						perfFail("the screen kept rebuilding after the tween completed");
+					}
+				}
+
+				// (3) STEADY-STATE ALLOCATION: with a looping animation forcing a
+				// rebuild EVERY frame, the retained scratch capacity is stable after
+				// warmup (no per-frame reallocation - capacity approximates the
+				// allocator contract, an honest note in the report).
+				{
+					float spin = 360.0f;
+					Orkige::TweenManager::TweenId id = gui.tweenWidget("mtxButton",
+						Orkige::GuiManager::WTC_Rotation, &spin, 1.0f,
+						&Orkige::Ease::linear);
+					tweenManager.setTweenLoops(id, -1, false);	// never settles
+					for (int f = 0; f < 8; ++f) { tick(1.0f / 60.0f); }	// warmup
+					const size_t cap = gui.getScratchCapacity();
+					const size_t rebuildsBefore = gui.getRebuildCount();
+					for (int f = 0; f < 40; ++f)
+					{
+						tick(1.0f / 60.0f);
+						if (ok && gui.getScratchCapacity() != cap)
+						{
+							perfFail("the scratch buffer reallocated in steady state");
+							break;
+						}
+					}
+					if (ok && gui.getRebuildCount() <= rebuildsBefore + 30)
+					{
+						perfFail("the looping animation did not rebuild each frame");
+					}
+					gui.cancelWidgetTweens("mtxButton");
+				}
+
+				// (4) PERF BUDGET number: time the full gui update (layout resolve +
+				// tween tick + vertex rebuild + submission) over M frames, forcing a
+				// rebuild each frame, for a settings-scale screen and a 200-widget
+				// stress. No hard threshold (machine-dependent) - the number lands
+				// in the log + the report.
+				auto timeHeavyGui = [&](const char* label, int frames)
+				{
+					auto t0 = std::chrono::steady_clock::now();
+					for (int f = 0; f < frames; ++f)
+					{
+						gui.markLayoutDirty();		// force the full pipeline
+						gui.profileTick(1.0f / 60.0f);
+					}
+					auto t1 = std::chrono::steady_clock::now();
+					const double us =
+						std::chrono::duration<double, std::micro>(t1 - t0).count()
+						/ double(frames);
+					SDL_Log("hello_orkige: gui-perf: %s full gui update = "
+						"%.1f us/frame over %d frames", label, us, frames);
+				};
+				timeHeavyGui("settings-scale (matrix screen)", 200);
+				// 200-widget stress
+				for (int i = 0; i < 200; ++i)
+				{
+					char id[32];
+					std::snprintf(id, sizeof(id), "stress%d", i);
+					factory->createButton(id, "button", 9, "S",
+						Orkige::Vec2(float((i % 20) * 40), float((i / 20) * 30)),
+						Orkige::GuiLabel::LA_CENTER, Orkige::Vec2(36.0f, 26.0f), "", 8,
+						false, Orkige::GuiButtonBlink::BBLINK_NONE);
+				}
+				render->renderOneFrame();
+				timeHeavyGui("200-widget stress", 200);
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!ok)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: gui-matrix selfcheck passed (every widget type "
+				"built from .oui + imperatively and driven; alpha tween + retarget, "
+				"render transform, cascading alpha + hit gate, show/hide transition, "
+				"button press feedback, scroll flick momentum; perf contract: 1 batch/"
+				"atlas +1 per scroll, dirty-tracked rebuilds, stable scratch, timed)");
+		}
+
+		// ORKIGE_DEMO_GUI_LUA=1: the FULLY-SCRIPTABLE contract. The whole widget
+		// matrix is authored, driven and asserted IN LUA through the ScriptRuntime
+		// surface; the C++ side only injects one synthetic input and reads the
+		// probes. A missing/renamed binding raises a Lua error here, so the suite
+		// fails BY CONSTRUCTION instead of by review. Flavor-neutral. Skipped in
+		// ORKIGE_SCRIPTING=OFF builds (ScriptRuntime::available() is false).
+		if (std::getenv("ORKIGE_DEMO_GUI_LUA") && Orkige::ScriptRuntime::available())
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+			Orkige::ScriptComponent::ensureScriptApi();	// the tween/guitween tables
+
+			bool luaOk = true;
+			// PHASE 1: build + exercise + assert EVERY gui capability from Lua
+			const Orkige::ScriptRuntime::Result r1 = scriptRuntime.runString(R"lua(
+				local LA = GuiLabel.LabelAlignment
+
+				factory = GuiFactory()
+				gui = GuiManager(factory, "gui_default", "General")
+				gui:enableInputEvents()
+
+				-- layout policy (design resolution / match / root space)
+				gui:setDesignResolution(1280, 720, 0.5)
+				gui:setLayoutMatchMode(0)
+				gui:setRootSpace("fullwindow")
+				assert(gui:getLayoutScale() > 0, "getLayoutScale")
+
+				-- create EVERY widget type imperatively (atlas selection = arg)
+				local label = factory:createLabel("luaLabel", 9, "Hi", Vector2(20,20), "", 2, false)
+				luaBtn = factory:createButton("luaBtn", "button", 9, "Go", Vector2(20,60), LA.LA_CENTER, Vector2(200,48), "", 2, false, 0)
+				local check = factory:createCheckBox("luaCheck", "checkbox", 9, "On", Vector2(20,120), LA.LA_LEFT, Vector2(200,40), "", 2, false)
+				local slider = factory:createSlider("luaSlider", "luaSliderBtn", "button", 9, "Vol", Vector2(20,170), LA.LA_CENTER, Vector2(260,44), "", 2)
+				local select = factory:createSelectMenu("luaSelect", "luaSelectBtn", "button", 9, "Mode", Vector2(20,220), LA.LA_CENTER, Vector2(260,44), "", 2)
+				local prog = factory:createProgressBar("luaProg", "button", 9, "Load", Vector2(20,270), LA.LA_CENTER, Vector2(260,32), "", 2)
+				local entry = factory:createTextEntry("luaEntry", "none", 9, "hint", Vector2(20,310), Vector2(260,44), "", 2, 16)
+				local scroll = factory:createScrollView("luaScroll", Vector2(320,60), Vector2(180,160), "", 3)
+				local drop = factory:createDropDown("luaDrop", "button", 9, "Pick", Vector2(320,240), LA.LA_CENTER, Vector2(220,44), "", 2)
+				local panel = factory:createDecorWidget("luaPanel", "none", Vector2(560,60), Vector2(200,200), "", 2)
+
+				-- widget-specific setters/getters (nine-slice / tiled modes too)
+				check:setChecked(true, false); assert(check:isChecked(), "checkbox setChecked")
+				check:toggle(false); assert(not check:isChecked(), "checkbox toggle")
+				slider:setItemsString("0 | 1 | 2 | 3"); slider:selectItemIndex(2, false)
+				assert(slider:getSelectedItemIndex() == 2, "slider index")
+				select:setItemsString("A | B | C"); select:selectItemIndex(1, false)
+				assert(select:getSelectedItem() == "B", "selectmenu value")
+				prog:setProgress(50); assert(prog:getProgress() == 50, "progress")
+				entry:setText("hi"); entry:setPlaceholder("type"); entry:setMaxLength(20)
+				assert(entry:getText() == "hi", "text entry")
+				assert(entry:isFocused() == false, "entry focus poll"); entry:wasSubmitted()
+				drop:setItemsString("X | Y | Z"); assert(drop:getSelectedIndex() >= 0, "dropdown index")
+				panel:setColour(0.2,0.3,0.4,1); panel:setAlpha(0.9)
+				panel:setNineSlice(true); panel:setTiled(false); panel:setSprite("none")
+				luaBtn:setPressFeedback(true); luaBtn:setNineSlice(false); luaBtn:setTiled(false)
+				luaBtn:wasClicked(); luaBtn:getState()
+				assert(luaBtn:getCaption() == "Go", "button caption"); luaBtn:setCaption("Go2")
+
+				-- rect-anchor layout: anchors / pivots / offsets / groups / fit / safe area
+				panel:setAnchorPreset("center"); panel:setAnchors(0.5,0.5,0.5,0.5)
+				panel:setPivot(0.5,0.5); panel:setAnchoredPosition(0,0); panel:setSizeDelta(200,200)
+				panel:setOffsets(0,0,0,0); panel:setUseSafeArea(false)
+				panel:setLayoutGroup("vertical"); panel:setGroupPadding(8,8,8,8)
+				panel:setGroupSpacing(10,0); panel:setChildAlignment("center")
+				panel:setChildForceExpand(true); panel:setGridCellSize(100,100)
+				panel:setGridConstraint("columns",2); panel:setContentSizeFit("none","preferred")
+				-- setParent takes a base GuiWidget handle; findWidget returns exactly
+				-- that (a derived userdata is not auto-upcast as a shared_ptr arg)
+				label:setParent(gui:findWidget("luaPanel"))
+				label:setEnabled(false); assert(not label:isEnabled(), "enabled"); label:setEnabled(true)
+				local layer = luaBtn:getLayer(); layer:isVisible(); layer:setVisible(true)
+
+				-- animation surface: transform, cascading alpha, transition
+				luaBtn:setRenderScale(1.25,1.25)	-- float-stored: compare with tolerance
+				assert(math.abs(luaBtn:getRenderScaleX() - 1.25) < 0.001, "render scale")
+				assert(math.abs(luaBtn:getRenderScaleY() - 1.25) < 0.001, "render scale y")
+				luaBtn:setRenderScale(1,1)
+				luaBtn:setRenderRotation(15)
+				assert(math.abs(luaBtn:getRenderRotation() - 15) < 0.001, "render rotation")
+				luaBtn:setRenderRotation(0)
+				panel:setGroupAlpha(0.5); assert(panel:getGroupAlpha() == 0.5, "group alpha")
+				assert(math.abs(label:getEffectiveAlpha() - 0.5) < 0.001, "cascade alpha")
+				panel:setGroupAlpha(1.0); luaBtn:setAlphaBlocksInput(true)
+				panel:setTransition("fade 0.2")
+
+				-- guitween: every helper returns a handle (:isActive/:cancel/:setLoops)
+				local h = guitween.alpha("luaBtn", 0.5, 0.2, "quadOut")
+				assert(h ~= nil, "guitween.alpha handle")
+				h:isActive(); h:setLoops(2, true); h:cancel()
+				guitween.scale("luaBtn", 1.3, 0.2)
+				guitween.rotate("luaBtn", 90, 0.2)
+				guitween.move("luaBtn", 30, 60, 0.2)
+				guitween.size("luaBtn", 200, 48, 0.2)
+				guitween.color("luaPanel", 1, 0, 0, 1, 0.2)
+				guitween.stop("luaBtn")
+				panel:setTransition("pop 0.2")
+				assert(guitween.show("luaPanel"), "guitween.show")
+				assert(guitween.hide("luaPanel"), "guitween.hide")
+
+				-- modals: showModal + content z + register + dismiss; confirm/alert + result
+				local mid = gui:showModal("luaModal", false)
+				assert(gui:isModalActive(), "modal active")
+				assert(gui:getModalContentZ(mid) > 0, "modal content z")
+				-- a modal-owned widget (torn down WITH the modal - do NOT register a
+				-- widget the rest of the matrix still needs)
+				factory:createDecorWidget("luaModalPanel", "panel", Vector2(200,200), Vector2(300,150), "", gui:getModalContentZ(mid))
+				gui:registerModalWidget(mid, "luaModalPanel")
+				gui:getTopModalId(); gui:getModalCount()
+				gui:dismissModal(mid)
+				local cid = gui:showConfirm("T", "M", "Yes", "No")
+				assert(gui:getDialogResult(cid) == 0, "dialog pending"); gui:dismissModal(cid)
+				local aid = gui:showAlert("A", "B", "OK"); gui:dismissModal(aid)
+				gui:dismissAllModals()
+
+				-- toggle groups
+				local grp = gui:createToggleGroup("luaGroup")
+				grp:addMember(check); grp:setAllowNone(true); grp:setSelected(0)
+				grp:getSelected(); grp:getMemberCount(); grp:pollChanged()
+				assert(gui:getToggleGroup("luaGroup") ~= nil, "getToggleGroup")
+
+				-- toast
+				gui:showToast("Saved", 1.0); gui:isToastVisible()
+
+				-- scroll offsets
+				scroll:setScroll(-10); scroll:getScroll(); scroll:getMaxScroll()
+
+				-- declarative authoring + the .oui<->Lua BRIDGE (findWidget by id)
+				factory:loadLayout("matrix_screen.oui")
+				local found = gui:findWidget("mtxButton")
+				assert(found ~= nil, "findWidget could not reach an .oui-authored widget")
+				found:setGroupAlpha(0.8)					-- wire behavior onto it
+				guitween.alpha("mtxButton", 1.0, 0.2)		-- animate an .oui widget by id
+				assert(gui:findWidget("nope#missing") == nil, "findWidget of a missing id must be nil")
+
+				return true
+			)lua");
+			if (!r1.success)
+			{
+				SDL_Log("hello_orkige: FAILED - gui-lua build/drive: %s",
+					r1.error.c_str());
+				luaOk = false;
+			}
+			render->renderOneFrame();	// resolve the Lua-authored screen
+
+			// C++ injects ONE synthetic press on the Lua-created button (the only
+			// C++ role: input + probes), then Lua asserts it reached the widget.
+			if (luaOk && Orkige::GuiManager::getSingletonPtr() &&
+				Orkige::GuiManager::getSingleton().widgetExists("luaBtn"))
+			{
+				Orkige::optr<Orkige::GuiWidget> b =
+					Orkige::GuiManager::getSingleton().getWidget("luaBtn").lock();
+				if (b)
+				{
+					const Orkige::Vec2 p = b->getPosition();
+					const Orkige::Vec2 s = b->getSize();
+					const float cx = p.x + s.x * 0.5f;
+					const float cy = p.y + s.y * 0.5f;
+					SDL_Event down{};
+					down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+					down.button.button = SDL_BUTTON_LEFT;
+					down.button.down = true;
+					down.button.x = cx; down.button.y = cy;
+					inputManager.injectEvent(down);
+					SDL_Event up{};
+					up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+					up.button.button = SDL_BUTTON_LEFT;
+					up.button.down = false;
+					up.button.x = cx; up.button.y = cy;
+					inputManager.injectEvent(up);
+				}
+			}
+			render->renderOneFrame();
+
+			// PHASE 2: Lua asserts the injected input reached its widget, and the
+			// C++ side reads a probe on the Lua-built screen
+			if (luaOk)
+			{
+				const Orkige::ScriptRuntime::Result r2 = scriptRuntime.runString(
+					"assert(luaBtn:wasClicked(), 'synthetic click did not reach the "
+					"Lua-created button')\nreturn true");
+				if (!r2.success)
+				{
+					SDL_Log("hello_orkige: FAILED - gui-lua input: %s",
+						r2.error.c_str());
+					luaOk = false;
+				}
+			}
+			if (luaOk && Orkige::GuiManager::getSingletonPtr() &&
+				Orkige::GuiManager::getSingleton().getLastBatchCount() < 1)
+			{
+				SDL_Log("hello_orkige: FAILED - gui-lua: the Lua screen drew no batch");
+				luaOk = false;
+			}
+
+			// tear the Lua-owned gui down before the trailing free-run loop
+			scriptRuntime.runString("if gui then gui:destroyAllWidgets() end\n"
+				"gui = nil factory = nil luaBtn = nil collectgarbage('collect')");
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!luaOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: gui-lua matrix passed (every widget type + every "
+				"setter/getter/mode/modal/toggle/dropdown/toast/scroll + tweens/"
+				"transforms/transitions/show-hide authored & asserted in Lua; .oui "
+				"widgets reached by id via findWidget; synthetic input verified)");
 		}
 
 		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs

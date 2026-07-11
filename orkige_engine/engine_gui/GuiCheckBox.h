@@ -70,6 +70,8 @@ namespace Orkige
 		String getCaption();
 		//! set button text
 		void setCaption(String const & text);
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
     protected:
 		//! dim the box + glyph + label when disabled (no dedicated sprite)
 		virtual void onEnabledChanged(bool enable);

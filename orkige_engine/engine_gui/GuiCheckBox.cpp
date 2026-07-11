@@ -164,6 +164,20 @@ namespace Orkige
     //----------------------------------------------------
     //- private: -----------------------------------------
     //----------------------------------------------------
+	void GuiCheckBox::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->decor)		this->decor->applyRenderTransform(transform);
+		if(this->checkbox)	this->checkbox->applyRenderTransform(transform);
+		if(this->label)		this->label->applyRenderTransform(transform);
+	}
+	//----------------------------------------------------
+	void GuiCheckBox::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->decor)		this->decor->applyRenderAlpha(alphaMultiplier);
+		if(this->checkbox)	this->checkbox->applyRenderAlpha(alphaMultiplier);
+		if(this->label)		this->label->applyRenderAlpha(alphaMultiplier);
+	}
+	//----------------------------------------------------
 	OABSTRACT_IMPL(GuiCheckBox)
 		// settings toggle: scripts poll isChecked() and drive setChecked/toggle
 		// (position/size accessors are inherited from GuiWidget)

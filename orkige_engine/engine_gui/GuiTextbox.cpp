@@ -58,6 +58,22 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
+	void GuiTextbox::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->markupText)
+		{
+			this->markupText->renderTransform(transform);
+		}
+	}
+	//---------------------------------------------------------
+	void GuiTextbox::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->markupText)
+		{
+			this->markupText->renderAlpha(alphaMultiplier);
+		}
+	}
+	//---------------------------------------------------------
 	OABSTRACT_IMPL(GuiTextbox)
 	OOBJECT_END
 }

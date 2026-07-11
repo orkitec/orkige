@@ -421,3 +421,77 @@ TEST_CASE("TweenManager callbacks may start tweens (chaining recipe)", "[tween]"
 	CHECK(secondCompleted == 1);
 	CHECK(manager.getActiveCount() == 0);
 }
+
+TEST_CASE("TweenManager setTweenLoops repeats a restart loop N times", "[tween]")
+{
+	Orkige::CoreTestEnvironment::get();
+	Orkige::TweenManager manager;
+
+	const float from = 0.0f;
+	const float to = 1.0f;
+	int completions = 0;
+	float last = -1.0f;
+	Orkige::TweenManager::TweenId id = manager.startTween(&from, &to, 1, 0.1f,
+		&Orkige::Ease::linear,
+		[&last](float const* v, int) { last = v[0]; return true; },
+		[&completions]() { ++completions; });
+	// 3 total plays, restart mode (each loop replays 0 -> 1)
+	manager.setTweenLoops(id, 3, false);
+
+	// run two full plays; the tween keeps running until every loop is done
+	for (int i = 0; i < 2; ++i)
+	{
+		manager.update(0.1f);
+	}
+	CHECK(completions == 0);				// still looping after two plays
+	CHECK(manager.getActiveCount() == 1);
+	manager.update(0.1f);					// the third (final) play finishes
+	CHECK(completions == 1);				// onComplete fires ONCE, after the last play
+	CHECK(manager.getActiveCount() == 0);
+}
+
+TEST_CASE("TweenManager ping-pong loop swaps the endpoints each play", "[tween]")
+{
+	Orkige::CoreTestEnvironment::get();
+	Orkige::TweenManager manager;
+
+	const float from = 0.0f;
+	const float to = 10.0f;
+	float sample = -1.0f;
+	Orkige::TweenManager::TweenId id = manager.startTween(&from, &to, 1, 0.1f,
+		&Orkige::Ease::linear,
+		[&sample](float const* v, int) { sample = v[0]; return true; });
+	manager.setTweenLoops(id, 2, true);		// forward then back
+
+	// finish the first play (0 -> 10), which rewinds ping-pong to run 10 -> 0
+	manager.update(0.1f);
+	CHECK(sample == Catch::Approx(10.0f));
+	// the return leg counts back down toward the start value
+	manager.update(0.05f);
+	CHECK(sample == Catch::Approx(5.0f));
+	manager.update(0.05f);
+	CHECK(sample == Catch::Approx(0.0f));	// back to the start value
+	CHECK(manager.getActiveCount() == 0);	// two plays done
+}
+
+TEST_CASE("TweenManager infinite loop never completes on its own", "[tween]")
+{
+	Orkige::CoreTestEnvironment::get();
+	Orkige::TweenManager manager;
+
+	const float from = 0.0f;
+	const float to = 1.0f;
+	int completions = 0;
+	Orkige::TweenManager::TweenId id = manager.startTween(&from, &to, 1, 0.1f,
+		&Orkige::Ease::linear, Orkige::TweenManager::UpdateFunction(),
+		[&completions]() { ++completions; });
+	manager.setTweenLoops(id, -1, false);	// forever
+
+	for (int i = 0; i < 100; ++i)
+	{
+		manager.update(0.1f);
+	}
+	CHECK(completions == 0);				// never finishes on its own
+	CHECK(manager.getActiveCount() == 1);
+	CHECK(manager.cancelTween(id));			// but cancel still stops it
+}

@@ -10,6 +10,7 @@
 #include "engine_gui/GuiSelectMenu.h"
 #include "engine_gui/GuiManager.h"
 #include <core_event/GlobalEventManager.h>
+#include <OgreString.h>
 // boost string algorithms dropped (no-boost rule); the only use below is commented out
 
 namespace Orkige 
@@ -101,6 +102,18 @@ namespace Orkige
 	{
 		this->items = items;
 		this->selectItemIndex(0, false);
+	}
+	//----------------------------------------------------
+	void GuiSelectMenu::setItemsString(String const & pipeDelimited)
+	{
+		// split on '|' (labels may hold spaces), trimming each piece - the
+		// script-friendly path (the seam cannot pass a Lua table as a vector)
+		Ogre::StringVector items = Ogre::StringUtil::split(pipeDelimited, "|");
+		for(String & item : items)
+		{
+			Ogre::StringUtil::trim(item);
+		}
+		this->setItems(items);
 	}
 	//----------------------------------------------------
 	void GuiSelectMenu::showItem()
@@ -204,12 +217,31 @@ namespace Orkige
 	//----------------------------------------------------
 	//- private: -----------------------------------------
 	//----------------------------------------------------
+	void GuiSelectMenu::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->decor)					this->decor->applyRenderTransform(transform);
+		if(this->leftArrow)				this->leftArrow->applyRenderTransform(transform);
+		if(this->rightArrow)			this->rightArrow->applyRenderTransform(transform);
+		if(this->label)					this->label->applyRenderTransform(transform);
+		if(this->buttonMainSelection)	this->buttonMainSelection->applyRenderTransform(transform);
+	}
+	//----------------------------------------------------
+	void GuiSelectMenu::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->decor)					this->decor->applyRenderAlpha(alphaMultiplier);
+		if(this->leftArrow)				this->leftArrow->applyRenderAlpha(alphaMultiplier);
+		if(this->rightArrow)			this->rightArrow->applyRenderAlpha(alphaMultiplier);
+		if(this->label)					this->label->applyRenderAlpha(alphaMultiplier);
+		if(this->buttonMainSelection)	this->buttonMainSelection->applyRenderAlpha(alphaMultiplier);
+	}
+	//----------------------------------------------------
 	OABSTRACT_IMPL(GuiSelectMenu)
 		// option cycler / settings value: scripts poll getSelectedItemIndex()
 		// and drive it via selectItemIndex/selectItem; setItems takes a Lua
 		// array of option strings. GuiSlider inherits all of this - its
 		// grip value IS the selected item index.
 		OFUNC(setItems)
+		OFUNC(setItemsString)
 		OFUNC(getSelectedItemIndex)
 		OFUNC(getSelectedItem)
 		OFUNC(selectItemIndex)

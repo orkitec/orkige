@@ -1,0 +1,83 @@
+# matrix_screen.oui - the widget-interaction matrix acceptance screen.
+# One of every declaratively-authorable widget, so the matrix selfcheck can
+# assert the .oui grammar builds each type (imperative creation is covered in
+# code). A panel carries an enter/exit `transition` for the show/hide check,
+# and a cascading-alpha subtree parents a label under a panel.
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+# a panel with a declarative transition (played by guitween.show/hide)
+[Panel mtxPanel]
+z = 2
+sprite = none
+color = 0.1 0.1 0.2 1
+position = 40 40
+size = 320 200
+transition = fade 0.2
+
+# a label parented under the panel - cascading alpha dims it with the panel
+[Label mtxLabel]
+z = 2
+font = 9
+text = Matrix
+position = 60 60
+parent = mtxPanel
+
+[Button mtxButton]
+z = 2
+font = 9
+sprite = button
+text = Go
+position = 400 60
+size = 200 48
+
+[CheckBox mtxCheck]
+z = 2
+font = 9
+sprite = checkbox
+text = Enable
+position = 400 130
+size = 200 40
+
+[Slider mtxSlider]
+z = 2
+font = 9
+sprite = button
+text = Vol
+position = 400 190
+size = 260 44
+
+[SelectMenu mtxSelect]
+z = 2
+font = 9
+sprite = button
+text = Mode
+position = 400 250
+size = 260 44
+
+[ProgressBar mtxProgress]
+z = 2
+font = 9
+sprite = button
+text = Load
+position = 400 310
+size = 260 32
+
+[TextEntry mtxEntry]
+z = 2
+font = 9
+sprite = button
+text =
+position = 400 360
+size = 260 44
+
+[DropDown mtxDrop]
+z = 2
+font = 9
+sprite = button
+text = Pick
+position = 400 420
+size = 260 44
+items = Alpha | Beta | Gamma

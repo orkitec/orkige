@@ -19,6 +19,7 @@
 #include "engine_graphic/ScreenFade.h"
 #include "engine_graphic/ScreenShake.h"
 #include "engine_input/HapticManager.h"
+#include "engine_gui/GuiManager.h"
 #include "engine_base/EngineLog.h"
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
@@ -193,6 +194,29 @@ namespace Orkige
 			return tweenStart(&fromValue, &toValue, 1, duration, easeName,
 				applyFunction, TweenManager::CompleteFunction(), delay,
 				targetId);
+		}
+		//! @brief start a gui-widget property tween through GuiManager (retarget-
+		//! replace + auto-kill live there). The trailing script args are uniform
+		//! across the guitween.* helpers: [0] ease name, [1] delay, [2] onComplete.
+		//! @return the tween handle (:isActive/:cancel/:setLoops), empty if no gui.
+		TweenHandle guiTweenStart(String const & widgetId, int channel,
+			float const * toValues, float duration, ScriptArgs const & extra)
+		{
+			TweenHandle handle;
+			if (!GuiManager::getSingletonPtr())
+			{
+				EngineLogCapture::logError(
+					"guitween: no GuiManager - the game booted no UI");
+				return handle;
+			}
+			const String easeName = ScriptRuntime::stringArg(extra, 0, "");
+			const float delay = static_cast<float>(
+				ScriptRuntime::numberArg(extra, 1, 0.0));
+			const ScriptCallback onComplete = ScriptCallback::fromArgs(extra, 2);
+			handle.mId = GuiManager::getSingleton().tweenWidget(widgetId, channel,
+				toValues, duration, easeForScripts(easeName), delay,
+				wrapScriptComplete(onComplete));
+			return handle;
 		}
 		//! shared shape of the typed three-channel helpers (move/scale)
 		TweenHandle tweenChannel3(float const * fromValues,
@@ -1164,6 +1188,99 @@ namespace Orkige
 				EngineLogCapture::logError("tween.property: " + error);
 			}
 			return handle;
+		});
+
+		// ============== THE `guitween` TABLE (gui widget juice) =============
+		// Animate a gui widget (by id) through the SAME TweenManager the game
+		// tweens ride. Every helper RETARGET-REPLACES a running tween on the same
+		// channel of that widget (last-wins) and AUTO-KILLS when the widget is
+		// destroyed - both live in GuiManager. Layout-driven widgets tween their
+		// LAYOUT INPUTS (anchoredPosition / sizeDelta) so animation composes with
+		// the resolver. Every helper returns a handle: :cancel(), :isActive()
+		// (the completion poll) and :setLoops(count, pingpong) (the chained loop
+		// modifier). Trailing optional args are uniform: ease name, delay seconds,
+		// onComplete callback.
+		//   guitween.alpha(id, alpha, duration [, ease [, delay [, onComplete]]])
+		//       group alpha 0..1 (cascades to the widget's layout subtree)
+		//   guitween.scale(id, scale, duration [, ...])   uniform scale about the centre
+		//   guitween.rotate(id, degrees, duration [, ...]) Z rotation about the centre
+		//   guitween.move(id, x, y, duration [, ...])     anchoredPosition / position
+		//   guitween.size(id, w, h, duration [, ...])     sizeDelta / size
+		//   guitween.color(id, r, g, b, a, duration [, ...]) decor tint (decor widgets)
+		//   guitween.show(id) / guitween.hide(id)   play the widget's enter/exit
+		//       transition (set via .oui `transition` or widget:setTransition)
+		//   guitween.stop(id)   cancel every running tween on the widget
+		//   endless spinner:  guitween.rotate("spinner", 360, 1.0, "linear"):setLoops(-1, false)
+		//   pulse:            guitween.scale("badge", 1.2, 0.3, "quadInOut"):setLoops(-1, true)
+		runtime.registerFunction("guitween", "alpha",
+			[](String const & id, double alpha, double duration,
+				ScriptArgs extra) -> TweenHandle
+		{
+			const float to = static_cast<float>(alpha);
+			return guiTweenStart(id, GuiManager::WTC_Alpha, &to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "scale",
+			[](String const & id, double scale, double duration,
+				ScriptArgs extra) -> TweenHandle
+		{
+			const float to[2] = { static_cast<float>(scale),
+				static_cast<float>(scale) };
+			return guiTweenStart(id, GuiManager::WTC_Scale, to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "rotate",
+			[](String const & id, double degrees, double duration,
+				ScriptArgs extra) -> TweenHandle
+		{
+			const float to = static_cast<float>(degrees);
+			return guiTweenStart(id, GuiManager::WTC_Rotation, &to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "move",
+			[](String const & id, double x, double y, double duration,
+				ScriptArgs extra) -> TweenHandle
+		{
+			const float to[2] = { static_cast<float>(x), static_cast<float>(y) };
+			return guiTweenStart(id, GuiManager::WTC_Position, to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "size",
+			[](String const & id, double w, double h, double duration,
+				ScriptArgs extra) -> TweenHandle
+		{
+			const float to[2] = { static_cast<float>(w), static_cast<float>(h) };
+			return guiTweenStart(id, GuiManager::WTC_Size, to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "color",
+			[](String const & id, double r, double g, double b, double a,
+				double duration, ScriptArgs extra) -> TweenHandle
+		{
+			const float to[4] = { static_cast<float>(r), static_cast<float>(g),
+				static_cast<float>(b), static_cast<float>(a) };
+			return guiTweenStart(id, GuiManager::WTC_Color, to,
+				static_cast<float>(duration), extra);
+		});
+		runtime.registerFunction("guitween", "show",
+			[](String const & id) -> bool
+		{
+			return GuiManager::getSingletonPtr() &&
+				GuiManager::getSingleton().playWidgetTransition(id, true);
+		});
+		runtime.registerFunction("guitween", "hide",
+			[](String const & id) -> bool
+		{
+			return GuiManager::getSingletonPtr() &&
+				GuiManager::getSingleton().playWidgetTransition(id, false);
+		});
+		runtime.registerFunction("guitween", "stop",
+			[](String const & id)
+		{
+			if (GuiManager::getSingletonPtr())
+			{
+				GuiManager::getSingleton().cancelWidgetTweens(id);
+			}
 		});
 
 		// ================= THE `cvar` TABLE (live tuning) ==================

@@ -16,6 +16,8 @@
 #include "engine_gui/GuiView.h"
 #include <core_util/ModalStack.h>
 #include <core_util/ToastQueue.h>
+#include <core_util/UiTransition.h>
+#include <core_tween/TweenManager.h>
 
 #include <OgreResourceGroupManager.h>	// the resource-group default arguments
 
@@ -29,6 +31,7 @@ namespace Orkige
 	class FontAtlas;
 	class GuiToggleGroup;
 	class GuiToast;
+	class FrameEventData;
 
 	class ORKIGE_ENGINE_DLL GuiManager : public Singleton<GuiManager>, public Interface, public EventHandler
 	{
@@ -68,6 +71,19 @@ namespace Orkige
 			DR_YES = 1,		//!< the affirmative button (Yes / OK)
 			DR_NO = 2		//!< the negative button (No / Cancel)
 		};
+		//! @brief the animatable widget channels. One running tween per (widget,
+		//! channel): starting a new one on the same channel REPLACES the old
+		//! (last-wins retarget). @see tweenWidget
+		enum WidgetTweenChannel
+		{
+			WTC_Alpha = 0,	//!< group alpha (cascades to the subtree)
+			WTC_Scale,		//!< scale about the widget centre (2 channels x,y)
+			WTC_Rotation,	//!< Z rotation about the centre (degrees)
+			WTC_Position,	//!< anchoredPosition (layout) or absolute position
+			WTC_Size,		//!< sizeDelta (layout) or absolute size
+			WTC_Color,		//!< decor tint r,g,b,a (decor widgets only)
+			WTC_COUNT
+		};
 	protected:
 		//! @brief one active modal: its two z layers plus the widget ids to
 		//! destroy on dismissal, and (for a confirm/alert) its result buttons
@@ -78,6 +94,7 @@ namespace Orkige
 			bool					isDialog = false;	//!< a confirm/alert dialog
 			String					yesButtonId;	//!< affirmative (or OK) button id
 			String					noButtonId;		//!< negative button id ("" for alert)
+			bool					lightDismiss = false;	//!< Escape / outside-tap closes it
 		};
 	private:
 		//--- Variables ---------------------------------------------
@@ -103,6 +120,9 @@ namespace Orkige
         bool scaleStats;
 		//! the single focused text-entry field, or NULL (@see focusTextEntry)
 		GuiTextEntry* focusedTextEntry;
+		//! the text field focused BELOW the modal stack, blurred while a modal is
+		//! up and refocused when the last modal closes (focus transfer)
+		GuiTextEntry* modalSavedFocus;
 		//! set true while a cursor press claimed a text field (tap-away blur)
 		bool textEntryFocusClaimed;
 		//! @brief the rect-anchor layout state (@see the resolve pass in
@@ -133,6 +153,13 @@ namespace Orkige
 		//! actions to run at the next frame boundary - the safe place to create
 		//! or destroy widgets (never mid input-dispatch). @see runDeferred
 		std::vector<std::function<void()> > deferredActions;
+		//! a group alpha changed (or a subtree parent did): re-run the cascade
+		//! pass next frame so every widget's effective alpha reaches its elements
+		bool groupAlphaDirty;
+		//! the one running tween per (widget id, channel) - a new tween on the
+		//! same channel cancels the old (last-wins retarget). Cleared per widget
+		//! when it is destroyed (auto-kill). @see tweenWidget
+		std::map<String, std::map<int, TweenManager::TweenId> > widgetTweens;
 		//--- Methods -----------------------------------------------
 	public:
 		GuiManager(optr<GuiFactory> _factory, String const & defaultAtlas = "gui_default", String const & group = Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
@@ -180,6 +207,11 @@ namespace Orkige
 		inline bool widgetExists(String const & id);
 		//! get widget with given id
 		inline woptr<GuiWidget> getWidget(String const & id);
+		//! @brief look a widget up by id for SCRIPTS - the bridge that lets Lua
+		//! wire behavior (setters, tweens, transitions) onto a screen authored in
+		//! a `.oui`. Returns empty (nil in Lua) when absent, unlike getWidget which
+		//! asserts. The two authoring modes compose through this lookup.
+		woptr<GuiWidget> findWidget(String const & id);
 		//! get widget of given type with given id
 		template<typename WidgetType>
 		inline woptr<WidgetType> getWidgetAs(String const & id);
@@ -293,6 +325,53 @@ namespace Orkige
 		//! @brief mark the layout tree dirty so the next frame re-resolves it
 		//! (widgets call this from their layout setters)
 		void markLayoutDirty();
+		//! @brief mark the cascade-alpha tree dirty so the next frame re-applies
+		//! every widget's effective alpha to its elements (a group alpha changed)
+		void markGroupAlphaDirty();
+
+		//--- widget animation (@see WidgetTweenChannel) ---
+		//! @brief animate a widget property to a target over a duration, through
+		//! the shared TweenManager. Starting a tween on a channel already running
+		//! for that widget REPLACES it (last-wins retarget); the tween auto-kills
+		//! when the widget is destroyed. The apply re-fetches the widget by id each
+		//! step (lifetime-safe). @param widgetId the target; @param channel which
+		//! property; @param toValues the target value(s) (channel count per channel
+		//! - Scale/Position/Size take 2, Color 4, others 1); @param duration
+		//! seconds; @param ease curve (NULL = linear); @param delay seconds before
+		//! the first step; @param onComplete fires once at the end. @return the
+		//! tween handle (isActive/cancel; poll for completion), or 0 if the widget
+		//! is gone / no TweenManager (the editor).
+		TweenManager::TweenId tweenWidget(String const & widgetId, int channel,
+			float const * toValues, float duration, Ease::Function ease,
+			float delay = 0.0f,
+			TweenManager::CompleteFunction const & onComplete =
+				TweenManager::CompleteFunction());
+		//! @brief cancel the running tween on one channel of a widget (if any)
+		void cancelWidgetTween(String const & widgetId, int channel);
+		//! @brief cancel every running tween on a widget (auto-kill on destroy)
+		void cancelWidgetTweens(String const & widgetId);
+		//! @brief play a widget's enter (show) or exit (hide) transition, resolved
+		//! from its transition spec (@see GuiWidget::setTransition). show restores
+		//! the widget and animates it in; hide animates it out then parks it at
+		//! effective-invisible. A widget with no transition snaps. @return true
+		//! when a transition (or snap) was applied (widget exists).
+		bool playWidgetTransition(String const & widgetId, bool entering);
+
+		//--- performance-contract probes (the "1 draw per screen per atlas,
+		//--- dirty-tracked" promise; @see the demo_gui_matrix perf assertions) ---
+		//! @brief total draw submissions across every visible screen this frame
+		//! (1 per atlas + 1 per scissored scroll region). @see UiScreen::getLastBatchCount
+		size_t getLastBatchCount() const;
+		//! @brief total monotonic full-rebuild count across screens; read deltas to
+		//! assert dirty-tracking (0 on a static frame, +1 per content change / per
+		//! active-animation frame). @see UiScreen::getRebuildCount
+		size_t getRebuildCount() const;
+		//! @brief total retained scratch-buffer capacity across screens (stable
+		//! across identical rebuilt frames = no per-frame reallocation)
+		size_t getScratchCapacity() const;
+		//! @brief run one full gui frame pipeline off the event bus, so a selfcheck
+		//! can TIME it (the perf-budget probe). @param delta seconds since last frame
+		void profileTick(float delta);
 
 		//! returns true if given point is over any widget
 		bool isPointOverWidget(Ogre::Vector2 const & point);
@@ -301,6 +380,10 @@ namespace Orkige
 		//! safe box" against. Order follows the widget map (stable by id).
 		std::vector<WidgetLayout> getWidgetLayouts();
 	protected:
+		//! @brief the per-frame gui pipeline (deferred actions, widget ticks, modal
+		//! drain, toast, layout + cascade-alpha resolve, screen rebuild + submit).
+		//! Shared by the FrameStarted handler and profileTick (the perf probe).
+		void tickFrame(FrameEventData & frameData);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameStarted(Orkige::Event const & event);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
@@ -316,6 +399,11 @@ namespace Orkige
 		//! (full-window or safe-area) root rect. Runs only when the layout went
 		//! dirty or the window resized.
 		void resolveLayouts();
+
+		//! @brief re-apply every widget's effective (cascaded) alpha to its visual
+		//! elements. Runs only when a group alpha changed (groupAlphaDirty), so a
+		//! static UI pays nothing. O(n * layout depth) over the widgets.
+		void resolveGroupAlpha();
 
 		//! @brief tear down the modals queued for dismissal (frame-boundary safe)
 		void drainModalDismissals();

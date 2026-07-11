@@ -116,6 +116,12 @@ namespace Orkige
 			{
 				widget->setEnabled(parseBool(*v, true));
 			}
+			if(String const * v = s.find("transition"))
+			{
+				// enter/exit animation: "fade 0.2", "slide-up 0.3", "pop", "none"
+				// - played by guitween.show(id) / guitween.hide(id)
+				widget->setTransition(*v);
+			}
 			if(String const * v = s.find("parent"))
 			{
 				if(GuiManager::getSingleton().widgetExists(*v))

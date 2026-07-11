@@ -42,6 +42,7 @@ namespace Orkige
 		String baseSpriteName;				//!< base name of the button state sprite;
 		bool nostate;
 		bool clicked;						//!< a completed click since the last wasClicked poll
+		bool pressFeedback;					//!< opt-in scale-down-on-press juice
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -79,6 +80,13 @@ namespace Orkige
 		void setNineSlice(bool enable);
 		//! @brief draw the button image tiled across its rect
 		void setTiled(bool enable);
+		//! @brief opt in to built-in press feedback: the button scales down a
+		//! touch on press and springs back (a slight overshoot) on release - the
+		//! standard tactile "juice". Off by default.
+		void setPressFeedback(bool enable);
+		inline bool getPressFeedback() const { return this->pressFeedback; }
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 
 	protected:
 		//! disabled -> the BS_DISABLED sprite (`_disabled`), enabled -> BS_UP

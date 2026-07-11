@@ -275,6 +275,30 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_gui_modal PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_GUI_MODAL=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_GUI_MATRIX: the widget interaction MATRIX - the completeness
+    # contract. Builds every widget type from a .oui AND imperatively, drives
+    # each with synthetic input, and asserts state/geometry PLUS the whole
+    # animation layer: a widget property tween (with retarget-replace), the
+    # scale/rotation render transform, cascading group alpha with the below-
+    # threshold hit-test gate, a declarative show/hide transition, button press
+    # feedback and scroll-view flick momentum. Flavor-neutral (gui on
+    # DrawLayer2D), so it runs on classic + next and both must agree.
+    add_test(NAME demo_gui_matrix COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_gui_matrix PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_GUI_MATRIX=1;ORKIGE_DEMO_FRAMES=4")
+
+    # ORKIGE_DEMO_GUI_LUA: the FULLY-SCRIPTABLE contract - the whole widget
+    # matrix authored/driven/asserted IN LUA through the ScriptRuntime surface
+    # (C++ only injects one synthetic press + reads probes). A missing/renamed
+    # gui binding raises a Lua error, so the suite fails by construction. Also
+    # proves the .oui<->Lua bridge (findWidget by id). Scripting-gated: the
+    # ORKIGE_SCRIPTING=OFF build skips the body (ScriptRuntime unavailable).
+    add_test(NAME demo_gui_lua COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_gui_lua PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_GUI_LUA=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES

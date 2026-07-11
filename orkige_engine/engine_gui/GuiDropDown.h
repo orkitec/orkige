@@ -44,6 +44,10 @@ namespace Orkige
 
 		//! set the option labels (resets the selection to 0)
 		void setItems(Ogre::StringVector const & items);
+		//! @brief set the option labels from a pipe-delimited string ("A | B | C")
+		//! - the SCRIPT-friendly setter (the seam cannot pass a Lua table as a
+		//! vector). @see GuiSelectMenu::setItemsString
+		void setItemsString(String const & pipeDelimited);
 		Ogre::StringVector const & getItems() const { return this->items; }
 		//! the selected option index
 		std::size_t getSelectedIndex() const { return this->selectedIndex; }
@@ -55,7 +59,7 @@ namespace Orkige
 		//! is the option list currently open?
 		bool isMenuOpen() const { return this->menuOpen; }
 
-		virtual void onCursorReleased(Ogre::Vector2 const & cursorPos);
+		virtual void onCursorPressed(Ogre::Vector2 const & cursorPos);
 		virtual bool onFrameStarted(FrameEventData const & data);
 	protected:
 		//! build the option list on a light-dismiss modal (frame-boundary safe)

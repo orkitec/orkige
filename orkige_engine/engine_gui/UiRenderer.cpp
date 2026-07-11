@@ -35,6 +35,36 @@ namespace Orkige
 			vertices.push_back(UiVertex(x, y, uv.x, uv.y, colour));
 		}
 
+		//! @brief apply an element's per-frame transform + alpha multiplier to the
+		//! range it just appended to the batch. Kept OUT of the element's cached
+		//! vertices (rebuilt only on content change) so an animating widget coasts
+		//! without relaying out glyphs - the transform/alpha ride on the emitted
+		//! copy each frame. @see UiRect::renderTransform
+		inline void applyElementPost(std::vector<UiVertex> & out, size_t begin,
+			Ui2DTransform const & transform, Real alphaMultiplier)
+		{
+			const bool hasTransform = !transform.isIdentity();
+			const bool hasAlpha = alphaMultiplier != 1.0f;
+			if(!hasTransform && !hasAlpha)
+			{
+				return;
+			}
+			for(size_t each = begin; each < out.size(); ++each)
+			{
+				if(hasTransform)
+				{
+					float tx = 0.0f, ty = 0.0f;
+					transform.apply(out[each].x, out[each].y, tx, ty);
+					out[each].x = tx;
+					out[each].y = ty;
+				}
+				if(hasAlpha)
+				{
+					out[each].colour.a *= alphaMultiplier;
+				}
+			}
+		}
+
 		//! two triangles for one quad, in the historical fill winding
 		//! (a=TL b=TR c=BL d=BR; triangles (c,b,a),(c,d,b))
 		inline void pushQuad(std::vector<UiVertex> & vertices,
@@ -55,7 +85,8 @@ namespace Orkige
 	UiScreen::UiScreen(UiAtlas const * atlas,
 		optr<DrawLayer2D> const & drawLayer)
 		: mAtlas(atlas), mDrawLayer(drawLayer), mWidth(0), mHeight(0),
-		mIsVisible(true), mDirty(false), mForceRedraw(false), mLastVertexCount(0)
+		mIsVisible(true), mDirty(false), mForceRedraw(false), mLastVertexCount(0),
+		mLastBatchCount(0), mRebuildCount(0)
 	{
 		oAssert(this->mAtlas);
 		oAssert(this->mDrawLayer);
@@ -141,6 +172,9 @@ namespace Orkige
 		this->mForceRedraw = false;
 		this->mDirty = false;
 
+		// a full rebuild this frame (the dirty path); the batch tally restarts
+		++this->mRebuildCount;
+		this->mLastBatchCount = 0;
 		this->mDrawLayer->clear();
 		this->mLastVertexCount = 0;
 		this->mScratch.clear();
@@ -203,6 +237,7 @@ namespace Orkige
 			this->mScratch.data(), this->mScratch.size(),
 			NULL, 0, scissor);
 		this->mLastVertexCount += this->mScratch.size();
+		++this->mLastBatchCount;	// one real draw submission (non-empty batch)
 		this->mScratch.clear();
 	}
 	//---------------------------------------------------------
@@ -347,19 +382,30 @@ namespace Orkige
 		{
 			if(rect->mDirty || force)
 			{
+				// a real GEOMETRY rebuild (vertices rebuilt), distinct from the
+				// batch resubmit below: a post-pass transform/alpha never sets
+				// mDirty, so animating one leaves this counter untouched
+				++this->mParent->mGeometryRebuildCount;
 				rect->_redraw();
 			}
+			const size_t elementBegin = out.size();
 			out.insert(out.end(), rect->mVertices.begin(),
 				rect->mVertices.end());
+			applyElementPost(out, elementBegin, rect->mRenderTransform,
+				rect->mRenderAlpha);
 		}
 		for(UiCaption* caption : this->mCaptions)
 		{
 			if(caption->mDirty || force)
 			{
+				++this->mParent->mGeometryRebuildCount;
 				caption->_redraw();
 			}
+			const size_t elementBegin = out.size();
 			out.insert(out.end(), caption->mVertices.begin(),
 				caption->mVertices.end());
+			applyElementPost(out, elementBegin, caption->mRenderTransform,
+				caption->mRenderAlpha);
 		}
 		for(UiMarkupText* markupText : this->mMarkupTexts)
 		{
@@ -369,10 +415,14 @@ namespace Orkige
 			}
 			if(markupText->mDirty || force)
 			{
+				++this->mParent->mGeometryRebuildCount;
 				markupText->_redraw();
 			}
+			const size_t elementBegin = out.size();
 			out.insert(out.end(), markupText->mVertices.begin(),
 				markupText->mVertices.end());
+			applyElementPost(out, elementBegin, markupText->mRenderTransform,
+				markupText->mRenderAlpha);
 		}
 
 		if(this->mAlphaModifier != 1.0f)
@@ -390,7 +440,7 @@ namespace Orkige
 		UiLayer* parent)
 		: mLayer(parent), mLeft(left), mTop(top), mRight(left + width),
 		mBottom(top + height), mColour(1, 1, 1, 1), mDirty(true),
-		mDrawMode(DM_Stretch), mSprite(NULL)
+		mDrawMode(DM_Stretch), mSprite(NULL), mRenderAlpha(1.0f)
 	{
 		this->mUV[0] = this->mUV[1] = this->mUV[2] = this->mUV[3] =
 			this->mLayer->_getSolidUV();
@@ -448,6 +498,20 @@ namespace Orkige
 		}
 		this->mDrawMode = mode;
 		this->mDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiRect::renderTransform(Ui2DTransform const & transform)
+	{
+		// the transform rides on the emitted copy each frame (@see _render), so
+		// only the batch needs resubmitting - the local geometry stays cached
+		this->mRenderTransform = transform;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiRect::renderAlpha(Real alphaMultiplier)
+	{
+		this->mRenderAlpha = alphaMultiplier;
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
@@ -666,7 +730,8 @@ namespace Orkige
 		: mLayer(parent), mFont(parent->_getFont(fontIndex)),
 		mLeft(left), mTop(top), mWidth(0), mHeight(0),
 		mAlignment(TextAlign_Left), mVerticalAlign(VerticalAlign_Top),
-		mText(caption), mColour(1, 1, 1, 1), mDirty(true), mScaled(true)
+		mText(caption), mColour(1, 1, 1, 1), mDirty(true), mScaled(true),
+		mRenderAlpha(1.0f)
 	{
 		oAssertDesc(this->mFont, "UiCaption: font (glyph index) not in atlas");
 		if(this->mFont == NULL)
@@ -742,6 +807,18 @@ namespace Orkige
 	{
 		this->mColour = colour;
 		this->mDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiCaption::renderTransform(Ui2DTransform const & transform)
+	{
+		this->mRenderTransform = transform;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiCaption::renderAlpha(Real alphaMultiplier)
+	{
+		this->mRenderAlpha = alphaMultiplier;
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------
@@ -932,7 +1009,7 @@ namespace Orkige
 		String const & text, UiLayer* parent)
 		: mLayer(parent), mDefaultFont(parent->_getFont(defaultFontIndex)),
 		mLeft(left), mTop(top), mWidth(0), mHeight(0), mText(text),
-		mDirty(true), mTextDirty(true), mScaled(true)
+		mDirty(true), mTextDirty(true), mScaled(true), mRenderAlpha(1.0f)
 	{
 		oAssertDesc(this->mDefaultFont,
 			"UiMarkupText: font (glyph index) not in atlas");
@@ -988,6 +1065,18 @@ namespace Orkige
 		this->mText = text;
 		this->mDirty = true;
 		this->mTextDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiMarkupText::renderTransform(Ui2DTransform const & transform)
+	{
+		this->mRenderTransform = transform;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiMarkupText::renderAlpha(Real alphaMultiplier)
+	{
+		this->mRenderAlpha = alphaMultiplier;
 		this->mLayer->_markDirty();
 	}
 	//---------------------------------------------------------

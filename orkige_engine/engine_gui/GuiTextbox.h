@@ -38,6 +38,8 @@ namespace Orkige
 		void setText(String const & text);
 		//! get gorilla Caption
 		inline UiMarkupText* getMarkupText();
+		virtual void applyRenderTransform(Ui2DTransform const & transform);
+		virtual void applyRenderAlpha(float alphaMultiplier);
 	protected:
 	private:
 	};

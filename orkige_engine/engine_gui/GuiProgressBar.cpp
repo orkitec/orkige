@@ -94,6 +94,20 @@ namespace Orkige
     //----------------------------------------------------
     //- private: -----------------------------------------
     //----------------------------------------------------
+	void GuiProgressBar::applyRenderTransform(Ui2DTransform const & transform)
+	{
+		if(this->decor)		this->decor->applyRenderTransform(transform);
+		if(this->barDecore)	this->barDecore->applyRenderTransform(transform);
+		if(this->label)		this->label->applyRenderTransform(transform);
+	}
+	//----------------------------------------------------
+	void GuiProgressBar::applyRenderAlpha(float alphaMultiplier)
+	{
+		if(this->decor)		this->decor->applyRenderAlpha(alphaMultiplier);
+		if(this->barDecore)	this->barDecore->applyRenderAlpha(alphaMultiplier);
+		if(this->label)		this->label->applyRenderAlpha(alphaMultiplier);
+	}
+	//----------------------------------------------------
 	OABSTRACT_IMPL(GuiProgressBar)
 		OFUNC(setProgress)
 		OFUNC(addProgress)

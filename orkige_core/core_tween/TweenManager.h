@@ -76,6 +76,8 @@ namespace Orkige
 			Ease::Function		mEase;						//!< easing curve (NULL = linear)
 			UpdateFunction		mOnUpdate;					//!< apply callback
 			CompleteFunction	mOnComplete;				//!< completion callback
+			int					mLoopsRemaining;			//!< repeats left after the current play (0 none, <0 infinite)
+			bool				mLoopPingpong;				//!< a loop swaps from/to (ping-pong) vs. restarts
 			bool				mDone;						//!< finished/cancelled - swept after update
 		};
 	private:
@@ -111,6 +113,13 @@ namespace Orkige
 			UpdateFunction const & onUpdate,
 			CompleteFunction const & onComplete = CompleteFunction(),
 			float delay = 0.0f, String const & targetId = String());
+
+		//! @brief make a running tween repeat. @param loopCount total plays
+		//! (1 = play once, no repeat; N = play N times; <0 = loop forever);
+		//! @param pingpong true swaps the from/to each loop (back-and-forth),
+		//! false restarts from the beginning. onComplete fires only after the
+		//! LAST play. Call it right after startTween (the chained :setLoops).
+		void setTweenLoops(TweenId id, int loopCount, bool pingpong);
 
 		//! @brief cancel a running tween - neither onUpdate nor onComplete
 		//! fire afterwards
@@ -148,6 +157,9 @@ namespace Orkige
 		bool cancel();
 		//! is the tween still running
 		bool isActive() const;
+		//! make the tween loop (@see TweenManager::setTweenLoops); a no-op after
+		//! it ended or with no TweenManager
+		void setLoops(int loopCount, bool pingpong);
 	};
 	/** @} */
 }
