@@ -12,6 +12,7 @@
 // See EditorControlServer.h for the design.
 #include "EditorControlServer.h"
 #include "EditorApp.h"
+#include "GeneratedLuaApi.h"
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
@@ -678,7 +679,8 @@ namespace Orkige
 				type == "read_project_file" || type == "list_project_files" ||
 				type == "list_play_targets" || type == "get_export_results" ||
 				type == "list_paint_prefabs" || type == "get_safe_area" ||
-				type == "get_ui_layout" || type == "get_breadcrumbs";
+				type == "get_ui_layout" || type == "get_breadcrumbs" ||
+				type == "get_lua_api";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -1423,6 +1425,16 @@ namespace Orkige
 				  "time (needs auth). NOT undoable. Refused (honest error) when no "
 				  "project is open, the scene is unsaved or outside the project "
 				  "root, or the scene is already in the sequence.",
+				  {} },
+				{ "get_lua_api",
+				  "The Lua scripting API signature index a ScriptComponent script "
+				  "reaches: the global tables (world/screen/sound/music/tween/"
+				  "guitween/haptics/cvar/save + the loc global) and the core value "
+				  "types, one line per symbol. Read-only, needs no project or Play "
+				  "session. Returns 'inventory' (the text index) and 'doc' (the path "
+				  "to the full reference). Generated from the engine binding sources; "
+				  "see Docs/lua-api.md for conventions (self/world/shared, the "
+				  "lifecycle hooks) and the fuller type reference.",
 				  {} },
 			};
 			return specs;
@@ -2754,6 +2766,18 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.setList("ids", ids);
 			ok.setList("rects", rects);
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_lua_api: the generated Lua scripting API signature index (embedded
+		// at build time from Docs/lua-api.md's generated block via
+		// GeneratedLuaApi.h). Read-only, needs no project or player - it lets any
+		// MCP client learn the scripting surface without shipping a doc alongside.
+		if (type == "get_lua_api")
+		{
+			DebugMessage ok(MSG_OK);
+			ok.set("inventory", kGeneratedLuaApiIndex);
+			ok.set("doc", "Docs/lua-api.md");
 			this->sendOk(req, ok);
 			return;
 		}
@@ -4348,6 +4372,31 @@ namespace Orkige
 			return callTool("get_state", JsonValue::object(), false, state,
 				isError) && !isError;
 		};
+
+		// (8) tools/call get_lua_api (read, no auth): the generated Lua API
+		// signature index must come back non-empty and carry a known symbol, so
+		// an MCP-only agent can learn the scripting surface self-contained
+		{
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("get_lua_api", JsonValue::object(), false,
+					structured, isError) || isError)
+			{
+				finish(false, "control self-test: get_lua_api call failed");
+				return;
+			}
+			const String inventory = structured.get("inventory").asString();
+			if (inventory.empty() ||
+				inventory.find("music.play") == String::npos ||
+				inventory.find("world.get") == String::npos)
+			{
+				finish(false, "control self-test: get_lua_api inventory empty or "
+					"missing a known symbol (music.play/world.get)");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - get_lua_api OK "
+				"(%zu byte inventory)", inventory.size());
+		}
 
 		// --- the RUNTIME DEBUG conversation (a separate ctest, needs the
 		// built player): boot Play over MCP, then pause/step/inspect/mutate/

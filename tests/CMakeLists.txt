@@ -87,6 +87,26 @@ add_test(NAME orkige_export_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# doc-generator self-validation: update_docs.py parses the binding sources into
+# a non-empty Lua API model, renders a budget-fitting index and asserts the .oui
+# -> mermaid tree shape on a known layout. Stdlib-only, headless.
+add_test(NAME update_docs_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/update_docs.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(update_docs_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
+# DOC CURRENCY GATE (the containment-lint precedent, now for generated docs):
+# update_docs.py --check regenerates every generated doc section to memory and
+# diffs it against the committed files (Docs/lua-api.md, Docs/gui.md, the
+# embedded GeneratedLuaApi.h). A drift - a new/renamed Lua binding or gui widget
+# whose generated block was not regenerated - fails here, so 'ctest before
+# commit' now enforces that the docs track the code. Fix: run
+# 'python3 Util/update_docs.py --write' and commit. Headless, LABELS unit.
+add_test(NAME docs_currency
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/update_docs.py" --check
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(docs_currency PROPERTIES LABELS unit TIMEOUT 30)
+
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:

@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 61 tools (the `toolSpecs` table in
+The endpoint advertises 62 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -136,6 +136,7 @@ The endpoint advertises 61 tools (the `toolSpecs` table in
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
+| `get_lua_api()` | the generated Lua scripting API signature index (`inventory` text + `doc` path) — the global tables (`world`/`screen`/`sound`/`music`/`tween`/`guitween`/`haptics`/`cvar`/`save` + the `loc` global) and core value types, one line per symbol; read-only, needs no project/Play. Embedded from `Docs/lua-api.md`'s generated block (`GeneratedLuaApi.h`), so an MCP-only agent learns the scripting surface self-contained; see `Docs/lua-api.md` for conventions and the full type reference |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |

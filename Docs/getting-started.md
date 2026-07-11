@@ -140,9 +140,15 @@ Export runs asynchronously; progress streams into the **Console**. Output lands 
 
 ## Where to go next
 
+- **[Docs/lua-api.md](lua-api.md)** — the Lua scripting API reference: a one-line
+  signature index of every global table (`world`/`save`/`music`/`tween`/`screen`/
+  `haptics`/…) and core type, then the conventions and canonical snippets.
+- **[Docs/gui.md](gui.md)** — the runtime GUI: the `.oui` layout grammar, the
+  widget set, and the author-load-find-wire recipe for building a screen.
 - **`projects/roller`** — a complete 2D physics-puzzle game in pure Lua (tilt
   gravity + sliding world tiles, multi-level progression). Zero compiled game code.
 - **`projects/jumper-lua`** — a textured jump-and-run with a gui HUD, also pure
   Lua. Its `game.lua` shows the title/playing/win state machine and UI.
 - **[Docs/mcp.md](mcp.md)** — drive the editor from an AI agent over the Model
-  Context Protocol: open projects, edit scenes, run Play, read back screenshots.
+  Context Protocol: open projects, edit scenes, run Play, read back screenshots
+  (incl. `get_lua_api` for the scripting surface).
