@@ -56,7 +56,7 @@ namespace Orkige
 		//! clear colour of the target
 		//! map: classic=Viewport::setBackgroundColour | next=compositor clear pass colour | filament=Renderer::setClearOptions per View
 		void setBackgroundColour(Color const & colour);
-		//! @brief keep 2D overlays (ImGui, FastGui) out of / in the target
+		//! @brief keep 2D overlays (ImGui, Gui) out of / in the target
 		//! (the editor turns them OFF so the scene panel shows only scene)
 		//! map: classic=Viewport::setOverlaysEnabled | next=overlay compositor pass toggle | filament=separate UI View (nothing to toggle)
 		void setOverlaysEnabled(bool enabled);

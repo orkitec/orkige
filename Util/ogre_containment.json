@@ -18,7 +18,7 @@
   "orkige_engine/engine_render/RenderMath.h"
  ],
  "sanctioned_dirs": {
-  "orkige_engine/engine_fastgui": "flavor-neutral UI zone: math alias spellings + utilities present identically in both Ogre backends (ConfigFile, ResourceGroupManager names, StringConverter/StringUtil, IteratorWrapper); rendering goes through engine_render/DrawLayer2D",
+  "orkige_engine/engine_gui": "flavor-neutral UI zone: math alias spellings + utilities present identically in both Ogre backends (ConfigFile, ResourceGroupManager names, StringConverter/StringUtil, IteratorWrapper); rendering goes through engine_render/DrawLayer2D",
   "orkige_engine/engine_filesystem": "Ogre::Archive/ArchiveFactory subclasses (BigZip) - the archive subsystem exists in Ogre-Next too; Filament gets an impl-side VFS"
  },
  "sanctioned_files": {
@@ -37,18 +37,18 @@
   "orkige_engine/engine_util/MeshUtil.h": "backend-private vertex/index buffer extraction; only referenced by the unbuilt sceneoptimizer",
   "orkige_engine/engine_util/PrimitiveUtil.h": "backend-private ManualObject mesh building; called by the classic backend (createVertexColourCubeMesh)",
   "orkige_engine/engine_util/StringConverter.h": "math-adjacent converters - follow the math decision (aliases keep it working on both Ogre backends)",
-  "orkige_engine/engine_util/StringUtil.h": "Ogre::DisplayString conversion for fastgui text (classic-gated; Next path uses the plain multibyte converter)",
+  "orkige_engine/engine_util/StringUtil.h": "Ogre::DisplayString conversion for gui text (classic-gated; Next path uses the plain multibyte converter)",
   "orkige_engine/engine_util/ResourceUtil.cpp": "resource lookups over Ogre::ResourceGroupManager (findPath backs the .caf sound loader on both flavors; removeUnusedResources is classic-only)",
   "samples/jumper/JumperLogic.h": "math-only residue (pure gameplay math, unit-tested headlessly) - alias vocabulary pending",
-  "samples/jumper/JumperHud.h": "one spelling: the resource-group default parameter forwarded to fastgui",
+  "samples/jumper/JumperHud.h": "one spelling: the resource-group default parameter forwarded to gui",
   "tests/render_facade/bootstrap_classic.cpp": "the classic backend's bootstrap TU of the render_facade selfcheck - per-backend by design",
   "tests/render_facade/bootstrap_next.cpp": "the Ogre-Next backend's bootstrap TU of the render_facade selfcheck/smoke - per-backend by design",
-  "tests/engine/FastGuiAtlasTests.cpp": "parses .ogui atlases through the UiAtlas headless constructor + Ogre::ConfigFile (present in both flavors)",
+  "tests/engine/GuiAtlasTests.cpp": "parses .ogui atlases through the UiAtlas headless constructor + Ogre::ConfigFile (present in both flavors)",
   "tests/engine/TwoDSupportTests.cpp": "math values + render-queue id constants (RENDER_QUEUE_MAIN) asserted against the pure helpers",
   "tests/jumper/JumperLogicTests.cpp": "math values (JumperLogic surface) - alias vocabulary pending",
   "tests/editor_core/EditorCameraTests.cpp": "math values - alias vocabulary pending",
   "tests/editor_core/EditorCoreTests.cpp": "math values - alias vocabulary pending",
-  "orkige_engine/engine_util/ConfigFileUtil.h": "the ONE per-flavor seam of Ogre::ConfigFile section iteration (classic 14 vs Ogre-Next API drift) - consumed by the flavor-neutral fastgui loaders"
+  "orkige_engine/engine_util/ConfigFileUtil.h": "the ONE per-flavor seam of Ogre::ConfigFile section iteration (classic 14 vs Ogre-Next API drift) - consumed by the flavor-neutral gui loaders"
  },
  "sanctioned_block_files": {
   "orkige_engine/engine_gocomponent/AnimationComponent.cpp": "root-motion backdoor (classic-only by design): classic-only bone/keyframe digging inside #ifdef ORKIGE_RENDER_CLASSIC blocks",

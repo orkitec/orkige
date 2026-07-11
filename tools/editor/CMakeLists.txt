@@ -89,7 +89,7 @@ if(APPLE)
     # a proper .app bundle (Orkige.app): Dock/Cmd-Tab icon + name instead of
     # a bare Ninja executable. The icon is generated procedurally
     # (Util/make_editor_icon.py -> iconset -> iconutil, build-dir artifact),
-    # same stdlib-only-Python policy as the fastgui atlas generator - and the
+    # same stdlib-only-Python policy as the gui atlas generator - and the
     # same find_program rationale (FindPython3 ignores CMAKE_IGNORE_PREFIX_PATH
     # and would pick the banned /usr/local interpreter).
     # $<TARGET_FILE:orkige_editor> resolves into the bundle, so ctest

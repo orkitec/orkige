@@ -31,23 +31,23 @@ add_custom_target(hello_orkige_sprite_atlas
     DEPENDS "${ORKIGE_SPRITE_ATLAS_DIR}/demo_sprite_atlas.oatlas")
 add_dependencies(hello_orkige hello_orkige_sprite_atlas)
 
-# FastGUI atlas for the ORKIGE_DEMO_UI_SCALE selfcheck (the same generator the
+# gui atlas for the ORKIGE_DEMO_UI_SCALE selfcheck (the same generator the
 # games use); packed into the build tree, regenerated when the script changes.
 # Flavor-independent, so hello builds on BOTH render flavors without the
 # classic-only jumper sample that owns the shared media copy.
-set(ORKIGE_FASTGUI_ATLAS_DIR "${CMAKE_CURRENT_BINARY_DIR}/fastgui")
+set(ORKIGE_GUI_ATLAS_DIR "${CMAKE_CURRENT_BINARY_DIR}/gui")
 add_custom_command(
-    OUTPUT "${ORKIGE_FASTGUI_ATLAS_DIR}/fastgui_default.ogui"
-           "${ORKIGE_FASTGUI_ATLAS_DIR}/fastgui_default.png"
+    OUTPUT "${ORKIGE_GUI_ATLAS_DIR}/gui_default.ogui"
+           "${ORKIGE_GUI_ATLAS_DIR}/gui_default.png"
     COMMAND "${ORKIGE_PYTHON3}"
-        "${Orkige_SOURCE_DIR}/Util/make_fastgui_atlas.py"
-        "${ORKIGE_FASTGUI_ATLAS_DIR}"
-    DEPENDS "${Orkige_SOURCE_DIR}/Util/make_fastgui_atlas.py"
-    COMMENT "Generating hello_orkige FastGUI atlas (fastgui_default.ogui/.png)"
+        "${Orkige_SOURCE_DIR}/Util/make_gui_atlas.py"
+        "${ORKIGE_GUI_ATLAS_DIR}"
+    DEPENDS "${Orkige_SOURCE_DIR}/Util/make_gui_atlas.py"
+    COMMENT "Generating hello_orkige gui atlas (gui_default.ogui/.png)"
     VERBATIM)
-add_custom_target(hello_orkige_fastgui_atlas
-    DEPENDS "${ORKIGE_FASTGUI_ATLAS_DIR}/fastgui_default.ogui")
-add_dependencies(hello_orkige hello_orkige_fastgui_atlas)
+add_custom_target(hello_orkige_gui_atlas
+    DEPENDS "${ORKIGE_GUI_ATLAS_DIR}/gui_default.ogui")
+add_dependencies(hello_orkige hello_orkige_gui_atlas)
 
 target_compile_definitions(hello_orkige PRIVATE
     ORKIGE_DEMO_MEDIA_DIR="${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre/Media"
@@ -58,16 +58,16 @@ target_compile_definitions(hello_orkige PRIVATE
     ORKIGE_SPRITE_TEXTURE_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
     # the generated sprite atlas dir for the ORKIGE_DEMO_SPRITEATLAS selfcheck
     ORKIGE_SPRITE_ATLAS_DIR="${ORKIGE_SPRITE_ATLAS_DIR}"
-    # the fastgui atlas dir the ORKIGE_DEMO_UI_SCALE selfcheck loads to build
+    # the gui atlas dir the ORKIGE_DEMO_UI_SCALE selfcheck loads to build
     # real widgets (generated into the build tree below - flavor-independent,
     # so hello builds on BOTH render flavors without the classic-only jumper)
-    ORKIGE_DEMO_FASTGUI_ATLAS_DIR="${ORKIGE_FASTGUI_ATLAS_DIR}"
+    ORKIGE_DEMO_GUI_ATLAS_DIR="${ORKIGE_GUI_ATLAS_DIR}"
     # the ORKIGE_DEMO_TTF selfcheck: a committed runtime-baked atlas
-    # (fastgui_ttf_demo.ogui + ui_star.svg) under the demo media dir, and the
+    # (gui_ttf_demo.ogui + ui_star.svg) under the demo media dir, and the
     # engine-default TrueType face it references (Nunito, SIL OFL)
     ORKIGE_DEMO_TTF_ATLAS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
     ORKIGE_ENGINE_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
     # the ORKIGE_DEMO_OUI selfcheck: the committed declarative settings screen
-    # (settings_screen.oui) loaded through FastGuiFactory::loadLayout
+    # (settings_screen.oui) loaded through GuiFactory::loadLayout
     ORKIGE_DEMO_OUI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
 )

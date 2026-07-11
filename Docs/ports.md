@@ -214,13 +214,13 @@ upstream carries an equivalent fix. Local addition:
 
 `nanosvg` is a plain vcpkg-registry dependency (`vcpkg.json`), NOT an overlay
 port — it needs no patch. Recorded here only so the choice has a rationale:
-`engine_fastgui/FontAtlas` rasterises `.svg` UI sprites into the runtime font
+`engine_gui/FontAtlas` rasterises `.svg` UI sprites into the runtime font
 atlas at boot, and nanosvg is a tiny, permissively-licensed (Zlib) single-file
 SVG parser + rasteriser. The vcpkg port precompiles the implementation into
 static libs (`NanoSVG::nanosvg` / `NanoSVG::nanosvgrast`), so — unlike the
 header-only `stb` libs — nothing defines `NANOSVG_IMPLEMENTATION`; the engine
 just links the targets. Its headers are still confined to a single TU
-(`engine_fastgui/SvgRasterImpl.cpp`, the `StbVorbisImpl.cpp` precedent) so the
+(`engine_gui/SvgRasterImpl.cpp`, the `StbVorbisImpl.cpp` precedent) so the
 library stays out of every header and the precompiled header. The matching
 glyph rasteriser is `stb_truetype.h` from the already-vendored `stb` port,
-confined to `engine_fastgui/FontBakeImpl.cpp`.
+confined to `engine_gui/FontBakeImpl.cpp`.

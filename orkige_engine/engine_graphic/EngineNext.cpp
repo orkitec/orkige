@@ -286,7 +286,7 @@ namespace Orkige
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
 		// UI capability probe: true on BOTH flavors since the DrawLayer2D
-		// port (fastgui renders through the engine_render facade); the probe
+		// port (gui renders through the engine_render facade); the probe
 		// stays so scripts can still gate honestly for a future UI-less flavor
 		OFUNC(hasUISystem)
 	OOBJECT_END

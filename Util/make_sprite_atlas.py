@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pack loose sprite PNGs into ONE atlas texture + a lean .oatlas region table
-(stdlib only, deterministic, self-validating - the make_fastgui_atlas.py
+(stdlib only, deterministic, self-validating - the make_gui_atlas.py
 structure applied to gameplay sprites).
 
     make_sprite_atlas.py <output_dir> <atlas_name> <sprite.png> [more.png ...]

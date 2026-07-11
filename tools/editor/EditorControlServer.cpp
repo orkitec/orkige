@@ -1145,7 +1145,7 @@ namespace Orkige
 				  "window_h-safe_bottom].",
 				  {} },
 				{ "get_ui_layout",
-				  "The RUNNING game's fastgui widget rects: parallel lists "
+				  "The RUNNING game's gui widget rects: parallel lists "
 				  "'ids' and 'rects' (each rect a flat 'left top width height "
 				  "visible' string, pixels; visible is 1/0). Streamed during "
 				  "Play; empty until the game builds its UI. Combine with "
@@ -2711,7 +2711,7 @@ namespace Orkige
 			this->sendOk(req, ok);
 			return;
 		}
-		// get_ui_layout: the running game's fastgui widget rects (streamed on
+		// get_ui_layout: the running game's gui widget rects (streamed on
 		// MSG_UI_LAYOUT). Parallel ids/rects lists; each rect a flat
 		// "left top width height visible" string in pixels.
 		if (type == "get_ui_layout")
@@ -4810,7 +4810,7 @@ namespace Orkige
 					safeArea.get("window_h").asString().c_str(), topInset);
 			}
 			// (R8c) get_ui_layout (read, no auth): the fixture scene carries no
-			// fastgui HUD, so the widget list is empty - but the verb must
+			// gui HUD, so the widget list is empty - but the verb must
 			// answer cleanly with the parallel ids/rects lists.
 			{
 				JsonValue layout;

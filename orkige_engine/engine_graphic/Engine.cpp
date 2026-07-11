@@ -943,7 +943,7 @@ namespace Orkige
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
 		// UI capability probe: true here - the classic flavor carries
-		// fastgui; the next flavor's Engine sibling answers false and
+		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly
 		OFUNC(hasUISystem)
 	OOBJECT_END

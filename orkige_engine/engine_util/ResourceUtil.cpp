@@ -38,10 +38,10 @@ namespace Orkige
 		//---------------------------------------------------------
 #ifndef ORKIGE_RENDER_NEXT
 		// classic-only: Ogre-Next dropped getResourceManagers(); the
-		// single caller is the classic-only fastgui zone
+		// single caller is the classic-only gui zone
 		void removeUnusedResources()
 		{
-			//FastGuiManager::getSingleton().destroyAllViews();
+			//GuiManager::getSingleton().destroyAllViews();
 			// OGRE 14: getResourceManagerIterator() is deprecated, iterate the map
 			Ogre::ResourceGroupManager::ResourceManagerMap const & resMgrs = Ogre::ResourceGroupManager::getSingleton().getResourceManagers();
 			foreach(Ogre::ResourceGroupManager::ResourceManagerMap::value_type const & vt, resMgrs)

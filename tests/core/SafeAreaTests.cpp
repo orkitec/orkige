@@ -8,7 +8,7 @@
 
 	Headless safe-area unit tests: SafeAreaInsets::fromSafeRect (the pure
 	window - safe = inset arithmetic the platform query funnels through) and
-	UiAnchor::place (the anchor-in-safe-box math the fastgui layer and a
+	UiAnchor::place (the anchor-in-safe-box math the gui layer and a
 	device test share). No window, no renderer.
 ***************************************************************/
 

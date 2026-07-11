@@ -14,9 +14,9 @@
 #ifdef ORKIGE_RENDER_CLASSIC
 // classic-only export: the overlay-based ingame console (Ogre Overlay +
 // Rectangle2D - a classic zone; a cross-backend console would be rebuilt
-// on fastgui/DrawLayer2D when wanted). fastgui itself is flavor-neutral -
+// on gui/DrawLayer2D when wanted). gui itself is flavor-neutral -
 // engine:hasUISystem() is true on BOTH
-// flavors and the FastGui usertypes below register unconditionally.
+// flavors and the Gui usertypes below register unconditionally.
 #include "engine_graphic/IngameConsole.h"
 #endif
 #include "engine_gocomponent/SoundComponent.h"
@@ -35,8 +35,8 @@
 #include "engine_input/InputActionMap.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_sound/MusicStream.h"
-#include "engine_fastgui/IGuiObject.h"
-#include "engine_fastgui/FastGuiManager.h"
+#include "engine_gui/IGuiObject.h"
+#include "engine_gui/GuiManager.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderNode.h"
@@ -71,7 +71,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(GestureEventData)
 	OEXPORT(InputManager)
 
-	// the action-mapping layer on top of InputManager. Like FastGuiFactory it
+	// the action-mapping layer on top of InputManager. Like GuiFactory it
 	// is not an OOBJECT, so its Lua face lives here - registered under the
 	// game-facing name "InputActions" (decoupled from the C++ class name).
 	// Scripts: local actions = InputActions.getSingleton();
@@ -98,12 +98,12 @@ ORKIGE_MODULE(orkige_engine)
 		OCONSTVAR(bodyId)
 	OSIMPLEEXPORT_END
 
-	// FastGuiFactory is not an OOBJECT (it derives Ogre::ConfigFile), so its
-	// Lua face lives here: scripts construct one, hand it to FastGuiManager
+	// GuiFactory is not an OOBJECT (it derives Ogre::ConfigFile), so its
+	// Lua face lives here: scripts construct one, hand it to GuiManager
 	// and create the widgets the game needs. The create* functions return
 	// woptr - OFUNCWEAK hands Lua the locked optr. sol2 carries no C++
 	// default arguments across the binding: Lua passes every parameter.
-	OSIMPLEEXPORT(Orkige::FastGuiFactory,FastGuiFactory)
+	OSIMPLEEXPORT(Orkige::GuiFactory,GuiFactory)
 		OCONSTRUCTOR0()
 		// (id, glyphIndex, text, position, atlas, z, scaled)
 		OFUNCWEAK(createLabel)
@@ -161,23 +161,23 @@ ORKIGE_MODULE(orkige_engine)
 	OSIMPLEEXPORT_END
 
 	OEXPORT(IGuiObject)
-	OEXPORT(FastGuiWidget)
-	OEXPORT(FastGuiView)
-	OEXPORT(FastGuiTextbox)
-	OEXPORT(FastGuiTextEntry)
-	OEXPORT(FastGuiSlider)
-	OEXPORT(FastGuiSelectMenu)
-	OEXPORT(FastGuiProgressBar)
-	OEXPORT(FastGuiManager)
-	OEXPORT(FastGuiLabel)
-	OEXPORT(FastGuiDragDropButton)
-	OEXPORT(FastGuiDecorWidget)
-	OEXPORT(FastGuiCheckBox)
-	OEXPORT(FastGuiButtonBlink)
-	OEXPORT(FastGuiButton)
+	OEXPORT(GuiWidget)
+	OEXPORT(GuiView)
+	OEXPORT(GuiTextbox)
+	OEXPORT(GuiTextEntry)
+	OEXPORT(GuiSlider)
+	OEXPORT(GuiSelectMenu)
+	OEXPORT(GuiProgressBar)
+	OEXPORT(GuiManager)
+	OEXPORT(GuiLabel)
+	OEXPORT(GuiDragDropButton)
+	OEXPORT(GuiDecorWidget)
+	OEXPORT(GuiCheckBox)
+	OEXPORT(GuiButtonBlink)
+	OEXPORT(GuiButton)
 	// the scroll viewport: setScroll(y)/getScroll()/getMaxScroll() plus the
-	// FastGuiWidget layout setters (setParent/setAnchorPreset/...)
-	OEXPORT(FastGuiScrollView)
+	// GuiWidget layout setters (setParent/setAnchorPreset/...)
+	OEXPORT(GuiScrollView)
 	OEXPORT(DragEventData)
 
 	// the math value types scripts actually compute with (the engine math

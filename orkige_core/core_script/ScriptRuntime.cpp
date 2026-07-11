@@ -592,7 +592,7 @@ namespace Orkige
 	{
 #ifdef ORKIGE_LUA
 		// deterministic release of everything the instance kept alive: engine
-		// objects held by script locals (a Lua-booted FastGuiManager and its
+		// objects held by script locals (a Lua-booted GuiManager and its
 		// widgets, for example) must run their C++ destructors NOW - while the
 		// engine is still up - not at lua_close, which happens after the
 		// engine has been torn down. Drop the instance's references first,

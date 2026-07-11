@@ -15,10 +15,10 @@
 //
 // Gameplay: the jumper jump-and-run. The pure math (ground probe, approach,
 // kill plane, goal check) is INCLUDED from samples/jumper/JumperLogic.h (one
-// source of truth, unit-tested in tests/jumper) and the fastgui HUD (title
+// source of truth, unit-tested in tests/jumper) and the gui HUD (title
 // splash, controls hint, win banner, progress bar) from the equally shared
 // samples/jumper/JumperHud.h - the atlas rides in the PROJECT
-// (assets/fastgui_default.{ogui,png}, loaded from the "OrkigeProject"
+// (assets/gui_default.{ogui,png}, loaded from the "OrkigeProject"
 // resource group, exactly like jumper-lua's game.lua does it). The
 // JumperInput/JumperGame glue below is duplicated from
 // samples/jumper/main.cpp on purpose - trimmed to the project shape (no
@@ -31,7 +31,7 @@
 // frames, ORKIGE_RENDERSYSTEM picks the render system, ORKIGE_DEMO_FPS_LOG=1
 // logs frame count / avg / p95 ms at exit, ORKIGE_DEMO_SCREENSHOT=path dumps
 // the framebuffer at frame 55 (HUD title splash still up), and
-// ORKIGE_JUMPER_NATIVE_SELFCHECK=1 asserts at frame 5 that the fastgui HUD
+// ORKIGE_JUMPER_NATIVE_SELFCHECK=1 asserts at frame 5 that the gui HUD
 // booted from the project atlas (widgets exist, title splash showing, win
 // banner hidden) - exits non-zero on failure; the editor_project_native_play
 // ctest sets it, so the spawned play process proves the HUD along the way.
@@ -59,7 +59,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 
-#include <JumperHud.h>   // samples/jumper - the shared fastgui HUD
+#include <JumperHud.h>   // samples/jumper - the shared gui HUD
 #include <JumperLogic.h> // samples/jumper - the shared pure gameplay math
 
 #include <algorithm>
@@ -477,7 +477,7 @@ int main(int argc, char** argv)
 		{
 			frameLimit = std::strtoul(demoFrames, nullptr, 10);
 		}
-		// ORKIGE_JUMPER_NATIVE_SELFCHECK=1: assert at frame 5 that the fastgui
+		// ORKIGE_JUMPER_NATIVE_SELFCHECK=1: assert at frame 5 that the gui
 		// HUD booted from the project atlas; exits non-zero on failure (the
 		// editor_project_native_play ctest sets it - a failed HUD boot drops
 		// the play process and fails the editor-side hierarchy wait)
@@ -614,7 +614,7 @@ int main(int argc, char** argv)
 
 		// the HUD (the shared samples/jumper/JumperHud.h): title splash,
 		// controls hint, win banner, distance-to-goal progress bar. The atlas
-		// lives in the PROJECT (assets/fastgui_default.{ogui,png}) and loads
+		// lives in the PROJECT (assets/gui_default.{ogui,png}) and loads
 		// from the "OrkigeProject" resource group registered above - the same
 		// arrangement as jumper-lua's game.lua. Without a project there is no
 		// atlas to load, so bare-scene dev runs stay HUD-less (honestly
@@ -627,7 +627,7 @@ int main(int argc, char** argv)
 			render->getWindowSize(hudWidth, hudHeight);
 			hud = onew(new Orkige::JumperHud(static_cast<int>(hudWidth),
 				static_cast<int>(hudHeight),
-				"fastgui_default", Orkige::Project::RESOURCE_GROUP_NAME));
+				"gui_default", Orkige::Project::RESOURCE_GROUP_NAME));
 		}
 		else
 		{
@@ -743,7 +743,7 @@ int main(int argc, char** argv)
 
 			// --- ORKIGE_JUMPER_NATIVE_SELFCHECK=1: the HUD boot assert -----
 			// mirrors the frame-5 HUD block of the jumper sample's selfcheck:
-			// FastGuiManager loaded the PROJECT'S atlas and all four widgets
+			// GuiManager loaded the PROJECT'S atlas and all four widgets
 			// exist, the title splash is showing, the win banner is not
 			if (hudSelfCheck && frameCount == 5)
 			{
@@ -759,14 +759,14 @@ int main(int argc, char** argv)
 					hud->isWinBannerVisible())
 				{
 					SDL_Log("jumper_native: HUD SELFCHECK FAILED - the "
-						"fastgui HUD did not boot from the project atlas");
+						"gui HUD did not boot from the project atlas");
 					exitCode = 1;
 					running = false;
 				}
 				else
 				{
-					SDL_Log("jumper_native: hud selfcheck passed - fastgui "
-						"HUD up from the project's fastgui_default atlas");
+					SDL_Log("jumper_native: hud selfcheck passed - gui "
+						"HUD up from the project's gui_default atlas");
 				}
 			}
 

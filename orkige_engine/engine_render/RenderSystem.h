@@ -127,7 +127,7 @@ namespace Orkige
 
 		//--- screen-space 2D ---
 		//! @brief create a 2D overlay layer compositing over the main
-		//! window (fastgui HUDs, ImGui) - @see DrawLayer2D for the contract
+		//! window (gui HUDs, ImGui) - @see DrawLayer2D for the contract
 		//! @param zOrder layers composite in ascending zOrder (ties:
 		//! creation order)
 		optr<DrawLayer2D> createDrawLayer2D(int zOrder = 0);
@@ -203,7 +203,7 @@ namespace Orkige
 		//--- stats ---
 		//! @see RenderSystem::FrameStats
 		FrameStats getFrameStats() const;
-		//! restart the best/worst fps tracking (fastgui's stats HUD resets
+		//! restart the best/worst fps tracking (gui's stats HUD resets
 		//! them per game state; average follows the backend's own window)
 		//! map: classic=RenderTarget::resetStatistics | next=backend-tracked min/max reset | filament=impl counters reset
 		void resetFrameStats();

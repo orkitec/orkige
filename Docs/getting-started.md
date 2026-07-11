@@ -142,7 +142,7 @@ Export runs asynchronously; progress streams into the **Console**. Output lands 
 
 - **`projects/roller`** — a complete 2D physics-puzzle game in pure Lua (tilt
   gravity + sliding world tiles, multi-level progression). Zero compiled game code.
-- **`projects/jumper-lua`** — a textured jump-and-run with a fastgui HUD, also pure
+- **`projects/jumper-lua`** — a textured jump-and-run with a gui HUD, also pure
   Lua. Its `game.lua` shows the title/playing/win state machine and UI.
 - **[Docs/mcp.md](mcp.md)** — drive the editor from an AI agent over the Model
   Context Protocol: open projects, edit scenes, run Play, read back screenshots.

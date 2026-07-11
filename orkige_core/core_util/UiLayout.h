@@ -10,7 +10,7 @@
 #define __UiLayout_h__11_7_2026__10_00_00__
 
 //! @file UiLayout.h
-//! @brief the pure rect-anchor layout resolver shared by the fastgui widget
+//! @brief the pure rect-anchor layout resolver shared by the gui widget
 //! hierarchy and its unit tests. A LayoutNode expresses a widget's placement
 //! as parent-relative anchor fractions + a pivot + offsets, and resolveRect
 //! turns a parent's absolute pixel rect into the child's. No renderer or
@@ -44,7 +44,7 @@ namespace Orkige
 	};
 
 	//! @brief the named anchor presets - the 9-way alignment vocabulary
-	//! (FastGuiView::Alignment) generalised, plus the stretch bands/columns
+	//! (GuiView::Alignment) generalised, plus the stretch bands/columns
 	//! and the full stretch. Each maps to an (anchorMin, anchorMax) pair.
 	enum LayoutAnchorPreset
 	{
@@ -208,11 +208,11 @@ namespace Orkige
 	};
 
 	//! @brief one node of a layout tree the two-pass resolver walks. Plain data
-	//! owned by the caller (FastGuiManager rebuilds a transient forest of these
+	//! owned by the caller (GuiManager rebuilds a transient forest of these
 	//! from its widget hierarchy each relayout; the unit tests build them
 	//! directly). @c children are NOT owned - the caller keeps the storage
 	//! alive across a resolve. @c userData is an opaque back-reference (the
-	//! FastGuiWidget*) the caller reads @c resolved out of.
+	//! GuiWidget*) the caller reads @c resolved out of.
 	struct ORKIGE_CORE_DLL LayoutItem
 	{
 		LayoutNode				node;			//!< anchor placement (for non-group parents)

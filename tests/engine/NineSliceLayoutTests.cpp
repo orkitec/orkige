@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2026 orkitec
 
 	Headless unit tests for the pure nine-slice / tiled quad emitters
-	(engine_fastgui/UiRenderer.h UiNineSlice): the 9-quad decomposition,
+	(engine_gui/UiRenderer.h UiNineSlice): the 9-quad decomposition,
 	fixed corner bands, edge/centre UV sub-rects, proportional shrink on a
 	too-small target, and the tiled row/column counts with clamped edge UVs.
 	No render system - the emitters are pure geometry.
@@ -16,7 +16,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
-#include "engine_fastgui/UiRenderer.h"
+#include "engine_gui/UiRenderer.h"
 
 using namespace Orkige;
 using Catch::Approx;

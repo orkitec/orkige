@@ -149,7 +149,7 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 find_package(Jolt CONFIG REQUIRED)
 find_package(tinyxml2 CONFIG REQUIRED)
-# the fastgui runtime atlas rasterises SVG UI sprites through nanosvg's
+# the gui runtime atlas rasterises SVG UI sprites through nanosvg's
 # precompiled static libs; the engine archive references their symbols
 find_package(NanoSVG CONFIG REQUIRED)
 if(ORKIGE_SCRIPTING STREQUAL "LUA")

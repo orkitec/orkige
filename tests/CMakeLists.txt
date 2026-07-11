@@ -90,8 +90,8 @@ set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:
-        # two of the five suites are classic-bound (FastGuiAtlasTests =
-        # fastgui zone, RenderSystemSelectionTests = the classic Engine's
+        # two of the five suites are classic-bound (GuiAtlasTests =
+        # gui zone, RenderSystemSelectionTests = the classic Engine's
         # graphics-API pick) - splitting the executable per flavor buys
         # little while the default (next-flavor) desktop preset runs the
         # same logic through the game selfchecks
@@ -197,15 +197,15 @@ if(TARGET hello_orkige)
     # frame-capped demo runs; 120 frames ~= 2s
     add_test(NAME demo_plain COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    # ORKIGE_DEMO_GUI: the fastgui link/lifecycle smoke (empty UI draw
-    # layer over a frame + FastGuiManager's clean no-atlas refusal) rides
+    # ORKIGE_DEMO_GUI: the gui link/lifecycle smoke (empty UI draw
+    # layer over a frame + GuiManager's clean no-atlas refusal) rides
     # on the plain demo - flavor-neutral via the DrawLayer2D facade
     set_tests_properties(demo_plain PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_FRAMES=120;ORKIGE_DEMO_GUI=1")
 
     # ORKIGE_DEMO_UI_SCALE: the DPI selfcheck - fake a content scale of 3 and
     # assert UiGlyph::scale snaps to (3,3) and an authored 160px button scales
-    # to a tappable size (>= 120px). Flavor-neutral (fastgui on DrawLayer2D).
+    # to a tappable size (>= 120px). Flavor-neutral (gui on DrawLayer2D).
     add_test(NAME demo_ui_scale COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_ui_scale PROPERTIES
@@ -220,31 +220,31 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_ui_safe_area PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_UI_SCALE=1;ORKIGE_FAKE_CONTENT_SCALE=2;ORKIGE_FAKE_SAFE_TOP=140;ORKIGE_DEMO_FRAMES=4")
 
-    # ORKIGE_DEMO_TEXTENTRY: the fastgui TextEntry selfcheck - boots a real
-    # FastGuiManager and drives a text field through synthetic SDL events on the
+    # ORKIGE_DEMO_TEXTENTRY: the gui TextEntry selfcheck - boots a real
+    # GuiManager and drives a text field through synthetic SDL events on the
     # real input path (tap-to-focus, SDL_EVENT_TEXT_INPUT typing, backspace,
     # caret move + mid-string insert, max length, Return submit + blur).
-    # Flavor-neutral (fastgui on DrawLayer2D).
+    # Flavor-neutral (gui on DrawLayer2D).
     add_test(NAME demo_textentry COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_textentry PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_TEXTENTRY=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_TTF: the runtime TrueType-font + vector-sprite selfcheck -
-    # boots a real FastGuiManager on a runtime-baked atlas (Nunito TTF + an SVG
+    # boots a real GuiManager on a runtime-baked atlas (Nunito TTF + an SVG
     # star baked into one page at boot), renders a Latin + a lazily-paged
     # Cyrillic label and the sprite, and asserts a non-empty HUD batch.
-    # Flavor-neutral (fastgui on DrawLayer2D), so it runs on classic + next.
+    # Flavor-neutral (gui on DrawLayer2D), so it runs on classic + next.
     add_test(NAME demo_ttf COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_ttf PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_TTF=1;ORKIGE_DEMO_FRAMES=4")
 
     # ORKIGE_DEMO_LAYOUT: the nine-slice + rect-anchor layout selfcheck - boots
-    # a real FastGuiManager, resolves an anchored nine-sliced panel with a
+    # a real GuiManager, resolves an anchored nine-sliced panel with a
     # parent-relative child, re-lays it out against a switched safe-area root
     # and a design reference scale, and asserts nine-slice adds geometry over a
-    # plain stretched quad. Flavor-neutral (the resolver is pure, fastgui draws
+    # plain stretched quad. Flavor-neutral (the resolver is pure, gui draws
     # through DrawLayer2D), so it runs on classic + next.
     add_test(NAME demo_layout COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
@@ -254,10 +254,10 @@ if(TARGET hello_orkige)
     # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
     # loads a whole settings screen from a committed .oui file (nine-slice
     # panel + a scroll viewport whose vertical group of rows overflows) through
-    # FastGuiFactory::loadLayout, then asserts the content overflows, scrolling
+    # GuiFactory::loadLayout, then asserts the content overflows, scrolling
     # shifts the resolved rects, the content layer's scissor equals the
     # viewport, and a checkbox in a scrolled row still hit-tests at its shifted
-    # position. Flavor-neutral (pure resolver, fastgui on DrawLayer2D).
+    # position. Flavor-neutral (pure resolver, gui on DrawLayer2D).
     add_test(NAME demo_oui COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_oui PROPERTIES
@@ -485,7 +485,7 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # launch the PROJECT'S OWN executable and receive its remote hierarchy
     # (incl. the module-spawned "Player" object), then Stop and revert
     # cleanly. The spawned module inherits ORKIGE_JUMPER_NATIVE_SELFCHECK
-    # from the editor's environment and asserts its fastgui HUD booted from
+    # from the editor's environment and asserts its gui HUD booted from
     # the project atlas at frame 5 (exiting non-zero otherwise, which drops
     # the play process before the hierarchy wait completes - see the hook in
     # projects/jumper-native/native/main.cpp). The first run compiles the
@@ -703,7 +703,7 @@ if(TARGET orkige_player)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         # the game selfchecks run on BOTH flavors - the next flavor's
         # registrations carry a _next suffix and the UI assertions are
-        # compile-time-skipped there (fastgui is classic-only;
+        # compile-time-skipped there (gui is classic-only;
         # game.lua probes engine:hasUISystem() and runs HUD-less)
         add_test(NAME player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua

@@ -1,13 +1,13 @@
-// Unit tests for the runtime-baked font/vector atlas (engine_fastgui/
+// Unit tests for the runtime-baked font/vector atlas (engine_gui/
 // FontAtlas.h) and the SVG rasteriser seam (SvgRaster.h). Headless: FontAtlas
 // bakes into a CPU page and builds the UiAtlas view without a render system,
 // so getFont/getGlyph, lazy glyph paging and scale-responsive SVG raster are
 // all verified without a GPU.
 #include <catch2/catch_test_macros.hpp>
 
-#include <engine_fastgui/FontAtlas.h>
-#include <engine_fastgui/SvgRaster.h>
-#include <engine_fastgui/UiAtlas.h>
+#include <engine_gui/FontAtlas.h>
+#include <engine_gui/SvgRaster.h>
+#include <engine_gui/UiAtlas.h>
 
 #include <fstream>
 #include <string>
@@ -46,7 +46,7 @@ namespace
 }
 
 TEST_CASE("font atlas bakes an eager Latin-1 page from a TTF face",
-	"[engine][fastgui][fontatlas]")
+	"[engine][gui][fontatlas]")
 {
 	const std::vector<unsigned char> bytes = readFile(kFontPath);
 	REQUIRE(bytes.size() > 1024);
@@ -95,7 +95,7 @@ TEST_CASE("font atlas bakes an eager Latin-1 page from a TTF face",
 }
 
 TEST_CASE("font atlas bakes glyphs beyond the base range on demand",
-	"[engine][fastgui][fontatlas][paging]")
+	"[engine][gui][fontatlas][paging]")
 {
 	const std::vector<unsigned char> bytes = readFile(kFontPath);
 	REQUIRE(bytes.size() > 1024);
@@ -125,7 +125,7 @@ TEST_CASE("font atlas bakes glyphs beyond the base range on demand",
 }
 
 TEST_CASE("svg rasteriser is scale-responsive and non-empty",
-	"[engine][fastgui][svg]")
+	"[engine][gui][svg]")
 {
 	const unsigned char* svg = reinterpret_cast<const unsigned char*>(kSvg);
 	const int size = static_cast<int>(sizeof(kSvg) - 1);
@@ -155,7 +155,7 @@ TEST_CASE("svg rasteriser is scale-responsive and non-empty",
 }
 
 TEST_CASE("font atlas bakes an svg sprite at the requested design size",
-	"[engine][fastgui][fontatlas][svg]")
+	"[engine][gui][fontatlas][svg]")
 {
 	const unsigned char* svg = reinterpret_cast<const unsigned char*>(kSvg);
 	const int size = static_cast<int>(sizeof(kSvg) - 1);

@@ -63,8 +63,8 @@ the honest Jolt notion for game-code-moved colliders.
 
 Usage:
     python3 Util/make_roller_assets.py [project_dir]
-Defaults to projects/roller/ next to this repo. (The fastgui atlas the HUD
-uses is generated separately: Util/make_fastgui_atlas.py <assets_dir>.)
+Defaults to projects/roller/ next to this repo. (The gui atlas the HUD
+uses is generated separately: Util/make_gui_atlas.py <assets_dir>.)
 """
 
 import hashlib

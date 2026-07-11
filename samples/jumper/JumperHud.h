@@ -9,9 +9,9 @@
 #ifndef __JumperHud_h__8_7_2026__10_05_00__
 #define __JumperHud_h__8_7_2026__10_05_00__
 
-#include <engine_fastgui/FastGuiManager.h>
-#include <engine_fastgui/FastGuiLabel.h>
-#include <engine_fastgui/FastGuiProgressBar.h>
+#include <engine_gui/GuiManager.h>
+#include <engine_gui/GuiLabel.h>
+#include <engine_gui/GuiProgressBar.h>
 #include <engine_render/RenderMath.h>
 #include <core_util/optr.h>
 #include <core_util/StringUtil.h>
@@ -22,9 +22,9 @@
 namespace Orkige
 {
 	//! @brief the jumper's in-game HUD, built on the engine's own UI system
-	//! (engine_fastgui / UiRenderer): boots FastGuiManager with the generated
-	//! fastgui_default atlas (Util/make_fastgui_atlas.py ->
-	//! fastgui_default.{ogui,png}) and owns four widgets - a title splash,
+	//! (engine_gui / UiRenderer): boots GuiManager with the generated
+	//! gui_default atlas (Util/make_gui_atlas.py ->
+	//! gui_default.{ogui,png}) and owns four widgets - a title splash,
 	//! the persistent controls hint, the hidden win banner and a
 	//! distance-to-goal progress bar. Widget groups live on their own
 	//! z-layers (UiLayers are shared per z), so the title/banner can
@@ -48,19 +48,19 @@ namespace Orkige
 		static constexpr uint Z_WIN = 14;
 
 		JumperHud(int screenWidth, int screenHeight,
-			String const & atlas = "fastgui_default",
-			// fastgui is classic-only (see
+			String const & atlas = "gui_default",
+			// gui is classic-only (see
 			// Docs/render-abstraction.md) - its resource-group default is
 			// the one sanctioned Ogre spelling left in this header
 			String const & resourceGroup =
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME)
 		{
-			// FastGuiManager loads "<atlas>.ogui" (+ texture) from the given
+			// GuiManager loads "<atlas>.ogui" (+ texture) from the given
 			// resource group and creates the UI screen for the main window
-			mFactory = onew(new FastGuiFactory());
-			mManager = onew(new FastGuiManager(mFactory, atlas, resourceGroup));
+			mFactory = onew(new GuiFactory());
+			mManager = onew(new GuiManager(mFactory, atlas, resourceGroup));
 
-			optr<FastGuiFactory> factory = mFactory;
+			optr<GuiFactory> factory = mFactory;
 			// whole-pixel positions only - Caption asserts on subpixel coords
 			mTitle = factory->createLabel("HudTitle", FONT_TITLE, "ORKIGE JUMPER",
 				Vec2(0.0f, std::floor(screenHeight * 0.22f)),
@@ -80,10 +80,10 @@ namespace Orkige
 			mWinBanner.lock()->getLayer()->hide();	// hidden until the goal
 
 			// distance-to-goal indicator, top-left ("progressbar" frame sprite +
-			// the "progressbar_bar" fill sprite FastGuiProgressBar hardcodes)
+			// the "progressbar_bar" fill sprite GuiProgressBar hardcodes)
 			mProgress = factory->createProgressBar("HudProgress", "progressbar",
 				FONT_HUD, "", Vec2(16.0f, 16.0f),
-				FastGuiLabel::LA_CENTER, Vec2(192.0f, 20.0f),
+				GuiLabel::LA_CENTER, Vec2(192.0f, 20.0f),
 				StringUtil::BLANK, Z_HUD);
 			mProgress.lock()->setProgress(0.0f);
 		}
@@ -131,12 +131,12 @@ namespace Orkige
 		}
 
 	private:
-		optr<FastGuiFactory>		mFactory;
-		optr<FastGuiManager>		mManager;
-		woptr<FastGuiLabel>			mTitle;
-		woptr<FastGuiLabel>			mHint;
-		woptr<FastGuiLabel>			mWinBanner;
-		woptr<FastGuiProgressBar>	mProgress;
+		optr<GuiFactory>		mFactory;
+		optr<GuiManager>		mManager;
+		woptr<GuiLabel>			mTitle;
+		woptr<GuiLabel>			mHint;
+		woptr<GuiLabel>			mWinBanner;
+		woptr<GuiProgressBar>	mProgress;
 		float						mTitleTimer = TITLE_SECONDS;
 		float						mWinTimer = 0.0f;
 	};

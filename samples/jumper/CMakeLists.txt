@@ -10,29 +10,29 @@ add_executable(jumper main.cpp)
 
 target_link_libraries(jumper PRIVATE Orkige::Engine)
 
-# FastGUI atlas (media/fastgui_default.ogui + .png): generated into the SOURCE
+# gui atlas (media/gui_default.ogui + .png): generated into the SOURCE
 # media dir - the assets are checked in like the rest of media/, the custom
-# command only reruns when Util/make_fastgui_atlas.py changes. The generator
+# command only reruns when Util/make_gui_atlas.py changes. The generator
 # is stdlib-only Python and self-validates its output against the .ogui format
 # rules the engine's UiAtlas parser enforces.
 # find_program honours CMAKE_IGNORE_PREFIX_PATH (FindPython3 does not and
 # picks up the banned /usr/local interpreter - see the hermeticity note in
 # CLAUDE.md); any python3 >= 3.6 works, the script is stdlib-only.
 find_program(ORKIGE_PYTHON3 NAMES python3 HINTS /usr/bin REQUIRED)
-set(ORKIGE_FASTGUI_ATLAS_SCRIPT "${Orkige_SOURCE_DIR}/Util/make_fastgui_atlas.py")
-set(ORKIGE_FASTGUI_ATLAS_OUTPUTS
-    "${CMAKE_CURRENT_SOURCE_DIR}/media/fastgui_default.ogui"
-    "${CMAKE_CURRENT_SOURCE_DIR}/media/fastgui_default.png"
+set(ORKIGE_GUI_ATLAS_SCRIPT "${Orkige_SOURCE_DIR}/Util/make_gui_atlas.py")
+set(ORKIGE_GUI_ATLAS_OUTPUTS
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/gui_default.ogui"
+    "${CMAKE_CURRENT_SOURCE_DIR}/media/gui_default.png"
 )
 add_custom_command(
-    OUTPUT ${ORKIGE_FASTGUI_ATLAS_OUTPUTS}
-    COMMAND "${ORKIGE_PYTHON3}" "${ORKIGE_FASTGUI_ATLAS_SCRIPT}"
+    OUTPUT ${ORKIGE_GUI_ATLAS_OUTPUTS}
+    COMMAND "${ORKIGE_PYTHON3}" "${ORKIGE_GUI_ATLAS_SCRIPT}"
         "${CMAKE_CURRENT_SOURCE_DIR}/media"
-    DEPENDS "${ORKIGE_FASTGUI_ATLAS_SCRIPT}"
-    COMMENT "Generating FastGUI atlas (fastgui_default.ogui/.png)"
+    DEPENDS "${ORKIGE_GUI_ATLAS_SCRIPT}"
+    COMMENT "Generating gui atlas (gui_default.ogui/.png)"
     VERBATIM
 )
-add_custom_target(orkige_generate_atlases DEPENDS ${ORKIGE_FASTGUI_ATLAS_OUTPUTS})
+add_custom_target(orkige_generate_atlases DEPENDS ${ORKIGE_GUI_ATLAS_OUTPUTS})
 add_dependencies(jumper orkige_generate_atlases)
 
 # Sample-only: point at the RTSS shader library shipping with the

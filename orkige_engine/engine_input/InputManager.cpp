@@ -59,7 +59,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//! translates a SDL3 scancode to the legacy KeyEventData::KeyCode
 	//! (OIS/DirectInput numbering) that the rest of the engine keeps using -
-	//! this way IngameConsole, fastgui and the game branches compile unchanged
+	//! this way IngameConsole, gui and the game branches compile unchanged
 	static KeyEventData::KeyCode sdlScancodeToKeyCode(SDL_Scancode scancode)
 	{
 		switch(scancode)

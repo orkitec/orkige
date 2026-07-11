@@ -1,9 +1,9 @@
-// Unit tests for the TrueType rasterisation seam (engine_fastgui/FontBake.h),
+// Unit tests for the TrueType rasterisation seam (engine_gui/FontBake.h),
 // exercised against the committed engine-default font (Nunito, SIL OFL). No
 // GPU: the seam bakes glyph coverage into CPU buffers and reports metrics.
 #include <catch2/catch_test_macros.hpp>
 
-#include <engine_fastgui/FontBake.h>
+#include <engine_gui/FontBake.h>
 
 #include <fstream>
 #include <string>
@@ -31,7 +31,7 @@ namespace
 }
 
 TEST_CASE("font bake opens the engine default face and reports metrics",
-	"[engine][fastgui][fontbake]")
+	"[engine][gui][fontbake]")
 {
 	const std::vector<unsigned char> bytes = readFile(kFontPath);
 	REQUIRE(bytes.size() > 1024);
@@ -58,7 +58,7 @@ TEST_CASE("font bake opens the engine default face and reports metrics",
 }
 
 TEST_CASE("font bake advances and coverage are sane",
-	"[engine][fastgui][fontbake]")
+	"[engine][gui][fontbake]")
 {
 	const std::vector<unsigned char> bytes = readFile(kFontPath);
 	REQUIRE(bytes.size() > 1024);

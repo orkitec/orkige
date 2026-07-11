@@ -2,7 +2,7 @@
 """Generate the Orkige editor's macOS app icon as an .iconset directory.
 
 Renders the icon procedurally (stdlib zlib/struct only, same policy as
-make_fastgui_atlas.py): the roller ball - the engine's first modern game -
+make_gui_atlas.py): the roller ball - the engine's first modern game -
 as an orange sphere with a star, on a dark squircle matching the macOS
 Big Sur+ icon grid (824px squircle on a 1024px canvas).
 

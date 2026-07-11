@@ -1,10 +1,10 @@
 // Unit tests for the pure shelf allocator behind the runtime font atlas
-// (engine_fastgui/FontPacker.h). No render system, no image data - just the
+// (engine_gui/FontPacker.h). No render system, no image data - just the
 // geometry: placements stay in bounds, never overlap, and the page fills and
 // then honestly refuses.
 #include <catch2/catch_test_macros.hpp>
 
-#include <engine_fastgui/FontPacker.h>
+#include <engine_gui/FontPacker.h>
 
 #include <vector>
 
@@ -21,7 +21,7 @@ namespace
 }
 
 TEST_CASE("font packer places boxes in bounds without overlap",
-	"[engine][fastgui][fontpacker]")
+	"[engine][gui][fontpacker]")
 {
 	FontPacker packer(128, 128, 1);
 	std::vector<FontPacker::Rect> placed;
@@ -49,7 +49,7 @@ TEST_CASE("font packer places boxes in bounds without overlap",
 }
 
 TEST_CASE("font packer refuses a box that cannot fit",
-	"[engine][fastgui][fontpacker]")
+	"[engine][gui][fontpacker]")
 {
 	FontPacker packer(32, 32, 1);
 	FontPacker::Rect r;
@@ -66,7 +66,7 @@ TEST_CASE("font packer refuses a box that cannot fit",
 }
 
 TEST_CASE("font packer fills a shelf then opens the next",
-	"[engine][fastgui][fontpacker]")
+	"[engine][gui][fontpacker]")
 {
 	FontPacker packer(20, 100, 0);
 	FontPacker::Rect a, b, c;
@@ -79,7 +79,7 @@ TEST_CASE("font packer fills a shelf then opens the next",
 }
 
 TEST_CASE("font packer reset empties the page",
-	"[engine][fastgui][fontpacker]")
+	"[engine][gui][fontpacker]")
 {
 	FontPacker packer(32, 32, 0);
 	FontPacker::Rect r;

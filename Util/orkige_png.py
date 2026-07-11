@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Minimal stdlib-only PNG decode/encode + image ops for Orkige's asset
 pipeline (make_sprite_atlas.py, cook_textures.py). No third-party imaging - the
-same zlib/struct precedent make_fastgui_atlas.py established, extended with a
-DECODER (fastgui only ever encoded).
+same zlib/struct precedent make_gui_atlas.py established, extended with a
+DECODER (gui only ever encoded).
 
 Scope is deliberately narrow: 8-bit-per-channel PNGs (grayscale, grayscale+
 alpha, RGB, RGBA and 8-bit palette, with tRNS), non-interlaced. That covers the

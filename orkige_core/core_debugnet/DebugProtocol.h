@@ -139,7 +139,7 @@ namespace Orkige
 		//! old editors ignore unknown message types, and a runtime whose
 		//! platform cannot query memory simply omits the fields.
 		extern ORKIGE_CORE_DLL const String MSG_STATS;
-		//! @brief periodic fastgui LAYOUT readback from the running game: the
+		//! @brief periodic gui LAYOUT readback from the running game: the
 		//! id + on-screen pixel rect + visibility of every widget, so an agent
 		//! (and the safe-area device test) can assert "every visible HUD widget
 		//! lies inside the safe box". Parallel lists LIST_UI_IDS / LIST_UI_RECTS

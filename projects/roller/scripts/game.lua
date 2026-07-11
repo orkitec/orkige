@@ -1,7 +1,7 @@
 -- game.lua - the world-sliding half of the roller prototype, attached to the
 -- "Game" object in every level scene through a ScriptComponent.
 --
--- This script owns everything AROUND the rolling: the fastgui HUD, the
+-- This script owns everything AROUND the rolling: the gui HUD, the
 -- play/move mode state machine, the sliding-tile "move the world" logic AND
 -- the level progression (win -> next level via a DEFERRED scene load, star
 -- rating, resume-on-boot).
@@ -30,14 +30,14 @@
 --     levelIndex, levelComplete, saved   written HERE
 --   x, y, wins, respawns, ballReady                          written by ball.lua
 --
--- RENDER FLAVORS: fastgui exists only on the classic backend (the facade
+-- RENDER FLAVORS: gui exists only on the classic backend (the facade
 -- HUD replaces it later). engine:hasUISystem() answers which world we are in -
 -- without a UI system this script skips the HUD/banners; modes, tile slides,
 -- cursor sprite, the win flow and progression work identically.
 
--- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
+-- nil-safe: the Gui usertypes only exist when the flavor carries the UI
 -- system (engine:hasUISystem(), see init) - LA is only read on that path
-local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
+local LA = GuiLabel and GuiLabel.LabelAlignment
 -- keycode alias (the Lua convention: KeyEventData.KeyCode) for the pause toggle
 local KC = KeyEventData.KeyCode
 
@@ -359,8 +359,8 @@ function init(self)
 		return
 	end
 
-	factory = FastGuiFactory()
-	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
+	factory = GuiFactory()
+	gui = GuiManager(factory, "gui_default", PROJECT_RESOURCE_GROUP)
 
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
 

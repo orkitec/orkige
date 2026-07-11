@@ -16,7 +16,7 @@
 //! now backend-neutral: core prerequisites + the Meta/type system + the
 //! facade math vocabulary (engine_render/RenderMath.h - Ogre math types on
 //! both Ogre backends, the documented swap point before a non-Ogre backend).
-//! Classic-only translation units (engine_graphic, engine_fastgui,
+//! Classic-only translation units (engine_graphic, engine_gui,
 //! engine_filesystem's Ogre::Archive plumbing, the classic render backend)
 //! include engine_module/EnginePrerequisitesClassic.h instead, which layers
 //! the classic OGRE umbrella on top of this one.

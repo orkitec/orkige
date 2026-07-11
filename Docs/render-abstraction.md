@@ -22,10 +22,10 @@ The facade **interface headers** in `orkige_engine/engine_render/` are backend-f
    **Decision: root motion stays a classic-only backdoor; no facade bone API until a real cross-backend need.**
 2. **HUD strategy** (detail in the mapping table): recommendation is **Gorilla stays
    classic-only**; the future cross-backend HUD is built on facade `SpriteQuad` +
-   screen-space camera. That means fastgui HUDs (jumper, roller) do not run on the
+   screen-space camera. That means gui HUDs (jumper, roller) do not run on the
    Ogre-Next backend until the facade HUD exists.
-   **Decision: Gorilla/fastgui HUDs are classic-only until the facade HUD lands.**
-   *(Later superseded: fastgui itself became the cross-backend HUD on
+   **Decision: Gorilla/gui HUDs are classic-only until the facade HUD lands.**
+   *(Later superseded: gui itself became the cross-backend HUD on
    `DrawLayer2D`; Gorilla was deleted — see the cross-backend HUD section.)*
 3. **Which backend runs the editor?** ImGuiOverlay, RTSS probes and the OverlaySystem
    wiring are classic glue. Cheapest path: the editor stays a classic-backend app
@@ -61,7 +61,7 @@ backend and is allowed to be Ogre).
 
 | Area | refs | files | character |
 |---|---|---|---|
-| engine_fastgui (incl. Gorilla) | 1177 | 33 | Gorilla = deep render coupling; widgets = math + Gorilla calls |
+| engine_gui (incl. Gorilla) | 1177 | 33 | Gorilla = deep render coupling; widgets = math + Gorilla calls |
 | engine_util | 690 | 12 | SceneNodeGuard mirror, mesh/hw-buffer helpers, converters |
 | tools/editor | 211 | 8 | RTT, picking, gizmo matrices, ImGuiOverlay, stats — plus math |
 | engine_gocomponent | 189 | 14 | components: scene handles + math + AnimationState |
@@ -101,12 +101,12 @@ abstracted): see per-file table below.
 
 | File(s) | Verdict | Rationale |
 |---|---|---|
-| `engine_fastgui/Gorilla.{h,cpp}` | **backend-private (classic-only)** | Bundled fork; manual `RenderOperation` + `HardwareBuffer::lock` + `RenderQueueListener::renderQueueEnded` → `manualRender`, programmatic `Pass` materials, `SimpleRenderable`, texel offsets — every hard Ogre-Next break at once. Porting it = rewriting it; the cross-backend HUD is the facade-sprite HUD instead. |
-| `engine_fastgui/FastGui*` widgets/view | **keep, de-Ogre opportunistically** | Math + Gorilla calls only; survive as-is wherever Gorilla runs. When the facade HUD lands, widgets get a draw-surface seam instead of `Gorilla::Layer*`. |
-| `engine_fastgui/FastGuiManager` | **classic-only edges isolated** | `RenderTargetListener` + Material/TextureManager cleanup + `getStatistics` are thin; they move behind the backend seam with Gorilla. |
-| `engine_fastgui/FastGuiFactory`, `engine_base/Localisation` | **de-Ogre in passing** | Subclass `Ogre::ConfigFile` for INI parsing only — replace with a small engine parser (or keep classic-only; nothing renders here). |
+| `engine_gui/Gorilla.{h,cpp}` | **backend-private (classic-only)** | Bundled fork; manual `RenderOperation` + `HardwareBuffer::lock` + `RenderQueueListener::renderQueueEnded` → `manualRender`, programmatic `Pass` materials, `SimpleRenderable`, texel offsets — every hard Ogre-Next break at once. Porting it = rewriting it; the cross-backend HUD is the facade-sprite HUD instead. |
+| `engine_gui/Gui*` widgets/view | **keep, de-Ogre opportunistically** | Math + Gorilla calls only; survive as-is wherever Gorilla runs. When the facade HUD lands, widgets get a draw-surface seam instead of `Gorilla::Layer*`. |
+| `engine_gui/GuiManager` | **classic-only edges isolated** | `RenderTargetListener` + Material/TextureManager cleanup + `getStatistics` are thin; they move behind the backend seam with Gorilla. |
+| `engine_gui/GuiFactory`, `engine_base/Localisation` | **de-Ogre in passing** | Subclass `Ogre::ConfigFile` for INI parsing only — replace with a small engine parser (or keep classic-only; nothing renders here). |
 | `tools/editor` ImGuiOverlay/OverlaySystem glue | **backend-private editor glue** | `Ogre::ImGuiOverlay` is a classic-OGRE component; Ogre-Next has its own imgui integration pattern, Filament its own renderer backend for imgui. Isolate behind a small `EditorImGuiBackend` seam *inside the editor*; do not put imgui into engine_render. |
-| `engine_graphic/IngameConsole` | **classic-only, candidate to unbuild** | `Rectangle2D` + Overlay; live users are only `module.cpp` (Lua export) and an InputManager toggle. Keep classic-only; revisit when a cross-backend console is wanted (could be rebuilt on fastgui/facade sprites). |
+| `engine_graphic/IngameConsole` | **classic-only, candidate to unbuild** | `Rectangle2D` + Overlay; live users are only `module.cpp` (Lua export) and an InputManager toggle. Keep classic-only; revisit when a cross-backend console is wanted (could be rebuilt on gui/facade sprites). |
 | `engine_graphic/MovableText`, `DynamicLines`, `DynamicRenderable` | **classic-only; MovableText candidate to unbuild** | Ogre `SimpleRenderable`/`MovableObject` subclasses = per-backend by nature. DynamicLines' only user is the unused ColoredBoundingBox; MovableText's only user is the unbuilt sceneoptimizer. |
 | `engine_graphic/ColoredBoundingBox`, `LightMap` | **unbuild (zero callers)** | Zero callers. |
 | `engine_util/SceneNodeGuard` | **superseded by `RenderNode`; kept as node-owner base** | The facade carries only the used ~40% of its mirror. The guard was reshaped into the components' facade-node-owner base (holds `optr<RenderNode>`, forwards ~15 used methods). It was kept (recorded deviation): it is Ogre-free and shared by three components — deleting it would just triple the forwarding surface. |
@@ -120,7 +120,7 @@ abstracted): see per-file table below.
 | `engine_sound`, `engine_input` | **math-only leak** | `Ogre::Vector3`/`Ogre::Camera*` listener. Math: alias handles it. `SoundManager::setListener(Ogre::Camera*)` → takes `optr<RenderCamera>` or a node (one-line seam). |
 | `engine_runtime/PlayerRuntime` | **math-only leak + LogListener** | Wire-format vec/quat formatting (math alias) and an `Ogre::LogListener` (duplicated in the editor) — fold log forwarding into a small engine service (not part of the render facade; OGRE's LogManager is incidentally also present in Next). |
 | `engine_module/module.cpp` Lua exports | **migrate onto facade** | Currently registers `Ogre::SceneNode/SceneManager/Viewport/Camera` usertypes. Re-target the same Lua-facing names at `RenderNode`/`RenderWorld`/`RenderCamera` (optr binds natively in sol2). Math usertypes follow the math decision (aliases = unchanged today). |
-| tests | **math + headless parsing only** | No test touches a render backend; FastGuiAtlasTests' `Ogre::ConfigFile` follows FastGuiFactory's fate. |
+| tests | **math + headless parsing only** | No test touches a render backend; GuiAtlasTests' `Ogre::ConfigFile` follows GuiFactory's fate. |
 
 ---
 
@@ -149,7 +149,7 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 *services* exist — sprite material generation inside `SpriteQuad`, unlit fixup on
 `MeshInstance`; per CLAUDE.md, keep materials simple/generated), overlays/imgui
 (editor-private glue), frame *events* (stay on the core event system around
-`renderOneFrame`), log forwarding (engine service, not renderer), Gorilla/fastgui.
+`renderOneFrame`), log forwarding (engine service, not renderer), Gorilla/gui.
 
 ### Handle model: `optr` (shared_ptr), not ids — rationale
 
@@ -223,7 +223,7 @@ out.
 | **RTT** | `TextureManager::createManual(TU_RENDERTARGET)` → `getBuffer()->getRenderTarget()->addViewport(camera)`; per-viewport background/overlay toggles | No viewports-on-targets. `TextureGpuManager::createTexture(RenderToTexture)` + a **compositor workspace** whose pass targets the texture; clear colour and overlay inclusion are compositor-pass properties | `RenderTexture` maps 1:1 onto a one-pass workspace; `setOverlaysEnabled(false)` = omit the overlay pass. Resize-by-recreate matches both. ImGui consumption differs per RS — hence the opaque `getNativeTextureId` |
 | **Ray queries** | `SceneManager::createRayQuery` → AABB hits; CollisionTools adds triangle tests via hw-buffer reads | Next still has `RaySceneQuery` (v2 objects) but it is de-emphasized; triangle-accurate picking against render meshes means VAO reads (painful) | `RenderWorld::queryRay` stays AABB-level (that is all the editor uses). Triangle accuracy = `PhysicsWorld::castRay` against collision shapes — physics is the cross-backend truth for precise picking. CollisionTools retires |
 | **Frame loop / rendering** | `Root::renderOneFrame` renders viewports implicitly | Nothing renders without an explicit **CompositorManager2 workspace** per target/window | Next backend creates one window workspace in `RenderSystem` setup + one per `RenderTexture`. Facade signature unchanged |
-| **HUD (Gorilla/fastgui)** | RenderQueueListener + `manualRender` + hand-built vertex buffers + texel offsets (see audit) — every removed-in-Next API at once | Would need: v2 Renderable + VaoManager buffers + HlmsUnlit + compositor hook. A rewrite, per backend, forever | **Recommend: Gorilla classic-only; future HUD = facade `SpriteQuad` layer** (screen-space ortho camera + zOrder painter sorting — SpriteComponent already proves the primitives). One HUD implementation for every backend incl. Filament, instead of N ports of a dead library. jumper/roller HUDs migrate onto the facade HUD |
+| **HUD (Gorilla/gui)** | RenderQueueListener + `manualRender` + hand-built vertex buffers + texel offsets (see audit) — every removed-in-Next API at once | Would need: v2 Renderable + VaoManager buffers + HlmsUnlit + compositor hook. A rewrite, per backend, forever | **Recommend: Gorilla classic-only; future HUD = facade `SpriteQuad` layer** (screen-space ortho camera + zOrder painter sorting — SpriteComponent already proves the primitives). One HUD implementation for every backend incl. Filament, instead of N ports of a dead library. jumper/roller HUDs migrate onto the facade HUD |
 | **Window/stats plumbing** | `RenderWindow::writeContentsToFile/getStatistics/ windowMovedOrResized`; `Viewport::getActualWidth` | `Ogre::Window` + `TextureGpu` readback; stats via RenderSystem metrics/workspace | All behind `RenderSystem` methods already |
 | **Ambient light** | `SceneManager::setAmbientLight(colour)` | `setAmbientLight(upperHemi, lowerHemi, dir)` | Facade takes one colour; Next impl passes it to both hemispheres |
 | **Resources/archives** | `ResourceGroupManager`, `Archive`, BigZip subclass | Same subsystem exists (minor drift); HLMS additionally needs its library folders registered | `addResourceLocation` unchanged; Next backend registers HLMS data in setup |
@@ -371,7 +371,7 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
     `setCameraOrthographic`, `getViewport`) which the Lua migration re-targets - only
     then can the player switch rigs. `Engine::getViewport` grew a classic
     migration bridge: it falls back to the window's viewport 0 when apps boot
-    the camera through the facade, so fastgui (classic-only, reads
+    the camera through the facade, so gui (classic-only, reads
     `Engine::getViewport`) works on both boot paths until the Lua migration.
   - **hello_orkige content**: the raw ManualObject cubes became instances of
     the facade cube-mesh service (`createVertexColourCubeMesh("HelloCube.mesh",
@@ -392,9 +392,9 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   - `engine_util/FrameStatsUtil` needed NO change: it is a frame-TIME
     (wall-clock dt) collector with zero renderer coupling; the renderer
     stats consumers (triangle counts) moved to `RenderSystem::getFrameStats`.
-  - JumperHud (fastgui, classic-only per the HUD decision) kept exactly one Ogre
+  - JumperHud (gui, classic-only per the HUD decision) kept exactly one Ogre
     spelling: the resource-group default parameter it forwards to
-    FastGuiManager; its math went to the alias vocabulary.
+    GuiManager; its math went to the alias vocabulary.
 - **Editor**: RTT panel → `RenderTexture`; picking → `queryRay` +
   `findUserPointerUpwards`; gizmo → `RenderCamera` matrices/project; stats panel;
   grid via backend service; ImGuiOverlay glue isolated behind an editor-local seam.
@@ -475,7 +475,7 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   - **Player camera**: tools/player builds the standard facade rig
     (createCamera + createNode + setFixedYawAxis + showCameraOnWindow); the
     earlier residue (Engine-path camera + roll probe) is gone.
-    `Engine::getViewport`'s bridge STAYS with one consumer: fastgui
+    `Engine::getViewport`'s bridge STAYS with one consumer: gui
     (classic-only) — it goes with the draw-surface seam.
   - **Late-handle guard**: script-held facade handles legally outlive the
     render system now (Lua userdata lives until the Lua state closes, after
@@ -520,7 +520,7 @@ the test suite, unchanged:
 - `player_jumper_lua_selfcheck` / `player_roller_selfcheck` — the full
   script-visible surface (facade usertypes, window camera rig, 2D tier);
 - the demo/editor/player integration runs minus the documented
-  fastgui-dependent skips (HUD arrives with the facade HUD).
+  gui-dependent skips (HUD arrives with the facade HUD).
 
 ### Ogre-Next backend
 
@@ -623,7 +623,7 @@ the test suite, unchanged:
     vocabulary — no `<Ogre.h>`). Classic-only TUs include the new
     `engine_module/EnginePrerequisitesClassic.h` (neutral umbrella + the classic
     OGRE/Overlay headers; hard `#error` on the next flavor): engine_graphic's
-    classic files, fastgui, BigZip, Localisation, PrimitiveUtil/MeshUtil,
+    classic files, gui, BigZip, Localisation, PrimitiveUtil/MeshUtil,
     ClassicBackend.h, the unbuilt legacy tools. Neutral-side fallout fixed with
     explicit includes (StringConverter → Ogre string headers, LoadWavData →
     DataStream/ResourceGroupManager, StringUtil's `convertToUTF` classic-gated —
@@ -644,10 +644,10 @@ the test suite, unchanged:
   - **UI capability probe (the HUD decision, implemented)**:
     `Engine::hasUISystem()` — true on classic, false on next — registered to
     Lua on both flavors. `projects/jumper-lua` + `projects/roller` `game.lua`
-    probe it and skip their fastgui HUD honestly (state machines, tile slides,
+    probe it and skip their gui HUD honestly (state machines, tile slides,
     win flow run identically; jumper's title/win advance on ENTER). module.cpp's
-    fastgui/IngameConsole exports are `#ifdef ORKIGE_RENDER_CLASSIC` — an
-    unguarded FastGui call on next fails with an honest Lua nil error. The
+    gui/IngameConsole exports are `#ifdef ORKIGE_RENDER_CLASSIC` — an
+    unguarded Gui call on next fails with an honest Lua nil error. The
     player selfchecks compile their UI assertions per flavor
     (`uiChecksEnabled`); gameplay assertions are identical. Drive-by fix:
     game.lua's ENTER edge detection samples every frame now (a held ENTER
@@ -678,14 +678,14 @@ all in place. **Flavor capability matrix**:
 |---|---|---|
 | engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
 | components/game objects/serialization | yes | yes |
-| Lua scripting (sol2 module surface) | yes | yes (minus fastgui usertypes) |
+| Lua scripting (sol2 module surface) | yes | yes (minus gui usertypes) |
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
-| fastgui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
-| IngameConsole | yes | no — classic Overlay zone (rebuild on fastgui/DrawLayer2D when wanted) |
+| gui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
+| IngameConsole | yes | no — classic Overlay zone (rebuild on gui/DrawLayer2D when wanted) |
 | editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (the editor-stays-classic decision was superseded, see the editor-on-both-flavors section) |
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
-| jumper sample (C++ fastgui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
+| jumper sample (C++ gui HUD) | yes | no (classic boot block only; the HUD itself is flavor-neutral now) |
 | BigZip / LT_ZIP resource locations | yes | honest `notImplementedOnce` stub |
 | project export (macOS/iOS/Android) | yes (RTSS media) | yes (bundles Hlms shader media) |
 | Vulkan/GL runtime RS pick | yes | no (classic-backend concern; next boots Metal) |
@@ -700,7 +700,7 @@ colour difference" is GONE — see the colour-parity work below.)
 
 - **Facade HUD & migration** (revised design): instead of the sprite-quad HUD
   sketched above, the owner decided
-  (a) fastgui runs on BOTH backends and (b) **Gorilla is DROPPED**. What
+  (a) gui runs on BOTH backends and (b) **Gorilla is DROPPED**. What
   landed:
   - `engine_render/DrawLayer2D` — the facade's screen-space 2D layer:
     retained pixel-space triangle batches, per-batch texture binding by
@@ -717,10 +717,10 @@ colour difference" is GONE — see the colour-parity work below.)
     order, alpha blending, scissor, texture binding, show/hide, RTT
     isolation and RAII teardown identically on both flavors.
   - **Gorilla.{h,cpp} DELETED** (recoverable from git). Its .ogui parser
-    lives on as the backend-neutral `engine_fastgui/UiAtlas.{h,cpp}`
+    lives on as the backend-neutral `engine_gui/UiAtlas.{h,cpp}`
     (sprites, fonts/glyphs/kerning, whitepixel, markup colours; headless
     constructor for the unit tests) and its glyph layout math as
-    `engine_fastgui/UiRenderer.{h,cpp}` (`UiScreen`/`UiLayer`/`UiRect`/
+    `engine_gui/UiRenderer.{h,cpp}` (`UiScreen`/`UiLayer`/`UiRect`/
     `UiCaption`/`UiMarkupText`). The unused primitives (Polygon, LineList,
     QuadList, borders, gradients, per-corner colours) are gone.
   - **Perf contract (mobile ethos)**: one UiScreen = ONE DrawLayer2D batch
@@ -729,13 +729,13 @@ colour difference" is GONE — see the colour-parity work below.)
     dirty; clean frames rebuild and upload NOTHING. The jumper-lua player
     selfcheck asserts the property: hiding all views drops the frame batch
     count by exactly the screen count (1), never the widget count (8+).
-  - Widget API + Lua surface byte-compatible: FastGui* classes unchanged
+  - Widget API + Lua surface byte-compatible: Gui* classes unchanged
     (`getLayer()` now returns `UiLayer*`, the Lua `GuiLayer` usertype
     re-points to it with the same methods), `engine:hasUISystem()` is true
-    on both flavors, module.cpp's fastgui exports register unconditionally,
-    the .ogui format + `Util/make_fastgui_atlas.py` are unchanged.
+    on both flavors, module.cpp's gui exports register unconditionally,
+    the .ogui format + `Util/make_gui_atlas.py` are unchanged.
 - **Closure**: the containment lint landed earlier
-  (`render_containment_lint` + `Util/ogre_containment.json`) — engine_fastgui
+  (`render_containment_lint` + `Util/ogre_containment.json`) — engine_gui
   is now a flavor-neutral sanctioned zone (math aliases + ConfigFile-family
   utilities present in both backends); the editor-backend decision
   revisited with real Next numbers, the math-swap readiness review, and
@@ -840,7 +840,7 @@ classic-backend app is SUPERSEDED.** What landed:
   it does automatically once the window is high-density (960 points → 1920 px
   drawable on a 2× display, matching Metal). Everything downstream consumes
   window PIXELS consistently (`getWindowSize`, input point→pixel mapping,
-  `DrawLayer2D` pixel space, fastgui `getContentScale`-driven UI scale,
+  `DrawLayer2D` pixel space, gui `getContentScale`-driven UI scale,
   safe-area insets), and the editor derives its ImGui content scale from the
   drawable/points ratio, so all of it stays coherent at native density. Mobile
   is unaffected: the player's fullscreen window renders at native scale through

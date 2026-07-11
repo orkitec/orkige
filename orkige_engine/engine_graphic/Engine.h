@@ -251,7 +251,7 @@ protected:
 		bool renderOneFrameFast();
 
 		//! @brief get Engine SceneManager - DEPRECATED scene accessor:
-		//! classic-only internals (fastgui, editor bootstrap) may
+		//! classic-only internals (gui, editor bootstrap) may
 		//! keep using it; everything else goes through RenderSystem::getWorld
 		inline Ogre::SceneManager* getSceneManager();
 		//! get Engine RenderWindow
@@ -259,7 +259,7 @@ protected:
 		//! @brief DEPRECATED scene accessor: only non-NULL on the
 		//! legacy createDefaultCameraAndViewport path; use getWindowCamera()
 		inline Ogre::Camera* getCamera( unsigned int num = 0 );
-		//! @brief DEPRECATED scene accessor: fastgui (classic-only)
+		//! @brief DEPRECATED scene accessor: gui (classic-only)
 		//! is the last consumer; new code uses RenderSystem window services
 		inline Ogre::Viewport* getViewport( unsigned int num = 0 );
 
@@ -281,7 +281,7 @@ protected:
 		//! HUD/menu content inside the box these describe (@see UiAnchor).
 		SafeAreaInsets getSafeAreaInsets();
 		//! @brief the display's content scale: 1.0 on standard-DPI desktops,
-		//! ~2-3 on retina / phone screens. The fastgui UI system snaps this to
+		//! ~2-3 on retina / phone screens. The gui UI system snaps this to
 		//! an integer and drives UiGlyph::scale from it at boot so pixel text
 		//! and touch targets keep a stable physical size.
 		float getContentScale();
@@ -307,9 +307,9 @@ protected:
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
-		//! @brief does this build carry the fastgui UI system?
+		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
-		//! (fastgui renders through the engine_render facade); the probe
+		//! (gui renders through the engine_render facade); the probe
 		//! stays registered so scripts written against older builds keep
 		//! working - and so a future UI-less flavor can answer honestly
 		bool hasUISystem() const { return true; }
@@ -378,9 +378,9 @@ protected:
 		// camera was set up through the facade
 		// (RenderSystem::showCameraOnWindow), this->viewport[num] stays NULL
 		// but the window carries the viewport - hand that one out. The last
-		// consumer is fastgui (classic-only); the Lua
+		// consumer is gui (classic-only); the Lua
 		// getViewport binding was retired. Goes away with the
-		// fastgui draw-surface seam.
+		// gui draw-surface seam.
 		if(!this->viewport[num] && this->renderWindow[num] &&
 			this->renderWindow[num]->getNumViewports() > 0)
 		{

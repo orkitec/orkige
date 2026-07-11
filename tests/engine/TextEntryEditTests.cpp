@@ -6,8 +6,8 @@
 				For the latest info, see http://www.orkitec.com/
 	copyright:	(c) 2009-2026 orkitec
 
-	Headless tests for the pure FastGuiTextEntry editing model
-	(FastGuiTextEdit.h): insert / backspace / delete, caret motion, home/end
+	Headless tests for the pure GuiTextEntry editing model
+	(GuiTextEdit.h): insert / backspace / delete, caret motion, home/end
 	and the code-point-aware max length + UTF-8 handling. The rendered field
 	(SDL text-input routing, caret blink, focus) is exercised by the
 	demo_textentry selfcheck.
@@ -15,7 +15,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <engine_fastgui/FastGuiTextEdit.h>
+#include <engine_gui/GuiTextEdit.h>
 
 using namespace Orkige;
 using namespace Orkige::TextEntryEdit;

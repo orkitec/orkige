@@ -14,7 +14,7 @@
 #include "engine_util/StringConverter.h"
 #ifndef ORKIGE_RENDER_NEXT
 // Ogre::DisplayString (typedef'd by the classic Overlay component) for the
-// classic-only convertToUTF below - fastgui text is its sole consumer
+// classic-only convertToUTF below - gui text is its sole consumer
 #include <OgreOverlayElement.h>
 #endif
 
@@ -27,7 +27,7 @@ namespace Orkige
 		//! OGRE 14 dropped Ogre::UTFString; display strings are plain UTF-8 now,
 		//! so this encodes every input byte (treated as Latin-1, as the old
 		//! UTFString version did) as an UTF-8 code point.
-		//! @remarks classic-only: the sole consumer is fastgui text
+		//! @remarks classic-only: the sole consumer is gui text
 		//! (classic-only zone) and Ogre-Next has no
 		//! DisplayString typedef
 		static inline Ogre::DisplayString convertToUTF(String const & text)

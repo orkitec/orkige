@@ -162,7 +162,7 @@ if(ORKIGE_BUILD_ENGINE)
     if(NOT ORKIGE_MOBILE)
         # desktop-only SDL samples (plain executables, host asset paths).
         # hello_orkige builds on both render flavors (per-flavor boot
-        # block); jumper stays classic-only - its HUD is fastgui, which
+        # block); jumper stays classic-only - its HUD is gui, which
         # migrates to the facade HUD later.
         add_subdirectory(samples/hello_orkige)
         if(ORKIGE_RENDER_BACKEND STREQUAL "classic")

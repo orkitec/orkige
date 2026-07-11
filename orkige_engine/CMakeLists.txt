@@ -8,7 +8,7 @@
 # Render flavors (ORKIGE_RENDER_BACKEND, Docs/render-abstraction.md):
 # the SHARED source list below is backend-neutral - the modules
 # talk to the renderer through engine_render/ and include the neutral
-# engine_module/EnginePrerequisites.h umbrella. fastgui is in the shared
+# engine_module/EnginePrerequisites.h umbrella. gui is in the shared
 # list too: its UiRenderer draws through the facade's
 # 2D layer and the widgets were always renderer-blind math. Per flavor this
 # target adds:
@@ -21,7 +21,7 @@
 #            Engine sibling (engine_graphic/EngineNext.*). No BigZip (the
 #            facade's LT_ZIP/LT_BIGZIP stay honest notImplementedOnce
 #            gaps), no Localisation (classic ConfigFile internals + scene
-#            probe; FastGuiFactory falls back to raw text keys there).
+#            probe; GuiFactory falls back to raw text keys there).
 # ---------------------------------------------------------------------------
 
 # --- dependencies shared by both flavors ------------------------------------
@@ -29,11 +29,11 @@ find_package(SDL3 CONFIG REQUIRED)
 find_package(OpenAL CONFIG REQUIRED)
 # stb: header/single-file only - ships stb_vorbis.c (the OGG Vorbis decoder
 # engine_sound/StbVorbisImpl.cpp compiles) + stb_truetype.h (the glyph
-# rasteriser engine_fastgui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
+# rasteriser engine_gui/FontBakeImpl.cpp compiles). Provides Stb_INCLUDE_DIR.
 find_package(Stb REQUIRED)
-# nanosvg: the vector-sprite rasteriser the fastgui runtime atlas bakes .svg
+# nanosvg: the vector-sprite rasteriser the gui runtime atlas bakes .svg
 # sprites with. The vcpkg port precompiles the implementation into static libs
-# (NanoSVG::nanosvg / NanoSVG::nanosvgrast); engine_fastgui/SvgRasterImpl.cpp is
+# (NanoSVG::nanosvg / NanoSVG::nanosvgrast); engine_gui/SvgRasterImpl.cpp is
 # the only TU that includes its headers (Docs/ports.md).
 find_package(NanoSVG CONFIG REQUIRED)
 # vcpkg joltphysics installs a plain "Jolt" CMake package (target Jolt::Jolt)
@@ -154,64 +154,64 @@ set(ORKIGE_ENGINE_SOURCES
     engine_sound/MusicStream.h
     engine_sound/MusicStream.cpp
     engine_sound/StbVorbisImpl.cpp
-    # fastgui: flavor-neutral (the UiRenderer
+    # gui: flavor-neutral (the UiRenderer
     # submits to engine_render/DrawLayer2D; atlas parsing/glyph metrics/
     # widget math were always renderer-blind). Gorilla is DELETED - the
     # .ogui atlas lives in UiAtlas, the 2D renderer in UiRenderer.
-    engine_fastgui/UiAtlas.h
-    engine_fastgui/UiAtlas.cpp
+    engine_gui/UiAtlas.h
+    engine_gui/UiAtlas.cpp
     # runtime font/vector-sprite baking: the pure shelf packer, the single-
     # file-lib seams (stb_truetype / nanosvg confined to their *Impl.cpp like
     # StbVorbisImpl.cpp) and the mutable baked atlas built on them
-    engine_fastgui/FontPacker.h
-    engine_fastgui/FontPacker.cpp
-    engine_fastgui/FontBake.h
-    engine_fastgui/FontBakeImpl.cpp
-    engine_fastgui/SvgRaster.h
-    engine_fastgui/SvgRasterImpl.cpp
-    engine_fastgui/FontAtlas.h
-    engine_fastgui/FontAtlas.cpp
-    engine_fastgui/UiRenderer.h
-    engine_fastgui/UiRenderer.cpp
-    engine_fastgui/IGuiObject.h
-    engine_fastgui/IGuiObject.cpp
-    engine_fastgui/DragEventData.h
-    engine_fastgui/DragEventData.cpp
-    engine_fastgui/FastGuiWidget.h
-    engine_fastgui/FastGuiWidget.cpp
-    engine_fastgui/FastGuiView.h
-    engine_fastgui/FastGuiView.cpp
-    engine_fastgui/FastGuiTextbox.h
-    engine_fastgui/FastGuiTextbox.cpp
-    engine_fastgui/FastGuiTextEntry.h
-    engine_fastgui/FastGuiTextEntry.cpp
-    engine_fastgui/FastGuiTextEdit.h
-    engine_fastgui/FastGuiSlider.h
-    engine_fastgui/FastGuiSlider.cpp
-    engine_fastgui/FastGuiSelectMenu.h
-    engine_fastgui/FastGuiSelectMenu.cpp
-    engine_fastgui/FastGuiProgressBar.h
-    engine_fastgui/FastGuiProgressBar.cpp
-    engine_fastgui/FastGuiManager.h
-    engine_fastgui/FastGuiManager.cpp
-    engine_fastgui/FastGuiLabel.h
-    engine_fastgui/FastGuiLabel.cpp
-    engine_fastgui/FastGuiFactory.h
-    engine_fastgui/FastGuiFactory.cpp
-    engine_fastgui/FastGuiDragDropButton.h
-    engine_fastgui/FastGuiDragDropButton.cpp
-    engine_fastgui/FastGuiDecorWidget.h
-    engine_fastgui/FastGuiDecorWidget.cpp
-    engine_fastgui/FastGuiScrollView.h
-    engine_fastgui/FastGuiScrollView.cpp
-    engine_fastgui/GuiLayout.h
-    engine_fastgui/GuiLayout.cpp
-    engine_fastgui/FastGuiCheckBox.h
-    engine_fastgui/FastGuiCheckBox.cpp
-    engine_fastgui/FastGuiButtonBlink.h
-    engine_fastgui/FastGuiButtonBlink.cpp
-    engine_fastgui/FastGuiButton.h
-    engine_fastgui/FastGuiButton.cpp
+    engine_gui/FontPacker.h
+    engine_gui/FontPacker.cpp
+    engine_gui/FontBake.h
+    engine_gui/FontBakeImpl.cpp
+    engine_gui/SvgRaster.h
+    engine_gui/SvgRasterImpl.cpp
+    engine_gui/FontAtlas.h
+    engine_gui/FontAtlas.cpp
+    engine_gui/UiRenderer.h
+    engine_gui/UiRenderer.cpp
+    engine_gui/IGuiObject.h
+    engine_gui/IGuiObject.cpp
+    engine_gui/DragEventData.h
+    engine_gui/DragEventData.cpp
+    engine_gui/GuiWidget.h
+    engine_gui/GuiWidget.cpp
+    engine_gui/GuiView.h
+    engine_gui/GuiView.cpp
+    engine_gui/GuiTextbox.h
+    engine_gui/GuiTextbox.cpp
+    engine_gui/GuiTextEntry.h
+    engine_gui/GuiTextEntry.cpp
+    engine_gui/GuiTextEdit.h
+    engine_gui/GuiSlider.h
+    engine_gui/GuiSlider.cpp
+    engine_gui/GuiSelectMenu.h
+    engine_gui/GuiSelectMenu.cpp
+    engine_gui/GuiProgressBar.h
+    engine_gui/GuiProgressBar.cpp
+    engine_gui/GuiManager.h
+    engine_gui/GuiManager.cpp
+    engine_gui/GuiLabel.h
+    engine_gui/GuiLabel.cpp
+    engine_gui/GuiFactory.h
+    engine_gui/GuiFactory.cpp
+    engine_gui/GuiDragDropButton.h
+    engine_gui/GuiDragDropButton.cpp
+    engine_gui/GuiDecorWidget.h
+    engine_gui/GuiDecorWidget.cpp
+    engine_gui/GuiScrollView.h
+    engine_gui/GuiScrollView.cpp
+    engine_gui/GuiLayout.h
+    engine_gui/GuiLayout.cpp
+    engine_gui/GuiCheckBox.h
+    engine_gui/GuiCheckBox.cpp
+    engine_gui/GuiButtonBlink.h
+    engine_gui/GuiButtonBlink.cpp
+    engine_gui/GuiButton.h
+    engine_gui/GuiButton.cpp
 )
 
 # --- classic-only sources (the classic umbrella zone) -----------------------
@@ -327,7 +327,7 @@ target_include_directories(orkige_engine PUBLIC
 
 # PCH: every engine TU compiles against Ogre math (and, with the Lua backend,
 # sol2 via the core Meta macros). The classic flavor precompiles the whole
-# <Ogre.h> umbrella (its backend + fastgui zone includes it everywhere); the
+# <Ogre.h> umbrella (its backend + gui zone includes it everywhere); the
 # next flavor precompiles only sol2 - its TUs include exactly what they need.
 # CXX-only guard: the target has ObjC++ sources on Apple platforms, and on
 # iOS Engine.cpp itself is compiled as OBJCXX (see above).
@@ -357,14 +357,14 @@ set_source_files_properties(engine_sound/StbVorbisImpl.cpp PROPERTIES
 
 # the single-file TrueType rasteriser (stb_truetype.h) is likewise compiled in
 # exactly one TU: only it sees the stb include, and it stays off the PCH.
-set_source_files_properties(engine_fastgui/FontBakeImpl.cpp PROPERTIES
+set_source_files_properties(engine_gui/FontBakeImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON
     INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
 # nanosvg is confined to SvgRasterImpl.cpp; keep it off the PCH so its headers
 # never join the sol2/Ogre precompiled header (the NanoSVG:: link targets carry
 # the include dir).
-set_source_files_properties(engine_fastgui/SvgRasterImpl.cpp PROPERTIES
+set_source_files_properties(engine_gui/SvgRasterImpl.cpp PROPERTIES
     SKIP_PRECOMPILE_HEADERS ON)
 
 # The whole 2026 target set (GL3+/Metal/Vulkan/GLES3) is shader-based; the

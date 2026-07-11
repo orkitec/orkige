@@ -13,7 +13,7 @@
 //! @brief backend-neutral safe-area model: the display insets a notch /
 //! rounded corner / home indicator eats into, plus the pure anchor math that
 //! places a UI rect inside the safe box. No renderer or platform types - the
-//! Engine fills SafeAreaInsets from the window system, the fastgui layer and a
+//! Engine fills SafeAreaInsets from the window system, the gui layer and a
 //! unit test share UiAnchor::place.
 
 #include "core_module/OrkigePrerequisites.h"
@@ -39,7 +39,7 @@ namespace Orkige
 			int safeWidth, int safeHeight);
 	};
 
-	//! @brief pure anchoring math for the fastgui layer (and its unit test):
+	//! @brief pure anchoring math for the gui layer (and its unit test):
 	//! places a rect inside the safe box so HUD/menu content never draws under
 	//! a notch or the home indicator.
 	struct ORKIGE_CORE_DLL UiAnchor

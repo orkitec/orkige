@@ -7,7 +7,7 @@ add_executable(orkige_engine_tests
     TestRunListener.cpp
     EngineTestEnvironment.h
     RenderSystemSelectionTests.cpp
-    FastGuiAtlasTests.cpp
+    GuiAtlasTests.cpp
     NineSliceLayoutTests.cpp
     GuiLayoutIoTests.cpp
     FontPackerTests.cpp
@@ -36,11 +36,11 @@ target_link_libraries(orkige_engine_tests PRIVATE
     Catch2::Catch2WithMain
 )
 
-# FastGuiAtlasTests parses the generated fastgui atlas through the real
+# GuiAtlasTests parses the generated gui atlas through the real
 # UiAtlas parser (headless constructor - the GPU half is covered by the
 # jumper_selfcheck integration run)
 target_compile_definitions(orkige_engine_tests PRIVATE
-    ORKIGE_FASTGUI_ATLAS_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
+    ORKIGE_GUI_ATLAS_DIR="${Orkige_SOURCE_DIR}/samples/jumper/media"
     # the committed engine-default TrueType face (Nunito, SIL OFL) the font
     # bake + runtime atlas tests rasterise headlessly, straight off disk
     ORKIGE_ENGINE_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"

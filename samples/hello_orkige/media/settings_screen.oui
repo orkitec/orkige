@@ -2,11 +2,11 @@
 # An anchored nine-slice panel holds a title and a scroll viewport; the
 # viewport's content is a vertical group of labelled rows (a checkbox, a
 # slider and a stack of option buttons) that overflows and scrolls.
-# Loaded at runtime by FastGuiFactory::loadLayout / gui:loadLayout, and the
+# Loaded at runtime by GuiFactory::loadLayout / gui:loadLayout, and the
 # same file an agent authors over the MCP write_project_file verb.
 
 [Layout]
-atlas = fastgui_default
+atlas = gui_default
 root = fullwindow
 
 [DecorWidget settingsPanel]

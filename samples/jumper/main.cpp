@@ -43,15 +43,15 @@
 //   ORKIGE_DEMO_FPS_LOG=1        log frame count / avg / p95 ms at exit
 //   ORKIGE_JUMPER_SELFCHECK=1    scripted input run asserting textures loaded,
 //                                movement, jump+landing, fall-respawn, the
-//                                goal path and the fastgui HUD (widgets exist,
+//                                goal path and the gui HUD (widgets exist,
 //                                title splash times out, win banner fires) -
 //                                the jumper_selfcheck ctest test
 //   ORKIGE_JUMPER_HUD_SCREENSHOT=path  (selfcheck only) framebuffer dump a few
 //                                frames after the win, HUD banner visible
 //
-// HUD: engine_fastgui (the engine's own UiRenderer-based UI) with the generated
-// atlas media/fastgui_default.{ogui,png} - see the shared JumperHud.h (also
-// compiled by the jumper-native project module) and Util/make_fastgui_atlas.py.
+// HUD: engine_gui (the engine's own UiRenderer-based UI) with the generated
+// atlas media/gui_default.{ogui,png} - see the shared JumperHud.h (also
+// compiled by the jumper-native project module) and Util/make_gui_atlas.py.
 #include <SDL3/SDL.h>
 #include <engine_graphic/Engine.h>
 #include <engine_render/RenderSystem.h>
@@ -59,9 +59,9 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
-#include <engine_fastgui/FastGuiManager.h>
-#include <engine_fastgui/FastGuiLabel.h>
-#include <engine_fastgui/FastGuiProgressBar.h>
+#include <engine_gui/GuiManager.h>
+#include <engine_gui/GuiLabel.h>
+#include <engine_gui/GuiProgressBar.h>
 #include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
@@ -743,7 +743,7 @@ int main(int argc, char** argv)
 		cameraNode->lookAt(game.getSpawnPosition(),
 			Orkige::RenderNode::TS_WORLD);
 
-		// the HUD (engine_fastgui): title splash, controls hint, win banner,
+		// the HUD (engine_gui): title splash, controls hint, win banner,
 		// distance-to-goal progress bar - see the shared JumperHud.h
 		unsigned int hudWidth = 0;
 		unsigned int hudHeight = 0;
@@ -885,7 +885,7 @@ int main(int argc, char** argv)
 					{
 						checkFail("textured meshes did not load with textures");
 					}
-					// HUD boot: FastGuiManager loaded the generated atlas and
+					// HUD boot: GuiManager loaded the generated atlas and
 					// all four widgets exist; the title splash is showing
 					SDL_Log("jumper: selfcheck hud - widgets=%d title=%d "
 						"banner=%d progress=%.0f%%",
@@ -895,7 +895,7 @@ int main(int argc, char** argv)
 						hud.getProgress());
 					if (!hud.widgetsExist())
 					{
-						checkFail("HUD widgets missing after FastGuiManager boot");
+						checkFail("HUD widgets missing after GuiManager boot");
 					}
 					else if (!hud.isTitleVisible())
 					{
@@ -1098,7 +1098,7 @@ int main(int argc, char** argv)
 							SDL_Log("jumper: selfcheck complete - textures, "
 								"movement (+%.2f m), jump (+%.2f m, %lu frames "
 								"airborne), fall-respawn, the goal, the "
-								"fastgui HUD and the roll-free camera all "
+								"gui HUD and the roll-free camera all "
 								"verified",
 								checkMovedX, checkMaxRise,
 								checkLandedFrame - checkJumpFrame);

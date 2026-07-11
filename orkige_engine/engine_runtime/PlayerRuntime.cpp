@@ -31,7 +31,7 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_util/PlatformWindow.h"
-#include "engine_fastgui/FastGuiManager.h"
+#include "engine_gui/GuiManager.h"
 #include "engine_sound/SoundManager.h"
 
 // SDL_GetBasePath (PlayerBundle) - safe to call before SDL_Init
@@ -617,7 +617,7 @@ namespace Orkige
 			// check (~4 Hz) - the memory footprint moves slowly, so a few
 			// samples a second is plenty and keeps the query cost negligible
 			streamStats();
-			// the fastgui widget rects ride the same cadence: the safe-area
+			// the gui widget rects ride the same cadence: the safe-area
 			// device test reads them to assert the HUD sits inside the notch box
 			streamUiLayout();
 		}
@@ -1154,14 +1154,14 @@ namespace Orkige
 		{
 			return;
 		}
-		FastGuiManager* manager = FastGuiManager::getSingletonPtr();
+		GuiManager* manager = GuiManager::getSingletonPtr();
 		if (manager == NULL)
 		{
 			return;	// scriptless / HUD-less game: nothing to report
 		}
 		StringVector ids;
 		StringVector rects;
-		for (FastGuiManager::WidgetLayout const & layout :
+		for (GuiManager::WidgetLayout const & layout :
 			manager->getWidgetLayouts())
 		{
 			ids.push_back(layout.id);

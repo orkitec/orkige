@@ -1,0 +1,85 @@
+/********************************************************************
+	created:	Friday 2010/10/29 at 18:16
+	filename: 	GuiView.cpp
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2011 orkitec
+*********************************************************************/
+
+#include "engine_gui/GuiView.h"
+#include "engine_gui/GuiManager.h"
+#include <core_util/foreach.h>
+
+namespace Orkige
+{
+	//---------------------------------------------------------
+	//--- public: ---------------------------------------------
+	//---------------------------------------------------------
+	GuiView::GuiView(UiScreen* _screen, uint _z) : screen(_screen), z(_z)
+	{
+
+	}
+	//---------------------------------------------------------
+	GuiView::~GuiView()
+	{
+		// the screen owns the layers (and destroying it drops its draw
+		// layer = its one batch); widgets are already gone - GuiManager
+		// destroys them before their views
+		delete this->screen;
+	}
+	//---------------------------------------------------------
+	Ogre::Vector2 GuiView::getPosition(GuiView::Alignment alignment)
+	{
+		switch(alignment)
+		{
+		case VA_TOPLEFT:
+			{
+				return Ogre::Vector2::ZERO;
+			} break;
+		case VA_TOP:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, 0.f);
+			} break;
+		case VA_TOPRIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), 0.f);
+			} break;
+		case VA_LEFT:
+			{
+				return Ogre::Vector2(0.f, screen->getHeight()/2.f);
+			} break;
+		case VA_CENTER:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight()/2.f);
+			} break;
+		case VA_RIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), screen->getHeight()/2.f);
+			} break;
+		case VA_BOTTOMLEFT:
+			{
+				return Ogre::Vector2(0, screen->getHeight());
+			} break;
+		case VA_BOTTOM:
+			{
+				return Ogre::Vector2(screen->getWidth()/2.f, screen->getHeight());
+			} break;
+		case VA_BOTTOMRIGHT:
+			{
+				return Ogre::Vector2(screen->getWidth(), screen->getHeight());
+			} break;
+		}
+
+		return Ogre::Vector2::ZERO;
+	}
+	//---------------------------------------------------------
+	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+
+	//---------------------------------------------------------
+	//--- private: --------------------------------------------
+	//---------------------------------------------------------
+	OABSTRACT_IMPL(GuiView)
+	OOBJECT_END
+}

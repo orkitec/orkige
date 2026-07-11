@@ -660,7 +660,7 @@ struct PlaySession
 	long long remoteSafeTop = -1;
 	long long remoteSafeRight = -1;
 	long long remoteSafeBottom = -1;
-	//! running-game fastgui widget layout (MSG_UI_LAYOUT): one entry per widget,
+	//! running-game gui widget layout (MSG_UI_LAYOUT): one entry per widget,
 	//! parallel ids/rects. The MCP get_ui_layout verb serves these.
 	struct RemoteWidgetRect
 	{

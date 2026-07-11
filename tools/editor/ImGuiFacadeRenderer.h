@@ -46,7 +46,7 @@ namespace Orkige
 		//! Call once after ImGui fonts were configured and the render
 		//! system exists (post Engine::setup); sets the atlas TexID.
 		//! @param zOrder the layer's zOrder among 2D layers (the editor UI
-		//! wants to composite over everything - fastgui HUDs never run
+		//! wants to composite over everything - gui HUDs never run
 		//! inside the editor window, but keep it high anyway)
 		bool initialise(int zOrder);
 

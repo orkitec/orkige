@@ -20,7 +20,7 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   Metal on macOS/iOS, Vulkan on Android)** and classic OGRE 14.5 (GL3+ on desktop,
   Vulkan-via-MoltenVK on macOS, GLES2 on iOS/Android), pixel-identical output
   selected at build time and enforced by a parity test. SDL3 windowing/input, glTF asset loading (assimp). The homegrown
-  *fastgui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on
+  *gui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on
   **both** backends (as does the ImGui-based editor) — **display-scale aware**
   (text and touch targets keep their physical size on 2×–3× screens) and
   **safe-area aware** (HUDs anchor inside the notch/home-indicator box), with
@@ -135,7 +135,7 @@ a virtual display), macOS and Windows (`.github/workflows/ci.yml`).
 ```
 orkige_core/      platform-independent core: meta/type system, events, game objects,
                   serialization, Lua scripting, debug-net protocol, projects
-orkige_engine/    the OGRE-facing layer: graphics, input, sound, physics, fastgui
+orkige_engine/    the OGRE-facing layer: graphics, input, sound, physics, gui
 tools/editor/     the Orkige editor        tools/player/   the standalone runtime
 samples/          hello_orkige, jumper     projects/       .orkproj game projects
 tests/            unit + integration       Util/           asset generator scripts

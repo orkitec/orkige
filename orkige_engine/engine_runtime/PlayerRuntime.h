@@ -258,7 +258,7 @@ namespace Orkige
 		//! send an MSG_STATS metrics line (process memory + window size +
 		//! safe-area insets) to the editor; a no-op when neither is available
 		void streamStats();
-		//! send an MSG_UI_LAYOUT line (fastgui widget ids + pixel rects +
+		//! send an MSG_UI_LAYOUT line (gui widget ids + pixel rects +
 		//! visibility) to the editor; a no-op when the game has no UI system
 		void streamUiLayout();
 	};

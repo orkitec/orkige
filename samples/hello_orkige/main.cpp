@@ -19,13 +19,13 @@
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
-// fastgui is flavor-neutral - the
+// gui is flavor-neutral - the
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
-#include <engine_fastgui/FastGuiManager.h>
-#include <engine_fastgui/FastGuiFactory.h>
-#include <engine_fastgui/FastGuiSlider.h>
-#include <engine_fastgui/FastGuiTextEdit.h>
-#include <engine_fastgui/UiAtlas.h>
+#include <engine_gui/GuiManager.h>
+#include <engine_gui/GuiFactory.h>
+#include <engine_gui/GuiSlider.h>
+#include <engine_gui/GuiTextEdit.h>
+#include <engine_gui/UiAtlas.h>
 #include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
 #include <engine_sound/SoundManager.h>
@@ -853,12 +853,12 @@ int main(int, char**)
 				"smoke test skipped", Orkige::ScriptRuntime::backendName());
 		}
 
-		// ORKIGE_DEMO_GUI=1: engine_fastgui runtime smoke test, flavor-
+		// ORKIGE_DEMO_GUI=1: engine_gui runtime smoke test, flavor-
 		// neutral (hello ships no .ogui atlas media of its own, so the
 		// full HUD render is covered by the jumper/roller selfchecks
 		// instead). What this verifies: the module links, an empty
 		// UiScreen on its DrawLayer2D survives a rendered frame and
-		// tears down cleanly, and FastGuiManager - which loads its
+		// tears down cleanly, and GuiManager - which loads its
 		// default atlas in the constructor by design - fails that
 		// construction with the documented resource error instead of
 		// crashing.
@@ -881,8 +881,8 @@ int main(int, char**)
 			bool guiRefusedCleanly = false;
 			try
 			{
-				Orkige::FastGuiManager guiManager(
-					Orkige::onew(new Orkige::FastGuiFactory()));
+				Orkige::GuiManager guiManager(
+					Orkige::onew(new Orkige::GuiFactory()));
 			}
 			catch (std::exception const& e)
 			{
@@ -890,16 +890,16 @@ int main(int, char**)
 				// resource exception (derives from std::exception - no
 				// renderer types needed to catch it)
 				guiRefusedCleanly = true;
-				SDL_Log("hello_orkige: FastGuiManager without atlas failed "
+				SDL_Log("hello_orkige: GuiManager without atlas failed "
 					"cleanly as designed: %s", e.what());
 			}
 			if (!guiRefusedCleanly)
 			{
-				SDL_Log("hello_orkige: FAILED - FastGuiManager constructed "
+				SDL_Log("hello_orkige: FAILED - GuiManager constructed "
 					"without its default atlas; expected a resource error");
 				return 1;
 			}
-			SDL_Log("hello_orkige: FastGui smoke test passed (UI draw-layer "
+			SDL_Log("hello_orkige: Gui smoke test passed (UI draw-layer "
 				"lifecycle + clean no-atlas constructor failure, "
 				"engine.hasUISystem()=%d)",
 				static_cast<int>(engine.hasUISystem()));
@@ -909,7 +909,7 @@ int main(int, char**)
 		// selfcheck (flavor-neutral). Injects a fake content scale
 		// (ORKIGE_FAKE_CONTENT_SCALE, default 3) and a fake top safe-area inset
 		// (ORKIGE_FAKE_SAFE_TOP, default 96) through the PlatformWindow override
-		// seam, boots a real FastGuiManager on the committed fastgui atlas and
+		// seam, boots a real GuiManager on the committed gui atlas and
 		// asserts: UiGlyph::scale snaps to the integer content scale, an
 		// authored 160x40 button grows to a tappable size, getSafeAreaInsets
 		// reports the inset and a top-anchored label lands below it, and the
@@ -928,16 +928,16 @@ int main(int, char**)
 			fakeInsets.mTop = fakeTop;
 			Orkige::PlatformWindow::setSafeAreaInsetsOverride(fakeInsets);
 
-			// the committed fastgui atlas (fastgui_default.ogui/.png)
-			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			// the committed gui atlas (gui_default.ogui/.png)
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
 			render->initialiseResourceGroups();
 
 			bool uiOk = true;
 			{
-				Orkige::optr<Orkige::FastGuiFactory> factory =
-					Orkige::onew(new Orkige::FastGuiFactory());
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
 				// the ctor drives UiGlyph::scale from the (overridden) scale
-				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				Orkige::GuiManager gui(factory, "gui_default");
 
 				const float expectedScale =
 					std::max(1.0f, std::round(fakeScale));
@@ -951,11 +951,11 @@ int main(int, char**)
 				}
 
 				// an authored 160x40 button must scale to a tappable size
-				Orkige::woptr<Orkige::FastGuiButton> button =
+				Orkige::woptr<Orkige::GuiButton> button =
 					factory->createButton("uiScaleButton", "button", 9, "OK",
-						Orkige::Vec2(100, 100), Orkige::FastGuiLabel::LA_CENTER,
+						Orkige::Vec2(100, 100), Orkige::GuiLabel::LA_CENTER,
 						Orkige::Vec2(160, 40), "", 5, false,
-						Orkige::FastGuiButtonBlink::BBLINK_NONE);
+						Orkige::GuiButtonBlink::BBLINK_NONE);
 				if (button.lock())
 				{
 					const float widthPx = button.lock()->getSize().x;
@@ -986,7 +986,7 @@ int main(int, char**)
 				Orkige::UiAnchor::place(200, 40, 8, 8,
 					engine.getWindowWidth(), engine.getWindowHeight(), insets,
 					false, false, anchoredX, anchoredY);
-				Orkige::woptr<Orkige::FastGuiLabel> hudLabel =
+				Orkige::woptr<Orkige::GuiLabel> hudLabel =
 					factory->createLabel("uiSafeLabel", 9, "HUD",
 						Orkige::Vec2(anchoredX, anchoredY), "", 5, false);
 				if (hudLabel.lock() &&
@@ -1000,9 +1000,9 @@ int main(int, char**)
 				}
 
 				// a bound checkbox toggles
-				Orkige::woptr<Orkige::FastGuiCheckBox> checkBox =
+				Orkige::woptr<Orkige::GuiCheckBox> checkBox =
 					factory->createCheckBox("uiCheck", "checkbox", 9, "SFX",
-						Orkige::Vec2(100, 300), Orkige::FastGuiLabel::LA_CENTER,
+						Orkige::Vec2(100, 300), Orkige::GuiLabel::LA_CENTER,
 						Orkige::Vec2::ZERO, "", 6, false);
 				if (checkBox.lock())
 				{
@@ -1023,10 +1023,10 @@ int main(int, char**)
 
 				// a bound select menu reports a value change (the slider shares
 				// this value API)
-				Orkige::woptr<Orkige::FastGuiSelectMenu> selectMenu =
+				Orkige::woptr<Orkige::GuiSelectMenu> selectMenu =
 					factory->createSelectMenu("uiSelect", "uiSelectButton",
 						"panel", 9, "Quality", Orkige::Vec2(100, 400),
-						Orkige::FastGuiLabel::LA_CENTER, Orkige::Vec2::ZERO,
+						Orkige::GuiLabel::LA_CENTER, Orkige::Vec2::ZERO,
 						"", 6);
 				if (selectMenu.lock())
 				{
@@ -1053,10 +1053,10 @@ int main(int, char**)
 				// a bound slider (shares the select-menu value API + pin/arrow
 				// sprites) - and a live setSize resize, previously unimplemented:
 				// the resize must not assert and must keep the selected value
-				Orkige::woptr<Orkige::FastGuiSlider> slider =
+				Orkige::woptr<Orkige::GuiSlider> slider =
 					factory->createSlider("uiSlider", "uiSliderButton",
 						"select_menu_field", 9, "Volume", Orkige::Vec2(100, 470),
-						Orkige::FastGuiLabel::LA_CENTER, Orkige::Vec2(180, 40),
+						Orkige::GuiLabel::LA_CENTER, Orkige::Vec2(180, 40),
 						"", 6);
 				if (slider.lock())
 				{
@@ -1101,13 +1101,13 @@ int main(int, char**)
 		}
 
 		// ORKIGE_DEMO_TTF=1: the runtime TrueType-font + vector-sprite selfcheck
-		// (flavor-neutral). Boots a real FastGuiManager on a runtime-baked atlas
-		// (fastgui_ttf_demo.ogui: Nunito TTF fonts + an SVG star, all rasterised
+		// (flavor-neutral). Boots a real GuiManager on a runtime-baked atlas
+		// (gui_ttf_demo.ogui: Nunito TTF fonts + an SVG star, all rasterised
 		// into one GPU page at boot by FontAtlas), then asserts: the TTF fonts +
 		// the SVG sprite baked, a Latin label AND a Cyrillic label render (the
 		// Cyrillic glyphs are BEYOND the eager Latin-1 page, so they exercise the
 		// lazy-paging baker - the loc()/CJK localisation unblocker), and the HUD
-		// submits a non-empty batch. Runs identically on classic + next (fastgui
+		// submits a non-empty batch. Runs identically on classic + next (gui
 		// draws through DrawLayer2D), so a runtime font looks the same on both.
 		if (std::getenv("ORKIGE_DEMO_TTF"))
 		{
@@ -1119,14 +1119,14 @@ int main(int, char**)
 
 			bool ttfOk = true;
 			{
-				Orkige::optr<Orkige::FastGuiFactory> factory =
-					Orkige::onew(new Orkige::FastGuiFactory());
-				// loads fastgui_ttf_demo.ogui -> FontAtlas bakes the TTF pages +
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				// loads gui_ttf_demo.ogui -> FontAtlas bakes the TTF pages +
 				// the SVG sprite into one page and uploads it
-				Orkige::FastGuiManager gui(factory, "fastgui_ttf_demo");
+				Orkige::GuiManager gui(factory, "gui_ttf_demo");
 
-				Orkige::woptr<Orkige::FastGuiView> view =
-					gui.getView("fastgui_ttf_demo");
+				Orkige::woptr<Orkige::GuiView> view =
+					gui.getView("gui_ttf_demo");
 				Orkige::UiAtlas const* atlas = view.lock()
 					? view.lock()->getScreen()->getAtlas() : nullptr;
 				if (atlas == nullptr)
@@ -1163,7 +1163,7 @@ int main(int, char**)
 						factory->createDecorWidget("ttfStar", "star",
 							Orkige::Vec2(80, 200),
 							Orkige::Vec2(star->spriteWidth, star->spriteHeight),
-							"fastgui_ttf_demo", 5);
+							"gui_ttf_demo", 5);
 					}
 
 					// compose a frame: the widgets lay out, the screen submits
@@ -1205,7 +1205,7 @@ int main(int, char**)
 		}
 
 		// ORKIGE_DEMO_LAYOUT=1: the nine-slice + rect-anchor layout selfcheck
-		// (flavor-neutral). Boots a real FastGuiManager on the committed atlas,
+		// (flavor-neutral). Boots a real GuiManager on the committed atlas,
 		// builds an anchored, nine-sliced panel with a child pinned inside it,
 		// and asserts: the panel resolves to the window minus its anchor insets;
 		// enabling nine-slice emits MORE geometry (fixed corners + stretched
@@ -1213,7 +1213,7 @@ int main(int, char**)
 		// panel's rect; switching the root to the safe area re-lays-out the HUD
 		// off the (injected) notch inset with zero script maths; and a design
 		// resolution scales the layout geometry. Runs identically on classic +
-		// next (the resolver is pure, fastgui draws through DrawLayer2D).
+		// next (the resolver is pure, gui draws through DrawLayer2D).
 		if (std::getenv("ORKIGE_DEMO_LAYOUT"))
 		{
 			// deterministic geometry: force content scale 1 (glyph/corner
@@ -1224,14 +1224,14 @@ int main(int, char**)
 			fakeInsets.mLeft = 40;
 			Orkige::PlatformWindow::setSafeAreaInsetsOverride(fakeInsets);
 
-			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
 			render->initialiseResourceGroups();
 
 			bool layoutOk = true;
 			{
-				Orkige::optr<Orkige::FastGuiFactory> factory =
-					Orkige::onew(new Orkige::FastGuiFactory());
-				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
 
 				const float W = static_cast<float>(engine.getWindowWidth());
 				const float H = static_cast<float>(engine.getWindowHeight());
@@ -1239,10 +1239,10 @@ int main(int, char**)
 				// an anchored panel: fill the window minus a 20px inset on each
 				// edge (StretchAll + offsets). Its initial size is a placeholder
 				// the resolver overwrites.
-				Orkige::woptr<Orkige::FastGuiDecorWidget> panelWeak =
+				Orkige::woptr<Orkige::GuiDecorWidget> panelWeak =
 					factory->createDecorWidget("layoutPanel", "panel",
 						Orkige::Vec2(0, 0), Orkige::Vec2(64, 64), "", 5);
-				Orkige::optr<Orkige::FastGuiDecorWidget> panel = panelWeak.lock();
+				Orkige::optr<Orkige::GuiDecorWidget> panel = panelWeak.lock();
 				if (!panel)
 				{
 					SDL_Log("hello_orkige: FAILED - layout panel not created");
@@ -1268,8 +1268,8 @@ int main(int, char**)
 					}
 
 					// nine-slice emits more geometry than a plain stretched quad
-					Orkige::woptr<Orkige::FastGuiView> view =
-						gui.getView("fastgui_default");
+					Orkige::woptr<Orkige::GuiView> view =
+						gui.getView("gui_default");
 					panel->setNineSlice(false);
 					render->renderOneFrame();
 					const size_t vertsPlain = view.lock()
@@ -1288,12 +1288,12 @@ int main(int, char**)
 
 					// a child pinned top-left INSIDE the panel resolves against
 					// the panel's rect (parent-relative), not the window
-					Orkige::woptr<Orkige::FastGuiButton> childWeak =
+					Orkige::woptr<Orkige::GuiButton> childWeak =
 						factory->createButton("layoutChild", "button", 9, "OK",
-							Orkige::Vec2(0, 0), Orkige::FastGuiLabel::LA_CENTER,
+							Orkige::Vec2(0, 0), Orkige::GuiLabel::LA_CENTER,
 							Orkige::Vec2(120, 40), "", 6, false,
-							Orkige::FastGuiButtonBlink::BBLINK_NONE);
-					Orkige::optr<Orkige::FastGuiButton> child = childWeak.lock();
+							Orkige::GuiButtonBlink::BBLINK_NONE);
+					Orkige::optr<Orkige::GuiButton> child = childWeak.lock();
 					if (child)
 					{
 						child->setParent(panel);
@@ -1368,7 +1368,7 @@ int main(int, char**)
 		// (flavor-neutral). Loads a whole settings screen from a committed .oui
 		// file (an anchored nine-slice panel, a scroll viewport whose content is
 		// a vertical group of labelled rows that overflows) through
-		// FastGuiFactory::loadLayout - the acceptance proof that an agent can
+		// GuiFactory::loadLayout - the acceptance proof that an agent can
 		// author a full screen as one text file. Asserts: the content overflows;
 		// scrolling shifts the resolved row rects up; the content layer carries a
 		// scissor equal to the viewport; and a checkbox in a scrolled row still
@@ -1377,31 +1377,31 @@ int main(int, char**)
 		if (std::getenv("ORKIGE_DEMO_OUI"))
 		{
 			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
-			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
 			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
 			render->initialiseResourceGroups();
 
 			bool ouiOk = true;
 			{
-				Orkige::optr<Orkige::FastGuiFactory> factory =
-					Orkige::onew(new Orkige::FastGuiFactory());
-				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
 				gui.enableInputEvents();
 
 				// the whole screen, authored as one text file
 				factory->loadLayout("settings_screen.oui");
 				render->renderOneFrame();	// runs the two-pass resolve
 
-				Orkige::optr<Orkige::FastGuiScrollView> scroll;
-				Orkige::optr<Orkige::FastGuiCheckBox> check;
+				Orkige::optr<Orkige::GuiScrollView> scroll;
+				Orkige::optr<Orkige::GuiCheckBox> check;
 				if (gui.widgetExists("settingsScroll"))
 				{
-					scroll = gui.getWidgetAs<Orkige::FastGuiScrollView>(
+					scroll = gui.getWidgetAs<Orkige::GuiScrollView>(
 						"settingsScroll").lock();
 				}
 				if (gui.widgetExists("rowSound"))
 				{
-					check = gui.getWidgetAs<Orkige::FastGuiCheckBox>(
+					check = gui.getWidgetAs<Orkige::GuiCheckBox>(
 						"rowSound").lock();
 				}
 				if (!scroll || !check)
@@ -1488,30 +1488,30 @@ int main(int, char**)
 				"clip == viewport, scrolled checkbox hit-tests correctly)");
 		}
 
-		// ORKIGE_DEMO_TEXTENTRY=1: the fastgui TextEntry selfcheck (flavor-
-		// neutral). Boots a real FastGuiManager on the committed atlas, creates a
+		// ORKIGE_DEMO_TEXTENTRY=1: the gui TextEntry selfcheck (flavor-
+		// neutral). Boots a real GuiManager on the committed atlas, creates a
 		// text field and drives it entirely through synthetic SDL events on the
-		// REAL input path (InputManager::injectEvent -> FastGuiManager routing):
+		// REAL input path (InputManager::injectEvent -> GuiManager routing):
 		// a mouse press focuses it, SDL_EVENT_TEXT_INPUT types text, backspace
 		// deletes, Home/Right move the caret + mid-string insert lands correctly,
 		// and Return submits (wasSubmitted latches once, then blurs).
 		if (std::getenv("ORKIGE_DEMO_TEXTENTRY"))
 		{
-			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
 			render->initialiseResourceGroups();
 			bool entryOk = true;
 			{
-				Orkige::optr<Orkige::FastGuiFactory> factory =
-					Orkige::onew(new Orkige::FastGuiFactory());
-				Orkige::FastGuiManager gui(factory, "fastgui_default");
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
 				gui.enableInputEvents();
 
 				const Orkige::Vec2 fieldPos(100.0f, 100.0f);
 				const Orkige::Vec2 fieldSize(320.0f, 50.0f);
-				Orkige::woptr<Orkige::FastGuiTextEntry> entryWeak =
+				Orkige::woptr<Orkige::GuiTextEntry> entryWeak =
 					factory->createTextEntry("uiTextEntry", "none", 9,
 						"type here", fieldPos, fieldSize, "", 5, 16);
-				Orkige::optr<Orkige::FastGuiTextEntry> entry = entryWeak.lock();
+				Orkige::optr<Orkige::GuiTextEntry> entry = entryWeak.lock();
 				if (!entry)
 				{
 					SDL_Log("hello_orkige: FAILED - text entry not created");

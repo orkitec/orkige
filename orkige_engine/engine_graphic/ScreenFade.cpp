@@ -19,7 +19,7 @@ namespace Orkige
 {
 	IMPL_OSINGLETON(ScreenFade);
 
-	// far above the fastgui HUD (z ~13-14 in the reference games) and the ImGui
+	// far above the gui HUD (z ~13-14 in the reference games) and the ImGui
 	// editor layer, so the fade covers everything
 	const int ScreenFade::Z_FADE = 10000;
 	const int ScreenFade::HOLD_FRAMES = 2;

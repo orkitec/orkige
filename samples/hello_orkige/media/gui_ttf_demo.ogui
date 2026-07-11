@@ -1,0 +1,23 @@
+# Runtime-baked gui atlas: TrueType fonts + a vector (SVG) sprite, all
+# rasterised into one GPU page at boot by engine_gui/FontAtlas. Unlike the
+# classic bitmap gui_default.ogui/.png, this carries NO [Texture] file - the
+# page is generated in memory at the display's content scale. The font is the
+# committed engine default (Nunito, SIL OFL); the star is a committed .svg.
+[Texture]
+page 1024
+
+# a [Font.N] with `ttf`/`size` is a runtime TrueType font (design pixels);
+# glyph_* rects would make it a classic bitmap font instead - one format.
+[Font.9]
+ttf Nunito-Regular.ttf
+size 18
+
+[Font.24]
+ttf Nunito-Regular.ttf
+size 34
+
+# a `name svg <asset> <designWidth>` entry rasterises the vector at boot at
+# design width x the content scale (crisp on retina/phone); it is a normal
+# UiSprite downstream.
+[Sprites]
+star svg ui_star.svg 48

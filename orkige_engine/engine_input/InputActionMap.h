@@ -26,7 +26,7 @@ namespace Orkige
 	//! ("is SPACE down"), so the same script runs under keys, tilt or (later)
 	//! gamepad/touch bindings. This is a PURELY ADDITIVE layer: it polls
 	//! InputManager::isKeyDown / getTilt and never touches the raw input APIs,
-	//! the event pub/sub or fastgui - those keep working untouched.
+	//! the event pub/sub or gui - those keep working untouched.
 	//!
 	//! ONCE-PER-FRAME CONTRACT: update(dt) takes ONE edge snapshot per frame
 	//! (pressed = down && !down-last-frame) and every query reads that snapshot
@@ -49,7 +49,7 @@ namespace Orkige
 	//!   * export must bundle it when referenced - Util/orkige_export.py stages
 	//!     manifest-referenced config files alongside the scenes/assets/scripts
 	//!     payload (see CONFIG_SETTING_KEYS there).
-	//! @note NOT an OOBJECT: like FastGuiFactory its Lua face is hand-written
+	//! @note NOT an OOBJECT: like GuiFactory its Lua face is hand-written
 	//! in engine_module/module.cpp (OSIMPLEEXPORT as "InputActions"), which
 	//! keeps the game-facing name decoupled from the C++ class name. The class
 	//! itself is a plain Singleton and compiles in every scripting config.

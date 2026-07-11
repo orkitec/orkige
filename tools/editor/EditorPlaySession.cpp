@@ -1238,7 +1238,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		}
 		else if (message.type == Protocol::MSG_UI_LAYOUT)
 		{
-			// fastgui widget rects (parallel ids/rects, each rect a flat
+			// gui widget rects (parallel ids/rects, each rect a flat
 			// "left top width height visible" string): the get_ui_layout source
 			const Orkige::StringVector& ids =
 				message.getList(Protocol::LIST_UI_IDS);

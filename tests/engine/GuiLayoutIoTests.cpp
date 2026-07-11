@@ -7,7 +7,7 @@
 	copyright:	(c) 2009-2026 orkitec
 
 	Headless unit tests for the .oui declarative-layout document model
-	(engine_fastgui/GuiLayout): parse into ordered sections/entries, the
+	(engine_gui/GuiLayout): parse into ordered sections/entries, the
 	round-trip (parse -> serialize -> parse is stable), and honest failure on
 	malformed input. No renderer, no window - pure text, so it also covers the
 	ORKIGE_NOSCRIPT path (the loader must not require Lua).
@@ -15,7 +15,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "engine_fastgui/GuiLayout.h"
+#include "engine_gui/GuiLayout.h"
 
 using namespace Orkige;
 
@@ -24,7 +24,7 @@ TEST_CASE("oui: parse reads sections + ordered entries", "[unit][oui]")
 	const String text =
 		"# a comment\n"
 		"[Layout]\n"
-		"atlas = fastgui_default\n"
+		"atlas = gui_default\n"
 		"design = 1280 720 0.5\n"
 		"\n"
 		"[ScrollView settings]\n"
@@ -41,7 +41,7 @@ TEST_CASE("oui: parse reads sections + ordered entries", "[unit][oui]")
 	CHECK(doc.sections[0].type == "Layout");
 	CHECK(doc.sections[0].id.empty());
 	REQUIRE(doc.sections[0].find("atlas") != nullptr);
-	CHECK(*doc.sections[0].find("atlas") == "fastgui_default");
+	CHECK(*doc.sections[0].find("atlas") == "gui_default");
 	CHECK(*doc.sections[0].find("design") == "1280 720 0.5");
 
 	CHECK(doc.sections[1].type == "ScrollView");
@@ -70,7 +70,7 @@ TEST_CASE("oui: round-trips through serialize -> parse -> serialize",
 {
 	const String text =
 		"[Layout]\n"
-		"atlas = fastgui_default\n"
+		"atlas = gui_default\n"
 		"root = safearea\n"
 		"\n"
 		"[DecorWidget panel]\n"
@@ -100,7 +100,7 @@ TEST_CASE("oui: round-trips through serialize -> parse -> serialize",
 
 TEST_CASE("oui: a key before any section fails honestly", "[unit][oui]")
 {
-	const String text = "atlas = fastgui_default\n[Label a]\ntext = x\n";
+	const String text = "atlas = gui_default\n[Label a]\ntext = x\n";
 	GuiLayoutDoc doc;
 	String error;
 	CHECK_FALSE(GuiLayoutDoc::parse(text, doc, error));

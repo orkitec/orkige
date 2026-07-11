@@ -189,7 +189,7 @@ int main(int argc, char** argv)
 		return 1;
 	}
 	// let the Engine read this window's content scale / safe area (harmless in
-	// the editor - it drives the fastgui UI scale a spawned player uses too)
+	// the editor - it drives the gui UI scale a spawned player uses too)
 	Orkige::PlatformWindow::setActiveWindow(window);
 
 	int exitCode = 0;
@@ -942,7 +942,7 @@ int main(int argc, char** argv)
 		// ORKIGE_EDITOR_PLAY_SIMULATOR=auto it opens the project, plays it on a
 		// booted iOS simulator (iPhone 16 - a Dynamic Island device, so a
 		// non-zero top inset) and, once the player streams its window size +
-		// safe-area insets (MSG_STATS) and its fastgui widget rects
+		// safe-area insets (MSG_STATS) and its gui widget rects
 		// (MSG_UI_LAYOUT), asserts the reported top inset is > 0 and every
 		// visible HUD widget lies inside the safe box. Then Stop. The simulator
 		// selection above already SKIPs (exit 77) when no sim is prepared, so

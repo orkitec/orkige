@@ -132,7 +132,7 @@ The endpoint advertises 54 tools (the `toolSpecs` table in
 | `erase_cell(cell?, position?)` | **auth** — `EditorCore::erasePrefabAtCell` (erase the prefab instance in one grid cell as one undo step) → snapped `col`/`row`/`x`/`y`, `erased` |
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
-| `get_ui_layout()` | the RUNNING game's fastgui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible"`, pixels; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box |
+| `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible"`, pixels; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
@@ -189,7 +189,7 @@ silhouette rides its node) AND `contact` events (the impacts that squash it), an
 `get_component` reads the live squash/wobble state back through the reflected
 introspection getters.
 
-### Game UI (fastgui) — authoring vs. readback
+### Game UI (gui) — authoring vs. readback
 
 Game UI is authored in Lua and project files — screens are built by
 `ScriptComponent` scripts (see `projects/jumper-lua`, `projects/roller`) or loaded
@@ -292,7 +292,7 @@ pattern, so none needs a dedicated verb:
   time scale is confirmed by watching `runtime_state` values advance at the
   scaled rate (or not, at 0 = hitstop).
 - **Text entry** (`createTextEntry`, `getText/setText/setPlaceholder/
-  setMaxLength/wasSubmitted`) — a fastgui widget, authored in Lua like every
+  setMaxLength/wasSubmitted`) — a gui widget, authored in Lua like every
   other widget and read back with `get_ui_layout` / `screenshot_game` (the
   "authoring vs. readback" rule above already covers game UI).
 

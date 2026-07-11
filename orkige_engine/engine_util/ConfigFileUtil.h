@@ -16,7 +16,7 @@
 //! replaced the 1.x getSectionIterator() with getSettingsBySection()
 //! (by-value multimaps), Ogre-Next kept the 1.x iterator (by-pointer
 //! multimaps). The flavor-neutral consumers (UiAtlas' .ogui loader,
-//! FastGuiFactory's layout loader) iterate through THIS helper
+//! GuiFactory's layout loader) iterate through THIS helper
 //! so the flavor #if lives in exactly one place.
 
 #include <OgreConfigFile.h>

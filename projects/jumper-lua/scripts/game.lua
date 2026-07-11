@@ -2,8 +2,8 @@
 -- "Game" object in scenes/main.oscene through a ScriptComponent.
 --
 -- This script owns everything AROUND the gameplay: it boots the engine's
--- fastgui UI system from Lua (FastGuiFactory + FastGuiManager with the
--- project's own atlas from assets/fastgui_default.{ogui,png}), builds the
+-- gui UI system from Lua (GuiFactory + GuiManager with the
+-- project's own atlas from assets/gui_default.{ogui,png}), builds the
 -- three screens and runs the state machine:
 --
 --   title    "ORKIGE JUMPER" + START button   ENTER or click -> playing
@@ -22,15 +22,15 @@
 -- screen share a z), exactly like the C++ jumper sample's HUD: hiding layer
 -- Z_TITLE hides the whole title screen without touching the HUD widgets.
 --
--- RENDER FLAVORS: fastgui exists only on the classic backend (the
+-- RENDER FLAVORS: gui exists only on the classic backend (the
 -- facade HUD replaces it later). engine:hasUISystem() answers which
 -- world we are in - without a UI system this script skips every widget and
 -- runs the same state machine on ENTER alone (title -> playing -> win).
 
 local KC = KeyEventData.KeyCode
--- nil-safe: the FastGui usertypes only exist when the flavor carries the UI
+-- nil-safe: the Gui usertypes only exist when the flavor carries the UI
 -- system (engine:hasUISystem(), see init) - LA is only read on that path
-local LA = FastGuiLabel and FastGuiLabel.LabelAlignment
+local LA = GuiLabel and GuiLabel.LabelAlignment
 
 local FONT_HUD   = 9	-- 10x14 px glyphs in the atlas
 local FONT_TITLE = 24	-- 20x28 px glyphs
@@ -126,8 +126,8 @@ function init(self)
 	-- boot the UI: the factory builds widgets, the manager owns the UI
 	-- screen for the project's atlas and (enableInputEvents) feeds engine
 	-- mouse events to the widgets - that is what makes buttons clickable
-	factory = FastGuiFactory()
-	gui = FastGuiManager(factory, "fastgui_default", PROJECT_RESOURCE_GROUP)
+	factory = GuiFactory()
+	gui = GuiManager(factory, "gui_default", PROJECT_RESOURCE_GROUP)
 	gui:enableInputEvents()
 
 	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
@@ -169,7 +169,7 @@ function init(self)
 	publishButtonCenter(title.start, "startButtonX", "startButtonY")
 	publishButtonCenter(win.again, "againButtonX", "againButtonY")
 	setState("title")
-	print("game.lua: UI up (atlas 'fastgui_default'), entering title screen")
+	print("game.lua: UI up (atlas 'gui_default'), entering title screen")
 end
 
 function update(self, dt)

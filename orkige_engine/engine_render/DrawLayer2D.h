@@ -17,17 +17,17 @@ namespace Orkige
 {
 	//! @brief screen-space dynamic 2D drawing: z-ordered layers of
 	//! textured/coloured triangle batches in pixel coordinates
-	//! @remarks THE facade home for every dynamic 2D overlay (fastgui
+	//! @remarks THE facade home for every dynamic 2D overlay (gui
 	//! HUDs today, the editor's ImGui next): a DrawLayer2D is a
 	//! retained list of triangle BATCHES that the backend composites over
 	//! the finished 3D frame of the main window every frame, until the
 	//! caller replaces them (clear() + addTriangles()). Immediate-mode
 	//! consumers (ImGui) resubmit every frame; retained consumers
-	//! (fastgui) resubmit only when their content went dirty - the
+	//! (gui) resubmit only when their content went dirty - the
 	//! backend renders whatever the layer currently holds either way.
 	//!
 	//! Coordinate contract: positions are PIXELS in main-window drawable
-	//! space, origin top-left, +x right, +y down (the fastgui/ImGui
+	//! space, origin top-left, +x right, +y down (the gui/ImGui
 	//! convention); UVs are the usual 0..1 with v running top-down;
 	//! colours are straight (non-premultiplied) RGBA.
 	//!

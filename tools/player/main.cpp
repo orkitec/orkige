@@ -52,9 +52,9 @@
 #include <engine_sound/SoundManager.h>
 #include <engine_util/PlatformWindow.h>
 #include <core_util/StringTable.h>
-// fastgui is flavor-neutral - the UI
+// gui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
-#include <engine_fastgui/FastGuiManager.h>
+#include <engine_gui/GuiManager.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -169,7 +169,7 @@ void pushKeyEvent(SDL_Scancode scancode, SDL_Keycode key, bool down)
 }
 
 //! push a synthetic mouse move through the SDL queue - same real input path
-//! as pushKeyEvent (InputManager -> MouseMovedEvent -> FastGuiManager)
+//! as pushKeyEvent (InputManager -> MouseMovedEvent -> GuiManager)
 void pushMouseMove(float x, float y)
 {
 	SDL_Event event{};
@@ -1428,10 +1428,10 @@ int main(int argc, char** argv)
 		// verified end to end against projects/jumper-lua (run with
 		// --project projects/jumper-lua). Synthetic SDL key AND mouse events
 		// take the real input path (poll loop -> injectEvent -> InputManager
-		// events -> FastGuiManager/isKeyDown); the C++ side observes ONLY
+		// events -> GuiManager/isKeyDown); the C++ side observes ONLY
 		// what any outsider could: the Player object's components through
-		// the world, the Lua-booted fastgui widgets through the
-		// FastGuiManager singleton and the stats the scripts publish into
+		// the world, the Lua-booted gui widgets through the
+		// GuiManager singleton and the stats the scripts publish into
 		// the Lua `shared` tables. Asserted, frame-scripted:
 		//   frame  5  both scripts loaded (player.lua, game.lua), the UI is
 		//             up (all widgets exist), the game is on the visible
@@ -1498,17 +1498,17 @@ int main(int argc, char** argv)
 			return Orkige::ScriptRuntime::getSingleton().getNumber(
 				{"shared", "game", key}, -1.0);
 		};
-		// the Lua-booted UI, seen through the FastGuiManager singleton: does
+		// the Lua-booted UI, seen through the GuiManager singleton: does
 		// the widget exist, and is its screen (= its shared z layer) visible.
-		// fastgui runs on BOTH render flavors
+		// gui runs on BOTH render flavors
 		// (engine:hasUISystem() is true everywhere), so the UI assertions
 		// are no longer flavor-gated - uiChecksEnabled stays as the one
 		// switch a future UI-less flavor would flip.
 		constexpr bool uiChecksEnabled = true;
 		auto jumperWidgetExists = [](const char* id) -> bool
 		{
-			Orkige::FastGuiManager* ui =
-				Orkige::FastGuiManager::getSingletonPtr();
+			Orkige::GuiManager* ui =
+				Orkige::GuiManager::getSingletonPtr();
 			return ui && ui->widgetExists(id);
 		};
 		auto jumperWidgetVisible = [&jumperWidgetExists](const char* id) -> bool
@@ -1517,8 +1517,8 @@ int main(int argc, char** argv)
 			{
 				return false;
 			}
-			optr<Orkige::FastGuiWidget> widget =
-				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
+			optr<Orkige::GuiWidget> widget =
+				Orkige::GuiManager::getSingleton().getWidget(id).lock();
 			return widget && widget->getLayer()->isVisible();
 		};
 		auto jumperHudProgress = [&jumperWidgetExists]() -> float
@@ -1527,9 +1527,9 @@ int main(int argc, char** argv)
 			{
 				return -1.0f;
 			}
-			optr<Orkige::FastGuiProgressBar> progressBar =
-				Orkige::FastGuiManager::getSingleton()
-					.getWidgetAs<Orkige::FastGuiProgressBar>("hud.progress")
+			optr<Orkige::GuiProgressBar> progressBar =
+				Orkige::GuiManager::getSingleton()
+					.getWidgetAs<Orkige::GuiProgressBar>("hud.progress")
 					.lock();
 			return progressBar ? progressBar->getProgress() : -1.0f;
 		};
@@ -1588,7 +1588,7 @@ int main(int argc, char** argv)
 		// --project projects/roller). Same rules as the jumper selfcheck:
 		// synthetic SDL key events take the real input path, the C++ side
 		// observes only shared.roller, components through the world and the
-		// fastgui widgets. Frame-scripted:
+		// gui widgets. Frame-scripted:
 		//   frame  5  both scripts booted, HUD up, mode "play", sim running
 		//   then      ACTIVE GATE: deactivate the TileC subtree + the Ball -
 		//             triangle count drops, the tile's wall body leaves the
@@ -1669,8 +1669,8 @@ int main(int argc, char** argv)
 		// lambdas above
 		auto rollerWidgetExists = [](const char* id) -> bool
 		{
-			Orkige::FastGuiManager* ui =
-				Orkige::FastGuiManager::getSingletonPtr();
+			Orkige::GuiManager* ui =
+				Orkige::GuiManager::getSingletonPtr();
 			return ui && ui->widgetExists(id);
 		};
 		auto rollerWidgetVisible = [&rollerWidgetExists](const char* id) -> bool
@@ -1679,8 +1679,8 @@ int main(int argc, char** argv)
 			{
 				return false;
 			}
-			optr<Orkige::FastGuiWidget> widget =
-				Orkige::FastGuiManager::getSingleton().getWidget(id).lock();
+			optr<Orkige::GuiWidget> widget =
+				Orkige::GuiManager::getSingleton().getWidget(id).lock();
 			return widget && widget->getLayer()->isVisible();
 		};
 		//! is the cursor sprite (the move-mode highlight) currently showing
@@ -2512,7 +2512,7 @@ int main(int argc, char** argv)
 						!jumperWidgetExists("win.banner") ||
 						!jumperWidgetExists("win.again")))
 					{
-						jumperFail("the Lua-booted fastgui widgets are "
+						jumperFail("the Lua-booted gui widgets are "
 							"missing");
 					}
 					else if (jumperGameState() != "title")
@@ -2535,7 +2535,7 @@ int main(int argc, char** argv)
 								: "HUD-less flavor (UI checks skipped)");
 					}
 				}
-				// UI batching property (the fastgui perf contract, the
+				// UI batching property (the gui perf contract, the
 				// UiRenderer design rule): the WHOLE HUD - every widget of
 				// the title/hud/win groups - is ONE draw batch (one screen
 				// = one atlas = one DrawLayer2D batch). Hiding all views
@@ -2544,13 +2544,13 @@ int main(int argc, char** argv)
 				if (uiChecksEnabled && frameCount == 6)
 				{
 					jumperBatchesWithUi = render->getFrameStats().batchCount;
-					Orkige::FastGuiManager::getSingleton().hideAllViews();
+					Orkige::GuiManager::getSingleton().hideAllViews();
 				}
 				if (uiChecksEnabled && frameCount == 8)
 				{
 					const size_t batchesWithoutUi =
 						render->getFrameStats().batchCount;
-					Orkige::FastGuiManager::getSingleton().showAllViews();
+					Orkige::GuiManager::getSingleton().showAllViews();
 					if (jumperBatchesWithUi != batchesWithoutUi + 1)
 					{
 						jumperFail("UI batch property broken: the whole HUD "
