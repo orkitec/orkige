@@ -230,6 +230,59 @@
         "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "OFF"
       }
+    },
+    {
+      "name": "ios-device-base",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "VCPKG_TARGET_TRIPLET": "arm64-ios-device",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "ios-device-debug",
+      "displayName": "iOS Device Debug (arm64 iPhoneOS, Ogre-Next/Metal - the default backend)",
+      "inherits": "ios-device-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "ios-device-release",
+      "displayName": "iOS Device Release (arm64 iPhoneOS, Ogre-Next/Metal - the default backend)",
+      "inherits": "ios-device-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ORKIGE_RENDER_BACKEND": "next",
+        "VCPKG_MANIFEST_FEATURES": "render-next"
+      }
+    },
+    {
+      "name": "ios-device-debug-classic",
+      "displayName": "iOS Device Debug (arm64 iPhoneOS, classic OGRE/GLES2 - the compatibility flavor)",
+      "inherits": "ios-device-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
+    },
+    {
+      "name": "ios-device-release-classic",
+      "displayName": "iOS Device Release (arm64 iPhoneOS, classic OGRE/GLES2 - the compatibility flavor)",
+      "inherits": "ios-device-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
     }
   ],
   "buildPresets": [
@@ -284,6 +337,22 @@
     {
       "name": "android-debug-classic",
       "configurePreset": "android-debug-classic"
+    },
+    {
+      "name": "ios-device-debug",
+      "configurePreset": "ios-device-debug"
+    },
+    {
+      "name": "ios-device-release",
+      "configurePreset": "ios-device-release"
+    },
+    {
+      "name": "ios-device-debug-classic",
+      "configurePreset": "ios-device-debug-classic"
+    },
+    {
+      "name": "ios-device-release-classic",
+      "configurePreset": "ios-device-release-classic"
     }
   ],
   "testPresets": [

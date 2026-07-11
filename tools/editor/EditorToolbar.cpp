@@ -57,6 +57,10 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		{
 			targetPreview = session.androidLabel.c_str();
 		}
+		else if (!session.iosDeviceUdid.empty())
+		{
+			targetPreview = session.iosDeviceLabel.c_str();
+		}
 		// the two desktop flavors: this build's own player and the OTHER
 		// render flavor's (conventional preset build tree - baked in by
 		// CMake). The debug protocol is flavor-agnostic; the visual result
@@ -93,7 +97,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					otherFlavorPlayerPath, ignored);
 			}
 			const bool desktopSelected = session.simulatorUdid.empty() &&
-				session.androidSerial.empty();
+				session.androidSerial.empty() && session.iosDeviceUdid.empty();
 			if (ImGui::Selectable(ownFlavorLabel,
 				desktopSelected && session.desktopPlayerPath.empty()))
 			{
@@ -103,6 +107,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				session.simulatorLabel.clear();
 				session.androidSerial.clear();
 				session.androidLabel.clear();
+				session.iosDeviceUdid.clear();
+				session.iosDeviceLabel.clear();
 			}
 			// the other flavor's player: selectable only when its build
 			// tree carries the binary (grey + tooltip otherwise - honest
@@ -117,6 +123,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				session.simulatorLabel.clear();
 				session.androidSerial.clear();
 				session.androidLabel.clear();
+				session.iosDeviceUdid.clear();
+				session.iosDeviceLabel.clear();
 			}
 			ImGui::EndDisabled();
 			if (!otherFlavorPlayerPresent &&
@@ -144,6 +152,8 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.androidLabel.clear();
 					session.desktopPlayerPath.clear();
 					session.desktopLabel.clear();
+					session.iosDeviceUdid.clear();
+					session.iosDeviceLabel.clear();
 				}
 				if (!device.booted && ImGui::IsItemHovered())
 				{
@@ -164,14 +174,21 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.simulatorLabel.clear();
 					session.desktopPlayerPath.clear();
 					session.desktopLabel.clear();
+					session.iosDeviceUdid.clear();
+					session.iosDeviceLabel.clear();
 				}
 			}
 #ifdef __APPLE__
-			// iOS hardware (task: physical devices): enumerated but not
-			// deployable yet - unlike the simulator, hardware shares neither
-			// filesystem nor loopback and requires signed app installs, so
-			// the entries stay disabled until that path lands (tested with a
-			// real device). Honest gating over a Play that cannot work.
+			// iOS hardware (physical iPhone/iPad over USB): gated on iOS
+			// signing (an Apple Developer identity + a provisioning profile -
+			// codesignIdentityPresent above is isIosSigningConfigured()).
+			// Selecting a device makes Play an export-and-deploy: build + sign
+			// (Util/orkige_export.py --platform ios) + install + launch via
+			// devicectl. It is NOT a live play session - a USB device shares
+			// neither the host filesystem nor its loopback, and no dependency-
+			// free CLI forwards a debug-port tunnel to it, so the game runs
+			// standalone and the remote hierarchy/inspector stay unavailable
+			// (the documented gap, Docs/ios-signing.md).
 			if (!codesignIdentityPresent)
 			{
 				ImGui::BeginDisabled(true);
@@ -187,15 +204,25 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			}
 			for (IosHardwareDevice const& device : iosHardware)
 			{
-				ImGui::BeginDisabled(true);
-				ImGui::Selectable(
-					(device.name + "##" + device.udid).c_str());
-				ImGui::EndDisabled();
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				if (ImGui::Selectable(
+					(device.name + "##" + device.udid).c_str(),
+					session.iosDeviceUdid == device.udid))
 				{
-					ImGui::SetTooltip("Play on iOS hardware is not wired up "
-						"yet (needs signed installs, scene transfer and a "
-						"debug-port tunnel) - use a booted simulator");
+					session.iosDeviceUdid = device.udid;
+					session.iosDeviceLabel = device.name;
+					session.simulatorUdid.clear();
+					session.simulatorLabel.clear();
+					session.androidSerial.clear();
+					session.androidLabel.clear();
+					session.desktopPlayerPath.clear();
+					session.desktopLabel.clear();
+				}
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::SetTooltip("Play builds + signs + installs + "
+						"launches on this device (devicectl). It runs "
+						"standalone - live debug over USB is unavailable (no "
+						"debug-port tunnel; see Docs/ios-signing.md)");
 				}
 			}
 #endif
@@ -206,7 +233,20 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit);
 		if (ImGui::Button("Play"))
 		{
-			startPlay(session, gameObjectManager, state.project);
+			if (!session.iosDeviceUdid.empty())
+			{
+				// Play on a connected iPhone/iPad is an export-and-deploy, not a
+				// live play session: the frame loop runs an "ios" export whose
+				// success installs + launches via devicectl (the deploy fields on
+				// ExportJob carry it). Live debug over USB is the documented gap
+				// (Docs/ios-signing.md).
+				state.requestedIosDeviceDeployUdid = session.iosDeviceUdid;
+				state.requestedIosDeviceDeployLabel = session.iosDeviceLabel;
+			}
+			else
+			{
+				startPlay(session, gameObjectManager, state.project);
+			}
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();

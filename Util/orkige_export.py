@@ -55,6 +55,16 @@ build of the project's own module). Per platform:
                  export (--platform ios) is gated on a signing identity, the
                  same as the editor's Play on iOS hardware.
 
+  ios            packages the arm64-ios (physical-device) OrkigePlayer.app the
+                 ios-device-debug / ios-device-release preset built, then
+                 code-signs it inside-out with the resolved identity and embeds
+                 the provisioning profile. Gated: absent an identity AND a
+                 profile it refuses and produces nothing (an unsigned device
+                 .app installs on no non-jailbroken device, so there is no
+                 --unsigned escape hatch - it would only ever mislead; the
+                 device .app in the build tree already exists for anyone who
+                 wants to inspect the unsigned bundle). See Docs/ios-signing.md.
+
   android        drives tools/player/android/package_apk.sh against the
                  android-debug build tree with the project payload + marker in
                  the APK assets/ (extracted by the player on first launch,
@@ -701,10 +711,11 @@ def ios_entitlements(team_id, bundle_id):
 
 
 def export_ios(project, engine_build, output_dir, identity, profile):
-    """package + codesign a device .app. Requires an arm64-ios (device) player
-    build - only the simulator player exists today, so this fails honestly until
-    a device player preset lands (see Docs/ios-signing.md). The signing plumbing
-    itself (entitlements, embedded profile, codesign order) is in place."""
+    """package + codesign a device .app. Requires an arm64-ios (device, not
+    simulator) player build - the ios-device-debug / ios-device-release presets
+    produce it. The signing (entitlements, embedded profile, inside-out codesign
+    order) runs here with the resolved identity/profile; the owner-side setup is
+    in Docs/ios-signing.md."""
     if project.native_target():
         fail("project '%s' has a native module - mobile native builds are "
              "future work" % project.name)
@@ -714,8 +725,9 @@ def export_ios(project, engine_build, output_dir, identity, profile):
                               "OrkigePlayer.app")
     if not os.path.isdir(source_app):
         fail("no device OrkigePlayer.app at '%s' - a signed device install "
-             "needs an arm64-ios (device, not simulator) player build, which "
-             "is not wired up yet (see Docs/ios-signing.md)" % source_app)
+             "needs an arm64-ios (device, not simulator) player build; "
+             "configure + build the ios-device-debug (or -release) preset "
+             "first (see Docs/ios-signing.md)" % source_app)
     bundle_id = project.settings.get(
         "export.ios.bundleId", "com.orkitec." + project.id_slug)
     team_id = project.settings.get("export.ios.teamId", "").strip()
@@ -842,6 +854,7 @@ def main():
                              "the tree's ORKIGE_RENDER_BACKEND) - macos: "
                              "build/macos-debug[-classic] or -release[-classic], "
                              "ios-simulator: build/ios-simulator-debug[-next], "
+                             "ios: build/ios-device-debug[-release], "
                              "android: build/android-debug[-next]")
     parser.add_argument("--output",
                         help="output directory (default: "
@@ -919,6 +932,15 @@ def selftest():
         IOS_PROVISIONING_PROFILE_ENV: "env.mobileprovision"})
     assert (ident, profile) == ("cli-id", "env.mobileprovision"), "arg+env mix"
     assert resolve_ios_signing("", "", {}) == ("", ""), "unresolved stays blank"
+    # malformed (whitespace-only) values are stripped to blank, so the device
+    # export gate treats them as absent and refuses rather than shelling out a
+    # broken codesign identity/profile
+    assert resolve_ios_signing("   ", "\t", {}) == ("", ""), \
+        "whitespace-only args -> blank"
+    assert resolve_ios_signing("", "", {
+        IOS_SIGNING_IDENTITY_ENV: "  ",
+        IOS_PROVISIONING_PROFILE_ENV: "  "}) == ("", ""), \
+        "whitespace-only env -> blank"
 
     # launch-background validation: a good hex passes, a bad/absent one defaults
     class _Stub:

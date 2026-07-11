@@ -604,6 +604,22 @@ if(TARGET orkige_editor AND TARGET orkige_player)
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_ANDROID=auto"
             SKIP_RETURN_CODE 77)
+
+        # Play on physical iOS hardware: the deploy GATE probe. Unlike the
+        # simulator/Android flows this is an export-and-deploy (build + sign +
+        # devicectl install/launch), not a live play session - a USB device has
+        # no dependency-free debug-port tunnel (see Docs/ios-signing.md). A
+        # headless test cannot drive a signed install (no certificate), so this
+        # asserts the honest gate: "auto" resolves only when iOS signing is
+        # configured AND a device is connected AND the arm64-ios device player
+        # is built, else it SKIPS (exit 77). On this and every unsigned machine
+        # it takes the SKIP branch (no cert -> the target is disabled). Full
+        # deploy is owner-validated on real hardware.
+        add_test(NAME editor_play_ios_device COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_play_ios_device PROPERTIES
+            ENVIRONMENT "ORKIGE_EDITOR_PLAY_IOS_DEVICE=auto"
+            SKIP_RETURN_CODE 77)
     endif()
 endif()
 
@@ -1009,7 +1025,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         editor_play_script_error_next editor_play_hotreload_next
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
-        editor_play_android
+        editor_play_android editor_play_ios_device
         export_macos_lua export_macos_native
         export_ios_simulator export_android
         demo_plain_vulkan player_example_scene_vulkan editor_selfcheck_vulkan
@@ -1075,7 +1091,7 @@ endif()
 # (ctest --preset desktop) can exclude them; run them via ctest --preset all
 # when deploy/device code changed or before handing work over.
 foreach(device_test editor_play_simulator editor_play_simulator_boot
-        editor_play_android player_safearea_device)
+        editor_play_android editor_play_ios_device player_safearea_device)
     if(TEST ${device_test})
         # RESOURCE_LOCK: device tests share one simulator/emulator + adb -
         # they must not run concurrently when the suite runs with -j

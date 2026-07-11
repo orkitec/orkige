@@ -357,4 +357,82 @@ std::vector<IosHardwareDevice> listIosHardwareDevices()
 	}
 	return devices;
 }
+
+//! @brief install a (signed) .app on a USB-connected iOS device via 'xcrun
+//! devicectl device install app'. On success the app's bundle identifier is
+//! read back from the command's JSON dump (needed to launch it) - devicectl
+//! reports the installed bundle under an "installedApplications" object, whose
+//! bundleID is the only such key, so the crude scan is unambiguous (the editor
+//! has no JSON parser, same approach as listIosHardwareDevices). Returns false
+//! (with an operator-facing reason in 'error') when the install command fails.
+bool iosHardwareInstallApp(std::string const& udid, std::string const& appPath,
+	std::string& bundleId, std::string& error)
+{
+	const std::string jsonPath =
+		(std::filesystem::temp_directory_path() / "orkige_devicectl_install.json")
+			.string();
+	std::string output;
+	int exitCode = 0;
+	const bool ran = runProcessCaptured({ "/usr/bin/xcrun", "devicectl",
+		"device", "install", "app", "--device", udid, "--json-output", jsonPath,
+		appPath }, output, exitCode);
+	if (!ran)
+	{
+		error = "could not run 'xcrun devicectl device install app'";
+		return false;
+	}
+	if (exitCode != 0)
+	{
+		error = "devicectl install failed (exit " + std::to_string(exitCode) +
+			"): " + output;
+		std::error_code ignored;
+		std::filesystem::remove(jsonPath, ignored);
+		return false;
+	}
+	std::ifstream json(jsonPath);
+	const std::string text((std::istreambuf_iterator<char>(json)),
+		std::istreambuf_iterator<char>());
+	std::error_code ignored;
+	std::filesystem::remove(jsonPath, ignored);
+	const std::size_t key = text.find("\"bundleID\"");
+	if (key != std::string::npos)
+	{
+		const std::size_t valueStart = text.find('"', text.find(':', key) + 1);
+		const std::size_t valueEnd = (valueStart == std::string::npos)
+			? std::string::npos : text.find('"', valueStart + 1);
+		if (valueEnd != std::string::npos)
+		{
+			bundleId = text.substr(valueStart + 1, valueEnd - valueStart - 1);
+		}
+	}
+	return true;
+}
+
+//! @brief launch an installed app on a USB-connected iOS device via 'xcrun
+//! devicectl device process launch'. The game runs standalone from its bundled
+//! scene - the editor cannot open a live debug link to it because a USB device
+//! shares neither the host filesystem nor its loopback, and no dependency-free
+//! CLI forwards a TCP port to it (see Docs/ios-signing.md). Returns false (with
+//! a reason in 'error') on failure.
+bool iosHardwareLaunchApp(std::string const& udid, std::string const& bundleId,
+	std::string& error)
+{
+	std::string output;
+	int exitCode = 0;
+	const bool ran = runProcessCaptured({ "/usr/bin/xcrun", "devicectl",
+		"device", "process", "launch", "--device", udid, bundleId },
+		output, exitCode);
+	if (!ran)
+	{
+		error = "could not run 'xcrun devicectl device process launch'";
+		return false;
+	}
+	if (exitCode != 0)
+	{
+		error = "devicectl launch failed (exit " + std::to_string(exitCode) +
+			"): " + output;
+		return false;
+	}
+	return true;
+}
 #endif // __APPLE__

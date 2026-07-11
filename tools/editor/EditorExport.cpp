@@ -32,6 +32,15 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
 			"/build/ios-simulator-debug";
 	}
+	else if (platform == "ios")
+	{
+		// physical-device export packages the arm64-ios (iphoneos) player of
+		// THIS editor's render flavor (a next editor signs the Ogre-Next
+		// player, a classic editor the classic one); the exporter reports
+		// honestly when that device tree was never built
+		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
+			"/build/" + ORKIGE_EDITOR_IOS_DEVICE_TREE;
+	}
 	else if (platform == "android")
 	{
 		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
@@ -149,6 +158,55 @@ void updateExportJob(ExportJob& job, EditorConsole& console)
 	console.addLine(ConsoleLevel::Info, "[export] " + job.platform +
 		" export succeeded: " + job.artifactPath);
 #ifdef __APPLE__
+	// iOS-device deploy continuation (Play on a connected iPhone): install the
+	// freshly signed .app and launch it. This is dependency-free (devicectl);
+	// the game then runs standalone from its bundled scene. The editor opens NO
+	// live debug link - a USB device shares neither the host filesystem nor its
+	// loopback, and no dependency-free CLI forwards a debug-port TCP tunnel to
+	// it, so hierarchy/inspector streaming and pause/step are unavailable on
+	// hardware (the documented gap, Docs/ios-signing.md). The install is a
+	// blocking devicectl call (seconds), acceptable for this explicit one-shot.
+	if (!job.deployDeviceUdid.empty() && !job.artifactPath.empty())
+	{
+		console.addLine(ConsoleLevel::Info, "[deploy] installing on '" +
+			job.deployDeviceLabel + "' (devicectl - this takes a moment)...");
+		std::string bundleId;
+		std::string error;
+		if (!iosHardwareInstallApp(job.deployDeviceUdid, job.artifactPath,
+			bundleId, error))
+		{
+			console.addLine(ConsoleLevel::Error, "[deploy] install FAILED: " +
+				error);
+			job.deployDeviceUdid.clear();
+			job.deployDeviceLabel.clear();
+			return;
+		}
+		if (bundleId.empty())
+		{
+			console.addLine(ConsoleLevel::Error, "[deploy] installed but "
+				"devicectl reported no bundle id - cannot launch");
+			job.deployDeviceUdid.clear();
+			job.deployDeviceLabel.clear();
+			return;
+		}
+		console.addLine(ConsoleLevel::Info, "[deploy] launching '" + bundleId +
+			"' on '" + job.deployDeviceLabel + "'...");
+		if (!iosHardwareLaunchApp(job.deployDeviceUdid, bundleId, error))
+		{
+			console.addLine(ConsoleLevel::Error, "[deploy] launch FAILED: " +
+				error);
+		}
+		else
+		{
+			console.addLine(ConsoleLevel::Info, "[deploy] running on '" +
+				job.deployDeviceLabel + "'. Live debug over USB is unavailable "
+				"(no dependency-free debug-port tunnel to a device - see "
+				"Docs/ios-signing.md); the game runs standalone.");
+		}
+		job.deployDeviceUdid.clear();
+		job.deployDeviceLabel.clear();
+		return; // a device deploy does not reveal the .app in Finder
+	}
 	if (!job.artifactPath.empty())
 	{
 		// Reveal in Finder (fire and forget)

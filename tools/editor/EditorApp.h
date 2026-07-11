@@ -132,9 +132,17 @@ void SDLCALL consoleSdlLogOutput(void* userdata, int category,
 struct ExportJob
 {
 	SDL_Process* process = nullptr;
-	std::string platform;			//!< "macos" / "ios-simulator" / "android"
+	std::string platform;			//!< "macos" / "ios-simulator" / "ios" / "android"
 	std::string outputBuffer;		//!< partial (unterminated) last line
 	std::string artifactPath;		//!< from the final OK line
+	//! @brief iOS-device deploy continuation (Play on a connected iPhone): when
+	//! non-empty the successful "ios" export is followed by an install + launch
+	//! on this device via devicectl (see updateExportJob). Empty for a plain
+	//! Build-menu export - the behavior there is unchanged. The game runs
+	//! standalone on the device; the editor opens NO live debug link (a USB
+	//! device has no dependency-free TCP tunnel - see Docs/ios-signing.md).
+	std::string deployDeviceUdid;
+	std::string deployDeviceLabel;	//!< display name of the deploy device
 	bool isActive() const { return this->process != nullptr; }
 };
 
@@ -408,9 +416,16 @@ struct EditorState
 	//! are drawn once per frame by drawEditorModals)
 	bool openAboutPopup = false;
 	bool openQuitConfirmPopup = false;
-	//! Build menu request ("macos"/"ios-simulator"/"android"; "" = none) -
+	//! Build menu request ("macos"/"ios-simulator"/"ios"/"android"; "" = none) -
 	//! menus (native or ImGui) set it, the frame loop starts the export
 	std::string requestedExport;
+	//! iOS-device deploy request (Play on a connected iPhone): the toolbar sets
+	//! the UDID + label, the frame loop runs an "ios" export whose success
+	//! installs + launches on the device (see the deploy fields on ExportJob).
+	//! "" = none. Requires a loaded project + iOS signing configured; the frame
+	//! loop reports honestly to the Console when those are missing.
+	std::string requestedIosDeviceDeployUdid;
+	std::string requestedIosDeviceDeployLabel;
 	//! floating View Settings window (grid/gizmo/camera-feel sliders); on mac
 	//! the native View > View Settings... opens it since the ImGui menu bar
 	//! that used to host the sliders is not drawn there
@@ -539,6 +554,18 @@ struct PlaySession
 	std::string androidLabel;		//!< display name of the picked device
 	bool onAndroid = false;			//!< the ACTIVE session runs on Android
 	bool androidForwarded = false;	//!< an 'adb forward' is active for port
+	//! play target picked in the toolbar: empty = not iOS hardware, otherwise
+	//! the UDID of a USB-connected iPhone/iPad (enabled only once iOS signing
+	//! is configured - see isIosSigningConfigured). Unlike the simulator/adb
+	//! targets this is NOT a live play session: Play on a device builds + signs
+	//! + installs + launches the game standalone (an "ios" export followed by a
+	//! devicectl install/launch), because a USB device shares neither the host
+	//! filesystem (no temp-scene handoff) nor its loopback, and no dependency-
+	//! free CLI forwards a debug-port TCP tunnel to it. Live debug over USB is
+	//! the documented gap (Docs/ios-signing.md); the pick drives an export-and-
+	//! deploy, not the remote hierarchy/inspector link.
+	std::string iosDeviceUdid;
+	std::string iosDeviceLabel;		//!< display name of the picked iOS device
 	//! native module compile-on-Play (mode == Building): the remaining
 	//! cmake command queue (configure-if-needed, then build), the running
 	//! step (stdout+stderr piped, streamed into the Console per frame) and
@@ -796,6 +823,17 @@ struct IosHardwareDevice
 
 //! @brief connected iOS hardware via 'xcrun devicectl list devices'
 std::vector<IosHardwareDevice> listIosHardwareDevices();
+
+//! @brief install a signed .app on a USB iOS device (devicectl); on success
+//! 'bundleId' receives the installed app's identifier. See EditorDeviceTargets.cpp
+bool iosHardwareInstallApp(std::string const& udid, std::string const& appPath,
+	std::string& bundleId, std::string& error);
+
+//! @brief launch an installed app on a USB iOS device (devicectl). The game
+//! runs standalone (no live debug link - a USB device has no dependency-free
+//! TCP tunnel; see Docs/ios-signing.md). See EditorDeviceTargets.cpp
+bool iosHardwareLaunchApp(std::string const& udid, std::string const& bundleId,
+	std::string& error);
 #endif // __APPLE__
 
 //--- play session (EditorPlaySession.cpp) ----------------------------------

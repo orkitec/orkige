@@ -596,6 +596,52 @@ int main(int argc, char** argv)
 			}
 		}
 
+#ifdef __APPLE__
+		// ORKIGE_EDITOR_PLAY_IOS_DEVICE: the physical-iPhone deploy GATE probe.
+		// Play on a device is an export-and-deploy (build + sign + install +
+		// launch via devicectl), not a live play session - a headless test
+		// cannot meaningfully drive a signed device install (no certificate on
+		// CI, minutes-long signed export), so this asserts the GATE instead:
+		// "auto" resolves only when iOS signing is fully configured
+		// (isIosSigningConfigured), a device is connected AND the arm64-ios
+		// device player app is built, and then reports the open gate and exits
+		// 0; otherwise it SKIPS the run (exit 77 = the ctest SKIP_RETURN_CODE),
+		// so the test stays green on unprepared machines (no cert -> the target
+		// is disabled, exactly the honest gate). Full deploy is owner-validated
+		// on real hardware - see Docs/ios-signing.md.
+		if (const char* iosDeviceSelector =
+			std::getenv("ORKIGE_EDITOR_PLAY_IOS_DEVICE"))
+		{
+			if (std::string(iosDeviceSelector) == "auto")
+			{
+				std::error_code ignored;
+				const bool deviceTreeBuilt = std::filesystem::exists(
+					std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/build/" +
+					ORKIGE_EDITOR_IOS_DEVICE_TREE +
+					"/tools/player/OrkigePlayer.app", ignored);
+				std::vector<IosHardwareDevice> devices;
+				if (isIosSigningConfigured())
+				{
+					devices = listIosHardwareDevices();
+				}
+				if (devices.empty() || !deviceTreeBuilt)
+				{
+					SDL_Log("orkige_editor: play ios-device 'auto' - gate "
+						"closed (signing configured: %s, connected devices: %zu, "
+						"device player built: %s), skipping",
+						isIosSigningConfigured() ? "yes" : "no", devices.size(),
+						deviceTreeBuilt ? "yes" : "no");
+					return 77;
+				}
+				SDL_Log("orkige_editor: play ios-device 'auto' - gate OPEN, "
+					"target '%s' (%s); interactive deploy is owner-validated "
+					"(see Docs/ios-signing.md)", devices.front().name.c_str(),
+					devices.front().udid.c_str());
+				return 0;
+			}
+		}
+#endif
+
 		// A real editor opens EMPTY: no GameObjects, nothing selected, an
 		// untitled scene, a clean undo history. The sample resources stay
 		// registered (EditorCube.mesh + VertexColour material built above,
@@ -1261,6 +1307,30 @@ int main(int argc, char** argv)
 				startExport(exportJob, state.project, state.requestedExport,
 					console);
 				state.requestedExport.clear();
+			}
+			// Play-on-iPhone: an "ios" export whose success installs + launches
+			// on the picked device (the deploy fields ride on ExportJob so the
+			// existing async export pump carries the whole flow). Needs a loaded
+			// project (the device runs the signed bundle, there is no temp-scene
+			// handoff over USB) - reported honestly to the Console otherwise.
+			if (!state.requestedIosDeviceDeployUdid.empty())
+			{
+				if (!state.project.isLoaded())
+				{
+					console.addLine(ConsoleLevel::Warning, "[deploy] Play on "
+						"iOS hardware needs an open project - a signed device "
+						"install ships the whole project bundle (no loose-scene "
+						"handoff over USB)");
+				}
+				else if (startExport(exportJob, state.project, "ios", console))
+				{
+					exportJob.deployDeviceUdid =
+						state.requestedIosDeviceDeployUdid;
+					exportJob.deployDeviceLabel =
+						state.requestedIosDeviceDeployLabel;
+				}
+				state.requestedIosDeviceDeployUdid.clear();
+				state.requestedIosDeviceDeployLabel.clear();
 			}
 			updateExportJob(exportJob, console);
 

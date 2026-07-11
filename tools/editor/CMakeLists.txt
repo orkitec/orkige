@@ -152,14 +152,17 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_classic}/tools/player/orkige_player")
     set(ORKIGE_EDITOR_PLAYER_NEXT "$<TARGET_FILE:orkige_player>")
     # the iOS player app of this (next, the default) flavor rides in the
-    # unsuffixed simulator preset tree
+    # unsuffixed simulator preset tree; the physical-device player in the
+    # matching -debug device tree (Play-on-iPhone exports + signs from it)
     set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug")
+    set(ORKIGE_EDITOR_IOS_DEVICE_TREE "ios-device-debug")
 else()
     set(ORKIGE_EDITOR_PLAYER_CLASSIC "$<TARGET_FILE:orkige_player>")
     set(ORKIGE_EDITOR_PLAYER_NEXT
         "${CMAKE_SOURCE_DIR}/${_orkige_sibling_tree_next}/tools/player/orkige_player")
-    # the classic-flavor iOS player rides in the -classic simulator preset tree
+    # the classic-flavor iOS player rides in the -classic simulator/device trees
     set(ORKIGE_EDITOR_IOS_PLAYER_TREE "ios-simulator-debug-classic")
+    set(ORKIGE_EDITOR_IOS_DEVICE_TREE "ios-device-debug-classic")
 endif()
 
 # Editor-only: point at the RTSS shader library shipping with the
@@ -190,6 +193,9 @@ target_compile_definitions(orkige_editor PRIVATE
     # a next editor installs the Ogre-Next player, a classic editor the classic
     # one; Play surfaces an honest error when neither installed nor built)
     ORKIGE_EDITOR_IOS_PLAYER_APP="${CMAKE_SOURCE_DIR}/build/${ORKIGE_EDITOR_IOS_PLAYER_TREE}/tools/player/OrkigePlayer.app"
+    # the arm64-ios (physical-device) preset tree name Play-on-iPhone exports +
+    # signs the player from (via Util/orkige_export.py --platform ios)
+    ORKIGE_EDITOR_IOS_DEVICE_TREE="${ORKIGE_EDITOR_IOS_DEVICE_TREE}"
     # native project modules (compile-on-Play): the module build links
     # against THIS build tree with the SAME toolchain settings - see
     # cmake/OrkigeGameModule.cmake and startPlay's native branch

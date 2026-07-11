@@ -30,8 +30,11 @@ backend** since 2026-07-08: `ORKIGE_RENDER_BACKEND=next`, vcpkg feature
 OGRE — the compatibility flavor**), `ios-simulator-debug`, `android-debug`
 (**Ogre-Next too — the DEFAULT on mobile since the mobile flip: iOS boots
 Metal, Android boots Vulkan**), `ios-simulator-debug-classic`,
-`android-debug-classic` (the classic GLES2 mobile flavor). Output in
-`build/<preset>/`.
+`android-debug-classic` (the classic GLES2 mobile flavor),
+`ios-device-debug`/`ios-device-release` (**arm64 iPhoneOS — the
+physical-device player, Ogre-Next/Metal**) and
+`ios-device-debug-classic`/`ios-device-release-classic` (the classic
+GLES2 device flavor). Output in `build/<preset>/`.
 The two flavors implement the same `engine_render` facade
 (`engine_render_next/` vs `engine_render_classic/`, same source tree). Games
 (player, hello_orkige, projects/), fastgui AND the editor (ImGui on
@@ -51,7 +54,16 @@ FATAL_ERRORs instead — delete the build dir or use the matching preset
 The iOS preset cross-builds the runtime as `tools/player/OrkigePlayer.app`
 (Ogre-Next Metal by default / GLES2 on `-classic`, SDL3 UIKit main, media
 bundled in) for the arm64 simulator via `triplets/arm64-ios-simulator.cmake`;
-deploy with `xcrun simctl boot/install/launch`.
+deploy with `xcrun simctl boot/install/launch`. The `ios-device-*` presets
+(`triplets/arm64-ios-device.cmake`, `iphoneos` sysroot) build the SAME `.app`
+for arm64 physical hardware — compiling/linking need NO certificate (Ninja
+never runs codesign at build; real signing happens at export time via the
+`export.ios.teamId` manifest + `ORKIGE_IOS_SIGNING_IDENTITY`/`_PROVISIONING_PROFILE`
+seam in `Util/orkige_export.py --platform ios`). Deploy the signed `.app` with
+`xcrun devicectl device install app` + `... process launch`. Live debug over
+USB is NOT wired: a device has no dependency-free debug-port TCP tunnel (unlike
+the simulator's shared loopback / Android's `adb forward`), so the game runs
+standalone on hardware — see `Docs/ios-signing.md`.
 The Android preset (`triplets/arm64-android.cmake`, NDK 27 via
 `ANDROID_NDK_HOME`, API 28+) builds the player as `tools/player/libmain.so`
 (Ogre-Next Vulkan by default / GLES2 on `-classic`, everything incl. SDL3
@@ -65,10 +77,14 @@ and is extracted to the app files dir on first launch. Deploy with
 The editor's Play toolbar has a target picker (Desktop / iOS simulators -
 booted or shutdown, Play boots a shutdown one via simctl + Simulator.app
 and auto-installs the built player app / adb devices+emulators - physical
-Android phones use the same adb flow; iOS hardware is enumerated but gated
-until signed deploys land). `editor_play_simulator` /
-`editor_play_simulator_boot` / `editor_play_android` ctests cover the
-flows, skipping when no prepared device is available.
+Android phones use the same adb flow; iOS hardware becomes selectable once iOS
+signing is configured — Play on a device is a deploy-and-run: an `ios` export
++ `devicectl` install/launch, NOT a live session, since USB has no debug-port
+tunnel, see `Docs/ios-signing.md`). `editor_play_simulator` /
+`editor_play_simulator_boot` / `editor_play_android` / `editor_play_ios_device`
+ctests cover the flows, skipping (exit 77) when no prepared device is
+available (the `ios_device` one is a signing/hardware GATE probe — it skips on
+every machine without a cert + connected iPhone + built device player).
 Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
 into the tree and never rely on system-installed libraries.
 
