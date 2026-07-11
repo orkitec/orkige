@@ -141,6 +141,14 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		{
 			core.setActiveTool(Orkige::EditorTool::Paint);
 		}
+		// Escape leaves paint mode entirely: disarm the palette and restore
+		// the translate tool. While a prefab is armed the Paint tool consumes
+		// every viewport click, so an obvious exit matters.
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) &&
+			core.getActiveTool() == Orkige::EditorTool::Paint)
+		{
+			paletteArmPrefab(state, core, std::string());
+		}
 		if (ImGui::IsKeyPressed(ImGuiKey_X, false))
 		{
 			core.toggleTransformSpace();

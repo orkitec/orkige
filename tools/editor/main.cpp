@@ -1226,9 +1226,10 @@ int main(int argc, char** argv)
 		const char* levelPaintEnv = std::getenv("ORKIGE_EDITOR_LEVELPAINT");
 		enum class LevelPaintPhase
 		{
-			Idle, WaitRemote, WaitRevert, Done
+			Idle, WaitRemote, WaitRevert, EscapeCheck, Done
 		};
 		LevelPaintPhase levelPaintPhase = LevelPaintPhase::Idle;
+		int levelPaintEscapeStep = 0;
 		std::chrono::steady_clock::time_point levelPaintDeadline;
 		std::string levelPaintTempRoot;
 		Orkige::StringVector levelPaintExpectedRoots;
@@ -3111,10 +3112,83 @@ int main(int argc, char** argv)
 				{
 					if (playSession.mode == PlaySession::Mode::Edit)
 					{
-						SDL_Log("orkige_editor: level-paint test - OK");
-						levelPaintPhase = LevelPaintPhase::Done;
-						running = false;
+						levelPaintPhase = LevelPaintPhase::EscapeCheck;
+						levelPaintEscapeStep = 0;
 					}
+				}
+				else if (levelPaintPhase == LevelPaintPhase::EscapeCheck)
+				{
+					// paint-mode exits: Escape disarms + restores Translate,
+					// and a project switch never carries the armed prefab over
+					const std::string escTile =
+						(std::filesystem::path(levelPaintTempRoot) / "assets" /
+							"tile.oprefab").string();
+					if (levelPaintEscapeStep == 0)
+					{
+						if (!paletteArmPrefab(state, editorCore, escTile) ||
+							editorCore.getActiveTool() !=
+								Orkige::EditorTool::Paint)
+						{
+							lpFailed = true;
+							lpFail = "re-arm for the escape check failed";
+						}
+						// the real key path: a synthetic SDL key event flows
+						// through the same translation live input takes
+						SDL_Event escDown = {};
+						escDown.type = SDL_EVENT_KEY_DOWN;
+						escDown.key.key = SDLK_ESCAPE;
+						escDown.key.scancode = SDL_SCANCODE_ESCAPE;
+						escDown.key.windowID = SDL_GetWindowID(window);
+						SDL_PushEvent(&escDown);
+					}
+					else if (levelPaintEscapeStep == 1)
+					{
+						SDL_Event escUp = {};
+						escUp.type = SDL_EVENT_KEY_UP;
+						escUp.key.key = SDLK_ESCAPE;
+						escUp.key.scancode = SDL_SCANCODE_ESCAPE;
+						escUp.key.windowID = SDL_GetWindowID(window);
+						SDL_PushEvent(&escUp);
+					}
+					else if (levelPaintEscapeStep == 2)
+					{
+						if (editorCore.getActiveTool() !=
+								Orkige::EditorTool::Translate ||
+							!state.tilePalette.armedPrefabPath.empty())
+						{
+							lpFailed = true;
+							lpFail = "Escape did not leave paint mode";
+						}
+						// arm again, then close the project: the armed prefab
+						// belongs to it and must not survive
+						if (!lpFailed &&
+							(!paletteArmPrefab(state, editorCore, escTile) ||
+								editorCore.getActiveTool() !=
+									Orkige::EditorTool::Paint))
+						{
+							lpFailed = true;
+							lpFail = "re-arm for the close check failed";
+						}
+						if (!lpFailed)
+						{
+							closeProject(state, editorCore);
+							if (!state.tilePalette.armedPrefabPath.empty() ||
+								editorCore.getActiveTool() ==
+									Orkige::EditorTool::Paint)
+							{
+								lpFailed = true;
+								lpFail =
+									"closing the project kept the armed prefab";
+							}
+						}
+						if (!lpFailed)
+						{
+							SDL_Log("orkige_editor: level-paint test - OK");
+							levelPaintPhase = LevelPaintPhase::Done;
+							running = false;
+						}
+					}
+					++levelPaintEscapeStep;
 				}
 				// deadline backstop for the play phases
 				if (!lpFailed &&

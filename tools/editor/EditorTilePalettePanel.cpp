@@ -300,6 +300,21 @@ bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 			IM_COL32(255, 220, 80, 220), 2.0f);
 	}
 
+	// mode banner: while armed, paint consumes every viewport click - say so
+	// on screen and name the exits
+	const std::string bannerText = "Painting '" +
+		fs::path(palette.armedPrefabPath).stem().string() +
+		"'   left: paint   right/Alt: erase   Esc: stop";
+	const ImVec2 bannerPos(rectMin.x + 10.0f, rectMin.y + 8.0f);
+	const ImVec2 bannerSize = ImGui::CalcTextSize(bannerText.c_str());
+	drawList->AddRectFilled(
+		ImVec2(bannerPos.x - 6.0f, bannerPos.y - 4.0f),
+		ImVec2(bannerPos.x + bannerSize.x + 6.0f,
+			bannerPos.y + bannerSize.y + 4.0f),
+		IM_COL32(20, 20, 20, 200), 4.0f);
+	drawList->AddText(bannerPos, IM_COL32(255, 220, 80, 255),
+		bannerText.c_str());
+
 	// erase on right-click or Alt+left; paint on plain left. A drag is one undo
 	// step (the stroke's merge session); a repaint of the same cell mid-drag is
 	// throttled by lastCol/lastRow.
