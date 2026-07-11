@@ -31,6 +31,7 @@ import math
 import re
 import sys
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 FLATTEN_MAX_DEPTH = 16
 
@@ -96,11 +97,45 @@ def _flatten_quadratic(p0, p1, p2, tol, out):
     _flatten_cubic(p0, c1, c2, p2, tol, out)
 
 
+# Morph SETS need every pose to flatten to the SAME vertex count so control
+# points correspond; adaptive subdivision cannot promise that, so morph cooking
+# uses a FIXED segment count per curve (identical path structure -> identical
+# counts). Fills and shapes flatten to the same topology regardless of shape.
+UNIFORM_CURVE_SEGMENTS = 10
+UNIFORM_CIRCLE_STEPS = 48
+
+
+def _flatten_cubic_uniform(p0, p1, p2, p3, out, segments=UNIFORM_CURVE_SEGMENTS):
+    """Fixed-subdivision cubic flatten (appends points EXCLUDING p0)."""
+    for k in range(1, segments + 1):
+        t = k / segments
+        mt = 1.0 - t
+        a = mt * mt * mt
+        b = 3 * mt * mt * t
+        c = 3 * mt * t * t
+        d = t * t * t
+        out.append((a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+                    a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1]))
+
+
+def _flatten_quadratic_uniform(p0, p1, p2, out):
+    c1 = ((p0[0] + 2 * p1[0]) / 3.0, (p0[1] + 2 * p1[1]) / 3.0)
+    c2 = ((p2[0] + 2 * p1[0]) / 3.0, (p2[1] + 2 * p1[1]) / 3.0)
+    _flatten_cubic_uniform(p0, c1, c2, p2, out)
+
+
 _TOKEN_RE = re.compile(r"[MmLlHhVvCcSsQqTtZz]|[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 
 
-def _parse_path(d, tol):
-    """Parse an SVG path 'd' into a list of closed subpaths (point lists)."""
+def _parse_path(d, tol, uniform=False):
+    """Parse an SVG path 'd' into a list of closed subpaths (point lists).
+    uniform=True flattens curves with a FIXED segment count (morph sets)."""
+    flatten_cubic = (lambda p0, p1, p2, p3, t, out:
+                     _flatten_cubic_uniform(p0, p1, p2, p3, out)) if uniform \
+        else _flatten_cubic
+    flatten_quad = (lambda p0, p1, p2, t, out:
+                    _flatten_quadratic_uniform(p0, p1, p2, out)) if uniform \
+        else _flatten_quadratic
     tokens = _TOKEN_RE.findall(d)
     i = 0
     subpaths = []
@@ -160,7 +195,7 @@ def _parse_path(d, tol):
             if rel:
                 x1, y1, x2, y2, x, y = (cx + x1, cy + y1, cx + x2, cy + y2,
                                         cx + x, cy + y)
-            _flatten_cubic((cx, cy), (x1, y1), (x2, y2), (x, y), tol, current)
+            flatten_cubic((cx, cy), (x1, y1), (x2, y2), (x, y), tol, current)
             cx, cy = x, y
         elif c in ("Q", "T"):
             if c == "T":
@@ -171,7 +206,7 @@ def _parse_path(d, tol):
                 x, y = num(), num()
             if rel:
                 x1, y1, x, y = cx + x1, cy + y1, cx + x, cy + y
-            _flatten_quadratic((cx, cy), (x1, y1), (x, y), tol, current)
+            flatten_quad((cx, cy), (x1, y1), (x, y), tol, current)
             cx, cy = x, y
         elif c == "Z":
             if current:
@@ -197,8 +232,9 @@ def _local(tag):
     return tag.split("}")[-1]
 
 
-def _shape_elements(root, tol):
-    """Yield (subpaths, rgba) for every fillable element in document order."""
+def _shape_elements(root, tol, uniform=False):
+    """Yield (subpaths, rgba) for every fillable element in document order.
+    uniform=True flattens paths/curves at a FIXED resolution (morph sets)."""
     for elem in root.iter():
         tag = _local(elem.tag)
         fill = _parse_colour(elem.get("fill"),
@@ -209,7 +245,7 @@ def _shape_elements(root, tol):
                 continue
         subpaths = []
         if tag == "path" and elem.get("d"):
-            subpaths = _parse_path(elem.get("d"), tol)
+            subpaths = _parse_path(elem.get("d"), tol, uniform=uniform)
         elif tag == "polygon" and elem.get("points"):
             nums = [float(n) for n in re.findall(
                 r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", elem.get("points"))]
@@ -228,8 +264,12 @@ def _shape_elements(root, tol):
             else:
                 rx = float(elem.get("rx", 0)); ry = float(elem.get("ry", 0))
             if rx > 0 and ry > 0:
-                steps = max(12, int(2 * math.pi * max(rx, ry) / max(tol, 1e-3)))
-                steps = min(steps, 256)
+                if uniform:
+                    steps = UNIFORM_CIRCLE_STEPS
+                else:
+                    steps = max(12,
+                                int(2 * math.pi * max(rx, ry) / max(tol, 1e-3)))
+                    steps = min(steps, 256)
                 subpaths = [[(cx + rx * math.cos(2 * math.pi * k / steps),
                               cy + ry * math.sin(2 * math.pi * k / steps))
                              for k in range(steps)]]
@@ -280,6 +320,75 @@ def cook(svg_text, tolerance=None, extent=2.0):
     return "\n".join(lines) + "\n"
 
 
+def _pose_contours(svg_text):
+    """Extract a pose's fillable contours at FIXED resolution: a list of
+    (points, rgba) where points is a >= 3 vertex closed contour, in SVG
+    userspace. Morph sets flatten uniformly so matching poses match exactly."""
+    root = ET.fromstring(svg_text)
+    contours = []
+    for subpaths, rgba in _shape_elements(root, tol=1.0, uniform=True):
+        for sub in subpaths:
+            if len(sub) >= 3:
+                contours.append((sub, rgba))
+    return contours
+
+
+def cook_morphset(base_svg, target_svgs, target_names, extent=2.0):
+    """Cook a base SVG plus N target-pose SVGs into ONE .oshape with morph
+    targets. Every pose MUST share the base's contour structure (same number of
+    contours, same vertex count per contour) - raised as a clear ValueError
+    otherwise. All poses are placed with the SAME normalization (derived from
+    the base) so corresponding vertices line up in world space."""
+    base = _pose_contours(base_svg)
+    if not base:
+        raise ValueError("the base SVG has no fillable contours")
+    base_sig = [len(pts) for pts, _ in base]
+
+    poses = []
+    for name, svg in zip(target_names, target_svgs):
+        pose = _pose_contours(svg)
+        sig = [len(pts) for pts, _ in pose]
+        if sig != base_sig:
+            raise ValueError(
+                "morph target '%s' structure %s does not match the base %s - "
+                "every pose must have the same contours with the same vertex "
+                "counts (author matching paths; the cook flattens curves at a "
+                "fixed resolution)" % (name, sig, base_sig))
+        poses.append((name, pose))
+
+    # ONE normalization from the base, applied to every pose
+    all_points = [p for pts, _ in base for p in pts]
+    min_x = min(p[0] for p in all_points)
+    max_x = max(p[0] for p in all_points)
+    min_y = min(p[1] for p in all_points)
+    max_y = max(p[1] for p in all_points)
+    span = max(max_x - min_x, max_y - min_y, 1e-6)
+    scale = extent / span
+    cx = (min_x + max_x) * 0.5
+    cy = (min_y + max_y) * 0.5
+
+    def place(p):
+        return ((p[0] - cx) * scale, -(p[1] - cy) * scale)
+
+    def emit(contours):
+        out = []
+        for pts, rgba in contours:
+            out.append("fill %.4f %.4f %.4f %.4f" % rgba)
+            out.append("contour %d" % len(pts))
+            for p in pts:
+                wx, wy = place(p)
+                out.append("v %.5f %.5f" % (wx, wy))
+        return out
+
+    lines = ["# orkige vector shape v1 - morph set cooked by Util/cook_shapes.py",
+             "# base pose + %d morph target(s)" % len(poses), "version 1"]
+    lines += emit(base)
+    for name, pose in poses:
+        lines.append("morph %s" % (name or "target"))
+        lines += emit(pose)
+    return "\n".join(lines) + "\n"
+
+
 def _parse_oshape(text):
     """A tiny .oshape re-parser mirroring VectorShapeAsset (selftest only)."""
     regions = []
@@ -315,6 +424,38 @@ def _parse_oshape(text):
     return regions
 
 
+def _parse_oshape_groups(text):
+    """Re-parse into (base_regions, [(name, regions), ...]) - the morph-set
+    selftest form. Mirrors VectorShapeAsset's morph blocks."""
+    groups = [("", [])]
+    remaining = 0
+    target = None
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].split()
+        if not line:
+            continue
+        key = line[0]
+        if key == "morph":
+            assert remaining == 0
+            groups.append((line[1] if len(line) > 1 else "", []))
+            target = None
+        elif key == "fill":
+            assert remaining == 0
+            groups[-1][1].append({"fill": tuple(float(v) for v in line[1:5]),
+                                  "outer": []})
+            target = None
+        elif key == "contour":
+            assert remaining == 0 and groups[-1][1]
+            remaining = int(line[1])
+            target = groups[-1][1][-1]["outer"]
+        elif key == "v":
+            assert target is not None and remaining > 0
+            target.append((float(line[1]), float(line[2])))
+            remaining -= 1
+    assert remaining == 0
+    return groups[0][1], groups[1:]
+
+
 def _selftest():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
            '<rect x="10" y="10" width="80" height="60" fill="#e56b61"/>'
@@ -333,8 +474,37 @@ def _selftest():
     # the salmon fill colour survived (0.898 ~ 0xe5/255)
     assert any(abs(r["fill"][0] - 0.898) < 0.01 for r in regions), \
         "fill colour did not round-trip"
-    print("cook_shapes selftest OK: %d regions, vertex counts %s" %
-          (len(regions), counts))
+    # --- morph-set cooking: matching poses -> base + a morph target ---
+    base_svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+                '<polygon points="20,20 80,20 80,80 20,80" fill="#88cc44"/>'
+                '</svg>')
+    squash_svg = ('<svg xmlns="http://www.w3.org/2000/svg" '
+                  'viewBox="0 0 100 100">'
+                  '<polygon points="10,35 90,35 90,65 10,65" fill="#88cc44"/>'
+                  '</svg>')
+    morph = cook_morphset(base_svg, [squash_svg], ["squash"])
+    base_regions, morph_targets = _parse_oshape_groups(morph)
+    assert len(base_regions) == 1, "morph base should have one region"
+    assert len(morph_targets) == 1, "expected one morph target"
+    assert morph_targets[0][0] == "squash", "morph target name lost"
+    assert len(base_regions[0]["outer"]) == \
+        len(morph_targets[0][1][0]["outer"]), \
+        "morph target vertex count must match the base"
+
+    # a structure MISMATCH must be a clear error, not a silent bad shape
+    triangle_svg = ('<svg xmlns="http://www.w3.org/2000/svg" '
+                    'viewBox="0 0 100 100">'
+                    '<polygon points="50,20 80,80 20,80" fill="#88cc44"/>'
+                    '</svg>')
+    mismatched = False
+    try:
+        cook_morphset(base_svg, [triangle_svg], ["bad"])
+    except ValueError:
+        mismatched = True
+    assert mismatched, "a structure mismatch should raise ValueError"
+
+    print("cook_shapes selftest OK: %d regions, vertex counts %s; morph set "
+          "(base + 1 target, mismatch rejected)" % (len(regions), counts))
     return 0
 
 
@@ -347,6 +517,10 @@ def main():
                         help="absolute flatten chord tolerance in SVG units")
     parser.add_argument("--extent", type=float, default=2.0,
                         help="world-unit size the drawing's larger side spans")
+    parser.add_argument("--targets", nargs="+", default=None, metavar="SVG",
+                        help="cook a MORPH SET: additional pose SVGs (each must "
+                        "share the base's contour structure) become morph "
+                        "targets in the output .oshape")
     parser.add_argument("--selftest", action="store_true",
                         help="cook + re-parse a synthetic SVG and assert")
     args = parser.parse_args()
@@ -356,6 +530,21 @@ def main():
         parser.error("input and output are required (or use --selftest)")
     with open(args.input, "r", encoding="utf-8") as handle:
         svg_text = handle.read()
+    if args.targets:
+        # a morph set: the base plus one target per --targets SVG (named after
+        # the file stem)
+        target_texts, names = [], []
+        for path in args.targets:
+            with open(path, "r", encoding="utf-8") as handle:
+                target_texts.append(handle.read())
+            names.append(Path(path).stem)
+        oshape = cook_morphset(svg_text, target_texts, names,
+                               extent=args.extent)
+        with open(args.output, "w", encoding="utf-8") as handle:
+            handle.write(oshape)
+        print("cooked morph set %s (+%d target[s]) -> %s" %
+              (args.input, len(target_texts), args.output))
+        return 0
     oshape = cook(svg_text, tolerance=args.tolerance, extent=args.extent)
     with open(args.output, "w", encoding="utf-8") as handle:
         handle.write(oshape)

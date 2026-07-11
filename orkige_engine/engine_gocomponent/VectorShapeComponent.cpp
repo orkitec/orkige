@@ -9,6 +9,7 @@
 
 #include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
+#include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
@@ -19,6 +20,7 @@
 #include <core_debug/DebugMacros.h>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace Orkige
@@ -38,6 +40,14 @@ namespace Orkige
 		this->mEdgeSoftness = 0.0f;	// auto: derived from the shape bounds
 		this->mZOrder = 0;
 		this->mVisible = true;
+		this->mSoftBody = false;
+		this->mMorphClip = -1;
+		this->mMorphSpeed = 1.0f;
+		this->mMorphLoop = false;
+		this->mBodyVelX = 0.0f;
+		this->mBodyVelY = 0.0f;
+		this->mDeformDirty = false;
+		this->mDeformFreshBuild = false;
 		this->addDependency<TransformComponent>();
 	}
 	//---------------------------------------------------------
@@ -65,8 +75,8 @@ namespace Orkige
 				<< "' not found");
 			return;
 		}
-		std::vector<VectorTessellator::Region> regions;
-		if(!VectorShapeAsset::parse(text, regions))
+		VectorShapeAsset::ParsedShape parsed;
+		if(!VectorShapeAsset::parse(text, parsed))
 		{
 			oDebugError("engine", 0, "VectorShapeComponent: shape '" << shapeName
 				<< "' is malformed");
@@ -79,8 +89,10 @@ namespace Orkige
 			return;
 		}
 		this->mShapeName = shapeName;
-		this->mRegions.swap(regions);
-		this->rebuildMesh();
+		this->mRegions.swap(parsed.base);
+		this->mMorphTargets.swap(parsed.morphs);
+		this->rebuildMesh();		// tessellate + push the static mesh
+		this->rebuildDeformer();	// build the soft-body deformer if enabled
 		this->mMesh->attachTo(this->getNode());
 		this->applyVisibility();
 	}
@@ -91,7 +103,11 @@ namespace Orkige
 		this->mMesh.reset();
 		this->mShapeName = "";
 		this->mRegions.clear();
+		this->mMorphTargets.clear();
 		this->mBuilt.clear();
+		this->mDeform = SoftBodyDeform();	// drop the soft-body state
+		this->mDeformDirty = false;
+		this->setWantsUpdates(false);
 	}
 	//---------------------------------------------------------
 	std::size_t VectorShapeComponent::getTriangleCount() const
@@ -193,6 +209,10 @@ namespace Orkige
 			componentOwner->getObjectID() + ".VectorShapeComponent.sceneNode");
 		oAssert(node);
 		this->initSceneNodeGuard(node, componentOwner->getEventManager(), this);
+		// a sibling RigidBodyComponent's contact drives the soft-body squash;
+		// the handler no-ops unless soft-body is on, so registering always is safe
+		this->registerEvent(RigidBodyComponent::ContactBeganEvent,
+			&VectorShapeComponent::onContactBegan, this);
 		// a shape reference recorded while detached loads now the node exists
 		if(!this->mShapeName.empty() && !this->mMesh)
 		{
@@ -202,11 +222,15 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VectorShapeComponent::onRemove()
 	{
+		this->unregisterEvent(RigidBodyComponent::ContactBeganEvent);
 		// content first, then the node (a node must outlive its content)
 		this->mMesh.reset();
 		this->mShapeName = "";
 		this->mRegions.clear();
+		this->mMorphTargets.clear();
 		this->mBuilt.clear();
+		this->mDeform = SoftBodyDeform();
+		this->mDeformDirty = false;
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
@@ -234,25 +258,28 @@ namespace Orkige
 		VectorTessellator::build(this->mRegions, feather, this->mBuilt);
 
 		// convert the POD mesh to facade vertices, multiplying the instance
-		// tint into every fill/feather colour
-		std::vector<VectorMesh::Vertex> vertices;
-		vertices.reserve(this->mBuilt.positions.size());
+		// tint into every fill/feather colour. Kept as a member so the per-frame
+		// deform reuses it: the tinted COLOURS are fixed, only positions move.
+		this->mDeformVertices.resize(this->mBuilt.positions.size());
 		for(std::size_t each = 0; each < this->mBuilt.positions.size(); ++each)
 		{
 			VectorTessellator::Point const & point = this->mBuilt.positions[each];
 			VectorTessellator::Colour const & colour = this->mBuilt.colours[each];
-			VectorMesh::Vertex vertex;
+			VectorMesh::Vertex & vertex = this->mDeformVertices[each];
 			vertex.position = Vec2(point.x, point.y);
 			vertex.colour = Color(colour.r * this->mTint.r,
 				colour.g * this->mTint.g, colour.b * this->mTint.b,
 				colour.a * this->mTint.a);
-			vertices.push_back(vertex);
 		}
-		this->mMesh->setMesh(vertices.empty() ? NULL : vertices.data(),
-			vertices.size(),
+		this->mMesh->setMesh(
+			this->mDeformVertices.empty() ? NULL : this->mDeformVertices.data(),
+			this->mDeformVertices.size(),
 			this->mBuilt.indices.empty() ? NULL : this->mBuilt.indices.data(),
 			this->mBuilt.indices.size());
 		this->applyStateToMesh();
+		// setMesh mapped the (dynamic) buffer this frame: the next backend forbids
+		// a second map before the frame renders, so defer any deform upload a tick
+		this->mDeformFreshBuild = true;
 	}
 	//---------------------------------------------------------
 	void VectorShapeComponent::applyStateToMesh()
@@ -276,6 +303,234 @@ namespace Orkige
 			!componentOwner || componentOwner->isActiveInHierarchy();
 		// only over the shape's OWN node (child GameObjects gate themselves)
 		this->setVisible(this->mVisible && ownerActive);
+	}
+	//---------------------------------------------------------
+	//--- soft body -------------------------------------------
+	//---------------------------------------------------------
+	void VectorShapeComponent::setSoftBodyEnabled(bool enabled)
+	{
+		if(this->mSoftBody == enabled)
+		{
+			return;
+		}
+		this->mSoftBody = enabled;
+		if(enabled)
+		{
+			// build the deformer over the current shape and start ticking
+			this->rebuildDeformer();
+		}
+		else
+		{
+			// restore the exact rest geometry and stop ticking
+			this->mDeform = SoftBodyDeform();
+			this->mDeformDirty = false;
+			this->setWantsUpdates(false);
+			if(this->mMesh && !this->mDeformVertices.empty())
+			{
+				this->mMesh->updateVertices(this->mDeformVertices.data(),
+					this->mDeformVertices.size());
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::rebuildDeformer()
+	{
+		if(!this->mSoftBody || !this->mMesh || this->mBuilt.positions.empty())
+		{
+			return;
+		}
+		this->mDeform.build(this->mRegions, this->mBuilt.positions,
+			this->mDeformParams);
+		if(!this->mDeform.isBuilt())
+		{
+			return;
+		}
+		// register the morph poses; a target that does not share the base
+		// topology is reported and skipped (never a crash)
+		for(VectorShapeAsset::MorphTarget const & morph : this->mMorphTargets)
+		{
+			if(!this->mDeform.addMorphTarget(morph.name, this->mRegions,
+				morph.regions))
+			{
+				oDebugError("engine", 0, "VectorShapeComponent: morph target '"
+					<< morph.name << "' of shape '" << this->mShapeName
+					<< "' does not match the base topology - skipped");
+			}
+		}
+		this->mDeformPositions.resize(this->mBuilt.positions.size());
+		this->mDeformDirty = false;
+		// a runtime that ticks GameObjects now drives the deform
+		this->setWantsUpdates(true);
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::applyDeformParams()
+	{
+		if(this->mDeform.isBuilt())
+		{
+			this->mDeform.setParams(this->mDeformParams);
+		}
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setWobbleStiffness(float stiffness)
+	{
+		this->mDeformParams.wobbleStiffness = stiffness;
+		this->applyDeformParams();
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setWobbleDamping(float damping)
+	{
+		this->mDeformParams.wobbleDamping = damping;
+		this->applyDeformParams();
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setWobbleAmount(float amount)
+	{
+		this->mDeformParams.wobbleAmount = amount;
+		this->applyDeformParams();
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setSquashAmount(float amount)
+	{
+		this->mDeformParams.squashAmount = amount;
+		this->applyDeformParams();
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setMorphClip(int index)
+	{
+		this->mMorphClip = index;
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setMorphSpeed(float speed)
+	{
+		this->mMorphSpeed = speed;
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::setMorphLoop(bool loop)
+	{
+		this->mMorphLoop = loop;
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::impulse(float dirX, float dirY, float magnitude)
+	{
+		if(this->mSoftBody && this->mDeform.isBuilt())
+		{
+			this->mDeform.applyImpulse(dirX, dirY, magnitude);
+		}
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::playMorph(int index, float speed, bool loop)
+	{
+		if(this->mSoftBody && this->mDeform.isBuilt())
+		{
+			this->mDeform.playMorph(index, speed, loop);
+		}
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::stopMorph()
+	{
+		if(this->mDeform.isBuilt())
+		{
+			this->mDeform.stopMorph();
+		}
+	}
+	//---------------------------------------------------------
+	float VectorShapeComponent::getDeformDisplacement() const
+	{
+		return this->mDeform.isBuilt()
+			? this->mDeform.maxControlDisplacement() : 0.0f;
+	}
+	//---------------------------------------------------------
+	float VectorShapeComponent::getSquash() const
+	{
+		return this->mDeform.isBuilt() ? this->mDeform.getSquash() : 0.0f;
+	}
+	//---------------------------------------------------------
+	bool VectorShapeComponent::isDeforming() const
+	{
+		return this->mSoftBody && this->mDeform.isBuilt() &&
+			!this->mDeform.isAtRest();
+	}
+	//---------------------------------------------------------
+	std::size_t VectorShapeComponent::getControlPointCount() const
+	{
+		return this->mDeform.controlPointCount();
+	}
+	//---------------------------------------------------------
+	std::size_t VectorShapeComponent::getMorphTargetCount() const
+	{
+		return this->mDeform.morphTargetCount();
+	}
+	//---------------------------------------------------------
+	void VectorShapeComponent::onUpdateComponent(float deltaTime)
+	{
+		// dormant unless soft-body is on and the deformer built (like
+		// ScriptComponent, only a GameObject-ticking runtime reaches here)
+		if(!this->mSoftBody || !this->mMesh || !this->mDeform.isBuilt())
+		{
+			return;
+		}
+		// cache the sibling body's velocity: it drives the velocity stretch AND
+		// is the impact magnitude/direction a contact this frame squashes along
+		// (sampled BEFORE the physics step in the player tick order, so it is the
+		// pre-collision approach velocity)
+		this->mBodyVelX = 0.0f;
+		this->mBodyVelY = 0.0f;
+		GameObject* componentOwner = this->getComponentOwner();
+		if(componentOwner && componentOwner->hasComponent<RigidBodyComponent>())
+		{
+			RigidBodyComponent* body =
+				componentOwner->getComponentPtr<RigidBodyComponent>();
+			if(body && body->hasBody())
+			{
+				const Vec3 velocity = body->getLinearVelocity();
+				this->mBodyVelX = velocity.x;
+				this->mBodyVelY = velocity.y;
+			}
+		}
+		this->mDeform.setBodyVelocity(this->mBodyVelX, this->mBodyVelY);
+		this->mDeform.update(deltaTime);
+
+		// upload while deforming, plus ONE final frame to land the exact rest
+		// pose (mDeformDirty), then fall silent (no per-frame cost at rest)
+		const bool atRest = this->mDeform.isAtRest();
+		if(!atRest || this->mDeformDirty)
+		{
+			// a setMesh already mapped the buffer this frame - skip THIS upload
+			// (defer a tick) so the next backend never maps it twice per frame
+			if(this->mDeformFreshBuild)
+			{
+				this->mDeformFreshBuild = false;
+				return;
+			}
+			this->mDeform.writePositions(this->mDeformPositions);
+			for(std::size_t v = 0; v < this->mDeformPositions.size() &&
+				v < this->mDeformVertices.size(); ++v)
+			{
+				this->mDeformVertices[v].position = Vec2(
+					this->mDeformPositions[v].x, this->mDeformPositions[v].y);
+			}
+			this->mMesh->updateVertices(this->mDeformVertices.data(),
+				this->mDeformVertices.size());
+			this->mDeformDirty = !atRest;
+		}
+	}
+	//---------------------------------------------------------
+	bool VectorShapeComponent::onContactBegan(Event const & event)
+	{
+		// a contact squashes the soft body along the pre-collision approach
+		// velocity (the impact normal) with a depth from the impact speed, and
+		// kicks the wobble the same way. The physics body stays rigid.
+		if(this->mSoftBody && this->mDeform.isBuilt())
+		{
+			const float speed = std::sqrt(this->mBodyVelX * this->mBodyVelX +
+				this->mBodyVelY * this->mBodyVelY);
+			if(speed > 1.0e-3f)
+			{
+				this->mDeform.applyImpulse(this->mBodyVelX, this->mBodyVelY,
+					speed);
+			}
+		}
+		return false;	// never consume the contact (others still observe it)
 	}
 	//---------------------------------------------------------
 	void VectorShapeComponent::save(optr<IArchive> const & ar)
@@ -317,13 +572,35 @@ namespace Orkige
 		OFUNC(getZOrder)
 		OFUNC(setShapeVisible)
 		OFUNC(isShapeVisible)
+		// soft-body drive + introspection (Lua + native): a script kicks a
+		// squash/wobble or plays a morph; the getters feed selfchecks/MCP
+		OFUNC(setSoftBodyEnabled)
+		OFUNC(isSoftBodyEnabled)
+		OFUNC(impulse)
+		OFUNC(playMorph)
+		OFUNC(stopMorph)
+		OFUNC(getDeformDisplacement)
+		OFUNC(getSquash)
+		OFUNC(isDeforming)
+		OFUNC(getControlPointCount)
+		OFUNC(getMorphTargetCount)
 		// reflected schema: scalar/colour state THEN the shape reference last
-		// (its setter rebuilds the mesh from the state set just above)
+		// (its setter rebuilds the mesh + deformer from the state set just above)
 		OPROPERTY("tint", Orkige::PropertyKind::Color, getTint, setTintColor, Orkige::PROP_NONE)
 		OPROPERTY("scale", Orkige::PropertyKind::Float, getScale, setScale, Orkige::PROP_NONE)
 		OPROPERTY("edgeSoftness", Orkige::PropertyKind::Float, getEdgeSoftness, setEdgeSoftness, Orkige::PROP_NONE)
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
 		OPROPERTY("visible", Orkige::PropertyKind::Bool, isShapeVisible, setShapeVisible, Orkige::PROP_NONE)
+		// soft-body tunables (set before the shape, so the deformer that the
+		// shape reference builds picks them up): inspector/serialization/MCP free
+		OPROPERTY("softBody", Orkige::PropertyKind::Bool, isSoftBodyEnabled, setSoftBodyEnabled, Orkige::PROP_NONE)
+		OPROPERTY("wobbleStiffness", Orkige::PropertyKind::Float, getWobbleStiffness, setWobbleStiffness, Orkige::PROP_NONE)
+		OPROPERTY("wobbleDamping", Orkige::PropertyKind::Float, getWobbleDamping, setWobbleDamping, Orkige::PROP_NONE)
+		OPROPERTY("wobbleAmount", Orkige::PropertyKind::Float, getWobbleAmount, setWobbleAmount, Orkige::PROP_NONE)
+		OPROPERTY("squashAmount", Orkige::PropertyKind::Float, getSquashAmount, setSquashAmount, Orkige::PROP_NONE)
+		OPROPERTY("morphClip", Orkige::PropertyKind::Int, getMorphClip, setMorphClip, Orkige::PROP_NONE)
+		OPROPERTY("morphSpeed", Orkige::PropertyKind::Float, getMorphSpeed, setMorphSpeed, Orkige::PROP_NONE)
+		OPROPERTY("morphLoop", Orkige::PropertyKind::Bool, getMorphLoop, setMorphLoop, Orkige::PROP_NONE)
 		OPROPERTY_REF("shape", Orkige::PropertyKind::AssetRef, "shape", getShapeName, setShapeReference, Orkige::PROP_NONE)
 	OOBJECT_END
 }

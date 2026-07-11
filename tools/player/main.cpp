@@ -41,6 +41,10 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
+#include <engine_gocomponent/VectorShapeComponent.h>
+#include <core_util/SoftBodyDeform.h>
+#include <core_util/VectorTessellator.h>
+#include <core_util/VectorShapeAsset.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
 #include <engine_input/HapticManager.h>
@@ -533,6 +537,14 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_ROLLER_SCREENSHOT_DIR");
 		const std::string rollerShotDir =
 			rollerShotDirEnv ? rollerShotDirEnv : "";
+		// ORKIGE_SOFTBODY_SELFCHECK verifies soft, deformable organic shapes end
+		// to end against projects/vectorshapes (scenes/softbody.oscene): a blob
+		// with a RigidBody falls, SQUASHES on landing and wobbles (the dynamic
+		// deform upload), then returns to rest; a second blob is MORPHED via a Lua
+		// self.shape:playMorph call. It also logs the measured per-frame deform
+		// cost (the mobile-viability budget number).
+		const bool softbodyCheck =
+			(std::getenv("ORKIGE_SOFTBODY_SELFCHECK") != nullptr);
 		// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
 		// deferred scene switch + progression save end to end against
 		// projects/roller: solve level 1 (the proven tile-slide + roll), assert
@@ -623,7 +635,7 @@ int main(int argc, char** argv)
 			rollerProgressionCheck || tweenCheck ||
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
-			breadcrumbCheck || fadeCheck || lifecycleCheck ||
+			breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
@@ -1714,6 +1726,102 @@ int main(int argc, char** argv)
 				rollerStat("wins", -1.0), rollerStat("respawns", -1.0));
 			rollerCheckFailed = true;
 		};
+
+		// --- ORKIGE_SOFTBODY_SELFCHECK=1: soft, deformable organic shapes end to
+		// end against projects/vectorshapes (scenes/softbody.oscene). Phased,
+		// condition-driven (physics is wall-clock/fixed-step paced):
+		//   fall     the "FallBlob" (VectorShape softBody + a dynamic RigidBody)
+		//            drops; on landing a CONTACT squashes it (getSquash != 0) and
+		//            the wobble springs move the mesh off rest (displacement > 0)
+		//   settle   the wobble decays back to the rest pose (not deforming)
+		//   morph    the "MorphBlob" is deformed by a Lua self.shape:playMorph
+		//            call (proves the morph blend + the Lua drive path)
+		// A missed deadline exits non-zero. On boot it logs the MEASURED per-frame
+		// deform cost - the mobile-viability budget number the owner asked for.
+		enum class SoftBodyPhase { Fall, Settle, Morph, Done };
+		SoftBodyPhase softbodyPhase = SoftBodyPhase::Fall;
+		bool softbodyCheckFailed = false;
+		bool softbodySawSquash = false;
+		bool softbodySawWobble = false;
+		float softbodyPeakSquash = 0.0f;
+		float softbodyPeakWobble = 0.0f;
+		float softbodyMorphPeak = 0.0f;
+		unsigned long softbodyPhaseDeadline = 0;
+		bool softbodyMorphStarted = false;
+		auto softbodyShape = [&gameObjectManager](const char* id)
+			-> Orkige::VectorShapeComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject(id).lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::VectorShapeComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->getComponentPtr<Orkige::VectorShapeComponent>();
+		};
+		auto softbodyFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: SOFTBODY SELFCHECK FAILED - %s "
+				"(squash peak %.3f, wobble peak %.4f, morph peak %.4f)",
+				what.c_str(), softbodyPeakSquash, softbodyPeakWobble,
+				softbodyMorphPeak);
+			softbodyCheckFailed = true;
+		};
+		if (softbodyCheck)
+		{
+			// MEASURED per-frame deform cost: build N representative blobs and
+			// time a full deform tick (spring integrate + skin + write) each, so
+			// the mobile budget is a real number. Pure core, allocation-free per
+			// frame - no renderer involved.
+			const int benchBlobs = 64;
+			std::vector<Orkige::VectorTessellator::Region> benchRegions;
+			{
+				Orkige::VectorTessellator::Region region;
+				region.fill = Orkige::VectorTessellator::Colour(1, 1, 1, 1);
+				const int n = 24;
+				for (int i = 0; i < n; ++i)
+				{
+					const float a = 2.0f * 3.14159265f * i / n;
+					const float r = 1.0f + 0.12f * std::sin(a * 3.0f);
+					region.outer.push_back(Orkige::VectorTessellator::Point(
+						r * std::cos(a), r * std::sin(a)));
+				}
+				benchRegions.push_back(region);
+			}
+			Orkige::VectorTessellator::Mesh benchMesh;
+			Orkige::VectorTessellator::build(benchRegions, 0.02f, benchMesh);
+			std::vector<Orkige::SoftBodyDeform> benchDeformers(benchBlobs);
+			for (int b = 0; b < benchBlobs; ++b)
+			{
+				benchDeformers[b].build(benchRegions, benchMesh.positions,
+					Orkige::SoftBodyDeform::Params());
+				benchDeformers[b].applyImpulse(0.3f, -1.0f, 2.0f);
+				benchDeformers[b].setBodyVelocity(1.5f, -2.0f);
+			}
+			std::vector<Orkige::VectorTessellator::Point> benchScratch;
+			const int benchFrames = 120;
+			const auto benchStart = std::chrono::high_resolution_clock::now();
+			for (int f = 0; f < benchFrames; ++f)
+			{
+				for (int b = 0; b < benchBlobs; ++b)
+				{
+					benchDeformers[b].update(1.0f / 60.0f);
+					benchDeformers[b].writePositions(benchScratch);
+				}
+			}
+			const auto benchEnd = std::chrono::high_resolution_clock::now();
+			const double totalUs = std::chrono::duration_cast<
+				std::chrono::nanoseconds>(benchEnd - benchStart).count() / 1000.0;
+			const double perBlobFrameUs =
+				totalUs / (benchFrames * benchBlobs);
+			SDL_Log("orkige_player: SOFTBODY deform budget - %.2f us/blob/frame "
+				"(%zu verts, %zu control points; %d blobs x %d frames = %.0f us "
+				"total); a 60fps frame fits ~%.0f such blobs in 1 ms",
+				perBlobFrameUs, benchMesh.positions.size(),
+				benchDeformers[0].controlPointCount(), benchBlobs, benchFrames,
+				totalUs, perBlobFrameUs > 0.0 ? 1000.0 / perBlobFrameUs : 0.0);
+		}
 
 		// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
 		// DEFERRED scene switch + the progression save, end to end
@@ -3138,6 +3246,115 @@ int main(int argc, char** argv)
 				}
 			}
 			if (rollerCheck && rollerCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
+			// --- softbody selfcheck (see the block above the loop) ----------
+			if (softbodyCheck && !softbodyCheckFailed)
+			{
+				Orkige::VectorShapeComponent* fall = softbodyShape("FallBlob");
+				Orkige::VectorShapeComponent* morph = softbodyShape("MorphBlob");
+				// the Lua-driven morph runs from boot; track its deformation
+				// throughout so the Morph phase can confirm it
+				if (morph)
+				{
+					softbodyMorphPeak = std::max(softbodyMorphPeak,
+						morph->getDeformDisplacement());
+				}
+				if (softbodyPhase == SoftBodyPhase::Fall)
+				{
+					if (frameCount == 5)
+					{
+						if (!fall)
+						{
+							softbodyFail("no FallBlob with a "
+								"VectorShapeComponent");
+						}
+						else if (!fall->isSoftBodyEnabled())
+						{
+							softbodyFail("FallBlob is not a soft body");
+						}
+						else if (fall->getControlPointCount() == 0)
+						{
+							softbodyFail("FallBlob deformer built no control "
+								"points");
+						}
+						else
+						{
+							softbodyPhaseDeadline = frameCount + 1500;
+						}
+					}
+					else if (frameCount > 5 && fall)
+					{
+						const float squash = std::fabs(fall->getSquash());
+						const float wobble = fall->getDeformDisplacement();
+						softbodyPeakSquash =
+							std::max(softbodyPeakSquash, squash);
+						softbodyPeakWobble =
+							std::max(softbodyPeakWobble, wobble);
+						if (squash > 0.02f)
+						{
+							softbodySawSquash = true;
+						}
+						if (wobble > 0.01f)
+						{
+							softbodySawWobble = true;
+						}
+						if (softbodySawSquash && softbodySawWobble)
+						{
+							SDL_Log("orkige_player: softbody selfcheck - "
+								"FallBlob landed and deformed (squash %.3f, "
+								"wobble %.4f)", softbodyPeakSquash,
+								softbodyPeakWobble);
+							softbodyPhase = SoftBodyPhase::Settle;
+							softbodyPhaseDeadline = frameCount + 1500;
+						}
+						else if (frameCount >= softbodyPhaseDeadline)
+						{
+							softbodyFail("the falling blob never "
+								"squashed+wobbled on landing");
+						}
+					}
+				}
+				else if (softbodyPhase == SoftBodyPhase::Settle)
+				{
+					if (fall && !fall->isDeforming() &&
+						fall->getDeformDisplacement() < 1.0e-3f)
+					{
+						SDL_Log("orkige_player: softbody selfcheck - FallBlob "
+							"wobble decayed back to the rest pose");
+						softbodyPhase = SoftBodyPhase::Morph;
+						softbodyPhaseDeadline = frameCount + 900;
+					}
+					else if (frameCount >= softbodyPhaseDeadline)
+					{
+						softbodyFail("the blob's wobble never decayed back to "
+							"rest");
+					}
+				}
+				else if (softbodyPhase == SoftBodyPhase::Morph)
+				{
+					if (morph && morph->getMorphTargetCount() > 0 &&
+						softbodyMorphPeak > 0.01f)
+					{
+						SDL_Log("orkige_player: softbody selfcheck complete - "
+							"physics squash+wobble, exact return to rest, and "
+							"the Lua-driven morph (peak %.4f, %zu target(s)) all "
+							"verified", softbodyMorphPeak,
+							morph->getMorphTargetCount());
+						softbodyPhase = SoftBodyPhase::Done;
+						running = false;
+					}
+					else if (frameCount >= softbodyPhaseDeadline)
+					{
+						softbodyFail("the Lua-driven morph never deformed the "
+							"MorphBlob");
+					}
+				}
+			}
+			if (softbodyCheck && softbodyCheckFailed)
 			{
 				exitCode = 1;
 				running = false;

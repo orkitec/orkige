@@ -81,11 +81,21 @@ namespace Orkige
 		oAssert(this->mesh);
 		this->mesh->clear();
 		this->triangleCount = indexCount / 3;
+		this->vertexCount = 0;
+		this->indices.clear();
 		if(vertexCount == 0 || vertices == NULL || indexCount < 3 ||
 			indices == NULL)
 		{
 			this->triangleCount = 0;
 			return;	// nothing to draw
+		}
+		// cache the topology so a later beginUpdate can re-emit it without the
+		// owner passing indices again (the dynamic deform only sends vertices)
+		this->vertexCount = vertexCount;
+		this->indices.resize(indexCount);
+		for(std::size_t each = 0; each < indexCount; ++each)
+		{
+			this->indices[each] = static_cast<Ogre::uint32>(indices[each]);
 		}
 		this->mesh->estimateVertexCount(vertexCount);
 		this->mesh->estimateIndexCount(indexCount);
@@ -100,14 +110,42 @@ namespace Orkige
 		const std::size_t triangles = indexCount / 3;
 		for(std::size_t t = 0; t < triangles; ++t)
 		{
-			this->mesh->triangle(
-				static_cast<Ogre::uint32>(indices[t * 3 + 0]),
-				static_cast<Ogre::uint32>(indices[t * 3 + 1]),
-				static_cast<Ogre::uint32>(indices[t * 3 + 2]));
+			this->mesh->triangle(this->indices[t * 3 + 0],
+				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
 		}
 		this->mesh->end();
 		this->mesh->setRenderQueueGroup(
 			RenderBackend::renderQueueForZOrder(this->zOrder));
+	}
+	//---------------------------------------------------------
+	void VectorMesh::Impl::updateVertices(VectorMesh::Vertex const * vertices,
+		std::size_t count)
+	{
+		oAssert(this->mesh);
+		// only a topology-preserving refresh of a built section (setMesh first);
+		// a mismatch falls back silently so a stale caller can't corrupt the buffer
+		if(this->vertexCount == 0 || count != this->vertexCount ||
+			vertices == NULL || this->indices.empty())
+		{
+			return;
+		}
+		// beginUpdate reuses the VaoManager-backed buffers when the counts match:
+		// re-emit the moved vertices and the cached topology
+		this->mesh->beginUpdate(0);
+		for(std::size_t each = 0; each < count; ++each)
+		{
+			VectorMesh::Vertex const & vertex = vertices[each];
+			this->mesh->position(
+				Ogre::Vector3(vertex.position.x, vertex.position.y, 0.0f));
+			this->mesh->colour(vertex.colour);
+		}
+		const std::size_t triangles = this->indices.size() / 3;
+		for(std::size_t t = 0; t < triangles; ++t)
+		{
+			this->mesh->triangle(this->indices[t * 3 + 0],
+				this->indices[t * 3 + 1], this->indices[t * 3 + 2]);
+		}
+		this->mesh->end();
 	}
 	//---------------------------------------------------------
 	VectorMesh::VectorMesh()
@@ -153,6 +191,12 @@ namespace Orkige
 		unsigned int const * indices, std::size_t indexCount)
 	{
 		this->mImpl->rebuild(vertices, vertexCount, indices, indexCount);
+	}
+	//---------------------------------------------------------
+	void VectorMesh::updateVertices(Vertex const * vertices,
+		std::size_t vertexCount)
+	{
+		this->mImpl->updateVertices(vertices, vertexCount);
 	}
 	//---------------------------------------------------------
 	std::size_t VectorMesh::getTriangleCount() const

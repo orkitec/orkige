@@ -14,6 +14,8 @@
 #include "engine_render/VectorMesh.h"
 #include "engine_util/SceneNodeGuard.h"
 #include "core_util/VectorTessellator.h"
+#include "core_util/VectorShapeAsset.h"
+#include "core_util/SoftBodyDeform.h"
 
 #include <vector>
 
@@ -33,8 +35,20 @@ namespace Orkige
 	//! so one asset recolours per instance.
 	//!
 	//! The component keeps the parsed contours (mRegions) AND the built mesh so
-	//! a later deformable phase can perturb the contours and re-push through the
-	//! same VectorMesh::setMesh refill contract with no facade change.
+	//! the deformable path can perturb them and re-push through the VectorMesh
+	//! refill contract with no facade change.
+	//!
+	//! SOFT BODY (opt-in, `softBody` property): the shape becomes a soft,
+	//! deformable organic shape. The rest mesh is tessellated ONCE and skinned to
+	//! a handful of control points (@see SoftBodyDeform); per gameplay tick only
+	//! the control points move - from wobble springs, a physics-driven
+	//! squash/stretch and morph blending - and the deformed vertices upload
+	//! through the DYNAMIC VectorMesh::updateVertices fast path. A sibling
+	//! RigidBodyComponent drives it: a contact squashes the shape along the
+	//! impact and kicks the wobble; the body's velocity stretches it along the
+	//! motion. The physics body itself stays a rigid shape - the softness is
+	//! purely visual. Like ScriptComponent this is DORMANT unless a runtime ticks
+	//! GameObjects (the editor never deforms), so authoring stays static/WYSIWYG.
 	class ORKIGE_ENGINE_DLL VectorShapeComponent
 		: public GameObjectComponent, public SceneNodeGuard
 	{
@@ -55,6 +69,21 @@ namespace Orkige
 		float				mEdgeSoftness;	//!< feather width, shape-local (0 = auto from bounds)
 		int					mZOrder;		//!< shape sort order (see remarks)
 		bool				mVisible;		//!< shape visibility (applied to the scene node)
+
+		//--- soft body (@see the class remarks) ---
+		std::vector<VectorShapeAsset::MorphTarget>	mMorphTargets;	//!< parsed morph poses (kept for a deformer rebuild)
+		SoftBodyDeform		mDeform;		//!< the fixed-topology deformer (built when soft-body is on)
+		SoftBodyDeform::Params	mDeformParams;	//!< live wobble/squash tunables
+		bool				mSoftBody;		//!< is the shape a soft, deformable body
+		int					mMorphClip;		//!< selected morph target index (-1 = none)
+		float				mMorphSpeed;	//!< morph blend speed (phase per second)
+		bool				mMorphLoop;		//!< ping-pong the selected morph
+		float				mBodyVelX;		//!< cached sibling body velocity (impact magnitude + stretch)
+		float				mBodyVelY;
+		bool				mDeformDirty;	//!< the deform uploaded geometry last tick (one settle upload owed)
+		bool				mDeformFreshBuild;	//!< a setMesh happened; defer the first dynamic upload one frame (the next backend forbids mapping a buffer twice per frame)
+		std::vector<VectorMesh::Vertex>	mDeformVertices;	//!< reused upload buffer (fixed tinted colours, moving positions)
+		std::vector<VectorTessellator::Point>	mDeformPositions;	//!< reused deformed-position scratch
 	private:
 		//--- Methods -----------------------------------------------
 	public:
@@ -110,6 +139,77 @@ namespace Orkige
 		{
 			this->setTint(tint.r, tint.g, tint.b, tint.a);
 		}
+
+		//--- soft body ---------------------------------------------
+		//! @brief turn the shape into a soft, deformable body (or back to a
+		//! static shape). Enabling builds the deformer over the current shape and
+		//! starts ticking; disabling restores the exact rest pose and stops.
+		void setSoftBodyEnabled(bool enabled);
+		//! is the shape a soft, deformable body
+		inline bool isSoftBodyEnabled() const { return this->mSoftBody; }
+		//! wobble spring stiffness (higher = faster, tighter jiggle)
+		void setWobbleStiffness(float stiffness);
+		//! @see VectorShapeComponent::setWobbleStiffness
+		inline float getWobbleStiffness() const
+		{
+			return this->mDeformParams.wobbleStiffness;
+		}
+		//! wobble spring damping (higher = the jiggle settles sooner)
+		void setWobbleDamping(float damping);
+		//! @see VectorShapeComponent::setWobbleDamping
+		inline float getWobbleDamping() const
+		{
+			return this->mDeformParams.wobbleDamping;
+		}
+		//! how strongly a contact kicks the wobble (0 = no jiggle)
+		void setWobbleAmount(float amount);
+		//! @see VectorShapeComponent::setWobbleAmount
+		inline float getWobbleAmount() const
+		{
+			return this->mDeformParams.wobbleAmount;
+		}
+		//! how deeply a contact squashes the shape (0 = no squash)
+		void setSquashAmount(float amount);
+		//! @see VectorShapeComponent::setSquashAmount
+		inline float getSquashAmount() const
+		{
+			return this->mDeformParams.squashAmount;
+		}
+		//! selected morph target index (-1 = none); see playMorph
+		void setMorphClip(int index);
+		//! @see VectorShapeComponent::setMorphClip
+		inline int getMorphClip() const { return this->mMorphClip; }
+		//! morph blend speed in phase units per second
+		void setMorphSpeed(float speed);
+		//! @see VectorShapeComponent::setMorphSpeed
+		inline float getMorphSpeed() const { return this->mMorphSpeed; }
+		//! ping-pong the selected morph target
+		void setMorphLoop(bool loop);
+		//! @see VectorShapeComponent::setMorphLoop
+		inline bool getMorphLoop() const { return this->mMorphLoop; }
+
+		//--- soft body: Lua / scripted drive ---
+		//! @brief kick a squash+wobble along (dirX,dirY) with the given magnitude
+		//! (the manual, non-physics impulse hook - a jump landing, a hit). No-op
+		//! unless the shape is a soft body.
+		void impulse(float dirX, float dirY, float magnitude);
+		//! @brief start blending toward morph target index at speed, optionally
+		//! looping (ping-pong). An invalid index is ignored.
+		void playMorph(int index, float speed, bool loop);
+		//! @brief stop the morph blend (holds the current pose)
+		void stopMorph();
+
+		//--- soft body: introspection (selfcheck / MCP / debug) ---
+		//! largest current vertex displacement from rest (0 at rest)
+		float getDeformDisplacement() const;
+		//! current squash fraction applied this tick (0 at rest)
+		float getSquash() const;
+		//! is the deform currently off its rest pose (soft body, not settled)
+		bool isDeforming() const;
+		//! control points the deformer skins to (0 unless a soft body is built)
+		std::size_t getControlPointCount() const;
+		//! registered morph targets (from the shape asset)
+		std::size_t getMorphTargetCount() const;
 	protected:
 		//! component override: create the child scene node (SpriteComponent recipe)
 		virtual void onAdd();
@@ -119,6 +219,19 @@ namespace Orkige
 		virtual void onSetActive(bool activeInHierarchy);
 		//! tessellate mRegions (tint + feather) into mBuilt and push to the mesh
 		void rebuildMesh();
+		//! per-tick soft-body deform: advance the springs/squash/morph and upload
+		//! the moved vertices through the DYNAMIC path (dormant unless soft-body
+		//! is on and a runtime ticks GameObjects)
+		virtual void onUpdateComponent(float deltaTime);
+		//! @brief (re)build the deformer over the current rest mesh + morph
+		//! targets and prime the reused upload buffers; enables ticking. No-op
+		//! unless soft-body is on and a mesh exists.
+		void rebuildDeformer();
+		//! push the live wobble/squash tunables to the built deformer
+		void applyDeformParams();
+		//! @brief sibling-RigidBody contact: squash along the cached approach
+		//! velocity (the impact normal) and kick the wobble. @see the class remarks
+		bool onContactBegan(Event const & event);
 		//! apply the EFFECTIVE visibility to the node (own flag AND owner active)
 		void applyVisibility();
 		//! push zOrder + node scale onto the live mesh/node

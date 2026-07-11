@@ -13,6 +13,7 @@
 #include "engine_gocomponent/RigidBodyComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/ParticleComponent.h"
+#include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_graphic/ScreenFade.h"
@@ -503,6 +504,12 @@ namespace Orkige
 		{
 			instance->setSelfValue("particles",
 				componentOwner->getComponentPtr<ParticleComponent>());
+		}
+		if (componentOwner->hasComponent<VectorShapeComponent>())
+		{
+			// self.shape:impulse(...) / :playMorph(...) drive the soft-body deform
+			instance->setSelfValue("shape",
+				componentOwner->getComponentPtr<VectorShapeComponent>());
 		}
 		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables

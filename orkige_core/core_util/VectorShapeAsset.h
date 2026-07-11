@@ -24,6 +24,11 @@
 //!   contour N                     N follows as N `v x y` lines (the outer loop)
 //!   v  x y                        one contour/hole vertex (world units, +y up)
 //!   hole M                        optional inner loop cut out of the region
+//!   morph NAME                    opens a MORPH TARGET: a same-structure pose
+//!                                 (its own fill/contour/v/hole run) the runtime
+//!                                 blends toward for soft-shape squash/stretch
+//!                                 animation. Everything before the first `morph`
+//!                                 is the BASE pose; each `morph` starts another.
 //! Reserved words for later phases (stroke/gradient) are ignored when present.
 
 #include "core_util/VectorTessellator.h"
@@ -36,15 +41,37 @@ namespace Orkige
 	class VectorShapeAsset
 	{
 	public:
-		//! @brief parse `.oshape` text into filled regions.
-		//! @return true on a well-formed shape (>= 1 region, every contour
-		//! count honoured, every filled region >= 3 vertices). On ANY
-		//! malformation (bad/negative counts, truncated vertex runs, a region
-		//! with no fill) it returns false and leaves outRegions EMPTY - the
-		//! honest fallback the component treats as "no shape" (SpriteComponent's
-		//! atlas-parse discipline), never a crash.
+		//--- Types -------------------------------------------------
+		//! one named morph pose: a same-structure region set the runtime blends
+		//! toward (@see SoftBodyDeform). Topology matching against the base is the
+		//! consumer's check (the deformer rejects a mismatch honestly).
+		struct MorphTarget
+		{
+			String								name;		//!< target name from the asset
+			std::vector<VectorTessellator::Region>	regions;	//!< this pose's regions
+		};
+		//! a parsed shape: the base pose plus any morph targets
+		struct ParsedShape
+		{
+			std::vector<VectorTessellator::Region>	base;	//!< the rest pose regions
+			std::vector<MorphTarget>			morphs;	//!< optional morph poses
+		};
+
+		//! @brief parse `.oshape` text into filled regions (BASE pose only - a
+		//! backward-compatible convenience over the full parse; morph targets are
+		//! discarded). @see parse(String const&, ParsedShape&) for the full form.
+		//! @return true on a well-formed shape (>= 1 region, every contour count
+		//! honoured, every filled region >= 3 vertices). On ANY malformation it
+		//! returns false and leaves outRegions EMPTY - the honest "no shape"
+		//! fallback (SpriteComponent's atlas-parse discipline), never a crash.
 		static bool parse(String const & text,
 			std::vector<VectorTessellator::Region> & outRegions);
+		//! @brief parse `.oshape` text into the base pose AND its morph targets.
+		//! Each region set (base and every morph) must independently be
+		//! well-formed; otherwise returns false and leaves out EMPTY. Topology
+		//! agreement between base and morphs is NOT enforced here (the deformer
+		//! reports a mismatch), so a partly-authored file still loads its base.
+		static bool parse(String const & text, ParsedShape & out);
 	};
 }
 

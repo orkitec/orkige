@@ -728,6 +728,23 @@ if(TARGET orkige_player)
         set_tests_properties(player_roller_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_ROLLER_SELFCHECK=1;ORKIGE_PROGRESS_RESET=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/roller_progress_selfcheck")
 
+        # SOFT, DEFORMABLE ORGANIC SHAPES, end to end: projects/vectorshapes
+        # scenes/softbody.oscene - a blob with a dynamic RigidBody falls onto a
+        # static floor and (a) SQUASHES on the contact + WOBBLES (the vertices
+        # move off rest via the dynamic deform upload), then (b) returns to its
+        # EXACT rest pose as the springs decay, while (c) a second blob is
+        # deformed by a Lua self.shape:playMorph call. The player also logs the
+        # MEASURED per-frame deform cost (the mobile budget). Runs on both render
+        # flavors (the deform is renderer-neutral; the upload goes through the
+        # VectorMesh dynamic path on each backend). See the ORKIGE_SOFTBODY_
+        # SELFCHECK block in tools/player/main.cpp.
+        add_test(NAME player_softbody_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player projects/vectorshapes/scenes/softbody.oscene
+                --project projects/vectorshapes
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_softbody_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_SOFTBODY_SELFCHECK=1")
+
         # roller LEVELS + PROGRESSION, end to end: solve level 1 (the
         # proven slide + roll), assert the runtime SWITCHED to level 2 via the
         # DEFERRED scene load (shared.roller.levelIndex incremented + the
@@ -1012,6 +1029,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_debug_pause
         player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_softbody_selfcheck player_softbody_selfcheck_next
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
@@ -1047,6 +1065,7 @@ foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_play_simulator editor_play_android
         jumper_selfcheck player_jumper_lua_selfcheck player_roller_selfcheck
         player_jumper_lua_selfcheck_next player_roller_selfcheck_next
+        player_softbody_selfcheck player_softbody_selfcheck_next
         player_roller_progression_selfcheck
         player_roller_progression_selfcheck_next
         # the export tests package a whole bundle and (macos) run the

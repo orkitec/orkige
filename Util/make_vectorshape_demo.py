@@ -61,7 +61,12 @@ class SceneWriter:
         ]))
 
     def vector_shape(self, shape, z_order=0, tint=(1, 1, 1, 1), scale=1.0,
-                     edge_softness=0.0, visible=True):
+                     edge_softness=0.0, visible=True, soft_body=False,
+                     wobble_stiffness=140.0, wobble_damping=7.0,
+                     wobble_amount=1.0, squash_amount=0.5, morph_clip=-1,
+                     morph_speed=1.0, morph_loop=False):
+        # the soft-body tunables come BEFORE the shape ref so the deformer the
+        # shape builds picks them up (the shape ref is applied last)
         return ("VectorShapeComponent", self._named([
             ("tint", K_COLOR, "%s %s %s %s" % tuple(fmt(float(c)) for c in tint),
              ""),
@@ -69,7 +74,54 @@ class SceneWriter:
             ("edgeSoftness", K_FLOAT, fmt(float(edge_softness)), ""),
             ("zOrder", K_INT, "%d" % z_order, ""),
             ("visible", K_BOOL, fmt(visible), ""),
+            ("softBody", K_BOOL, fmt(soft_body), ""),
+            ("wobbleStiffness", K_FLOAT, fmt(float(wobble_stiffness)), ""),
+            ("wobbleDamping", K_FLOAT, fmt(float(wobble_damping)), ""),
+            ("wobbleAmount", K_FLOAT, fmt(float(wobble_amount)), ""),
+            ("squashAmount", K_FLOAT, fmt(float(squash_amount)), ""),
+            ("morphClip", K_INT, "%d" % morph_clip, ""),
+            ("morphSpeed", K_FLOAT, fmt(float(morph_speed)), ""),
+            ("morphLoop", K_BOOL, fmt(morph_loop), ""),
             ("shape", K_ASSETREF, shape, ""),
+        ]))
+
+    def rigid_sphere(self, radius, mass=1.0, friction=0.5, restitution=0.0,
+                     planar=True, layer="Default"):
+        return ("RigidBodyComponent", self._named([
+            ("bodyType", K_ENUM, "2", ""),          # BT_DYNAMIC
+            ("shapeType", K_ENUM, "1", ""),         # ST_SPHERE
+            ("halfExtents", K_VEC3, "0.5 0.5 0.5", ""),
+            ("radius", K_FLOAT, fmt(float(radius)), ""),
+            ("halfHeight", K_FLOAT, "0.5", ""),
+            ("mass", K_FLOAT, fmt(float(mass)), ""),
+            ("friction", K_FLOAT, fmt(float(friction)), ""),
+            ("restitution", K_FLOAT, fmt(float(restitution)), ""),
+            ("planar", K_BOOL, fmt(planar), ""),
+            ("layer", K_STRING, layer, ""),
+            ("isSensor", K_BOOL, "0", ""),
+        ]))
+
+    def rigid_box(self, hx, hy, hz, body_type=0, friction=0.6, layer="Default"):
+        return ("RigidBodyComponent", self._named([
+            ("bodyType", K_ENUM, "%d" % body_type, ""),
+            ("shapeType", K_ENUM, "0", ""),         # ST_BOX
+            ("halfExtents", K_VEC3, "%s %s %s" % (fmt(float(hx)),
+                                                  fmt(float(hy)),
+                                                  fmt(float(hz))), ""),
+            ("radius", K_FLOAT, "0.5", ""),
+            ("halfHeight", K_FLOAT, "0.5", ""),
+            ("mass", K_FLOAT, "1", ""),
+            ("friction", K_FLOAT, fmt(float(friction)), ""),
+            ("restitution", K_FLOAT, "0", ""),
+            ("planar", K_BOOL, "0", ""),
+            ("layer", K_STRING, layer, ""),
+            ("isSensor", K_BOOL, "0", ""),
+        ]))
+
+    def script(self, path, enabled=True):
+        return ("ScriptComponent", self._named([
+            ("script", K_ASSETREF, path, ""),
+            ("enabled", K_BOOL, fmt(enabled), ""),
         ]))
 
     def add(self, name, *components):
@@ -126,6 +178,26 @@ def star_oshape(fill, points=5):
     return "\n".join(lines) + "\n"
 
 
+def blob_morph_oshape(fill, n=16):
+    """An organic blob PLUS one same-structure morph target (a wide squash pose)
+    - the soft-body morph example. Both contours have the SAME vertex count and
+    order, so the runtime blends control point for control point."""
+    def contour(radius_scale_x, radius_scale_y):
+        out = ["fill %.3f %.3f %.3f %.3f" % fill, "contour %d" % n]
+        for i in range(n):
+            angle = 2.0 * math.pi * i / n
+            r = 1.0 + 0.1 * math.sin(angle * 3.0)
+            out.append("v %.4f %.4f" % (radius_scale_x * r * math.cos(angle),
+                                        radius_scale_y * r * math.sin(angle)))
+        return out
+    lines = ["# orkige vector shape v1 - blob with a squash morph target",
+             "version 1"]
+    lines += contour(1.0, 1.0)          # base (round)
+    lines.append("morph squash")
+    lines += contour(1.35, 0.6)         # target (wide + flat)
+    return "\n".join(lines) + "\n"
+
+
 def main():
     default = Path(__file__).resolve().parent.parent / "projects/vectorshapes"
     project_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default
@@ -134,8 +206,15 @@ def main():
     assets.mkdir(parents=True, exist_ok=True)
     scenes.mkdir(parents=True, exist_ok=True)
 
+    scripts = project_dir / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+
     (assets / "blob.oshape").write_text(blob_oshape((0.90, 0.45, 0.40, 1.0)))
     (assets / "star.oshape").write_text(star_oshape((1.0, 0.82, 0.30, 1.0)))
+    (assets / "softblob.oshape").write_text(
+        blob_oshape((0.95, 0.55, 0.45, 1.0), seed=2))
+    (assets / "morphblob.oshape").write_text(
+        blob_morph_oshape((0.55, 0.80, 0.95, 1.0)))
 
     scene = SceneWriter()
     # three overlapping instances at rising zOrders + distinct tints: the
@@ -154,6 +233,40 @@ def main():
                                  tint=(0.4, 0.7, 0.9, 1.0)))
     scene.write(scenes / "main.oscene")
 
+    # the SOFT-BODY scene: a deformable blob with a dynamic RigidBody falls onto
+    # a static floor - it squashes on landing and wobbles (the physics-driven
+    # deform) - plus a MorphBlob whose Lua script blends a squash morph (the
+    # scripted deform drive). Verified by the softbody selfcheck.
+    soft = SceneWriter()
+    soft.add("Floor",
+             soft.transform(0.0, -3.0),
+             soft.rigid_box(4.0, 0.5, 1.0, body_type=0))
+    soft.add("FallBlob",
+             soft.transform(0.0, 2.5),
+             soft.rigid_sphere(1.0, planar=True),
+             soft.vector_shape("softblob.oshape", z_order=2,
+                               tint=(0.95, 0.55, 0.45, 1.0), soft_body=True,
+                               squash_amount=0.6, wobble_amount=1.2))
+    soft.add("MorphBlob",
+             soft.transform(-3.0, 0.0),
+             soft.vector_shape("morphblob.oshape", z_order=1,
+                               tint=(0.55, 0.80, 0.95, 1.0), soft_body=True,
+                               morph_clip=0, morph_speed=1.5, morph_loop=True),
+             soft.script("scripts/morph.lua"))
+    soft.write(scenes / "softbody.oscene")
+
+    # the morph driver: on init it plays the shape's first morph target on a
+    # loop (proving the Lua self.shape drive of a soft, deformable shape)
+    (scripts / "morph.lua").write_text(
+        "-- drive a looping squash morph on the sibling soft-body shape\n"
+        "function init(self)\n"
+        "    if self.shape then\n"
+        "        self.shape:playMorph(0, 1.5, true)\n"
+        "    end\n"
+        "end\n"
+        "function update(self, dt)\n"
+        "end\n")
+
     manifest = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<OrkigeProject version="1">\n'
                 '    <Name>VectorShapes</Name>\n'
@@ -161,7 +274,7 @@ def main():
                 '</OrkigeProject>\n')
     (project_dir / "project.orkproj").write_text(manifest)
 
-    print("wrote %s (2 shapes, 3 instances)" % project_dir)
+    print("wrote %s (4 shapes, main + softbody scenes)" % project_dir)
     return 0
 
 

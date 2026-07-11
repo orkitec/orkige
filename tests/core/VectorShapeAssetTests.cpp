@@ -126,3 +126,52 @@ TEST_CASE("vectorshape_parse_ignores_reserved_words", "[unit][vectorshape]")
 	REQUIRE(regions.size() == 1u);
 	CHECK(regions[0].outer.size() == 3u);
 }
+
+TEST_CASE("vectorshape_parse_morph_targets", "[unit][vectorshape]")
+{
+	// a base square plus one same-structure morph target (a squished square):
+	// the full parse returns the base AND the named target, each well-formed
+	const String text =
+		"version 1\n"
+		"fill 1 0 0 1\n"
+		"contour 4\n"
+		"v -1 -1\nv 1 -1\nv 1 1\nv -1 1\n"
+		"morph squish\n"
+		"fill 1 0 0 1\n"
+		"contour 4\n"
+		"v -1 -0.5\nv 1 -0.5\nv 1 0.5\nv -1 0.5\n";
+	VectorShapeAsset::ParsedShape parsed;
+	REQUIRE(VectorShapeAsset::parse(text, parsed));
+	REQUIRE(parsed.base.size() == 1u);
+	CHECK(parsed.base[0].outer.size() == 4u);
+	REQUIRE(parsed.morphs.size() == 1u);
+	CHECK(parsed.morphs[0].name == "squish");
+	REQUIRE(parsed.morphs[0].regions.size() == 1u);
+	CHECK(parsed.morphs[0].regions[0].outer.size() == 4u);
+
+	// the base-only convenience overload discards the morphs but still succeeds
+	std::vector<VectorTessellator::Region> baseOnly;
+	REQUIRE(VectorShapeAsset::parse(text, baseOnly));
+	REQUIRE(baseOnly.size() == 1u);
+	CHECK(baseOnly[0].outer.size() == 4u);
+}
+
+TEST_CASE("vectorshape_parse_rejects_malformed_morph", "[unit][vectorshape]")
+{
+	// a morph target with a truncated contour is a malformation: the whole
+	// parse fails and yields nothing (never a half-loaded shape)
+	const String text =
+		"fill 1 1 1 1\n"
+		"contour 3\nv 0 0\nv 1 0\nv 0 1\n"
+		"morph broken\n"
+		"fill 1 1 1 1\n"
+		"contour 3\nv 0 0\nv 1 0\n";	// one vertex short
+	VectorShapeAsset::ParsedShape parsed;
+	CHECK_FALSE(VectorShapeAsset::parse(text, parsed));
+	CHECK(parsed.base.empty());
+	CHECK(parsed.morphs.empty());
+
+	// a morph before any base pose is also rejected
+	const String noBase = "morph early\nfill 1 1 1 1\ncontour 3\nv 0 0\nv 1 0\nv 0 1\n";
+	CHECK_FALSE(VectorShapeAsset::parse(noBase, parsed));
+}

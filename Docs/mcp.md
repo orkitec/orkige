@@ -174,6 +174,21 @@ Configure `shape` (the AssetRef, set by resource name like a sprite `texture`),
 with no per-surface wiring. Verify with `screenshot_game` / the scene RTT and
 run it with `play`.
 
+**Soft, deformable organic shapes** need NO new verb either. The soft-body
+tunables — `softBody`, `wobbleStiffness`/`wobbleDamping`/`wobbleAmount`,
+`squashAmount`, `morphClip`/`morphSpeed`/`morphLoop` — are reflected properties
+on the SAME `VectorShapeComponent`, so `get_component` / `set_component` (edit
+mode) and `set_runtime_property` (a running game) tune them with zero extra
+plumbing. The scripted drive (`impulse`, `playMorph`, `stopMorph`) is exposed to
+Lua on `self.shape` (the component's `OFUNC` exports), so an agent authors the
+behaviour by writing the project script with `write_project_file`. Author a
+morph set by writing an `.oshape` with `morph NAME` blocks directly, or cook one
+from pose SVGs with `Util/cook_shapes.py --targets`. Observe the deform on the
+running game: a `record_trace` captures per-frame object positions (the deformed
+silhouette rides its node) AND `contact` events (the impacts that squash it), and
+`get_component` reads the live squash/wobble state back through the reflected
+introspection getters.
+
 ### Game UI (fastgui) — authoring vs. readback
 
 Game UI is authored in Lua and project files — screens are built by

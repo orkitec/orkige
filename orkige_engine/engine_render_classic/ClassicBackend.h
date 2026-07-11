@@ -140,12 +140,19 @@ namespace Orkige
 		Ogre::SceneManager*	creator = NULL;
 		int					zOrder = 0;
 		std::size_t			triangleCount = 0;		//!< triangles in the mesh right now
+		std::size_t			vertexCount = 0;		//!< vertices in the built section (dynamic-update guard)
+		std::vector<Ogre::uint32>	indices;		//!< cached topology, re-emitted by beginUpdate on a dynamic update
 		optr<RenderNode>	attachedTo;
 
 		//! (re)build the manual object from an arbitrary CPU vertex + index
 		//! array (untextured, vertex colour); empty arrays leave it geometry-free
 		void rebuild(VectorMesh::Vertex const * vertices, std::size_t vertexCount,
 			unsigned int const * indices, std::size_t indexCount);
+		//! rewrite ONLY the vertex positions/colours of the built section via
+		//! beginUpdate (topology reused from the cached indices); a count
+		//! mismatch or an un-built mesh is ignored
+		void updateVertices(VectorMesh::Vertex const * vertices,
+			std::size_t vertexCount);
 	};
 
 	struct RenderCamera::Impl

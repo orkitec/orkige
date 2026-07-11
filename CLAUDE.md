@@ -399,6 +399,30 @@ look when touching one:
   `cook_shapes.py` (subprocess; the source `.svg` is not kept), and `.oshape`
   assets show a real thumbnail — the tessellated fill CPU-rasterized by the pure
   `core_util/VectorShapeRaster` and uploaded via `createTexture2D`.
+  **Soft, deformable organic shapes** (`softBody` on `VectorShapeComponent`,
+  both flavors): the rest mesh is tessellated ONCE and skinned to a few contour
+  CONTROL POINTS (translation-only linear-blend skinning — the exact formulation
+  a future vertex-shader path would consume); per gameplay tick only the control
+  points move and the deformed vertices upload through the DYNAMIC
+  `VectorMesh::updateVertices` fast path (ManualObject `beginUpdate` on both
+  backends — the classic v1 object and the next SCENE_DYNAMIC v2 object; the next
+  backend forbids mapping a buffer twice per frame, so the component defers the
+  first upload one tick after any `setMesh`). Three drivers, all moving the same
+  control points so they compose: per-control-point WOBBLE springs
+  (`core_util/WobbleSpring`, snap-to-exact-rest so the shape returns with no
+  drift), a physics-driven volume-preserving SQUASH/STRETCH (a sibling
+  `RigidBodyComponent` contact squashes along the impact + kicks the wobble; the
+  body's velocity stretches along the motion — the physics body stays a rigid
+  circle), and same-topology MORPH targets (`.oshape` `morph` blocks;
+  `cook_shapes.py --targets` cooks a multi-SVG morph set with a clear
+  structure-mismatch error). The deform math is the pure, headless-unit-tested
+  `core_util/SoftBodyDeform` (allocation-free per frame; the player selfcheck
+  logs a measured per-frame cost — ~4 µs/blob at 72 verts / 16 control points).
+  Lua drive via `self.shape` (`impulse`/`playMorph`/`stopMorph`); the wobble/
+  squash/morph tunables are reflected properties (inspector/serialization/MCP).
+  `projects/vectorshapes/scenes/softbody.oscene` is the sample (falling blob +
+  Lua-morphed blob), verified by the `player_softbody_selfcheck` ctest on both
+  flavors.
 - **Game UI** (`engine_fastgui`, both flavors): the retained widget set (label/
   button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
   Lua-authored via `FastGuiFactory` (`createCheckBox`/`createSlider`/

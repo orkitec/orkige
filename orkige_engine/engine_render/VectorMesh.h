@@ -32,8 +32,11 @@ namespace Orkige
 	//! there is no per-shape material.
 	//!
 	//! The refill contract mirrors SpriteBatch::setQuads: setMesh copies a whole
-	//! CPU vertex+index array each call. Static shapes call it once; a future
-	//! deformable shape can call it per frame with no facade change.
+	//! CPU vertex+index array each call (establishing the topology). A deformable
+	//! shape then calls updateVertices per frame - the DYNAMIC fast path that
+	//! rewrites the existing vertex buffer IN PLACE (ManualObject::beginUpdate)
+	//! without re-specifying or reallocating the index/topology, so a jiggling
+	//! soft shape costs a buffer rewrite, not a section rebuild.
 	//!
 	//! Backend mapping (whole class): classic = Ogre::ManualObject
 	//! (OT_TRIANGLE_LIST) + the shared unlit vertex-colour "VectorFill"
@@ -82,6 +85,16 @@ namespace Orkige
 		//! map: all backends=rebuild the ManualObject from the arrays
 		void setMesh(Vertex const * vertices, std::size_t vertexCount,
 			unsigned int const * indices, std::size_t indexCount);
+		//! @brief DYNAMIC fast path: rewrite the vertex positions/colours of an
+		//! ALREADY-BUILT mesh WITHOUT changing topology - the per-frame deform
+		//! upload. vertexCount MUST equal the count from the last setMesh (the
+		//! index list is unchanged and reused); a mismatch, an empty mesh or a
+		//! mesh never given a setMesh is ignored (call setMesh first). Cheaper
+		//! than setMesh: it reuses the existing hardware buffers instead of
+		//! rebuilding the section.
+		//! map: classic/next = ManualObject::beginUpdate(0) + re-emit vertices
+		//! and the cached indices
+		void updateVertices(Vertex const * vertices, std::size_t vertexCount);
 		//! how many triangles the mesh currently holds
 		std::size_t getTriangleCount() const;
 
