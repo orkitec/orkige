@@ -246,7 +246,9 @@ namespace Orkige
 			}
 		}
 
-		//! [Sprites] name "x y w h" entries
+		//! [Sprites] name "x y w h [l r t b]" entries: the optional trailing
+		//! four ints are nine-slice border insets (left/right/top/bottom, in
+		//! sprite pixels); absent = a plain stretched sprite
 		static void loadSprites(UiAtlas & atlas, Settings const & settings)
 		{
 			for(Settings::const_iterator i = settings.begin();
@@ -254,8 +256,8 @@ namespace Orkige
 			{
 				const String data = cleanValue(i->second);
 				const Ogre::StringVector values =
-					Ogre::StringUtil::split(data, " ", 4);
-				if(values.size() != 4)
+					Ogre::StringUtil::split(data, " ", 8);
+				if(values.size() != 4 && values.size() != 8)
 				{
 					continue;
 				}
@@ -268,6 +270,17 @@ namespace Orkige
 					Ogre::StringConverter::parseUnsignedInt(values[2]));
 				sprite.spriteHeight = Real(
 					Ogre::StringConverter::parseUnsignedInt(values[3]));
+				if(values.size() == 8)
+				{
+					sprite.sliceLeft = Real(
+						Ogre::StringConverter::parseUnsignedInt(values[4]));
+					sprite.sliceRight = Real(
+						Ogre::StringConverter::parseUnsignedInt(values[5]));
+					sprite.sliceTop = Real(
+						Ogre::StringConverter::parseUnsignedInt(values[6]));
+					sprite.sliceBottom = Real(
+						Ogre::StringConverter::parseUnsignedInt(values[7]));
+				}
 				atlas.mSprites[i->first] = sprite;
 			}
 		}

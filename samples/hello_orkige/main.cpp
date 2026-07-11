@@ -1204,6 +1204,166 @@ int main(int, char**)
 				"non-empty HUD batch)");
 		}
 
+		// ORKIGE_DEMO_LAYOUT=1: the nine-slice + rect-anchor layout selfcheck
+		// (flavor-neutral). Boots a real FastGuiManager on the committed atlas,
+		// builds an anchored, nine-sliced panel with a child pinned inside it,
+		// and asserts: the panel resolves to the window minus its anchor insets;
+		// enabling nine-slice emits MORE geometry (fixed corners + stretched
+		// edges) than a plain stretched quad; the child resolves inside the
+		// panel's rect; switching the root to the safe area re-lays-out the HUD
+		// off the (injected) notch inset with zero script maths; and a design
+		// resolution scales the layout geometry. Runs identically on classic +
+		// next (the resolver is pure, fastgui draws through DrawLayer2D).
+		if (std::getenv("ORKIGE_DEMO_LAYOUT"))
+		{
+			// deterministic geometry: force content scale 1 (glyph/corner
+			// density) and a known top+left safe inset for the safe-root leg
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			Orkige::SafeAreaInsets fakeInsets;
+			fakeInsets.mTop = 100;
+			fakeInsets.mLeft = 40;
+			Orkige::PlatformWindow::setSafeAreaInsetsOverride(fakeInsets);
+
+			render->addResourceLocation(ORKIGE_DEMO_FASTGUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+
+			bool layoutOk = true;
+			{
+				Orkige::optr<Orkige::FastGuiFactory> factory =
+					Orkige::onew(new Orkige::FastGuiFactory());
+				Orkige::FastGuiManager gui(factory, "fastgui_default");
+
+				const float W = static_cast<float>(engine.getWindowWidth());
+				const float H = static_cast<float>(engine.getWindowHeight());
+
+				// an anchored panel: fill the window minus a 20px inset on each
+				// edge (StretchAll + offsets). Its initial size is a placeholder
+				// the resolver overwrites.
+				Orkige::woptr<Orkige::FastGuiDecorWidget> panelWeak =
+					factory->createDecorWidget("layoutPanel", "panel",
+						Orkige::Vec2(0, 0), Orkige::Vec2(64, 64), "", 5);
+				Orkige::optr<Orkige::FastGuiDecorWidget> panel = panelWeak.lock();
+				if (!panel)
+				{
+					SDL_Log("hello_orkige: FAILED - layout panel not created");
+					layoutOk = false;
+				}
+				else
+				{
+					panel->setAnchorPreset("StretchAll");
+					panel->setOffsets(20, 20, -20, -20);
+
+					render->renderOneFrame();	// runs the resolve pass
+					const Orkige::Vec2 pos = panel->getPosition();
+					const Orkige::Vec2 size = panel->getSize();
+					if (std::abs(pos.x - 20.0f) > 1.5f ||
+						std::abs(pos.y - 20.0f) > 1.5f ||
+						std::abs(size.x - (W - 40.0f)) > 1.5f ||
+						std::abs(size.y - (H - 40.0f)) > 1.5f)
+					{
+						SDL_Log("hello_orkige: FAILED - anchored panel resolved to "
+							"(%.1f,%.1f %.1fx%.1f), expected ~(20,20 %.0fx%.0f)",
+							pos.x, pos.y, size.x, size.y, W - 40.0f, H - 40.0f);
+						layoutOk = false;
+					}
+
+					// nine-slice emits more geometry than a plain stretched quad
+					Orkige::woptr<Orkige::FastGuiView> view =
+						gui.getView("fastgui_default");
+					panel->setNineSlice(false);
+					render->renderOneFrame();
+					const size_t vertsPlain = view.lock()
+						? view.lock()->getScreen()->getLastVertexCount() : 0;
+					panel->setNineSlice(true);
+					render->renderOneFrame();
+					const size_t vertsNine = view.lock()
+						? view.lock()->getScreen()->getLastVertexCount() : 0;
+					if (vertsNine <= vertsPlain)
+					{
+						SDL_Log("hello_orkige: FAILED - nine-slice did not add "
+							"geometry (%zu vs plain %zu verts)",
+							vertsNine, vertsPlain);
+						layoutOk = false;
+					}
+
+					// a child pinned top-left INSIDE the panel resolves against
+					// the panel's rect (parent-relative), not the window
+					Orkige::woptr<Orkige::FastGuiButton> childWeak =
+						factory->createButton("layoutChild", "button", 9, "OK",
+							Orkige::Vec2(0, 0), Orkige::FastGuiLabel::LA_CENTER,
+							Orkige::Vec2(120, 40), "", 6, false,
+							Orkige::FastGuiButtonBlink::BBLINK_NONE);
+					Orkige::optr<Orkige::FastGuiButton> child = childWeak.lock();
+					if (child)
+					{
+						child->setParent(panel);
+						child->setAnchorPreset("TopLeft");
+						child->setSizeDelta(120, 40);
+						child->setAnchoredPosition(12, 12);
+						render->renderOneFrame();
+						const Orkige::Vec2 childPos = child->getPosition();
+						const Orkige::Vec2 panelPos = panel->getPosition();
+						if (std::abs(childPos.x - (panelPos.x + 12.0f)) > 1.5f ||
+							std::abs(childPos.y - (panelPos.y + 12.0f)) > 1.5f)
+						{
+							SDL_Log("hello_orkige: FAILED - child resolved to "
+								"(%.1f,%.1f), expected panel+(12,12)=(%.1f,%.1f)",
+								childPos.x, childPos.y, panelPos.x + 12.0f,
+								panelPos.y + 12.0f);
+							layoutOk = false;
+						}
+					}
+					else
+					{
+						SDL_Log("hello_orkige: FAILED - layout child not created");
+						layoutOk = false;
+					}
+
+					// switch the root to the safe area: the panel re-lays-out
+					// off the injected top/left insets with no script maths
+					gui.setRootSpace("SafeArea");
+					render->renderOneFrame();
+					const Orkige::Vec2 safePos = panel->getPosition();
+					if (std::abs(safePos.x -
+							(static_cast<float>(fakeInsets.mLeft) + 20.0f)) > 1.5f ||
+						std::abs(safePos.y -
+							(static_cast<float>(fakeInsets.mTop) + 20.0f)) > 1.5f)
+					{
+						SDL_Log("hello_orkige: FAILED - safe-area panel at "
+							"(%.1f,%.1f), expected inset+(20,20)=(%.1f,%.1f)",
+							safePos.x, safePos.y,
+							static_cast<float>(fakeInsets.mLeft) + 20.0f,
+							static_cast<float>(fakeInsets.mTop) + 20.0f);
+						layoutOk = false;
+					}
+
+					// a design resolution scales the layout geometry: half the
+					// live window as the design => layoutScale 2 => the 20px
+					// inset becomes 40px (in the safe root, from the left inset)
+					gui.setDesignResolution(W * 0.5f, H * 0.5f, 0.0f);
+					render->renderOneFrame();
+					const Orkige::Vec2 scaledPos = panel->getPosition();
+					if (std::abs(scaledPos.x -
+							(static_cast<float>(fakeInsets.mLeft) + 40.0f)) > 1.5f)
+					{
+						SDL_Log("hello_orkige: FAILED - design-scaled panel x=%.1f,"
+							" expected inset+40=%.1f", scaledPos.x,
+							static_cast<float>(fakeInsets.mLeft) + 40.0f);
+						layoutOk = false;
+					}
+				}
+			}
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			Orkige::PlatformWindow::clearSafeAreaInsetsOverride();
+			if (!layoutOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: layout selfcheck passed (anchored nine-slice "
+				"panel, parent-relative child, safe-area root re-layout, design "
+				"reference scale)");
+		}
+
 		// ORKIGE_DEMO_TEXTENTRY=1: the fastgui TextEntry selfcheck (flavor-
 		// neutral). Boots a real FastGuiManager on the committed atlas, creates a
 		// text field and drives it entirely through synthetic SDL events on the

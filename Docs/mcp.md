@@ -196,6 +196,19 @@ runtime bakes them at load. The engine-default font ships with every build, so a
 project can reference `Nunito-Regular.ttf` by name with no import at all. Text
 laid out with these fonts appears in `get_ui_layout` like any other widget.
 
+Nine-slice sprites and the rect-anchor layout model likewise need **no new
+verb**: both are plain-data widget properties an agent sets from the same Lua the
+game already uses (nine-slice = a 4-int inset suffix on a `[Sprites]` line +
+`setNineSlice(true)` on the widget; layout = `setParent`/`setAnchorPreset`/
+`setOffsets`/`setAnchoredPosition`/`setSizeDelta` on a widget plus
+`setDesignResolution`/`setRootSpace` on the manager). Because the layout
+descriptor (`core_util/UiLayout` `LayoutNode`) is pure plain data, it serialises
+1:1 into the future declarative UI file, so the same properties an agent writes in
+Lua today are exactly what a `.oui`-authoring verb would carry. The resolved
+absolute rects — the resolver's output — read back through the existing
+`get_ui_layout`, so an agent verifies an anchored/nine-sliced HUD the same way it
+verifies any widget (and combines it with `get_safe_area` for the notch check).
+
 The machine-checkable "HUD respects the notch" assertion is: for every
 visible widget from `get_ui_layout`, its rect lies inside
 `[safe_left, window_w-safe_right] × [safe_top, window_h-safe_bottom]` from

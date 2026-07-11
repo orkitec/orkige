@@ -412,16 +412,16 @@ glyph_125 506 404 32 56 40
 glyph_126 540 404 40 56 48
 
 [Sprites]
-panel 0 466 48 48
-button 52 466 64 24
-button_over 120 466 64 24
-button_down 188 466 64 24
-button_disabled 256 466 64 24
-progressbar 0 518 96 16
+panel 0 466 48 48 12 12 12 12
+button 52 466 64 24 8 8 8 8
+button_over 120 466 64 24 8 8 8 8
+button_down 188 466 64 24 8 8 8 8
+button_disabled 256 466 64 24 8 8 8 8
+progressbar 0 518 96 16 6 6 6 6
 progressbar_bar 100 518 88 10
 checkbox_off 0 538 28 28
 checkbox_on 32 538 28 28
-select_menu_field 64 538 96 24
+select_menu_field 64 538 96 24 8 8 8 8
 select_menu_field_left 164 538 16 24
 select_menu_field_right 184 538 16 24
 select_menu_pin 204 538 20 24

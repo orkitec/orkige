@@ -12,6 +12,7 @@
 #include "engine_fastgui/IGuiObject.h"
 #include "engine_fastgui/FastGuiView.h"
 #include "engine_fastgui/UiRenderer.h"
+#include <core_util/UiLayout.h>
 
 namespace Orkige
 {
@@ -29,6 +30,17 @@ namespace Orkige
 		woptr<FastGuiView> view;
 	private:
 		bool visible;
+		//! @brief rect-anchor layout (opt-in). A widget with layoutEnabled is
+		//! placed by FastGuiManager's per-frame resolve pass against its parent
+		//! (or the screen root) instead of the absolute pixels it was authored
+		//! with; a widget that never touches a layout setter keeps behaving
+		//! exactly as before (absolute pixels) - zero migration.
+		bool layoutEnabled;
+		LayoutNode layout;
+		woptr<FastGuiWidget> layoutParent;
+		//! resolve against the safe-area root rather than the full window (only
+		//! consulted for a parentless widget)
+		bool layoutUseSafeArea;
 		//--- Methods -----------------------------------------------
 	public:
 		FastGuiWidget(String const & id, String const & atlas, uint z);
@@ -48,13 +60,52 @@ namespace Orkige
 		inline woptr<FastGuiView> getView();
 		//! center widget horizontally on the screen
 		void centerHorizontal();
-		
-		//! show or hide 
+
+		//--- rect-anchor layout (opt-in; @see FastGuiManager resolve pass) ---
+		//! @brief parent this widget under another: it then resolves inside the
+		//! parent's rect. A parentless widget resolves against the screen root.
+		void setParent(optr<FastGuiWidget> const & parent);
+		//! @brief anchor min/max as parent-rect fractions 0..1 (min==max on an
+		//! axis = a point anchor; min<max = stretch with the parent)
+		void setAnchors(float minX, float minY, float maxX, float maxY);
+		//! @brief anchor min/max from a named preset (TopLeft, Center,
+		//! StretchAll, StretchTop, ... - the 9-way alignment vocabulary plus the
+		//! stretch bands); case-insensitive
+		void setAnchorPreset(String const & preset);
+		//! @brief the 0..1 pivot the anchoredPosition refers to inside the rect
+		void setPivot(float x, float y);
+		//! @brief offsets from the anchor rect corners to the widget corners,
+		//! design units (left/top = offsetMin, right/bottom = offsetMax)
+		void setOffsets(float left, float top, float right, float bottom);
+		//! @brief position the pivot point relative to the anchor (design units)
+		void setAnchoredPosition(float x, float y);
+		//! @brief size added beyond the anchor-rect span (design units)
+		void setSizeDelta(float width, float height);
+		//! @brief resolve a parentless widget against the safe rect (window minus
+		//! the notch/home-bar insets) instead of the full window
+		void setUseSafeArea(bool enable);
+		//! @brief is this widget placed by the layout resolver?
+		inline bool isLayoutEnabled() const { return this->layoutEnabled; }
+		//! @brief the layout descriptor (the resolver's input; @see FastGuiManager)
+		inline LayoutNode const & getLayoutNode() const { return this->layout; }
+		//! @brief the layout parent (empty for a screen-root child)
+		inline woptr<FastGuiWidget> getLayoutParent() const { return this->layoutParent; }
+		//! @brief resolve against the safe-area root (parentless widgets only)
+		inline bool getUseSafeArea() const { return this->layoutUseSafeArea; }
+		//! @brief push a resolved absolute rect into the widget (setPosition +
+		//! setSize); the resolver calls this each relayout
+		void applyResolvedRect(float x, float y, float width, float height);
+
+		//! show or hide
 		//void setVisibility(bool enable);
 		//bool getVisibility();
 		//! for priority sorting
 		inline bool operator < (FastGuiWidget const & other) const;
 	protected:
+		//! opt into the layout system on the first layout setter, seeding the
+		//! node from the widget's current on-screen rect so it stays put until
+		//! anchors/offsets change
+		void ensureLayout();
 	private:
 	};
 	//---------------------------------------------------------------

@@ -74,6 +74,11 @@ namespace Orkige
 		//! completed press+release on the button (the polled alternative to
 		//! listening for ButtonHitEvent - scripts poll this every frame)
 		bool wasClicked();
+		//! @brief draw the button image nine-sliced so it resizes without
+		//! distorting its rounded corners (needs slice insets on the sprite)
+		void setNineSlice(bool enable);
+		//! @brief draw the button image tiled across its rect
+		void setTiled(bool enable);
 
 	protected:
 	private:

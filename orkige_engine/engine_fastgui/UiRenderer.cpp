@@ -34,6 +34,20 @@ namespace Orkige
 		{
 			vertices.push_back(UiVertex(x, y, uv.x, uv.y, colour));
 		}
+
+		//! two triangles for one quad, in the historical fill winding
+		//! (a=TL b=TR c=BL d=BR; triangles (c,b,a),(c,d,b))
+		inline void pushQuad(std::vector<UiVertex> & vertices,
+			Real x0, Real y0, Real x1, Real y1,
+			Real u0, Real v0, Real u1, Real v1, Color const & colour)
+		{
+			vertices.push_back(UiVertex(x0, y1, u0, v1, colour));	// BL
+			vertices.push_back(UiVertex(x1, y0, u1, v0, colour));	// TR
+			vertices.push_back(UiVertex(x0, y0, u0, v0, colour));	// TL
+			vertices.push_back(UiVertex(x0, y1, u0, v1, colour));	// BL
+			vertices.push_back(UiVertex(x1, y1, u1, v1, colour));	// BR
+			vertices.push_back(UiVertex(x1, y0, u1, v0, colour));	// TR
+		}
 	}
 	//---------------------------------------------------------
 	//--- UiScreen --------------------------------------------
@@ -312,7 +326,8 @@ namespace Orkige
 	UiRect::UiRect(Real left, Real top, Real width, Real height,
 		UiLayer* parent)
 		: mLayer(parent), mLeft(left), mTop(top), mRight(left + width),
-		mBottom(top + height), mColour(1, 1, 1, 1), mDirty(true)
+		mBottom(top + height), mColour(1, 1, 1, 1), mDirty(true),
+		mDrawMode(DM_Stretch), mSprite(NULL)
 	{
 		this->mUV[0] = this->mUV[1] = this->mUV[2] = this->mUV[3] =
 			this->mLayer->_getSolidUV();
@@ -342,6 +357,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void UiRect::background_image(UiSprite const * sprite)
 	{
+		// keep the sprite for the nine-slice/tiled fill modes (NULL = solid);
+		// the sprite outlives the rect (owned by the atlas / FastGuiManager)
+		this->mSprite = sprite;
 		if(sprite == NULL)
 		{
 			this->mUV[0] = this->mUV[1] = this->mUV[2] = this->mUV[3] =
@@ -355,6 +373,17 @@ namespace Orkige
 			this->mUV[BottomRight].y = this->mUV[BottomLeft].y =
 				sprite->uvBottom;
 		}
+		this->mDirty = true;
+		this->mLayer->_markDirty();
+	}
+	//---------------------------------------------------------
+	void UiRect::setDrawMode(DrawMode mode)
+	{
+		if(this->mDrawMode == mode)
+		{
+			return;
+		}
+		this->mDrawMode = mode;
 		this->mDirty = true;
 		this->mLayer->_markDirty();
 	}
@@ -382,7 +411,63 @@ namespace Orkige
 			return;
 		}
 		this->mVertices.clear();
-		if(this->mColour.a != 0)
+		if(this->mColour.a == 0)
+		{
+			this->mDirty = false;
+			return;
+		}
+
+		const Real width = this->mRight - this->mLeft;
+		const Real height = this->mBottom - this->mTop;
+
+		// a sprite-backed nine-slice / tiled fill emits several quads; a solid
+		// fill or a plain sprite is one stretched quad (mUV holds its corners).
+		// UiGlyph::scale gives the corner bands a stable DEVICE size, matching
+		// how glyphs and authored sizes scale with the display density.
+		if(this->mSprite != NULL && this->mDrawMode == DM_NineSlice &&
+			this->mSprite->hasSlices() && width > 0 && height > 0)
+		{
+			const Real scaleX = UiGlyph::scale.x;
+			const Real scaleY = UiGlyph::scale.y;
+			std::vector<UiNineSlice::Quad> quads;
+			UiNineSlice::buildNineSlice(this->mLeft, this->mTop, width, height,
+				this->mSprite->sliceLeft * scaleX,
+				this->mSprite->sliceRight * scaleX,
+				this->mSprite->sliceTop * scaleY,
+				this->mSprite->sliceBottom * scaleY,
+				this->mSprite->uvLeft, this->mSprite->uvTop,
+				this->mSprite->uvRight, this->mSprite->uvBottom,
+				this->mSprite->spriteWidth > 0
+					? this->mSprite->sliceLeft / this->mSprite->spriteWidth : 0,
+				this->mSprite->spriteWidth > 0
+					? this->mSprite->sliceRight / this->mSprite->spriteWidth : 0,
+				this->mSprite->spriteHeight > 0
+					? this->mSprite->sliceTop / this->mSprite->spriteHeight : 0,
+				this->mSprite->spriteHeight > 0
+					? this->mSprite->sliceBottom / this->mSprite->spriteHeight : 0,
+				quads);
+			for(UiNineSlice::Quad const & q : quads)
+			{
+				pushQuad(this->mVertices, q.x0, q.y0, q.x1, q.y1,
+					q.u0, q.v0, q.u1, q.v1, this->mColour);
+			}
+		}
+		else if(this->mSprite != NULL && this->mDrawMode == DM_Tiled &&
+			width > 0 && height > 0)
+		{
+			std::vector<UiNineSlice::Quad> quads;
+			UiNineSlice::buildTiled(this->mLeft, this->mTop, width, height,
+				this->mSprite->spriteWidth * UiGlyph::scale.x,
+				this->mSprite->spriteHeight * UiGlyph::scale.y,
+				this->mSprite->uvLeft, this->mSprite->uvTop,
+				this->mSprite->uvRight, this->mSprite->uvBottom, quads);
+			for(UiNineSlice::Quad const & q : quads)
+			{
+				pushQuad(this->mVertices, q.x0, q.y0, q.x1, q.y1,
+					q.u0, q.v0, q.u1, q.v1, this->mColour);
+			}
+		}
+		else
 		{
 			// corner walk: a=TL b=TR c=BL d=BR; triangles (c,b,a),(c,d,b)
 			// - Gorilla's fill winding
@@ -401,6 +486,114 @@ namespace Orkige
 				this->mUV[TopRight], this->mColour);
 		}
 		this->mDirty = false;
+	}
+	//---------------------------------------------------------
+	//--- UiNineSlice (pure quad emitters) --------------------
+	//---------------------------------------------------------
+	namespace UiNineSlice
+	{
+		namespace
+		{
+			//! append a quad, skipping a zero/negative-area cell
+			inline void emit(std::vector<Quad> & out, Real x0, Real y0,
+				Real x1, Real y1, Real u0, Real v0, Real u1, Real v1)
+			{
+				if(x1 <= x0 || y1 <= y0)
+				{
+					return;
+				}
+				Quad q;
+				q.x0 = x0; q.y0 = y0; q.x1 = x1; q.y1 = y1;
+				q.u0 = u0; q.v0 = v0; q.u1 = u1; q.v1 = v1;
+				out.push_back(q);
+			}
+		}
+		//-----------------------------------------------------
+		void buildNineSlice(Real left, Real top, Real width, Real height,
+			Real cornerL, Real cornerR, Real cornerT, Real cornerB,
+			Real uL, Real uT, Real uR, Real uB,
+			Real fracL, Real fracR, Real fracT, Real fracB,
+			std::vector<Quad> & out)
+		{
+			// shrink the corner bands proportionally when the target is too
+			// small to hold both of them, so the middle column/row never
+			// inverts and no quads overlap
+			Real bandL = cornerL, bandR = cornerR;
+			if(bandL + bandR > width && bandL + bandR > 0)
+			{
+				const Real k = width / (bandL + bandR);
+				bandL *= k;
+				bandR *= k;
+			}
+			Real bandT = cornerT, bandB = cornerB;
+			if(bandT + bandB > height && bandT + bandB > 0)
+			{
+				const Real k = height / (bandT + bandB);
+				bandT *= k;
+				bandB *= k;
+			}
+
+			// pixel column/row split lines
+			const Real x0 = left;
+			const Real x1 = left + bandL;
+			const Real x2 = left + width - bandR;
+			const Real x3 = left + width;
+			const Real y0 = top;
+			const Real y1 = top + bandT;
+			const Real y2 = top + height - bandB;
+			const Real y3 = top + height;
+
+			// UV split lines from the corner fractions of the sprite span
+			const Real uSpan = uR - uL;
+			const Real vSpan = uB - uT;
+			const Real ux0 = uL;
+			const Real ux1 = uL + fracL * uSpan;
+			const Real ux2 = uR - fracR * uSpan;
+			const Real ux3 = uR;
+			const Real vy0 = uT;
+			const Real vy1 = uT + fracT * vSpan;
+			const Real vy2 = uB - fracB * vSpan;
+			const Real vy3 = uB;
+
+			// row 0 (top): TL corner, top edge, TR corner
+			emit(out, x0, y0, x1, y1, ux0, vy0, ux1, vy1);
+			emit(out, x1, y0, x2, y1, ux1, vy0, ux2, vy1);
+			emit(out, x2, y0, x3, y1, ux2, vy0, ux3, vy1);
+			// row 1 (middle): left edge, centre, right edge
+			emit(out, x0, y1, x1, y2, ux0, vy1, ux1, vy2);
+			emit(out, x1, y1, x2, y2, ux1, vy1, ux2, vy2);
+			emit(out, x2, y1, x3, y2, ux2, vy1, ux3, vy2);
+			// row 2 (bottom): BL corner, bottom edge, BR corner
+			emit(out, x0, y2, x1, y3, ux0, vy2, ux1, vy3);
+			emit(out, x1, y2, x2, y3, ux1, vy2, ux2, vy3);
+			emit(out, x2, y2, x3, y3, ux2, vy2, ux3, vy3);
+		}
+		//-----------------------------------------------------
+		void buildTiled(Real left, Real top, Real width, Real height,
+			Real tileW, Real tileH, Real uL, Real uT, Real uR, Real uB,
+			std::vector<Quad> & out)
+		{
+			if(tileW <= 0 || tileH <= 0)
+			{
+				emit(out, left, top, left + width, top + height, uL, uT, uR, uB);
+				return;
+			}
+			const Real uSpan = uR - uL;
+			const Real vSpan = uB - uT;
+			for(Real y = 0; y < height; y += tileH)
+			{
+				const Real cellH = std::min(tileH, height - y);
+				const Real vFrac = cellH / tileH;
+				for(Real x = 0; x < width; x += tileW)
+				{
+					const Real cellW = std::min(tileW, width - x);
+					const Real uFrac = cellW / tileW;
+					emit(out, left + x, top + y,
+						left + x + cellW, top + y + cellH,
+						uL, uT, uL + uFrac * uSpan, uT + vFrac * vSpan);
+				}
+			}
+		}
 	}
 	//---------------------------------------------------------
 	//--- UiCaption -------------------------------------------

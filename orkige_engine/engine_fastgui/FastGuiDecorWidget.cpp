@@ -89,6 +89,17 @@ namespace Orkige
 		this->rect->setAlpha(alpha);
 	}
 	//---------------------------------------------------------
+	void FastGuiDecorWidget::setNineSlice(bool enable)
+	{
+		this->rect->setDrawMode(enable ? UiRect::DM_NineSlice
+			: UiRect::DM_Stretch);
+	}
+	//---------------------------------------------------------
+	void FastGuiDecorWidget::setTiled(bool enable)
+	{
+		this->rect->setDrawMode(enable ? UiRect::DM_Tiled : UiRect::DM_Stretch);
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 
@@ -101,5 +112,7 @@ namespace Orkige
 		OFUNC(setSprite)
 		OFUNC(setColour)
 		OFUNC(setAlpha)
+		OFUNC(setNineSlice)
+		OFUNC(setTiled)
 	OOBJECT_END
 }

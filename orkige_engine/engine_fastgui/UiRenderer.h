@@ -49,6 +49,45 @@ namespace Orkige
 	//! the shared vertex vocabulary of the element emitters
 	typedef DrawLayer2D::Vertex2D UiVertex;
 
+	//! @brief pure quad emitters for the nine-slice and tiled UiRect fill
+	//! modes. No render system, no vertex assembly - they produce plain quads
+	//! (pixel corners + normalized UV sub-rect) a UiRect turns into triangles
+	//! and a unit test asserts on directly.
+	namespace UiNineSlice
+	{
+		//! one output cell: pixel corners (x0,y0 top-left .. x1,y1 bottom-right)
+		//! and the normalized UV sub-rect sampled for it
+		struct Quad
+		{
+			Real x0, y0, x1, y1;
+			Real u0, v0, u1, v1;
+		};
+
+		//! @brief emit the (up to) 9 quads of a nine-slice fill. Corner bands
+		//! keep their device-pixel size; edges stretch along one axis and the
+		//! centre stretches both. If the target is too small for the corner
+		//! bands they shrink proportionally so no quad overlaps. Zero-area
+		//! quads are dropped, so a fully collapsed axis yields fewer cells.
+		//! @param cornerL,cornerR,cornerT,cornerB band sizes in DEVICE pixels
+		//! @param uL,uT,uR,uB the sprite's normalized UV rect
+		//! @param fracL,fracR,fracT,fracB the corner inset as a fraction 0..1 of
+		//! the sprite span (design inset / sprite design size = the UV split)
+		ORKIGE_ENGINE_DLL void buildNineSlice(Real left, Real top,
+			Real width, Real height,
+			Real cornerL, Real cornerR, Real cornerT, Real cornerB,
+			Real uL, Real uT, Real uR, Real uB,
+			Real fracL, Real fracR, Real fracT, Real fracB,
+			std::vector<Quad> & out);
+
+		//! @brief emit ceil(width/tileW) x ceil(height/tileH) quads tiling the
+		//! sprite across the target; the last partial row/column clamps its UV
+		//! so only the covered fraction of the sprite is sampled.
+		ORKIGE_ENGINE_DLL void buildTiled(Real left, Real top,
+			Real width, Real height, Real tileW, Real tileH,
+			Real uL, Real uT, Real uR, Real uB,
+			std::vector<Quad> & out);
+	}
+
 	//! @brief a full-window surface over one UiAtlas: owns z-indexed
 	//! UiLayers and submits their triangles as ONE batch per frame
 	//! @remarks replaces Gorilla's Silverback/Screen pair; owned by
@@ -209,6 +248,14 @@ namespace Orkige
 	{
 		friend class UiLayer;
 	public:
+		//! how the sprite fills the rect. Stretch (default) is one quad; the
+		//! others need a sprite (a solid fill is always stretched).
+		enum DrawMode
+		{
+			DM_Stretch = 0,	//!< one quad, the sprite stretched over the rect
+			DM_NineSlice,	//!< fixed corner bands + stretched edges/centre
+			DM_Tiled		//!< the sprite repeated across the rect
+		};
 		//! does a point lie within this rectangle?
 		inline bool intersects(Vec2 const & coordinates) const
 		{
@@ -282,6 +329,12 @@ namespace Orkige
 		//! sprite by name; "" or "none" = solid whitepixel fill
 		void background_image(String const & spriteNameOrNone);
 
+		//! @brief fill mode (Stretch / NineSlice / Tiled). NineSlice needs a
+		//! sprite carrying slice insets (else it falls back to Stretch); Tiled
+		//! needs any sprite. A solid fill always draws stretched.
+		void setDrawMode(DrawMode mode);
+		inline DrawMode getDrawMode() const { return this->mDrawMode; }
+
 		//! rebuild the vertices (dirty path; not for users)
 		void _redraw();
 	protected:
@@ -293,6 +346,11 @@ namespace Orkige
 		Color					mColour;
 		Vec2					mUV[4];
 		bool					mDirty;
+		DrawMode				mDrawMode;
+		//! the sprite backing a nine-slice/tiled fill, or NULL for a solid /
+		//! plain-stretch fill. Points into the atlas (owned by FastGuiManager,
+		//! outlives the rect, addresses stable in the atlas' sprite map).
+		UiSprite const *		mSprite;
 		std::vector<UiVertex>	mVertices;
 	};
 

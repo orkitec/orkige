@@ -240,6 +240,17 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_ttf PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_TTF=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_LAYOUT: the nine-slice + rect-anchor layout selfcheck - boots
+    # a real FastGuiManager, resolves an anchored nine-sliced panel with a
+    # parent-relative child, re-lays it out against a switched safe-area root
+    # and a design reference scale, and asserts nine-slice adds geometry over a
+    # plain stretched quad. Flavor-neutral (the resolver is pure, fastgui draws
+    # through DrawLayer2D), so it runs on classic + next.
+    add_test(NAME demo_layout COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_layout PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LAYOUT=1;ORKIGE_DEMO_FRAMES=4")
+
     add_test(NAME demo_mesh COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_mesh PROPERTIES

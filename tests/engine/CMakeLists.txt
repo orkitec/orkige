@@ -8,6 +8,7 @@ add_executable(orkige_engine_tests
     EngineTestEnvironment.h
     RenderSystemSelectionTests.cpp
     FastGuiAtlasTests.cpp
+    NineSliceLayoutTests.cpp
     FontPackerTests.cpp
     FontBakeTests.cpp
     FontAtlasTests.cpp

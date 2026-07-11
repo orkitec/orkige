@@ -428,6 +428,35 @@ look when touching one:
   per-project fonts are id-tracked `assets/` referenced by name from a `.ogui`.
   Existing bitmap atlases (jumper/roller/hello) are unchanged. Reference:
   `samples/hello_orkige/media/fastgui_ttf_demo.ogui` (the `demo_ttf` selfcheck).
+  **Nine-slice + tiling**: a `[Sprites]` entry may carry an optional 4-int
+  suffix `name x y w h  l r t b` — nine-slice border insets in sprite pixels
+  (`UiSprite::sliceLeft/Right/Top/Bottom`); `UiRect` gains a draw mode
+  (`Stretch`/`NineSlice`/`Tiled`) whose nine-slice path emits fixed corner
+  bands + stretched edges/centre (the pure `UiNineSlice::buildNineSlice`/
+  `buildTiled` quad emitters, unit-tested `NineSliceLayoutTests`), staying ONE
+  element in the per-screen batch. `FastGuiDecorWidget`/`FastGuiButton`
+  `setNineSlice(true)`/`setTiled(true)` (Lua) so a panel/button resizes without
+  corner distortion; the generator emits insets for panel/button/field sprites.
+  **Rect-anchor layout** (opt-in, both flavors): the pure resolver
+  `core_util/UiLayout.{h,cpp}` (`LayoutNode` = anchorMin/Max fractions + pivot +
+  offsetMin/Max, friendly `anchoredPosition`/`sizeDelta`) turns a parent-rect
+  into a child pixel rect; `FastGuiWidget` gains a `layout` node + `layoutParent`
+  and Lua setters (`setParent`/`setAnchors`/`setAnchorPreset`/`setPivot`/
+  `setOffsets`/`setAnchoredPosition`/`setSizeDelta`/`setUseSafeArea`).
+  `FastGuiManager` runs an O(n) resolve pass in `onFrameStarted` (before the
+  screens rebuild, only when a layout prop changed or the window resized) that
+  resolves each opted-in widget against its parent — or the screen ROOT (full
+  window or, via `setRootSpace("SafeArea")`, the safe rect, which subsumes the
+  manual `+ safe.mLeft` HUD math and folds `UiAnchor::place` in as the
+  point-anchor-against-safe-root case). A `LayoutScalePolicy`
+  (`setDesignResolution(w,h,match)` + match/shrink/expand) owns the geometry
+  reference scale ("design units → window pixels"), kept DISTINCT from
+  `UiGlyph::scale` (glyph/pixel density) so the two compose instead of fighting;
+  the legacy absolute-pixel path (`scaleAuthoredSize`) is byte-identical, so
+  widgets that never touch a layout setter are unchanged (`demo_ui_scale` still
+  asserts it). Pure tests `UiLayoutResolverTests`/`ReferenceScaleTests`; the
+  `demo_layout` selfcheck exercises an anchored nine-slice panel + a
+  parent-relative child + a safe-area re-layout on both flavors.
 - **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
   and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
   snapped to a grid in 2D mode — the cell size comes from a scene

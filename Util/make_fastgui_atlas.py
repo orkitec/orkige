@@ -342,10 +342,13 @@ def build_atlas(out_dir, atlas_name):
 
     sprite_defs = []
 
-    def add_sprite(name, x, y, w, h, draw):
+    def add_sprite(name, x, y, w, h, draw, slice=None):
+        # slice = (left, right, top, bottom) nine-slice border insets in sprite
+        # pixels (None = a plain stretched sprite). The rounded-corner sprites
+        # carry insets so a resized panel/button keeps crisp corners.
         draw(x, y, w, h)
         claim(x, y, w, h, f"sprite {name}")
-        sprite_defs.append((name, x, y, w, h))
+        sprite_defs.append((name, x, y, w, h, slice))
 
     white = (240, 244, 248, 255)
     panel_fill = (22, 26, 34, 208)
@@ -359,18 +362,24 @@ def build_atlas(out_dir, atlas_name):
 
     y0 = cursor_y + 2
     add_sprite("panel", 0, y0, 48, 48, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 6, panel_fill, white))
+               draw_rounded_rect(canvas, x, y, w, h, 6, panel_fill, white),
+               slice=(12, 12, 12, 12))
     add_sprite("button", 52, y0, 64, 24, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white))
+               draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white),
+               slice=(8, 8, 8, 8))
     add_sprite("button_over", 120, y0, 64, 24, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 4, button_over, white))
+               draw_rounded_rect(canvas, x, y, w, h, 4, button_over, white),
+               slice=(8, 8, 8, 8))
     add_sprite("button_down", 188, y0, 64, 24, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 4, button_down, white))
+               draw_rounded_rect(canvas, x, y, w, h, 4, button_down, white),
+               slice=(8, 8, 8, 8))
     add_sprite("button_disabled", 256, y0, 64, 24, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 4, button_disabled,
-                                 (140, 140, 140, 255)))
+                                 (140, 140, 140, 255)),
+               slice=(8, 8, 8, 8))
     add_sprite("progressbar", 0, y0 + 52, 96, 16, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 3, bar_frame_fill, white))
+               draw_rounded_rect(canvas, x, y, w, h, 3, bar_frame_fill, white),
+               slice=(6, 6, 6, 6))
     add_sprite("progressbar_bar", 100, y0 + 52, 88, 10, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 2, bar_fill_top,
                                  (200, 255, 190, 255),
@@ -388,7 +397,8 @@ def build_atlas(out_dir, atlas_name):
                draw_rounded_rect(canvas, x, y, w, h, 4, checkbox_on_fill,
                                  (200, 255, 190, 255)))
     add_sprite("select_menu_field", 64, y0 + 72, 96, 24, lambda x, y, w, h:
-               draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white))
+               draw_rounded_rect(canvas, x, y, w, h, 4, button_fill, white),
+               slice=(8, 8, 8, 8))
     add_sprite("select_menu_field_left", 164, y0 + 72, 16, 24,
                lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 3, button_over, white))
@@ -401,8 +411,12 @@ def build_atlas(out_dir, atlas_name):
     add_sprite("select_menu_pin", 204, y0 + 72, 20, 24, lambda x, y, w, h:
                draw_rounded_rect(canvas, x, y, w, h, 5, slider_pin_fill, white))
 
-    for name, x, y, w, h in sprite_defs:
-        ogui.append(f"{name} {x} {y} {w} {h}")
+    for name, x, y, w, h, slice in sprite_defs:
+        if slice is not None:
+            l, r, t, b = slice
+            ogui.append(f"{name} {x} {y} {w} {h} {l} {r} {t} {b}")
+        else:
+            ogui.append(f"{name} {x} {y} {w} {h}")
 
     # --- write output ---------------------------------------------------------
     png_path = os.path.join(out_dir, f"{atlas_name}.png")
@@ -523,11 +537,19 @@ def validate(png_path, ogui_path, canvas, occupied):
             fail(f"sprite '{required}' missing")
     for name, value in sprites.items():
         fields = value.split()
-        if len(fields) != 4:
-            fail(f"sprite {name}: want x y w h")
-        x, y, w, h = (int(v) for v in fields)
+        # a sprite is "x y w h" or, with nine-slice insets, "x y w h l r t b"
+        if len(fields) not in (4, 8):
+            fail(f"sprite {name}: want x y w h [l r t b]")
+        ints = [int(v) for v in fields]
+        x, y, w, h = ints[:4]
         if w <= 0 or h <= 0 or x + w > width or y + h > height:
             fail(f"sprite {name}: out of bounds")
+        if len(ints) == 8:
+            sl, sr, st, sb = ints[4:]
+            if min(sl, sr, st, sb) < 0:
+                fail(f"sprite {name}: negative slice inset")
+            if sl + sr >= w or st + sb >= h:
+                fail(f"sprite {name}: slice insets exceed the sprite size")
 
 
 def main():

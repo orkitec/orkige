@@ -177,6 +177,22 @@ namespace Orkige
 		this->state = bs;
 	}
 	//---------------------------------------------------------
+	void FastGuiButton::setNineSlice(bool enable)
+	{
+		if(this->decor)
+		{
+			this->decor->setNineSlice(enable);
+		}
+	}
+	//---------------------------------------------------------
+	void FastGuiButton::setTiled(bool enable)
+	{
+		if(this->decor)
+		{
+			this->decor->setTiled(enable);
+		}
+	}
+	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------
 	OABSTRACT_IMPL(FastGuiButton)
@@ -184,6 +200,8 @@ namespace Orkige
 		OFUNC(setCaption)
 		OFUNC(getState)
 		OFUNC(wasClicked)
+		OFUNC(setNineSlice)
+		OFUNC(setTiled)
 		OENUM_START(ButtonState)
 			OENUM_VALUE(BS_DISABLED)
 			OENUM_VALUE(BS_UP)

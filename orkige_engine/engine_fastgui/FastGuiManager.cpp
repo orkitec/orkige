@@ -12,6 +12,7 @@
 #include "engine_fastgui/FastGuiManager.h"
 #include "engine_fastgui/FontAtlas.h"
 #include "engine_render/RenderSystem.h"
+#include <OgreString.h>
 #include <OgreStringConverter.h>
 #include "engine_input/InputManager.h"
 #include "engine_fastgui/FastGuiTextEntry.h"
@@ -27,7 +28,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
-	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false)
+	FastGuiManager::FastGuiManager(optr<FastGuiFactory> _factory, String const & _defaultAtlas, String const & group) : factory(_factory), defaultAtlas(_defaultAtlas), statsMarkupColorIndex(0), cancelInputUpdate(false), scaleStats(false), focusedTextEntry(NULL), textEntryFocusClaimed(false), layoutRootSpace(RS_FullWindow), layoutDirty(true), lastLayoutWidth(0), lastLayoutHeight(0)
 	{
 		oAssert(this->factory);
 		// drive the pixel-font UI scale from the display density so a 14px
@@ -452,6 +453,149 @@ namespace Orkige
 		return layouts;
 	}
 	//---------------------------------------------------------
+	void FastGuiManager::setDesignResolution(float designWidth,
+		float designHeight, float matchWidthHeight)
+	{
+		this->layoutPolicy.designWidth = designWidth;
+		this->layoutPolicy.designHeight = designHeight;
+		this->layoutPolicy.matchWidthHeight = matchWidthHeight;
+		this->markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::setLayoutMatchMode(int mode)
+	{
+		switch(mode)
+		{
+		case LayoutScalePolicy::MM_SHRINK:
+			this->layoutPolicy.mode = LayoutScalePolicy::MM_SHRINK;
+			break;
+		case LayoutScalePolicy::MM_EXPAND:
+			this->layoutPolicy.mode = LayoutScalePolicy::MM_EXPAND;
+			break;
+		default:
+			this->layoutPolicy.mode = LayoutScalePolicy::MM_MATCH;
+			break;
+		}
+		this->markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::setRootSpace(String const & space)
+	{
+		String key = space;
+		Ogre::StringUtil::toLowerCase(key);
+		this->layoutRootSpace = (key == "safearea" || key == "safe")
+			? RS_SafeArea : RS_FullWindow;
+		this->markLayoutDirty();
+	}
+	//---------------------------------------------------------
+	float FastGuiManager::getLayoutScale() const
+	{
+		unsigned int windowWidth = 0, windowHeight = 0;
+		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+		return this->layoutPolicy.referenceScale(Real(windowWidth),
+			Real(windowHeight));
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::markLayoutDirty()
+	{
+		this->layoutDirty = true;
+	}
+	//---------------------------------------------------------
+	LayoutRect FastGuiManager::resolveWidget(FastGuiWidget* widget,
+		float layoutScale, LayoutRect const & fullRoot,
+		LayoutRect const & safeRoot,
+		std::map<FastGuiWidget*, LayoutRect> & cache)
+	{
+		std::map<FastGuiWidget*, LayoutRect>::iterator hit = cache.find(widget);
+		if(hit != cache.end())
+		{
+			return hit->second;
+		}
+		// the parent rect: a layout parent resolves first (recursively); a
+		// non-layout parent contributes its current pixel rect; a parentless
+		// widget resolves against the chosen screen root
+		LayoutRect parentRect;
+		optr<FastGuiWidget> parent = widget->getLayoutParent().lock();
+		if(parent)
+		{
+			if(parent->isLayoutEnabled())
+			{
+				parentRect = this->resolveWidget(parent.get(), layoutScale,
+					fullRoot, safeRoot, cache);
+			}
+			else
+			{
+				const Ogre::Vector2 pos = parent->getPosition();
+				const Ogre::Vector2 size = parent->getSize();
+				parentRect.x = pos.x;
+				parentRect.y = pos.y;
+				parentRect.w = size.x;
+				parentRect.h = size.y;
+			}
+		}
+		else
+		{
+			// a parentless widget resolves against the global root space, with
+			// a per-widget useSafeArea opting a single widget into the safe rect
+			parentRect = (widget->getUseSafeArea() ||
+				this->layoutRootSpace == RS_SafeArea) ? safeRoot : fullRoot;
+		}
+		const LayoutRect rect = resolveRect(parentRect,
+			widget->getLayoutNode(), layoutScale);
+		cache[widget] = rect;
+		return rect;
+	}
+	//---------------------------------------------------------
+	void FastGuiManager::resolveLayouts()
+	{
+		// re-resolve only when a layout property changed or the window resized
+		unsigned int windowWidth = 0, windowHeight = 0;
+		RenderSystem::get()->getWindowSize(windowWidth, windowHeight);
+		if(windowWidth != this->lastLayoutWidth ||
+			windowHeight != this->lastLayoutHeight)
+		{
+			this->lastLayoutWidth = windowWidth;
+			this->lastLayoutHeight = windowHeight;
+			this->layoutDirty = true;
+		}
+		if(!this->layoutDirty)
+		{
+			return;
+		}
+		this->layoutDirty = false;
+
+		const float layoutScale = this->layoutPolicy.referenceScale(
+			Real(windowWidth), Real(windowHeight));
+		LayoutRect fullRoot;
+		fullRoot.x = 0.0f;
+		fullRoot.y = 0.0f;
+		fullRoot.w = Real(windowWidth);
+		fullRoot.h = Real(windowHeight);
+		// the safe root subsumes the manual "+ safe.mLeft" HUD math: a widget
+		// anchored to it stays off the notch/home bar with no script maths
+		LayoutRect safeRoot = fullRoot;
+		if(Engine::getSingletonPtr())
+		{
+			const SafeAreaInsets insets = Engine::getSingleton().getSafeAreaInsets();
+			safeRoot.x = Real(insets.mLeft);
+			safeRoot.y = Real(insets.mTop);
+			safeRoot.w = Real(windowWidth) - Real(insets.mLeft) - Real(insets.mRight);
+			safeRoot.h = Real(windowHeight) - Real(insets.mTop) - Real(insets.mBottom);
+		}
+
+		std::map<FastGuiWidget*, LayoutRect> cache;
+		foreach(optr<FastGuiWidget> const & widget, this->sortedWidgets)
+		{
+			if(!widget->isLayoutEnabled())
+			{
+				continue;
+			}
+			const LayoutRect rect = this->resolveWidget(widget.get(),
+				layoutScale, fullRoot, safeRoot, cache);
+			widget->applyResolvedRect(rect.x, rect.y, rect.w, rect.h);
+		}
+	}
+	//---------------------------------------------------------
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
@@ -462,6 +606,12 @@ namespace Orkige
 		{
 			widget->onFrameStarted(*data);
 		}
+		// resolve the opt-in rect-anchor layout tree to absolute pixels BEFORE
+		// the screens rebuild (each resolved widget's setPosition/setSize
+		// dirties its screen, which rebuilds just below). O(n) over the layout
+		// widgets, and only when a layout property changed or the window
+		// resized - steady clean frames skip it entirely.
+		this->resolveLayouts();
 		// after the widgets updated: rebuild dirty screens and resubmit
 		// their vertices to the DrawLayer2D facade for this frame (clean
 		// screens return immediately - no rebuild, no upload)
@@ -707,5 +857,11 @@ namespace Orkige
 		OFUNC(hideAllViews)
 		OFUNC(showAllViews)
 		OFUNC(isPointOverWidget)
+		// rect-anchor layout policy: design resolution + match factor drive the
+		// layout scale; root space decides what parentless widgets pin to
+		OFUNC(setDesignResolution)
+		OFUNC(setLayoutMatchMode)
+		OFUNC(setRootSpace)
+		OFUNC(getLayoutScale)
 	OOBJECT_END
 }

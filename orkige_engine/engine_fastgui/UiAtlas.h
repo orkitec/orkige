@@ -188,11 +188,23 @@ namespace Orkige
 	{
 	public:
 		UiSprite() : uvTop(0), uvLeft(0), uvRight(0), uvBottom(0),
-			spriteWidth(0), spriteHeight(0) {}
+			spriteWidth(0), spriteHeight(0),
+			sliceLeft(0), sliceRight(0), sliceTop(0), sliceBottom(0) {}
 
 		Real	uvTop, uvLeft, uvRight, uvBottom;	//!< normalized after load
 		Real	spriteWidth, spriteHeight;			//!< pixel size
 		Vec2	texCoords[4];						//!< @see QuadCorner
+		//! @brief nine-slice border insets in SPRITE pixels (all 0 = a plain
+		//! stretched quad). A UiRect drawn nine-sliced keeps these corner bands
+		//! at a fixed size while the edges/centre stretch, so a panel or button
+		//! resizes without distorting its rounded corners (@see UiRect draw mode).
+		Real	sliceLeft, sliceRight, sliceTop, sliceBottom;
+		//! any non-zero inset makes this a valid nine-slice source
+		inline bool hasSlices() const
+		{
+			return this->sliceLeft > 0 || this->sliceRight > 0 ||
+				this->sliceTop > 0 || this->sliceBottom > 0;
+		}
 	};
 
 	class UiFont;
