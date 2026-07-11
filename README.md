@@ -23,7 +23,12 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   *fastgui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on
   **both** backends (as does the ImGui-based editor) — **display-scale aware**
   (text and touch targets keep their physical size on 2×–3× screens) and
-  **safe-area aware** (HUDs anchor inside the notch/home-indicator box).
+  **safe-area aware** (HUDs anchor inside the notch/home-indicator box), with
+  **runtime-baked TTF fonts** (lazy glyph paging for large charsets) and
+  **vector-rasterized UI art** that stays crisp at any density, a **rect-anchor
+  layout system** (anchors/pivots/stretch, layout groups, nine-slice and tiled
+  panels, scroll views, text entry), and whole screens authored as declarative
+  **`.oui` files** — one agent-writable text file per screen.
 - **Scene model** — a GameObject/component system with a **parent/child hierarchy**
   and active/inactive state, **prefabs** (`.oprefab` assets with per-instance
   structural + property overrides, Apply/Revert), a **stable-ID asset database**
@@ -33,16 +38,25 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   system** (one draw call per emitter), sprite atlases + per-platform **texture
   import settings**, **flat-colour vector shapes** (`.oshape` path assets or
   imported SVG, tessellated with anti-aliased edges — resolution-independent
-  organic art), an ortho 2D camera and painter-order z-sorting.
+  organic art) that **squash, stretch, wobble and morph** as soft bodies
+  (physics-driven deformation at ~4 µs per shape per frame, morph poses cooked
+  from SVG sequences), and an ortho 2D camera with **aspect-fit policies**
+  (deterministic framing from 4:3 tablets to 21:9 phones) and painter-order
+  z-sorting.
 - **Physics** — Jolt Physics (with a planar "2D mode"), a data-driven **collision
   layer matrix**, object **tags**, and **sensor/trigger contact events** delivered
   to script (`onContactBegin`/`onContactEnd`).
 - **Gameplay systems** — **named input actions** (keys/tilt → actions, mobile +
-  desktop unified), an **audio mixer** (groups + master) with **streamed OGG
-  music** that survives level switches, a **tween/easing library**, **string-table
-  localisation** (`loc()` in Lua), **console variables** for live tuning, and
-  **Lua hot-reload during Play** (compile-before-swap: a broken save keeps the
-  old code running).
+  desktop unified, with **tilt calibration**), an **audio mixer** (groups +
+  master) with **streamed OGG music** that survives level switches, a
+  **tween/easing library**, **string-table localisation** (`loc()` in Lua),
+  a typed **save API** for scripts (atomic, crash-aware), **screen shake, time
+  scale and full-screen fades**, **haptics** (real phone vibration on iOS and
+  Android), **console variables** for live tuning, **crash breadcrumbs** (a
+  persisted event trail that survives a dead process), a defined **mobile
+  lifecycle** (backgrounding pauses, flushes and suspends; scripts get
+  `onAppPause`/`onAppResume`), and **Lua hot-reload during Play**
+  (compile-before-swap: a broken save keeps the old code running).
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
@@ -64,7 +78,9 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
 - **Projects & mobile** — a game is a folder with a `project.orkproj` manifest,
   scenes, assets, scripts and optional project-config assets; the editor opens
   projects, the player runs them, and the Build menu exports a distributable macOS
-  `.app`, iOS-simulator app, or Android APK.
+  `.app`, iOS-simulator app, or Android APK — each with per-project **icons and
+  launch screens**. With an Apple developer certificate configured, Play deploys
+  straight to a **real iPhone** (signed export + install + launch).
 - **Samples** — `samples/hello_orkige` (feature demo) and `samples/jumper` (a
   textured jump-and-run); `projects/` holds the real games, headlined by
   **`roller`** (a 2D physics puzzle: tilt-gravity ball + sliding world
