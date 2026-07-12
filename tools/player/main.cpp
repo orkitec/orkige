@@ -844,9 +844,9 @@ int main(int argc, char** argv)
 			inputActions.loadForProject(project);
 		}
 		// localisation: the Lua loc() accessor reads the active-language
-		// strings from this table. A project's localisation file (manifest
-		// Settings "localisation", config-asset convention) loads it; games
-		// without one just see the keys echoed back.
+		// strings from this table. A project's localisation directory (manifest
+		// Settings "localisation", config-asset convention) of XLIFF 1.2 .xlf
+		// files loads it; games without one just see the keys echoed back.
 		Orkige::StringTable stringTable;
 		if (project.isLoaded())
 		{
@@ -856,10 +856,10 @@ int main(int argc, char** argv)
 			{
 				const std::string localisationPath =
 					project.resolvePath(localisationRef);
-				if (!stringTable.loadFile(localisationPath))
+				if (!stringTable.loadXliffDirectory(localisationPath))
 				{
-					SDL_Log("orkige_player: localisation file '%s' not loaded",
-						localisationPath.c_str());
+					SDL_Log("orkige_player: localisation directory '%s' not "
+						"loaded", localisationPath.c_str());
 				}
 			}
 		}
