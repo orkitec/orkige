@@ -97,6 +97,17 @@ add_test(NAME make_terrain_mesh_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_terrain_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# device-session prep self-validation: orkige_device.py drives the one-command
+# phone loop (doctor readiness report + android/ios deploy-and-run). The
+# selftest covers the pure parts - argument routing, doctor report assembly
+# from injected probe facts (incl. the honest "never fail on absent signing"
+# rule), the iOS env-seam status, and the android/ios command construction -
+# with no real devices, subprocess or certificate. Stdlib-only, headless.
+add_test(NAME orkige_device_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_device.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_device_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # water surface generator self-validation: make_water_mesh.py builds the shared
 # engine water plane in memory and asserts mesh validity (flat +Y unit plane,
 # UVs present for tangents, 16-bit indices in range), determinism (same seed ->

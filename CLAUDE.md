@@ -87,6 +87,11 @@ tunnel, see `Docs/ios-signing.md`). `editor_play_simulator` /
 ctests cover the flows, skipping (exit 77) when no prepared device is
 available (the `ios_device` one is a signing/hardware GATE probe — it skips on
 every machine without a cert + connected iPhone + built device player).
+For a physical-phone session outside the editor, `python3 Util/orkige_device.py
+doctor|android|ios` is the one-command deploy-and-run front door (readiness
+report + build-if-stale, package via `orkige_export.py`, install, launch, stream
+logcat; default project `projects/benchmark`) — the owner runbook is
+`Docs/device-session.md`, covered by the `orkige_device_selftest` unit ctest.
 Dependencies come exclusively from `vcpkg.json` (manifest mode) — never vendor libraries
 into the tree and never rely on system-installed libraries.
 
