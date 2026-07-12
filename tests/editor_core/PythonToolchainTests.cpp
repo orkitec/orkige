@@ -23,6 +23,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
 
 using namespace Orkige;
 
@@ -117,16 +120,30 @@ TEST_CASE("probe fails honestly for a missing interpreter", "[python]")
 TEST_CASE("probe refuses an interpreter with an unparseable version",
 	"[python]")
 {
-	// /bin/echo stands in for a program that runs but does not report a
-	// python version: `echo --version` prints "--version", which has no
-	// major.minor - the probe refuses it with the honest requirement message.
-	// (The too-old numeric branch is covered by the pure pythonVersionAtLeast
-	// test above, since a real interpreter cannot be made to report an old
-	// version on demand.)
-	PythonProbeResult result = probePythonToolchainUncached("/bin/echo");
+	// a temp shell script stands in for a program that runs but does not
+	// report a python version - no system binary is portable here (GNU echo
+	// and true both ANSWER --version with a parseable coreutils number).
+	// The unparseable-text branch itself is covered by the pure
+	// parsePythonVersion cases; this proves the probe carries it through.
+#if defined(_WIN32)
+	SKIP("no portable no-version executable fixture on this platform; the "
+		"parse branch is covered by the pure parsePythonVersion cases");
+#else
+	namespace fs = std::filesystem;
+	const fs::path script = fs::temp_directory_path() / "orkige_no_version.sh";
+	{
+		std::ofstream out(script);
+		out << "#!/bin/sh\necho not a version string\n";
+	}
+	fs::permissions(script, fs::perms::owner_all, fs::perm_options::add);
+	PythonProbeResult result =
+		probePythonToolchainUncached(script.string().c_str());
+	std::error_code ignored;
+	fs::remove(script, ignored);
 	CHECK_FALSE(result.ok);
 	REQUIRE_FALSE(result.error.empty());
 	CHECK(result.error.find("python3 >= 3.10") != String::npos);
+#endif
 }
 
 TEST_CASE("probe succeeds for a real python3 meeting the floor", "[python]")
