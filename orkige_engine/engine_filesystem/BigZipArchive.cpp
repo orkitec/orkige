@@ -10,6 +10,8 @@
 #include "engine_filesystem/BigZipArchive.h"
 #include "engine_filesystem/BigZipArchiveFactory.h"
 
+#include <sys/stat.h>
+
 namespace Orkige
 {
 

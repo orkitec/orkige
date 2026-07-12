@@ -684,7 +684,7 @@ namespace Orkige
 				type == "list_paint_prefabs" ||
 				type == "list_paintable_assets" || type == "get_safe_area" ||
 				type == "get_ui_layout" || type == "get_breadcrumbs" ||
-				type == "get_lua_api";
+				type == "get_profile" || type == "get_lua_api";
 		}
 		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
@@ -1184,6 +1184,21 @@ namespace Orkige
 				  "one to read after a crash), each one JSON object per line, plus "
 				  "the resolved 'dir'. Empty strings when a file is absent. "
 				  "Read-only.",
+				  {} },
+				{ "get_profile",
+				  "The RUNNING game's CPU frame profile: the last streamed "
+				  "hierarchical scope snapshot as parallel lists 'names' and "
+				  "'info' (each info a flat 'depth calls milliseconds "
+				  "maxMilliseconds' string; depth 0 rows are the canonical tick "
+				  "phases - input scripts events tweens physics load audio "
+				  "present debug render), plus 'frame_ms' (whole-frame wall "
+				  "time) and 'profile_seq' (snapshot counter - poll until it "
+				  "advances for a fresh frame). Debug players stream this "
+				  "automatically; on a Release player the first call arms the "
+				  "profiler, so call again shortly after. Answers 'where does "
+				  "the frame go?' - pair with get_state's alloc_per_frame/"
+				  "alloc_tags for 'what allocates?'. Errors when no player is "
+				  "connected.",
 				  {} },
 				{ "runtime_select",
 				  "Choose which running-game object streams its component state "
@@ -2047,6 +2062,33 @@ namespace Orkige
 			// reads the current value against the peak to spot growth
 			ok.set("mem_rss", std::to_string(play.remoteMemRss));
 			ok.set("mem_rss_peak", std::to_string(play.remoteMemRssPeak));
+			// engine-level allocation counters + frame time (MSG_STATS): the
+			// per-frame churn summary ("-1" until the player streams one).
+			// alloc_tags/alloc_counts break the last frame down per subsystem;
+			// profile_seq counts received MSG_PROFILE_DATA snapshots (see
+			// get_profile for the full hierarchy).
+			ok.set("alloc_per_frame", std::to_string(play.remoteAllocPerFrame));
+			ok.set("alloc_peak", std::to_string(play.remoteAllocPeak));
+			{
+				std::ostringstream frameMs;
+				frameMs << std::fixed << std::setprecision(3)
+					<< play.remoteFrameMs;
+				ok.set("frame_ms", frameMs.str());
+			}
+			{
+				StringVector allocTags;
+				StringVector allocCounts;
+				for (std::size_t i = 0; i < play.remoteAllocTags.size() &&
+					i < play.remoteAllocCounts.size(); ++i)
+				{
+					allocTags.push_back(play.remoteAllocTags[i]);
+					allocCounts.push_back(
+						std::to_string(play.remoteAllocCounts[i]));
+				}
+				ok.setList("alloc_tags", allocTags);
+				ok.setList("alloc_counts", allocCounts);
+			}
+			ok.set("profile_seq", std::to_string(play.profileSeq));
 			// streamed music (MSG_STATS): the per-track snapshot an agent reads
 			// to confirm background music is playing and at the right gain.
 			// Parallel arrays keep the structuredContent flat: music_ids /
@@ -2855,6 +2897,52 @@ namespace Orkige
 			// the current top screen + the space-joined bottom-to-top path
 			ok.set("screen", play.remoteScreenCurrent);
 			ok.set("screenStack", play.remoteScreenStack);
+			this->sendOk(req, ok);
+			return;
+		}
+
+		// get_profile: the RUNNING game's CPU frame profile - the last
+		// streamed MSG_PROFILE_DATA snapshot, served like get_ui_layout.
+		// Debug players stream it automatically; when nothing has arrived yet
+		// (a Release player boots with the profiler off) the call ARMS the
+		// runtime profiler over MSG_PROFILE, so a snapshot follows on the
+		// stats cadence - poll until profile_seq advances.
+		if (type == "get_profile")
+		{
+			PlaySession& play = *context.play;
+			if (!play.client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (play.profileSeq == 0)
+			{
+				DebugMessage arm(DebugProtocol::MSG_PROFILE);
+				arm.set(DebugProtocol::FIELD_VALUE, "1");
+				play.client.send(arm);
+			}
+			StringVector names;
+			StringVector infos;
+			for (PlaySession::RemoteProfileNode const& node :
+				play.remoteProfile)
+			{
+				names.push_back(node.name);
+				std::ostringstream info;
+				info << node.depth << ' ' << node.calls << ' '
+					<< std::fixed << std::setprecision(3)
+					<< node.milliseconds << ' ' << node.maxMilliseconds;
+				infos.push_back(info.str());
+			}
+			DebugMessage ok(MSG_OK);
+			ok.setList("names", names);
+			ok.setList("info", infos);
+			{
+				std::ostringstream frameMs;
+				frameMs << std::fixed << std::setprecision(3)
+					<< play.remoteProfileFrameMs;
+				ok.set("frame_ms", frameMs.str());
+			}
+			ok.set("profile_seq", std::to_string(play.profileSeq));
 			this->sendOk(req, ok);
 			return;
 		}
@@ -5177,6 +5265,81 @@ namespace Orkige
 					}
 					SDL_Log("orkige_editor: control self-test - running-game "
 						"mem_rss %lld bytes (peak %lld)", memRss, memPeak);
+				}
+				// the agent perf readback: the same MSG_STATS cadence carries
+				// the engine-level allocation counters + the frame time, and
+				// get_profile serves the hierarchical CPU snapshot (a Debug
+				// player streams it unprompted; the verb arms a Release one).
+				// Poll until alloc_per_frame reports and a profile snapshot
+				// with the canonical "scripts" phase at depth 0 arrived.
+				{
+					JsonValue perfState;
+					const bool havePerf = pollState(
+						[](JsonValue const& s)
+						{
+							return std::atoll(s.get("alloc_per_frame")
+									.asString().c_str()) >= 0 &&
+								std::atof(s.get("frame_ms").asString()
+									.c_str()) > 0.0;
+						}, 40, perfState);
+					if (!havePerf)
+					{
+						finish(false, "control self-test: get_state never "
+							"reported alloc_per_frame + frame_ms");
+						return;
+					}
+					// the per-tag breakdown rides alongside (parallel lists)
+					if (perfState.get("alloc_tags").size() == 0 ||
+						perfState.get("alloc_tags").size() !=
+							perfState.get("alloc_counts").size())
+					{
+						finish(false, "control self-test: get_state alloc tag "
+							"lists missing or unbalanced");
+						return;
+					}
+					JsonValue profile;
+					bool haveProfile = false;
+					for (int attempt = 0; attempt < 40 && !haveProfile;
+						++attempt)
+					{
+						if (!callTool("get_profile", JsonValue::object(),
+								false, profile, isError) || isError)
+						{
+							finish(false,
+								"control self-test: get_profile call failed");
+							return;
+						}
+						JsonValue const& names = profile.get("names");
+						JsonValue const& info = profile.get("info");
+						for (size_t i = 0; i < names.size() &&
+							i < info.size(); ++i)
+						{
+							// info entries are "depth calls ms maxMs" - the
+							// canonical scripts phase sits at depth 0
+							if (names.at(i).asString() == "scripts" &&
+								info.at(i).asString().rfind("0 ", 0) == 0)
+							{
+								haveProfile = true;
+								break;
+							}
+						}
+						if (!haveProfile)
+						{
+							std::this_thread::sleep_for(
+								std::chrono::milliseconds(100));
+						}
+					}
+					if (!haveProfile)
+					{
+						finish(false, "control self-test: get_profile never "
+							"served a snapshot with the 'scripts' phase");
+						return;
+					}
+					SDL_Log("orkige_editor: control self-test - perf readback "
+						"OK (alloc/frame %s, frame %s ms, profile_seq %s)",
+						perfState.get("alloc_per_frame").asString().c_str(),
+						perfState.get("frame_ms").asString().c_str(),
+						profile.get("profile_seq").asString().c_str());
 				}
 				const std::string tracePath =
 					std::filesystem::path(this->mScreenshotPath)

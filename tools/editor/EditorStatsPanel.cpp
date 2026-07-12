@@ -125,6 +125,54 @@ void drawStatsPanel(PlaySession const& play, bool* visible)
 			{
 				ImGui::TextUnformatted("Peak: n/a");
 			}
+
+			// the RUNTIME frame: wall time, engine-level allocation events
+			// (tracked seams, per frame - not libc totals) and the CPU
+			// profiler's frame breakdown, all streamed on the stats cadence
+			ImGui::SeparatorText("Game performance");
+			if (play.remoteFrameMs >= 0.0)
+			{
+				ImGui::Text("Frame: %.2f ms", play.remoteFrameMs);
+			}
+			else
+			{
+				ImGui::TextUnformatted("Frame: n/a");
+			}
+			if (play.remoteAllocPerFrame >= 0)
+			{
+				ImGui::Text("Allocs/frame: %lld (peak %lld)",
+					play.remoteAllocPerFrame, play.remoteAllocPeak);
+				for (std::size_t i = 0; i < play.remoteAllocTags.size() &&
+					i < play.remoteAllocCounts.size(); ++i)
+				{
+					if (play.remoteAllocCounts[i] > 0)
+					{
+						ImGui::Text("  %s: %lld",
+							play.remoteAllocTags[i].c_str(),
+							play.remoteAllocCounts[i]);
+					}
+				}
+			}
+			else
+			{
+				ImGui::TextUnformatted("Allocs/frame: n/a");
+			}
+			if (!play.remoteProfile.empty())
+			{
+				ImGui::Text("Profile (last frame, %u snapshots):",
+					play.profileSeq);
+				for (PlaySession::RemoteProfileNode const& node :
+					play.remoteProfile)
+				{
+					if (node.calls == 0 && node.milliseconds <= 0.0)
+					{
+						continue;	// an idle scope this frame - keep the list short
+					}
+					ImGui::Text("%*s%s: %.3f ms (x%lld)",
+						node.depth * 2, "", node.name.c_str(),
+						node.milliseconds, node.calls);
+				}
+			}
 		}
 	}
 	ImGui::End();

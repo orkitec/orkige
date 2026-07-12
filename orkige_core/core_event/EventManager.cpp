@@ -9,6 +9,7 @@
 
 #include "core_event/EventManager.h"
 #include "core_util/Timer.h"
+#include "core_debug/MemoryManager.h"
 #include "core_debug/Profile.h"
 
 namespace Orkige
@@ -157,10 +158,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EventManager::trigger (Event const & inEvent) const
 	{
-#if defined(ORKIGE_DEBUG) || defined(ORKIGE_STATS)
-		static const String __event_profile_prefix = String(__FUNCTION__) + " -> ";
-		OPROFILE(__event_profile_prefix + inEvent.getObjectID());
-#endif
+		OPROFILE("event.trigger");
 		//if ( ! this->validateType( inEvent.getType() ) )
 		//	return false;
 
@@ -209,6 +207,8 @@ namespace Orkige
 			}
 		}
 
+		// tracked allocation seam: every queued event costs one list node
+		MemoryManager::countAlloc(MemoryManager::TAG_EVENTS);
 		this->queues[this->activeQueue].push_back( inEvent );
 
 		return true;
@@ -245,7 +245,7 @@ namespace Orkige
 	//---------------------------------------------------------	
 	bool EventManager::tick ( unsigned long maxMillis )
 	{
-		OPROFILEFUNC();
+		OPROFILE("events.tick");
 		unsigned long curMs = Timer::getMilliseconds();
 		unsigned long maxMs = maxMillis == EventManager::InfiniteProcessTime ? EventManager::InfiniteProcessTime : (curMs + maxMillis );
 
@@ -343,7 +343,6 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool EventManager::validateType( EventType const & inType ) const
 	{
-		OPROFILEFUNC();
 		if ( inType.getName().empty() )
 			return false;
 

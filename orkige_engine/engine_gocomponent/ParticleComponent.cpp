@@ -14,6 +14,7 @@
 #include "engine_render/RenderWorld.h"
 #include <core_game/GameObject.h>
 #include <core_debug/DebugMacros.h>
+#include <core_debug/MemoryManager.h>
 #include <core_project/AssetDatabase.h>
 
 #include <cmath>
@@ -160,7 +161,10 @@ namespace Orkige
 			this->mBatch->setQuads(NULL, 0);
 			return;
 		}
+		const std::size_t scratchCapacityBefore = this->mVertexScratch.capacity();
 		this->mVertexScratch.reserve(static_cast<std::size_t>(live) * 4);
+		MemoryManager::countGrowth(MemoryManager::TAG_PARTICLES,
+			scratchCapacityBefore, this->mVertexScratch.capacity());
 		float texelWidth = 0.0f, texelHeight = 0.0f;
 		this->mBatch->getTextureSize(texelWidth, texelHeight);
 		ParticleSim::EmitterParams const & p = this->mSim.params();

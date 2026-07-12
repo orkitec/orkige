@@ -24,6 +24,7 @@
 #include "EngineTestEnvironment.h"
 
 #include <engine_physic/PhysicsWorld.h>
+#include <core_debug/MemoryManager.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <core_serialization/XMLArchive.h>
 
@@ -182,6 +183,56 @@ TEST_CASE("contact begin is coalesced to once per pair per frame", "[physics]")
 		}
 	}
 	CHECK(begins == 1);
+}
+
+TEST_CASE("warmed contact plumbing drains without allocating",
+	"[physics][perf]")
+{
+	// the direct allocation contract on the contact path: after a few
+	// contact-bearing frames warmed the queue and the drain buffers, further
+	// begin/end cycles - worker-thread pushes included - fire the TAG_PHYSICS
+	// seams ZERO times (the drain swaps reused buffers, the dedup scans the
+	// coalesced output, nothing reallocates)
+	PhysicsWorld world;
+	REQUIRE(world.init());
+	world.setGravity(Orkige::Vec3::ZERO);
+
+	PhysicsWorld::BodyDesc sensorDesc;
+	sensorDesc.bodyType = PhysicsWorld::BT_STATIC;
+	sensorDesc.isSensor = true;
+	const PhysicsWorld::BodyId sensor = world.createBody(sensorDesc,
+		Orkige::Vec3::ZERO, Orkige::Quat::IDENTITY, 1);
+	PhysicsWorld::BodyDesc ballDesc;
+	ballDesc.shapeType = PhysicsWorld::ST_SPHERE;
+	ballDesc.radius = 0.5f;
+	const PhysicsWorld::BodyId ball = world.createBody(ballDesc,
+		Orkige::Vec3(10.0f, 0.0f, 0.0f), Orkige::Quat::IDENTITY, 2);
+
+	// one in/out cycle produces a begin and an end through the full
+	// worker-queue -> drain -> coalesce path
+	auto contactCycle = [&]()
+	{
+		world.setBodyTransform(ball, Orkige::Vec3(0.2f, 0.0f, 0.0f),
+			Orkige::Quat::IDENTITY);
+		REQUIRE(stepUntilContact(world, sensor, ball, true));
+		world.setBodyTransform(ball, Orkige::Vec3(10.0f, 0.0f, 0.0f),
+			Orkige::Quat::IDENTITY);
+		REQUIRE(stepUntilContact(world, sensor, ball, false));
+	};
+	// warm-up: grow every buffer to its working size
+	for (int cycle = 0; cycle < 5; ++cycle)
+	{
+		contactCycle();
+	}
+	// steady state: the same traffic must count zero tracked allocations
+	Orkige::MemoryManager::reset();
+	for (int cycle = 0; cycle < 5; ++cycle)
+	{
+		contactCycle();
+	}
+	Orkige::MemoryManager::endFrame();
+	CHECK(Orkige::MemoryManager::lastFrameCount(
+		Orkige::MemoryManager::TAG_PHYSICS) == 0);
 }
 
 TEST_CASE("a sensor applies no collision response", "[physics]")

@@ -42,7 +42,6 @@
 
 #include "core_module/OrkigePrerequisites.h"
 #include "core_base/Meta.h"
-#include <core_debug/DisableMemoryManager.h>
 
 // the engine math vocabulary (Orkige::Vec3 & friends over the Ogre math
 // headers, identical on the classic and next backend - see the math
@@ -51,6 +50,5 @@
 
 void ORKIGE_ENGINE_DLL init_module_orkige_engine(void);
 
-#include <core_debug/EnableMemoryManager.h>
 #include <core_debug/Profile.h>
 #endif //__EnginePrerequisites_h__8_9_2010__20_40_50__

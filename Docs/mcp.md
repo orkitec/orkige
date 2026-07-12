@@ -92,13 +92,13 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 66 tools (the `toolSpecs` table in
+The endpoint advertises 67 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
 | Tool | Maps to |
 |------|---------|
-| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays) |
+| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays; plus the runtime perf summary: `frame_ms`, the engine-level allocation counters `alloc_per_frame`/`alloc_peak` with the per-subsystem breakdown in parallel `alloc_tags`/`alloc_counts`, and `profile_seq` — see `get_profile`) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |
@@ -139,6 +139,7 @@ The endpoint advertises 66 tools (the `toolSpecs` table in
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
+| `get_profile()` | the RUNNING game's hierarchical CPU frame profile: parallel `names`/`info` lists (each info `"depth calls milliseconds maxMilliseconds"`; depth-0 rows are the canonical tick phases — `input scripts events tweens physics load audio present debug render`), plus `frame_ms` and `profile_seq` (poll until it advances for a fresh frame). A Debug player streams snapshots unprompted (`MSG_PROFILE_DATA` on the stats cadence); on a Release player the first call arms the profiler (`MSG_PROFILE`), so call again shortly after. Pair with `get_state`'s `alloc_per_frame`/`alloc_tags` to answer "where does the frame go, and what allocates?" |
 | `get_lua_api()` | the generated Lua scripting API signature index (`inventory` text + `doc` path) — the global tables (`world`/`screen`/`sound`/`music`/`tween`/`guitween`/`haptics`/`cvar`/`save` + the `loc` global) and core value types, one line per symbol; read-only, needs no project/Play. Embedded from `Docs/lua-api.md`'s generated block (`GeneratedLuaApi.h`), so an MCP-only agent learns the scripting surface self-contained; see `Docs/lua-api.md` for conventions and the full type reference |
 | `run_editor_script(name)` | **auth** — run a project EDITOR TOOL (`scripts/<name>.editor.lua`) once through the editor-tool host — the same tool a human runs from the editor's Tools menu. The tool's `editor.*` calls route back through this SAME verb handler and its whole run folds into ONE undo step; a tool script error is reported (with its `file:line`) and leaves NO partial edits. Author a tool with `write_project_file`, then trigger it here. Returns `name` and `command_count`. See `Docs/lua-api.md` (Editor scripts) for the `editor.*` surface |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |

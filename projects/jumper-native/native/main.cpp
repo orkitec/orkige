@@ -52,6 +52,8 @@
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
+#include <core_debug/MemoryManager.h>
+#include <core_debug/ProfileManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/Project.h>
 #include <core_util/PlatformUtil.h>
@@ -649,6 +651,11 @@ int main(int argc, char** argv)
 			{
 				running = false;
 			}
+			// perf-instrument frame boundary (same contract as the player):
+			// fold the allocation counters and the profiler scope tree so the
+			// stats/profile streams above carry per-frame numbers
+			Orkige::MemoryManager::endFrame();
+			Orkige::ProfileManager::endFrame();
 			++frameCount;
 
 			if (frameCount == 55)

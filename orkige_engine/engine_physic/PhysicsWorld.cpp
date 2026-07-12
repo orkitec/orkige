@@ -8,6 +8,8 @@
 *********************************************************************/
 
 #include "engine_physic/PhysicsWorld.h"
+#include "core_debug/MemoryManager.h"
+#include "core_debug/Profile.h"
 
 // the entire Jolt surface stays inside this translation unit
 #include <Jolt/Jolt.h>
@@ -33,7 +35,6 @@
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
-#include <set>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -169,21 +170,32 @@ namespace
 		};
 		std::mutex					mMutex;		//!< guards mQueue (worker threads push, main thread drains)
 		std::vector<QueuedContact>	mQueue;		//!< raw contacts, drained each update()
+		//! the drain's reused takeover buffer: swapped with mQueue each drain so
+		//! both buffers stay warm and a steady-state frame never reallocates
+		std::vector<QueuedContact>	mDrainScratch;
 
 		virtual void OnContactAdded(const JPH::Body & inBody1,
 			const JPH::Body & inBody2, const JPH::ContactManifold & /*inManifold*/,
 			JPH::ContactSettings & /*ioSettings*/) override
 		{
 			std::lock_guard<std::mutex> lock(this->mMutex);
+			const std::size_t capacityBefore = this->mQueue.capacity();
 			this->mQueue.push_back({ inBody1.GetID(), inBody2.GetID(), true });
+			Orkige::MemoryManager::countGrowth(
+				Orkige::MemoryManager::TAG_PHYSICS,
+				capacityBefore, this->mQueue.capacity());
 		}
 		virtual void OnContactRemoved(
 			const JPH::SubShapeIDPair & inSubShapePair) override
 		{
 			// only BodyIDs here - the bodies may already be mid-destruction
 			std::lock_guard<std::mutex> lock(this->mMutex);
+			const std::size_t capacityBefore = this->mQueue.capacity();
 			this->mQueue.push_back({ inSubShapePair.GetBody1ID(),
 				inSubShapePair.GetBody2ID(), false });
+			Orkige::MemoryManager::countGrowth(
+				Orkige::MemoryManager::TAG_PHYSICS,
+				capacityBefore, this->mQueue.capacity());
 		}
 	};
 
@@ -330,6 +342,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void PhysicsWorld::update(float deltaTime)
 	{
+		OPROFILE("physics.update");
 		// last frame's contacts expire the moment a new update() begins - so a
 		// PAUSED frame (early return below) honestly presents NO contacts, and a
 		// consumer always sees exactly this call's contacts
@@ -365,8 +378,12 @@ namespace Orkige
 	{
 		oAssert(this->mImpl);
 		// take the queue under the listener's lock (workers are done, but the
-		// lock is the contract) and process it lock-free afterwards
-		std::vector<ContactListenerImpl::QueuedContact> queued;
+		// lock is the contract) and process it lock-free afterwards. The swap
+		// trades buffers with the reused drain scratch instead of a fresh local,
+		// so a steady-state frame drains without a single allocation.
+		std::vector<ContactListenerImpl::QueuedContact> & queued =
+			this->mImpl->mContactListener.mDrainScratch;
+		queued.clear();
 		{
 			std::lock_guard<std::mutex> lock(this->mImpl->mContactListener.mMutex);
 			queued.swap(this->mImpl->mContactListener.mQueue);
@@ -376,18 +393,30 @@ namespace Orkige
 			return;
 		}
 		// COALESCE per frame: OnContactAdded fires once per sub-step, so the same
-		// pair can appear many times - dedupe on the unordered (lo,hi) id pair
-		// plus the began/ended kind so onContactBegin fires exactly once per pair
-		// per frame (and a begin+end within one frame both survive).
-		std::set<std::tuple<BodyId, BodyId, bool> > seen;
-		this->mFrameContacts.reserve(queued.size());
+		// pair can appear many times - dedupe on the unordered id pair plus the
+		// began/ended kind so onContactBegin fires exactly once per pair per
+		// frame (and a begin+end within one frame both survive). The dedup scans
+		// the coalesced output directly - it stays small (one entry per pair per
+		// kind) and a scan needs no per-frame node allocations.
 		for (ContactListenerImpl::QueuedContact const & contact : queued)
 		{
 			const BodyId ia = contact.a.GetIndexAndSequenceNumber();
 			const BodyId ib = contact.b.GetIndexAndSequenceNumber();
 			const BodyId lo = std::min(ia, ib);
 			const BodyId hi = std::max(ia, ib);
-			if (!seen.insert(std::make_tuple(lo, hi, contact.began)).second)
+			bool duplicate = false;
+			for (ContactEvent const & existing : this->mFrameContacts)
+			{
+				const BodyId existingLo = std::min(existing.bodyA, existing.bodyB);
+				const BodyId existingHi = std::max(existing.bodyA, existing.bodyB);
+				if (existingLo == lo && existingHi == hi &&
+					existing.began == contact.began)
+				{
+					duplicate = true;
+					break;
+				}
+			}
+			if (duplicate)
 			{
 				continue;	// already recorded this pair+kind this frame
 			}
@@ -395,7 +424,10 @@ namespace Orkige
 			event.bodyA = ia;
 			event.bodyB = ib;
 			event.began = contact.began;
+			const std::size_t capacityBefore = this->mFrameContacts.capacity();
 			this->mFrameContacts.push_back(event);
+			MemoryManager::countGrowth(MemoryManager::TAG_PHYSICS,
+				capacityBefore, this->mFrameContacts.capacity());
 		}
 	}
 	//---------------------------------------------------------

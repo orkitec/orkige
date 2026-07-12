@@ -234,6 +234,64 @@ needs no real-time capture at all.
 
 ---
 
+## 3b. Profile a live game (where does the frame go? what allocates?)
+
+The perf instruments answer both questions from readback alone: the CPU frame
+profile (`get_profile`) breaks the frame into the canonical tick phases with a
+full scope hierarchy below them, and the allocation counters (`get_state`)
+count tracked allocation events at the engine's own seams per subsystem tag.
+The loop is: profile → find the hot subsystem → fix → re-profile.
+
+```jsonc
+// 1. play, then read the frame breakdown. A Debug player streams the profile
+//    unprompted; on a Release player the FIRST get_profile arms the profiler,
+//    so poll until profile_seq advances (~4 snapshots/second).
+play { "scene":"scenes/level1.oscene" }       // authed
+get_profile {}
+//   → { "names":["input","scripts","objects.update","events","events.tick",
+//                "tweens","physics","physics.update","load","audio","present",
+//                "debug","render"],
+//       "info":["0 1 0.008 0.02","0 1 0.755 1.1","1 1 0.71 1.0", ...],
+//       "frame_ms":"8.001", "profile_seq":"12" }
+// each info entry is "depth calls milliseconds maxMilliseconds"; depth-0 rows
+// are the canonical tick phases, deeper rows the engine scopes inside them.
+// Here: an 8 ms frame - 0.755 ms scripts, 6.7 ms render, the rest is cheap.
+
+// 2. the allocation side rides get_state (streamed on the same cadence):
+get_state {}
+//   → { ..., "frame_ms":"8.001", "alloc_per_frame":"0", "alloc_peak":"4",
+//       "alloc_tags":["events","gui","physics","tweens","particles","other"],
+//       "alloc_counts":["0","0","0","0","0","0"], "profile_seq":"13" }
+// the unit is TRACKED ALLOCATION EVENTS at the engine's own seams (event
+// queue nodes, container growth in gui/physics/tween/particle hot paths) -
+// per-subsystem engine churn, NOT libc totals (Lua's VM churn is invisible
+// here by design; mem_rss is the process-level number). A steady scene reads
+// 0; a nonzero tag names the subsystem to look at.
+
+// 3. fix the hot thing (edit the script/scene through the normal authoring
+//    verbs, reload_script or set_cvar to try it live), then RE-PROFILE:
+reload_script {}                              // authed - hot-swap the Lua
+get_profile {}                                // poll until profile_seq advanced
+//   → compare the same phase rows before/after; the numbers are the proof.
+
+// 4. for a spike that unfolds over time, record_trace: every sample line now
+//    carries "alloc" (that frame's tracked-allocation count) and "phases"
+//    (the depth-0 phase times), so a hitch is findable offline:
+record_trace { "path":"/tmp/perf.jsonl", "seconds":3 }  // authed
+//   sample lines: {"t":0.5,"frame":60,"dt":0.016,"mem":214958080,"alloc":2,
+//                  "phases":{"scripts":0.7,"physics":0.3,"render":6.7},...}
+// read the file, find the frame where dt spiked, and the phases object on
+// that line says which phase paid for it.
+```
+
+Honesty notes: scope timings measure the INSTRUMENTED code (OPROFILE sites -
+the tick phases plus the engine's own scopes); the profiler itself costs ~70 ns
+per scope when on, ~8 ns when off (Release default off, which is why the first
+Release `get_profile` returns nothing yet). The editor's own frame is not
+profiled - these instruments serve the running GAME.
+
+---
+
 ## 4. Author levels
 
 Build a tile-based level by stamping prefabs onto a snap grid, then wire the

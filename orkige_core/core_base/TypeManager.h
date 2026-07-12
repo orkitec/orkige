@@ -9,7 +9,6 @@
 #ifndef __TypeManager_h__9_8_2010__18_48_23__
 #define __TypeManager_h__9_8_2010__18_48_23__
 
-#include "core_debug/MemoryManager.h"
 #include "core_util/Singleton.h"
 #include "core_util/ObjectFactory.h"
 #include "core_base/TypeInfo.h"

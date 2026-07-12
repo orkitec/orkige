@@ -16,6 +16,7 @@
 #include "core_util/optr.h"
 #include "core_util/Singleton.h"
 #include "core_util/String.h"
+#include <fstream>
 #include <vector>
 
 

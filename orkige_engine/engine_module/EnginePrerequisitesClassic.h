@@ -27,14 +27,10 @@
 
 #include "engine_module/EnginePrerequisites.h"
 
-#include <core_debug/DisableMemoryManager.h>
-
 #include <Ogre.h>
 #include <OgreFontManager.h>
 #include <OgreBorderPanelOverlayElement.h>
 #include <OgreTextAreaOverlayElement.h>
 #include <OgreExternalTextureSourceManager.h>
 #include <OgreWireBoundingBox.h>
-
-#include <core_debug/EnableMemoryManager.h>
 #endif //__EnginePrerequisitesClassic_h__8_7_2026__12_00_00__

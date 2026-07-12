@@ -22,6 +22,7 @@
 
 #include <core_tween/EaseLibrary.h>
 #include <core_tween/TweenManager.h>
+#include <core_debug/MemoryManager.h>
 #include <core_game/GameObject.h>
 
 #include <cmath>
@@ -199,6 +200,32 @@ TEST_CASE("TweenManager interpolates values through the ease over time", "[tween
 	manager.update(1.0f);
 	CHECK(recorder.mValues.size() == 3);
 	CHECK(completions == 1);
+}
+
+TEST_CASE("TweenManager steady-state updates allocate nothing",
+	"[tween][perf]")
+{
+	// the direct allocation contract: starting a tween may grow the list
+	// (counted at the TAG_TWEENS seam); UPDATING a fixed set of long-running
+	// tweens allocates zero, asserted straight off the counters
+	Orkige::CoreTestEnvironment::get();
+	Orkige::TweenManager manager;
+	float from = 0.0f;
+	float to = 1.0f;
+	for (int i = 0; i < 16; ++i)
+	{
+		manager.startTween(&from, &to, 1, 1000.0f, &Orkige::Ease::linear,
+			nullptr, nullptr);
+	}
+	CHECK(manager.getActiveCount() == 16);
+	Orkige::MemoryManager::reset();
+	for (int frame = 0; frame < 100; ++frame)
+	{
+		manager.update(0.016f);
+	}
+	Orkige::MemoryManager::endFrame();
+	CHECK(Orkige::MemoryManager::lastFrameCount(
+		Orkige::MemoryManager::TAG_TWEENS) == 0);
 }
 
 TEST_CASE("TweenManager tweens multiple channels (vector/colour shape)", "[tween]")

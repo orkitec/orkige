@@ -765,6 +765,31 @@ struct PlaySession
 		bool loop = true;
 	};
 	std::vector<RemoteMusicTrack> remoteMusic;
+	//! running-game engine-level allocation counters (MSG_STATS): tracked
+	//! allocation events at the engine's own seams, last frame + session peak
+	//! (-1 = not reported yet), with the per-tag breakdown in parallel
+	//! tags/counts lists. Served by get_state. Reset by clearRemoteState.
+	long long remoteAllocPerFrame = -1;
+	long long remoteAllocPeak = -1;
+	std::vector<std::string> remoteAllocTags;
+	std::vector<long long> remoteAllocCounts;
+	//! running-game frame wall time in ms (MSG_STATS; -1 = not reported yet)
+	double remoteFrameMs = -1.0;
+	//! running-game CPU frame profile (MSG_PROFILE_DATA): the last streamed
+	//! hierarchical scope snapshot, flattened depth-first. profileSeq counts
+	//! received snapshots (0 = none yet) so get_profile can report freshness.
+	//! Reset by clearRemoteState.
+	struct RemoteProfileNode
+	{
+		std::string name;
+		int depth = 0;
+		long long calls = 0;
+		double milliseconds = 0.0;
+		double maxMilliseconds = 0.0;
+	};
+	std::vector<RemoteProfileNode> remoteProfile;
+	double remoteProfileFrameMs = -1.0;
+	unsigned int profileSeq = 0;
 	//! timing
 	std::chrono::steady_clock::time_point launchStart;
 	std::chrono::steady_clock::time_point lastConnectAttempt;

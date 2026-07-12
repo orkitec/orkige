@@ -11,6 +11,7 @@
 
 #include "engine_render/RenderMath.h"
 #include "core_tween/EaseLibrary.h"
+#include "core_debug/MemoryManager.h"
 
 #include <cstdint>
 #include <vector>
@@ -383,7 +384,12 @@ namespace Orkige
 			{
 				particle.frame = frameLow;
 			}
+			// the pool is reserved to capacity, so this push never grows in
+			// steady state - the probe guards the contract
+			const std::size_t capacityBefore = this->mParticles.capacity();
 			this->mParticles.push_back(particle);
+			MemoryManager::countGrowth(MemoryManager::TAG_PARTICLES,
+				capacityBefore, this->mParticles.capacity());
 			return true;
 		}
 	};

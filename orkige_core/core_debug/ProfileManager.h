@@ -1,108 +1,90 @@
-/********************************************************************
-	created:	Monday 2010/08/16 at 12:02
+/**************************************************************
+	created:	2026/07/12 at 10:00
 	filename: 	ProfileManager.h
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
-	note:		Using code from
-				Real-Time Hierarchical Profiling for Game Programming Gems 3
-				by Greg Hjelstrom & Byon Garrabrant	
-*********************************************************************/
-#ifndef __ProfileManager_h__16_8_2010__12_02_16__
-#define __ProfileManager_h__16_8_2010__12_02_16__
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
+#ifndef __ProfileManager_h__12_7_2026__10_00_00__
+#define __ProfileManager_h__12_7_2026__10_00_00__
 
-#include "core_util/Singleton.h"
-#include "core_debug/ProfileNode.h"
+#include "core_module/OrkigePrerequisites.h"
+
+#include <cstddef>
+#include <vector>
 
 namespace Orkige
 {
-	/** \addtogroup Debug
-	*  @{ */
-	//! The Manager for the Profile system
-	class ORKIGE_CORE_DLL ProfileManager : public Singleton<ProfileManager>
+	//! @brief the hierarchical per-frame CPU profiler behind the OPROFILE /
+	//! OPROFILEFUNC scope macros (core_debug/Profile.h): nested scopes build a
+	//! call tree per thread, each node accumulating call count and wall time
+	//! (steady clock) for the running frame; endFrame() - the canonical
+	//! player-tick frame boundary - folds the accumulators into a last-frame
+	//! snapshot the readback surfaces (editor Stats panel, MSG_PROFILE_DATA,
+	//! the trace, MCP get_profile) present as "where the frame went".
+	//! @remarks The instrument must not pollute its own measurement: a node is
+	//! allocated once on the scope's FIRST visit and reused forever after, the
+	//! per-thread stack is the node tree itself (parent pointers), and scope
+	//! names must be STATIC strings (string literals) - lookups compare
+	//! pointers first and never copy. Steady state is allocation-free.
+	//! @remarks Always compiled; runtime-gated by setEnabled. Debug builds
+	//! start enabled, Release builds start disabled - a disabled scope costs
+	//! one relaxed atomic load and a branch (so shipping code keeps its
+	//! OPROFILE sites). Frame TIMING (lastFrameMilliseconds) is measured by
+	//! endFrame regardless of the gate - it is one clock read per frame.
+	//! @remarks Threads: each thread owns its own tree (a scope on a worker
+	//! thread can never corrupt the main tree); the first thread to open a
+	//! scope is labeled "main". endFrame/snapshot walk every thread's tree
+	//! and require instrumented worker scopes to be CLOSED at the frame
+	//! boundary (true in the engine: physics jobs complete inside the physics
+	//! update). Direct recursion accumulates into one node, counted once.
+	namespace ProfileManager
 	{
-		DECL_OSINGLETON(ProfileManager);
-		//--- Types -------------------------------------------------
-	public:
-	protected:
-	private:
-		//--- Variables ---------------------------------------------
-	public:
-	protected:
-	private:
-		ProfileNode root;
-		ProfileNode* currentNode;
-		std::size_t frameCounter;
-		//--- Methods -----------------------------------------------
-	public:
-		//! constructor
-		ProfileManager();
-		//! destructor
-		~ProfileManager();
-		//! @brief Begin a named profile.
-		//! 
-		//! Steps one level deeper into the tree, if a child already exists with the specified name 
-		//! then it accumulates the profiling; otherwise a new child node is added to the profile tree.
-		//! 
-		//! @param name name of this profiling record                                                        *
-		//! 
-		//! @warning
-		//! The string used is assumed to be a static string; pointer compares are used throughout
-		//! the profiling code for efficiency.
-		void startProfile(const char* name);
-		//! @brief Begin a named profile.
-		//! 
-		//! Steps one level deeper into the tree, if a child already exists with the specified name 
-		//! then it accumulates the profiling; otherwise a new child node is added to the profile tree.
-		//! 
-		//! @param name name of this profiling record as String
-		void startProfile(String const & name);
-		//! @brief used by Profile to stop timing and record the results for the active label.
-		void stopProfile();
+		//! one node of the flattened snapshot tree, depth-first order
+		struct SnapshotNode
+		{
+			const char *	name;				//!< the scope's static name
+			int				depth;				//!< 0 = a frame-level scope
+			unsigned int	calls;				//!< calls in the last frame
+			double			milliseconds;		//!< time in the last frame
+			double			maxMilliseconds;	//!< worst frame since reset
+		};
 
-		//! @brief reset the contents of the profiling system.
-		//! This resets everything except for the tree structure.  All of the timing data is reset.  
-		void reset();
-		//! increment the frame counter
-		inline void incrementFrameCounter();
-		//! get the frame count
-		inline std::size_t getFrameCountSinceReset();
-		//! returns the elapsed time since last reset 
-		unsigned long getTimeSinceReset();
+		//! gate the scope machinery (Debug default: on, Release default: off)
+		ORKIGE_CORE_DLL void setEnabled(bool enabled);
+		ORKIGE_CORE_DLL bool isEnabled();
 
-		//! @brief outputs the profiler data to the debug channel
-		void debugOutput();
+		//! @brief open a scope on the calling thread's tree. name MUST be a
+		//! static string (a literal). Returns false when disabled - the
+		//! Profile RAII only closes scopes it actually opened, so toggling
+		//! the gate mid-frame stays balanced.
+		ORKIGE_CORE_DLL bool beginScope(const char * name);
+		//! close the calling thread's innermost open scope
+		ORKIGE_CORE_DLL void endScope();
 
-		//! @brief outputs the profiler data to the debug channel without hierarchy, i.e.
-		//! nodes that have the same names are combined
-		void debugOutputFlat();
+		//! @brief the frame boundary: fold every thread's running
+		//! accumulators into the last-frame snapshot values and measure the
+		//! frame duration. Call ONCE per frame from the main thread, with all
+		//! scopes closed.
+		ORKIGE_CORE_DLL void endFrame();
 
-		//! @brief shutdown
-		void shut();
-	protected:
-	private:
-		//! debug output helper function
-		void debugOutputInternal(ProfileNode* node, ProfileNode* rootNode, int treeDepth);
+		//! wall time between the last two endFrame calls (0 before frame 2)
+		ORKIGE_CORE_DLL double lastFrameMilliseconds();
+		//! endFrame calls since reset()
+		ORKIGE_CORE_DLL unsigned long framesSampled();
 
-		//! debug output flat helper function: builds a flat hierarchy of all nodes
-		void buildFlatHierarchy(ProfileNode* outputNode, ProfileNode* inputNode);
+		//! @brief flatten the last-frame tree into out (cleared first),
+		//! depth-first in scope-creation order: the "main" thread's scopes
+		//! start at depth 0; every other thread that recorded scopes
+		//! contributes a "thread:<label>" row at depth 0 with its scopes
+		//! below. The out vector is the CALLER's allocation, reusable.
+		ORKIGE_CORE_DLL void snapshot(std::vector<SnapshotNode> & out);
 
-		int getNumSiblings(ProfileNode* node);
-		ProfileNode* getSibling(ProfileNode* node, int index);
-	};
-	/** @} End of "addtogroup Debug"*/
-	//---------------------------------------------------------------
-	void ProfileManager::incrementFrameCounter()
-	{
-		this->frameCounter++;
+		//! drop all nodes and counters on every thread's tree (tests); only
+		//! call with no scopes open anywhere
+		ORKIGE_CORE_DLL void reset();
 	}
-	//---------------------------------------------------------------
-	inline std::size_t ProfileManager::getFrameCountSinceReset() 
-	{ 
-		return this->frameCounter; 
-	}
-	//---------------------------------------------------------------
 }
 
-#endif //__ProfileManager_h__16_8_2010__12_02_16__
+#endif //__ProfileManager_h__12_7_2026__10_00_00__

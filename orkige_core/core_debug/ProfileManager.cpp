@@ -1,204 +1,362 @@
-/********************************************************************
-	created:	Monday 2010/08/16 at 12:17
+/**************************************************************
+	created:	2026/07/12 at 10:00
 	filename: 	ProfileManager.cpp
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
-*********************************************************************/
-
+	copyright:	(c) 2009-2026 orkitec
+***************************************************************/
 #include "core_debug/ProfileManager.h"
-#include "core_util/Timer.h"
-#include "core_util/StringUtil.h"
-#include <limits>
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
+
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <mutex>
+
 namespace Orkige
 {
-	IMPL_OSINGLETON_GETCREATE(ProfileManager);
-	//---------------------------------------------------------
-	//--- public: ---------------------------------------------
-	//---------------------------------------------------------
-	ProfileManager::ProfileManager() : root("root", NULL), frameCounter(0), currentNode(&root)
+	namespace ProfileManager
 	{
-		oInfo("\t...ProfileManager created!...");
-	}
-	//---------------------------------------------------------
-	ProfileManager::~ProfileManager()
-	{
-		oInfo("\t...ProfileManager destroyed!...");
-	}
-	//---------------------------------------------------------
-	void ProfileManager::startProfile(const char* name)
-	{
-		//if (strcmp(name, ProfileManager::currentNode->name) != 0)
-		if (name != this->currentNode->name)
-			this->currentNode = this->currentNode->getSubNode(name);
-
-		this->currentNode->nodeCall();
-	}
-	//---------------------------------------------------------
-	void ProfileManager::startProfile(String const & name)
-	{
-		if (this->currentNode->name != NULL || static_cast<StringProfileNode*>(this->currentNode)->stringName != name)
-			this->currentNode = this->currentNode->getSubNode(name);
-
-		this->currentNode->nodeCall();
-	}
-	//---------------------------------------------------------
-	void ProfileManager::stopProfile()
-	{
-		// nodeReturn will indicate whether we should back up to our parent (we may
-		// be profiling a recursive function)
-		if (this->currentNode->nodeReturn())
-			this->currentNode = this->currentNode->getParent();
-	}
-	//---------------------------------------------------------
-	void ProfileManager::reset()
-	{ 
-		this->root.nodeReset(); 
-		this->frameCounter = 0;
-		this->root.startTime = Timer::getMilliseconds();
-	}
-	//---------------------------------------------------------
-	unsigned long ProfileManager::getTimeSinceReset()
-	{
-		return Timer::getMilliseconds() - this->root.startTime;
-	}
-	//---------------------------------------------------------
-	void ProfileManager::debugOutput()
-	{
-		oDebugMsg("profiler", 0," ProfileManager: hierarchical view");
-		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call  | calls/  | name");
-		oDebugMsg("profiler", 0,"         |        |          |         | min     | max      | frame   |     ");
-		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+----------+---------+-----------------------------------------");
-
-		this->root.totalTime = this->getTimeSinceReset();
-		this->debugOutputInternal(this->root.getChild(), &this->root, 0);
-	}
-	//---------------------------------------------------------
-	void ProfileManager::debugOutputFlat()
-	{
-		oDebugMsg("profiler", 0," ProfileManager: non-hierarchical view");
-		oDebugMsg("profiler", 0," %total  |%parent | ms/frame | ms/call | ms/call | ms/call  | calls/  | name");
-		oDebugMsg("profiler", 0,"         |        |          |         | min     | max      | frame   |     ");
-		oDebugMsg("profiler", 0,"---------+--------+----------+---------+---------+----------+---------+-----------------------------------------");
-
-		// build the flat view
-		ProfileNode flatRoot("flat root", NULL);
-		flatRoot.totalTime = this->getTimeSinceReset();
-		this->buildFlatHierarchy(&flatRoot, this->root.getChild());
-		this->debugOutputInternal(flatRoot.getChild(), &flatRoot, 0);
-		flatRoot.nodeFree();
-	}
-	//---------------------------------------------------------
-	void ProfileManager::shut()
-	{
-		this->root.nodeFree();
-	}	
-	//---------------------------------------------------------
-	//--- protected: ------------------------------------------
-	//---------------------------------------------------------
-
-	//---------------------------------------------------------
-	//--- private: --------------------------------------------
-	//---------------------------------------------------------
-	void ProfileManager::debugOutputInternal(ProfileNode* node, ProfileNode* rootNode, int treeDepth)
-	{
-		int childNumber = this->getNumSiblings(node);
-
-		String indent(treeDepth*4, ' ');
-
-
-		while (childNumber > 0)
+		namespace
 		{
-			childNumber--;
-			node = this->getSibling(node, childNumber);
+			using Clock = std::chrono::steady_clock;
 
-			double f = 1000.0;//(double)getTimerFrequency();
-
-			if (node->getMinTime() != UINT_MAX)
+			//! one scope in a thread's call tree; allocated on the scope's
+			//! first visit, reused for the thread's lifetime (steady state
+			//! opens/closes scopes without ever allocating)
+			struct Node
 			{
-				std::size_t frameCount = this->getFrameCountSinceReset();
+				const char *	mName;			//!< static string (pointer-compared first)
+				Node *			mParent;
+				Node *			mFirstChild;
+				Node *			mLastChild;		//!< children append in creation order
+				Node *			mSibling;
+				int				mRecursion;		//!< direct recursion depth (time counted once)
+				Clock::time_point	mStart;		//!< outermost entry of the running call
+				std::uint64_t	mFrameNs;		//!< accumulating, the running frame
+				unsigned int	mFrameCalls;
+				std::uint64_t	mLastNs;		//!< the last completed frame
+				unsigned int	mLastCalls;
+				std::uint64_t	mMaxNs;			//!< worst completed frame since reset
 
-				double outputParent = 100.0 * (double)node->getTotalTime() / (double)node->getParent()->getTotalTime();
-				double outputTotal = 100.0 * (double)node->getTotalTime() / (double)rootNode->getTotalTime();
-				double outputMsFrame = (frameCount != 0) ? (1000.0 * (double)node->getTotalTime() / (double)(frameCount * f)) : 0;
-				double outputMsCall = 1000.0 * (double)node->getTotalTime() / (double)(node->getTotalCalls() * f);
-				double outputMsMin = 1000.0 * (double)node->getMinTime() / f;
-				double outputMsMax = 1000.0 * (double)node->getMaxTime() / f;
-				double outputCallFrame = (frameCount != 0) ? ((double)node->getTotalCalls() / (double)frameCount) : 0;
-				String outputName = indent + node->getName();
+				explicit Node(const char * name, Node * parent)
+					: mName(name), mParent(parent), mFirstChild(NULL),
+					mLastChild(NULL), mSibling(NULL), mRecursion(0),
+					mFrameNs(0), mFrameCalls(0), mLastNs(0), mLastCalls(0),
+					mMaxNs(0)
+				{
+				}
+			};
 
-				oDebugMsg("profiler", 0, \
-					StringUtil::doubleToString(outputTotal,		3,7,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputParent,	3,7,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputMsFrame,	3,9,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputMsCall,	3,8,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputMsMin,		3,8,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputMsMax,		3,9,' ',std::ios::fixed)	<<" |"<<\
-					StringUtil::doubleToString(outputCallFrame,	3,8,' ',std::ios::fixed)	<<" |"<<\
-					outputName);
+			struct ThreadState;
 
-				this->debugOutputInternal(node->getChild(), rootNode, treeDepth + 1);
+			//! the registry of live thread trees; function-local static so
+			//! any initialization order works
+			struct Registry
+			{
+				std::mutex					mMutex;
+				std::vector<ThreadState *>	mThreads;	//!< insertion order, "main" first in practice
+				int							mNextLabel = 1;
+			};
+			Registry & registry()
+			{
+				static Registry sRegistry;
+				return sRegistry;
+			}
+
+			//! per-thread tree + cursor; registers itself on the thread's
+			//! first scope, unregisters (and frees its nodes) at thread exit,
+			//! so a snapshot only ever sees live threads' data
+			struct ThreadState
+			{
+				Node	mRoot;
+				Node *	mCurrent;
+				char	mLabel[24];
+
+				ThreadState() : mRoot(NULL, NULL), mCurrent(&mRoot)
+				{
+					Registry & reg = registry();
+					std::lock_guard<std::mutex> lock(reg.mMutex);
+					if (reg.mThreads.empty())
+					{
+						std::snprintf(mLabel, sizeof(mLabel), "main");
+					}
+					else
+					{
+						std::snprintf(mLabel, sizeof(mLabel), "thread-%d",
+							++reg.mNextLabel);
+					}
+					reg.mThreads.push_back(this);
+				}
+
+				~ThreadState()
+				{
+					Registry & reg = registry();
+					std::lock_guard<std::mutex> lock(reg.mMutex);
+					for (std::size_t i = 0; i < reg.mThreads.size(); ++i)
+					{
+						if (reg.mThreads[i] == this)
+						{
+							reg.mThreads.erase(reg.mThreads.begin() + i);
+							break;
+						}
+					}
+					freeChildren(&mRoot);
+				}
+
+				static void freeChildren(Node * node)
+				{
+					Node * child = node->mFirstChild;
+					while (child != NULL)
+					{
+						Node * next = child->mSibling;
+						freeChildren(child);
+						delete child;
+						child = next;
+					}
+					node->mFirstChild = NULL;
+					node->mLastChild = NULL;
+				}
+			};
+
+			thread_local ThreadState tState;
+
+#if defined(NDEBUG)
+			std::atomic<bool> sEnabled(false);
+#else
+			std::atomic<bool> sEnabled(true);
+#endif
+			//! frame duration is measured whether or not scopes are enabled
+			Clock::time_point	sLastFrameEnd;
+			double				sLastFrameMs = 0.0;
+			unsigned long		sFrames = 0;
+
+			//! find (pointer compare first, text compare second) or create
+			//! the child scope; the only allocation in the profiler
+			Node * findOrAddChild(Node * parent, const char * name)
+			{
+				for (Node * child = parent->mFirstChild; child != NULL;
+					child = child->mSibling)
+				{
+					if (child->mName == name ||
+						std::strcmp(child->mName, name) == 0)
+					{
+						return child;
+					}
+				}
+				Node * node = new Node(name, parent);
+				if (parent->mLastChild != NULL)
+				{
+					parent->mLastChild->mSibling = node;
+				}
+				else
+				{
+					parent->mFirstChild = node;
+				}
+				parent->mLastChild = node;
+				return node;
+			}
+
+			void foldFrame(Node * node)
+			{
+				for (Node * child = node->mFirstChild; child != NULL;
+					child = child->mSibling)
+				{
+					child->mLastNs = child->mFrameNs;
+					child->mLastCalls = child->mFrameCalls;
+					if (child->mLastNs > child->mMaxNs)
+					{
+						child->mMaxNs = child->mLastNs;
+					}
+					child->mFrameNs = 0;
+					child->mFrameCalls = 0;
+					foldFrame(child);
+				}
+			}
+
+			void resetNode(Node * node)
+			{
+				for (Node * child = node->mFirstChild; child != NULL;
+					child = child->mSibling)
+				{
+					resetNode(child);
+				}
+				node->mRecursion = 0;
+				node->mFrameNs = 0;
+				node->mFrameCalls = 0;
+				node->mLastNs = 0;
+				node->mLastCalls = 0;
+				node->mMaxNs = 0;
+			}
+
+			double toMilliseconds(std::uint64_t nanoseconds)
+			{
+				return static_cast<double>(nanoseconds) / 1000000.0;
+			}
+
+			void appendSnapshot(Node * node, int depth,
+				std::vector<SnapshotNode> & out)
+			{
+				for (Node * child = node->mFirstChild; child != NULL;
+					child = child->mSibling)
+				{
+					SnapshotNode entry;
+					entry.name = child->mName;
+					entry.depth = depth;
+					entry.calls = child->mLastCalls;
+					entry.milliseconds = toMilliseconds(child->mLastNs);
+					entry.maxMilliseconds = toMilliseconds(child->mMaxNs);
+					out.push_back(entry);
+					appendSnapshot(child, depth + 1, out);
+				}
+			}
+
+			//! did this thread record anything in the last completed frame?
+			bool hasLastFrameData(Node * node)
+			{
+				for (Node * child = node->mFirstChild; child != NULL;
+					child = child->mSibling)
+				{
+					if (child->mLastCalls > 0 || hasLastFrameData(child))
+					{
+						return true;
+					}
+				}
+				return false;
 			}
 		}
-	}
-	//---------------------------------------------------------
-	void ProfileManager::buildFlatHierarchy(ProfileNode* outputNode, ProfileNode* inputNode)
-	{
-		int childNumber = this->getNumSiblings(inputNode);
-
-		while (childNumber > 0)
+		//---------------------------------------------------------
+		void setEnabled(bool enabled)
 		{
-			--childNumber;
-			inputNode = this->getSibling(inputNode, childNumber);
-
-			//double f = (double)getTimerFrequency();
-
-			if (inputNode->getMinTime() != UINT_MAX)
+			sEnabled.store(enabled, std::memory_order_relaxed);
+		}
+		//---------------------------------------------------------
+		bool isEnabled()
+		{
+			return sEnabled.load(std::memory_order_relaxed);
+		}
+		//---------------------------------------------------------
+		bool beginScope(const char * name)
+		{
+			if (!sEnabled.load(std::memory_order_relaxed))
 			{
-				// get or create child node for flat hierarchy
-				ProfileNode* outputChild = outputNode->getSubNode(inputNode->getName());
-
-				outputChild->totalCalls += inputNode->getTotalCalls();
-				outputChild->totalTime += inputNode->getTotalTime();
-				outputChild->minTime = std::min(inputNode->getMinTime(), outputChild->minTime);
-				outputChild->maxTime = std::max(inputNode->getMaxTime(), outputChild->maxTime );
-
-				this->buildFlatHierarchy(outputNode, inputNode->getChild());
+				return false;
+			}
+			ThreadState & state = tState;
+			Node * current = state.mCurrent;
+			// direct recursion re-enters the OPEN node instead of descending
+			const bool sameAsCurrent = current != &state.mRoot &&
+				(current->mName == name ||
+					std::strcmp(current->mName, name) == 0);
+			if (!sameAsCurrent)
+			{
+				current = findOrAddChild(current, name);
+				state.mCurrent = current;
+			}
+			++current->mFrameCalls;
+			if (current->mRecursion++ == 0)
+			{
+				current->mStart = Clock::now();
+			}
+			return true;
+		}
+		//---------------------------------------------------------
+		void endScope()
+		{
+			ThreadState & state = tState;
+			Node * current = state.mCurrent;
+			if (current == &state.mRoot)
+			{
+				return;	// unbalanced close - ignore rather than corrupt
+			}
+			if (--current->mRecursion == 0)
+			{
+				current->mFrameNs += static_cast<std::uint64_t>(
+					std::chrono::duration_cast<std::chrono::nanoseconds>(
+						Clock::now() - current->mStart).count());
+				state.mCurrent = current->mParent;
 			}
 		}
-	}
-	//---------------------------------------------------------
-	int ProfileManager::getNumSiblings(ProfileNode* node)
-	{
-		if (node == NULL)
-			return 0;
-
-		ProfileNode* current = node->getParent()->getChild();
-		int i = 0;
-		while (current != NULL)
+		//---------------------------------------------------------
+		void endFrame()
 		{
-			i++;
-			current = current->getSibling();
+			const Clock::time_point now = Clock::now();
+			if (sFrames > 0)
+			{
+				sLastFrameMs = std::chrono::duration_cast<
+					std::chrono::duration<double, std::milli>>(
+						now - sLastFrameEnd).count();
+			}
+			sLastFrameEnd = now;
+			++sFrames;
+			if (!sEnabled.load(std::memory_order_relaxed))
+			{
+				return;
+			}
+			Registry & reg = registry();
+			std::lock_guard<std::mutex> lock(reg.mMutex);
+			for (ThreadState * state : reg.mThreads)
+			{
+				foldFrame(&state->mRoot);
+			}
 		}
-		return i;
-	}
-	//---------------------------------------------------------
-	ProfileNode* ProfileManager::getSibling(ProfileNode* node, int index)
-	{
-		ProfileNode* current = node->getParent()->getChild();
-		while (current != NULL && index != 0)
+		//---------------------------------------------------------
+		double lastFrameMilliseconds()
 		{
-			index--;
-			current = current->getSibling();
+			return sLastFrameMs;
 		}
-		return current;
+		//---------------------------------------------------------
+		unsigned long framesSampled()
+		{
+			return sFrames;
+		}
+		//---------------------------------------------------------
+		void snapshot(std::vector<SnapshotNode> & out)
+		{
+			out.clear();
+			Registry & reg = registry();
+			std::lock_guard<std::mutex> lock(reg.mMutex);
+			// the "main" tree first, its scopes at depth 0
+			for (ThreadState * state : reg.mThreads)
+			{
+				if (std::strcmp(state->mLabel, "main") == 0)
+				{
+					appendSnapshot(&state->mRoot, 0, out);
+				}
+			}
+			// other threads under a labeled row so their scopes stay
+			// distinguishable from the frame's own phases
+			for (ThreadState * state : reg.mThreads)
+			{
+				if (std::strcmp(state->mLabel, "main") == 0 ||
+					!hasLastFrameData(&state->mRoot))
+				{
+					continue;
+				}
+				SnapshotNode row;
+				row.name = state->mLabel;
+				row.depth = 0;
+				row.calls = 0;
+				row.milliseconds = 0.0;
+				row.maxMilliseconds = 0.0;
+				out.push_back(row);
+				appendSnapshot(&state->mRoot, 1, out);
+			}
+		}
+		//---------------------------------------------------------
+		void reset()
+		{
+			Registry & reg = registry();
+			std::lock_guard<std::mutex> lock(reg.mMutex);
+			for (ThreadState * state : reg.mThreads)
+			{
+				resetNode(&state->mRoot);
+				state->mCurrent = &state->mRoot;
+			}
+			sLastFrameMs = 0.0;
+			sFrames = 0;
+		}
 	}
-	//---------------------------------------------------------
 }

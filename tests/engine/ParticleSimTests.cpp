@@ -18,6 +18,7 @@
 #include <catch2/catch_approx.hpp>
 
 #include <engine_gocomponent/ParticleSim.h>
+#include <core_debug/MemoryManager.h>
 
 using Catch::Approx;
 using Orkige::ParticleSim;
@@ -76,6 +77,30 @@ TEST_CASE("ParticleSim: never exceeds its capacity", "[particles][unit]")
 		REQUIRE(sim.liveCount() <= 10);
 	}
 	REQUIRE(sim.liveCount() == 10);
+}
+
+TEST_CASE("ParticleSim: a reserved pool spawns and simulates without "
+	"allocating", "[particles][unit][perf]")
+{
+	// the direct allocation contract behind the capacity cap: the pool is
+	// reserved up front, so churning particles through spawn/expire/update
+	// fires the TAG_PARTICLES growth seam ZERO times
+	ParticleSim sim(99u);
+	ParticleSim::EmitterParams params = staticEmitter(64);
+	params.emissionRate = 500.0f;
+	params.lifetimeMin = 0.05f;		// fast turnover: constant spawn+expire
+	params.lifetimeMax = 0.10f;
+	sim.setParams(params);
+	sim.start();
+	Orkige::MemoryManager::reset();
+	for (int step = 0; step < 200; ++step)
+	{
+		sim.update(0.01f, Vec2(0.0f, 0.0f));
+	}
+	Orkige::MemoryManager::endFrame();
+	REQUIRE(sim.liveCount() <= sim.capacity());
+	REQUIRE(Orkige::MemoryManager::lastFrameCount(
+		Orkige::MemoryManager::TAG_PARTICLES) == 0);
 }
 
 TEST_CASE("ParticleSim: burst spawns exactly min(n, capacity)",

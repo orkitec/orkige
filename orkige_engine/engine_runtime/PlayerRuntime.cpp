@@ -18,6 +18,7 @@
 #include "core_base/PropertySchema.h"
 #include "core_base/PropertyValue.h"
 #include "core_debug/CVarManager.h"
+#include "core_debug/MemoryManager.h"
 #include "core_debug/MemorySampler.h"
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
@@ -43,6 +44,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <iomanip>
 #include <cstring>
 #include <filesystem>
 #include <utility>
@@ -500,8 +502,26 @@ namespace Orkige
 		// the process footprint rides every sample line ("mem" bytes) so an
 		// agent can assert "no unbounded growth" straight off the trace
 		const std::size_t residentBytes = sampleMemory();
+		// so do the engine-level allocation count ("alloc") and the CPU
+		// profiler's top-level frame phases ("phases") - the per-frame
+		// where-does-it-go answer, readable straight off the trace
+		const long long allocFrame = MemoryManager::framesSampled() > 0
+			? static_cast<long long>(MemoryManager::lastFrameTotal()) : -1;
+		std::vector<TraceWriter::PhaseSample> phases;
+		if (ProfileManager::isEnabled())
+		{
+			ProfileManager::snapshot(mProfileScratch);
+			for (ProfileManager::SnapshotNode const & node : mProfileScratch)
+			{
+				if (node.depth == 0 && node.calls > 0)
+				{
+					phases.push_back({ node.name, node.milliseconds });
+				}
+			}
+		}
 		mTrace->addSample(mRecordElapsed, frameCount, deltaSeconds, samples,
-			residentBytes > 0 ? static_cast<long long>(residentBytes) : -1);
+			residentBytes > 0 ? static_cast<long long>(residentBytes) : -1,
+			allocFrame, phases);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::traceContact(String const & nameA, String const & nameB,
@@ -651,6 +671,9 @@ namespace Orkige
 			// the gui widget rects ride the same cadence: the safe-area
 			// device test reads them to assert the HUD sits inside the notch box
 			streamUiLayout();
+			// the CPU frame profile too (only streamed while the profiler is
+			// enabled - Debug default on, Release off until MSG_PROFILE arms it)
+			streamProfile();
 		}
 		streamObjectState(gameObjectManager);
 		// forward the engine-log lines captured since the last frame
@@ -1057,6 +1080,13 @@ namespace Orkige
 					sendError("record: not recording");
 				}
 			}
+			else if (message.type == Protocol::MSG_PROFILE)
+			{
+				// arm/disarm the runtime CPU profiler; once enabled the
+				// profile stream follows on the stats cadence
+				ProfileManager::setEnabled(
+					message.get(Protocol::FIELD_VALUE) != "0");
+			}
 			else if (message.type == Protocol::MSG_GUI_PRESS)
 			{
 				// synthesize a press+release on a gui widget at its centre,
@@ -1182,6 +1212,39 @@ namespace Orkige
 				std::to_string(mPeakResidentBytes));
 			anyField = true;
 		}
+		// engine-level allocation counters (tracked seams, per frame - see
+		// core_debug/MemoryManager.h) - present once the player loop has
+		// completed a frame boundary
+		if (MemoryManager::framesSampled() > 0)
+		{
+			stats.set(Protocol::FIELD_ALLOC_PER_FRAME,
+				std::to_string(MemoryManager::lastFrameTotal()));
+			stats.set(Protocol::FIELD_ALLOC_PEAK,
+				std::to_string(MemoryManager::peakFrameTotal()));
+			StringVector allocTags;
+			StringVector allocCounts;
+			for (int tag = 0; tag < MemoryManager::TAG_COUNT; ++tag)
+			{
+				const MemoryManager::AllocTag allocTag =
+					static_cast<MemoryManager::AllocTag>(tag);
+				allocTags.push_back(MemoryManager::tagName(allocTag));
+				allocCounts.push_back(
+					std::to_string(MemoryManager::lastFrameCount(allocTag)));
+			}
+			stats.setList(Protocol::LIST_ALLOC_TAGS, allocTags);
+			stats.setList(Protocol::LIST_ALLOC_COUNTS, allocCounts);
+			anyField = true;
+		}
+		// the frame's wall time (measured at the frame boundary even when
+		// scope timing is off; needs two boundaries for a duration)
+		if (ProfileManager::framesSampled() > 1)
+		{
+			std::ostringstream frameMs;
+			frameMs << std::fixed << std::setprecision(3)
+				<< ProfileManager::lastFrameMilliseconds();
+			stats.set(Protocol::FIELD_FRAME_MS, frameMs.str());
+			anyField = true;
+		}
 		// window size + safe-area insets (pixels): the notch-aware readback an
 		// agent asserts the HUD against. Pulled from the platform window
 		// (no Ogre spelling here - renderer containment). Absent without a
@@ -1290,6 +1353,40 @@ namespace Orkige
 		}
 		message.set(Protocol::FIELD_UI_SCREEN_STACK, screenPath);
 		mServer.send(message);
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::streamProfile()
+	{
+		if (!mServer.hasClient() || !ProfileManager::isEnabled())
+		{
+			return;
+		}
+		ProfileManager::snapshot(mProfileScratch);
+		if (mProfileScratch.empty())
+		{
+			return;	// no completed frame with scopes yet
+		}
+		DebugMessage profile(Protocol::MSG_PROFILE_DATA);
+		StringVector names;
+		StringVector infos;
+		names.reserve(mProfileScratch.size());
+		infos.reserve(mProfileScratch.size());
+		for (ProfileManager::SnapshotNode const & node : mProfileScratch)
+		{
+			names.push_back(node.name);
+			std::ostringstream info;
+			info << node.depth << ' ' << node.calls << ' '
+				<< std::fixed << std::setprecision(3) << node.milliseconds
+				<< ' ' << node.maxMilliseconds;
+			infos.push_back(info.str());
+		}
+		profile.setList(Protocol::LIST_PROFILE_NAMES, names);
+		profile.setList(Protocol::LIST_PROFILE_INFO, infos);
+		std::ostringstream frameMs;
+		frameMs << std::fixed << std::setprecision(3)
+			<< ProfileManager::lastFrameMilliseconds();
+		profile.set(Protocol::FIELD_FRAME_MS, frameMs.str());
+		mServer.send(profile);
 	}
 	//---------------------------------------------------------
 }

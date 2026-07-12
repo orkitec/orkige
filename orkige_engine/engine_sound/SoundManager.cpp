@@ -65,7 +65,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void SoundManager::update(float delta)
 	{
-		OPROFILEFUNC();
+		OPROFILE("sound.update");
 		if (!this->isInitialized)
 		{
 			return;

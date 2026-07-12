@@ -70,6 +70,8 @@
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
 #include <core_debug/Breadcrumbs.h>
+#include <core_debug/MemoryManager.h>
+#include <core_debug/Profile.h>
 #include <core_debugnet/DebugServer.h>
 #include <engine_base/EngineLog.h>
 #include <core_util/PlatformUtil.h>
@@ -528,6 +530,14 @@ int main(int argc, char** argv)
 		// the ORKIGE_LIFECYCLE_SELFCHECK block near the loop below.
 		const bool lifecycleCheck =
 			(std::getenv("ORKIGE_LIFECYCLE_SELFCHECK") != nullptr);
+		// ORKIGE_PERF_SELFCHECK=1: run a real project for ~70 frames and
+		// assert the performance instruments produce a truthful readback -
+		// the profiler snapshot carries the canonical tick phases at depth 0,
+		// the frame boundary folded (frames sampled, frame time measured) and
+		// the allocation counters ran. The MEASURED numbers are logged as the
+		// deliverable; nothing gates on wall-clock (CI machines are slower).
+		const bool perfCheck =
+			(std::getenv("ORKIGE_PERF_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -537,6 +547,7 @@ int main(int argc, char** argv)
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
 			breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
+			perfCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 #ifdef ORKIGE_IPHONE
@@ -1993,6 +2004,13 @@ int main(int argc, char** argv)
 		enum class LifecyclePhase { Init, Backgrounded, Foregrounded, Done };
 		LifecyclePhase lifecyclePhase = LifecyclePhase::Init;
 		bool lifecycleFailed = false;
+		bool perfCheckFailed = false;
+		if (perfCheck)
+		{
+			// the check must also hold on a Release tree, where the scope
+			// machinery boots disarmed - arm it like MSG_PROFILE would
+			Orkige::ProfileManager::setEnabled(true);
+		}
 
 		bool running = true;
 		unsigned long frameCount = 0;
@@ -2134,13 +2152,19 @@ int main(int argc, char** argv)
 				//     HERE, before the scripts that read them run. ONE edge
 				//     snapshot per frame (pressed = down && !down-last-frame);
 				//     scripts read the snapshot back, never recompute it.
-				inputActions.update(deltaTime);
+				{
+					OPROFILE("input");
+					inputActions.update(deltaTime);
+				}
 				//
 				// [2] SCRIPTS/WORLD - the component updates: ScriptComponent
 				//     runs the game code, rigid bodies create lazily and sync
 				//     their simulated pose into the transforms, sounds/sprites
 				//     follow their transforms.
-				gameObjectManager.update(gameplayDelta);
+				{
+					OPROFILE("scripts");
+					gameObjectManager.update(gameplayDelta);
+				}
 				//
 				// [2b] EVENT BUS - drain the ONE engine event bus
 				//     (core_event/GlobalEventManager) in the SCRIPT PHASE: the
@@ -2156,6 +2180,7 @@ int main(int argc, char** argv)
 				//     mirror in [4]) land next frame.
 				if (Orkige::GlobalEventManager::getSingletonPtr())
 				{
+					OPROFILE("events");
 					Orkige::GlobalEventManager::getSingleton().tick();
 				}
 				//
@@ -2163,7 +2188,10 @@ int main(int argc, char** argv)
 				//     its first step this frame), before physics (tweened poses
 				//     are what the simulation sees). Dormant in the editor: only
 				//     runtimes that tick this block create a TweenManager.
-				tweenManager.update(gameplayDelta);
+				{
+					OPROFILE("tweens");
+					tweenManager.update(gameplayDelta);
+				}
 				//
 				// [4] PHYSICS - the fixed-timestep simulation, then the
 				//     sim->scene pose sync: dynamic bodies publish the pose
@@ -2172,6 +2200,7 @@ int main(int argc, char** argv)
 				//     stream would lag the simulation by one tick).
 				if (physicsNeeded)
 				{
+					OPROFILE("physics");
 					physicsWorld.update(gameplayDelta);
 					Orkige::RigidBodyComponent::syncDynamicBodyPoses(
 						gameObjectManager);
@@ -2195,6 +2224,7 @@ int main(int argc, char** argv)
 				//     teardown hook and reloads; the new scene's scripts init on
 				//     the NEXT frame. Keep this slot LAST.
 				{
+					OPROFILE("load");
 					int pendingLevelIndex = -1;
 					Orkige::String pendingScene;
 					if (levelManager.consumePendingLoad(pendingLevelIndex,
@@ -2221,24 +2251,36 @@ int main(int argc, char** argv)
 				// ================ end PLAYER LOOP TICK ORDER ====================
 
 				// audio listener follows the (script-driven) camera rig
-				soundManager.update(deltaTime);
+				{
+					OPROFILE("audio");
+					soundManager.update(deltaTime);
+				}
 
 				// the fade overlay is a PRESENTATION layer: ticked last, after
 				// the deferred-load pump, so its alpha reflects the frame about to
 				// render and a mid-fade scene switch is hidden under full opacity
-				screenFade.update(deltaTime);
+				{
+					OPROFILE("present");
+					screenFade.update(deltaTime);
+				}
 				// screen shake is a PRESENTATION effect too, ticked after the fade
 				// and the deferred-load pump: it reads the camera's base pose AFTER
 				// the scripts/physics of this frame set it, applies the wobble for
 				// the frame about to render, and restores it. On the real delta so
 				// it still animates during a hitstop (timeScale 0).
-				screenShake.update(deltaTime);
+				{
+					OPROFILE("present");
+					screenShake.update(deltaTime);
+				}
 			}
 
 			// streaming: hierarchy on change (checked every N frames),
 			// selected object state at ~15Hz, queued log lines - also while
 			// paused
-			debugLink.stream(gameObjectManager, frameCount);
+			{
+				OPROFILE("debug");
+				debugLink.stream(gameObjectManager, frameCount);
+			}
 
 			// crash breadcrumbs: mirror engine warnings/errors and record any
 			// newly-failed ScriptComponent (both once, flushed to disk)
@@ -2269,9 +2311,13 @@ int main(int argc, char** argv)
 					SDL_Delay(32);
 				}
 			}
-			else if (!render->renderOneFrame())
+			else
 			{
-				running = false;
+				OPROFILE("render");
+				if (!render->renderOneFrame())
+				{
+					running = false;
+				}
 			}
 			// editor-requested screenshot of the RUNNING game (MSG_SCREENSHOT):
 			// captured AFTER the frame renders so it shows what the player just
@@ -2296,6 +2342,15 @@ int main(int argc, char** argv)
 						captured ? "written" : "FAILED", screenshotPath.c_str());
 				}
 			}
+			// frame boundary for the perf instruments: fold the allocation
+			// counters and the profiler's scope tree into their last-frame
+			// snapshots. AFTER render (the frame is complete), BEFORE the trace
+			// (a sampled frame carries ITS OWN phase times and alloc count).
+			// Worker threads are quiescent here - physics jobs completed inside
+			// the physics update.
+			Orkige::MemoryManager::endFrame();
+			Orkige::ProfileManager::endFrame();
+
 			// editor-requested TRACE recording (MSG_RECORD_START): while active,
 			// sample the world every Nth frame and interleave this frame's
 			// physics contacts as events, until the time budget is spent (or
@@ -4118,6 +4173,78 @@ int main(int argc, char** argv)
 			// synthetic SDL lifecycle events (SDL_PushEvent - processed at the
 			// top of the NEXT iteration, exactly like a device's events) and
 			// assert the backgrounding contract across a few frames.
+			if (perfCheck && !perfCheckFailed && frameCount == 60)
+			{
+				auto perfFail = [&](std::string const& what)
+				{
+					SDL_Log("orkige_player: PERF SELFCHECK FAILED - %s "
+						"(frame %lu)", what.c_str(), frameCount);
+					perfCheckFailed = true;
+					exitCode = 1;
+					running = false;
+				};
+				// the frame boundary folded every frame so far
+				if (Orkige::MemoryManager::framesSampled() < 50 ||
+					Orkige::ProfileManager::framesSampled() < 50)
+				{
+					perfFail("frame boundaries never folded the instruments");
+				}
+				else if (Orkige::ProfileManager::lastFrameMilliseconds() <= 0.0)
+				{
+					perfFail("no frame duration was measured");
+				}
+				else
+				{
+					// the canonical tick phases all appear as depth-0 scopes
+					std::vector<Orkige::ProfileManager::SnapshotNode> rows;
+					Orkige::ProfileManager::snapshot(rows);
+					const char* const requiredPhases[] = { "input", "scripts",
+						"events", "tweens", "load", "audio", "present",
+						"debug", "render" };
+					for (const char* phase : requiredPhases)
+					{
+						bool found = false;
+						for (Orkige::ProfileManager::SnapshotNode const& row :
+							rows)
+						{
+							if (row.depth == 0 &&
+								std::strcmp(row.name, phase) == 0)
+							{
+								found = true;
+								break;
+							}
+						}
+						if (!found)
+						{
+							perfFail(std::string("phase scope missing from "
+								"the snapshot: ") + phase);
+							break;
+						}
+					}
+					if (!perfCheckFailed)
+					{
+						// the deliverable: the measured breakdown, logged
+						SDL_Log("orkige_player: PERF SELFCHECK - frame %.3f ms, "
+							"alloc/frame %zu (peak %zu), %zu profile rows",
+							Orkige::ProfileManager::lastFrameMilliseconds(),
+							Orkige::MemoryManager::lastFrameTotal(),
+							Orkige::MemoryManager::peakFrameTotal(),
+							rows.size());
+						for (Orkige::ProfileManager::SnapshotNode const& row :
+							rows)
+						{
+							if (row.depth == 0)
+							{
+								SDL_Log("orkige_player:   %s: %.3f ms (x%u)",
+									row.name, row.milliseconds, row.calls);
+							}
+						}
+						SDL_Log("orkige_player: PERF SELFCHECK COMPLETE");
+						running = false;	// clean exit, code 0
+					}
+				}
+			}
+
 			if (lifecycleCheck && !lifecycleFailed)
 			{
 				auto lifecycleFail = [&](std::string const& what)

@@ -9,7 +9,6 @@
 #ifndef __StringUtil_h__10_8_2010__15_56_23__
 #define __StringUtil_h__10_8_2010__15_56_23__
 
-#include "core_debug/MemoryManager.h"
 #include "core_util/String.h"
 #include "core_base/Value.h"
 #include <algorithm>

@@ -9,6 +9,8 @@
 
 #include "core_tween/TweenManager.h"
 #include "core_game/GameObjectManager.h"
+#include "core_debug/MemoryManager.h"
+#include "core_debug/Profile.h"
 
 #include <algorithm>
 #include <utility>
@@ -58,7 +60,10 @@ namespace Orkige
 		// safe while update() iterates: it walks by index over the size
 		// captured at entry, so a tween started from a callback takes its
 		// first step on the NEXT update
+		const std::size_t capacityBefore = this->mTweens.capacity();
 		this->mTweens.push_back(tween);
+		MemoryManager::countGrowth(MemoryManager::TAG_TWEENS,
+			capacityBefore, this->mTweens.capacity());
 		return tween.mId;
 	}
 	//---------------------------------------------------------
@@ -107,6 +112,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void TweenManager::update(float delta)
 	{
+		OPROFILE("tweens.update");
 		this->mUpdating = true;
 		// index walk over the entry size: callbacks may push_back (grow +
 		// reallocate) or cancel - never hold references across a callback

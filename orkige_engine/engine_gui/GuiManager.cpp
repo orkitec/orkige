@@ -329,11 +329,7 @@ namespace Orkige
 		this->statsMarkupColorIndex = markupColorIndex;
 		this->stats = onew(new GuiTextbox("GuiManagerFrameStats", glyphIndex, "", pos, atlas, 15, false));
 		this->statsValues = onew(new GuiTextbox("GuiManagerFrameStatsValues", glyphIndex, "", pos, atlas, 15, false));
-#if defined(ORKIGE_ENABLE_MEMORYMANAGER) && defined(WIN32)
-		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: \nOrkigeMemory: \nOrkigeMemoryPeak: \nResolution: ");
-#else
 		this->stats->setText("%"+Ogre::StringConverter::toString(this->statsMarkupColorIndex)+"FPS: \nAverage FPS: \nBest FPS: \nWorst FPS: \nTriangles: \nBatches: \nTextureMemory: ");
-#endif
 
 		// don't scale font by resolution
         Vec2 scaleBackup = UiGlyph::scale;
@@ -376,15 +372,6 @@ namespace Orkige
 			sstr << "   "	<< stats.triangleCount << std::endl;
 			sstr << "   "	<< stats.batchCount << std::endl;
 			sstr << "   "	<< std::fixed << std::setprecision(4) << (stats.textureMemoryBytes/1024.f)/1024.f<< "  mb" << std::endl;
-#ifdef ORKIGE_ENABLE_MEMORYMANAGER
-#ifdef WIN32
-			unsigned int statsWindowWidth = 0, statsWindowHeight = 0;
-			RenderSystem::get()->getWindowSize(statsWindowWidth, statsWindowHeight);
-			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().totalActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
-			sstr << "   "	<< std::fixed << std::setprecision(4) << (MemoryManager::getSingleton().getMemoryStatistics().peakActualMemory/1024.f)/1024.f<< "  mb" << std::endl;
-			sstr << "   "	<< statsWindowWidth << " x " << statsWindowHeight << std::endl;
-#endif
-#endif
 
 			// don't scale font by resolution
 			Vec2 scaleBackup = UiGlyph::scale;

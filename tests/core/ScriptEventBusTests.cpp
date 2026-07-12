@@ -23,6 +23,7 @@
 #include <core_script/ScriptEventBus.h>
 #include <core_script/ScriptEventPayload.h>
 #include <core_event/GlobalEventManager.h>
+#include <core_debug/MemoryManager.h>
 
 #include <chrono>
 #include <cstdio>
@@ -447,6 +448,11 @@ TEST_CASE("ScriptEventBus stress: 200 subscribers, 1000 emits/frame", "[events][
 		static_cast<std::size_t>(kSubsPerName));
 
 	ScriptEventBus & bus = ScriptEventBus::getSingleton();
+	// the direct allocation contract, counted at the engine's tracked seams:
+	// an emit costs exactly TWO tracked allocation events (the event+payload
+	// objects at the bus, the queue node at the manager) and DELIVERY costs
+	// ZERO - the fan-out to 10 handlers per event allocates nothing
+	MemoryManager::reset();
 	long long totalDispatches = 0;
 	double bestFrameMs = 1.0e30;
 	double worstFrameMs = 0.0;
@@ -470,7 +476,19 @@ TEST_CASE("ScriptEventBus stress: 200 subscribers, 1000 emits/frame", "[events][
 		bestFrameMs = ms < bestFrameMs ? ms : bestFrameMs;
 		worstFrameMs = ms > worstFrameMs ? ms : worstFrameMs;
 		totalDispatches += static_cast<long long>(kEmitsPerFrame) * kSubsPerName;
+		// fold the frame and assert the allocation contract EXACTLY: 2 tracked
+		// events per emit, nothing from the delivery fan-out, no other tag
+		MemoryManager::endFrame();
+		CHECK(MemoryManager::lastFrameCount(MemoryManager::TAG_EVENTS) ==
+			static_cast<std::size_t>(2 * kEmitsPerFrame));
+		CHECK(MemoryManager::lastFrameTotal() ==
+			MemoryManager::lastFrameCount(MemoryManager::TAG_EVENTS));
 	}
+	// a quiet frame (no emits, the bus and its subscribers still live): the
+	// steady-state delivery machinery allocates ZERO - asserted directly
+	GlobalEventManager::getSingleton().tick();
+	MemoryManager::endFrame();
+	CHECK(MemoryManager::lastFrameTotal() == 0);
 	// each emit reaches kSubsPerName handlers -> total handler invocations
 	const double avgFrameMs = totalMs / kFrames;
 	const double nsPerDispatch =

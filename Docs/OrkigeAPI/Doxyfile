@@ -1406,7 +1406,6 @@ INCLUDE_FILE_PATTERNS  =
 PREDEFINED             = WIN32 \
                          _DEBUG \
                          ORKIGE_NOSCRIPT \
-                         ORKIGE_ENABLE_MEMORYMANAGER \
                          ORKIGE_DEBUG
 
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then 

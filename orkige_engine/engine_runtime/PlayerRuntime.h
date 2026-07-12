@@ -10,6 +10,7 @@
 #define __PlayerRuntime_h__8_7_2026__12_00_00__
 #include "core_util/optr.h"
 #include "core_util/String.h"
+#include "core_debug/ProfileManager.h"
 #include "core_debugnet/DebugServer.h"
 
 #include <chrono>
@@ -156,6 +157,9 @@ namespace Orkige
 		std::size_t		mPeakResidentBytes = 0;
 		//! engine-log -> editor-Console capture (attached while active)
 		Orkige::uptr<EngineLogCapture> mLogCapture;
+		//! reused snapshot buffer for the profile stream (steady state keeps
+		//! its capacity - the readback must not become churn itself)
+		std::vector<ProfileManager::SnapshotNode> mProfileScratch;
 		//--- Methods -----------------------------------------
 	public:
 		PlayerDebugLink();
@@ -266,6 +270,10 @@ namespace Orkige
 		//! send an MSG_UI_LAYOUT line (gui widget ids + pixel rects +
 		//! visibility) to the editor; a no-op when the game has no UI system
 		void streamUiLayout();
+		//! send an MSG_PROFILE_DATA line (the last frame's hierarchical CPU
+		//! scope tree + frame time) to the editor; a no-op while the profiler
+		//! is disabled or has no completed frame yet
+		void streamProfile();
 	};
 }
 

@@ -19,6 +19,7 @@
 #include "engine_render/RenderSystem.h"
 #include "core_util/StringUtil.h"
 #include <core_debug/DebugMacros.h>
+#include <core_debug/MemoryManager.h>
 
 #include <OgreStringConverter.h>
 
@@ -200,6 +201,9 @@ namespace Orkige
 		this->mDrawLayer->clear();
 		this->mLastVertexCount = 0;
 		this->mScratch.clear();
+		// growth probe over the whole rebuild: the scratch is a reused member,
+		// so it only reallocates when this screen out-grows its previous peak
+		const std::size_t scratchCapacityBefore = this->mScratch.capacity();
 
 		// The common case has no scissored layer: every visible layer
 		// concatenates into ONE batch = one draw call per screen (unchanged).
@@ -225,6 +229,8 @@ namespace Orkige
 				}
 			}
 			this->_flushBatch(NULL);
+			MemoryManager::countGrowth(MemoryManager::TAG_GUI,
+				scratchCapacityBefore, this->mScratch.capacity());
 			return;
 		}
 		for(UiLayer* layer : this->mLayers)
@@ -247,6 +253,8 @@ namespace Orkige
 			}
 		}
 		this->_flushBatch(NULL);
+		MemoryManager::countGrowth(MemoryManager::TAG_GUI,
+			scratchCapacityBefore, this->mScratch.capacity());
 	}
 	//---------------------------------------------------------
 	void UiScreen::_flushBatch(DrawLayer2D::ScissorRect const * scissor)

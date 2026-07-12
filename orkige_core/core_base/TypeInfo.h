@@ -9,7 +9,6 @@
 #ifndef __TypeInfo_h__9_8_2010__18_45_29__
 #define __TypeInfo_h__9_8_2010__18_45_29__
 
-#include "core_debug/MemoryManager.h"
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/Hash.h"
 #include "core_util/String.h"

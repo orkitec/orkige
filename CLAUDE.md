@@ -276,9 +276,16 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   generic `core_util/ComponentHolder`/`AttributeHolder` templates (SFINAE-heavy).
 - **Serialization** (`core_serialization`): `ISerializeable` + archive pattern;
   `XMLArchive` is the tinyxml2-backed implementation.
-- **Memory/debug** (`core_debug`): `MemoryManager` is an inert legacy allocation
-  tracker (compiled out); memory instrumentation is moving to a per-subsystem
-  allocation-counter layer. `LogManager` is configured from XML.
+- **Memory/debug** (`core_debug`): the performance instruments — `MemoryManager`
+  is the tagged per-frame allocation-counter layer (opt-in seams at the engine's
+  own allocation points, relaxed atomics, folded at the player's frame boundary;
+  NOT a global new/delete hook) and `ProfileManager` the hierarchical CPU frame
+  profiler behind the `OPROFILE`/`OPROFILEFUNC` scope macros (`Profile.h`;
+  static-string names, thread-local trees, allocation-free steady state, Debug
+  on / Release off until armed). Both stream to the editor over MSG_STATS /
+  MSG_PROFILE_DATA and read back over MCP `get_state`/`get_profile`; the trace
+  carries per-frame `alloc` + `phases`. `MemorySampler` stays the process-RSS
+  number; `LogManager` is configured from XML.
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
 **`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated

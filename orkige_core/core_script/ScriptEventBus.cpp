@@ -10,6 +10,7 @@
 #include "core_script/ScriptEventBus.h"
 #include "core_event/GlobalEventManager.h"
 #include "core_event/EventType.h"
+#include "core_debug/MemoryManager.h"
 
 namespace Orkige
 {
@@ -169,6 +170,9 @@ namespace Orkige
 		// GlobalEventManager::tick() (the player loop's script phase). The
 		// manager drops the event itself when no listener - Lua adapter OR a C++
 		// listener - is bound for the name, so an unheard event never dispatches.
+		// tracked allocation seam: an emit mints the event + payload objects
+		// (the queue node itself is counted at the manager's push)
+		MemoryManager::countAlloc(MemoryManager::TAG_EVENTS);
 		manager->queueEvent(onew(new Event(EventType(name),
 			onew(new ScriptEventData(payload)))));
 	}

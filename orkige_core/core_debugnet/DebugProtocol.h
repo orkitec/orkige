@@ -157,6 +157,20 @@ namespace Orkige
 		//! @brief dismiss a modal in the RUNNING game: FIELD_ID names the modal
 		//! to close, or (empty) the topmost one. Additive since protocol v1.
 		extern ORKIGE_CORE_DLL const String MSG_GUI_DISMISS_MODAL;
+		//! @brief control the runtime CPU profiler: FIELD_VALUE "1" enables
+		//! scope timing (the Release-build default is off; Debug players are
+		//! already on), "0" disables it. Once enabled the player streams
+		//! MSG_PROFILE_DATA alongside MSG_STATS. An additive protocol-extension
+		//! message; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_PROFILE;
+		//! @brief periodic hierarchical CPU frame profile from the running
+		//! game: the last completed frame's scope tree flattened depth-first
+		//! into the parallel lists LIST_PROFILE_NAMES / LIST_PROFILE_INFO (each
+		//! info entry "depth calls milliseconds maxMilliseconds"), plus
+		//! FIELD_FRAME_MS (the whole frame's wall time). Streamed on the
+		//! MSG_STATS cadence while the profiler is enabled; fire-and-forget.
+		//! Additive since protocol v1: old editors ignore unknown types.
+		extern ORKIGE_CORE_DLL const String MSG_PROFILE_DATA;
 		extern ORKIGE_CORE_DLL const String MSG_BYE;				//!< orderly shutdown notice
 
 		//--- field names ---
@@ -241,6 +255,25 @@ namespace Orkige
 		extern ORKIGE_CORE_DLL const String LIST_MUSIC_IDS;
 		extern ORKIGE_CORE_DLL const String LIST_MUSIC_FILES;
 		extern ORKIGE_CORE_DLL const String LIST_MUSIC_INFO;
+		//! @brief MSG_STATS: the engine-level allocation counters (see
+		//! core_debug/MemoryManager.h - tracked allocation events at the
+		//! engine's own seams, not libc totals). FIELD_ALLOC_PER_FRAME is the
+		//! last frame's total, FIELD_ALLOC_PEAK the worst frame of the session;
+		//! LIST_ALLOC_TAGS / LIST_ALLOC_COUNTS break the last frame down per
+		//! subsystem tag. Omitted before the first frame boundary. Additive.
+		extern ORKIGE_CORE_DLL const String FIELD_ALLOC_PER_FRAME;
+		extern ORKIGE_CORE_DLL const String FIELD_ALLOC_PEAK;
+		extern ORKIGE_CORE_DLL const String LIST_ALLOC_TAGS;
+		extern ORKIGE_CORE_DLL const String LIST_ALLOC_COUNTS;
+		//! @brief MSG_STATS + MSG_PROFILE_DATA: the last frame's wall-clock
+		//! duration in milliseconds (measured at the player's frame boundary,
+		//! available even when scope timing is disabled). Additive.
+		extern ORKIGE_CORE_DLL const String FIELD_FRAME_MS;
+		//! @brief MSG_PROFILE_DATA: the flattened scope tree - parallel lists,
+		//! LIST_PROFILE_NAMES the scope names (depth-first), LIST_PROFILE_INFO
+		//! one flat "depth calls milliseconds maxMilliseconds" per name.
+		extern ORKIGE_CORE_DLL const String LIST_PROFILE_NAMES;
+		extern ORKIGE_CORE_DLL const String LIST_PROFILE_INFO;
 	}
 
 	//! @brief one protocol message: a type plus flat string fields and flat

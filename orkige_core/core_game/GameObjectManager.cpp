@@ -11,6 +11,7 @@
 #include "core_game/GameObject.h"
 #include "core_event/GlobalEventManager.h"
 #include "core_tween/TweenManager.h"
+#include "core_debug/Profile.h"
 
 namespace Orkige
 {
@@ -63,11 +64,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool GameObjectManager::triggerEvent(Event const & event) const										
 	{
-		OPROFILE(String(__FUNCTION__) + "( " + event.getObjectID() + " )");
+		OPROFILE("objects.triggerEvent");
 		bool retval = false;
 		for(GameObjectMap::const_iterator it=this->objects.begin(),itend = this->objects.end(); it != itend; ++it)
 		{
-			//OPROFILE(it->second->getObjectID() + "->triggerEvent( " + event.getObjectID() + " )");
 			if(it->second->triggerEvent(event))
 				retval = true;
 		}
@@ -76,7 +76,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GameObjectManager::update(float delta)
 	{
-		OPROFILEFUNC();
+		OPROFILE("objects.update");
 
 		this->processDeleteQueue();
 		if(this->enableObjectUpdates)
@@ -299,7 +299,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GameObjectManager::processDeleteQueue()
 	{
-		OPROFILEFUNC();
+		OPROFILE("objects.deleteQueue");
 		foreach(String const & id,  this->deleteQueue)
 		{
 			this->delGameObject(id);

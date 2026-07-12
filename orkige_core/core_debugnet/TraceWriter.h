@@ -55,16 +55,29 @@ namespace Orkige
 		TraceWriter(size_t maxBytes = DEFAULT_MAX_BYTES,
 			size_t maxObjectsPerSample = DEFAULT_MAX_OBJECTS);
 
+		//! one frame phase of the CPU profile ("scripts" 1.2 ms, ...)
+		struct PhaseSample
+		{
+			const char *	name;			//!< static scope name
+			double			milliseconds;	//!< the frame's time in the scope
+		};
+
 		//! @brief append a SAMPLE line:
-		//! {"t","frame","dt","mem"?,"objects":[...]} plus a "capped" total when
-		//! the object list overflows the per-sample cap. dt is the last frame's
-		//! delta seconds (agents assert on it). memRss is the process resident
-		//! set size in bytes at the sample - written as "mem" when >= 0, omitted
-		//! otherwise (a platform without a memory query); agents assert "no
-		//! unbounded growth" off it.
+		//! {"t","frame","dt","mem"?,"alloc"?,"phases"?,"objects":[...]} plus a
+		//! "capped" total when the object list overflows the per-sample cap.
+		//! dt is the last frame's delta seconds (agents assert on it). memRss
+		//! is the process resident set size in bytes at the sample - written
+		//! as "mem" when >= 0, omitted otherwise (a platform without a memory
+		//! query); agents assert "no unbounded growth" off it. allocFrame is
+		//! the engine-level tracked-allocation count of the last frame
+		//! (core_debug/MemoryManager) - "alloc" when >= 0; phases is the CPU
+		//! profiler's top-level frame breakdown - a "phases" object mapping
+		//! scope name to milliseconds when non-empty.
 		void addSample(double t, unsigned long frame, double dt,
 			std::vector<ObjectSample> const & objects,
-			long long memRss = -1);
+			long long memRss = -1,
+			long long allocFrame = -1,
+			std::vector<PhaseSample> const & phases = {});
 
 		//! @brief append an EVENT line: {"t","frame","event", <fields...>}. The
 		//! fields are string key/value pairs (e.g. both object names for a

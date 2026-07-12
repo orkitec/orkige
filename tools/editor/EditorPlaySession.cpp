@@ -88,6 +88,14 @@ void clearRemoteState(PlaySession& session)
 	session.remoteUiLayout.clear();
 	session.remoteScreenCurrent.clear();
 	session.remoteScreenStack.clear();
+	session.remoteAllocPerFrame = -1;
+	session.remoteAllocPeak = -1;
+	session.remoteAllocTags.clear();
+	session.remoteAllocCounts.clear();
+	session.remoteFrameMs = -1.0;
+	session.remoteProfile.clear();
+	session.remoteProfileFrameMs = -1.0;
+	session.profileSeq = 0;
 	session.remoteMusic.clear();
 }
 
@@ -1209,6 +1217,31 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			readInt(Protocol::FIELD_SAFE_TOP, session.remoteSafeTop);
 			readInt(Protocol::FIELD_SAFE_RIGHT, session.remoteSafeRight);
 			readInt(Protocol::FIELD_SAFE_BOTTOM, session.remoteSafeBottom);
+			// engine-level allocation counters + frame time (additive fields;
+			// an older player leaves the -1 "not reported" defaults)
+			readInt(Protocol::FIELD_ALLOC_PER_FRAME, session.remoteAllocPerFrame);
+			readInt(Protocol::FIELD_ALLOC_PEAK, session.remoteAllocPeak);
+			if (message.has(Protocol::FIELD_FRAME_MS))
+			{
+				session.remoteFrameMs = std::strtod(
+					message.get(Protocol::FIELD_FRAME_MS).c_str(), nullptr);
+			}
+			const Orkige::StringVector& allocTags =
+				message.getList(Protocol::LIST_ALLOC_TAGS);
+			const Orkige::StringVector& allocCounts =
+				message.getList(Protocol::LIST_ALLOC_COUNTS);
+			if (!allocTags.empty())
+			{
+				session.remoteAllocTags.clear();
+				session.remoteAllocCounts.clear();
+				for (std::size_t i = 0;
+					i < allocTags.size() && i < allocCounts.size(); ++i)
+				{
+					session.remoteAllocTags.push_back(allocTags[i]);
+					session.remoteAllocCounts.push_back(
+						std::strtoll(allocCounts[i].c_str(), nullptr, 10));
+				}
+			}
 			// streamed-music snapshot (parallel ids/files/info lists; each info a
 			// flat "playing pos dur base group eff loop" string): the get_state
 			// music surface. Rebuilt each MSG_STATS; empty when nothing streams.
@@ -1277,6 +1310,31 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 				message.get(Protocol::FIELD_UI_SCREEN);
 			session.remoteScreenStack =
 				message.get(Protocol::FIELD_UI_SCREEN_STACK);
+		}
+		else if (message.type == Protocol::MSG_PROFILE_DATA)
+		{
+			// the CPU frame profile (parallel names/info lists, each info a
+			// flat "depth calls ms maxMs" string): the get_profile source
+			const Orkige::StringVector& names =
+				message.getList(Protocol::LIST_PROFILE_NAMES);
+			const Orkige::StringVector& infos =
+				message.getList(Protocol::LIST_PROFILE_INFO);
+			session.remoteProfile.clear();
+			for (std::size_t i = 0; i < names.size() && i < infos.size(); ++i)
+			{
+				PlaySession::RemoteProfileNode node;
+				node.name = names[i];
+				std::istringstream infoStream(infos[i]);
+				infoStream >> node.depth >> node.calls >> node.milliseconds
+					>> node.maxMilliseconds;
+				session.remoteProfile.push_back(node);
+			}
+			if (message.has(Protocol::FIELD_FRAME_MS))
+			{
+				session.remoteProfileFrameMs = std::strtod(
+					message.get(Protocol::FIELD_FRAME_MS).c_str(), nullptr);
+			}
+			++session.profileSeq;
 		}
 		else if (message.type == Protocol::MSG_BYE)
 		{

@@ -11,7 +11,6 @@
 
 #include "core_event/Event.h"
 #include "core_util/FastDelegate.h"
-#include "core_debug/Profile.h"
 #include <functional>
 
 namespace Orkige
@@ -65,9 +64,8 @@ namespace Orkige
 		return createEventListenerPtr(MakeEventHandlerFunction(handlerClass, handlerFunction), priority);
 	}
 	//---------------------------------------------------------
-	inline bool EventListener::operator < (EventListener const & other) const 
+	inline bool EventListener::operator < (EventListener const & other) const
 	{
-		OPROFILEFUNC();
 		return this->priority < other.priority;
 	}
 	//---------------------------------------------------------

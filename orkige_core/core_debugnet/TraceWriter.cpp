@@ -108,7 +108,8 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	void TraceWriter::addSample(double t, unsigned long frame, double dt,
-		std::vector<ObjectSample> const & objects, long long memRss)
+		std::vector<ObjectSample> const & objects, long long memRss,
+		long long allocFrame, std::vector<PhaseSample> const & phases)
 	{
 		String line;
 		line.reserve(64 + objects.size() * 48);
@@ -126,6 +127,28 @@ namespace Orkige
 			std::snprintf(memBuffer, sizeof(memBuffer), "%lld", memRss);
 			line += ",\"mem\":";
 			line += memBuffer;
+		}
+		if (allocFrame >= 0)
+		{
+			char allocBuffer[32];
+			std::snprintf(allocBuffer, sizeof(allocBuffer), "%lld", allocFrame);
+			line += ",\"alloc\":";
+			line += allocBuffer;
+		}
+		if (!phases.empty())
+		{
+			line += ",\"phases\":{";
+			for (size_t i = 0; i < phases.size(); ++i)
+			{
+				if (i != 0)
+				{
+					line += ',';
+				}
+				appendJsonString(line, phases[i].name);
+				line += ':';
+				appendNumber(line, phases[i].milliseconds);
+			}
+			line += '}';
 		}
 		if (objects.size() > this->mMaxObjects)
 		{

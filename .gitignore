@@ -9,3 +9,4 @@ projects/*/builds/
 projects/*/native/build-export/
 __pycache__/
 projects/*/builds/
+.claude/
