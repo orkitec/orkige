@@ -12,6 +12,7 @@
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderMaterial.h"
+#include "engine_render/RenderWater.h"
 #include <core_util/String.h>
 
 namespace Orkige
@@ -171,6 +172,25 @@ namespace Orkige
 		//! family (a generated sprite/unlit material)
 		//! map: classic=MaterialManager Blinn-Phong material (approximation, @see RenderMaterialDesc) | next=HlmsPbs datablock (metallic workflow) | filament=lit material instance
 		bool createMaterial(String const & name, RenderMaterialDesc const & desc);
+
+		//--- animated water surfaces ---
+		//! @brief create OR UPDATE the named animated water material from a
+		//! water surface description (@see RenderWaterDesc for the per-backend
+		//! capability statement). Idempotent per name: calling again with new
+		//! values updates the LIVE material (the colour/opacity/wave-drive
+		//! path). The normal-map name resolves through the resource groups.
+		//! @return false + a log line when the referenced normal map is missing
+		//! (the material is still created/updated with everything that DID
+		//! resolve) or when the name collides with a different material family
+		//! map: classic=MaterialManager transparent Blinn-Phong plane + scrolling shimmer (approximation, @see RenderWaterDesc) | next=HlmsPbs datablock (two scrolling detail normal maps + fresnel transparency)
+		bool createWaterMaterial(String const & name, RenderWaterDesc const & desc);
+		//! @brief advance a water material's ripple animation to @p seconds - a
+		//! cheap per-frame material-parameter update (scrolls the surface's
+		//! normal detail, no per-vertex CPU work). A name with no water material
+		//! is a silent no-op (so a paused editor that never ticks leaves the
+		//! surface static - the established dormancy rule).
+		//! map: classic=TextureUnitState::setTextureScroll on the shimmer unit | next=HlmsPbsDatablock::setDetailMapOffsetScale on the two detail normals
+		void setWaterTime(String const & name, float seconds);
 
 		//--- the scene ---
 		//! the one world (multiple worlds stay a facade-compatible extension)

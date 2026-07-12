@@ -97,6 +97,17 @@ add_test(NAME make_terrain_mesh_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_terrain_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# water surface generator self-validation: make_water_mesh.py builds the shared
+# engine water plane in memory and asserts mesh validity (flat +Y unit plane,
+# UVs present for tangents, 16-bit indices in range), determinism (same seed ->
+# byte-identical .glb + normal map) and that the tiling water normal map is
+# seamless and +Z-dominant. Stdlib-only, headless - the water asset pipeline at
+# the tooling level.
+add_test(NAME make_water_mesh_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_water_mesh.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_water_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # export app-icon pipeline self-validation: orkige_icons.py synthesises a source
 # PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
 # tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
@@ -519,6 +530,20 @@ if(TARGET hello_orkige)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_terrain PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_TERRAIN=1;ORKIGE_DEMO_FRAMES=120")
+
+    # ORKIGE_DEMO_WATER: the animated water-surface selfcheck - a WaterComponent
+    # builds the shared engine water plane (water_plane.glb, UV-mapped so next
+    # gets tangents) and a per-instance scrolling water material
+    # (createWaterMaterial -> setMaterial), then a hide/show triangle-count
+    # probe proves the transparent surface renders AND the per-frame scroll
+    # clock advances (the setWaterTime ripple driver is ticked). Runs on both
+    # flavors: next = PBS water (two scrolling detail normals + fresnel
+    # transparency), classic = its transparent Blinn-Phong subset (flat tint +
+    # scrolling shimmer) - a per-flavor probe, NOT a pixel parity case.
+    add_test(NAME demo_water COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_water PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_WATER=1;ORKIGE_DEMO_FRAMES=120")
 
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs

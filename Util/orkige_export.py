@@ -328,6 +328,14 @@ def engine_font_dir():
     return fonts if os.path.isdir(fonts) else ""
 
 
+def engine_water_dir():
+    """the engine water media directory committed to the tree (the shared water
+    plane mesh + tiling water normal map WaterComponent references) - registered
+    as a resource location at runtime like the font dir. Empty when absent."""
+    water = os.path.join(REPO_ROOT, "orkige_engine", "media", "water")
+    return water if os.path.isdir(water) else ""
+
+
 def ogre_media_dir(build_dir):
     """the classic flavor's RTSS shader-library media (Main + RTShaderLib)"""
     triplet = vcpkg_triplet_dir(build_dir)
@@ -602,6 +610,12 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
         shutil.copytree(engine_font_dir(),
                         os.path.join(resources, "Media", "fonts"),
                         dirs_exist_ok=True)
+    # the engine water media (plane mesh + tiling normal) rides alongside so a
+    # scene's WaterComponent ships self-contained
+    if engine_water_dir():
+        shutil.copytree(engine_water_dir(),
+                        os.path.join(resources, "Media", "water"),
+                        dirs_exist_ok=True)
 
     staged = stage_project_payload(
         project, os.path.join(resources, PAYLOAD_DIR_NAME), "macos")
@@ -667,6 +681,12 @@ def export_ios_simulator(project, engine_build, output_dir):
     if engine_font_dir():
         shutil.copytree(engine_font_dir(),
                         os.path.join(app_dir, "Media", "fonts"),
+                        dirs_exist_ok=True)
+    # the engine water media (plane mesh + tiling normal) so a scene's
+    # WaterComponent ships self-contained
+    if engine_water_dir():
+        shutil.copytree(engine_water_dir(),
+                        os.path.join(app_dir, "Media", "water"),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),
@@ -809,6 +829,12 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
     if engine_font_dir():
         shutil.copytree(engine_font_dir(),
                         os.path.join(app_dir, "Media", "fonts"),
+                        dirs_exist_ok=True)
+    # the engine water media (plane mesh + tiling normal) so a scene's
+    # WaterComponent ships self-contained
+    if engine_water_dir():
+        shutil.copytree(engine_water_dir(),
+                        os.path.join(app_dir, "Media", "water"),
                         dirs_exist_ok=True)
     staged = stage_project_payload(project,
                                    os.path.join(app_dir, PAYLOAD_DIR_NAME),

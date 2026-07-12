@@ -187,6 +187,10 @@ fi
 # contained (the player registers <extracted>/Media/fonts at boot)
 [ -d "$REPO_ROOT/orkige_engine/media/fonts" ] \
     && cp -R "$REPO_ROOT/orkige_engine/media/fonts" "$STAGE/assets/Media/fonts"
+# the engine water media (plane mesh + tiling normal) so a scene's
+# WaterComponent ships self-contained (player registers <extracted>/Media/water)
+[ -d "$REPO_ROOT/orkige_engine/media/water" ] \
+    && cp -R "$REPO_ROOT/orkige_engine/media/water" "$STAGE/assets/Media/water"
 cp -R "$REPO_ROOT/samples/hello_orkige/media"         "$STAGE/assets/assets"
 cp -R "$REPO_ROOT/samples/jumper/media"               "$STAGE/assets/jumper_media"
 cp    "$REPO_ROOT/samples/scenes/example.oscene"      "$STAGE/assets/example.oscene"

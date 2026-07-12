@@ -1,0 +1,58 @@
+/********************************************************************
+	created:	Saturday 2026/07/12 at 20:00
+	filename: 	RenderWater.h
+	author:		steffen.roemer
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
+#ifndef __RenderWater_h__12_7_2026__20_00_00__
+#define __RenderWater_h__12_7_2026__20_00_00__
+
+#include "engine_render/RenderPrerequisites.h"
+#include "engine_render/RenderMath.h"
+#include <core_util/String.h>
+
+namespace Orkige
+{
+	//! @brief description of ONE animated water surface - the facade's water
+	//! authoring surface, the transparent-lit sibling of RenderMaterialDesc
+	//! @remarks Consumed by RenderSystem::createWaterMaterial, which turns it
+	//! into a named backend material MeshInstance::setMaterial can assign, and
+	//! animated cheaply per frame through RenderSystem::setWaterTime (a
+	//! material-parameter scroll - no per-vertex CPU work, so a single plane is
+	//! mobile-safe). Plain data on purpose, like the surface material: water is
+	//! GENERATED, not script-authored. The normal-map name resolves through the
+	//! resource groups (engine media AND project assets), like every texture.
+	//!
+	//! Backend mapping / capability (Docs/render-abstraction.md has the full
+	//! matrix):
+	//! next = an HLMS PBS datablock with TWO detail normal maps scrolling in
+	//! different directions/speeds (the ripple animation), realistic
+	//! transparency that preserves the fresnel edge reflection, the deep colour
+	//! as the water-body albedo and a subtle shallow-colour scatter term. The
+	//! plane needs mesh TANGENTS (the water plane mesh is UV-mapped, so the
+	//! importer builds them). classic = a transparent Blinn-Phong plane: the
+	//! deep/shallow colours blend into one flat water tint, a glossy specular
+	//! highlight, alpha transparency, and the normal map bound as a scrolling
+	//! shimmer overlay (an honest illusion - true tangent-space normal-mapped
+	//! fresnel water is next-only; logged once per material).
+	//!
+	//! Honest v1 boundaries (both flavors): NO screen-space refraction
+	//! distortion and NO true depth-graded deep->shallow transmission (both
+	//! need a compositor refraction/depth pass - a future desktop quality knob,
+	//! see Docs/render-abstraction.md); vertex waves are out (the surface stays
+	//! flat, the ripple lives entirely in the scrolling normal maps).
+	struct ORKIGE_ENGINE_DLL RenderWaterDesc
+	{
+		Color	deepColour = Color(0.02f, 0.10f, 0.18f, 1.0f);		//!< colour of the water body (deep water)
+		Color	shallowColour = Color(0.10f, 0.36f, 0.48f, 1.0f);	//!< colour of shallow water / surface scatter
+		float	opacity = 0.72f;		//!< surface transparency 0..1 (1 = opaque)
+		float	waveScale = 6.0f;		//!< detail-normal tiling factor across the plane's UVs (higher = smaller ripples)
+		float	waveSpeed = 0.04f;		//!< ripple scroll speed (UV units per second, driven by setWaterTime)
+		float	fresnelPower = 1.0f;	//!< edge-reflection strength knob (next scales F0; classic scales the specular)
+		String	normalTexture;			//!< tiling water normal map resource name ("" = a flat, non-rippling surface)
+	};
+}
+
+#endif //__RenderWater_h__12_7_2026__20_00_00__

@@ -93,4 +93,9 @@ target_compile_definitions(orkige_player PRIVATE
     # player registers when running straight out of the build tree (an exported
     # bundle carries the same fonts under its Media/ dir instead)
     ORKIGE_PLAYER_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
+    # the engine water media dir (the shared water plane mesh + tiling water
+    # normal map WaterComponent references) - the out-of-bundle fallback the
+    # player registers when running straight out of the build tree (an exported
+    # bundle carries the same files under its Media/water dir instead)
+    ORKIGE_PLAYER_WATER_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/water"
 )

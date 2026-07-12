@@ -260,6 +260,15 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_EDITOR_FONT_DIR);
 				}
+				// the engine water media dir (the shared water plane mesh +
+				// tiling water normal map) so a scene's WaterComponent shows
+				// its static preview in the editor scene panel
+				std::error_code waterDirError;
+				if (std::filesystem::is_directory(ORKIGE_EDITOR_WATER_DIR,
+					waterDirError))
+				{
+					render->addResourceLocation(ORKIGE_EDITOR_WATER_DIR);
+				}
 			}))
 		{
 			return 1;

@@ -95,6 +95,17 @@ namespace Orkige
 		std::vector<Ogre::HlmsDatablock*> gContentDatablocks;
 		//! current global wireframe state (applied to late datablocks too)
 		bool gWireframe = false;
+		//! per water-datablock ripple tunables (waveScale/waveSpeed), so the
+		//! per-frame setWaterDatablockTime can recompute the two detail-normal
+		//! scroll offsets. Keyed by the datablock name; a stale entry (its
+		//! datablock destroyed on a project switch) is harmless - the scroll
+		//! looks the name up again and no-ops when the datablock is gone.
+		struct WaterAnim
+		{
+			float waveScale;	//!< detail-normal tiling factor
+			float waveSpeed;	//!< scroll speed (UV units per second)
+		};
+		std::unordered_map<String, WaterAnim> gWaterAnims;
 		//! how many lights currently ask to cast shadows (RenderLight::
 		//! setCastShadows tally); shadows render only while > 0
 		int gShadowCasterCount = 0;
@@ -372,6 +383,7 @@ namespace Orkige
 		// backend free facade memory only (their dtors check system())
 		gNodeRegistry.clear();
 		gContentDatablocks.clear();	// owned by their Hlms, die with the root
+		gWaterAnims.clear();		// datablocks die with the root
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
 		gRenderTargets.clear();		// their workspaces died with the root
@@ -1142,6 +1154,149 @@ namespace Orkige
 			}
 		}
 		return datablock;
+	}
+	//---------------------------------------------------------
+	Ogre::HlmsDatablock* RenderBackend::createOrUpdateWaterDatablock(
+		String const & name, RenderWaterDesc const & desc, bool & outComplete)
+	{
+		oAssert(gRenderSystem);
+		oAssert(!name.empty());
+		outComplete = true;
+		Ogre::HlmsManager* hlmsManager =
+			gRenderSystem->mImpl->root->getHlmsManager();
+		Ogre::HlmsPbsDatablock* datablock = NULL;
+		if(Ogre::HlmsDatablock* existing =
+			hlmsManager->getDatablockNoDefault(name))
+		{
+			// update-in-place stays within the PBS family (the surface-material
+			// guard - never stomp a generated sprite/unlit/2D-layer block)
+			if(!existing->getCreator() ||
+				existing->getCreator()->getType() != Ogre::HLMS_PBS)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: water material '" + name +
+					"' collides with an existing non-PBS datablock - refused");
+				outComplete = false;
+				return NULL;
+			}
+			datablock = static_cast<Ogre::HlmsPbsDatablock*>(existing);
+		}
+		else
+		{
+			Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
+				hlmsManager->getHlms(Ogre::HLMS_PBS));
+			datablock = static_cast<Ogre::HlmsPbsDatablock*>(pbs->createDatablock(
+				name, name, Ogre::HlmsMacroblock(), Ogre::HlmsBlendblock(),
+				Ogre::HlmsParamVec()));
+			RenderBackend::registerContentDatablock(datablock);
+		}
+
+		// water is a dielectric: the specular-as-fresnel workflow lets us set
+		// the fresnel (F0) directly (the metallic workflow derives it from
+		// metalness and forbids setFresnel). The deep colour is the water-body
+		// albedo (the "background diffuse" the detail normals ripple over), a
+		// low roughness keeps the surface glossy so the sun/sky read as a
+		// highlight, and the shallow colour rides as a subtle scatter emissive -
+		// an honest stand-in for depth-graded transmission (the true depth
+		// gradient waits on the refraction/depth pass; @see RenderWaterDesc).
+		datablock->setWorkflow(Ogre::HlmsPbsDatablock::SpecularAsFresnelWorkflow);
+		datablock->setBackgroundDiffuse(Ogre::ColourValue(
+			desc.deepColour.r, desc.deepColour.g, desc.deepColour.b, 1.0f));
+		datablock->setDiffuse(Ogre::Vector3(1.0f, 1.0f, 1.0f));
+		datablock->setRoughness(0.06f);
+		const float scatter = 0.12f;
+		datablock->setEmissive(Ogre::Vector3(desc.shallowColour.r * scatter,
+			desc.shallowColour.g * scatter, desc.shallowColour.b * scatter));
+		// fresnel (F0): water sits near 0.02; the knob scales the edge
+		// reflectivity up from there (clamped to a plausible band)
+		const float f0 = std::clamp(0.02f * std::max(desc.fresnelPower, 0.0f),
+			0.0f, 0.2f);
+		datablock->setFresnel(Ogre::Vector3(f0, f0, f0), false);
+		// realistic transparency that preserves the fresnel edge reflection
+		datablock->setTransparency(std::clamp(desc.opacity, 0.0f, 1.0f),
+			Ogre::HlmsPbsDatablock::Transparent);
+
+		// TWO detail normal maps carry the ripple: same tiling water normal,
+		// bound to both detail slots and scrolled in different directions/
+		// speeds by setWaterDatablockTime so their interference reads as moving
+		// water. The detail normals go through the slot's own string setter
+		// (its suggested filters run the normal-map preparation).
+		const Ogre::PbsTextureTypes detailSlots[2] =
+			{ Ogre::PBSM_DETAIL0_NM, Ogre::PBSM_DETAIL1_NM };
+		const float detailScales[2] = { desc.waveScale, desc.waveScale * 1.7f };
+		const float detailWeights[2] = { 1.0f, 0.6f };
+		if(desc.normalTexture.empty())
+		{
+			for(int slot = 0; slot < 2; ++slot)
+			{
+				datablock->setTexture(detailSlots[slot],
+					static_cast<Ogre::TextureGpu*>(NULL));
+			}
+		}
+		else if(!Ogre::ResourceGroupManager::getSingleton()
+			.resourceExistsInAnyGroup(desc.normalTexture))
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: water material '" + name +
+				"' normal map '" + desc.normalTexture +
+				"' not found - the surface renders flat");
+			for(int slot = 0; slot < 2; ++slot)
+			{
+				datablock->setTexture(detailSlots[slot],
+					static_cast<Ogre::TextureGpu*>(NULL));
+			}
+			outComplete = false;
+		}
+		else
+		{
+			for(int slot = 0; slot < 2; ++slot)
+			{
+				datablock->setTexture(detailSlots[slot], desc.normalTexture);
+				datablock->setDetailNormalWeight(static_cast<Ogre::uint8>(slot),
+					detailWeights[slot]);
+				datablock->setDetailMapOffsetScale(
+					static_cast<Ogre::uint8>(slot),
+					Ogre::Vector4(0.0f, 0.0f, detailScales[slot],
+						detailScales[slot]));
+			}
+		}
+
+		// remember the wave tunables for the per-frame scroll
+		gWaterAnims[name] = WaterAnim{ desc.waveScale, desc.waveSpeed };
+		return datablock;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::setWaterDatablockTime(String const & name, float seconds)
+	{
+		std::unordered_map<String, WaterAnim>::const_iterator it =
+			gWaterAnims.find(name);
+		if(it == gWaterAnims.end())
+		{
+			return;	// no water material by that name - silent no-op (dormancy)
+		}
+		oAssert(gRenderSystem);
+		Ogre::HlmsManager* hlmsManager =
+			gRenderSystem->mImpl->root->getHlmsManager();
+		Ogre::HlmsDatablock* existing = hlmsManager->getDatablockNoDefault(name);
+		if(!existing || !existing->getCreator() ||
+			existing->getCreator()->getType() != Ogre::HLMS_PBS)
+		{
+			return;	// datablock gone (project switch) - harmless
+		}
+		Ogre::HlmsPbsDatablock* datablock =
+			static_cast<Ogre::HlmsPbsDatablock*>(existing);
+		const WaterAnim & anim = it->second;
+		const float travel = seconds * anim.waveSpeed;
+		// two fixed, non-parallel scroll directions; the second drifts slower
+		// so the interference pattern never locks into a repeating march
+		const Ogre::Vector2 dir0(1.0f, 0.35f);
+		const Ogre::Vector2 dir1(-0.4f, 0.9f);
+		const float scale0 = anim.waveScale;
+		const float scale1 = anim.waveScale * 1.7f;
+		datablock->setDetailMapOffsetScale(0u, Ogre::Vector4(
+			dir0.x * travel, dir0.y * travel, scale0, scale0));
+		datablock->setDetailMapOffsetScale(1u, Ogre::Vector4(
+			dir1.x * travel * 0.85f, dir1.y * travel * 0.85f, scale1, scale1));
 	}
 	//---------------------------------------------------------
 	Ogre::TextureGpu* RenderBackend::datablockDiffuseTexture(

@@ -23,6 +23,7 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
@@ -286,6 +287,96 @@ TEST_CASE("ModelComponent material reference round-trips on a DETACHED component
 	// clearing detaches cleanly (no mesh to reload on a detached component)
 	material->set(instance, PropertyValue::makeAssetRef("material", ""));
 	CHECK(model.getMaterialFileName().empty());
+}
+//---------------------------------------------------------
+TEST_CASE("WaterComponent declares its water surface schema",
+	"[reflection][water]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		WaterComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the plane size, the surface colours/knobs and the tiling normal-map
+	// AssetRef all reach the Inspector / scene serialization / MCP / Lua
+	// generically off ONE schema
+	REQUIRE(schema->find("sizeX") != nullptr);
+	CHECK(schema->find("sizeX")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("sizeZ") != nullptr);
+	CHECK(schema->find("sizeZ")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("deepColour") != nullptr);
+	CHECK(schema->find("deepColour")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("shallowColour") != nullptr);
+	CHECK(schema->find("shallowColour")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("opacity") != nullptr);
+	CHECK(schema->find("opacity")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("waveScale") != nullptr);
+	CHECK(schema->find("waveScale")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("waveSpeed") != nullptr);
+	CHECK(schema->find("waveSpeed")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("fresnelPower") != nullptr);
+	CHECK(schema->find("fresnelPower")->kind == PropertyKind::Float);
+
+	PropertyDesc const * normal = schema->find("normalTexture");
+	REQUIRE(normal != nullptr);
+	CHECK(normal->kind == PropertyKind::AssetRef);
+	CHECK(normal->referenceHint == "texture");
+	CHECK_FALSE(normal->isReadOnly());
+}
+//---------------------------------------------------------
+TEST_CASE("WaterComponent properties round-trip on a DETACHED component",
+	"[reflection][water]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		WaterComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a DETACHED surface (no scene node, no render system) RECORDS its state
+	// through the type-erased get/set - the tolerant setters no-op the material
+	// apply until the component gets a node
+	WaterComponent water;
+	Object * instance = &water;
+
+	// the engine-default tiling water normal map is the AssetRef default
+	CHECK(schema->find("normalTexture")->get(instance).referenceId() ==
+		WaterComponent::DEFAULT_NORMAL_TEXTURE);
+
+	schema->find("sizeX")->set(instance, PropertyValue::makeFloat(30.0));
+	schema->find("sizeZ")->set(instance, PropertyValue::makeFloat(18.0));
+	schema->find("opacity")->set(instance, PropertyValue::makeFloat(0.5));
+	schema->find("waveScale")->set(instance, PropertyValue::makeFloat(8.0));
+	schema->find("waveSpeed")->set(instance, PropertyValue::makeFloat(0.1));
+	schema->find("fresnelPower")->set(instance, PropertyValue::makeFloat(2.0));
+	PropColor deep; deep.r = 0.0f; deep.g = 0.05f; deep.b = 0.15f; deep.a = 1.0f;
+	schema->find("deepColour")->set(instance, PropertyValue::makeColor(deep));
+	schema->find("normalTexture")->set(instance,
+		PropertyValue::makeAssetRef("texture", "custom_water.png"));
+
+	CHECK(water.getSizeX() == Approx(30.0f));
+	CHECK(water.getSizeZ() == Approx(18.0f));
+	CHECK(water.getOpacity() == Approx(0.5f));
+	CHECK(water.getWaveScale() == Approx(8.0f));
+	CHECK(water.getWaveSpeed() == Approx(0.1f));
+	CHECK(water.getFresnelPower() == Approx(2.0f));
+	CHECK(water.getDeepColour().b == Approx(0.15f));
+	CHECK(water.getNormalTexture() == "custom_water.png");
+
+	// the serialization path (capture -> apply) carries every field
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(water);
+	WaterComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getSizeX() == Approx(30.0f));
+	CHECK(restored.getSizeZ() == Approx(18.0f));
+	CHECK(restored.getOpacity() == Approx(0.5f));
+	CHECK(restored.getWaveScale() == Approx(8.0f));
+	CHECK(restored.getFresnelPower() == Approx(2.0f));
+	CHECK(restored.getNormalTexture() == "custom_water.png");
 }
 //---------------------------------------------------------
 TEST_CASE("VectorAnimationComponent declares its playback + rig schema",

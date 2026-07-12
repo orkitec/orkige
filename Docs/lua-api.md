@@ -694,6 +694,30 @@ ModelComponent:getMaterialFileName(...)
 ModelComponent.mesh
 ModelComponent.material
 
+## WaterComponent
+WaterComponent:getSizeX(...)
+WaterComponent:setSizeX(...)
+WaterComponent:getSizeZ(...)
+WaterComponent:setSizeZ(...)
+WaterComponent:getOpacity(...)
+WaterComponent:setOpacity(...)
+WaterComponent:getWaveScale(...)
+WaterComponent:setWaveScale(...)
+WaterComponent:getWaveSpeed(...)
+WaterComponent:setWaveSpeed(...)
+WaterComponent:getFresnelPower(...)
+WaterComponent:setFresnelPower(...)
+WaterComponent:getNormalTexture(...)
+WaterComponent.sizeX
+WaterComponent.sizeZ
+WaterComponent.deepColour
+WaterComponent.shallowColour
+WaterComponent.opacity
+WaterComponent.waveScale
+WaterComponent.waveSpeed
+WaterComponent.fresnelPower
+WaterComponent.normalTexture
+
 ## SpriteComponent
 SpriteComponent:loadSprite(...)
 SpriteComponent:loadSpriteFromAtlas(...)

@@ -23,6 +23,7 @@
 #include "engine_gocomponent/LightComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
+#include "engine_gocomponent/WaterComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/VectorAnimationComponent.h"
@@ -52,6 +53,7 @@ using namespace Orkige;
 ORKIGE_MODULE(orkige_engine)
 	OEXPORT(TransformComponent)
 	OEXPORT(ModelComponent)
+	OEXPORT(WaterComponent)
 	OEXPORT(SpriteComponent)
 	OEXPORT(VectorShapeComponent)
 	OEXPORT(VectorAnimationComponent)

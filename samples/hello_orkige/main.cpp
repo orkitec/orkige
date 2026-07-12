@@ -15,6 +15,7 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/WaterComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
@@ -135,6 +136,11 @@ int main(int, char**)
 	// the committed chunked terrain .glb (Util/make_terrain_mesh.py writes it)
 	// and its tiling ground .omat through the same ModelComponent path
 	const bool demoTerrain = (std::getenv("ORKIGE_DEMO_TERRAIN") != nullptr);
+	// ORKIGE_DEMO_WATER=1: the animated water-surface selfcheck (below) - a
+	// WaterComponent renders the shared engine water plane + a scrolling water
+	// material (Util/make_water_mesh.py writes the plane + tiling normal to
+	// orkige_engine/media/water/, registered via ORKIGE_ENGINE_WATER_DIR)
+	const bool demoWater = (std::getenv("ORKIGE_DEMO_WATER") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -171,6 +177,11 @@ int main(int, char**)
 				demoParticles3D)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+			}
+			if (demoWater)
+			{
+				// the shared engine water media (plane mesh + tiling normal)
+				render->addResourceLocation(ORKIGE_ENGINE_WATER_DIR);
 			}
 		}))
 	{
@@ -924,6 +935,73 @@ int main(int, char**)
 				Orkige::Color(0.22f, 0.2f, 0.16f));
 			SDL_Log("hello_orkige: terrain demo up - %zu chunks, tiling "
 				"demo_terrain.omat applied across all sub-meshes", kTerrainChunks);
+		}
+
+		// --- ORKIGE_DEMO_WATER=1: the animated water-surface selfcheck. A
+		// GameObject carries a WaterComponent, which builds the shared engine
+		// water plane (water_plane.glb - one sub-mesh, UV-mapped so the next
+		// backend gets tangents for the detail normals) and a per-instance
+		// scrolling water material (createWaterMaterial -> setMaterial). The
+		// component/introspection checks here (mesh built, material named); the
+		// frame loop below adds the it-renders triangle-count probe AND advances
+		// the ripple to assert the material animation clock ticks (setWaterTime
+		// is driven). Runs on both flavors (PBS water on next, transparent
+		// Blinn-Phong subset on classic) - a per-flavor probe, not a pixel case.
+		Orkige::WaterComponent* water = nullptr;
+		std::size_t waterHiddenTriangles = 0;
+		float waterScrollAtShow = 0.0f;
+		if (demoWater)
+		{
+			optr<Orkige::GameObject> waterObject =
+				gameObjectManager.createGameObject("lake").lock();
+			if (!waterObject ||
+				!waterObject->addComponent<Orkige::WaterComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - WaterComponent creation failed");
+				return 1;
+			}
+			water = waterObject->getComponentPtr<Orkige::WaterComponent>();
+			Orkige::TransformComponent* waterTransform =
+				waterObject->getComponentPtr<Orkige::TransformComponent>();
+			if (!water || !waterTransform)
+			{
+				SDL_Log("hello_orkige: FAILED - WaterComponent siblings missing");
+				return 1;
+			}
+			waterTransform->setPosition(Orkige::Vec3(0.0f, -1.0f, 0.0f));
+			water->setSizeX(12.0f);
+			water->setSizeZ(12.0f);
+			// the surface builds on onAdd; assert the plane imported (one
+			// sub-mesh) and a per-instance material got named + assigned
+			if (!water->hasSurface() ||
+				water->getMeshInstance()->getNumSubMeshes() != 1)
+			{
+				SDL_Log("hello_orkige: FAILED - water_plane.glb did not import "
+					"(engine water media dir not registered?)");
+				return 1;
+			}
+			// the per-instance water material must be named + assigned. (Its
+			// ripple rides the DETAIL-normal slots, not the diffuse slot, so
+			// subMeshHasTexture - a diffuse-slot probe - does not apply here;
+			// the render probe below proves the transparent surface draws.)
+			if (water->getMaterialName().empty())
+			{
+				SDL_Log("hello_orkige: FAILED - the water material was not named "
+					"(the surface did not build)");
+				return 1;
+			}
+			// a fresh surface has not ticked yet (dormant until the loop runs)
+			if (water->getScrollTime() != 0.0f)
+			{
+				SDL_Log("hello_orkige: FAILED - water scroll clock advanced "
+					"before any tick");
+				return 1;
+			}
+			// light the surface so the PBS/Blinn-Phong response is real work
+			world->setAmbientHemisphere(Orkige::Color(0.4f, 0.46f, 0.55f),
+				Orkige::Color(0.12f, 0.16f, 0.2f));
+			SDL_Log("hello_orkige: water demo up - water plane + scrolling "
+				"material '%s' applied", water->getMaterialName().c_str());
 		}
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
@@ -3547,6 +3625,13 @@ int main(int, char**)
 					++particles3DTickSamples;
 				}
 			}
+			if (demoWater)
+			{
+				// fixed tick: advances the water scroll clock deterministically
+				// (WaterComponent::onUpdateComponent drives setWaterTime) - the
+				// dormancy path a real runtime exercises
+				gameObjectManager.update(0.05f);
+			}
 			if (demoMusic)
 			{
 				// refill the ring on the main thread; the small real-time delay
@@ -3870,6 +3955,50 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: terrain selfcheck passed (chunked baked "
 					"mesh imported, tiling .omat applied and rendering)");
+			}
+			if (demoWater && frameCount == 20)
+			{
+				// hide the water plane; sample the gone-baseline at frame 25
+				// (the material probe's recipe, at the water surface)
+				water->getMeshInstance()->setVisible(false);
+			}
+			if (demoWater && frameCount == 25)
+			{
+				waterHiddenTriangles = render->getFrameStats().triangleCount;
+				water->getMeshInstance()->setVisible(true);
+			}
+			if (demoWater && frameCount == 35)
+			{
+				// the water plane renders WITH its scrolling material (512
+				// triangles): the count must have risen by well over a handful -
+				// had the transparent water datablock/material's shader
+				// generation broken, renderOneFrame would have failed long
+				// before this line. Also latch the scroll clock: it must have
+				// advanced under the per-frame ticks (the setWaterTime driver).
+				const std::size_t shownTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(shownTriangles > waterHiddenTriangles)
+					? shownTriangles - waterHiddenTriangles : 0;
+				waterScrollAtShow = water->getScrollTime();
+				SDL_Log("hello_orkige: water triangles shown=%zu (hidden %zu, "
+					"+%zu), scroll clock=%.3f", shownTriangles,
+					waterHiddenTriangles, risen, waterScrollAtShow);
+				if (risen < 128)
+				{
+					SDL_Log("hello_orkige: FAILED - showing the water plane did "
+						"not raise the triangle count (it did not render)");
+					return 1;
+				}
+				if (waterScrollAtShow <= 0.0f)
+				{
+					SDL_Log("hello_orkige: FAILED - the water scroll clock did "
+						"not advance (the ripple animation is not driven)");
+					return 1;
+				}
+				SDL_Log("hello_orkige: water selfcheck passed (water plane + "
+					"scrolling material rendering, ripple clock advancing on "
+					"this flavor)");
 			}
 			if (demoVectorShape && frameCount == 20)
 			{

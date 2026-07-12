@@ -492,6 +492,22 @@ namespace Orkige
 		static Ogre::HlmsDatablock* createOrUpdatePbsDatablock(
 			String const & name, RenderMaterialDesc const & desc,
 			bool & outComplete);
+		//! @brief create OR UPDATE the named HLMS PBS WATER datablock from a
+		//! water surface description (RenderSystem::createWaterMaterial):
+		//! realistic transparency preserving the fresnel edge, the deep colour
+		//! as the water-body albedo, a subtle shallow-colour scatter, and TWO
+		//! detail normal maps (the ripple animation, scrolled by
+		//! setWaterDatablockTime). Registers the wave tunables so the per-frame
+		//! scroll can recompute the detail offsets. A missing normal map is
+		//! skipped + logged and clears outComplete; NULL when the name belongs
+		//! to a datablock of a different family.
+		static Ogre::HlmsDatablock* createOrUpdateWaterDatablock(
+			String const & name, RenderWaterDesc const & desc,
+			bool & outComplete);
+		//! @brief scroll a water datablock's two detail normal maps to @p
+		//! seconds (RenderSystem::setWaterTime) - a name with no registered
+		//! water datablock is a silent no-op (the dormancy rule)
+		static void setWaterDatablockTime(String const & name, float seconds);
 		//! the "DrawLayer2D/<tex>" HlmsUnlit datablock of a 2D batch
 		//! texture (unlit, alpha-blended, depth-IGNORED, two-sided,
 		//! clamped point sampling - the facade's 2D render contract);

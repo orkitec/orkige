@@ -686,6 +686,7 @@ all in place. **Flavor capability matrix**:
 | `LightComponent` (dir/point/spot over `RenderLight`; reflected/serialized/Lua/MCP) | yes | yes (per-flavor lit-vs-unlit selfcheck; the demo meshes carry no PBS normals, so the render-difference probe drives the ambient term) |
 | hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | yes (averaged to flat ambient — honest subset) | yes (native two-colour sky/ground term) |
 | PBS materials (`.omat` → `RenderSystem::createMaterial` + `MeshInstance::setMaterial`; `ModelComponent.material`) | Blinn-Phong SUBSET: albedo colour+map, derived specular/shininess, emissive colour; normal/emissive MAPS ignored (logged once) — no pixel parity for lit content | yes — native HlmsPbs metallic workflow incl. normal/emissive maps (tangents generated at import for UV meshes); per-flavor `demo_material` selfcheck |
+| animated water (`RenderWaterDesc` → `RenderSystem::createWaterMaterial` + `setWaterTime`; `WaterComponent`) | transparent Blinn-Phong SUBSET: deep/shallow colours blend into ONE flat water tint, glossy specular, alpha transparency, and the normal map bound as a SCROLLING SHIMMER overlay (an illusion, logged once) — true fresnel normal-mapped water is next-only | yes — HlmsPbs specular-as-fresnel dielectric: TWO detail normal maps scrolling in different directions/speeds (the ripple), realistic fresnel-preserving transparency, deep-colour water body + subtle shallow-colour scatter; per-flavor `demo_water` selfcheck. Common v1 boundary BOTH flavors: NO screen-space refraction distortion and NO true depth-graded deep→shallow transmission — both need a compositor refraction/depth pass (a future desktop quality knob, see below) |
 | dynamic shadows (`RenderWorld::setShadowQuality` knob + `r.shadowQuality` cvar; `LightComponent.castsShadows`) | no (honest: knob accepted + round-trips, ONE "not supported" log line, renders nothing; `shadowsSupported()` = false) | yes (PSSM/PCF compositor shadow node in the window and RTT workspaces, attached lazily while quality ≠ off AND a light casts; v1 = DIRECTIONAL casters; budgets in `core_util/ShadowPreset.h` — medium default is the phone budget: 2 cascades, 1024 base atlas ≈ 6 MB, 3×3 PCF) |
 | sky / fog / day-night atmosphere (`RenderWorld::setAtmosphere(AtmosphereDesc)` + `skyDomeSupported()`; `Engine::setAtmosphere` Lua; `core_util/AtmosphereDesc.h`) | fixed-function fog + flat sky SUBSET: `fogDensity`/fog colour drive FOG_EXP2 scene fog and the sky tint becomes the flat window clear colour; NO sky dome (`skyDomeSupported()` = false, ONE "sky dome not supported" log line); no fog-colour parity | yes — native `AtmosphereNpr` (atmospheric sky dome + HlmsPbs-integrated object fog + sun-linked day/night); the sun is the FIRST directional `RenderLight` (its direction drives the sky, the atmosphere drives its colour/power); sky material media ships from the ogre-next port (`Media/Atmosphere`); a media-less/headless boot degrades to the flat sky colour |
 | Lua scripting (sol2 module surface) | yes | yes (minus gui usertypes) |
@@ -706,6 +707,21 @@ all in place. **Flavor capability matrix**:
 Remaining known gaps on next (all logged once at runtime):
 LT_ZIP/LT_BIGZIP locations, skeletal glb import. (The earlier "sRGB-swapchain
 colour difference" is GONE — see the colour-parity work below.)
+
+**Future desktop quality knob — water refraction/depth pass.** The animated
+water v1 is contained deliberately: it renders through the EXISTING single scene
+pass, so it does NOT do screen-space refraction distortion or a true
+depth-graded deep→shallow transmission. HlmsPbs CAN do refraction
+(`HlmsPbsDatablock::Refractive` + `setRefractionStrength`), but the datablock
+doc is explicit that "the compositor scene pass must be set to render refractive
+objects in its own pass" — i.e. splitting the `engine_render_next` workspace
+into a refractions render pass reading a depth/refraction texture. That is a
+workspace RESTRUCTURE, not a contained material change, and it was consciously
+deferred (no `ports/` edit was permitted for the water package either). When a
+desktop-quality vista wants it, the knob is: add the refraction pass to the next
+workspace, flip the water datablock to `Refractive`, and feed `fresnelPower`/a
+new `refractionStrength` through `RenderWaterDesc`. The reflected properties and
+`WaterComponent` need no shape change to pick it up.
 
 ### Cross-backend HUD + closure
 

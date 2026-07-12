@@ -202,6 +202,10 @@ target_compile_definitions(orkige_editor PRIVATE
     # the engine-default font dir (Nunito) the editor registers so a project's
     # .ogui can reference the font by name (matches what the player/exports do)
     ORKIGE_EDITOR_FONT_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/fonts"
+    # the engine water media dir (the shared water plane mesh + tiling water
+    # normal map WaterComponent references) so a scene's water surface shows its
+    # static preview in the editor (matches what the player/exports register)
+    ORKIGE_EDITOR_WATER_DIR="${Orkige_SOURCE_DIR}/orkige_engine/media/water"
     ORKIGE_EDITOR_VERSION="${PROJECT_VERSION}"
     # play mode spawns this binary (Play toolbar button / playtest hooks)
     ORKIGE_EDITOR_PLAYER_PATH="$<TARGET_FILE:orkige_player>"

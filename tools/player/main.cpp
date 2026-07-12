@@ -736,6 +736,20 @@ int main(int argc, char** argv)
 				{
 					render->addResourceLocation(ORKIGE_PLAYER_FONT_DIR);
 				}
+				// the engine water media dir (the shared water plane mesh +
+				// tiling water normal map WaterComponent references), the same
+				// bundled/dev-tree pair as the fonts above
+				std::error_code waterDirError;
+				if (std::filesystem::is_directory(playerMediaDir + "/water",
+					waterDirError))
+				{
+					render->addResourceLocation(playerMediaDir + "/water");
+				}
+				if (std::filesystem::is_directory(ORKIGE_PLAYER_WATER_DIR,
+					waterDirError))
+				{
+					render->addResourceLocation(ORKIGE_PLAYER_WATER_DIR);
+				}
 				// sample assets (test_mesh.glb; scene meshes load lazily via
 				// Codec_Assimp) and the jumper sample assets, so the editor's
 				// play mode works on samples/* scenes too. Registered only when

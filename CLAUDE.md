@@ -335,6 +335,20 @@ flavor; **baked-mesh terrain** is content, not a facade feature:
 `.glb` (per-chunk sub-meshes, 16-bit-index budget, normals + tiling UVs) plus a
 tiling ground `.omat`, rendered through this same ModelComponent path —
 `make_terrain_mesh_selftest` + `demo_terrain` per flavor;
+**animated water**: `WaterComponent` renders the shared engine water plane
+(`Util/make_water_mesh.py` → `orkige_engine/media/water/` water_plane.glb +
+tiling water_normal.png, registered like the engine font dir + bundled to
+exports) with a per-instance scrolling material through the material-facade
+siblings `RenderSystem::createWaterMaterial(RenderWaterDesc)` + a cheap per-frame
+`setWaterTime` (next = HlmsPbs two scrolling detail normals + fresnel
+transparency + deep/shallow colour; classic = transparent Blinn-Phong subset:
+one flat tint + scrolling shimmer, logged once); reflected deepColour/
+shallowColour/opacity/waveScale/waveSpeed/fresnelPower/normalTexture + sizeX/
+sizeZ (material-param animation only, no vertex work, dormant in the editor); NO
+screen-space refraction/depth-graded transmission yet (a future desktop knob
+gated on a compositor refraction pass — `Docs/materials.md`,
+`Docs/render-abstraction.md`) — `make_water_mesh_selftest` + `demo_water` per
+flavor;
 **sky/fog/day-night atmosphere**: `RenderWorld::setAtmosphere(AtmosphereDesc)`
 (pure `core_util/AtmosphereDesc.h`) + `skyDomeSupported()` capability probe +
 Lua `engine:setAtmosphere(enabled, r,g,b, density, fog)` — next = native

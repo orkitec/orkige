@@ -352,6 +352,22 @@ namespace Orkige
 		static Ogre::MaterialPtr createOrUpdateSurfaceMaterial(
 			String const & name, RenderMaterialDesc const & desc,
 			bool & outComplete);
+		//! @brief create OR UPDATE the named transparent WATER material
+		//! (RenderSystem::createWaterMaterial). This flavor renders the honest
+		//! subset: the deep/shallow colours blend into ONE flat water tint, a
+		//! glossy specular highlight, alpha transparency, and the normal map (if
+		//! any) bound as a scrolling shimmer overlay (an illusion - true
+		//! tangent-space normal-mapped fresnel water is next-only, logged once).
+		//! Registers the scroll speed so setWaterMaterialTime can drive the
+		//! shimmer UV. A missing normal map is skipped + logged and clears
+		//! outComplete.
+		static Ogre::MaterialPtr createOrUpdateWaterMaterial(
+			String const & name, RenderWaterDesc const & desc,
+			bool & outComplete);
+		//! @brief scroll a water material's shimmer overlay to @p seconds
+		//! (RenderSystem::setWaterTime) - a name with no registered water
+		//! material is a silent no-op (the dormancy rule)
+		static void setWaterMaterialTime(String const & name, float seconds);
 		//! zOrder -> render queue id (painter's sorting around MAIN)
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
 	};

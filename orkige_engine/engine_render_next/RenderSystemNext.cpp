@@ -228,6 +228,20 @@ namespace Orkige
 			complete) != NULL && complete;
 	}
 	//---------------------------------------------------------
+	bool RenderSystem::createWaterMaterial(String const & name,
+		RenderWaterDesc const & desc)
+	{
+		oAssert(!name.empty());
+		bool complete = true;
+		return RenderBackend::createOrUpdateWaterDatablock(name, desc,
+			complete) != NULL && complete;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::setWaterTime(String const & name, float seconds)
+	{
+		RenderBackend::setWaterDatablockTime(name, seconds);
+	}
+	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
 	{
 		return this->mImpl->world;

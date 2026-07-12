@@ -21,9 +21,18 @@
 
 #include <algorithm>
 #include <set>
+#include <unordered_map>
 
 namespace Orkige
 {
+	namespace
+	{
+		//! per water-material shimmer scroll speed (UV units per second), so the
+		//! per-frame setWaterMaterialTime can drive the overlay UV. Keyed by the
+		//! material name; a stale entry (its material dropped on a project
+		//! switch) is harmless - the scroll looks the name up and no-ops.
+		std::unordered_map<String, float> gWaterScrollSpeeds;
+	}
 	//---------------------------------------------------------
 	RenderSystem::FrameStats::FrameStats()
 		: lastFPS(0.0f)
@@ -355,6 +364,107 @@ namespace Orkige
 		return material;
 	}
 	//---------------------------------------------------------
+	Ogre::MaterialPtr RenderBackend::createOrUpdateWaterMaterial(
+		String const & name, RenderWaterDesc const & desc, bool & outComplete)
+	{
+		oAssert(!name.empty());
+		outComplete = true;
+		Ogre::MaterialManager & materialManager =
+			Ogre::MaterialManager::getSingleton();
+		Ogre::MaterialPtr material = materialManager.getByName(name,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(!material)
+		{
+			material = materialManager.create(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		}
+		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+		// the honest subset: the deep/shallow colours blend into ONE flat water
+		// tint (no depth-graded transmission here), a glossy specular highlight
+		// (the fresnelPower knob widens/brightens it), and alpha transparency.
+		const float blend = 0.4f;	// lean toward the deep body colour
+		const Ogre::ColourValue tint(
+			desc.deepColour.r + (desc.shallowColour.r - desc.deepColour.r) * blend,
+			desc.deepColour.g + (desc.shallowColour.g - desc.deepColour.g) * blend,
+			desc.deepColour.b + (desc.shallowColour.b - desc.deepColour.b) * blend,
+			std::clamp(desc.opacity, 0.0f, 1.0f));
+		const float spec = std::clamp(0.25f * std::max(desc.fresnelPower, 0.0f),
+			0.0f, 1.0f);
+		pass->setLightingEnabled(true);
+		pass->setDiffuse(tint);
+		pass->setAmbient(tint.r, tint.g, tint.b);
+		pass->setSpecular(spec, spec, spec, 1.0f);
+		pass->setShininess(96.0f);
+		pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
+		// transparent surface: alpha-blend over the scene, no depth write (the
+		// lakebed shows through)
+		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
+		pass->setDepthWriteEnabled(false);
+		// the scrolling shimmer overlay (approximating moving ripples): the
+		// tiling water normal map bound as a modulating texture unit and
+		// scrolled by setWaterMaterialTime. On the Blinn-Phong subset a normal
+		// map cannot light the surface, so it reads as a moving colour shimmer -
+		// say so once, then stay quiet.
+		pass->removeAllTextureUnitStates();
+		if(!desc.normalTexture.empty())
+		{
+			try
+			{
+				Ogre::TexturePtr texture =
+					Ogre::TextureManager::getSingleton().load(desc.normalTexture,
+						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				Ogre::TextureUnitState* unit = pass->createTextureUnitState();
+				unit->setTexture(texture);
+				unit->setTextureScale(1.0f / std::max(desc.waveScale, 0.001f),
+					1.0f / std::max(desc.waveScale, 0.001f));
+				// modulate lightly so the water tint stays dominant
+				unit->setColourOperationEx(Ogre::LBX_BLEND_MANUAL,
+					Ogre::LBS_TEXTURE, Ogre::LBS_CURRENT,
+					Ogre::ColourValue::White, Ogre::ColourValue::White, 0.35f);
+			}
+			catch(Ogre::Exception const & e)
+			{
+				oDebugError("engine", 0, "RenderSystem::createWaterMaterial('"
+					<< name << "'): normal map '" << desc.normalTexture
+					<< "' failed to load: " << e.getDescription());
+				outComplete = false;
+			}
+			static std::set<String> warned;
+			if(warned.insert(name).second)
+			{
+				oDebugWarning(false, "RenderSystem::createWaterMaterial('" << name
+					<< "'): this render flavor draws the transparent Blinn-Phong "
+					"subset - the normal map animates as a scrolling shimmer "
+					"(true fresnel normal-mapped water is next-only)");
+			}
+		}
+		gWaterScrollSpeeds[name] = desc.waveSpeed;
+		return material;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::setWaterMaterialTime(String const & name, float seconds)
+	{
+		std::unordered_map<String, float>::const_iterator it =
+			gWaterScrollSpeeds.find(name);
+		if(it == gWaterScrollSpeeds.end())
+		{
+			return;	// no water material by that name - silent no-op (dormancy)
+		}
+		Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+			.getByName(name, Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(!material)
+		{
+			return;	// material dropped (project switch) - harmless
+		}
+		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+		if(pass->getNumTextureUnitStates() == 0)
+		{
+			return;	// a flat (no-normal-map) water surface has nothing to scroll
+		}
+		const float travel = seconds * it->second;
+		pass->getTextureUnitState(0)->setTextureScroll(travel, travel * 0.6f);
+	}
+	//---------------------------------------------------------
 	bool RenderSystem::createMaterial(String const & name,
 		RenderMaterialDesc const & desc)
 	{
@@ -362,6 +472,20 @@ namespace Orkige
 		bool complete = true;
 		return RenderBackend::createOrUpdateSurfaceMaterial(name, desc,
 			complete) && complete;
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::createWaterMaterial(String const & name,
+		RenderWaterDesc const & desc)
+	{
+		oAssert(!name.empty());
+		bool complete = true;
+		return RenderBackend::createOrUpdateWaterMaterial(name, desc,
+			complete) && complete;
+	}
+	//---------------------------------------------------------
+	void RenderSystem::setWaterTime(String const & name, float seconds)
+	{
+		RenderBackend::setWaterMaterialTime(name, seconds);
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const

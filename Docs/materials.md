@@ -173,3 +173,77 @@ budget cap. The committed demo terrain (defaults: a 3×3 chunk grid of
 patch) lands in `samples/hello_orkige/media/`; the `demo_terrain` integration
 selfcheck (both flavors) imports it, applies the tiling `.omat` across every
 chunk and proves the whole terrain renders with a hide/show triangle probe.
+
+## Water — animated surfaces
+
+Water is a SEPARATE material family from the opaque `.omat` surface, animated
+per frame. Unlike a static `.omat` it is not authored as a text asset: the
+tunables are reflected properties on **`WaterComponent`** (`engine_gocomponent`)
+that fill a `RenderWaterDesc` at runtime — deep/shallow colour, opacity, wave
+scale/speed, fresnel and a tiling `normalTexture` (an AssetRef defaulting to the
+engine-generated water normal map). The component owns a facade `MeshInstance`
+of the shared engine water PLANE (`water_plane.glb`, a UNIT grid in the XZ plane
+scaled to the world size by the reflected `sizeX`/`sizeZ` node scale) and drives
+the ripple through the facade seam.
+
+### The facade surface
+
+Two calls on `RenderSystem`, siblings of `createMaterial`:
+
+- `bool createWaterMaterial(name, RenderWaterDesc const &)` — create/update the
+  named water material (idempotent per name; the normal map resolves across all
+  resource groups).
+- `void setWaterTime(name, seconds)` — advance the ripple animation. A CHEAP
+  material-parameter update (scrolls the normal detail) with NO per-vertex CPU
+  work, so a single plane is mobile-safe. A name with no water material is a
+  silent no-op, so a paused editor that never ticks leaves the surface static
+  (the dormancy rule — like `ScriptComponent`/`VectorAnimationComponent`).
+
+`WaterComponent::onUpdateComponent` is the single per-frame site: it accumulates
+a scroll clock and calls `setWaterTime`, reached only under a GameObject-ticking
+runtime (the player). Vertex waves are OUT of v1 — the surface stays flat and
+the ripple lives entirely in the scrolling normal maps.
+
+### Flavor capability
+
+- **next** (HlmsPbs, specular-as-fresnel dielectric): TWO detail normal maps
+  bound to the same tiling water normal and scrolled in different directions/
+  speeds (their interference reads as moving water); realistic transparency that
+  preserves the fresnel edge reflection; the deep colour as the water-body
+  albedo (`setBackgroundDiffuse`) and the shallow colour as a subtle scatter
+  emissive; `fresnelPower` scales F0 up from water's physical ~0.02.
+- **classic** (transparent Blinn-Phong subset): the deep/shallow colours blend
+  into ONE flat water tint, a glossy specular highlight, alpha transparency, and
+  the normal map bound as a scrolling SHIMMER overlay (an illusion — a
+  Blinn-Phong pass cannot light a normal map; logged once). `fresnelPower`
+  scales the specular strength.
+
+This is a per-flavor LOOK, not a pixel-parity case (transparent lit content
+legitimately differs between the flavors).
+
+### Honest v1 boundaries (both flavors)
+
+- **No screen-space refraction distortion** and **no true depth-graded
+  deep→shallow transmission**. Both need a compositor refraction/depth pass (a
+  workspace restructure on next, out of scope for v1 and gated on NOT editing
+  `ports/`); a future desktop quality knob — see
+  `Docs/render-abstraction.md` ("Future desktop quality knob — water
+  refraction/depth pass"). The reflected `RenderWaterDesc` fields absorb it with
+  no shape change.
+
+### Generator + tests
+
+`Util/make_water_mesh.py` bakes the shared engine water assets with the Python
+standard library only (deterministic, byte-reproducible, `orkige_png` codec):
+the unit water plane `.glb` (flat +Y, tiling UVs so the next backend builds
+tangents for the detail normals) and the seamless tiling `water_normal.png`
+(central differences on two overlapping seamless wave fields). Both are committed
+under `orkige_engine/media/water/` (registered like the engine-default font dir
+by the player/editor and bundled to exports under `Media/water/`).
+`--selftest` (unit ctest `make_water_mesh_selftest`) asserts the plane is a flat
+unit grid with in-range 16-bit indices, the normal map tiles seamlessly and is
++Z-dominant, and both are deterministic. The `demo_water` integration selfcheck
+(both flavors) builds a `WaterComponent`, applies the scrolling material and
+proves the transparent surface renders AND the ripple clock advances with a
+hide/show triangle probe. `WaterComponent`'s reflected schema + a detached
+round-trip are unit-tested in `PropertyReflectionTests`.
