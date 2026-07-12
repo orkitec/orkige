@@ -91,11 +91,11 @@ Field notes:
   math (min/avg/max/p50/p95/p99 exactness on a known distribution, phase/alloc/
   gpu means) and the JSONL artifact shape (every line valid JSON with the
   documented keys, meta + scene + summary).
-- `player_benchmark_selfcheck` (integration, next flavor) — runs a live project
+- `player_benchmark_selfcheck` (integration, both flavors) — runs a live project
   armed for ~90 frames, finalizes and asserts the artifact exists and parses
   with a meta line, a scene record carrying `frames > 0` and a measured
   `frameMs.avg`, and a clean summary.
-- `player_benchmark_vista` (integration, next flavor) — runs the whole benchmark
+- `player_benchmark_vista` (integration, both flavors) — runs the whole benchmark
   showcase project (below) as one autonomous tour and asserts EVERY scene lands
   in the artifact plus a clean summary (`tests/integration_driver/run_benchmark_test.py`).
 
@@ -147,10 +147,14 @@ budget, so the recorded scene tells you where the device stalled.
 
 ### Backend note
 
-Each scene runs on BOTH render flavors in isolation, and the default backend
-runs the whole tour cleanly. The classic GL/RTSS backend, however, faults in
-RTSS pass management over the long sequence (two-plus dynamic point lights over
-an `.omat`-lit mesh, and again after heavy material churn across scene switches
-— a null `Ogre::Pass` vector), so the `player_benchmark_vista` ctest and the
-full-tour benchmark target the default backend. The `benchmark.lightCeiling`
-cvar bounds the night-lights ramp for a tighter budget.
+Each scene runs on BOTH render flavors in isolation, and the whole tour now runs
+cleanly on both. The classic GL/RTSS backend previously faulted over the long
+sequence: its 2D-overlay (HUD) materials share the RTSS scheme, so when the
+scene's dynamic light count changes (two-plus dynamic point lights over an
+`.omat`-lit mesh mark every scheme technique for rebuild) or a scene teardown
+churns materials, the RTSS transiently drops those materials' generated
+technique — and the `DrawLayer2D` composite dereferenced a null best technique.
+The classic composite now recompiles-or-skips on that transient
+(`engine_render_classic/DrawLayer2DClassic.cpp`), so the `player_benchmark_vista`
+and `player_benchmark_selfcheck` ctests run on both flavors. The
+`benchmark.lightCeiling` cvar bounds the night-lights ramp for a tighter budget.

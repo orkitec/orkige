@@ -273,8 +273,33 @@ namespace Orkige
 				}
 				// getBestTechnique resolves the RTSS-generated technique;
 				// manualRender binds pass state + GPU auto params before
-				// the draw (Gorilla's OGRE-14 recipe)
-				Ogre::Pass* pass = material->getBestTechnique()->getPass(0);
+				// the draw (Gorilla's OGRE-14 recipe).
+				//
+				// These 2D materials are shader-only on GL3Plus: their sole
+				// supported technique is the one the RTSS generates. Whenever
+				// the scene's dynamic light count changes (a new point light
+				// appearing marks EVERY scheme technique for rebuild) or a
+				// scene teardown churns materials, the RTSS transiently
+				// removes that generated technique and unloads the material,
+				// so a name-fetched material can momentarily report no
+				// supported technique. Recompile on demand and skip the batch
+				// for the rare frame the rebuild has not finished, rather than
+				// dereferencing a null best technique - that null deref
+				// faulted the classic backend under multi-point-light scenes
+				// and long scene sequences.
+				Ogre::Technique* technique = material->getBestTechnique();
+				if(!technique)
+				{
+					// load() runs compile() when the RTSS left the material
+					// dirty, resolving the freshly rebuilt technique
+					material->load();
+					technique = material->getBestTechnique();
+					if(!technique)
+					{
+						continue;	// rebuild unfinished - self-heals next frame
+					}
+				}
+				Ogre::Pass* pass = technique->getPass(0);
 				impl->renderOp.vertexData->vertexStart = range.first;
 				impl->renderOp.vertexData->vertexCount = range.second;
 				sceneManager->manualRender(&impl->renderOp,
