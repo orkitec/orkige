@@ -143,6 +143,27 @@
         <int value="48"/>
         <int value="6"/>
         <int value="1"/>
+        <bool value="0"/>
+        <bool value="1"/>
+        <int value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="1"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="-9.8"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
+        <float value="0"/>
     </ParticleComponent>
     <String value="TransformComponent"/>
     <TransformComponent create="0">

@@ -23,6 +23,7 @@
 using Catch::Approx;
 using Orkige::ParticleSim;
 using Orkige::Vec2;
+using Orkige::Vec3;
 
 namespace
 {
@@ -44,6 +45,195 @@ namespace
 		params.maxParticles = maxParticles;
 		return params;
 	}
+
+	//! a burst-only, motionless 3D emitter (no spread, no speed, no gravity) -
+	//! the deterministic base for the 3D containment / motion / cap tests
+	ParticleSim::EmitterParams staticEmitter3D(int maxParticles)
+	{
+		ParticleSim::EmitterParams params = staticEmitter(maxParticles);
+		params.space3D = true;
+		params.worldSpace = true;
+		params.direction3D = Vec3(0.0f, 1.0f, 0.0f);
+		params.gravity3D = Vec3(0.0f, 0.0f, 0.0f);
+		params.wind = Vec3(0.0f, 0.0f, 0.0f);
+		params.flutterAmplitude = 0.0f;
+		return params;
+	}
+}
+
+TEST_CASE("ParticleSim: 3D sphere/box volumes contain their spawns",
+	"[particles][unit]")
+{
+	// SPHERE (radius 2): every spawn lands within the radius of the origin
+	{
+		ParticleSim sim(11u);
+		ParticleSim::EmitterParams params = staticEmitter3D(200);
+		params.emissionVolume = ParticleSim::EmitterParams::VOLUME_SPHERE;
+		params.volumeExtents = Vec3(2.0f, 0.0f, 0.0f);
+		sim.setParams(params);
+		REQUIRE(sim.burst3D(200, Vec3(0.0f, 0.0f, 0.0f)) == 200);
+		for (int index = 0; index < sim.liveCount(); ++index)
+		{
+			REQUIRE(sim.particleAt(index).position3.length() <= 2.0f + 1e-4f);
+		}
+	}
+	// BOX (half-extents 1,2,3): each axis stays within its half-extent
+	{
+		ParticleSim sim(12u);
+		ParticleSim::EmitterParams params = staticEmitter3D(200);
+		params.emissionVolume = ParticleSim::EmitterParams::VOLUME_BOX;
+		params.volumeExtents = Vec3(1.0f, 2.0f, 3.0f);
+		sim.setParams(params);
+		REQUIRE(sim.burst3D(200, Vec3(0.0f, 0.0f, 0.0f)) == 200);
+		for (int index = 0; index < sim.liveCount(); ++index)
+		{
+			Vec3 const & p = sim.particleAt(index).position3;
+			REQUIRE(std::fabs(p.x) <= 1.0f + 1e-4f);
+			REQUIRE(std::fabs(p.y) <= 2.0f + 1e-4f);
+			REQUIRE(std::fabs(p.z) <= 3.0f + 1e-4f);
+		}
+	}
+}
+
+TEST_CASE("ParticleSim: world-space particles ignore a moving emitter, "
+	"local-space ones follow it", "[particles][unit]")
+{
+	// WORLD space: a spawned particle's render position does NOT move when the
+	// emitter later moves (weather must not drag with the camera rig)
+	{
+		ParticleSim sim(21u);
+		sim.setParams(staticEmitter3D(4));	// worldSpace = true, motionless
+		sim.burst3D(1, Vec3(0.0f, 0.0f, 0.0f));
+		ParticleSim::Particle const & p = sim.particleAt(0);
+		const Vec3 moved = sim.worldPosition3D(p, Vec3(5.0f, 0.0f, 0.0f));
+		REQUIRE(moved.x == Approx(0.0f).margin(1e-5));
+		REQUIRE(moved.y == Approx(0.0f).margin(1e-5));
+		REQUIRE(moved.z == Approx(0.0f).margin(1e-5));
+	}
+	// LOCAL space: the same particle's render position tracks the emitter origin
+	{
+		ParticleSim sim(21u);
+		ParticleSim::EmitterParams params = staticEmitter3D(4);
+		params.worldSpace = false;
+		sim.setParams(params);
+		sim.burst3D(1, Vec3(0.0f, 0.0f, 0.0f));	// local offset = 0 (point volume)
+		ParticleSim::Particle const & p = sim.particleAt(0);
+		const Vec3 moved = sim.worldPosition3D(p, Vec3(5.0f, 0.0f, 0.0f));
+		REQUIRE(moved.x == Approx(5.0f).margin(1e-5));
+	}
+}
+
+TEST_CASE("ParticleSim: 3D gravity + wind integrate analytically",
+	"[particles][unit]")
+{
+	ParticleSim sim(31u);
+	ParticleSim::EmitterParams params = staticEmitter3D(4);
+	params.gravity3D = Vec3(0.0f, -10.0f, 0.0f);
+	params.wind = Vec3(2.0f, 0.0f, 0.0f);
+	sim.setParams(params);
+	sim.burst3D(1, Vec3(0.0f, 0.0f, 0.0f));	// v0 = 0 (speed range 0)
+	const float dt = 0.1f;
+	sim.update3D(dt, Vec3(0.0f, 0.0f, 0.0f));
+	// one semi-implicit Euler step: v1 = (g + wind)*dt ; x1 = v1*dt
+	ParticleSim::Particle const & p = sim.particleAt(0);
+	REQUIRE(p.velocity3.x == Approx(2.0f * dt).margin(1e-4));
+	REQUIRE(p.velocity3.y == Approx(-10.0f * dt).margin(1e-4));
+	REQUIRE(p.position3.x == Approx(2.0f * dt * dt).margin(1e-4));
+	REQUIRE(p.position3.y == Approx(-10.0f * dt * dt).margin(1e-4));
+}
+
+TEST_CASE("ParticleSim: a 3D particle dies at its lifetime", "[particles][unit]")
+{
+	ParticleSim sim(32u);
+	ParticleSim::EmitterParams params = staticEmitter3D(4);
+	params.lifetimeMin = 0.5f;
+	params.lifetimeMax = 0.5f;
+	sim.setParams(params);
+	REQUIRE(sim.burst3D(1, Vec3(0.0f, 0.0f, 0.0f)) == 1);
+	sim.update3D(0.4f, Vec3(0.0f, 0.0f, 0.0f));	// age 0.4 < 0.5
+	REQUIRE(sim.liveCount() == 1);
+	sim.update3D(0.2f, Vec3(0.0f, 0.0f, 0.0f));	// age 0.6 >= 0.5 -> culled
+	REQUIRE(sim.liveCount() == 0);
+}
+
+TEST_CASE("ParticleSim: the 3D emitter never exceeds its capacity",
+	"[particles][unit]")
+{
+	ParticleSim sim(33u);
+	ParticleSim::EmitterParams params = staticEmitter3D(16);
+	params.emissionRate = 100000.0f;	// wildly over-emit
+	sim.setParams(params);
+	sim.start();
+	for (int step = 0; step < 40; ++step)
+	{
+		sim.update3D(0.1f, Vec3(0.0f, 0.0f, 0.0f));
+		REQUIRE(sim.liveCount() <= 16);
+	}
+	REQUIRE(sim.liveCount() == 16);
+}
+
+TEST_CASE("ParticleSim: a reserved 3D pool ticks without allocating",
+	"[particles][unit][perf]")
+{
+	ParticleSim sim(34u);
+	ParticleSim::EmitterParams params = staticEmitter3D(64);
+	params.emissionRate = 500.0f;
+	params.lifetimeMin = 0.05f;		// fast turnover: constant spawn + expire
+	params.lifetimeMax = 0.10f;
+	params.gravity3D = Vec3(0.0f, -9.8f, 0.0f);
+	params.flutterAmplitude = 1.0f;	// exercise the flutter branch too
+	params.flutterFrequency = 2.0f;
+	sim.setParams(params);
+	sim.start();
+	Orkige::MemoryManager::reset();
+	for (int step = 0; step < 200; ++step)
+	{
+		sim.update3D(0.01f, Vec3(0.0f, 0.0f, 0.0f));
+	}
+	Orkige::MemoryManager::endFrame();
+	REQUIRE(sim.liveCount() <= sim.capacity());
+	REQUIRE(Orkige::MemoryManager::lastFrameCount(
+		Orkige::MemoryManager::TAG_PARTICLES) == 0);
+}
+
+TEST_CASE("ParticleSim: billboard corners face the camera axes",
+	"[particles][unit]")
+{
+	// known orthonormal camera axes: right = +X, up = +Y (looking down -Z)
+	const Vec3 right(1.0f, 0.0f, 0.0f);
+	const Vec3 up(0.0f, 1.0f, 0.0f);
+	const Vec3 center(0.0f, 0.0f, 5.0f);
+	Vec3 corners[4];
+	ParticleSim::billboardCorners(center, right, up, 2.0f, corners);
+	// TL, TR, BR, BL (the SpriteBatch winding)
+	REQUIRE(corners[0] == Vec3(-2.0f, 2.0f, 5.0f));	// TL
+	REQUIRE(corners[1] == Vec3(2.0f, 2.0f, 5.0f));	// TR
+	REQUIRE(corners[2] == Vec3(2.0f, -2.0f, 5.0f));	// BR
+	REQUIRE(corners[3] == Vec3(-2.0f, -2.0f, 5.0f));	// BL
+}
+
+TEST_CASE("ParticleSim: velocity streaks stretch along the on-screen motion",
+	"[particles][unit]")
+{
+	const Vec3 right(1.0f, 0.0f, 0.0f);
+	const Vec3 up(0.0f, 1.0f, 0.0f);
+	const Vec3 center(0.0f, 0.0f, 5.0f);
+	// a downward-falling rain drop: velocity along -Y, width 1, length 3
+	Vec3 corners[4];
+	ParticleSim::streakCorners(center, right, up, Vec3(0.0f, -10.0f, 0.0f),
+		1.0f, 3.0f, corners);
+	// the long (3) axis runs along Y, the cross (1) axis along X
+	REQUIRE(corners[0].x == Approx(-1.0f).margin(1e-4));	// TL
+	REQUIRE(corners[0].y == Approx(-3.0f).margin(1e-4));
+	REQUIRE(corners[1].x == Approx(1.0f).margin(1e-4));	// TR
+	REQUIRE(corners[1].y == Approx(-3.0f).margin(1e-4));
+	REQUIRE(corners[2].y == Approx(3.0f).margin(1e-4));	// BR
+	// a particle moving straight at the camera (no on-screen motion) falls back
+	// to a plain camera-facing quad of the width extent
+	ParticleSim::streakCorners(center, right, up, Vec3(0.0f, 0.0f, -10.0f),
+		1.0f, 3.0f, corners);
+	REQUIRE(corners[0] == Vec3(-1.0f, 1.0f, 5.0f));
+	REQUIRE(corners[2] == Vec3(1.0f, -1.0f, 5.0f));
 }
 
 TEST_CASE("ParticleSim: continuous rate produces N particles over T seconds",

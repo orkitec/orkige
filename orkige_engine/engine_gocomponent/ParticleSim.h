@@ -83,6 +83,27 @@ namespace Orkige
 			int		maxParticles = 256;		//!< pool capacity (hard cap)
 			int		zOrder = 10;			//!< painter's order (SpriteBatch/SpriteQuad window)
 			int		blendMode = BLEND_ADDITIVE;	//!< @see ParticleSim::BlendMode
+			//--- 3D mode (default OFF - while space3D is false the whole planar
+			// path above stays byte-identical; the fields below drive the 3D
+			// world-space path used for weather) ---
+			//! spawn-placement volume for the 3D emitter
+			enum EmissionVolume
+			{
+				VOLUME_POINT = 0,	//!< a single point at the emitter origin
+				VOLUME_SPHERE = 1,	//!< inside a sphere (volumeExtents.x = radius)
+				VOLUME_BOX = 2		//!< inside an axis-aligned box (volumeExtents = half-extents)
+			};
+			bool	space3D = false;	//!< run the 3D path instead of the planar 2D one
+			bool	worldSpace = true;	//!< particles live in WORLD space (do NOT follow a moving emitter); false = emitter-local (particles ride the emitter)
+			int		emissionVolume = VOLUME_POINT;	//!< @see EmissionVolume
+			Vec3	volumeExtents = Vec3(0.0f, 0.0f, 0.0f);	//!< sphere: x = radius; box: per-axis half-extents
+			Vec3	spawnOffset3D = Vec3(0.0f, 0.0f, 0.0f);	//!< added to the emitter origin (3D)
+			Vec3	direction3D = Vec3(0.0f, 1.0f, 0.0f);	//!< emission cone axis (normalized internally)
+			Vec3	gravity3D = Vec3(0.0f, -9.8f, 0.0f);	//!< world acceleration (3D)
+			Vec3	wind = Vec3(0.0f, 0.0f, 0.0f);	//!< constant world acceleration added each step (weather shear)
+			float	stretch = 0.0f;			//!< velocity-stretch factor for rain-streak billboards (0 = round quad)
+			float	flutterAmplitude = 0.0f;	//!< snow sideways-sway acceleration amplitude (world units/s^2)
+			float	flutterFrequency = 0.0f;	//!< snow sway frequency (cycles/second)
 		};
 		//! @brief one live particle (world-space, planar XY)
 		struct Particle
@@ -94,6 +115,11 @@ namespace Orkige
 			float	rotation = 0.0f;		//!< current spin in radians
 			float	angularVelocity = 0.0f;	//!< radians/second
 			int		frame = 0;				//!< chosen atlas grid cell
+			//--- 3D fields (used only on the space3D path; the 2D path never
+			// touches these so its behaviour stays byte-identical) ---
+			Vec3	position3 = Vec3(0.0f, 0.0f, 0.0f);	//!< 3D position (world or emitter-local, @see EmitterParams::worldSpace)
+			Vec3	velocity3 = Vec3(0.0f, 0.0f, 0.0f);	//!< 3D velocity
+			float	flutterPhase = 0.0f;	//!< per-particle sway phase offset (snow flutter)
 		};
 	private:
 		//--- Variables ---------------------------------------------
@@ -192,6 +218,92 @@ namespace Orkige
 			}
 			this->emitContinuous(dt, origin);
 			this->integrate(dt);
+		}
+
+		//--- 3D world-space path (weather); active when EmitterParams::space3D ---
+		//! @brief advance the 3D system by dt seconds, emitting from the 3D
+		//! emitter origin and integrating every live particle under
+		//! gravity3D + wind (+ the optional snow flutter). @see update
+		void update3D(float dt, Vec3 const & origin)
+		{
+			if(dt < 0.0f)
+			{
+				dt = 0.0f;
+			}
+			this->emitContinuous3D(dt, origin);
+			this->integrate3D(dt);
+		}
+		//! @brief spawn a 3D burst of min(count, remaining capacity) particles
+		//! at the 3D emitter origin (count <= 0 uses burstCount). @see burst
+		int burst3D(int count, Vec3 const & origin)
+		{
+			if(count <= 0)
+			{
+				count = this->mParams.burstCount;
+			}
+			int spawned = 0;
+			for(int each = 0; each < count; ++each)
+			{
+				if(!this->spawnOne3D(origin))
+				{
+					break;	// pool full
+				}
+				++spawned;
+			}
+			return spawned;
+		}
+		//! @brief the particle's RENDER position: its stored position for
+		//! world-space particles, or that position offset by the emitter's
+		//! CURRENT origin for emitter-local ones (so they follow a moving
+		//! emitter). This is the world-vs-local seam.
+		Vec3 worldPosition3D(Particle const & particle,
+			Vec3 const & currentOrigin) const
+		{
+			return this->mParams.worldSpace
+				? particle.position3
+				: (particle.position3 + currentOrigin);
+		}
+
+		//--- pure billboard math (headless-testable) -----------------------
+		//! @brief camera-facing quad corners in the SpriteBatch winding
+		//! (TL, TR, BR, BL) from the camera's world-space right/up axes scaled
+		//! to halfSize - the CPU-billboard core.
+		static void billboardCorners(Vec3 const & center, Vec3 const & right,
+			Vec3 const & up, float halfSize, Vec3 outCorners[4])
+		{
+			const Vec3 r = right * halfSize;
+			const Vec3 u = up * halfSize;
+			outCorners[0] = center - r + u;	// top-left
+			outCorners[1] = center + r + u;	// top-right
+			outCorners[2] = center + r - u;	// bottom-right
+			outCorners[3] = center - r - u;	// bottom-left
+		}
+		//! @brief velocity-stretched streak corners (rain): the quad stays in
+		//! the camera plane, but its long axis follows the particle velocity's
+		//! ON-SCREEN direction stretched to halfLength, with halfWidth across.
+		//! Falls back to a plain billboard when the velocity projects to ~zero
+		//! on screen (a particle moving straight at/away from the camera).
+		static void streakCorners(Vec3 const & center, Vec3 const & right,
+			Vec3 const & up, Vec3 const & velocity, float halfWidth,
+			float halfLength, Vec3 outCorners[4])
+		{
+			const float vx = velocity.dotProduct(right);
+			const float vy = velocity.dotProduct(up);
+			const float lenSq = vx * vx + vy * vy;
+			if(lenSq < 1e-8f)
+			{
+				billboardCorners(center, right, up, halfWidth, outCorners);
+				return;
+			}
+			const float inv = 1.0f / std::sqrt(lenSq);
+			// long axis = screen-projected velocity direction (in world)
+			const Vec3 axis = (right * (vx * inv) + up * (vy * inv)) * halfLength;
+			// cross axis = perpendicular to it, still in the camera plane
+			const Vec3 perp = (right * (-vy * inv) + up * (vx * inv)) * halfWidth;
+			outCorners[0] = center - perp + axis;	// top-left
+			outCorners[1] = center + perp + axis;	// top-right
+			outCorners[2] = center + perp - axis;	// bottom-right
+			outCorners[3] = center - perp - axis;	// bottom-left
 		}
 
 		//--- inspection (the component + the unit tests read these) ---
@@ -386,6 +498,181 @@ namespace Orkige
 			}
 			// the pool is reserved to capacity, so this push never grows in
 			// steady state - the probe guards the contract
+			const std::size_t capacityBefore = this->mParticles.capacity();
+			this->mParticles.push_back(particle);
+			MemoryManager::countGrowth(MemoryManager::TAG_PARTICLES,
+				capacityBefore, this->mParticles.capacity());
+			return true;
+		}
+		//! choose an atlas grid cell in the inclusive [min,max] range (shared by
+		//! the 2D and 3D spawn paths)
+		int pickAtlasFrame()
+		{
+			int frameLow = this->mParams.atlasFrameMin;
+			int frameHigh = this->mParams.atlasFrameMax;
+			if(frameHigh < frameLow)
+			{
+				std::swap(frameLow, frameHigh);
+			}
+			if(frameHigh > frameLow)
+			{
+				const int span = frameHigh - frameLow + 1;
+				const int pick = static_cast<int>(
+					this->nextUnit() * static_cast<float>(span));
+				return frameLow + std::min(pick, span - 1);
+			}
+			return frameLow;
+		}
+		//! a random unit direction within a cone of the given half-angle around
+		//! @p axis (a 180-degree half-angle samples the whole sphere uniformly)
+		Vec3 randomConeDirection(Vec3 const & axis, float halfAngleDegrees)
+		{
+			const float degToRad = 3.14159265358979f / 180.0f;
+			Vec3 a = axis;
+			const float len = a.length();
+			a = (len > 1e-6f) ? (a / len) : Vec3(0.0f, 1.0f, 0.0f);
+			const float cosHalf = std::cos(halfAngleDegrees * degToRad);
+			// uniform on the spherical cap: cos(theta) uniform in [cosHalf, 1]
+			const float cosTheta = this->randRange(cosHalf, 1.0f);
+			const float sinTheta = std::sqrt(std::max(0.0f,
+				1.0f - cosTheta * cosTheta));
+			const float phi = this->randRange(0.0f, 2.0f * 3.14159265358979f);
+			// an orthonormal basis (t1, t2) spanning the plane perpendicular to a
+			Vec3 helper = (std::fabs(a.x) < 0.9f)
+				? Vec3(1.0f, 0.0f, 0.0f) : Vec3(0.0f, 1.0f, 0.0f);
+			Vec3 t1 = a.crossProduct(helper);
+			t1.normalise();
+			const Vec3 t2 = a.crossProduct(t1);	// unit (a, t1 orthonormal)
+			Vec3 dir = a * cosTheta +
+				(t1 * std::cos(phi) + t2 * std::sin(phi)) * sinTheta;
+			dir.normalise();
+			return dir;
+		}
+		//! sample an emitter-local offset inside the configured emission volume
+		Vec3 sampleVolume()
+		{
+			switch(this->mParams.emissionVolume)
+			{
+			case EmitterParams::VOLUME_SPHERE:
+			{
+				const float radius = this->mParams.volumeExtents.x;
+				// uniform inside the sphere: a uniform direction scaled by
+				// radius * cbrt(u) (constant volumetric density)
+				const Vec3 dir = this->randomConeDirection(
+					Vec3(0.0f, 1.0f, 0.0f), 180.0f);
+				return dir * (radius * std::cbrt(this->nextUnit()));
+			}
+			case EmitterParams::VOLUME_BOX:
+			{
+				Vec3 const & e = this->mParams.volumeExtents;
+				return Vec3(this->randRange(-e.x, e.x),
+					this->randRange(-e.y, e.y),
+					this->randRange(-e.z, e.z));
+			}
+			default:
+				return Vec3(0.0f, 0.0f, 0.0f);
+			}
+		}
+		//! emit the 3D continuous stream for dt seconds (rate accumulator + the
+		//! optional duration/looping window - the 3D twin of emitContinuous)
+		void emitContinuous3D(float dt, Vec3 const & origin)
+		{
+			if(!this->mEmitting || this->mParams.emissionRate <= 0.0f)
+			{
+				return;
+			}
+			if(this->mParams.duration > 0.0f)
+			{
+				if(this->mDurationTimer >= this->mParams.duration)
+				{
+					if(this->mParams.looping)
+					{
+						this->mDurationTimer = 0.0f;
+					}
+					else
+					{
+						this->mEmitting = false;
+						return;
+					}
+				}
+				this->mDurationTimer += dt;
+			}
+			this->mRateAccumulator += dt * this->mParams.emissionRate;
+			while(this->mRateAccumulator >= 1.0f)
+			{
+				this->mRateAccumulator -= 1.0f;
+				if(!this->spawnOne3D(origin))
+				{
+					this->mRateAccumulator = 0.0f;
+					break;
+				}
+			}
+		}
+		//! integrate every 3D particle one step under gravity3D + wind (+ the
+		//! optional snow flutter) and swap-remove the expired ones
+		void integrate3D(float dt)
+		{
+			const float dampFactor = std::max(0.0f,
+				1.0f - this->mParams.damping * dt);
+			const Vec3 accel = this->mParams.gravity3D + this->mParams.wind;
+			const float twoPi = 2.0f * 3.14159265358979f;
+			const bool flutter = this->mParams.flutterAmplitude > 0.0f;
+			std::size_t index = 0;
+			while(index < this->mParticles.size())
+			{
+				Particle & particle = this->mParticles[index];
+				particle.age += dt;
+				if(particle.age >= particle.lifetime)
+				{
+					this->mParticles[index] = this->mParticles.back();
+					this->mParticles.pop_back();
+					continue;
+				}
+				particle.velocity3 += accel * dt;
+				if(flutter)
+				{
+					// a sideways sway on the horizontal plane (X and Z), 90 deg
+					// out of phase so flakes trace little circles as they drift
+					const float t = twoPi * this->mParams.flutterFrequency *
+						particle.age + particle.flutterPhase;
+					particle.velocity3.x +=
+						this->mParams.flutterAmplitude * std::sin(t) * dt;
+					particle.velocity3.z +=
+						this->mParams.flutterAmplitude * std::cos(t) * dt;
+				}
+				if(this->mParams.damping > 0.0f)
+				{
+					particle.velocity3 *= dampFactor;
+				}
+				particle.position3 += particle.velocity3 * dt;
+				++index;
+			}
+		}
+		//! spawn one 3D particle from the emitter origin; false when full
+		bool spawnOne3D(Vec3 const & origin)
+		{
+			if(this->mParticles.size() >=
+				static_cast<std::size_t>(this->capacity()))
+			{
+				return false;
+			}
+			Particle particle;
+			particle.lifetime = std::max(0.0001f,
+				this->randRange(this->mParams.lifetimeMin,
+					this->mParams.lifetimeMax));
+			particle.age = 0.0f;
+			const Vec3 dir = this->randomConeDirection(this->mParams.direction3D,
+				this->mParams.spreadAngle);
+			const float speed = this->randRange(this->mParams.speedMin,
+				this->mParams.speedMax);
+			particle.velocity3 = dir * speed;
+			const Vec3 localOffset = this->mParams.spawnOffset3D +
+				this->sampleVolume();
+			particle.position3 = this->mParams.worldSpace
+				? (origin + localOffset) : localOffset;
+			particle.flutterPhase = this->nextUnit() *
+				(2.0f * 3.14159265358979f);
+			particle.frame = this->pickAtlasFrame();
 			const std::size_t capacityBefore = this->mParticles.capacity();
 			this->mParticles.push_back(particle);
 			MemoryManager::countGrowth(MemoryManager::TAG_PARTICLES,

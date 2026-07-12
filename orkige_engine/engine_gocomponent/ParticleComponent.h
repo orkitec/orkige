@@ -95,6 +95,59 @@ namespace Orkige
 		bool isEmitting() const;
 		//! how many particles are alive right now
 		int getLiveCount() const;
+
+		//--- 3D / weather tunables (the reflected property surface: inspector,
+		// scene serialization, Lua self.<name> and MCP all go through these) ---
+		//! is the 3D world-space path active (default false = the planar 2D path)
+		bool getSpace3D() const;
+		//! @brief switch between the 2D planar path and the 3D world-space one;
+		//! 2D content leaves this false and is unaffected
+		void setSpace3D(bool space3D);
+		//! do particles live in world space (not following a moving emitter)
+		bool getWorldSpace() const;
+		//! @see ParticleSim::EmitterParams::worldSpace
+		void setWorldSpace(bool worldSpace);
+		//! the spawn-placement volume shape (@see ParticleSim::EmissionVolume)
+		int getEmissionVolume() const;
+		//! @see getEmissionVolume
+		void setEmissionVolume(int volume);
+		//! sphere radius (x) / box half-extents of the emission volume
+		Vec3 getVolumeExtents() const;
+		//! @see getVolumeExtents
+		void setVolumeExtents(Vec3 const & extents);
+		//! world gravity acceleration in 3D mode
+		Vec3 getGravity3D() const;
+		//! @see getGravity3D
+		void setGravity3D(Vec3 const & gravity);
+		//! constant world wind acceleration added each step (weather shear)
+		Vec3 getWind() const;
+		//! @see getWind
+		void setWind(Vec3 const & wind);
+		//! the 3D emission cone axis
+		Vec3 getDirection3D() const;
+		//! @see getDirection3D
+		void setDirection3D(Vec3 const & direction);
+		//! velocity-stretch factor for rain-streak billboards (0 = round quad)
+		float getStretch() const;
+		//! @see getStretch
+		void setStretch(float stretch);
+		//! snow sideways-sway acceleration amplitude
+		float getFlutterAmplitude() const;
+		//! @see getFlutterAmplitude
+		void setFlutterAmplitude(float amplitude);
+		//! snow sway frequency (cycles/second)
+		float getFlutterFrequency() const;
+		//! @see getFlutterFrequency
+		void setFlutterFrequency(float frequency);
+		//! is the batch additive (glow) rather than alpha-blended
+		bool getAdditive() const;
+		//! @brief choose additive vs. alpha blending; the batch is rebuilt since
+		//! the blend mode is baked at batch creation
+		void setAdditive(bool additive);
+		//! the pool capacity (hard cap)
+		int getMaxParticles() const;
+		//! @brief set the pool capacity and re-reserve (clamps the live count)
+		void setMaxParticles(int maxParticles);
 	protected:
 		//! component override - called after the component is attached
 		virtual void onAdd();
@@ -112,6 +165,11 @@ namespace Orkige
 		void writeQuads();
 		//! the emitter's current world-space origin (sibling TransformComponent)
 		Vec2 emitterOrigin();
+		//! the emitter's current world-space origin as a 3D point (3D path)
+		Vec3 emitterOrigin3D();
+		//! build the 3D camera-facing (optionally velocity-stretched) billboard
+		//! quads from the live particles and submit them to the batch
+		void writeQuads3D();
 		//--- SERIALIZATION ---
 		//! save the texture (+ asset id), emit-on-start and the whole EmitterParams
 		virtual void save(optr<IArchive> const & ar);

@@ -461,6 +461,17 @@ class ComponentWriter:
             '<int value="%d"/>' % max_particles,              # maxParticles
             '<int value="%d"/>' % z_order,                    # zOrder
             '<int value="%d"/>' % blend_mode,                 # blendMode
+            # 3D / weather extension block (space3D default 0 = the 2D path);
+            # matches the EmitterParams defaults so a 2D emitter round-trips
+            '<bool value="0"/>',                              # space3D
+            '<bool value="1"/>',                              # worldSpace
+            '<int value="0"/>',                               # emissionVolume (point)
+            '<float value="0"/>', '<float value="0"/>', '<float value="0"/>',  # volumeExtents xyz
+            '<float value="0"/>', '<float value="0"/>', '<float value="0"/>',  # spawnOffset3D xyz
+            '<float value="0"/>', '<float value="1"/>', '<float value="0"/>',  # direction3D xyz
+            '<float value="0"/>', '<float value="-9.8"/>', '<float value="0"/>',  # gravity3D xyz
+            '<float value="0"/>', '<float value="0"/>', '<float value="0"/>',  # wind xyz
+            '<float value="0"/>', '<float value="0"/>', '<float value="0"/>',  # stretch / flutterAmplitude / flutterFrequency
         ])
 
     @staticmethod

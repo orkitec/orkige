@@ -111,6 +111,11 @@ int main(int, char**)
 	// check reads the frame-stats triangle count, not pixels)
 	const bool demoParticles =
 		(std::getenv("ORKIGE_DEMO_PARTICLES") != nullptr);
+	// ORKIGE_DEMO_PARTICLES3D=1: the 3D particle + weather selfcheck (below)
+	// loads the generated soft dot/streak textures from the demo media dir and
+	// runs world-space rain + snow emitters (Util/make_particle_textures.py)
+	const bool demoParticles3D =
+		(std::getenv("ORKIGE_DEMO_PARTICLES3D") != nullptr);
 	// ORKIGE_DEMO_MUSIC=1: the streamed-music selfcheck (below) needs the
 	// committed loopable OGG on a resource location so playMusic resolves
 	// it (music_loop.ogg lives in the sample media dir)
@@ -162,7 +167,8 @@ int main(int, char**)
 			{
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
-			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain)
+			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain ||
+				demoParticles3D)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -540,6 +546,108 @@ int main(int, char**)
 			SDL_Log("hello_orkige: particle emitter up (max=%d, additive burst)",
 				particleMax);
 		}
+
+		// --- ORKIGE_DEMO_PARTICLES3D=1: the 3D particle + weather selfcheck.
+		// Two WORLD-space emitters authored purely through the reflected
+		// tunables - a RAIN preset (a wide thin box volume above the scene, fast
+		// fall, wind shear, velocity-stretched streak billboards) and a SNOW
+		// preset (small flakes, slow drift + sinusoidal flutter). Both are
+		// CPU-billboarded camera-facing quads drawn through one SpriteBatch each.
+		// The check reads the frame-stats triangle count (a hide/show delta, not
+		// pixels, so it runs identically on both flavors) and LOGS a measured
+		// per-frame sim+billboard cost (logged, never gated).
+		Orkige::GameObject* rainEmitterObject = nullptr;
+		Orkige::GameObject* snowEmitterObject = nullptr;
+		Orkige::ParticleComponent* rainEmitter = nullptr;
+		Orkige::ParticleComponent* snowEmitter = nullptr;
+		if (demoParticles3D)
+		{
+			optr<Orkige::GameObject> rainObject =
+				gameObjectManager.createGameObject("rain").lock();
+			optr<Orkige::GameObject> snowObject =
+				gameObjectManager.createGameObject("snow").lock();
+			if (!rainObject || !rainObject->addComponent<Orkige::ParticleComponent>() ||
+				!snowObject || !snowObject->addComponent<Orkige::ParticleComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - 3D particle emitter creation");
+				return 1;
+			}
+			rainEmitterObject = rainObject.get();
+			snowEmitterObject = snowObject.get();
+			rainEmitter = rainObject->getComponentPtr<Orkige::ParticleComponent>();
+			snowEmitter = snowObject->getComponentPtr<Orkige::ParticleComponent>();
+
+			// RAIN: a box slab high above origin, streaks falling with a wind
+			// shear; alpha-blended stretched billboards
+			{
+				Orkige::ParticleSim::EmitterParams p = rainEmitter->params();
+				p.space3D = true;
+				p.worldSpace = true;	// weather does NOT ride a moving emitter
+				p.emissionVolume = Orkige::ParticleSim::EmitterParams::VOLUME_BOX;
+				p.volumeExtents = Orkige::Vec3(6.0f, 0.25f, 6.0f);
+				p.spawnOffset3D = Orkige::Vec3(0.0f, 6.0f, 0.0f);
+				p.direction3D = Orkige::Vec3(0.0f, -1.0f, 0.0f);
+				p.spreadAngle = 2.0f;
+				p.speedMin = 12.0f;
+				p.speedMax = 16.0f;
+				p.gravity3D = Orkige::Vec3(0.0f, -15.0f, 0.0f);
+				p.wind = Orkige::Vec3(3.0f, 0.0f, 0.0f);	// shear
+				p.stretch = 0.06f;		// velocity-stretched streaks
+				p.lifetimeMin = 0.8f;
+				p.lifetimeMax = 1.0f;
+				p.startSize = 0.16f;
+				p.endSize = 0.16f;
+				p.startColor = Orkige::Color(0.7f, 0.8f, 1.0f, 0.7f);
+				p.endColor = Orkige::Color(0.7f, 0.8f, 1.0f, 0.7f);
+				p.blendMode = Orkige::ParticleSim::BLEND_ALPHA;
+				p.emissionRate = 250.0f;
+				p.maxParticles = 300;		// mobile budget: a few hundred
+				p.zOrder = 8;
+				rainEmitter->params() = p;
+				rainEmitter->setMaxParticles(300);	// re-reserve the pool
+				rainEmitter->setEmitOnStart(true);
+				rainEmitter->setTexture("particle_rain.png");
+			}
+			// SNOW: small round flakes, slow gravity, sinusoidal flutter drift
+			{
+				Orkige::ParticleSim::EmitterParams p = snowEmitter->params();
+				p.space3D = true;
+				p.worldSpace = true;
+				p.emissionVolume = Orkige::ParticleSim::EmitterParams::VOLUME_BOX;
+				p.volumeExtents = Orkige::Vec3(6.0f, 0.25f, 6.0f);
+				p.spawnOffset3D = Orkige::Vec3(0.0f, 5.0f, 0.0f);
+				p.direction3D = Orkige::Vec3(0.0f, -1.0f, 0.0f);
+				p.spreadAngle = 8.0f;
+				p.speedMin = 1.0f;
+				p.speedMax = 2.0f;
+				p.gravity3D = Orkige::Vec3(0.0f, -1.2f, 0.0f);
+				p.wind = Orkige::Vec3(0.3f, 0.0f, 0.0f);
+				p.flutterAmplitude = 3.0f;		// sideways sway
+				p.flutterFrequency = 0.8f;
+				p.stretch = 0.0f;		// round flakes
+				p.lifetimeMin = 3.0f;
+				p.lifetimeMax = 4.0f;
+				p.startSize = 0.22f;
+				p.endSize = 0.22f;
+				p.startColor = Orkige::Color(1.0f, 1.0f, 1.0f, 0.9f);
+				p.endColor = Orkige::Color(1.0f, 1.0f, 1.0f, 0.9f);
+				p.blendMode = Orkige::ParticleSim::BLEND_ALPHA;
+				p.emissionRate = 80.0f;
+				p.maxParticles = 250;
+				p.zOrder = 8;
+				snowEmitter->params() = p;
+				snowEmitter->setMaxParticles(250);
+				snowEmitter->setEmitOnStart(true);
+				snowEmitter->setTexture("particle_dot.png");
+			}
+			SDL_Log("hello_orkige: 3D weather emitters up (rain streaks + snow "
+				"flutter, world-space)");
+		}
+		std::size_t particles3DShownTriangles = 0;
+		int particles3DRainLive = 0;
+		int particles3DSnowLive = 0;
+		double particles3DTickMicrosSum = 0.0;
+		int particles3DTickSamples = 0;
 
 		// --- ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck.
 		// A GameObject carrying a VectorShapeComponent (auto-adds its
@@ -3422,6 +3530,23 @@ int main(int, char**)
 				// (burst-only, so nothing spawns until frame 20)
 				gameObjectManager.update(0.05f);
 			}
+			if (demoParticles3D)
+			{
+				// fixed tick, timed: the emitters spawn continuously and
+				// billboard against the window camera each frame. The measured
+				// wall-clock cost is the sim + billboard build for both systems.
+				const std::chrono::steady_clock::time_point tickStart =
+					std::chrono::steady_clock::now();
+				gameObjectManager.update(0.05f);
+				const double tickMicros = std::chrono::duration<double,
+					std::micro>(std::chrono::steady_clock::now() -
+						tickStart).count();
+				if (frameCount >= 30 && frameCount < 60)
+				{
+					particles3DTickMicrosSum += tickMicros;
+					++particles3DTickSamples;
+				}
+			}
 			if (demoMusic)
 			{
 				// refill the ring on the main thread; the small real-time delay
@@ -3626,6 +3751,53 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: particle selfcheck passed (burst raised "
 					"then decayed, single-draw batch)");
+			}
+			if (demoParticles3D && frameCount == 60)
+			{
+				// steady state: both emitters have live particles capped inside
+				// the mobile budget, and their two single-draw batches raised the
+				// triangle count. Capture the shown count, then hide both.
+				particles3DShownTriangles =
+					render->getFrameStats().triangleCount;
+				particles3DRainLive = rainEmitter->getLiveCount();
+				particles3DSnowLive = snowEmitter->getLiveCount();
+				SDL_Log("hello_orkige: 3D weather live rain=%d snow=%d shownTris="
+					"%zu", particles3DRainLive, particles3DSnowLive,
+					particles3DShownTriangles);
+				if (particles3DRainLive <= 0 || particles3DSnowLive <= 0 ||
+					particles3DRainLive > 300 || particles3DSnowLive > 250)
+				{
+					SDL_Log("hello_orkige: FAILED - 3D emitters outside the "
+						"expected live/budget window");
+					return 1;
+				}
+				rainEmitterObject->setActive(false);
+				snowEmitterObject->setActive(false);
+			}
+			if (demoParticles3D && frameCount == 63)
+			{
+				// hidden: the two batches no longer render, so the triangle
+				// count fell by ~2 per live particle (a quad = 2 triangles)
+				const std::size_t hiddenTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(particles3DShownTriangles > hiddenTriangles)
+					? particles3DShownTriangles - hiddenTriangles : 0;
+				const int liveTotal = particles3DRainLive + particles3DSnowLive;
+				const double perFrameMicros = (particles3DTickSamples > 0)
+					? particles3DTickMicrosSum / particles3DTickSamples : 0.0;
+				SDL_Log("hello_orkige: 3D weather hidden delta=%zu (live quads "
+					"%d) per-frame sim+billboard=%.1f us", risen, liveTotal,
+					perFrameMicros);
+				if (risen < static_cast<std::size_t>(liveTotal * 2 - 16))
+				{
+					SDL_Log("hello_orkige: FAILED - hiding the weather emitters "
+						"did not drop the expected triangle count");
+					return 1;
+				}
+				SDL_Log("hello_orkige: 3D particle selfcheck passed (world-space "
+					"rain streaks + snow flutter, camera-facing billboards, "
+					"one draw per emitter)");
 			}
 			if (demoMaterial && frameCount == 20)
 			{

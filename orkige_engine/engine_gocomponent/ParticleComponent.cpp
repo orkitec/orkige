@@ -10,13 +10,16 @@
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"	// frameToUVRect (shared UV primitive)
+#include "engine_gocomponent/ComponentPropertyReflect.h"	// Vec3 pack/unpack for OPROPERTY
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
+#include "engine_render/RenderCamera.h"	// view matrix -> camera billboard axes
 #include <core_game/GameObject.h>
 #include <core_debug/DebugMacros.h>
 #include <core_debug/MemoryManager.h>
 #include <core_project/AssetDatabase.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace Orkige
@@ -50,6 +53,10 @@ namespace Orkige
 	int ParticleComponent::burst(int count)
 	{
 		this->ensureBatch();
+		if(this->mSim.params().space3D)
+		{
+			return this->mSim.burst3D(count, this->emitterOrigin3D());
+		}
 		return this->mSim.burst(count, this->emitterOrigin());
 	}
 	//---------------------------------------------------------
@@ -76,6 +83,141 @@ namespace Orkige
 	int ParticleComponent::getLiveCount() const
 	{
 		return this->mSim.liveCount();
+	}
+	//---------------------------------------------------------
+	bool ParticleComponent::getSpace3D() const
+	{
+		return this->mSim.params().space3D;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setSpace3D(bool space3D)
+	{
+		this->mSim.params().space3D = space3D;
+	}
+	//---------------------------------------------------------
+	bool ParticleComponent::getWorldSpace() const
+	{
+		return this->mSim.params().worldSpace;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setWorldSpace(bool worldSpace)
+	{
+		this->mSim.params().worldSpace = worldSpace;
+	}
+	//---------------------------------------------------------
+	int ParticleComponent::getEmissionVolume() const
+	{
+		return this->mSim.params().emissionVolume;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setEmissionVolume(int volume)
+	{
+		this->mSim.params().emissionVolume = std::clamp(volume, 0,
+			static_cast<int>(ParticleSim::EmitterParams::VOLUME_BOX));
+	}
+	//---------------------------------------------------------
+	Vec3 ParticleComponent::getVolumeExtents() const
+	{
+		return this->mSim.params().volumeExtents;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setVolumeExtents(Vec3 const & extents)
+	{
+		this->mSim.params().volumeExtents = extents;
+	}
+	//---------------------------------------------------------
+	Vec3 ParticleComponent::getGravity3D() const
+	{
+		return this->mSim.params().gravity3D;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setGravity3D(Vec3 const & gravity)
+	{
+		this->mSim.params().gravity3D = gravity;
+	}
+	//---------------------------------------------------------
+	Vec3 ParticleComponent::getWind() const
+	{
+		return this->mSim.params().wind;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setWind(Vec3 const & wind)
+	{
+		this->mSim.params().wind = wind;
+	}
+	//---------------------------------------------------------
+	Vec3 ParticleComponent::getDirection3D() const
+	{
+		return this->mSim.params().direction3D;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setDirection3D(Vec3 const & direction)
+	{
+		this->mSim.params().direction3D = direction;
+	}
+	//---------------------------------------------------------
+	float ParticleComponent::getStretch() const
+	{
+		return this->mSim.params().stretch;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setStretch(float stretch)
+	{
+		this->mSim.params().stretch = std::max(0.0f, stretch);
+	}
+	//---------------------------------------------------------
+	float ParticleComponent::getFlutterAmplitude() const
+	{
+		return this->mSim.params().flutterAmplitude;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setFlutterAmplitude(float amplitude)
+	{
+		this->mSim.params().flutterAmplitude = std::max(0.0f, amplitude);
+	}
+	//---------------------------------------------------------
+	float ParticleComponent::getFlutterFrequency() const
+	{
+		return this->mSim.params().flutterFrequency;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setFlutterFrequency(float frequency)
+	{
+		this->mSim.params().flutterFrequency = std::max(0.0f, frequency);
+	}
+	//---------------------------------------------------------
+	bool ParticleComponent::getAdditive() const
+	{
+		return this->mSim.params().blendMode == ParticleSim::BLEND_ADDITIVE;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setAdditive(bool additive)
+	{
+		const int blend = additive
+			? ParticleSim::BLEND_ADDITIVE : ParticleSim::BLEND_ALPHA;
+		if(this->mSim.params().blendMode == blend)
+		{
+			return;
+		}
+		this->mSim.params().blendMode = blend;
+		// the blend mode is baked into the batch material/datablock at creation,
+		// so a change rebuilds the batch onto the matching one
+		this->mBatch.reset();
+		this->ensureBatch();
+	}
+	//---------------------------------------------------------
+	int ParticleComponent::getMaxParticles() const
+	{
+		return this->mSim.params().maxParticles;
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::setMaxParticles(int maxParticles)
+	{
+		// route through setParams so the pool re-reserves and the live count is
+		// clamped to the new hard cap
+		ParticleSim::EmitterParams params = this->mSim.params();
+		params.maxParticles = std::max(1, maxParticles);
+		this->mSim.setParams(params);
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
@@ -117,8 +259,16 @@ namespace Orkige
 				this->mSim.start();
 			}
 		}
-		this->mSim.update(deltaTime, this->emitterOrigin());
-		this->writeQuads();
+		if(this->mSim.params().space3D)
+		{
+			this->mSim.update3D(deltaTime, this->emitterOrigin3D());
+			this->writeQuads3D();
+		}
+		else
+		{
+			this->mSim.update(deltaTime, this->emitterOrigin());
+			this->writeQuads();
+		}
 	}
 	//---------------------------------------------------------
 	void ParticleComponent::ensureBatch()
@@ -218,6 +368,92 @@ namespace Orkige
 		return Vec2(0.0f, 0.0f);
 	}
 	//---------------------------------------------------------
+	Vec3 ParticleComponent::emitterOrigin3D()
+	{
+		GameObject* owner = this->getComponentOwner();
+		if(owner)
+		{
+			optr<TransformComponent> transform =
+				owner->getComponent<TransformComponent>().lock();
+			if(transform)
+			{
+				return transform->getWorldPosition();
+			}
+		}
+		return Vec3(0.0f, 0.0f, 0.0f);
+	}
+	//---------------------------------------------------------
+	void ParticleComponent::writeQuads3D()
+	{
+		oAssert(this->mBatch);
+		const int live = this->mSim.liveCount();
+		this->mVertexScratch.clear();
+		if(live == 0)
+		{
+			this->mBatch->setQuads(NULL, 0);
+			return;
+		}
+		const std::size_t scratchCapacityBefore = this->mVertexScratch.capacity();
+		this->mVertexScratch.reserve(static_cast<std::size_t>(live) * 4);
+		MemoryManager::countGrowth(MemoryManager::TAG_PARTICLES,
+			scratchCapacityBefore, this->mVertexScratch.capacity());
+		float texelWidth = 0.0f, texelHeight = 0.0f;
+		this->mBatch->getTextureSize(texelWidth, texelHeight);
+		ParticleSim::EmitterParams const & p = this->mSim.params();
+		// the CPU billboard axes: the window camera's world-space right/up, read
+		// from its view matrix (its first two rows ARE those axes in world space)
+		Vec3 cameraRight(1.0f, 0.0f, 0.0f);
+		Vec3 cameraUp(0.0f, 1.0f, 0.0f);
+		if(RenderSystem* renderSystem = RenderSystem::get())
+		{
+			optr<RenderCamera> camera = renderSystem->getWindowCamera();
+			if(camera)
+			{
+				const Mat4 view = camera->getViewMatrix();
+				cameraRight = Vec3(view[0][0], view[0][1], view[0][2]);
+				cameraUp = Vec3(view[1][0], view[1][1], view[1][2]);
+			}
+		}
+		const Vec3 origin = this->emitterOrigin3D();
+		Vec3 corners[4];
+		for(int index = 0; index < live; ++index)
+		{
+			ParticleSim::Particle const & particle = this->mSim.particleAt(index);
+			const float halfSize = this->mSim.sizeAt(particle) * 0.5f;
+			const Color colour = this->mSim.colorAt(particle);
+			float u0, v0, u1, v1;
+			SpriteComponent::frameToUVRect(particle.frame,
+				p.atlasColumns, p.atlasRows, texelWidth, texelHeight,
+				u0, v0, u1, v1);
+			const Vec3 center = this->mSim.worldPosition3D(particle, origin);
+			if(p.stretch > 0.0f)
+			{
+				// velocity-stretch (rain streaks): longer along the motion
+				const float speed = particle.velocity3.length();
+				const float halfLength = halfSize * (1.0f + p.stretch * speed);
+				ParticleSim::streakCorners(center, cameraRight, cameraUp,
+					particle.velocity3, halfSize, halfLength, corners);
+			}
+			else
+			{
+				ParticleSim::billboardCorners(center, cameraRight, cameraUp,
+					halfSize, corners);
+			}
+			const float cornerU[4] = { u0, u1, u1, u0 };
+			const float cornerV[4] = { v0, v0, v1, v1 };
+			for(int corner = 0; corner < 4; ++corner)
+			{
+				SpriteBatch::Vertex vertex;
+				vertex.position = corners[corner];
+				vertex.uv = Vec2(cornerU[corner], cornerV[corner]);
+				vertex.colour = colour;
+				this->mVertexScratch.push_back(vertex);
+			}
+		}
+		this->mBatch->setQuads(this->mVertexScratch.data(),
+			static_cast<std::size_t>(live));
+	}
+	//---------------------------------------------------------
 	void ParticleComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
@@ -242,6 +478,15 @@ namespace Orkige
 		ar << p.sizeEase << p.colorEase;
 		ar << p.atlasColumns << p.atlasRows << p.atlasFrameMin << p.atlasFrameMax;
 		ar << p.maxParticles << p.zOrder << p.blendMode;
+		// 3D / weather extension block (space3D default false = the 2D path);
+		// FIXED field order, mirrored by Util/make_roller_assets.py particles()
+		ar << p.space3D << p.worldSpace << p.emissionVolume;
+		ar << p.volumeExtents.x << p.volumeExtents.y << p.volumeExtents.z;
+		ar << p.spawnOffset3D.x << p.spawnOffset3D.y << p.spawnOffset3D.z;
+		ar << p.direction3D.x << p.direction3D.y << p.direction3D.z;
+		ar << p.gravity3D.x << p.gravity3D.y << p.gravity3D.z;
+		ar << p.wind.x << p.wind.y << p.wind.z;
+		ar << p.stretch << p.flutterAmplitude << p.flutterFrequency;
 	}
 	//---------------------------------------------------------
 	void ParticleComponent::load(optr<IArchive> const & ar)
@@ -265,6 +510,14 @@ namespace Orkige
 		ar >> p.sizeEase >> p.colorEase;
 		ar >> p.atlasColumns >> p.atlasRows >> p.atlasFrameMin >> p.atlasFrameMax;
 		ar >> p.maxParticles >> p.zOrder >> p.blendMode;
+		// 3D / weather extension block (mirrors save, above)
+		ar >> p.space3D >> p.worldSpace >> p.emissionVolume;
+		ar >> p.volumeExtents.x >> p.volumeExtents.y >> p.volumeExtents.z;
+		ar >> p.spawnOffset3D.x >> p.spawnOffset3D.y >> p.spawnOffset3D.z;
+		ar >> p.direction3D.x >> p.direction3D.y >> p.direction3D.z;
+		ar >> p.gravity3D.x >> p.gravity3D.y >> p.gravity3D.z;
+		ar >> p.wind.x >> p.wind.y >> p.wind.z;
+		ar >> p.stretch >> p.flutterAmplitude >> p.flutterFrequency;
 		this->mSim.setParams(p);
 		// a resolving asset id wins over a stale texture name (rename survival)
 		AssetDatabase::resolveReference(textureName, textureAssetId,
@@ -286,5 +539,21 @@ namespace Orkige
 		OFUNC(setEmitting)
 		OFUNC(isEmitting)
 		OFUNC(getLiveCount)
+		// reflected 3D / weather tunables: the ONE property registry feeds the
+		// inspector, scene overrides, Lua self.<name>, the debug protocol and MCP
+		// (no new verbs, no new Lua tables). The emission volume rides as a plain
+		// int (0 point / 1 sphere / 2 box, @see ParticleSim::EmissionVolume).
+		OPROPERTY("space3D", Orkige::PropertyKind::Bool, getSpace3D, setSpace3D, Orkige::PROP_NONE)
+		OPROPERTY("worldSpace", Orkige::PropertyKind::Bool, getWorldSpace, setWorldSpace, Orkige::PROP_NONE)
+		OPROPERTY("emissionVolume", Orkige::PropertyKind::Int, getEmissionVolume, setEmissionVolume, Orkige::PROP_NONE)
+		OPROPERTY("volumeExtents", Orkige::PropertyKind::Vec3, getVolumeExtents, setVolumeExtents, Orkige::PROP_NONE)
+		OPROPERTY("gravity3D", Orkige::PropertyKind::Vec3, getGravity3D, setGravity3D, Orkige::PROP_NONE)
+		OPROPERTY("wind", Orkige::PropertyKind::Vec3, getWind, setWind, Orkige::PROP_NONE)
+		OPROPERTY("direction3D", Orkige::PropertyKind::Vec3, getDirection3D, setDirection3D, Orkige::PROP_NONE)
+		OPROPERTY("stretch", Orkige::PropertyKind::Float, getStretch, setStretch, Orkige::PROP_NONE)
+		OPROPERTY("flutterAmplitude", Orkige::PropertyKind::Float, getFlutterAmplitude, setFlutterAmplitude, Orkige::PROP_NONE)
+		OPROPERTY("flutterFrequency", Orkige::PropertyKind::Float, getFlutterFrequency, setFlutterFrequency, Orkige::PROP_NONE)
+		OPROPERTY("additive", Orkige::PropertyKind::Bool, getAdditive, setAdditive, Orkige::PROP_NONE)
+		OPROPERTY("maxParticles", Orkige::PropertyKind::Int, getMaxParticles, setMaxParticles, Orkige::PROP_NONE)
 	OOBJECT_END
 }

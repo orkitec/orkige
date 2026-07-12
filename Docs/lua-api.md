@@ -831,6 +831,18 @@ ParticleComponent:stop(...)
 ParticleComponent:setEmitting(...)
 ParticleComponent:isEmitting(...)
 ParticleComponent:getLiveCount(...)
+ParticleComponent.space3D
+ParticleComponent.worldSpace
+ParticleComponent.emissionVolume
+ParticleComponent.volumeExtents
+ParticleComponent.gravity3D
+ParticleComponent.wind
+ParticleComponent.direction3D
+ParticleComponent.stretch
+ParticleComponent.flutterAmplitude
+ParticleComponent.flutterFrequency
+ParticleComponent.additive
+ParticleComponent.maxParticles
 
 ## AnimationComponent
 AnimationComponent:getAvailableAnimations(...)

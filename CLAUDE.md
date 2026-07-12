@@ -444,6 +444,16 @@ look when touching one:
   import/instantiate); `Util/make_sprite_atlas.py` + `cook_textures.py`.
 - **2D**: `SpriteComponent`, `SpriteAnimationComponent` (flipbook), `ParticleComponent`
   + the facade `SpriteBatch` (one draw per emitter), an ortho **2D editor mode**.
+  **3D particles + weather**: the SAME `ParticleComponent`/`ParticleSim` grows a
+  reflected `space3D` mode (default OFF — 2D content stays byte-identical) with
+  Vec3 gravity/wind, point/sphere/box emission volumes, world-vs-local space
+  (world = weather, particles don't ride a moving emitter) and a velocity-stretch
+  factor; rendering is CPU-billboarded camera-facing quads (billboard corners
+  from the window camera's view-matrix axes) reusing `SpriteBatch` (world-space
+  Vec3 quads in the 3D scene pass), one draw per emitter. Rain/snow are content
+  presets over the reflected tunables (`Util/make_particle_textures.py` soft
+  dot/streak), mobile-budgeted (hard `maxParticles` cap, allocation-free tick) —
+  `Docs/particles.md`, `demo_particles3d` per flavor.
   **Flat-colour organic vector shapes**: `VectorShapeComponent` renders a
   tessellated `.oshape` (agent-authorable text asset, or SVG-cooked via
   `Util/cook_shapes.py`) through the facade `VectorMesh` (SpriteBatch's

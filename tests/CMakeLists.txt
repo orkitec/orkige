@@ -457,6 +457,20 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_particles PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_PARTICLES=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_PARTICLES3D: the 3D particle + weather headed selfcheck - two
+    # WORLD-space ParticleComponents (a rain preset: box volume above the scene,
+    # fast fall, wind shear, velocity-stretched streak billboards; and a snow
+    # preset: small flakes, slow drift + sinusoidal flutter), authored purely
+    # through the reflected tunables. CPU-billboarded camera-facing quads, one
+    # SpriteBatch draw per emitter. Asserts both emitters stay live inside the
+    # mobile particle budget, that a hide/show toggle moves the frame-stats
+    # triangle count by ~2 per live particle, and LOGS a measured per-frame
+    # sim+billboard cost. Reads stats, not pixels - runs on both flavors.
+    add_test(NAME demo_particles3d COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_particles3d PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_PARTICLES3D=1;ORKIGE_DEMO_FRAMES=120")
+
     # ORKIGE_DEMO_VECTORSHAPE: the flat-colour vector-shape headed selfcheck -
     # a VectorShapeComponent loads demo_blob.oshape (concave blob + accent
     # region), which is tessellated (earcut) with a baked alpha-feather edge
@@ -1361,7 +1375,7 @@ endif()
 
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
-        demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
+        demo_spriteanim demo_spriteatlas demo_particles demo_particles3d demo_vectorshape
         demo_light demo_material demo_terrain demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
