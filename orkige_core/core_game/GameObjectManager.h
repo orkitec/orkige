@@ -12,6 +12,7 @@
 #include "core_util/Singleton.h"
 #include "core_game/GameObject.h"
 
+#include <algorithm>
 #include <set>
 
 namespace Orkige

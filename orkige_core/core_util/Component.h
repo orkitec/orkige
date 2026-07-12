@@ -11,6 +11,7 @@
 
 #include "core_util/ObjectFactory.h"
 #include "core_base/Object.h"
+#include <algorithm>
 #include <type_traits>
 
 namespace Orkige
