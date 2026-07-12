@@ -14,10 +14,12 @@
 //! renders the fed camera into it every frame (Next renders nothing
 //! without a workspace). setCamera/resize recreate texture+workspace -
 //! same resize-by-recreate contract as classic, so getNativeTextureId
-//! changes across resizes (re-fetch per frame). Overlays/shadows
-//! toggles are facade caches: the Next flavor compiles no overlay
-//! component and the basic workspace has no shadow node, so "off"
-//! already holds structurally. writeContentsToFile is a plain
+//! changes across resizes (re-fetch per frame). The overlays toggle is
+//! a facade cache (no overlay component compiles on this flavor); the
+//! shadows toggle is real: while the WORLD's shadows are active (@see
+//! RenderBackend::activeShadowNodeName) an enabled target's scene pass
+//! carries the PSSM shadow node, a disabled one stays shadow-free.
+//! writeContentsToFile is a plain
 //! TextureGpu readback (Image2::convertFromTexture), no manual-swap
 //! dance needed - only the WINDOW backbuffer needs that on Metal.
 
@@ -50,6 +52,8 @@ namespace Orkige
 		handle->mImpl->name = name;
 		handle->mImpl->width = width;
 		handle->mImpl->height = height;
+		// registered so a shadow-state change rebuilds this workspace too
+		RenderBackend::registerRenderTarget(handle.get());
 		handle->mImpl->recreate();
 		return handle;
 	}
@@ -167,6 +171,18 @@ namespace Orkige
 			scenePass->setAllClearColours(this->background);
 			scenePass->mFirstRQ = 0;
 			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+			// dynamic shadows: an enabled target renders with the world's
+			// PSSM shadow node while shadows are active (the facade
+			// setShadowsEnabled(false) opt-out keeps e.g. the parity RTT
+			// byte-stable regardless of the scene's lights)
+			if(this->shadowsEnabled)
+			{
+				const String shadowNode = RenderBackend::activeShadowNodeName();
+				if(!shadowNode.empty())
+				{
+					scenePass->mShadowNode = Ogre::IdString(shadowNode);
+				}
+			}
 		}
 		if(hasUIPass)
 		{
@@ -210,6 +226,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderTexture::~RenderTexture()
 	{
+		RenderBackend::unregisterRenderTarget(this);
 		this->mImpl->destroyTarget();
 		// the per-target UI camera + its visibility bit outlive the workspace
 		// across resizes, so they are freed only here (not in destroyTarget).
@@ -254,8 +271,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderTexture::setShadowsEnabled(bool enabled)
 	{
-		// facade cache only: the basic workspace carries no shadow node
+		if(this->mImpl->shadowsEnabled == enabled)
+		{
+			return;
+		}
 		this->mImpl->shadowsEnabled = enabled;
+		if(this->mImpl->workspace)
+		{
+			// the shadow node reference lives in the workspace definition -
+			// rebuild (same cheap path as setBackgroundColour)
+			this->mImpl->recreate();
+		}
 	}
 	//---------------------------------------------------------
 	void RenderTexture::resize(unsigned int width, unsigned int height)

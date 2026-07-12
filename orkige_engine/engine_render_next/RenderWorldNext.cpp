@@ -148,6 +148,26 @@ namespace Orkige
 		return this->mImpl->ambientLower;
 	}
 	//---------------------------------------------------------
+	bool RenderWorld::shadowsSupported()
+	{
+		return true;	// PSSM shadow node in the window/RTT workspaces
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setShadowQuality(ShadowPreset::Quality quality)
+	{
+		if(this->mImpl->shadowQuality == quality)
+		{
+			return;
+		}
+		this->mImpl->shadowQuality = quality;
+		RenderBackend::applyShadowConfig();
+	}
+	//---------------------------------------------------------
+	ShadowPreset::Quality RenderWorld::getShadowQuality() const
+	{
+		return this->mImpl->shadowQuality;
+	}
+	//---------------------------------------------------------
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(
 		Ray3 const & ray, unsigned int queryMask) const
 	{

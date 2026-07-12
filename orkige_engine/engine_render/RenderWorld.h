@@ -13,6 +13,7 @@
 #include "engine_render/RenderMath.h"
 #include "engine_render/SpriteBatch.h"
 #include "engine_render/VectorMesh.h"
+#include <core_util/ShadowPreset.h>
 #include <core_util/String.h>
 #include <vector>
 
@@ -143,6 +144,28 @@ namespace Orkige
 		Color const & getAmbientHemisphereUpper() const;
 		//! the lower-hemisphere (ground) ambient colour last set (@see setAmbientHemisphere)
 		Color const & getAmbientHemisphereLower() const;
+
+		//--- dynamic shadows ---
+		//! @brief does this backend render dynamic shadow maps at all?
+		//! (capability probe, @see RenderTexture::canOwnLayers precedent)
+		//! map: classic=false (no dynamic shadows on the compatibility flavor -
+		//! honest "no", see setShadowQuality) | next=true | filament=true
+		static bool shadowsSupported();
+		//! @brief the coarse shadow quality knob (budgets per step in
+		//! core_util/ShadowPreset.h; live-tunable via the `r.shadowQuality`
+		//! cvar the app host registers). Shadow maps render only while the
+		//! knob is not SQ_OFF AND at least one light asked to cast
+		//! (RenderLight::setCastShadows(true) - LightComponent.castsShadows);
+		//! until then the scene pays neither memory nor per-frame cost.
+		//! v1 scope: DIRECTIONAL casters (cascaded/PSSM maps); point/spot
+		//! lights accept the cast flag but throw no maps yet.
+		//! map: classic=accepted + ONE "not supported" log line, renders
+		//! nothing (the knob still round-trips) | next=compositor shadow node
+		//! (PSSM + PCF) in the window and RTT workspaces | filament=per-light
+		//! LightManager::setShadowCaster + shadow options
+		void setShadowQuality(ShadowPreset::Quality quality);
+		//! the knob position last set (default SQ_MEDIUM - the phone budget)
+		ShadowPreset::Quality getShadowQuality() const;
 
 		//--- queries (editor picking) ---
 		//! @brief all scene content whose bounds the ray hits, nearest first

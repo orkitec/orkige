@@ -18,7 +18,9 @@
 #include "engine_input/KeyEventData.h"
 #include "engine_util/PlatformWindow.h"
 #include "engine_util/StringUtil.h"
+#include "core_debug/CVarManager.h"
 #include "core_game/GameObjectManager.h"
+#include "core_util/ShadowPreset.h"
 #include "core_util/Timer.h"
 #include "core_event/GlobalEventManager.h"
 #include "core_script/ScriptRuntime.h"
@@ -192,6 +194,40 @@ namespace Orkige
 
 		// the historical Engine default ambient
 		this->mRenderWorld->setAmbientLight(Color(0.2f, 0.2f, 0.2f));
+
+		// the shadow quality knob as a live cvar: reachable from the console,
+		// Lua cvar.set, the debug protocol / MCP set_cvar, and persistable
+		// through the project manifest ("cvar.r.shadowQuality"). registerCVar
+		// applies a manifest override held before this registration and fires
+		// the hook once with the boot value; setShadowQuality no-ops on an
+		// unchanged knob, so a plain boot stays silent on every flavor (the
+		// classic backend logs its one honest "not supported" line only when
+		// the knob actually moves).
+		CVarManager::getSingleton().registerCVar("r.shadowQuality",
+			CVarType::String,
+			ShadowPreset::qualityName(this->mRenderWorld->getShadowQuality()),
+			CVAR_PERSIST,
+			"dynamic shadow quality: off, low, medium or high (PSSM split "
+			"count + shadow map size, see core_util/ShadowPreset.h)",
+			[](CVar const & cvar)
+			{
+				RenderSystem* renderSystem = RenderSystem::get();
+				if (!renderSystem)
+				{
+					return;	// a set after render teardown changes nothing
+				}
+				ShadowPreset::Quality quality;
+				if (ShadowPreset::parseQuality(cvar.value, quality))
+				{
+					renderSystem->getWorld()->setShadowQuality(quality);
+				}
+				else
+				{
+					SDL_Log("r.shadowQuality: unknown value '%s' "
+						"(off/low/medium/high) - keeping the current quality",
+						cvar.value.c_str());
+				}
+			});
 
 		if (this->mConfig.createWindowCamera)
 		{

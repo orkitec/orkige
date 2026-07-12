@@ -61,6 +61,8 @@ namespace Orkige
 		handle->mImpl->quad->setName(
 			RenderBackend::generateName("RenderFacade/Sprite"));
 		handle->mImpl->quad->setQueryFlags(RenderWorld::QUERYFLAG_DEFAULT);
+		// 2D content never throws shadows into a lit 3D scene
+		handle->mImpl->quad->setCastShadows(false);
 		handle->mImpl->rebuild();
 		return handle;
 	}

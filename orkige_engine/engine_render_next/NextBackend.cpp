@@ -21,6 +21,7 @@
 #include <OgreSceneManager.h>
 #include <OgreSceneNode.h>
 #include <OgreCamera.h>
+#include <OgreLight.h>
 #include <OgreLogManager.h>
 #include <OgreArchiveManager.h>
 #include <OgreResourceGroupManager.h>
@@ -48,6 +49,7 @@
 #include <OgreException.h>
 #include <Compositor/OgreCompositorManager2.h>
 #include <Compositor/OgreCompositorNodeDef.h>
+#include <Compositor/OgreCompositorShadowNode.h>
 #include <Compositor/OgreCompositorWorkspaceDef.h>
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 
@@ -55,6 +57,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <set>
 #include <unordered_map>
@@ -88,6 +91,12 @@ namespace Orkige
 		std::vector<Ogre::HlmsDatablock*> gContentDatablocks;
 		//! current global wireframe state (applied to late datablocks too)
 		bool gWireframe = false;
+		//! how many lights currently ask to cast shadows (RenderLight::
+		//! setCastShadows tally); shadows render only while > 0
+		int gShadowCasterCount = 0;
+		//! every live render target (RenderTexture) - applyShadowConfig
+		//! rebuilds their workspaces so scene passes follow the shadow state
+		std::vector<RenderTexture*> gRenderTargets;
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -290,6 +299,8 @@ namespace Orkige
 		gNodeRegistry.clear();
 		gContentDatablocks.clear();	// owned by their Hlms, die with the root
 		gWireframe = false;
+		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
+		gRenderTargets.clear();		// their workspaces died with the root
 		RenderBackend::resetDrawLayer2DState();
 		OGRE_DELETE root;
 		OGRE_DELETE gRenderSystemPlugin;
@@ -369,6 +380,138 @@ namespace Orkige
 		return prefix + "." + std::to_string(++gNameCounter);
 	}
 	//---------------------------------------------------------
+	String RenderBackend::activeShadowNodeName()
+	{
+		// shadows are active only while the world knob is on AND a light
+		// asked to cast - 2D/unlit scenes never allocate an atlas
+		if(!gRenderSystem || gShadowCasterCount <= 0)
+		{
+			return String();
+		}
+		const ShadowPreset::Quality quality =
+			gRenderSystem->getWorld()->mImpl->shadowQuality;
+		if(quality == ShadowPreset::SQ_OFF)
+		{
+			return String();
+		}
+		Ogre::Root* root = gRenderSystem->mImpl->root;
+		// PBS is the lit material system; a boot without Hlms templates
+		// (clear-only tests) has nothing that could receive a shadow
+		if(!root->getHlmsManager()->getHlms(Ogre::HLMS_PBS))
+		{
+			return String();
+		}
+		const String name = String("Orkige/ShadowNode/") +
+			ShadowPreset::qualityName(quality);
+		Ogre::CompositorManager2* compositorManager =
+			root->getCompositorManager2();
+		if(!compositorManager->hasShadowNodeDefinition(name))
+		{
+			// one PSSM (cascaded) shadow map set for DIRECTIONAL casters -
+			// the v1 scope; budgets (splits/atlas/filter) come from the pure
+			// preset table so both flavors and the unit tests read the same
+			// numbers. Built once per quality step, reused by every
+			// workspace rebuild (each workspace instantiates its own node).
+			const ShadowPreset::Settings preset =
+				ShadowPreset::forQuality(quality);
+			Ogre::ShadowNodeHelper::ShadowParam param;
+			std::memset(&param, 0, sizeof(param));
+			param.technique = Ogre::SHADOWMAP_PSSM;
+			param.numPssmSplits = static_cast<Ogre::uint8>(preset.splitCount);
+			param.atlasId = 0;
+			param.addLightType(Ogre::Light::LT_DIRECTIONAL);
+			for(int split = 0; split < preset.splitCount; ++split)
+			{
+				unsigned int offsetX = 0, offsetY = 0;
+				ShadowPreset::splitAtlasOffset(preset, split, offsetX, offsetY);
+				const unsigned int resolution =
+					ShadowPreset::splitResolution(preset, split);
+				param.atlasStart[split] =
+					Ogre::ShadowNodeHelper::Resolution(offsetX, offsetY);
+				param.resolution[split] =
+					Ogre::ShadowNodeHelper::Resolution(resolution, resolution);
+			}
+			Ogre::ShadowNodeHelper::ShadowParamVec shadowParams;
+			shadowParams.push_back(param);
+			try
+			{
+				Ogre::ShadowNodeHelper::createShadowNodeWithSettings(
+					compositorManager,
+					root->getRenderSystem()->getCapabilities(),
+					name, shadowParams,
+					false /*useEsm - blur passes, mobile-hostile*/);
+			}
+			catch(Ogre::Exception const & e)
+			{
+				// degrade honestly: the scene renders shadowless
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: shadow node creation failed - "
+					"rendering without shadows: " + e.getDescription());
+				return String();
+			}
+		}
+		return name;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::shadowCasterCountChanged(int delta)
+	{
+		const bool activeBefore = gShadowCasterCount > 0;
+		gShadowCasterCount = std::max(0, gShadowCasterCount + delta);
+		if(activeBefore != (gShadowCasterCount > 0))
+		{
+			// first caster arrived / last caster left: (de)attach the shadow
+			// node by rebuilding the workspaces
+			RenderBackend::applyShadowConfig();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyShadowConfig()
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		RenderWorld::Impl* world = gRenderSystem->getWorld()->mImpl;
+		const ShadowPreset::Settings preset =
+			ShadowPreset::forQuality(world->shadowQuality);
+		if(preset.splitCount > 0)
+		{
+			// PSSM derives its split scheme from the scene's shadow far
+			// distance; the extrusion distance bounds directional casters
+			world->sceneManager->setShadowFarDistance(preset.maxDistance);
+			world->sceneManager->setShadowDirectionalLightExtrusionDistance(
+				preset.maxDistance);
+			// the preset's PCF tap width (2x2 = the hardware-filtered floor)
+			if(Ogre::Hlms* hlms = gRenderSystem->mImpl->root->getHlmsManager()
+				->getHlms(Ogre::HLMS_PBS))
+			{
+				static_cast<Ogre::HlmsPbs*>(hlms)->setShadowSettings(
+					preset.filterTaps >= 4 ? Ogre::HlmsPbs::PCF_4x4
+					: preset.filterTaps >= 3 ? Ogre::HlmsPbs::PCF_3x3
+					: Ogre::HlmsPbs::PCF_2x2);
+			}
+		}
+		// scene passes reference the shadow node at BUILD time - rebuild the
+		// window workspace and every live render target so they pick the
+		// node up / drop it
+		RenderBackend::recreateWindowWorkspace();
+		for(RenderTexture* each : gRenderTargets)
+		{
+			each->mImpl->recreate();
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::registerRenderTarget(RenderTexture* target)
+	{
+		gRenderTargets.push_back(target);
+	}
+	//---------------------------------------------------------
+	void RenderBackend::unregisterRenderTarget(RenderTexture* target)
+	{
+		gRenderTargets.erase(std::remove(gRenderTargets.begin(),
+			gRenderTargets.end(), target), gRenderTargets.end());
+	}
+	//---------------------------------------------------------
 	void RenderBackend::recreateWindowWorkspace()
 	{
 		oAssert(gRenderSystem);
@@ -416,6 +559,13 @@ namespace Orkige
 			scenePass->setAllClearColours(impl->windowBackground);
 			scenePass->mFirstRQ = 0;
 			scenePass->mLastRQ = RenderBackend::DRAWLAYER2D_RENDER_QUEUE;
+			// dynamic shadows: while active (world knob on + a casting
+			// light) the scene pass renders with the PSSM shadow node
+			const String shadowNode = RenderBackend::activeShadowNodeName();
+			if(!shadowNode.empty())
+			{
+				scenePass->mShadowNode = Ogre::IdString(shadowNode);
+			}
 		}
 		{
 			Ogre::CompositorPassSceneDef* uiPass =

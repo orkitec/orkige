@@ -109,6 +109,8 @@ namespace Orkige
 		handle->mImpl->batch->setName(
 			RenderBackend::generateName("RenderFacade/SpriteBatch"));
 		handle->mImpl->batch->setQueryFlags(0);	// never picked
+		// 2D content never throws shadows into a lit 3D scene
+		handle->mImpl->batch->setCastShadows(false);
 		return handle;
 	}
 	//---------------------------------------------------------

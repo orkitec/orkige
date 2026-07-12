@@ -71,6 +71,8 @@ namespace Orkige
 		handle->mImpl->mesh->setName(
 			RenderBackend::generateName("RenderFacade/VectorMesh"));
 		handle->mImpl->mesh->setQueryFlags(0);	// never picked
+		// 2D content never throws shadows into a lit 3D scene
+		handle->mImpl->mesh->setCastShadows(false);
 		return handle;
 	}
 	//---------------------------------------------------------

@@ -31,9 +31,11 @@ namespace Orkige
 	//! scales the light colour handed to the facade (colour * intensity for both
 	//! the diffuse and specular term) - the backend-neutral way to brighten a
 	//! light without growing the facade with a power term the shadow/PBS
-	//! packages will revisit. `castsShadows` is a forward-compatible flag: it is
-	//! honored on the facade today (Ogre::Light::setCastShadows) and the shadow
-	//! package consumes the same bit when the shadow node lands.
+	//! packages will revisit. `castsShadows` is REAL: it drives
+	//! RenderLight::setCastShadows, and on a shadow-capable flavor a casting
+	//! DIRECTIONAL light throws cascaded shadow maps whenever the world's
+	//! quality knob is on (@see RenderWorld::setShadowQuality; a flavor
+	//! without shadows accepts the flag and renders none).
 	class ORKIGE_ENGINE_DLL LightComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(LightComponent, GameObjectComponent)
@@ -99,8 +101,8 @@ namespace Orkige
 		void setOuterAngle(float degrees);
 		//! @see LightComponent::mOuterAngle
 		inline float getOuterAngle() const;
-		//! @brief shadow-caster flag - honored on the facade today and consumed
-		//! by the shadow package later (@see class remarks)
+		//! @brief shadow-caster flag (directional lights throw cascaded maps
+		//! on a shadow-capable flavor, @see class remarks)
 		void setCastsShadows(bool casts);
 		//! @see LightComponent::mCastsShadows
 		inline bool getCastsShadows() const;

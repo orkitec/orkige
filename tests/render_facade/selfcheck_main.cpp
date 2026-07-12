@@ -42,10 +42,13 @@
 // render), and the parity gate compares the RTT it draws into on both flavors
 #include <core_util/VectorTessellator.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -863,6 +866,201 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		litMesh.reset();
 		SELFCHECK(renderFrames(renderSystem, 2),
 			"frames render after the lit probe was dropped (RAII teardown)");
+	}
+
+	//--- dynamic shadows (quality knob; a shadowless flavor answers honestly)
+	// Runs after every parity-compared capture (like the lit-scene probe) and
+	// writes only its own files. Two seams are exercised where the flavor
+	// renders shadows: the per-light cast flag (RenderLight::setCastShadows -
+	// what LightComponent.castsShadows drives) and the world quality knob
+	// (RenderWorld::setShadowQuality - the `r.shadowQuality` cvar's target).
+	if(RenderWorld::shadowsSupported())
+	{
+		// a flat caster plate hovering over a wide slab, lit by a nearly
+		// vertical shadow-casting directional sun on black ambient: the slab
+		// point under the plate reads dark, open slab reads lit
+		world->setShadowQuality(ShadowPreset::SQ_MEDIUM);
+		SELFCHECK(world->getShadowQuality() == ShadowPreset::SQ_MEDIUM,
+			"the shadow quality knob round-trips");
+		world->setAmbientLight(Color(0, 0, 0));
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		optr<RenderNode> slabNode = world->createNode("selfcheck.shadowSlab");
+		slabNode->setPosition(Vec3(400, 0, 0));
+		slabNode->setScale(Vec3(16, 1, 16));
+		optr<MeshInstance> slab =
+			world->createMeshInstance("jumper_platform.glb");
+		SELFCHECK(slab != NULL, "the shadow slab mesh loads");
+		slab->attachTo(slabNode);
+		// the caster plate hovers OFF-centre and the open reference point
+		// mirrors it about the slab centre: the imported cube's smoothed
+		// corner normals shade a face as a radial pool peaking at its centre,
+		// so only symmetric probe points share an unshadowed baseline
+		optr<RenderNode> plateNode = world->createNode("selfcheck.shadowPlate");
+		plateNode->setPosition(Vec3(402, 3, 0));
+		plateNode->setScale(Vec3(4, 0.5f, 4));
+		optr<MeshInstance> plate =
+			world->createMeshInstance("jumper_platform.glb");
+		SELFCHECK(plate != NULL, "the shadow caster mesh loads");
+		plate->attachTo(plateNode);
+		// the sun: direction comes from the node orientation (facade rule)
+		optr<RenderLight> sun = world->createLight();
+		optr<RenderNode> sunNode = world->createNode("selfcheck.sunNode");
+		sunNode->setDirection(Vec3(0.05f, -1.0f, 0.05f), RenderNode::TS_WORLD);
+		sun->attachTo(sunNode);
+		sun->setType(RenderLight::LT_DIRECTIONAL);
+		// PBS is energy-conserving (the direct term divides by pi) and the
+		// slab albedo is a dark checker - an HDR sun colour keeps the lit
+		// reading comfortably above the probe threshold. Specular stays
+		// BLACK: a broad specular lobe would put a view-dependent hotspot on
+		// the slab and corrupt the flat diffuse reading the probes compare.
+		sun->setDiffuseColour(Color(4.0f, 4.0f, 4.0f));
+		sun->setSpecularColour(Color(0.0f, 0.0f, 0.0f));
+		sun->setCastShadows(true);	// what LightComponent.castsShadows drives
+		// camera above the slab, both probe points in clear view. The NEAR
+		// plane matters here: PSSM derives its split scheme from the camera
+		// near/far, and a 0.1 near squeezes the crisp first cascade into the
+		// first few units - a sane near plane puts the probe area into it
+		camera->setPerspective(Degree(55), Real(4.0), Real(200));
+		cameraNode->setPosition(Vec3(400, 9, 11));
+		cameraNode->lookAt(Vec3(400, 0.5f, 0), RenderNode::TS_WORLD);
+		SELFCHECK(renderFrames(renderSystem, 5),
+			"frames render with a shadow-casting sun");
+
+		// probe pixels via projection (top of the slab is y=+0.5): one point
+		// under the plate's footprint, one on open slab 4 units clear of it
+		const Vec3 shadowedPoint(402, 0.5f, 0);
+		const Vec3 openPoint(398, 0.5f, 0);
+		unsigned int shadowW = 0, shadowH = 0;
+		renderSystem->getWindowSize(shadowW, shadowH);
+		// the slab texture is a checkerboard (one check per world unit) - a
+		// single pixel could land on a dark or a bright cell. Probe a small
+		// 3x3 world-point spread around the target and take the BRIGHTEST
+		// reading, so shadowed and open compare their matching bright cells.
+		auto probeLuminance = [&](std::string const & imageFile,
+			Vec3 const & worldPoint, float & outLuminance) -> bool
+		{
+			bool decoded = false;
+			float brightest = 0.0f;
+			for(int dx = -1; dx <= 1; ++dx)
+			{
+				for(int dz = -1; dz <= 1; ++dz)
+				{
+					const Vec3 samplePoint = worldPoint +
+						Vec3(0.6f * dx, 0.0f, 0.6f * dz);
+					Real nx = 0, ny = 0;
+					if(!camera->projectPoint(samplePoint, nx, ny))
+					{
+						continue;
+					}
+					float red = 0, green = 0, blue = 0;
+					if(!SelfcheckBootstrap::readImagePixel(imageFile,
+						static_cast<unsigned int>(nx * (shadowW - 1)),
+						static_cast<unsigned int>(ny * (shadowH - 1)),
+						red, green, blue))
+					{
+						continue;
+					}
+					decoded = true;
+					brightest = std::max(brightest, (red + green + blue) / 3.0f);
+				}
+			}
+			outLuminance = brightest;
+			return decoded;
+		};
+
+		const std::string shadowOnShot = outDir + "/selfcheck_shadow_on.png";
+		renderSystem->saveWindowContents(shadowOnShot);
+		float shadowedLum = 0, openLum = 0;
+		SELFCHECK(probeLuminance(shadowOnShot, shadowedPoint, shadowedLum),
+			"the shadowed probe point projects and decodes");
+		SELFCHECK(probeLuminance(shadowOnShot, openPoint, openLum),
+			"the open probe point projects and decodes");
+		std::printf("render_facade_selfcheck: shadow probe - shadowed %.3f, "
+			"open %.3f\n", shadowedLum, openLum);
+		SELFCHECK(openLum > 0.15f,
+			"the sunlit slab reads visibly lit (directional light shades)");
+		SELFCHECK(openLum > shadowedLum + 0.15f,
+			"the region under the caster reads darker (the shadow rendered)");
+
+		// seam 1: the light stops casting - the shadow disappears (this is
+		// the exact toggle LightComponent.castsShadows performs)
+		sun->setCastShadows(false);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the caster flag went off");
+		const std::string casterOffShot =
+			outDir + "/selfcheck_shadow_caster_off.png";
+		renderSystem->saveWindowContents(casterOffShot);
+		float shadowedNoCaster = 0, openNoCaster = 0;
+		SELFCHECK(probeLuminance(casterOffShot, shadowedPoint, shadowedNoCaster)
+			&& probeLuminance(casterOffShot, openPoint, openNoCaster),
+			"the caster-off probes decode");
+		SELFCHECK(std::abs(shadowedNoCaster - openNoCaster) < 0.1f,
+			"castShadows(false) restores the unshadowed baseline");
+
+		// seam 2: the caster is back on but the world knob is OFF - still no
+		// shadow (the r.shadowQuality=off path)
+		sun->setCastShadows(true);
+		world->setShadowQuality(ShadowPreset::SQ_OFF);
+		SELFCHECK(world->getShadowQuality() == ShadowPreset::SQ_OFF,
+			"the shadow quality knob turns off");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after the quality knob went off");
+		const std::string knobOffShot = outDir + "/selfcheck_shadow_off.png";
+		renderSystem->saveWindowContents(knobOffShot);
+		float shadowedKnobOff = 0, openKnobOff = 0;
+		SELFCHECK(probeLuminance(knobOffShot, shadowedPoint, shadowedKnobOff)
+			&& probeLuminance(knobOffShot, openPoint, openKnobOff),
+			"the knob-off probes decode");
+		SELFCHECK(std::abs(shadowedKnobOff - openKnobOff) < 0.1f,
+			"quality off matches the unshadowed baseline");
+
+		// restore the default and tear the probe content down
+		world->setShadowQuality(ShadowPreset::SQ_MEDIUM);
+		sun.reset();
+		slab.reset();
+		plate.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the shadow probe was dropped (RAII teardown)");
+	}
+	else
+	{
+		// the honest path of a shadowless flavor: the knob is ACCEPTED
+		// (round-trips, so scenes tuned on a shadow-capable flavor keep their
+		// setting), a caster flag is harmless, frames keep rendering, and the
+		// backend says so in EXACTLY ONE log line
+		world->setShadowQuality(ShadowPreset::SQ_HIGH);
+		SELFCHECK(world->getShadowQuality() == ShadowPreset::SQ_HIGH,
+			"the shadow quality knob round-trips on a shadowless flavor");
+		optr<RenderLight> hopefulSun = world->createLight();
+		optr<RenderNode> hopefulNode = world->createNode("selfcheck.hopeful");
+		hopefulSun->attachTo(hopefulNode);
+		hopefulSun->setType(RenderLight::LT_DIRECTIONAL);
+		hopefulSun->setCastShadows(true);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render after a shadow request on a shadowless flavor");
+		world->setShadowQuality(ShadowPreset::SQ_MEDIUM);	// a second knob move
+		// exactly one honest log line for BOTH knob moves (the backend log
+		// file is the boot's log - see main below)
+		{
+			std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
+			SELFCHECK(logFile.good(), "the backend log file opens");
+			std::stringstream buffered;
+			buffered << logFile.rdbuf();
+			const std::string logText = buffered.str();
+			const std::string marker =
+				"dynamic shadows are not supported on this render backend";
+			std::size_t occurrences = 0;
+			for(std::size_t at = logText.find(marker); at != std::string::npos;
+				at = logText.find(marker, at + marker.size()))
+			{
+				++occurrences;
+			}
+			SELFCHECK(occurrences == 1,
+				"the unsupported-shadows log line appears exactly once");
+		}
+		hopefulSun.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the shadow request was dropped");
 	}
 
 	//--- RAII teardown of content while frames keep rendering ---------------

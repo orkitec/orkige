@@ -31,6 +31,10 @@ namespace Orkige
 		oAssert(sceneManager);
 		Ogre::Light* light = sceneManager->createLight();
 		light->setName(RenderBackend::generateName("RenderFacade/Light"));
+		// facade rule: a light casts shadows only when explicitly asked
+		// (setCastShadows(true) - LightComponent.castsShadows); Ogre's
+		// default-on would silently join every light into the caster tally
+		light->setCastShadows(false);
 		optr<RenderLight> handle(new RenderLight());
 		handle->mImpl->light = light;
 		handle->mImpl->creator = sceneManager;
@@ -47,6 +51,11 @@ namespace Orkige
 		// late destruction guard, same rule as RenderNode
 		if(this->mImpl->light && RenderBackend::system())
 		{
+			// a dying caster leaves the tally (may detach the shadow node)
+			if(this->mImpl->castingShadows)
+			{
+				RenderBackend::shadowCasterCountChanged(-1);
+			}
 			if(this->mImpl->light->isAttached())
 			{
 				this->mImpl->light->detachFromParent();
@@ -128,6 +137,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderLight::setCastShadows(bool cast)
 	{
+		if(cast == this->mImpl->castingShadows)
+		{
+			return;
+		}
+		this->mImpl->castingShadows = cast;
 		this->mImpl->light->setCastShadows(cast);
+		// the caster tally drives whether the workspaces carry a shadow node
+		RenderBackend::shadowCasterCountChanged(cast ? +1 : -1);
 	}
 }

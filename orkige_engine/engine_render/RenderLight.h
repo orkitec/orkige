@@ -74,7 +74,13 @@ namespace Orkige
 		//! spot cone (only for LT_SPOT)
 		//! map: classic/next=Light::setSpotlightRange | filament=LightManager::setSpotLightCone
 		void setSpotAngles(Degree const & inner, Degree const & outer);
-		//! map: classic/next=Light::setCastShadows | filament=LightManager::setShadowCaster
+		//! @brief ask this light to throw dynamic shadows (off by default).
+		//! Renders only while the world knob allows it AND the backend
+		//! supports shadows; v1 maps are DIRECTIONAL-only (@see
+		//! RenderWorld::setShadowQuality - a spot/point light accepts the
+		//! flag but throws no maps yet)
+		//! map: classic/next=Light::setCastShadows (next also keeps the
+		//! backend caster tally that attaches the shadow node) | filament=LightManager::setShadowCaster
 		void setCastShadows(bool cast);
 	protected:
 		//! lights are created by RenderWorld::createLight only

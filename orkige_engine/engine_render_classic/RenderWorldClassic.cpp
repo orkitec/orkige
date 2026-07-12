@@ -156,6 +156,43 @@ namespace Orkige
 		return this->mImpl->ambientUpper;
 	}
 	//---------------------------------------------------------
+	bool RenderWorld::shadowsSupported()
+	{
+		// honest "no": the compatibility flavor renders no dynamic shadows
+		// (wiring classic texture shadows would duplicate the whole shadow
+		// package for the deprecated flavor) - the Ogre-Next flavor does
+		return false;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setShadowQuality(ShadowPreset::Quality quality)
+	{
+		if(quality == this->mImpl->shadowQuality)
+		{
+			return;
+		}
+		// the knob is ACCEPTED (round-trips through the getter, so quality
+		// settings survive on a scene authored against the next flavor) but
+		// renders nothing here; say so ONCE per process, then stay silent
+		this->mImpl->shadowQuality = quality;
+		if(quality != ShadowPreset::SQ_OFF)
+		{
+			static bool warnedOnce = false;
+			if(!warnedOnce)
+			{
+				warnedOnce = true;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: dynamic shadows are not supported "
+					"on this render backend - the quality knob is recorded but "
+					"no shadow maps render on this flavor");
+			}
+		}
+	}
+	//---------------------------------------------------------
+	ShadowPreset::Quality RenderWorld::getShadowQuality() const
+	{
+		return this->mImpl->shadowQuality;
+	}
+	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientHemisphereLower() const
 	{
 		return this->mImpl->ambientLower;

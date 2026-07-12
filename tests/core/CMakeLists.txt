@@ -38,6 +38,7 @@ add_executable(orkige_core_tests
     SaveStoreTests.cpp
     AppLifecycleTests.cpp
     CameraFitTests.cpp
+    ShadowPresetTests.cpp
     SafeAreaTests.cpp
     UiLayoutResolverTests.cpp
     ReferenceScaleTests.cpp

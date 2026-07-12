@@ -73,6 +73,9 @@ namespace Orkige
 		//! facade getters read them back honestly (the scene sees their average)
 		Ogre::ColourValue	ambientUpper = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
 		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
+		//! the shadow quality knob position - RECORDED only on this flavor
+		//! (no dynamic shadows on classic, @see RenderWorld::setShadowQuality)
+		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
 	};
 
 	struct RenderNode::Impl

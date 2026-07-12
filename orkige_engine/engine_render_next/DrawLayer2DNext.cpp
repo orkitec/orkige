@@ -420,6 +420,7 @@ namespace Orkige
 		batch.object->setName(
 			RenderBackend::generateName("RenderFacade/DrawLayer2D"));
 		batch.object->setQueryFlags(0);	// UI never answers scene ray queries
+		batch.object->setCastShadows(false);	// UI never throws scene shadows
 		batch.object->estimateVertexCount(batch.triangles.size());
 		batch.object->begin(datablockName, Ogre::OT_TRIANGLE_LIST);
 		Ogre::uint32 index = 0;

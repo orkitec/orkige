@@ -108,6 +108,9 @@ namespace Orkige
 		optr<RenderNode>	rootNode;				//!< stable facade handle of the root node (owned=false)
 		Ogre::ColourValue	ambient = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< upper-hemisphere/flat ambient facade cache
 		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< lower-hemisphere ambient facade cache
+		//! the shadow quality knob; maps render only while != SQ_OFF AND a
+		//! light casts (@see RenderBackend::activeShadowNodeName)
+		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
 	};
 
 	struct RenderNode::Impl
@@ -212,6 +215,9 @@ namespace Orkige
 		Ogre::Light*		light = NULL;
 		Ogre::SceneManager*	creator = NULL;
 		optr<RenderNode>	attachedTo;
+		//! is THIS light counted in the backend's shadow-caster tally
+		//! (@see RenderBackend::shadowCasterCountChanged)
+		bool				castingShadows = false;
 	};
 
 	struct DrawLayer2D::Impl
@@ -260,10 +266,13 @@ namespace Orkige
 		Ogre::TextureGpu*			texture = NULL;	//!< RenderToTexture target (owned)
 		Ogre::CompositorWorkspace*	workspace = NULL;	//!< renders the camera into the texture
 		Ogre::ColourValue	background = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
-		//! facade caches: the Next flavor compiles no overlay component and
-		//! the basic workspace has no shadow node, so "off" already holds
-		//! structurally - the flags are kept for a future workspace upgrade
+		//! facade cache: the Next flavor compiles no overlay component, so
+		//! "off" already holds structurally - kept for the facade contract
 		bool				overlaysEnabled = true;
+		//! per-target shadow opt-out: while true (the default) this target's
+		//! scene pass carries the world's shadow node whenever shadows are
+		//! active (@see RenderBackend::activeShadowNodeName); false keeps the
+		//! target shadow-free regardless of the world knob (the parity RTT)
 		bool				shadowsEnabled = true;
 
 		//--- offscreen 2D composition (RenderTexture::createLayer) ---
@@ -530,6 +539,30 @@ namespace Orkige
 		static void unregisterNode(Ogre::SceneNode* node);
 		static optr<RenderNode> findNode(Ogre::SceneNode* node);
 		static void* findUserPointerUpwards(Ogre::SceneNode* node);
+
+		//--- dynamic shadows (PSSM shadow node) -----------------------
+		//! @brief the shadow node definition the scene passes reference, or
+		//! "" while shadows are inactive. Shadows are ACTIVE while the world
+		//! knob is not SQ_OFF AND at least one light asked to cast - until
+		//! then no shadow node exists in any workspace and no atlas memory is
+		//! allocated (2D-only games pay nothing). The definition is built on
+		//! first use per quality step (ShadowNodeHelper, PSSM technique,
+		//! DIRECTIONAL casters only in v1 - budgets from
+		//! core_util/ShadowPreset.h) and reused; each workspace referencing it
+		//! instantiates its own node (own atlas texture).
+		static String activeShadowNodeName();
+		//! @brief a RenderLight turned its cast flag on (+1) or off (-1); a
+		//! 0 <-> >0 transition of the tally (while the knob is on) attaches/
+		//! detaches the shadow node by rebuilding every workspace
+		static void shadowCasterCountChanged(int delta);
+		//! @brief re-apply the shadow configuration: HlmsPbs PCF filter +
+		//! scene shadow distances from the current preset, then rebuild the
+		//! window workspace and every live render-target workspace so their
+		//! scene passes pick the shadow node up / drop it
+		static void applyShadowConfig();
+		//! render-target registry (applyShadowConfig rebuilds them all)
+		static void registerRenderTarget(RenderTexture* target);
+		static void unregisterRenderTarget(RenderTexture* target);
 
 		//--- shared services -----------------------------------------
 		//! unique name for backend-created content ("prefix.<n>")
