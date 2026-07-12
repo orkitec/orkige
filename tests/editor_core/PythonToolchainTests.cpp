@@ -29,6 +29,28 @@
 
 using namespace Orkige;
 
+namespace
+{
+	//! set/clear a process environment variable portably (POSIX setenv has no
+	//! MSVC counterpart; _putenv_s with an empty value removes the variable)
+	void setEnvVar(char const * name, char const * value)
+	{
+#if defined(_WIN32)
+		_putenv_s(name, value);
+#else
+		::setenv(name, value, 1);
+#endif
+	}
+	void unsetEnvVar(char const * name)
+	{
+#if defined(_WIN32)
+		_putenv_s(name, "");
+#else
+		::unsetenv(name);
+#endif
+	}
+}
+
 TEST_CASE("parsePythonVersion reads major.minor.patch", "[python]")
 {
 	// the canonical CPython banner
@@ -90,18 +112,18 @@ TEST_CASE("pythonVersionAtLeast compares against the floor", "[python]")
 TEST_CASE("pythonExecutable honours the ORKIGE_PYTHON override", "[python]")
 {
 	// default: python3 on PATH
-	::unsetenv("ORKIGE_PYTHON");
+	unsetEnvVar("ORKIGE_PYTHON");
 	CHECK(pythonExecutable() == String("python3"));
 
 	// a set, non-empty value overrides
-	::setenv("ORKIGE_PYTHON", "/opt/custom/python3", 1);
+	setEnvVar("ORKIGE_PYTHON", "/opt/custom/python3");
 	CHECK(pythonExecutable() == String("/opt/custom/python3"));
 
 	// an empty value falls back to python3 (not the empty string)
-	::setenv("ORKIGE_PYTHON", "", 1);
+	setEnvVar("ORKIGE_PYTHON", "");
 	CHECK(pythonExecutable() == String("python3"));
 
-	::unsetenv("ORKIGE_PYTHON");
+	unsetEnvVar("ORKIGE_PYTHON");
 }
 
 TEST_CASE("probe fails honestly for a missing interpreter", "[python]")
