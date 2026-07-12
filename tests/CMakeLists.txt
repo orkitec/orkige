@@ -1289,6 +1289,20 @@ if(TARGET orkige_player)
                 WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
             set_tests_properties(player_benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
                 LABELS integration TIMEOUT 240)
+            # the SAME traversal through the interactive fade-wipe switch (the
+            # path a human playing the project sees; the bare-switch run above
+            # cannot catch a wipe-path regression - the two switches must both
+            # advance the level sequence)
+            add_test(NAME player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX}
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player "$<TARGET_FILE:orkige_player>"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                    --wipe 1 --frames 2600
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(player_benchmark_vista_wipe${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+                LABELS integration TIMEOUT 240)
         endif()
     endif()
 

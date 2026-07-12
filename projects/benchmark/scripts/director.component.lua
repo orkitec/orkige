@@ -45,6 +45,7 @@ local mode, label, seconds = "vista", "Scene", 10.0
 local frames = 0
 local budget = 600
 local advancing = false
+local switchAtFrame = nil
 local scale, wipe = 1.0, 1.0
 local elapsed = 0.0
 local fpsSmoothed = 60.0
@@ -318,6 +319,11 @@ function init(self)
 	engine = Engine.getSingleton()
 	levels = LevelManager.getSingleton()
 	hasUI = engine:hasUISystem()
+	-- arriving through a faded-out switch: reveal the new scene (a fade-in
+	-- from an already-visible screen is a no-op flicker-free ramp)
+	if screen ~= nil then
+		pcall(function() screen.fadeIn(0.35) end)
+	end
 
 	mode = self.mode or "vista"
 	label = self.sceneLabel or "Scene"
@@ -334,6 +340,7 @@ function init(self)
 	frames = 0
 	elapsed = 0.0
 	advancing = false
+	switchAtFrame = nil
 
 	if benchmark ~= nil then
 		benchmark.begin(label)
@@ -450,23 +457,41 @@ function update(self, dt)
 	end
 
 	-- advance at the end of the budget --------------------------------------
+	-- the switch always goes through the LEVEL sequence (loadLevel advances
+	-- the LevelManager index; a raw scene switch would leave it in place and
+	-- re-resolve the SAME "next" forever). The wipe is a fade layered around
+	-- that same switch, never a different code path.
 	if frames >= budget and not advancing then
 		advancing = true
 		if world.getTimeScale() ~= 1.0 then
 			world.setTimeScale(1.0)
 		end
+		if wipe > 0.5 and screen ~= nil then
+			screen.fadeOut(0.3)
+			switchAtFrame = frames + 22   -- ~0.35 s at the vsync pace
+		else
+			switchAtFrame = frames        -- switch this frame
+		end
+	end
+	if advancing and switchAtFrame ~= nil and frames >= switchAtFrame then
+		switchAtFrame = nil
 		local nextIndex = index + 1
 		if levels == nil or nextIndex >= count then
-			nextIndex = 0                 -- loop the tour
+			-- end of the tour: HOLD on the final scene (the results card) so
+			-- a played run visibly ends; attract-mode looping is the opt-in
+			-- (benchmark.loop=1 - an exported kiosk/soak build sets it)
+			if cvar.getNumber("benchmark.loop", 0) < 0.5 or count == 0 then
+				if screen ~= nil then
+					pcall(function() screen.fadeIn(0.35) end)
+				end
+				return
+			end
+			nextIndex = 0
 		end
-		local nextPath = levels ~= nil and levels:levelScene(nextIndex)
-			or "scenes/vista.oscene"
-		if wipe > 0.5 and screen ~= nil then
-			screen.loadScene(nextPath, 0.3, 0.3)
-		elseif levels ~= nil then
+		if levels ~= nil then
 			levels:loadLevel(nextIndex)
 		else
-			world.loadScene(nextPath)
+			world.loadScene("scenes/vista.oscene")
 		end
 	end
 end

@@ -48,6 +48,10 @@ def main():
     parser.add_argument("--player", required=True)
     parser.add_argument("--dir", required=True)
     parser.add_argument("--frames", type=int, default=400)
+    parser.add_argument("--wipe", type=int, default=0,
+                        help="1 = the interactive fade-wipe scene switch "
+                             "(the default path a human sees); 0 = the bare "
+                             "switch (fastest deterministic traversal)")
     args = parser.parse_args()
 
     repo = Path(args.repo)
@@ -62,9 +66,10 @@ def main():
         "ORKIGE_BENCHMARK": "1",
         "ORKIGE_BENCHMARK_DIR": str(out),
         "ORKIGE_BENCHMARK_MODE": "smoke",
-        # tiny scene scale + no fade wipe => the whole loop traverses in a
-        # deterministic, small number of frames regardless of headless fps
-        "ORKIGE_CVARS": "benchmark.sceneScale=0.02,benchmark.wipe=0",
+        # tiny scene scale => the whole loop traverses in a deterministic,
+        # small number of frames regardless of headless fps; --wipe 1 keeps
+        # the interactive fade-wipe switch on so BOTH switch paths stay covered
+        "ORKIGE_CVARS": "benchmark.sceneScale=0.02,benchmark.wipe=%d" % args.wipe,
         "ORKIGE_DEMO_FRAMES": str(args.frames),
         # keep the progression/save files out of the user dir
         "ORKIGE_PROGRESS_RESET": "1",

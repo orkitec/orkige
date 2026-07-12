@@ -1200,10 +1200,19 @@ namespace Orkige
 		// an honest stand-in for depth-graded transmission (the true depth
 		// gradient waits on the refraction/depth pass; @see RenderWaterDesc).
 		datablock->setWorkflow(Ogre::HlmsPbsDatablock::SpecularAsFresnelWorkflow);
-		datablock->setBackgroundDiffuse(Ogre::ColourValue(
-			desc.deepColour.r, desc.deepColour.g, desc.deepColour.b, 1.0f));
-		datablock->setDiffuse(Ogre::Vector3(1.0f, 1.0f, 1.0f));
-		datablock->setRoughness(0.06f);
+		// the deep colour IS the diffuse: the background-diffuse slot only
+		// shows through a diffuse map's alpha and is inert without one, so a
+		// water body coloured there renders plain white (this surface has no
+		// diffuse map - the detail normals only perturb shading)
+		datablock->setDiffuse(Ogre::Vector3(
+			desc.deepColour.r, desc.deepColour.g, desc.deepColour.b));
+		// grazing-angle honesty: Schlick fresnel reaches 1 at the horizon no
+		// matter how small F0 is, and with no reflection source (no IBL yet)
+		// a mirror-tight lobe over a white specular colour renders the whole
+		// far plane as a white sheet. A moderate roughness + a dimmed
+		// specular colour keep the sun glint while the distance stays water
+		datablock->setRoughness(0.32f);
+		datablock->setSpecular(Ogre::Vector3(0.3f, 0.32f, 0.34f));
 		const float scatter = 0.12f;
 		datablock->setEmissive(Ogre::Vector3(desc.shallowColour.r * scatter,
 			desc.shallowColour.g * scatter, desc.shallowColour.b * scatter));
