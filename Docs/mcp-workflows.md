@@ -98,6 +98,69 @@ back after a hot-reload rather than assuming the swap took.
 
 ---
 
+## 1b. Atomic edits: one undo step for a remote client
+
+A multi-step edit should land as ONE undo step (and be undone as one), so a human
+who dislikes the result reverts it with a single Cmd+Z — and a failed build-up
+leaves NO partial edits. Wrap the edits in `begin_transaction … end_transaction`:
+every mutating verb in between folds into one `CompositeCommand` on `commit=true`,
+or unexecutes wholesale on `commit=false`. This is the same one-undo primitive an
+`.editor.lua` tool gets (`## 6`), now reachable from ANY MCP client.
+
+```jsonc
+begin_transaction {}                        // authed → {}   (get_state.transaction_open == "1")
+create_object { "id":"Turret", "mesh":"cube" }                 // authed → { "id":"Turret" }
+create_object { "id":"TurretBarrel", "mesh":"cube" }           // authed → { "id":"TurretBarrel" }
+reparent_object { "id":"TurretBarrel", "parent":"Turret" }     // authed → {}
+set_component { "id":"Turret", "component":"TransformComponent",
+    "properties": { "position":"4 0 0" } }                     // authed → {}
+end_transaction { "commit": true }          // authed → { "committed":"1", "command_count":"4" }
+// one undo now reverts ALL FOUR edits together:
+undo {}                                     // authed → {}   (Turret + barrel gone in one step)
+```
+
+`end_transaction { "commit": false }` instead unexecutes everything since
+`begin` — the escape hatch when a mid-sequence read comes back wrong. Two rules:
+a transaction is refused if one is already open (`begin`) or none is (`end`), and
+it **auto-aborts** (rolling back, logging one Console line) if the editor switches
+scene/project/prefab, starts Play, or shuts down under it — so keep it short-lived
+and check `get_state.transaction_open` if in doubt. The fold is origin-blind: a
+manual editor edit the owner happens to make between two of your requests is
+adopted into the transaction too.
+
+Because it is plain JSON-RPC over HTTP, any language drives it. A dependency-free
+`python3` client (stdlib `urllib` only — no MCP SDK):
+
+```python
+import json, urllib.request
+
+URL, TOKEN = "http://127.0.0.1:8765/mcp", open("/path/to/token").read().split()[-1]
+
+def call(tool, args=None, _id=[0]):
+    _id[0] += 1
+    body = json.dumps({"jsonrpc": "2.0", "id": _id[0], "method": "tools/call",
+                       "params": {"name": tool, "arguments": args or {}}}).encode()
+    req = urllib.request.Request(URL, body, {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + TOKEN})           # mutations need the bearer
+    res = json.load(urllib.request.urlopen(req))["result"]
+    if res.get("isError"):
+        raise RuntimeError(res["content"][0]["text"])   # honest failure, not silent
+    return res.get("structuredContent", {})
+
+call("begin_transaction")
+try:
+    call("create_object", {"id": "Turret", "mesh": "cube"})
+    call("create_object", {"id": "TurretBarrel", "mesh": "cube"})
+    call("reparent_object", {"id": "TurretBarrel", "parent": "Turret"})
+    call("end_transaction", {"commit": True})           # one undo step
+except Exception:
+    call("end_transaction", {"commit": False})          # roll back, no partial edits
+    raise
+```
+
+---
+
 ## 2. The test loop
 
 Close the loop with structured evidence: make a change, run the relevant test,

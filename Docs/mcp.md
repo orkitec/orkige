@@ -92,13 +92,13 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 70 tools (the `toolSpecs` table in
+The endpoint advertises 72 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
 | Tool | Maps to |
 |------|---------|
-| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ the prefab-edit stage: `edit_context` (`scene`/`prefab`), and while a prefab is staged `prefab_path`/`prefab_root`/`prefab_dirty` plus `scene_path`/`scene_dirty` re-reported from the STASHED scene the close restores; + `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays; plus the runtime perf summary: `frame_ms`, the engine-level allocation counters `alloc_per_frame`/`alloc_peak` with the per-subsystem breakdown in parallel `alloc_tags`/`alloc_counts`, and `profile_seq` — see `get_profile`) |
+| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ the prefab-edit stage: `edit_context` (`scene`/`prefab`), and while a prefab is staged `prefab_path`/`prefab_root`/`prefab_dirty` plus `scene_path`/`scene_dirty` re-reported from the STASHED scene the close restores; + `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays; plus the runtime perf summary: `frame_ms`, the engine-level allocation counters `alloc_per_frame`/`alloc_peak` with the per-subsystem breakdown in parallel `alloc_tags`/`alloc_counts`, and `profile_seq` — see `get_profile`; plus `transaction_open` — `1` while a `begin_transaction` atomic-edit bracket is open) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |
@@ -108,6 +108,7 @@ The endpoint advertises 70 tools (the `toolSpecs` table in
 | `rename_object(id, new_id)` / `reparent_object(id, parent)` / `set_active(id, value)` | `EditorCore::renameObject` / `reparentObject` / `setObjectActive` |
 | `add_component(id, component)` / `remove_component(id, component)` / `list_addable_components()` | `addComponentToObject` / `removeComponentFromObject` / `getAddableComponentTypes` |
 | `select(id)` / `undo()` / `redo()` | `EditorCore::selectObject` / `undo` / `redo` |
+| `begin_transaction()` / `end_transaction(commit)` | **auth** — one atomic-edit bracket for a remote client, over `EditorCore::begin`/`endScriptTransaction` (the SAME one-undo primitive `.editor.lua` tools use). Everything run between them folds into ONE undo step on `commit=true`, or unexecutes wholesale on `commit=false`. A double begin / an end with no begin is an honest error. `get_state` reports `transaction_open`. The bracket spans many HTTP requests, so it AUTO-ABORTS (rolls back, one Console line) if the editor switches scene/project/prefab, starts Play, or shuts down under it — keep it short-lived (a manual editor edit the owner makes in between is folded in too; the fold is origin-blind) |
 | `play(scene?, target?, force?)` / `stop()` / `pause()` / `resume()` / `step()` | `startPlay` / `requestStopPlay` / pause·resume·step over the player protocol; `scene` opens+plays a scene (jailed), `target` picks the device (`applyPlayTarget`) |
 | `list_play_targets()` | the Play target picker's enumeration (`listSimulators`/`listIosHardwareDevices`/`listAdbDevices`) → `target_kinds`/`target_ids`/`target_names`/`target_states` |
 | `screenshot(path, window)` | the EDITOR: `RenderTexture::writeContentsToFile` (chrome-free viewport) / `RenderSystem::saveWindowContents` (whole window) → returns the written path |

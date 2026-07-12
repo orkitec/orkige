@@ -6606,6 +6606,11 @@ int main(int argc, char** argv)
 			}
 		}
 
+		// editor shutdown while an MCP transaction is still open: it never
+		// committed, so roll its uncommitted edits back (and log one line)
+		// before the world is torn down - the document-lifecycle safety net
+		controlServer.abortOpenTransaction(controlContext, "editor shutdown");
+
 		// editor shutdown while a play session is live: ask the player to
 		// quit, give it a short moment, then endPlaySession reaps/kills it
 		if (playSession.isActive())

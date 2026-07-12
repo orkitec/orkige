@@ -707,6 +707,21 @@ namespace Orkige
 				type == "erase_cell";
 		}
 		//---------------------------------------------------------
+		//! @brief does this verb switch the edit document or history out from under
+		//! an open MCP transaction? Such a verb clobbers/stashes the world (or
+		//! rewinds the history) the transaction's commands were folding, so the
+		//! transaction is auto-aborted BEFORE the verb runs. The scene/project/
+		//! prefab lifecycle plus Play, plus undo/redo (which step outside the
+		//! uncommitted fold).
+		bool abortsOpenTransaction(String const& type)
+		{
+			return type == "new_scene" || type == "open_scene" ||
+				type == "open_project" || type == "new_project" ||
+				type == "close_project" || type == "play" ||
+				type == "open_prefab" || type == "close_prefab" ||
+				type == "undo" || type == "redo";
+		}
+		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
 		//---------------------------------------------------------
 		//! @brief jail a caller-supplied path inside the open project's root. The
@@ -1090,6 +1105,25 @@ namespace Orkige
 				  "Component type names that can be added to a GameObject.", {} },
 				{ "undo", "Undo the last command.", {} },
 				{ "redo", "Redo the last undone command.", {} },
+				{ "begin_transaction",
+				  "Open an atomic-edit transaction: every mutating verb run until "
+				  "end_transaction folds into ONE undo step on commit (or "
+				  "unexecutes wholesale on abort) - the same one-undo atomicity an "
+				  "editor script gets, for any MCP client. get_state reports "
+				  "'transaction_open'. Refused (isError) when one is already open. "
+				  "KEEP IT SHORT-LIVED: manual editor edits the owner makes in "
+				  "between are folded in too, and the transaction auto-aborts if the "
+				  "editor switches scene/project/prefab, starts Play, or shuts down.",
+				  {} },
+				{ "end_transaction",
+				  "Close the open transaction. commit=true folds every verb run "
+				  "since begin_transaction into ONE undo step (a single later undo "
+				  "reverts them all); commit=false unexecutes them all, leaving no "
+				  "partial edits. Refused (isError) when no transaction is open. "
+				  "Returns 'committed' and the folded/rolled-back 'command_count'.",
+				  { { "commit", "boolean",
+				      "true to fold the edits into one undo step, false to roll "
+				      "them all back", true } } },
 				{ "new_scene",
 				  "Start a new empty scene (refuses to clobber unsaved changes "
 				  "unless force='1').",
@@ -1645,6 +1679,9 @@ namespace Orkige
 		}
 		this->mToken.clear();
 		this->mAuthenticated = false;
+		// the shutdown path aborts any open transaction with full context first;
+		// drop the flag here defensively (a stopped server owns no transaction)
+		this->mTransactionOpen = false;
 	}
 	//---------------------------------------------------------
 	void EditorControlServer::joinTestJobs()
@@ -1675,12 +1712,82 @@ namespace Orkige
 		this->mExportJobs.clear();
 	}
 	//---------------------------------------------------------
+	EditorControlServer::TransactionFingerprint
+	EditorControlServer::captureFingerprint(
+		EditorControlContext const& context) const
+	{
+		TransactionFingerprint fp;
+		if (context.state)
+		{
+			fp.projectRoot = context.state->project.getRootDirectory();
+			fp.projectLoaded = context.state->project.isLoaded();
+			fp.prefabActive = isPrefabEditActive(*context.state);
+		}
+		if (context.play)
+		{
+			fp.playActive = context.play->isActive();
+		}
+		return fp;
+	}
+	//---------------------------------------------------------
+	void EditorControlServer::abortOpenTransaction(
+		EditorControlContext const& context, String const& reason)
+	{
+		if (!this->mTransactionOpen)
+		{
+			return;
+		}
+		this->mTransactionOpen = false;
+		std::size_t rolled = 0;
+		if (context.core)
+		{
+			// unexecute every command executed since begin - no partial edits,
+			// exactly the commit=false branch editor scripts take on a failed run
+			rolled = context.core->endScriptTransaction(false,
+				"MCP transaction (aborted)");
+		}
+		if (context.console)
+		{
+			context.console->addLine(ConsoleLevel::Warning,
+				"[mcp] transaction auto-aborted (" + reason + ") - " +
+				std::to_string(rolled) + " uncommitted edit(s) rolled back");
+		}
+	}
+	//---------------------------------------------------------
+	void EditorControlServer::checkTransactionLifecycle(
+		EditorControlContext const& context)
+	{
+		if (!this->mTransactionOpen)
+		{
+			return;
+		}
+		const TransactionFingerprint now = this->captureFingerprint(context);
+		const bool documentChanged =
+			now.projectRoot != this->mTransactionFingerprint.projectRoot ||
+			now.projectLoaded != this->mTransactionFingerprint.projectLoaded ||
+			now.prefabActive != this->mTransactionFingerprint.prefabActive ||
+			now.playActive != this->mTransactionFingerprint.playActive;
+		// the undo history was reset/rewound beneath the transaction (a scene/
+		// project/prefab switch clears it; a stray undo shrinks it) - the folded
+		// range no longer describes the world, so bail out
+		const bool historyRewound = context.core &&
+			context.core->getUndoStackSize() < this->mTransactionUndoMark;
+		if (documentChanged || historyRewound)
+		{
+			this->abortOpenTransaction(context,
+				"the editor's document changed under the open transaction");
+		}
+	}
+	//---------------------------------------------------------
 	void EditorControlServer::update(EditorControlContext const& context)
 	{
 		if (!this->mServer.isListening())
 		{
 			return;
 		}
+		// catch a UI-triggered lifecycle change (the human used a menu while the
+		// remote transaction was open) before this frame's verbs run
+		this->checkTransactionLifecycle(context);
 		this->mServer.update(
 			[this, &context](HttpRequest const& request) -> HttpResponse
 			{
@@ -2060,6 +2167,27 @@ namespace Orkige
 			return;
 		}
 
+		// MCP transaction lifecycle: a transaction spans multiple requests, so a
+		// verb that switches the edit document (scene/project/prefab) or starts
+		// Play would strand it - its commands folded across a world it no longer
+		// describes. Abort it FIRST, BEFORE the switch clobbers/stashes the world,
+		// so the rolled-back edits are gone by the time the new document loads (a
+		// UI-triggered switch gets the same safety from checkTransactionLifecycle).
+		if (this->mTransactionOpen && abortsOpenTransaction(type))
+		{
+			this->abortOpenTransaction(context, "the '" + type + "' verb");
+		}
+		// an editor script is ITSELF one transaction (EditorCore::beginScript-
+		// Transaction is not nestable), so refuse to run one inside an open MCP
+		// transaction rather than trip the nesting assert
+		if (type == "run_editor_script" && this->mTransactionOpen)
+		{
+			this->sendErr(req, "an MCP transaction is open - end_transaction before "
+				"running an editor script (an editor script is itself one "
+				"transaction)");
+			return;
+		}
+
 		// destructive open/new/close verbs clobber the current world; honor the
 		// dirty-state policy (refuse unless force=1 or the scene is clean)
 		auto clobberRefused = [&](void) -> bool
@@ -2213,6 +2341,10 @@ namespace Orkige
 			ok.set("build_status", playSessionBuildName(play));
 			ok.set("build_target", play.buildStatusTarget);
 			ok.set("build_errors", lastLines(play.buildErrorLog, 40));
+			// MCP transaction bracket: '1' while a begin_transaction is open (its
+			// edits fold into one undo step at end_transaction). A human/agent
+			// reads this to see the atomic-edit session is live.
+			ok.set("transaction_open", this->mTransactionOpen ? "1" : "0");
 			this->sendOk(req, ok);
 			return;
 		}
@@ -2635,6 +2767,67 @@ namespace Orkige
 				return;
 			}
 			this->sendOk(req);
+			return;
+		}
+
+		//--- MCP transactions (atomic multi-verb edits) ------
+		// begin_transaction / end_transaction give a REMOTE client the same
+		// one-undo atomicity an .editor.lua tool gets, over the wire: everything
+		// executed between them folds into ONE undo step on commit, or unexecutes
+		// wholesale on abort. Both reuse EditorCore::begin/endScriptTransaction
+		// verbatim (see the .editor.lua host); the server just owns the flag
+		// because the bracket spans HTTP requests, and auto-aborts it if a
+		// document-lifecycle transition would strand it (abortsOpenTransaction /
+		// checkTransactionLifecycle). KEEP IT SHORT-LIVED: the fold is origin-blind
+		// (like an editor script's), so a manual editor edit the owner makes in
+		// between IS adopted into the transaction too.
+		if (type == "begin_transaction")
+		{
+			if (this->mTransactionOpen)
+			{
+				this->sendErr(req, "a transaction is already open - end_transaction "
+					"(commit or roll back) before beginning another");
+				return;
+			}
+			core.beginScriptTransaction();
+			this->mTransactionOpen = true;
+			this->mTransactionFingerprint = this->captureFingerprint(context);
+			this->mTransactionUndoMark = core.getUndoStackSize();
+			if (context.console)
+			{
+				context.console->addLine(ConsoleLevel::Info,
+					"[mcp] transaction opened - edits fold into one undo step "
+					"until end_transaction");
+			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "end_transaction")
+		{
+			if (!this->mTransactionOpen)
+			{
+				this->sendErr(req, "no transaction is open - call begin_transaction "
+					"first");
+				return;
+			}
+			// 'commit' is REQUIRED (a headless caller states intent explicitly):
+			// true folds every command executed since begin into ONE undo step,
+			// false unexecutes them all (no partial edits) - editor-script semantics
+			if (!request.has("commit"))
+			{
+				this->sendErr(req, "end_transaction needs 'commit' (true to fold the "
+					"edits into one undo step, false to roll them all back)");
+				return;
+			}
+			const String& commitArg = request.get("commit");
+			const bool commit = commitArg == "1" || commitArg == "true";
+			this->mTransactionOpen = false;
+			const std::size_t count =
+				core.endScriptTransaction(commit, "MCP transaction");
+			DebugMessage ok(MSG_OK);
+			ok.set("committed", commit ? "1" : "0");
+			ok.set("command_count", std::to_string(count));
+			this->sendOk(req, ok);
 			return;
 		}
 
@@ -7238,6 +7431,266 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - prefab edit mode OK "
 				"(open/edit-in-stage/blocked-verb/save/close, scene restored)");
+		}
+
+		// (23) MCP TRANSACTIONS: begin_transaction .. end_transaction give a
+		// remote client one-undo atomicity. The authRoot project is still open
+		// (scene context, McpToolCube present, assets/McpProbe.oprefab on disk).
+		{
+			JsonValue structured;
+			bool isError = true;
+			// how many hierarchy ids equal objId (0 = absent, present otherwise)
+			auto sceneHas = [&](String const& objId, bool& present) -> bool
+			{
+				JsonValue h;
+				bool e = true;
+				if (!callTool("list_hierarchy", JsonValue::object(), false, h, e) ||
+					e)
+				{
+					return false;
+				}
+				present = false;
+				JsonValue const& ids = h.get("ids");
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == objId) present = true;
+				}
+				return true;
+			};
+			auto txState = [&](bool& open) -> bool
+			{
+				JsonValue s;
+				if (!getState(s)) return false;
+				open = s.get("transaction_open").asString() == "1";
+				return true;
+			};
+
+			// end_transaction WITHOUT a begin is an honest error
+			bool endNoBeginError = false;
+			JsonValue endArgs = JsonValue::object();
+			endArgs.set("commit", JsonValue(true));
+			if (!callTool("end_transaction", endArgs, true, structured,
+					endNoBeginError) || !endNoBeginError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: end_transaction without a begin "
+					"was NOT refused");
+				return;
+			}
+
+			// begin_transaction WITHOUT auth is refused (mutation) - no session opens
+			bool beginUnauthError = false;
+			if (!callTool("begin_transaction", JsonValue::object(), false,
+					structured, beginUnauthError) || !beginUnauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated begin_transaction "
+					"was NOT rejected");
+				return;
+			}
+
+			// begin_transaction (authed) -> get_state reports transaction_open
+			isError = true;
+			bool open = false;
+			if (!callTool("begin_transaction", JsonValue::object(), true, structured,
+					isError) || isError || !txState(open) || !open)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: begin_transaction did not open a "
+					"transaction (get_state transaction_open)");
+				return;
+			}
+
+			// a second begin is refused (already open)
+			bool doubleBeginError = false;
+			if (!callTool("begin_transaction", JsonValue::object(), true, structured,
+					doubleBeginError) || !doubleBeginError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: a double begin_transaction was NOT "
+					"refused");
+				return;
+			}
+
+			// several mutating verbs inside the transaction
+			JsonValue createArgs = JsonValue::object();
+			createArgs.set("id", JsonValue(String("TxCommitA")));
+			isError = true;
+			if (!callTool("create_object", createArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_object inside a transaction "
+					"failed");
+				return;
+			}
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue(String("TxCommitA")));
+			setArgs.set("component", JsonValue(String("TransformComponent")));
+			JsonValue setProps = JsonValue::object();
+			setProps.set("position", JsonValue(String("5 6 7")));
+			setArgs.set("properties", setProps);
+			isError = true;
+			if (!callTool("set_component", setArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: set_component inside a transaction "
+					"failed");
+				return;
+			}
+
+			// end_transaction {commit:true}: closes and folds into one undo step
+			isError = true;
+			JsonValue commitArgs = JsonValue::object();
+			commitArgs.set("commit", JsonValue(true));
+			if (!callTool("end_transaction", commitArgs, true, structured, isError) ||
+				isError || structured.get("committed").asString() != "1")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: end_transaction {commit:true} "
+					"failed");
+				return;
+			}
+			open = true;
+			bool presentA = false;
+			if (!txState(open) || open || !sceneHas("TxCommitA", presentA) ||
+				!presentA)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: after commit the object was missing "
+					"or the transaction stayed open");
+				return;
+			}
+			// ONE undo reverts EVERYTHING done in the transaction (create + set)
+			bool undoError = true;
+			if (!callTool("undo", JsonValue::object(), true, structured, undoError) ||
+				undoError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: undo after a committed transaction "
+					"failed");
+				return;
+			}
+			presentA = true;
+			bool cubeStill = false;
+			if (!sceneHas("TxCommitA", presentA) || presentA ||
+				!sceneHas("McpToolCube", cubeStill) || !cubeStill)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: one undo did not revert the whole "
+					"committed transaction (or clobbered the scene)");
+				return;
+			}
+
+			// begin -> mutate -> end {commit:false}: the hierarchy is unchanged
+			isError = true;
+			if (!callTool("begin_transaction", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: begin_transaction (abort case) "
+					"failed");
+				return;
+			}
+			JsonValue createB = JsonValue::object();
+			createB.set("id", JsonValue(String("TxAbortB")));
+			isError = true;
+			if (!callTool("create_object", createB, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_object (abort case) failed");
+				return;
+			}
+			JsonValue abortArgs = JsonValue::object();
+			abortArgs.set("commit", JsonValue(false));
+			isError = true;
+			if (!callTool("end_transaction", abortArgs, true, structured, isError) ||
+				isError || structured.get("committed").asString() != "0")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: end_transaction {commit:false} "
+					"failed");
+				return;
+			}
+			bool presentB = true;
+			if (!sceneHas("TxAbortB", presentB) || presentB)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: a rolled-back transaction still "
+					"left its object in the scene");
+				return;
+			}
+
+			// LIFECYCLE AUTO-ABORT: an open_prefab under an open transaction aborts
+			// it (rolled back BEFORE the scene is stashed) - get_state reports it
+			// closed and the prefab context, and the object never reaches the scene
+			isError = true;
+			if (!callTool("begin_transaction", JsonValue::object(), true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: begin_transaction (auto-abort case) "
+					"failed");
+				return;
+			}
+			JsonValue createC = JsonValue::object();
+			createC.set("id", JsonValue(String("TxAbortC")));
+			isError = true;
+			if (!callTool("create_object", createC, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_object (auto-abort case) "
+					"failed");
+				return;
+			}
+			JsonValue openPrefabArgs = JsonValue::object();
+			openPrefabArgs.set("path",
+				JsonValue(String("assets/McpProbe.oprefab")));
+			isError = true;
+			if (!callTool("open_prefab", openPrefabArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: open_prefab (auto-abort case) "
+					"failed");
+				return;
+			}
+			JsonValue staged;
+			open = true;
+			if (!getState(staged) || staged.get("edit_context").asString() !=
+					"prefab" ||
+				staged.get("transaction_open").asString() != "0")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: open_prefab did not auto-abort the "
+					"open transaction (transaction_open / edit_context)");
+				return;
+			}
+			// restore the scene and confirm TxAbortC was rolled back (not stashed)
+			JsonValue closeArgs = JsonValue::object();
+			closeArgs.set("policy", JsonValue(String("discard")));
+			isError = true;
+			if (!callTool("close_prefab", closeArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: close_prefab (auto-abort case) "
+					"failed");
+				return;
+			}
+			bool presentC = true;
+			if (!sceneHas("TxAbortC", presentC) || presentC)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the auto-aborted transaction's "
+					"object survived into the restored scene");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - MCP transactions OK "
+				"(commit=one undo, abort=rolled back, lifecycle auto-abort)");
 		}
 
 		fs::remove_all(authRoot, authIgnored);

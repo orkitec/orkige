@@ -127,6 +127,17 @@ namespace Orkige
 		bool dispatchLocalVerb(DebugMessage const& request,
 			EditorControlContext const& context, DebugMessage& outReply);
 
+		//! is an MCP transaction (begin_transaction .. end_transaction) currently
+		//! open? get_state surfaces this and the editor shutdown path checks it.
+		bool hasOpenTransaction() const { return mTransactionOpen; }
+		//! @brief roll back and drop an open MCP transaction (a no-op when none is
+		//! open): unexecute every command executed since begin_transaction so no
+		//! partial edits linger, and log one honest Console line naming the reason.
+		//! The document-lifecycle watchdog, the lifecycle verbs and the editor's
+		//! shutdown path all funnel through here.
+		void abortOpenTransaction(EditorControlContext const& context,
+			String const& reason);
+
 	private:
 		//--- HTTP + JSON-RPC transport -----------------------
 		//! turn one parsed HTTP request into its response (POST /mcp = JSON-RPC)
@@ -159,6 +170,35 @@ namespace Orkige
 		//! is the request allowed to run a mutation verb (auth gate)?
 		bool requireAuth(String const& req);
 
+		//--- MCP transactions (begin_transaction .. end_transaction) ---
+		// One atomic-edit bracket for a REMOTE client: unlike an editor script,
+		// which brackets its whole SYNCHRONOUS run, an MCP transaction spans many
+		// HTTP requests, so the server owns the open/closed flag AND auto-aborts
+		// it when a document-lifecycle transition (scene/project/prefab switch,
+		// Play, shutdown) would otherwise strand it. The underlying fold is
+		// EditorCore::begin/endScriptTransaction - the SAME one-undo primitive
+		// editor scripts use; this flag keeps the two apart so the watchdog never
+		// disturbs a synchronous editor-script transaction (which can never be
+		// live across a frame boundary).
+		//! a snapshot of the document identity at begin_transaction; a change to
+		//! any field between requests means a lifecycle transition clobbered the
+		//! world under the open transaction (see checkTransactionLifecycle)
+		struct TransactionFingerprint
+		{
+			std::string projectRoot;
+			bool projectLoaded = false;
+			bool prefabActive = false;
+			bool playActive = false;
+		};
+		//! capture the current document fingerprint (at begin / to compare against)
+		TransactionFingerprint captureFingerprint(
+			EditorControlContext const& context) const;
+		//! @brief per-frame + inline watchdog: if an MCP transaction is open and
+		//! the document fingerprint changed since begin (a scene/project/prefab
+		//! switch or Play started, from a UI menu OR another verb), or the undo
+		//! history was rewound beneath it, auto-abort it. No-op when none is open.
+		void checkTransactionLifecycle(EditorControlContext const& context);
+
 		//! join every finished/outstanding test-run worker (called on stop)
 		void joinTestJobs();
 		//! join every finished/outstanding export worker (called on stop)
@@ -176,6 +216,14 @@ namespace Orkige
 		//! outstanding/finished async exports, same lifecycle as mTestJobs;
 		//! export_project appends, get_export_results reads, stop() joins
 		std::vector<Orkige::uptr<EditorExportJob>> mExportJobs;
+		//! is an MCP transaction currently open (1:1 with EditorCore's underlying
+		//! script-transaction, but tracked here because it spans HTTP requests)
+		bool mTransactionOpen = false;
+		//! the document fingerprint captured at begin_transaction
+		TransactionFingerprint mTransactionFingerprint;
+		//! the undo-stack size at begin_transaction; a later size below it means
+		//! the history was reset/rewound under the transaction (a clobber signal)
+		std::size_t mTransactionUndoMark = 0;
 	};
 
 	//! @brief the in-process MCP endpoint self-test (the editor_control ctest).
