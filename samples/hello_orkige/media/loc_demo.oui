@@ -1,0 +1,41 @@
+# loc_demo.oui - a small localised screen: every caption is an @key routed
+# through the string table (GuiFactory::resolveText), so switching the active
+# language re-skins the whole screen. The source strings and their German /
+# pseudo translations live in the sibling loc/ registry (loc/en.xlf etc.),
+# extracted and kept in sync by Util/orkige_loc.py. The score label carries a
+# %%0%% placeholder to exercise positional formatting across languages.
+
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+[Label locTitle]
+z = 2
+font = 9
+text = @loc_demo.title
+position = 80 60
+size = 320 40
+
+[Button locStart]
+z = 2
+font = 9
+sprite = button
+text = @loc_demo.start
+position = 80 120
+size = 320 48
+
+[Label locScore]
+z = 2
+font = 9
+text = @loc_demo.score
+position = 80 190
+size = 320 40
+
+[DropDown locLanguage]
+z = 2
+font = 9
+sprite = button
+text = @loc_demo.language
+position = 80 250
+size = 320 48
+items = @loc_demo.lang.english | @loc_demo.lang.german

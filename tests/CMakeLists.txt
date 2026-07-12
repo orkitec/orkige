@@ -107,6 +107,29 @@ add_test(NAME docs_currency
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(docs_currency PROPERTIES LABELS unit TIMEOUT 30)
 
+# localisation tool self-validation: orkige_loc.py builds a fixture project in a
+# tempdir and drives extract/merge/check/pseudo end to end - the .oui + Lua key
+# extraction grammar, every merge-semantics row, placeholder <x/> round-trip,
+# pseudo generation (font-safe accents, guards, expansion), write-twice
+# determinism and the --check drift verdicts. Stdlib-only, headless.
+add_test(NAME orkige_loc_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_loc.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(orkige_loc_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
+# LOCALISATION CURRENCY GATE (the docs_currency twin, now for the string
+# registry): orkige_loc.py --check scans the seeded sample project for
+# translatable keys (.oui @keys + Lua loc() calls) and fails if loc/en.xlf and
+# the target files are out of sync - a missing / orphaned / stale key, a
+# duplicate, or an inline-placeholder parity violation in any translation. Fix:
+# run 'python3 Util/orkige_loc.py --write samples/hello_orkige' and commit.
+# Headless, LABELS unit.
+add_test(NAME loc_currency
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/orkige_loc.py" --check
+            "${Orkige_SOURCE_DIR}/samples/hello_orkige"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(loc_currency PROPERTIES LABELS unit TIMEOUT 30)
+
 if(TARGET orkige_engine)
     if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         # pure-logic engine unit tests (no window/GPU); still classic-only:

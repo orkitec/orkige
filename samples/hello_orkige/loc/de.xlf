@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="orkige-strings" source-language="en" target-language="de" datatype="plaintext">
+    <header>
+      <tool tool-id="orkige_loc" tool-name="orkige_loc" tool-version="1"/>
+    </header>
+    <body>
+      <trans-unit id="loc_demo.lang.english" resname="loc_demo.lang.english" xml:space="preserve">
+        <source>English</source>
+        <target state="translated">Englisch</target>
+      </trans-unit>
+      <trans-unit id="loc_demo.lang.german" resname="loc_demo.lang.german" xml:space="preserve">
+        <source>German</source>
+        <target state="translated">Deutsch</target>
+      </trans-unit>
+      <trans-unit id="loc_demo.language" resname="loc_demo.language" xml:space="preserve">
+        <source>Language</source>
+        <target state="translated">Sprache</target>
+      </trans-unit>
+      <trans-unit id="loc_demo.score" resname="loc_demo.score" xml:space="preserve">
+        <source>Score: <x id="0" ctype="x-orkige-arg"/></source>
+        <target state="translated">Punkte: <x id="0" ctype="x-orkige-arg"/></target>
+      </trans-unit>
+      <trans-unit id="loc_demo.start" resname="loc_demo.start" xml:space="preserve">
+        <source>Start Game</source>
+        <target state="translated">Spiel starten</target>
+      </trans-unit>
+      <trans-unit id="loc_demo.title" resname="loc_demo.title" xml:space="preserve">
+        <source>Hello, Orkige</source>
+        <target state="translated">Hallo, Orkige</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

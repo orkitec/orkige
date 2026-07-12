@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="orkige-strings" source-language="en" datatype="plaintext">
+    <header>
+      <tool tool-id="orkige_loc" tool-name="orkige_loc" tool-version="1"/>
+    </header>
+    <body>
+      <trans-unit id="loc_demo.lang.english" resname="loc_demo.lang.english" xml:space="preserve">
+        <source>English</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">41</context>
+        </context-group>
+        <note from="developer">Language option (self-name kept)</note>
+      </trans-unit>
+      <trans-unit id="loc_demo.lang.german" resname="loc_demo.lang.german" xml:space="preserve">
+        <source>German</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">41</context>
+        </context-group>
+        <note from="developer">Language option</note>
+      </trans-unit>
+      <trans-unit id="loc_demo.language" resname="loc_demo.language" xml:space="preserve">
+        <source>Language</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">38</context>
+        </context-group>
+        <note from="developer">Language picker caption</note>
+      </trans-unit>
+      <trans-unit id="loc_demo.score" resname="loc_demo.score" xml:space="preserve">
+        <source>Score: <x id="0" ctype="x-orkige-arg"/></source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">30</context>
+        </context-group>
+        <note from="developer">Score readout; %%0%% is the numeric score</note>
+      </trans-unit>
+      <trans-unit id="loc_demo.start" resname="loc_demo.start" xml:space="preserve">
+        <source>Start Game</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">23</context>
+        </context-group>
+        <note from="developer">Primary button caption</note>
+      </trans-unit>
+      <trans-unit id="loc_demo.title" resname="loc_demo.title" xml:space="preserve">
+        <source>Hello, Orkige</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">media/loc_demo.oui</context>
+          <context context-type="linenumber">15</context>
+        </context-group>
+        <note from="developer">Screen title greeting</note>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Hello Orkige</Name>
+    <Setting key="localisation" value="loc"/>
+</OrkigeProject>
