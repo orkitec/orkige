@@ -161,6 +161,15 @@ by property NAME (an unknown, read-only or unparseable value is refused without
 touching the object) and accepts the changed fields either at the top level or
 inside a `properties` object, merged into one undo step.
 
+**Script component kinds.** A behavior script whose file ends in `.component.lua`
+is a first-class component kind named after the file (`player.component.lua` →
+`player`); several attach to one object. It flows through the SAME generic verbs
+with zero kind-specific handling: `write_project_file scripts/foo.component.lua`
+makes `foo` appear in `list_addable_components`; `add_component(id, "foo")`
+attaches it (binding its script file); its declared `properties` are reflected,
+so `get_component`/`set_component` read and write them by name. Verified end to
+end by the `editor_control` self-test.
+
 ### Flat-colour vector shapes — no new verb
 
 `VectorShapeComponent` (the flat-colour organic-shape 2D content) needs NO

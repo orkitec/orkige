@@ -390,11 +390,19 @@ class ComponentWriter:
             ("isSensor", K_BOOL, fmt(is_sensor), ""),
         ])
 
-    def script(self, path, enabled=True):
-        return self._reflected("ScriptComponent", [
+    def script(self, kind, path, enabled=True, exports=()):
+        """A SCRIPT COMPONENT KIND: the component TYPE TAG is the script's kind
+        name (its ".component.lua" base name, e.g. "ball"), while the serialized
+        element stays <ScriptComponent> (the one C++ class every kind shares).
+        Several DIFFERENT scripts attach to one object, each its own kind key.
+        `exports` adds declared-property OVERRIDE records - (name, kind, value,
+        ref) quadruples - that beat the script's declared defaults on load."""
+        records = [
             ("script", K_ASSETREF, path, ""),
             ("enabled", K_BOOL, fmt(enabled), ""),
-        ])
+        ] + list(exports)
+        # (tag, element, fields): tag = kind name, element = ScriptComponent
+        return (kind, "ScriptComponent", self._base_fields() + self._named(records))
 
     def level(self, cols, rows, tile_size, origin_x, origin_y, goal_slot, par):
         """LevelComponent (core_game/LevelComponent): the tile-grid GEOMETRY
@@ -471,11 +479,17 @@ class ComponentWriter:
             lines.extend('    <String value="%s"/>' % tag for tag in tags)
         lines.extend(prefab_lines)
         lines.append('    <unsigned_int value="%d"/>' % len(components))
-        for type_name, fields in components:
-            lines.append('    <String value="%s"/>' % type_name)
-            lines.append('    <%s create="0">' % type_name)
+        for comp in components:
+            # a component is (typeTag, fields) normally, or (typeTag, element,
+            # fields) when the container KEY differs from the C++ class element
+            # (a SCRIPT COMPONENT KIND: tag = script name, element = ScriptComponent)
+            tag = comp[0]
+            element, fields = (comp[1], comp[2]) if len(comp) == 3 \
+                else (comp[0], comp[1])
+            lines.append('    <String value="%s"/>' % tag)
+            lines.append('    <%s create="0">' % element)
             lines.extend('        ' + field for field in fields)
-            lines.append('    </%s>' % type_name)
+            lines.append('    </%s>' % element)
         return lines
 
 
@@ -701,8 +715,9 @@ LEVELS = [
 
 def build_scene(level, tile_asset_id):
     scene = SceneWriter()
-    # game flow / UI / tile sliding / level progression
-    scene.add("Game", scene.script("scripts/game.lua"))
+    # game flow / UI / tile sliding / level progression - the "game" script
+    # component kind (scripts/game.component.lua)
+    scene.add("Game", scene.script("game", "scripts/game.component.lua"))
     # the level metadata: the grid GEOMETRY game.lua snaps the tiles into
     # (2x2, tile size 6, cell (0,0) at (-3,-3)), the goal slot and the par
     # slide count. Data-only - no transform, no render cost.
@@ -716,8 +731,16 @@ def build_scene(level, tile_asset_id):
         scene.sprite("ball.png", 0.8, 0.8, Z_BALL),
         scene.rigid_sphere(0.4, mass=1.0, friction=0.4, restitution=0.2,
                            planar=True, layer="ball"),
-        scene.script("scripts/ball.lua"),
-        # star-collect burst: ball.lua fires self.particles:burst()
+        # TWO script component kinds on ONE object: "ball" is the tilt-gravity
+        # /win/respawn behaviour; "ball_spin" is a second, independent behaviour
+        # (a cosmetic heartbeat) - proof that a script is a per-name component
+        # kind and several coexist. ball_spin declares a `blinkRate` property;
+        # the scene OVERRIDES it (1.0 default -> 2.0) to exercise the declared
+        # -property override path end to end.
+        scene.script("ball", "scripts/ball.component.lua"),
+        scene.script("ball_spin", "scripts/ball_spin.component.lua",
+                     exports=[("blinkRate", K_FLOAT, "2", "")]),
+        # star-collect burst: ball.component.lua fires self.particles:burst()
         # on the win - a golden additive shower of the goal-star texture
         scene.particles("goal.png"),
     )

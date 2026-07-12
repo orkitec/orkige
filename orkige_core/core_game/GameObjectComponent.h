@@ -86,6 +86,16 @@ namespace Orkige
 		{
 			return PropertySchema();
 		}
+		//! @brief this component's KIND key: the TypeInfo it is stored under in
+		//! its owner's container. For a plain component that IS its own C++
+		//! TypeInfo; for a NAME-ALIASED kind (several script kinds share the one
+		//! ScriptComponent class) it is the kind key, discovered by finding this
+		//! instance in the owner's component map. Falls back to the C++ TypeInfo
+		//! when this component is not (yet) owned. This is the identity every
+		//! consumer (serialization, inspector, debug protocol, MCP, update
+		//! registration) uses - NOT necessarily the C++ class. No per-component
+		//! storage, so it is ABI-neutral.
+		TypeInfo getComponentKey() const;
 		//! does this component wants updates?
 		inline bool getWantsUpdates();
 		//! set if this component should receive updates

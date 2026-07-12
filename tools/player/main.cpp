@@ -40,6 +40,7 @@
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_gocomponent/ScriptComponent.h>
+#include <engine_gocomponent/ScriptComponentRegistry.h>
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
 #include <core_util/SoftBodyDeform.h>
@@ -460,6 +461,11 @@ int main(int argc, char** argv)
 		if (project.isLoaded())
 		{
 			scriptRuntime.setScriptSearchRoot(project.getRootDirectory());
+			// discover the project's SCRIPT COMPONENT KINDS (*.component.lua):
+			// registers a factory alias per kind so a scene that attaches one
+			// loads, and a named kind binds its own script file on attach
+			Orkige::ScriptComponentRegistry::getSingleton().scanProject(
+				project.getScriptsDirectory(), project.getRootDirectory());
 		}
 		init_module_orkige_core();
 
@@ -2166,17 +2172,18 @@ int main(int argc, char** argv)
 			for (auto const& [id, gameObject] :
 				gameObjectManager.getGameObjects())
 			{
-				if (!gameObject->hasComponent<Orkige::ScriptComponent>())
+				// every script on the object - an object may carry several
+				for (Orkige::ScriptComponent* script :
+					Orkige::ScriptComponent::collectFrom(*gameObject))
 				{
-					continue;
-				}
-				Orkige::ScriptComponent* script =
-					gameObject->getComponentPtr<Orkige::ScriptComponent>();
-				if (script->hasScriptError() &&
-					breadcrumbedScriptErrors.insert(id).second)
-				{
-					Orkige::Breadcrumbs::getSingleton().record("script_error",
-						script->getScriptError(), { { "object", id } });
+					const std::string key = id + "\n" + script->getComponentName();
+					if (script->hasScriptError() &&
+						breadcrumbedScriptErrors.insert(key).second)
+					{
+						Orkige::Breadcrumbs::getSingleton().record("script_error",
+							script->getScriptError(), { { "object", id },
+							{ "component", script->getComponentName() } });
+					}
 				}
 			}
 		};
@@ -2838,23 +2845,57 @@ int main(int argc, char** argv)
 					// exist, mode "play" with a running simulation
 					optr<Orkige::GameObject> ball =
 						gameObjectManager.getGameObject("Ball").lock();
-					Orkige::ScriptComponent* ballScript = (ball &&
-						ball->hasComponent<Orkige::ScriptComponent>()) ?
-						ball->getComponentPtr<Orkige::ScriptComponent>() :
-						nullptr;
-					if (!ballScript)
+					// the Ball carries TWO script component kinds ("ball" +
+					// "ball_spin"); reach them by name-agnostic collect -
+					// getComponentPtr<ScriptComponent>() would find NEITHER (they
+					// are keyed by script name, not the class)
+					Orkige::ScriptComponent* ballScript = nullptr;
+					Orkige::ScriptComponent* spinScript = nullptr;
+					if (ball)
 					{
-						rollerFail("no Ball object with a ScriptComponent");
+						for (Orkige::ScriptComponent* s :
+							Orkige::ScriptComponent::collectFrom(*ball))
+						{
+							if (s->getComponentName() == "ball")
+							{
+								ballScript = s;
+							}
+							else if (s->getComponentName() == "ball_spin")
+							{
+								spinScript = s;
+							}
+						}
+					}
+					if (!ballScript || !spinScript)
+					{
+						rollerFail("the Ball must carry BOTH the 'ball' and "
+							"'ball_spin' script component kinds");
 					}
 					else if (ballScript->hasScriptError())
 					{
 						rollerFail("ball script error: " +
 							ballScript->getScriptError());
 					}
+					else if (spinScript->hasScriptError())
+					{
+						rollerFail("ball_spin script error: " +
+							spinScript->getScriptError());
+					}
 					else if (!rollerFlag("gameReady") ||
 						!rollerFlag("ballReady"))
 					{
 						rollerFail("scripts did not publish shared.roller");
+					}
+					else if (!rollerFlag("spinReady"))
+					{
+						rollerFail("the second script kind (ball_spin) on the "
+							"Ball did not start");
+					}
+					else if (rollerStat("blinkRate", -1.0) != 2.0)
+					{
+						rollerFail("the ball_spin blinkRate scene override (2.0) "
+							"did not reach self.blinkRate (declared-property "
+							"override on a script kind)");
 					}
 					else if (!ball->hasComponent<Orkige::SpriteComponent>() ||
 						!ball->getComponentPtr<Orkige::SpriteComponent>()

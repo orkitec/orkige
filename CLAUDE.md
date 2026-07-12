@@ -182,8 +182,16 @@ everyone's confidence in the suite.
   complete in both backends by design. Game behavior lives in project scripts via
   `engine_gocomponent/ScriptComponent` (per-instance sandbox, init/update/shutdown, `self`
   + the global `world`/`shared` tables); `projects/jumper-lua/scripts/player.lua` is the
-  reference script. The dead Python backend (`Meta_Python.h`, `core_python/`) stays
-  uncompiled — don't "fix" it in passing.
+  reference script. A script is a **named component KIND** when its file ends in
+  `.component.lua` (`player.component.lua` → the component `player`,
+  `engine_gocomponent/ScriptComponentRegistry` registers a factory alias per kind on
+  project scan): several DIFFERENT scripts attach to one object, each its own container
+  key + sandbox, addable in the editor / over MCP / in scenes by kind name; a top-level
+  `properties` table auto-exposes designer-tunable fields through the ONE reflection
+  registry (Inspector, scene overrides, `self.<name>`, debug protocol, MCP —
+  `Docs/lua-api.md#script-components`). Plain `.lua` files are libraries. The low-level
+  path-bound `ScriptComponent` kind still works. The dead Python backend
+  (`Meta_Python.h`, `core_python/`) stays uncompiled — don't "fix" it in passing.
 - Everything builds statically during the revival (`ORKIGE_STATIC` is defined globally);
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,

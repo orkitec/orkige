@@ -28,6 +28,7 @@
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
 
+#include <engine_gocomponent/ScriptComponentRegistry.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
 #include <engine_render/RenderWorld.h>
@@ -3433,6 +3434,16 @@ namespace Orkige
 					relative + "'");
 				return;
 			}
+			// a freshly written script may introduce (or, on an overwrite/rename,
+			// change) a SCRIPT COMPONENT KIND - rescan so add_component /
+			// list_addable_components / the Add Component menu see it without
+			// reopening the project
+			if (relative.rfind("scripts/", 0) == 0)
+			{
+				ScriptComponentRegistry::getSingleton().scanProject(
+					state.project.getScriptsDirectory(),
+					state.project.getRootDirectory());
+			}
 			DebugMessage ok(MSG_OK);
 			ok.set("path", relative);
 			ok.set("bytes", std::to_string(normalized.size()));
@@ -5885,6 +5896,108 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - list_project_files OK "
 				"(scripts/*.lua lists the written file)");
+		}
+
+		// (18b) SCRIPT COMPONENT KIND end to end: write a *.component.lua (which
+		// makes it an addable component kind), attach it to a fresh object by its
+		// kind NAME, set a DECLARED property and read it back - a script is a
+		// first-class component over MCP with ZERO kind-specific server code
+		// (add/get/set flow through the same generic path as any C++ component)
+		{
+			const String kindRel = "scripts/mcpkind.component.lua";
+			const String kindSrc =
+				"properties = { power = { type = \"number\", default = 3 } }\n"
+				"function update(self, dt) end\n";
+			JsonValue writeArgs = JsonValue::object();
+			writeArgs.set("path", JsonValue(kindRel));
+			writeArgs.set("content", JsonValue(kindSrc));
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("write_project_file", writeArgs, true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: writing the .component.lua kind "
+					"failed");
+				return;
+			}
+			// the write rescanned the registry - the kind is now addable
+			JsonValue addable;
+			bool addableErr = true;
+			if (!callTool("list_addable_components", JsonValue::object(), false,
+					addable, addableErr) || addableErr)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_addable_components failed");
+				return;
+			}
+			JsonValue const& comps = addable.get("components");
+			bool kindListed = false;
+			for (size_t i = 0; i < comps.size(); ++i)
+			{
+				if (comps.at(i).asString() == "mcpkind")
+				{
+					kindListed = true;
+				}
+			}
+			if (!kindListed)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the written .component.lua kind "
+					"is not listed as addable");
+				return;
+			}
+			// a fresh object to carry the script component
+			JsonValue objArgs = JsonValue::object();
+			objArgs.set("id", JsonValue("ScriptedByMcp"));
+			if (!callTool("create_object", objArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_object for the script kind "
+					"failed");
+				return;
+			}
+			JsonValue addArgs = JsonValue::object();
+			addArgs.set("id", JsonValue("ScriptedByMcp"));
+			addArgs.set("component", JsonValue("mcpkind"));
+			if (!callTool("add_component", addArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: add_component of the script kind "
+					"failed");
+				return;
+			}
+			// the DECLARED property is auto-exposed through the schema union, so
+			// set/get resolve it by name with no kind-specific handler
+			JsonValue props = JsonValue::object();
+			props.set("power", JsonValue("5"));
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue("ScriptedByMcp"));
+			setArgs.set("component", JsonValue("mcpkind"));
+			setArgs.set("properties", props);
+			if (!callTool("set_component", setArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: set the script kind's declared "
+					"property failed");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("id", JsonValue("ScriptedByMcp"));
+			readArgs.set("component", JsonValue("mcpkind"));
+			if (!callTool("get_component", readArgs, false, structured, isError) ||
+				isError || structured.get("power").asString() != "5")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the script kind's declared "
+					"property did not read back as '5'");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - script component kind "
+				"(mcpkind.power -> 5) OK");
 		}
 
 		// (19) import_asset: copy an OUTSIDE temp file into the project, assert a

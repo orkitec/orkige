@@ -53,6 +53,16 @@ namespace Orkige
 	// {propertyName, kind, value, reference} records instead of one
 	// component-block string), so the format-era marker bumps. Clean cutover -
 	// every scene asset was rewritten, no legacy override reader survives.
+	// SCRIPT COMPONENTS as named KINDS (2026-07) rode in WITHOUT a version bump:
+	// a behavior script whose file ends in ".component.lua" is an attachable
+	// component whose kind name is the file base name (player.component.lua ->
+	// "player"), and several attach to one object. On disk this is NOT a format
+	// change - a script kind serializes exactly like the low-level ScriptComponent,
+	// just with the script name in the component's already-present type-TAG slot
+	// (the class element stays <ScriptComponent>). Every current reader routes
+	// component creation through the factory, so a scene mixing named kinds and
+	// plain components round-trips at v7; the explicit-file ScriptComponent kind
+	// still loads unchanged (the honest back-compat for any pre-existing scene).
 	const int SceneSerializer::SCENE_FORMAT_VERSION = 7;
 	const String SceneSerializer::SCENE_FORMAT_MAGIC = "orkige.oscene";
 	//---------------------------------------------------------

@@ -1,5 +1,5 @@
--- game.lua - the world-sliding half of the roller prototype, attached to the
--- "Game" object in every level scene through a ScriptComponent.
+-- game.component.lua - the world-sliding half of the roller prototype: the
+-- "game" script component KIND, attached to the "Game" object in every level scene.
 --
 -- This script owns everything AROUND the rolling: the gui HUD, the
 -- play/move mode state machine, the sliding-tile "move the world" logic AND

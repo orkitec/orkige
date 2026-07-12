@@ -9,14 +9,14 @@
     <unsigned_int value="0"/>
     <String value=""/>
     <unsigned_int value="1"/>
-    <String value="ScriptComponent"/>
+    <String value="game"/>
     <ScriptComponent create="0">
         <unsigned_int value="0"/>
         <String value=""/>
         <unsigned_int value="2"/>
         <String value="script"/>
         <int value="8"/>
-        <String value="scripts/game.lua"/>
+        <String value="scripts/game.component.lua"/>
         <String value=""/>
         <String value="enabled"/>
         <int value="2"/>
@@ -68,7 +68,7 @@
     <bool value="1"/>
     <unsigned_int value="0"/>
     <String value=""/>
-    <unsigned_int value="5"/>
+    <unsigned_int value="6"/>
     <String value="ParticleComponent"/>
     <ParticleComponent create="0">
         <unsigned_int value="0"/>
@@ -162,20 +162,6 @@
         <String value="0"/>
         <String value=""/>
     </RigidBodyComponent>
-    <String value="ScriptComponent"/>
-    <ScriptComponent create="0">
-        <unsigned_int value="0"/>
-        <String value=""/>
-        <unsigned_int value="2"/>
-        <String value="script"/>
-        <int value="8"/>
-        <String value="scripts/ball.lua"/>
-        <String value=""/>
-        <String value="enabled"/>
-        <int value="2"/>
-        <String value="1"/>
-        <String value=""/>
-    </ScriptComponent>
     <String value="SpriteComponent"/>
     <SpriteComponent create="0">
         <unsigned_int value="0"/>
@@ -248,6 +234,38 @@
         <String value="1 1 1"/>
         <String value=""/>
     </TransformComponent>
+    <String value="ball"/>
+    <ScriptComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="2"/>
+        <String value="script"/>
+        <int value="8"/>
+        <String value="scripts/ball.component.lua"/>
+        <String value=""/>
+        <String value="enabled"/>
+        <int value="2"/>
+        <String value="1"/>
+        <String value=""/>
+    </ScriptComponent>
+    <String value="ball_spin"/>
+    <ScriptComponent create="0">
+        <unsigned_int value="0"/>
+        <String value=""/>
+        <unsigned_int value="3"/>
+        <String value="script"/>
+        <int value="8"/>
+        <String value="scripts/ball_spin.component.lua"/>
+        <String value=""/>
+        <String value="enabled"/>
+        <int value="2"/>
+        <String value="1"/>
+        <String value=""/>
+        <String value="blinkRate"/>
+        <int value="1"/>
+        <String value="2"/>
+        <String value=""/>
+    </ScriptComponent>
     <String value="TileA"/>
     <String value=""/>
     <bool value="1"/>

@@ -1,5 +1,6 @@
--- ball.lua - the ball/tilt-gravity half of the roller prototype, attached to the
--- "Ball" object in scenes/main.oscene through a ScriptComponent.
+-- ball.component.lua - the ball/tilt-gravity half of the roller prototype: the
+-- "ball" script component KIND, attached to the "Ball" object in
+-- scenes/main.oscene (which also carries the second "ball_spin" kind).
 --
 -- The ball is a dynamic PLANAR sphere (RigidBodyComponent planar mode locks
 -- it to the XY plane and Z-axis rotation) with a SpriteComponent visual -

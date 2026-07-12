@@ -37,6 +37,13 @@ once.
 5. **Verify**: read back `get_ui_layout` over MCP (per-widget pixel rects + the
    visible/enabled/modal flags) and cross-check against `get_safe_area`.
 
+**Poll idiom is single-consumer (latch-and-clear).** `wasClicked`/`wasSubmitted`/
+`pollChanged`/`getDialogResult` return a pending event ONCE and clear it. With
+several script components on one object, the FIRST to poll a widget consumes the
+event; a later script sees nothing. **Convention: exactly one script owns a given
+widget's events** — split UI ownership by widget, never have two scripts race for
+the same button (see the script-component note in `lua-api.md`).
+
 ## Screen flow (the `screens` router)
 
 A game is a handful of full-screen pages — a title, a level-select, a settings

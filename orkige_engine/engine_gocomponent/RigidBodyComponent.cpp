@@ -367,10 +367,11 @@ namespace Orkige
 		// (2) the optional Lua hook onContactBegin/onContactEnd(self, other) -
 		// gated inside dispatchContact (no-op without a healthy loaded script).
 		// A script mutating the world here goes through the GameObjectManager
-		// delete queue, so it is safe even mid-dispatch.
-		if (self->hasComponent<ScriptComponent>())
+		// delete queue, so it is safe even mid-dispatch. EVERY script on the
+		// object hears the contact (an object may carry several behavior scripts).
+		for (ScriptComponent* script : ScriptComponent::collectFrom(*self))
 		{
-			self->getComponentPtr<ScriptComponent>()->dispatchContact(other, began);
+			script->dispatchContact(other, began);
 		}
 	}
 	//---------------------------------------------------------

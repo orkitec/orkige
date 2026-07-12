@@ -55,7 +55,7 @@ namespace Orkige
 		}
 
 		//! unregister a component to the manager (don't add it)
-		template<class ComponentType> 
+		template<class ComponentType>
 		static bool unregisterComponent(typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
 		{
 			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
@@ -63,6 +63,33 @@ namespace Orkige
 			TypeInfo const & componentType = ComponentType::getClassTypeInfo();
 			bool success = componentFactory->template unRegister < ComponentType > (componentType);
 			return success;
+		}
+
+		//! @brief register ComponentType's factory creator under an ALIAS key
+		//! (a second name for the same class). This is the seam that turns a
+		//! script file into a named component KIND: the ScriptComponent creator
+		//! is registered once per discovered script name, so addComponent /
+		//! isComponentRegistered / getRegisteredComponentTypes all work with the
+		//! script name, and several script kinds coexist on one owner because
+		//! each has its own container key while sharing the one C++ class.
+		//! @return false if the alias id is already registered
+		template<class ComponentType>
+		static bool registerComponentAlias(TypeInfo const & aliasId,
+			typename std::enable_if<std::is_base_of<BaseComponentType, ComponentType>::value>::type * = 0)
+		{
+			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
+			oAssert(componentFactory);
+			return componentFactory->template registerType < ComponentType >(aliasId);
+		}
+
+		//! @brief unregister a component kind by its key (the counterpart of
+		//! registerComponentAlias; also works for the plain registration). A
+		//! no-op if the id was not registered.
+		static bool unregisterComponentType(TypeInfo const & componentType)
+		{
+			optr<OwnedComponentFactory> componentFactory = OSelf::getComponentFactory();
+			oAssert(componentFactory);
+			return componentFactory->unRegister(componentType);
 		}
 
 		//! add a registered component by name
@@ -212,16 +239,25 @@ namespace Orkige
 		oAssert(componentOwner);
 		component->setComponentOwner(componentOwner);
 		optr<BaseComponentType> componentOptr = optr<BaseComponentType>(component);
+		// the component is now in the map under `componentType` (its KIND key):
+		// a component that needs its key - a name-aliased script kind binding
+		// its file - discovers it in onAdd() by finding itself in the owner's
+		// component map (getComponentKey), so no per-component key storage or
+		// extra hook is needed and the container stays ABI-stable
 		this->components[componentType] = componentOptr;
 		component->onAdd();
+		// notify by the container KEY, not the component's C++ TypeInfo: several
+		// name-aliased kinds share one class, so the key is the identity the
+		// owner's onComponentAdded (update registration) must key off. For a
+		// plain component key == TypeInfo, so nothing changes for them.
 		foreach(typename ComponentMap::value_type const & current, components)
 		{
 			optr<BaseComponentType> currentComponent = current.second;
 			if(currentComponent != componentOptr)
-				currentComponent->onComponentAdded(component->getTypeInfo());
+				currentComponent->onComponentAdded(componentType);
 		}
-		this->onComponentAdded(component->getTypeInfo());
-		return true;	
+		this->onComponentAdded(componentType);
+		return true;
 	}
 	//---------------------------------------------------------
 	template<class BaseComponentType>
@@ -297,13 +333,15 @@ namespace Orkige
 		}
 
 		//needs to be called before this->components.erase(foundComponent) to still have acces to the component
-		this->onComponentRemoved(component->getTypeInfo());
+		// by the container KEY (the removed kind's identity), not the shared C++
+		// TypeInfo - the owner's onComponentRemoved unregisters updates by key
+		this->onComponentRemoved(componentType);
 
 		this->components.erase(foundComponent);
 		component->onRemove();
 		foreach(typename ComponentMap::value_type const & current, components)
 		{
-			current.second->onComponentRemoved(component->getTypeInfo());
+			current.second->onComponentRemoved(componentType);
 		}
 		component->setComponentOwner(NULL);
 		component = oNull<BaseComponentType>();

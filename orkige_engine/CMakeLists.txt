@@ -137,6 +137,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/RigidBodyComponent.cpp
     engine_gocomponent/ScriptComponent.h
     engine_gocomponent/ScriptComponent.cpp
+    engine_gocomponent/ScriptComponentRegistry.h
+    engine_gocomponent/ScriptComponentRegistry.cpp
     engine_runtime/PlayerRuntime.h
     engine_runtime/PlayerRuntime.cpp
     engine_sound/SoundPlatform.h

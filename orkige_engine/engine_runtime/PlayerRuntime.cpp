@@ -370,7 +370,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void PlayerDebugLink::handleRecordStart(DebugMessage const & message)
 	{
-		const String path = message.get(Protocol::FIELD_PATH);
+		const String & path = message.get(Protocol::FIELD_PATH);
 		if (path.empty())
 		{
 			sendError("record: missing path");
@@ -733,30 +733,37 @@ namespace Orkige
 		for (auto const & [id, gameObject] :
 			gameObjectManager.getGameObjects())
 		{
-			if (!gameObject->hasComponent<ScriptComponent>())
+			// EVERY script on the object is checked - an object may carry
+			// several behavior scripts, and each can break independently
+			for (ScriptComponent * script :
+				ScriptComponent::collectFrom(*gameObject))
 			{
-				continue;
+				const bool broken =
+					script->hasScriptError() || script->hasReloadError();
+				// the report set is keyed per SCRIPT (object + kind name), so
+				// two broken scripts on one object both report exactly once
+				const String key = id + "\n" + script->getComponentName();
+				if (!broken || mReportedScriptErrors.count(key) != 0)
+				{
+					continue;
+				}
+				// a hot-reload failure is the fresher, more actionable message
+				// when present (the old instance is still alive); else the fatal one
+				const String & message = script->hasReloadError()
+					? script->getLastReloadError() : script->getScriptError();
+				DebugMessage error(Protocol::MSG_SCRIPT_ERROR);
+				error.set(Protocol::FIELD_ID, id);
+				// name the culprit so the editor Console can point at the right
+				// script when an object carries several
+				error.set(Protocol::FIELD_COMPONENT, script->getComponentName());
+				error.set(Protocol::FIELD_MESSAGE, message);
+				mServer.send(error);
+				mReportedScriptErrors.insert(key);
+				// mirror it into an active trace as an event
+				traceEvent("scriptError",
+					{ { "object", id }, { "component", script->getComponentName() },
+					{ "message", message } });
 			}
-			ScriptComponent * script =
-				gameObject->getComponentPtr<ScriptComponent>();
-			const bool broken =
-				script->hasScriptError() || script->hasReloadError();
-			if (!broken || mReportedScriptErrors.count(id) != 0)
-			{
-				continue;
-			}
-			// a hot-reload failure is the fresher, more actionable message when
-			// present (the old instance is still alive); otherwise the fatal one
-			const String message = script->hasReloadError()
-				? script->getLastReloadError() : script->getScriptError();
-			DebugMessage error(Protocol::MSG_SCRIPT_ERROR);
-			error.set(Protocol::FIELD_ID, id);
-			error.set(Protocol::FIELD_MESSAGE, message);
-			mServer.send(error);
-			mReportedScriptErrors.insert(id);
-			// mirror it into an active trace as an event
-			traceEvent("scriptError",
-				{ { "object", id }, { "message", message } });
 		}
 	}
 	//---------------------------------------------------------
@@ -771,10 +778,10 @@ namespace Orkige
 	void PlayerDebugLink::handleSetProperty(
 		GameObjectManager & gameObjectManager, DebugMessage const & message)
 	{
-		const String id = message.get(Protocol::FIELD_ID);
-		const String component = message.get(Protocol::FIELD_COMPONENT);
-		const String property = message.get(Protocol::FIELD_PROPERTY);
-		const String value = message.get(Protocol::FIELD_VALUE);
+		const String & id = message.get(Protocol::FIELD_ID);
+		const String & component = message.get(Protocol::FIELD_COMPONENT);
+		const String & property = message.get(Protocol::FIELD_PROPERTY);
+		const String & value = message.get(Protocol::FIELD_VALUE);
 		optr<GameObject> gameObject =
 			gameObjectManager.getGameObject(id).lock();
 		if (!gameObject)
@@ -848,7 +855,7 @@ namespace Orkige
 	void PlayerDebugLink::handleReloadScript(
 		GameObjectManager & gameObjectManager, DebugMessage const & message)
 	{
-		const String targetId = message.get(Protocol::FIELD_ID); // "" = all
+		const String & targetId = message.get(Protocol::FIELD_ID); // "" = all
 		if (!targetId.empty() && !gameObjectManager.objectExists(targetId))
 		{
 			sendError("reload_script: no GameObject '" + targetId + "'");
@@ -862,15 +869,18 @@ namespace Orkige
 			{
 				continue;
 			}
-			if (!gameObject->hasComponent<ScriptComponent>())
+			// hot-reload EVERY script on the object - an object may carry several
+			// behavior scripts; each hotReload is compile-before-swap and
+			// preserves engine-side + shared state, so re-arming siblings is safe
+			for (ScriptComponent * script :
+				ScriptComponent::collectFrom(*gameObject))
 			{
-				continue;
+				script->hotReload();
+				// re-arm reporting per script: a still-/newly-broken instance
+				// must re-report, a healed one clears on the next stream tick
+				mReportedScriptErrors.erase(id + "\n" + script->getComponentName());
+				++reloaded;
 			}
-			gameObject->getComponentPtr<ScriptComponent>()->hotReload();
-			// re-arm reporting: a still-/newly-broken instance must re-report,
-			// a successful reload lets the error clear on the next stream tick
-			mReportedScriptErrors.erase(id);
-			++reloaded;
 		}
 		// surface any reload that just FAILED immediately (its old instance is
 		// still ticking, but the editor must see the broken edit at once)
@@ -889,8 +899,8 @@ namespace Orkige
 	//! singleton, so this handler needs no GameObjectManager.
 	void PlayerDebugLink::handleSetCvar(DebugMessage const & message)
 	{
-		const String name = message.get(Protocol::FIELD_CVAR_NAME);
-		const String value = message.get(Protocol::FIELD_VALUE);
+		const String & name = message.get(Protocol::FIELD_CVAR_NAME);
+		const String & value = message.get(Protocol::FIELD_VALUE);
 		String error;
 		if (!CVarManager::getSingleton().setString(name, value, &error))
 		{
@@ -936,7 +946,7 @@ namespace Orkige
 			}
 			else if (message.type == Protocol::MSG_SELECT)
 			{
-				const String id = message.get(Protocol::FIELD_ID);
+				const String & id = message.get(Protocol::FIELD_ID);
 				if (id.empty() || gameObjectManager.objectExists(id))
 				{
 					mSelectedObjectId = id;
@@ -954,7 +964,7 @@ namespace Orkige
 			}
 			else if (message.type == Protocol::MSG_SET_ACTIVE)
 			{
-				const String id = message.get(Protocol::FIELD_ID);
+				const String & id = message.get(Protocol::FIELD_ID);
 				optr<GameObject> gameObject =
 					gameObjectManager.getGameObject(id).lock();
 				if (gameObject)
@@ -988,7 +998,7 @@ namespace Orkige
 				// screenshot the running game: record the target path; the
 				// main loop captures the window AFTER rendering (renderer
 				// containment) and reports back with notifyScreenshotSaved
-				const String path = message.get(Protocol::FIELD_PATH);
+				const String & path = message.get(Protocol::FIELD_PATH);
 				if (path.empty())
 				{
 					sendError("screenshot: missing path");
@@ -1024,7 +1034,7 @@ namespace Orkige
 				// routed through the REAL input path so modal/disabled semantics
 				// apply (an agent driving a dialog button, or asserting a button
 				// under a scrim stays inert)
-				const String id = message.get(Protocol::FIELD_ID);
+				const String & id = message.get(Protocol::FIELD_ID);
 				GuiManager* gui = GuiManager::getSingletonPtr();
 				if (gui == NULL || !gui->widgetExists(id))
 				{
@@ -1062,7 +1072,7 @@ namespace Orkige
 				GuiManager* gui = GuiManager::getSingletonPtr();
 				if (gui != NULL)
 				{
-					const String id = message.get(Protocol::FIELD_ID);
+					const String & id = message.get(Protocol::FIELD_ID);
 					if (id.empty())
 					{
 						gui->dismissTopModal();

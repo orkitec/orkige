@@ -63,18 +63,43 @@ namespace Orkige
 		return false;
 	}
 	//---------------------------------------------------------
+	TypeInfo GameObjectComponent::getComponentKey() const
+	{
+		// discover the container key by finding THIS instance in the owner's
+		// component map: a name-aliased kind (a script component) is stored under
+		// its script name, not its C++ class, and that key is the identity every
+		// consumer uses. No per-component storage keeps the class ABI-stable.
+		GameObject* owner = const_cast<GameObjectComponent*>(this)->getComponentOwner();
+		if (owner)
+		{
+			for (auto const & entry : owner->getComponents())
+			{
+				if (entry.second.get() == this)
+				{
+					return TypeInfo(entry.first);
+				}
+			}
+		}
+		// not (yet) owned: the C++ TypeInfo IS the key (they coincide for every
+		// plain component). TypeInfo's copy ctor is explicit - direct-initialise.
+		return TypeInfo(this->getTypeInfo());
+	}
+	//---------------------------------------------------------
 	void GameObjectComponent::setWantsUpdates(bool wantsUpdates)
 	{
 		this->wantsUpdates = wantsUpdates;
 		if(this->getComponentOwner())
 		{
+			// key off the container KIND, so a name-aliased script component
+			// (stored under its script name, not "ScriptComponent") registers
+			const TypeInfo key = this->getComponentKey();
 			if(this->wantsUpdates)
 			{
-				this->getComponentOwner()->enableUpdates(this->getTypeInfo());
+				this->getComponentOwner()->enableUpdates(key);
 			}
 			else
 			{
-				this->getComponentOwner()->disableUpdates(this->getTypeInfo());
+				this->getComponentOwner()->disableUpdates(key);
 			}
 		}
 	}

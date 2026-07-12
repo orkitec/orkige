@@ -8,6 +8,7 @@
 ***************************************************************/
 
 #include "engine_gocomponent/ScriptComponent.h"
+#include "engine_gocomponent/ScriptComponentRegistry.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/RigidBodyComponent.h"
@@ -393,18 +394,66 @@ namespace Orkige
 		for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
 		{
 			(void)id;
-			if (gameObject->hasComponent<ScriptComponent>())
+			// EVERY script on the object hears it, not just a lone
+			// "ScriptComponent" - an object may carry several behavior scripts
+			for (ScriptComponent* script : ScriptComponent::collectFrom(*gameObject))
 			{
-				gameObject->getComponentPtr<ScriptComponent>()
-					->dispatchAppLifecycle(paused);
+				script->dispatchAppLifecycle(paused);
 			}
 		}
+	}
+	//---------------------------------------------------------
+	std::vector<ScriptComponent*> ScriptComponent::collectFrom(
+		GameObject & gameObject)
+	{
+		// walk the container and dynamic_cast: a name-aliased script kind is
+		// stored under its script name, so the type-keyed getComponentPtr<>()
+		// would miss it - this reaches EVERY script on the object regardless of
+		// key (and, incidentally, the low-level "ScriptComponent" kind too)
+		std::vector<ScriptComponent*> scripts;
+		for (auto const & entry : gameObject.getComponents())
+		{
+			if (ScriptComponent* script =
+				dynamic_cast<ScriptComponent*>(entry.second.get()))
+			{
+				scripts.push_back(script);
+			}
+		}
+		return scripts;
+	}
+	//---------------------------------------------------------
+	String ScriptComponent::getComponentName() const
+	{
+		return this->getComponentKey().getName();
 	}
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
 	void ScriptComponent::onAdd()
 	{
+		// bind this instance to its script KIND: at onAdd the component is
+		// already in the owner's map, so getComponentKey() resolves the container
+		// key. The low-level kind carries its file in the serialized `script`
+		// property - there is nothing to resolve from the key.
+		const String key = this->getComponentKey().getName();
+		if (key == ScriptComponent::getClassTypeInfo().getName())
+		{
+			return;
+		}
+		// a NAME-ALIASED script kind: the key IS the script name - resolve its
+		// file through the registry and bind it, so an Add Component / a scene
+		// load / an MCP add_component gets a runnable script with no explicit
+		// file. Missing registry / kind (a raw unit test, a stale scene) leaves
+		// the file empty; a serialized `script` record then still binds it.
+		if (ScriptComponentRegistry::getSingletonPtr())
+		{
+			const String file = ScriptComponentRegistry::getSingleton()
+				.scriptFileForComponent(key);
+			if (!file.empty())
+			{
+				this->setScriptFile(file);
+			}
+		}
 	}
 	//---------------------------------------------------------
 	void ScriptComponent::onRemove()
@@ -667,8 +716,22 @@ namespace Orkige
 			&worldGetComponent<SpriteComponent>);
 		runtime.registerFunction("world", "getParticles",
 			&worldGetComponent<ParticleComponent>);
+		// world.getScript(id): a script component on the object. Script kinds are
+		// keyed by script name, not "ScriptComponent", so reach them by scan and
+		// return the FIRST (an object with several scripts is better reached by
+		// world.get(id) + the shared table; this stays the convenience accessor)
 		runtime.registerFunction("world", "getScript",
-			&worldGetComponent<ScriptComponent>);
+			[](String const & id) -> ScriptComponent*
+		{
+			GameObject* gameObject = worldGetGameObject(id);
+			if (!gameObject)
+			{
+				return NULL;
+			}
+			std::vector<ScriptComponent*> scripts =
+				ScriptComponent::collectFrom(*gameObject);
+			return scripts.empty() ? NULL : scripts.front();
+		});
 		runtime.registerFunction("world", "getSound",
 			&worldGetComponent<SoundComponent>);
 		// world.findByTag(tag) -> array of the GameObjects carrying that tag

@@ -17,6 +17,7 @@
 #include "core_util/optr.h"
 
 #include <map>
+#include <vector>
 
 namespace Orkige
 {
@@ -173,6 +174,18 @@ namespace Orkige
 		//! RigidBodyComponent::dispatchContacts fan-out.
 		static void dispatchAppLifecycle(GameObjectManager & gameObjectManager,
 			bool paused);
+		//! @brief every ScriptComponent attached to `gameObject`, whatever its
+		//! kind key. A name-aliased script kind is stored under its script name,
+		//! so getComponentPtr<ScriptComponent>() reaches only the one keyed
+		//! literally "ScriptComponent" - the dispatch (contact / app-lifecycle),
+		//! hot-reload and error-scan paths iterate THIS instead, so an event
+		//! reaches EVERY behavior script on an object and one object may carry
+		//! several different scripts.
+		static std::vector<ScriptComponent*> collectFrom(GameObject & gameObject);
+		//! @brief the KIND name this component is attached under: a script name
+		//! for a name-aliased kind (e.g. "player"), else "ScriptComponent"
+		//! (its container key - @see GameObjectComponent::getComponentKey)
+		String getComponentName() const;
 		//! @brief the DYNAMIC schema of the attached script's exported properties
 		//! the per-instance half of the reflection union. Empty
 		//! until a script declaring a `properties` table is attached (and always
@@ -187,7 +200,13 @@ namespace Orkige
 		//! the debug protocol / MCP) reaches the script immediately.
 		void setExportValue(String const & name, PropertyValue const & value);
 	protected:
-		//! component override gets called after the component is attached to a GameObject
+		//! @brief on attach, bind this instance to its script KIND. A NAME-ALIASED
+		//! kind (its container key is a script name, not the class name
+		//! "ScriptComponent") resolves its script file through the
+		//! ScriptComponentRegistry and binds it, so an editor Add Component / an
+		//! MCP add_component("player") / a scene load of a named kind all get a
+		//! runnable script with no explicit file. The low-level "ScriptComponent"
+		//! kind keeps its file from the serialized `script` property.
 		virtual void onAdd();
 		//! component override gets called before the component is removed from a GameObject
 		virtual void onRemove();

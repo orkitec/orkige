@@ -1,8 +1,13 @@
 # Lua API reference
 
-The scripting surface a game reaches from a `ScriptComponent` (`projects/*/scripts/*.lua`).
-Game behavior lives in these scripts; `projects/jumper-lua/scripts/player.lua` and
-`projects/roller/scripts/ball.lua` are the reference reads.
+The scripting surface a game reaches from a script component
+(`projects/*/scripts/*.component.lua`). Game behavior lives in these scripts;
+`projects/jumper-lua/scripts/player.lua` and
+`projects/roller/scripts/ball.component.lua` are the reference reads.
+
+A script is a **component kind** iff its file name ends in `.component.lua` (see
+[Script components](#script-components) below): `player.component.lua` attaches
+as the component `player`. Plain `.lua` files are libraries, never attachable.
 
 This page is layered. The **signature index** below is the whole API, one line per
 symbol, for a fast top-to-bottom scan (an agent ingests it in a single read). Below
@@ -175,6 +180,83 @@ RayHit.bodyId
 <!-- /GENERATED:lua-api-index -->
 
 ## Conventions
+
+### Script components
+
+A behavior script is an attachable **component kind** when its file name ends in
+`.component.lua`. Its kind name is the base name:
+`scripts/player.component.lua` → the component `player`. Plain `.lua` files are
+libraries/helpers and never attach.
+
+- **Several scripts, one object.** Different script kinds attach to the same
+  GameObject, each in its own sandbox with its own lifecycle. The *same* kind
+  twice on one object is unsupported. The editor's Add Component menu lists the
+  project's script kinds; the runtime hierarchy/inspector and MCP
+  (`add_component("player")` / `get_component` / `set_component` /
+  `list_addable_components`) address them by kind name.
+- **Declared properties.** A top-level `properties` table auto-exposes
+  designer-tunable fields: each shows in the Inspector, serializes per-instance
+  overrides into the scene, is injected onto `self.<name>` before `init`, and is
+  read/written live over the debug protocol / MCP by name. The value is read
+  WITHOUT running behavior (a broken `properties` table is an honest error, never
+  executes `init`). Types: `number`/`bool`/`string`/`vec3`/`color`/`asset`/`object`;
+  `min`/`max` add a slider range, `kind` an asset/object hint.
+
+```lua
+-- scripts/enemy.component.lua  ->  the "enemy" component kind
+properties = {
+    speed  = { type = "number", default = 3.0, min = 0, max = 20 },
+    patrol = { type = "bool",   default = true },
+    tint   = { type = "color",  default = {1, 1, 1, 1} },
+    icon   = { type = "asset",  kind = "texture" },
+}
+function init(self)     -- self.speed / self.tint ... are the (overridable) values
+    self.dir = self.speed
+end
+function update(self, dt) end
+```
+
+The low-level `ScriptComponent` (an explicit `script` file path property) still
+exists for any script bound by path rather than by kind name.
+
+- **Event delivery reaches EVERY component.** The lifecycle hooks fire on *each*
+  script component of an object independently: `update` (the tick),
+  `onContactBegin`/`onContactEnd` (the physics contact drain), `onAppPause`/
+  `onAppResume` (the app-lifecycle broadcast). Two scripts on one object each get
+  their own call in their own sandbox. There is currently **no general
+  event-bus** (`subscribe`/`emit`) surface for scripts — the hooks above are the
+  whole event vocabulary; cross-object/-system messaging goes through `shared`,
+  tags (`world.findByTag`) or the object graph. (A Lua bridge to the C++
+  `GlobalEventManager` is a separate, not-yet-shipped surface.)
+- **GUI events are single-consumer.** The gui poll idiom is latch-and-clear:
+  `widget:wasClicked()` / `wasSubmitted()` / `group:pollChanged()` /
+  `gui:getDialogResult()` return the pending event ONCE and clear it. So if two
+  script components poll the SAME widget in one frame, the FIRST to poll consumes
+  it and the second sees nothing. **Convention: exactly one script component owns
+  a given widget's events** — split UI ownership by widget, not by having several
+  scripts race for the same button. (Per-consumer latching was judged not worth
+  the binding-layer cost for a case good authoring avoids.)
+
+### Script component performance
+
+The multi-sandbox model is cheap: measured ~**0.25 µs per component per frame**
+(500 components — a quarter carrying declared properties and doing per-frame
+work — tick in ~0.12 ms/frame; the `[perf]` unit test logs the number). What
+scales and what to watch:
+
+- **The floor** (an empty `update`) is a sol2 `protected_function` call plus the
+  component gate — sub-microsecond. Attaching many script components is fine.
+- **Allocation**: the per-frame `update(self, dt)` path packs its arguments for
+  the sol2 call; it does not allocate engine-side per component per frame (no
+  per-tick container growth). Declared properties add NO per-frame cost — they
+  are injected onto `self` once at init, then read as plain Lua fields.
+- **GC**: the Lua state runs the standard incremental collector; a script that
+  allocates each frame (building tables/strings in `update`) feeds it — prefer
+  reusing `self` fields over per-frame table churn in hot scripts. A stress tick
+  showed no GC spikes in the frame log at this scale.
+- **Avoid**: heavy per-frame work in `update` on hundreds of instances (do it
+  event-driven or on a subset), and per-frame string/table allocation in hot
+  scripts.
 
 **The script shape.** A script file defines free functions the runtime calls on a
 per-instance sandbox. None are required; define the ones you need:

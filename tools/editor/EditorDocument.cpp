@@ -11,6 +11,7 @@
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
+#include <engine_gocomponent/ScriptComponentRegistry.h>
 #include <engine_render/RenderSystem.h>
 
 #include <algorithm>
@@ -175,6 +176,12 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// scripts the same way the runtimes do
 	Orkige::ScriptRuntime::getSingleton().setScriptSearchRoot(
 		state.project.getRootDirectory());
+	// discover the project's SCRIPT COMPONENT KINDS (*.component.lua) so they
+	// appear in Add Component, resolve their exported properties for the
+	// Inspector, and let scenes that attach them load (the editor authors them;
+	// the spawned player runs them)
+	Orkige::ScriptComponentRegistry::getSingleton().scanProject(
+		state.project.getScriptsDirectory(), state.project.getRootDirectory());
 	// the collision-layer config feeds the RigidBody Inspector's layer dropdown
 	// (the editor never simulates; this is purely for authoring)
 	core.loadPhysicsLayers(state.project);
@@ -214,6 +221,9 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	paletteArmPrefab(state, core, std::string());
 	state.project.close();
 	Orkige::ScriptRuntime::getSingleton().setScriptSearchRoot("");
+	// drop the closing project's script component kinds (and their factory
+	// aliases) so they never leak into the next project / loose-scene mode
+	Orkige::ScriptComponentRegistry::getSingleton().clear();
 	// back to the built-in default layers (loose-scene mode)
 	core.resetPhysicsLayers();
 }
