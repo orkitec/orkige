@@ -56,9 +56,9 @@
 #include <core_game/TileComponent.h>
 #include <core_project/Project.h>
 #include <core_util/StringUtil.h>
-#include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
+#include <engine_runtime/AppHost.h>
 
 #include <imgui.h>
 #include <imgui_internal.h> // FindWindowByName (the selfcheck's panel probes)
@@ -102,39 +102,6 @@ using Orkige::optr;
 using Orkige::woptr;
 #endif
 
-extern "C" void* orkige_native_window_handle(SDL_Window* window);
-
-namespace
-{
-
-// ESC through the engine input pipeline (SDL event -> InputManager ->
-// GlobalEventManager -> listener) - also proves that non-ImGui input still
-// reaches the engine. A first ESC clears the selection, ESC
-// with nothing selected quits the editor.
-struct QuitOnEscape
-{
-	bool quitRequested = false;
-	Orkige::EditorCore* editorCore = nullptr;
-	bool onKeyPressed(Orkige::Event const& event)
-	{
-		if (event.getDataPtr<Orkige::KeyEventData>()->key ==
-			Orkige::KeyEventData::KC_ESCAPE)
-		{
-			if (editorCore && editorCore->hasSelection())
-			{
-				editorCore->clearSelection();
-			}
-			else
-			{
-				quitRequested = true;
-			}
-		}
-		return false;
-	}
-};
-
-} // namespace
-
 int main(int argc, char** argv)
 {
 	// --mcp-port N / --mcp-token-file PATH (aliases --control-port /
@@ -177,43 +144,49 @@ int main(int argc, char** argv)
 		controlTokenFile = tokenEnv;
 	}
 
-	if (!SDL_Init(SDL_INIT_VIDEO))
-	{
-		SDL_Log("SDL_Init failed: %s", SDL_GetError());
-		return 1;
-	}
-	SDL_Window* window =
-		SDL_CreateWindow("Orkige Editor", 1280, 720,
-			SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	if (!window)
-	{
-		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-		return 1;
-	}
-	// testing/multi-display hook: ORKIGE_EDITOR_WINDOW_DISPLAY=<index> centers
-	// the window on the given display BEFORE the render context is built, so the
-	// drawable adopts that display's backing scale (the content-scale probe below
-	// then reads e.g. 2.0 on a Retina panel). Lets the visual selfcheck capture
-	// the HiDPI chrome on machines whose primary display is 1x.
-	if (const char* displayEnv = std::getenv("ORKIGE_EDITOR_WINDOW_DISPLAY"))
-	{
-		int displayCount = 0;
-		SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
-		const int wanted = std::atoi(displayEnv);
-		if (displays && wanted >= 0 && wanted < displayCount)
-		{
-			SDL_SetWindowPosition(window,
-				SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]),
-				SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]));
-		}
-		SDL_free(displays);
-	}
-	// let the Engine read this window's content scale / safe area (harmless in
-	// the editor - it drives the gui UI scale a spawned player uses too)
-	Orkige::PlatformWindow::setActiveWindow(window);
+	// automated run? (any scripted-test/automation hook set) - decided up
+	// front because it gates the vsync choice (before Engine::setup: an
+	// uncapped editor renders thousands of UI frames per second for no
+	// benefit, automated runs stay uncapped so the frame-scripted tests
+	// finish as fast as the machine allows) and the reopen-last-project
+	// convenience: scripted runs must start exactly where the script
+	// expects (an empty untitled scene), never in yesterday's project
+	const bool automatedRun =
+		std::getenv("ORKIGE_DEMO_FRAMES") != nullptr ||
+		std::getenv("ORKIGE_DEMO_SCREENSHOT") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_EDITTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_OPEN_SCENE") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
 
 	int exitCode = 0;
+	// the shared boot spine (engine_runtime/AppHost.h). The editor is the
+	// bespoke host: a resizable window, no window-camera rig (the scene
+	// renders offscreen into the Scene panel's RenderTexture), and the two
+	// boot phases run separately so the console/log plumbing can hook in
+	// before anything logs and before the render backend boots.
+	Orkige::AppHost host;
 	{
+		Orkige::AppHostConfig hostConfig;
+		hostConfig.windowTitle = "Orkige Editor";
+		hostConfig.resizableWindow = true;
+		hostConfig.automatedRun = automatedRun;
+		hostConfig.engineLogFile = "orkige_editor.log";
+		hostConfig.classicMediaDir = ORKIGE_EDITOR_MEDIA_DIR;
+		hostConfig.createWindowCamera = false;
+
 		// the Console line store exists before anything logs; the editor's
 		// own SDL_Log lines route into it (and still reach the previous
 		// output) from here on
@@ -224,85 +197,36 @@ int main(int argc, char** argv)
 			&sdlLogHook.previousUserdata);
 		SDL_SetLogOutputFunction(consoleSdlLogOutput, &sdlLogHook);
 
-		// engine singletons a shared host boot would own; the editor brings
-		// up the same set as the hello_orkige demo
-		Orkige::Timer::initialise();
-		Orkige::GlobalEventManager eventManager;
-		// the scripting seam must exist before the module init functions run
-		// so OrkigeMetaExport reaches the real backend state
-		Orkige::ScriptRuntime scriptRuntime;
-		init_module_orkige_core();
-
-		// automated run? (any scripted-test/automation hook set) - decided
-		// up front because it gates the vsync choice below (before
-		// Engine::setup) and the reopen-last-project convenience: scripted
-		// runs must render uncapped and start exactly where the script
-		// expects (an empty untitled scene), never in yesterday's project
-		const bool automatedRun =
-			std::getenv("ORKIGE_DEMO_FRAMES") != nullptr ||
-			std::getenv("ORKIGE_DEMO_SCREENSHOT") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_SELFCHECK") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_RESIZE_TEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_EDITTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_OPEN_SCENE") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_EXPORT_EXAMPLE") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_PROJECT_TEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
-			std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
-
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (the app rule + flavor split,
-		// Docs/render-abstraction.md - same shape as tools/player): on
-		// classic, Engine construction/config, the RTSS-internal media and
-		// the ORKIGE_RENDERSYSTEM pick stay classic plumbing; on the next
-		// flavor the Engine sibling (engine_graphic/EngineNext.h) carries
-		// the same parameters into RenderBackend::createRenderSystem. After
-		// Engine::setup the editor talks to the engine_render facade on
-		// BOTH flavors.
-#ifdef ORKIGE_RENDER_CLASSIC
-		Orkige::Engine engine(Ogre::SMT_DEFAULT,
-			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
-			Orkige::StringUtil::BLANK, "orkige_editor.log");
-#else
-		Orkige::Engine engine("orkige_editor.log");
-#endif
-		engine.setCustomWindowParam("width", "1280");
-		engine.setCustomWindowParam("height", "720");
-		if (!automatedRun)
+		if (!host.initialise(hostConfig))
 		{
-			// a HUMAN run gets vsync (same rule as the player and the jumper
-			// sample): an uncapped editor renders thousands of UI frames per
-			// second for no benefit - automated runs stay uncapped so the
-			// frame-scripted tests finish as fast as the machine allows
-			engine.setCustomWindowParam("vsync", "true");
+			return 1;
 		}
-
-#ifdef ORKIGE_RENDER_CLASSIC
-		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Vulkan",
-		// "Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
-		// unset keeps the default (first available, i.e. GL3Plus). Vulkan
-		// (MoltenVK on macOS) has full RTSS support; OGRE 14.5's Metal RS
-		// does not (no MSL backend - built-in default shaders only).
-		// (The next flavor boots Ogre-Next's Metal RS unconditionally -
-		// the graphics-API pick is a classic-backend concern.)
-		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
+		SDL_Window* const window = host.getWindow();
+		// testing/multi-display hook: ORKIGE_EDITOR_WINDOW_DISPLAY=<index>
+		// centers the window on the given display BEFORE the render context is
+		// built, so the drawable adopts that display's backing scale (the
+		// content-scale probe below then reads e.g. 2.0 on a Retina panel).
+		// Lets the visual selfcheck capture the HiDPI chrome on machines whose
+		// primary display is 1x.
+		if (const char* displayEnv = std::getenv("ORKIGE_EDITOR_WINDOW_DISPLAY"))
 		{
-			engine.setPreferredRenderSystem(renderSystemEnv);
+			int displayCount = 0;
+			SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
+			const int wanted = std::atoi(displayEnv);
+			if (displays && wanted >= 0 && wanted < displayCount)
+			{
+				SDL_SetWindowPosition(window,
+					SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]),
+					SDL_WINDOWPOS_CENTERED_DISPLAY(displays[wanted]));
+			}
+			SDL_free(displays);
 		}
-#endif
 
 		// engine log -> Console: the engine_base log-capture service (shared
 		// with PlayerDebugLink) queues every line from here on; the frame
 		// loop drains it into the Console once per frame. The engine log
-		// exists once the Engine ctor ran, so attach cannot fail here. Sized
+		// exists once phase 1 constructed the Engine, so attaching between
+		// the boot phases catches the render backend's boot lines. Sized
 		// to the Console cap - the OGRE boot easily exceeds the default
 		// backlog and the Console wants those lines.
 		Orkige::EngineLogCapture engineLogCapture(EditorConsole::MAX_LINES);
@@ -312,51 +236,37 @@ int main(int argc, char** argv)
 				"the Console will miss the engine log");
 		}
 
-#ifdef ORKIGE_RENDER_CLASSIC
-		// RTSS shader library + OgreUnifiedShader.h, same locations
-		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
-		// backend-internal media, must precede Engine::setup. (The next
-		// flavor's Hlms media is a built-in default of its Engine sibling.)
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_EDITOR_MEDIA_DIR "/Main", "FileSystem", Ogre::RGN_INTERNAL);
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_EDITOR_MEDIA_DIR "/RTShaderLib", "FileSystem",
-			Ogre::RGN_INTERNAL);
-#endif
-
-		if (!engine.setup("Orkige Editor", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
+		if (!host.setupEngine([&host]()
+			{
+				Orkige::RenderSystem* render = host.getRenderSystem();
+				// sample assets (test_mesh.glb from Util/make_test_mesh.py) in
+				// the default group; meshes load lazily via Codec_Assimp
+				render->addResourceLocation(ORKIGE_EDITOR_ASSET_DIR);
+				// jumper sample assets (textured .glb meshes from
+				// Util/make_jumper_assets.py) so samples/jumper/level1.oscene
+				// opens
+				render->addResourceLocation(ORKIGE_EDITOR_JUMPER_ASSET_DIR);
+				// the engine-default font (Nunito) directory so a project's
+				// .ogui can reference the font by name (font-atlas baking
+				// resolves the ttf by resource name across all groups);
+				// is_directory keeps it a silent skip
+				std::error_code fontDirError;
+				if (std::filesystem::is_directory(ORKIGE_EDITOR_FONT_DIR,
+					fontDirError))
+				{
+					render->addResourceLocation(ORKIGE_EDITOR_FONT_DIR);
+				}
+			}))
 		{
-			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the boot block: from here on the editor talks to the
-		// renderer through the engine_render facade on BOTH flavors
-		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-		Orkige::RenderWorld* world = render->getWorld();
+		Orkige::RenderSystem* render = host.getRenderSystem();
+		Orkige::RenderWorld* world = host.getRenderWorld();
 
-		// sample assets (test_mesh.glb from Util/make_test_mesh.py) in the
-		// default group; meshes load lazily via Codec_Assimp on mesh load
-		render->addResourceLocation(ORKIGE_EDITOR_ASSET_DIR);
-		// jumper sample assets (textured .glb meshes from
-		// Util/make_jumper_assets.py) so samples/jumper/level1.oscene opens
-		render->addResourceLocation(ORKIGE_EDITOR_JUMPER_ASSET_DIR);
-		// the engine-default font (Nunito) directory so a project's .ogui can
-		// reference the font by name (font-atlas baking resolves the ttf by
-		// resource name across all groups); is_directory keeps it a silent skip
-		std::error_code fontDirError;
-		if (std::filesystem::is_directory(ORKIGE_EDITOR_FONT_DIR, fontDirError))
-		{
-			render->addResourceLocation(ORKIGE_EDITOR_FONT_DIR);
-		}
-
-		// The scene no longer renders into the window (that was
-		// Engine::createDefaultCameraAndViewport): the editor's scene camera
-		// draws into the offscreen facade RenderTexture created below on a
-		// facade camera rig (near/far defaults 1/100000 match the historical
-		// editor camera).
+		// The scene does not render into the window: the editor's scene
+		// camera draws into the offscreen facade RenderTexture created below
+		// on a facade camera rig (near/far defaults 1/100000 match the
+		// historical editor camera) - hence no host window-camera rig.
 		optr<Orkige::RenderCamera> sceneCamera =
 			world->createCamera("EditorSceneCamera");
 		optr<Orkige::RenderNode> sceneCameraNode =
@@ -371,8 +281,6 @@ int main(int argc, char** argv)
 		render->setWindowBackgroundColour(
 			Orkige::Color(0.102f, 0.102f, 0.102f));
 		render->showUIOnlyWindow();
-		render->initialiseResourceGroups();
-		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 
 		// Dear ImGui through the engine_render facade: the editor owns the
 		// context; ImGuiFacadeRenderer draws it as one DrawLayer2D (works
@@ -512,21 +420,18 @@ int main(int argc, char** argv)
 		sceneTarget.camera = sceneCamera;
 		createSceneRenderTexture(sceneTarget, 960, 540);
 
-		// input: ImGui first, engine InputManager for whatever is left
+		// input: ImGui first, engine InputManager for whatever is left.
+		// ESC through the shared listener - also proves that non-ImGui input
+		// still reaches the engine; the intercept (set below, once the
+		// EditorCore exists) makes a first ESC clear the selection, so only
+		// ESC with nothing selected quits the editor.
 		Orkige::InputManager inputManager;
 		Orkige::ImGuiSDL3Input imguiInput(window);
-		QuitOnEscape quitOnEscape;
+		Orkige::QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> escapeListener =
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyPressedEvent,
-				&QuitOnEscape::onKeyPressed, &quitOnEscape);
-
-		// unlit vertex-colour material + the shared "EditorCube.mesh"
-		// resource through the facade cube-mesh service (a real mesh, so
-		// cubes go through ModelComponent and round-trip through scene
-		// files - the player builds the identical resource); the default
-		// name IS RenderWorld::CUBE_MESH_NAME
-		world->createVertexColourCubeMesh();
+				&Orkige::QuitOnEscape::onKeyPressed, &quitOnEscape);
 
 		// ground-plane reference grid (editor-only, toggled via View menu,
 		// invisible to picking, not part of the GameObject world) - a
@@ -536,14 +441,25 @@ int main(int argc, char** argv)
 		optr<Orkige::MeshInstance> gridMesh = createEditorGrid(world, gridNode);
 		gridNode->setVisible(viewSettings.showGrid);
 
-		// GameObject/component bridge (registers the component factories)
-		init_module_orkige_engine();
-		Orkige::GameObjectManager gameObjectManager;
+		// the GameObject world from the host boot (which also built the
+		// shared "EditorCube.mesh" + its unlit "VertexColour" material - a
+		// real mesh, so cubes go through ModelComponent and round-trip
+		// through scene files; the player builds the identical resource)
+		Orkige::GameObjectManager& gameObjectManager =
+			host.getGameObjectManager();
 
 		// the UI-independent editor logic (selection, tools, undo/redo,
 		// object operations) - everything below drives THIS layer
 		Orkige::EditorCore editorCore(gameObjectManager);
-		quitOnEscape.editorCore = &editorCore;
+		quitOnEscape.intercept = [&editorCore]()
+		{
+			if (editorCore.hasSelection())
+			{
+				editorCore.clearSelection();
+				return true;	// consumed - a second ESC quits
+			}
+			return false;
+		};
 		// persisted snap settings (toolbar toggle + editable step values);
 		// scripted runs keep the factory defaults - the edittest asserts them
 		if (!automatedRun)
@@ -1657,7 +1573,7 @@ int main(int argc, char** argv)
 			ImGui::Render();
 			imguiRenderer.render(ImGui::GetDrawData());
 
-			if (!engine.renderOneFrame())
+			if (!host.getEngine().renderOneFrame())
 			{
 				running = false;
 			}
@@ -6459,7 +6375,7 @@ int main(int argc, char** argv)
 			sdlLogHook.previousUserdata);
 	}
 
-	SDL_DestroyWindow(window);
-	SDL_Quit();
+	// AppHost's destructor mirrors the boot: world, engine, singletons,
+	// then the SDL window
 	return exitCode;
 }

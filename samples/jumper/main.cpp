@@ -68,14 +68,13 @@
 #include <engine_gocomponent/RigidBodyComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 #include <engine_input/InputManager.h>
+#include <engine_runtime/AppHost.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
 #include <core_util/StringUtil.h>
-#include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
-#include <core_script/ScriptRuntime.h>
 
 #include "JumperHud.h"
 #include "JumperLogic.h"
@@ -91,14 +90,13 @@
 using Orkige::optr;
 using Orkige::woptr;
 
-extern "C" void* orkige_native_window_handle(SDL_Window* window);
-
 namespace
 {
 
 //! keyboard state fed by the engine input pipeline (SDL event ->
 //! InputManager::injectEvent -> KeyPressed/KeyReleasedEvent -> here); the
-//! gameplay code never touches raw SDL
+//! gameplay code never touches raw SDL. ESC is handled by the shared
+//! Orkige::QuitOnEscape listener (engine_runtime/AppHost.h).
 struct JumperInput
 {
 	bool left = false;
@@ -106,7 +104,6 @@ struct JumperInput
 	bool forward = false;	//!< into the screen (-z)
 	bool back = false;		//!< toward the camera (+z)
 	float jumpBuffer = 0.0f;	//!< seconds a queued jump press stays valid
-	bool quitRequested = false;
 
 	//! how long a SPACE press waits for the ground (jump buffering)
 	static constexpr float JUMP_BUFFER_SECONDS = 0.12f;
@@ -125,9 +122,6 @@ struct JumperInput
 		case Orkige::KeyEventData::KC_DOWN:		back = true; break;
 		case Orkige::KeyEventData::KC_SPACE:
 			jumpBuffer = JUMP_BUFFER_SECONDS;
-			break;
-		case Orkige::KeyEventData::KC_ESCAPE:
-			quitRequested = true;
 			break;
 		default: break;
 		}
@@ -150,28 +144,6 @@ struct JumperInput
 		return false;
 	}
 };
-
-// ModelComponent does not serialize material tweaks (yet) - re-apply the
-// shared unlit render state after a scene load, exactly like tools/player.
-// The jumper meshes carry white COLOR_0, so vertex-colour tracking keeps
-// their textures intact (white x texture = texture).
-void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
-{
-	for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
-	{
-		if (!gameObject->hasComponent<Orkige::ModelComponent>())
-		{
-			continue;
-		}
-		optr<Orkige::MeshInstance> mesh =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()
-				->getMeshInstance();
-		if (mesh)
-		{
-			mesh->setVertexColourUnlit();
-		}
-	}
-}
 
 //! the jump-and-run gameplay: owns the player object and the per-frame rules
 //! (movement, jump, respawn, win, camera). Reads scene data (the goal marker)
@@ -514,19 +486,6 @@ int textureUnitCount(Orkige::GameObjectManager& gameObjectManager,
 	return mesh->subMeshHasTexture(0) ? 1 : 0;
 }
 
-//! push a synthetic key event through the SDL queue (same pattern as the
-//! demo's ORKIGE_DEMO_SYNTH_ESC) - the loop's SDL_PollEvent feeds it into
-//! InputManager::injectEvent, so scripted input takes the REAL input path
-void pushKeyEvent(SDL_Scancode scancode, SDL_Keycode key, bool down)
-{
-	SDL_Event event{};
-	event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
-	event.key.scancode = scancode;
-	event.key.key = key;
-	event.key.down = down;
-	SDL_PushEvent(&event);
-}
-
 } // namespace
 
 int main(int argc, char** argv)
@@ -551,15 +510,28 @@ int main(int argc, char** argv)
 		}
 	}
 
-	if (!SDL_Init(SDL_INIT_VIDEO))
+	// automation hooks (read before boot - they gate the vsync and
+	// frame-pacing decisions): ORKIGE_DEMO_FRAMES frame-limits the run,
+	// ORKIGE_JUMPER_SELFCHECK runs the scripted verification. Automated runs
+	// (ctest, screenshots, measurements) render as fast as the machine
+	// allows; a HUMAN run gets vsync.
+	unsigned long frameLimit = 0;
+	if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
 	{
-		SDL_Log("SDL_Init failed: %s", SDL_GetError());
-		return 1;
+		frameLimit = std::strtoul(demoFrames, nullptr, 10);
 	}
+	const bool selfCheck =
+		(std::getenv("ORKIGE_JUMPER_SELFCHECK") != nullptr);
+	const bool automatedRun = selfCheck || frameLimit != 0;
+
+	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
+	// singletons, the classic Engine boot + RTSS media, the fixed-yaw
+	// window-camera rig (the selfcheck asserts the roll-free follow camera)
+	// and the GameObject world - the game owns its assets and the loop.
+	Orkige::AppHostConfig hostConfig;
+	hostConfig.windowTitle = "Orkige Jumper";
 	// ORKIGE_DEMO_WINDOW_SIZE=WxH: window size override for automated
 	// performance measurements (default stays 1280x720)
-	int windowWidth = 1280;
-	int windowHeight = 720;
 	if (const char* windowSize = std::getenv("ORKIGE_DEMO_WINDOW_SIZE"))
 	{
 		int width = 0;
@@ -567,117 +539,39 @@ int main(int argc, char** argv)
 		if (std::sscanf(windowSize, "%dx%d", &width, &height) == 2 &&
 			width > 0 && height > 0)
 		{
-			windowWidth = width;
-			windowHeight = height;
+			hostConfig.windowWidth = width;
+			hostConfig.windowHeight = height;
 		}
 	}
-	// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale, so
-	// both render flavors derive the same drawable from the same request (the
-	// engine window policy - see the render_backend_parity gate).
-	SDL_Window* window = SDL_CreateWindow("Orkige Jumper",
-		windowWidth, windowHeight, SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	if (!window)
-	{
-		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-		return 1;
-	}
-	Orkige::PlatformWindow::setActiveWindow(window);
-	// SDL may have clamped the request to the usable display bounds
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	hostConfig.automatedRun = automatedRun;
+	hostConfig.engineLogFile = "jumper.log";
+	hostConfig.classicMediaDir = ORKIGE_JUMPER_MEDIA_DIR;
 
 	int exitCode = 0;
+	Orkige::AppHost host;
+	if (!host.boot(hostConfig, [&host]()
+		{
+			// the jumper assets (textured .glb meshes) through the facade
+			host.getRenderSystem()->addResourceLocation(
+				ORKIGE_JUMPER_ASSET_DIR);
+		}))
 	{
-		// engine singletons a shared host boot would own; the same boot set
-		// as the demo/player/editor
-		Orkige::Timer::initialise();
-		Orkige::GlobalEventManager eventManager;
-		Orkige::ScriptRuntime scriptRuntime;
-		init_module_orkige_core();
+		return 1;
+	}
+	{
+		Orkige::RenderSystem* render = host.getRenderSystem();
+		optr<Orkige::RenderNode> cameraNode = host.getCameraNode();
 
-		// automation hooks (read before engine setup - they gate the vsync
-		// and frame-pacing decisions below): ORKIGE_DEMO_FRAMES frame-limits
-		// the run, ORKIGE_JUMPER_SELFCHECK runs the scripted verification
-		unsigned long frameLimit = 0;
-		if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
-		{
-			frameLimit = std::strtoul(demoFrames, nullptr, 10);
-		}
-		const bool selfCheck =
-			(std::getenv("ORKIGE_JUMPER_SELFCHECK") != nullptr);
-		// automated runs (ctest, screenshots, measurements) render as fast as
-		// the machine allows; a HUMAN run gets vsync so the game neither spins
-		// uncapped nor tears
-		const bool automatedRun = selfCheck || frameLimit != 0;
-
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- classic boot block (sanctioned raw-Ogre corner, see
-		// Docs/render-abstraction.md "App boot"): Engine construction/config
-		// and the RTSS-internal media registration stay classic plumbing;
-		// everything after Engine::setup talks to the engine_render facade.
-		Orkige::Engine engine(Ogre::SMT_DEFAULT,
-			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
-			Orkige::StringUtil::BLANK, "jumper.log");
-		engine.setCustomWindowParam("width",
-			Orkige::StringUtil::Converter::toString(windowWidth));
-		engine.setCustomWindowParam("height",
-			Orkige::StringUtil::Converter::toString(windowHeight));
-		if (!automatedRun)
-		{
-			engine.setCustomWindowParam("vsync", "true");
-		}
-		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
-		{
-			engine.setPreferredRenderSystem(renderSystemEnv);
-		}
-
-		// RTSS shader library (backend-internal media, needed before setup -
-		// classic bootstrap business, not a facade call)
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_JUMPER_MEDIA_DIR "/Main", "FileSystem", Ogre::RGN_INTERNAL);
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_JUMPER_MEDIA_DIR "/RTShaderLib", "FileSystem",
-			Ogre::RGN_INTERNAL);
-
-		if (!engine.setup("Orkige Jumper", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
-		{
-			SDL_Log("Engine::setup failed");
-			return 1;
-		}
-		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the classic boot block: from here on the game talks to
-		// the renderer through the engine_render facade exclusively
-		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-		Orkige::RenderWorld* world = render->getWorld();
-
-		// the jumper assets (textured .glb meshes) through the facade
-		render->addResourceLocation(ORKIGE_JUMPER_ASSET_DIR);
-		render->initialiseResourceGroups();
-
-		// the window camera on a facade rig (createDefaultCameraAndViewport
-		// successor); the fixed yaw axis keeps the per-frame follow-camera
-		// lookAt roll-free - the selfcheck asserts exactly that
-		optr<Orkige::RenderCamera> camera = world->createCamera("jumper.camera");
-		optr<Orkige::RenderNode> cameraNode =
-			world->createNode("jumper.cameraNode");
-		cameraNode->setFixedYawAxis(true);
-		camera->attachTo(cameraNode);
-		render->showCameraOnWindow(camera);
-
-		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
 		// a friendly sky instead of the void
 		render->setWindowBackgroundColour(Orkige::Color(0.53f, 0.75f, 0.94f));
 
-		// shared primitives scenes may reference (same as player/editor):
-		// the procedural cube mesh + its unlit "VertexColour" material
-		world->createVertexColourCubeMesh();
-
 		// input pipeline: the poll loop feeds every SDL event into the
 		// InputManager, which triggers the Orkige input events JumperInput
-		// listens to - gameplay code never sees raw SDL
+		// listens to - gameplay code never sees raw SDL; ESC quits through
+		// the shared listener
 		Orkige::InputManager inputManager;
 		JumperInput input;
+		Orkige::QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> keyPressedListener =
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyPressedEvent,
@@ -686,9 +580,13 @@ int main(int argc, char** argv)
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyReleasedEvent,
 				&JumperInput::onKeyReleased, &input);
+		optr<Orkige::EventListener> escapeListener =
+			Orkige::GlobalEventManager::getSingleton().bind(
+				Orkige::InputManager::KeyPressedEvent,
+				&Orkige::QuitOnEscape::onKeyPressed, &quitOnEscape);
 
-		init_module_orkige_engine();
-		Orkige::GameObjectManager gameObjectManager;
+		Orkige::GameObjectManager& gameObjectManager =
+			host.getGameObjectManager();
 		Orkige::PhysicsWorld physicsWorld;
 
 		if (writeLevel)
@@ -709,8 +607,6 @@ int main(int argc, char** argv)
 			}
 			SDL_Log("jumper: level written to '%s' (%zu GameObjects)",
 				scenePath.c_str(), gameObjectManager.getGameObjects().size());
-			SDL_DestroyWindow(window);
-			SDL_Quit();
 			return 0;
 		}
 
@@ -720,7 +616,7 @@ int main(int argc, char** argv)
 				scenePath.c_str());
 			return 1;
 		}
-		applyUnlitFixToLoadedModels(gameObjectManager);
+		Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
 		SDL_Log("jumper: level '%s' loaded (%zu GameObjects)",
 			scenePath.c_str(), gameObjectManager.getGameObjects().size());
 
@@ -817,18 +713,14 @@ int main(int argc, char** argv)
 				}
 				inputManager.injectEvent(event);
 			}
-			if (input.quitRequested)
+			if (quitOnEscape.quitRequested)
 			{
 				running = false;
 			}
 
-			// measured frame dt. Automated (frame-scripted) runs keep the
-			// historical 1/60 floor so headless frames accumulate simulated
-			// time; a HUMAN run uses the real dt - flooring it at 1/60 made
-			// gameplay run FASTER than real time whenever rendering beat 60
-			// fps (physics stepped its fixed 1/60 tick once per rendered
-			// frame). The 0.1 cap stays: it avoids the catch-up spiral after
-			// a stall, at the honest price of slow motion below 10 fps.
+			// measured frame dt through the shared clamp policy (simulated
+			// time on automated runs, real dt for a human - see
+			// AppHost::clampFrameDelta)
 			const std::chrono::steady_clock::time_point frameTime =
 				std::chrono::steady_clock::now();
 			float deltaTime = std::chrono::duration<float>(
@@ -836,8 +728,8 @@ int main(int argc, char** argv)
 			lastFrameTime = frameTime;
 			frameStats.addFrame(deltaTime);
 			frameStats.maybeWarnSlow("jumper");
-			deltaTime = std::clamp(deltaTime,
-				automatedRun ? 1.0f / 60.0f : 0.0001f, 0.1f);
+			deltaTime = Orkige::AppHost::clampFrameDelta(deltaTime,
+				automatedRun);
 
 			physicsWorld.update(deltaTime);
 			gameObjectManager.update(deltaTime);	// body creation + pose sync
@@ -909,11 +801,11 @@ int main(int argc, char** argv)
 				if (frameCount == 10)
 				{
 					checkStartX = game.getPlayerPosition().x;
-					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
+					Orkige::pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, true);
 				}
 				if (frameCount == 30)
 				{
-					pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
+					Orkige::pushKeyEvent(SDL_SCANCODE_RIGHT, SDLK_RIGHT, false);
 				}
 				if (frameCount == 45)
 				{
@@ -935,7 +827,7 @@ int main(int argc, char** argv)
 					checkJumpStartY = game.getPlayerPosition().y;
 					checkJumpFrame = frameCount;
 					checkMaxRise = 0.0f;
-					pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, true);
+					Orkige::pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, true);
 					checkPhase = CheckPhase::WaitLanding;
 					checkPhaseDeadline = frameCount + 120;
 				}
@@ -947,7 +839,7 @@ int main(int argc, char** argv)
 					game.getPlayerPosition().y - checkJumpStartY);
 				if (frameCount == checkJumpFrame + 5)
 				{
-					pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, false);
+					Orkige::pushKeyEvent(SDL_SCANCODE_SPACE, SDLK_SPACE, false);
 				}
 				// give take-off a few frames before accepting "grounded again"
 				if (frameCount > checkJumpFrame + 10 && game.isGrounded())
@@ -1129,7 +1021,7 @@ int main(int argc, char** argv)
 		frameStats.logAtExit("jumper");
 	}
 
-	SDL_DestroyWindow(window);
-	SDL_Quit();
+	// AppHost's destructor mirrors the boot: world, engine, singletons,
+	// then the SDL window
 	return exitCode;
 }

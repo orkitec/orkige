@@ -398,8 +398,10 @@ look when touching one:
   `GameObjectManager` `ChildIdMap`/`tagIds` indexes). **Prefabs** =
   `core_game/PrefabSerializer` (`.oprefab` subtree assets; instances store `prefabRef`
   + `suppressedChildren` + per-child property overrides; Apply/Revert in the editor).
-  **Scene format is v5** — serialization is currently POSITIONAL/version-gated (the
-  the reflection work replaces it with named fields). **Object tags** (multi-tag,
+  **Scene format is v7** — reflection-driven NAMED component fields since v6
+  (no positional readers, no per-version field gates; the loader accepts only
+  the current version and errors honestly otherwise — clean-cutover policy);
+  v7 added per-property prefab overrides. **Object tags** (multi-tag,
   `world.findByTag`). Serialization: `core_serialization` (`ISerializeable` + `XMLArchive`).
 - **Asset pipeline**: `core_project/AssetDatabase` = stable IDs via `.orkmeta` sidecars
   (references survive renames; v2 sidecars carry per-platform **texture import

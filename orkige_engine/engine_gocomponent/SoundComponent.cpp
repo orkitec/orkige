@@ -195,9 +195,15 @@ namespace Orkige
         void SoundComponent::onRemove()
         {
                 this->unRegisterAllEvents();
-                foreach(SoundSourceMap::value_type const & vt, this->attachedSoundObjects)
+                // the manager may already be gone during app teardown (the
+                // RigidBodyComponent::destroyBody guard); the sources die with
+                // the map below either way
+                if (SoundManager::getSingletonPtr())
                 {
-                        SoundManager::getSingleton().destroySound(vt.first);
+                        foreach(SoundSourceMap::value_type const & vt, this->attachedSoundObjects)
+                        {
+                                SoundManager::getSingleton().destroySound(vt.first);
+                        }
                 }
                 this->attachedSoundObjects.clear();
         }

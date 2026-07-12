@@ -138,6 +138,10 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/ScriptComponentRegistry.cpp
     engine_runtime/PlayerRuntime.h
     engine_runtime/PlayerRuntime.cpp
+    # the shared boot/teardown spine of every app host (samples, player,
+    # editor, native game modules); hosts keep their own frame loops
+    engine_runtime/AppHost.h
+    engine_runtime/AppHost.cpp
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h

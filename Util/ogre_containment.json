@@ -50,10 +50,6 @@
  },
  "sanctioned_block_files": {
   "orkige_engine/engine_gocomponent/AnimationComponent.cpp": "root-motion backdoor (classic-only by design): classic-only bone/keyframe digging inside #ifdef ORKIGE_RENDER_CLASSIC blocks",
-  "samples/hello_orkige/main.cpp": "app-standard classic boot block (Engine ctor, ORKIGE_RENDERSYSTEM, RTSS internal media)",
-  "samples/jumper/main.cpp": "app-standard classic boot block",
-  "projects/jumper-native/native/main.cpp": "app-standard classic boot block",
-  "tools/player/main.cpp": "app-standard classic boot block",
-  "tools/editor/main.cpp": "app-standard classic boot block only (Engine ctor, ORKIGE_RENDERSYSTEM, RTSS internal media) - the editor glue (ImGuiOverlay/OverlaySystem, UI viewport, grid ManualObject) was replaced by facade API in the editor-on-Next port (ImGuiFacadeRenderer/showUIOnlyWindow/createLineListMesh)"
+  "orkige_engine/engine_runtime/AppHost.cpp": "THE app-standard classic boot block (Engine ctor, ORKIGE_RENDERSYSTEM pick, RTSS internal media) - AppHost is the ONE shared boot spine of every host (samples, player, editor, native game modules), replacing the five per-host boot-block sanctions"
  }
 }

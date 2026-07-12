@@ -35,12 +35,11 @@
 #include <core_tween/TweenManager.h>
 #include <core_util/SafeArea.h>
 #include <engine_input/InputManager.h>
+#include <engine_runtime/AppHost.h>
 #include <engine_sound/SoundManager.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
 #include <core_util/StringUtil.h>
-#include <core_util/Timer.h>
-#include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_script/ScriptEventBus.h>
 
@@ -60,8 +59,6 @@
 using Orkige::optr;
 using Orkige::woptr;
 
-extern "C" void* orkige_native_window_handle(SDL_Window* window);
-
 // C++-side receiver for the event the Lua smoke-test script triggers -
 // proves the Lua -> GlobalEventManager -> C++ listener path end-to-end
 struct LuaEventProbe
@@ -75,192 +72,106 @@ struct LuaEventProbe
 	}
 };
 
-// quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
-// GlobalEventManager -> listener) instead of a raw SDL keycode check
-struct QuitOnEscape
-{
-	bool quitRequested = false;
-	bool onKeyPressed(Orkige::Event const& event)
-	{
-		if (event.getDataPtr<Orkige::KeyEventData>()->key ==
-			Orkige::KeyEventData::KC_ESCAPE)
-		{
-			quitRequested = true;
-		}
-		return false;
-	}
-};
-
 int main(int, char**)
 {
-	if (!SDL_Init(SDL_INIT_VIDEO))
+	// automation-hook flags, read before boot: ORKIGE_DEMO_FRAMES caps the
+	// run (0/unset = run until the window is closed) and marks it automated
+	// (vsync-free, simulated-time frame pacing); the ORKIGE_DEMO_* feature
+	// flags below pick which resource locations the run needs
+	unsigned long frameLimit = 0;
+	if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
 	{
-		SDL_Log("SDL_Init failed: %s", SDL_GetError());
+		frameLimit = std::strtoul(demoFrames, nullptr, 10);
+	}
+	const bool automatedRun = frameLimit != 0;
+	// ORKIGE_DEMO_MESH=1: also load the generated glTF test asset
+	// (samples/hello_orkige/media/test_mesh.glb, built by
+	// Util/make_test_mesh.py) through the statically linked Codec_Assimp
+	// plugin. Unconditional runs stay asset-free.
+	const bool demoMesh = (std::getenv("ORKIGE_DEMO_MESH") != nullptr);
+	// ORKIGE_DEMO_SPRITEANIM=1: the flipbook selfcheck (below) needs a
+	// texture for its SpriteComponent - register the committed sample
+	// texture dir so loadSprite resolves one (any texture works; the
+	// check reads UV rects, not pixels)
+	const bool demoSpriteAnim =
+		(std::getenv("ORKIGE_DEMO_SPRITEANIM") != nullptr);
+	// ORKIGE_DEMO_SPRITEATLAS=1: the sprite-atlas + sampler selfcheck
+	// (below) needs the generated atlas (.oatlas + .png) on a resource
+	// location so loadSpriteFromAtlas resolves it
+	const bool demoSpriteAtlas =
+		(std::getenv("ORKIGE_DEMO_SPRITEATLAS") != nullptr);
+	// ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck
+	// (below) needs a texture for its ParticleComponent SpriteBatch -
+	// register the committed sample texture dir (any texture works; the
+	// check reads the frame-stats triangle count, not pixels)
+	const bool demoParticles =
+		(std::getenv("ORKIGE_DEMO_PARTICLES") != nullptr);
+	// ORKIGE_DEMO_MUSIC=1: the streamed-music selfcheck (below) needs the
+	// committed loopable OGG on a resource location so playMusic resolves
+	// it (music_loop.ogg lives in the sample media dir)
+	const bool demoMusic =
+		(std::getenv("ORKIGE_DEMO_MUSIC") != nullptr);
+	// ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck
+	// (below) loads the committed demo_blob.oshape from the sample media dir
+	const bool demoVectorShape =
+		(std::getenv("ORKIGE_DEMO_VECTORSHAPE") != nullptr);
+
+	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
+	// singletons, the per-flavor Engine boot, the window-camera rig and the
+	// GameObject world - the demo owns only its resource locations and loop.
+	// ORKIGE_DEMO_MEDIA_DIR is a demo-only compile definition pointing into
+	// the vcpkg-installed OGRE media (see CMakeLists.txt); no resources.cfg /
+	// plugins.cfg / ogre.cfg - the demo wires its locations manually.
+	Orkige::AppHost host;
+	Orkige::AppHostConfig hostConfig;
+	hostConfig.windowTitle = "hello orkige";
+	hostConfig.automatedRun = automatedRun;
+	hostConfig.engineLogFile = "hello_orkige.log";
+	hostConfig.classicMediaDir = ORKIGE_DEMO_MEDIA_DIR;
+	if (!host.boot(hostConfig, [&]()
+		{
+			Orkige::RenderSystem* render = host.getRenderSystem();
+			if (demoMesh)
+			{
+				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+			}
+			if (demoSpriteAnim)
+			{
+				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
+			}
+			if (demoSpriteAtlas)
+			{
+				render->addResourceLocation(ORKIGE_SPRITE_ATLAS_DIR);
+			}
+			if (demoParticles)
+			{
+				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
+			}
+			if (demoMusic || demoVectorShape)
+			{
+				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
+			}
+		}))
+	{
 		return 1;
 	}
-	// HIGH_PIXEL_DENSITY: the render surface tracks the OS backing scale, so
-	// both render flavors derive the same drawable from the same request (the
-	// engine window policy - see the render_backend_parity gate).
-	SDL_Window* window = SDL_CreateWindow("hello orkige", 1280, 720,
-		SDL_WINDOW_HIGH_PIXEL_DENSITY);
-	if (!window)
 	{
-		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-		return 1;
-	}
-	Orkige::PlatformWindow::setActiveWindow(window);
-
-	{
-		// engine singletons a shared host boot would own; the demo brings up
-		// just the ones Engine::setup depends on
-		Orkige::Timer::initialise();
-		Orkige::GlobalEventManager eventManager;
-		// the scripting seam must exist before the module init functions run
-		// so OrkigeMetaExport reaches the real backend state (otherwise it
-		// targets the throwaway fallback state)
-		Orkige::ScriptRuntime scriptRuntime;
-		init_module_orkige_core();
-
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (Docs/render-abstraction.md "App
-		// boot"): on classic, Engine is the backend's bootstrapper -
-		// constructing/configuring it and feeding the RTSS its internal
-		// media stays classic plumbing. On the next flavor the Engine
-		// sibling (engine_graphic/EngineNext.h) carries the same parameters
-		// into RenderBackend::createRenderSystem (Hlms media is a built-in
-		// dev-tree default there). Everything after Engine::setup talks to
-		// the engine_render facade on BOTH flavors.
-		// No resources.cfg / plugins.cfg / ogre.cfg: the demo wires its
-		// resource locations manually and lets the backend pick defaults.
-#ifdef ORKIGE_RENDER_CLASSIC
-		Orkige::Engine engine(Ogre::SMT_DEFAULT,
-			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
-			Orkige::StringUtil::BLANK, "hello_orkige.log");
-#else
-		Orkige::Engine engine("hello_orkige.log");
-#endif
-		engine.setCustomWindowParam("width", "1280");
-		engine.setCustomWindowParam("height", "720");
-
-#ifdef ORKIGE_RENDER_CLASSIC
-		// ORKIGE_RENDERSYSTEM: explicit render system choice for this run
-		// ("Vulkan", "Metal", "GL3Plus", "GL" - see
-		// Engine::matchRenderSystemName); unset keeps the default (first
-		// available, i.e. GL3Plus). Vulkan (MoltenVK on macOS) has full RTSS
-		// support. OGRE 14.5's Metal RS has no RTSS/MSL backend: it renders
-		// through OGRE's built-in default shaders (no vertex colours, no
-		// lighting), so this demo's cubes come out untinted on Metal.
-		// (The next flavor boots Ogre-Next's Metal RS unconditionally -
-		// the classic runtime graphics-API pick does not apply there.)
-		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
-		{
-			engine.setPreferredRenderSystem(renderSystemEnv);
-		}
-
-		// The RTSS needs its shader library (and OgreUnifiedShader.h from
-		// Media/Main) in the OgreInternal group before Engine::setup runs -
-		// same locations OgreBites::ApplicationContext registers. Backend-
-		// internal media = classic bootstrap business, not a facade call
-		// (the same rule tests/render_facade/bootstrap_classic.cpp follows).
-		// ORKIGE_DEMO_MEDIA_DIR is a demo-only compile definition pointing into
-		// the vcpkg-installed OGRE media (see CMakeLists.txt).
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_DEMO_MEDIA_DIR "/Main", "FileSystem",
-			Ogre::RGN_INTERNAL);
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			ORKIGE_DEMO_MEDIA_DIR "/RTShaderLib", "FileSystem",
-			Ogre::RGN_INTERNAL);
-#endif
-
-		if (!engine.setup("hello orkige", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
-		{
-			SDL_Log("Engine::setup failed");
-			return 1;
-		}
-		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the boot block: from here on the demo talks to the
-		// renderer through the engine_render facade exclusively
-		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-		Orkige::RenderWorld* world = render->getWorld();
-
-		// ORKIGE_DEMO_MESH=1: also load the generated glTF test asset
-		// (samples/hello_orkige/media/test_mesh.glb, built by
-		// Util/make_test_mesh.py) through the statically linked Codec_Assimp
-		// plugin. Unconditional runs stay asset-free.
-		const bool demoMesh = (std::getenv("ORKIGE_DEMO_MESH") != nullptr);
-		if (demoMesh)
-		{
-			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
-		}
-		// ORKIGE_DEMO_SPRITEANIM=1: the flipbook selfcheck (below) needs a
-		// texture for its SpriteComponent - register the committed sample
-		// texture dir so loadSprite resolves one (any texture works; the
-		// check reads UV rects, not pixels)
-		const bool demoSpriteAnim =
-			(std::getenv("ORKIGE_DEMO_SPRITEANIM") != nullptr);
-		if (demoSpriteAnim)
-		{
-			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
-		}
-		// ORKIGE_DEMO_SPRITEATLAS=1: the sprite-atlas + sampler selfcheck
-		// (below) needs the generated atlas (.oatlas + .png) on a resource
-		// location so loadSpriteFromAtlas resolves it
-		const bool demoSpriteAtlas =
-			(std::getenv("ORKIGE_DEMO_SPRITEATLAS") != nullptr);
-		if (demoSpriteAtlas)
-		{
-			render->addResourceLocation(ORKIGE_SPRITE_ATLAS_DIR);
-		}
-		// ORKIGE_DEMO_PARTICLES=1: the 2D particle-system selfcheck
-		// (below) needs a texture for its ParticleComponent SpriteBatch -
-		// register the committed sample texture dir (any texture works; the
-		// check reads the frame-stats triangle count, not pixels)
-		const bool demoParticles =
-			(std::getenv("ORKIGE_DEMO_PARTICLES") != nullptr);
-		if (demoParticles)
-		{
-			render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
-		}
-		// ORKIGE_DEMO_MUSIC=1: the streamed-music selfcheck (below) needs the
-		// committed loopable OGG on a resource location so playMusic resolves
-		// it (music_loop.ogg lives in the sample media dir)
-		const bool demoMusic =
-			(std::getenv("ORKIGE_DEMO_MUSIC") != nullptr);
-		if (demoMusic)
-		{
-			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
-		}
-		// ORKIGE_DEMO_VECTORSHAPE=1: the flat-colour vector-shape selfcheck
-		// (below) loads the committed demo_blob.oshape from the sample media dir
-		const bool demoVectorShape =
-			(std::getenv("ORKIGE_DEMO_VECTORSHAPE") != nullptr);
-		if (demoVectorShape)
-		{
-			render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
-		}
-		render->initialiseResourceGroups();
-
-		// the window camera on a facade rig (the createDefaultCameraAndViewport
-		// successor): perspective defaults match the old Engine camera, the
-		// fixed yaw axis keeps per-frame lookAt calls roll-free
-		optr<Orkige::RenderCamera> camera = world->createCamera("hello.camera");
-		optr<Orkige::RenderNode> cameraNode = world->createNode("hello.cameraNode");
-		cameraNode->setFixedYawAxis(true);
-		camera->attachTo(cameraNode);
-		render->showCameraOnWindow(camera);
+		Orkige::RenderSystem* render = host.getRenderSystem();
+		Orkige::RenderWorld* world = host.getRenderWorld();
+		optr<Orkige::RenderCamera> camera = host.getWindowCamera();
+		optr<Orkige::RenderNode> cameraNode = host.getCameraNode();
+		Orkige::ScriptRuntime& scriptRuntime = host.getScriptRuntime();
 		// the historical Engine default viewport colour
 		render->setWindowBackgroundColour(Orkige::Color(0.0f, 0.0f, 1.0f));
 
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
 		Orkige::InputManager inputManager;
-		QuitOnEscape quitOnEscape;
+		Orkige::QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> escapeListener =
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyPressedEvent,
-				&QuitOnEscape::onKeyPressed, &quitOnEscape);
+				&Orkige::QuitOnEscape::onKeyPressed, &quitOnEscape);
 
 		// ORKIGE_DEMO_SOUND=1: play a synthesized beep through the engine_sound
 		// OpenAL Soft path at demo start; normal runs stay silent (the manager
@@ -381,12 +292,10 @@ int main(int, char**)
 			}
 		}
 
-		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
-
-		// the demo geometry: the shared procedural vertex-coloured cube mesh
-		// (facade service; also creates the unlit "VertexColour" material the
-		// RTSS reads vertex colours through). The 12-triangle count per cube
-		// feeds the frame-stats self-check below.
+		// the demo geometry: a demo-sized sibling of the shared procedural
+		// cube (facade service; also creates the unlit "VertexColour" material
+		// the RTSS reads vertex colours through). The 12-triangle count per
+		// cube feeds the frame-stats self-check below.
 		world->createVertexColourCubeMesh("HelloCube.mesh", 1.0f);
 		optr<Orkige::RenderNode> cubeNode = world->createNode("cubeNode");
 		optr<Orkige::MeshInstance> cube =
@@ -396,10 +305,10 @@ int main(int, char**)
 		// --- GameObject component bridge: a second, smaller cube that is not
 		// placed through raw Ogre scene calls but through a GameObject with a
 		// TransformComponent (engine_gocomponent), orbiting the main cube.
-		// OEXPORT in engine_module/module.cpp registers the component
-		// factories; GameObjectManager is the singleton owning the objects.
-		init_module_orkige_engine();
-		Orkige::GameObjectManager gameObjectManager;
+		// The component factories registered during the host boot;
+		// GameObjectManager is the singleton owning the objects.
+		Orkige::GameObjectManager& gameObjectManager =
+			host.getGameObjectManager();
 		optr<Orkige::GameObject> orbiter =
 			gameObjectManager.createGameObject("orbiter").lock();
 		if (!orbiter || !orbiter->addComponent<Orkige::TransformComponent>())
@@ -955,7 +864,7 @@ int main(int, char**)
 			SDL_Log("hello_orkige: Gui smoke test passed (UI draw-layer "
 				"lifecycle + clean no-atlas constructor failure, "
 				"engine.hasUISystem()=%d)",
-				static_cast<int>(engine.hasUISystem()));
+				static_cast<int>(host.getEngine().hasUISystem()));
 		}
 
 		// ORKIGE_DEMO_UI_SCALE=1: the DPI + safe-area + settings-widget
@@ -1027,7 +936,8 @@ int main(int, char**)
 
 				// safe-area insets flow through the Engine, and a top-anchored
 				// label lands below the (injected) top inset
-				const Orkige::SafeAreaInsets insets = engine.getSafeAreaInsets();
+				const Orkige::SafeAreaInsets insets =
+					host.getEngine().getSafeAreaInsets();
 				if (insets.mTop != fakeTop)
 				{
 					SDL_Log("hello_orkige: FAILED - getSafeAreaInsets top=%u, "
@@ -1037,7 +947,8 @@ int main(int, char**)
 				float anchoredX = 0.0f;
 				float anchoredY = 0.0f;
 				Orkige::UiAnchor::place(200, 40, 8, 8,
-					engine.getWindowWidth(), engine.getWindowHeight(), insets,
+					host.getEngine().getWindowWidth(),
+					host.getEngine().getWindowHeight(), insets,
 					false, false, anchoredX, anchoredY);
 				Orkige::woptr<Orkige::GuiLabel> hudLabel =
 					factory->createLabel("uiSafeLabel", 9, "HUD",
@@ -1286,8 +1197,8 @@ int main(int, char**)
 					Orkige::onew(new Orkige::GuiFactory());
 				Orkige::GuiManager gui(factory, "gui_default");
 
-				const float W = static_cast<float>(engine.getWindowWidth());
-				const float H = static_cast<float>(engine.getWindowHeight());
+				const float W = static_cast<float>(host.getEngine().getWindowWidth());
+				const float H = static_cast<float>(host.getEngine().getWindowHeight());
 
 				// an anchored panel: fill the window minus a 20px inset on each
 				// edge (StretchAll + offsets). Its initial size is a placeholder
@@ -3068,14 +2979,6 @@ int main(int, char**)
 				"widgets reached by id via findWidget; synthetic input verified)");
 		}
 
-		// ORKIGE_DEMO_FRAMES: frame-limit escape for automated runs
-		// (0/unset = run until the window is closed).
-		unsigned long frameLimit = 0;
-		if (const char* demoFrames = std::getenv("ORKIGE_DEMO_FRAMES"))
-		{
-			frameLimit = std::strtoul(demoFrames, nullptr, 10);
-		}
-
 		bool running = true;
 		unsigned long frameCount = 0;
 		// music selfcheck: the playhead sampled early, compared late to prove it
@@ -3100,17 +3003,17 @@ int main(int, char**)
 			}
 			if (demoPhysics)
 			{
-				// measured frame dt for the physics step, clamped to
-				// [1/60, 0.1]: the floor keeps headless runs (which render
-				// far faster than 60 fps) accumulating enough simulated time
-				// for the frame-based self-checks below, the cap avoids the
-				// catch-up spiral after a stall
+				// measured frame dt for the physics step through the shared
+				// clamp policy: automated runs keep the 1/60 floor so headless
+				// frames (rendering far faster than 60 fps) accumulate enough
+				// simulated time for the frame-based self-checks below
 				const std::chrono::steady_clock::time_point frameTime =
 					std::chrono::steady_clock::now();
 				float deltaTime = std::chrono::duration<float>(
 					frameTime - lastFrameTime).count();
 				lastFrameTime = frameTime;
-				deltaTime = std::clamp(deltaTime, 1.0f / 60.0f, 0.1f);
+				deltaTime = Orkige::AppHost::clampFrameDelta(deltaTime,
+					automatedRun);
 				physicsWorld.update(deltaTime);
 				// component updates create the bodies and sync poses
 				// (simulation -> TransformComponent for dynamic bodies)
@@ -3169,12 +3072,7 @@ int main(int, char**)
 			// accessibility permissions, this stays inside SDL instead.
 			if (frameCount == 60 && std::getenv("ORKIGE_DEMO_SYNTH_ESC"))
 			{
-				SDL_Event escEvent{};
-				escEvent.type = SDL_EVENT_KEY_DOWN;
-				escEvent.key.scancode = SDL_SCANCODE_ESCAPE;
-				escEvent.key.key = SDLK_ESCAPE;
-				escEvent.key.down = true;
-				SDL_PushEvent(&escEvent);
+				Orkige::pushKeyEvent(SDL_SCANCODE_ESCAPE, SDLK_ESCAPE, true);
 			}
 			if (frameCount == 10)
 			{
@@ -3427,7 +3325,7 @@ int main(int, char**)
 		soundManager.deinit();
 	}
 
-	SDL_DestroyWindow(window);
-	SDL_Quit();
+	// AppHost's destructor mirrors the boot: world, engine, singletons,
+	// then the SDL window
 	return 0;
 }

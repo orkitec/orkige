@@ -31,6 +31,7 @@ add_executable(orkige_engine_tests
     ScreenShakeTests.cpp
     TextEntryEditTests.cpp
     HapticTests.cpp
+    AppHostPolicyTests.cpp
 )
 
 target_link_libraries(orkige_engine_tests PRIVATE

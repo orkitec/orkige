@@ -355,14 +355,17 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
   `samples/*/main.cpp`, `projects/jumper-native/native/main.cpp`,
   `engine_sound/SoundManager.{h,cpp}`, `engine_runtime/PlayerRuntime.cpp`.
   Implementation notes:
-  - **The sanctioned classic boot block**: every app keeps a marked raw-Ogre
-    corner covering exactly (a) the `Engine` constructor/window params
-    (`Ogre::SMT_DEFAULT`), (b) the RTSS-internal media registration into
-    `RGN_INTERNAL` (must precede `Engine::setup`; same rule as
+  - **The sanctioned classic boot block**: a marked raw-Ogre corner covering
+    exactly (a) the `Engine` constructor/window params (`Ogre::SMT_DEFAULT`),
+    (b) the RTSS-internal media registration into `RGN_INTERNAL` (must
+    precede `Engine::setup`; same rule as
     `tests/render_facade/bootstrap_classic.cpp`), (c) `ORKIGE_RENDERSYSTEM`
     handling via `Engine::setPreferredRenderSystem` (classic-internal runtime
     graphics-API pick, see "Build flavors"). Everything after `Engine::setup`
-    is facade-only.
+    is facade-only. Originally every app carried its own copy; the five
+    per-host blocks have since been consolidated into the ONE shared boot
+    scaffold `engine_runtime/AppHost.cpp` - the single sanctioned
+    classic-boot zone in `Util/ogre_containment.json`.
   - **Window camera**: hello_orkige, jumper and jumper-native replaced
     `createDefaultCameraAndViewport` with a facade rig (`createCamera` +
     `createNode` + `setFixedYawAxis` + `showCameraOnWindow`). tools/player
@@ -435,7 +438,8 @@ walk or `View::pick`, and `Renderer::readPixels` for both screenshot paths.
     `SceneManager` root children.
   - **Sanctioned classic blocks left in the editor** (each marked in
     main.cpp): (a) the app-standard classic boot block (Engine ctor,
-    ORKIGE_RENDERSYSTEM, RTSS internal media); (b) the
+    ORKIGE_RENDERSYSTEM, RTSS internal media - since moved into the shared
+    `engine_runtime/AppHost.cpp` scaffold); (b) the
     OverlaySystem/ImGuiOverlay wiring incl. the font-texture SetTexID
     bridge; (c) the UI-only window viewport (visibility mask 0 + RTSS
     scheme - per-viewport masks are deliberately not facade API);

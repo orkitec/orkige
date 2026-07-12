@@ -56,6 +56,7 @@
 // gui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
+#include <engine_runtime/AppHost.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -73,7 +74,6 @@
 #include <engine_base/EngineLog.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/StringUtil.h>
-#include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
@@ -95,47 +95,8 @@
 using Orkige::optr;
 using Orkige::woptr;
 
-extern "C" void* orkige_native_window_handle(SDL_Window* window);
-
 namespace
 {
-
-// quit-on-ESC through the engine input pipeline (SDL event -> InputManager ->
-// GlobalEventManager -> listener), same flow as the demo and the editor
-struct QuitOnEscape
-{
-	bool quitRequested = false;
-	bool onKeyPressed(Orkige::Event const& event)
-	{
-		if (event.getDataPtr<Orkige::KeyEventData>()->key ==
-			Orkige::KeyEventData::KC_ESCAPE)
-		{
-			quitRequested = true;
-		}
-		return false;
-	}
-};
-
-// ModelComponent does not serialize material tweaks (yet), so re-apply the
-// unlit vertex-colour render state to every model after the scene load -
-// the same treatment the editor gives freshly created objects
-void applyUnlitFixToLoadedModels(Orkige::GameObjectManager& gameObjectManager)
-{
-	for (auto const& [id, gameObject] : gameObjectManager.getGameObjects())
-	{
-		if (!gameObject->hasComponent<Orkige::ModelComponent>())
-		{
-			continue;
-		}
-		optr<Orkige::MeshInstance> mesh =
-			gameObject->getComponentPtr<Orkige::ModelComponent>()
-				->getMeshInstance();
-		if (mesh)
-		{
-			mesh->setVertexColourUnlit();
-		}
-	}
-}
 
 // does any loaded GameObject carry a RigidBodyComponent?
 bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
@@ -155,43 +116,12 @@ bool sceneHasRigidBodies(Orkige::GameObjectManager& gameObjectManager)
 // hierarchy + object_state streaming, Ogre-log forwarding) lives in the
 // shared Orkige::PlayerDebugLink (engine_runtime/PlayerRuntime.h) so native
 // game modules speak the identical protocol - this file only wires it into
-// the frame loop.
-
-//! push a synthetic key event through the SDL queue (the jumper selfcheck
-//! pattern): the loop's SDL_PollEvent feeds it into InputManager::injectEvent,
-//! so scripted input takes the REAL input path - including isKeyDown
-void pushKeyEvent(SDL_Scancode scancode, SDL_Keycode key, bool down)
-{
-	SDL_Event event{};
-	event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
-	event.key.scancode = scancode;
-	event.key.key = key;
-	event.key.down = down;
-	SDL_PushEvent(&event);
-}
-
-//! push a synthetic mouse move through the SDL queue - same real input path
-//! as pushKeyEvent (InputManager -> MouseMovedEvent -> GuiManager)
-void pushMouseMove(float x, float y)
-{
-	SDL_Event event{};
-	event.type = SDL_EVENT_MOUSE_MOTION;
-	event.motion.x = x;
-	event.motion.y = y;
-	SDL_PushEvent(&event);
-}
-
-//! push a synthetic left mouse button press/release at the given position
-void pushMouseButton(float x, float y, bool down)
-{
-	SDL_Event event{};
-	event.type = down ? SDL_EVENT_MOUSE_BUTTON_DOWN : SDL_EVENT_MOUSE_BUTTON_UP;
-	event.button.button = SDL_BUTTON_LEFT;
-	event.button.down = down;
-	event.button.x = x;
-	event.button.y = y;
-	SDL_PushEvent(&event);
-}
+// the frame loop. The synthetic-input pushers the selfchecks below script
+// with (pushKeyEvent/pushMouseMove/pushMouseButton) are the shared
+// engine_runtime/AppHost.h helpers.
+using Orkige::pushKeyEvent;
+using Orkige::pushMouseMove;
+using Orkige::pushMouseButton;
 
 #ifdef __ANDROID__
 //! @brief extract the APK's bundled media into destRoot. APK assets are not
@@ -370,12 +300,16 @@ int main(int argc, char** argv)
 	// go up a menu"; a game that wants the old exit behavior can undo it. A
 	// harmless no-op off Android.
 	SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#ifdef __ANDROID__
+	// the APK media must be extracted (and the bundled project resolved)
+	// before the host boots, and extraction reads through SDL's asset IO -
+	// initialise SDL video early; AppHost's own SDL_Init stacks on top
+	// (per-subsystem refcount) and its teardown closes SDL for both.
 	if (!SDL_Init(SDL_INIT_VIDEO))
 	{
 		SDL_Log("SDL_Init failed: %s", SDL_GetError());
 		return 1;
 	}
-#ifdef __ANDROID__
 	// the app files dir is the writable root - the historical PlatformUtil
 	// Android path model (setFilesPath feeds getDocumentsDirectory,
 	// getResourceDirectory & co)
@@ -420,55 +354,19 @@ int main(int argc, char** argv)
 		scenePath = Orkige::PlatformUtil::getDocumentsDirectory() + scenePath;
 	}
 #endif
-#if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-	// mobile: fullscreen native window; SDL sizes it to the screen/surface
-	// regardless of the requested size
-	SDL_Window* window = SDL_CreateWindow("Orkige Player", 1280, 720,
-		SDL_WINDOW_FULLSCREEN);
-#else
-	// desktop: HIGH_PIXEL_DENSITY so the render surface tracks the OS backing
-	// scale - both render flavors then derive the same drawable from the same
-	// window request (mobile already renders at native scale via fullscreen +
-	// the Metal/EAGL2 view's own contentScaleFactor, so it stays in points).
-	SDL_Window* window = SDL_CreateWindow(
-		("Orkige Player - " + scenePath).c_str(), 1280, 720,
-		SDL_WINDOW_HIGH_PIXEL_DENSITY);
-#endif
-	if (!window)
-	{
-		SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
-		return 1;
-	}
-	// the actual window size (iOS: the screen size in points - the unit
-	// OGRE's EAGL2 window expects; desktop: the requested 1280x720)
-	int windowWidth = 1280;
-	int windowHeight = 720;
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-	// register the window so the Engine can read its content scale and
-	// safe-area insets (SDL_GetWindowDisplayScale / SDL_GetWindowSafeArea)
-	Orkige::PlatformWindow::setActiveWindow(window);
-
 	int exitCode = 0;
+	// crash breadcrumbs, declared before the host so the trail stays alive
+	// through the whole engine teardown: an always-on, flush-per-entry trail
+	// of engine events (scene loads, script errors, warnings, boot/shutdown)
+	// that survives a hard crash (SIGSEGV/OOM/watchdog kill). Written to the
+	// writable app dir (see the setFile block below) so the editor can read
+	// the PREVIOUS session's trail after an abnormal exit.
+	Orkige::Breadcrumbs breadcrumbs;
+	// the shared boot spine (engine_runtime/AppHost.h): SDL window (mobile
+	// fullscreen / desktop high-pixel-density), engine singletons, the
+	// per-flavor Engine boot, the window-camera rig and the GameObject world
+	Orkige::AppHost host;
 	{
-		// engine singletons a shared host boot would own; the player brings
-		// up the same set as the hello_orkige demo
-		Orkige::Timer::initialise();
-		Orkige::GlobalEventManager eventManager;
-		// the scripting seam must exist before the module init functions run
-		// so OrkigeMetaExport reaches the real backend state
-		Orkige::ScriptRuntime scriptRuntime;
-		// project scripts: ScriptComponent paths like "scripts/player.lua"
-		// resolve against the open project's root directory
-		if (project.isLoaded())
-		{
-			scriptRuntime.setScriptSearchRoot(project.getRootDirectory());
-			// discover the project's SCRIPT COMPONENT KINDS (*.component.lua):
-			// registers a factory alias per kind so a scene that attaches one
-			// loads, and a named kind binds its own script file on attach
-			Orkige::ScriptComponentRegistry::getSingleton().scanProject(
-				project.getScriptsDirectory(), project.getRootDirectory());
-		}
-		init_module_orkige_core();
 
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
 		// sandboxed app: the working directory is not writable - the engine
@@ -486,14 +384,10 @@ int main(int argc, char** argv)
 				"orkige_player.log"
 			: "orkige_player.log";
 #endif
-		// crash breadcrumbs: an always-on, flush-per-entry trail of engine events
-		// (scene loads, script errors, warnings, boot/shutdown) that survives a
-		// hard crash (SIGSEGV/OOM/watchdog kill). Written to the writable app dir
-		// (getSupportDirectory on desktop, getDocumentsDirectory on mobile) so the
-		// editor can read the PREVIOUS session's trail after an abnormal exit;
-		// ORKIGE_BREADCRUMB_DIR overrides it (test isolation). rotate() at boot
-		// moves the last run's file to breadcrumbs.prev.jsonl.
-		Orkige::Breadcrumbs breadcrumbs;
+		// the breadcrumb file: the writable app dir (getSupportDirectory on
+		// desktop, getDocumentsDirectory on mobile); ORKIGE_BREADCRUMB_DIR
+		// overrides it (test isolation). rotate() at boot moves the last
+		// run's file to breadcrumbs.prev.jsonl.
 		{
 			std::string breadcrumbDir;
 			if (const char* dirEnv = std::getenv("ORKIGE_BREADCRUMB_DIR"))
@@ -645,43 +539,6 @@ int main(int argc, char** argv)
 			breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
-		// ORKIGE_SANCTIONED_OGRE_BEGIN(classic-boot) - lint gate, see Util/ogre_containment.json
-		// --- per-flavor boot block (Docs/render-abstraction.md "App
-		// boot"): on classic, Engine construction/config and the
-		// RTSS-internal media registration stay classic plumbing; on the
-		// next flavor the Engine sibling (engine_graphic/EngineNext.h)
-		// carries the same parameters into RenderBackend::createRenderSystem.
-		// After Engine::setup the player talks to the engine_render facade
-		// on BOTH flavors.
-#ifdef ORKIGE_RENDER_CLASSIC
-		Orkige::Engine engine(Ogre::SMT_DEFAULT,
-			Orkige::StringUtil::BLANK, Orkige::StringUtil::BLANK,
-			Orkige::StringUtil::BLANK, engineLogPath);
-#else
-		Orkige::Engine engine(engineLogPath);
-#endif
-		engine.setCustomWindowParam("width",
-			Orkige::StringUtil::Converter::toString(windowWidth));
-		engine.setCustomWindowParam("height",
-			Orkige::StringUtil::Converter::toString(windowHeight));
-		if (!automatedRun)
-		{
-			engine.setCustomWindowParam("vsync", "true");
-		}
-
-#ifdef ORKIGE_RENDER_CLASSIC
-		// ORKIGE_RENDERSYSTEM: explicit render system choice ("Vulkan",
-		// "Metal", "GL3Plus", "GL" - see Engine::matchRenderSystemName);
-		// unset keeps the default (first available, i.e. GL3Plus). Vulkan
-		// (MoltenVK on macOS) has full RTSS support; OGRE 14.5's Metal RS
-		// does not (no MSL backend - built-in default shaders only).
-		// (The next flavor boots Ogre-Next's Metal RS unconditionally.)
-		if (const char* renderSystemEnv = std::getenv("ORKIGE_RENDERSYSTEM"))
-		{
-			engine.setPreferredRenderSystem(renderSystemEnv);
-		}
-#endif
-
 #ifdef ORKIGE_IPHONE
 		// iOS: everything was copied into the app bundle by the CMake
 		// post-build step (see tools/player/CMakeLists.txt)
@@ -707,62 +564,141 @@ int main(int argc, char** argv)
 		const std::string playerAssetDir = ORKIGE_PLAYER_ASSET_DIR;
 		const std::string playerJumperAssetDir = ORKIGE_PLAYER_JUMPER_ASSET_DIR;
 #endif
-#ifdef ORKIGE_RENDER_CLASSIC
-		// RTSS shader library + OgreUnifiedShader.h, same locations
-		// OgreBites::ApplicationContext registers (see CMakeLists.txt) -
-		// backend-internal media, needed before setup: classic bootstrap
-		// business, not a facade call. (The next flavor's Hlms media is a
-		// built-in default of its Engine sibling.)
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			playerMediaDir + "/Main", "FileSystem", Ogre::RGN_INTERNAL);
-		Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
-			playerMediaDir + "/RTShaderLib", "FileSystem",
-			Ogre::RGN_INTERNAL);
-#else
+		// the host boot: mobile is a fullscreen native window, desktop bakes
+		// the scene path into the title. The media dir feeds the classic RTSS
+		// registration AND the next flavor's Hlms override: a device bundle
+		// always overrides (the engine's baked default is a build-tree path,
+		// invalid there), a desktop dev run keeps the baked Hlms default and
+		// an exported .app resolves to the Media/ in its Resources instead.
+		Orkige::AppHostConfig hostConfig;
 #if defined(ORKIGE_IPHONE) || defined(__ANDROID__)
-		// next flavor on device: the Hlms shader templates ride in the app
-		// bundle under Media/Hlms (the engine's baked default is a build-tree
-		// path, invalid here); point registration at the bundled Media dir
-		engine.setHlmsMediaDir(playerMediaDir);
+		hostConfig.windowTitle = "Orkige Player";
+		hostConfig.hlmsMediaDir = playerMediaDir;
 #else
-		// desktop next: a normal dev run keeps the engine's baked Hlms default;
-		// an exported .app carries the Hlms shader templates under
-		// Contents/Resources/Media, and resolveMediaDirectory returns that
-		// bundled dir instead of the baked classic fallback - point Hlms
-		// registration at it so the bundle touches no vcpkg/source path.
+		hostConfig.windowTitle = "Orkige Player - " + scenePath;
 		if (playerMediaDir != std::string(ORKIGE_PLAYER_MEDIA_DIR))
 		{
-			engine.setHlmsMediaDir(playerMediaDir);
+			hostConfig.hlmsMediaDir = playerMediaDir;
 		}
 #endif
-#endif
-
-		if (!engine.setup("Orkige Player", Orkige::Engine::SHOW_NEVER,
-			Orkige::StringUtil::Converter::toString(
-				reinterpret_cast<size_t>(orkige_native_window_handle(window)))))
+		hostConfig.automatedRun = automatedRun;
+		hostConfig.engineLogFile = engineLogPath;
+		hostConfig.classicMediaDir = playerMediaDir;
+		if (!host.boot(hostConfig, [&]()
+			{
+				Orkige::RenderSystem* render = host.getRenderSystem();
+				// the engine-default font (Nunito) directory as a resource
+				// location so a project's .ogui can reference the font by name
+				// (font-atlas baking resolves the ttf by resource name across
+				// all groups). Register the bundled dir (present in an
+				// exported/device bundle) and the dev-tree dir (build tree);
+				// is_directory keeps a missing one a silent skip.
+				std::error_code fontDirError;
+				if (std::filesystem::is_directory(playerMediaDir + "/fonts",
+					fontDirError))
+				{
+					render->addResourceLocation(playerMediaDir + "/fonts");
+				}
+				if (std::filesystem::is_directory(ORKIGE_PLAYER_FONT_DIR,
+					fontDirError))
+				{
+					render->addResourceLocation(ORKIGE_PLAYER_FONT_DIR);
+				}
+				// sample assets (test_mesh.glb; scene meshes load lazily via
+				// Codec_Assimp) and the jumper sample assets, so the editor's
+				// play mode works on samples/* scenes too. Registered only when
+				// present: an exported app ships nothing but its project's
+				// assets, and the (baked-in) dev source-tree paths must not
+				// abort the run elsewhere
+				for (std::string const& sampleAssetDir :
+					{ playerAssetDir, playerJumperAssetDir })
+				{
+					std::error_code sampleDirError;
+					if (std::filesystem::is_directory(sampleAssetDir,
+						sampleDirError))
+					{
+						render->addResourceLocation(sampleAssetDir);
+					}
+				}
+				// --project: the project's assets/ and scenes/ become resource
+				// locations in the dedicated project group (the same group the
+				// editor uses); a missing directory is skipped with an honest
+				// line
+				if (project.isLoaded())
+				{
+					const std::string projectAssetsDir =
+						project.getAssetsDirectory();
+					std::error_code assetErr;
+					if (std::filesystem::is_directory(projectAssetsDir,
+						assetErr))
+					{
+						// assets/ AND each subfolder as their own FLAT
+						// location, so a subfolder asset resolves by BARE name
+						// (a single recursive location indexes subfolder files
+						// by sub-path on the next backend, so bare-name loads
+						// miss there); matches the editor
+						const auto registerFlat =
+							[&](std::string const& directory)
+						{
+							render->addResourceLocation(directory,
+								Orkige::RenderSystem::LT_FILESYSTEM,
+								Orkige::Project::RESOURCE_GROUP_NAME, false);
+						};
+						registerFlat(projectAssetsDir);
+						for (std::filesystem::recursive_directory_iterator
+							it(projectAssetsDir, assetErr), end;
+							!assetErr && it != end; it.increment(assetErr))
+						{
+							if (it->is_directory(assetErr))
+							{
+								registerFlat(it->path().string());
+							}
+						}
+					}
+					else
+					{
+						SDL_Log("orkige_player: project directory '%s' does "
+							"not exist - not registered",
+							projectAssetsDir.c_str());
+					}
+					const std::string projectScenesDir =
+						project.getScenesDirectory();
+					if (std::filesystem::is_directory(projectScenesDir,
+						assetErr))
+					{
+						render->addResourceLocation(projectScenesDir,
+							Orkige::RenderSystem::LT_FILESYSTEM,
+							Orkige::Project::RESOURCE_GROUP_NAME,
+							false);	// scenes/ flat
+					}
+					else
+					{
+						SDL_Log("orkige_player: project directory '%s' does "
+							"not exist - not registered",
+							projectScenesDir.c_str());
+					}
+					SDL_Log("orkige_player: project '%s' (root '%s') rooted "
+						"the resource locations", project.getName().c_str(),
+						project.getRootDirectory().c_str());
+				}
+			}))
 		{
-			SDL_Log("Engine::setup failed");
 			return 1;
 		}
-		// ORKIGE_SANCTIONED_OGRE_END
-		// --- end of the boot block: from here on the player talks to the
-		// engine_render facade exclusively (both flavors)
-		Orkige::RenderSystem* render = Orkige::RenderSystem::get();
-		Orkige::RenderWorld* world = render->getWorld();
+		Orkige::RenderSystem* render = host.getRenderSystem();
+		Orkige::RenderWorld* world = host.getRenderWorld();
 
-		// the engine-default font (Nunito) directory as a resource location so a
-		// project's .ogui can reference the font by name (font-atlas baking
-		// resolves the ttf by resource name across all groups). Register the
-		// bundled dir (present in an exported/device bundle) and the dev-tree
-		// dir (build tree); is_directory keeps a missing one a silent skip.
-		std::error_code fontDirError;
-		if (std::filesystem::is_directory(playerMediaDir + "/fonts", fontDirError))
+		// project scripts: ScriptComponent paths like "scripts/player.lua"
+		// resolve against the open project's root directory; the discovery
+		// walk registers a factory alias per SCRIPT COMPONENT KIND
+		// (*.component.lua) so a scene that attaches one loads, and a named
+		// kind binds its own script file on attach
+		if (project.isLoaded())
 		{
-			render->addResourceLocation(playerMediaDir + "/fonts");
-		}
-		if (std::filesystem::is_directory(ORKIGE_PLAYER_FONT_DIR, fontDirError))
-		{
-			render->addResourceLocation(ORKIGE_PLAYER_FONT_DIR);
+			host.getScriptRuntime().setScriptSearchRoot(
+				project.getRootDirectory());
+			Orkige::ScriptComponentRegistry::getSingleton().scanProject(
+				project.getScriptsDirectory(), project.getRootDirectory());
 		}
 
 		// mirror the engine log's warning/error lines into the breadcrumb trail
@@ -771,91 +707,12 @@ int main(int argc, char** argv)
 		Orkige::EngineLogCapture breadcrumbLog;
 		breadcrumbLog.attach();
 
-		// the window camera on a facade rig (createDefaultCameraAndViewport
-		// successor, same pattern as the samples). The fixed yaw axis keeps
-		// per-frame lookAt calls roll-free - project scripts drive this rig
-		// through the Lua bindings (engine:getCamera():getNode(),
-		// engine:setCameraOrthographic, ...).
-		optr<Orkige::RenderCamera> camera = world->createCamera("player.camera");
-		optr<Orkige::RenderNode> cameraNode =
-			world->createNode("player.cameraNode");
-		cameraNode->setFixedYawAxis(true);
-		camera->attachTo(cameraNode);
-		render->showCameraOnWindow(camera);
-
-		// sample assets (test_mesh.glb; scene meshes load lazily via
-		// Codec_Assimp) and the jumper sample assets, so the editor's play
-		// mode works on samples/* scenes too. Registered only when present:
-		// an exported app ships nothing but its project's assets, and the
-		// (baked-in) dev source-tree paths must not abort the run elsewhere
-		for (std::string const& sampleAssetDir :
-			{ playerAssetDir, playerJumperAssetDir })
-		{
-			std::error_code sampleDirError;
-			if (std::filesystem::is_directory(sampleAssetDir, sampleDirError))
-			{
-				render->addResourceLocation(sampleAssetDir);
-			}
-		}
-		// --project: the project's assets/ and scenes/ become resource
-		// locations in the dedicated project group (the same group the
-		// editor uses); a missing directory is skipped with an honest line
-		if (project.isLoaded())
-		{
-			const std::string projectAssetsDir = project.getAssetsDirectory();
-			std::error_code assetErr;
-			if (std::filesystem::is_directory(projectAssetsDir, assetErr))
-			{
-				// assets/ AND each subfolder as their own FLAT location, so a
-				// subfolder asset resolves by BARE name (a single recursive
-				// location indexes subfolder files by sub-path on the next
-				// backend, so bare-name loads miss there); matches the editor
-				const auto registerFlat = [&](std::string const& directory)
-				{
-					render->addResourceLocation(directory,
-						Orkige::RenderSystem::LT_FILESYSTEM,
-						Orkige::Project::RESOURCE_GROUP_NAME, false);
-				};
-				registerFlat(projectAssetsDir);
-				for (std::filesystem::recursive_directory_iterator
-					it(projectAssetsDir, assetErr), end;
-					!assetErr && it != end; it.increment(assetErr))
-				{
-					if (it->is_directory(assetErr))
-					{
-						registerFlat(it->path().string());
-					}
-				}
-			}
-			else
-			{
-				SDL_Log("orkige_player: project directory '%s' does not "
-					"exist - not registered", projectAssetsDir.c_str());
-			}
-			const std::string projectScenesDir = project.getScenesDirectory();
-			if (std::filesystem::is_directory(projectScenesDir, assetErr))
-			{
-				render->addResourceLocation(projectScenesDir,
-					Orkige::RenderSystem::LT_FILESYSTEM,
-					Orkige::Project::RESOURCE_GROUP_NAME, false);	// scenes/ flat
-			}
-			else
-			{
-				SDL_Log("orkige_player: project directory '%s' does not "
-					"exist - not registered", projectScenesDir.c_str());
-			}
-			SDL_Log("orkige_player: project '%s' (root '%s') rooted the "
-				"resource locations", project.getName().c_str(),
-				project.getRootDirectory().c_str());
-		}
-		render->initialiseResourceGroups();
-
-		world->setAmbientLight(Orkige::Color(0.2f, 0.2f, 0.2f));
-
-		// the same shared resources the editor sets up before creating
-		// objects: the in-memory "EditorCube.mesh" (plus its unlit
-		// "VertexColour" material) that saved scenes reference by name
-		world->createVertexColourCubeMesh();
+		// the window-camera rig from the host boot (fixed yaw keeps per-frame
+		// lookAt calls roll-free) - project scripts drive it through the Lua
+		// bindings (engine:getCamera():getNode(), engine:setCameraOrthographic,
+		// ...)
+		optr<Orkige::RenderCamera> camera = host.getWindowCamera();
+		optr<Orkige::RenderNode> cameraNode = host.getCameraNode();
 
 		// input pipeline: the poll loop below feeds every SDL event into the
 		// InputManager, which triggers Orkige input events globally
@@ -995,11 +852,11 @@ int main(int argc, char** argv)
 				}
 			}
 		}
-		QuitOnEscape quitOnEscape;
+		Orkige::QuitOnEscape quitOnEscape;
 		optr<Orkige::EventListener> escapeListener =
 			Orkige::GlobalEventManager::getSingleton().bind(
 				Orkige::InputManager::KeyPressedEvent,
-				&QuitOnEscape::onKeyPressed, &quitOnEscape);
+				&Orkige::QuitOnEscape::onKeyPressed, &quitOnEscape);
 
 		// audio: the mixer lives on the SoundManager (per-source gain x group
 		// volume, master on the AL listener); the "ears" ride the window
@@ -1024,9 +881,10 @@ int main(int argc, char** argv)
 				project.getSettings());
 		}
 
-		// GameObject/component bridge (registers the component factories)
-		init_module_orkige_engine();
-		Orkige::GameObjectManager gameObjectManager;
+		// the GameObject world from the host boot (the component factories
+		// registered there, before the manager existed)
+		Orkige::GameObjectManager& gameObjectManager =
+			host.getGameObjectManager();
 		Orkige::PhysicsWorld physicsWorld; // inert until init()
 		// tweens tick in the ordered block of the main loop below; scripts
 		// start them through the Lua `tween` table (scene clears reap them
@@ -1136,7 +994,7 @@ int main(int argc, char** argv)
 				scenePath.c_str());
 			return 1;
 		}
-		applyUnlitFixToLoadedModels(gameObjectManager);
+		Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
 		SDL_Log("orkige_player: scene '%s' loaded (%zu GameObjects)",
 			scenePath.c_str(), gameObjectManager.getGameObjects().size());
 
@@ -1237,7 +1095,7 @@ int main(int argc, char** argv)
 					newScenePath.c_str());
 				return false;
 			}
-			applyUnlitFixToLoadedModels(gameObjectManager);
+			Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
 			physicsNeeded = sceneHasRigidBodies(gameObjectManager);
 			if (physicsNeeded && !physicsWorld.isInitialized())
 			{
@@ -2232,13 +2090,9 @@ int main(int argc, char** argv)
 			}
 			const bool stepOnce = debugLink.consumePendingStep();
 
-			// measured frame dt. Automated (frame-scripted) runs keep the
-			// historical 1/60 floor so headless frames accumulate simulated
-			// time; a HUMAN run uses the real dt - flooring it at 1/60 made
-			// gameplay run FASTER than real time whenever rendering beat 60
-			// fps (physics stepped its fixed 1/60 tick once per rendered
-			// frame). The 0.1 cap stays: it avoids the catch-up spiral after
-			// a stall, at the honest price of slow motion below 10 fps.
+			// measured frame dt through the shared clamp policy (simulated
+			// time on automated runs, real dt for a human - see
+			// AppHost::clampFrameDelta)
 			const std::chrono::steady_clock::time_point frameTime =
 				std::chrono::steady_clock::now();
 			float deltaTime = std::chrono::duration<float>(
@@ -2246,8 +2100,8 @@ int main(int argc, char** argv)
 			lastFrameTime = frameTime;
 			frameStats.addFrame(deltaTime);
 			frameStats.maybeWarnSlow("orkige_player");
-			deltaTime = std::clamp(deltaTime,
-				automatedRun ? 1.0f / 60.0f : 0.0001f, 0.1f);
+			deltaTime = Orkige::AppHost::clampFrameDelta(deltaTime,
+				automatedRun);
 			// pause gates the stepping only - rendering and the debug
 			// protocol stay alive; a step is exactly one fixed physics tick.
 			// The lifecycle sim gate (isSimPaused) pauses gameplay while the app
@@ -4491,7 +4345,7 @@ int main(int argc, char** argv)
 		debugLink.shutdown();
 	}
 
-	SDL_DestroyWindow(window);
-	SDL_Quit();
+	// AppHost's destructor mirrors the boot: world, engine, singletons,
+	// then the SDL window; the breadcrumb trail outlives it all
 	return exitCode;
 }
