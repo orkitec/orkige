@@ -101,7 +101,14 @@ namespace Orkige
 			{
 				this->setState(GuiButton::BS_OVER);
 				this->clicked = true;
-				GlobalEventManager::getSingleton().trigger(Event(GuiButton::ButtonHitEvent, oBadPointer(this)));
+				// the click goes onto the ONE engine event bus as gui.clicked
+				// (queued on GlobalEventManager, drained in the script phase) -
+				// C++ and Lua both subscribe. wasClicked() polling is a separate
+				// latch (set above) and stays valid.
+				if(GuiManager::getSingletonPtr())
+				{
+					GuiManager::getSingleton().emitGuiClicked(this->getObjectID());
+				}
 			}
 		}
 	}

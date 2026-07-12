@@ -77,6 +77,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
+#include <core_script/ScriptEventBus.h>
 #include <core_tween/EaseLibrary.h>
 
 #include <algorithm>
@@ -1275,6 +1276,17 @@ int main(int argc, char** argv)
 				}
 			}
 			debugLink.onSceneReloaded();
+			// the old scene's subscriptions were cancelled as its ScriptInstances
+			// were destroyed above; flush any events it left on the engine bus so
+			// a stale emit (e.g. a last-frame physics contact) is never delivered
+			// to the NEW scene's handlers (created next frame). Two ticks clear
+			// both of GlobalEventManager's double-buffered queues, to nothing -
+			// the outgoing listeners are already gone.
+			if (Orkige::GlobalEventManager::getSingletonPtr())
+			{
+				Orkige::GlobalEventManager::getSingleton().tick();
+				Orkige::GlobalEventManager::getSingleton().tick();
+			}
 			scenePath = newScenePath;
 			if (Orkige::Breadcrumbs::getSingletonPtr())
 			{
@@ -2303,6 +2315,23 @@ int main(int argc, char** argv)
 				//     follow their transforms.
 				gameObjectManager.update(gameplayDelta);
 				//
+				// [2b] EVENT BUS - drain the ONE engine event bus
+				//     (core_event/GlobalEventManager) in the SCRIPT PHASE: the
+				//     script `events` table, the gui and the engine mirrors all
+				//     queue onto it, and this tick fans each queued event out to
+				//     its C++ and Lua listeners in subscription order. THIS is the
+				//     missing wire that activates the heritage async queue. The
+				//     manager's double-buffered queue makes an emit from inside a
+				//     handler deliver NEXT frame (cascade-safe, no recursion). gui
+				//     events queued during input dispatch (before [2]) and events
+				//     emitted by the scripts just above are delivered HERE, this
+				//     frame; events emitted LATER in the tick (the physics contact
+				//     mirror in [4]) land next frame.
+				if (Orkige::GlobalEventManager::getSingletonPtr())
+				{
+					Orkige::GlobalEventManager::getSingleton().tick();
+				}
+				//
 				// [3] TWEENS - after scripts (a tween started this frame takes
 				//     its first step this frame), before physics (tweened poses
 				//     are what the simulation sees). Dormant in the editor: only
@@ -2449,6 +2478,9 @@ int main(int argc, char** argv)
 			if (debugLink.isRecording())
 			{
 				debugLink.traceFrame(gameObjectManager, frameCount, deltaTime);
+				// fold this frame's script/gui/engine bus events into the trace
+				// event stream (drains the bus trace-capture buffer)
+				debugLink.traceScriptEvents();
 				// harvest THIS frame's contacts only when physics advanced (a
 				// paused frame reuses the last drained list - do not re-emit)
 				if (advanceWorld && physicsNeeded)
@@ -4020,14 +4052,36 @@ int main(int argc, char** argv)
 							integContactFail("onContactBegin fired for a body "
 								"other than the tagged goal");
 						}
-						else
+						// the bespoke onContactBegin fired THIS or an earlier
+						// frame; the physics.contactBegin BUS mirror is emitted at
+						// the contact drain (after the script phase), so it is
+						// delivered one frame later. Wait for it, then assert the
+						// mirror count matches the bespoke count (additive, never
+						// a replacement).
+						else if (integContactNum("busContact", 0.0) >= 1.0)
 						{
-							SDL_Log("orkige_player: integration contact "
-								"selfcheck complete - tag lookup + 'jump' action "
-								"+ physics drop + goal-sensor onContactBegin all "
-								"fired");
-							integContactPhase = IntegContactPhase::Done;
-							running = false;
+							if (integContactNum("busContact", 0.0) !=
+								integContactNum("contact", 0.0))
+							{
+								integContactFail("the physics.contactBegin bus "
+									"mirror count did not match the onContactBegin "
+									"hook count");
+							}
+							else
+							{
+								SDL_Log("orkige_player: integration contact "
+									"selfcheck complete - tag lookup + 'jump' "
+									"action + physics drop + goal-sensor "
+									"onContactBegin AND the physics.contactBegin "
+									"bus mirror all fired");
+								integContactPhase = IntegContactPhase::Done;
+								running = false;
+							}
+						}
+						else if (frameCount > integContactInputFrame + 950)
+						{
+							integContactFail("the physics.contactBegin bus mirror "
+								"was never delivered after onContactBegin");
 						}
 					}
 					else if (frameCount > integContactInputFrame + 900)

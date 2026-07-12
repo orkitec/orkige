@@ -15,6 +15,7 @@ add_executable(orkige_engine_tests
     FontAtlasTests.cpp
     ScriptComponentTests.cpp
     ScriptComponentKindTests.cpp
+    ScriptEventBusKindTests.cpp
     PlayerBundleTests.cpp
     TwoDSupportTests.cpp
     PropertyReflectionTests.cpp

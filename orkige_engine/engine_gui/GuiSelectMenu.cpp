@@ -143,7 +143,15 @@ namespace Orkige
 
 				if (throwEvent)
 				{
-					GlobalEventManager::getSingleton().trigger(Event(GuiSelectMenu::SelectMenuEvent, oBadPointer(this)));
+					// gui.valueChanged onto the ONE engine event bus (queued on
+					// GlobalEventManager); select-menu / slider polling stays
+					// valid. The new selected index is the changed value.
+					if (GuiManager::getSingletonPtr())
+					{
+						GuiManager::getSingleton().emitGuiValueChanged(
+							this->getObjectID(),
+							static_cast<double>(this->selectedIndex));
+					}
 				}
 			}
 		}

@@ -30,6 +30,8 @@
 
 #include "core_tween/TweenManager.h"
 
+#include "core_script/ScriptEventBus.h"
+
 using namespace Orkige;
 
 ORKIGE_MODULE(orkige_core)
@@ -110,5 +112,16 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 		// make the tween loop: setLoops(count, pingpong) - count total plays
 		// (<0 = forever), pingpong true runs it back and forth
 		OFUNC(setLoops)
+	OSIMPLEEXPORT_END
+
+	//the value handle the events.subscribe Lua API returns
+	//(core_script/ScriptEventBus.h); events.subscribe/emit themselves are
+	//registered through the ScriptRuntime seam in
+	//engine_gocomponent/ScriptComponent.cpp (ensureScriptApi)
+	OSIMPLEEXPORT(Orkige::EventSubscription,EventSubscription)
+		// drop the subscription: cancel() -> true when it was still live
+		OFUNC(cancel)
+		// is the subscription still live: isActive()
+		OFUNC(isActive)
 	OSIMPLEEXPORT_END
 ORKIGE_MODULE_END

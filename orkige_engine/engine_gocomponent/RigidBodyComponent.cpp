@@ -11,6 +11,7 @@
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ScriptComponent.h"
 #include "engine_gocomponent/ComponentPropertyReflect.h"
+#include <core_script/ScriptEventBus.h>
 #include <core_game/GameObject.h>
 #include <core_game/GameObjectManager.h>
 #include <core_game/SceneSerializer.h>
@@ -349,6 +350,18 @@ namespace Orkige
 			}
 			RigidBodyComponent::deliverContact(objectA, objectB, contact.began);
 			RigidBodyComponent::deliverContact(objectB, objectA, contact.began);
+			// (3) MIRROR onto the message bus (additive; the bespoke per-object
+			// onContactBegin/onContactEnd hooks above are untouched): ONE
+			// physics.contactBegin / physics.contactEnd per contact pair, ids in
+			// the payload. This drain runs AFTER the script phase in the tick
+			// order, so the bus event is delivered at the NEXT frame's drain -
+			// the bespoke hook is same-frame, the bus mirror is one frame later.
+			ScriptEventPayload payload;
+			payload.setString("a", objectA->getObjectID());
+			payload.setString("b", objectB->getObjectID());
+			ScriptEventBus::getSingleton().emit(
+				contact.began ? "physics.contactBegin" : "physics.contactEnd",
+				payload);
 		}
 	}
 	//---------------------------------------------------------

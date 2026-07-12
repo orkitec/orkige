@@ -123,6 +123,10 @@ save.has(key) -> bool  -- is the key present
 save.remove(key)  -- drop the key
 save.flush() -> bool  -- autosave point - write to disk now
 
+## events
+events.subscribe(name, fn) -> EventSubscription  -- subscribe fn(payload) to an event (script phase, subscription order)
+events.emit(name [, payload])  -- queue an event; payload a table of string/number/bool (one nesting level)
+
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
 
@@ -165,6 +169,10 @@ InputActions:hasAction(name) -> bool  -- is the action mapped
 TweenHandle:cancel()  -- stop the tween now
 TweenHandle:isActive() -> bool  -- is the tween still running (completion poll)
 TweenHandle:setLoops(count, pingpong)  -- loop count (<0 forever); pingpong runs it back and forth
+
+## EventSubscription
+EventSubscription:cancel() -> bool  -- drop the subscription (true if it was live)
+EventSubscription:isActive() -> bool  -- is the subscription still live
 
 ## SafeAreaInsets
 SafeAreaInsets.mLeft  -- left inset in pixels
@@ -223,19 +231,65 @@ exists for any script bound by path rather than by kind name.
   script component of an object independently: `update` (the tick),
   `onContactBegin`/`onContactEnd` (the physics contact drain), `onAppPause`/
   `onAppResume` (the app-lifecycle broadcast). Two scripts on one object each get
-  their own call in their own sandbox. There is currently **no general
-  event-bus** (`subscribe`/`emit`) surface for scripts — the hooks above are the
-  whole event vocabulary; cross-object/-system messaging goes through `shared`,
-  tags (`world.findByTag`) or the object graph. (A Lua bridge to the C++
-  `GlobalEventManager` is a separate, not-yet-shipped surface.)
-- **GUI events are single-consumer.** The gui poll idiom is latch-and-clear:
-  `widget:wasClicked()` / `wasSubmitted()` / `group:pollChanged()` /
-  `gui:getDialogResult()` return the pending event ONCE and clear it. So if two
-  script components poll the SAME widget in one frame, the FIRST to poll consumes
-  it and the second sees nothing. **Convention: exactly one script component owns
-  a given widget's events** — split UI ownership by widget, not by having several
-  scripts race for the same button. (Per-consumer latching was judged not worth
-  the binding-layer cost for a case good authoring avoids.)
+  their own call in their own sandbox.
+- **The `events` message bus (multi-consumer).** For signals SEVERAL scripts
+  should hear — or that cross objects/systems — use the bus:
+  `events.subscribe(name, fn) -> handle` and `events.emit(name [, payload])`.
+  A handler runs as `fn(payload)`, `payload` a plain table. This is the Lua face
+  of the engine's ONE event bus (`core_event/GlobalEventManager`), so a C++
+  system and a script share it — a C++ listener bound to an event name receives a
+  script-emitted event of that name, and vice versa. It is the multi-consumer
+  complement to `shared` / tags / the object graph, not a replacement — reach a
+  *specific* object by id, broadcast a *signal* on the bus.
+
+  **Delivery is deterministic.** An `emit` QUEUES onto the engine bus; it never
+  calls a handler inline. The player loop drains the queue ONCE per frame in the
+  script phase (right after the component updates, before tweens/physics),
+  delivering each event to its subscribers IN SUBSCRIPTION ORDER. The bus's
+  double-buffered queue is the cascade-safety: an `emit` from INSIDE a handler
+  lands in the next buffer and is delivered at the NEXT frame's drain — a handler
+  can never recurse into the same drain. An `emit` that happens later in the tick
+  — the mirrored `physics.contactBegin`/`contactEnd`, emitted at the contact
+  drain which runs after the script phase — is likewise delivered next frame. gui
+  input is pumped before the script phase, so a widget event is seen the SAME
+  frame it was clicked.
+
+  **Subscriptions are sandbox-scoped.** A subscription belongs to the script
+  component that made it; removing that component, tearing down its scene, or
+  hot-reloading it CANCELS its subscriptions. So the idiom is **subscribe in
+  `init`** — a hot reload re-runs `init` and re-subscribes naturally.
+  `handle:cancel()` drops one early.
+
+  **Payload bounds.** A payload is a plain table of `string`/`number`/`bool`
+  values, one nesting level deep (a field may itself be such a table). Anything
+  else — a function, userdata, a deeper table — is an honest ERROR raised at the
+  `emit` call site. `events.emit("name")` with no payload is an empty event.
+
+  **Engine mirrors.** Engine producers emit the same named events so scripts can
+  react without polling: `gui.clicked {id}`, `gui.toggled {id, state}`,
+  `gui.submitted {id, text}`, `gui.valueChanged {id, value}`,
+  `gui.dialogResult {id, result}`, `gui.screenPushed`/`gui.screenPopped {name}`,
+  `gui.toastShown {text}`, `physics.contactBegin`/`physics.contactEnd {a, b}`
+  (object ids), and `app.pause`/`app.resume` (no payload).
+
+  ```lua
+  function init(self)
+      self.sub = events.subscribe("gui.clicked", function(e)
+          if e.id == "startBtn" then screens.push("game") end
+      end)
+      events.subscribe("player.died", function(e) self.lives = self.lives - 1 end)
+  end
+  -- somewhere else: events.emit("player.died", { by = "spikes" })
+  ```
+- **GUI events are ALSO single-consumer-pollable.** The gui poll idiom is
+  latch-and-clear: `widget:wasClicked()` / `wasSubmitted()` /
+  `group:pollChanged()` / `gui:getDialogResult()` return the pending event ONCE
+  and clear it. So if two script components poll the SAME widget in one frame, the
+  FIRST to poll consumes it and the second sees nothing. **Convention for
+  polling: exactly one script component owns a given widget's events.** When
+  SEVERAL scripts must react to the same widget, use the `gui.*` bus events above
+  (multi-consumer) instead of racing pollers — the two channels coexist and the
+  bus never consumes the poll latch.
 
 ### Script component performance
 

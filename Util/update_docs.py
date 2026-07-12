@@ -52,13 +52,13 @@ GENERATED_HEADER = os.path.join(ROOT, "tools", "editor", "GeneratedLuaApi.h")
 # appended after these in discovery order.
 INDEX_TABLE_ORDER = [
     "world", "screen", "sound", "music", "tween", "guitween", "screens",
-    "haptics", "cvar", "save",
+    "haptics", "cvar", "save", "events",
 ]
 # the value / singleton usertypes that belong in the compact TOP index (the
 # rest of the usertypes go to the fuller Type reference block lower down).
 INDEX_TYPES = [
     "Vector3", "Vector2", "Quaternion",
-    "InputActions", "TweenHandle", "SafeAreaInsets", "RayHit",
+    "InputActions", "TweenHandle", "EventSubscription", "SafeAreaInsets", "RayHit",
 ]
 # core-plumbing usertypes a game SCRIPT never drives (serialization, the event
 # bus, the base Object/Interface, the classic debug console): registered for the
@@ -749,9 +749,11 @@ def cmd_selftest():
     index_text = render_index(model, annotations)
     assert "music.play(id, file [, loop]) -> bool" in index_text, index_text
     assert "world.get(id) -> GameObject?" in index_text
-    # (3) index size budget (agent one-shot ingest): well under 8 KiB
+    # (3) index size budget (agent one-shot ingest): a single comfortable read.
+    # Grows as the scripting surface does (the `events` message bus added its
+    # table + the EventSubscription handle); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 7800, "index is %d bytes, over the budget" % size
+    assert size < 8400, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree

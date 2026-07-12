@@ -8,9 +8,12 @@
 ***************************************************************/
 
 #include "core_script/ScriptRuntime.h"
+#include "core_script/ScriptEventBus.h"
+#include "core_script/ScriptEventPayload.h"
 
 #include <algorithm>
 #include <filesystem>
+#include <stdexcept>
 #include <utility>
 
 namespace Orkige
@@ -49,6 +52,12 @@ namespace Orkige
 	//---------------------------------------------------------
 	ScriptRuntime::~ScriptRuntime()
 	{
+		// release every held script callback (event-bus subscriptions) WHILE the
+		// Lua state is still open: the ScriptManager member below is destroyed
+		// AFTER this body runs, so a subscription's sol reference would otherwise
+		// be freed against a closed state. Owner-scoped subs normally clear as
+		// their sandboxes retire; this sweeps any owner-less (console) ones too.
+		ScriptEventBus::getSingleton().clear();
 	}
 	//---------------------------------------------------------
 	bool ScriptRuntime::available()
@@ -582,6 +591,230 @@ namespace Orkige
 #endif
 	}
 	//---------------------------------------------------------
+	//--- event-bus payload <-> Lua conversion ----------------
+	//---------------------------------------------------------
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! set a bounded scalar on a sol table under a string OR array-index key
+		//! (a nil scalar is simply left absent)
+		void payloadSetScalar(sol::table & table, ScriptEventKey const & key,
+			ScriptEventScalar const & scalar)
+		{
+			switch (scalar.kind)
+			{
+			case ScriptEventScalar::Kind::Bool:
+				if (key.isIndex) { table[key.index] = scalar.boolValue; }
+				else { table[key.name] = scalar.boolValue; }
+				break;
+			case ScriptEventScalar::Kind::Number:
+				if (key.isIndex) { table[key.index] = scalar.numberValue; }
+				else { table[key.name] = scalar.numberValue; }
+				break;
+			case ScriptEventScalar::Kind::String:
+				if (key.isIndex) { table[key.index] = scalar.stringValue; }
+				else { table[key.name] = scalar.stringValue; }
+				break;
+			case ScriptEventScalar::Kind::Nil:
+			default:
+				break;
+			}
+		}
+		//! build the Lua table a handler receives from a bounded payload
+		sol::table payloadToLuaTable(sol::state_view lua,
+			ScriptEventPayload const & payload)
+		{
+			sol::table table = lua.create_table();
+			for (std::pair<ScriptEventKey, ScriptEventField> const & entry :
+				payload.fields)
+			{
+				if (!entry.second.isTable)
+				{
+					payloadSetScalar(table, entry.first, entry.second.scalar);
+					continue;
+				}
+				sol::table nested = lua.create_table();
+				for (std::pair<ScriptEventKey, ScriptEventScalar> const & sub :
+					entry.second.table)
+				{
+					payloadSetScalar(nested, sub.first, sub.second);
+				}
+				if (entry.first.isIndex) { table[entry.first.index] = nested; }
+				else { table[entry.first.name] = nested; }
+			}
+			return table;
+		}
+		//! read a Lua value as a bounded scalar; false when it is not a
+		//! string/number/bool (the caller then rejects or recurses one level)
+		bool luaValueToScalar(sol::object const & value, ScriptEventScalar * out)
+		{
+			switch (value.get_type())
+			{
+			case sol::type::boolean:
+				*out = ScriptEventScalar::makeBool(value.as<bool>());
+				return true;
+			case sol::type::number:
+				*out = ScriptEventScalar::makeNumber(value.as<double>());
+				return true;
+			case sol::type::string:
+				*out = ScriptEventScalar::makeString(value.as<String>());
+				return true;
+			default:
+				return false;
+			}
+		}
+		//! read a Lua key as a bounded key (string name or array index); false
+		//! when it is neither
+		bool luaKeyToEventKey(sol::object const & key, ScriptEventKey * out,
+			String * error, char const * context)
+		{
+			if (key.get_type() == sol::type::number)
+			{
+				*out = ScriptEventKey::indexed(
+					static_cast<long long>(key.as<double>()));
+				return true;
+			}
+			if (key.get_type() == sol::type::string)
+			{
+				*out = ScriptEventKey::named(key.as<String>());
+				return true;
+			}
+			*error = String(context) + " key must be a string or an array index";
+			return false;
+		}
+		//! @brief bounded-convert trailing argument #index (the emit payload) into
+		//! a ScriptEventPayload. Absent/nil = an empty event (true). A non-table,
+		//! a value that is not string/number/bool, or a table nested deeper than
+		//! one level is rejected with *error (false) - the honest failure at emit.
+		bool luaTableToPayload(ScriptArgs const & args, int index,
+			ScriptEventPayload * out, String * error)
+		{
+			if (index < 0 || static_cast<std::size_t>(index) >= args.size())
+			{
+				return true;	// no payload argument - an empty event
+			}
+			const sol::object value = args.get<sol::object>(index);
+			if (value.get_type() == sol::type::nil)
+			{
+				return true;	// explicit nil - an empty event
+			}
+			if (value.get_type() != sol::type::table)
+			{
+				*error = "the payload must be a table";
+				return false;
+			}
+			const sol::table table = value.as<sol::table>();
+			for (std::pair<sol::object, sol::object> const & kv : table)
+			{
+				ScriptEventKey key;
+				if (!luaKeyToEventKey(kv.first, &key, error, "a payload"))
+				{
+					return false;
+				}
+				ScriptEventField field;
+				ScriptEventScalar scalar;
+				if (luaValueToScalar(kv.second, &scalar))
+				{
+					field.isTable = false;
+					field.scalar = scalar;
+				}
+				else if (kv.second.get_type() == sol::type::table)
+				{
+					// exactly one nesting level: every nested value must be scalar
+					field.isTable = true;
+					const sol::table nested = kv.second.as<sol::table>();
+					for (std::pair<sol::object, sol::object> const & nkv : nested)
+					{
+						ScriptEventKey nestedKey;
+						if (!luaKeyToEventKey(nkv.first, &nestedKey, error,
+							"a nested payload"))
+						{
+							return false;
+						}
+						ScriptEventScalar nestedScalar;
+						if (!luaValueToScalar(nkv.second, &nestedScalar))
+						{
+							*error = "a payload value nests deeper than one level "
+								"or is not a string/number/bool";
+							return false;
+						}
+						field.table.push_back(
+							std::make_pair(nestedKey, nestedScalar));
+					}
+				}
+				else
+				{
+					*error = "a payload value must be a string, number, bool or "
+						"a table of those";
+					return false;
+				}
+				out->fields.push_back(std::make_pair(key, field));
+			}
+			return true;
+		}
+	}
+#endif
+	//---------------------------------------------------------
+	bool ScriptCallback::invokePayload(ScriptEventPayload const & payload,
+		String * outError) const
+	{
+		oAssert(outError);
+#ifdef ORKIGE_LUA
+		if (!this->mFunction.valid())
+		{
+			return true;	// nothing to call - not an error
+		}
+		sol::state_view lua(this->mFunction.lua_state());
+		const sol::table table = payloadToLuaTable(lua, payload);
+		const sol::protected_function_result result = this->mFunction(table);
+		if (!result.valid())
+		{
+			const sol::error error = result;
+			*outError = error.what();
+			return false;
+		}
+		return true;
+#else
+		(void)payload;
+		*outError = "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
+		return false;
+#endif
+	}
+	//---------------------------------------------------------
+	void ScriptRuntime::emitEventFromScript(String const & name,
+		ScriptArgs const & args)
+	{
+#ifdef ORKIGE_LUA
+		ScriptEventPayload payload;
+		String error;
+		if (!luaTableToPayload(args, 0, &payload, &error))
+		{
+			// raised at the emit call site (sol turns the exception into a Lua
+			// error): the script author learns immediately their payload is
+			// out of the bus's bounds
+			throw std::runtime_error("events.emit('" + name + "'): " + error);
+		}
+		ScriptEventBus::getSingleton().emit(name, payload);
+#else
+		(void)name;
+		(void)args;
+#endif
+	}
+	//---------------------------------------------------------
+	//--- ScriptCallScope -------------------------------------
+	//---------------------------------------------------------
+	ScriptCallScope::ScriptCallScope(void const * owner)
+	{
+		ScriptEventBus & bus = ScriptEventBus::getSingleton();
+		this->mPrevious = bus.currentOwner();
+		bus.setCurrentOwner(owner);
+	}
+	//---------------------------------------------------------
+	ScriptCallScope::~ScriptCallScope()
+	{
+		ScriptEventBus::getSingleton().setCurrentOwner(this->mPrevious);
+	}
+	//---------------------------------------------------------
 	//--- ScriptInstance --------------------------------------
 	//---------------------------------------------------------
 	ScriptInstance::ScriptInstance()
@@ -590,6 +823,11 @@ namespace Orkige
 	//---------------------------------------------------------
 	ScriptInstance::~ScriptInstance()
 	{
+		// retire this sandbox's event-bus subscriptions FIRST, while its Lua
+		// environment is still valid - dropping the held callbacks here (not at
+		// the process-exit static teardown) is what makes "destroying or
+		// hot-reloading a script component auto-cancels its subscriptions" true
+		ScriptEventBus::getSingleton().cancelOwner(this);
 #ifdef ORKIGE_LUA
 		// deterministic release of everything the instance kept alive: engine
 		// objects held by script locals (a Lua-booted GuiManager and its
@@ -659,6 +897,10 @@ namespace Orkige
 	{
 		oAssert(outError);
 #ifdef ORKIGE_LUA
+		// subscribing in init() is the idiom: tag those subscriptions with this
+		// sandbox so a hot-reload (a fresh instance re-running init) or a removal
+		// cancels them cleanly
+		ScriptCallScope ownerScope(this);
 		const sol::object initObject = this->environment["init"];
 		if (initObject.is<sol::protected_function>())
 		{
@@ -691,6 +933,7 @@ namespace Orkige
 		{
 			return true;	// no update function - nothing to do
 		}
+		ScriptCallScope ownerScope(this);
 		const sol::protected_function_result result =
 			this->updateFunction(this->selfTable, deltaTime);
 		if (!result.valid())
@@ -715,6 +958,7 @@ namespace Orkige
 		{
 			return true;
 		}
+		ScriptCallScope ownerScope(this);
 		const sol::object shutdownObject = this->environment["shutdown"];
 		if (shutdownObject.is<sol::protected_function>())
 		{

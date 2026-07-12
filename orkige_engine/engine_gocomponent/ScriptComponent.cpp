@@ -32,6 +32,7 @@
 #include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
+#include <core_script/ScriptEventBus.h>
 #include <core_util/StringTable.h>
 #include <core_tween/TweenManager.h>
 #include <core_game/PropertyTween.h>
@@ -401,6 +402,12 @@ namespace Orkige
 				script->dispatchAppLifecycle(paused);
 			}
 		}
+		// mirror the lifecycle onto the message bus (additive - the bespoke
+		// onAppPause/onAppResume hooks above still fire): a payload-less
+		// app.pause / app.resume any script can subscribe to. Queued like any
+		// event, so it is delivered at the next script-phase drain.
+		ScriptEventBus::getSingleton().emit(paused ? "app.pause" : "app.resume",
+			ScriptEventPayload());
 	}
 	//---------------------------------------------------------
 	std::vector<ScriptComponent*> ScriptComponent::collectFrom(
@@ -1599,6 +1606,59 @@ namespace Orkige
 		{
 			return SaveStore::getSingletonPtr() &&
 				SaveStore::getSingleton().flush();
+		});
+
+		// ================= THE `events` TABLE (the message bus) ============
+		// The Lua face of the ONE engine event bus (core_event/GlobalEventManager)
+		// via core_script/ScriptEventBus - NOT a parallel system. The
+		// multi-consumer, sandbox-scoped complement to the single-consumer gui
+		// poll idiom (which stays valid): SEVERAL scripts react to one signal, and
+		// C++ and Lua share the bus.
+		//   events.subscribe(name, fn) -> handle   fn(payload) runs in the script
+		//       tick phase; handle:cancel() / handle:isActive()
+		//   events.emit(name [, payload])           queue an event; payload is a
+		//       plain table of string/number/bool (one nesting level) - anything
+		//       else errors AT emit
+		// DELIVERY (deterministic): emissions queueEvent onto GlobalEventManager
+		// and are drained ONCE per frame in the SCRIPT PHASE (its tick()), in
+		// subscription order. Its double-buffered queue is the cascade-safety: an
+		// emit from inside a handler lands in the opposing buffer and is delivered
+		// NEXT frame (a handler never recurses into the same drain). An emit after
+		// the phase (a physics contact mirror) also delivers next frame. gui input
+		// is pumped before scripts, so a widget event is seen the SAME frame.
+		// LIFETIME: subscriptions belong to the sandbox that made them - SUBSCRIBE
+		// IN init(); destroying or hot-reloading the script component cancels them
+		// (a fresh init re-subscribes). Engine mirrors: gui.clicked/toggled/
+		// submitted/valueChanged/dialogResult/screenPushed/screenPopped/toastShown
+		// (widget id / value in the payload), physics.contactBegin/contactEnd
+		// ({a, b} ids), app.pause/app.resume.
+		//
+		// route the bus's handler-error reports to the engine log (editor Console
+		// + log file + stderr), like every other script error
+		ScriptEventBus::getSingleton().setErrorSink([](String const & message)
+		{
+			EngineLogCapture::logError(message);
+		});
+		runtime.registerFunction("events", "subscribe",
+			[](String const & name, ScriptArgs args) -> EventSubscription
+		{
+			EventSubscription handle;
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if (!callback.valid())
+			{
+				EngineLogCapture::logError("events.subscribe('" + name +
+					"'): the second argument must be a function");
+				return handle;	// an invalid (never-live) handle
+			}
+			handle.mId = ScriptEventBus::getSingleton().subscribe(name, callback);
+			return handle;
+		});
+		runtime.registerFunction("events", "emit",
+			[](String const & name, ScriptArgs args)
+		{
+			// the seam bounded-converts the payload and raises a Lua error on an
+			// out-of-bounds value (the honest failure at emit)
+			ScriptRuntime::getSingleton().emitEventFromScript(name, args);
 		});
 	}
 	//---------------------------------------------------------

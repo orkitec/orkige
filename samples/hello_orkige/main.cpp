@@ -42,6 +42,7 @@
 #include <core_util/Timer.h>
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
+#include <core_script/ScriptEventBus.h>
 
 #include <exception>
 #include <algorithm>
@@ -2291,12 +2292,41 @@ int main(int, char**)
 				}
 
 				// === 2. per-widget interaction on the real input path ===
-				// button click -> wasClicked
+				// button click -> wasClicked (single-consumer poll) AND
+				// gui.clicked on the MESSAGE BUS (multi-consumer). The two
+				// channels coexist: the poll latch and TWO bus subscribers all
+				// see ONE real click - the multi-consumer gap the poll
+				// convention leaves, closed end to end on a real gui.
 				{
+					Orkige::ScriptComponent::ensureScriptApi();
+					Orkige::ScriptEventBus::getSingleton().clear();
+					scriptRuntime.runString(
+						"shared.busA = 0; shared.busB = 0; shared.busId = ''\n"
+						"events.subscribe('gui.clicked', function(e)\n"
+						"  shared.busA = shared.busA + 1; shared.busId = e.id end)\n"
+						"events.subscribe('gui.clicked', function(e)\n"
+						"  shared.busB = shared.busB + 1 end)\n");
+
 					float x, y; centerOf("mtxButton", x, y); clickAt(x, y);
 					Orkige::optr<Orkige::GuiButton> b =
 						gui.getWidgetAs<Orkige::GuiButton>("mtxButton").lock();
 					if (ok && !(b && b->wasClicked())) { fail("button click"); }
+
+					// the SAME click reached both bus subscribers: the gui queued a
+					// gui.clicked onto GlobalEventManager during input dispatch;
+					// draining it (the player loop's script-phase tick, driven
+					// here since the sample has no player loop) fans it out
+					if (Orkige::GlobalEventManager::getSingletonPtr())
+					{
+						Orkige::GlobalEventManager::getSingleton().tick();
+					}
+					if (ok && (scriptRuntime.getNumber({ "shared", "busA" }, -1.0) != 1.0 ||
+						scriptRuntime.getNumber({ "shared", "busB" }, -1.0) != 1.0 ||
+						scriptRuntime.getString({ "shared", "busId" }, "") != "mtxButton"))
+					{
+						fail("gui.clicked bus mirror (two subscribers)");
+					}
+					Orkige::ScriptEventBus::getSingleton().clear();
 				}
 				// checkbox toggles
 				{

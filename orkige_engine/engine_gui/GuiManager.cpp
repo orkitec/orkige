@@ -24,6 +24,7 @@
 #include <core_util/foreach.h>
 #include <core_util/StringTable.h>
 #include <core_game/GameStateManager.h>
+#include <core_script/ScriptEventBus.h>
 #include <algorithm>
 #include <cmath>
 #include <set>
@@ -825,6 +826,7 @@ namespace Orkige
 	{
 		this->screenStack.push(name);
 		this->reconcileScreens();	// settle immediately when there is no transition
+		this->emitGuiScreenPushed(name);
 	}
 	//---------------------------------------------------------
 	void GuiManager::replaceScreen(String const & name)
@@ -837,6 +839,10 @@ namespace Orkige
 	{
 		const String popped = this->screenStack.pop();
 		this->reconcileScreens();
+		if (!popped.empty())
+		{
+			this->emitGuiScreenPopped(popped);
+		}
 		return popped;
 	}
 	//---------------------------------------------------------
@@ -850,6 +856,68 @@ namespace Orkige
 		ScreenBackInterceptor const & interceptor)
 	{
 		this->screenBackInterceptor = interceptor;
+	}
+	//---------------------------------------------------------
+	//--- message-bus mirrors ---------------------------------
+	//---------------------------------------------------------
+	void GuiManager::emitGuiClicked(String const & widgetId)
+	{
+		ScriptEventPayload payload;
+		payload.setString("id", widgetId);
+		ScriptEventBus::getSingleton().emit("gui.clicked", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiToggled(String const & widgetId, bool state)
+	{
+		ScriptEventPayload payload;
+		payload.setString("id", widgetId);
+		payload.setBool("state", state);
+		ScriptEventBus::getSingleton().emit("gui.toggled", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiSubmitted(String const & widgetId, String const & text)
+	{
+		ScriptEventPayload payload;
+		payload.setString("id", widgetId);
+		payload.setString("text", text);
+		ScriptEventBus::getSingleton().emit("gui.submitted", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiValueChanged(String const & widgetId, double value)
+	{
+		ScriptEventPayload payload;
+		payload.setString("id", widgetId);
+		payload.setNumber("value", value);
+		ScriptEventBus::getSingleton().emit("gui.valueChanged", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiDialogResult(String const & modalId, int result)
+	{
+		ScriptEventPayload payload;
+		payload.setString("id", modalId);
+		payload.setNumber("result", static_cast<double>(result));
+		ScriptEventBus::getSingleton().emit("gui.dialogResult", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiScreenPushed(String const & name)
+	{
+		ScriptEventPayload payload;
+		payload.setString("name", name);
+		ScriptEventBus::getSingleton().emit("gui.screenPushed", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiScreenPopped(String const & name)
+	{
+		ScriptEventPayload payload;
+		payload.setString("name", name);
+		ScriptEventBus::getSingleton().emit("gui.screenPopped", payload);
+	}
+	//---------------------------------------------------------
+	void GuiManager::emitGuiToastShown(String const & text)
+	{
+		ScriptEventPayload payload;
+		payload.setString("text", text);
+		ScriptEventBus::getSingleton().emit("gui.toastShown", payload);
 	}
 	//---------------------------------------------------------
 	bool GuiManager::handleScreenBack()
@@ -1192,6 +1260,8 @@ namespace Orkige
 			if(result != DR_NONE)
 			{
 				this->dialogResults[id] = result;
+				// bus mirror (additive; getDialogResult polling stays valid)
+				this->emitGuiDialogResult(id, result);
 				this->dismissModal(id);
 			}
 		}
@@ -1338,7 +1408,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiManager::showToast(String const & text, float seconds)
 	{
-		this->toastQueue.enqueue(resolveDialogText(text), seconds);
+		const String resolved = resolveDialogText(text);
+		this->toastQueue.enqueue(resolved, seconds);
+		this->emitGuiToastShown(resolved);
 	}
 	//---------------------------------------------------------
 	void GuiManager::updateToast(float delta)

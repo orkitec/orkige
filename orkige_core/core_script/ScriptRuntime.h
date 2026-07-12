@@ -30,6 +30,24 @@ namespace Orkige
 	/** \addtogroup Script
 	*  @{ */
 	class ScriptInstance;
+	struct ScriptEventPayload;	//core_script/ScriptEventBus.h - passed by reference
+
+	//! @brief header-visible RAII that scopes the ScriptEventBus's current
+	//! subscription OWNER to `owner` for a script call, restoring it on exit.
+	//! Declared here (defined in the seam .cpp) so the ScriptInstance call
+	//! template can tag a subscribe()/emit() with its sandbox WITHOUT pulling the
+	//! bus header into every call site - the seam stays the one place that knows
+	//! the bus. No-op-shaped when the bus is unused.
+	class ORKIGE_CORE_DLL ScriptCallScope
+	{
+	public:
+		explicit ScriptCallScope(void const * owner);
+		~ScriptCallScope();
+	private:
+		void const * mPrevious;
+		ScriptCallScope(ScriptCallScope const &) = delete;
+		ScriptCallScope & operator=(ScriptCallScope const &) = delete;
+	};
 
 	//! @brief one EXPORTED property declared by a script's top-level
 	//! `properties` table (script-declared properties auto-exposed in the
@@ -99,6 +117,13 @@ namespace Orkige
 		//! documented "return false from onUpdate to cancel" channel).
 		bool invokeNumbers(float const * values, int count,
 			bool * outRequestedStop, String * outError) const;
+		//! @brief call the script function with an event payload converted to a
+		//! Lua table (the ScriptEventBus delivery). The bounded payload maps
+		//! back to natural Lua values: scalars directly, a one-level nested
+		//! table as a sub-table; string keys become string keys, integer keys
+		//! array indices. @return false with *outError on a script error.
+		bool invokePayload(ScriptEventPayload const & payload,
+			String * outError) const;
 	protected:
 	private:
 	};
@@ -196,6 +221,15 @@ namespace Orkige
 		//! object->ObjectRef.
 		std::vector<ScriptExportProperty> readExportedProperties(
 			String const & scriptFile);
+
+		//! @brief emit a script event from the `events.emit(name, payload)`
+		//! binding: bounded-convert the trailing payload argument (a plain Lua
+		//! table of string/number/bool values, one nesting level deep) and hand
+		//! it to the ScriptEventBus. An absent/nil payload is an empty event; a
+		//! value the bus cannot carry (a function/userdata, or a table nested
+		//! deeper than one level) raises a Lua error at the emit call site - the
+		//! honest failure at emit. A no-op without a scripting backend.
+		void emitEventFromScript(String const & name, ScriptArgs const & args);
 
 		//! read a global (path like {"shared","jumper","wins"}) as a number
 		double getNumber(StringVector const & path, double fallback);
@@ -343,6 +377,9 @@ namespace Orkige
 			{
 				return true;
 			}
+			// tag any events.subscribe/emit the hook runs with THIS sandbox, so
+			// its subscriptions are cancelled when the instance is retired
+			ScriptCallScope ownerScope(this);
 			const sol::object function = this->environment[name];
 			if (!function.is<sol::protected_function>())
 			{

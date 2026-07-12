@@ -458,6 +458,25 @@ namespace Orkige
 		//! @return true when the stack CONSUMED the back (so it is not passed on).
 		bool handleScreenBack();
 
+		//--- message-bus mirrors (core_script/ScriptEventBus) --------------
+		//! @brief emit a semantic gui event onto the script message bus at
+		//! input-dispatch time - the multi-consumer complement to widget polling
+		//! (which is untouched: several scripts can subscribe, while the poll
+		//! idiom stays single-consumer). The widget id (and the value/text where
+		//! one applies) rides the payload; delivered in the same frame's script
+		//! phase. A no-op shape when nobody subscribes (the common case). The
+		//! widgets and the screen/dialog/toast routers call these.
+		void emitGuiClicked(String const & widgetId);				//!< gui.clicked {id}
+		void emitGuiToggled(String const & widgetId, bool state);	//!< gui.toggled {id, state}
+		void emitGuiSubmitted(String const & widgetId,
+			String const & text);									//!< gui.submitted {id, text}
+		void emitGuiValueChanged(String const & widgetId,
+			double value);											//!< gui.valueChanged {id, value}
+		void emitGuiDialogResult(String const & modalId, int result);	//!< gui.dialogResult {id, result}
+		void emitGuiScreenPushed(String const & name);			//!< gui.screenPushed {name}
+		void emitGuiScreenPopped(String const & name);			//!< gui.screenPopped {name}
+		void emitGuiToastShown(String const & text);				//!< gui.toastShown {text}
+
 		//--- performance-contract probes (the "1 draw per screen per atlas,
 		//--- dirty-tracked" promise; @see the demo_gui_matrix perf assertions) ---
 		//! @brief total draw submissions across every visible screen this frame

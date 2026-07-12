@@ -131,7 +131,10 @@ namespace Orkige
 		}
 		if (notifyListener)
 		{
-			GuiManager::getSingleton().getEventManager()->trigger(Event(GuiCheckBox::CheckBoxToggledEvent, oBadPointer(this)));
+			// gui.toggled onto the ONE engine event bus (queued on
+			// GlobalEventManager); the checkbox isChecked() poll stays valid
+			GuiManager::getSingleton().emitGuiToggled(this->getObjectID(),
+				this->checked);
 		}
 	}
 	//----------------------------------------------------

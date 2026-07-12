@@ -212,6 +212,9 @@ namespace Orkige
 			this->mSubmitted = true;
 			if(GuiManager::getSingletonPtr())
 			{
+				// bus mirror (additive; wasSubmitted() polling stays valid)
+				GuiManager::getSingleton().emitGuiSubmitted(this->getObjectID(),
+					this->mText);
 				GuiManager::getSingleton().focusTextEntry(NULL);
 			}
 			break;

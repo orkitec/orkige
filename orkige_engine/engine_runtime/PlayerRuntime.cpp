@@ -22,6 +22,7 @@
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
 #include "core_debugnet/TraceWriter.h"
+#include "core_script/ScriptEventBus.h"
 #include "engine_base/EngineLog.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
@@ -380,6 +381,11 @@ namespace Orkige
 		// drives one recording at a time)
 		mRecording = true;
 		mRecordPath = path;
+		// have the script event bus record each emit for the trace's event
+		// stream (folded in alongside the physics contacts); drop any stale
+		// buffer from before this recording
+		ScriptEventBus::getSingleton().setTraceCapture(true);
+		ScriptEventBus::getSingleton().takeFrameEvents();
 		// clamp to sane bounds: the trace byte cap is the memory backstop, this
 		// keeps a stray request from tying up the player for minutes
 		const float seconds = message.getFloat(Protocol::FIELD_SECONDS, 5.0f);
@@ -517,6 +523,26 @@ namespace Orkige
 			{ { "a", nameA }, { "b", nameB } });
 	}
 	//---------------------------------------------------------
+	void PlayerDebugLink::traceScriptEvents()
+	{
+		// harvest the events the bus emitted this frame (script emit / gui /
+		// engine mirrors) into the trace's event stream, keeping the buffer from
+		// growing. The buffer only fills while trace capture is on, so this is a
+		// cheap take when idle. Script events are a separate stream from the
+		// object-scoped samples, so the record id-filter does not gate them.
+		std::vector<ScriptEventBus::FrameEvent> events =
+			ScriptEventBus::getSingleton().takeFrameEvents();
+		if (!mActive || !mRecording || !mTrace)
+		{
+			return;
+		}
+		for (ScriptEventBus::FrameEvent const & event : events)
+		{
+			mTrace->addEvent(mRecordElapsed, mRecordLastFrame, event.name,
+				event.fields);
+		}
+	}
+	//---------------------------------------------------------
 	bool PlayerDebugLink::recordingShouldFinish() const
 	{
 		return mActive && mRecording && mRecordShouldFinish;
@@ -530,6 +556,9 @@ namespace Orkige
 		}
 		mRecording = false;
 		mRecordShouldFinish = false;
+		// stop the bus recording emits and drop the tail buffer
+		ScriptEventBus::getSingleton().setTraceCapture(false);
+		ScriptEventBus::getSingleton().takeFrameEvents();
 		bool ok = false;
 		String error;
 		if (mTrace && !mTrace->empty())

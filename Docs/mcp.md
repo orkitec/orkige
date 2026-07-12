@@ -517,8 +517,12 @@ mode is never ambiguous.
   sample line — `{"t", "frame", "dt", "objects":[…]}` — carrying, per named
   object, its world `pos`, `vel` (only when a rigid body exists), `active` and
   `visible` (in the window camera's view). Event lines interleave as they occur:
-  `contactBegin`/`contactEnd` (both object names), `sceneLoad`, `scriptError`
-  and `warning` (warning-and-above log lines). Records for up to `seconds`
+  `contactBegin`/`contactEnd` (both object names), `sceneLoad`, `scriptError`,
+  `warning` (warning-and-above log lines) AND the message-bus events emitted that
+  frame — the ones a script raised with `events.emit(name, payload)` plus the
+  engine mirrors (`gui.clicked`, `physics.contactBegin`, `app.pause`, …), each a
+  line named for the event with its payload's top-level scalar fields (bus events
+  are Lua-authored, so the trace is their readback). Records for up to `seconds`
   wall-clock (default 5, capped at 60); `objects` narrows to a comma-separated
   id/name allowlist. The trace is byte-capped (~2MB) with an honest
   `{"truncated":1}` marker line if hit. Desktop play only, and ASYNC like

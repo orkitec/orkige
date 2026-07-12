@@ -202,6 +202,11 @@ namespace Orkige
 		//! loop resolves the contact bodies to names and calls this.
 		void traceContact(String const & nameA, String const & nameB,
 			bool began);
+		//! @brief fold the frame's script-emitted / gui / engine-mirror bus
+		//! events into the trace's event stream (and drain the bus capture
+		//! buffer). The main loop calls this each recorded frame; a no-op harvest
+		//! when not recording.
+		void traceScriptEvents();
 		//! @brief should the trace be wrapped up now (budget spent or
 		//! MSG_RECORD_STOP received)? The main loop polls this and calls
 		//! finishRecording on a true.
