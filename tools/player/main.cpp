@@ -36,6 +36,7 @@
 #include <engine_render/RenderCamera.h>
 #include <engine_render/MeshInstance.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
@@ -62,12 +63,14 @@
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
 #include <core_game/GameObjectManager.h>
+#include <core_game/GameObject.h>
 #include <core_game/SceneSerializer.h>
 #include <core_game/LevelManager.h>
 #include <core_game/LevelSequence.h>
 #include <core_game/SaveStore.h>
 #include <core_game/AppLifecycle.h>
 #include <core_game/TimeControl.h>
+#include <core_game/GameState.h>
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
 #include <core_debug/Breadcrumbs.h>
@@ -80,6 +83,7 @@
 #include <core_event/GlobalEventManager.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_tween/TweenManager.h>
+#include <core_tween/TimerManager.h>
 #include <core_script/ScriptEventBus.h>
 #include <core_tween/EaseLibrary.h>
 
@@ -951,6 +955,16 @@ int main(int argc, char** argv)
 		// start them through the Lua `tween` table (scene clears reap them
 		// via the GameObjectManager::clear teardown hook)
 		Orkige::TweenManager tweenManager;
+		// deferred callbacks (Lua `timer` table): scheduled functions tick in
+		// the SAME tween phase of the loop below (a timer is a degenerate tween).
+		// Created like the TweenManager - the editor never makes one, so
+		// `timer.*` is an honest no-op there; scene clears reap timers via the
+		// GameObjectManager::clear teardown hook.
+		Orkige::TimerManager timerManager;
+		// the game's single named state (Lua `game` table): every setState fires
+		// `game.stateChanged` on the event bus. Created like the TweenManager -
+		// the editor never makes one, so `game.setState` is a no-op there.
+		Orkige::GameState gameState;
 		// the level director: the ordered level sequence, the DEFERRED
 		// scene-load request that drives win->next-level and the progression
 		// save. Created like the TweenManager - the editor never makes one, so
@@ -1326,6 +1340,210 @@ int main(int argc, char** argv)
 			}
 
 			SDL_Log("orkige_player: GAMESUPPORT SELFCHECK %s%s%s",
+				ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+			return ok ? 0 : 1;
+		}
+
+		// --- ORKIGE_GAMEPLAY_SELFCHECK=1: the gameplay-conveniences pack (Lua
+		// `timer` / `game` tables + music.crossFade + CameraComponent smooth
+		// follow), verified end to end against the live player wiring
+		// (synchronous, any scene - reuses tests/projects/tween):
+		//  (1) TIMER - timer.after fires ONCE at the delay, timer.every repeats
+		//      on its period, timer.cancel(handle) stops one before it fires,
+		//      all ticked through the loop's TimerManager (the tween phase). The
+		//      auto-cancel-on-retire is covered by the TimerManager unit tests.
+		//  (2) GAME STATE - game.setState fires game.stateChanged on the event
+		//      bus (an events.subscribe handler receives { old, new }) and
+		//      game.getState round-trips the value.
+		//  (3) MUSIC CROSSFADE - music.crossFade tweens the incoming track's own
+		//      volume up to full while the outgoing track is stopped at the end,
+		//      riding ONE core_tween tween (the gain curve is unit-tested).
+		//  (4) CAMERA FOLLOW - a CameraComponent in ORTHOGRAPHIC + FM_WIDTH fit
+		//      eases its position onto a moved target, proving follow COMPOSES
+		//      with the aspect-fit policy (fit sizes the projection, follow moves
+		//      the position). The fit math itself is the CameraFit unit tests.
+		if (std::getenv("ORKIGE_GAMEPLAY_SELFCHECK") != nullptr)
+		{
+			using Orkige::ScriptRuntime;
+			bool ok = true;
+			std::string detail;
+			Orkige::ScriptComponent::ensureScriptApi();
+
+			// (1)+(2) schedule timers, subscribe to the state event, and cancel
+			// one timer up front - all in one chunk, results published into a
+			// plain global table `gp` the C++ side reads back
+			ScriptRuntime::Result setup =
+				ScriptRuntime::getSingleton().runString(
+					"gp = { after = 0, every = 0, cancelled = 0,"
+					"       stateNew = '', stateOld = '', stateGet = '' }\n"
+					"timer.after(0.5, function() gp.after = gp.after + 1 end)\n"
+					"gp.everyH = timer.every(0.2, function()"
+					"    gp.every = gp.every + 1 end)\n"
+					"local ch = timer.after(0.5, function()"
+					"    gp.cancelled = gp.cancelled + 1 end)\n"
+					"timer.cancel(ch)\n"
+					"events.subscribe('game.stateChanged', function(e)\n"
+					"    gp.stateNew = e.new; gp.stateOld = e.old end)\n"
+					"return true");
+			if (!setup.success)
+			{
+				ok = false;
+				detail = "gameplay setup script error: " + setup.error;
+			}
+
+			if (ok)
+			{
+				// 1.2s in 0.1s steps: after fires once (at 0.5), every fires
+				// each 0.2s, the cancelled one never fires
+				for (int i = 0; i < 12; ++i)
+				{
+					timerManager.update(0.1f);
+				}
+				const double afterCount = ScriptRuntime::getSingleton().getNumber(
+					{ "gp", "after" }, -1.0);
+				const double everyCount = ScriptRuntime::getSingleton().getNumber(
+					{ "gp", "every" }, -1.0);
+				const double cancelledCount =
+					ScriptRuntime::getSingleton().getNumber(
+						{ "gp", "cancelled" }, -1.0);
+				if (afterCount != 1.0 || everyCount < 5.0 ||
+					cancelledCount != 0.0)
+				{
+					ok = false;
+					detail = "timers: after=" + std::to_string(afterCount) +
+						" every=" + std::to_string(everyCount) +
+						" cancelled=" + std::to_string(cancelledCount) +
+						" (want after=1 every>=5 cancelled=0)";
+				}
+				if (ok)
+				{
+					// cancel the repeating timer and prove it stops firing
+					ScriptRuntime::getSingleton().runString(
+						"timer.cancel(gp.everyH)");
+					const double before =
+						ScriptRuntime::getSingleton().getNumber(
+							{ "gp", "every" }, -1.0);
+					for (int i = 0; i < 10; ++i)
+					{
+						timerManager.update(0.1f);
+					}
+					const double after =
+						ScriptRuntime::getSingleton().getNumber(
+							{ "gp", "every" }, -1.0);
+					if (after != before)
+					{
+						ok = false;
+						detail = "timer.cancel did not stop the repeating timer ("
+							+ std::to_string(before) + " -> " +
+							std::to_string(after) + ")";
+					}
+				}
+			}
+
+			// (2) game state: set it, drain the bus, check the event + readback
+			if (ok)
+			{
+				ScriptRuntime::getSingleton().runString(
+					"game.setState('playing'); gp.stateGet = game.getState()");
+				// deliver the queued game.stateChanged to the subscriber
+				if (Orkige::GlobalEventManager::getSingletonPtr())
+				{
+					Orkige::GlobalEventManager::getSingleton().tick();
+				}
+				const Orkige::String stateNew =
+					ScriptRuntime::getSingleton().getString(
+						{ "gp", "stateNew" }, "?");
+				const Orkige::String stateOld =
+					ScriptRuntime::getSingleton().getString(
+						{ "gp", "stateOld" }, "?");
+				const Orkige::String stateGet =
+					ScriptRuntime::getSingleton().getString(
+						{ "gp", "stateGet" }, "?");
+				if (stateNew != "playing" || stateOld != "" ||
+					stateGet != "playing" ||
+					gameState.get() != "playing")
+				{
+					ok = false;
+					detail = "game state: event new='" + stateNew + "' old='" +
+						stateOld + "' get='" + stateGet + "' (want new=playing"
+						" old='' get=playing)";
+				}
+			}
+
+			// (3) music crossfade: register track A, crossFade to B over 0.5s;
+			// after the fade B is the sole track at full own volume and A is gone
+			if (ok)
+			{
+				ScriptRuntime::getSingleton().runString(
+					"music.play('gp_a', 'music_loop.ogg')\n"
+					"music.crossFade('gp_b', 'music_loop.ogg', 0.5)");
+				for (int i = 0; i < 7; ++i)	// 0.7s > the 0.5s fade
+				{
+					tweenManager.update(0.1f);
+				}
+				Orkige::MusicStreamPtr incoming =
+					Orkige::SoundManager::getSingleton().getMusic("gp_b");
+				Orkige::MusicStreamPtr outgoing =
+					Orkige::SoundManager::getSingleton().getMusic("gp_a");
+				if (!incoming || incoming->getBaseGain() < 0.99f || outgoing)
+				{
+					ok = false;
+					detail = std::string("music.crossFade: incoming ") +
+						(incoming ? "gain=" +
+							std::to_string(incoming->getBaseGain()) : "MISSING") +
+						", outgoing " + (outgoing ? "STILL PRESENT" : "stopped");
+				}
+			}
+
+			// (4) camera follow composes with the ortho fit policy. Isolate on a
+			// fresh world (clear any loaded scene camera first), then a
+			// CameraComponent in ORTHOGRAPHIC + FM_WIDTH eases onto a moved
+			// target - the camera position tracks while the fit sizes the
+			// projection. Skipped honestly when the window has no camera.
+			if (ok && host.getWindowCamera())
+			{
+				gameObjectManager.clear();
+				optr<Orkige::GameObject> targetObj =
+					gameObjectManager.createGameObject("gp_target").lock();
+				optr<Orkige::GameObject> camObj =
+					gameObjectManager.createGameObject("gp_cam").lock();
+				if (targetObj && camObj &&
+					targetObj->addComponent<Orkige::TransformComponent>() &&
+					camObj->addComponent<Orkige::TransformComponent>() &&
+					camObj->addComponent<Orkige::CameraComponent>())
+				{
+					Orkige::CameraComponent* cam =
+						camObj->getComponentPtr<Orkige::CameraComponent>();
+					Orkige::TransformComponent* targetTransform =
+						targetObj->getComponentPtr<Orkige::TransformComponent>();
+					cam->setProjectionMode(
+						Orkige::CameraComponent::PM_ORTHOGRAPHIC);
+					cam->setFitMode(Orkige::CameraComponent::FM_WIDTH);
+					cam->setDesignWidth(20.0f);
+					cam->follow("gp_target", 0.1f);
+					// move the target off-origin, then ease the camera onto it
+					targetTransform->setPosition(Orkige::Vec3(5.0f, 3.0f, 0.0f));
+					for (int i = 0; i < 180; ++i)	// ~3s at 60fps
+					{
+						gameObjectManager.update(1.0f / 60.0f);
+					}
+					const Orkige::Vec3 camPos = cam->getCameraPosition();
+					if (camPos.x < 4.5f || camPos.y < 2.5f)
+					{
+						ok = false;
+						detail = "camera follow did not track the target (camera "
+							"at " + std::to_string(camPos.x) + "," +
+							std::to_string(camPos.y) + ", want ~5,3)";
+					}
+				}
+				else
+				{
+					ok = false;
+					detail = "camera follow: could not build the test objects";
+				}
+			}
+
+			SDL_Log("orkige_player: GAMEPLAY SELFCHECK %s%s%s",
 				ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
 			return ok ? 0 : 1;
 		}
@@ -2241,6 +2459,10 @@ int main(int argc, char** argv)
 				{
 					OPROFILE("tweens");
 					tweenManager.update(gameplayDelta);
+					// timers ride the SAME phase (a timer is a degenerate tween);
+					// scheduled Lua callbacks fire here, after scripts, on the
+					// scaled gameplay delta - NOT a new tick-order fence entry
+					timerManager.update(gameplayDelta);
 				}
 				//
 				// [4] PHYSICS - the fixed-timestep simulation, then the

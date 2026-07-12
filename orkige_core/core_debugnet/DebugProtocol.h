@@ -269,6 +269,9 @@ namespace Orkige
 		//! duration in milliseconds (measured at the player's frame boundary,
 		//! available even when scope timing is disabled). Additive.
 		extern ORKIGE_CORE_DLL const String FIELD_FRAME_MS;
+		//! @brief MSG_STATS: the game's current named state (core_game/GameState,
+		//! Lua `game.setState`); "" / omitted when the game never set one.
+		extern ORKIGE_CORE_DLL const String FIELD_GAME_STATE;
 		//! @brief MSG_PROFILE_DATA: the flattened scope tree - parallel lists,
 		//! LIST_PROFILE_NAMES the scope names (depth-first), LIST_PROFILE_INFO
 		//! one flat "depth calls milliseconds maxMilliseconds" per name.

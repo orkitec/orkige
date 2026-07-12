@@ -238,7 +238,8 @@ namespace Orkige
 		void populateSelfTable(optr<ScriptInstance> const & instance);
 	public:
 		//! @brief register the global scripting tables (world / screen / save /
-		//! tween / cvar / sound / music / haptics / loc) once per runtime -
+		//! tween / timer / cvar / sound / music / haptics / game / loc) once per
+		//! runtime -
 		//! idempotent. Normally called lazily the first time a ScriptComponent
 		//! loads; a host that drives the Lua API before any component runs (a
 		//! selfcheck) can prime them by calling this directly.

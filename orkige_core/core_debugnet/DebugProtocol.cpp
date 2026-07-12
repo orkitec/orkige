@@ -91,6 +91,7 @@ namespace Orkige
 		const String LIST_ALLOC_TAGS		= "alloc_tags";
 		const String LIST_ALLOC_COUNTS		= "alloc_counts";
 		const String FIELD_FRAME_MS			= "frame_ms";
+		const String FIELD_GAME_STATE		= "game_state";
 		const String LIST_PROFILE_NAMES		= "prof_names";
 		const String LIST_PROFILE_INFO		= "prof_info";
 	}

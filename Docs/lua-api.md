@@ -38,6 +38,7 @@ world.getSprite(id) -> SpriteComponent?  -- an object's SpriteComponent (nil if 
 world.getParticles(id) -> ParticleComponent?  -- an object's ParticleComponent (nil if none)
 world.getScript(id) -> ScriptComponent?  -- an object's ScriptComponent (nil if none)
 world.getSound(id) -> SoundComponent?  -- an object's SoundComponent (nil if none)
+world.getCamera(id) -> CameraComponent  -- the object's CameraComponent (nil when absent); drives smooth follow
 world.getLevel(id) -> LevelComponent?  -- an object's LevelComponent (nil if none)
 world.loadScene(path)  -- deferred scene switch at the next frame boundary
 world.findByTag(tag) -> {GameObject}  -- array of live objects carrying the tag
@@ -67,6 +68,7 @@ music.stopAll()  -- stop every streamed track
 music.isPlaying(id) -> bool  -- is that track currently playing
 music.setVolume(id, volume)  -- per-track own volume 0..1
 music.getPosition(id) -> number  -- playback position in seconds
+music.crossFade(id, file, seconds)  -- swap `id` in and fade every other track out over `seconds` (equal-power)
 
 ## tween
 tween.to(from, to, duration, ease [, onUpdate [, onComplete [, delay]]]) -> TweenHandle  -- generic value tween; onUpdate(v) applies it
@@ -132,6 +134,15 @@ locale.set(tag) -> bool  -- switch the active language (true if the tag is loade
 locale.get() -> string  -- the active language code
 locale.list() -> table  -- the loaded language codes, sorted (source included)
 locale.getSource() -> string  -- the source (authored) language code
+
+## timer
+timer.after(seconds, fn) -> TimerHandle  -- run fn() ONCE after a delay; sandbox-scoped (auto-cancels on retire)
+timer.every(seconds, fn) -> TimerHandle  -- run fn() every `seconds`; sandbox-scoped (auto-cancels on retire)
+timer.cancel(handle) -> bool  -- stop a scheduled timer (also handle:cancel())
+
+## game
+game.setState(name)  -- set the game state; fires game.stateChanged {old,new} on the event bus
+game.getState() -> string  -- the current game state name ("" when unset)
 
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
@@ -525,6 +536,10 @@ LevelManager:bestMoves(i) -> int  -- fewest recorded slides (-1 = none)
 LevelManager:recordBestMoves(i, moves)  -- record a best-moves result for level i
 LevelManager:saveProgress()  -- write the progression save file
 
+## TimerHandle
+TimerHandle:cancel()  -- stop the timer now
+TimerHandle:isActive() -> bool  -- is the timer still scheduled
+
 ## GameObject
 GameObject(...)
 GameObject:loadTemplate(...)
@@ -807,11 +822,22 @@ CameraComponent:setDesignWidth(...)
 CameraComponent:getDesignWidth(...)
 CameraComponent:setDesignHeight(...)
 CameraComponent:getDesignHeight(...)
+CameraComponent:follow(...)
+CameraComponent:stopFollow(...)
+CameraComponent:setFollowTarget(...)
+CameraComponent:getFollowTarget(...)
+CameraComponent:setFollowDamping(...)
+CameraComponent:getFollowDamping(...)
+CameraComponent:setFollowOffset(...)
+CameraComponent:getFollowOffset(...)
 CameraComponent.projectionMode
 CameraComponent.orthoSize
 CameraComponent.fitMode
 CameraComponent.designWidth
 CameraComponent.designHeight
+CameraComponent.followTarget
+CameraComponent.followDamping
+CameraComponent.followOffset
 CameraComponent.ProjectionMode = { PM_PERSPECTIVE, PM_ORTHOGRAPHIC }
 CameraComponent.FitMode = { FM_HEIGHT, FM_WIDTH, FM_EXPAND }
 

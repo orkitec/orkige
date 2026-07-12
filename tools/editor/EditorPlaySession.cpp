@@ -93,6 +93,7 @@ void clearRemoteState(PlaySession& session)
 	session.remoteAllocTags.clear();
 	session.remoteAllocCounts.clear();
 	session.remoteFrameMs = -1.0;
+	session.remoteGameState.clear();
 	session.remoteProfile.clear();
 	session.remoteProfileFrameMs = -1.0;
 	session.profileSeq = 0;
@@ -1225,6 +1226,13 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			{
 				session.remoteFrameMs = std::strtod(
 					message.get(Protocol::FIELD_FRAME_MS).c_str(), nullptr);
+			}
+			// the running game's current named state (Lua game.setState); the
+			// field is omitted while unset, so only overwrite when present
+			if (message.has(Protocol::FIELD_GAME_STATE))
+			{
+				session.remoteGameState =
+					message.get(Protocol::FIELD_GAME_STATE);
 			}
 			const Orkige::StringVector& allocTags =
 				message.getList(Protocol::LIST_ALLOC_TAGS);

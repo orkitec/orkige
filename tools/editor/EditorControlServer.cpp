@@ -2301,6 +2301,9 @@ namespace Orkige
 					<< play.remoteFrameMs;
 				ok.set("frame_ms", frameMs.str());
 			}
+			// the running game's current named state (Lua game.setState via
+			// core_game/GameState, streamed on MSG_STATS); "" until it sets one
+			ok.set("game_state", play.remoteGameState);
 			{
 				StringVector allocTags;
 				StringVector allocCounts;

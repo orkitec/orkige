@@ -828,6 +828,9 @@ struct PlaySession
 	std::vector<long long> remoteAllocCounts;
 	//! running-game frame wall time in ms (MSG_STATS; -1 = not reported yet)
 	double remoteFrameMs = -1.0;
+	//! the running game's current named state (MSG_STATS, core_game/GameState
+	//! via Lua game.setState); "" until the game sets one. Served by get_state.
+	std::string remoteGameState;
 	//! running-game CPU frame profile (MSG_PROFILE_DATA): the last streamed
 	//! hierarchical scope snapshot, flattened depth-first. profileSeq counts
 	//! received snapshots (0 = none yet) so get_profile can report freshness.

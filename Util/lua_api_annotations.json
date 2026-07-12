@@ -1,530 +1,566 @@
 {
-  "_README": [
-    "Hand-maintained signature annotations for the generated Lua API inventory.",
-    "Util/update_docs.py extracts the SYMBOL inventory (table/function/type/method",
-    "names and receivers) mechanically from the binding sources; the C++ macros do",
-    "NOT carry Lua argument names or return types, so those live HERE. Editing this",
-    "file is how a signature stays accurate WITHOUT hand-editing the generated doc",
-    "text: the generator reads these entries and rewrites the marked blocks.",
-    "",
-    "Keys are the canonical symbol id the generator computes:",
-    "  table function      world.get           (dot)",
-    "  global function     loc                 (bare name)",
-    "  type constructor    Vector3             (the type name)",
-    "  instance method     Vector3:length      (colon)",
-    "  static/singleton    InputActions.getSingleton   (dot)",
-    "  member field        Vector3.x           (dot)",
-    "Each entry: { \"sig\": \"(args) -> ret\", \"doc\": \"terse purpose\" }.",
-    "'sig' omits the receiver and, for a constructor, is just the argument list.",
-    "A symbol found in the sources but absent here renders with a '(...)'",
-    "placeholder and is reported by --check; an entry with no matching symbol is",
-    "reported as stale. Neither is fatal - both are drift signals to act on."
-  ],
-  "world.exists": {
-    "sig": "(id) -> bool",
-    "doc": "is a GameObject with this id alive"
-  },
-  "world.get": {
-    "sig": "(id) -> GameObject?",
-    "doc": "the live GameObject by id (nil if gone)"
-  },
-  "world.getTransform": {
-    "sig": "(id) -> TransformComponent?",
-    "doc": "an object's TransformComponent (nil if none)"
-  },
-  "world.getRigidBody": {
-    "sig": "(id) -> RigidBodyComponent?",
-    "doc": "an object's RigidBodyComponent (nil if none)"
-  },
-  "world.getModel": {
-    "sig": "(id) -> ModelComponent?",
-    "doc": "an object's ModelComponent (nil if none)"
-  },
-  "world.getSprite": {
-    "sig": "(id) -> SpriteComponent?",
-    "doc": "an object's SpriteComponent (nil if none)"
-  },
-  "world.getParticles": {
-    "sig": "(id) -> ParticleComponent?",
-    "doc": "an object's ParticleComponent (nil if none)"
-  },
-  "world.getScript": {
-    "sig": "(id) -> ScriptComponent?",
-    "doc": "an object's ScriptComponent (nil if none)"
-  },
-  "world.getSound": {
-    "sig": "(id) -> SoundComponent?",
-    "doc": "an object's SoundComponent (nil if none)"
-  },
-  "world.getLevel": {
-    "sig": "(id) -> LevelComponent?",
-    "doc": "an object's LevelComponent (nil if none)"
-  },
-  "world.loadScene": {
-    "sig": "(path)",
-    "doc": "deferred scene switch at the next frame boundary"
-  },
-  "world.findByTag": {
-    "sig": "(tag) -> {GameObject}",
-    "doc": "array of live objects carrying the tag"
-  },
-  "world.setTimeScale": {
-    "sig": "(scale)",
-    "doc": "gameplay time scale (1 normal, 0 hitstop)"
-  },
-  "world.getTimeScale": {
-    "sig": "() -> number",
-    "doc": "the current gameplay time scale"
-  },
-  "loc": {
-    "sig": "(key [, ...]) -> string",
-    "doc": "localised string; %%N%% filled by trailing args"
-  },
-  "locale.set": {
-    "sig": "(tag) -> bool",
-    "doc": "switch the active language (true if the tag is loaded); re-push screens after"
-  },
-  "locale.get": {
-    "sig": "() -> string",
-    "doc": "the active language code"
-  },
-  "locale.list": {
-    "sig": "() -> table",
-    "doc": "the loaded language codes, sorted (source included)"
-  },
-  "locale.getSource": {
-    "sig": "() -> string",
-    "doc": "the source (authored) language code"
-  },
-  "screen.fadeOut": {
-    "sig": "(seconds)",
-    "doc": "ramp the full-screen overlay to opaque"
-  },
-  "screen.fadeIn": {
-    "sig": "(seconds)",
-    "doc": "ramp the full-screen overlay to clear"
-  },
-  "screen.setFadeColor": {
-    "sig": "(r, g, b)",
-    "doc": "fade overlay colour (default black), 0..1"
-  },
-  "screen.isFading": {
-    "sig": "() -> bool",
-    "doc": "is a fade in progress (gate input)"
-  },
-  "screen.loadScene": {
-    "sig": "(path, outSeconds, inSeconds)",
-    "doc": "fade out, switch scene at opacity, fade in"
-  },
-  "screen.shake": {
-    "sig": "(amplitude, duration [, frequency])",
-    "doc": "decaying camera shake (world units, seconds, Hz)"
-  },
-  "screen.stopShake": {
-    "sig": "()",
-    "doc": "end the camera shake immediately"
-  },
-  "screen.isShaking": {
-    "sig": "() -> bool",
-    "doc": "is the camera currently shaking"
-  },
-  "haptics.play": {
-    "sig": "(strength, ms)",
-    "doc": "generic vibration; no-op off-device"
-  },
-  "haptics.pattern": {
-    "sig": "(name)",
-    "doc": "named haptic (light..selection); preferred on iOS"
-  },
-  "haptics.isAvailable": {
-    "sig": "() -> bool",
-    "doc": "does this device have a vibrator"
-  },
-  "haptics.setEnabled": {
-    "sig": "(enabled)",
-    "doc": "honour an in-game vibration on/off setting"
-  },
-  "sound.setGroupVolume": {
-    "sig": "(group, volume)",
-    "doc": "set a mixer group volume 0..1"
-  },
-  "sound.getGroupVolume": {
-    "sig": "(group) -> number",
-    "doc": "read a mixer group volume"
-  },
-  "sound.setMasterVolume": {
-    "sig": "(volume)",
-    "doc": "set the master volume 0..1"
-  },
-  "sound.getMasterVolume": {
-    "sig": "() -> number",
-    "doc": "read the master volume"
-  },
-  "music.play": {
-    "sig": "(id, file [, loop]) -> bool",
-    "doc": "start/replace a streamed track (loops by default)"
-  },
-  "music.stop": {
-    "sig": "(id) -> bool",
-    "doc": "stop and free one streamed track"
-  },
-  "music.stopAll": {
-    "sig": "()",
-    "doc": "stop every streamed track"
-  },
-  "music.isPlaying": {
-    "sig": "(id) -> bool",
-    "doc": "is that track currently playing"
-  },
-  "music.setVolume": {
-    "sig": "(id, volume)",
-    "doc": "per-track own volume 0..1"
-  },
-  "music.getPosition": {
-    "sig": "(id) -> number",
-    "doc": "playback position in seconds"
-  },
-  "tween.to": {
-    "sig": "(from, to, duration, ease [, onUpdate [, onComplete [, delay]]]) -> TweenHandle",
-    "doc": "generic value tween; onUpdate(v) applies it"
-  },
-  "tween.move": {
-    "sig": "(id, x, y, z, duration [, ease [, delay]]) -> TweenHandle",
-    "doc": "tween an object's local position"
-  },
-  "tween.scale": {
-    "sig": "(id, x, y, z, duration [, ease [, delay]]) -> TweenHandle",
-    "doc": "tween an object's local scale"
-  },
-  "tween.rotate": {
-    "sig": "(id, degrees, duration [, ease [, delay]]) -> TweenHandle",
-    "doc": "tween Z rotation (the 2D spin)"
-  },
-  "tween.fade": {
-    "sig": "(id, alpha, duration [, ease [, delay]]) -> TweenHandle",
-    "doc": "tween a sprite's tint alpha"
-  },
-  "tween.volume": {
-    "sig": "(group, volume, duration [, ease [, delay]]) -> TweenHandle",
-    "doc": "tween a mixer group volume (the ducking recipe)"
-  },
-  "tween.property": {
-    "sig": "(id, componentType, propertyName, toValue, duration [, ease [, onComplete [, delay]]]) -> TweenHandle",
-    "doc": "tween any reflected Float/Int/Vec3/Color by name"
-  },
-  "guitween.alpha": {
-    "sig": "(id, alpha, duration [, ease [, delay [, onComplete]]]) -> TweenHandle",
-    "doc": "widget group alpha 0..1 (cascades)"
-  },
-  "guitween.scale": {
-    "sig": "(id, scale, duration [, ...]) -> TweenHandle",
-    "doc": "uniform widget scale about the centre"
-  },
-  "guitween.rotate": {
-    "sig": "(id, degrees, duration [, ...]) -> TweenHandle",
-    "doc": "widget Z rotation about the centre"
-  },
-  "guitween.move": {
-    "sig": "(id, x, y, duration [, ...]) -> TweenHandle",
-    "doc": "widget anchoredPosition / position"
-  },
-  "guitween.size": {
-    "sig": "(id, w, h, duration [, ...]) -> TweenHandle",
-    "doc": "widget sizeDelta / size"
-  },
-  "guitween.color": {
-    "sig": "(id, r, g, b, a, duration [, ...]) -> TweenHandle",
-    "doc": "decor-widget tint"
-  },
-  "guitween.show": {
-    "sig": "(id) -> bool",
-    "doc": "play the widget's enter transition"
-  },
-  "guitween.hide": {
-    "sig": "(id) -> bool",
-    "doc": "play the exit transition, then park hidden"
-  },
-  "guitween.stop": {
-    "sig": "(id)",
-    "doc": "cancel every running tween on the widget"
-  },
-  "screens.define": {
-    "sig": "(name, ouiPath)",
-    "doc": "register a .oui-backed screen"
-  },
-  "screens.defineBuilder": {
-    "sig": "(name, builder)",
-    "doc": "register a Lua-built screen"
-  },
-  "screens.push": {
-    "sig": "(name)",
-    "doc": "push a screen onto the stack"
-  },
-  "screens.replace": {
-    "sig": "(name)",
-    "doc": "swap the top screen"
-  },
-  "screens.pop": {
-    "sig": "() -> string",
-    "doc": "pop the top screen; returns its name"
-  },
-  "screens.current": {
-    "sig": "() -> string",
-    "doc": "the top screen's name"
-  },
-  "screens.depth": {
-    "sig": "() -> int",
-    "doc": "screens on the stack"
-  },
-  "screens.clear": {
-    "sig": "()",
-    "doc": "pop every screen"
-  },
-  "screens.setBackHandler": {
-    "sig": "(handler)",
-    "doc": "own the back gesture (handler decides)"
-  },
-  "cvar.registerNumber": {
-    "sig": "(name, default)",
-    "doc": "register a Float cvar (idempotent)"
-  },
-  "cvar.getNumber": {
-    "sig": "(name [, fallback]) -> number",
-    "doc": "read a cvar as a number"
-  },
-  "cvar.getBool": {
-    "sig": "(name [, fallback]) -> bool",
-    "doc": "read a cvar as a bool"
-  },
-  "cvar.get": {
-    "sig": "(name) -> string",
-    "doc": "read a cvar's canonical string ('' if unset)"
-  },
-  "cvar.exists": {
-    "sig": "(name) -> bool",
-    "doc": "is the cvar registered"
-  },
-  "cvar.set": {
-    "sig": "(name, value) -> bool",
-    "doc": "set from a string (validated); false + logs on reject"
-  },
-  "save.set": {
-    "sig": "(key, value)",
-    "doc": "store number/bool/string by its type"
-  },
-  "save.getNumber": {
-    "sig": "(key [, fallback]) -> number",
-    "doc": "read a saved number"
-  },
-  "save.getBool": {
-    "sig": "(key [, fallback]) -> bool",
-    "doc": "read a saved bool"
-  },
-  "save.getString": {
-    "sig": "(key [, fallback]) -> string",
-    "doc": "read a saved string"
-  },
-  "save.get": {
-    "sig": "(key [, fallback]) -> string",
-    "doc": "read any value as its canonical string"
-  },
-  "save.has": {
-    "sig": "(key) -> bool",
-    "doc": "is the key present"
-  },
-  "save.remove": {
-    "sig": "(key)",
-    "doc": "drop the key"
-  },
-  "save.flush": {
-    "sig": "() -> bool",
-    "doc": "autosave point - write to disk now"
-  },
-  "Vector3": {
-    "sig": "(x, y, z)",
-    "doc": "3D vector / point"
-  },
-  "Vector3:length": {
-    "sig": "() -> number",
-    "doc": "vector magnitude"
-  },
-  "Vector3:distance": {
-    "sig": "(v) -> number",
-    "doc": "distance to another point"
-  },
-  "Vector3:squaredDistance": {
-    "sig": "(v) -> number",
-    "doc": "squared distance (cheaper compare)"
-  },
-  "Vector3:dotProduct": {
-    "sig": "(v) -> number",
-    "doc": "dot product"
-  },
-  "Vector3:crossProduct": {
-    "sig": "(v) -> Vector3",
-    "doc": "cross product"
-  },
-  "Vector3:normalisedCopy": {
-    "sig": "() -> Vector3",
-    "doc": "unit-length copy"
-  },
-  "Vector3.x": {
-    "doc": "x component"
-  },
-  "Vector3.y": {
-    "doc": "y component"
-  },
-  "Vector3.z": {
-    "doc": "z component"
-  },
-  "Vector2": {
-    "sig": "(x, y)",
-    "doc": "2D vector (UI pixels / analog2D)"
-  },
-  "Vector2.x": {
-    "doc": "x component"
-  },
-  "Vector2.y": {
-    "doc": "y component"
-  },
-  "Quaternion": {
-    "sig": "(w, x, y, z)",
-    "doc": "orientation quaternion"
-  },
-  "Quaternion.w": {
-    "doc": "w component"
-  },
-  "Quaternion.x": {
-    "doc": "x component"
-  },
-  "Quaternion.y": {
-    "doc": "y component"
-  },
-  "Quaternion.z": {
-    "doc": "z component"
-  },
-  "InputActions.getSingleton": {
-    "sig": "() -> InputActions",
-    "doc": "the named-input action map singleton"
-  },
-  "InputActions:down": {
-    "sig": "(name) -> bool",
-    "doc": "action held this frame (digital)"
-  },
-  "InputActions:pressed": {
-    "sig": "(name) -> bool",
-    "doc": "action went down this frame"
-  },
-  "InputActions:released": {
-    "sig": "(name) -> bool",
-    "doc": "action went up this frame"
-  },
-  "InputActions:value": {
-    "sig": "(name) -> number",
-    "doc": "analog 1D value"
-  },
-  "InputActions:value2": {
-    "sig": "(name) -> Vector2",
-    "doc": "analog 2D value (e.g. 'move' stick)"
-  },
-  "InputActions:hasAction": {
-    "sig": "(name) -> bool",
-    "doc": "is the action mapped"
-  },
-  "LevelManager.getSingleton": {
-    "sig": "() -> LevelManager",
-    "doc": "the runtime level director singleton"
-  },
-  "LevelManager:count": {
-    "sig": "() -> int",
-    "doc": "number of levels in the sequence"
-  },
-  "LevelManager:currentIndex": {
-    "sig": "() -> int",
-    "doc": "the live level index"
-  },
-  "LevelManager:levelName": {
-    "sig": "(i) -> string",
-    "doc": "a level's display name"
-  },
-  "LevelManager:levelPar": {
-    "sig": "(i) -> int",
-    "doc": "a level's par slide count"
-  },
-  "LevelManager:levelScene": {
-    "sig": "(i) -> string",
-    "doc": "a level's project-relative scene path"
-  },
-  "LevelManager:hasNext": {
-    "sig": "() -> bool",
-    "doc": "is there a level after the current one"
-  },
-  "LevelManager:loadLevel": {
-    "sig": "(i)",
-    "doc": "request the deferred load of level i"
-  },
-  "LevelManager:loadScenePath": {
-    "sig": "(path)",
-    "doc": "deferred load of any scene path"
-  },
-  "LevelManager:resumeLevel": {
-    "sig": "() -> int",
-    "doc": "the persisted resume index"
-  },
-  "LevelManager:setResumeLevel": {
-    "sig": "(i)",
-    "doc": "persist the resume index"
-  },
-  "LevelManager:bestMoves": {
-    "sig": "(i) -> int",
-    "doc": "fewest recorded slides (-1 = none)"
-  },
-  "LevelManager:recordBestMoves": {
-    "sig": "(i, moves)",
-    "doc": "record a best-moves result for level i"
-  },
-  "LevelManager:saveProgress": {
-    "sig": "()",
-    "doc": "write the progression save file"
-  },
-  "TweenHandle:cancel": {
-    "sig": "()",
-    "doc": "stop the tween now"
-  },
-  "TweenHandle:isActive": {
-    "sig": "() -> bool",
-    "doc": "is the tween still running (completion poll)"
-  },
-  "TweenHandle:setLoops": {
-    "sig": "(count, pingpong)",
-    "doc": "loop count (<0 forever); pingpong runs it back and forth"
-  },
-  "SafeAreaInsets.mLeft": {
-    "doc": "left inset in pixels"
-  },
-  "SafeAreaInsets.mTop": {
-    "doc": "top inset in pixels"
-  },
-  "SafeAreaInsets.mRight": {
-    "doc": "right inset in pixels"
-  },
-  "SafeAreaInsets.mBottom": {
-    "doc": "bottom inset in pixels"
-  },
-  "events.subscribe": {
-    "sig": "(name, fn) -> EventSubscription",
-    "doc": "subscribe fn(payload) to an event (script phase, subscription order)"
-  },
-  "events.emit": {
-    "sig": "(name [, payload])",
-    "doc": "queue an event; payload a table of string/number/bool (one nesting level)"
-  },
-  "EventSubscription:cancel": {
-    "sig": "() -> bool",
-    "doc": "drop the subscription (true if it was live)"
-  },
-  "EventSubscription:isActive": {
-    "sig": "() -> bool",
-    "doc": "is the subscription still live"
-  }
+	"_README": [
+		"Hand-maintained signature annotations for the generated Lua API inventory.",
+		"Util/update_docs.py extracts the SYMBOL inventory (table/function/type/method",
+		"names and receivers) mechanically from the binding sources; the C++ macros do",
+		"NOT carry Lua argument names or return types, so those live HERE. Editing this",
+		"file is how a signature stays accurate WITHOUT hand-editing the generated doc",
+		"text: the generator reads these entries and rewrites the marked blocks.",
+		"",
+		"Keys are the canonical symbol id the generator computes:",
+		"  table function      world.get           (dot)",
+		"  global function     loc                 (bare name)",
+		"  type constructor    Vector3             (the type name)",
+		"  instance method     Vector3:length      (colon)",
+		"  static/singleton    InputActions.getSingleton   (dot)",
+		"  member field        Vector3.x           (dot)",
+		"Each entry: { \"sig\": \"(args) -> ret\", \"doc\": \"terse purpose\" }.",
+		"'sig' omits the receiver and, for a constructor, is just the argument list.",
+		"A symbol found in the sources but absent here renders with a '(...)'",
+		"placeholder and is reported by --check; an entry with no matching symbol is",
+		"reported as stale. Neither is fatal - both are drift signals to act on."
+	],
+	"world.exists": {
+		"sig": "(id) -> bool",
+		"doc": "is a GameObject with this id alive"
+	},
+	"world.get": {
+		"sig": "(id) -> GameObject?",
+		"doc": "the live GameObject by id (nil if gone)"
+	},
+	"world.getTransform": {
+		"sig": "(id) -> TransformComponent?",
+		"doc": "an object's TransformComponent (nil if none)"
+	},
+	"world.getRigidBody": {
+		"sig": "(id) -> RigidBodyComponent?",
+		"doc": "an object's RigidBodyComponent (nil if none)"
+	},
+	"world.getModel": {
+		"sig": "(id) -> ModelComponent?",
+		"doc": "an object's ModelComponent (nil if none)"
+	},
+	"world.getSprite": {
+		"sig": "(id) -> SpriteComponent?",
+		"doc": "an object's SpriteComponent (nil if none)"
+	},
+	"world.getParticles": {
+		"sig": "(id) -> ParticleComponent?",
+		"doc": "an object's ParticleComponent (nil if none)"
+	},
+	"world.getScript": {
+		"sig": "(id) -> ScriptComponent?",
+		"doc": "an object's ScriptComponent (nil if none)"
+	},
+	"world.getSound": {
+		"sig": "(id) -> SoundComponent?",
+		"doc": "an object's SoundComponent (nil if none)"
+	},
+	"world.getLevel": {
+		"sig": "(id) -> LevelComponent?",
+		"doc": "an object's LevelComponent (nil if none)"
+	},
+	"world.loadScene": {
+		"sig": "(path)",
+		"doc": "deferred scene switch at the next frame boundary"
+	},
+	"world.findByTag": {
+		"sig": "(tag) -> {GameObject}",
+		"doc": "array of live objects carrying the tag"
+	},
+	"world.setTimeScale": {
+		"sig": "(scale)",
+		"doc": "gameplay time scale (1 normal, 0 hitstop)"
+	},
+	"world.getTimeScale": {
+		"sig": "() -> number",
+		"doc": "the current gameplay time scale"
+	},
+	"loc": {
+		"sig": "(key [, ...]) -> string",
+		"doc": "localised string; %%N%% filled by trailing args"
+	},
+	"locale.set": {
+		"sig": "(tag) -> bool",
+		"doc": "switch the active language (true if the tag is loaded); re-push screens after"
+	},
+	"locale.get": {
+		"sig": "() -> string",
+		"doc": "the active language code"
+	},
+	"locale.list": {
+		"sig": "() -> table",
+		"doc": "the loaded language codes, sorted (source included)"
+	},
+	"locale.getSource": {
+		"sig": "() -> string",
+		"doc": "the source (authored) language code"
+	},
+	"screen.fadeOut": {
+		"sig": "(seconds)",
+		"doc": "ramp the full-screen overlay to opaque"
+	},
+	"screen.fadeIn": {
+		"sig": "(seconds)",
+		"doc": "ramp the full-screen overlay to clear"
+	},
+	"screen.setFadeColor": {
+		"sig": "(r, g, b)",
+		"doc": "fade overlay colour (default black), 0..1"
+	},
+	"screen.isFading": {
+		"sig": "() -> bool",
+		"doc": "is a fade in progress (gate input)"
+	},
+	"screen.loadScene": {
+		"sig": "(path, outSeconds, inSeconds)",
+		"doc": "fade out, switch scene at opacity, fade in"
+	},
+	"screen.shake": {
+		"sig": "(amplitude, duration [, frequency])",
+		"doc": "decaying camera shake (world units, seconds, Hz)"
+	},
+	"screen.stopShake": {
+		"sig": "()",
+		"doc": "end the camera shake immediately"
+	},
+	"screen.isShaking": {
+		"sig": "() -> bool",
+		"doc": "is the camera currently shaking"
+	},
+	"haptics.play": {
+		"sig": "(strength, ms)",
+		"doc": "generic vibration; no-op off-device"
+	},
+	"haptics.pattern": {
+		"sig": "(name)",
+		"doc": "named haptic (light..selection); preferred on iOS"
+	},
+	"haptics.isAvailable": {
+		"sig": "() -> bool",
+		"doc": "does this device have a vibrator"
+	},
+	"haptics.setEnabled": {
+		"sig": "(enabled)",
+		"doc": "honour an in-game vibration on/off setting"
+	},
+	"sound.setGroupVolume": {
+		"sig": "(group, volume)",
+		"doc": "set a mixer group volume 0..1"
+	},
+	"sound.getGroupVolume": {
+		"sig": "(group) -> number",
+		"doc": "read a mixer group volume"
+	},
+	"sound.setMasterVolume": {
+		"sig": "(volume)",
+		"doc": "set the master volume 0..1"
+	},
+	"sound.getMasterVolume": {
+		"sig": "() -> number",
+		"doc": "read the master volume"
+	},
+	"music.play": {
+		"sig": "(id, file [, loop]) -> bool",
+		"doc": "start/replace a streamed track (loops by default)"
+	},
+	"music.stop": {
+		"sig": "(id) -> bool",
+		"doc": "stop and free one streamed track"
+	},
+	"music.stopAll": {
+		"sig": "()",
+		"doc": "stop every streamed track"
+	},
+	"music.isPlaying": {
+		"sig": "(id) -> bool",
+		"doc": "is that track currently playing"
+	},
+	"music.setVolume": {
+		"sig": "(id, volume)",
+		"doc": "per-track own volume 0..1"
+	},
+	"music.getPosition": {
+		"sig": "(id) -> number",
+		"doc": "playback position in seconds"
+	},
+	"tween.to": {
+		"sig": "(from, to, duration, ease [, onUpdate [, onComplete [, delay]]]) -> TweenHandle",
+		"doc": "generic value tween; onUpdate(v) applies it"
+	},
+	"tween.move": {
+		"sig": "(id, x, y, z, duration [, ease [, delay]]) -> TweenHandle",
+		"doc": "tween an object's local position"
+	},
+	"tween.scale": {
+		"sig": "(id, x, y, z, duration [, ease [, delay]]) -> TweenHandle",
+		"doc": "tween an object's local scale"
+	},
+	"tween.rotate": {
+		"sig": "(id, degrees, duration [, ease [, delay]]) -> TweenHandle",
+		"doc": "tween Z rotation (the 2D spin)"
+	},
+	"tween.fade": {
+		"sig": "(id, alpha, duration [, ease [, delay]]) -> TweenHandle",
+		"doc": "tween a sprite's tint alpha"
+	},
+	"tween.volume": {
+		"sig": "(group, volume, duration [, ease [, delay]]) -> TweenHandle",
+		"doc": "tween a mixer group volume (the ducking recipe)"
+	},
+	"tween.property": {
+		"sig": "(id, componentType, propertyName, toValue, duration [, ease [, onComplete [, delay]]]) -> TweenHandle",
+		"doc": "tween any reflected Float/Int/Vec3/Color by name"
+	},
+	"guitween.alpha": {
+		"sig": "(id, alpha, duration [, ease [, delay [, onComplete]]]) -> TweenHandle",
+		"doc": "widget group alpha 0..1 (cascades)"
+	},
+	"guitween.scale": {
+		"sig": "(id, scale, duration [, ...]) -> TweenHandle",
+		"doc": "uniform widget scale about the centre"
+	},
+	"guitween.rotate": {
+		"sig": "(id, degrees, duration [, ...]) -> TweenHandle",
+		"doc": "widget Z rotation about the centre"
+	},
+	"guitween.move": {
+		"sig": "(id, x, y, duration [, ...]) -> TweenHandle",
+		"doc": "widget anchoredPosition / position"
+	},
+	"guitween.size": {
+		"sig": "(id, w, h, duration [, ...]) -> TweenHandle",
+		"doc": "widget sizeDelta / size"
+	},
+	"guitween.color": {
+		"sig": "(id, r, g, b, a, duration [, ...]) -> TweenHandle",
+		"doc": "decor-widget tint"
+	},
+	"guitween.show": {
+		"sig": "(id) -> bool",
+		"doc": "play the widget's enter transition"
+	},
+	"guitween.hide": {
+		"sig": "(id) -> bool",
+		"doc": "play the exit transition, then park hidden"
+	},
+	"guitween.stop": {
+		"sig": "(id)",
+		"doc": "cancel every running tween on the widget"
+	},
+	"screens.define": {
+		"sig": "(name, ouiPath)",
+		"doc": "register a .oui-backed screen"
+	},
+	"screens.defineBuilder": {
+		"sig": "(name, builder)",
+		"doc": "register a Lua-built screen"
+	},
+	"screens.push": {
+		"sig": "(name)",
+		"doc": "push a screen onto the stack"
+	},
+	"screens.replace": {
+		"sig": "(name)",
+		"doc": "swap the top screen"
+	},
+	"screens.pop": {
+		"sig": "() -> string",
+		"doc": "pop the top screen; returns its name"
+	},
+	"screens.current": {
+		"sig": "() -> string",
+		"doc": "the top screen's name"
+	},
+	"screens.depth": {
+		"sig": "() -> int",
+		"doc": "screens on the stack"
+	},
+	"screens.clear": {
+		"sig": "()",
+		"doc": "pop every screen"
+	},
+	"screens.setBackHandler": {
+		"sig": "(handler)",
+		"doc": "own the back gesture (handler decides)"
+	},
+	"cvar.registerNumber": {
+		"sig": "(name, default)",
+		"doc": "register a Float cvar (idempotent)"
+	},
+	"cvar.getNumber": {
+		"sig": "(name [, fallback]) -> number",
+		"doc": "read a cvar as a number"
+	},
+	"cvar.getBool": {
+		"sig": "(name [, fallback]) -> bool",
+		"doc": "read a cvar as a bool"
+	},
+	"cvar.get": {
+		"sig": "(name) -> string",
+		"doc": "read a cvar's canonical string ('' if unset)"
+	},
+	"cvar.exists": {
+		"sig": "(name) -> bool",
+		"doc": "is the cvar registered"
+	},
+	"cvar.set": {
+		"sig": "(name, value) -> bool",
+		"doc": "set from a string (validated); false + logs on reject"
+	},
+	"save.set": {
+		"sig": "(key, value)",
+		"doc": "store number/bool/string by its type"
+	},
+	"save.getNumber": {
+		"sig": "(key [, fallback]) -> number",
+		"doc": "read a saved number"
+	},
+	"save.getBool": {
+		"sig": "(key [, fallback]) -> bool",
+		"doc": "read a saved bool"
+	},
+	"save.getString": {
+		"sig": "(key [, fallback]) -> string",
+		"doc": "read a saved string"
+	},
+	"save.get": {
+		"sig": "(key [, fallback]) -> string",
+		"doc": "read any value as its canonical string"
+	},
+	"save.has": {
+		"sig": "(key) -> bool",
+		"doc": "is the key present"
+	},
+	"save.remove": {
+		"sig": "(key)",
+		"doc": "drop the key"
+	},
+	"save.flush": {
+		"sig": "() -> bool",
+		"doc": "autosave point - write to disk now"
+	},
+	"Vector3": {
+		"sig": "(x, y, z)",
+		"doc": "3D vector / point"
+	},
+	"Vector3:length": {
+		"sig": "() -> number",
+		"doc": "vector magnitude"
+	},
+	"Vector3:distance": {
+		"sig": "(v) -> number",
+		"doc": "distance to another point"
+	},
+	"Vector3:squaredDistance": {
+		"sig": "(v) -> number",
+		"doc": "squared distance (cheaper compare)"
+	},
+	"Vector3:dotProduct": {
+		"sig": "(v) -> number",
+		"doc": "dot product"
+	},
+	"Vector3:crossProduct": {
+		"sig": "(v) -> Vector3",
+		"doc": "cross product"
+	},
+	"Vector3:normalisedCopy": {
+		"sig": "() -> Vector3",
+		"doc": "unit-length copy"
+	},
+	"Vector3.x": {
+		"doc": "x component"
+	},
+	"Vector3.y": {
+		"doc": "y component"
+	},
+	"Vector3.z": {
+		"doc": "z component"
+	},
+	"Vector2": {
+		"sig": "(x, y)",
+		"doc": "2D vector (UI pixels / analog2D)"
+	},
+	"Vector2.x": {
+		"doc": "x component"
+	},
+	"Vector2.y": {
+		"doc": "y component"
+	},
+	"Quaternion": {
+		"sig": "(w, x, y, z)",
+		"doc": "orientation quaternion"
+	},
+	"Quaternion.w": {
+		"doc": "w component"
+	},
+	"Quaternion.x": {
+		"doc": "x component"
+	},
+	"Quaternion.y": {
+		"doc": "y component"
+	},
+	"Quaternion.z": {
+		"doc": "z component"
+	},
+	"InputActions.getSingleton": {
+		"sig": "() -> InputActions",
+		"doc": "the named-input action map singleton"
+	},
+	"InputActions:down": {
+		"sig": "(name) -> bool",
+		"doc": "action held this frame (digital)"
+	},
+	"InputActions:pressed": {
+		"sig": "(name) -> bool",
+		"doc": "action went down this frame"
+	},
+	"InputActions:released": {
+		"sig": "(name) -> bool",
+		"doc": "action went up this frame"
+	},
+	"InputActions:value": {
+		"sig": "(name) -> number",
+		"doc": "analog 1D value"
+	},
+	"InputActions:value2": {
+		"sig": "(name) -> Vector2",
+		"doc": "analog 2D value (e.g. 'move' stick)"
+	},
+	"InputActions:hasAction": {
+		"sig": "(name) -> bool",
+		"doc": "is the action mapped"
+	},
+	"LevelManager.getSingleton": {
+		"sig": "() -> LevelManager",
+		"doc": "the runtime level director singleton"
+	},
+	"LevelManager:count": {
+		"sig": "() -> int",
+		"doc": "number of levels in the sequence"
+	},
+	"LevelManager:currentIndex": {
+		"sig": "() -> int",
+		"doc": "the live level index"
+	},
+	"LevelManager:levelName": {
+		"sig": "(i) -> string",
+		"doc": "a level's display name"
+	},
+	"LevelManager:levelPar": {
+		"sig": "(i) -> int",
+		"doc": "a level's par slide count"
+	},
+	"LevelManager:levelScene": {
+		"sig": "(i) -> string",
+		"doc": "a level's project-relative scene path"
+	},
+	"LevelManager:hasNext": {
+		"sig": "() -> bool",
+		"doc": "is there a level after the current one"
+	},
+	"LevelManager:loadLevel": {
+		"sig": "(i)",
+		"doc": "request the deferred load of level i"
+	},
+	"LevelManager:loadScenePath": {
+		"sig": "(path)",
+		"doc": "deferred load of any scene path"
+	},
+	"LevelManager:resumeLevel": {
+		"sig": "() -> int",
+		"doc": "the persisted resume index"
+	},
+	"LevelManager:setResumeLevel": {
+		"sig": "(i)",
+		"doc": "persist the resume index"
+	},
+	"LevelManager:bestMoves": {
+		"sig": "(i) -> int",
+		"doc": "fewest recorded slides (-1 = none)"
+	},
+	"LevelManager:recordBestMoves": {
+		"sig": "(i, moves)",
+		"doc": "record a best-moves result for level i"
+	},
+	"LevelManager:saveProgress": {
+		"sig": "()",
+		"doc": "write the progression save file"
+	},
+	"TweenHandle:cancel": {
+		"sig": "()",
+		"doc": "stop the tween now"
+	},
+	"TweenHandle:isActive": {
+		"sig": "() -> bool",
+		"doc": "is the tween still running (completion poll)"
+	},
+	"TweenHandle:setLoops": {
+		"sig": "(count, pingpong)",
+		"doc": "loop count (<0 forever); pingpong runs it back and forth"
+	},
+	"SafeAreaInsets.mLeft": {
+		"doc": "left inset in pixels"
+	},
+	"SafeAreaInsets.mTop": {
+		"doc": "top inset in pixels"
+	},
+	"SafeAreaInsets.mRight": {
+		"doc": "right inset in pixels"
+	},
+	"SafeAreaInsets.mBottom": {
+		"doc": "bottom inset in pixels"
+	},
+	"events.subscribe": {
+		"sig": "(name, fn) -> EventSubscription",
+		"doc": "subscribe fn(payload) to an event (script phase, subscription order)"
+	},
+	"events.emit": {
+		"sig": "(name [, payload])",
+		"doc": "queue an event; payload a table of string/number/bool (one nesting level)"
+	},
+	"EventSubscription:cancel": {
+		"sig": "() -> bool",
+		"doc": "drop the subscription (true if it was live)"
+	},
+	"EventSubscription:isActive": {
+		"sig": "() -> bool",
+		"doc": "is the subscription still live"
+	},
+	"timer.after": {
+		"sig": "(seconds, fn) -> TimerHandle",
+		"doc": "run fn() ONCE after a delay; sandbox-scoped (auto-cancels on retire)"
+	},
+	"timer.every": {
+		"sig": "(seconds, fn) -> TimerHandle",
+		"doc": "run fn() every `seconds`; sandbox-scoped (auto-cancels on retire)"
+	},
+	"timer.cancel": {
+		"sig": "(handle) -> bool",
+		"doc": "stop a scheduled timer (also handle:cancel())"
+	},
+	"TimerHandle:cancel": {
+		"sig": "()",
+		"doc": "stop the timer now"
+	},
+	"TimerHandle:isActive": {
+		"sig": "() -> bool",
+		"doc": "is the timer still scheduled"
+	},
+	"game.setState": {
+		"sig": "(name)",
+		"doc": "set the game state; fires game.stateChanged {old,new} on the event bus"
+	},
+	"game.getState": {
+		"sig": "() -> string",
+		"doc": "the current game state name (\"\" when unset)"
+	},
+	"music.crossFade": {
+		"sig": "(id, file, seconds)",
+		"doc": "swap `id` in and fade every other track out over `seconds` (equal-power)"
+	},
+	"world.getCamera": {
+		"sig": "(id) -> CameraComponent",
+		"doc": "the object's CameraComponent (nil when absent); drives smooth follow"
+	}
 }

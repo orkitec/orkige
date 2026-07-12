@@ -69,6 +69,11 @@ namespace Orkige
 		float					designWidth;	//!< design rect FULL width (FM_WIDTH/FM_EXPAND)
 		float					designHeight;	//!< design rect FULL height (FM_EXPAND)
 		float					lastAspect;		//!< last viewport aspect an ortho fit applied at
+		//--- smooth follow (2D): tracks a target object's XY, composes with the
+		//--- ortho fit (fit sizes the projection, follow moves the position)
+		String					followTarget;	//!< GameObject id to follow ("" = off)
+		float					followDamping;	//!< smoothing time constant, seconds (0 = snap)
+		Vec3					followOffset;	//!< XY lead/trail added to the target (z unused in 2D)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -121,7 +126,39 @@ namespace Orkige
 		void setDesignHeight(float worldHeight);
 		//! @see CameraComponent::designHeight
 		inline float getDesignHeight() const;
+		//--- SMOOTH FOLLOW (2D) -----------------------------------------
+		//! @brief follow a GameObject: each update the camera eases its XY
+		//! toward the target's XY (+ the follow offset) by the framerate-
+		//! independent CameraFollow factor. Composes with the fit policy - fit
+		//! sizes the ortho projection, follow moves the camera position, so they
+		//! never fight. "" stops following (@see stopFollow).
+		//! @param targetId the object to track ("" = stop)
+		//! @param damping smoothing time constant in seconds (0 = instant snap)
+		void follow(String const & targetId, float damping);
+		//! stop following (the camera holds its current position)
+		void stopFollow();
+		//! @brief set the follow target id directly (the reflected setter);
+		//! @see follow for the convenience form that also sets damping
+		void setFollowTarget(String const & targetId);
+		//! @see CameraComponent::followTarget
+		inline String const & getFollowTarget() const;
+		//! @brief the follow smoothing time constant in seconds (clamped >= 0);
+		//! 0 snaps the camera exactly onto the target each frame
+		void setFollowDamping(float damping);
+		//! @see CameraComponent::followDamping
+		inline float getFollowDamping() const;
+		//! @brief a constant XY offset added to the target position (camera
+		//! lead/trail); the z component is unused in the 2D follow
+		void setFollowOffset(Vec3 const & offset);
+		//! @see CameraComponent::followOffset
+		inline Vec3 const & getFollowOffset() const;
 	protected:
+		//! @brief the 2D smooth-follow step: re-fetch the follow target by id and
+		//! ease the attach node's XY toward it (+ offset), then aim -Z at it.
+		//! @return true when a valid target moved the camera this frame (the
+		//! caller then skips the chase rig); false when there is no resolvable
+		//! target (the camera holds its position and the chase rig runs instead)
+		bool updateFollow(float deltaTime);
 		//! push projectionMode/orthoSize onto the window camera (if one is attached)
 		void applyProjection();
 		//! the live viewport aspect (width/height); 1.0 without a render system
@@ -165,6 +202,21 @@ namespace Orkige
 	inline float CameraComponent::getDesignHeight() const
 	{
 		return this->designHeight;
+	}
+	//---------------------------------------------------------
+	inline String const & CameraComponent::getFollowTarget() const
+	{
+		return this->followTarget;
+	}
+	//---------------------------------------------------------
+	inline float CameraComponent::getFollowDamping() const
+	{
+		return this->followDamping;
+	}
+	//---------------------------------------------------------
+	inline Vec3 const & CameraComponent::getFollowOffset() const
+	{
+		return this->followOffset;
 	}
 	//---------------------------------------------------------
 	inline optr<RenderNode> const & CameraComponent::getControlNode()

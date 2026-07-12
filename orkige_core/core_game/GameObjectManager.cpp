@@ -11,6 +11,7 @@
 #include "core_game/GameObject.h"
 #include "core_event/GlobalEventManager.h"
 #include "core_tween/TweenManager.h"
+#include "core_tween/TimerManager.h"
 #include "core_debug/Profile.h"
 
 namespace Orkige
@@ -112,6 +113,13 @@ namespace Orkige
 		if(TweenManager::getSingletonPtr() != 0)
 		{
 			TweenManager::getSingleton().clear();
+		}
+		// scheduled timers die with the scene too, for the same reason (their
+		// callbacks close over this scene's objects - core_tween/TimerManager.h
+		// lifetime rules); no callbacks fire. The editor never creates one.
+		if(TimerManager::getSingletonPtr() != 0)
+		{
+			TimerManager::getSingleton().clear();
 		}
 
 		this->numUpdatableComponents = 0;

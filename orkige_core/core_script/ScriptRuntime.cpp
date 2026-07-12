@@ -9,6 +9,7 @@
 
 #include "core_script/ScriptRuntime.h"
 #include "core_script/ScriptEventBus.h"
+#include "core_tween/TimerManager.h"
 #include "core_script/ScriptEventPayload.h"
 
 #include <algorithm>
@@ -984,6 +985,13 @@ namespace Orkige
 		// the process-exit static teardown) is what makes "destroying or
 		// hot-reloading a script component auto-cancels its subscriptions" true
 		ScriptEventBus::getSingleton().cancelOwner(this);
+		// the SAME owner-token retire for this sandbox's scheduled timers
+		// (timer.after/every tagged with `this`): a stale timer must never fire
+		// into a dead sandbox. Guarded - the editor never creates a TimerManager.
+		if(TimerManager::getSingletonPtr() != 0)
+		{
+			TimerManager::getSingleton().cancelOwner(this);
+		}
 #ifdef ORKIGE_LUA
 		// deterministic release of everything the instance kept alive: engine
 		// objects held by script locals (a Lua-booted GuiManager and its

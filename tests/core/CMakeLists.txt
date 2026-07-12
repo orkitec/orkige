@@ -39,6 +39,10 @@ add_executable(orkige_core_tests
     AppLifecycleTests.cpp
     CameraFitTests.cpp
     ShadowPresetTests.cpp
+    CameraFollowTests.cpp
+    TimerManagerTests.cpp
+    MusicFadeTests.cpp
+    GameStateTests.cpp
     SafeAreaTests.cpp
     UiLayoutResolverTests.cpp
     ReferenceScaleTests.cpp

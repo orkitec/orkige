@@ -16,6 +16,7 @@
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/VectorShapeComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
+#include "engine_gocomponent/CameraComponent.h"
 #include "engine_sound/SoundManager.h"
 #include "engine_graphic/ScreenFade.h"
 #include "engine_graphic/ScreenShake.h"
@@ -29,12 +30,15 @@
 #include <core_game/LevelManager.h>
 #include <core_game/SaveStore.h>
 #include <core_game/TimeControl.h>
+#include <core_game/GameState.h>
 #include <core_debug/CVarManager.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_script/ScriptEventBus.h>
 #include <core_util/StringTable.h>
 #include <core_tween/TweenManager.h>
+#include <core_tween/TimerManager.h>
+#include <core_util/MusicFade.h>
 #include <core_game/PropertyTween.h>
 
 namespace Orkige
@@ -159,6 +163,25 @@ namespace Orkige
 				{
 					EngineLogCapture::logError(
 						"tween onComplete: SCRIPT ERROR - " + error);
+				}
+			};
+		}
+		//! wrap a script timer closure (timer.after/every): a script error is
+		//! logged with the timer context; it does not stop the timer (a
+		//! repeating timer is cancelled explicitly, not by throwing)
+		TimerManager::TimerFunction wrapScriptTimer(ScriptCallback const & callback)
+		{
+			if (!callback.valid())
+			{
+				return TimerManager::TimerFunction();
+			}
+			return [callback]()
+			{
+				String error;
+				if (!callback.invoke(&error))
+				{
+					EngineLogCapture::logError(
+						"timer callback: SCRIPT ERROR - " + error);
 				}
 			};
 		}
@@ -741,6 +764,14 @@ namespace Orkige
 		});
 		runtime.registerFunction("world", "getSound",
 			&worldGetComponent<SoundComponent>);
+		// world.getCamera(id) -> the object's CameraComponent (nil when absent);
+		// the accessor a script uses to drive smooth follow, e.g.
+		//   world.getCamera("Camera"):follow("Hero", 0.2)
+		// follow COMPOSES with the ortho fit policy (fit sizes the projection,
+		// follow moves the camera position). Reflected props (followTarget /
+		// followDamping / followOffset) reach get/set_component over MCP too.
+		runtime.registerFunction("world", "getCamera",
+			&worldGetComponent<CameraComponent>);
 		// world.findByTag(tag) -> array of the GameObjects carrying that tag
 		// (empty table when none); tags are set in the editor Inspector or via
 		// GameObject:addTag, indexed by the GameObjectManager
@@ -1092,6 +1123,86 @@ namespace Orkige
 			}
 			MusicStreamPtr track = SoundManager::getSingleton().getMusic(id);
 			return track ? track->getPlayPosition() : 0.0f;
+		});
+		// music.crossFade(id, file, seconds): start (id, file) at silence and
+		// smoothly swap it in while every OTHER registered track fades out,
+		// over `seconds` (the incoming track BECOMES the music, the rest
+		// retire). Rides ONE core_tween tween (0->1, ticked by the
+		// player loop) whose per-step callback drives both track OWN volumes via
+		// the pure equal-power MusicFade curve (constant perceived loudness); the
+		// outgoing tracks are stopped when the fade completes. seconds <= 0 (or
+		// no TweenManager) swaps instantly. Honest no-op without a SoundManager.
+		runtime.registerFunction("music", "crossFade",
+			[](String const & id, String const & file, double seconds) -> bool
+		{
+			if (!SoundManager::getSingletonPtr())
+			{
+				return false;
+			}
+			SoundManager & sound = SoundManager::getSingleton();
+			// the tracks to fade OUT: every OTHER registered track (crossFade
+			// makes the incoming track THE music and retires the rest);
+			// re-using the incoming id just re-swaps it in
+			std::vector<String> outgoing;
+			foreach (SoundManager::MusicTrackInfo const & track,
+				sound.snapshotMusic())
+			{
+				if (track.id != id)
+				{
+					outgoing.push_back(track.id);
+				}
+			}
+			// bring the incoming track up from silence (loops like music.play)
+			sound.playMusic(id, file, true);
+			sound.setMusicVolume(id, 0.0f);
+			const float duration = static_cast<float>(seconds);
+			if (duration <= 0.0f || !TweenManager::getSingletonPtr())
+			{
+				// instant swap: incoming full, outgoing stopped
+				sound.setMusicVolume(id, 1.0f);
+				foreach (String const & out, outgoing)
+				{
+					sound.stopMusic(out);
+				}
+				return true;
+			}
+			const float from = 0.0f;
+			const float to = 1.0f;
+			const String incoming = id;
+			const std::vector<String> fadeOut = outgoing;
+			TweenManager::getSingleton().startTween(&from, &to, 1, duration,
+				&Ease::linear,
+				[incoming, fadeOut](float const * values, int) -> bool
+				{
+					SoundManager* soundPtr = SoundManager::getSingletonPtr();
+					if (!soundPtr)
+					{
+						return false;	// audio gone - stop the tween
+					}
+					float outGain = 0.0f;
+					float inGain = 1.0f;
+					MusicFade::crossfadeGains(values[0], outGain, inGain);
+					soundPtr->setMusicVolume(incoming, inGain);
+					foreach (String const & out, fadeOut)
+					{
+						soundPtr->setMusicVolume(out, outGain);
+					}
+					return true;
+				},
+				[fadeOut]()
+				{
+					SoundManager* soundPtr = SoundManager::getSingletonPtr();
+					if (!soundPtr)
+					{
+						return;
+					}
+					foreach (String const & out, fadeOut)
+					{
+						soundPtr->stopMusic(out);
+					}
+				},
+				0.0f, StringUtil::BLANK);
+			return true;
 		});
 
 		// ================= THE `tween` TABLE (juice) =======================
@@ -1707,6 +1818,88 @@ namespace Orkige
 			// the seam bounded-converts the payload and raises a Lua error on an
 			// out-of-bounds value (the honest failure at emit)
 			ScriptRuntime::getSingleton().emitEventFromScript(name, args);
+		});
+
+		// ================= THE `timer` TABLE (scheduling) =================
+		// Deferred callbacks on core_tween/TimerManager, ticked by the player
+		// loop in the TWEEN PHASE (right after tweens - no new fence entry).
+		//   timer.after(seconds, fn)  -> handle   run fn() ONCE after a delay
+		//   timer.every(seconds, fn)  -> handle   run fn() every `seconds`
+		//   timer.cancel(handle)      -> bool     stop it (also handle:cancel())
+		// A timer is SANDBOX-SCOPED: it is tagged with the script sandbox that
+		// scheduled it (the SAME owner token the `events` subscriptions use), so
+		// removing the component / tearing the scene down / hot-reloading the
+		// script AUTO-CANCELS it - a stale timer never fires into a dead sandbox.
+		// SCHEDULE IN init/update as needed; there is no need to cancel on
+		// shutdown. Honest no-op without a TimerManager (the editor never makes
+		// one), returning a dead handle.
+		runtime.registerFunction("timer", "after",
+			[](double seconds, ScriptArgs args) -> TimerHandle
+		{
+			TimerHandle handle;
+			if (!TimerManager::getSingletonPtr())
+			{
+				return handle;
+			}
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if (!callback.valid())
+			{
+				EngineLogCapture::logError(
+					"timer.after: the second argument must be a function");
+				return handle;
+			}
+			// the current owner is the sandbox executing this call (set by the
+			// ScriptCallScope around every script entry point) - the same token
+			// ScriptEventBus tags subscriptions with, so ScriptInstance's
+			// destructor cancels both in one retire
+			void const * owner = ScriptEventBus::getSingleton().currentOwner();
+			handle.mId = TimerManager::getSingleton().after(
+				static_cast<float>(seconds), wrapScriptTimer(callback), owner);
+			return handle;
+		});
+		runtime.registerFunction("timer", "every",
+			[](double seconds, ScriptArgs args) -> TimerHandle
+		{
+			TimerHandle handle;
+			if (!TimerManager::getSingletonPtr())
+			{
+				return handle;
+			}
+			const ScriptCallback callback = ScriptCallback::fromArgs(args, 0);
+			if (!callback.valid())
+			{
+				EngineLogCapture::logError(
+					"timer.every: the second argument must be a function");
+				return handle;
+			}
+			void const * owner = ScriptEventBus::getSingleton().currentOwner();
+			handle.mId = TimerManager::getSingleton().every(
+				static_cast<float>(seconds), wrapScriptTimer(callback), owner);
+			return handle;
+		});
+		runtime.registerFunction("timer", "cancel",
+			[](TimerHandle handle) -> bool
+		{
+			return handle.cancel();
+		});
+
+		// ================= THE `game` TABLE (state) =======================
+		// A THIN convenience over the event bus (NOT a state machine): the game
+		// keeps ONE named state string, and every game.setState(name) fires a
+		// `game.stateChanged` event ({ old, new }) so scripts react through the
+		// SAME `events` bus. game.getState() reads it back. Honest no-op without a
+		// GameState (the editor never makes one) - set stores nothing, get is "".
+		runtime.registerFunction("game", "setState", [](String const & name)
+		{
+			if (GameState::getSingletonPtr())
+			{
+				GameState::getSingleton().set(name);
+			}
+		});
+		runtime.registerFunction("game", "getState", []() -> String
+		{
+			return GameState::getSingletonPtr()
+				? GameState::getSingleton().get() : String();
 		});
 	}
 	//---------------------------------------------------------

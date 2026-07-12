@@ -22,6 +22,7 @@
 #include "core_debug/MemorySampler.h"
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
+#include "core_game/GameState.h"
 #include "core_debugnet/TraceWriter.h"
 #include "core_script/ScriptEventBus.h"
 #include "engine_base/EngineLog.h"
@@ -1243,6 +1244,16 @@ namespace Orkige
 			frameMs << std::fixed << std::setprecision(3)
 				<< ProfileManager::lastFrameMilliseconds();
 			stats.set(Protocol::FIELD_FRAME_MS, frameMs.str());
+			anyField = true;
+		}
+		// the game's current named state (core_game/GameState, Lua game.setState)
+		// so the editor Stats panel / MCP get_state can read what state the
+		// running game is in. Omitted while unset (empty).
+		if (GameState::getSingletonPtr() != NULL &&
+			!GameState::getSingleton().get().empty())
+		{
+			stats.set(Protocol::FIELD_GAME_STATE,
+				GameState::getSingleton().get());
 			anyField = true;
 		}
 		// window size + safe-area insets (pixels): the notch-aware readback an

@@ -1021,6 +1021,24 @@ if(TARGET orkige_player)
         set_tests_properties(player_gamesupport_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_GAMESUPPORT_SELFCHECK=1;ORKIGE_PROGRESS_DIR=${CMAKE_CURRENT_BINARY_DIR}/gamesupport_selfcheck")
 
+        # the gameplay-conveniences pack (Lua `timer` / `game` tables +
+        # music.crossFade + CameraComponent smooth follow), end to end against
+        # the live player wiring (synchronous, any scene - reuses
+        # tests/projects/tween): timer.after fires once / timer.every repeats /
+        # timer.cancel stops one (ticked through the loop's TimerManager),
+        # game.setState round-trips + fires game.stateChanged to an events
+        # subscriber, music.crossFade ramps the incoming track to full while the
+        # outgoing one is stopped (riding ONE core_tween tween), and a
+        # CameraComponent in ortho + FM_WIDTH fit eases onto a moved target
+        # (follow composes with the fit policy). See the
+        # ORKIGE_GAMEPLAY_SELFCHECK block in tools/player/main.cpp; the timer
+        # auto-cancel, follow and crossfade-gain math are the unit tests.
+        add_test(NAME player_gameplay_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player --project tests/projects/tween
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_gameplay_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_GAMEPLAY_SELFCHECK=1")
+
         # Lua hot-reload, end to end: tests/projects/hotreload runs a
         # Probe script publishing shared.hotreload.value. The selfcheck
         # overwrites the script on disk, drives ScriptComponent::hotReload()
@@ -1298,6 +1316,7 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_roller_progression_selfcheck_next
         player_tween_selfcheck player_tween_selfcheck_next
         player_gamesupport_selfcheck player_gamesupport_selfcheck_next
+        player_gameplay_selfcheck player_gameplay_selfcheck_next
         player_hotreload_selfcheck player_hotreload_selfcheck_next
         player_scriptprop_selfcheck player_scriptprop_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next

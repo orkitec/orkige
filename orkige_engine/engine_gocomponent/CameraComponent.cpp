@@ -15,7 +15,9 @@
 #include "engine_render/RenderSystem.h"
 #include "engine_render/RenderWorld.h"
 #include "engine_gocomponent/CameraDefaultModes.h"
+#include <core_game/GameObjectManager.h>
 #include <core_util/CameraFit.h>
+#include <core_util/CameraFollow.h>
 
 #include <algorithm>
 
@@ -32,6 +34,9 @@ namespace Orkige
 		this->designWidth = 10.0f;
 		this->designHeight = 10.0f;
 		this->lastAspect = 0.0f;
+		this->followTarget = "";
+		this->followDamping = 0.15f;
+		this->followOffset = Vec3::ZERO;
 		this->addDependency<TransformComponent>();
 		this->setWantsUpdates(true);
 	}
@@ -57,11 +62,60 @@ namespace Orkige
 				this->applyProjection();
 			}
 		}
+		// SMOOTH FOLLOW (2D): when a target is set, the camera eases its XY
+		// toward the target's XY (+ offset) and looks straight down -Z at it,
+		// bypassing the 3D chase rig. This only moves the camera POSITION, so it
+		// composes with the ortho fit above (which only sizes the projection).
+		if(this->camera && !this->followTarget.empty() &&
+			this->updateFollow(deltaTime))
+		{
+			this->attachNode->lookAt(this->targetNode->getWorldPosition(),
+				RenderNode::TS_WORLD);
+			return;
+		}
 		this->cameraFunction(this,deltaTime,1.0f);
 		// the historical Ogre auto-tracking, spelled out: the camera node
 		// always looks at the target node (fixed yaw axis keeps it roll-free)
 		this->attachNode->lookAt(this->targetNode->getWorldPosition(),
 			RenderNode::TS_WORLD);
+	}
+	//---------------------------------------------------------
+	bool CameraComponent::updateFollow(float deltaTime)
+	{
+		// re-fetch the target by id every frame (never cache a component
+		// pointer - it dangles when the object dies); a missing target just
+		// holds the camera where it is (no snap, no error spam)
+		if(GameObjectManager::getSingletonPtr() == 0)
+		{
+			return false;
+		}
+		optr<GameObject> target =
+			GameObjectManager::getSingleton().getGameObject(
+				this->followTarget).lock();
+		if(!target || !target->hasComponent<TransformComponent>())
+		{
+			return false;
+		}
+		optr<TransformComponent> targetTransform =
+			target->getComponent<TransformComponent>().lock();
+		if(!targetTransform || !targetTransform->getNode())
+		{
+			return false;
+		}
+		const Vec3 targetPos = targetTransform->getNode()->getWorldPosition();
+		const Vec3 current = this->attachNode->getPosition();
+		// ease XY toward target + offset; the camera's Z (its ortho framing
+		// distance) is preserved - 2D follow pans, it never dollies
+		const float factor = CameraFollow::smoothFactor(this->followDamping,
+			deltaTime);
+		const float goalX = targetPos.x + this->followOffset.x;
+		const float goalY = targetPos.y + this->followOffset.y;
+		const Vec3 next(current.x + (goalX - current.x) * factor,
+			current.y + (goalY - current.y) * factor, current.z);
+		this->attachNode->setPosition(next);
+		// look straight ahead along -Z at the followed plane (roll-free)
+		this->targetNode->setPosition(Vec3(next.x, next.y, next.z - 1.0f));
+		return true;
 	}
 	//---------------------------------------------------------
 	void CameraComponent::onAdd()
@@ -162,6 +216,32 @@ namespace Orkige
 		this->applyProjection();
 	}
 	//---------------------------------------------------------
+	void CameraComponent::follow(String const & targetId, float damping)
+	{
+		this->followTarget = targetId;
+		this->followDamping = std::max(damping, 0.0f);
+	}
+	//---------------------------------------------------------
+	void CameraComponent::stopFollow()
+	{
+		this->followTarget = "";
+	}
+	//---------------------------------------------------------
+	void CameraComponent::setFollowTarget(String const & targetId)
+	{
+		this->followTarget = targetId;
+	}
+	//---------------------------------------------------------
+	void CameraComponent::setFollowDamping(float damping)
+	{
+		this->followDamping = std::max(damping, 0.0f);
+	}
+	//---------------------------------------------------------
+	void CameraComponent::setFollowOffset(Vec3 const & offset)
+	{
+		this->followOffset = offset;
+	}
+	//---------------------------------------------------------
 	float CameraComponent::currentAspect() const
 	{
 		unsigned int width = 0;
@@ -238,6 +318,16 @@ namespace Orkige
 		OFUNC(getDesignWidth)
 		OFUNC(setDesignHeight)
 		OFUNC(getDesignHeight)
+		// smooth-follow convenience + reflected setters (Lua: a script reaches
+		// the active camera via world.getCamera(id) and drives these)
+		OFUNC(follow)
+		OFUNC(stopFollow)
+		OFUNC(setFollowTarget)
+		OFUNC(getFollowTarget)
+		OFUNC(setFollowDamping)
+		OFUNC(getFollowDamping)
+		OFUNC(setFollowOffset)
+		OFUNC(getFollowOffset)
 		OENUM_START(ProjectionMode)
 			OENUM_VALUE(PM_PERSPECTIVE)
 			OENUM_VALUE(PM_ORTHOGRAPHIC)
@@ -275,5 +365,11 @@ namespace Orkige
 		OPROPERTY_ENUM("fitMode", "FitMode", getFitMode, setFitMode, Orkige::PROP_NONE)
 		OPROPERTY("designWidth", Orkige::PropertyKind::Float, getDesignWidth, setDesignWidth, Orkige::PROP_NONE)
 		OPROPERTY("designHeight", Orkige::PropertyKind::Float, getDesignHeight, setDesignHeight, Orkige::PROP_NONE)
+		// 2D smooth follow: the tracked object id (ObjectRef), the smoothing
+		// time constant and the XY offset - reflected so they serialize, show in
+		// the Inspector and reach get/set_component over MCP like any property.
+		OPROPERTY_REF("followTarget", Orkige::PropertyKind::ObjectRef, "", getFollowTarget, setFollowTarget, Orkige::PROP_NONE)
+		OPROPERTY("followDamping", Orkige::PropertyKind::Float, getFollowDamping, setFollowDamping, Orkige::PROP_NONE)
+		OPROPERTY("followOffset", Orkige::PropertyKind::Vec3, getFollowOffset, setFollowOffset, Orkige::PROP_NONE)
 	OOBJECT_END
 }

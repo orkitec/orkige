@@ -27,6 +27,7 @@
 #include "core_game/LevelManager.h"
 
 #include "core_tween/TweenManager.h"
+#include "core_tween/TimerManager.h"
 
 #include "core_script/ScriptEventBus.h"
 
@@ -108,6 +109,16 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 		// make the tween loop: setLoops(count, pingpong) - count total plays
 		// (<0 = forever), pingpong true runs it back and forth
 		OFUNC(setLoops)
+	OSIMPLEEXPORT_END
+
+	//the value handle the timer Lua API returns (core_tween/TimerManager.h);
+	//the timer functions themselves are registered through the ScriptRuntime
+	//seam in engine_gocomponent/ScriptComponent.cpp (ensureScriptApi)
+	OSIMPLEEXPORT(Orkige::TimerHandle,TimerHandle)
+		// cancel the scheduled timer: cancel() -> true when it was still scheduled
+		OFUNC(cancel)
+		// is the timer still scheduled: isActive()
+		OFUNC(isActive)
 	OSIMPLEEXPORT_END
 
 	//the value handle the events.subscribe Lua API returns

@@ -751,10 +751,11 @@ def cmd_selftest():
     assert "world.get(id) -> GameObject?" in index_text
     # (3) index size budget (agent one-shot ingest): a single comfortable read.
     # Grows as the scripting surface does (the `events` message bus added its
-    # table + the EventSubscription handle; the `locale` table added its four
-    # entries); kept well inside one context read.
+    # table + the EventSubscription handle; the `locale` table its four
+    # entries; the gameplay pack added `timer`, camera follow, music.crossFade
+    # and `game` state); kept well inside one context read.
     size = len(index_text.encode("utf-8"))
-    assert size < 8700, "index is %d bytes, over the budget" % size
+    assert size < 9800, "index is %d bytes, over the budget" % size
     # (4) gui hierarchy tree includes the root chain
     gui_tree = render_gui_mermaid()
     assert "IGuiObject --> GuiWidget" in gui_tree, gui_tree
