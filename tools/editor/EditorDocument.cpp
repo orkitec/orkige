@@ -4,6 +4,7 @@
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
 #include "MeshImport.h"
+#include "PythonToolchain.h"
 
 #include <core_game/LevelComponent.h>
 #include <core_game/LevelSequence.h>
@@ -344,6 +345,13 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 		}
 		return "";
 	};
+	// preflight the python3 toolchain (cached per run) before spawning the cook -
+	// an honest "install python3 >= 3.10" message beats an opaque spawn failure
+	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
+	if (!python.ok)
+	{
+		return fail(python.error);
+	}
 	std::error_code ec;
 	std::filesystem::create_directories(destDir, ec);
 	const std::string destPath = (std::filesystem::path(destDir) /
@@ -353,10 +361,11 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/cook_shapes.py";
 	std::string output;
 	int exitCode = 0;
-	if (!runProcessCaptured({ "python3", cook, sourcePath, destPath },
+	if (!runProcessCaptured({ python.executable, cook, sourcePath, destPath },
 		output, exitCode))
 	{
-		return fail("could not launch python3 for cook_shapes.py");
+		return fail("could not launch '" + python.executable +
+			"' for cook_shapes.py");
 	}
 	if (exitCode != 0)
 	{

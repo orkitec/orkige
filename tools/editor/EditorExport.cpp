@@ -2,6 +2,7 @@
 // Util/orkige_export.py), output streamed into the Console.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "PythonToolchain.h"
 
 #include <string>
 #include <vector>
@@ -23,6 +24,15 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 	if (!project.isLoaded())
 	{
 		return false; // the menu items are disabled without a project
+	}
+	// preflight the python3 toolchain (cached per run) - the exporter is a
+	// python3 script; report the missing/too-old interpreter honestly instead of
+	// letting the spawn fail opaquely
+	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
+	if (!python.ok)
+	{
+		console.addLine(ConsoleLevel::Error, "[export] " + python.error);
+		return false;
 	}
 	const std::string exporter =
 		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/orkige_export.py";
@@ -46,7 +56,7 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
 			"/build/android-debug";
 	}
-	const std::vector<std::string> command = { "python3", exporter,
+	const std::vector<std::string> command = { python.executable, exporter,
 		"--project", project.getRootDirectory(), "--platform", platform,
 		"--engine-build", engineBuild };
 	std::vector<const char*> args;

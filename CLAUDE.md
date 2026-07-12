@@ -17,7 +17,9 @@ recoverable from history (the private archive holds everything) — do not reint
 
 ## Build
 
-Requires: CMake ≥ 3.28, Ninja, vcpkg at `~/Development/vcpkg` (or set `VCPKG_ROOT`).
+Requires: CMake ≥ 3.28, Ninja, vcpkg at `~/Development/vcpkg` (or set `VCPKG_ROOT`),
+python3 >= 3.10 (stdlib only by policy — enforced by python_stdlib_lint; the shipped
+player never needs Python).
 
 ```sh
 VCPKG_ROOT=$HOME/Development/vcpkg cmake --preset macos-debug   # configure (runs vcpkg installs)

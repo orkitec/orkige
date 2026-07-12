@@ -11,6 +11,7 @@ add_executable(orkige_editor_core_tests
     TestRunListener.cpp
     EditorCoreTests.cpp
     EditorScriptToolsTests.cpp
+    PythonToolchainTests.cpp
     EditorCameraTests.cpp
     FileDialogTests.cpp
     MeshImportTests.cpp

@@ -24,6 +24,8 @@ add_library(orkige_editor_core STATIC
     MeshImport.cpp
     EditorScriptTools.h
     EditorScriptTools.cpp
+    PythonToolchain.h
+    PythonToolchain.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)

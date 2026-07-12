@@ -13,6 +13,7 @@
 #include "EditorControlServer.h"
 #include "EditorApp.h"
 #include "EditorScriptHost.h"
+#include "PythonToolchain.h"
 #include "GuiPreviewStage.h"
 #include "GeneratedLuaApi.h"
 
@@ -4581,9 +4582,18 @@ namespace Orkige
 			// build the exporter command on the main thread (Project is not
 			// thread-safe), then hand it to the worker - same invocation as the
 			// editor's Build menu (EditorExport.cpp)
+			// preflight the python3 toolchain (cached per run) - the same
+			// honest error the Build menu / SVG import surface when python3 is
+			// missing or too old, so an MCP agent gets it too
+			const PythonProbeResult& python = probePythonToolchain();
+			if (!python.ok)
+			{
+				this->sendErr(req, python.error);
+				return;
+			}
 			const String exporter =
 				String(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/orkige_export.py";
-			std::vector<std::string> command = { "python3", exporter,
+			std::vector<std::string> command = { python.executable, exporter,
 				"--project", state.project.getRootDirectory(),
 				"--platform", platform, "--engine-build", tree };
 			auto job = std::make_unique<EditorExportJob>();

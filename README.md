@@ -89,9 +89,11 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
 ## Building
 
 Requires CMake ≥ 3.28, Ninja, and [vcpkg](https://github.com/microsoft/vcpkg) at
-`~/Development/vcpkg` (or set `VCPKG_ROOT`). All dependencies come from the vcpkg
-manifest — nothing is vendored, nothing system-installed is used (exception:
-MoltenVK acts as the Vulkan driver on macOS, `brew install molten-vk`).
+`~/Development/vcpkg` (or set `VCPKG_ROOT`), plus python3 ≥ 3.10 for the dev-time
+asset/build tooling (stdlib only — the shipped game never needs Python). All
+dependencies come from the vcpkg manifest — nothing is vendored, nothing
+system-installed is used (exception: MoltenVK acts as the Vulkan driver on macOS,
+`brew install molten-vk`).
 
 ```sh
 cmake --preset macos-debug                           # configure (first run builds deps)

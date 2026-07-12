@@ -34,6 +34,18 @@ add_test(NAME render_containment_lint
 set_tests_properties(render_containment_lint PROPERTIES
     LABELS unit TIMEOUT 30)
 
+# python stdlib-only lint: walks every Util/*.py, parses its imports (ast) and
+# fails on any import that is neither Python stdlib (sys.stdlib_module_names)
+# nor a sibling Util module - the Util toolchain stays stdlib-only (no pip),
+# and the shipped player never needs Python. Also staleness-gates the
+# documented python3 >= 3.10 floor in CLAUDE.md. Pure source scan, headless,
+# LABELS unit so it runs in the unit AND desktop presets.
+add_test(NAME python_stdlib_lint
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/check_python_stdlib.py"
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(python_stdlib_lint PROPERTIES
+    LABELS unit TIMEOUT 30)
+
 # sprite-atlas packer self-validation: make_sprite_atlas.py packs a
 # handful of synthetic sprites, re-parses its own .oatlas and asserts no region
 # overlaps, all rects in bounds, deterministic order. Stdlib-only, headless -
