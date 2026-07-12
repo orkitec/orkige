@@ -56,6 +56,7 @@ struct SceneRenderTarget;
 namespace OrkigeEditor
 {
 	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+	class AnimationPreviewStage;	//!< the vector-animation preview stage
 }
 
 namespace Orkige
@@ -85,6 +86,10 @@ namespace Orkige
 		//! the shared GUI Preview stage (the preview_ui verb drives it; the
 		//! GUI Preview tab shares the same instance) - GuiPreviewStage.h
 		OrkigeEditor::GuiPreviewStage* previewStage = nullptr;
+		//! the shared vector-animation preview stage (the preview_animation verb
+		//! drives it; the Animation Preview panel shares the same instance) -
+		//! AnimationPreviewStage.h
+		OrkigeEditor::AnimationPreviewStage* animPreviewStage = nullptr;
 	};
 
 	//! @brief the editor's MCP endpoint: a loopback HttpServer plus the JSON-RPC

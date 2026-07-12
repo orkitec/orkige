@@ -63,6 +63,8 @@ bool drawPanelToggleItems(ViewSettings& viewSettings)
 		&viewSettings.showTilePalettePanel);
 	changed |= ImGui::MenuItem("GUI Preview", nullptr,
 		&viewSettings.showGuiPreviewPanel);
+	changed |= ImGui::MenuItem("Animation Preview", nullptr,
+		&viewSettings.showAnimationPreviewPanel);
 	return changed;
 }
 

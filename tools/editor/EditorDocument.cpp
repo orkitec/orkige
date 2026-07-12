@@ -452,6 +452,88 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 	return destPath;
 }
 
+// A Lottie .json (the open vector-animation interchange format) is COOKED to
+// the native .oanim on import - the runtime never parses JSON, it reads the
+// pre-flattened rig. The cook is Util/cook_vector_anim.py run as a subprocess
+// (the cook_shapes.py wiring for .svg, one script over). UNLIKE the .svg
+// on-ramp the source .json is KEPT beside the cooked asset (both id-tracked):
+// an animation source is a living document that gets retimed and re-cooked, so
+// re-importing the same .json regenerates the .oanim in place. A document where
+// nothing animates cooks to a plain .oshape instead (the cook swaps the suffix);
+// this handles either output. Returns the cooked asset path (the kept source
+// copy through *outSourceCopy), or "" (+ *error) on any failure.
+std::string cookLottieFileToDir(std::string const& sourcePath,
+	std::string const& destDir, std::string* outSourceCopy, std::string* error)
+{
+	auto fail = [error](std::string const& message) -> std::string
+	{
+		SDL_Log("orkige_editor: Lottie cook failed - %s", message.c_str());
+		if (error)
+		{
+			*error = message;
+		}
+		return "";
+	};
+	// preflight python3 (cached per run), same honest message as the .svg cook
+	const Orkige::PythonProbeResult& python = Orkige::probePythonToolchain();
+	if (!python.ok)
+	{
+		return fail(python.error);
+	}
+	std::error_code ec;
+	std::filesystem::create_directories(destDir, ec);
+	// keep the source .json in the project beside the cooked asset (the living
+	// document); the cook reads from this copy so it stays project-internal
+	std::string copyError;
+	const std::string sourceCopy =
+		Orkige::importMeshFileToDir(sourcePath, destDir, &copyError);
+	if (sourceCopy.empty())
+	{
+		return fail("could not copy the source .json - " + copyError);
+	}
+	const std::string stem = std::filesystem::path(sourcePath).stem().string();
+	const std::string animPath =
+		(std::filesystem::path(destDir) / (stem + ".oanim")).string();
+	const std::string shapePath =
+		(std::filesystem::path(destDir) / (stem + ".oshape")).string();
+	const std::string cook =
+		std::string(ORKIGE_EDITOR_ENGINE_ROOT) + "/Util/cook_vector_anim.py";
+	std::string output;
+	int exitCode = 0;
+	if (!runProcessCaptured({ python.executable, cook, sourceCopy, animPath },
+		output, exitCode))
+	{
+		return fail("could not launch '" + python.executable +
+			"' for cook_vector_anim.py");
+	}
+	if (exitCode != 0)
+	{
+		return fail("cook_vector_anim.py exited " + std::to_string(exitCode) +
+			" for '" + sourcePath + "'" +
+			(output.empty() ? "" : (" - " + output)));
+	}
+	// the cook writes .oanim, or .oshape when nothing animates (a static doc)
+	std::string produced;
+	if (std::filesystem::is_regular_file(animPath, ec))
+	{
+		produced = animPath;
+	}
+	else if (std::filesystem::is_regular_file(shapePath, ec))
+	{
+		produced = shapePath;
+	}
+	else
+	{
+		return fail("cook_vector_anim.py produced no .oanim/.oshape for '" +
+			sourcePath + "'");
+	}
+	if (outSourceCopy)
+	{
+		*outSourceCopy = sourceCopy;
+	}
+	return produced;
+}
+
 // The copy+register+sidecar-mint MIDDLE of the old importMeshFromPath, made
 // generic so any asset (texture/script/prefab/scene from a Finder drop or the
 // browser) rides the same path meshes always did - the copied file lands where
@@ -468,9 +550,13 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 		std::filesystem::path(sourcePath).extension().string();
 	std::transform(sourceExt.begin(), sourceExt.end(), sourceExt.begin(),
 		[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	// a Lottie .json also keeps its source copy (an extra asset to id-track)
+	std::string keptSource;
 	const std::string destPath = (sourceExt == ".svg")
 		? cookSvgFileToDir(sourcePath, destDir, &localError)
-		: Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
+		: (sourceExt == ".json")
+			? cookLottieFileToDir(sourcePath, destDir, &keptSource, &localError)
+			: Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
 	if (destPath.empty())
 	{
 		SDL_Log("orkige_editor: import of '%s' failed - %s",
@@ -494,6 +580,11 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 			state.project.getAssetDatabase())
 		{
 			assetDatabase->importAsset(destPath);
+			// a kept Lottie source .json is a second asset the project tracks
+			if (!keptSource.empty())
+			{
+				assetDatabase->importAsset(keptSource);
+			}
 		}
 	}
 	else if (state.importResourceDirs.insert(destDir).second)

@@ -79,6 +79,7 @@
 #include "EditorAutosave.h"
 #include "EditorControlServer.h"
 #include "EditorScriptHost.h"
+#include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
 
 #include <algorithm>
@@ -657,6 +658,10 @@ int main(int argc, char** argv)
 		// the shared GUI Preview stage: one gui-into-offscreen-target stack
 		// driven by BOTH the GUI Preview tab and the preview_ui MCP verb
 		OrkigeEditor::GuiPreviewStage guiPreviewStage;
+		// the shared vector-animation preview stage: one .oanim-on-CPU-raster
+		// stack driven by BOTH the Animation Preview panel and the
+		// preview_animation MCP verb
+		OrkigeEditor::AnimationPreviewStage animPreviewStage;
 		Orkige::EditorControlServer controlServer;
 		Orkige::EditorControlContext controlContext;
 		controlContext.state = &state;
@@ -666,6 +671,7 @@ int main(int argc, char** argv)
 		controlContext.sceneTarget = &sceneTarget;
 		controlContext.gameObjectManager = &gameObjectManager;
 		controlContext.previewStage = &guiPreviewStage;
+		controlContext.animPreviewStage = &animPreviewStage;
 		// editor-tool host: discovers *.editor.lua tools in the open project and
 		// runs one on demand (Tools menu / run_editor_script) in a sandbox whose
 		// editor.* table rides the SAME verb handler - so it reuses controlServer
@@ -1581,6 +1587,10 @@ int main(int argc, char** argv)
 			{
 				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
 					viewSettings);
+			}
+			if (viewSettings.showAnimationPreviewPanel)
+			{
+				drawAnimationPreviewPanel(state, animPreviewStage, viewSettings);
 			}
 			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
 				panelsBefore[1] != viewSettings.showInspectorPanel ||

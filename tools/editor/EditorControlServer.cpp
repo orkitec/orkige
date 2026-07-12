@@ -14,6 +14,7 @@
 #include "EditorApp.h"
 #include "EditorScriptHost.h"
 #include "PythonToolchain.h"
+#include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
 #include "GeneratedLuaApi.h"
 
@@ -1395,6 +1396,40 @@ namespace Orkige
 				    { "path", "string",
 				      "output PNG path (default a temp file; a sweep appends an index)",
 				      false } } },
+				{ "preview_animation",
+				  "Render a vector-animation asset (.oanim) at a chosen clip and "
+				  "time into a PNG and return the pose readback - no running player "
+				  "needed. The animation twin of preview_ui: evaluate the pure rig "
+				  "on the editor's own clock and CPU-rasterize the flat-colour pose "
+				  "(the same raster that draws .oanim thumbnails), so an agent can "
+				  "scrub a cycle (t=0 / mid / end screenshots) and try a blend "
+				  "without a play session. 'asset' is a project-relative .oanim "
+				  "path. 'clip' selects a clip by name (default the first); 'time' "
+				  "is seconds into that clip (loop wraps, once clamps). Optional "
+				  "'blendClip' + 'blendWeight' (0..1) mix a SECOND clip of the same "
+				  "rig into the pose at the same time (the pose-level blend). Works "
+				  "on both render flavors. Returns 'path' (the PNG), the resolved "
+				  "'clip'/'frame'/'time', the rig 'duration' (frames)/'fps', "
+				  "'layerCount'/'shapeCount'/'vertexCount', 'atEnd', and the "
+				  "available 'clips'. Does not disturb the human's Animation "
+				  "Preview panel.",
+				  { { "asset", "string",
+				      "project-relative .oanim path (e.g. 'assets/hero.oanim')",
+				      true },
+				    { "clip", "string",
+				      "clip name to evaluate (default: the first clip)", false },
+				    { "time", "number",
+				      "seconds into the clip (default 0)", false },
+				    { "blendClip", "string",
+				      "a second clip of the same rig to blend in (optional)",
+				      false },
+				    { "blendWeight", "number",
+				      "blend mix 0..1 (default 0.5 when a blendClip is given)",
+				      false },
+				    { "size", "number",
+				      "square render size in pixels (default 256)", false },
+				    { "path", "string",
+				      "output PNG path (default a temp file)", false } } },
 				{ "import_asset",
 				  "Import an OUTSIDE file into the open project (copy into "
 				  "assets/, mint its stable .orkmeta id, refresh the resource "
@@ -3531,6 +3566,145 @@ namespace Orkige
 				{
 					okMsg.set("language_note", languageNote);
 				}
+				this->sendOk(req, okMsg);
+				return;
+			}
+
+			// preview_animation: evaluate a project .oanim at a clip/time (+ an
+			// optional same-rig blend) on the editor-owned animation stage, CPU-
+			// rasterize the pose to a PNG and return the pose readback. The same
+			// AnimationPreviewStage the Animation Preview panel uses; snapshot/
+			// restore keeps the human's panel undisturbed. No running player,
+			// both flavors (pure CPU raster - no offscreen target).
+			if (type == "preview_animation")
+			{
+				OrkigeEditor::AnimationPreviewStage* stage =
+					context.animPreviewStage;
+				if (!stage)
+				{
+					this->sendErr(req, "animation preview stage unavailable");
+					return;
+				}
+				if (!state.project.isLoaded())
+				{
+					this->sendErr(req, "no project open - preview_animation needs "
+						"an open project");
+					return;
+				}
+				const String asset = request.get("asset");
+				if (asset.empty())
+				{
+					this->sendErr(req, "preview_animation needs an 'asset' "
+						"(project-relative .oanim path)");
+					return;
+				}
+				const std::string root = state.project.getRootDirectory();
+
+				// the rig's clip names, comma-joined (for an unknown-clip error)
+				auto clipList = [&]() -> std::string
+				{
+					std::string list;
+					for (std::string const& name : stage->getInfo().clipNames)
+					{
+						list += (list.empty() ? "" : ", ") + name;
+					}
+					return list;
+				};
+
+				// snapshot the human's panel so we can restore it afterwards
+				const std::string savedFile = stage->getLoadedFile();
+				const int savedClip = stage->getClipIndex();
+				const float savedTime = stage->getTimeSeconds();
+				const int savedSize = stage->getSize();
+
+				std::string err;
+				if (!stage->load(root, asset, err))
+				{
+					this->sendErr(req, "preview_animation: " + err);
+					// restore the panel's prior view before returning
+					std::string restoreErr;
+					stage->load(root, savedFile, restoreErr);
+					return;
+				}
+				if (!request.get("size").empty())
+				{
+					stage->setSize(std::atoi(request.get("size").c_str()));
+				}
+				// clip: by name (default the first clip)
+				const String clip = request.get("clip");
+				if (!clip.empty() && !stage->setClipByName(clip))
+				{
+					this->sendErr(req, "preview_animation: unknown clip '" + clip +
+						"' (available: " + clipList() + ")");
+					std::string restoreErr;
+					stage->load(root, savedFile, restoreErr);
+					return;
+				}
+				if (!request.get("time").empty())
+				{
+					stage->setTimeSeconds(static_cast<float>(
+						std::atof(request.get("time").c_str())));
+				}
+				// optional same-rig blend (a second clip mixed at the same time)
+				const String blendClip = request.get("blendClip");
+				if (!blendClip.empty())
+				{
+					float weight = 0.5f;
+					if (!request.get("blendWeight").empty())
+					{
+						weight = static_cast<float>(
+							std::atof(request.get("blendWeight").c_str()));
+					}
+					if (!stage->setBlend(blendClip, weight))
+					{
+						this->sendErr(req, "preview_animation: unknown blendClip '" +
+							blendClip + "' (available: " + clipList() + ")");
+						std::string restoreErr;
+						stage->load(root, savedFile, restoreErr);
+						return;
+					}
+				}
+
+				const std::string outPath = request.get("path").empty()
+					? (std::filesystem::temp_directory_path() /
+						"orkige_preview_animation.png").string()
+					: request.get("path");
+				const bool ok = stage->renderToPng(outPath, err);
+				const OrkigeEditor::AnimationPreviewInfo info = stage->getInfo();
+
+				// restore the panel's previous view (undisturbed collaboration)
+				std::string restoreErr;
+				stage->load(root, savedFile, restoreErr);
+				if (savedClip >= 0)
+				{
+					stage->setClipIndex(savedClip);
+					stage->setTimeSeconds(savedTime);
+				}
+				stage->setSize(savedSize);
+
+				if (!ok)
+				{
+					this->sendErr(req, "preview_animation failed: " + err);
+					return;
+				}
+				DebugMessage okMsg(MSG_OK);
+				okMsg.set("path", outPath);
+				okMsg.set("asset", asset);
+				okMsg.set("clip", info.clipName);
+				okMsg.set("frame", std::to_string(info.frame));
+				okMsg.set("time", std::to_string(info.timeSeconds));
+				okMsg.set("duration", std::to_string(info.durationFrames));
+				okMsg.set("fps", std::to_string(info.fps));
+				okMsg.set("layer_count", std::to_string(info.layerCount));
+				okMsg.set("shape_count", std::to_string(info.shapeCount));
+				okMsg.set("vertex_count", std::to_string(info.vertexCount));
+				okMsg.set("at_end", info.atEnd ? "1" : "0");
+				if (info.blending)
+				{
+					okMsg.set("blend_clip", info.blendClipName);
+					okMsg.set("blend_weight", std::to_string(info.blendWeight));
+				}
+				okMsg.setList("clips", info.clipNames);
 				this->sendOk(req, okMsg);
 				return;
 			}
@@ -6822,6 +6996,133 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - import_asset OK "
 				"(minted id %s at '%s')", importedId.c_str(),
 				importedPath.c_str());
+		}
+
+		// (19b) Lottie import + preview_animation: import a small animated .json
+		// (cooks to .oanim, the SOURCE .json is KEPT beside it), then
+		// preview_animation the rig at two times - the PNGs must DIFFER (the pose
+		// moves) and the readback must carry the rig's clips/duration/layers.
+		{
+			// a minimal animated Lottie: one body rectangle rotating 0->90 over
+			// the idle clip (rotation survives the raster's re-centering, so two
+			// times give visibly different pixels). Two markers = two clips.
+			const std::string lottie = R"json({"v":"5.7.0","fr":30,"ip":0,"op":60,"w":200,"h":200,"markers":[{"tm":0,"cm":"idle","dr":30},{"tm":30,"cm":"walk","dr":30}],"layers":[{"ty":4,"nm":"body","ind":1,"ip":0,"op":60,"ks":{"p":{"a":0,"k":[100,100]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]},"r":{"a":1,"k":[{"t":0,"s":[0]},{"t":30,"s":[90]},{"t":60,"s":[0]}]},"o":{"a":0,"k":100}},"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"a":0,"k":[0,0]},"s":{"a":0,"k":[30,90]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[0.9,0.42,0.38,1]},"o":{"a":0,"k":100}}]}]}]})json";
+			const fs::path outside = fs::temp_directory_path() /
+				("orkige_mcp_anim_" + std::to_string(port) + ".json");
+			{
+				std::ofstream f(outside, std::ios::binary);
+				f << lottie;
+			}
+			JsonValue importArgs = JsonValue::object();
+			importArgs.set("sourcePath", JsonValue(outside.string()));
+			JsonValue structured;
+			bool isError = true;
+			const bool imported = callTool("import_asset", importArgs, true,
+				structured, isError) && !isError;
+			const String animRel = structured.get("path").asString();
+			fs::remove(outside, authIgnored);
+			// the cook produced a .oanim (the doc animates), not a static .oshape
+			if (!imported || animRel.size() < 6 ||
+				animRel.substr(animRel.size() - 6) != ".oanim")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: importing a Lottie .json did not "
+					"cook a .oanim");
+				return;
+			}
+			// the SOURCE .json is KEPT beside the cooked asset (recook-on-reimport)
+			const fs::path animAbs = authRoot / animRel;
+			const fs::path keptJson =
+				animAbs.parent_path() / (animAbs.stem().string() + ".json");
+			if (!fs::exists(keptJson, authIgnored))
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the Lottie source .json was not "
+					"kept beside the cooked .oanim");
+				return;
+			}
+			// preview at two times into two PNGs; read them back and compare
+			auto previewToPng = [&](float timeSeconds, std::string const& pngPath,
+				JsonValue& out) -> bool
+			{
+				JsonValue args = JsonValue::object();
+				args.set("asset", JsonValue(animRel));
+				args.set("clip", JsonValue(String("idle")));
+				args.set("time", JsonValue(std::to_string(timeSeconds)));
+				args.set("path", JsonValue(pngPath));
+				bool err = true;
+				return callTool("preview_animation", args, true, out, err) && !err;
+			};
+			auto readBytes = [](fs::path const& p) -> std::vector<char>
+			{
+				std::ifstream in(p, std::ios::binary);
+				return std::vector<char>((std::istreambuf_iterator<char>(in)),
+					std::istreambuf_iterator<char>());
+			};
+			const fs::path png0 = fs::temp_directory_path() /
+				("orkige_mcp_anim0_" + std::to_string(port) + ".png");
+			const fs::path png1 = fs::temp_directory_path() /
+				("orkige_mcp_anim1_" + std::to_string(port) + ".png");
+			JsonValue p0, p1;
+			const bool okA = previewToPng(0.0f, png0.string(), p0);
+			const bool okB = previewToPng(0.5f, png1.string(), p1);
+			if (!okA || !okB)
+			{
+				fs::remove(png0, authIgnored);
+				fs::remove(png1, authIgnored);
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: preview_animation failed");
+				return;
+			}
+			// the readback carries the rig facts (clips, duration, layers)
+			JsonValue const& clips = p0.get("clips");
+			bool sawIdle = false, sawWalk = false;
+			for (size_t i = 0; i < clips.size(); ++i)
+			{
+				if (clips.at(i).asString() == "idle") sawIdle = true;
+				if (clips.at(i).asString() == "walk") sawWalk = true;
+			}
+			const String layerCount = p0.get("layer_count").asString();
+			if (!sawIdle || !sawWalk || layerCount.empty() || layerCount == "0" ||
+				p0.get("clip").asString() != "idle")
+			{
+				fs::remove(png0, authIgnored);
+				fs::remove(png1, authIgnored);
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: preview_animation readback missing "
+					"clips/layers");
+				return;
+			}
+			// the two poses (0.0s vs 0.5s of a rotating rig) must render DIFFERENT
+			// PNGs - the preview really evaluates the animation
+			const std::vector<char> bytes0 = readBytes(png0);
+			const std::vector<char> bytes1 = readBytes(png1);
+			const bool differ = !bytes0.empty() && !bytes1.empty() &&
+				bytes0 != bytes1;
+			fs::remove(png0, authIgnored);
+			fs::remove(png1, authIgnored);
+			if (!differ)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: preview_animation produced "
+					"identical PNGs at two different times");
+				return;
+			}
+			// AUTH: preview_animation without a token must be rejected (it writes)
+			JsonValue previewArgs = JsonValue::object();
+			previewArgs.set("asset", JsonValue(animRel));
+			JsonValue unauth;
+			bool unauthError = false;
+			if (!callTool("preview_animation", previewArgs, false, unauth,
+				unauthError) || !unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated preview_animation "
+					"was NOT rejected");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - Lottie import + "
+				"preview_animation OK (kept source, two poses differ)");
 		}
 
 		// (20) create_prefab -> instantiate_prefab round-trip: make an object, of

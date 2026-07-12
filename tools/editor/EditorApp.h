@@ -55,6 +55,7 @@ namespace Orkige
 namespace OrkigeEditor
 {
 	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
+	class AnimationPreviewStage;	//!< the animation preview stage
 }
 
 //--- Console (engine/editor/remote log streaming) --------------------------
@@ -210,6 +211,10 @@ struct ViewSettings
 	//! captions in ("" = the project's source language). Persisted so the tab
 	//! reopens on the last previewed language.
 	std::string guiPreviewLanguage;
+	//! Animation Preview panel (project-only; evaluates a .oanim rig on its own
+	//! clock and CPU-rasterizes the pose - scrub, play/pause, clip + blend
+	//! try-out; shares its stage with the preview_animation MCP verb)
+	bool showAnimationPreviewPanel = false;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -1391,6 +1396,11 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 // device context into an offscreen target, shown here - EditorGuiPreviewPanel.cpp
 void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stage,
 	Orkige::EditorCore& core, ViewSettings& viewSettings);
+
+// the Animation Preview panel: a .oanim rig evaluated on its own clock and
+// CPU-rasterized here (scrub/play/clip/blend try-out) - AnimationPreviewPanel.cpp
+void drawAnimationPreviewPanel(EditorState& state,
+	OrkigeEditor::AnimationPreviewStage& stage, ViewSettings& viewSettings);
 
 // the Scene Hierarchy panel (edit mode: EditorCore world; play mode: the
 // remote hierarchy) - EditorHierarchyPanel.cpp

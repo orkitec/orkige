@@ -51,6 +51,8 @@
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_serialization/XMLArchive.h>
+#include <core_util/VectorAnimAsset.h>
+#include <core_util/VectorAnimEval.h>
 #include <core_util/VectorShapeAsset.h>
 #include <core_util/VectorShapeRaster.h>
 #include <core_util/VectorTessellator.h>
@@ -919,6 +921,64 @@ ImTextureID buildShapeThumbnail(std::string const& absolutePath,
 	return gImGuiRenderer->textureIdForResource(uploadName);
 }
 
+// rasterize a .oanim's default clip at frame 0 into a CPU RGBA buffer and
+// upload it as a named texture - the .oshape thumbnail path with the animation
+// evaluator in front (parse -> build -> evaluateAt(clip 0, t=0) -> composeRegions
+// -> the SAME tessellate/raster/upload). Returns 0 (glyph fallback) on any
+// parse/build/upload failure. The upload name is destroyed on eviction.
+ImTextureID buildAnimThumbnail(std::string const& absolutePath,
+	std::string& outUploadName)
+{
+	outUploadName.clear();
+	std::ifstream in(absolutePath, std::ios::binary);
+	if (!in)
+	{
+		return 0;
+	}
+	std::stringstream buffer;
+	buffer << in.rdbuf();
+	Orkige::VectorAnimAsset::Document doc;
+	if (!Orkige::VectorAnimAsset::parse(buffer.str(), doc))
+	{
+		return 0;
+	}
+	Orkige::VectorAnimEval eval;
+	if (!eval.build(doc))
+	{
+		return 0;
+	}
+	Orkige::VectorAnimEval::Pose pose;
+	if (!eval.evaluateAt(0, 0.0f, pose))
+	{
+		return 0;
+	}
+	std::vector<Orkige::VectorTessellator::Region> regions;
+	eval.composeRegions(pose, regions);
+	const Orkige::VectorTessellator::Bounds bounds =
+		Orkige::VectorTessellator::computeBounds(regions);
+	Orkige::VectorTessellator::Mesh mesh;
+	Orkige::VectorTessellator::build(regions,
+		Orkige::VectorTessellator::defaultFeatherWidth(bounds), mesh);
+	if (mesh.indices.empty())
+	{
+		return 0;
+	}
+	const int side = 128;
+	std::vector<unsigned char> pixels(
+		static_cast<std::size_t>(side) * side * 4, 0);
+	Orkige::VectorShapeRaster::rasterize(mesh, side, side, pixels.data());
+	const std::string uploadName = "__oanimthumb_" +
+		std::to_string(std::hash<std::string>{}(absolutePath));
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render ||
+		!render->createTexture2D(uploadName, pixels.data(), side, side))
+	{
+		return 0;
+	}
+	outUploadName = uploadName;
+	return gImGuiRenderer->textureIdForResource(uploadName);
+}
+
 ImTextureID assetThumbnailFor(EditorState& state,
 	std::string const& absolutePath)
 {
@@ -952,6 +1012,10 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	if (lowerExtension(absolutePath) == ".oshape")
 	{
 		id = buildShapeThumbnail(absolutePath, uploadName);
+	}
+	else if (lowerExtension(absolutePath) == ".oanim")
+	{
+		id = buildAnimThumbnail(absolutePath, uploadName);
 	}
 	else
 	{
@@ -2098,8 +2162,14 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 	ImGui::PushID(index);
 	const bool selected = browser.selection.count(entry.item.relativePath) > 0;
 	const bool renaming = entry.item.relativePath == browser.renamingPath;
-	const ImTextureID thumb = (!entry.isFolder &&
-		entry.item.kind == AssetKind::Texture)
+	// texture thumbnails plus the CPU-rasterized vector kinds (a .oshape fill,
+	// a .oanim default-clip pose - both resolved by assetThumbnailFor); .oanim
+	// is not its own AssetKind, so it is matched by extension
+	const bool wantsThumbnail = !entry.isFolder &&
+		(entry.item.kind == AssetKind::Texture ||
+			entry.item.kind == AssetKind::VectorShape ||
+			lowerExtension(entry.item.absolutePath) == ".oanim");
+	const ImTextureID thumb = wantsThumbnail
 		? queuedThumbnail(state, entry.item) : 0;
 	ImDrawList* drawList = ImGui::GetWindowDrawList();
 	const float inset = 4.0f;

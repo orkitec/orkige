@@ -504,6 +504,8 @@ edits/contexts to confirm the layout holds. A missing `file` returns `isError`
 the `editor_control` self-test (write → preview → edit → preview → assert the rect
 moved → a missing file errors).
 
+The animation twin is `preview_animation { "asset":"assets/hero.oanim", "clip":"walk", "time":0.4, "blendClip":"run", "blendWeight":0.3 }` (authed): it renders a `.oanim` pose (import a Lottie `.json` with `import_asset` to cook one, or `write_project_file` the text directly) at a chosen clip/time — optionally blending a second same-rig clip — to a PNG plus a readback (`clips`, `frame`, `duration`, `layer_count`, `vertex_count`), so an agent scrubs a cycle (t=0 / mid / end differ) and validates a blend without a play session.
+
 ## 6. Leave the human a reusable tool (editor scripts)
 
 Some chores repeat: reframe a level, re-tag a batch of tiles, generate a grid.

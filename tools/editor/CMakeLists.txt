@@ -44,6 +44,9 @@ orkige_pch_ccache_compat(orkige_editor_core)
 add_executable(orkige_editor
     main.cpp
     EditorApp.h
+    AnimationPreviewStage.h
+    AnimationPreviewStage.cpp
+    AnimationPreviewPanel.cpp
     EditorAssetDnd.h
     EditorAssetBrowserPanel.cpp
     EditorConsole.cpp

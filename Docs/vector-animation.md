@@ -168,3 +168,43 @@ fixtures for every mapped feature and every error path, and re-cooks
 committed `roundtrip.oanim`; the `cook_vector_anim_roundtrip` unit test feeds
 that same `.oanim` through the real parser + evaluator and pins evaluated
 poses (rotation easing, parent composition, colour animation).
+
+## In the editor: import, thumbnails and preview
+
+**Import** — dropping/importing a Lottie `.json` (Finder drop, the asset
+browser, or MCP `import_asset`) cooks it to `.oanim` in place via
+`cook_vector_anim.py` (a subprocess, the same wiring `.svg`→`.oshape` uses,
+with the `python3` toolchain preflight). UNLIKE the one-way `.svg` on-ramp the
+SOURCE `.json` is KEPT beside the cooked asset — both get an `.orkmeta` id, and
+re-importing an edited `.json` re-cooks the `.oanim` in place (the living-source,
+recook-on-reimport discipline; a document where nothing animates lands a
+`.oshape` instead). `EditorDocument.cpp` `cookLottieFileToDir`.
+
+**Thumbnails** — an `.oanim` asset shows a real tile: its default clip is
+evaluated at frame 0 (`VectorAnimEval::evaluateAt` → `composeRegions`),
+tessellated once and CPU-rasterized with `core_util/VectorShapeRaster`, then
+uploaded via `RenderSystem::createTexture2D` — the exact `.oshape` thumbnail
+path with the animation evaluator in front (`EditorAssetBrowserPanel.cpp`
+`buildAnimThumbnail`).
+
+**Animation Preview panel** (View ▸ Animation Preview) — pick a project
+`.oanim`, choose a clip and scrub / play-pause it, and try a same-rig blend
+(a second clip + a weight). The panel drives the editor-owned
+`AnimationPreviewStage` on its OWN clock (the editor never ticks GameObjects):
+per frame it evaluates the pose STATELESSLY, composes the region list,
+tessellates it and rasterizes it (`VectorShapeRaster`) into a texture shown
+inline — a pure CPU raster, no offscreen scene target, both render flavors,
+faithful to the tessellated in-game look (same feather AA). No `Ogre::` and no
+RTT: it is headless-capable.
+
+**MCP readback** — the `preview_animation` verb (the `preview_ui` twin) shares
+that one stage. Input `{ asset, clip?, time?, blendClip?, blendWeight?, size?,
+path? }` renders the evaluated (optionally blended) pose to a PNG (encoded by
+the dependency-free `core_util/PngWriter`) and returns
+`{ clip, frame, time, duration, fps, layer_count, shape_count, vertex_count,
+at_end, clips }`, so an agent verifies a cycle (t=0 / mid / end screenshots +
+numbers) and a blend without a play session. It does not disturb the human's
+Animation Preview panel (snapshot/restore). Covered by an `editor_control`
+self-test leg (import a `.json` → `.oanim` with the source kept → preview at two
+times → the PNGs differ and the readback carries the clips/layers) plus the
+`PngWriterTests` unit test.
