@@ -227,6 +227,12 @@ struct ViewSettings
 	//! reopen the most recent project on launch; automation
 	//! runs (any ORKIGE_EDITOR_*/ORKIGE_DEMO_* hook) always start blank
 	bool reopenLastProject = true;
+	//! external code-editor command template (View Settings): {file}/{line}
+	//! placeholders, e.g. "code -g {file}:{line}". Empty = autodetect an
+	//! installed CLI editor on PATH, else fall back to the platform file opener
+	//! (no line jump). Drives the Console file:line clicks + the "Open in
+	//! External Editor" context actions.
+	std::string externalEditor;
 	//! editor chrome appearance (View > Theme): System follows the OS, or the
 	//! user pins Dark/Light. Applied at boot and on every change.
 	Orkige::EditorThemeMode themeMode = Orkige::EditorThemeMode::System;
@@ -294,6 +300,29 @@ void recordRecentScene(std::string const& scenePath);
 
 //! record a project root in the Open Recent Project list and persist it
 void recordRecentProject(std::string const& projectRoot);
+
+//--- external editor (open a file at a line) -------------------------------
+
+//! @brief launch the user's external code editor on `absolutePath` at `line`
+//! (line <= 0 = just open the file), DETACHED so it never blocks the editor.
+//! The resolution order lives in ExternalEditor.h (setting -> autodetected CLI
+//! on PATH -> platform file opener); the outcome is reported via SDL_Log, which
+//! the Console mirrors. See ExternalEditorLaunch.cpp.
+void openInExternalEditor(std::string const& absolutePath, int line,
+	ViewSettings const& settings);
+
+//! @brief does a bare executable name resolve on PATH? (the autodetect probe)
+bool editorExecutableOnPath(std::string const& name);
+
+//! @brief absolute path for a project file reference (a bare script filename, a
+//! project-relative console path); absolute inputs pass through unchanged. Tries
+//! the ref as-is, then under scripts/ and assets/, taking the first that exists.
+std::string resolveProjectFilePath(Orkige::Project const& project,
+	std::string const& ref);
+
+//! @brief is this a file the "Open in External Editor" action offers? (the text
+//! asset kinds: .lua/.oui/.omat and the other engine text formats)
+bool isTextEditableAsset(std::string const& path);
 
 //! one cached thumbnail: the ImGui texture id (0 = tried, not a loadable
 //! image) and the file mtime it was loaded at (a changed mtime reloads).
@@ -467,6 +496,16 @@ struct EditorState
 		"return Engine.getSingleton():getTopLevelWindowHandle()";
 	std::vector<std::string> luaHistory;
 	bool luaScrollToBottom = false;
+	//! Console file:line quick-peek popup: a transient read-only view of ~20
+	//! source lines around a clicked reference. openPeekPopup requests the popup
+	//! open on the next draw; peekTitle is its "path:line" caption, peekLines the
+	//! window text, peekFirstLine the 1-based number of peekLines[0] and
+	//! peekTargetLine the highlighted line. Consumed by drawConsolePanel.
+	bool openPeekPopup = false;
+	std::string peekTitle;
+	std::vector<std::string> peekLines;
+	int peekFirstLine = 0;
+	int peekTargetLine = 0;
 	//! first-frame guard for the DockBuilder default layout
 	bool dockLayoutChecked = false;
 	//! content size the Scene panel wants for the RTT (recorded while drawing)

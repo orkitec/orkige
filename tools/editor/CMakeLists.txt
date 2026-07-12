@@ -26,6 +26,8 @@ add_library(orkige_editor_core STATIC
     MeshImport.cpp
     EditorScriptTools.h
     EditorScriptTools.cpp
+    ExternalEditor.h
+    ExternalEditor.cpp
     PythonToolchain.h
     PythonToolchain.cpp
 )
@@ -67,6 +69,7 @@ add_executable(orkige_editor
     EditorPropertyWidgets.cpp
     EditorScriptHost.h
     EditorScriptHost.cpp
+    ExternalEditorLaunch.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp
     EditorShortcuts.cpp

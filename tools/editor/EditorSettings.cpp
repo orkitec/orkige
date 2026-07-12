@@ -104,6 +104,10 @@ void ViewSettings::load()
 		{
 			this->reopenLastProject = (value == "1");
 		}
+		else if (key == "external_editor")
+		{
+			this->externalEditor = value;
+		}
 		else if (key == "theme_mode")
 		{
 			// "system" (default) / "dark" / "light"
@@ -183,6 +187,7 @@ void ViewSettings::save() const
 		<< "asset_thumb_size=" << this->assetThumbnailSize << "\n"
 		<< "reopen_last_project="
 		<< (this->reopenLastProject ? 1 : 0) << "\n"
+		<< "external_editor=" << this->externalEditor << "\n"
 		<< "theme_mode="
 		<< (this->themeMode == Orkige::EditorThemeMode::Dark ? "dark"
 			: this->themeMode == Orkige::EditorThemeMode::Light ? "light"

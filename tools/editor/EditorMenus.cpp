@@ -103,6 +103,23 @@ bool drawViewSettingsWidgets(ViewSettings& viewSettings,
 		&viewSettings.reopenLastProject);
 	ImGui::SetItemTooltip(
 		"start the editor in the most recent project");
+	// external code editor: a command template opened for Console file:line
+	// clicks and the "Open in External Editor" actions. Empty = autodetect an
+	// installed CLI editor, else the platform file opener (no line jump).
+	{
+		char buffer[512];
+		SDL_strlcpy(buffer, viewSettings.externalEditor.c_str(), sizeof(buffer));
+		ImGui::SetNextItemWidth(240.0f);
+		if (ImGui::InputTextWithHint("External Editor", "auto-detect",
+			buffer, sizeof(buffer)))
+		{
+			viewSettings.externalEditor = buffer;
+			settingsChanged = true;
+		}
+		ImGui::SetItemTooltip("command to open a file at a line, with {file} and "
+			"{line} placeholders (e.g. \"code -g {file}:{line}\"). Empty "
+			"auto-detects a CLI editor on PATH, else opens with the OS default.");
+	}
 	ImGui::Separator();
 	ImGui::TextDisabled("Camera");
 	ImGui::SetNextItemWidth(160.0f);

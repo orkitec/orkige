@@ -165,6 +165,25 @@ void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 		{
 			ImGui::SetItemTooltip("%s", desc.meta.tooltip.c_str());
 		}
+		// a text-editable asset reference (a ScriptComponent's script path, a
+		// .oui/.omat ref) offers "Open in External Editor" on right-click - the
+		// context action that jumps to the file in the user's code editor
+		if (desc.kind == Orkige::PropertyKind::AssetRef && !value.empty() &&
+			isTextEditableAsset(value))
+		{
+			const std::string popupId =
+				componentName + "." + desc.name + "##openext";
+			if (ImGui::BeginPopupContextItem(popupId.c_str()))
+			{
+				if (ImGui::MenuItem("Open in External Editor") && gViewSettings)
+				{
+					openInExternalEditor(
+						resolveProjectFilePath(state.project, value), 0,
+						*gViewSettings);
+				}
+				ImGui::EndPopup();
+			}
+		}
 		any = true;
 	}
 	if (!any)

@@ -2094,6 +2094,16 @@ void drawItemContextMenu(EditorState& state, Orkige::EditorCore& core,
 		{
 			openWithDefaultApp(entry.item.absolutePath);
 		}
+		// text assets (.lua/.oui/.omat/...) open in the user's code editor
+		if (isTextEditableAsset(entry.item.absolutePath) &&
+			ImGui::MenuItem("Open in External Editor"))
+		{
+			if (gViewSettings)
+			{
+				openInExternalEditor(entry.item.absolutePath, 0,
+					*gViewSettings);
+			}
+		}
 	}
 	else if (ImGui::MenuItem("Open"))
 	{
