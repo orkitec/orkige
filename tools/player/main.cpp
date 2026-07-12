@@ -44,6 +44,7 @@
 #include <engine_gocomponent/ScriptComponentRegistry.h>
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
+#include <engine_gocomponent/VectorAnimationComponent.h>
 #include <core_util/SoftBodyDeform.h>
 #include <core_util/VectorTessellator.h>
 #include <core_util/VectorShapeAsset.h>
@@ -453,6 +454,14 @@ int main(int argc, char** argv)
 		// cost (the mobile-viability budget number).
 		const bool softbodyCheck =
 			(std::getenv("ORKIGE_SOFTBODY_SELFCHECK") != nullptr);
+		// ORKIGE_VECTORANIM_SELFCHECK verifies vector (Lottie) animation rigs end
+		// to end against projects/vectorshapes (scenes/vectoranim.oscene): the
+		// hero's `idle` clip advances (the pose changes as frames tick), a
+		// scripted crossFade switches it to the one-shot `hop`, and the hop's
+		// completion fires the ended event into the script (shared.heroanim). It
+		// also logs the measured per-frame evaluate+tessellate cost per character.
+		const bool vectorAnimCheck =
+			(std::getenv("ORKIGE_VECTORANIM_SELFCHECK") != nullptr);
 		// ORKIGE_ROLLER_PROGRESSION_SELFCHECK verifies the level sequence +
 		// deferred scene switch + progression save end to end against
 		// projects/roller: solve level 1 (the proven tile-slide + roll), assert
@@ -1949,6 +1958,94 @@ int main(int argc, char** argv)
 				perBlobFrameUs, benchMesh.positions.size(),
 				benchDeformers[0].controlPointCount(), benchBlobs, benchFrames,
 				totalUs, perBlobFrameUs > 0.0 ? 1000.0 / perBlobFrameUs : 0.0);
+		}
+
+		// --- ORKIGE_VECTORANIM_SELFCHECK=1: vector (Lottie) animation rigs end
+		// to end against projects/vectorshapes (scenes/vectoranim.oscene). The
+		// hero rig carries an `idle` (loop) and a `hop` (once) clip; a script
+		// plays idle and, after a beat, crossFades to hop. Phased,
+		// condition-driven (the script paces the crossfade off wall clock):
+		//   boot   frame 5: the Hero has a built VectorAnimationComponent with
+		//          both clips, playing the idle clip
+		//   idle   the idle clip advances - the composed pose SIGNATURE changes
+		//          as frames tick (the vertices move: the runtime evaluate+bake)
+		//   hop    the scripted crossFade switched the current clip to `hop`
+		//   ended  the one-shot hop completed: the ended event reached the script
+		//          (shared.heroanim.ended incremented) and the component is atEnd
+		// A missed deadline exits non-zero. On boot it logs the MEASURED per-frame
+		// evaluate+tessellate cost per character (the mobile budget number).
+		enum class VectorAnimPhase { Boot, Idle, Hop, Ended, Done };
+		VectorAnimPhase vectorAnimPhase = VectorAnimPhase::Boot;
+		bool vectorAnimCheckFailed = false;
+		float vectorAnimPoseMin = 0.0f;
+		float vectorAnimPoseMax = 0.0f;
+		bool vectorAnimPoseSeeded = false;
+		unsigned long vectorAnimDeadline = 0;
+		auto vectorAnimComp = [&gameObjectManager]()
+			-> Orkige::VectorAnimationComponent*
+		{
+			optr<Orkige::GameObject> gameObject =
+				gameObjectManager.getGameObject("Hero").lock();
+			if (!gameObject ||
+				!gameObject->hasComponent<Orkige::VectorAnimationComponent>())
+			{
+				return nullptr;
+			}
+			return gameObject->getComponentPtr<Orkige::VectorAnimationComponent>();
+		};
+		auto vectorAnimEnded = []() -> double
+		{
+			return Orkige::ScriptRuntime::getSingleton().getNumber(
+				{"shared", "heroanim", "ended"}, 0.0);
+		};
+		auto vectorAnimFail = [&](std::string const& what)
+		{
+			SDL_Log("orkige_player: VECTORANIM SELFCHECK FAILED - %s "
+				"(pose min %.3f, max %.3f)", what.c_str(),
+				vectorAnimPoseMin, vectorAnimPoseMax);
+			vectorAnimCheckFailed = true;
+		};
+		if (vectorAnimCheck)
+		{
+			// MEASURED per-frame cost: parse the hero rig, build the evaluator
+			// and time a full runtime tick (advance a clip + compose the pose +
+			// tessellate it into the upload buffer) over N frames, so the mobile
+			// budget is a real number. Pure core, no renderer involved.
+			Orkige::String text;
+			if (Orkige::RenderSystem::get()->readResourceText("hero.oanim", text))
+			{
+				Orkige::VectorAnimAsset::Document document;
+				Orkige::VectorAnimEval eval;
+				if (Orkige::VectorAnimAsset::parse(text, document) &&
+					eval.build(document))
+				{
+					std::vector<Orkige::VectorTessellator::Region> benchRegions;
+					Orkige::VectorTessellator::Mesh benchMesh;
+					const int benchFrames = 240;
+					const auto benchStart =
+						std::chrono::high_resolution_clock::now();
+					for (int f = 0; f < benchFrames; ++f)
+					{
+						eval.update(1.0f / 60.0f);
+						eval.writeRegions(benchRegions);
+						Orkige::VectorTessellator::build(benchRegions, 0.02f,
+							benchMesh);
+					}
+					const auto benchEnd =
+						std::chrono::high_resolution_clock::now();
+					const double totalUs = std::chrono::duration_cast<
+						std::chrono::nanoseconds>(benchEnd - benchStart)
+						.count() / 1000.0;
+					const double perFrameUs = totalUs / benchFrames;
+					SDL_Log("orkige_player: VECTORANIM budget - %.2f us/char/frame "
+						"(evaluate + compose + tessellate; %zu layers, %zu shapes, "
+						"%zu verts; %d frames = %.0f us total); a 60fps frame fits "
+						"~%.0f such characters in 1 ms", perFrameUs,
+						eval.layerCount(), eval.shapeCount(),
+						benchMesh.positions.size(), benchFrames, totalUs,
+						perFrameUs > 0.0 ? 1000.0 / perFrameUs : 0.0);
+				}
+			}
 		}
 
 		// --- ORKIGE_ROLLER_PROGRESSION_SELFCHECK=1: the level sequence + the
@@ -3582,6 +3679,108 @@ int main(int argc, char** argv)
 				}
 			}
 			if (softbodyCheck && softbodyCheckFailed)
+			{
+				exitCode = 1;
+				running = false;
+			}
+
+			// --- vectoranim selfcheck (see the block above the loop) ---------
+			if (vectorAnimCheck && !vectorAnimCheckFailed)
+			{
+				Orkige::VectorAnimationComponent* hero = vectorAnimComp();
+				// track the composed pose signature throughout so the Idle phase
+				// can confirm the pose actually moves as the clip advances
+				if (hero && hero->hasAnimation())
+				{
+					const float signature = hero->getPoseSignature();
+					if (!vectorAnimPoseSeeded)
+					{
+						vectorAnimPoseMin = vectorAnimPoseMax = signature;
+						vectorAnimPoseSeeded = true;
+					}
+					vectorAnimPoseMin = std::min(vectorAnimPoseMin, signature);
+					vectorAnimPoseMax = std::max(vectorAnimPoseMax, signature);
+				}
+				if (vectorAnimPhase == VectorAnimPhase::Boot)
+				{
+					if (frameCount == 5)
+					{
+						if (!hero || !hero->hasAnimation())
+						{
+							vectorAnimFail("no Hero with a built "
+								"VectorAnimationComponent");
+						}
+						else if (hero->getClipCount() < 2)
+						{
+							vectorAnimFail("the hero rig is missing its idle/hop "
+								"clips");
+						}
+						else if (hero->currentClip() != "idle")
+						{
+							vectorAnimFail("the hero did not boot on the idle "
+								"clip");
+						}
+						else
+						{
+							vectorAnimPhase = VectorAnimPhase::Idle;
+							vectorAnimDeadline = frameCount + 600;
+						}
+					}
+				}
+				else if (vectorAnimPhase == VectorAnimPhase::Idle)
+				{
+					// the idle clip advances: the pose signature spreads as the
+					// body bobs (the vertices move each tick)
+					if (vectorAnimPoseMax - vectorAnimPoseMin > 1.0e-3f)
+					{
+						SDL_Log("orkige_player: vectoranim selfcheck - the idle "
+							"clip advances (pose signature moved %.4f)",
+							vectorAnimPoseMax - vectorAnimPoseMin);
+						vectorAnimPhase = VectorAnimPhase::Hop;
+						vectorAnimDeadline = frameCount + 900;
+					}
+					else if (frameCount >= vectorAnimDeadline)
+					{
+						vectorAnimFail("the idle clip never moved the pose");
+					}
+				}
+				else if (vectorAnimPhase == VectorAnimPhase::Hop)
+				{
+					// the script crossFades to the one-shot hop after a beat
+					if (hero && hero->currentClip() == "hop")
+					{
+						SDL_Log("orkige_player: vectoranim selfcheck - the "
+							"scripted crossFade switched to the hop clip");
+						vectorAnimPhase = VectorAnimPhase::Ended;
+						vectorAnimDeadline = frameCount + 900;
+					}
+					else if (frameCount >= vectorAnimDeadline)
+					{
+						vectorAnimFail("the scripted crossFade to hop never "
+							"took");
+					}
+				}
+				else if (vectorAnimPhase == VectorAnimPhase::Ended)
+				{
+					// the one-shot hop completed: the ended event reached the
+					// script AND the component reports the clip finished
+					if (hero && hero->isAtEnd() && vectorAnimEnded() >= 1.0)
+					{
+						SDL_Log("orkige_player: vectoranim selfcheck complete - "
+							"idle advance, crossFade to hop, and the one-shot "
+							"ended event delivered into the script (%.0f) all "
+							"verified", vectorAnimEnded());
+						vectorAnimPhase = VectorAnimPhase::Done;
+						running = false;
+					}
+					else if (frameCount >= vectorAnimDeadline)
+					{
+						vectorAnimFail("the one-shot hop never fired its ended "
+							"event into the script");
+					}
+				}
+			}
+			if (vectorAnimCheck && vectorAnimCheckFailed)
 			{
 				exitCode = 1;
 				running = false;

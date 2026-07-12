@@ -118,6 +118,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/SpriteComponent.cpp
     engine_gocomponent/VectorShapeComponent.h
     engine_gocomponent/VectorShapeComponent.cpp
+    engine_gocomponent/VectorAnimationComponent.h
+    engine_gocomponent/VectorAnimationComponent.cpp
     engine_gocomponent/SpriteAnimationComponent.h
     engine_gocomponent/SpriteAnimationComponent.cpp
     engine_gocomponent/ParticleSim.h

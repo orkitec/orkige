@@ -472,6 +472,24 @@ look when touching one:
   `projects/vectorshapes/scenes/softbody.oscene` is the sample (falling blob +
   Lua-morphed blob), verified by the `player_softbody_selfcheck` ctest on both
   flavors.
+  **Vector clip animation** (`.oanim`, both flavors): a Lottie `.json` cooks to
+  the native `.oanim` rig on import (`Util/cook_vector_anim.py`; the source
+  `.json` is KEPT beside it and re-cooks on re-import; a document where nothing
+  animates cooks to a plain `.oshape`). The pure rig lives in
+  `core_util/VectorAnimAsset` (parser) + `VectorAnimEval` (preallocated,
+  allocation-free tick; `evaluateAt`/`blendPose`/`composeRegions`;
+  `setClip`/`crossFadeTo` clip blending);
+  `engine_gocomponent/VectorAnimationComponent` plays it through the facade
+  `VectorMesh` dynamic path (playback setters only mutate the evaluator —
+  `onUpdateComponent` is the SINGLE per-frame upload site), reflected
+  clip/speed/playing/transitionTime props, a `once` clip's end raises a
+  VectorAnimationEndedEvent + the `animation.ended` bus event, Lua drive via
+  `self.anim` (`play`/`setClip`/`crossFade`/`scrub`/…). Editor: `.oanim`
+  thumbnails, the View ▸ Animation Preview panel (own clock, CPU raster) and
+  the `preview_animation` MCP verb (clip/time/blend → PNG + pose readback).
+  Sample: `projects/vectorshapes/scenes/vectoranim.oscene` (idle → one-shot
+  hop crossfade, ended-event into Lua), `player_vectoranim_selfcheck` on both
+  flavors; grammar + design in `Docs/vector-animation.md`.
 - **Game UI** (`engine_gui`, both flavors): the retained widget set (label/
   button/checkbox/slider/select-menu/progressbar/decor/**text-entry**) is
   Lua-authored via `GuiFactory` (`createCheckBox`/`createSlider`/

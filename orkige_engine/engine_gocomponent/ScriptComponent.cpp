@@ -15,6 +15,7 @@
 #include "engine_gocomponent/SpriteComponent.h"
 #include "engine_gocomponent/ParticleComponent.h"
 #include "engine_gocomponent/VectorShapeComponent.h"
+#include "engine_gocomponent/VectorAnimationComponent.h"
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_gocomponent/CameraComponent.h"
 #include "engine_sound/SoundManager.h"
@@ -613,6 +614,13 @@ namespace Orkige
 			// self.shape:impulse(...) / :playMorph(...) drive the soft-body deform
 			instance->setSelfValue("shape",
 				componentOwner->getComponentPtr<VectorShapeComponent>());
+		}
+		if (componentOwner->hasComponent<VectorAnimationComponent>())
+		{
+			// self.anim:play(...) / :setClip(...) / :crossFade(...) drive the
+			// vector-animation rig's clip playback and blending
+			instance->setSelfValue("anim",
+				componentOwner->getComponentPtr<VectorAnimationComponent>());
 		}
 		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables

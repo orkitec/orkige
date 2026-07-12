@@ -13,6 +13,7 @@ over write_project_file. This generator is the reproducible content example a
 human (or the player_vectorshape selfcheck) can load.
 """
 
+import json
 import math
 import sys
 from pathlib import Path
@@ -83,6 +84,26 @@ class SceneWriter:
             ("morphSpeed", K_FLOAT, fmt(float(morph_speed)), ""),
             ("morphLoop", K_BOOL, fmt(morph_loop), ""),
             ("shape", K_ASSETREF, shape, ""),
+        ]))
+
+    def vector_animation(self, animation, clip="", z_order=0, tint=(1, 1, 1, 1),
+                         scale=1.0, edge_softness=0.0, visible=True, speed=1.0,
+                         playing=True, transition_time=0.0):
+        # the playback settings + rig state come BEFORE the animation ref so the
+        # rig the ref builds picks up the clip/speed/playing set above (the ref
+        # is applied last, mirroring VectorShapeComponent)
+        return ("VectorAnimationComponent", self._named([
+            ("clip", K_STRING, clip, ""),
+            ("speed", K_FLOAT, fmt(float(speed)), ""),
+            ("playing", K_BOOL, fmt(playing), ""),
+            ("transitionTime", K_FLOAT, fmt(float(transition_time)), ""),
+            ("tint", K_COLOR, "%s %s %s %s" % tuple(fmt(float(c)) for c in tint),
+             ""),
+            ("scale", K_FLOAT, fmt(float(scale)), ""),
+            ("edgeSoftness", K_FLOAT, fmt(float(edge_softness)), ""),
+            ("zOrder", K_INT, "%d" % z_order, ""),
+            ("visible", K_BOOL, fmt(visible), ""),
+            ("animation", K_ASSETREF, animation, ""),
         ]))
 
     def rigid_sphere(self, radius, mass=1.0, friction=0.5, restitution=0.0,
@@ -198,6 +219,54 @@ def blob_morph_oshape(fill, n=16):
     return "\n".join(lines) + "\n"
 
 
+def hero_lottie():
+    """A tiny hand-authored Lottie character - a two-blob hero (a body with a
+    parented head) whose one timeline carries an `idle` bob (0..30, loop) and a
+    `hop` jump (30..60, once) via markers. The cook flattens the ellipses,
+    flips/scales into rig space and carves the markers into clips. Cooking it
+    (below) keeps the source as the living document and the .oanim as the
+    committed runtime form - the roundtrip fixture precedent."""
+    def ease():
+        return {"i": {"x": 0.42, "y": 0}, "o": {"x": 0.58, "y": 1}}
+    doc = {
+        "v": "5.7.0", "fr": 30, "ip": 0, "op": 60, "w": 200, "h": 200,
+        "markers": [{"tm": 0, "cm": "idle", "dr": 30},
+                    {"tm": 30, "cm": "hop #once", "dr": 30}],
+        "layers": [
+            {"ty": 3, "nm": "root", "ind": 1,
+             "ks": {"p": {"a": 0, "k": [100, 100]},
+                    "a": {"a": 0, "k": [0, 0]}, "s": {"a": 0, "k": [100, 100]},
+                    "r": {"a": 0, "k": 0}, "o": {"a": 0, "k": 100}}},
+            {"ty": 4, "nm": "body", "ind": 2, "parent": 1,
+             "ks": {"p": {"a": 1, "k": [
+                        dict(t=0, s=[0, 0], **ease()),
+                        dict(t=15, s=[0, -10], **ease()),
+                        dict(t=30, s=[0, 0], **ease()),
+                        dict(t=42, s=[0, -60], **ease()),
+                        {"t": 60, "s": [0, 0]}]},
+                    "a": {"a": 0, "k": [0, 0]}, "s": {"a": 0, "k": [100, 100]},
+                    "r": {"a": 0, "k": 0}, "o": {"a": 0, "k": 100}},
+             "shapes": [{"ty": "gr", "nm": "belly", "it": [
+                 {"ty": "el", "p": {"a": 0, "k": [0, 0]},
+                  "s": {"a": 0, "k": [86, 74]}},
+                 {"ty": "fl", "c": {"a": 0, "k": [0.95, 0.55, 0.35, 1]},
+                  "o": {"a": 0, "k": 100}}]}]},
+            {"ty": 4, "nm": "head", "ind": 3, "parent": 2,
+             "ks": {"p": {"a": 0, "k": [0, -48]},
+                    "a": {"a": 0, "k": [0, 0]}, "s": {"a": 0, "k": [100, 100]},
+                    "r": {"a": 1, "k": [
+                        {"t": 0, "s": [0]}, {"t": 30, "s": [0]},
+                        dict(t=42, s=[-16], **ease()), {"t": 60, "s": [0]}]},
+                    "o": {"a": 0, "k": 100}},
+             "shapes": [{"ty": "gr", "nm": "face", "it": [
+                 {"ty": "el", "p": {"a": 0, "k": [0, 0]},
+                  "s": {"a": 0, "k": [50, 50]}},
+                 {"ty": "fl", "c": {"a": 0, "k": [0.98, 0.78, 0.42, 1]},
+                  "o": {"a": 0, "k": 100}}]}]},
+        ]}
+    return json.dumps(doc, indent=2) + "\n"
+
+
 def main():
     default = Path(__file__).resolve().parent.parent / "projects/vectorshapes"
     project_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else default
@@ -267,6 +336,59 @@ def main():
         "function update(self, dt)\n"
         "end\n")
 
+    # the VECTOR-ANIMATION scene: a hand-authored Lottie hero (assets/hero.json)
+    # cooked to the native assets/hero.oanim, driven by a script that plays the
+    # `idle` clip and crossfades to the one-shot `hop`. Verified by the
+    # player_vectoranim selfcheck.
+    hero_json = hero_lottie()
+    (assets / "hero.json").write_text(hero_json)
+    # cook the source into the committed runtime .oanim (import the sibling cook
+    # so the whole project regenerates from one command - the .json stays the
+    # living document, the .oanim is the runtime form)
+    import cook_vector_anim
+    kind, oanim_text = cook_vector_anim.cook(hero_json)
+    assert kind == "oanim", "hero.json did not cook to an animation"
+    (assets / "hero.oanim").write_text(oanim_text)
+
+    anim = SceneWriter()
+    anim.add("Hero",
+             anim.transform(0.0, 0.0),
+             anim.vector_animation("hero.oanim", clip="idle", z_order=1,
+                                   tint=(1.0, 1.0, 1.0, 1.0),
+                                   transition_time=0.3),
+             anim.script("scripts/hero_anim.lua"))
+    anim.write(scenes / "vectoranim.oscene")
+
+    # the animation driver: play idle on boot, then crossfade to the one-shot
+    # `hop` after a beat; subscribe to the ended event so the selfcheck sees the
+    # once-clip completion arrive in a script (the Lua drive + event path)
+    (scripts / "hero_anim.lua").write_text(
+        "-- drive the sibling vector-animation rig: idle, then a crossfade to\n"
+        "-- the one-shot hop; record clip + the ended event into shared.heroanim\n"
+        "function init(self)\n"
+        "    self.elapsed = 0.0\n"
+        "    self.hopped = false\n"
+        "    shared.heroanim = shared.heroanim or {}\n"
+        "    shared.heroanim.ended = 0\n"
+        "    shared.heroanim.lastEnded = \"\"\n"
+        "    events.subscribe(\"animation.ended\", function(e)\n"
+        "        shared.heroanim.ended = (shared.heroanim.ended or 0) + 1\n"
+        "        shared.heroanim.lastEnded = e.clip\n"
+        "    end)\n"
+        "    if self.anim then self.anim:play(\"idle\") end\n"
+        "end\n"
+        "function update(self, dt)\n"
+        "    self.elapsed = self.elapsed + dt\n"
+        "    -- after a beat of idle, crossfade to the one-shot hop once\n"
+        "    if self.anim and not self.hopped and self.elapsed > 0.6 then\n"
+        "        self.hopped = true\n"
+        "        self.anim:crossFade(\"hop\", 0.3)\n"
+        "    end\n"
+        "    if self.anim then\n"
+        "        shared.heroanim.clip = self.anim:currentClip()\n"
+        "    end\n"
+        "end\n")
+
     manifest = ('<?xml version="1.0" encoding="UTF-8"?>\n'
                 '<OrkigeProject version="1">\n'
                 '    <Name>VectorShapes</Name>\n'
@@ -274,7 +396,8 @@ def main():
                 '</OrkigeProject>\n')
     (project_dir / "project.orkproj").write_text(manifest)
 
-    print("wrote %s (4 shapes, main + softbody scenes)" % project_dir)
+    print("wrote %s (4 shapes + hero animation, main + softbody + vectoranim "
+          "scenes)" % project_dir)
     return 0
 
 

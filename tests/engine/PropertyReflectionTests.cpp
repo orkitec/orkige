@@ -23,6 +23,7 @@
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/ModelComponent.h>
+#include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
 
@@ -285,4 +286,94 @@ TEST_CASE("ModelComponent material reference round-trips on a DETACHED component
 	// clearing detaches cleanly (no mesh to reload on a detached component)
 	material->set(instance, PropertyValue::makeAssetRef("material", ""));
 	CHECK(model.getMaterialFileName().empty());
+}
+//---------------------------------------------------------
+TEST_CASE("VectorAnimationComponent declares its playback + rig schema",
+	"[reflection][vectoranim]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		VectorAnimationComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the animation reference (asset-kind "vectoranim" - a `.oanim`), the
+	// playback tunables and the shared 2D rig state all reach the Inspector /
+	// scene serialization / MCP generically off ONE schema
+	PropertyDesc const * animation = schema->find("animation");
+	REQUIRE(animation != nullptr);
+	CHECK(animation->kind == PropertyKind::AssetRef);
+	CHECK(animation->referenceHint == "vectoranim");
+	CHECK_FALSE(animation->isReadOnly());
+
+	REQUIRE(schema->find("clip") != nullptr);
+	CHECK(schema->find("clip")->kind == PropertyKind::String);
+	REQUIRE(schema->find("speed") != nullptr);
+	CHECK(schema->find("speed")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("playing") != nullptr);
+	CHECK(schema->find("playing")->kind == PropertyKind::Bool);
+	REQUIRE(schema->find("transitionTime") != nullptr);
+	CHECK(schema->find("transitionTime")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("tint") != nullptr);
+	CHECK(schema->find("tint")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("scale") != nullptr);
+	CHECK(schema->find("scale")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("zOrder") != nullptr);
+	CHECK(schema->find("zOrder")->kind == PropertyKind::Int);
+	REQUIRE(schema->find("visible") != nullptr);
+	CHECK(schema->find("visible")->kind == PropertyKind::Bool);
+}
+//---------------------------------------------------------
+TEST_CASE("VectorAnimationComponent properties round-trip on a DETACHED component",
+	"[reflection][vectoranim]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		VectorAnimationComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a DETACHED rig (no scene node, no render system) RECORDS the animation
+	// reference and its playback settings through the type-erased get/set - the
+	// same tolerant setters the scene loader drives; the live build happens when
+	// the component gets a node
+	VectorAnimationComponent anim;
+	Object * instance = &anim;
+
+	CHECK(schema->find("animation")->get(instance).referenceId().empty());
+	CHECK(anim.isPlaying());	// a placed rig plays on Play by default
+
+	schema->find("animation")->set(instance,
+		PropertyValue::makeAssetRef("vectoranim", "hero.oanim"));
+	schema->find("clip")->set(instance, PropertyValue::makeString("walk"));
+	schema->find("speed")->set(instance, PropertyValue::makeFloat(1.5));
+	schema->find("playing")->set(instance, PropertyValue::makeBool(false));
+	schema->find("transitionTime")->set(instance, PropertyValue::makeFloat(0.25));
+	schema->find("zOrder")->set(instance, PropertyValue::makeInt(3));
+
+	CHECK(anim.getAnimationName() == "hero.oanim");
+	CHECK(anim.getClipProperty() == "walk");
+	CHECK(anim.getSpeed() == Approx(1.5f));
+	CHECK_FALSE(anim.isPlaying());
+	CHECK(anim.getTransitionTime() == Approx(0.25f));
+	CHECK(anim.getZOrder() == 3);
+
+	// the serialization path (capture -> apply) carries every field, the
+	// animation reference last so the scalar state is in place first
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(anim);
+	VectorAnimationComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getAnimationName() == "hero.oanim");
+	CHECK(restored.getClipProperty() == "walk");
+	CHECK(restored.getSpeed() == Approx(1.5f));
+	CHECK_FALSE(restored.isPlaying());
+	CHECK(restored.getZOrder() == 3);
+
+	// clearing detaches cleanly (no mesh to tear down on a detached component)
+	schema->find("animation")->set(instance,
+		PropertyValue::makeAssetRef("vectoranim", ""));
+	CHECK(anim.getAnimationName().empty());
 }

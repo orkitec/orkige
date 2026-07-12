@@ -1004,6 +1004,23 @@ if(TARGET orkige_player)
         set_tests_properties(player_softbody_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_SOFTBODY_SELFCHECK=1")
 
+        # VECTOR (Lottie) ANIMATION RIGS, end to end: projects/vectorshapes
+        # scenes/vectoranim.oscene - a two-blob hero (assets/hero.json cooked to
+        # hero.oanim) whose VectorAnimationComponent plays an `idle` clip (the
+        # composed pose moves as frames advance), a script crossFades it to the
+        # one-shot `hop`, and the hop's completion fires the ended event into the
+        # script (shared.heroanim). The player also logs the MEASURED per-frame
+        # evaluate+tessellate cost per character (the mobile budget). Runs on
+        # both render flavors (the pose evaluation is renderer-neutral; the
+        # upload goes through the VectorMesh dynamic path on each backend). See
+        # the ORKIGE_VECTORANIM_SELFCHECK block in tools/player/main.cpp.
+        add_test(NAME player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
+            COMMAND orkige_player projects/vectorshapes/scenes/vectoranim.oscene
+                --project projects/vectorshapes
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(player_vectoranim_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_VECTORANIM_SELFCHECK=1")
+
         # roller LEVELS + PROGRESSION, end to end: solve level 1 (the
         # proven slide + roll), assert the runtime SWITCHED to level 2 via the
         # DEFERRED scene load (shared.roller.levelIndex incremented + the

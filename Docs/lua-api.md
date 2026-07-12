@@ -762,6 +762,38 @@ VectorShapeComponent.morphSpeed
 VectorShapeComponent.morphLoop
 VectorShapeComponent.shape
 
+## VectorAnimationComponent
+VectorAnimationComponent:loadAnimation(...)
+VectorAnimationComponent:removeAnimation(...)
+VectorAnimationComponent:getAnimationName(...)
+VectorAnimationComponent:hasAnimation(...)
+VectorAnimationComponent:getTriangleCount(...)
+VectorAnimationComponent:getVertexCount(...)
+VectorAnimationComponent:getPoseSignature(...)
+VectorAnimationComponent:play(...)
+VectorAnimationComponent:stop(...)
+VectorAnimationComponent:setClip(...)
+VectorAnimationComponent:crossFade(...)
+VectorAnimationComponent:scrub(...)
+VectorAnimationComponent:isPlaying(...)
+VectorAnimationComponent:currentClip(...)
+VectorAnimationComponent:getClipCount(...)
+VectorAnimationComponent:getClipNames(...)
+VectorAnimationComponent:currentFrame(...)
+VectorAnimationComponent:isAtEnd(...)
+VectorAnimationComponent:setSpeed(...)
+VectorAnimationComponent:getSpeed(...)
+VectorAnimationComponent.clip
+VectorAnimationComponent.speed
+VectorAnimationComponent.playing
+VectorAnimationComponent.transitionTime
+VectorAnimationComponent.tint
+VectorAnimationComponent.scale
+VectorAnimationComponent.edgeSoftness
+VectorAnimationComponent.zOrder
+VectorAnimationComponent.visible
+VectorAnimationComponent.animation
+
 ## SpriteAnimationComponent
 SpriteAnimationComponent:setGrid(...)
 SpriteAnimationComponent:getGridColumns(...)
