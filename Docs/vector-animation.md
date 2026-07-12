@@ -81,3 +81,90 @@ honesty, fixed-topology enforcement, clip lookup) and
 `tests/core/VectorAnimEvalTests.cpp` (interpolation incl. bezier easing,
 parent/anchor/scale/opacity composition, clip playback, pose lerp, crossfade
 ramp, statelessness, allocation stability).
+
+## Importing Lottie documents (`Util/cook_vector_anim.py`)
+
+Lottie JSON (the open, Linux-Foundation-standardized vector animation
+interchange format) is the import on-ramp for `.oanim`:
+
+```sh
+python3 Util/cook_vector_anim.py character.json            # character.oanim beside it
+python3 Util/cook_vector_anim.py character.json out.oanim --extent 2.0
+python3 Util/cook_vector_anim.py plain.json --clips "idle:0:30,walk:30:60:once"
+```
+
+The cook is stdlib-only, deterministic and idempotent: the source `.json`
+stays the artist's living document and re-running the cook after an edit
+regenerates the same `.oanim` byte-for-byte. A document where NOTHING
+animates cooks to a plain `.oshape` instead (the output suffix switches) —
+so any tool that exports Lottie is also an `.oshape` authoring tool.
+
+Unit conversions: coordinates y-flip (Lottie is y-down, `.oanim` +y up) and
+scale so the composition's larger side spans `--extent` world units (default
+2), centered on the composition midpoint (a synthetic `comp` root layer
+carries the centering); rotations negate (to CCW, +y up); Lottie scale 100 →
+1.0 and opacity 100 → 1.0; value beziers carry over 1:1.
+
+### Subset (v1)
+
+| Source feature | Cooks to |
+|---|---|
+| shape layer (`ty` 4) | a `layer` with channels + `shape` blocks |
+| null layer (`ty` 3) | a channel-only layer (pure parent) |
+| solid layer (`ty` 1) | a rect `shape` block in the solid colour |
+| untimed precomp (`ty` 0, stretch 1, no remap) | inlined at cook (nested works; the crop rectangle is not applied); the precomp layer becomes a transform carrier whose opacity multiplies down to the inlined children, named `precomp/child` |
+| parenting | `parent` links; a parent that also paints is split into a transform carrier + a `_paint` layer, so the grammar's parents-precede-children and paint-order-is-file-order rules both hold (layer opacity stays per-layer, matching the source's non-inheriting opacity) |
+| layer in/out window (`ip`/`op`) | baked into the opacity channel (hold keys at 0 outside the window) |
+| hidden layers/items (`hd`) | skipped (they never render) |
+| position/anchor/scale/rotation/opacity keyframes | the five transform channels, easing preserved |
+| bezier path (`sh`), ellipse (`el`), rect (`rc`, incl. rounded) | flattened contours; an animated corner radius keeps the 8-vertex rounded topology so counts stay fixed |
+| flat fill (`fl`), animated colour/opacity | per-key `fill`; the fill rule (nonzero/evenodd) drives hole assignment for multi-path fills |
+| group (`gr`) | recursed; its STATIC transform is baked into vertices; animated group opacity folds into the fill alpha |
+| markers | clips (`#once` comment suffix = one-shot; a zero-duration marker extends to the next marker); `--clips name:start:end[:loop\|once],...` overrides for marker-less tools |
+
+Path flattening obeys the fixed-segment-count discipline: each path edge gets
+ONE segment count chosen from the worst-case curvature across ALL of the
+path's keyframes, applied at every key — identical vertex counts by
+construction (the `.oanim` topology law), and because beziers are linear in
+their control points, lerping the flattened vertices equals flattening the
+lerped curve exactly.
+
+DENSIFICATION: whatever the runtime grammar cannot express directly is baked
+into per-frame linear keys at cook — spatial position tangents (`ti`/`to`),
+split x/y position tracks, per-dimension easing, keys outside the timeline,
+animated ellipse/rect parameters, shape blocks where several properties
+animate on misaligned keys, and windowed animated opacity. The runtime
+interpolator stays cubic value-bezier + hold.
+
+### Out of subset — named, per-layer errors
+
+The cook collects EVERY violation and refuses (never a silent skip):
+gradients (fill/stroke), strokes, masks, track mattes, layer effects,
+expressions, image layers, text layers, repeaters, merge paths, trim paths,
+rounded-corner modifiers, other path modifiers (pucker/zig-zag/offset/twist),
+skew, auto-orient, 3D layers, time stretch, time remap, TIMED precomps and
+precomp cycles. Example:
+
+```
+cook_vector_anim: cannot cook bad.json:
+  gradient fill (flat fills only) on layer 'hero' (item 'shine') - not supported
+  unsupported text layer 'caption' - only shape, null, solid and untimed precomp layers cook
+```
+
+### Character authoring workflow
+
+Author ONE composition per character (one file = one rig — clips that must
+blend live together): layers as the bones (a null as the root, body parts
+parented to it), all clips back-to-back on one timeline, markers naming the
+frame ranges (`idle` 0–30, `walk` 30–60, a `#once` suffix on one-shots like
+`die`). [Glaxnimate](https://glaxnimate.mattbas.org/) is a free tool that
+exports this subset; if a tool cannot edit markers, pass the ranges at cook
+time via `--clips`. Agents can also skip the cook entirely and write `.oanim`
+text directly (see the grammar above) — the cook is an on-ramp, not a gate.
+
+Verification: `cook_vector_anim_selftest` (a unit ctest) cooks embedded
+fixtures for every mapped feature and every error path, and re-cooks
+`tests/assets/vectoranim/roundtrip.json` asserting byte identity with the
+committed `roundtrip.oanim`; the `cook_vector_anim_roundtrip` unit test feeds
+that same `.oanim` through the real parser + evaluator and pins evaluated
+poses (rotation easing, parent composition, colour animation).

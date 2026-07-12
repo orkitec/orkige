@@ -54,6 +54,7 @@ add_executable(orkige_core_tests
     VectorShapeRasterTests.cpp
     VectorAnimAssetTests.cpp
     VectorAnimEvalTests.cpp
+    CookVectorAnimRoundTripTests.cpp
     WobbleSpringTests.cpp
     SoftBodyDeformTests.cpp
     GuiAnimationTests.cpp
@@ -71,6 +72,12 @@ endif()
 target_link_libraries(orkige_core_tests PRIVATE
     Orkige::Core
     Catch2::Catch2WithMain
+)
+
+# committed fixture assets (e.g. the cook round-trip .oanim, whose currency
+# against the live cook is enforced by cook_vector_anim_selftest)
+target_compile_definitions(orkige_core_tests PRIVATE
+    ORKIGE_TESTS_ASSET_DIR="${Orkige_SOURCE_DIR}/tests/assets"
 )
 
 include(Catch)

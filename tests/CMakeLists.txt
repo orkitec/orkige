@@ -74,6 +74,18 @@ add_test(NAME cook_shapes_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(cook_shapes_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# vector-animation cook self-validation: cook_vector_anim.py cooks embedded
+# Lottie fixtures covering every mapped feature (transforms/easing/parenting,
+# path and colour keyframes, precomp inlining, densification, holes, markers,
+# the static .oshape case) plus every out-of-subset error path, and re-cooks
+# the committed round-trip fixture (tests/assets/vectoranim/) byte-identically
+# - the same .oanim the cook_vector_anim_roundtrip unit test feeds through
+# the REAL parser + evaluator. Stdlib-only, headless.
+add_test(NAME cook_vector_anim_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/cook_vector_anim.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(cook_vector_anim_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # export app-icon pipeline self-validation: orkige_icons.py synthesises a source
 # PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
 # tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
