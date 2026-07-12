@@ -1,0 +1,5 @@
+# rough grey rock (dielectric)
+version 1
+albedo 0.45 0.44 0.42 1.0
+metalness 0.0
+roughness 0.85

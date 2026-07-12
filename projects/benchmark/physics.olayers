@@ -1,0 +1,18 @@
+<?1.0, UTF-8, yes?>
+<XMLArchive Version="0">
+    <String value="orkige.olayers"/>
+    <int value="1"/>
+    <unsigned_int value="3"/>
+    <String value="Default"/>
+    <String value="body"/>
+    <String value="ground"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="1"/>
+    <bool value="0"/>
+</XMLArchive>

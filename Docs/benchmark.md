@@ -95,3 +95,62 @@ Field notes:
   armed for ~90 frames, finalizes and asserts the artifact exists and parses
   with a meta line, a scene record carrying `frames > 0` and a measured
   `frameMs.avg`, and a clean summary.
+- `player_benchmark_vista` (integration, next flavor) — runs the whole benchmark
+  showcase project (below) as one autonomous tour and asserts EVERY scene lands
+  in the artifact plus a clean summary (`tests/integration_driver/run_benchmark_test.py`).
+
+## The benchmark project
+
+`projects/benchmark/` is a stock `.orkproj` that IS the benchmark: a
+`LevelManager` sequence of self-running vignette scenes, each a feature demo
+scored by the recorder. It is generated end to end by
+`Util/make_benchmark_assets.py` (terrain, PBS-prop, particle and GUI-atlas
+assets come from the tree's shared generators it invokes; the scenes,
+localisation, `.oui` screens, `.oshape`/`.omat`/`.oanim` content, `levels.olevels`,
+`physics.olayers` and the manifest are written by it). Nothing is downloaded.
+
+A single shared director script (`scripts/director.component.lua`, one
+`director` component kind whose `mode` export picks the vignette) runs each
+scene with **no input**: it sets up the camera + atmosphere, drives the scene's
+motion or stress ramp, draws a small HUD, and after a frame budget wipes to the
+next scene — looping on the results card. The nine scenes are a terrain vista
+with a day→night sun arc + PSSM shadows + weather, a water lake, a night point-
+light ramp, a 3D-particle swarm, an instance field (one mesh + one material,
+Hlms auto-batch), a flat-colour 2D showcase (vector soft-bodies, morph, sprite
+parallax, vector animation), a `.oui`/localisation GUI screen, a physics body
+cascade with a time-scale hitstop, and a GUI results card.
+
+Timing is **frame-count based, scaled by the `benchmark.sceneScale` cvar**
+(default 1): a scene lasts `seconds * 60 * scale` frames, so a normal vsync-paced
+run reads as seconds while an automated run shrinks scale to a handful of
+deterministic frames per scene. `benchmark.wipe` (0 skips the fade wipe) and
+`benchmark.lightCeiling` (the night-lights ramp ceiling) are the other knobs.
+The stress scenes self-limit: a ramp stops adding load once a frame exceeds the
+budget, so the recorded scene tells you where the device stalled.
+
+### Running it
+
+- **Editor**: open the project and press Play (or pick an iOS-simulator / Android
+  target) — the tour runs itself; arm the run by launching the player with
+  `ORKIGE_BENCHMARK` in its environment.
+- **Player CLI, armed**: `ORKIGE_BENCHMARK=1 ORKIGE_BUILD_SHA=$(git rev-parse --short HEAD) \
+  orkige_player --project projects/benchmark` — writes `benchmark-<stamp>.jsonl`
+  to the writable app dir (override with `ORKIGE_BENCHMARK_DIR`). A capped run
+  ends via `ORKIGE_DEMO_FRAMES=N`.
+- **MCP agent** (the editor's endpoint): open/scan the project, `play {scene:
+  "scenes/vista.oscene"}` with `ORKIGE_BENCHMARK` in the player's environment
+  (the existing `play` verb — no new verb), poll `get_state`, then read the run
+  with `get_benchmark_results`. Per-scene labels are the recorder line names
+  ("Terrace Vista", "Night Lumens", …); each also leaves a 1-frame boundary
+  fragment named by the scene path (the level-switch open before the director's
+  `benchmark.begin` renames it) — filter to records with `frames >= 2`.
+
+### Backend note
+
+Each scene runs on BOTH render flavors in isolation, and the default backend
+runs the whole tour cleanly. The classic GL/RTSS backend, however, faults in
+RTSS pass management over the long sequence (two-plus dynamic point lights over
+an `.omat`-lit mesh, and again after heavy material churn across scene switches
+— a null `Ogre::Pass` vector), so the `player_benchmark_vista` ctest and the
+full-tour benchmark target the default backend. The `benchmark.lightCeiling`
+cvar bounds the night-lights ramp for a tighter budget.

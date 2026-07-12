@@ -1,0 +1,76 @@
+# settings.oui - a nine-slice settings-style card (console scene). A panel
+# holds a title, a vertical layout group of localised rows and a button - the
+# rows re-caption when the director cycles the active language.
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+[DecorWidget panel]
+sprite = panel
+z = 4
+anchor = center
+pivot = 0.5 0.5
+anchoredPos = 0 0
+sizeDelta = 480 460
+nineSlice = true
+
+[Label title]
+parent = panel
+z = 5
+font = 24
+text = @bench.settings
+anchor = stretchtop
+offsets = 24 18 -24 60
+textAlignment = topleft
+
+[DecorWidget content]
+parent = panel
+z = 5
+sprite = none
+size = 120 120
+color = 0 0 0 0
+anchor = stretchall
+offsets = 24 78 -24 -70
+group = vertical
+padding = 4 4 4 4
+spacing = 12
+childExpand = true
+
+[Label rowGraphics]
+parent = content
+z = 5
+font = 9
+text = @bench.graphics
+size = 300 30
+
+[Label rowShadows]
+parent = content
+z = 5
+font = 9
+text = @bench.shadows
+size = 300 30
+
+[Label rowLanguage]
+parent = content
+z = 5
+font = 9
+text = @bench.language
+size = 300 30
+
+[Label rowHello]
+parent = content
+z = 5
+font = 9
+text = @bench.hello
+size = 380 30
+
+[Button btnOk]
+parent = panel
+z = 5
+font = 9
+sprite = button
+text = @bench.done
+anchor = bottom
+pivot = 0.5 1
+anchoredPos = 0 -20
+sizeDelta = 260 40

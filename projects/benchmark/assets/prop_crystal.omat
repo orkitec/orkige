@@ -1,0 +1,6 @@
+# glowing crystal (emissive)
+version 1
+albedo 0.20 0.35 0.55 1.0
+metalness 0.1
+roughness 0.4
+emissive 0.15 0.45 0.85

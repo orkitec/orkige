@@ -108,6 +108,17 @@ add_test(NAME make_water_mesh_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_water_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# benchmark showcase generator self-validation: make_benchmark_assets.py builds
+# every scene through its pure writers and asserts the serialized shape (scene
+# version marker, a director in each), the localisation key set, the vector
+# blob contour and the two-clip vector-animation source - all in memory, no
+# subprocesses. Stdlib-only, headless - the showcase content pipeline at the
+# tooling level.
+add_test(NAME make_benchmark_assets_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_benchmark_assets.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_benchmark_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # export app-icon pipeline self-validation: orkige_icons.py synthesises a source
 # PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
 # tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
@@ -1249,6 +1260,36 @@ if(TARGET orkige_player)
         set_tests_properties(player_integration_levelswitch_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
             ENVIRONMENT "ORKIGE_INTEGRATION_LEVELSWITCH_SELFCHECK=1"
             LABELS integration TIMEOUT 120)
+
+        # the benchmark showcase (projects/benchmark), end to end: the driver
+        # runs the standalone player over the WHOLE autonomous scene sequence,
+        # armed (ORKIGE_BENCHMARK) and driven fast + deterministically (a tiny
+        # benchmark.sceneScale via ORKIGE_CVARS, no wipe, ORKIGE_DEMO_FRAMES
+        # capping past a full loop), then asserts the JSONL results artifact
+        # parses and carries EVERY scene of the tour by its recorder label plus
+        # a clean summary. The director advances the sequence with no input, so
+        # a complete artifact + clean exit is the whole contract. Artifact is
+        # isolated into the build tree.
+        #
+        # NEXT flavor only, like player_benchmark_selfcheck: each scene runs on
+        # BOTH flavors in isolation, but the long showcase SEQUENCE trips the
+        # classic GL/RTSS backend - after ~5-6 scene switches with varied lit
+        # materials it faults in RTSS pass management (a null Ogre::Pass vector,
+        # reproduced with two+ dynamic point lights over an .omat mesh and again
+        # in a later scene after heavy material churn). That is a classic-backend
+        # robustness gap, not a content one; the default backend runs the whole
+        # tour cleanly, and the recorder/content are renderer-neutral.
+        if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+            add_test(NAME player_benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX}
+                COMMAND python3
+                    "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_benchmark_test.py"
+                    --repo "${Orkige_SOURCE_DIR}"
+                    --player "$<TARGET_FILE:orkige_player>"
+                    --dir "${CMAKE_CURRENT_BINARY_DIR}/benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX}"
+                WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+            set_tests_properties(player_benchmark_vista${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+                LABELS integration TIMEOUT 240)
+        endif()
     endif()
 
     # asset-id rename survival end to end (the asset database): the fixture

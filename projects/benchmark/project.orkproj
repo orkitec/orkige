@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OrkigeProject version="1">
+    <Name>Benchmark</Name>
+    <MainScene>scenes/vista.oscene</MainScene>
+    <Settings>
+        <Setting key="physics.layers" value="physics.olayers"/>
+        <Setting key="levels" value="levels.olevels"/>
+        <Setting key="localisation" value="loc"/>
+        <Setting key="cvar.r.shadowQuality" value="medium"/>
+        <Setting key="export.macos.bundleId" value="com.orkitec.benchmark"/>
+        <Setting key="export.ios.bundleId" value="com.orkitec.benchmark"/>
+        <Setting key="export.android.package" value="com.orkitec.benchmark"/>
+    </Settings>
+</OrkigeProject>

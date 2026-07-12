@@ -1075,6 +1075,39 @@ int main(int argc, char** argv)
 			Orkige::CVarManager::getSingleton().applySettings(
 				project.getSettings());
 		}
+		// automation cvar seed: ORKIGE_CVARS="name=value,name2=value2" applies
+		// through the SAME held-override path as the manifest (so it lands
+		// whether the cvar is compile-time or registered later by a script). A
+		// general test/CI hook - e.g. shrinking an attract-mode scene duration
+		// for a headless run - that opens no socket and touches no shipped file.
+		if (const char* cvarsEnv = std::getenv("ORKIGE_CVARS"))
+		{
+			std::map<Orkige::String, Orkige::String> seed;
+			Orkige::String spec(cvarsEnv);
+			std::size_t pos = 0;
+			while (pos < spec.size())
+			{
+				std::size_t comma = spec.find(',', pos);
+				Orkige::String pair = spec.substr(pos,
+					comma == Orkige::String::npos ? Orkige::String::npos
+						: comma - pos);
+				std::size_t eq = pair.find('=');
+				if (eq != Orkige::String::npos)
+				{
+					seed[Orkige::CVarManager::SETTING_PREFIX +
+						pair.substr(0, eq)] = pair.substr(eq + 1);
+				}
+				if (comma == Orkige::String::npos)
+				{
+					break;
+				}
+				pos = comma + 1;
+			}
+			if (!seed.empty())
+			{
+				Orkige::CVarManager::getSingleton().applySettings(seed);
+			}
+		}
 
 		// the GameObject world from the host boot (the component factories
 		// registered there, before the manager existed)

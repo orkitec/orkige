@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file original="orkige-strings" source-language="en" target-language="de" datatype="plaintext">
+    <header>
+      <tool tool-id="orkige_loc" tool-name="orkige_loc" tool-version="1"/>
+    </header>
+    <body>
+      <trans-unit id="bench.audio" resname="bench.audio" xml:space="preserve">
+        <source>Audio</source>
+        <target state="translated">Audio</target>
+      </trans-unit>
+      <trans-unit id="bench.done" resname="bench.done" xml:space="preserve">
+        <source>Tour complete</source>
+        <target state="translated">Tour abgeschlossen</target>
+      </trans-unit>
+      <trans-unit id="bench.frameMs" resname="bench.frameMs" xml:space="preserve">
+        <source>Frame time</source>
+        <target state="translated">Bildzeit</target>
+      </trans-unit>
+      <trans-unit id="bench.graphics" resname="bench.graphics" xml:space="preserve">
+        <source>Graphics</source>
+        <target state="translated">Grafik</target>
+      </trans-unit>
+      <trans-unit id="bench.hello" resname="bench.hello" xml:space="preserve">
+        <source>Hello / Здравствуй / こんにちは</source>
+        <target state="translated">Hallo / Здравствуй / こんにちは</target>
+      </trans-unit>
+      <trans-unit id="bench.language" resname="bench.language" xml:space="preserve">
+        <source>Language</source>
+        <target state="translated">Sprache</target>
+      </trans-unit>
+      <trans-unit id="bench.of" resname="bench.of" xml:space="preserve">
+        <source>of</source>
+        <target state="translated">von</target>
+      </trans-unit>
+      <trans-unit id="bench.results" resname="bench.results" xml:space="preserve">
+        <source>Results</source>
+        <target state="translated">Ergebnisse</target>
+      </trans-unit>
+      <trans-unit id="bench.scene" resname="bench.scene" xml:space="preserve">
+        <source>Scene</source>
+        <target state="translated">Szene</target>
+      </trans-unit>
+      <trans-unit id="bench.settings" resname="bench.settings" xml:space="preserve">
+        <source>Settings</source>
+        <target state="translated">Einstellungen</target>
+      </trans-unit>
+      <trans-unit id="bench.shadows" resname="bench.shadows" xml:space="preserve">
+        <source>Shadows</source>
+        <target state="translated">Schatten</target>
+      </trans-unit>
+      <trans-unit id="bench.title" resname="bench.title" xml:space="preserve">
+        <source>Feature Tour</source>
+        <target state="translated">Funktionstour</target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

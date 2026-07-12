@@ -1,0 +1,27 @@
+# hud.oui - the live tour HUD (scene title + a progress bar)
+[Layout]
+atlas = gui_default
+root = fullwindow
+
+[DecorWidget hudBar]
+sprite = panel
+z = 4
+anchor = stretchtop
+pivot = 0.5 0
+offsets = 16 16 -16 72
+nineSlice = true
+
+[Label hudTitle]
+parent = hudBar
+z = 5
+font = 9
+text = @bench.title
+anchor = stretchall
+offsets = 16 8 -16 -8
+textAlignment = topleft
+
+[ProgressBar hudProgress]
+parent = hudBar
+z = 5
+anchor = stretchbottom
+offsets = 16 -18 -16 -6
