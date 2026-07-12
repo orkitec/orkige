@@ -106,7 +106,8 @@ namespace Orkige
 	{
 		Ogre::SceneManager*	sceneManager = NULL;	//!< owned by the backend (root teardown)
 		optr<RenderNode>	rootNode;				//!< stable facade handle of the root node (owned=false)
-		Ogre::ColourValue	ambient = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< facade cache (Next splits ambient into hemispheres)
+		Ogre::ColourValue	ambient = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< upper-hemisphere/flat ambient facade cache
+		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);	//!< lower-hemisphere ambient facade cache
 	};
 
 	struct RenderNode::Impl

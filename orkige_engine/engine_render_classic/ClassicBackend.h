@@ -69,6 +69,10 @@ namespace Orkige
 	{
 		Ogre::SceneManager*	sceneManager = NULL;	//!< owned by Engine (classic bootstrap), not by the facade
 		optr<RenderNode>	rootNode;				//!< stable facade handle of the root node (owned=false)
+		//! classic ambient is flat - the two hemisphere colours are cached so the
+		//! facade getters read them back honestly (the scene sees their average)
+		Ogre::ColourValue	ambientUpper = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
+		Ogre::ColourValue	ambientLower = Ogre::ColourValue(0.2f, 0.2f, 0.2f, 1.0f);
 	};
 
 	struct RenderNode::Impl

@@ -771,6 +771,100 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	SELFCHECK(renderFrames(renderSystem, 2), "frames render in wireframe");
 	camera->setWireframe(false);
 
+	//--- a lit scene renders differently from an unlit one -----------------
+	// toggling the scene light (the two-colour hemisphere ambient this package
+	// adds to the facade) between bright and black takes a lit mesh from visible
+	// to BLACK - proving lighting reaches the shading, on BOTH flavors. Runs LAST
+	// (after every parity-compared screenshot is written) so changing the light /
+	// window background here disturbs nothing the WYSIWYG gate compares, and it
+	// writes to its own files (selfcheck_light_*.png, not in the parity set).
+	// (The dynamic point/spot/directional RenderLight the LightComponent drives
+	// is exercised above and by the component tests; these demo meshes carry no
+	// normals suited to per-light PBS shading, so the visible difference is
+	// driven through the hemisphere ambient term.)
+	{
+		// a textured, LIT mesh (its imported material shades; with no light it
+		// goes black). Placed far from the other content and rendered through the
+		// WINDOW camera - the proven scene-lighting path (an offscreen "basic"
+		// workspace carries no lighting)
+		optr<RenderNode> litMeshNode = world->createNode("selfcheck.litMeshNode");
+		litMeshNode->setPosition(Vec3(200, 0, 0));
+		optr<MeshInstance> litMesh =
+			world->createMeshInstance("jumper_platform.glb");
+		SELFCHECK(litMesh != NULL, "the lit probe mesh loads");
+		litMesh->attachTo(litMeshNode);
+		litMesh->setCastShadows(false);
+		AABB litBounds = litMeshNode->getWorldBounds();
+		SELFCHECK(litBounds.isFinite() && !litBounds.isNull(),
+			"the lit probe mesh has finite world bounds");
+		const Vec3 litCentre = litBounds.getCenter();
+		// the same relative camera geometry the main scene frames its lit
+		// platform with, on a black window background so an unlit surface reads
+		// black
+		renderSystem->setWindowBackgroundColour(Color(0, 0, 0, 1));
+		camera->setPerspective(Degree(55), Real(0.1), Real(1000));
+		cameraNode->setPosition(litCentre + Vec3(0, 4.5f, 8));
+		cameraNode->lookAt(litCentre, RenderNode::TS_WORLD);
+		// a live dynamic RenderLight in the scene (the LightComponent's facade;
+		// created + typed + placed through the facade in a real scene)
+		optr<RenderLight> probeLight = world->createLight();
+		optr<RenderNode> probeLightNode =
+			world->createNode("selfcheck.probeLightNode");
+		probeLightNode->setPosition(litCentre + Vec3(3, 8.5f, 5));
+		probeLight->attachTo(probeLightNode);
+		probeLight->setType(RenderLight::LT_POINT);
+		probeLight->setDiffuseColour(Color(1.0f, 1.0f, 1.0f));
+		probeLight->setRange(50);
+		probeLight->setCastShadows(false);
+
+		// the BRIGHTEST luminance over the WHOLE window (one decode via the
+		// bootstrap helper - readImagePixel would re-decode per pixel): the lit
+		// surface is the brightest thing against the black background; unlit, the
+		// frame stays near-black
+		unsigned int probeW = 0, probeH = 0;
+		renderSystem->getWindowSize(probeW, probeH);
+		SELFCHECK(probeW > 0 && probeH > 0, "the window reports a probe size");
+
+		// LIT: a bright two-colour hemisphere ambient (the facade growth). Its
+		// upper/lower colours round-trip through the facade getters.
+		world->setAmbientHemisphere(Color(0.9f, 0.9f, 0.9f),
+			Color(0.6f, 0.6f, 0.6f));
+		SELFCHECK(nearlyEqual(world->getAmbientHemisphereUpper().r, Real(0.9)) &&
+			nearlyEqual(world->getAmbientHemisphereLower().g, Real(0.6)),
+			"hemisphere ambient round-trips through the facade");
+		SELFCHECK(renderFrames(renderSystem, 3), "frames render with the light on");
+		const std::string litOnShot = outDir + "/selfcheck_light_on.png";
+		renderSystem->saveWindowContents(litOnShot);
+		const float brightnessOn = SelfcheckBootstrap::imageMaxBrightness(litOnShot);
+
+		// UNLIT: every scene light off - black ambient (the flat equal-hemisphere
+		// case) AND the dynamic light dark (classic shades the platform from the
+		// point light where next does not, so it must go off too for a
+		// flavor-robust dark frame)
+		world->setAmbientLight(Color(0.0f, 0.0f, 0.0f));
+		SELFCHECK(nearlyEqual(world->getAmbientHemisphereUpper().g, Real(0)),
+			"flat setAmbientLight is the equal-hemisphere case");
+		probeLight->setDiffuseColour(Color(0.0f, 0.0f, 0.0f));
+		probeLight->setSpecularColour(Color(0.0f, 0.0f, 0.0f));
+		SELFCHECK(renderFrames(renderSystem, 3), "frames render with the light off");
+		const std::string litOffShot = outDir + "/selfcheck_light_off.png";
+		renderSystem->saveWindowContents(litOffShot);
+		const float brightnessOff = SelfcheckBootstrap::imageMaxBrightness(litOffShot);
+
+		std::printf("render_facade_selfcheck: lit probe - on %.3f, off %.3f\n",
+			brightnessOn, brightnessOff);
+		SELFCHECK(brightnessOff < 0.15f,
+			"the surface is near-black with no scene light");
+		SELFCHECK(brightnessOn > brightnessOff + 0.2f,
+			"a lit scene renders visibly brighter than the unlit one");
+
+		// RAII teardown of the probe content
+		probeLight.reset();
+		litMesh.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the lit probe was dropped (RAII teardown)");
+	}
+
 	//--- RAII teardown of content while frames keep rendering ---------------
 	sprite.reset();
 	platform.reset();

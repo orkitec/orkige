@@ -13,6 +13,7 @@
 #include <engine_render/MeshInstance.h>
 #include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
+#include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
@@ -115,6 +116,8 @@ int main(int, char**)
 	// (below) loads the committed demo_blob.oshape from the sample media dir
 	const bool demoVectorShape =
 		(std::getenv("ORKIGE_DEMO_VECTORSHAPE") != nullptr);
+	// ORKIGE_DEMO_LIGHT=1: the LightComponent end-to-end selfcheck (below)
+	const bool demoLight = (std::getenv("ORKIGE_DEMO_LIGHT") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -587,6 +590,75 @@ int main(int, char**)
 			testMesh->attachTo(testMeshNode);
 			SDL_Log("hello_orkige: test_mesh.glb loaded via Codec_Assimp "
 				"(%zu sub-meshes)", testMesh->getNumSubMeshes());
+		}
+
+		// --- ORKIGE_DEMO_LIGHT=1: the LightComponent end-to-end selfcheck. A
+		// GameObject carries a LightComponent, which owns a child scene node and
+		// a live facade RenderLight; the checks assert the component built the
+		// light, that its reflected parameters applied, and that the light node
+		// FOLLOWS the object's TransformComponent. Reads component/facade state,
+		// no pixels - identical on both render flavors.
+		if (demoLight)
+		{
+			optr<Orkige::GameObject> lightObject =
+				gameObjectManager.createGameObject("sun").lock();
+			if (!lightObject ||
+				!lightObject->addComponent<Orkige::LightComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - LightComponent creation failed");
+				return 1;
+			}
+			// LightComponent auto-added its TransformComponent dependency
+			Orkige::TransformComponent* lightTransform =
+				lightObject->getComponentPtr<Orkige::TransformComponent>();
+			Orkige::LightComponent* light =
+				lightObject->getComponentPtr<Orkige::LightComponent>();
+			if (!lightTransform || !light)
+			{
+				SDL_Log("hello_orkige: FAILED - LightComponent siblings missing");
+				return 1;
+			}
+			// onAdd built a live facade light (a render world is up)
+			if (!light->hasLight())
+			{
+				SDL_Log("hello_orkige: FAILED - LightComponent built no light");
+				return 1;
+			}
+			// reflected parameters apply live onto the facade light
+			light->setType(Orkige::LightComponent::LT_SPOT);
+			light->setColour(0.9f, 0.8f, 0.2f);
+			light->setIntensity(1.5f);
+			light->setRange(30.0f);
+			light->setInnerAngle(20.0f);
+			light->setOuterAngle(45.0f);
+			light->setCastsShadows(true);
+			const bool stateApplied =
+				light->getType() == Orkige::LightComponent::LT_SPOT &&
+				std::fabs(light->getColour().g - 0.8f) < 1e-4f &&
+				std::fabs(light->getIntensity() - 1.5f) < 1e-4f &&
+				std::fabs(light->getRange() - 30.0f) < 1e-4f &&
+				std::fabs(light->getOuterAngle() - 45.0f) < 1e-4f &&
+				light->getCastsShadows();
+			if (!stateApplied)
+			{
+				SDL_Log("hello_orkige: FAILED - LightComponent params did not apply");
+				return 1;
+			}
+			// the light follows the object's transform (its node is a child of
+			// the TransformComponent node)
+			lightTransform->setPosition(Orkige::Vec3(4.0f, 5.0f, -2.0f));
+			const Orkige::Vec3 lightWorld = light->getNode()->getWorldPosition();
+			if ((lightWorld - Orkige::Vec3(4.0f, 5.0f, -2.0f)).length() > 1e-3f)
+			{
+				SDL_Log("hello_orkige: FAILED - light does not follow the "
+					"transform node");
+				return 1;
+			}
+			// a dim world with one bright dynamic light (the scene actually lit
+			// by the component, not just the ambient minimum)
+			world->setAmbientLight(Orkige::Color(0.05f, 0.05f, 0.05f));
+			SDL_Log("hello_orkige: LightComponent up - live facade light, params "
+				"applied, follows the transform node");
 		}
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));

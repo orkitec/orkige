@@ -119,16 +119,33 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
-		this->mImpl->ambient = colour;
-		// facade takes one colour; Next splits ambient into hemispheres -
-		// pass it to both (the documented mapping in RenderWorld.h)
-		this->mImpl->sceneManager->setAmbientLight(colour, colour,
-			Ogre::Vector3::UNIT_Y);
+		// the flat ambient is the hemisphere term with both colours equal
+		this->setAmbientHemisphere(colour, colour);
 	}
 	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientLight() const
 	{
 		return this->mImpl->ambient;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setAmbientHemisphere(Color const & upperHemisphere,
+		Color const & lowerHemisphere)
+	{
+		this->mImpl->ambient = upperHemisphere;
+		this->mImpl->ambientLower = lowerHemisphere;
+		// Next carries the native two-colour sky/ground ambient term
+		this->mImpl->sceneManager->setAmbientLight(upperHemisphere,
+			lowerHemisphere, Ogre::Vector3::UNIT_Y);
+	}
+	//---------------------------------------------------------
+	Color const & RenderWorld::getAmbientHemisphereUpper() const
+	{
+		return this->mImpl->ambient;
+	}
+	//---------------------------------------------------------
+	Color const & RenderWorld::getAmbientHemisphereLower() const
+	{
+		return this->mImpl->ambientLower;
 	}
 	//---------------------------------------------------------
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(

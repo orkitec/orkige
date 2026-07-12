@@ -806,6 +806,29 @@ CameraComponent.designHeight
 CameraComponent.ProjectionMode = { PM_PERSPECTIVE, PM_ORTHOGRAPHIC }
 CameraComponent.FitMode = { FM_HEIGHT, FM_WIDTH, FM_EXPAND }
 
+## LightComponent
+LightComponent:hasLight(...)
+LightComponent:setType(...)
+LightComponent:getType(...)
+LightComponent:setColour(...)
+LightComponent:setIntensity(...)
+LightComponent:getIntensity(...)
+LightComponent:setRange(...)
+LightComponent:getRange(...)
+LightComponent:setInnerAngle(...)
+LightComponent:getInnerAngle(...)
+LightComponent:setOuterAngle(...)
+LightComponent:getOuterAngle(...)
+LightComponent:setCastsShadows(...)
+LightComponent:getCastsShadows(...)
+LightComponent.type
+LightComponent.colour
+LightComponent.intensity
+LightComponent.range
+LightComponent.innerAngle
+LightComponent.outerAngle
+LightComponent.castsShadows
+
 ## SoundComponent
 SoundComponent:addSound(...)
 SoundComponent:play(...)

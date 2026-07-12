@@ -20,6 +20,7 @@
 #endif
 #include "engine_gocomponent/SoundComponent.h"
 #include "engine_gocomponent/CameraComponent.h"
+#include "engine_gocomponent/LightComponent.h"
 #include "engine_gocomponent/TransformComponent.h"
 #include "engine_gocomponent/ModelComponent.h"
 #include "engine_gocomponent/SpriteComponent.h"
@@ -56,6 +57,7 @@ ORKIGE_MODULE(orkige_engine)
 	OEXPORT(ParticleComponent)
 	OEXPORT(AnimationComponent)
 	OEXPORT(CameraComponent)
+	OEXPORT(LightComponent)
 	OEXPORT(SoundComponent)
 	OEXPORT(RigidBodyComponent)
 	OEXPORT(ScriptComponent)

@@ -142,7 +142,7 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 | `SpriteQuad.h` | `SpriteQuad` | SpriteComponent needs: texture + texel size, size, UV rect, tint, flips, zOrder (painter's sorting), visibility |
 | `VectorMesh.h` | `VectorMesh` | flat-colour vector-shape content (VectorShapeComponent): a world-space untextured vertex-coloured indexed triangle list refilled from a CPU array (`setMesh`, the SpriteBatch contract), one shared "VectorFill" unlit alpha datablock, zOrder on the SAME painter window as SpriteQuad/SpriteBatch. classic = `ManualObject` OT_TRIANGLE_LIST + "VectorFill" material; next = v2 `ManualObject` SCENE_DYNAMIC + HlmsUnlit datablock. Triangles come from the renderer-free `core_util/VectorTessellator` |
 | `RenderCamera.h` | `RenderCamera` | perspective/ortho (vertical half-extent), FOVy, aspect, near/far clip getters (added so projection switchers preserve the clips), viewport ray + project point, view/projection matrices (gizmo), wireframe toggle |
-| `RenderLight.h` | `RenderLight` | deliberate minimum + room (type/colour/range/spot/shadows) — no live dynamic-light call site exists today |
+| `RenderLight.h` | `RenderLight` | deliberate minimum + room (type/colour/range/spot/shadows) — consumed by `engine_gocomponent/LightComponent` (dir/point/spot, reflected/serialized/Lua/MCP; intensity folds into the colour handed to the facade) |
 | `RenderTexture.h` | `RenderTexture` | editor RTT panel: camera, background, overlays/shadows toggle, resize-by-recreate, native texture id for ImGui, `writeContentsToFile` |
 
 **Not** in the facade, by design: materials as a system (only the two audited material
@@ -225,7 +225,7 @@ out.
 | **Frame loop / rendering** | `Root::renderOneFrame` renders viewports implicitly | Nothing renders without an explicit **CompositorManager2 workspace** per target/window | Next backend creates one window workspace in `RenderSystem` setup + one per `RenderTexture`. Facade signature unchanged |
 | **HUD (Gorilla/gui)** | RenderQueueListener + `manualRender` + hand-built vertex buffers + texel offsets (see audit) — every removed-in-Next API at once | Would need: v2 Renderable + VaoManager buffers + HlmsUnlit + compositor hook. A rewrite, per backend, forever | **Recommend: Gorilla classic-only; future HUD = facade `SpriteQuad` layer** (screen-space ortho camera + zOrder painter sorting — SpriteComponent already proves the primitives). One HUD implementation for every backend incl. Filament, instead of N ports of a dead library. jumper/roller HUDs migrate onto the facade HUD |
 | **Window/stats plumbing** | `RenderWindow::writeContentsToFile/getStatistics/ windowMovedOrResized`; `Viewport::getActualWidth` | `Ogre::Window` + `TextureGpu` readback; stats via RenderSystem metrics/workspace | All behind `RenderSystem` methods already |
-| **Ambient light** | `SceneManager::setAmbientLight(colour)` | `setAmbientLight(upperHemi, lowerHemi, dir)` | Facade takes one colour; Next impl passes it to both hemispheres |
+| **Ambient light** | `SceneManager::setAmbientLight(colour)` | `setAmbientLight(upperHemi, lowerHemi, dir)` | Facade `setAmbientLight` takes one colour (flat); `setAmbientHemisphere(upper, lower)` is native on Next and averaged-to-flat on classic (an honest subset) |
 | **Resources/archives** | `ResourceGroupManager`, `Archive`, BigZip subclass | Same subsystem exists (minor drift); HLMS additionally needs its library folders registered | `addResourceLocation` unchanged; Next backend registers HLMS data in setup |
 
 Filament notes are inline per method in the headers; the structural ones: no scene
@@ -682,6 +682,8 @@ all in place. **Flavor capability matrix**:
 |---|---|---|
 | engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
 | components/game objects/serialization | yes | yes |
+| `LightComponent` (dir/point/spot over `RenderLight`; reflected/serialized/Lua/MCP) | yes | yes (per-flavor lit-vs-unlit selfcheck; the demo meshes carry no PBS normals, so the render-difference probe drives the ambient term) |
+| hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | yes (averaged to flat ambient — honest subset) | yes (native two-colour sky/ground term) |
 | Lua scripting (sol2 module surface) | yes | yes (minus gui usertypes) |
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |

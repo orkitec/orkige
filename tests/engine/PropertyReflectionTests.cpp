@@ -21,8 +21,11 @@
 
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
+#include <engine_gocomponent/LightComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
+
+#include <core_game/SceneSerializer.h>
 
 #include <core_base/PropertyValue.h>
 #include <core_base/PropertySchema.h>
@@ -126,4 +129,98 @@ TEST_CASE("CameraComponent enum + float properties round-trip through the regist
 	ortho->set(instance, PropertyValue::makeFloat(12.5));
 	CHECK(camera.getOrthoSize() == Approx(12.5f));
 	CHECK(ortho->get(instance).asFloat() == Approx(12.5f));
+}
+//---------------------------------------------------------
+TEST_CASE("LightComponent declares its whole light schema through the registry",
+	"[reflection][light]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		LightComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the reflected surface: kind (enum), colour, the intensity/range scalars,
+	// the spot cone angles and the forward-compatible shadow flag
+	PropertyDesc const * type = schema->find("type");
+	REQUIRE(type != nullptr);
+	CHECK(type->kind == PropertyKind::Enum);
+	CHECK(type->enumTypeName == "LightType");
+	REQUIRE(schema->find("colour") != nullptr);
+	CHECK(schema->find("colour")->kind == PropertyKind::Color);
+	REQUIRE(schema->find("intensity") != nullptr);
+	CHECK(schema->find("intensity")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("range") != nullptr);
+	CHECK(schema->find("range")->kind == PropertyKind::Float);
+	REQUIRE(schema->find("innerAngle") != nullptr);
+	REQUIRE(schema->find("outerAngle") != nullptr);
+	REQUIRE(schema->find("castsShadows") != nullptr);
+	CHECK(schema->find("castsShadows")->kind == PropertyKind::Bool);
+	// every field is writable (not a read-only/transient property)
+	CHECK_FALSE(schema->find("intensity")->isReadOnly());
+
+	// the LightType enum value<->label table registered in this config
+	EnumInfo const * lightEnum = TypeManager::getSingleton().findEnum("LightType");
+	REQUIRE(lightEnum != nullptr);
+	CHECK(lightEnum->size() == 3);
+	long long spot = -1;
+	REQUIRE(lightEnum->valueOf("LT_SPOT", spot));
+	CHECK(spot == LightComponent::LT_SPOT);
+}
+//---------------------------------------------------------
+TEST_CASE("LightComponent properties round-trip on a DETACHED component",
+	"[reflection][light]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		LightComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// a detached light (no scene node, no facade light) round-trips every field
+	// through the type-erased get/set - the setters drive the same public API
+	LightComponent light;
+	Object * instance = &light;
+
+	// defaults: a white point light
+	CHECK(schema->find("type")->get(instance).asInt() == LightComponent::LT_POINT);
+	CHECK(schema->find("colour")->get(instance).asColor().r == Approx(1.0f));
+
+	schema->find("type")->set(instance,
+		PropertyValue::makeEnum("LightType", LightComponent::LT_SPOT));
+	CHECK(light.getType() == LightComponent::LT_SPOT);
+	CHECK(schema->find("type")->get(instance).enumTypeName() == "LightType");
+
+	PropColor colour;
+	colour.r = 0.2f; colour.g = 0.4f; colour.b = 0.6f; colour.a = 1.0f;
+	schema->find("colour")->set(instance, PropertyValue::makeColor(colour));
+	CHECK(light.getColour().g == Approx(0.4f));
+
+	schema->find("intensity")->set(instance, PropertyValue::makeFloat(2.5));
+	CHECK(light.getIntensity() == Approx(2.5f));
+	schema->find("range")->set(instance, PropertyValue::makeFloat(42.0));
+	CHECK(light.getRange() == Approx(42.0f));
+	schema->find("innerAngle")->set(instance, PropertyValue::makeFloat(25.0));
+	schema->find("outerAngle")->set(instance, PropertyValue::makeFloat(55.0));
+	CHECK(light.getInnerAngle() == Approx(25.0f));
+	CHECK(light.getOuterAngle() == Approx(55.0f));
+	schema->find("castsShadows")->set(instance, PropertyValue::makeBool(true));
+	CHECK(light.getCastsShadows());
+
+	// the exact serialization path (SceneSerializer capture -> apply, the same
+	// reflected schema saveComponentProperties/loadComponentProperties use)
+	// carries every field onto a fresh component
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(light);
+	LightComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getType() == LightComponent::LT_SPOT);
+	CHECK(restored.getColour().b == Approx(0.6f));
+	CHECK(restored.getIntensity() == Approx(2.5f));
+	CHECK(restored.getRange() == Approx(42.0f));
+	CHECK(restored.getInnerAngle() == Approx(25.0f));
+	CHECK(restored.getOuterAngle() == Approx(55.0f));
+	CHECK(restored.getCastsShadows());
 }

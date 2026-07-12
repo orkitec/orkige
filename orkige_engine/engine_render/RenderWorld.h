@@ -128,6 +128,21 @@ namespace Orkige
 		void setAmbientLight(Color const & colour);
 		//! map: classic/next=SceneManager::getAmbientLight | filament=cached facade value
 		Color const & getAmbientLight() const;
+		//! @brief two-colour sky/ground ambient: @p upperHemisphere lights
+		//! surfaces facing +Y (the sky term), @p lowerHemisphere those facing -Y
+		//! (the ground bounce) - the mobile-cheap image-based-lighting stand-in
+		//! @remarks setAmbientLight(colour) is the flat special case
+		//! (setAmbientHemisphere(colour, colour)).
+		//! map: next=SceneManager::setAmbientLight(upper, lower, UNIT_Y) - the
+		//! native hemisphere term | classic=SceneManager::setAmbientLight with the
+		//! averaged colour (the flavor has flat ambient only - an honest subset) |
+		//! filament=IndirectLight (SH ambient)
+		void setAmbientHemisphere(Color const & upperHemisphere,
+			Color const & lowerHemisphere);
+		//! the upper-hemisphere (sky) ambient colour last set (@see setAmbientHemisphere)
+		Color const & getAmbientHemisphereUpper() const;
+		//! the lower-hemisphere (ground) ambient colour last set (@see setAmbientHemisphere)
+		Color const & getAmbientHemisphereLower() const;
 
 		//--- queries (editor picking) ---
 		//! @brief all scene content whose bounds the ray hits, nearest first

@@ -421,6 +421,17 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_vectorshape PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_VECTORSHAPE=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_LIGHT: the LightComponent headed selfcheck - a GameObject
+    # carries a LightComponent (its own child scene node + a live facade light);
+    # asserts the component built the light, that its reflected parameters
+    # (type/colour/intensity/range/spot angles/shadow flag) applied, that the
+    # light follows the transform node, and that a serialize round-trip carries
+    # every field. Reads component state, not pixels - runs on both flavors.
+    add_test(NAME demo_light COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_light PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LIGHT=1;ORKIGE_DEMO_FRAMES=120")
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test
@@ -1211,7 +1222,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
-        demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
+        demo_light demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene

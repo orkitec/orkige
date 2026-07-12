@@ -128,6 +128,8 @@ set(ORKIGE_ENGINE_SOURCES
     engine_gocomponent/CameraComponent.h
     engine_gocomponent/CameraComponent.cpp
     engine_gocomponent/CameraDefaultModes.h
+    engine_gocomponent/LightComponent.h
+    engine_gocomponent/LightComponent.cpp
     engine_gocomponent/SoundComponent.h
     engine_gocomponent/SoundComponent.cpp
     engine_gocomponent/RigidBodyComponent.h

@@ -233,4 +233,44 @@ namespace SelfcheckBootstrap
 			return false;
 		}
 	}
+	//---------------------------------------------------------
+	float imageMaxBrightness(Orkige::String const & fileName)
+	{
+		std::ifstream file(fileName, std::ios::binary);
+		if(!file)
+		{
+			return -1.0f;
+		}
+		std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
+			std::istreambuf_iterator<char>());
+		if(bytes.empty())
+		{
+			return -1.0f;
+		}
+		try
+		{
+			Ogre::DataStreamPtr stream(new Ogre::MemoryDataStream(
+				bytes.data(), bytes.size(), false /*freeOnClose*/));
+			Ogre::Image image;
+			image.load(stream,
+				fileName.substr(fileName.find_last_of('.') + 1));
+			float best = 0.0f;
+			for(Ogre::uint32 y = 0; y < image.getHeight(); ++y)
+			{
+				for(Ogre::uint32 x = 0; x < image.getWidth(); ++x)
+				{
+					const Ogre::ColourValue pixel = image.getColourAt(x, y, 0);
+					const float luma = (pixel.r + pixel.g + pixel.b) / 3.0f;
+					best = luma > best ? luma : best;
+				}
+			}
+			return best;
+		}
+		catch(Ogre::Exception const & e)
+		{
+			SDL_Log("render_facade_selfcheck: decoding '%s' failed: %s",
+				fileName.c_str(), e.getDescription().c_str());
+			return -1.0f;
+		}
+	}
 }

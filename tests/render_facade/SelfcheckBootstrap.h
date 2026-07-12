@@ -56,6 +56,11 @@ namespace SelfcheckBootstrap
 	bool readImagePixel(Orkige::String const & fileName,
 		unsigned int x, unsigned int y,
 		float & outRed, float & outGreen, float & outBlue);
+	//! @brief verification plumbing: the brightest luminance ((r+g+b)/3) over
+	//! ALL pixels of an image file, in ONE decode (readImagePixel re-decodes
+	//! per call, so a dense probe must go through this). -1 when the file
+	//! cannot be decoded.
+	float imageMaxBrightness(Orkige::String const & fileName);
 }
 
 #endif //__SelfcheckBootstrap_h__8_7_2026__18_00_00__

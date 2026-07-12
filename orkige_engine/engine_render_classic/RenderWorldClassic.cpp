@@ -131,12 +131,34 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderWorld::setAmbientLight(Color const & colour)
 	{
-		this->mImpl->sceneManager->setAmbientLight(colour);
+		// the flat ambient is the hemisphere term with both colours equal
+		this->setAmbientHemisphere(colour, colour);
 	}
 	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientLight() const
 	{
 		return this->mImpl->sceneManager->getAmbientLight();
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setAmbientHemisphere(Color const & upperHemisphere,
+		Color const & lowerHemisphere)
+	{
+		// classic has flat ambient only: cache both hemisphere colours for the
+		// getters and drive the scene with their average (the honest subset)
+		this->mImpl->ambientUpper = upperHemisphere;
+		this->mImpl->ambientLower = lowerHemisphere;
+		this->mImpl->sceneManager->setAmbientLight(
+			(upperHemisphere + lowerHemisphere) * 0.5f);
+	}
+	//---------------------------------------------------------
+	Color const & RenderWorld::getAmbientHemisphereUpper() const
+	{
+		return this->mImpl->ambientUpper;
+	}
+	//---------------------------------------------------------
+	Color const & RenderWorld::getAmbientHemisphereLower() const
+	{
+		return this->mImpl->ambientLower;
 	}
 	//---------------------------------------------------------
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(

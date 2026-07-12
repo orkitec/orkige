@@ -315,7 +315,12 @@ time via stb_vorbis, main-thread refill in `SoundManager::update`, owned by the
 = play/stop/stopAll/isPlaying/setVolume/getPosition, in the "music" mixer group),
 `AnimationComponent`, `CameraComponent` (projection mode + orthoSize + 2D
 aspect fit policy `fitMode`/`designWidth`/`designHeight` serialize; ortho =
-the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`), the Lua
+the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`),
+`LightComponent` (directional/point/spot over the `engine_render` `RenderLight`
+facade — reflected `type`/`colour`/`intensity`/`range`/`innerAngle`/`outerAngle`/
+`castsShadows`, serialized + Lua + MCP through the ONE property registry, follows
+the transform node, both flavors; `RenderWorld::setAmbientHemisphere` adds
+two-colour sky/ground ambient — native on next, averaged-flat on classic), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic
