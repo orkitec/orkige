@@ -242,7 +242,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 63 tools cover the whole
+player debug protocol — never a second player port. The 66 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),

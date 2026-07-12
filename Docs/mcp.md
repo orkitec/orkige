@@ -92,13 +92,13 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 67 tools (the `toolSpecs` table in
+The endpoint advertises 70 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
 | Tool | Maps to |
 |------|---------|
-| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays; plus the runtime perf summary: `frame_ms`, the engine-level allocation counters `alloc_per_frame`/`alloc_peak` with the per-subsystem breakdown in parallel `alloc_tags`/`alloc_counts`, and `profile_seq` — see `get_profile`) |
+| `get_state` | project/scene/dirty/selection/play-mode snapshot (+ the prefab-edit stage: `edit_context` (`scene`/`prefab`), and while a prefab is staged `prefab_path`/`prefab_root`/`prefab_dirty` plus `scene_path`/`scene_dirty` re-reported from the STASHED scene the close restores; + `build_status`/`build_target`/`build_errors` for compile-on-Play; while a play session runs, the streamed-music snapshot: parallel `music_ids`/`music_files` arrays plus a `music_info` string per track — `"playing positionSec durationSec baseGain groupVolume effectiveGain loop"`, streamed on `MSG_STATS`, empty when nothing plays; plus the runtime perf summary: `frame_ms`, the engine-level allocation counters `alloc_per_frame`/`alloc_peak` with the per-subsystem breakdown in parallel `alloc_tags`/`alloc_counts`, and `profile_seq` — see `get_profile`) |
 | `open_project(path)` / `new_project(path)` / `close_project(force)` | `openProjectFromPath` / `newProjectAtPath` / `closeProject` (dirty-state policy) |
 | `new_scene(force)` / `open_scene(scene, force)` / `save_scene(scene)` | `newScene` / `openSceneFromPath` / `saveSceneToPath` |
 | `list_hierarchy()` / `get_object(id)` | `GameObjectManager::getGameObjects` (+ parent/active) |
@@ -128,6 +128,9 @@ The endpoint advertises 67 tools (the `toolSpecs` table in
 | `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`). An `.svg` source is cooked to a native `.oshape` on the way in (`Util/cook_shapes.py`); the returned `path`/`assetId` point at the produced `.oshape` |
 | `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
 | `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
+| `open_prefab(path\|asset)` | **auth** — `openPrefabForEdit` (swap the live scene aside into a temp snapshot and load the `.oprefab` subtree into the ONE edit world). Give the prefab by project-relative/absolute `path` OR stable `asset` id. Returns the stage `root_id` (the file stem) + `prefab_path`; `get_state` reports `edit_context=prefab`. While staged, EVERY editing verb (hierarchy CRUD, `get`/`set_component`, `undo`/`redo`, `screenshot`, `run_editor_script`) operates on the prefab subtree UNCHANGED, and the scene/project lifecycle, `play`, `add_scene_to_levels` and the paint/instance verbs are refused with the prefab-mode error |
+| `save_prefab()` | **auth** — `savePrefabEdit` (write the open stage back to its `.oprefab`; the open scene's instances refresh from the rewritten file with their per-instance overrides re-applied at close). Refused (honest error) when the stage root was deleted or objects exist OUTSIDE the single root. Returns `prefab_path` |
+| `close_prefab(policy)` | **auth** — `closePrefabEdit` (restore the snapshotted scene and pop the stage). `policy` is REQUIRED — `save` (write the prefab first; a refused save cancels the close) or `discard` (drop unsaved stage edits). Returns the restored `scene_path`; `get_state` reports `edit_context=scene` again |
 | `list_paintable_assets()` | `searchAssets` (the project's paintable palette: prefabs + textures + `.oshape`) + `EditorCore::resolvePaintGrid` → parallel `paths`/`names`/`kinds` (`prefab`/`texture`/`shape`), `count` and the grid `origin_x`/`origin_y`/`cell_size` |
 | `list_paint_prefabs()` | back-compat alias of `list_paintable_assets` (lists textures + shapes too, not prefabs only; same result shape incl. `kinds`) |
 | `paint_asset(asset, cell?, position?, suppressed?)` | **auth** — `EditorCore::paintTileAtCell` (paint a tile into one grid cell as one undo step; same cell replaces its occupant of ANY kind). A `.oprefab` `asset` instantiates the prefab; a texture or `.oshape` paints a BARE tile (a grid-cell sprite/shape object carrying a `TileComponent` source id — no prefab file) → the painted-root `id`, `kind`, snapped `col`/`row`/`x`/`y`, `painted` |
@@ -688,6 +691,15 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   It also drives `run_editor_script` end to end: `write_project_file`s a
   `scripts/*.editor.lua` tool, an AUTH-REJECTED `run_editor_script`, then the
   authed run — asserting the object the tool authored appears in `list_hierarchy`.
+  It then exercises PREFAB EDIT MODE over MCP: an auth-rejected `open_prefab`,
+  the authed `open_prefab` (the stage roots at the file stem, `get_state` reports
+  `edit_context=prefab`, and the swapped-out scene object is gone from
+  `list_hierarchy`), an ordinary editing chain against the stage
+  (`create_object`→`reparent_object`→`set_component` on a child, read back), a
+  `save_scene` REFUSED with the prefab-mode error, `save_prefab`, a
+  policy-less `close_prefab` refused, then `close_prefab {discard}` — asserting
+  `get_state` returns to `edit_context=scene` and the swapped-out scene object is
+  back in `list_hierarchy`.
   It also covers the RUN tools:
   `list_play_targets` reports the desktop target, and `export_project` refuses an
   unauthenticated request, a no-project request, an unknown platform and (on a

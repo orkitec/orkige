@@ -340,6 +340,49 @@ get_state {}                                //   → poll until play_mode:"playi
 unsaved or outside the project root, or the scene is already in the sequence —
 read the reply back rather than assuming the append took.
 
+## 4b. Edit a prefab asset in isolation
+
+Change a `.oprefab` ONCE and every instance across every scene picks the edit up
+(instances re-instantiate from the file at their next load, per-instance
+overrides re-applied). `open_prefab` swaps the live scene aside into a temp
+snapshot and loads the prefab subtree into the ONE edit world, so every ordinary
+editing verb works on the prefab UNCHANGED — this is the single-world payoff, not
+a second set of verbs. While staged, the scene/project lifecycle, `play`,
+`add_scene_to_levels` and the paint/instance verbs are refused with a clear
+prefab-mode error (read the reply back — you get an honest message, not a silent
+no-op).
+
+```jsonc
+// 1. open the prefab (by project path, or by stable "asset" id). The stage root
+//    is the file stem; get_state now reports the prefab context.
+open_prefab { "path":"assets/Enemy.oprefab" }   // authed → { "root_id":"Enemy", "prefab_path":".../Enemy.oprefab" }
+get_state {}                                     //   → { "edit_context":"prefab", "prefab_root":"Enemy",
+                                                 //       "prefab_path":".../Enemy.oprefab", "prefab_dirty":"0", ... }
+
+// 2. the world is the prefab subtree only — edit it with the NORMAL verbs.
+list_hierarchy {}                               // → the prefab's objects (the scene is swapped out)
+set_component { "id":"Enemy/Body", "component":"SpriteComponent",
+                "properties": { "zOrder":"3" } }   // authed — edits a child of the prefab
+
+// 3. a scene/project verb is refused while staged (honest prefab-mode error):
+save_scene {}                                   // authed → isError: "save_scene is unavailable while a prefab is open ..."
+
+// 4. write the asset, then pop back to the scene. close_prefab REQUIRES a policy:
+//    "save" writes first (a refused save cancels the close), "discard" drops
+//    unsaved stage edits. A policy-less close is refused.
+save_prefab {}                                  // authed → { "prefab_path":".../Enemy.oprefab" }
+close_prefab { "policy":"discard" }             // authed → { "scene_path":".../level.oscene" }
+get_state {}                                    //   → { "edit_context":"scene", ... } (the scene is back;
+                                                 //       its Enemy instances refreshed from the edited file)
+```
+
+Entering prefab mode drops the current scene's undo history (per-context scope,
+like opening another scene); `save_prefab` refuses (isError) when the stage root
+was deleted or objects exist OUTSIDE the single root (parent them under the root
+first). The `scene_path`/`scene_dirty` in `get_state` keep reporting the STASHED
+scene while staged, so your model of the document you will return to stays
+truthful.
+
 ## 5. Design a UI screen (the collaborative preview loop)
 
 Author a `.oui` screen, see it rendered at real device sizes WITHOUT booting the

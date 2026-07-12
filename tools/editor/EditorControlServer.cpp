@@ -687,6 +687,25 @@ namespace Orkige
 				type == "get_profile" || type == "get_lua_api";
 		}
 		//---------------------------------------------------------
+		//! @brief verbs refused while a prefab edit stage is open: they address
+		//! the SCENE/PROJECT document, Play, the paint grid or prefab instancing
+		//! - none of which fit the single-root isolation stage (the editor's
+		//! prefabEditBlocks guard refuses the same actions in the UI, so an MCP
+		//! agent gets the same honest error instead of a generic document-level
+		//! refusal). The prefab lifecycle verbs (open/save/close_prefab) and
+		//! every pure editing/read verb are allowed through - they operate on
+		//! "the world" the stage swapped the prefab subtree into.
+		bool isBlockedInPrefabEdit(String const& type)
+		{
+			return type == "new_scene" || type == "open_scene" ||
+				type == "save_scene" || type == "open_project" ||
+				type == "new_project" || type == "close_project" ||
+				type == "play" || type == "add_scene_to_levels" ||
+				type == "create_prefab" || type == "instantiate_prefab" ||
+				type == "paint_asset" || type == "paint_prefab" ||
+				type == "erase_cell";
+		}
+		//---------------------------------------------------------
 		//--- project-root path jail (write/read/list authoring) --
 		//---------------------------------------------------------
 		//! @brief jail a caller-supplied path inside the open project's root. The
@@ -1367,6 +1386,43 @@ namespace Orkige
 				      "project-relative .oprefab path", true },
 				    { "parent", "string",
 				      "parent GameObject id (default: a scene root)", false } } },
+				{ "open_prefab",
+				  "Open a .oprefab ASSET for editing in the isolation stage (the "
+				  "asset browser's double-click / hierarchy 'Open Prefab' over MCP; "
+				  "needs auth). The live scene is snapshotted aside and the prefab "
+				  "subtree is swapped into the ONE edit world, so EVERY editing verb "
+				  "(create/delete/rename/reparent, get/set_component, undo/redo, "
+				  "screenshot, run_editor_script) then operates on the prefab "
+				  "unchanged. Give the prefab by 'path' (project-relative or "
+				  "absolute) OR by stable 'asset' id. While staged the scene/project "
+				  "lifecycle, play and the paint/instance verbs are refused (edit the "
+				  "prefab, then close_prefab). Returns the stage 'root_id' (the file "
+				  "stem) and 'prefab_path'. get_state reports edit_context='prefab'.",
+				  { { "path", "string",
+				      "project-relative or absolute .oprefab path", false },
+				    { "asset", "string",
+				      "stable asset id of the .oprefab (alternative to 'path')",
+				      false } } },
+				{ "save_prefab",
+				  "Write the open prefab stage back to its .oprefab asset (Cmd/Ctrl+S "
+				  "in prefab mode; needs auth). Refused with an honest error when the "
+				  "stage root was deleted or objects exist OUTSIDE the single root "
+				  "(savePrefab writes ONE subtree - strays would be silently lost; "
+				  "parent them under the root or delete them). The open scene's "
+				  "instances refresh from the rewritten file with their per-instance "
+				  "overrides re-applied at close. Returns 'prefab_path'.",
+				  {} },
+				{ "close_prefab",
+				  "Close the prefab isolation stage and restore the scene (needs "
+				  "auth). 'policy' is REQUIRED (a headless caller never sees the UI "
+				  "confirm modal): 'save' writes the prefab first (a refused save "
+				  "cancels the close), 'discard' drops the unsaved stage edits (the "
+				  ".oprefab keeps its last save). The reopened scene's prefab "
+				  "instances rebuild from the (possibly edited) file with their "
+				  "overrides re-applied. Returns the restored 'scene_path'; get_state "
+				  "reports edit_context='scene' again.",
+				  { { "policy", "string",
+				      "'save' | 'discard' (required)", true } } },
 				{ "console_tail",
 				  "The last N editor Console lines (default 50, max 200).",
 				  { { "count", "integer", "how many lines (1-200)", false } } },
@@ -1988,6 +2044,21 @@ namespace Orkige
 			return;
 		}
 
+		// prefab edit mode gate: while the isolation stage is open, the verbs
+		// that address the scene/project document, Play, the paint grid or
+		// prefab instancing are refused with an honest error naming the mode -
+		// the same set the editor's prefabEditBlocks guard covers. Every pure
+		// editing verb (hierarchy CRUD, get/set_component, undo/redo,
+		// screenshot, run_editor_script) runs against the prefab stage
+		// UNCHANGED, and open/save/close_prefab pass through.
+		if (isPrefabEditActive(state) && isBlockedInPrefabEdit(type))
+		{
+			this->sendErr(req, type + " is unavailable while a prefab is open in "
+				"the isolation stage - edit the prefab, then close_prefab (use "
+				"save_prefab to write it, or open_scene/play once closed)");
+			return;
+		}
+
 		// destructive open/new/close verbs clobber the current world; honor the
 		// dirty-state policy (refuse unless force=1 or the scene is clean)
 		auto clobberRefused = [&](void) -> bool
@@ -2032,6 +2103,23 @@ namespace Orkige
 			ok.set("project_root", state.project.getRootDirectory());
 			ok.set("scene_path", state.currentScenePath);
 			ok.set("scene_dirty", core.isSceneDirty() ? "1" : "0");
+			// prefab edit stage: while a .oprefab is open in the isolation stage
+			// the editing verbs address the prefab subtree, not the scene.
+			// edit_context tells the two apart; when staged, scene_path/
+			// scene_dirty above are re-reported from the STASHED scene (the one
+			// the close will restore) so the agent's model of the document it
+			// returns to stays truthful, and prefab_* describes the live stage.
+			const bool inPrefabEdit = isPrefabEditActive(state);
+			ok.set("edit_context", inPrefabEdit ? "prefab" : "scene");
+			if (inPrefabEdit)
+			{
+				PrefabEditContext const& prefab = state.prefabEditStack.back();
+				ok.set("prefab_path", prefab.prefabPath);
+				ok.set("prefab_root", prefab.rootId);
+				ok.set("prefab_dirty", core.isSceneDirty() ? "1" : "0");
+				ok.set("scene_path", prefab.stashedScenePath);
+				ok.set("scene_dirty", prefab.stashedSceneDirty ? "1" : "0");
+			}
 			ok.set("selected", core.getSelectedObjectId());
 			ok.set("object_count",
 				std::to_string(manager.getGameObjects().size()));
@@ -3920,6 +4008,121 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.set(DebugProtocol::FIELD_ID, rootId);
 			ok.set("path", relative);
+			this->sendOk(req, ok);
+			return;
+		}
+
+		//--- prefab edit mode (the isolation stage over MCP) -
+		// open_prefab / save_prefab / close_prefab wrap the EditorDocument free
+		// functions 1:1. While a prefab is staged the pure editing verbs above
+		// operate on the prefab subtree unchanged (the single-world payoff);
+		// get_state reports the stage (edit_context/prefab_*). See open_scene's
+		// refusal in the prefab-mode gate at the top of handleMessage.
+		if (type == "open_prefab")
+		{
+			// give the .oprefab by 'path' (project-relative or absolute) or by
+			// stable 'asset' id (resolved to a project path like import_asset)
+			String pathArg = request.get("path");
+			if (pathArg.empty())
+			{
+				const String assetId = request.get("asset");
+				if (!assetId.empty() && state.project.isLoaded())
+				{
+					if (optr<AssetDatabase> const& database =
+						state.project.getAssetDatabase())
+					{
+						pathArg = database->pathForId(assetId);
+					}
+				}
+			}
+			if (pathArg.empty())
+			{
+				this->sendErr(req, "open_prefab needs a 'path' (project-relative "
+					"or absolute .oprefab) or an 'asset' stable id");
+				return;
+			}
+			// a relative ref resolves against the project root (the paint/
+			// instantiate verbs' convention)
+			std::filesystem::path absolute(pathArg);
+			if (!absolute.is_absolute() && state.project.isLoaded())
+			{
+				absolute =
+					std::filesystem::path(state.project.resolvePath(pathArg));
+			}
+			if (absolute.extension() != ".oprefab")
+			{
+				this->sendErr(req, "open_prefab: '" + pathArg + "' is not a "
+					".oprefab file");
+				return;
+			}
+			if (!openPrefabForEdit(state, core, absolute.string()))
+			{
+				this->sendErr(req, "open_prefab refused - already editing a "
+					"prefab, or '" + pathArg + "' is missing/corrupt/nested (see "
+					"the editor log)");
+				return;
+			}
+			PrefabEditContext const& opened = state.prefabEditStack.back();
+			DebugMessage ok(MSG_OK);
+			ok.set("root_id", opened.rootId);
+			ok.set("prefab_path", opened.prefabPath);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "save_prefab")
+		{
+			if (!isPrefabEditActive(state))
+			{
+				this->sendErr(req, "save_prefab: no prefab is open (call "
+					"open_prefab first)");
+				return;
+			}
+			const String prefabPath = state.prefabEditStack.back().prefabPath;
+			if (!savePrefabEdit(state, core))
+			{
+				this->sendErr(req, "save_prefab refused - the prefab root was "
+					"deleted or objects exist outside it (see the editor log)");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("prefab_path", prefabPath);
+			this->sendOk(req, ok);
+			return;
+		}
+		if (type == "close_prefab")
+		{
+			if (!isPrefabEditActive(state))
+			{
+				this->sendErr(req, "close_prefab: no prefab is open");
+				return;
+			}
+			// policy is required (a headless caller never sees the UI confirm
+			// modal): 'save' writes the prefab first (a refused save cancels the
+			// close), 'discard' drops the unsaved stage edits
+			const String& policyArg = request.get("policy");
+			PrefabClosePolicy policy = PrefabClosePolicy::Discard;
+			if (policyArg == "save")
+			{
+				policy = PrefabClosePolicy::Save;
+			}
+			else if (policyArg != "discard")
+			{
+				this->sendErr(req, "close_prefab needs an explicit 'policy': "
+					"'save' (write the prefab first) or 'discard' (drop unsaved "
+					"stage edits)");
+				return;
+			}
+			const String scenePath =
+				state.prefabEditStack.back().stashedScenePath;
+			if (!closePrefabEdit(state, core, policy))
+			{
+				this->sendErr(req, "close_prefab failed - saving the prefab was "
+					"refused, or the scene snapshot could not be restored (see "
+					"the editor log)");
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("scene_path", scenePath);
 			this->sendOk(req, ok);
 			return;
 		}
@@ -6774,6 +6977,257 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - run_editor_script OK "
 				"(authored + ran a tool; auth enforced)");
+		}
+
+		// (22) PREFAB EDIT MODE (the isolation stage over MCP): open_prefab swaps
+		// the scene out for the prefab subtree, the ordinary editing verbs work on
+		// the stage UNCHANGED, a scene/project/play verb is refused with the
+		// prefab-mode error, and close_prefab restores the scene. The authoring
+		// project is still open and carries assets/McpProbe.oprefab (root stem
+		// "McpProbe") from (20); McpToolCube is a scene object from (8c).
+		{
+			JsonValue structured;
+			bool isError = true;
+
+			// pre-state: the world is the SCENE (not a prefab stage)
+			JsonValue before;
+			if (!getState(before) ||
+				before.get("edit_context").asString() != "scene")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: get_state did not report the "
+					"scene edit context before open_prefab");
+				return;
+			}
+
+			// open_prefab WITHOUT auth is refused (mutation) and opens nothing
+			JsonValue openArgs = JsonValue::object();
+			openArgs.set("path", JsonValue(String("assets/McpProbe.oprefab")));
+			bool unauthError = false;
+			if (!callTool("open_prefab", openArgs, false, structured,
+					unauthError) || !unauthError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated open_prefab was "
+					"NOT rejected");
+				return;
+			}
+			JsonValue afterReject;
+			if (!getState(afterReject) ||
+				afterReject.get("edit_context").asString() != "scene")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: a rejected open_prefab still "
+					"entered the prefab stage");
+				return;
+			}
+
+			// open_prefab (authed): the stage root is the file stem
+			isError = true;
+			if (!callTool("open_prefab", openArgs, true, structured, isError) ||
+				isError || structured.get("root_id").asString() != "McpProbe")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: open_prefab did not open the "
+					"stage rooted at 'McpProbe'");
+				return;
+			}
+
+			// get_state now reports the prefab context (root + path), and the
+			// STASHED scene fields are still surfaced
+			JsonValue staged;
+			if (!getState(staged) ||
+				staged.get("edit_context").asString() != "prefab" ||
+				staged.get("prefab_root").asString() != "McpProbe" ||
+				staged.get("prefab_path").asString().empty())
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: get_state did not report the "
+					"prefab stage (edit_context/prefab_root/prefab_path)");
+				return;
+			}
+
+			// the world is now the prefab subtree only: the stage root is there,
+			// the scene's McpToolCube is swapped out
+			JsonValue hier;
+			bool hierErr = true;
+			if (!callTool("list_hierarchy", JsonValue::object(), false, hier,
+					hierErr) || hierErr)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: list_hierarchy in the prefab "
+					"stage failed");
+				return;
+			}
+			{
+				JsonValue const& ids = hier.get("ids");
+				bool hasRoot = false;
+				bool hasSceneObject = false;
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == "McpProbe") hasRoot = true;
+					if (ids.at(i).asString() == "McpToolCube") hasSceneObject = true;
+				}
+				if (!hasRoot || hasSceneObject)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: the prefab stage did not "
+						"swap the scene out for the prefab subtree");
+					return;
+				}
+			}
+
+			// an ordinary editing chain runs against the stage UNCHANGED: create a
+			// child under the root and edit a reflected property on it
+			JsonValue childArgs = JsonValue::object();
+			childArgs.set("id", JsonValue(String("PrefabStageChild")));
+			childArgs.set("mesh", JsonValue(String("cube")));
+			isError = true;
+			if (!callTool("create_object", childArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: create_object in the prefab "
+					"stage failed");
+				return;
+			}
+			JsonValue reparentArgs = JsonValue::object();
+			reparentArgs.set("id", JsonValue(String("PrefabStageChild")));
+			reparentArgs.set("parent", JsonValue(String("McpProbe")));
+			isError = true;
+			if (!callTool("reparent_object", reparentArgs, true, structured,
+					isError) || isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: reparent under the prefab root "
+					"failed");
+				return;
+			}
+			JsonValue childProps = JsonValue::object();
+			childProps.set("position", JsonValue(String("5 6 7")));
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("id", JsonValue(String("PrefabStageChild")));
+			setArgs.set("component", JsonValue(String("TransformComponent")));
+			setArgs.set("properties", childProps);
+			isError = true;
+			if (!callTool("set_component", setArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: set_component on a prefab-stage "
+					"child failed");
+				return;
+			}
+			JsonValue readArgs = JsonValue::object();
+			readArgs.set("id", JsonValue(String("PrefabStageChild")));
+			readArgs.set("component", JsonValue(String("TransformComponent")));
+			isError = true;
+			if (!callTool("get_component", readArgs, false, structured, isError) ||
+				isError || structured.get("position").asString() != "5 6 7")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the prefab-stage child edit did "
+					"not read back");
+				return;
+			}
+
+			// a scene/project verb is refused while staged, with the prefab-mode
+			// error naming the mode (not a generic failure). Read the error text
+			// off the tool result directly (an isError carries no
+			// structuredContent).
+			{
+				JsonValue params = JsonValue::object();
+				params.set("name", JsonValue(String("save_scene")));
+				JsonValue emptyArgs = JsonValue::object();
+				params.set("arguments", emptyArgs);
+				JsonValue reply;
+				if (!post("tools/call", params, true, true, reply))
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: blocked-verb call had a "
+						"transport failure");
+					return;
+				}
+				JsonValue const& result = reply.get("result");
+				const String message =
+					result.get("content").at(0).get("text").asString();
+				if (!result.get("isError").asBool(false) ||
+					message.find("prefab") == String::npos)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: save_scene in prefab mode was "
+						"not refused with the prefab-mode error");
+					return;
+				}
+			}
+
+			// save_prefab (authed) writes the stage back to its .oprefab
+			isError = true;
+			if (!callTool("save_prefab", JsonValue::object(), true, structured,
+					isError) || isError ||
+				structured.get("prefab_path").asString().empty())
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: save_prefab did not write the "
+					"stage");
+				return;
+			}
+
+			// close_prefab requires an explicit policy
+			bool policyError = false;
+			if (!callTool("close_prefab", JsonValue::object(), true, structured,
+					policyError) || !policyError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: close_prefab without a policy was "
+					"NOT refused");
+				return;
+			}
+
+			// close_prefab {discard} (authed) restores the scene
+			JsonValue closeArgs = JsonValue::object();
+			closeArgs.set("policy", JsonValue(String("discard")));
+			isError = true;
+			if (!callTool("close_prefab", closeArgs, true, structured, isError) ||
+				isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: close_prefab {discard} failed");
+				return;
+			}
+
+			// back to the scene: edit_context restored and the scene object is
+			// present again (the swapped-out world came back)
+			JsonValue restored;
+			if (!getState(restored) ||
+				restored.get("edit_context").asString() != "scene")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: get_state did not report the "
+					"scene context after close_prefab");
+				return;
+			}
+			JsonValue restoredHier;
+			hierErr = true;
+			bool sceneRestored = false;
+			if (callTool("list_hierarchy", JsonValue::object(), false,
+					restoredHier, hierErr) && !hierErr)
+			{
+				JsonValue const& ids = restoredHier.get("ids");
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == "McpToolCube") sceneRestored = true;
+				}
+			}
+			if (!sceneRestored)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: the scene was not restored after "
+					"close_prefab (McpToolCube missing)");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - prefab edit mode OK "
+				"(open/edit-in-stage/blocked-verb/save/close, scene restored)");
 		}
 
 		fs::remove_all(authRoot, authIgnored);
