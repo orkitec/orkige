@@ -48,6 +48,8 @@ add_executable(orkige_core_tests
     VectorTessellatorTests.cpp
     VectorShapeAssetTests.cpp
     VectorShapeRasterTests.cpp
+    VectorAnimAssetTests.cpp
+    VectorAnimEvalTests.cpp
     WobbleSpringTests.cpp
     SoftBodyDeformTests.cpp
     GuiAnimationTests.cpp
