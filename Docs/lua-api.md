@@ -135,6 +135,11 @@ locale.get() -> string  -- the active language code
 locale.list() -> table  -- the loaded language codes, sorted (source included)
 locale.getSource() -> string  -- the source (authored) language code
 
+## benchmark
+benchmark.begin(name)  -- start/restart/rename the current benchmark scene aggregation (no-op unless armed)
+benchmark.endScene()  -- close the current benchmark scene and write its record (no-op unless armed)
+benchmark.isArmed() -> bool  -- is a benchmark run being recorded
+
 ## timer
 timer.after(seconds, fn) -> TimerHandle  -- run fn() ONCE after a delay; sandbox-scoped (auto-cancels on retire)
 timer.every(seconds, fn) -> TimerHandle  -- run fn() every `seconds`; sandbox-scoped (auto-cancels on retire)

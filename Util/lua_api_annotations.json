@@ -340,6 +340,18 @@
 		"sig": "() -> bool",
 		"doc": "autosave point - write to disk now"
 	},
+	"benchmark.begin": {
+		"sig": "(name)",
+		"doc": "start/restart/rename the current benchmark scene aggregation (no-op unless armed)"
+	},
+	"benchmark.endScene": {
+		"sig": "()",
+		"doc": "close the current benchmark scene and write its record (no-op unless armed)"
+	},
+	"benchmark.isArmed": {
+		"sig": "() -> bool",
+		"doc": "is a benchmark run being recorded"
+	},
 	"Vector3": {
 		"sig": "(x, y, z)",
 		"doc": "3D vector / point"

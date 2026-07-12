@@ -33,6 +33,7 @@
 #include <core_game/TimeControl.h>
 #include <core_game/GameState.h>
 #include <core_debug/CVarManager.h>
+#include <core_debug/BenchmarkRecorder.h>
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <core_script/ScriptEventBus.h>
@@ -1773,6 +1774,39 @@ namespace Orkige
 		{
 			return SaveStore::getSingletonPtr() &&
 				SaveStore::getSingleton().flush();
+		});
+
+		// ================= THE `benchmark` TABLE (perf capture) ===========
+		// Mark scene boundaries for the per-scene performance recorder
+		// (core_debug/BenchmarkRecorder). OPT-IN and dormant: the recorder
+		// only writes an artifact once the player armed it from an env; the
+		// editor never arms it, so every call is an honest no-op there.
+		//   benchmark.begin(name)  start (or restart/rename) a scene aggregation
+		//   benchmark.endScene()   close the current scene, write its record
+		//                          ('end' is a Lua keyword, so the method is
+		//                           spelled endScene)
+		//   benchmark.isArmed()    is a run being recorded (env-armed player)
+		// A level switch is ALSO a scene boundary (the player calls beginScene
+		// on each deferred load), so begin composes: an explicit begin renames/
+		// restarts the current aggregation for a director-authored benchmark.
+		runtime.registerFunction("benchmark", "begin", [](String const & name)
+		{
+			if (BenchmarkRecorder::getSingletonPtr())
+			{
+				BenchmarkRecorder::getSingleton().beginScene(name);
+			}
+		});
+		runtime.registerFunction("benchmark", "endScene", []()
+		{
+			if (BenchmarkRecorder::getSingletonPtr())
+			{
+				BenchmarkRecorder::getSingleton().endScene();
+			}
+		});
+		runtime.registerFunction("benchmark", "isArmed", []() -> bool
+		{
+			return BenchmarkRecorder::getSingletonPtr() &&
+				BenchmarkRecorder::getSingleton().isArmed();
 		});
 
 		// ================= THE `events` TABLE (the message bus) ============

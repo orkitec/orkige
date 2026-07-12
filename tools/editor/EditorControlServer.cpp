@@ -686,6 +686,7 @@ namespace Orkige
 				type == "list_paint_prefabs" ||
 				type == "list_paintable_assets" || type == "get_safe_area" ||
 				type == "get_ui_layout" || type == "get_breadcrumbs" ||
+				type == "get_benchmark_results" ||
 				type == "get_profile" || type == "get_lua_api";
 		}
 		//---------------------------------------------------------
@@ -1240,6 +1241,22 @@ namespace Orkige
 				  "the resolved 'dir'. Empty strings when a file is absent. "
 				  "Read-only.",
 				  {} },
+				{ "get_benchmark_results",
+				  "The per-scene performance results the player captured to disk "
+				  "when armed with a benchmark run (ORKIGE_BENCHMARK): a JSONL "
+				  "artifact with one 'meta' line (device/OS/GPU, flavor, render "
+				  "system, build sha, scenario), one 'scene' record per scene "
+				  "(frame-ms min/avg/p50/p95/p99/max, per-phase means, alloc "
+				  "mean+peak, RSS peak, triangle/batch/texture means) and a "
+				  "closing 'summary'. Like get_breadcrumbs this is pure file I/O "
+				  "from the player's writable app dir (its project jail cannot "
+				  "reach it). Picks the newest benchmark-*.jsonl, or the named "
+				  "'file'. Returns the raw 'text', the parsed 'meta'/'summary' "
+				  "lines, a 'scenes' array (one JSON object per scene), "
+				  "'scene_count', 'aborted' and the resolved 'dir'/'file'. Empty "
+				  "when no artifact exists. Read-only.",
+				  { { "file", "string",
+				      "artifact file name to read (omit = newest)", false } } },
 				{ "get_profile",
 				  "The RUNNING game's CPU frame profile: the last streamed "
 				  "hierarchical scope snapshot as parallel lists 'names' and "
@@ -3752,6 +3769,109 @@ namespace Orkige
 			ok.set("previous", previous);
 			ok.set("live_bytes", std::to_string(live.size()));
 			ok.set("previous_bytes", std::to_string(previous.size()));
+			this->sendOk(req, ok);
+			return;
+		}
+		// get_benchmark_results: read the per-scene performance artifact the
+		// player wrote to its writable app dir (like get_breadcrumbs, pure file
+		// I/O - the artifact outlives the player). Picks the newest
+		// benchmark-*.jsonl by default, or the named 'file'; parses the JSONL
+		// into the meta line, one string per scene record and the summary line
+		// (the whole raw text too). ORKIGE_BENCHMARK_DIR overrides the directory
+		// (matches the player's own override, used for test isolation).
+		if (type == "get_benchmark_results")
+		{
+			std::string dir;
+			if (const char* dirEnv = std::getenv("ORKIGE_BENCHMARK_DIR"))
+			{
+				dir = dirEnv;
+			}
+			else
+			{
+				dir = PlatformUtil::getSupportDirectory("Orkige Player");
+			}
+			if (!dir.empty() && dir.back() != '/')
+			{
+				dir += '/';
+			}
+			// choose the artifact: an explicit 'file' (basename), else the newest
+			// benchmark-*.jsonl in the directory (by last-write time)
+			String chosen = request.get("file");
+			if (chosen.empty())
+			{
+				std::error_code listErr;
+				std::filesystem::file_time_type newest{};
+				for (std::filesystem::directory_iterator it(dir, listErr), end;
+					it != end; it.increment(listErr))
+				{
+					if (listErr)
+					{
+						break;
+					}
+					const std::filesystem::path& path = it->path();
+					const std::string name = path.filename().string();
+					if (name.rfind("benchmark-", 0) != 0 ||
+						path.extension() != ".jsonl")
+					{
+						continue;
+					}
+					std::error_code timeErr;
+					const std::filesystem::file_time_type when =
+						std::filesystem::last_write_time(path, timeErr);
+					if (!timeErr && (chosen.empty() || when > newest))
+					{
+						newest = when;
+						chosen = name;
+					}
+				}
+			}
+			String text;
+			if (!chosen.empty())
+			{
+				Breadcrumbs::loadFile(dir + chosen, text);
+			}
+			// split the JSONL and classify each line (meta / scene / summary)
+			String meta;
+			String summary;
+			StringVector scenes;
+			bool aborted = false;
+			std::istringstream lineStream(text);
+			std::string jsonLine;
+			while (std::getline(lineStream, jsonLine))
+			{
+				if (jsonLine.empty())
+				{
+					continue;
+				}
+				JsonValue value;
+				if (!JsonValue::parse(jsonLine, value) || !value.isObject())
+				{
+					continue;
+				}
+				const String kind = value.get("type").asString();
+				if (kind == "meta")
+				{
+					meta = jsonLine;
+				}
+				else if (kind == "scene")
+				{
+					scenes.push_back(jsonLine);
+				}
+				else if (kind == "summary")
+				{
+					summary = jsonLine;
+					aborted = value.get("aborted").asBool();
+				}
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("dir", dir);
+			ok.set("file", chosen);
+			ok.set("text", text);
+			ok.set("meta", meta);
+			ok.set("summary", summary);
+			ok.set("scene_count", std::to_string(scenes.size()));
+			ok.set("aborted", aborted ? "true" : "false");
+			ok.setList("scenes", scenes);
 			this->sendOk(req, ok);
 			return;
 		}

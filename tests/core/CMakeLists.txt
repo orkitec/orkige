@@ -17,6 +17,7 @@ add_executable(orkige_core_tests
     MemorySamplerTests.cpp
     MemoryManagerTests.cpp
     ProfileManagerTests.cpp
+    BenchmarkRecorderTests.cpp
     JsonTests.cpp
     HttpServerTests.cpp
     EventTests.cpp

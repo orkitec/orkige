@@ -75,9 +75,11 @@
 #include <core_project/Project.h>
 #include <core_debug/CVarManager.h>
 #include <core_debug/Breadcrumbs.h>
+#include <core_debug/BenchmarkRecorder.h>
 #include <core_debug/MemoryManager.h>
 #include <core_debug/Profile.h>
 #include <core_debugnet/DebugServer.h>
+#include <core_debugnet/Json.h>
 #include <engine_base/EngineLog.h>
 #include <core_util/PlatformUtil.h>
 #include <core_util/StringUtil.h>
@@ -91,11 +93,13 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 
@@ -370,6 +374,10 @@ int main(int argc, char** argv)
 	// writable app dir (see the setFile block below) so the editor can read
 	// the PREVIOUS session's trail after an abnormal exit.
 	Orkige::Breadcrumbs breadcrumbs;
+	// per-scene performance capture (core_debug/BenchmarkRecorder): dormant
+	// unless armed from ORKIGE_BENCHMARK below. Declared alongside breadcrumbs
+	// so its results artifact is flushed through the whole teardown.
+	Orkige::BenchmarkRecorder benchmarkRecorder;
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window (mobile
 	// fullscreen / desktop high-pixel-density), engine singletons, the
 	// per-flavor Engine boot, the window-camera rig and the GameObject world
@@ -425,6 +433,103 @@ int main(int argc, char** argv)
 				breadcrumbs.setFile(breadcrumbDir + "breadcrumbs.jsonl");
 				breadcrumbs.rotate();
 				breadcrumbs.record("boot", scenePath);
+			}
+			// per-scene benchmark capture: OPT-IN, armed only when ORKIGE_BENCHMARK
+			// is set. Writes a JSONL results artifact (benchmark-<utcstamp>.jsonl)
+			// into the same writable app dir as the breadcrumbs (ORKIGE_BENCHMARK_DIR
+			// overrides it for test isolation). The compiled-in identity - flavor,
+			// render system, build config, platform, sha (from ORKIGE_BUILD_SHA;
+			// there is no compiled-in sha define) - is gathered here.
+			if (std::getenv("ORKIGE_BENCHMARK") != nullptr)
+			{
+				// ISO 8601 UTC start stamp + a filesystem-safe file stamp
+				const std::time_t nowTime = std::time(nullptr);
+				std::tm utcTm{};
+#if defined(_WIN32)
+				gmtime_s(&utcTm, &nowTime);
+#else
+				gmtime_r(&nowTime, &utcTm);
+#endif
+				char isoBuf[32] = { 0 };
+				char stampBuf[32] = { 0 };
+				std::strftime(isoBuf, sizeof(isoBuf), "%Y-%m-%dT%H:%M:%SZ", &utcTm);
+				std::strftime(stampBuf, sizeof(stampBuf), "%Y%m%dT%H%M%SZ", &utcTm);
+
+				Orkige::BenchmarkMeta meta;
+				meta.utc = isoBuf;
+				if (const char* sha = std::getenv("ORKIGE_BUILD_SHA"))
+				{
+					meta.engineSha = sha;
+				}
+#ifdef ORKIGE_RENDER_NEXT
+				meta.flavor = "next";
+#else
+				meta.flavor = "classic";
+#endif
+#if defined(ORKIGE_IPHONE)
+				meta.platform = "ios";
+#elif defined(__ANDROID__)
+				meta.platform = "android";
+#elif defined(__APPLE__)
+				meta.platform = "macos";
+#elif defined(_WIN32)
+				meta.platform = "windows";
+#else
+				meta.platform = "linux";
+#endif
+				// render system: next boots Metal on Apple / Vulkan elsewhere;
+				// classic honours ORKIGE_RENDERSYSTEM (GL3Plus default)
+#ifdef ORKIGE_RENDER_NEXT
+#if defined(__APPLE__)
+				meta.renderSystem = "Metal";
+#else
+				meta.renderSystem = "Vulkan";
+#endif
+#else
+				if (const char* rs = std::getenv("ORKIGE_RENDERSYSTEM"))
+				{
+					meta.renderSystem = rs;
+				}
+				else
+				{
+					meta.renderSystem = "GL3Plus";
+				}
+#endif
+#ifdef NDEBUG
+				meta.build = "Release";
+#else
+				meta.build = "Debug";
+#endif
+				if (const char* osName = SDL_GetPlatform())
+				{
+					meta.deviceOs = osName;
+				}
+				if (const char* mode = std::getenv("ORKIGE_BENCHMARK_MODE"))
+				{
+					meta.scenario = mode;
+				}
+				if (project.isLoaded())
+				{
+					meta.project = project.getName();
+				}
+				benchmarkRecorder.setMeta(meta);
+
+				std::string benchmarkDir = breadcrumbDir;
+				if (const char* dirEnv = std::getenv("ORKIGE_BENCHMARK_DIR"))
+				{
+					benchmarkDir = dirEnv;
+					if (!benchmarkDir.empty() && benchmarkDir.back() != '/')
+					{
+						benchmarkDir += '/';
+					}
+				}
+				if (!benchmarkDir.empty())
+				{
+					std::error_code benchErr;
+					std::filesystem::create_directories(benchmarkDir, benchErr);
+					benchmarkRecorder.setFile(benchmarkDir +
+						"benchmark-" + stampBuf + ".jsonl");
+				}
 			}
 		}
 		// automation hooks (read before engine setup - they gate the vsync
@@ -552,6 +657,8 @@ int main(int argc, char** argv)
 		// deliverable; nothing gates on wall-clock (CI machines are slower).
 		const bool perfCheck =
 			(std::getenv("ORKIGE_PERF_SELFCHECK") != nullptr);
+		const bool benchmarkCheck =
+			(std::getenv("ORKIGE_BENCHMARK_SELFCHECK") != nullptr);
 		// automated runs (ctest, the editor's play-mode tests - they inherit
 		// ORKIGE_DEMO_FRAMES from the editor's environment) render as fast as
 		// the machine allows; a HUMAN run gets vsync so games neither spin
@@ -561,7 +668,7 @@ int main(int argc, char** argv)
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
 			breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
-			perfCheck ||
+			perfCheck || benchmarkCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 #ifdef ORKIGE_IPHONE
@@ -1081,6 +1188,9 @@ int main(int argc, char** argv)
 		Orkige::applyUnlitFixToLoadedModels(gameObjectManager);
 		SDL_Log("orkige_player: scene '%s' loaded (%zu GameObjects)",
 			scenePath.c_str(), gameObjectManager.getGameObjects().size());
+		// open the first benchmark scene boundary (no-op when disarmed); a level
+		// switch or an explicit Lua benchmark.begin re-opens it thereafter
+		benchmarkRecorder.beginScene(scenePath);
 
 		// --- ORKIGE_ASSETID_SELFCHECK: prove the rename survived - the
 		// scene's stale texture name must have been replaced by the expected
@@ -1207,6 +1317,10 @@ int main(int argc, char** argv)
 			{
 				Orkige::Breadcrumbs::getSingleton().record("scene", newScenePath);
 			}
+			// a level switch is a benchmark scene boundary: close the outgoing
+			// scene's record and start a fresh aggregation (no-op when disarmed;
+			// an explicit Lua benchmark.begin can later rename this aggregation)
+			benchmarkRecorder.beginScene(newScenePath);
 			SDL_Log("orkige_player: switched to scene '%s' (%zu GameObjects)",
 				newScenePath.c_str(),
 				gameObjectManager.getGameObjects().size());
@@ -2719,6 +2833,22 @@ int main(int argc, char** argv)
 			// the physics update.
 			Orkige::MemoryManager::endFrame();
 			Orkige::ProfileManager::endFrame();
+
+			// per-scene benchmark sample: AFTER the frame boundary folded the
+			// instruments (so lastFrameMilliseconds / alloc totals / phase means
+			// are this frame's), pairing them with the render facade's FrameStats
+			// (triangles/batches/texture memory, which the core layer can't see).
+			// A no-op unless armed with a results file and a scene is open.
+			if (benchmarkRecorder.isArmed() && benchmarkRecorder.sceneOpen())
+			{
+				const Orkige::RenderSystem::FrameStats stats =
+					render->getFrameStats();
+				benchmarkRecorder.sampleFrame(
+					static_cast<unsigned int>(stats.triangleCount),
+					static_cast<unsigned int>(stats.batchCount),
+					static_cast<float>(stats.textureMemoryBytes) /
+						(1024.0f * 1024.0f));
+			}
 
 			// editor-requested TRACE recording (MSG_RECORD_START): while active,
 			// sample the world every Nth frame and interleave this frame's
@@ -4716,6 +4846,104 @@ int main(int argc, char** argv)
 				}
 			}
 
+			// ORKIGE_BENCHMARK_SELFCHECK: the scene has ticked for ~90 frames with
+			// the recorder armed; finalize the artifact and assert it exists and
+			// parses with a meta line, at least one scene record with frames>0 and
+			// a measured frameMs.avg, and a clean (non-aborted) summary.
+			if (benchmarkCheck && frameCount == 90)
+			{
+				bool ok = true;
+				std::string detail;
+				if (!benchmarkRecorder.isArmed())
+				{
+					ok = false;
+					detail = "recorder not armed (ORKIGE_BENCHMARK unset?)";
+				}
+				else
+				{
+					// flush meta + the open scene's record + the summary
+					benchmarkRecorder.finish(false);
+					const std::string file = benchmarkRecorder.getFile();
+					std::ifstream artifact(file.c_str(), std::ios::binary);
+					std::ostringstream buffer;
+					buffer << artifact.rdbuf();
+					const std::string text = buffer.str();
+					if (text.empty())
+					{
+						ok = false;
+						detail = "results artifact not written";
+					}
+					else
+					{
+						bool sawMeta = false;
+						bool sawScene = false;
+						bool sawSummary = false;
+						std::istringstream lineStream(text);
+						std::string jsonLine;
+						while (ok && std::getline(lineStream, jsonLine))
+						{
+							if (jsonLine.empty())
+							{
+								continue;
+							}
+							Orkige::JsonValue value;
+							if (!Orkige::JsonValue::parse(jsonLine, value) ||
+								!value.isObject())
+							{
+								ok = false;
+								detail = "artifact line is not valid JSON";
+								break;
+							}
+							const Orkige::String kind =
+								value.get("type").asString();
+							if (kind == "meta")
+							{
+								sawMeta = true;
+								if (value.get("flavor").asString().empty() ||
+									value.get("renderSystem").asString().empty())
+								{
+									ok = false;
+									detail = "meta line missing flavor/renderSystem";
+								}
+							}
+							else if (kind == "scene")
+							{
+								sawScene = true;
+								if (value.get("frames").asInt() <= 0)
+								{
+									ok = false;
+									detail = "scene record has no frames";
+								}
+								else if (value.get("frameMs").get("avg")
+									.asNumber() <= 0.0)
+								{
+									ok = false;
+									detail = "scene record has no frameMs.avg";
+								}
+							}
+							else if (kind == "summary")
+							{
+								sawSummary = true;
+								if (value.get("aborted").asBool())
+								{
+									ok = false;
+									detail = "summary marked aborted";
+								}
+							}
+						}
+						if (ok && (!sawMeta || !sawScene || !sawSummary))
+						{
+							ok = false;
+							detail = "artifact missing a meta/scene/summary line";
+						}
+					}
+				}
+				SDL_Log("orkige_player: BENCHMARK SELFCHECK %s%s%s",
+					ok ? "PASSED" : "FAILED", ok ? "" : " - ", detail.c_str());
+				exitCode = ok ? 0 : 1;
+				running = false;
+			}
+
 			if (lifecycleCheck && !lifecycleFailed)
 			{
 				auto lifecycleFail = [&](std::string const& what)
@@ -4839,6 +5067,9 @@ int main(int argc, char** argv)
 		{
 			Orkige::Breadcrumbs::getSingleton().record("shutdown", scenePath);
 		}
+		// finalize the benchmark artifact: close the open scene and write the
+		// summary line (a clean, non-aborted run). No-op when disarmed.
+		benchmarkRecorder.finish(false);
 
 		if (jumperLuaCheck && !jumperCheckFailed &&
 			jumperPhase != JumperCheckPhase::Done)
