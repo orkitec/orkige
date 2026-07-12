@@ -121,3 +121,55 @@ textureless), `demo_mat_albedo/normal/emissive.png` and
   texture), `.omat` applies through the reflected reference (albedo map
   bound), and a hide/show triangle-count probe proves it renders on the
   flavor under test.
+
+## Terrain — the baked-mesh pipeline
+
+Terrain in v1 is BAKED CONTENT, not an engine feature: no facade growth, no
+runtime terrain component, mobile-safe by construction. A generator turns a
+procedural heightfield into a chunked static mesh that renders through the
+existing `ModelComponent` + `.omat` path above — the terrain takes PBS
+materials, normals and shadows like any imported model. (Vertex-shader
+terrain — a Terra-style component — is a separate future effort; the baked
+mesh is the answer at benchmark/one-vista scale, where there is no streaming.)
+
+`Util/make_terrain_mesh.py` (stdlib-only, deterministic, committed outputs)
+generates it:
+
+- **Heightfield**: a seeded fractal (fBm value noise, integer-hash lattice —
+  no float RNG, so a seed reproduces bit for bit), sampled ONCE over the whole
+  terrain with a centre-weighted radial falloff (a self-contained hill/valley
+  patch, not a clipped tile). No external heightmap data — license-clean.
+- **Chunking**: the grid is split into a `chunks × chunks` array of
+  self-contained mesh CHUNKS, each a glTF mesh (an engine sub-mesh) with its
+  OWN textureless material so the static importer keeps it a separate sub-mesh
+  (it fuses same-material meshes otherwise). Each chunk carries per-vertex
+  `NORMAL`s (central differences on the SHARED global heightfield, so a vertex
+  on a chunk border gets the same normal in both chunks — no seam or crack) and
+  tiling `TEXCOORD_0`s (a small seamless ground texture repeats across the
+  patch; the UVs let the next backend build tangents so a normal map applies).
+- **Vertex budgets** (`--chunks` / `--chunk-quads`): a chunk is
+  `chunk_quads × chunk_quads` quads → `(chunk_quads+1)²` verts,
+  `chunk_quads²·6` indices. 16-bit indices cap a sub-mesh at 65 535 verts; the
+  generator ENFORCES `(chunk_quads+1)² ≤ 65 535` (a hard error otherwise) so
+  every chunk is one 16-bit-indexed draw. Mobile guidance: keep
+  `chunk_quads ≤ 64` (4 225 verts / 24 576 indices per chunk — comfortable on
+  Metal/Vulkan) over an 8×8..16×16 chunk grid for a streaming-free vista at a
+  few hundred k triangles. (Per-chunk frustum CULLING is a project-content
+  choice — instantiate each chunk mesh as its own model; one `ModelComponent`
+  over the whole `.glb` is one cull unit regardless of sub-mesh count.)
+- **Textures + material**: a seamless-tiling `demo_terrain_albedo.png`
+  (earthy ground) + `demo_terrain_normal.png` (tangent-space, derived from the
+  same seamless field), encoded with the shared `orkige_png` codec, and a
+  `demo_terrain.omat` ground material (rough dielectric) that ties them
+  together — ONE tiling material applied across every chunk (the splat-baked
+  simplification for v1).
+
+`make_terrain_mesh.py --selftest` (unit ctest `make_terrain_mesh_selftest`)
+builds a terrain in memory and asserts mesh validity (indices in range, unit
+normals, finite UVs, chunk/sub-mesh/material counts), chunk-border seam
+matching, determinism (same seed → byte-identical `.glb` + textures) and the
+budget cap. The committed demo terrain (defaults: a 3×3 chunk grid of
+10×10-quad chunks = 9 sub-meshes, 1089 verts / 1800 triangles over a 48-unit
+patch) lands in `samples/hello_orkige/media/`; the `demo_terrain` integration
+selfcheck (both flavors) imports it, applies the tiling `.omat` across every
+chunk and proves the whole terrain renders with a hide/show triangle probe.

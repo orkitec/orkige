@@ -328,7 +328,11 @@ feeds `RenderSystem::createMaterial` + `MeshInstance::setMaterial` via
 `ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough
 incl. normal/emissive maps, classic = honest Blinn-Phong subset (maps ignored), no
 IBL until the sky/atmosphere surface — `Docs/materials.md`, `demo_material` per
-flavor), the Lua
+flavor; **baked-mesh terrain** is content, not a facade feature:
+`Util/make_terrain_mesh.py` bakes a seeded fBm heightfield into a chunked glTF
+`.glb` (per-chunk sub-meshes, 16-bit-index budget, normals + tiling UVs) plus a
+tiling ground `.omat`, rendered through this same ModelComponent path —
+`make_terrain_mesh_selftest` + `demo_terrain` per flavor), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic

@@ -86,6 +86,17 @@ add_test(NAME cook_vector_anim_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(cook_vector_anim_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# baked-mesh terrain generator self-validation: make_terrain_mesh.py builds a
+# chunked terrain in memory and asserts mesh validity (indices in range, unit
+# normals, finite UVs, chunk/sub-mesh counts), chunk-border seam matching,
+# determinism (same seed -> byte-identical .glb + textures) and the 16-bit
+# vertex-per-chunk budget cap. Stdlib-only, headless - the terrain pipeline at
+# the tooling level.
+add_test(NAME make_terrain_mesh_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_terrain_mesh.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_terrain_mesh_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # export app-icon pipeline self-validation: orkige_icons.py synthesises a source
 # PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
 # tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
@@ -481,6 +492,19 @@ if(TARGET hello_orkige)
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(demo_material PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_MATERIAL=1;ORKIGE_DEMO_FRAMES=120")
+
+    # ORKIGE_DEMO_TERRAIN: the baked-mesh terrain selfcheck - a ModelComponent
+    # imports the committed chunked terrain .glb (Util/make_terrain_mesh.py:
+    # a 3x3 grid of geometry chunks -> 9 engine sub-meshes with normals + UVs)
+    # and applies the generated tiling ground demo_terrain.omat across every
+    # chunk through the reflected material reference; a hide/show triangle-count
+    # probe proves the whole terrain renders. Runs on both flavors: next = the
+    # PBS ground (normal-mapped over generated tangents), classic = its
+    # Blinn-Phong subset - a per-flavor probe, NOT a pixel parity case.
+    add_test(NAME demo_terrain COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_terrain PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_TERRAIN=1;ORKIGE_DEMO_FRAMES=120")
 
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
@@ -1304,7 +1328,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
-        demo_light demo_material demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
+        demo_light demo_material demo_terrain demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene

@@ -126,6 +126,10 @@ int main(int, char**)
 	// loads the generated demo cube + material + texture maps from the
 	// sample media dir (Util/make_material_demo.py writes them)
 	const bool demoMaterial = (std::getenv("ORKIGE_DEMO_MATERIAL") != nullptr);
+	// ORKIGE_DEMO_TERRAIN=1: the baked-mesh terrain selfcheck (below) loads
+	// the committed chunked terrain .glb (Util/make_terrain_mesh.py writes it)
+	// and its tiling ground .omat through the same ModelComponent path
+	const bool demoTerrain = (std::getenv("ORKIGE_DEMO_TERRAIN") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -158,7 +162,7 @@ int main(int, char**)
 			{
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
-			if (demoMusic || demoVectorShape || demoMaterial)
+			if (demoMusic || demoVectorShape || demoMaterial || demoTerrain)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -738,6 +742,80 @@ int main(int, char**)
 				Orkige::Color(0.2f, 0.18f, 0.15f));
 			SDL_Log("hello_orkige: material demo up - demo_material.omat "
 				"applied over the imported look (albedo map bound)");
+		}
+
+		// --- ORKIGE_DEMO_TERRAIN=1: the baked-mesh terrain selfcheck. A
+		// ModelComponent imports the committed chunked terrain .glb (each glTF
+		// chunk becomes an engine sub-mesh - proof the baked pipeline is a
+		// single mesh of frustum-cullable chunks) and applies the generated
+		// tiling ground demo_terrain.omat across every chunk through the same
+		// reflected material reference the cube demo uses. The chunks carry
+		// UVs, so the next backend builds tangents and the material's normal
+		// map applies; the frame loop below adds the it-renders triangle-count
+		// probe. Runs on both flavors (PBS on next, Blinn-Phong subset on
+		// classic) - a per-flavor probe, not a pixel-parity case.
+		Orkige::ModelComponent* terrainModel = nullptr;
+		std::size_t terrainHiddenTriangles = 0;
+		const std::size_t kTerrainChunks = 9;	// 3x3 grid (make_terrain_mesh.py)
+		if (demoTerrain)
+		{
+			optr<Orkige::GameObject> terrainObject =
+				gameObjectManager.createGameObject("terrain").lock();
+			if (!terrainObject ||
+				!terrainObject->addComponent<Orkige::ModelComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - terrain ModelComponent creation "
+					"failed");
+				return 1;
+			}
+			terrainModel =
+				terrainObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* terrainTransform =
+				terrainObject->getComponentPtr<Orkige::TransformComponent>();
+			if (!terrainModel || !terrainTransform)
+			{
+				SDL_Log("hello_orkige: FAILED - terrain ModelComponent siblings "
+					"missing");
+				return 1;
+			}
+			terrainTransform->setPosition(Orkige::Vec3(0.0f, -3.0f, 0.0f));
+			terrainModel->loadModel("demo_terrain.glb");
+			if (!terrainModel->getMeshInstance() ||
+				terrainModel->getMeshInstance()->getNumSubMeshes() !=
+					kTerrainChunks)
+			{
+				SDL_Log("hello_orkige: FAILED - demo_terrain.glb did not import "
+					"as %zu chunk sub-meshes", kTerrainChunks);
+				return 1;
+			}
+			// baseline: the chunked .glb carries no material, so no chunk
+			// samples a texture yet - the tiling ground .omat must change that
+			if (terrainModel->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - terrain unexpectedly imported "
+					"WITH a texture (baseline broken)");
+				return 1;
+			}
+			terrainModel->setMaterialReference("demo_terrain.omat");
+			if (terrainModel->getMaterialFileName() != "demo_terrain.omat")
+			{
+				SDL_Log("hello_orkige: FAILED - terrain material reference did "
+					"not record");
+				return 1;
+			}
+			// the material applies to ALL chunks (whole-instance granularity):
+			// the tiling ground albedo must be bound on a chunk now
+			if (!terrainModel->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - the terrain material did not "
+					"apply (no albedo texture bound after setMaterialReference)");
+				return 1;
+			}
+			// light the ground so the PBS/Blinn-Phong response is real shading
+			world->setAmbientHemisphere(Orkige::Color(0.5f, 0.52f, 0.55f),
+				Orkige::Color(0.22f, 0.2f, 0.16f));
+			SDL_Log("hello_orkige: terrain demo up - %zu chunks, tiling "
+				"demo_terrain.omat applied across all sub-meshes", kTerrainChunks);
 		}
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
@@ -3584,6 +3662,42 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: material selfcheck passed (.omat "
 					"parsed, applied and rendering on this flavor)");
+			}
+			if (demoTerrain && frameCount == 20)
+			{
+				// hide the whole chunked terrain, sample the gone-baseline at
+				// frame 25 (the material probe's recipe, at terrain scale)
+				terrainModel->getMeshInstance()->setVisible(false);
+			}
+			if (demoTerrain && frameCount == 25)
+			{
+				terrainHiddenTriangles =
+					render->getFrameStats().triangleCount;
+				terrainModel->getMeshInstance()->setVisible(true);
+			}
+			if (demoTerrain && frameCount == 35)
+			{
+				// with the terrain shown again the frame carries its 1800
+				// triangles across the 9 chunks: the count must have risen by
+				// well over a single chunk's worth - had the tiling material's
+				// shader generation broken, renderOneFrame would have failed
+				// long before this line
+				const std::size_t shownTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(shownTriangles > terrainHiddenTriangles)
+					? shownTriangles - terrainHiddenTriangles : 0;
+				SDL_Log("hello_orkige: terrain triangles shown=%zu (hidden %zu, "
+					"+%zu across %zu chunks)", shownTriangles,
+					terrainHiddenTriangles, risen, kTerrainChunks);
+				if (risen < 200)
+				{
+					SDL_Log("hello_orkige: FAILED - showing the terrain did not "
+						"raise the triangle count (it did not render)");
+					return 1;
+				}
+				SDL_Log("hello_orkige: terrain selfcheck passed (chunked baked "
+					"mesh imported, tiling .omat applied and rendering)");
 			}
 			if (demoVectorShape && frameCount == 20)
 			{
