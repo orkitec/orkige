@@ -320,9 +320,18 @@ namespace Orkige
 			{
 				continue;
 			}
-			optr<MeshInstance> mesh =
-				gameObject->getComponentPtr<ModelComponent>()
-					->getMeshInstance();
+			ModelComponent* model =
+				gameObject->getComponentPtr<ModelComponent>();
+			// ONLY material-less models get the legacy unlit vertex-colour
+			// look (the historical flat-shaded sample meshes). A model with a
+			// recorded .omat reference is LIT content - swapping its sub-items
+			// onto the unlit datablock here would silently discard the applied
+			// PBS material (every model in a scene load runs through this).
+			if (!model->getMaterialFileName().empty())
+			{
+				continue;
+			}
+			optr<MeshInstance> mesh = model->getMeshInstance();
 			if (mesh)
 			{
 				mesh->setVertexColourUnlit();

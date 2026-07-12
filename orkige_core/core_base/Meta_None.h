@@ -226,6 +226,7 @@
 #define OCONSTRUCTOR2(param1,param2)						
 
 #define OCONSTRUCTOR3(param1,param2,param3)					
+#define OSINGLETON_CONSTRUCTOR3(param1,param2,param3)
 
 #define OCONSTRUCTOR4(param1,param2,param3,param4)			
 

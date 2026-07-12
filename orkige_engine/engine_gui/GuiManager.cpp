@@ -2193,7 +2193,9 @@ namespace Orkige
 		// Lua boots the UI: GuiManager(factory, atlas, resourceGroup) -
 		// the atlas .ogui/.png pair must live in that resource group (a
 		// project's assets/ register in "OrkigeProject")
-		OCONSTRUCTOR3(optr<GuiFactory>, String const &, String const &)
+		// singleton-aware: constructing while the previous scene's instance
+		// is still alive raises a catchable Lua error (never an engine abort)
+		OSINGLETON_CONSTRUCTOR3(optr<GuiFactory>, String const &, String const &)
 		OSINGLETON()
 		OFUNCWEAK(getFactory)
 		OFUNC(enableInputEvents)

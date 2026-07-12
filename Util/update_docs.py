@@ -175,7 +175,7 @@ def parse_script_component(text):
 MEMBER_RE = re.compile(
     r'^\s*(OFUNCWEAK|OFUNCIR|OFUNCCR|OFUNCR|OFUNC_REN|OFUNC|OCONSTVAR|'
     r'OSTATICVAR|OVAR|OPROPERTY_REF|OPROPERTY_RO|OPROPERTY_ENUM|'
-    r'OPROPERTY_META|OPROPERTY|OSINGLETON|OCONSTRUCTOR([0-9])|'
+    r'OPROPERTY_META|OPROPERTY|OSINGLETON_CONSTRUCTOR[0-9]|OSINGLETON|OCONSTRUCTOR([0-9])|'
     r'OENUM_START|OENUM_VALUE|OENUM_END)\b(.*)$')
 
 
@@ -211,7 +211,7 @@ def parse_member_line(type_name, line, enum_ctx):
         return sym
     if macro == "OSINGLETON":
         return Symbol("static", type_name, "getSingleton", comment)
-    if macro.startswith("OCONSTRUCTOR"):
+    if macro.startswith(("OCONSTRUCTOR", "OSINGLETON_CONSTRUCTOR")):
         # a ctor is folded into the type header (kind ctor keyed by type name);
         # emit at most one, the generator dedupes by key
         return Symbol("ctor", type_name, type_name, comment)

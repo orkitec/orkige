@@ -360,6 +360,27 @@ namespace Orkige
 																ORKIGE_LUA_REGISTER_CONSTRUCTOR("new3")									\
 															}
 
+//! singleton-aware 3-parameter constructor: a script constructing a class
+//! whose ONE live instance still exists gets an honest Lua error (catchable
+//! with pcall) instead of the Singleton base's process abort - the previous
+//! scene's instance may be kept alive by outstanding references, and a script
+//! must never be able to bring the whole engine down. The error points at
+//! getSingleton() as the reuse path.
+#define OSINGLETON_CONSTRUCTOR3(param1,param2,param3)		{																					\
+																auto orkigeLuaFactory = [](param1 orkigeArg1, param2 orkigeArg2,		\
+																	param3 orkigeArg3)													\
+																{																						\
+																	if (ExposedClassType::getSingletonPtr())							\
+																		throw std::runtime_error(											\
+																			"this singleton already exists - use getSingleton() "		\
+																			"(one instance per run; the previous scene's "				\
+																			"instance may still be alive)");								\
+																	return std::shared_ptr<ExposedClassType>(new ExposedClassType(		\
+																		orkigeArg1, orkigeArg2, orkigeArg3));							\
+																};																					\
+																ORKIGE_LUA_REGISTER_CONSTRUCTOR("new3")									\
+															}
+
 #define OCONSTRUCTOR4(param1,param2,param3,param4)			{																			\
 																auto orkigeLuaFactory = [](param1 orkigeArg1, param2 orkigeArg2,		\
 																	param3 orkigeArg3, param4 orkigeArg4)								\
