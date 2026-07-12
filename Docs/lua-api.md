@@ -292,7 +292,10 @@ exists for any script bound by path rather than by kind name.
   `gui.submitted {id, text}`, `gui.valueChanged {id, value}`,
   `gui.dialogResult {id, result}`, `gui.screenPushed`/`gui.screenPopped {name}`,
   `gui.toastShown {text}`, `physics.contactBegin`/`physics.contactEnd {a, b}`
-  (object ids), and `app.pause`/`app.resume` (no payload).
+  (object ids), `app.pause`/`app.resume` (no payload), and `ui.reloaded {file}`
+  (a declarative `.oui` screen was hot-reloaded during Play — its widgets were
+  destroyed and rebuilt, so any handle a script holds to that screen is stale;
+  subscribe to re-acquire them via `gui:findWidget(id)`).
 
   ```lua
   function init(self)

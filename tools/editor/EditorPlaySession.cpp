@@ -58,8 +58,10 @@ void clearRemoteState(PlaySession& session)
 	session.remoteActive.clear();
 	session.scriptErrorIds.clear();
 	// the hot-reload watcher re-baselines against the fresh session's scripts
+	// AND its .oui layouts (scriptsWatchArmed arms both)
 	session.scriptsWatchArmed = false;
 	session.scriptsNewestMtime = 0;
+	session.uiFileMtimes.clear();
 	session.remoteSelectedId.clear();
 	session.stateObjectId.clear();
 	session.stateComponents.clear();
@@ -964,12 +966,83 @@ void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 	session.scriptErrorIds.clear();
 }
 
+//! .oui hot-reload: tell the running player to reload one declarative screen
+void reloadRemoteUi(PlaySession& session, EditorConsole& console,
+	std::string const& ouiName)
+{
+	if (!session.client.isConnected())
+	{
+		return;
+	}
+	Orkige::DebugMessage reload(Protocol::MSG_RELOAD_UI);
+	reload.set(Protocol::FIELD_PATH, ouiName);
+	session.client.send(reload);
+	SDL_Log("orkige_editor: .oui change detected (%s) - reload sent to the "
+		"player", ouiName.c_str());
+	console.addLine(ConsoleLevel::Info,
+		"[reload] ui '" + ouiName + "' changed - hot-reloading the running "
+		"player");
+}
+
 namespace
 {
-//! @brief poll <projectRoot>/scripts for .lua edits (~4 Hz) and hot-reload the
-//! running player on any change. Desktop play only (a device player has no
-//! host-filesystem trigger); the first poll of a session only records the
-//! baseline (scriptsWatchArmed) so opening Play never fires a spurious reload.
+//! @brief scan the project tree for `.oui` layouts, folding to the newest write
+//! time per BASENAME (the name a game passes to GuiFactory::loadLayout / the
+//! player resolves). Build trees are skipped so a native module's build output
+//! never trips the watcher. @return basename -> newest file-time count.
+std::map<std::string, long long> scanProjectOuiFiles(std::string const& root)
+{
+	std::map<std::string, long long> result;
+	std::error_code ec;
+	if (!std::filesystem::is_directory(root, ec))
+	{
+		return result;
+	}
+	for (std::filesystem::recursive_directory_iterator
+		it(root, ec), end; it != end; it.increment(ec))
+	{
+		if (ec)
+		{
+			break;
+		}
+		// never descend into build outputs / VCS metadata
+		if (it->is_directory(ec))
+		{
+			const std::string name = it->path().filename().string();
+			if (name == "builds" || name == "build" || name == ".git")
+			{
+				it.disable_recursion_pending();
+			}
+			continue;
+		}
+		if (!it->is_regular_file(ec) || it->path().extension() != ".oui")
+		{
+			continue;
+		}
+		const std::filesystem::file_time_type mtime =
+			std::filesystem::last_write_time(it->path(), ec);
+		if (ec)
+		{
+			continue;
+		}
+		const long long stamp =
+			static_cast<long long>(mtime.time_since_epoch().count());
+		const std::string base = it->path().filename().string();
+		auto found = result.find(base);
+		if (found == result.end() || stamp > found->second)
+		{
+			result[base] = stamp;
+		}
+	}
+	return result;
+}
+
+//! @brief poll the project tree for `.lua` (scripts/) and `.oui` edits (~4 Hz)
+//! and hot-reload the running player on any change (MSG_RELOAD_SCRIPT reloads
+//! ALL scripts; MSG_RELOAD_UI reloads just the changed layout). Desktop play
+//! only (a device player has no host-filesystem trigger); the first poll of a
+//! session only records the baseline (scriptsWatchArmed arms BOTH watchers) so
+//! opening Play never fires a spurious reload.
 void watchProjectScripts(PlaySession& session, EditorConsole& console,
 	std::chrono::steady_clock::time_point now)
 {
@@ -1014,10 +1087,14 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 			}
 		}
 	}
+	// the .oui layouts, per basename (see scanProjectOuiFiles)
+	std::map<std::string, long long> ouiNow =
+		scanProjectOuiFiles(session.projectRoot);
 	if (!session.scriptsWatchArmed)
 	{
 		// first poll of the session: record the baseline, never reload
 		session.scriptsNewestMtime = newest;
+		session.uiFileMtimes = std::move(ouiNow);
 		session.scriptsWatchArmed = true;
 		return;
 	}
@@ -1026,6 +1103,16 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 		session.scriptsNewestMtime = newest;
 		reloadRemoteScripts(session, console);
 	}
+	// per-layout diff: a new or freshly-written .oui hot-reloads just that screen
+	for (auto const& entry : ouiNow)
+	{
+		auto known = session.uiFileMtimes.find(entry.first);
+		if (known == session.uiFileMtimes.end() || entry.second > known->second)
+		{
+			reloadRemoteUi(session, console, entry.first);
+		}
+	}
+	session.uiFileMtimes = std::move(ouiNow);
 }
 } // namespace
 

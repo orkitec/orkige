@@ -779,6 +779,12 @@ struct PlaySession
 	std::chrono::steady_clock::time_point lastScriptCheck;
 	long long scriptsNewestMtime = 0;	//!< newest scripts/*.lua write time seen (file_time count)
 	bool scriptsWatchArmed = false;		//!< false = next poll only records the baseline
+	//! .oui hot-reload watcher: rides the SAME poll/cadence/lifecycle as the
+	//! scripts watcher (scriptsWatchArmed arms both). Per-file write times so a
+	//! CHANGED layout hot-reloads just that screen (MSG_RELOAD_UI carries its
+	//! name); keyed by the .oui basename (the name the game passes to
+	//! GuiFactory::loadLayout). Reset by clearRemoteState.
+	std::map<std::string, long long> uiFileMtimes;
 	std::string remoteSelectedId;
 	std::string stateObjectId;					//!< object of the latest object_state
 	Orkige::StringVector stateComponents;		//!< its component type names
@@ -1079,6 +1085,13 @@ void setRemoteObjectActive(PlaySession& session, std::string const& id,
 //! button. Optimistically clears scriptErrorIds - the player re-pushes
 //! script_error only if a reload actually failed.
 void reloadRemoteScripts(PlaySession& session, EditorConsole& console);
+
+//! @brief .oui hot-reload: tell the running player to destroy-and-rebuild one
+//! declarative screen (MSG_RELOAD_UI). @p ouiName is the .oui name the game
+//! passed to GuiFactory::loadLayout. Sent automatically by the project-tree
+//! .oui watcher in updatePlaySession and by the MCP reload_ui verb.
+void reloadRemoteUi(PlaySession& session, EditorConsole& console,
+	std::string const& ouiName);
 
 //! @brief write a live component property on the RUNNING game (MSG_SET_PROPERTY,
 //! the reflected setter on the player - takes effect immediately, not undoable

@@ -407,6 +407,43 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	bool GuiManager::reloadLayout(String const & file, String & error)
+	{
+		if(!this->factory)
+		{
+			error = "no gui factory";
+			return false;
+		}
+		if(!this->factory->reloadLayout(file, error))
+		{
+			return false;	// parse/read failure - the old screen stays up
+		}
+		// if the live (materialized) screen is exactly this .oui, refresh the
+		// router's teardown set to the freshly built widget ids so a later
+		// navigation still tears the whole (possibly grown/shrunk) screen down.
+		if(!this->materializedScreen.empty())
+		{
+			String ouiPath;
+			std::map<String, ScreenDef>::const_iterator it =
+				this->screenDefs.find(this->materializedScreen);
+			if(it != this->screenDefs.end())
+			{
+				ouiPath = it->second.ouiPath;
+			}
+			else if(this->materializedScreen.size() > 4 &&
+				this->materializedScreen.compare(
+					this->materializedScreen.size() - 4, 4, ".oui") == 0)
+			{
+				ouiPath = this->materializedScreen;	// an unregistered ".oui" is its own path
+			}
+			if(ouiPath == file)
+			{
+				this->screenWidgetIds = this->factory->layoutWidgetIds(file);
+			}
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	void GuiManager::hideAllViews()
 	{
 		foreach(GuiViewMap::value_type const & vt, this->views)
@@ -1151,6 +1188,34 @@ namespace Orkige
 		{
 			this->dismissModal(this->modalStack.topId());
 		}
+	}
+	//---------------------------------------------------------
+	void GuiManager::removeModalNow(String const & id)
+	{
+		std::map<String, ModalRecord>::iterator it = this->modalRecords.find(id);
+		if(it == this->modalRecords.end())
+		{
+			return;
+		}
+		// synchronous mirror of drainModalDismissals' per-id teardown: destroy the
+		// scrim + every registered dialog widget, pop the stack entry and drop the
+		// record. Also clear any pending deferred dismissal so the drain does not
+		// double-process this id.
+		for(String const & widgetId : it->second.widgetIds)
+		{
+			this->destroyWidget(widgetId);
+		}
+		this->modalStack.remove(id);
+		this->modalRecords.erase(it);
+		this->pendingDismiss.erase(std::remove(this->pendingDismiss.begin(),
+			this->pendingDismiss.end(), id), this->pendingDismiss.end());
+		if(this->modalStack.empty() && this->modalSavedFocus != NULL)
+		{
+			GuiTextEntry* restore = this->modalSavedFocus;
+			this->modalSavedFocus = NULL;
+			this->focusTextEntry(restore);
+		}
+		this->reorderViews();
 	}
 	//---------------------------------------------------------
 	void GuiManager::dismissAllModals()

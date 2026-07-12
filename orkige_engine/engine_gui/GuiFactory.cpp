@@ -423,26 +423,89 @@ namespace Orkige
 	//---------------------------------------------------------
 	void GuiFactory::loadLayout(String const & filename)
 	{
-		// read the .oui text through the resource system (cross-backend; the
-		// classic load() went through Ogre::ConfigFile, this does not)
-		String group = Ogre::ResourceGroupManager::getSingleton()
-			.findGroupContainingResource(filename);
-		Ogre::DataStreamPtr stream = Ogre::ResourceGroupManager::getSingleton()
-			.openResource(filename, group);
-		const String text = stream->getAsString();
-		this->resourceGroup = group;
-
-		GuiLayoutDoc doc;
 		String error;
-		if(!GuiLayoutDoc::parse(text, doc, error))
+		if(!this->loadLayoutImpl(filename, false, error))
 		{
 			oAssertDesc(!"invalid .oui", "loadLayout(" << filename << "): "
 				<< error);
-			return;
+		}
+	}
+	//---------------------------------------------------------
+	bool GuiFactory::reloadLayout(String const & filename, String & error)
+	{
+		return this->loadLayoutImpl(filename, true, error);
+	}
+	//---------------------------------------------------------
+	std::vector<String> const & GuiFactory::layoutWidgetIds(
+		String const & filename) const
+	{
+		static const std::vector<String> empty;
+		std::map<String, LoadedLayout>::const_iterator it =
+			this->loadedLayouts.find(filename);
+		return it != this->loadedLayouts.end() ? it->second.widgetIds : empty;
+	}
+	//---------------------------------------------------------
+	bool GuiFactory::loadLayoutImpl(String const & filename, bool isReload,
+		String & error)
+	{
+		// read the .oui text through the resource system (cross-backend; the
+		// classic load() went through Ogre::ConfigFile, this does not). Reading
+		// a missing / unreadable resource is an honest error, never a crash - a
+		// hot-reload of an unknown or vanished file must degrade, not throw.
+		String text;
+		String group;
+		try
+		{
+			group = Ogre::ResourceGroupManager::getSingleton()
+				.findGroupContainingResource(filename);
+			Ogre::DataStreamPtr stream = Ogre::ResourceGroupManager::getSingleton()
+				.openResource(filename, group);
+			text = stream->getAsString();
+		}
+		catch(Ogre::Exception const & e)
+		{
+			error = "could not read '" + filename + "': " + e.getDescription();
+			return false;
 		}
 
-		// the optional global [Layout] section: default atlas + design/root policy
+		GuiLayoutDoc doc;
+		if(!GuiLayoutDoc::parse(text, doc, error))
+		{
+			// clean cutover: a broken file NEVER tears the running screen down
+			return false;
+		}
+		this->resourceGroup = group;
+
 		GuiManager & manager = GuiManager::getSingleton();
+		// reload teardown (AFTER the fresh file parsed OK): destroy exactly the
+		// screen this file previously built, so the rebuild starts clean. Order:
+		// modals first (they own scrim + registered dialog widgets and a stack
+		// entry that would otherwise block re-showing the same id), then any
+		// remaining widgets, then the toggle groups.
+		if(isReload)
+		{
+			std::map<String, LoadedLayout>::iterator prev =
+				this->loadedLayouts.find(filename);
+			if(prev != this->loadedLayouts.end())
+			{
+				foreach(String const & id, prev->second.modalIds)
+				{
+					manager.removeModalNow(id);
+				}
+				foreach(String const & id, prev->second.widgetIds)
+				{
+					manager.destroyWidget(id);
+				}
+				foreach(String const & id, prev->second.toggleGroupIds)
+				{
+					manager.destroyToggleGroup(id);
+				}
+			}
+		}
+		// record what this build produces so a later reload can tear it down
+		LoadedLayout tracked;
+
+		// the optional global [Layout] section: default atlas + design/root policy
 		String defaultAtlas = StringUtil::BLANK;
 		if(GuiLayoutSection const * layout = doc.findSection("Layout"))
 		{
@@ -474,6 +537,7 @@ namespace Orkige
 			const bool lightDismiss = parseBool(ouiValue(s, "lightDismiss", "false"),
 				false);
 			manager.showModal(s.id, lightDismiss);
+			tracked.modalIds.push_back(s.id);
 			// optional scrim tint (r g b a); the scrim widget is <id>.scrim
 			if(String const * tint = s.find("scrim"))
 			{
@@ -502,6 +566,9 @@ namespace Orkige
 			{
 				continue;	// non-widget sections are handled elsewhere
 			}
+			// track the id for a later reload teardown (recorded even if the
+			// create below is a no-op on a duplicate - destroyWidget then no-ops)
+			tracked.widgetIds.push_back(s.id);
 			const String atlas = ouiValue(s, "atlas", defaultAtlas);
 			// a widget bound to a modal is created on that modal's content layer
 			// (above its scrim) and registered so dismissing the modal frees it
@@ -649,6 +716,7 @@ namespace Orkige
 			{
 				continue;
 			}
+			tracked.toggleGroupIds.push_back(s.id);
 			if(String const * v = s.find("allowNone"))
 			{
 				group->setAllowNone(parseBool(*v, false));
@@ -671,6 +739,10 @@ namespace Orkige
 		}
 
 		manager.reorderViews();
+		// remember what this source produced so a hot-reload can tear exactly
+		// this screen down and rebuild it (clean cutover)
+		this->loadedLayouts[filename] = tracked;
+		return true;
 	}
 	//---------------------------------------------------------
 	void GuiFactory::load(String const & filename)

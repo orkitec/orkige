@@ -876,6 +876,23 @@ if(TARGET orkige_editor AND TARGET orkige_player)
             ENVIRONMENT "ORKIGE_EDITOR_HOTRELOAD_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/hotreload")
     endif()
 
+    # .oui hot-reload, the full editor->player path: the hook copies
+    # tests/projects/uihotreload to a temp dir (the real fixture is never
+    # touched), presses Play (a script loads assets/hud.oui - a positioned
+    # label), then overwrites the .oui on disk. The editor's .oui watcher must
+    # detect the change, send MSG_RELOAD_UI, emit a [reload] Console line, and
+    # the running player must destroy-and-rebuild the screen so the label's rect
+    # moves (observed over MSG_UI_LAYOUT / the remoteUiLayout stream). Then a
+    # broken (unparseable) .oui must surface a [remote] error while the OLD
+    # (moved) screen stays up, and Stop must revert cleanly. Loading an .oui
+    # needs a live script, so it is LUA-gated (the watcher/protocol are neutral).
+    if(ORKIGE_SCRIPTING STREQUAL "LUA")
+        add_test(NAME editor_ui_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(editor_ui_hotreload${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+            ENVIRONMENT "ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST=${Orkige_SOURCE_DIR}/tests/projects/uihotreload")
+    endif()
+
     # play mode on an iOS simulator: same stop flow, but the player is the
     # OrkigePlayer.app launched on a simulator via simctl (temp scene read
     # straight off the host filesystem, debug link over the shared loopback).
@@ -1491,9 +1508,10 @@ foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         player_scriptprop_selfcheck player_scriptprop_selfcheck_next
         player_assetid_selfcheck player_assetid_selfcheck_next
         editor_play_stop editor_play_crash editor_project_play
-        editor_play_script_error editor_play_hotreload
+        editor_play_script_error editor_play_hotreload editor_ui_hotreload
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
+        editor_ui_hotreload_next
         editor_project_native_play editor_project_native_play_break
         editor_play_simulator editor_play_simulator_boot
         editor_play_android editor_play_ios_device
@@ -1513,6 +1531,7 @@ endforeach()
 # the kill plane, goal walk-in), so it gets the same headroom
 foreach(play_test player_debug_pause editor_play_stop editor_play_crash
         editor_project_play editor_play_script_error editor_play_hotreload
+        editor_ui_hotreload editor_ui_hotreload_next
         editor_play_stop_next editor_play_crash_next editor_project_play_next
         editor_play_script_error_next editor_play_hotreload_next
         editor_play_simulator editor_play_android

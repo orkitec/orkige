@@ -943,6 +943,44 @@ namespace Orkige
 			(targetId.empty() ? String() : " on '" + targetId + "'"));
 	}
 	//---------------------------------------------------------
+	//! @brief reload_ui (.oui hot-reload): destroy-and-rebuild one declarative
+	//! gui screen from its fresh file. FIELD_PATH is the .oui name the game
+	//! passed to GuiFactory::loadLayout. Player-directed like reload_script: the
+	//! editor's .oui watcher only sends this; the swap happens here, at the
+	//! message-drain point. Clean cutover - GuiManager::reloadLayout parses the
+	//! fresh file FIRST, so a broken edit keeps the OLD screen and answers with
+	//! an error; a successful rebuild emits the `ui.reloaded` script event so a
+	//! script re-acquires its now-stale widget handles.
+	void PlayerDebugLink::handleReloadUi(DebugMessage const & message)
+	{
+		const String & file = message.get(Protocol::FIELD_PATH);
+		if (file.empty())
+		{
+			sendError("reload_ui: missing path");
+			return;
+		}
+		GuiManager* gui = GuiManager::getSingletonPtr();
+		if (gui == NULL)
+		{
+			sendError("reload_ui: no UI system on the running game");
+			return;
+		}
+		String error;
+		if (!gui->reloadLayout(file, error))
+		{
+			// the old screen stays up; surface the parse/read error to the editor
+			sendError("reload_ui '" + file + "': " + error);
+			return;
+		}
+		// mirror onto the script event bus so a script re-acquires its handles
+		// to the just-rebuilt widgets (the old ones were destroyed)
+		ScriptEventPayload payload;
+		payload.setString("file", file);
+		ScriptEventBus::getSingleton().emit("ui.reloaded", payload);
+		EngineLogCapture::logMessage("orkige runtime: hot-reloaded ui '" +
+			file + "'");
+	}
+	//---------------------------------------------------------
 	//! @brief set_cvar: change a console variable on the RUNNING
 	//! player live. CVarManager::setString parses+validates the value per the
 	//! cvar's registered type and fires its onChange (the live re-apply seam),
@@ -1040,6 +1078,12 @@ namespace Orkige
 			{
 				// Lua hot-reload (editor-driven, compile-before-swap)
 				handleReloadScript(gameObjectManager, message);
+			}
+			else if (message.type == Protocol::MSG_RELOAD_UI)
+			{
+				// .oui hot-reload (editor-driven): destroy-and-rebuild the named
+				// screen at this message-drain point, never mid-frame
+				handleReloadUi(message);
 			}
 			else if (message.type == Protocol::MSG_SET_CVAR)
 			{

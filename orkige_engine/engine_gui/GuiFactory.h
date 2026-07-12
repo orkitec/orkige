@@ -26,6 +26,9 @@
 
 #include <OgreConfigFile.h>
 
+#include <map>
+#include <vector>
+
 
 namespace Orkige
 {
@@ -97,6 +100,19 @@ namespace Orkige
 		//! (no Ogre material/localisation ties); text routes through StringTable.
 		virtual void loadLayout(String const & filename);
 
+		//! @brief hot-reload a `.oui` screen this factory previously loaded: re-read
+		//! the fresh file, DESTROY the widgets/modals/toggle-groups the earlier
+		//! load created and rebuild from the new content (clean cutover, no state
+		//! merge). Clean-cutover safety: the fresh file is parsed FIRST, so a parse
+		//! failure leaves the OLD screen intact and returns false with @p error set
+		//! (nothing is torn down). @return true on a successful rebuild.
+		bool reloadLayout(String const & filename, String & error);
+
+		//! @brief the widget ids the last (re)load of @p filename created, in
+		//! declaration order (empty when this factory never loaded it). Lets the
+		//! GuiManager refresh a screen router's teardown set after a hot-reload.
+		std::vector<String> const & layoutWidgetIds(String const & filename) const;
+
 		virtual void load(String const & filename);
 	protected:
 		//! overridable mothod for loading global settings
@@ -126,6 +142,23 @@ namespace Orkige
 		//! overridable to load a TextEntry
 		virtual void onLoadTextEntry(String const & id, SettingsMultiMap* settings);
 	private:
+		//! @brief what one loaded `.oui` source produced, so reloadLayout can tear
+		//! exactly that screen down and rebuild it. Recorded from the doc as the
+		//! layout builds (declaration order); a reload overwrites the entry.
+		struct LoadedLayout
+		{
+			std::vector<String> widgetIds;			//!< every widget section id (+ modal scrims)
+			std::vector<String> modalIds;			//!< [modal] section ids
+			std::vector<String> toggleGroupIds;		//!< [togglegroup] section ids
+		};
+		//! per-.oui tracking keyed by the exact name passed to loadLayout
+		std::map<String, LoadedLayout> loadedLayouts;
+		//! @brief the shared read+parse+build path behind loadLayout/reloadLayout.
+		//! @param isReload destroy this file's previously-tracked screen first.
+		//! @return false (with @p error set) on a read/parse failure, having torn
+		//! nothing down (clean cutover). loadLayout asserts on that; reloadLayout
+		//! reports it.
+		bool loadLayoutImpl(String const & filename, bool isReload, String & error);
 	};
 	//---------------------------------------------------------------
 }

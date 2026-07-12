@@ -79,6 +79,19 @@ namespace Orkige
 		//! play-control verbs extend the same else-if chain the same way.
 		//! Additive since protocol v1: old players answer "unknown command".
 		extern ORKIGE_CORE_DLL const String MSG_SET_CVAR;
+		//! @brief gui hot-reload: the editor tells the RUNNING player to
+		//! reload one declarative `.oui` screen live. FIELD_PATH carries the
+		//! .oui name the game passed to GuiFactory::loadLayout (a basename, e.g.
+		//! "hud.oui"). The player re-reads the fresh file and, on a clean parse,
+		//! DESTROYS that screen's widgets and rebuilds them (clean cutover, no
+		//! state merge); a parse failure keeps the OLD screen and answers with an
+		//! error. On a successful rebuild the player emits the `ui.reloaded`
+		//! script-event so scripts re-acquire their widget handles. Player-
+		//! directed like MSG_RELOAD_SCRIPT (the editor's .oui watcher only sends
+		//! this; the swap happens on the player at its message-drain point, never
+		//! mid-frame). An additive protocol-extension message that rides the ONE
+		//! debug protocol; old players answer "unknown command".
+		extern ORKIGE_CORE_DLL const String MSG_RELOAD_UI;
 		//! @brief screenshot the RUNNING game: the editor asks the player to
 		//! capture its next rendered frame to FIELD_PATH (a path on the player's
 		//! filesystem - desktop play shares it with the editor). The player saves

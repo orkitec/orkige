@@ -536,8 +536,53 @@ selected = 1                       # optional
 allowNone = false                  # optional
 ```
 
+## Hot-reload during Play (`.oui` iteration)
+
+Editing an `.oui` while a Play session runs updates the running game's screen
+live — the same iteration loop `.lua` scripts have. On a file save the editor's
+`.oui` watcher sends the fresh screen to the player, which **destroys that
+screen's widgets and rebuilds them from the new file** (a CLEAN CUTOVER — no
+state is merged; `GuiFactory` tracks which widgets/modals/toggle-groups each
+loaded `.oui` produced and tears exactly those down). Trigger it three ways:
+
+- **Save the file** in an external editor while Play runs (the editor watches the
+  project tree for `*.oui`, same cadence/lifecycle as the `scripts/` watcher).
+- **`reload_ui(file)`** over MCP (`file` is the name the game passed to
+  `loadLayout`, e.g. `hud.oui`).
+- Both funnel to the ONE `MSG_RELOAD_UI` player message, applied at the frame
+  boundary (never mid-frame).
+
+Contract:
+
+- **A broken (unparseable) `.oui` keeps the OLD screen up** and reports the parse
+  error to the editor Console as a `[remote]` line — a half-built screen never
+  renders.
+- **Script handles go stale.** A rebuild destroys the old widget objects, so any
+  `woptr`/handle a script cached is dead. The player emits **`ui.reloaded {file}`**
+  on the script event bus after a successful rebuild; subscribe in `init` and
+  re-acquire handles with `gui:findWidget(id)`:
+
+  ```lua
+  function init(self)
+      factory:loadLayout("hud.oui")
+      self.score = gui:findWidget("scoreLabel")
+      events.subscribe("ui.reloaded", function(e)
+          if e.file == "hud.oui" then
+              self.score = gui:findWidget("scoreLabel")  -- rebuilt: re-acquire
+          end
+      end)
+  end
+  ```
+
+The editor never hot-reloads its own GUI Preview stage through this path (that
+panel has its own refresh).
+
 ## MCP (agent control)
 
+- `reload_ui` — hot-reload one `.oui` screen on the running game (destroy +
+  rebuild from the fresh file); a parse failure keeps the old screen and surfaces
+  a `[remote]` error, a rebuild emits `ui.reloaded {file}`. See "Hot-reload
+  during Play" above.
 - `get_ui_layout` — the running game's widgets: parallel `ids` / `rects` lists,
   each rect a flat `left top width height visible enabled modal` string (pixels;
   the three flags are `1`/`0`). Read `modal` to assert a dialog is up, `enabled`

@@ -1,0 +1,9 @@
+# UI hot-reload fixture screen: one positioned label. The editor_ui_hotreload
+# ctest overwrites this file at runtime to move the label, then to break it.
+[Layout]
+atlas = gui_default
+
+[Label probe]
+font = 9
+text = HUD
+position = 100 100

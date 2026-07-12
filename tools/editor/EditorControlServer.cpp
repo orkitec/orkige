@@ -1372,6 +1372,18 @@ namespace Orkige
 				  "connected.",
 				  { { "id", "string", "GameObject id (omit = reload all)",
 				      false } } },
+				{ "reload_ui",
+				  "Hot-reload one declarative .oui screen on the RUNNING game: "
+				  "destroy-and-rebuild that screen's widgets from the fresh file "
+				  "(clean cutover). 'file' is the .oui name the game passed to "
+				  "loadLayout (e.g. 'hud.oui'). A .oui that fails to parse keeps "
+				  "the OLD screen and surfaces a [remote] error; a successful "
+				  "rebuild emits the 'ui.reloaded' script event. Author the .oui "
+				  "with write_project_file, then trigger it here (the editor's "
+				  ".oui watcher also fires this on a file save). Errors when no "
+				  "player is connected.",
+				  { { "file", "string", "the .oui name (as passed to loadLayout)",
+				      true } } },
 				{ "screenshot_game",
 				  "Screenshot the RUNNING game's next rendered frame to 'path' "
 				  "(desktop play only; the path is on the player's filesystem, "
@@ -4081,6 +4093,26 @@ namespace Orkige
 				reload.set(DebugProtocol::FIELD_ID, id);
 				context.play->client.send(reload);
 			}
+			this->sendOk(req);
+			return;
+		}
+		if (type == "reload_ui")
+		{
+			if (!context.play->client.isConnected())
+			{
+				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			const String& file = request.get("file");
+			if (file.empty())
+			{
+				this->sendErr(req, "reload_ui needs a 'file' (the .oui name)");
+				return;
+			}
+			// fire-and-forget like reload_script: the player rebuilds the screen
+			// (or, on a parse failure, keeps the old one and logs a [remote]
+			// error visible in console_tail). Reuse the editor's own watcher path.
+			reloadRemoteUi(*context.play, *context.console, file);
 			this->sendOk(req);
 			return;
 		}

@@ -166,6 +166,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_NATIVE_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SCRIPT_ERROR_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
@@ -946,6 +947,19 @@ int main(int argc, char** argv)
 		const char* hotreloadPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_HOTRELOAD_PLAYTEST");
 
+		// ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST=path: scripted .oui hot-reload run
+		// (the editor_ui_hotreload ctest on tests/projects/uihotreload). The
+		// project is COPIED to a temp dir (never the real one); its
+		// assets/hud.oui carries a single positioned label whose script loads it.
+		// After Play, once the label's rect streams over MSG_UI_LAYOUT, the hook
+		// OVERWRITES the .oui to move the label and asserts the editor's .oui
+		// watcher fired ([reload] Console line) and the player rebuilt the screen
+		// (the streamed rect moved); a broken (unparseable) .oui must surface a
+		// [remote] error while the OLD (moved) screen stays up. Stop must revert
+		// cleanly.
+		const char* uiHotreloadPlaytestEnv =
+			std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST");
+
 		// ORKIGE_EDITOR_ASSETTEST=path: scripted Asset browser run (the
 		// editor_asset_browser ctest). At frame 10 it COPIES the
 		// project to a temp dir (the real one is never touched), opens the
@@ -1143,6 +1157,80 @@ int main(int argc, char** argv)
 		{
 			return "function init(self)\n\tself.transform:setPosition("
 				"Vector3(" + std::to_string(x) + ", 0, 0))\nend\n";
+		};
+
+		// .oui hot-reload playtest state that spans frames
+		enum class UiHotReloadPhase
+		{
+			Idle, WaitBaseline, WaitMoved, WaitBroken, WaitRevert, Done
+		};
+		UiHotReloadPhase uiHotreloadPhase = UiHotReloadPhase::Idle;
+		std::chrono::steady_clock::time_point uiHotreloadDeadline;
+		std::string uiHotreloadTempRoot;	//!< the temp project copy
+		float uiBaselineLeft = std::numeric_limits<float>::quiet_NaN();
+		float uiMovedLeft = std::numeric_limits<float>::quiet_NaN();
+		// the "probe" label's streamed on-screen left (a NaN sentinel until the
+		// MSG_UI_LAYOUT stream has carried it)
+		auto uiProbeLeft = [&playSession]() -> float
+		{
+			for (PlaySession::RemoteWidgetRect const& w :
+				playSession.remoteUiLayout)
+			{
+				if (w.id == "probe")
+				{
+					return static_cast<float>(w.left);
+				}
+			}
+			return std::numeric_limits<float>::quiet_NaN();
+		};
+		// (over)write the temp copy's assets/hud.oui; false on I/O error
+		auto uiWriteOui = [&uiHotreloadTempRoot](
+			std::string const& source) -> bool
+		{
+			const std::filesystem::path ouiPath =
+				std::filesystem::path(uiHotreloadTempRoot) /
+				"assets" / "hud.oui";
+			{
+				std::ofstream file(ouiPath,
+					std::ios::binary | std::ios::trunc);
+				file << source;
+				if (!file.good())
+				{
+					return false;
+				}
+			}
+			// stamp a strictly newer mtime so a rewrite within a coarse
+			// filesystem timestamp granule stays visible to the watcher
+			std::error_code stampError;
+			const std::filesystem::file_time_type written =
+				std::filesystem::last_write_time(ouiPath, stampError);
+			if (!stampError)
+			{
+				std::filesystem::last_write_time(ouiPath,
+					written + std::chrono::seconds(2), stampError);
+			}
+			return true;
+		};
+		// a hud.oui whose label sits at (x, 100)
+		auto uiMovedOui = [](int x) -> std::string
+		{
+			return "[Layout]\natlas = gui_default\n\n[Label probe]\nfont = 9\n"
+				"text = HUD\nposition = " + std::to_string(x) + " 100\n";
+		};
+		// does the Console hold a "[remote]" error line about reload_ui?
+		auto consoleHasReloadUiErrorLine = [&console]()
+		{
+			std::lock_guard<std::mutex> lock(console.mutex);
+			for (ConsoleLine const& line : console.lines)
+			{
+				if (line.level == ConsoleLevel::Error &&
+					line.text.rfind("[remote]", 0) == 0 &&
+					line.text.find("reload_ui") != std::string::npos)
+				{
+					return true;
+				}
+			}
+			return false;
 		};
 
 		enum class PlaytestPhase
@@ -6711,6 +6799,216 @@ int main(int argc, char** argv)
 					{
 						std::error_code ignored;
 						std::filesystem::remove_all(hotreloadTempRoot, ignored);
+					}
+					exitCode = 7;
+					running = false;
+				}
+			}
+
+			// .oui hot-reload playtest (ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST):
+			// Play a temp copy, then overwrite assets/hud.oui on disk and assert
+			// the editor's .oui watcher hot-reloaded the running screen (the
+			// label rect moves over MSG_UI_LAYOUT), and that a broken edit keeps
+			// the OLD screen up with a [remote] error.
+			if (uiHotreloadPlaytestEnv)
+			{
+				const std::chrono::steady_clock::time_point uiNow =
+					std::chrono::steady_clock::now();
+				bool uiFailed = false;
+				std::string uiFailure;
+				if (frameCount == 10 &&
+					uiHotreloadPhase == UiHotReloadPhase::Idle)
+				{
+					uiHotreloadTempRoot =
+						(std::filesystem::temp_directory_path() /
+						("orkige_ui_hotreload_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::error_code copyError;
+					std::filesystem::copy(uiHotreloadPlaytestEnv,
+						uiHotreloadTempRoot,
+						std::filesystem::copy_options::recursive, copyError);
+					if (copyError)
+					{
+						uiFailed = true;
+						uiFailure = "could not prepare the temp copy at " +
+							uiHotreloadTempRoot;
+					}
+					else if (!openProjectFromPath(state, editorCore,
+						uiHotreloadTempRoot))
+					{
+						uiFailed = true;
+						uiFailure = "could not open the project copy '" +
+							uiHotreloadTempRoot + "'";
+					}
+				}
+				if (frameCount == 40 && !uiFailed &&
+					uiHotreloadPhase == UiHotReloadPhase::Idle)
+				{
+					if (!startPlay(playSession, gameObjectManager,
+						state.project))
+					{
+						uiFailed = true;
+						uiFailure = "startPlay failed";
+					}
+					else
+					{
+						uiHotreloadPhase = UiHotReloadPhase::WaitBaseline;
+						uiHotreloadDeadline = uiNow + std::chrono::seconds(90);
+						SDL_Log("orkige_editor: ui hot-reload playtest - Play "
+							"pressed on the temp copy");
+					}
+				}
+				else if (uiHotreloadPhase == UiHotReloadPhase::WaitBaseline)
+				{
+					const float left = uiProbeLeft();
+					if (!std::isnan(left))
+					{
+						// baseline rect confirmed - MOVE the label on disk
+						uiBaselineLeft = left;
+						if (!uiWriteOui(uiMovedOui(300)))
+						{
+							uiFailed = true;
+							uiFailure = "could not write the moved .oui";
+						}
+						else
+						{
+							uiHotreloadPhase = UiHotReloadPhase::WaitMoved;
+							uiHotreloadDeadline =
+								uiNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: ui hot-reload playtest - "
+								"baseline label left=%.0f up, moved the .oui",
+								uiBaselineLeft);
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						uiFailed = true;
+						uiFailure = "session ended before the baseline layout "
+							"arrived";
+					}
+				}
+				else if (uiHotreloadPhase == UiHotReloadPhase::WaitMoved)
+				{
+					// the watcher fired ([reload] line) AND the player rebuilt
+					// the screen (the streamed label rect moved right)
+					const float left = uiProbeLeft();
+					if (consoleHasReloadLine() && !std::isnan(left) &&
+						left >= uiBaselineLeft + 50.0f)
+					{
+						uiMovedLeft = left;
+						// now break it: an unparseable .oui must NOT swap
+						if (!uiWriteOui("[Broken section header\n"))
+						{
+							uiFailed = true;
+							uiFailure = "could not write the broken .oui";
+						}
+						else
+						{
+							uiHotreloadPhase = UiHotReloadPhase::WaitBroken;
+							uiHotreloadDeadline =
+								uiNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: ui hot-reload playtest - "
+								"live reload moved the label to left=%.0f, now "
+								"breaking the .oui", uiMovedLeft);
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						uiFailed = true;
+						uiFailure = "session ended before the moved reload took "
+							"effect";
+					}
+				}
+				else if (uiHotreloadPhase == UiHotReloadPhase::WaitBroken)
+				{
+					// a failed reload: a [remote] error surfaces, play continues
+					// and the OLD (moved) screen keeps its rect
+					const float left = uiProbeLeft();
+					if (consoleHasReloadUiErrorLine())
+					{
+						if (playSession.mode != PlaySession::Mode::Playing &&
+							playSession.mode != PlaySession::Mode::Paused)
+						{
+							uiFailed = true;
+							uiFailure = "the broken reload stopped play "
+								"(it must keep running)";
+						}
+						else if (!std::isnan(left) &&
+							std::abs(left - uiMovedLeft) > 1.0f)
+						{
+							uiFailed = true;
+							uiFailure = "the broken reload clobbered the running "
+								"screen (label rect changed)";
+						}
+						else
+						{
+							requestStopPlay(playSession);
+							uiHotreloadPhase = UiHotReloadPhase::WaitRevert;
+							uiHotreloadDeadline =
+								uiNow + std::chrono::seconds(90);
+							SDL_Log("orkige_editor: ui hot-reload playtest - "
+								"broken .oui surfaced a [remote] error while play "
+								"continued and kept the old screen, stopping");
+						}
+					}
+					else if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						uiFailed = true;
+						uiFailure = "session ended before the broken reload "
+							"surfaced";
+					}
+				}
+				else if (uiHotreloadPhase == UiHotReloadPhase::WaitRevert)
+				{
+					if (playSession.mode == PlaySession::Mode::Edit)
+					{
+						if (playSession.process != nullptr ||
+							playSession.client.isConnected())
+						{
+							uiFailed = true;
+							uiFailure = "session not fully torn down after "
+								"revert";
+						}
+						else
+						{
+							SDL_Log("orkige_editor: ui hot-reload playtest "
+								"PASSED: watcher -> reload_ui -> live rebuild "
+								"(label moved), broken .oui contained ([remote] "
+								"error, play continued, old screen kept), clean "
+								"Stop");
+							std::error_code ignored;
+							std::filesystem::remove_all(uiHotreloadTempRoot,
+								ignored);
+							uiHotreloadPhase = UiHotReloadPhase::Done;
+							running = false;
+						}
+					}
+				}
+				if (!uiFailed &&
+					uiHotreloadPhase != UiHotReloadPhase::Idle &&
+					uiHotreloadPhase != UiHotReloadPhase::Done &&
+					uiNow >= uiHotreloadDeadline)
+				{
+					uiFailed = true;
+					const float lastLeft = uiProbeLeft();
+					uiFailure = "deadline exceeded in phase " +
+						std::to_string(static_cast<int>(uiHotreloadPhase)) +
+						" (last label left=" +
+						(std::isnan(lastLeft) ? std::string("none")
+							: std::to_string(lastLeft)) +
+						", mode=" + std::to_string(
+							static_cast<int>(playSession.mode)) + ")";
+				}
+				if (uiFailed)
+				{
+					SDL_Log("orkige_editor: ui hot-reload playtest FAILED - %s",
+						uiFailure.c_str());
+					if (!uiHotreloadTempRoot.empty())
+					{
+						std::error_code ignored;
+						std::filesystem::remove_all(uiHotreloadTempRoot,
+							ignored);
 					}
 					exitCode = 7;
 					running = false;

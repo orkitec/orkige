@@ -293,6 +293,15 @@ namespace Orkige
 		//! reorder the view rendering by their z value
 		void reorderViews();
 
+		//! @brief hot-reload a declarative `.oui` screen the factory previously
+		//! loaded: destroy that screen's widgets and rebuild from the fresh file
+		//! (clean cutover - @see GuiFactory::reloadLayout). A parse failure keeps
+		//! the OLD screen and returns false with @p error set. On success the
+		//! screen router's teardown set is refreshed when the reloaded file is the
+		//! currently materialized screen, so navigation keeps tearing it down
+		//! cleanly. @return true on a successful rebuild.
+		bool reloadLayout(String const & file, String & error);
+
 		//! exchanges the texture of an atlas
 		void replaceAtlasTexture(String const & atlas, String const & texture);
 
@@ -321,6 +330,13 @@ namespace Orkige
 		//! @brief request a modal be dismissed (deferred to the next frame
 		//! boundary). @return true when the modal was active.
 		bool dismissModal(String const & id);
+		//! @brief tear a modal down SYNCHRONOUSLY (destroy its scrim + registered
+		//! dialog widgets, pop its stack entry). Unlike dismissModal (deferred to
+		//! the frame boundary, for a request that may come from inside input
+		//! dispatch), this runs now - the .oui hot-reload path calls it at the
+		//! message-drain point so a rebuilt screen can re-raise the same modal id.
+		//! A no-op when no such modal exists.
+		void removeModalNow(String const & id);
 		//! @brief dismiss the topmost modal (the Escape / Android-back action)
 		void dismissTopModal();
 		//! @brief dismiss every active modal

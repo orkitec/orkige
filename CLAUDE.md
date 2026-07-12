@@ -249,7 +249,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 74 tools cover the whole
+player debug protocol — never a second player port. The 75 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),
@@ -258,7 +258,7 @@ UI/animation preview (preview_ui renders a `.oui`; preview_animation renders a
 running (play {scene, target}, list_play_targets, async export_project + build
 status in get_state), testing (run_tests/list_tests/get_test_results with
 build-errors-first short-circuit) and live debugging (runtime_* state, pause/step,
-set_runtime_property/set_cvar/reload_script, screenshot_game) — all mapped onto
+set_runtime_property/set_cvar/reload_script, reload_ui, screenshot_game) — all mapped onto
 existing `EditorCore` methods + the `EditorDocument` free functions. Verified headlessly by the `editor_control` ctest
 (a worker thread drives a raw socket through the whole MCP conversation incl. auth
 rejection) plus the `JsonTests`/`HttpServerTests` unit tests. Full reference:
@@ -706,6 +706,15 @@ look when touching one:
   real-time). Both editor-inert (no singleton → no-op).
 - **Iteration**: **Lua hot-reload during Play** (`ScriptComponent::hotReload`,
   compile-before-swap; editor watches `scripts/` and sends `MSG_RELOAD_SCRIPT`);
+  **`.oui` hot-reload during Play** (`GuiFactory::reloadLayout`/
+  `GuiManager::reloadLayout`, both flavors: the editor's project-tree `*.oui`
+  watcher — same cadence/lifecycle as the scripts watcher — and the MCP
+  `reload_ui` verb both send `MSG_RELOAD_UI`; the player DESTROYS that screen's
+  widgets and rebuilds from the fresh file at the frame boundary — clean cutover,
+  a parse failure keeps the OLD screen + reports a `[remote]` error, a rebuild
+  emits the `ui.reloaded` bus event so scripts re-acquire handles;
+  `Docs/gui.md#hot-reload-during-play-oui-iteration`, verified by
+  `editor_ui_hotreload` both flavors);
   **level system** (`core_game/Level*`: deferred mid-play scene switch via the
   `LevelManager` pending-load applied at the player-loop frame boundary;
   `levels.olevels`; progression save in `getDocumentsDirectory`).

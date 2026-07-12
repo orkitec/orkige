@@ -1,0 +1,10 @@
+# Text-only runtime gui atlas: a single TrueType font baked into one GPU page
+# at boot by engine_gui/FontAtlas (no [Texture] file - the page is generated in
+# memory). The font is the committed engine default (Nunito, SIL OFL). A label
+# needs only a font, so the UI hot-reload fixture ships no binary media.
+[Texture]
+page 512
+
+[Font.9]
+ttf Nunito-Regular.ttf
+size 18

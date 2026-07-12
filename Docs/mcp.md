@@ -101,7 +101,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 74 tools (the `toolSpecs` table in
+The endpoint advertises 75 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -127,6 +127,7 @@ The endpoint advertises 74 tools (the `toolSpecs` table in
 | `set_runtime_property(id, component, property, value)` | write one reflected property on the RUNNING game live (`MSG_SET_PROPERTY`) |
 | `set_cvar(name, value)` | change a console variable on the RUNNING game live (`MSG_SET_CVAR`) |
 | `reload_script(id?)` | hot-reload Lua on the RUNNING game — one object or all (`MSG_RELOAD_SCRIPT`) |
+| `reload_ui(file)` | hot-reload one declarative `.oui` screen on the RUNNING game — destroy-and-rebuild its widgets from the fresh file (`MSG_RELOAD_UI`); a parse failure keeps the OLD screen and surfaces a `[remote]` error, a rebuild emits the `ui.reloaded` script event. The editor's `.oui` watcher fires this on a file save too |
 | `screenshot_game(path)` | screenshot the RUNNING game's frame (`MSG_SCREENSHOT`, desktop play) → poll `get_state` (async: the file is written after the accepted reply, so this verb stays path-only — no inline image) |
 | `record_trace(path, seconds?, everyNth?, objects?)` | record a temporal TRACE of the RUNNING game to a `.jsonl` flight recorder (`MSG_RECORD_START`, desktop play) — per-frame object samples (pos/vel/active/visible + dt + `mem` process footprint) with contact/scene/error/warning events → poll `get_state` for `record_seq` |
 | `stop_recording()` | end an in-progress `record_trace` early (`MSG_RECORD_STOP`); the player writes what it captured → poll `get_state` |
@@ -228,7 +229,13 @@ Game UI is authored in Lua and project files — screens are built by
 from a declarative `.oui` layout file (`gui:loadLayout`, see below). Agents
 therefore create and edit UI through the existing project-file verbs
 (`write_project_file` / `read_project_file` / `list_project_files`) and iterate
-live with `reload_script`; no UI-specific authoring tool is required. What agents
+live: overwrite an `.oui` and call `reload_ui(file)` — the RUNNING game destroys
+and rebuilds that screen from the fresh file (clean cutover; a parse failure
+keeps the OLD screen and surfaces a `[remote]` error, so a half-broken screen
+never renders). The editor's `.oui` watcher fires the SAME reload on a plain file
+save during Play, exactly like `reload_script` for `.lua`. Verify the result with
+`get_ui_layout` (the widget rects move); a script re-acquires its now-stale
+widget handles by subscribing to the `ui.reloaded` bus event. What agents
 cannot otherwise observe — the platform safe area and the resolved on-screen
 widget rects on a real device — is exposed as runtime readback: `get_safe_area`
 (the notch/home-bar insets) and `get_ui_layout` (per-widget pixel rects, plus an
