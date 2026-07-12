@@ -26,6 +26,7 @@ add_executable(orkige_core_tests
     ScriptEventBusTests.cpp
     SceneSerializerTests.cpp
     PrefabSerializerTests.cpp
+    PrefabOverrideMergeTests.cpp
     HierarchyTests.cpp
     TagTests.cpp
     ProjectTests.cpp

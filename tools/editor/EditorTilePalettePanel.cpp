@@ -105,6 +105,13 @@ namespace
 bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	std::string const& absolutePath)
 {
+	// paint places ROOT-level grid objects - incompatible with the prefab
+	// stage's single-root contract (disarming stays allowed: opening a stage
+	// disarms through this same seam)
+	if (!absolutePath.empty() && prefabEditBlocks(state, "Paint"))
+	{
+		return false;
+	}
 	TilePaletteState& palette = state.tilePalette;
 	// disarm: "" clears the armed asset and restores the translate tool
 	if (absolutePath.empty())

@@ -61,6 +61,8 @@ namespace Orkige
 		std::function<void(std::string const& path)> openRecentScene;
 		std::function<void()> saveScene;
 		std::function<void()> saveSceneAs;
+		//! File > Close Prefab (enabled only while a prefab stage is open)
+		std::function<void()> closePrefab;
 		//! File > Add Scene to Level Sequence (needs an open project + saved scene)
 		std::function<void()> addSceneToLevels;
 		std::function<void()> importMesh;
@@ -101,6 +103,11 @@ namespace Orkige
 		bool projectOpen = false;			//!< gates Close Project + (with a selection) Create Prefab
 		bool sceneInProject = false;		//!< gates Add Scene to Level Sequence (project open + saved scene)
 		bool canExport = false;				//!< gates the Build menu (project open, no export running)
+		//! a prefab edit stage is open: the scene/project lifecycle items and
+		//! Create Prefab grey out, Save Scene retitles to Save Prefab and
+		//! Close Prefab enables (mirrors the ImGui menu gating)
+		bool prefabEditActive = false;
+		std::string saveLabel = "Save Scene";	//!< "Save Prefab" while staged
 		bool panelVisible[PANEL_COUNT] = { true, true, true, true, true };
 		//! File > Open Recent entries, newest first (empty = placeholder item)
 		std::vector<std::string> recentScenes;

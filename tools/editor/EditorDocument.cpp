@@ -17,9 +17,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 using Orkige::optr;
 using Orkige::woptr;
@@ -28,6 +30,10 @@ using Orkige::woptr;
 // down their scene nodes (TransformComponent::onRemove wipes via NodeUtil)
 void newScene(EditorState& state, Orkige::EditorCore& core)
 {
+	if (prefabEditBlocks(state, "New Scene"))
+	{
+		return;
+	}
 	core.getGameObjectManager().clear();
 	core.resetForScene();
 	state.currentScenePath.clear();
@@ -36,6 +42,12 @@ void newScene(EditorState& state, Orkige::EditorCore& core)
 bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path)
 {
+	// the world holds a prefab subtree, not the scene - writing it to a
+	// .oscene would clobber the scene file with prefab content
+	if (prefabEditBlocks(state, "Save Scene (use Save Prefab)"))
+	{
+		return false;
+	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
 	if (!Orkige::SceneSerializer::saveScene(path, gameObjectManager))
 	{
@@ -53,6 +65,10 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path)
 {
+	if (prefabEditBlocks(state, "Open Scene"))
+	{
+		return false;
+	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
 	// loadScene replaces the current world (clears the manager first); the
 	// undo history refers to the old world, so it goes too
@@ -153,6 +169,10 @@ void registerProjectAssetLocations(std::string const& assetsDirectory)
 bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path)
 {
+	if (prefabEditBlocks(state, "Open Project"))
+	{
+		return false;
+	}
 	Orkige::Project project;
 	std::string error;
 	if (!project.load(path, &error))
@@ -216,6 +236,10 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 // project resources torn down)
 void closeProject(EditorState& state, Orkige::EditorCore& core)
 {
+	if (prefabEditBlocks(state, "Close Project"))
+	{
+		return;
+	}
 	if (!state.project.isLoaded())
 	{
 		return;
@@ -246,6 +270,10 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 bool newProjectAtPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& folder)
 {
+	if (prefabEditBlocks(state, "New Project"))
+	{
+		return false;
+	}
 	Orkige::Project created;
 	std::string error;
 	if (!Orkige::Project::create(folder, "", created, &error))
@@ -458,6 +486,12 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 // overrides reset: the file now IS the live subtree).
 bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 {
+	// the stage IS the prefab being edited - Save Prefab writes it; a nested
+	// Create Prefab inside it is refused like the format refuses nesting
+	if (prefabEditBlocks(state, "Create Prefab"))
+	{
+		return false;
+	}
 	if (!core.hasSelection())
 	{
 		SDL_Log("orkige_editor: Create Prefab needs a selected object");
@@ -598,6 +632,10 @@ namespace
 
 bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core)
 {
+	if (prefabEditBlocks(state, "Apply to Prefab"))
+	{
+		return false;
+	}
 	std::string rootId;
 	const std::string prefabPath =
 		resolveSelectedInstancePrefab(state, core, "Apply Prefab", rootId);
@@ -624,6 +662,10 @@ bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core)
 
 bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core)
 {
+	if (prefabEditBlocks(state, "Revert to Prefab"))
+	{
+		return false;
+	}
 	std::string rootId;
 	const std::string prefabPath =
 		resolveSelectedInstancePrefab(state, core, "Revert Prefab", rootId);
@@ -642,8 +684,327 @@ bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core)
 	return true;
 }
 
+//--- prefab edit mode (the one-world context swap) ---------------------------
+// See EditorApp.h for the design block. The load-bearing invariant lives in
+// openPrefabForEdit: the scene snapshot is written BEFORE anything can touch
+// the .oprefab, so the overrides stored in it were diffed against the file
+// the instances were actually instantiated from - closing then reloads the
+// snapshot, whose instances rebuild from the (possibly edited) file with
+// those overrides re-applied by the scene loader's normal merge.
+
+namespace
+{
+	//! the LIVE root-level object ids (no parent), sorted for stable messages
+	std::vector<std::string> rootLevelObjectIds(
+		Orkige::GameObjectManager& manager)
+	{
+		std::vector<std::string> roots;
+		for (auto const& [id, gameObject] : manager.getGameObjects())
+		{
+			if (gameObject && gameObject->getParentId().empty())
+			{
+				roots.push_back(id);
+			}
+		}
+		std::sort(roots.begin(), roots.end());
+		return roots;
+	}
+}
+
+bool prefabEditBlocks(EditorState const& state, char const* action)
+{
+	if (!isPrefabEditActive(state))
+	{
+		return false;
+	}
+	SDL_Log("orkige_editor: %s is unavailable while editing prefab '%s' - "
+		"close the prefab first", action,
+		state.prefabEditStack.back().prefabPath.c_str());
+	return true;
+}
+
+bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
+	std::string const& prefabPath)
+{
+	if (isPrefabEditActive(state))
+	{
+		SDL_Log("orkige_editor: Open Prefab refused - already editing '%s' "
+			"(close the current prefab first)",
+			state.prefabEditStack.back().prefabPath.c_str());
+		return false;
+	}
+	std::error_code ignored;
+	if (!std::filesystem::is_regular_file(prefabPath, ignored))
+	{
+		SDL_Log("orkige_editor: Open Prefab refused - '%s' not found",
+			prefabPath.c_str());
+		return false;
+	}
+
+	// the SNAPSHOT comes first - before the world changes and, structurally,
+	// before any edit can reach the .oprefab file (the merge invariant)
+	Orkige::GameObjectManager& manager = core.getGameObjectManager();
+	const std::string snapshotPath =
+		(std::filesystem::temp_directory_path() /
+			("orkige_prefab_edit_" + std::to_string(
+				std::chrono::steady_clock::now()
+					.time_since_epoch().count()) + ".oscene")).string();
+	if (!Orkige::SceneSerializer::saveScene(snapshotPath, manager))
+	{
+		SDL_Log("orkige_editor: Open Prefab refused - could not snapshot the "
+			"scene to '%s'", snapshotPath.c_str());
+		return false;
+	}
+
+	PrefabEditContext context;
+	context.prefabPath = prefabPath;
+	context.prefabRef = state.project.isLoaded()
+		? std::string(state.project.makeProjectRelative(prefabPath))
+		: std::string();
+	context.rootId = std::filesystem::path(prefabPath).stem().string();
+	context.snapshotPath = snapshotPath;
+	context.stashedScenePath = state.currentScenePath;
+	context.stashedSceneDirty = core.isSceneDirty();
+	context.stashedSelection = core.getSelection();
+	context.stashedCamera = state.camera;
+	context.stashedEditor2D = gViewSettings ? gViewSettings->editor2D : false;
+
+	// an armed paint asset would place ROOT-level grid objects - incompatible
+	// with the single-root stage; disarm before the swap (arming is refused
+	// while the stage is open)
+	paletteArmAsset(state, core, std::string());
+
+	// swap: the prefab subtree replaces the scene in the ONE world. The undo
+	// history refers to the scene world, so it goes too (per-context scope).
+	manager.clear();
+	core.resetForScene();
+	const Orkige::PrefabSerializer::InstantiateResult result =
+		Orkige::PrefabSerializer::instantiatePrefab(prefabPath, manager,
+			context.rootId, Orkige::StringVector());
+	if (result != Orkige::PrefabSerializer::INSTANTIATE_OK)
+	{
+		// corrupt file (or a nested prefab - the format hard-errors): put the
+		// scene back and report; the editor never strands on an empty world
+		SDL_Log("orkige_editor: Open Prefab failed - could not instantiate "
+			"'%s' (see the log above); restoring the scene",
+			prefabPath.c_str());
+		core.resetForScene();
+		Orkige::SceneSerializer::loadScene(snapshotPath, manager);
+		applyUnlitFixToLoadedModels(core);
+		if (context.stashedSceneDirty)
+		{
+			core.markSceneDirty();
+		}
+		for (Orkige::String const& id : context.stashedSelection)
+		{
+			if (manager.objectExists(id))
+			{
+				core.addToSelection(id);
+			}
+		}
+		std::filesystem::remove(snapshotPath, ignored);
+		return false;
+	}
+	applyUnlitFixToLoadedModels(core);
+
+	state.prefabEditStack.push_back(context);
+	// the scene path is stashed empty so every "needs a saved scene" check
+	// (Play among them) fails closed while the stage is open
+	state.currentScenePath.clear();
+	core.selectObject(context.rootId);
+	state.frameSelectedRequested = true;
+	SDL_Log("orkige_editor: editing prefab '%s' (root '%s', %zu objects)",
+		prefabPath.c_str(), context.rootId.c_str(),
+		manager.getGameObjects().size());
+	return true;
+}
+
+bool openSelectedInstancePrefab(EditorState& state, Orkige::EditorCore& core)
+{
+	if (isPrefabEditActive(state))
+	{
+		SDL_Log("orkige_editor: Open Prefab refused - already editing '%s' "
+			"(close the current prefab first)",
+			state.prefabEditStack.back().prefabPath.c_str());
+		return false;
+	}
+	std::string rootId;
+	const std::string prefabPath =
+		resolveSelectedInstancePrefab(state, core, "Open Prefab", rootId);
+	if (prefabPath.empty())
+	{
+		return false;
+	}
+	return openPrefabForEdit(state, core, prefabPath);
+}
+
+bool savePrefabEdit(EditorState& state, Orkige::EditorCore& core)
+{
+	if (!isPrefabEditActive(state))
+	{
+		SDL_Log("orkige_editor: Save Prefab refused - no prefab is open");
+		return false;
+	}
+	PrefabEditContext const& context = state.prefabEditStack.back();
+	Orkige::GameObjectManager& manager = core.getGameObjectManager();
+	if (!manager.objectExists(context.rootId))
+	{
+		SDL_Log("orkige_editor: Save Prefab refused - the prefab root '%s' "
+			"was deleted (undo to restore it)", context.rootId.c_str());
+		return false;
+	}
+	// savePrefab writes ONE subtree: stray root-level objects would silently
+	// vanish from the asset - refuse and name them instead
+	std::string strays;
+	for (std::string const& id : rootLevelObjectIds(manager))
+	{
+		if (id != context.rootId)
+		{
+			strays += strays.empty() ? id : (", " + id);
+		}
+	}
+	if (!strays.empty())
+	{
+		SDL_Log("orkige_editor: Save Prefab refused - objects outside the "
+			"prefab root '%s': %s (parent them under the root or delete "
+			"them)", context.rootId.c_str(), strays.c_str());
+		return false;
+	}
+	if (!Orkige::PrefabSerializer::savePrefab(context.prefabPath, manager,
+		context.rootId))
+	{
+		SDL_Log("orkige_editor: Save Prefab failed - could not write '%s' "
+			"(see the log above)", context.prefabPath.c_str());
+		return false;
+	}
+	// re-import so the asset database keeps the rewritten file's stable id
+	// current (the Apply-to-Prefab precedent)
+	if (state.project.isLoaded())
+	{
+		if (optr<Orkige::AssetDatabase> const& assetDatabase =
+			state.project.getAssetDatabase())
+		{
+			assetDatabase->importAsset(context.prefabPath);
+		}
+	}
+	core.clearSceneDirty();	// per-context: "prefab dirty" while staged
+	SDL_Log("orkige_editor: prefab saved to '%s'",
+		context.prefabPath.c_str());
+	return true;
+}
+
+bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
+	PrefabClosePolicy policy)
+{
+	if (!isPrefabEditActive(state))
+	{
+		SDL_Log("orkige_editor: Close Prefab refused - no prefab is open");
+		return false;
+	}
+	if (policy == PrefabClosePolicy::Save && core.isSceneDirty() &&
+		!savePrefabEdit(state, core))
+	{
+		// never silently discard on a refused save - the stage stays open
+		// with its edits (fix the refusal or close with Discard)
+		SDL_Log("orkige_editor: Close Prefab cancelled - saving the prefab "
+			"failed (see above)");
+		return false;
+	}
+	const PrefabEditContext context = state.prefabEditStack.back();
+	state.prefabEditStack.pop_back();
+
+	// pop: the snapshot replaces the stage in the ONE world; its instances
+	// rebuild from the (possibly edited) .oprefab and re-apply their stored
+	// per-instance overrides - the scene loader's normal merge. The stage's
+	// undo history refers to the prefab world, so it goes too.
+	Orkige::GameObjectManager& manager = core.getGameObjectManager();
+	core.resetForScene();
+	if (!Orkige::SceneSerializer::loadScene(context.snapshotPath, manager))
+	{
+		// the snapshot was written by openPrefabForEdit - failing to read it
+		// back is exceptional; report loudly and leave the file for rescue
+		SDL_Log("orkige_editor: Close Prefab - restoring the scene from '%s' "
+			"FAILED; the snapshot file is kept",
+			context.snapshotPath.c_str());
+		state.currentScenePath = context.stashedScenePath;
+		return false;
+	}
+	applyUnlitFixToLoadedModels(core);
+	state.currentScenePath = context.stashedScenePath;
+	if (context.stashedSceneDirty)
+	{
+		core.markSceneDirty();
+	}
+	// best-effort selection restore (ids persist across the serialize
+	// round-trip; vanished ones are skipped)
+	core.clearSelection();
+	for (Orkige::String const& id : context.stashedSelection)
+	{
+		if (manager.objectExists(id))
+		{
+			core.addToSelection(id);
+		}
+	}
+	state.camera = context.stashedCamera;
+	if (gViewSettings)
+	{
+		gViewSettings->editor2D = context.stashedEditor2D;
+	}
+	std::error_code ignored;
+	std::filesystem::remove(context.snapshotPath, ignored);
+	SDL_Log("orkige_editor: closed prefab '%s' - scene restored (%zu "
+		"GameObjects)", context.prefabPath.c_str(),
+		manager.getGameObjects().size());
+	return true;
+}
+
+void requestClosePrefabEdit(EditorState& state, Orkige::EditorCore& core,
+	bool quitAfter)
+{
+	if (!isPrefabEditActive(state))
+	{
+		return;
+	}
+	if (core.isSceneDirty())
+	{
+		// dirty: the Save/Discard/Cancel confirm modal resolves it (drawn by
+		// drawEditorModals; automated runs and MCP call closePrefabEdit with
+		// an explicit policy instead and never see the modal)
+		state.openPrefabClosePopup = true;
+		state.prefabCloseQuitIntent = quitAfter;
+		return;
+	}
+	if (closePrefabEdit(state, core, PrefabClosePolicy::Discard) && quitAfter)
+	{
+		requestQuit(state, core);
+	}
+}
+
+void saveCurrentDocument(EditorState& state, Orkige::EditorCore& core,
+	SDL_Window* window)
+{
+	if (isPrefabEditActive(state))
+	{
+		savePrefabEdit(state, core);
+		return;
+	}
+	if (state.currentScenePath.empty())
+	{
+		requestFileDialog(state, window,
+			Orkige::FileDialogAction::SaveSceneAs);
+	}
+	else
+	{
+		saveSceneToPath(state, core, state.currentScenePath);
+	}
+}
+
 bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
 {
+	if (prefabEditBlocks(state, "Add Scene to Level Sequence"))
+	{
+		return false;
+	}
 	if (!state.project.isLoaded())
 	{
 		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - no open "

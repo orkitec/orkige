@@ -36,7 +36,13 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	{
 		if (!session.isActive())
 		{
-			startPlay(session, core.getGameObjectManager(), state.project);
+			// Play needs the SCENE world; the prefab stage refuses it (the
+			// toolbar button greys out for the same reason)
+			if (!prefabEditBlocks(state, "Play"))
+			{
+				startPlay(session, core.getGameObjectManager(),
+					state.project);
+			}
 		}
 		else if (session.mode != PlaySession::Mode::Stopping)
 		{
@@ -62,26 +68,35 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_N, false))
 	{
-		newScene(state, core);
+		newScene(state, core);	// refuses itself while a prefab is staged
 		return;
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_O, false))
 	{
-		requestFileDialog(state, window, Orkige::FileDialogAction::OpenScene);
+		// don't raise a dialog whose outcome would only be refused
+		if (!prefabEditBlocks(state, "Open Scene"))
+		{
+			requestFileDialog(state, window,
+				Orkige::FileDialogAction::OpenScene);
+		}
 		return;
 	}
 	if (commandDown && ImGui::IsKeyPressed(ImGuiKey_S, false))
 	{
-		// Shift = Save As; a plain save on an unsaved scene also needs the
-		// dialog (same rule as the File menu)
-		if (io.KeyShift || state.currentScenePath.empty())
+		// Shift = Save As (scene mode only); the plain save routes to Save
+		// Prefab while a prefab stage is open (saveCurrentDocument), and to
+		// the dialog on an unsaved scene (same rule as the File menu)
+		if (io.KeyShift)
 		{
-			requestFileDialog(state, window,
-				Orkige::FileDialogAction::SaveSceneAs);
+			if (!prefabEditBlocks(state, "Save Scene As"))
+			{
+				requestFileDialog(state, window,
+					Orkige::FileDialogAction::SaveSceneAs);
+			}
 		}
 		else
 		{
-			saveSceneToPath(state, core, state.currentScenePath);
+			saveCurrentDocument(state, core, window);
 		}
 		return;
 	}

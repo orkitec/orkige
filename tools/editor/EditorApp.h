@@ -400,6 +400,30 @@ struct TilePaletteState
 	bool focused = false;
 };
 
+//! @brief one open prefab edit stage: the live scene is snapshotted to a temp
+//! .oscene and swapped OUT of the one GameObjectManager, the .oprefab is
+//! instantiated in its place (root id = file stem) and edited with the
+//! unchanged EditorCore toolset; closing loads the snapshot back - the open
+//! scene's instances rebuild from the edited file with their per-instance
+//! overrides re-applied by the scene loader (no dedicated refresh code).
+//! Everything the pop needs to restore rides here. Held as a vector-of-one
+//! (EditorState::prefabEditStack) so a nested-prefab v2 generalizes to a
+//! stack without reshaping the state; v1 never holds more than one entry
+//! (the .oprefab format refuses nesting in both directions).
+struct PrefabEditContext
+{
+	std::string prefabPath;			//!< absolute .oprefab being edited
+	std::string prefabRef;			//!< project-relative display ref ("" loose)
+	std::string rootId;				//!< the stage root id (= the file stem)
+	std::string snapshotPath;		//!< temp .oscene holding the swapped-out scene
+	//! the scene session state restored on close
+	std::string stashedScenePath;
+	bool stashedSceneDirty = false;
+	Orkige::StringVector stashedSelection;
+	Orkige::EditorCameraState stashedCamera;
+	bool stashedEditor2D = false;
+};
+
 // Editor UI state that lives across frames. Everything UI-independent
 // (selection, dirty flag, tools, undo/redo) lives in EditorCore instead.
 struct EditorState
@@ -455,6 +479,19 @@ struct EditorState
 	//! are drawn once per frame by drawEditorModals)
 	bool openAboutPopup = false;
 	bool openQuitConfirmPopup = false;
+	//! the open prefab edit stage (empty = normal scene editing). A vector so
+	//! a nested-prefab v2 becomes a stack; v1 holds at most ONE entry - see
+	//! PrefabEditContext and the EditorDocument.cpp free functions.
+	std::vector<PrefabEditContext> prefabEditStack;
+	//! deferred "Close Prefab" confirm (raised when the prefab is dirty);
+	//! prefabCloseQuitIntent makes a resolved close continue into the normal
+	//! quit flow (requestQuit while a prefab stage is open routes here first)
+	bool openPrefabClosePopup = false;
+	bool prefabCloseQuitIntent = false;
+	//! one-shot: frame the selected object next frame (the frame loop owns
+	//! the scene camera, so panel-less callers - opening a prefab stage -
+	//! request the framing instead of doing it; consumed by the main loop)
+	bool frameSelectedRequested = false;
 	//! Build menu request ("macos"/"ios-simulator"/"ios"/"android"; "" = none) -
 	//! menus (native or ImGui) set it, the frame loop starts the export
 	std::string requestedExport;
@@ -1158,6 +1195,79 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core);
 // log refusals to the Console.
 bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core);
 bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core);
+
+//--- prefab edit mode (EditorDocument.cpp) ----------------------------------
+// The isolation stage that edits a .oprefab ASSET in place of the scene: the
+// ONE GameObjectManager world is swapped (scene -> temp snapshot -> prefab
+// subtree) so every editor tool - commands, selection, inspector, gizmos -
+// operates on the prefab unchanged. Undo history is scoped per context
+// (resetForScene at push AND pop, the openSceneFromPath precedent). While a
+// stage is open the scene/project lifecycle, Play, the paint tool and the
+// prefab instance operations are refused (prefabEditBlocks - one central
+// guard, honest Console lines). The free functions below are the whole
+// surface; the MCP verbs wrap them 1:1.
+
+//! is a prefab edit stage open
+inline bool isPrefabEditActive(EditorState const& state)
+{
+	return !state.prefabEditStack.empty();
+}
+
+//! @brief central prefab-mode guard: true (and a Console line naming the
+//! refused action) while a prefab stage is open. Callers bail on true.
+bool prefabEditBlocks(EditorState const& state, char const* action);
+
+//! @brief open a .oprefab for editing: snapshot the live scene to a temp
+//! .oscene FIRST (the snapshot must predate any prefab change - the stored
+//! overrides were diffed against the file the instances were instantiated
+//! from), clear the world, instantiate the prefab as root "<file stem>" and
+//! reset the undo history. Refused (Console line) while a stage is already
+//! open, for a missing/corrupt/nested prefab (the scene is restored) or when
+//! the snapshot cannot be written. Selects the root and requests framing.
+bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
+	std::string const& prefabPath);
+
+//! @brief Hierarchy context menu "Open Prefab": resolve the selected prefab
+//! instance root's .oprefab (the Apply/Revert resolution rules, refusals
+//! logged) and open it for editing.
+bool openSelectedInstancePrefab(EditorState& state, Orkige::EditorCore& core);
+
+//! @brief Cmd/Ctrl+S in prefab mode / File > Save Prefab: write the stage
+//! back to its .oprefab (asset id re-imported in project mode). Refused with
+//! a Console line when the recorded root was deleted or OTHER root-level
+//! objects exist (savePrefab writes ONE subtree - strays would be silently
+//! lost; the message lists them, parent them under the root instead).
+bool savePrefabEdit(EditorState& state, Orkige::EditorCore& core);
+
+//! how closePrefabEdit resolves a dirty stage (the UI confirm modal picks;
+//! automated runs and the MCP verb pass the policy explicitly - they never
+//! see a modal)
+enum class PrefabClosePolicy
+{
+	Save,		//!< save the prefab first; a REFUSED save cancels the close
+	Discard		//!< drop unsaved stage edits (the file keeps its last save)
+};
+
+//! @brief close the prefab stage: optionally save (Save policy - a failed
+//! save cancels the close, never a silent discard), then load the scene
+//! snapshot back, restore the stashed scene path/dirty flag/selection/camera
+//! and delete the temp file. The reopened scene's instances rebuild from the
+//! edited .oprefab with their per-instance overrides re-applied - the scene
+//! loader's normal merge, no extra code. Undo history resets (per-context
+//! scope).
+bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
+	PrefabClosePolicy policy);
+
+//! @brief the UI close affordance (breadcrumb, File > Close Prefab): a dirty
+//! stage raises the Save/Discard/Cancel confirm modal, a clean one closes
+//! immediately. quitAfter makes the resolved close continue into requestQuit.
+void requestClosePrefabEdit(EditorState& state, Orkige::EditorCore& core,
+	bool quitAfter = false);
+
+//! @brief the Cmd/Ctrl+S / File > Save routing: Save Prefab while a prefab
+//! stage is open, otherwise save the scene (Save-As dialog when untitled).
+void saveCurrentDocument(EditorState& state, Orkige::EditorCore& core,
+	SDL_Window* window);
 
 //! @brief Project > "Add Scene to Level Sequence": append the CURRENT scene to
 //! the open project's levels.olevels (created if missing; the manifest "levels"

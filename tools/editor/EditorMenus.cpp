@@ -19,6 +19,14 @@ using Orkige::woptr;
 // purpose (they stop the loop directly).
 void requestQuit(EditorState& state, Orkige::EditorCore& core)
 {
+	if (isPrefabEditActive(state))
+	{
+		// close the prefab stage first (its own Save/Discard/Cancel confirm
+		// when dirty); a resolved close restores the scene and re-enters here,
+		// so the normal unsaved-scene protection still applies afterwards
+		requestClosePrefabEdit(state, core, /*quitAfter=*/true);
+		return;
+	}
 	if (core.isSceneDirty())
 	{
 		state.openQuitConfirmPopup = true;
@@ -157,22 +165,27 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 	ViewSettings& viewSettings, optr<Orkige::RenderCamera> const& sceneCamera,
 	SDL_Window* window)
 {
+	// while a prefab stage is open the scene/project lifecycle items grey out
+	// (their functions refuse anyway - the disable is the honest UI); Save
+	// routes to Save Prefab and Close Prefab appears
+	const bool prefabMode = isPrefabEditActive(state);
 	if (ImGui::BeginMainMenuBar())
 	{
 		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::MenuItem("New Project..."))
+			if (ImGui::MenuItem("New Project...", nullptr, false, !prefabMode))
 			{
 				requestFileDialog(state, window,
 					Orkige::FileDialogAction::NewProject);
 			}
-			if (ImGui::MenuItem("Open Project..."))
+			if (ImGui::MenuItem("Open Project...", nullptr, false,
+				!prefabMode))
 			{
 				requestFileDialog(state, window,
 					Orkige::FileDialogAction::OpenProject);
 			}
 			if (ImGui::BeginMenu("Open Recent Project",
-				!viewSettings.recentProjects.empty()))
+				!viewSettings.recentProjects.empty() && !prefabMode))
 			{
 				// iterate a copy: a click reorders the list mid-iteration
 				const std::vector<std::string> recents =
@@ -187,23 +200,24 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 				ImGui::EndMenu();
 			}
 			if (ImGui::MenuItem("Close Project", nullptr, false,
-				state.project.isLoaded()))
+				state.project.isLoaded() && !prefabMode))
 			{
 				closeProject(state, core);
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("New Scene", ORKIGE_EDITOR_MOD_LABEL "+N"))
+			if (ImGui::MenuItem("New Scene", ORKIGE_EDITOR_MOD_LABEL "+N",
+				false, !prefabMode))
 			{
 				newScene(state, core);
 			}
 			if (ImGui::MenuItem("Open Scene...",
-				ORKIGE_EDITOR_MOD_LABEL "+O"))
+				ORKIGE_EDITOR_MOD_LABEL "+O", false, !prefabMode))
 			{
 				requestFileDialog(state, window,
 					Orkige::FileDialogAction::OpenScene);
 			}
 			if (ImGui::BeginMenu("Open Recent",
-				!viewSettings.recentScenes.empty()))
+				!viewSettings.recentScenes.empty() && !prefabMode))
 			{
 				// iterate a copy: a click reorders the list mid-iteration
 				const std::vector<std::string> recents =
@@ -218,30 +232,28 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
-			if (ImGui::MenuItem("Save Scene", ORKIGE_EDITOR_MOD_LABEL "+S"))
+			if (ImGui::MenuItem(prefabMode ? "Save Prefab" : "Save Scene",
+				ORKIGE_EDITOR_MOD_LABEL "+S"))
 			{
-				if (state.currentScenePath.empty())
-				{
-					requestFileDialog(state, window,
-						Orkige::FileDialogAction::SaveSceneAs);
-				}
-				else
-				{
-					saveSceneToPath(state, core, state.currentScenePath);
-				}
+				saveCurrentDocument(state, core, window);
 			}
 			if (ImGui::MenuItem("Save Scene As...",
-				"Shift+" ORKIGE_EDITOR_MOD_LABEL "+S"))
+				"Shift+" ORKIGE_EDITOR_MOD_LABEL "+S", false, !prefabMode))
 			{
 				requestFileDialog(state, window,
 					Orkige::FileDialogAction::SaveSceneAs);
+			}
+			if (prefabMode && ImGui::MenuItem("Close Prefab"))
+			{
+				requestClosePrefabEdit(state, core);
 			}
 			ImGui::Separator();
 			// append the current (saved) scene to the project's level sequence
 			// (levels.olevels) - a filesystem side effect, not undoable;
 			// refusals log to the Console
 			if (ImGui::MenuItem("Add Scene to Level Sequence", nullptr, false,
-				state.project.isLoaded() && !state.currentScenePath.empty()))
+				state.project.isLoaded() &&
+				!state.currentScenePath.empty() && !prefabMode))
 			{
 				addCurrentSceneToLevels(state, core);
 			}
@@ -309,15 +321,17 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 			}
 			ImGui::Separator();
 			// prefabs live in the open project's assets/ - enabled only with
-			// a project AND a selection (refusals log to the Console)
+			// a project AND a selection (refusals log to the Console); all
+			// three grey out while a prefab stage is open (no nesting)
 			if (ImGui::MenuItem("Create Prefab", nullptr, false,
-				core.hasSelection() && state.project.isLoaded()))
+				core.hasSelection() && state.project.isLoaded() &&
+				!prefabMode))
 			{
 				createPrefabFromSelection(state, core);
 			}
 			// Apply / Revert the selected prefab INSTANCE (enabled only on an
 			// instance root); refusals log to the Console
-			const bool onInstance = core.hasSelection() &&
+			const bool onInstance = core.hasSelection() && !prefabMode &&
 				core.canApplyOrRevertPrefab(core.getSelectedObjectId());
 			if (ImGui::MenuItem("Apply to Prefab", nullptr, false, onInstance))
 			{
@@ -517,6 +531,52 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 		if (ImGui::Button("Cancel"))
 		{
 			state.scenePathAction = Orkige::FileDialogAction::None;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+	// "Close Prefab" confirm: raised by requestClosePrefabEdit when the
+	// prefab stage is dirty - Save/Discard/Cancel; with quit intent a
+	// resolved close continues into requestQuit (whose normal unsaved-scene
+	// confirm then applies to the restored scene)
+	if (state.openPrefabClosePopup)
+	{
+		ImGui::OpenPopup("Close Prefab");
+		state.openPrefabClosePopup = false;
+	}
+	if (ImGui::BeginPopupModal("Close Prefab", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("The prefab has unsaved changes.");
+		ImGui::Spacing();
+		const bool quitAfter = state.prefabCloseQuitIntent;
+		if (ImGui::Button("Save and Close"))
+		{
+			// a refused save (stray roots, deleted root) keeps the stage
+			// open - closePrefabEdit reports it and never discards silently
+			if (closePrefabEdit(state, core, PrefabClosePolicy::Save) &&
+				quitAfter)
+			{
+				requestQuit(state, core);
+			}
+			state.prefabCloseQuitIntent = false;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Discard Changes"))
+		{
+			if (closePrefabEdit(state, core, PrefabClosePolicy::Discard) &&
+				quitAfter)
+			{
+				requestQuit(state, core);
+			}
+			state.prefabCloseQuitIntent = false;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel"))
+		{
+			state.prefabCloseQuitIntent = false;
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();

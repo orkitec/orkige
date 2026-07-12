@@ -167,6 +167,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_PREFABEDIT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
@@ -745,22 +746,15 @@ int main(int argc, char** argv)
 			menuActions.openRecentScene =
 				[statePtr, corePtr](std::string const& path)
 				{ openSceneFromPath(*statePtr, *corePtr, path); };
+			// Cmd+S is the native menu's key equivalent on mac, so the prefab-
+			// mode routing (Save Prefab while a stage is open) lives here
 			menuActions.saveScene = [statePtr, corePtr, windowPtr]()
-			{
-				if (statePtr->currentScenePath.empty())
-				{
-					requestFileDialog(*statePtr, windowPtr,
-						Orkige::FileDialogAction::SaveSceneAs);
-				}
-				else
-				{
-					saveSceneToPath(*statePtr, *corePtr,
-						statePtr->currentScenePath);
-				}
-			};
+				{ saveCurrentDocument(*statePtr, *corePtr, windowPtr); };
 			menuActions.saveSceneAs = [statePtr, windowPtr]()
 				{ requestFileDialog(*statePtr, windowPtr,
 					Orkige::FileDialogAction::SaveSceneAs); };
+			menuActions.closePrefab = [statePtr, corePtr]()
+				{ requestClosePrefabEdit(*statePtr, *corePtr); };
 			menuActions.addSceneToLevels = [statePtr, corePtr]()
 				{ addCurrentSceneToLevels(*statePtr, *corePtr); };
 			menuActions.importMesh = [statePtr, windowPtr]()
@@ -1202,6 +1196,20 @@ int main(int argc, char** argv)
 		const char* scriptTestEnv = std::getenv("ORKIGE_EDITOR_SCRIPTTEST");
 		std::string scriptTestTempRoot;
 
+		// ORKIGE_EDITOR_PREFABEDIT=<roller project dir>: the prefab edit-mode
+		// selfcheck (editor_prefab_edit ctest). Frame 10 copies the project to
+		// a temp dir, authors a tile instance with a per-instance override,
+		// saves the scene, then drives the whole stage loop through the same
+		// free functions the UI calls: open (world = the prefab subtree,
+		// fresh undo scope, lifecycle guards refuse), edit a child + add an
+		// object under the root, the save-guard refusals (stray root, deleted
+		// root), save, a dirty close with the explicit Discard policy, and
+		// the restored scene whose instance shows the prefab edit while the
+		// pre-existing override survived. Single-shot and condition-driven -
+		// every step's outcome is asserted immediately.
+		const char* prefabEditEnv = std::getenv("ORKIGE_EDITOR_PREFABEDIT");
+		std::string prefabEditTempRoot;
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
@@ -1210,9 +1218,18 @@ int main(int argc, char** argv)
 			// window title: a project ROOTS it ("Orkige Editor - <project> -
 			// <scene>", the scene shown project-relative), loose-scene mode
 			// keeps the historical "Orkige Editor - <scene path>"; the dirty
-			// marker applies to both
+			// marker applies to both. A prefab edit stage shows the prefab
+			// instead of the scene (the dirty marker then means prefab-dirty).
 			std::string sceneLabel = state.currentScenePath.empty()
 				? std::string("untitled") : state.currentScenePath;
+			if (isPrefabEditActive(state))
+			{
+				PrefabEditContext const& prefabContext =
+					state.prefabEditStack.back();
+				sceneLabel = (prefabContext.prefabRef.empty()
+					? prefabContext.prefabPath : prefabContext.prefabRef) +
+					" (prefab)";
+			}
 			std::string windowTitle;
 			if (state.project.isLoaded())
 			{
@@ -1308,6 +1325,17 @@ int main(int argc, char** argv)
 			{
 				state.themeReapplyRequested = false;
 				applyEditorThemeNow(viewSettings.themeMode);
+			}
+
+			// one-shot framing request (opening a prefab stage selects its
+			// root and asks for the F-key framing; the camera lives here)
+			if (state.frameSelectedRequested)
+			{
+				state.frameSelectedRequested = false;
+				if (sceneTarget.camera)
+				{
+					frameSelectedObject(state, editorCore, sceneTarget.camera);
+				}
 			}
 
 			// apply Scene-panel-driven RTT resizes with hysteresis: only
@@ -1552,6 +1580,9 @@ int main(int argc, char** argv)
 					viewSettings.showScenePanel;
 				menuStatus.recentScenes = viewSettings.recentScenes;
 				menuStatus.recentProjects = viewSettings.recentProjects;
+				menuStatus.prefabEditActive = isPrefabEditActive(state);
+				menuStatus.saveLabel = menuStatus.prefabEditActive
+					? "Save Prefab" : "Save Scene";
 				menuStatus.scriptingAvailable =
 					Orkige::EditorScriptHost::scriptingAvailable();
 				for (Orkige::EditorScriptTool const& tool :
@@ -3374,6 +3405,254 @@ int main(int argc, char** argv)
 					std::filesystem::remove_all(levelPaintTempRoot, cleanupErr);
 					running = false;
 				}
+			}
+			// --- prefab edit-mode selfcheck (ORKIGE_EDITOR_PREFABEDIT) ---
+			if (prefabEditEnv && frameCount == 10)
+			{
+				bool peFailed = false;
+				std::string peFail;
+				std::string peScenePath;
+				std::string pePrefabPath;
+				std::string peSnapshotPath;
+				// two Vec3 property probes: read a transform position as three
+				// floats (canonical float formatting may differ from the input
+				// string, so assertions compare parsed values)
+				auto positionOf = [&](std::string const& id, float* xyz)
+				{
+					std::string text;
+					return editorCore.getObjectProperty(id,
+						"TransformComponent", "position", text) &&
+						parsePlayFloats(text, xyz, 3);
+				};
+				auto positionYIs = [&](std::string const& id, float expected)
+				{
+					float xyz[3] = { 0.0f, 0.0f, 0.0f };
+					return positionOf(id, xyz) &&
+						std::fabs(xyz[1] - expected) < 1e-3f;
+				};
+				// 1. temp project copy + fixture scene: a tile instance with a
+				// per-instance override on a provided child, saved to disk
+				{
+					std::error_code peErr;
+					prefabEditTempRoot =
+						(std::filesystem::temp_directory_path() /
+						("orkige_prefabedit_" + std::to_string(
+							std::chrono::steady_clock::now()
+								.time_since_epoch().count()))).string();
+					std::filesystem::copy(prefabEditEnv, prefabEditTempRoot,
+						std::filesystem::copy_options::recursive, peErr);
+					if (peErr || !openProjectFromPath(state, editorCore,
+						prefabEditTempRoot))
+					{
+						peFailed = true;
+						peFail = "could not prepare/open the temp copy";
+					}
+				}
+				if (!peFailed)
+				{
+					newScene(state, editorCore);
+					pePrefabPath = (std::filesystem::path(prefabEditTempRoot) /
+						"assets" / "tile.oprefab").string();
+					std::string assetId;
+					if (optr<Orkige::AssetDatabase> const& database =
+						state.project.getAssetDatabase())
+					{
+						assetId = database->idForPath("assets/tile.oprefab");
+					}
+					if (!editorCore.executeCommand(Orkige::onew(
+						new Orkige::CreatePrefabInstanceCommand("Tile1",
+							pePrefabPath, "assets/tile.oprefab", assetId,
+							Orkige::Vec3::ZERO))))
+					{
+						peFailed = true;
+						peFail = "could not instantiate the fixture instance";
+					}
+				}
+				if (!peFailed)
+				{
+					// the per-instance override: WallTop moves - it must
+					// survive the prefab edit (merge rule: overridden wins)
+					std::string before;
+					const bool overridden = editorCore.getObjectProperty(
+						"Tile1/WallTop", "TransformComponent", "position",
+						before) &&
+						editorCore.applyPropertyChange("Tile1/WallTop",
+							"TransformComponent", "position", before,
+							"0 9 0", 0);
+					peScenePath = (std::filesystem::path(
+						state.project.getScenesDirectory()) /
+						"prefab_edit.oscene").string();
+					if (!overridden ||
+						!saveSceneToPath(state, editorCore, peScenePath) ||
+						editorCore.getUndoStackSize() == 0)
+					{
+						peFailed = true;
+						peFail = "fixture override/save wrong";
+					}
+				}
+				// 2. open the prefab stage: the world swaps to the prefab
+				// subtree, undo scope resets, the scene session is stashed
+				if (!peFailed)
+				{
+					Orkige::StringVector locals;
+					Orkige::StringVector rootComponents;
+					Orkige::PrefabSerializer::listPrefabInfo(pePrefabPath,
+						locals, rootComponents);
+					if (!openPrefabForEdit(state, editorCore, pePrefabPath))
+					{
+						peFailed = true;
+						peFail = "openPrefabForEdit failed";
+					}
+					else
+					{
+						peSnapshotPath =
+							state.prefabEditStack.back().snapshotPath;
+						std::error_code peErr;
+						const bool staged = isPrefabEditActive(state) &&
+							gameObjectManager.objectExists("tile") &&
+							gameObjectManager.objectExists("tile/WallTop") &&
+							!gameObjectManager.objectExists("Tile1") &&
+							gameObjectManager.getGameObjects().size() ==
+								locals.size() &&
+							editorCore.getUndoStackSize() == 0 &&
+							state.currentScenePath.empty() &&
+							!editorCore.isSceneDirty() &&
+							editorCore.getSelectedObjectId() == "tile" &&
+							std::filesystem::is_regular_file(peSnapshotPath,
+								peErr);
+						if (!staged)
+						{
+							peFailed = true;
+							peFail = "stage state after open wrong";
+						}
+					}
+				}
+				// 3. the guards: re-open and every scene/project lifecycle op
+				// refuse while the stage is open (the world stays untouched)
+				if (!peFailed)
+				{
+					const bool reopenRefused =
+						!openPrefabForEdit(state, editorCore, pePrefabPath);
+					const bool saveSceneRefused =
+						!saveSceneToPath(state, editorCore, peScenePath);
+					newScene(state, editorCore);	// must refuse
+					const bool newSceneRefused =
+						gameObjectManager.objectExists("tile");
+					editorCore.selectObject("tile");
+					const bool createPrefabRefused =
+						!createPrefabFromSelection(state, editorCore);
+					const bool armRefused =
+						!paletteArmAsset(state, editorCore, pePrefabPath);
+					const bool levelsRefused =
+						!addCurrentSceneToLevels(state, editorCore);
+					if (!reopenRefused || !saveSceneRefused ||
+						!newSceneRefused || !createPrefabRefused ||
+						!armRefused || !levelsRefused)
+					{
+						peFailed = true;
+						peFail = "a prefab-mode guard did not refuse";
+					}
+				}
+				// 4. edit the stage: a child property (NOT overridden by the
+				// instance) and a new object under the root
+				if (!peFailed)
+				{
+					std::string before;
+					bool edited = editorCore.getObjectProperty(
+						"tile/WallBottom", "TransformComponent", "position",
+						before) &&
+						editorCore.applyPropertyChange("tile/WallBottom",
+							"TransformComponent", "position", before,
+							"0 -9 0", 0);
+					edited = edited &&
+						!gameObjectManager.createGameObject("Gem").expired() &&
+						editorCore.addComponentToObject("Gem",
+							"TransformComponent") &&
+						editorCore.reparentObject("Gem", "tile");
+					if (!edited || editorCore.getUndoStackSize() == 0 ||
+						!editorCore.isSceneDirty())
+					{
+						peFailed = true;
+						peFail = "stage edits wrong";
+					}
+				}
+				// 5. the save guards: a stray root refuses (named), a deleted/
+				// renamed-away root refuses; then the real save succeeds
+				if (!peFailed)
+				{
+					gameObjectManager.createGameObject("Stray");
+					const bool strayRefused =
+						!savePrefabEdit(state, editorCore);
+					gameObjectManager.delGameObject("Stray");
+					const bool renamedAway =
+						editorCore.renameObject("tile", "tileMoved");
+					const bool rootRefused =
+						!savePrefabEdit(state, editorCore);
+					const bool renamedBack =
+						editorCore.renameObject("tileMoved", "tile");
+					const bool saved = savePrefabEdit(state, editorCore);
+					if (!strayRefused || !renamedAway || !rootRefused ||
+						!renamedBack || !saved || editorCore.isSceneDirty())
+					{
+						peFailed = true;
+						peFail = "save guards / save wrong";
+					}
+				}
+				// 6. dirty close with the explicit Discard policy (the modal
+				// is UI-only; automated runs pass the policy): the post-save
+				// edit must NOT reach the file
+				if (!peFailed)
+				{
+					std::string before;
+					const bool dirtied = editorCore.getObjectProperty(
+						"tile/WallBottom", "TransformComponent", "position",
+						before) &&
+						editorCore.applyPropertyChange("tile/WallBottom",
+							"TransformComponent", "position", before,
+							"0 -20 0", 0) &&
+						editorCore.isSceneDirty();
+					if (!dirtied ||
+						!closePrefabEdit(state, editorCore,
+							PrefabClosePolicy::Discard))
+					{
+						peFailed = true;
+						peFail = "dirty close (Discard) failed";
+					}
+				}
+				// 7. the restored scene: path/dirty/selection back, the
+				// instance refreshed with the prefab edit (WallBottom at the
+				// SAVED value, not the discarded one; the added Gem child
+				// arrived) while the per-instance override SURVIVED, the undo
+				// scope fresh, the temp snapshot gone
+				if (!peFailed)
+				{
+					std::error_code peErr;
+					const bool restored = !isPrefabEditActive(state) &&
+						state.currentScenePath == peScenePath &&
+						!editorCore.isSceneDirty() &&
+						editorCore.getSelectedObjectId() == "Tile1" &&
+						gameObjectManager.objectExists("Tile1") &&
+						gameObjectManager.objectExists("Tile1/Gem") &&
+						positionYIs("Tile1/WallBottom", -9.0f) &&
+						positionYIs("Tile1/WallTop", 9.0f) &&
+						editorCore.getUndoStackSize() == 0 &&
+						!std::filesystem::exists(peSnapshotPath, peErr);
+					if (!restored)
+					{
+						peFailed = true;
+						peFail = "restored scene / instance refresh wrong";
+					}
+				}
+				std::error_code peCleanupErr;
+				std::filesystem::remove_all(prefabEditTempRoot, peCleanupErr);
+				SDL_Log("orkige_editor: prefab edit test - %s%s%s",
+					peFailed ? "FAILED" : "OK", peFailed ? ": " : "",
+					peFail.c_str());
+				if (peFailed)
+				{
+					exitCode = 13;
+				}
+				running = false;
 			}
 			// --- 2D editing-ergonomics test (ORKIGE_EDITOR_MARQUEE) ---
 			// marquee box select + ghost preview + drop-cell paint, driven

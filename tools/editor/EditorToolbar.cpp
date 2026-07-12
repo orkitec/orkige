@@ -30,6 +30,10 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus))
 	{
 		const PlaySession::Mode mode = session.mode;
+		// Play runs the SCENE world; while a prefab stage is open the Play
+		// button and the target picker grey out (the shortcut and the play
+		// functions refuse too - this is the honest UI on top)
+		const bool prefabMode = isPrefabEditActive(state);
 		// play target picker: Desktop, a booted iOS simulator or a connected
 		// Android device/emulator (plus enumerated-but-gated iOS hardware).
 		// The device lists are scanned when the popup opens (short
@@ -42,7 +46,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 #endif
 		static std::vector<AndroidDevice> androidDevices;
 		static bool otherFlavorPlayerPresent = false;
-		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit);
+		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit || prefabMode);
 		ImGui::SetNextItemWidth(150.0f);
 		const char* targetPreview = "Desktop";
 		if (!session.desktopLabel.empty())
@@ -230,7 +234,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 		ImGui::EndDisabled();
 		ImGui::SameLine();
-		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit);
+		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit || prefabMode);
 		if (ImGui::Button("Play"))
 		{
 			if (!session.iosDeviceUdid.empty())
@@ -313,9 +317,12 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		toolButton("E", Orkige::EditorTool::Rotate);
 		toolButton("R", Orkige::EditorTool::Scale);
 		// Paint (B): 2D grid painting, usable once a prefab is armed in the
-		// Tile Palette - the button greys out until then
+		// Tile Palette - the button greys out until then (and while a prefab
+		// stage is open: paint places ROOT-level grid objects, incompatible
+		// with the stage's single-root contract)
 		{
-			const bool armed = !state.tilePalette.armedAssetPath.empty();
+			const bool armed = !state.tilePalette.armedAssetPath.empty() &&
+				!prefabMode;
 			const bool active =
 				(core.getActiveTool() == Orkige::EditorTool::Paint);
 			ImGui::BeginDisabled(!armed);
@@ -435,7 +442,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		switch (mode)
 		{
 		case PlaySession::Mode::Edit:
-			ImGui::TextDisabled("editing");
+			ImGui::TextDisabled(prefabMode ? "editing prefab" : "editing");
 			break;
 		case PlaySession::Mode::Building:
 			// compile-on-Play: the Console carries the [build] output
@@ -473,6 +480,5 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		}
 	}
 	ImGui::End();
-	(void)state;
 	return toolbarHeight;
 }

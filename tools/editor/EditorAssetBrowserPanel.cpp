@@ -239,6 +239,12 @@ optr<Orkige::EditorCommand> makeInstantiateCommand(EditorState& state,
 	}
 	case AssetKind::Prefab:
 	{
+		// no nesting: an instance dropped INTO a prefab edit stage would be a
+		// prefab inside a prefab, which the format (and Save Prefab) refuses
+		if (prefabEditBlocks(state, "Instantiate Prefab"))
+		{
+			return optr<Orkige::EditorCommand>();
+		}
 		// carry the project-relative reference + the stable asset id onto the
 		// new instance root so it re-resolves across renames/moves like a
 		// scene-loaded instance
@@ -1515,17 +1521,21 @@ void folderDropTarget(EditorState& state, std::string const& destDir)
 	ImGui::EndDragDropTarget();
 }
 
-//! open a file per its kind on double-click: scene/prefab instantiate/open
-//! into the current scene (the v1 behavior); everything else - script, image,
-//! mesh (no in-editor viewer yet), unknown - opens with the OS default app
+//! open a file per its kind on double-click: a scene opens into the editor, a
+//! prefab opens the prefab EDIT stage (instantiating stays on drag-and-drop
+//! into the viewport - double-click mirrors how a scene opens rather than
+//! embeds); everything else - script, image, mesh (no in-editor viewer yet),
+//! unknown - opens with the OS default app
 void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 	AssetBrowserItem const& entry)
 {
 	switch (entry.kind)
 	{
 	case AssetKind::Scene:
-	case AssetKind::Prefab:
 		instantiateAssetIntoScene(state, core, entry.kind, entry.absolutePath);
+		break;
+	case AssetKind::Prefab:
+		openPrefabForEdit(state, core, entry.absolutePath);
 		break;
 	case AssetKind::Mesh:
 	case AssetKind::Texture:
@@ -1999,6 +2009,13 @@ void drawItemContextMenu(EditorState& state, Orkige::EditorCore& core,
 		{
 			instantiateAssetIntoScene(state, core, entry.item.kind,
 				entry.item.absolutePath);
+		}
+		// a prefab also opens the EDIT stage (the double-click behavior)
+		if (entry.item.kind == AssetKind::Prefab &&
+			ImGui::MenuItem("Open Prefab", nullptr, false,
+				!isPrefabEditActive(state)))
+		{
+			openPrefabForEdit(state, core, entry.item.absolutePath);
 		}
 		if (ImGui::MenuItem("Open with default app"))
 		{

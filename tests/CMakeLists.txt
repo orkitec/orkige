@@ -517,6 +517,22 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_scripts${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_SCRIPTTEST=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=120"
         LABELS integration TIMEOUT 120)
+
+    # prefab EDIT MODE end to end: on a temp copy of the roller project, author
+    # a tile instance with a per-instance override, then drive the isolation
+    # stage through the same free functions the UI calls - open (the one world
+    # swaps to the prefab subtree, undo scope resets, scene/project lifecycle +
+    # Play/Paint guards refuse), edit a child property + add an object under
+    # the root, the save-guard refusals (stray root, deleted root), save, a
+    # dirty close with the explicit Discard policy, and the restored scene:
+    # the instance refreshed with the prefab edit while its per-instance
+    # override survived, selection/path/dirty restored, the temp snapshot
+    # deleted. Single-shot, condition-driven. Both flavors.
+    add_test(NAME editor_prefab_edit${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_prefab_edit${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_PREFABEDIT=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=120"
+        LABELS integration TIMEOUT 120)
 endif()
 
 # (the Python MCP sidecar Util/orkige_mcp.py and its mcp_bridge_selftest ctest

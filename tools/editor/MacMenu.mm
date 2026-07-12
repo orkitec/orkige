@@ -19,6 +19,7 @@ namespace
 		TAG_CLOSE_PROJECT,
 		TAG_SAVE_SCENE,
 		TAG_SAVE_SCENE_AS,
+		TAG_CLOSE_PREFAB,
 		TAG_ADD_SCENE_TO_LEVELS,
 		TAG_IMPORT_MESH,
 		TAG_QUIT,
@@ -115,6 +116,7 @@ namespace
 	case TAG_CLOSE_PROJECT:		action = &gActions.closeProject; break;
 	case TAG_SAVE_SCENE:		action = &gActions.saveScene; break;
 	case TAG_SAVE_SCENE_AS:		action = &gActions.saveSceneAs; break;
+	case TAG_CLOSE_PREFAB:		action = &gActions.closePrefab; break;
 	case TAG_ADD_SCENE_TO_LEVELS:	action = &gActions.addSceneToLevels; break;
 	case TAG_IMPORT_MESH:		action = &gActions.importMesh; break;
 	case TAG_QUIT:				action = &gActions.quit; break;
@@ -139,6 +141,10 @@ namespace
 
 - (BOOL)validateMenuItem:(NSMenuItem*)item
 {
+	// the scene/project lifecycle stands down while a prefab edit stage is
+	// open (their functions refuse anyway - the disable is the honest UI);
+	// Save Scene stays enabled: it routes to Save Prefab (saveCurrentDocument)
+	const bool prefabIdle = !gStatus.prefabEditActive;
 	switch ([item tag])
 	{
 	case TAG_UNDO:			return gStatus.canUndo ? YES : NO;
@@ -147,9 +153,20 @@ namespace
 	case TAG_DELETE:
 	case TAG_GROUP_SELECTION:	return gStatus.hasSelection ? YES : NO;
 	case TAG_CREATE_PREFAB:
-		return (gStatus.hasSelection && gStatus.projectOpen) ? YES : NO;
-	case TAG_CLOSE_PROJECT:	return gStatus.projectOpen ? YES : NO;
-	case TAG_ADD_SCENE_TO_LEVELS:	return gStatus.sceneInProject ? YES : NO;
+		return (gStatus.hasSelection && gStatus.projectOpen && prefabIdle)
+			? YES : NO;
+	case TAG_CLOSE_PROJECT:
+		return (gStatus.projectOpen && prefabIdle) ? YES : NO;
+	case TAG_ADD_SCENE_TO_LEVELS:
+		return (gStatus.sceneInProject && prefabIdle) ? YES : NO;
+	case TAG_NEW_SCENE:
+	case TAG_OPEN_SCENE:
+	case TAG_OPEN_RECENT:
+	case TAG_NEW_PROJECT:
+	case TAG_OPEN_PROJECT:
+	case TAG_OPEN_RECENT_PROJECT:
+	case TAG_SAVE_SCENE_AS:	return prefabIdle ? YES : NO;
+	case TAG_CLOSE_PREFAB:	return gStatus.prefabEditActive ? YES : NO;
 	case TAG_EXPORT_MACOS:
 	case TAG_EXPORT_IOS_SIMULATOR:
 	case TAG_EXPORT_ANDROID:
@@ -164,6 +181,7 @@ namespace
 	OrkigeMenuTarget* gTarget = nil;
 	NSMenuItem* gUndoItem = nil;
 	NSMenuItem* gRedoItem = nil;
+	NSMenuItem* gSaveItem = nil;	//!< retitles to "Save Prefab" while staged
 	NSMenu* gOpenRecentMenu = nil;
 	NSMenu* gOpenRecentProjectMenu = nil;
 	NSMenu* gToolsMenu = nil;			//!< Tools > editor scripts (dynamic)
@@ -371,10 +389,12 @@ namespace Orkige
 		[fileMenu addItem:openRecentItem];
 		rebuildOpenRecentMenu(gStatus.recentScenes);
 		[fileMenu addItem:[NSMenuItem separatorItem]];
-		addItem(fileMenu, @"Save Scene", TAG_SAVE_SCENE, @"s",
+		gSaveItem = addItem(fileMenu, @"Save Scene", TAG_SAVE_SCENE, @"s",
 			NSEventModifierFlagCommand);
 		addItem(fileMenu, @"Save Scene As…", TAG_SAVE_SCENE_AS, @"s",
 			NSEventModifierFlagCommand | NSEventModifierFlagShift);
+		// enabled only while a prefab edit stage is open (validateMenuItem)
+		addItem(fileMenu, @"Close Prefab", TAG_CLOSE_PREFAB, @"", 0);
 		[fileMenu addItem:[NSMenuItem separatorItem]];
 		addItem(fileMenu, @"Add Scene to Level Sequence",
 			TAG_ADD_SCENE_TO_LEVELS, @"", 0);
@@ -466,6 +486,11 @@ namespace Orkige
 		{
 			[gRedoItem setTitle:
 				[NSString stringWithUTF8String:status.redoLabel.c_str()]];
+		}
+		if (gSaveItem && status.saveLabel != gStatus.saveLabel)
+		{
+			[gSaveItem setTitle:
+				[NSString stringWithUTF8String:status.saveLabel.c_str()]];
 		}
 		for (int panel = 0; panel < PANEL_COUNT; ++panel)
 		{

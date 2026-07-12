@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <vector>
 
 // (re)size the scene RTT: first call creates it (camera + editor viewport
@@ -597,6 +598,45 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::PopStyleVar();
 	state.scenePanelHovered = false;
 	state.scenePanelFocused = open && ImGui::IsWindowFocused();
+	if (open && isPrefabEditActive(state))
+	{
+		// prefab edit breadcrumb: "<scene> ▸ <prefab>" - clicking the scene
+		// segment closes the stage (confirm modal when dirty), Save Prefab
+		// mirrors Cmd/Ctrl+S. Drawn as a strip above the viewport image so
+		// the mode is unmissable while every tool keeps working below.
+		PrefabEditContext const& context = state.prefabEditStack.back();
+		std::string sceneLabel = context.stashedScenePath.empty()
+			? std::string("untitled")
+			: std::filesystem::path(context.stashedScenePath)
+				.filename().string();
+		std::string prefabLabel = context.prefabRef.empty()
+			? std::filesystem::path(context.prefabPath).filename().string()
+			: context.prefabRef;
+		ImGui::Spacing();
+		ImGui::SameLine(0.0f, 6.0f);
+		if (ImGui::SmallButton((sceneLabel + "##PrefabBreadcrumbScene")
+			.c_str()))
+		{
+			requestClosePrefabEdit(state, core);
+		}
+		ImGui::SetItemTooltip("back to the scene (closes the prefab)");
+		ImGui::SameLine();
+		ImGui::TextUnformatted("\xE2\x96\xB8");	// breadcrumb separator
+		ImGui::SameLine();
+		ImGui::Text("%s%s", prefabLabel.c_str(),
+			core.isSceneDirty() ? " *" : "");
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Save Prefab"))
+		{
+			savePrefabEdit(state, core);
+		}
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Close"))
+		{
+			requestClosePrefabEdit(state, core);
+		}
+		ImGui::Spacing();
+	}
 	if (open)
 	{
 		const ImVec2 avail = ImGui::GetContentRegionAvail();

@@ -243,19 +243,28 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 		// prefabs live in the open project's assets/ (an instance root
 		// re-makes its own prefab file); refusals log to the Console
 		if (ImGui::MenuItem("Create Prefab", nullptr, false,
-			state.project.isLoaded()))
+			state.project.isLoaded() && !isPrefabEditActive(state)))
 		{
 			createPrefabFromSelection(state, core);
 		}
-		// Apply / Revert on a prefab instance root (the prefab overflow
-		// menu); enabled only when THIS object is an instance root
+		// Open / Apply / Revert on a prefab instance root (the prefab
+		// overflow menu); enabled only when THIS object is an instance root.
+		// Open Prefab swaps into the edit stage (EditorDocument.cpp); all
+		// three grey out while a stage is already open (no nesting).
 		if (core.canApplyOrRevertPrefab(id))
 		{
-			if (ImGui::MenuItem("Apply to Prefab"))
+			const bool prefabMode = isPrefabEditActive(state);
+			if (ImGui::MenuItem("Open Prefab", nullptr, false, !prefabMode))
+			{
+				openSelectedInstancePrefab(state, core);
+			}
+			if (ImGui::MenuItem("Apply to Prefab", nullptr, false,
+				!prefabMode))
 			{
 				applyPrefabOverrides(state, core);
 			}
-			if (ImGui::MenuItem("Revert to Prefab"))
+			if (ImGui::MenuItem("Revert to Prefab", nullptr, false,
+				!prefabMode))
 			{
 				revertPrefabInstance(state, core);
 			}
