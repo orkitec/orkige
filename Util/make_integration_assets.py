@@ -25,10 +25,13 @@ The scene/asset writers are reused from make_roller_assets (the same
 XMLArchive forms SceneSerializer/PrefabSerializer produce); this module only
 composes the fixture. Deterministic: rerunning it never churns committed ids.
 Run from the repo root:  python3 Util/make_integration_assets.py
+                          python3 Util/make_integration_assets.py --selftest
 """
+import argparse
 import hashlib
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,14 +75,17 @@ def make_dot_texture(size=32):
 
 def build_contact_scene(writer_cls):
     """Ball (dynamic sphere, tagged 'mover') dropping into the Goal (static
-    sensor box, tagged 'goal') once the input action gates gravity on."""
+    sensor box, tagged 'goal') once the input action gates gravity on.
+    The scripts here are plain .lua files, not named ".component.lua" kinds,
+    so scene.script() is called with the literal "ScriptComponent" kind - the
+    low-level path-bound ScriptComponent container key/element."""
     scene = writer_cls()
     scene.add(
         "Ball",
         scene.transform(0.0, 2.0, 0.0),
         scene.sprite("dot.png", 0.8, 0.8, z_order=1),
         scene.rigid_sphere(0.4, mass=1.0, planar=True, layer="ball"),
-        scene.script("scripts/ball_probe.lua"),
+        scene.script("ScriptComponent", "scripts/ball_probe.lua"),
         tags=["mover"],
     )
     scene.add(
@@ -99,7 +105,7 @@ def build_level_a_scene(writer_cls):
         "Mover",
         scene.transform(-2.0, 0.0, 0.0),
         scene.sprite("dot.png", 0.6, 0.6, z_order=1),
-        scene.script("scripts/director.lua"),
+        scene.script("ScriptComponent", "scripts/director.lua"),
     )
     scene.add(
         "Fx",
@@ -116,7 +122,7 @@ def build_level_b_scene(writer_cls):
         "Survivor",
         scene.transform(0.0, 0.0, 0.0),
         scene.sprite("dot.png", 0.6, 0.6, z_order=1, tint=(0.3, 1.0, 0.4, 1.0)),
-        scene.script("scripts/survivor.lua"),
+        scene.script("ScriptComponent", "scripts/survivor.lua"),
     )
     return scene
 
@@ -137,6 +143,7 @@ function init(self)
 \tphysics:setGravity(Vector3(0.0, 0.0, 0.0))
 \tshared.integration = {
 \t\tfound = 0, foundGoal = "", input = 0, contact = 0, contactOther = "",
+\t\tbusContact = 0,
 \t}
 \t-- discover the goal by TAG, not a hardcoded id
 \tlocal goals = world.findByTag("goal")
@@ -145,6 +152,16 @@ function init(self)
 \t\tgoalId = goals[1].id
 \t\tshared.integration.foundGoal = goalId
 \tend
+\t-- the SAME contact ALSO reaches the message bus (physics.contactBegin, the
+\t-- object ids in the payload) - additive to the bespoke onContactBegin hook
+\t-- below. The bus mirror is emitted at the contact drain, which runs AFTER
+\t-- the script phase, so it lands one frame LATER than the hook; the selfcheck
+\t-- waits for it and asserts the mirror count matches the bespoke count.
+\tevents.subscribe("physics.contactBegin", function(e)
+\t\tif goalId ~= nil and (e.a == goalId or e.b == goalId) then
+\t\t\tshared.integration.busContact = shared.integration.busContact + 1
+\t\tend
+\tend)
 end
 
 function update(self, dt)
@@ -228,9 +245,10 @@ PROJECT_ORKPROJ = """\
 """
 
 
-def main():
-    root = Path(__file__).resolve().parent.parent
-    project_dir = root / "tests" / "projects" / "integration"
+def generate(project_dir):
+    """Write the whole fixture (project manifest, physics layers, the shared
+    dot texture + its sidecar, the three scripts, the three scenes) under
+    project_dir."""
     scenes = project_dir / "scenes"
     scripts = project_dir / "scripts"
     assets = project_dir / "assets"
@@ -251,8 +269,86 @@ def main():
     build_level_a_scene(roller.SceneWriter).write(scenes / "levelA.oscene")
     build_level_b_scene(roller.SceneWriter).write(scenes / "levelB.oscene")
 
+
+def _selftest():
+    """Build the fixture into a scratch directory and assert the emitted
+    format, so a future signature change to the reused make_roller_assets
+    writer helpers (script()/particles()/...) that this module's callers no
+    longer match fails loudly here instead of the generator just crashing
+    with no test coverage (as script()'s (path) -> (kind, path) drift did)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp) / "integration"
+        generate(project_dir)
+
+        contact_xml = (project_dir / "scenes" / "contact.oscene").read_text()
+        level_a_xml = (project_dir / "scenes" / "levelA.oscene").read_text()
+        level_b_xml = (project_dir / "scenes" / "levelB.oscene").read_text()
+
+        # every script in this fixture is a plain .lua file, not a named
+        # ".component.lua" kind, so it must serialize under the literal
+        # "ScriptComponent" container key/element - the low-level
+        # path-bound form scene.script("ScriptComponent", path) requests
+        for name, xml in (("contact.oscene", contact_xml),
+                           ("levelA.oscene", level_a_xml),
+                           ("levelB.oscene", level_b_xml)):
+            assert '<String value="ScriptComponent"/>' in xml, \
+                "%s: expected a path-bound ScriptComponent tag" % name
+            assert "<ScriptComponent create=" in xml, \
+                "%s: expected a <ScriptComponent> element" % name
+
+        # the ParticleComponent field list mirrors ParticleComponent::save
+        # field-for-field (see make_roller_assets.particles()); pin the
+        # exact count so an added/removed/reordered field there is caught
+        # here too, not just wherever else happens to call particles().
+        start = level_a_xml.index('<ParticleComponent create="0">') \
+            + len('<ParticleComponent create="0">')
+        end = level_a_xml.index("</ParticleComponent>", start)
+        field_lines = [line for line in level_a_xml[start:end].splitlines()
+                       if line.strip().startswith("<")]
+        assert len(field_lines) == 61, \
+            "ParticleComponent field count drifted: %d (expected 61)" \
+            % len(field_lines)
+
+        # deterministic: rerunning into a second scratch dir must be
+        # byte-identical (write_meta reuses ids only when a sidecar already
+        # exists, so a fresh dir still needs to reproduce the SAME ids)
+        project_dir_2 = Path(tmp) / "integration2"
+        generate(project_dir_2)
+        for rel in ("scenes/contact.oscene", "scenes/levelA.oscene",
+                    "scenes/levelB.oscene", "assets/dot.png.orkmeta"):
+            a = (project_dir / rel).read_bytes()
+            b = (project_dir_2 / rel).read_bytes()
+            assert a == b, "%s not deterministic across runs" % rel
+
+        # write_meta preserves an existing sidecar id across reruns (so
+        # regenerating a live fixture never churns asset references)
+        meta_path = project_dir / "assets" / "dot.png.orkmeta"
+        before = meta_path.read_text()
+        write_meta(project_dir, project_dir / "assets" / "dot.png")
+        assert meta_path.read_text() == before, \
+            "write_meta churned an id on a no-op rerun"
+
+    print("make_integration_assets selftest OK: contact/levelA/levelB "
+          "scenes generate cleanly, script()/particles() call shapes match "
+          "their current signatures, output is deterministic")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--selftest", action="store_true",
+                        help="build into a scratch dir and assert; write nothing under tests/")
+    args = parser.parse_args()
+
+    if args.selftest:
+        return _selftest()
+
+    root = Path(__file__).resolve().parent.parent
+    project_dir = root / "tests" / "projects" / "integration"
+    generate(project_dir)
     print("wrote %s" % project_dir)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

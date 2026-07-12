@@ -119,6 +119,18 @@ add_test(NAME make_benchmark_assets_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(make_benchmark_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# tests/projects/integration fixture generator self-validation:
+# make_integration_assets.py builds its three scenes into a scratch dir and
+# asserts the emitted shape (the low-level path-bound ScriptComponent tag,
+# the ParticleComponent field count) plus determinism across reruns - so a
+# call-shape drift in the reused make_roller_assets writer helpers (like the
+# script() (path) -> (kind, path) signature change that once broke this
+# generator outright) fails here instead of silently. Stdlib-only, headless.
+add_test(NAME make_integration_assets_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_integration_assets.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_integration_assets_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # export app-icon pipeline self-validation: orkige_icons.py synthesises a source
 # PNG and generates the macOS iconset / iOS icons / Android mipmaps into a
 # tempdir, asserting the file set and each entry's pixel size. Stdlib-only,
