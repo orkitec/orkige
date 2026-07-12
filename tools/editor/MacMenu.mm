@@ -33,6 +33,7 @@ namespace
 		TAG_EXPORT_MACOS,			//!< Build > Build for macOS
 		TAG_EXPORT_IOS_SIMULATOR,	//!< Build > Build for iOS Simulator
 		TAG_EXPORT_ANDROID,			//!< Build > Build for Android APK
+		TAG_RUN_EDITOR_SCRIPT,		//!< Tools > <tool> (name = representedObject)
 		TAG_RESET_LAYOUT,
 		TAG_VIEW_SETTINGS,
 		TAG_ABOUT,
@@ -92,6 +93,15 @@ namespace
 		if (gActions.openRecentProject && path)
 		{
 			gActions.openRecentProject(std::string([path UTF8String]));
+		}
+		return;
+	}
+	if (tag == TAG_RUN_EDITOR_SCRIPT)
+	{
+		NSString* name = [sender representedObject];
+		if (gActions.runEditorScript && name)
+		{
+			gActions.runEditorScript(std::string([name UTF8String]));
 		}
 		return;
 	}
@@ -156,6 +166,7 @@ namespace
 	NSMenuItem* gRedoItem = nil;
 	NSMenu* gOpenRecentMenu = nil;
 	NSMenu* gOpenRecentProjectMenu = nil;
+	NSMenu* gToolsMenu = nil;			//!< Tools > editor scripts (dynamic)
 	NSMenuItem* gPanelItems[Orkige::PANEL_COUNT] = {};
 
 	//! find (by title) or create+insert a top-level menu. SDL pre-creates the
@@ -253,6 +264,48 @@ namespace
 			[gOpenRecentProjectMenu addItem:[[NSMenuItem alloc]
 				initWithTitle:@"No Recent Projects" action:nil
 				keyEquivalent:@""]];
+		}
+	}
+
+	//! (re)build the Tools menu from the discovered editor scripts: each item
+	//! carries the tool's stable NAME as representedObject, its label as title.
+	//! A disabled note stands in when scripting is off, no project is open or the
+	//! project carries no tools (nil action = auto-disabled by AppKit).
+	void rebuildToolsMenu(Orkige::MacMenuStatus const& status)
+	{
+		if (!gToolsMenu)
+		{
+			return;
+		}
+		[gToolsMenu removeAllItems];
+		NSString* note = nil;
+		if (!status.scriptingAvailable)
+		{
+			note = @"Editor scripts need a scripting build";
+		}
+		else if (!status.projectOpen)
+		{
+			note = @"Open a project to see its editor scripts";
+		}
+		else if (status.editorTools.empty())
+		{
+			note = @"No editor scripts (scripts/*.editor.lua)";
+		}
+		if (note)
+		{
+			[gToolsMenu addItem:[[NSMenuItem alloc]
+				initWithTitle:note action:nil keyEquivalent:@""]];
+			return;
+		}
+		for (std::pair<std::string, std::string> const& tool :
+			status.editorTools)
+		{
+			NSString* label =
+				[NSString stringWithUTF8String:tool.second.c_str()];
+			NSMenuItem* item = addItem(gToolsMenu, label,
+				TAG_RUN_EDITOR_SCRIPT, @"", 0);
+			[item setRepresentedObject:
+				[NSString stringWithUTF8String:tool.first.c_str()]];
 		}
 	}
 }
@@ -360,6 +413,12 @@ namespace Orkige
 		addItem(buildMenu, @"Build for Android APK", TAG_EXPORT_ANDROID,
 			@"", 0);
 
+		// Tools - the project's editor scripts (scripts/*.editor.lua), rebuilt
+		// from macMenuUpdate's status like the recent-scenes submenu
+		NSMenu* toolsMenu = ensureTopLevelMenu(@"Tools");
+		gToolsMenu = toolsMenu;
+		rebuildToolsMenu(gStatus);
+
 		// View - SDL already made a View menu (fullscreen toggle); append the
 		// editor's panel toggles and layout actions to it
 		NSMenu* viewMenu = ensureTopLevelMenu(@"View");
@@ -424,6 +483,12 @@ namespace Orkige
 		if (status.recentProjects != gStatus.recentProjects)
 		{
 			rebuildOpenRecentProjectMenu(status.recentProjects);
+		}
+		if (status.editorTools != gStatus.editorTools ||
+			status.scriptingAvailable != gStatus.scriptingAvailable ||
+			status.projectOpen != gStatus.projectOpen)
+		{
+			rebuildToolsMenu(status);
 		}
 		gStatus = status;
 	}

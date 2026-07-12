@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -342,6 +343,161 @@ namespace Orkige
 		(void)scriptFile;
 #endif
 		return properties;
+	}
+	//---------------------------------------------------------
+#ifdef ORKIGE_LUA
+	namespace
+	{
+		//! stringify a Lua scalar for a ScriptValueMap field: an integral number
+		//! prints without a decimal tail (so "3" not "3.0" - ids/counts stay
+		//! clean), everything else through Lua's own tostring
+		String luaScalarToString(sol::state_view lua, sol::object const & value)
+		{
+			if (value.is<bool>())
+			{
+				return value.as<bool>() ? "1" : "0";
+			}
+			if (value.is<double>())
+			{
+				const double number = value.as<double>();
+				const long long integral = static_cast<long long>(number);
+				if (static_cast<double>(integral) == number)
+				{
+					return std::to_string(integral);
+				}
+				std::ostringstream out;
+				out << number;
+				return out.str();
+			}
+			if (value.is<String>())
+			{
+				return value.as<String>();
+			}
+			// any other type: fall back to Lua tostring (rarely hit)
+			const sol::protected_function tostring = lua["tostring"];
+			if (tostring.valid())
+			{
+				const sol::protected_function_result result = tostring(value);
+				if (result.valid())
+				{
+					return result.get<String>();
+				}
+			}
+			return "";
+		}
+		//! is a Lua table an ARRAY (a non-empty run of 1..n integer keys)?
+		bool luaTableIsArray(sol::table const & table)
+		{
+			return table.size() > 0 && table[1].valid();
+		}
+		//! convert one Lua argument table into a ScriptValueMap: a scalar field
+		//! maps to a field; an array subtable to a string-list; a nested map
+		//! subtable is FLATTENED (its scalar members become fields) - the same
+		//! shape the MCP verb layer flattens its JSON arguments into, so a
+		//! `cell = {col=.., row=..}` arrives as the col/row fields the verb reads
+		void luaTableToValueMap(sol::state_view lua, sol::table const & table,
+			ScriptValueMap & out)
+		{
+			table.for_each([&](sol::object const & key, sol::object const & value)
+			{
+				if (!key.is<String>())
+				{
+					return;	// only string-keyed argument fields are meaningful
+				}
+				const String name = key.as<String>();
+				if (value.is<sol::table>())
+				{
+					const sol::table sub = value.as<sol::table>();
+					if (luaTableIsArray(sub))
+					{
+						StringVector list;
+						for (std::size_t i = 1; i <= sub.size(); ++i)
+						{
+							list.push_back(luaScalarToString(lua, sub[i]));
+						}
+						out.lists[name] = list;
+					}
+					else
+					{
+						// flatten a nested map's scalar members into fields
+						sub.for_each([&](sol::object const & subKey,
+							sol::object const & subValue)
+						{
+							if (subKey.is<String>() &&
+								!subValue.is<sol::table>())
+							{
+								out.fields[subKey.as<String>()] =
+									luaScalarToString(lua, subValue);
+							}
+						});
+					}
+				}
+				else
+				{
+					out.fields[name] = luaScalarToString(lua, value);
+				}
+			});
+		}
+		//! build the Lua reply table from a ScriptValueMap: fields as string
+		//! values, lists as array subtables (reply values stay strings - the
+		//! script tonumber()s what it needs, matching the MCP structuredContent)
+		sol::table valueMapToLuaTable(sol::state_view lua,
+			ScriptValueMap const & reply)
+		{
+			sol::table table = lua.create_table();
+			for (auto const & field : reply.fields)
+			{
+				table[field.first] = field.second;
+			}
+			for (auto const & list : reply.lists)
+			{
+				sol::table array = lua.create_table();
+				for (std::size_t i = 0; i < list.second.size(); ++i)
+				{
+					array[i + 1] = list.second[i];
+				}
+				table[list.first] = array;
+			}
+			return table;
+		}
+	}
+#endif //ORKIGE_LUA
+	//---------------------------------------------------------
+	void ScriptRuntime::registerHostFunction(char const * tableName,
+		char const * functionName, ScriptHostFunction function)
+	{
+#ifdef ORKIGE_LUA
+		sol::state & lua = this->luaManager.state();
+		if (!lua[tableName].is<sol::table>())
+		{
+			lua[tableName] = lua.create_table();
+		}
+		lua[tableName][functionName] =
+			[function](sol::this_state ts, sol::variadic_args args) -> sol::object
+			{
+				sol::state_view lua(ts);
+				ScriptValueMap request;
+				// the single (optional) table argument carries the named fields
+				if (args.size() > 0 && args[0].is<sol::table>())
+				{
+					luaTableToValueMap(lua, args[0].as<sol::table>(), request);
+				}
+				ScriptValueMap reply;
+				String error;
+				if (!function(request, reply, error))
+				{
+					// the honest failure at the call site: a Lua error the
+					// calling script sees with its own file:line
+					luaL_error(ts, "%s", error.c_str());
+					return sol::lua_nil;	// unreachable (luaL_error longjmps)
+				}
+				return valueMapToLuaTable(lua, reply);
+			};
+#else
+		(void)tableName;
+		(void)functionName;
+		(void)function;
+#endif
 	}
 	//---------------------------------------------------------
 	double ScriptRuntime::getNumber(StringVector const & path, double fallback)

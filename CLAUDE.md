@@ -643,6 +643,20 @@ look when touching one:
   both flavors).
 - **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
   MCP section above + `Docs/mcp.md`.
+- **Editor scripts** (`tools/editor/EditorScriptHost`, discovery in the
+  editor_core lib's `EditorScriptTools`): a project `scripts/<name>.editor.lua`
+  is an EDITOR TOOL — a one-shot command in the editor's **Tools** menu (and MCP
+  `run_editor_script`), run once in a fresh editor-side sandbox whose `editor.*`
+  table routes through the SAME verb handler the MCP endpoint uses
+  (`EditorControlServer::dispatchLocalVerb` — the reused internal dispatch seam).
+  The whole run folds into ONE undo step (`EditorCore::begin/endScriptTransaction`);
+  a tool that errors is rolled back (no partial edits) and reports `file:line`.
+  The editor never ticks and never installs the game-runtime Lua tables, so the
+  `events` bus is ABSENT from an editor-script sandbox by construction. Noscript:
+  the menu shows a disabled note, the project still loads. `border_walls.editor.lua`
+  in `projects/roller` is the shipped sample; see `Docs/lua-api.md` (Editor
+  scripts). Covered by the `editor_scripts` selfcheck, the `EditorScriptTools`
+  units and the `editor_control` `run_editor_script` leg.
 - **CONVENTIONS to preserve**: the **config-asset** pattern (project-config files —
   `input.oactions`/`physics.olayers`/`levels.olevels` — are manifest-`Settings`-referenced,
   NOT under `assets/`, NOT id-tracked; bundled to exports via `CONFIG_SETTING_KEYS` in

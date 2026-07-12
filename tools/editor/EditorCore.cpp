@@ -2901,6 +2901,66 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	void EditorCore::beginScriptTransaction()
+	{
+		// not nestable: one editor script runs at a time (the menu/MCP verb is
+		// synchronous on the main thread)
+		oAssert(!mInScriptTransaction);
+		mInScriptTransaction = true;
+		mScriptTransactionMark = mUndoStack.size();
+	}
+	//---------------------------------------------------------
+	std::size_t EditorCore::endScriptTransaction(bool commit,
+		String const& description)
+	{
+		if (!mInScriptTransaction)
+		{
+			return 0;
+		}
+		mInScriptTransaction = false;
+		// a scene-lifecycle verb inside the run (open/new scene) clears history
+		// via resetForScene, so the mark can outrun the stack - clamp honestly
+		if (mScriptTransactionMark > mUndoStack.size())
+		{
+			mScriptTransactionMark = mUndoStack.size();
+		}
+		const std::size_t count = mUndoStack.size() - mScriptTransactionMark;
+		if (count == 0)
+		{
+			return 0;	// nothing executed - leave the stack untouched
+		}
+		if (commit)
+		{
+			// fold the commands executed during the run into ONE undo step. The
+			// children are ALREADY executed (each ran through executeCommand), so
+			// adopt them into a fresh composite WITHOUT re-running it - a later
+			// undo unwinds them in reverse, a redo re-applies them forward.
+			optr<CompositeCommand> composite(
+				onew(new CompositeCommand(description)));
+			for (std::size_t i = mScriptTransactionMark;
+				i < mUndoStack.size(); ++i)
+			{
+				composite->addCommand(mUndoStack[i]);
+			}
+			mUndoStack.erase(mUndoStack.begin() + mScriptTransactionMark,
+				mUndoStack.end());
+			mUndoStack.push_back(composite);
+			markSceneDirty();
+		}
+		else
+		{
+			// a failed run leaves NO partial edits: unexecute every command it
+			// applied, latest first, and drop them from the stack
+			for (std::size_t i = mUndoStack.size(); i-- > mScriptTransactionMark;)
+			{
+				mUndoStack[i]->unexecute(*this);
+			}
+			mUndoStack.erase(mUndoStack.begin() + mScriptTransactionMark,
+				mUndoStack.end());
+		}
+		return count;
+	}
+	//---------------------------------------------------------
 	String EditorCore::getUndoDescription() const
 	{
 		return mUndoStack.empty() ? String()

@@ -1000,6 +1000,26 @@ namespace Orkige
 		String getRedoDescription() const;
 		//! open a new interactive merge session (gizmo/inspector drag)
 		unsigned int beginMergeSession() { return mNextMergeSession++; }
+
+		//--- script transaction (editor scripts: one run = one undo step) ---
+		// The merge-session idiom collapses HOMOGENEOUS mergeable commands of one
+		// interactive drag; an editor SCRIPT applies HETEROGENEOUS commands
+		// (create + set + paint ...) that do not merge, so it brackets its whole
+		// run in a transaction that folds every command executed in between into a
+		// single CompositeCommand undo step - the same primitive multi-select
+		// delete/duplicate already use.
+		//! @brief begin a script transaction: every command executed until
+		//! endScriptTransaction is grouped. Not nestable (asserts if already open).
+		void beginScriptTransaction();
+		//! @brief close a script transaction. commit=true folds every command
+		//! executed since begin into ONE undo step (a CompositeCommand labelled
+		//! `description`); a no-op run (nothing executed) leaves the stack
+		//! untouched. commit=false (a failed run) UNEXECUTES every command executed
+		//! since begin, in reverse, and drops them - so a failed script leaves NO
+		//! partial edits. Returns how many commands were folded / rolled back.
+		std::size_t endScriptTransaction(bool commit, String const& description);
+		//! is a script transaction currently open
+		bool inScriptTransaction() const { return mInScriptTransaction; }
 		std::size_t getUndoStackSize() const { return mUndoStack.size(); }
 		std::size_t getRedoStackSize() const { return mRedoStack.size(); }
 		void clearHistory();
@@ -1059,6 +1079,11 @@ namespace Orkige
 		std::vector<optr<EditorCommand>> mUndoStack;
 		std::vector<optr<EditorCommand>> mRedoStack;
 		unsigned int mNextMergeSession = 1;
+		//! script-transaction bracket (@see beginScriptTransaction): the undo
+		//! stack size captured at begin - commands executed after it are folded
+		//! into one step (commit) or rolled back (abort) at end
+		bool mInScriptTransaction = false;
+		std::size_t mScriptTransactionMark = 0;
 		//! the open project's collision layers (dropdown source; default =
 		//! single "Default" layer) - the editor reads this, never simulates
 		PhysicsWorld::LayerConfig mPhysicsLayers;

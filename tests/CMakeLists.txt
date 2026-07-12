@@ -503,6 +503,20 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_theme_switch${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_THEME_SWITCH=1;ORKIGE_DEMO_FRAMES=60"
         LABELS integration TIMEOUT 90)
+
+    # editor SCRIPT TOOLS end to end: on a temp copy of the roller project,
+    # write fixture *.editor.lua tools and run them through the EditorScriptHost -
+    # asserting discovery (+ the -- tool: label), the editor.* verb surface
+    # (create/set/reparent authoring a subtree), the ONE-undo-step contract, the
+    # error-path rollback (a failing tool reports file:line and leaves no partial
+    # edits) and the shipped border_walls sample. In ORKIGE_SCRIPTING=OFF builds
+    # it takes the noscript leg (project loads, running is an honest no-op). No
+    # Play needed - pure edit-world. Both flavors. Frame budget is the backstop.
+    add_test(NAME editor_scripts${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_scripts${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_SCRIPTTEST=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=120"
+        LABELS integration TIMEOUT 120)
 endif()
 
 # (the Python MCP sidecar Util/orkige_mcp.py and its mcp_bridge_selftest ctest

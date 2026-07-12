@@ -3,6 +3,7 @@
 // Changes/target pickers) and the dockspace + first-run DockBuilder layout.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorScriptHost.h"
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
@@ -346,6 +347,40 @@ void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,
 				canExport))
 			{
 				state.requestedExport = "android";
+			}
+			ImGui::EndMenu();
+		}
+		// Tools menu: the project's editor scripts (scripts/*.editor.lua). Each
+		// runs once through the verb handler as one undo step; a click just
+		// records the request (the frame loop runs it). Conditional states match
+		// the other gated menus (a single disabled hint when nothing applies).
+		if (ImGui::BeginMenu("Tools"))
+		{
+			if (!Orkige::EditorScriptHost::scriptingAvailable())
+			{
+				ImGui::MenuItem("Editor scripts need a scripting build",
+					nullptr, false, false);
+			}
+			else if (!state.project.isLoaded())
+			{
+				ImGui::MenuItem("Open a project to see its editor scripts",
+					nullptr, false, false);
+			}
+			else if (!state.editorScripts || state.editorScripts->empty())
+			{
+				ImGui::MenuItem("No editor scripts (scripts/*.editor.lua)",
+					nullptr, false, false);
+			}
+			else
+			{
+				for (Orkige::EditorScriptTool const& tool :
+					state.editorScripts->tools())
+				{
+					if (ImGui::MenuItem(tool.label.c_str()))
+					{
+						state.requestedEditorScript = tool.name;
+					}
+				}
 			}
 			ImGui::EndMenu();
 		}

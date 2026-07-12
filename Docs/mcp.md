@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 65 tools (the `toolSpecs` table in
+The endpoint advertises 66 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -140,6 +140,7 @@ The endpoint advertises 65 tools (the `toolSpecs` table in
 | `dismiss_modal(id?)` | **auth** — close a modal dialog in the RUNNING game by id, or the topmost one when omitted (`MSG_GUI_DISMISS_MODAL`) |
 | `get_breadcrumbs()` | the player's on-disk crash trail (pure file I/O — the player may be dead): `live` (this/most-recent session's `breadcrumbs.jsonl` text) and `previous` (the prior session's, rotated aside at boot — the one to read after a crash), one JSON object per line, plus the resolved `dir`. Mobile app-lifecycle transitions ride this same trail — `"background"`/`"foreground"`/`"terminating"`/`"low_memory"` kinds — so no new readback verb was needed to observe backgrounding on device |
 | `get_lua_api()` | the generated Lua scripting API signature index (`inventory` text + `doc` path) — the global tables (`world`/`screen`/`sound`/`music`/`tween`/`guitween`/`haptics`/`cvar`/`save` + the `loc` global) and core value types, one line per symbol; read-only, needs no project/Play. Embedded from `Docs/lua-api.md`'s generated block (`GeneratedLuaApi.h`), so an MCP-only agent learns the scripting surface self-contained; see `Docs/lua-api.md` for conventions and the full type reference |
+| `run_editor_script(name)` | **auth** — run a project EDITOR TOOL (`scripts/<name>.editor.lua`) once through the editor-tool host — the same tool a human runs from the editor's Tools menu. The tool's `editor.*` calls route back through this SAME verb handler and its whole run folds into ONE undo step; a tool script error is reported (with its `file:line`) and leaves NO partial edits. Author a tool with `write_project_file`, then trigger it here. Returns `name` and `command_count`. See `Docs/lua-api.md` (Editor scripts) for the `editor.*` surface |
 | `console_tail(count)` | the editor `EditorConsole` line store (includes the player's `[remote]` lines + script errors during Play) |
 | `list_tests(preset, filter, label)` | `ctest -N` in a build tree → the test names (discovery) |
 | `run_tests(filter, label, preset, build, targets)` | async build + `ctest` → a jobId; poll `get_test_results` |
@@ -683,6 +684,9 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   `list_hierarchy` — `erase_cell` removes it and `undo` brings it back) PLUS the
   bare-tile path (a probe texture is written, `list_paintable_assets` surfaces it
   as a `texture`, `paint_asset` paints it as a bare tile, `erase_cell` removes it).
+  It also drives `run_editor_script` end to end: `write_project_file`s a
+  `scripts/*.editor.lua` tool, an AUTH-REJECTED `run_editor_script`, then the
+  authed run — asserting the object the tool authored appears in `list_hierarchy`.
   It also covers the RUN tools:
   `list_play_targets` reports the desktop target, and `export_project` refuses an
   unauthenticated request, a no-project request, an unknown platform and (on a

@@ -29,6 +29,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Orkige
@@ -78,6 +79,8 @@ namespace Orkige
 		// Build (project export via Util/orkige_export.py); platform is
 		// "macos", "ios-simulator" or "android"
 		std::function<void(std::string const& platform)> exportProject;
+		// Tools > an editor script tool was clicked (name = its stable name)
+		std::function<void(std::string const& toolName)> runEditorScript;
 		// View
 		std::function<void(int panel, bool visible)> setPanelVisible;
 		std::function<void()> resetLayout;
@@ -103,6 +106,11 @@ namespace Orkige
 		std::vector<std::string> recentScenes;
 		//! File > Open Recent Project entries, newest first
 		std::vector<std::string> recentProjects;
+		//! is a scripting backend compiled in (gates the Tools menu note)
+		bool scriptingAvailable = true;
+		//! Tools menu entries: {stable name, menu label} per editor script tool,
+		//! sorted by label; empty shows a disabled hint
+		std::vector<std::pair<std::string, std::string>> editorTools;
 	};
 
 	//! build the native menu bar (augments the menu SDL already created);

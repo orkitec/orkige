@@ -15,6 +15,8 @@
 #include "core_util/optr.h"
 #include "core_base/PropertyValue.h"
 
+#include <functional>
+#include <map>
 #include <vector>
 
 // The ONLY place (besides Meta.h) that selects a scripting backend: call
@@ -127,6 +129,46 @@ namespace Orkige
 	protected:
 	private:
 	};
+
+	//! @brief a backend-neutral key/value bundle a host function exchanges with
+	//! a script: flat string fields + string-list fields (the shape of a Lua
+	//! table of scalars/arrays, without a backend type leaking to call sites).
+	//! Editor script TOOLS use it to carry an editor-verb's arguments in and its
+	//! reply out - the same flat field/list shape the DebugMessage verb replies
+	//! already use, so the editor adapts one to the other with no new vocabulary.
+	struct ScriptValueMap
+	{
+		std::map<String, String>		fields;	//!< scalar fields by key
+		std::map<String, StringVector>	lists;	//!< string-list fields by key
+
+		//! is a scalar field present
+		bool has(String const & key) const
+		{
+			return this->fields.find(key) != this->fields.end();
+		}
+		//! read a scalar field ("" when absent)
+		String const & get(String const & key) const
+		{
+			static const String empty;
+			std::map<String, String>::const_iterator it = this->fields.find(key);
+			return it != this->fields.end() ? it->second : empty;
+		}
+		//! set a scalar field
+		void set(String const & key, String const & value)
+		{
+			this->fields[key] = value;
+		}
+	};
+
+	//! @brief a host callback exposed to scripts as `<table>.<name>(argsTable)`:
+	//! the single Lua table argument arrives converted into `args`, the callback
+	//! fills `reply` (returned to the script as a table) and returns true;
+	//! returning false raises a Lua error carrying `error` at the call site (the
+	//! honest failure the calling script sees, with its file:line). The sol2
+	//! marshalling lives in the ScriptRuntime implementation, so registering
+	//! subsystems (the editor's script-tool host) stay free of backend types.
+	typedef std::function<bool(ScriptValueMap const & args,
+		ScriptValueMap & reply, String & error)> ScriptHostFunction;
 
 	//! @brief the backend-neutral scripting seam: everything outside the
 	//! core_base/Meta_*.h backends and core_script itself talks to scripting
@@ -287,6 +329,17 @@ namespace Orkige
 			(void)function;
 #endif
 		}
+
+		//! @brief register a host callback as <tableName>.<functionName>(args)
+		//! (the table is created when missing): the script passes ONE table of
+		//! arguments, which arrives as a ScriptValueMap; the callback fills a
+		//! reply map returned to the script as a table, or returns false to raise
+		//! a Lua error carrying `error` at the call site. The backend-neutral way
+		//! for a C++ subsystem to expose a table-in/table-out function to scripts
+		//! (the editor's script-tool `editor.*` verbs). No-op without a backend.
+		//! @see ScriptHostFunction
+		void registerHostFunction(char const * tableName,
+			char const * functionName, ScriptHostFunction function);
 
 		//! @brief register a C++ callable as a top-level global function (not
 		//! under a table) - the loc() localisation accessor uses it so scripts

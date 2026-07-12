@@ -49,6 +49,7 @@ namespace Orkige
 	class ImGuiFacadeRenderer;
 	class ImGuiSDL3Input;
 	class RenderWorld;
+	class EditorScriptHost;	//!< editor-tool host (EditorScriptHost.h)
 }
 
 namespace OrkigeEditor
@@ -457,6 +458,16 @@ struct EditorState
 	//! Build menu request ("macos"/"ios-simulator"/"ios"/"android"; "" = none) -
 	//! menus (native or ImGui) set it, the frame loop starts the export
 	std::string requestedExport;
+	//! Tools menu request: the stable name of an editor script tool to run once
+	//! ("" = none) - menus (native or ImGui) set it, the frame loop runs it
+	//! through state.editorScripts (kept off the menu's own callback so the run
+	//! happens at a clean point in the loop, like requestedExport)
+	std::string requestedEditorScript;
+	//! the editor-tool host (owned by main): discovers *.editor.lua tools and
+	//! runs one on demand through the verb handler. Non-null once main wires it;
+	//! the menus read its tool list and EditorDocument rescans it on project
+	//! open/close.
+	Orkige::EditorScriptHost* editorScripts = nullptr;
 	//! iOS-device deploy request (Play on a connected iPhone): the toolbar sets
 	//! the UDID + label, the frame loop runs an "ios" export whose success
 	//! installs + launches on the device (see the deploy fields on ExportJob).

@@ -12,6 +12,7 @@
 #include <core_project/AssetDatabase.h>
 #include <core_script/ScriptRuntime.h>
 #include <engine_gocomponent/ScriptComponentRegistry.h>
+#include "EditorScriptHost.h"
 #include <engine_render/RenderSystem.h>
 
 #include <algorithm>
@@ -182,6 +183,12 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// the spawned player runs them)
 	Orkige::ScriptComponentRegistry::getSingleton().scanProject(
 		state.project.getScriptsDirectory(), state.project.getRootDirectory());
+	// discover the project's EDITOR TOOLS (*.editor.lua under scripts/) so the
+	// Tools menu lists them (same folder + rescan discipline as the components)
+	if (state.editorScripts)
+	{
+		state.editorScripts->scanProject(state.project.getScriptsDirectory());
+	}
 	// the collision-layer config feeds the RigidBody Inspector's layer dropdown
 	// (the editor never simulates; this is purely for authoring)
 	core.loadPhysicsLayers(state.project);
@@ -224,6 +231,11 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	// drop the closing project's script component kinds (and their factory
 	// aliases) so they never leak into the next project / loose-scene mode
 	Orkige::ScriptComponentRegistry::getSingleton().clear();
+	// drop the closing project's editor tools so they never leak into the next
+	if (state.editorScripts)
+	{
+		state.editorScripts->clear();
+	}
 	// back to the built-in default layers (loose-scene mode)
 	core.resetPhysicsLayers();
 }

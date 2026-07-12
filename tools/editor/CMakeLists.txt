@@ -22,6 +22,8 @@ add_library(orkige_editor_core STATIC
     FileDialog.cpp
     MeshImport.h
     MeshImport.cpp
+    EditorScriptTools.h
+    EditorScriptTools.cpp
 )
 target_include_directories(orkige_editor_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(orkige_editor_core PUBLIC Orkige::Engine)
@@ -56,6 +58,8 @@ add_executable(orkige_editor
     EditorPlaySession.cpp
     EditorPropertyWidgets.h
     EditorPropertyWidgets.cpp
+    EditorScriptHost.h
+    EditorScriptHost.cpp
     EditorScenePanel.cpp
     EditorSettings.cpp
     EditorShortcuts.cpp

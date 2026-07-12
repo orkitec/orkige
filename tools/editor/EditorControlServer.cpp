@@ -12,6 +12,7 @@
 // See EditorControlServer.h for the design.
 #include "EditorControlServer.h"
 #include "EditorApp.h"
+#include "EditorScriptHost.h"
 #include "GuiPreviewStage.h"
 #include "GeneratedLuaApi.h"
 
@@ -1486,6 +1487,18 @@ namespace Orkige
 				  "project is open, the scene is unsaved or outside the project "
 				  "root, or the scene is already in the sequence.",
 				  {} },
+				{ "run_editor_script",
+				  "Run a project editor TOOL (scripts/<name>.editor.lua) ONCE "
+				  "through the editor-tool host - the same tool a human runs from "
+				  "the Tools menu (needs auth). The tool's editor.* calls route "
+				  "back through this verb handler and its whole run folds into ONE "
+				  "undo step; a tool script error is reported (with its file:line) "
+				  "and leaves NO partial edits. Author a tool with "
+				  "write_project_file, then trigger it here. Returns 'name' and "
+				  "'command_count' (undoable changes folded).",
+				  { { "name", "string",
+				      "the tool's stable name (its file base minus .editor.lua)",
+				      true } } },
 				{ "get_lua_api",
 				  "The Lua scripting API signature index a ScriptComponent script "
 				  "reaches: the global tables (world/screen/sound/music/tween/"
@@ -1892,6 +1905,18 @@ namespace Orkige
 		this->mReply = DebugMessage(MSG_OK);
 		this->mReplyIsError = false;
 		this->handleMessage(request, context);
+	}
+	//---------------------------------------------------------
+	bool EditorControlServer::dispatchLocalVerb(DebugMessage const& request,
+		EditorControlContext const& context, DebugMessage& outReply)
+	{
+		// a local caller (the editor-script host, a test) has the human's full
+		// authority - pre-authenticate so mutation verbs run - then reuse the
+		// exact verb handler and hand back its buffered reply.
+		this->mAuthenticated = true;
+		this->runVerb(request, context);
+		outReply = this->mReply;
+		return !this->mReplyIsError;
 	}
 	//---------------------------------------------------------
 	void EditorControlServer::sendOk(String const& req, DebugMessage& payload)
@@ -3468,6 +3493,13 @@ namespace Orkige
 				ScriptComponentRegistry::getSingleton().scanProject(
 					state.project.getScriptsDirectory(),
 					state.project.getRootDirectory());
+				// a freshly written *.editor.lua is a new/changed editor TOOL -
+				// rescan so the Tools menu + run_editor_script see it at once
+				if (state.editorScripts)
+				{
+					state.editorScripts->scanProject(
+						state.project.getScriptsDirectory());
+				}
 			}
 			DebugMessage ok(MSG_OK);
 			ok.set("path", relative);
@@ -3989,6 +4021,63 @@ namespace Orkige
 			}
 			DebugMessage ok(MSG_OK);
 			ok.set("scene_path", state.currentScenePath);
+			this->sendOk(req, ok);
+			return;
+		}
+
+		//--- editor script tools -----------------------------
+		// run_editor_script: run a project *.editor.lua tool ONCE through the
+		// editor-tool host (the same tool a human runs from the Tools menu). The
+		// tool's editor.* calls route back through THIS verb handler, and its
+		// whole run folds into one undo step; a tool script error is reported as
+		// isError with the file:line. Auth-gated (it mutates the scene).
+		if (type == "run_editor_script")
+		{
+			if (!state.editorScripts)
+			{
+				this->sendErr(req, "editor scripting is not available");
+				return;
+			}
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - editor tools live in the "
+					"open project's scripts/ folder");
+				return;
+			}
+			// accept the tool by its stable name under 'name' (or 'tool')
+			String toolName = request.get("name");
+			if (toolName.empty())
+			{
+				toolName = request.get("tool");
+			}
+			if (toolName.empty())
+			{
+				this->sendErr(req, "run_editor_script needs the tool 'name'");
+				return;
+			}
+			if (!state.editorScripts->findByName(toolName))
+			{
+				this->sendErr(req, "no editor tool named '" + toolName +
+					"' (see list_project_files scripts/*.editor.lua)");
+				return;
+			}
+			const EditorScriptHost::RunResult result =
+				state.editorScripts->runToolByName(toolName, context);
+			if (!result.ran)
+			{
+				this->sendErr(req, "run_editor_script '" + toolName + "': " +
+					result.error);
+				return;
+			}
+			if (!result.ok)
+			{
+				this->sendErr(req, "editor tool '" + toolName +
+					"' failed: " + result.error);
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("name", toolName);
+			ok.set("command_count", std::to_string(result.commandCount));
 			this->sendOk(req, ok);
 			return;
 		}
@@ -6452,6 +6541,76 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - grid paint loop OK "
 				"(paint/list/erase/undo tile '%s')", tileId.c_str());
+		}
+
+		// (8c) run_editor_script: an agent authors a *.editor.lua tool with
+		// write_project_file, then runs it over MCP (the shared-surface story).
+		{
+			JsonValue writeArgs = JsonValue::object();
+			writeArgs.set("path",
+				JsonValue(String("scripts/mktool.editor.lua")));
+			writeArgs.set("content", JsonValue(String(
+				"-- tool: Make One\n"
+				"editor.create_object{ id = \"McpToolCube\", mesh = \"cube\" }\n"
+				"editor.log(\"mcp tool made McpToolCube\")\n")));
+			JsonValue s;
+			bool e = true;
+			if (!callTool("write_project_file", writeArgs, true, s, e) || e)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: could not write an editor tool");
+				return;
+			}
+			JsonValue runArgs = JsonValue::object();
+			runArgs.set("name", JsonValue(String("mktool")));
+			// a mutation without a bearer token must be refused
+			JsonValue unauth;
+			bool unauthErr = false;
+			if (!callTool("run_editor_script", runArgs, false, unauth,
+					unauthErr) || !unauthErr)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: run_editor_script without auth "
+					"must be refused");
+				return;
+			}
+			// the authed run succeeds and reports the folded command count
+			JsonValue runStruct;
+			bool runErr = true;
+			if (!callTool("run_editor_script", runArgs, true, runStruct,
+					runErr) || runErr ||
+				runStruct.get("name").asString() != "mktool")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: run_editor_script did not run "
+					"the tool");
+				return;
+			}
+			// the tool's edit is live in the editor's world
+			JsonValue hier;
+			bool hierErr = true;
+			bool foundToolCube = false;
+			if (callTool("list_hierarchy", JsonValue::object(), false, hier,
+					hierErr) && !hierErr)
+			{
+				JsonValue const& ids = hier.get("ids");
+				for (size_t i = 0; i < ids.size(); ++i)
+				{
+					if (ids.at(i).asString() == "McpToolCube")
+					{
+						foundToolCube = true;
+					}
+				}
+			}
+			if (!foundToolCube)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: run_editor_script's object is "
+					"missing from the hierarchy");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - run_editor_script OK "
+				"(authored + ran a tool; auth enforced)");
 		}
 
 		fs::remove_all(authRoot, authIgnored);

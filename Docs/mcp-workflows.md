@@ -332,3 +332,36 @@ edits/contexts to confirm the layout holds. A missing `file` returns `isError`
 (an honest error, not a silent success). The whole loop is exercised end to end by
 the `editor_control` self-test (write → preview → edit → preview → assert the rect
 moved → a missing file errors).
+
+## 6. Leave the human a reusable tool (editor scripts)
+
+Some chores repeat: reframe a level, re-tag a batch of tiles, generate a grid.
+Instead of doing them by hand every time, author them ONCE as an EDITOR TOOL — a
+`scripts/<name>.editor.lua` file. It runs in the editor (not the game) through the
+SAME `editor.*` surface you already drive here (each function mirrors an MCP verb),
+its whole run folds into ONE undo step, and afterwards a HUMAN runs it from the
+editor's **Tools** menu forever after — or you re-trigger it with
+`run_editor_script`. This is the durable half of the collaboration: the agent
+leaves behind a button, not just an edit.
+
+```jsonc
+// 1. author the tool (a plain project file - the jail + LF rules apply)
+write_project_file { "path":"scripts/frame_level.editor.lua",
+  "content":"-- tool: Frame The Level\nlocal function findLevel()\n  for _,id in ipairs(editor.list_hierarchy().ids or {}) do\n    for _,c in ipairs(editor.get_object{id=id}.components or {}) do\n      if c=='LevelComponent' then return id end\n    end\n  end\nend\nlocal id=findLevel(); if not id then editor.log('no level'); return end\nlocal l=editor.get_component{id=id,component='LevelComponent'}\nlocal cols,rows=math.floor(tonumber(l.cols)),math.floor(tonumber(l.rows))\nfor c=0,cols-1 do for r=0,rows-1 do\n  if c==0 or c==cols-1 or r==0 or r==rows-1 then\n    editor.paint_asset{asset='assets/wall.png',cell={col=c,row=r}}\n  end\nend end\n" }
+//   → { "path":"scripts/frame_level.editor.lua", "bytes":"..." }  // it now shows in the Tools menu
+
+// 2. run it (authed) - the edits fold into ONE undo step
+run_editor_script { "name":"frame_level" }
+//   → { "name":"frame_level", "command_count":"8" }   // 8 wall tiles, one Cmd+Z reverts all
+
+// 3. a BROKEN tool fails honestly and leaves NO partial edits
+run_editor_script { "name":"frame_level" }
+//   → isError: "editor tool 'frame_level' failed: .../frame_level.editor.lua:6: attempt to ..."
+//     (nothing half-applied; fix the file with write_project_file and re-run)
+```
+
+The `editor.*` verbs a tool can call, and the one-undo / rollback / noscript
+contract, are documented in `Docs/lua-api.md` (Editor scripts). The
+`projects/roller/scripts/border_walls.editor.lua` sample is the living example;
+the `editor_scripts` selfcheck and the `editor_control` `run_editor_script` leg
+exercise this loop end to end.

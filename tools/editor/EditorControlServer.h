@@ -117,6 +117,16 @@ namespace Orkige
 		//! accept/read/dispatch/reply - call once per frame, never blocks
 		void update(EditorControlContext const& context);
 
+		//! @brief run ONE editor verb synchronously as a fully-authorized local
+		//! caller, reusing the exact verb handler (no HTTP, no socket). The
+		//! editor-script host + tests drive the verb surface through this seam
+		//! instead of the network. Fills outReply with the verb's reply and
+		//! returns true on success; on a refused/failed verb returns false and
+		//! outReply carries the FIELD_MESSAGE error text. `request.type` is the
+		//! verb name (e.g. "create_object"); its fields/lists are the arguments.
+		bool dispatchLocalVerb(DebugMessage const& request,
+			EditorControlContext const& context, DebugMessage& outReply);
+
 	private:
 		//--- HTTP + JSON-RPC transport -----------------------
 		//! turn one parsed HTTP request into its response (POST /mcp = JSON-RPC)

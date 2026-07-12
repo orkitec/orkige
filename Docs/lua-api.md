@@ -421,6 +421,79 @@ tween.to(0, 1, 0.12, "linear", nil, function() world.setTimeScale(1) end)
 screen.loadScene("scenes/level2.oscene", 0.3, 0.3)  -- out, switch at opacity, in
 ```
 
+## Editor scripts (Tools menu)
+
+A script whose file name ends in **`.editor.lua`** is not game behavior — it is an
+**editor TOOL**: a one-shot command listed in the editor's **Tools** menu and run
+on demand (also over MCP with `run_editor_script`). It is a *different surface*
+from the `.component.lua` scripts above: it runs in the EDITOR, edits the open
+scene, and never ticks. The two never mix — a `.component.lua` attaches to a
+GameObject and sees `self`/`world`/`events`; a `.editor.lua` sees only the
+`editor` table.
+
+- **Discovery + the header.** Any `scripts/*.editor.lua` in the open project is
+  discovered (rescanned on project open and on any `scripts/` write). The menu
+  label is a title-cased file name unless the FIRST line is a
+  `-- tool: <label>` comment, which overrides it.
+- **One-shot, in a fresh sandbox.** A menu click (or `run_editor_script`) runs the
+  file's top-level code ONCE in a fresh Lua sandbox. There is no `update`, no
+  timer, no event delivery — the editor never ticks. The game-runtime tables
+  (`world`/`events`/`tween`/…) are **absent** in an editor tool; referencing one
+  is an honest nil error.
+- **The `editor` table** routes through the SAME verb handler an MCP agent drives,
+  so each function mirrors an MCP tool 1:1. Every function takes ONE table of
+  named arguments and returns a result table (fields as strings, arrays as list
+  tables — `tonumber` what you need). A refused verb RAISES a Lua error at the
+  call site (guard with a read if you expect it). Available verbs:
+  - reads: `list_hierarchy`, `get_object`, `get_component`,
+    `list_addable_components`, `list_assets`, `list_paintable_assets`,
+    `list_project_files`, `read_project_file`, `get_state`;
+  - object CRUD: `create_object`, `delete_object`, `duplicate_object`,
+    `rename_object`, `reparent_object`, `set_active`, `select`;
+  - component CRUD (script components included): `add_component`,
+    `remove_component`, `set_component`;
+  - 2D grid painting: `paint_asset`, `erase_cell`;
+  - scene + files + prefabs + levels: `save_scene`, `open_scene`, `new_scene`,
+    `write_project_file`, `import_asset`, `create_prefab`, `instantiate_prefab`,
+    `add_scene_to_levels`;
+  - plus `editor.log(text)` to write a line to the editor Console.
+- **One undo step.** The WHOLE run folds into a SINGLE undo step, so one Cmd/Ctrl+Z
+  reverts everything the tool did. A tool that ERRORS is rolled back entirely —
+  it leaves **no partial edits** — and the error (with its `file:line`) lands in
+  the Console.
+- **Noscript.** In `ORKIGE_SCRIPTING=OFF` builds the Tools menu shows a disabled
+  note and running is an honest no-op; the project still loads.
+
+**A tool (frame the level with wall tiles):**
+
+```lua
+-- tool: Paint Wall Border
+-- reads the scene's LevelComponent, then paints wall tiles around its edge -
+-- all ONE undo step. (projects/roller/scripts/border_walls.editor.lua)
+local function findLevel()
+    for _, id in ipairs(editor.list_hierarchy().ids or {}) do
+        for _, c in ipairs(editor.get_object{ id = id }.components or {}) do
+            if c == "LevelComponent" then return id end
+        end
+    end
+end
+local id = findLevel()
+if not id then editor.log("no level here"); return end
+local lvl = editor.get_component{ id = id, component = "LevelComponent" }
+local cols, rows = math.floor(tonumber(lvl.cols)), math.floor(tonumber(lvl.rows))
+for c = 0, cols - 1 do
+    for r = 0, rows - 1 do
+        if c == 0 or c == cols-1 or r == 0 or r == rows-1 then
+            editor.paint_asset{ asset = "assets/wall.png", cell = { col = c, row = r } }
+        end
+    end
+end
+```
+
+An AGENT authors such a tool once with `write_project_file`; a HUMAN then runs it
+from the Tools menu forever after (or the agent triggers it with
+`run_editor_script`). See `Docs/mcp-workflows.md` for that worked loop.
+
 ## Type reference
 
 Every registered usertype not already in the index above: constructors,

@@ -77,6 +77,7 @@
 
 #include "EditorApp.h"
 #include "EditorControlServer.h"
+#include "EditorScriptHost.h"
 #include "GuiPreviewStage.h"
 
 #include <algorithm>
@@ -253,6 +254,7 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
+			std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
 			std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
 
@@ -743,6 +745,13 @@ int main(int argc, char** argv)
 		controlContext.sceneTarget = &sceneTarget;
 		controlContext.gameObjectManager = &gameObjectManager;
 		controlContext.previewStage = &guiPreviewStage;
+		// editor-tool host: discovers *.editor.lua tools in the open project and
+		// runs one on demand (Tools menu / run_editor_script) in a sandbox whose
+		// editor.* table rides the SAME verb handler - so it reuses controlServer
+		// purely as a synchronous verb dispatcher (whether or not it is listening)
+		Orkige::EditorScriptHost editorScripts;
+		editorScripts.setDispatcher(&controlServer);
+		state.editorScripts = &editorScripts;
 		// the control self-test drives an ephemeral in-process port; a real
 		// host passes an explicit --control-port. Two self-test flavors: the
 		// edit-world conversation (ORKIGE_EDITOR_CONTROL_TEST) and the runtime-
@@ -862,6 +871,9 @@ int main(int argc, char** argv)
 			menuActions.exportProject =
 				[statePtr](std::string const& platform)
 				{ statePtr->requestedExport = platform; };
+			menuActions.runEditorScript =
+				[statePtr](std::string const& toolName)
+				{ statePtr->requestedEditorScript = toolName; };
 			menuActions.setPanelVisible = [viewPtr](int panel, bool visible)
 			{
 				switch (panel)
@@ -1265,6 +1277,15 @@ int main(int argc, char** argv)
 		float mqLbSX = 0.0f, mqLbSY = 0.0f, mqLbEX = 0.0f, mqLbEY = 0.0f;
 		float mqRbSX = 0.0f, mqRbSY = 0.0f, mqRbEX = 0.0f, mqRbEY = 0.0f;
 
+		// ORKIGE_EDITOR_SCRIPTTEST=<roller project dir>: the editor-scripts
+		// selfcheck (editor_scripts ctest). Frame 10 copies the project, writes
+		// fixture *.editor.lua tools, and runs them through the EditorScriptHost -
+		// asserting the discovery, the editor.* verb surface, the ONE-undo-step
+		// contract, the error-path rollback (a failing tool reports file:line and
+		// leaves no partial edits) and the shipped sample tool. Both flavors.
+		const char* scriptTestEnv = std::getenv("ORKIGE_EDITOR_SCRIPTTEST");
+		std::string scriptTestTempRoot;
+
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
@@ -1430,6 +1451,15 @@ int main(int argc, char** argv)
 				startExport(exportJob, state.project, state.requestedExport,
 					console);
 				state.requestedExport.clear();
+			}
+			// Tools menu: run the requested editor script tool once (its edits
+			// fold into one undo step; a script error rolls back + logs). Run at
+			// this clean point in the loop, not inside the menu callback.
+			if (!state.requestedEditorScript.empty())
+			{
+				editorScripts.runToolByName(state.requestedEditorScript,
+					controlContext);
+				state.requestedEditorScript.clear();
 			}
 			// Play-on-iPhone: an "ios" export whose success installs + launches
 			// on the picked device (the deploy fields ride on ExportJob so the
@@ -1606,6 +1636,13 @@ int main(int argc, char** argv)
 					viewSettings.showScenePanel;
 				menuStatus.recentScenes = viewSettings.recentScenes;
 				menuStatus.recentProjects = viewSettings.recentProjects;
+				menuStatus.scriptingAvailable =
+					Orkige::EditorScriptHost::scriptingAvailable();
+				for (Orkige::EditorScriptTool const& tool :
+					editorScripts.tools())
+				{
+					menuStatus.editorTools.push_back({ tool.name, tool.label });
+				}
 				Orkige::macMenuUpdate(menuStatus);
 			}
 #endif
@@ -3789,6 +3826,221 @@ int main(int argc, char** argv)
 					mqAbort("did not complete before the deadline");
 				}
 			}
+			// --- editor-scripts selfcheck (ORKIGE_EDITOR_SCRIPTTEST=roller) ---
+			if (scriptTestEnv && frameCount == 10)
+			{
+				auto scriptFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: editor-scripts test - FAILED: %s",
+						why.c_str());
+					exitCode = 14;
+					std::error_code cleanupErr;
+					std::filesystem::remove_all(scriptTestTempRoot, cleanupErr);
+					running = false;
+				};
+				// a copy of the project so the fixture writes never touch the tree
+				std::error_code stErr;
+				scriptTestTempRoot = (std::filesystem::temp_directory_path() /
+					("orkige_scripttest_" + std::to_string(
+						std::chrono::steady_clock::now()
+							.time_since_epoch().count()))).string();
+				std::filesystem::copy(scriptTestEnv, scriptTestTempRoot,
+					std::filesystem::copy_options::recursive, stErr);
+				const bool scriptingOn =
+					Orkige::EditorScriptHost::scriptingAvailable();
+				if (stErr || !openProjectFromPath(state, editorCore,
+					scriptTestTempRoot))
+				{
+					scriptFail("could not prepare/open the temp copy");
+				}
+				else if (!scriptingOn)
+				{
+					// NOSCRIPT leg: the project opens fine, but running a tool is
+					// an honest no-op (ran=false, an explaining error). The Tools
+					// menu shows its disabled note (EditorScriptHost::
+					// scriptingAvailable() is what the menu keys off).
+					const std::filesystem::path scriptsDir =
+						std::filesystem::path(scriptTestTempRoot) / "scripts";
+					std::ofstream(scriptsDir / "noop.editor.lua")
+						<< "-- tool: Noop\nreturn 0\n";
+					editorScripts.scanProject(scriptsDir.string());
+					const Orkige::EditorScriptHost::RunResult r =
+						editorScripts.runToolByName("noop", controlContext);
+					if (r.ran || r.ok || r.error.empty())
+					{
+						scriptFail("noscript: a tool must be an honest no-op");
+					}
+					else if (!state.project.isLoaded())
+					{
+						scriptFail("noscript: the project must still load");
+					}
+					else
+					{
+						SDL_Log("orkige_editor: editor-scripts test - OK "
+							"(noscript: project loads, running is a no-op)");
+						std::error_code cleanupErr;
+						std::filesystem::remove_all(scriptTestTempRoot,
+							cleanupErr);
+						running = false;
+					}
+				}
+				else
+				{
+					const std::filesystem::path scriptsDir =
+						std::filesystem::path(scriptTestTempRoot) / "scripts";
+					// a tool that authors a subtree through the editor.* verbs
+					std::ofstream(scriptsDir / "fixture_ok.editor.lua")
+						<< "-- tool: Fixture OK\n"
+						<< "editor.create_object{ id = \"ToolCube\", "
+						   "mesh = \"cube\", position = \"1 2 3\" }\n"
+						<< "editor.set_component{ id = \"ToolCube\", "
+						   "component = \"TransformComponent\", "
+						   "position = \"5 6 7\" }\n"
+						<< "editor.create_object{ id = \"ToolChild\", "
+						   "mesh = \"cube\" }\n"
+						<< "editor.reparent_object{ id = \"ToolChild\", "
+						   "parent = \"ToolCube\" }\n"
+						<< "editor.log(\"fixture ok: authored ToolCube + child\")"
+						   "\n";
+					// a tool that creates an object then ERRORS (a nil call) -
+					// must roll back and report file:line
+					std::ofstream(scriptsDir / "fixture_err.editor.lua")
+						<< "-- tool: Fixture Err\n"
+						<< "editor.create_object{ id = \"GhostCube\", "
+						   "mesh = \"cube\" }\n"
+						<< "local x = definitely_not_a_function()\n"
+						<< "editor.log(\"unreachable\")\n";
+					editorScripts.scanProject(scriptsDir.string());
+
+					// DISCOVERY: the fixtures + the shipped sample are listed, the
+					// label override is honoured
+					Orkige::EditorScriptTool const* okTool =
+						editorScripts.findByName("fixture_ok");
+					const bool discovered = okTool &&
+						editorScripts.findByName("fixture_err") &&
+						editorScripts.findByName("border_walls");
+					if (!discovered)
+					{
+						scriptFail("discovery missed a fixture / the sample tool");
+					}
+					else if (okTool->label != "Fixture OK")
+					{
+						scriptFail("the -- tool: label override was not applied");
+					}
+					else
+					{
+						// RUN the OK fixture: it should apply as ONE undo step
+						const Orkige::EditorScriptHost::RunResult okResult =
+							editorScripts.runToolByName("fixture_ok",
+								controlContext);
+						std::string pos;
+						editorCore.getObjectProperty("ToolCube",
+							"TransformComponent", "position", pos);
+						optr<Orkige::GameObject> child =
+							gameObjectManager.getGameObject("ToolChild").lock();
+						auto consoleHas = [&](std::string const& needle) -> bool
+						{
+							std::lock_guard<std::mutex> lock(console.mutex);
+							for (ConsoleLine const& line : console.lines)
+							{
+								if (line.text.find(needle) != std::string::npos)
+								{
+									return true;
+								}
+							}
+							return false;
+						};
+						if (!okResult.ran || !okResult.ok)
+						{
+							scriptFail("fixture_ok did not run cleanly: " +
+								okResult.error);
+						}
+						else if (!gameObjectManager.objectExists("ToolCube") ||
+							!child || child->getParentId() != "ToolCube")
+						{
+							scriptFail("fixture_ok did not author the subtree");
+						}
+						else if (pos != "5 6 7")
+						{
+							scriptFail("set_component did not take (pos=" +
+								pos + ")");
+						}
+						else if (!consoleHas("authored ToolCube"))
+						{
+							scriptFail("editor.log did not reach the Console");
+						}
+						else if (editorCore.getUndoStackSize() != 1)
+						{
+							scriptFail("the run is not ONE undo step (" +
+								std::to_string(editorCore.getUndoStackSize()) +
+								")");
+						}
+						else if (!editorCore.undo() ||
+							gameObjectManager.objectExists("ToolCube") ||
+							gameObjectManager.objectExists("ToolChild"))
+						{
+							scriptFail("one undo did not revert the whole run");
+						}
+						else
+						{
+							// RUN the ERR fixture: file:line + no partial edits
+							const std::size_t undoBefore =
+								editorCore.getUndoStackSize();
+							const Orkige::EditorScriptHost::RunResult errResult =
+								editorScripts.runToolByName("fixture_err",
+									controlContext);
+							const bool reportsFileLine =
+								errResult.error.find("fixture_err.editor.lua") !=
+								std::string::npos;
+							if (!errResult.ran || errResult.ok)
+							{
+								scriptFail("fixture_err should have failed");
+							}
+							else if (!reportsFileLine)
+							{
+								scriptFail("the error lacks file:line: " +
+									errResult.error);
+							}
+							else if (gameObjectManager.objectExists("GhostCube"))
+							{
+								scriptFail("fixture_err left a partial edit");
+							}
+							else if (editorCore.getUndoStackSize() != undoBefore)
+							{
+								scriptFail("a failed tool touched the undo stack");
+							}
+							else
+							{
+								// RUN the shipped SAMPLE tool (roller frame)
+								const Orkige::EditorScriptHost::RunResult sample =
+									editorScripts.runToolByName("border_walls",
+										controlContext);
+								if (!sample.ran || !sample.ok)
+								{
+									scriptFail("the shipped border_walls tool "
+										"failed: " + sample.error);
+								}
+								else if (editorCore.getUndoStackSize() != 1)
+								{
+									scriptFail("the sample tool is not one undo "
+										"step");
+								}
+								else
+								{
+									SDL_Log("orkige_editor: editor-scripts test "
+										"- OK (discovery, editor.* verbs, one "
+										"undo step, error rollback, sample tool)");
+									std::error_code cleanupErr;
+									std::filesystem::remove_all(
+										scriptTestTempRoot, cleanupErr);
+									running = false;
+								}
+							}
+						}
+					}
+				}
+			}
+
 			// --- scripted scene-open test (ORKIGE_EDITOR_OPEN_SCENE=path) ---
 			if (openSceneEnv && frameCount == 10)
 			{
