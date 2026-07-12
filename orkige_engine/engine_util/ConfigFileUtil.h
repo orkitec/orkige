@@ -45,7 +45,7 @@ namespace Orkige
 				configFile.getSectionIterator();
 			while(sectionIterator.hasMoreElements())
 			{
-				const Ogre::String name = sectionIterator.peekNextKey();
+				const Ogre::String & name = sectionIterator.peekNextKey();
 				sections[name] = *sectionIterator.getNext();
 			}
 #endif

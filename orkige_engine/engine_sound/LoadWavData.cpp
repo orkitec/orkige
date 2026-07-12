@@ -151,7 +151,7 @@ namespace Orkige
 			int bufferSize;
 
 			Ogre::ResourceGroupManager *groupManager = Ogre::ResourceGroupManager::getSingletonPtr();
-			Ogre::String group = groupManager->findGroupContainingResource(fileName);
+			const Ogre::String & group = groupManager->findGroupContainingResource(fileName);
 			Ogre::DataStreamPtr soundData = groupManager->openResource(fileName, group);
 
 			// buffers

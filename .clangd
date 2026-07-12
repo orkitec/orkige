@@ -11,6 +11,17 @@
 CompileFlags:
   CompilationDatabase: build/macos-debug
 
+# clangd runs the checks from .clang-tidy live as you type. That file keeps
+# readability-identifier-naming on for deliberate command-line audits of the
+# house naming convention (the 'm' member prefix, CamelCase types). Run live
+# over the whole historical tree, though, that one check reports thousands of
+# legacy-name findings that bury the diagnostics that matter. Drop it from the
+# in-editor set only; the correctness and performance checks the same file
+# enables (bugprone-*, performance-*) stay live where they catch real defects.
+Diagnostics:
+  ClangTidy:
+    Remove: [readability-identifier-naming]
+
 ---
 # Classic-only sources compile only in the classic (compatibility) flavor's
 # tree - serve them from that database (otherwise clangd applies next-flavor
