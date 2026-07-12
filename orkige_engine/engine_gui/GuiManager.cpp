@@ -26,7 +26,9 @@
 #include <core_script/ScriptEventBus.h>
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <set>
+#include <sstream>
 
 namespace Orkige
 {

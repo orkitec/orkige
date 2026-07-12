@@ -57,8 +57,8 @@ namespace Orkige
 			struct Registry
 			{
 				std::mutex					mMutex;
-				std::vector<ThreadState *>	mThreads;	//!< insertion order, "main" first in practice
-				int							mNextLabel = 1;
+				std::vector<ThreadState *>	mThreads;	//!< insertion order (no meaning beyond stability)
+				int							mNextLabel = 0;
 			};
 			Registry & registry()
 			{
@@ -79,15 +79,12 @@ namespace Orkige
 				{
 					Registry & reg = registry();
 					std::lock_guard<std::mutex> lock(reg.mMutex);
-					if (reg.mThreads.empty())
-					{
-						std::snprintf(mLabel, sizeof(mLabel), "main");
-					}
-					else
-					{
-						std::snprintf(mLabel, sizeof(mLabel), "thread-%d",
-							++reg.mNextLabel);
-					}
+					// every thread gets a neutral label; which tree is "the
+					// frame's own" is decided by WHO CALLS snapshot(), never
+					// by registration order - a worker's first scope may
+					// legally run before the loop thread's
+					std::snprintf(mLabel, sizeof(mLabel), "thread-%d",
+						++reg.mNextLabel);
 					reg.mThreads.push_back(this);
 				}
 
@@ -316,21 +313,19 @@ namespace Orkige
 		void snapshot(std::vector<SnapshotNode> & out)
 		{
 			out.clear();
+			// the caller IS the frame's own thread (the loop calls
+			// snapshot); touching tState here also registers a
+			// never-profiled caller so the identity below always resolves
+			ThreadState * const callerState = &tState;
 			Registry & reg = registry();
 			std::lock_guard<std::mutex> lock(reg.mMutex);
-			// the "main" tree first, its scopes at depth 0
-			for (ThreadState * state : reg.mThreads)
-			{
-				if (std::strcmp(state->mLabel, "main") == 0)
-				{
-					appendSnapshot(&state->mRoot, 0, out);
-				}
-			}
+			// the calling thread's tree first, its scopes at depth 0
+			appendSnapshot(&callerState->mRoot, 0, out);
 			// other threads under a labeled row so their scopes stay
 			// distinguishable from the frame's own phases
 			for (ThreadState * state : reg.mThreads)
 			{
-				if (std::strcmp(state->mLabel, "main") == 0 ||
+				if (state == callerState ||
 					!hasLastFrameData(&state->mRoot))
 				{
 					continue;
