@@ -92,6 +92,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -196,6 +197,33 @@ class Project:
         return self.settings.get("native.target", "").strip()
 
 
+def stage_config_settings(project_root, settings, dest_dir):
+    """copy the manifest-referenced project-config assets (the CONFIG_SETTING_KEYS
+    values) into dest_dir, preserving each project-relative path, and return the
+    file count staged. A setting may name a single FILE (input.oactions,
+    physics.olayers, levels.olevels) or a DIRECTORY (localisation names loc/, a
+    tree of one .xlf per language) - both bundle; a missing target warns and is
+    skipped."""
+    staged = 0
+    for setting_key in CONFIG_SETTING_KEYS:
+        relative = settings.get(setting_key, "").strip()
+        if not relative:
+            continue
+        source = os.path.join(project_root, relative)
+        destination = os.path.join(dest_dir, relative)
+        if os.path.isdir(source):
+            shutil.copytree(source, destination, dirs_exist_ok=True)
+            staged += sum(len(files) for _, _, files in os.walk(destination))
+        elif os.path.isfile(source):
+            os.makedirs(os.path.dirname(destination) or dest_dir, exist_ok=True)
+            shutil.copy2(source, destination)
+            staged += 1
+        else:
+            warn("manifest setting '%s' references '%s' but no such file or "
+                 "directory exists - not bundled" % (setting_key, relative))
+    return staged
+
+
 def stage_project_payload(project, dest_dir, platform="macos"):
     """copy the shippable project subset (manifest + scenes/assets/scripts)
     into dest_dir, run the export-time texture cook over the staged assets for
@@ -210,21 +238,9 @@ def stage_project_payload(project, dest_dir, platform="macos"):
             destination = os.path.join(dest_dir, subdir)
             shutil.copytree(source, destination, dirs_exist_ok=True)
             staged += sum(len(files) for _, _, files in os.walk(destination))
-    # manifest-referenced project-config files (input.oactions and its future
-    # siblings): copy each referenced file preserving its project-relative path
-    for setting_key in CONFIG_SETTING_KEYS:
-        relative = project.settings.get(setting_key, "").strip()
-        if not relative:
-            continue
-        source = os.path.join(project.root, relative)
-        if os.path.isfile(source):
-            destination = os.path.join(dest_dir, relative)
-            os.makedirs(os.path.dirname(destination) or dest_dir, exist_ok=True)
-            shutil.copy2(source, destination)
-            staged += 1
-        else:
-            warn("manifest setting '%s' references '%s' but no such file "
-                 "exists - not bundled" % (setting_key, relative))
+    # manifest-referenced project-config assets (input.oactions and its
+    # siblings) ride along, preserving their project-relative paths
+    staged += stage_config_settings(project.root, project.settings, dest_dir)
     # export-time texture cook: resize/premultiply the staged textures per
     # their sidecar import settings, resolved for the target platform. The
     # sidecars ship alongside (the runtime reads the LIVE sampler settings from
@@ -1313,6 +1329,36 @@ def selftest():
         "malformed hex -> default"
     assert launch_background(_Stub("")) == DEFAULT_LAUNCH_BACKGROUND, \
         "absent -> default"
+
+    # config-setting staging: a FILE setting copies one file preserving its
+    # relative path; a DIRECTORY setting (localisation names loc/) copies the
+    # whole tree; a dangling setting is skipped, not fatal
+    with tempfile.TemporaryDirectory() as work:
+        project_root = os.path.join(work, "proj")
+        loc_dir = os.path.join(project_root, "loc")
+        os.makedirs(loc_dir)
+        for name in ("en.xlf", "de.xlf", "en-XA.xlf"):
+            with open(os.path.join(loc_dir, name), "w") as handle:
+                handle.write("<xliff/>")
+        with open(os.path.join(project_root, "input.oactions"), "w") as handle:
+            handle.write("actions")
+        settings = {
+            "localisation": "loc",           # a directory setting
+            "input.actions": "input.oactions",  # a file setting
+            "levels": "does_not_exist.olevels"  # a dangling setting
+        }
+        dest = os.path.join(work, "staged")
+        os.makedirs(dest)
+        count = stage_config_settings(project_root, settings, dest)
+        assert count == 4, "3 .xlf files + 1 .oactions staged (got %d)" % count
+        for name in ("en.xlf", "de.xlf", "en-XA.xlf"):
+            assert os.path.isfile(os.path.join(dest, "loc", name)), \
+                "localisation directory bundled (%s)" % name
+        assert os.path.isfile(os.path.join(dest, "input.oactions")), \
+            "file setting bundled"
+        assert not os.path.exists(os.path.join(dest, "does_not_exist.olevels")), \
+            "dangling setting skipped, not staged"
+
     print("orkige_export: selftest OK")
 
 

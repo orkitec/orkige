@@ -46,6 +46,7 @@ add_executable(orkige_core_tests
     ScrollClipTests.cpp
     TiltCalibrationTests.cpp
     StringTableTests.cpp
+    LocaleMatchTests.cpp
     VectorTessellatorTests.cpp
     VectorShapeAssetTests.cpp
     VectorShapeRasterTests.cpp

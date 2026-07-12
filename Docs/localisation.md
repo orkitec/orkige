@@ -144,6 +144,61 @@ tofu), the text is expanded ~35% with middle-dot padding, and end-fenced with
 construction. Booting a game in `en-XA` reveals truncation, clipped ends and
 non-elastic layouts at a glance.
 
+## Runtime
+
+The player loads the project's `loc/` directory once at boot (all languages
+resident — a game's whole string set is tiny), so switching language later is
+I/O-free. A lookup resolves the **active language → the source language → the
+key itself**, so an untranslated string falls back to its authored source text
+(carried in the same target file) and, failing that, stays readable as its key.
+
+### Initial language
+
+After the directory loads, the player picks the starting language:
+
+1. **`ORKIGE_LANGUAGE`** (env), when set, forces that language — the hook a
+   game uses to re-apply a saved preference at boot, and what the selfchecks and
+   automated runs use for determinism.
+2. Otherwise, on a **human run**, the device's preferred locales
+   (`SDL_GetPreferredLocales`) are matched against the loaded languages by the
+   rule in `core_util/LocaleMatch.h`: an **exact** BCP-47 tag match first (so
+   `de-DE` beats `de` when both exist), then a **primary-subtag** match in either
+   direction (`de-DE` → `de`, or `de` → `de-AT`), honoring the device's
+   preference order; no match falls back to the source language.
+3. **Automated / test runs** (any selfcheck, an editor play-test) deliberately
+   skip the device pick and stay on the source language, so a run's readback
+   never depends on the CI machine's OS locale.
+
+A game overrides all of this at any point with `locale.set` — a saved-preference
+menu reads `save`, calls `locale.set(tag)` at boot, and re-pushes its screens.
+
+### Switching language at runtime
+
+The Lua `locale` table (documented in [lua-api.md](lua-api.md)) is the
+settings-menu control:
+
+```lua
+for _, tag in ipairs(locale.list()) do ... end   -- de, en, en-XA (sorted)
+if locale.set("de") then                          -- true iff "de" is loaded
+    -- re-push the current screen(s) so their @key captions re-resolve
+end
+locale.get()        -- the active language
+locale.getSource()  -- the source (authored) language
+```
+
+Switching language does **not** retro-edit widgets already created — their text
+was resolved at build time. The contract is: after `locale.set`, the game
+re-pushes (rebuilds) the affected screen(s), and every `@key` caption and
+`loc()` call then resolves in the new language. The screen stack makes that a
+one-liner.
+
+### Exports
+
+The `loc/` directory rides into every exported bundle (macOS `.app`, iOS app,
+Android APK) as a config-asset: `Util/orkige_export.py` copies the whole
+directory tree named by the `localisation` setting, alongside the file-valued
+config settings.
+
 ## Boundaries
 
 - **Plurals**: XLIFF 1.2 has no plural mechanism. The convention is one key per

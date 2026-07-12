@@ -950,6 +950,54 @@ namespace Orkige
 			return StringTable::getSingleton().format(key, formatArgs);
 		});
 
+		// ================= THE `locale` TABLE (language switch) ============
+		// A settings-menu language control on top of the same StringTable the
+		// loc() accessor reads. Switching the active language does NOT retro-edit
+		// widgets already created (their text resolved at creation) - the game
+		// re-pushes its screen(s) after a switch, which the screen stack makes a
+		// one-liner. Honest without a table (editor / an unlocalised game): get
+		// and getSource return "", list is empty, set returns false.
+		//   locale.set("de")  -> true if "de" is a loaded language (and switches
+		//                        to it), false otherwise (no change)
+		//   locale.get()      -> the active language code
+		//   locale.list()     -> the loaded language codes, sorted (source incl.)
+		//   locale.getSource()-> the source language code
+		runtime.registerFunction("locale", "set",
+			[](String const & language) -> bool
+		{
+			if (!StringTable::getSingletonPtr() ||
+				!StringTable::getSingleton().hasLanguage(language))
+			{
+				return false;
+			}
+			StringTable::getSingleton().setLanguage(language);
+			return true;
+		});
+		runtime.registerFunction("locale", "get", []() -> String
+		{
+			if (!StringTable::getSingletonPtr())
+			{
+				return String();
+			}
+			return StringTable::getSingleton().getLanguage();
+		});
+		runtime.registerFunction("locale", "list", []() -> StringVector
+		{
+			if (!StringTable::getSingletonPtr())
+			{
+				return StringVector();
+			}
+			return StringTable::getSingleton().getLanguages();
+		});
+		runtime.registerFunction("locale", "getSource", []() -> String
+		{
+			if (!StringTable::getSingletonPtr())
+			{
+				return String();
+			}
+			return StringTable::getSingleton().getSourceLanguage();
+		});
+
 		// ================= THE `sound` TABLE (the mixer) ===================
 		// Global mixer controls (per-sound volume/group live on the
 		// SoundComponent reached via world.getSound). Effective per-source

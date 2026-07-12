@@ -53,6 +53,7 @@
 #include <engine_sound/SoundManager.h>
 #include <engine_util/PlatformWindow.h>
 #include <core_util/StringTable.h>
+#include <core_util/LocaleMatch.h>
 // gui is flavor-neutral - the UI
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
@@ -860,6 +861,55 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_player: localisation directory '%s' not "
 						"loaded", localisationPath.c_str());
+				}
+				else
+				{
+					// pick the initial language. A forced override wins (a test
+					// or a game re-applying a saved preference at boot via
+					// locale.set); otherwise a HUMAN run matches the device's
+					// preferred locales against the loaded languages. Automated
+					// runs stay on the source language loadXliffDirectory
+					// defaulted to, so a selfcheck's readback never depends on
+					// the CI machine's OS locale.
+					if (const char* forcedLanguage =
+						std::getenv("ORKIGE_LANGUAGE"))
+					{
+						stringTable.setLanguage(forcedLanguage);
+					}
+					else if (!automatedRun)
+					{
+						Orkige::StringVector preferred;
+						int localeCount = 0;
+						SDL_Locale** locales =
+							SDL_GetPreferredLocales(&localeCount);
+						if (locales != nullptr)
+						{
+							for (int index = 0; index < localeCount; ++index)
+							{
+								if (locales[index] == nullptr ||
+									locales[index]->language == nullptr)
+								{
+									continue;
+								}
+								std::string tag = locales[index]->language;
+								if (locales[index]->country != nullptr &&
+									locales[index]->country[0] != '\0')
+								{
+									tag += "-";
+									tag += locales[index]->country;
+								}
+								preferred.push_back(tag);
+							}
+							SDL_free(locales);
+						}
+						const Orkige::String picked = Orkige::pickBestLanguage(
+							stringTable.getLanguages(), preferred,
+							stringTable.getSourceLanguage());
+						if (!picked.empty())
+						{
+							stringTable.setLanguage(picked);
+						}
+					}
 				}
 			}
 		}

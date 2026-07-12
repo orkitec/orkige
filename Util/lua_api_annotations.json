@@ -80,6 +80,22 @@
     "sig": "(key [, ...]) -> string",
     "doc": "localised string; %%N%% filled by trailing args"
   },
+  "locale.set": {
+    "sig": "(tag) -> bool",
+    "doc": "switch the active language (true if the tag is loaded); re-push screens after"
+  },
+  "locale.get": {
+    "sig": "() -> string",
+    "doc": "the active language code"
+  },
+  "locale.list": {
+    "sig": "() -> table",
+    "doc": "the loaded language codes, sorted (source included)"
+  },
+  "locale.getSource": {
+    "sig": "() -> string",
+    "doc": "the source (authored) language code"
+  },
   "screen.fadeOut": {
     "sig": "(seconds)",
     "doc": "ramp the full-screen overlay to opaque"

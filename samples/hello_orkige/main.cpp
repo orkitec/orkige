@@ -31,7 +31,10 @@
 #include <engine_gui/GuiScrollView.h>
 #include <engine_gui/GuiTextbox.h>
 #include <engine_gui/GuiTextEdit.h>
+#include <engine_gui/GuiLabel.h>
+#include <engine_gui/GuiButton.h>
 #include <engine_gui/UiAtlas.h>
+#include <core_util/StringTable.h>
 #include <engine_gocomponent/ScriptComponent.h>
 #include <core_tween/TweenManager.h>
 #include <core_util/SafeArea.h>
@@ -1238,6 +1241,165 @@ int main(int, char**)
 			SDL_Log("hello_orkige: runtime TTF + SVG selfcheck passed (TTF fonts "
 				"+ SVG sprite baked, Latin + lazy-paged Cyrillic text rendered, "
 				"non-empty HUD batch)");
+		}
+
+		// ORKIGE_DEMO_LOC=1: the localisation runtime selfcheck (flavor-neutral).
+		// Loads a project's loc/ registry (en source + de target + the generated
+		// en-XA pseudo-locale) into the StringTable, then loads a committed .oui
+		// whose captions are all @keys and reads the RESOLVED widget text back:
+		// - the source language (en) resolves the English source ("Hello, Orkige")
+		// - locale.set("de") + a screen re-push resolves the German target and it
+		//   actually RENDERS (non-empty batch, text differs from the source)
+		// - the pseudo locale en-XA resolves an accented variant (its glyphs bake
+		//   through lazy paging) that also differs from the source and renders
+		// The language switch is driven through the SAME StringTable the Lua
+		// `locale` table wraps (set == StringTable::setLanguage on a loaded
+		// language); re-pushing the screen is the documented contract (a switch
+		// does not retro-edit widgets built at the old language).
+		if (std::getenv("ORKIGE_DEMO_LOC"))
+		{
+			Orkige::PlatformWindow::setContentScaleOverride(1.0f);
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->addResourceLocation(ORKIGE_DEMO_OUI_DIR);
+			render->initialiseResourceGroups();
+
+			// load the project's XLIFF localisation directory into the table the
+			// gui @key routing (GuiFactory::resolveText) reads
+			Orkige::StringTable stringTable;
+			bool locOk = stringTable.loadXliffDirectory(ORKIGE_DEMO_LOC_DIR);
+			if (!locOk)
+			{
+				SDL_Log("hello_orkige: FAILED - loc directory '%s' did not load",
+					ORKIGE_DEMO_LOC_DIR);
+			}
+
+			// after a directory load the active language defaults to the source
+			if (locOk && stringTable.getSourceLanguage() != "en")
+			{
+				SDL_Log("hello_orkige: FAILED - source language is '%s', "
+					"expected 'en'", stringTable.getSourceLanguage().c_str());
+				locOk = false;
+			}
+			// the three languages loaded (sorted: de, en, en-XA)
+			if (locOk && (!stringTable.hasLanguage("en") ||
+				!stringTable.hasLanguage("de") ||
+				!stringTable.hasLanguage("en-XA")))
+			{
+				SDL_Log("hello_orkige: FAILED - not all languages loaded");
+				locOk = false;
+			}
+
+			// build the localised screen at a given language and read back the
+			// resolved text of the @key label + button, and whether it rendered.
+			// A fresh GuiFactory/GuiManager each call is the "re-push the screen"
+			// contract in miniature.
+			auto buildAndRead = [&](Orkige::String const & language,
+				Orkige::String & titleText,
+				Orkige::String & startText, bool & rendered) -> bool
+			{
+				stringTable.setLanguage(language);
+				Orkige::optr<Orkige::GuiFactory> factory =
+					Orkige::onew(new Orkige::GuiFactory());
+				Orkige::GuiManager gui(factory, "gui_default");
+				factory->loadLayout("loc_demo.oui");
+				const bool frameOk = render->renderOneFrame();
+				titleText.clear();
+				startText.clear();
+				rendered = false;
+				if (gui.widgetExists("locTitle"))
+				{
+					Orkige::optr<Orkige::GuiLabel> label =
+						gui.getWidgetAs<Orkige::GuiLabel>("locTitle").lock();
+					if (label && label->getCaption())
+					{
+						titleText = label->getCaption()->text();
+					}
+				}
+				if (gui.widgetExists("locStart"))
+				{
+					Orkige::optr<Orkige::GuiButton> button =
+						gui.getWidgetAs<Orkige::GuiButton>("locStart").lock();
+					if (button)
+					{
+						startText = button->getCaption();
+					}
+				}
+				Orkige::woptr<Orkige::GuiView> view = gui.getView("gui_default");
+				if (view.lock())
+				{
+					rendered =
+						view.lock()->getScreen()->getLastVertexCount() > 0;
+				}
+				return frameOk;
+			};
+
+			Orkige::String enTitle, enStart, deTitle, deStart, pseudoTitle,
+				pseudoStart;
+			bool enRendered = false, deRendered = false, pseudoRendered = false;
+			if (locOk)
+			{
+				buildAndRead("en", enTitle, enStart, enRendered);
+				// the source language resolves the English source text
+				if (enTitle != "Hello, Orkige" || enStart != "Start Game")
+				{
+					SDL_Log("hello_orkige: FAILED - en text '%s' / '%s' != source",
+						enTitle.c_str(), enStart.c_str());
+					locOk = false;
+				}
+				if (!enRendered)
+				{
+					SDL_Log("hello_orkige: FAILED - en screen did not render");
+					locOk = false;
+				}
+			}
+			if (locOk)
+			{
+				buildAndRead("de", deTitle, deStart, deRendered);
+				// switching to German re-skins the whole screen from the target
+				if (deTitle != "Hallo, Orkige" || deStart != "Spiel starten")
+				{
+					SDL_Log("hello_orkige: FAILED - de text '%s' / '%s' != target",
+						deTitle.c_str(), deStart.c_str());
+					locOk = false;
+				}
+				if (deTitle == enTitle)
+				{
+					SDL_Log("hello_orkige: FAILED - de title did not differ from en");
+					locOk = false;
+				}
+				if (!deRendered)
+				{
+					SDL_Log("hello_orkige: FAILED - de screen did not render");
+					locOk = false;
+				}
+			}
+			if (locOk)
+			{
+				buildAndRead("en-XA", pseudoTitle, pseudoStart, pseudoRendered);
+				// the pseudo-locale resolves an accented variant (its glyphs bake
+				// on demand) that differs from the source but still renders
+				if (pseudoTitle == enTitle || pseudoTitle.empty())
+				{
+					SDL_Log("hello_orkige: FAILED - pseudo title '%s' did not "
+						"differ from source", pseudoTitle.c_str());
+					locOk = false;
+				}
+				if (!pseudoRendered)
+				{
+					SDL_Log("hello_orkige: FAILED - pseudo screen did not render");
+					locOk = false;
+				}
+			}
+
+			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
+			if (!locOk)
+			{
+				return 1;
+			}
+			SDL_Log("hello_orkige: localisation selfcheck passed (en source '%s', "
+				"de target '%s', pseudo en-XA '%s' - all resolved through @key "
+				"routing and rendered; live language switch re-skins the screen)",
+				enTitle.c_str(), deTitle.c_str(), pseudoTitle.c_str());
 		}
 
 		// ORKIGE_DEMO_LAYOUT=1: the nine-slice + rect-anchor layout selfcheck

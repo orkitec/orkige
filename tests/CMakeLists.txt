@@ -318,6 +318,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_oui PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_OUI=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_LOC: the localisation-runtime selfcheck - loads a project's
+    # XLIFF loc/ registry (en source + de target + the generated en-XA pseudo-
+    # locale) into the StringTable, loads a committed .oui whose captions are all
+    # @keys, and reads the RESOLVED widget text back: the source resolves the
+    # English source, a live switch to de re-skins the screen from the target
+    # (text differs and renders), and en-XA resolves an accented pseudo variant
+    # that also renders. Flavor-neutral (gui @key routing on DrawLayer2D).
+    add_test(NAME demo_loc COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_loc PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LOC=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_GUI_MODAL: the modal / disabled / toggle-group / toast /
     # dropdown selfcheck - loads a declarative screen with a [Modal] and a
     # [ToggleGroup], then drives it with synthetic input on the real path: the

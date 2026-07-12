@@ -127,6 +127,12 @@ save.flush() -> bool  -- autosave point - write to disk now
 events.subscribe(name, fn) -> EventSubscription  -- subscribe fn(payload) to an event (script phase, subscription order)
 events.emit(name [, payload])  -- queue an event; payload a table of string/number/bool (one nesting level)
 
+## locale
+locale.set(tag) -> bool  -- switch the active language (true if the tag is loaded); re-push screens after
+locale.get() -> string  -- the active language code
+locale.list() -> table  -- the loaded language codes, sorted (source included)
+locale.getSource() -> string  -- the source (authored) language code
+
 ## globals
 loc(key [, ...]) -> string  -- localised string; %%N%% filled by trailing args
 

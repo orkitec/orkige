@@ -70,4 +70,8 @@ target_compile_definitions(hello_orkige PRIVATE
     # the ORKIGE_DEMO_OUI selfcheck: the committed declarative settings screen
     # (settings_screen.oui) loaded through GuiFactory::loadLayout
     ORKIGE_DEMO_OUI_DIR="${CMAKE_CURRENT_SOURCE_DIR}/media"
+    # the ORKIGE_DEMO_LOC selfcheck: the committed XLIFF localisation registry
+    # (loc/en.xlf + de.xlf + the generated en-XA.xlf pseudo-locale) the runtime
+    # loads to resolve loc_demo.oui's @key captions across languages
+    ORKIGE_DEMO_LOC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/loc"
 )
