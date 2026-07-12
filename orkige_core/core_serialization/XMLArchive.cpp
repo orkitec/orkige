@@ -79,7 +79,7 @@ namespace Orkige
 		if(!this->file || this->file->Error())
 		{
 			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->GetErrorStr1());
+			oDebugMsg("serialize",0,this->file->ErrorStr());
 			return false;
 		}
 		tinyxml2::XMLDeclaration* decl = this->file->NewDeclaration("1.0, UTF-8, yes");
@@ -87,7 +87,7 @@ namespace Orkige
 		this->file->SaveFile(this->fileName.c_str());
 		if(this->file->Error())
 		{
-			oDebugMsg("serialize",0,this->file->GetErrorStr1());
+			oDebugMsg("serialize",0,this->file->ErrorStr());
 			return false;
 		}
 		this->currentElement = this->file->NewElement("XMLArchive");
@@ -103,7 +103,7 @@ namespace Orkige
 		this->file->SaveFile(this->fileName.c_str());
 		if(this->file->Error())
 		{
-			oDebugMsg("serialize",0,this->file->GetErrorStr1());
+			oDebugMsg("serialize",0,this->file->ErrorStr());
 			return false;
 		}
 		this->readMode = false;
@@ -190,7 +190,7 @@ namespace Orkige
 		if(!this->file || this->file->Error())
 		{
 			oDebugMsg("serialize",0,"Errot Loading file: "<<fileName);
-			oDebugMsg("serialize",0,this->file->GetErrorStr1());
+			oDebugMsg("serialize",0,this->file->ErrorStr());
 			return false;
 		}
 		// (tinyxml1 heritage: a second LoadFile(file->Value()) used to live

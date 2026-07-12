@@ -19,6 +19,7 @@
 #include "engine_util/PlatformWindow.h"
 #include "engine_util/StringUtil.h"
 #include "core_debug/CVarManager.h"
+#include "core_debug/LogManager.h"
 #include "core_game/GameObjectManager.h"
 #include "core_util/ShadowPreset.h"
 #include "core_util/Timer.h"
@@ -68,7 +69,7 @@ namespace Orkige
 		this->mConfig = config;
 		if (!SDL_Init(SDL_INIT_VIDEO))
 		{
-			SDL_Log("SDL_Init failed: %s", SDL_GetError());
+			oDebugError("engine", 0, "AppHost: SDL_Init failed: " << SDL_GetError());
 			return false;
 		}
 		this->mSdlInitialised = true;
@@ -93,7 +94,7 @@ namespace Orkige
 #endif
 		if (!this->mWindow)
 		{
-			SDL_Log("SDL_CreateWindow failed: %s", SDL_GetError());
+			oDebugError("engine", 0, "AppHost: SDL_CreateWindow failed: " << SDL_GetError());
 			return false;
 		}
 		// register the window so the Engine can read its content scale and
@@ -177,7 +178,7 @@ namespace Orkige
 				reinterpret_cast<size_t>(
 					orkige_native_window_handle(this->mWindow)))))
 		{
-			SDL_Log("Engine::setup failed");
+			oDebugError("engine", 0, "AppHost: engine setup failed");
 			return false;
 		}
 		// from here on the host talks to the renderer through the
@@ -223,9 +224,9 @@ namespace Orkige
 				}
 				else
 				{
-					SDL_Log("r.shadowQuality: unknown value '%s' "
-						"(off/low/medium/high) - keeping the current quality",
-						cvar.value.c_str());
+					oDebugWarning(false, "AppHost: r.shadowQuality unknown value '"
+						<< cvar.value.c_str()
+						<< "' (off/low/medium/high) - keeping the current quality");
 				}
 			});
 

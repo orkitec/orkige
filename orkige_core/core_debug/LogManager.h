@@ -79,6 +79,13 @@ namespace Orkige
                 void write(const char * tag, int level,String const & message, Priority priorityLevel, const char* fileName,int lineNumber);
                 //! write a logmessage
                 void write(String const & message, Priority priorityLevel, const char* fileName,int lineNumber);
+                //! @brief append one already-gated, already-formatted line to the
+                //! file log (a no-op until startFileLog opens a file). The stderr
+                //! sink and level gating live in the log table (see logEmit); this
+                //! is only the file half, kept assert-free so a live error never
+                //! aborts the process.
+                void appendFileLine(const char * tag, int level, const char * message,
+                        const char * fileName, int lineNumber);
                 //! Add a LogChannel objects
                 void addChannel(const char * tag,int level,bool enabled);
                 //! Enables or disables filtering of oDebugMsg disabled per default

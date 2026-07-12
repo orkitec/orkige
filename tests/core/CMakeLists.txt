@@ -10,6 +10,7 @@ add_executable(orkige_core_tests
     TestComponents.cpp
     XMLArchiveTests.cpp
     CVarTests.cpp
+    LogLevelsTests.cpp
     PropertyReflectionTests.cpp
     DebugProtocolTests.cpp
     TraceWriterTests.cpp

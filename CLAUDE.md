@@ -294,7 +294,18 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   on / Release off until armed). Both stream to the editor over MSG_STATS /
   MSG_PROFILE_DATA and read back over MCP `get_state`/`get_profile`; the trace
   carries per-frame `alloc` + `phases`. `MemorySampler` stays the process-RSS
-  number; `LogManager` is configured from XML.
+  number. **Logging** is the always-compiled, runtime-gated diagnostic channel:
+  the tagged stream-style macros `oDebugError`/`oDebugWarning`/`oDebugMsg`
+  (`DebugMacros.h`) route through a thread-safe per-tag threshold table
+  (`LogLevels.cpp`) — levels error/warn/info/debug, gate-before-format so a
+  disabled call never evaluates its stream (a relaxed-atomic fast-reject).
+  Default error+warn on in every config, info on in Debug, debug off until
+  raised; sinks are stderr (what tests grep) + the `LogManager` file (configured
+  from XML), and an `oDebugError` also drops a `Breadcrumbs` entry. Per-tag level
+  is a live cvar `log.<tag>` (+ `log.default`), so MCP `set_cvar` raises verbosity
+  at runtime with no new verb. `SDL_Log` is NOT a diagnostic channel — it stays
+  only for selfcheck/demo output whose exact strings a test greps. See
+  `Docs/logging.md`.
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
 **`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated

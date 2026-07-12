@@ -96,6 +96,44 @@ namespace Orkige
                 }
         }
         //---------------------------------------------------------------
+        void LogManager::appendFileLine(const char * tag, int level, const char * message,
+                const char * fileName, int lineNumber)
+        {
+                if(!this->fileLog)
+                {
+                        return;
+                }
+#ifdef ORKIGE_XML_LOG
+                // map the log-table level onto the legacy XML priority buckets
+                Priority priority = LOGDEBUG;
+                switch(level)
+                {
+                case 0: priority = LOGERROR; break;     //!< LL_ERROR
+                case 1: priority = LOGWARNING; break;   //!< LL_WARN
+                case 2: priority = LOGNOTIFY; break;    //!< LL_INFO
+                default:        priority = LOGDEBUG; break;     //!< LL_DEBUG
+                }
+                this->logMessage(message, priority, fileName, lineNumber);
+#else
+                if(this->fileNameLog)
+                {
+                        this->logFile << fileName << "(" << lineNumber << "): ";
+                }
+                // a compact, level+tag-prefixed line (matches the stderr shape)
+                const char * levelName = "debug";
+                switch(level)
+                {
+                case 0: levelName = "error"; break;
+                case 1: levelName = "warn"; break;
+                case 2: levelName = "info"; break;
+                default:        break;
+                }
+                this->logFile << "[" << levelName << "][" << (tag ? tag : "") << "] "
+                        << message << std::endl;
+                this->logFile.flush();
+#endif
+        }
+        //---------------------------------------------------------------
         void LogManager::addChannel(const char * tag,int level,bool enabled)
         {
                 //QUESTION: should disabled channels be added?

@@ -34,14 +34,14 @@ namespace Orkige
 		OGRE_LOCK_AUTO_MUTEX
 			if (this->mFileList.empty())
 			{
-				oDebugMsg("steffen", 0, "-------------------------------");
-				oDebugMsg("steffen", 0, "Loading Archive: " << this->mName);
+				oDebugMsg("filesystem", 0, "-------------------------------");
+				oDebugMsg("filesystem", 0, "Loading Archive: " << this->mName);
 				Ogre::FileInfoListPtr fil = BigZipArchiveFactory::getSingleton().getFileInfoList(this->mName);
 				String prefix = BigZipArchiveFactory::getSingleton().getPathPrefix() + this->mName;
 				std::size_t prefixLength = prefix.length();
 				for(Ogre::FileInfoList::iterator it = fil->begin(), itend = fil->end(); it != itend; it++)
 				{
-					//oDebugMsg("steffen", 0, this->mName << " <- trying to add: " << it->filename);
+					//oDebugMsg("filesystem", 0, this->mName << " <- trying to add: " << it->filename);
 					if(it->path.length() < prefixLength)
 					{
 						continue;
@@ -49,24 +49,24 @@ namespace Orkige
 					String subPath = it->path.substr(0, prefix.length());
 					if(subPath != prefix)
 					{
-						//oDebugMsg("steffen", 0, "1");
+						//oDebugMsg("filesystem", 0, "1");
 						continue;
 					}
-					//oDebugMsg("steffen", 0, "2");
+					//oDebugMsg("filesystem", 0, "2");
 					String subFile = it->filename;
 					if(subFile.find('/') != String::npos && subFile.length() > prefix.length())
 					{
-						//oDebugMsg("steffen", 0, "3");
+						//oDebugMsg("filesystem", 0, "3");
 						subFile = it->filename.substr(0, prefix.length());
 						if(subFile != prefix)
 						{
-							//oDebugMsg("steffen", 0, "4");
+							//oDebugMsg("filesystem", 0, "4");
 							continue;
 						}
 						subFile = it->filename.substr(prefixLength, it->filename.length()-1);
 					}
 
-					//oDebugMsg("steffen", 0, "5");
+					//oDebugMsg("filesystem", 0, "5");
 					
 
 					Ogre::FileInfo fi;
@@ -81,7 +81,7 @@ namespace Orkige
 					fi.uncompressedSize = it->uncompressedSize;
 					this->mFileList.push_back(fi);
 
-					oDebugMsg("steffen", 0, this->mName << " added: " << subFile);
+					oDebugMsg("filesystem", 0, this->mName << " added: " << subFile);
 				}
 			}
 	}

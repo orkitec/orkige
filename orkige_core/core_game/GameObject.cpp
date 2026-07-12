@@ -52,19 +52,19 @@ namespace Orkige
 		document->LoadFile(templateFileName.c_str());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->ErrorStr());
 			return false;
 		}
 		document->LoadFile(document->Value());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error Loading file: "<<templateFileName<<std::endl <<document->ErrorStr());
 			return false;
 		}
 		tinyxml2::XMLElement* xmlRoot = document->RootElement();
 		if(!xmlRoot || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error finding XML-Root in file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error finding XML-Root in file: "<<templateFileName<<std::endl <<document->ErrorStr());
 			return false;
 		}
 		for(tinyxml2::XMLElement* elementType = xmlRoot->FirstChildElement(); elementType; elementType = elementType->NextSiblingElement())
@@ -178,7 +178,7 @@ namespace Orkige
 
 					if(document->Error())
 					{
-						oDebugMsg("gameobject",0,"Error while parsing file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
+						oDebugMsg("gameobject",0,"Error while parsing file: "<<templateFileName<<"!"<<std::endl <<document->ErrorStr());
 						document->ClearError();
 						retval = false;
 					}
@@ -198,7 +198,7 @@ namespace Orkige
 		optr<tinyxml2::XMLDocument>	document =  onew(new tinyxml2::XMLDocument());
 		if(!document || document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->ErrorStr());
 			return false;
 		}
 		tinyxml2::XMLDeclaration* decl = document->NewDeclaration("1.0, UTF-8, yes");
@@ -206,7 +206,7 @@ namespace Orkige
 
 		if(document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error Saving file: "<<templateFileName<<std::endl <<document->ErrorStr());
 			return false;
 		}
 		tinyxml2::XMLElement* xmlRoot = document->NewElement("GameObject");
@@ -305,7 +305,7 @@ namespace Orkige
 
 		if(document->Error())
 		{
-			oDebugMsg("gameobject",0,"Error while saving file: "<<templateFileName<<"!"<<std::endl <<document->GetErrorStr1());
+			oDebugMsg("gameobject",0,"Error while saving file: "<<templateFileName<<"!"<<std::endl <<document->ErrorStr());
 			document->ClearError();
 			retval = false;
 		}

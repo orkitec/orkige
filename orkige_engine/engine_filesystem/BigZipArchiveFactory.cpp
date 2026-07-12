@@ -20,7 +20,7 @@ namespace Orkige
         {
                 // OGRE 14: ZipArchive is no longer public - create through the factory
                 this->zipFile = optr<Ogre::Archive>(this->zipArchiveFactory.createInstance(fileName, true));
-                oDebugMsg("steffen", 0, "Loading BigZip: " << this->fileName);
+                oDebugMsg("filesystem", 0, "Loading BigZip: " << this->fileName);
                 this->zipFile->load();
                 this->fileInfo = this->zipFile->listFileInfo();
         }

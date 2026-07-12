@@ -56,7 +56,51 @@
 
 #include <cstring>
 #include <sstream>
+#include <string>
 //#undef _DEBUG //test defines
+
+namespace Orkige
+{
+	/** \addtogroup Debug
+	*  @{ */
+	//! @brief a log message's severity, low value = louder/more important. A tag
+	//! only emits a message whose severity is <= the tag's current threshold.
+	enum LogLevel
+	{
+		LL_ERROR = 0,	//!< a genuine failure (missing resource, failed parse)
+		LL_WARN  = 1,	//!< a recoverable problem the developer should see
+		LL_INFO  = 2,	//!< high-level progress notes
+		LL_DEBUG = 3,	//!< verbose, per-subsystem detail (off until raised)
+		LL_OFF   = -1	//!< a tag that emits nothing at all
+	};
+
+	//! @brief the fast gate: true when tag currently logs at the given severity.
+	//! Cheap enough for a disabled hot path (a single relaxed atomic load rejects
+	//! anything above the loudest active threshold before any lock or lookup) - the
+	//! logging macros call this BEFORE building the message stream, so a disabled
+	//! call never evaluates its arguments.
+	bool logTagEnabled(const char* tag, int level);
+	//! @brief emit one already-gated line to stderr + the LogManager file sink; an
+	//! LL_ERROR additionally drops a Breadcrumbs entry (the crash-survivable trail).
+	void logEmit(const char* tag, int level, std::string const & message,
+		const char* fileName, int lineNumber);
+	//! set a tag's threshold explicitly (the runtime control seam behind log.<tag>)
+	void logSetTagLevel(const char* tag, int level);
+	//! clear a tag's override so it inherits the process default again
+	void logClearTagLevel(const char* tag);
+	//! a tag's explicit threshold, or -2 when it inherits the default
+	int  logGetTagLevel(const char* tag);
+	//! set/get the process-wide default threshold (used by any tag with no override)
+	void logSetDefaultLevel(int level);
+	int  logGetDefaultLevel();
+	//! parse "error"/"warn"/"info"/"debug"/"off" (case-insensitive), -3 = invalid
+	int  logLevelFromName(const char* name);
+	//! the canonical lower-case name for a level ("error"/"warn"/.../"off")
+	const char* logLevelName(int level);
+	//! register the log.<tag> + log.default cvars (idempotent; auto-run at startup)
+	void logInstallCVars();
+	/** @} End of "addtogroup Debug"*/
+}
 
 //change this if you wan't traceable console output for Notify, Warning and Error in Release build
 //normally you don't wan't that! because logging to file happens anyway
@@ -175,34 +219,44 @@ inline bool __isNull(const void * pointer, const char* file, int line)
 
 #define oIsNull(expr) __isNull(expr, __FILE__, __LINE__)
 
-#define oNotify(message) ::Orkige::LogManager::write(message, ::Orkige::LogManager::LOGNOTIFY, __FILE__, __LINE__)
-#define oWarning(message) ::Orkige::LogManager::write(message, ::Orkige::LogManager::LOGWARNING, __FILE__, __LINE__)
-#define oError(message) ::Orkige::LogManager::write(message, ::Orkige::LogManager::LOGERROR, __FILE__, __LINE__)
+//! @brief the tagged, level-gated diagnostic macros - ALWAYS compiled, runtime
+//! gated through the log table (per-tag threshold, settable live via the log.<tag>
+//! cvars). Stream-style: the message expression is an ostream chain and is NOT
+//! evaluated when the tag is silent at that level, so a disabled call is cheap.
+//! The legacy second `level` argument is accepted for source compatibility and no
+//! longer used - the severity is fixed by the macro (Msg=debug, Warning=warn,
+//! Error=error). An oDebugError also lands in the crash breadcrumbs.
+#define ORKIGE_LOG_EMIT(tag, lvl, message)							\
+	do {															\
+		if(::Orkige::logTagEnabled((tag), (lvl)))					\
+		{															\
+			std::ostringstream _orkigeLogStream;					\
+			_orkigeLogStream << message;							\
+			::Orkige::logEmit((tag), (lvl), _orkigeLogStream.str(),	\
+				__FILE__, __LINE__);								\
+		}															\
+	} while(0)
 
+#define oDebugMsg(tag, level, message)		ORKIGE_LOG_EMIT((tag), ::Orkige::LL_DEBUG, message)
+#define oDebugError(tag, level, message)	ORKIGE_LOG_EMIT((tag), ::Orkige::LL_ERROR, message)
+#define oDebugWrite(tag, level, message, priority, file, line)	ORKIGE_LOG_EMIT((tag), ::Orkige::LL_DEBUG, message)
 
-#ifdef ORKIGE_DEBUG
-        static std::stringstream _orkige_debug_msg_stringstream;
+//! condition-guarded warning: emits (at warn level, tag "engine") only when the
+//! condition is false. The message stream is untouched while the condition holds.
+#define oDebugWarning(condition, message)							\
+	do {															\
+		if(!(condition))											\
+		{															\
+			ORKIGE_LOG_EMIT("engine", ::Orkige::LL_WARN, message);	\
+		}															\
+	} while(0)
 
-#	define oDebugWrite(tag, level, message, priority, file, line)	::Orkige::LogManager::getSingleton().write(tag,level,message, priority, file, line)
+//! non-tagged severities (plain string message), routed through the same table
+//! under the "engine" tag. Kept for source compatibility.
+#define oNotify(message)	ORKIGE_LOG_EMIT("engine", ::Orkige::LL_INFO, message)
+#define oWarning(message)	ORKIGE_LOG_EMIT("engine", ::Orkige::LL_WARN, message)
+#define oError(message)		ORKIGE_LOG_EMIT("engine", ::Orkige::LL_ERROR, message)
 
-#	define oDebugMsg(tag, level, message)							_orkige_debug_msg_stringstream.str("");\
-                                                                                                                                        _orkige_debug_msg_stringstream << message; \
-                                                                                                                                        oDebugWrite(tag,level,_orkige_debug_msg_stringstream.str(), ::Orkige::LogManager::LOGDEBUG, __FILE__, __LINE__)
-
-#	define oDebugWarning(condition, message)						if(!(condition))\
-                                                                                                                                        {\
-                                                                                                                                                _orkige_debug_msg_stringstream.str("");\
-                                                                                                                                                _orkige_debug_msg_stringstream << message;\
-                                                                                                                                                ::Orkige::LogManager::getSingleton().write(_orkige_debug_msg_stringstream.str(), ::Orkige::LogManager::LOGWARNING, __FILE__, __LINE__);\
-                                                                                                                                        }
-
-#	define oDebugError(tag, level, message)							oDebugWrite(tag,level,message, ::Orkige::LogManager::LOGERROR, __FILE__, __LINE__)
-#else
-#	define oDebugWrite(tag, level, message, file, line)
-#	define oDebugMsg(tag, level, message)
-#	define oDebugWarning(condition, message)
-#	define oDebugError(tag, level, message)
-#endif
 #define oAssertDesc(condition, message)	oDebugWarning(condition, message); oAssert(condition);
 
 #endif //__DebugMacros_h__8_9_2010__10_15_05__
