@@ -9,15 +9,6 @@
 #ifndef __Meta_h__9_9_2010__18_37_07__
 #define __Meta_h__9_9_2010__18_37_07__
 
-#ifdef ORKIGE_NDS
-#ifdef _GLIBCXX_USE_C99
-namespace std
-{
-	int snprintf(char *str, size_t size, const char *format, va_list args);
-}
-#endif
-#endif
-
 #ifdef max
 #undef max
 #endif
@@ -115,7 +106,7 @@ namespace std
 #elif ORKIGE_LUA
 #include "core_base/Meta_Lua.h"
 #else
-#include "core_base/Meta_Python.h"
+#error "No scripting backend selected: define ORKIGE_NOSCRIPT or ORKIGE_LUA"
 #endif
 
 

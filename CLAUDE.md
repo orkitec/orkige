@@ -190,8 +190,9 @@ everyone's confidence in the suite.
   `properties` table auto-exposes designer-tunable fields through the ONE reflection
   registry (Inspector, scene overrides, `self.<name>`, debug protocol, MCP —
   `Docs/lua-api.md#script-components`). Plain `.lua` files are libraries. The low-level
-  path-bound `ScriptComponent` kind still works. The dead Python backend
-  (`Meta_Python.h`, `core_python/`) stays uncompiled — don't "fix" it in passing.
+  path-bound `ScriptComponent` kind still works. The historical Python backend
+  (`Meta_Python.h`, `core_python/`) has been deleted — recoverable from history and
+  the private archive if a real consumer ever appears; don't reintroduce it.
 - Everything builds statically during the revival (`ORKIGE_STATIC` is defined globally);
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
@@ -275,8 +276,9 @@ Include paths are rooted at the layer directory (e.g. `#include "core_util/Strin
   generic `core_util/ComponentHolder`/`AttributeHolder` templates (SFINAE-heavy).
 - **Serialization** (`core_serialization`): `ISerializeable` + archive pattern;
   `XMLArchive` is the tinyxml2-backed implementation.
-- **Memory/debug** (`core_debug`): custom `MemoryManager` with allocation tracking,
-  `LogManager` configured from XML.
+- **Memory/debug** (`core_debug`): `MemoryManager` is an inert legacy allocation
+  tracker (compiled out); memory instrumentation is moving to a per-subsystem
+  allocation-counter layer. `LogManager` is configured from XML.
 - Umbrella header: `core_module/OrkigePrerequisites.h` (forward decls, export macros).
 
 **`orkige_engine/`** — the OGRE-facing layer, fully ported to OGRE 14.5 + SDL3 (gated
@@ -464,8 +466,8 @@ look when touching one:
   `engine:getSafeAreaInsets()` to keep the HUD off the notch/home bar.
   **Localisation**: `core_util/StringTable` (backend-neutral, `[lang]` key=value
   files, `%%0%%` formatting, config-asset `Settings "localisation"`) with the Lua
-  `loc(key[, args…])` accessor (classic `engine_base/Localisation` stays as-is —
-  Ogre-tied, unused by the Lua/next ship path). MCP readback: `get_safe_area` /
+  `loc(key[, args…])` accessor (the sole localisation path; the earlier
+  Ogre-tied classic localisation service has been removed). MCP readback: `get_safe_area` /
   `get_ui_layout` over `MSG_STATS` safe-area fields + `MSG_UI_LAYOUT`.
   **Real fonts + vector sprites** (`engine_gui/FontAtlas`, both flavors): a
   `.ogui` `[Font.N]` section carrying `ttf <asset>`/`size <designPx>` is a

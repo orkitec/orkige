@@ -40,7 +40,6 @@ namespace Orkige
 
 	IMPLEMENT_ATTRIBUTEHOLDER(String, Object)
 		//#ifndef ORKIGE_IPHONE
-		/*#ifndef ORKIGE_NDS*/
 		IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(String, Object, int)
 		IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(String, Object, long)
 		IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(String, Object, uint)
@@ -49,7 +48,6 @@ namespace Orkige
 		IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(String, Object, bool)
 		IMPLEMENT_WRAPPER_ATTRIBUTEHOLDER(String, Object, String)
 		//#endif
-		/*#endif*/
 
 		OOBJECT_IMPL(Object)
 		OCONSTRUCTOR0()

@@ -1,5 +1,4 @@
 # orkige_core - platform- and renderer-independent engine core.
-# core_python is excluded until scripting bindings are rebuilt (Lua-first).
 
 set(ORKIGE_CORE_MODULES
     core_base

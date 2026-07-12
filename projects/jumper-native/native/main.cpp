@@ -449,8 +449,8 @@ int main(int argc, char** argv)
 
 	int exitCode = 0;
 	{
-		// engine singletons normally created by Orkige::Application; the
-		// same boot set as tools/player and the samples
+		// engine singletons a shared host boot would own; the same boot set
+		// as tools/player and the samples
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
 		Orkige::ScriptRuntime scriptRuntime;

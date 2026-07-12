@@ -215,7 +215,7 @@ namespace Orkige
 	}
 	//---------------------------------------------------------
 	//--WRITING------------------------------------------------
-#if defined(ORKIGE_NDS) || defined(__ANDROID__)
+#if defined(__ANDROID__)
 	void XMLArchiveReadElementWCT(XMLArchive * ar, tinyxml2::XMLElement* & element, wchar_t &t)
 	{
 		oAssert(ar->isReading());
@@ -322,7 +322,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void XMLArchive::read(wchar_t & t)
 	{
-#if defined(ORKIGE_NDS) || defined(__ANDROID__)
+#if defined(__ANDROID__)
 		XMLArchiveReadElementWCT(this, this->currentElement, t);
 #else
 		XMLArchiveReadElement(this, this->currentElement, t);
@@ -403,8 +403,6 @@ namespace Orkige
 
 		if(createBeforeLoad)
 		{
-			String type = String(attr_type) + "()";
-			//t = bp::extract<ISerializeable>(PythonInterpreter::getSingleton().eval(type));
 			Interface* tempCreatedObject = TypeManager::getSingleton().create(attr_type);
 			t = (*static_cast<ISerializeable*>(tempCreatedObject));
 			delete tempCreatedObject;
@@ -531,8 +529,6 @@ namespace Orkige
 			
 			if(createBeforeLoad)
 			{
-				String type = String(attr_type) + "()";
-				//t = PythonInterpreter::getSingleton().eval<optr<ISerializeable>>(type);
 				t= onew(static_cast<ISerializeable*>(TypeManager::getSingleton().create(attr_type)));
 			}
 

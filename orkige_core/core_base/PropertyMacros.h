@@ -11,8 +11,8 @@
 
 //! @file PropertyMacros.h
 //! @brief the BACKEND-NEUTRAL half of the property-reflection declaration
-//! vocabulary. Each Meta backend header (Meta_None.h, Meta_Lua.h, the dead
-//! Meta_Python.h) includes this and defines the public OPROPERTY* family in
+//! vocabulary. Each Meta backend header (Meta_None.h, Meta_Lua.h) includes
+//! this and defines the public OPROPERTY* family in
 //! terms of the *_REGISTER macros below. The None backend uses them verbatim
 //! (registry-only); the Lua backend adds its sol2 property registration ON
 //! TOP. This is what makes the neutral property registry populate in EVERY

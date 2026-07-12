@@ -450,8 +450,8 @@ int main(int argc, char** argv)
 
 	int exitCode = 0;
 	{
-		// engine singletons normally created by Orkige::Application; the
-		// player boots the same set as the hello_orkige demo
+		// engine singletons a shared host boot would own; the player brings
+		// up the same set as the hello_orkige demo
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
 		// the scripting seam must exist before the module init functions run

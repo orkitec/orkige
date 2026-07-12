@@ -224,8 +224,8 @@ int main(int argc, char** argv)
 			&sdlLogHook.previousUserdata);
 		SDL_SetLogOutputFunction(consoleSdlLogOutput, &sdlLogHook);
 
-		// engine singletons normally created by Orkige::Application; the
-		// editor boots the same set as the hello_orkige demo
+		// engine singletons a shared host boot would own; the editor brings
+		// up the same set as the hello_orkige demo
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
 		// the scripting seam must exist before the module init functions run

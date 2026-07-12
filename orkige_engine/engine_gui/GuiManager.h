@@ -521,8 +521,6 @@ namespace Orkige
 		bool onFrameStarted(Orkige::Event const & event);
 		//! Process frame events. Updates frame statistics widget set and deletes all widgets queued for destruction.
 		bool onFrameRenderingQueued(Orkige::Event const & event);
-		//! after changing a game state (with its possible loading times) reset the worst and best fps
-		bool onGameStateChanged(Orkige::Event const & event);
 
 		//! @brief resolve every opted-in layout widget to absolute pixels and
 		//! push the result into it. Builds a transient LayoutItem forest from the

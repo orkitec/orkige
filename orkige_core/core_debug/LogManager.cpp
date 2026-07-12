@@ -223,9 +223,6 @@ namespace Orkige
         //---------------------------------------------------------------
         const char* LogManager::getDate()
         {
-#ifdef ORKIGE_NDS
-                const char * c = "FIXME_TIME_NDS";
-#else
                 //DEPRECATED AND UGLY CTIME SEEMS TO GIVE A '\n' NOT '\0' TERMINATED STRING
                 time_t tp;
                 time(&tp);
@@ -233,7 +230,6 @@ namespace Orkige
                 char* ptr = strrchr(c, '\n');//this is slow but '\n' termnated string puts bad look in tinyxml
                 if(!oIsNull(ptr))
                         *ptr='\0';//go away ugly \n ! :P
-#endif
                 return c;
         }
         //---------------------------------------------------------

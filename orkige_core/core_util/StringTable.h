@@ -12,8 +12,7 @@
 //! @file StringTable.h
 //! @brief backend-neutral localisation table: per-language key->string maps
 //! loaded from plain text, with %%0%% positional formatting. No renderer or
-//! Ogre dependency (unlike the classic engine_base/Localisation, which stays
-//! Ogre::ConfigFile-bound) - games reach it through the Lua loc() accessor and
+//! Ogre dependency - games reach it through the Lua loc() accessor and
 //! the player loads a project's file via the config-asset convention.
 
 #include "core_module/OrkigePrerequisites.h"

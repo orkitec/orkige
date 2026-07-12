@@ -111,8 +111,8 @@ int main(int, char**)
 	Orkige::PlatformWindow::setActiveWindow(window);
 
 	{
-		// engine singletons normally created by Orkige::Application; the demo
-		// boots just the ones Engine::setup depends on
+		// engine singletons a shared host boot would own; the demo brings up
+		// just the ones Engine::setup depends on
 		Orkige::Timer::initialise();
 		Orkige::GlobalEventManager eventManager;
 		// the scripting seam must exist before the module init functions run

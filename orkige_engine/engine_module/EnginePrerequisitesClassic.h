@@ -15,7 +15,7 @@
 //! neutral engine umbrella plus the classic OGRE umbrella headers. Only
 //! classic-gated translation units may include this (engine_graphic's
 //! Engine/console/debug renderables,
-//! engine_filesystem's Ogre::Archive subclasses, engine_base/Localisation,
+//! engine_filesystem's Ogre::Archive subclasses,
 //! engine_render_classic and the unbuilt legacy tools) - everything the
 //! next flavor compiles sticks to the neutral umbrella. The flavor guard
 //! below turns an accidental include on the next flavor into an honest
@@ -35,16 +35,6 @@
 #include <OgreTextAreaOverlayElement.h>
 #include <OgreExternalTextureSourceManager.h>
 #include <OgreWireBoundingBox.h>
-
-#ifdef ORKIGE_ENABLE_MYGUI
-#	include <MyGUI.h>
-#	include <MyGUI_OgrePlatform.h>
-#	include <Common/MessageBox/MessageBox.h>
-	namespace MyGUI
-	{
-		typedef Message* MessagePtr;
-	}
-#endif //ORKIGE_ENABLE_MYGUI
 
 #include <core_debug/EnableMemoryManager.h>
 #endif //__EnginePrerequisitesClassic_h__8_7_2026__12_00_00__

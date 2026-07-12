@@ -20,11 +20,7 @@ namespace Orkige
 		void ORKIGE_CORE_DLL initialise();
 
 		//! Return the number of elapsed MS since initialise was called
-#ifdef ORKIGE_NDS
 		unsigned long ORKIGE_CORE_DLL getMilliseconds();
-#else
-		unsigned long ORKIGE_CORE_DLL getMilliseconds();
-#endif
 
 	}
 }

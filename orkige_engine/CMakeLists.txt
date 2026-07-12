@@ -1,8 +1,6 @@
 # orkige_engine - the OGRE-facing layer.
 # Ported module-by-module from OGRE 1.7 to 14.x; only ported modules/files are
-# listed. Unported modules (engine_mygui) join as they are ported.
-# engine_gocomponent/PythonScriptComponent stays out for good; its successor
-# is the sol2-based engine_gocomponent/ScriptComponent.
+# listed.
 #
 # ---------------------------------------------------------------------------
 # Render flavors (ORKIGE_RENDER_BACKEND, Docs/render-abstraction.md):
@@ -14,14 +12,13 @@
 # target adds:
 #   classic: the classic Engine bootstrapper + backend
 #            (engine_render_classic/), the BigZip Ogre::Archive plumbing,
-#            Localisation, the overlay console and debug renderables -
+#            the overlay console and debug renderables -
 #            everything on the classic umbrella
 #            (engine_module/EnginePrerequisitesClassic.h).
 #   next:    the Ogre-Next backend (engine_render_next/) + the flavor's
 #            Engine sibling (engine_graphic/EngineNext.*). No BigZip (the
 #            facade's LT_ZIP/LT_BIGZIP stay honest notImplementedOnce
-#            gaps), no Localisation (classic ConfigFile internals + scene
-#            probe; GuiFactory falls back to raw text keys there).
+#            gaps).
 # ---------------------------------------------------------------------------
 
 # --- dependencies shared by both flavors ------------------------------------
@@ -245,8 +242,6 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
         engine_graphic/DynamicLines.cpp
         engine_graphic/IngameConsole.h
         engine_graphic/IngameConsole.cpp
-        engine_base/Localisation.h
-        engine_base/Localisation.cpp
         # the classic backend implementing the engine_render facade
         engine_render_classic/ClassicBackend.h
         engine_render_classic/ClassicBackend.cpp
@@ -383,8 +378,7 @@ set_source_files_properties(engine_gui/SvgRasterImpl.cpp PROPERTIES
 # openal-soft) on every platform; without the define the sound classes
 # degrade to inert stubs (the historical no-sound configuration).
 # ORKIGE_ENGINE_HAS_GOCOMPONENT: engine_gocomponent is ported; enables the
-# TransformComponent/ModelComponent code paths guarded in engine_util/NodeUtil.h
-# and engine_base/Localisation.cpp.
+# TransformComponent/ModelComponent code paths guarded in engine_util/NodeUtil.h.
 target_compile_definitions(orkige_engine PUBLIC
     ORKIGE_OPENAL_SOUND
     ORKIGE_ENGINE_HAS_GOCOMPONENT

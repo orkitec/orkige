@@ -22,8 +22,6 @@
 #include "core_game/GameObject.h"
 #include "core_game/GameObjectComponent.h"
 #include "core_game/GameObjectManager.h"
-#include "core_game/GameState.h"
-#include "core_game/GameStateManager.h"
 #include "core_game/LevelComponent.h"
 #include "core_game/TileComponent.h"
 #include "core_game/LevelManager.h"
@@ -71,8 +69,6 @@ OEXPORT(ObjectAttributeHolder::AttributeWrapper< ::Orkige::uint >)
 	OEXPORTMAP(GameObjectComponentMap,String,optr<ComponentHolder<Orkige::GameObjectComponent>::OwnedComponentType>)
 	OEXPORT(GameObject)
 	OEXPORT(GameObjectManager)
-	OEXPORT(GameState)
-	OEXPORT(GameStateManager)
 
 	// the tile-slide level tier: the data-only LevelComponent (grid
 	// geometry the game snaps tiles into, its LevelGrid math re-exposed to

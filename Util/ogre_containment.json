@@ -23,8 +23,6 @@
  },
  "sanctioned_files": {
   "orkige_engine/engine_base/EngineLog.cpp": "the engine log service pimpl - the ONE place above the backends talking to the logging backend (OGRE LogManager, also present in Next)",
-  "orkige_engine/engine_base/Localisation.h": "Ogre::ConfigFile INI parsing (classic-only per audit; replace with an engine parser when touched)",
-  "orkige_engine/engine_base/Localisation.cpp": "Ogre::ConfigFile INI parsing + entity-name probe (classic-only per audit)",
   "orkige_engine/engine_input/InputManager.h": "math-only residue (tilt vectors) - alias vocabulary pending (math decision, Option A)",
   "orkige_engine/engine_input/InputManager.cpp": "math-only residue (tilt vectors) - alias vocabulary pending",
   "orkige_engine/engine_module/module.cpp": "Lua math usertypes (Vector3/Vector2/Quaternion) = the engine math vocabulary per the RenderMath.h alias decision",

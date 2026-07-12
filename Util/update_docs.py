@@ -66,7 +66,7 @@ INDEX_TYPES = [
 EXCLUDE_TYPES = {
     "TypeInfo", "Interface", "ISerializeable", "IArchive", "Object",
     "ObjectAttributeHolder", "XMLArchive", "Event", "EventType",
-    "EventManager", "GlobalEventManager", "GameState", "GameStateManager",
+    "EventManager", "GlobalEventManager",
     "GameObjectComponent", "IngameConsole",
 }
 

@@ -26,8 +26,7 @@ namespace Orkige
 	class GameObjectManager;	//the fan-out target of dispatchAppLifecycle
 
 	//! @brief attaches a Lua behavior script to a GameObject - game logic in
-	//! project scripts instead of C++ (the successor of the dead luabind-era
-	//! PythonScriptComponent).
+	//! project scripts instead of C++.
 	//!
 	//! @remarks The script file path is project-relative (e.g.
 	//! "scripts/player.lua") and resolved through

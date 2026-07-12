@@ -11,10 +11,6 @@
 #include "core_util/Timer.h"
 #include "core_debug/Profile.h"
 
-#ifdef ORKIGE_NDS
-#include <extras.h>
-#endif
-
 namespace Orkige
 {
 	//---------------------------------------------------------

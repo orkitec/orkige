@@ -23,7 +23,6 @@
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_util/StringTable.h>
-#include <core_game/GameStateManager.h>
 #include <core_script/ScriptEventBus.h>
 #include <algorithm>
 #include <cmath>
@@ -72,7 +71,6 @@ namespace Orkige
 		}
 		this->getCreateView(this->defaultAtlas, group);
 		this->registerEvent(Orkige::Engine::FrameRenderingQueuedEvent,			&GuiManager::onFrameRenderingQueued,	this);
-		this->registerEvent(Orkige::GameStateManager::GameStateChangedEvent,	&GuiManager::onGameStateChanged,		this);
 		this->registerEvent(Orkige::Engine::FrameStartedEvent,					&GuiManager::onFrameStarted,			this);
 		// (the per-viewport render gating is gone: the DrawLayer2D facade
 		// composites onto the main window only, on every render flavor)
@@ -81,7 +79,6 @@ namespace Orkige
 	GuiManager::~GuiManager()
 	{
 		this->unregisterEvent(Orkige::Engine::FrameStartedEvent);
-		this->unregisterEvent(Orkige::GameStateManager::GameStateChangedEvent);
 		this->unregisterEvent(Orkige::Engine::FrameRenderingQueuedEvent);
 		// teardown order: widgets touch their layers (owned by the views'
 		// screens), the screens reference the atlases - so explicitly:
@@ -1844,12 +1841,6 @@ namespace Orkige
 	bool GuiManager::onFrameRenderingQueued(Orkige::Event const & event)
 	{
 		this->updateStats();
-		return false;
-	}
-	//---------------------------------------------------------
-	bool GuiManager::onGameStateChanged(Orkige::Event const & event)
-	{
-		this->resetStats();
 		return false;
 	}
 	//---------------------------------------------------------

@@ -58,36 +58,7 @@ namespace Orkige
 		}
 	}
 }
-#elif defined(ORKIGE_NDS)
-#include <nitro/os.h>
-namespace Orkige
-{
-namespace Timer
-{
-	// don't really like this stuff with globals lying around but I guess it is the best way to do it in this case
-	namespace
-	{
-		static unsigned long startTick;
-	}
-
-	void initialise()
-	{
-		if(!OS_IsTickAvailable())
-			OS_InitTick();
-		
-		startTick = OS_TicksToMilliSeconds(OS_GetTick());
-	}
-
-	unsigned long getMilliseconds()
-	{
-		// check for init
-		assert(OS_IsTickAvailable());
-
-		return (OS_TicksToMilliSeconds(OS_GetTick())/* - startTick*/);
-	}
-}
-}
-#else // assume that anything non windows supports the unix gettimeofday() function (Macs do) 
+#else // assume that anything non windows supports the unix gettimeofday() function (Macs do)
 
 /* Code by Sigfried McWild for *nix compatibility */
 

@@ -8,8 +8,7 @@
 *********************************************************************/
 
 // Only the modules already ported to OGRE 14 are registered here.
-// PythonScriptComponent is gone for good (ORKIGE_NOSCRIPT); its successor is
-// the sol2-based ScriptComponent.
+// Script behavior lives in the sol2-based ScriptComponent.
 #include "engine_graphic/Engine.h"
 #ifdef ORKIGE_RENDER_CLASSIC
 // classic-only export: the overlay-based ingame console (Ogre Overlay +

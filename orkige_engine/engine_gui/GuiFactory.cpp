@@ -21,13 +21,6 @@
 
 #include <OgreResourceGroupManager.h>
 #include <OgreDataStream.h>
-#ifdef ORKIGE_RENDER_CLASSIC
-// the Localisation service is still classic-only (Ogre::ConfigFile
-// internals + a scene-manager entity probe, no live cross-backend user);
-// layout files with localized text keys show the raw key on other
-// flavors until Localisation gets its own port
-#include "engine_base/Localisation.h"
-#endif
 
 
 namespace Orkige
@@ -810,11 +803,8 @@ namespace Orkige
 			}
 			else if(key == "text")
 			{
-#ifdef ORKIGE_RENDER_CLASSIC
-				baseSettings.text = Localisation::getSingleton().getLocalized(vt.second);
-#else
-				baseSettings.text = vt.second;	// Localisation is classic-only (see include note)
-#endif
+				// '@'-prefixed keys resolve through the StringTable localisation
+				baseSettings.text = resolveText(vt.second);
 				baseSettings.text = Ogre::StringUtil::replaceAll(baseSettings.text, "\\n", "\n");
 			}
 			else if(key == "font")
