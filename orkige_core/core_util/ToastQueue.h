@@ -12,9 +12,12 @@
 //! @file ToastQueue.h
 //! @brief backend-neutral timed-notification queue. Toasts are shown one at a
 //! time: the front toast is active for its lifetime, then it is popped and the
-//! next one surfaces. Pure timing math (no renderer, no tween) - the gui toast
-//! builder drives the visible label + fade from this, and a unit test shares
-//! the exact schedule.
+//! next one surfaces. This is a FIFO SCHEDULER, not a tween: it sequences a
+//! stream of notifications and owns each one's per-item fade timing (a job the
+//! shared TweenManager - which animates one value on one target - does not do),
+//! so it stays its own primitive rather than riding the widget-tween path. Pure
+//! timing math (no renderer) - the gui toast builder drives the visible label +
+//! fade from this, and a unit test shares the exact schedule.
 
 #include "core_module/OrkigePrerequisites.h"
 #include "core_util/String.h"

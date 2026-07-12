@@ -11,6 +11,9 @@
 
 #include "core_game/GameObjectManager.h"
 
+#include <utility>
+#include <vector>
+
 namespace Orkige
 {
 	//! @brief saves a GameObject SUBTREE as a reusable .oprefab asset and
@@ -84,6 +87,20 @@ namespace Orkige
 		//! already carries a component the paint tool would stamp.
 		static bool listPrefabInfo(String const & fileName,
 			StringVector & outLocalIds, StringVector & outRootComponentTypes);
+		//! @brief read-only probe of a .oprefab for a representative asset
+		//! reference, WITHOUT instantiating the subtree into a live world. The
+		//! archive is walked object by object (root first); the first component
+		//! whose type matches a requested (componentType, propertyName) candidate
+		//! is loaded into a STANDALONE instance (created through the component
+		//! factory, never attached to a GameObject - so no scene node / render
+		//! resource is built) and its reflected property is read. The value of
+		//! the HIGHEST-priority candidate (earliest in @p candidates) that any
+		//! object provides is returned; "" when none do. The tile palette uses it
+		//! to resolve a prefab's ghost-preview drawable (a SpriteComponent
+		//! "texture", else a VectorShapeComponent "shape") straight from the file
+		//! instead of a throwaway live instantiate/teardown.
+		static String readComponentPropertyRef(String const & fileName,
+			std::vector< std::pair<String, String> > const & candidates);
 		//! the instance-namespace id of one prefab-local id
 		static String instanceChildId(String const & instanceRootId,
 			String const & localId);

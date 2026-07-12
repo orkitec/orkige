@@ -1074,44 +1074,17 @@ int main(int argc, char** argv)
 					SDL_Log("orkige_player: level sequence '%s' could not be "
 						"loaded - single-scene run", levelsRef.c_str());
 				}
-				// progression save: the SAME directory the engine log uses
-				// (writable on every target - see engineLogPath above);
-				// ORKIGE_PROGRESS_DIR overrides it (test isolation) and
-				// ORKIGE_PROGRESS_RESET wipes it first (deterministic selfchecks)
-				std::string progressDir;
-				if (const char* progressDirEnv = std::getenv("ORKIGE_PROGRESS_DIR"))
-				{
-					progressDir = progressDirEnv;
-				}
-				else
-				{
-					progressDir = std::filesystem::path(engineLogPath)
-						.parent_path().string();
-				}
-				if (!progressDir.empty() && progressDir.back() != '/')
-				{
-					progressDir += '/';
-				}
-				if (!progressDir.empty())
-				{
-					std::error_code ignored;
-					std::filesystem::create_directories(progressDir, ignored);
-				}
-				const std::string saveFile = progressDir + "roller_progress.osave";
-				if (std::getenv("ORKIGE_PROGRESS_RESET") != nullptr)
-				{
-					std::error_code ignored;
-					std::filesystem::remove(saveFile, ignored);
-				}
-				levelManager.setSaveFile(saveFile);
-				levelManager.loadProgress();
+				// progression (resume index + best moves) now rides the shared
+				// SaveStore under "level.*" keys (set up just below, per project),
+				// so there is no separate LevelManager save file to open here.
 			}
 
-			// general persistence (Lua `save` table): the SAME writable directory
-			// the progression save uses, under a PER-PROJECT file name so the two
-			// coexist. Loaded at boot; flushed on a clean shutdown (below) and on
-			// any explicit save.flush(). ORKIGE_PROGRESS_DIR / ORKIGE_PROGRESS_RESET
-			// isolate/reset it for selfchecks, exactly like the progression save.
+			// general persistence (Lua `save` table AND the LevelManager
+			// progression, which rides "level.*" keys in this ONE store): the
+			// writable directory the engine log uses, under a PER-PROJECT file
+			// name. Loaded at boot; flushed on a clean shutdown (below) and on any
+			// explicit save.flush() / levels:saveProgress(). ORKIGE_PROGRESS_DIR /
+			// ORKIGE_PROGRESS_RESET isolate/reset it for selfchecks.
 			{
 				std::string saveDir;
 				if (const char* saveDirEnv = std::getenv("ORKIGE_PROGRESS_DIR"))
@@ -3541,13 +3514,15 @@ int main(int argc, char** argv)
 				if (static_cast<int>(rollerStat("levelIndex", -1.0)) == 1)
 				{
 					std::error_code ignored;
-					const bool saveWritten = !levelManager.getSaveFile().empty() &&
-						std::filesystem::exists(levelManager.getSaveFile(), ignored);
+					// progression rides the shared SaveStore now; saveProgress()
+					// flushed it to that file on level complete
+					const bool saveWritten = !saveStore.getSaveFile().empty() &&
+						std::filesystem::exists(saveStore.getSaveFile(), ignored);
 					if (!saveWritten)
 					{
 						rollerProgFail("the progression save file was not "
 							"written on level complete ('" +
-							levelManager.getSaveFile() + "')");
+							saveStore.getSaveFile() + "')");
 					}
 					else if (levelManager.resumeLevel() != 1)
 					{

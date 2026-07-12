@@ -16,6 +16,7 @@
 
 #include <core_game/LevelSequence.h>
 #include <core_game/LevelManager.h>
+#include <core_game/SaveStore.h>
 
 #include <filesystem>
 #include <fstream>
@@ -75,15 +76,16 @@ TEST_CASE("LevelSequence refuses a non-olevels file", "[level]")
 
 TEST_CASE("LevelManager persists resume index and best moves", "[level]")
 {
-	// LevelManager is a Singleton (only one alive at a time), so the writer and
-	// the reader each live in their own scope
+	// progression rides the shared SaveStore ("level.*" keys). SaveStore and
+	// LevelManager are both Singletons (one alive at a time), so the writer and
+	// the reader each live in their own scope, sharing only the on-disk file.
 	const Orkige::String path = tempPath("orkige_progress_test.osave");
 	{
+		Orkige::SaveStore store;
+		store.setSaveFile(path);
 		Orkige::LevelManager manager;
-		manager.setSaveFile(path);
 
-		// a missing file is the honest fresh state
-		REQUIRE_FALSE(manager.loadProgress());
+		// an empty store is the honest fresh state
 		REQUIRE(manager.resumeLevel() == 0);
 		REQUIRE(manager.bestMoves(0) == -1);
 
@@ -93,13 +95,15 @@ TEST_CASE("LevelManager persists resume index and best moves", "[level]")
 		// recordBestMoves keeps the minimum
 		manager.recordBestMoves(0, 9);
 		manager.recordBestMoves(0, 4);
+		// saveProgress flushes the shared store atomically
 		REQUIRE(manager.saveProgress());
 	}
 
 	{
+		Orkige::SaveStore store;
+		store.setSaveFile(path);
+		REQUIRE(store.load());
 		Orkige::LevelManager reloaded;
-		reloaded.setSaveFile(path);
-		REQUIRE(reloaded.loadProgress());
 		REQUIRE(reloaded.resumeLevel() == 2);
 		REQUIRE(reloaded.bestMoves(0) == 4);
 		REQUIRE(reloaded.bestMoves(1) == 3);
@@ -108,6 +112,21 @@ TEST_CASE("LevelManager persists resume index and best moves", "[level]")
 
 	std::error_code ignored;
 	std::filesystem::remove(path, ignored);
+}
+
+TEST_CASE("LevelManager progression is an honest no-op without a SaveStore",
+	"[level]")
+{
+	// no SaveStore alive: the accessors answer with the fresh-state defaults and
+	// the mutators/saveProgress do nothing (the editor / scriptless-run stance)
+	Orkige::LevelManager manager;
+	REQUIRE(manager.resumeLevel() == 0);
+	REQUIRE(manager.bestMoves(0) == -1);
+	manager.setResumeLevel(3);
+	manager.recordBestMoves(0, 7);
+	REQUIRE(manager.resumeLevel() == 0);
+	REQUIRE(manager.bestMoves(0) == -1);
+	REQUIRE_FALSE(manager.saveProgress());
 }
 
 TEST_CASE("LevelManager queues and consumes a deferred load request", "[level]")

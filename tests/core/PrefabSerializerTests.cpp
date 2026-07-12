@@ -400,6 +400,47 @@ TEST_CASE("A prefab child override stores only the CHANGED reflected properties"
 	manager.clear();
 }
 
+TEST_CASE("PrefabSerializer reads a representative property ref from the file",
+	"[prefab]")
+{
+	// the file-level drawable probe the tile palette uses: read the first
+	// matching component's reflected property WITHOUT instantiating the subtree
+	// into a live world (no scene node / render resource is created)
+	Orkige::GameObjectManager & manager = freshPrefabWorld();
+	TempFile prefab("orkige_test_property_ref.oprefab");
+
+	// a prototype whose root carries a plain component and whose child carries a
+	// reflected component with an authored named-property value
+	{
+		optr<Orkige::GameObject> root = manager.createGameObject("Proto").lock();
+		REQUIRE(root);
+		REQUIRE(root->addComponent<Orkige::TestHealthComponent>());
+		optr<Orkige::GameObject> child =
+			manager.createGameObject("Proto_Body").lock();
+		REQUIRE(child);
+		REQUIRE(child->addComponent<Orkige::TestTweenTargetComponent>());
+		REQUIRE(child->setParent("Proto", false));
+		child->getComponentPtr<Orkige::TestTweenTargetComponent>()
+			->setName("hero.png");
+	}
+	REQUIRE(Orkige::PrefabSerializer::savePrefab(prefab.path, manager, "Proto"));
+	// clear the live world: the probe must read the FILE, not any live object
+	manager.clear();
+
+	// the requested (component, property) is found and its value returned
+	CHECK(Orkige::PrefabSerializer::readComponentPropertyRef(prefab.path,
+		{ { "TestTweenTargetComponent", "name" } }) == "hero.png");
+	// candidate ORDER is priority: a higher-priority candidate the prefab does
+	// NOT provide falls through to the one it does
+	CHECK(Orkige::PrefabSerializer::readComponentPropertyRef(prefab.path,
+		{ { "TestReflectComponent", "label" },
+		  { "TestTweenTargetComponent", "name" } }) == "hero.png");
+	// nothing matches -> ""; the live world was never touched
+	CHECK(Orkige::PrefabSerializer::readComponentPropertyRef(prefab.path,
+		{ { "TestReflectComponent", "label" } }).empty());
+	CHECK(manager.getGameObjects().empty());
+}
+
 TEST_CASE("A missing prefab loads as a placeholder root keeping its reference",
 	"[prefab]")
 {

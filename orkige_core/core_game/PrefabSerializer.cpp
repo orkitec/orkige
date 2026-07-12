@@ -8,7 +8,13 @@
 ***************************************************************/
 
 #include "core_game/PrefabSerializer.h"
+#include "core_game/GameObject.h"
+#include "core_game/GameObjectComponent.h"
 #include "core_game/SceneSerializer.h"
+#include "core_base/PropertySchema.h"
+#include "core_base/PropertyValue.h"
+#include "core_base/TypeManager.h"
+#include "core_base/Interface.h"
 #include "core_project/AssetDatabase.h"
 #include "core_serialization/XMLArchive.h"
 
@@ -368,6 +374,126 @@ namespace Orkige
 		}
 		ar->stopReading();
 		return true;
+	}
+	//---------------------------------------------------------
+	String PrefabSerializer::readComponentPropertyRef(String const & fileName,
+		std::vector< std::pair<String, String> > const & candidates)
+	{
+		oAssert(!fileName.empty());
+		if(candidates.empty())
+		{
+			return String();
+		}
+		std::error_code ignored;
+		if(!std::filesystem::exists(fileName, ignored))
+		{
+			return String();
+		}
+		optr<XMLArchive> ar = onew(new XMLArchive());
+		if(!ar->startReading(fileName))
+		{
+			return String();
+		}
+		String magic;
+		ar >> magic;
+		if(magic != PREFAB_FORMAT_MAGIC)
+		{
+			ar->stopReading();
+			return String();
+		}
+		int version = 0;
+		ar >> version;
+		if(version > PREFAB_FORMAT_VERSION)
+		{
+			ar->stopReading();
+			return String();
+		}
+		String rootLocalId;
+		ar >> rootLocalId;
+		unsigned int objectCount = 0;
+		ar >> objectCount;
+		// the best value seen for each candidate (first non-empty in file order);
+		// the result is the earliest candidate any object provided, so the caller
+		// controls priority by candidate ORDER (a SpriteComponent texture before a
+		// VectorShapeComponent shape, say)
+		std::vector<String> best(candidates.size());
+		for(unsigned int objectIndex = 0; objectIndex < objectCount; ++objectIndex)
+		{
+			String localId;
+			ar >> localId;
+			String parentLocalId;
+			ar >> parentLocalId;
+			bool activeSelf = true;
+			ar >> activeSelf;
+			String prefabRef;
+			String prefabAssetId;
+			ar->readAttributed(prefabRef,
+				AssetDatabase::REFERENCE_ID_ATTRIBUTE, prefabAssetId);
+			unsigned int componentCount = 0;
+			ar >> componentCount;
+			for(unsigned int componentIndex = 0; componentIndex < componentCount; ++componentIndex)
+			{
+				String componentTypeName;
+				ar >> componentTypeName;
+				// find the first candidate for this component type still lacking a
+				// value; when one matches, LOAD the component standalone and read
+				// its reflected property, otherwise step the state element over
+				std::size_t match = candidates.size();
+				for(std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex)
+				{
+					if(best[candidateIndex].empty() &&
+						candidates[candidateIndex].first == componentTypeName)
+					{
+						match = candidateIndex;
+						break;
+					}
+				}
+				const TypeInfo componentType(componentTypeName);
+				if(match == candidates.size() ||
+					!GameObject::isComponentRegistered(componentType))
+				{
+					ar->skipElement();
+					continue;
+				}
+				// a STANDALONE component: created through the type factory (the
+				// OOBJECT registration) but never given a GameObject owner, so
+				// load() only records the serialized state (an AssetRef setter with
+				// no scene node builds no render resource)
+				Interface* created =
+					TypeManager::getSingleton().create(componentTypeName);
+				GameObjectComponent* component =
+					dynamic_cast<GameObjectComponent*>(created);
+				if(!component)
+				{
+					delete created;
+					ar->skipElement();
+					continue;
+				}
+				ar->read(static_cast<ISerializeable&>(*component));
+				const PropertySchema schema = getComponentSchema(*component);
+				if(PropertyDesc const * desc = schema.find(candidates[match].second))
+				{
+					if(desc->get)
+					{
+						const String value = desc->get(component).toString();
+						if(!value.empty())
+						{
+							best[match] = value;
+						}
+					}
+				}
+				delete component;
+			}
+		}
+		ar->stopReading();
+		for(String const & value : best)
+		{
+			if(!value.empty())
+			{
+				return value;
+			}
+		}
+		return String();
 	}
 	//---------------------------------------------------------
 	String PrefabSerializer::instanceChildId(String const & instanceRootId,

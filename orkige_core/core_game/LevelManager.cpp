@@ -8,18 +8,25 @@
 ***************************************************************/
 
 #include "core_game/LevelManager.h"
-#include "core_serialization/XMLArchive.h"
+#include "core_game/SaveStore.h"
 
 namespace Orkige
 {
-	const String LevelManager::SAVE_FILE_MAGIC = "orkige.osave";
-	const int LevelManager::SAVE_FORMAT_VERSION = 1;
+	namespace
+	{
+		//! the shared-SaveStore key namespace the progression rides under
+		const String KEY_RESUME = "level.resume";
+		//! per-level best-slide-count key ("level.best.<index>")
+		String bestMovesKey(int index)
+		{
+			return "level.best." + std::to_string(index);
+		}
+	}
 	//---------------------------------------------------------
 	IMPL_OSINGLETON(LevelManager);
 	//---------------------------------------------------------
 	LevelManager::LevelManager()
 		: mCurrentIndex(0), mHasPending(false), mPendingIndex(-1)
-		, mResumeLevel(0)
 	{
 	}
 	//---------------------------------------------------------
@@ -89,109 +96,61 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	int LevelManager::resumeLevel() const
+	{
+		// progression lives in the shared SaveStore; with none (edit mode /
+		// scriptless run) the honest answer is "start at level 0"
+		SaveStore* store = SaveStore::getSingletonPtr();
+		if(!store)
+		{
+			return 0;
+		}
+		const int resume = static_cast<int>(store->getNumber(KEY_RESUME, 0.0));
+		return resume < 0 ? 0 : resume;
+	}
+	//---------------------------------------------------------
+	void LevelManager::setResumeLevel(int index)
+	{
+		if(SaveStore* store = SaveStore::getSingletonPtr())
+		{
+			store->setNumber(KEY_RESUME, index);
+		}
+	}
+	//---------------------------------------------------------
 	int LevelManager::bestMoves(int index) const
 	{
-		std::map<int, int>::const_iterator it = mBestMoves.find(index);
-		return it != mBestMoves.end() ? it->second : -1;
+		SaveStore* store = SaveStore::getSingletonPtr();
+		if(!store)
+		{
+			return -1;
+		}
+		const String key = bestMovesKey(index);
+		return store->has(key)
+			? static_cast<int>(store->getNumber(key, -1.0)) : -1;
 	}
 	//---------------------------------------------------------
 	void LevelManager::recordBestMoves(int index, int moves)
 	{
-		std::map<int, int>::iterator it = mBestMoves.find(index);
-		if(it == mBestMoves.end() || moves < it->second)
+		SaveStore* store = SaveStore::getSingletonPtr();
+		if(!store)
 		{
-			mBestMoves[index] = moves;
+			return;
 		}
-	}
-	//---------------------------------------------------------
-	bool LevelManager::loadProgress()
-	{
-		// reset to a fresh state first - a missing/garbage file is the honest
-		// "start at level 0" fallback
-		mResumeLevel = 0;
-		mBestMoves.clear();
-		if(mSaveFile.empty())
+		// keep the minimum (a better - lower - slide count wins)
+		const String key = bestMovesKey(index);
+		if(!store->has(key) ||
+			moves < static_cast<int>(store->getNumber(key, moves)))
 		{
-			return false;
+			store->setNumber(key, moves);
 		}
-		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startReading(mSaveFile))
-		{
-			// no save yet - a first run, not an error
-			return false;
-		}
-		String magic;
-		ar >> magic;
-		if(magic != SAVE_FILE_MAGIC)
-		{
-			oDebugMsg("game", 0, "LevelManager: " << mSaveFile
-				<< " is not an orkige save file (magic: \"" << magic
-				<< "\") - starting fresh");
-			ar->stopReading();
-			return false;
-		}
-		int version = 0;
-		ar >> version;
-		if(version > SAVE_FORMAT_VERSION)
-		{
-			oDebugMsg("game", 0, "LevelManager: save file " << mSaveFile
-				<< " has unsupported version " << version << " - starting fresh");
-			ar->stopReading();
-			return false;
-		}
-		int resume = 0;
-		ar >> resume;
-		mResumeLevel = resume < 0 ? 0 : resume;
-		unsigned int entryCount = 0;
-		ar >> entryCount;
-		for(unsigned int entryIndex = 0; entryIndex < entryCount; ++entryIndex)
-		{
-			int levelIndex = 0;
-			int moves = 0;
-			ar >> levelIndex;
-			ar >> moves;
-			mBestMoves[levelIndex] = moves;
-		}
-		ar->stopReading();
-		oDebugMsg("game", 0, "LevelManager: progression loaded from " << mSaveFile
-			<< " (resume level " << mResumeLevel << ", " << mBestMoves.size()
-			<< " scored)");
-		return true;
 	}
 	//---------------------------------------------------------
 	bool LevelManager::saveProgress() const
 	{
-		if(mSaveFile.empty())
-		{
-			return false;
-		}
-		optr<XMLArchive> ar = onew(new XMLArchive());
-		if(!ar->startWriting(mSaveFile))
-		{
-			oDebugMsg("game", 0, "LevelManager: could not start writing save file: " << mSaveFile);
-			return false;
-		}
-		ar << SAVE_FILE_MAGIC;
-		int version = SAVE_FORMAT_VERSION;
-		ar << version;
-		int resume = mResumeLevel;
-		ar << resume;
-		unsigned int entryCount = static_cast<unsigned int>(mBestMoves.size());
-		ar << entryCount;
-		for(std::map<int, int>::const_iterator it = mBestMoves.begin();
-			it != mBestMoves.end(); ++it)
-		{
-			int levelIndex = it->first;
-			int moves = it->second;
-			ar << levelIndex;
-			ar << moves;
-		}
-		bool written = ar->stopWriting();
-		if(!written)
-		{
-			oDebugMsg("game", 0, "LevelManager: error while writing save file: " << mSaveFile);
-		}
-		return written;
+		// the progression keys were set live through setResumeLevel /
+		// recordBestMoves; flushing the shared store writes them atomically
+		SaveStore* store = SaveStore::getSingletonPtr();
+		return store ? store->flush() : false;
 	}
 	//---------------------------------------------------------
 }

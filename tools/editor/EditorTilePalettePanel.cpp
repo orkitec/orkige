@@ -50,64 +50,25 @@ namespace
 		return tags;
 	}
 
-	//! @brief probe a prefab for a representative preview image: instantiate it
-	//! once under a throwaway id, read the first SpriteComponent texture (else
-	//! the first VectorShapeComponent shape), then tear the probe subtree down.
-	//! Runs only at arm time (a palette click / a grid drop) BEFORE any render,
-	//! so nothing draws and no scene/undo state changes. Returns "" for a pure-
-	//! logic prefab with no drawable (the paint tool then shows only the outline).
-	std::string probePrefabPreviewRef(Orkige::EditorCore& core,
-		std::string const& prefabPath)
+	//! @brief probe a prefab FILE for a representative preview ref: the first
+	//! SpriteComponent "texture" (else the first VectorShapeComponent "shape")
+	//! any prefab object carries, read straight from the .oprefab through the
+	//! PrefabSerializer without instantiating - no live scene/undo state is
+	//! touched. Returns "" for a pure-logic prefab with no drawable (the paint
+	//! tool then shows only the outline).
+	std::string probePrefabPreviewRef(std::string const& prefabPath)
 	{
-		Orkige::GameObjectManager& gm = core.getGameObjectManager();
-		Orkige::String probeRoot = "__orkige_ghost_probe__";
-		while (gm.objectExists(probeRoot))
-		{
-			probeRoot += "_";
-		}
-		const bool ok = Orkige::PrefabSerializer::instantiatePrefab(prefabPath,
-			gm, probeRoot, Orkige::StringVector()) ==
-			Orkige::PrefabSerializer::INSTANTIATE_OK;
-		const Orkige::StringVector ids = gm.collectSubtreeIds(probeRoot);
-		std::string ref;
-		if (ok)
-		{
-			for (Orkige::String const& id : ids)
-			{
-				std::string value;
-				if (core.getObjectProperty(id, "SpriteComponent", "texture",
-						value) && !value.empty())
-				{
-					ref = value;
-					break;
-				}
-			}
-			if (ref.empty())
-			{
-				for (Orkige::String const& id : ids)
-				{
-					std::string value;
-					if (core.getObjectProperty(id, "VectorShapeComponent",
-							"shape", value) && !value.empty())
-					{
-						ref = value;
-						break;
-					}
-				}
-			}
-		}
-		// teardown: delete leaves-first (collectSubtreeIds is root-first) so no
-		// child is reparented up mid-removal
-		for (auto it = ids.rbegin(); it != ids.rend(); ++it)
-		{
-			gm.delGameObject(*it);
-		}
-		return ref;
+		return Orkige::PrefabSerializer::readComponentPropertyRef(prefabPath,
+			{ { "SpriteComponent", "texture" },
+			  { "VectorShapeComponent", "shape" } });
 	}
 
 	//! @brief resolve a bare asset ref (texture/shape file name) to an absolute
-	//! path under the open project's assets/, so the thumbnail machinery can load
-	//! it. "" when no project is open or the file is not found.
+	//! path, through the project's AssetDatabase - the same id-tracked lookup the
+	//! asset browser thumbnails use, so a duplicate basename resolves the SAME
+	//! way the engine's resource system does (idForFileName is deterministic on a
+	//! clash) rather than to whatever a raw filesystem walk hit first. "" when no
+	//! project is open, the ref is untracked, or the file is missing.
 	std::string resolvePreviewImagePath(Orkige::Project const& project,
 		std::string const& ref)
 	{
@@ -115,26 +76,29 @@ namespace
 		{
 			return std::string();
 		}
-		const std::string assetsDir = project.getAssetsDirectory();
-		std::error_code ec;
-		if (assetsDir.empty() || !fs::exists(assetsDir, ec))
+		optr<Orkige::AssetDatabase> const& database = project.getAssetDatabase();
+		if (!database)
 		{
 			return std::string();
 		}
-		for (fs::recursive_directory_iterator it(assetsDir, ec), end;
-			it != end; it.increment(ec))
+		const Orkige::String assetId = database->idForFileName(ref);
+		if (assetId.empty())
 		{
-			if (ec)
-			{
-				break;
-			}
-			if (it->is_regular_file(ec) &&
-				it->path().filename().string() == ref)
-			{
-				return it->path().string();
-			}
+			return std::string();
 		}
-		return std::string();
+		const Orkige::String relativePath = database->pathForId(assetId);
+		if (relativePath.empty())
+		{
+			return std::string();
+		}
+		const fs::path absolute =
+			fs::path(database->getRootDirectory()) / relativePath;
+		std::error_code ec;
+		if (!fs::exists(absolute, ec))
+		{
+			return std::string();
+		}
+		return absolute.string();
 	}
 }
 
@@ -209,7 +173,7 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 	// ghost preview: probe the prefab for a representative texture/shape and
 	// resolve it to an absolute path the thumbnail machinery loads (empty for a
 	// pure-logic prefab - the paint tool then falls back to the outline only)
-	palette.previewImageRef = probePrefabPreviewRef(core, absolutePath);
+	palette.previewImageRef = probePrefabPreviewRef(absolutePath);
 	palette.previewImagePath =
 		resolvePreviewImagePath(state.project, palette.previewImageRef);
 
