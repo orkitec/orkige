@@ -25,8 +25,8 @@ Local additions:
     missing VK_EXT_metal_surface window branch so the Vulkan RS runs on
     macOS/iOS through MoltenVK, incl. VK_KHR_portability_enumeration/subset
     handling. MoltenVK itself is driver-tier and comes from Homebrew (see
-    CLAUDE.md); static MoltenVK packaging into the app bundle is an iOS-phase
-    item (see the feature description in vcpkg.json).
+    CLAUDE.md); static MoltenVK packaging into the app bundle is handled
+    separately (see the feature description in vcpkg.json).
   - `vulkan-shutdown-call-base.patch` - upstream candidate (Docs/upstream):
     Vulkan RS must call RenderSystem::shutdown() like every other RS, else
     debug builds abort on exit (VMA leak assertion).
@@ -146,7 +146,7 @@ resolve) alongside the Hlms media at boot; the HlmsPbs object-fog integration
 pieces (`Pbs/Any/Atmosphere/*.any`) already ride in the shipped Hlms Pbs
 templates.
 
-Overlay/samples/tools and all other components OFF until a phase needs them;
+Overlay/samples/tools and all other components OFF until a consumer needs them;
 zip archives OFF (would add zziplib - revisit when content work needs
 `addResourceLocation(LT_ZIP)`).
 

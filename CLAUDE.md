@@ -553,7 +553,7 @@ look when touching one:
   (`SDL_GetWindowSafeArea`, via `engine_util/PlatformWindow`; the app registers
   its SDL window) + the pure `core_util/SafeArea.h` `UiAnchor::place`; scripts read
   `engine:getSafeAreaInsets()` to keep the HUD off the notch/home bar.
-  **Localisation**: `core_util/StringTable` (backend-neutral, `[lang]` key=value
+  **Localisation**: `core_util/StringTable` (backend-neutral, XLIFF 1.2 (.xlf)
   files, `%%0%%` formatting, config-asset `Settings "localisation"`) with the Lua
   `loc(key[, args…])` accessor (the sole localisation path; the earlier
   Ogre-tied classic localisation service has been removed). MCP readback: `get_safe_area` /
