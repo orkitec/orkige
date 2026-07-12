@@ -45,12 +45,23 @@ target_link_libraries(orkige_player PRIVATE Orkige::Engine)
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # the engine's backend media differs per flavor: classic ships the RTSS
     # shader library (Media/{Main,RTShaderLib}); next ships the Hlms shader
-    # templates (Media/Hlms). main.cpp resolves both under <bundle>/Media.
+    # templates plus the Atmosphere sky material media (Media/Hlms,
+    # Media/Atmosphere - the next backend's registerAtmosphereMedia looks up
+    # Atmosphere/ as a sibling of Hlms/). main.cpp resolves both under
+    # <bundle>/Media.
     if(ORKIGE_RENDER_BACKEND STREQUAL "next")
         set(ORKIGE_PLAYER_IOS_MEDIA_COPY
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Hlms"
                 "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Hlms")
+        # optional: an older vcpkg port pin may not ship the sky media yet -
+        # the runtime degrades that honestly (no sky, flat fog colour)
+        if(EXISTS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Atmosphere")
+            list(APPEND ORKIGE_PLAYER_IOS_MEDIA_COPY
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/ogre-next/Media/Atmosphere"
+                    "$<TARGET_BUNDLE_CONTENT_DIR:orkige_player>/Media/Atmosphere")
+        endif()
     else()
         set(ORKIGE_PLAYER_IOS_MEDIA_COPY
             COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -19,10 +19,11 @@
 #                                OrkigeActivity
 #   assets/                   <- same media set as the iOS bundle: the backend
 #                                shader media (classic = RTSS shader lib, next
-#                                = Hlms templates), sample assets, jumper media,
-#                                example.oscene + orkige_assets.txt manifest
-#                                (the player extracts them at first launch,
-#                                see tools/player/main.cpp)
+#                                = Hlms templates + Atmosphere sky media),
+#                                sample assets, jumper media, example.oscene +
+#                                orkige_assets.txt manifest (the player
+#                                extracts them at first launch, see
+#                                tools/player/main.cpp)
 #
 # Usage: tools/player/android/package_apk.sh [options] [build-dir]
 #   build-dir defaults to build/android-debug. Output:
@@ -175,8 +176,13 @@ echo "== staging assets ($RENDER_BACKEND flavor)"
 mkdir -p "$STAGE/assets/Media"
 if [ "$RENDER_BACKEND" = "next" ]; then
     # next flavor: the Hlms shader templates (main.cpp points setHlmsMediaDir
-    # at <extracted>/Media)
+    # at <extracted>/Media) plus the Atmosphere sky material media, which the
+    # next backend's registerAtmosphereMedia looks up as a sibling of Hlms/ -
+    # optional (an older vcpkg port pin may not ship it yet; the runtime
+    # degrades that honestly - no sky, flat fog colour)
     cp -R "$VCPKG_INSTALLED/share/ogre-next/Media/Hlms" "$STAGE/assets/Media/Hlms"
+    [ -d "$VCPKG_INSTALLED/share/ogre-next/Media/Atmosphere" ] \
+        && cp -R "$VCPKG_INSTALLED/share/ogre-next/Media/Atmosphere" "$STAGE/assets/Media/Atmosphere"
 else
     # classic flavor: the RTSS shader library
     cp -R "$VCPKG_INSTALLED/share/ogre/Media/Main"        "$STAGE/assets/Media/Main"

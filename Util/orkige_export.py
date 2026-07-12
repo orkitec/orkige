@@ -347,12 +347,26 @@ def ogre_media_dir(build_dir):
 
 def ogre_next_media_dir(build_dir):
     """the Ogre-Next flavor's media root (contains Hlms/ - the shader templates
-    the runtime registers via Engine::setHlmsMediaDir)"""
+    the runtime registers via Engine::setHlmsMediaDir - and Atmosphere/ - the
+    sky material media the next backend auto-discovers as a sibling of Hlms)"""
     triplet = vcpkg_triplet_dir(build_dir)
     if not triplet:
         return ""
     media = os.path.join(triplet, "share", "ogre-next", "Media")
     return media if os.path.isdir(media) else ""
+
+
+def ogre_next_media_subdirs(media_dir):
+    """the Ogre-Next Media subdirs to bundle: Hlms (mandatory - materials
+    don't work without it) plus Atmosphere (the sky material media the next
+    backend's registerAtmosphereMedia looks up as a sibling of Hlms) when the
+    installed vcpkg port ships it - an older port pin may not, and the
+    runtime degrades that honestly (no sky, flat fog colour instead), so
+    bundling stays optional here too rather than a hard failure."""
+    subdirs = ["Hlms"]
+    if os.path.isdir(os.path.join(media_dir, "Atmosphere")):
+        subdirs.append("Atmosphere")
+    return tuple(subdirs)
 
 
 def sibling_release_tree(engine_build):
@@ -596,11 +610,14 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
                               macos_rpaths(bundled_exe) + search_dirs)
 
     # engine media, per flavor: the classic RTSS shader library (Main +
-    # RTShaderLib) or the Ogre-Next Hlms shader templates (Hlms). The runtimes
-    # resolve <Resources>/Media at boot (PlayerBundle::resolveMediaDirectory)
-    # and register it - RTSS locations on classic, Engine::setHlmsMediaDir on
-    # next - so the bundle carries no vcpkg or source-tree path.
-    media_subdirs = ("Hlms",) if flavor == "next" else ("Main", "RTShaderLib")
+    # RTShaderLib) or the Ogre-Next Hlms shader templates + Atmosphere sky
+    # material media (Hlms, Atmosphere). The runtimes resolve <Resources>/Media
+    # at boot (PlayerBundle::resolveMediaDirectory) and register it - RTSS
+    # locations on classic, Engine::setHlmsMediaDir on next (which also drives
+    # the next backend's registerAtmosphereMedia, looking for Atmosphere/ as a
+    # sibling of Hlms/) - so the bundle carries no vcpkg or source-tree path.
+    media_subdirs = (ogre_next_media_subdirs(media_dir) if flavor == "next"
+                     else ("Main", "RTShaderLib"))
     for media_subdir in media_subdirs:
         shutil.copytree(os.path.join(media_dir, media_subdir),
                         os.path.join(resources, "Media", media_subdir))
@@ -1384,6 +1401,21 @@ def selftest():
             "file setting bundled"
         assert not os.path.exists(os.path.join(dest, "does_not_exist.olevels")), \
             "dangling setting skipped, not staged"
+
+    # next-flavor Media subdirs to bundle: Hlms is always included; Atmosphere
+    # (the sky material media) rides along only when the installed vcpkg port
+    # actually ships it - an older port pin degrades honestly, not fatally
+    with tempfile.TemporaryDirectory() as work:
+        media_with_sky = os.path.join(work, "with_sky")
+        os.makedirs(os.path.join(media_with_sky, "Hlms"))
+        os.makedirs(os.path.join(media_with_sky, "Atmosphere"))
+        assert ogre_next_media_subdirs(media_with_sky) == ("Hlms", "Atmosphere"), \
+            "Atmosphere bundled when present"
+
+        media_without_sky = os.path.join(work, "without_sky")
+        os.makedirs(os.path.join(media_without_sky, "Hlms"))
+        assert ogre_next_media_subdirs(media_without_sky) == ("Hlms",), \
+            "Atmosphere skipped when absent (older vcpkg port pin)"
 
     print("orkige_export: selftest OK")
 
