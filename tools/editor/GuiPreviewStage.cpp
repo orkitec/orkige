@@ -16,6 +16,7 @@
 #include <engine_render/RenderTexture.h>
 #include <engine_gui/GuiFactory.h>
 #include <core_project/Project.h>
+#include <core_util/StringTable.h>
 
 #include <fstream>
 #include <filesystem>
@@ -40,6 +41,11 @@ namespace OrkigeEditor
 	GuiPreviewStage::GuiPreviewStage()
 		: mContextDirty(true)
 	{
+		// own the process StringTable singleton for the editor's lifetime: the
+		// editor has no game string table, so the previewed gui's `@key` captions
+		// resolve through this one. Empty until a project's loc/ directory loads,
+		// which just echoes keys back - the pre-localisation preview behaviour.
+		this->mStringTable = onew(new StringTable());
 	}
 	//---------------------------------------------------------
 	GuiPreviewStage::~GuiPreviewStage()
@@ -58,6 +64,69 @@ namespace OrkigeEditor
 		// fixed at creation, so a context change forces a full rebuild
 		this->mContextDirty = true;
 		return true;
+	}
+	//---------------------------------------------------------
+	void GuiPreviewStage::loadLocalisation(Project const& project)
+	{
+		// resolve the project's localisation directory (manifest Settings
+		// "localisation", config-asset convention). A signature of root + the
+		// resolved directory detects a real change so we reload only then.
+		std::string absDir;
+		std::string signature;
+		if(project.isLoaded())
+		{
+			const std::string ref = project.getSetting(
+				StringTable::LOCALISATION_SETTING_KEY);
+			if(!ref.empty())
+			{
+				absDir = project.resolvePath(ref);
+				signature = project.getRootDirectory() + "|" + absDir;
+			}
+		}
+		if(signature == this->mLocSignature)
+		{
+			return;	// same project + directory already loaded (or both empty)
+		}
+		this->mLocSignature = signature;
+		this->mStringTable->clear();
+		if(!absDir.empty())
+		{
+			// a missing/broken directory just leaves the table empty (keys echo)
+			this->mStringTable->loadXliffDirectory(absDir);
+		}
+		this->applyPreviewLanguage();
+	}
+	//---------------------------------------------------------
+	std::vector<std::string> GuiPreviewStage::getLanguages() const
+	{
+		return this->mStringTable ? this->mStringTable->getLanguages()
+			: std::vector<std::string>();
+	}
+	//---------------------------------------------------------
+	std::string GuiPreviewStage::getSourceLanguage() const
+	{
+		return this->mStringTable ? this->mStringTable->getSourceLanguage()
+			: std::string();
+	}
+	//---------------------------------------------------------
+	void GuiPreviewStage::setPreviewLanguage(std::string const& language)
+	{
+		this->mPreviewLanguage = language;
+		this->applyPreviewLanguage();
+	}
+	//---------------------------------------------------------
+	void GuiPreviewStage::applyPreviewLanguage()
+	{
+		if(!this->mStringTable)
+		{
+			return;
+		}
+		// an empty preview language previews the source language directly, so a
+		// source-text lookup hits the source table (no once-per-key miss log)
+		const std::string language = this->mPreviewLanguage.empty()
+			? this->mStringTable->getSourceLanguage()
+			: this->mPreviewLanguage;
+		this->mStringTable->setLanguage(language);
 	}
 	//---------------------------------------------------------
 	std::string GuiPreviewStage::peekAtlas(std::string const& absOuiPath)
@@ -248,6 +317,9 @@ namespace OrkigeEditor
 			this->mGui->destroyAllViews(true);
 		}
 
+		// make the previewed language current so loadLayout's `@key` captions
+		// resolve against the right table (a language switch re-shows the screen)
+		this->applyPreviewLanguage();
 		try
 		{
 			const std::string bare = absOui.filename().string();

@@ -79,9 +79,13 @@ namespace
 		std::string					projectRoot;		//!< the project the file list is for
 		std::vector<std::string>	ouiFiles;			//!< project-relative .oui paths
 		bool						overlayRects = true;	//!< draw the widget rect overlay
+		//! preview language tag ("" = source language); seeded from ViewSettings
+		std::string					language;
+		bool						languageInit = false;	//!< seeded from ini yet?
 		// applied state so the stage only reconfigures on a real change
 		OrkigeEditor::GuiPreviewContext	appliedContext;
 		std::string					appliedFile;
+		std::string					appliedLanguage;
 		bool						appliedValid = false;
 		// mtime watch for live reload
 		std::filesystem::file_time_type	watchedMtime{};
@@ -165,6 +169,13 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 		return;
 	}
 
+	// seed the preview language from the persisted setting once
+	if (!ui.languageInit)
+	{
+		ui.language = viewSettings.guiPreviewLanguage;
+		ui.languageInit = true;
+	}
+
 	// refresh the .oui list when the project changed (cheap; also on demand)
 	if (ui.projectRoot != root)
 	{
@@ -172,6 +183,11 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 		scanOuiFiles(root, ui.ouiFiles);
 		ui.selectedFile.clear();
 	}
+
+	// load the open project's localisation directory into the stage's own
+	// string table (idempotent - reloads only on a project/directory change) so
+	// the language combo can enumerate languages and @keys resolve on preview
+	stage.loadLocalisation(state.project);
 
 	//--- controls row ------------------------------------------------------
 	ImGui::SetNextItemWidth(240.0f);
@@ -239,20 +255,56 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 	ImGui::SameLine();
 	ImGui::Checkbox("Widget rects", &ui.overlayRects);
 
+	//--- language axis: "(source)" plus every loaded language --------------
+	// the combo is present always; a project with no loc/ directory shows only
+	// "(source)" (getLanguages() is empty then - the honest edge)
+	const std::vector<std::string> languages = stage.getLanguages();
+	const char* languageLabel = ui.language.empty() ? "(source)"
+		: ui.language.c_str();
+	ImGui::SetNextItemWidth(240.0f);
+	if (ImGui::BeginCombo("Language", languageLabel))
+	{
+		if (ImGui::Selectable("(source)", ui.language.empty()))
+		{
+			ui.language.clear();
+			viewSettings.guiPreviewLanguage = ui.language;
+			viewSettings.save();
+		}
+		for (std::string const& lang : languages)
+		{
+			const bool sel = (lang == ui.language);
+			if (ImGui::Selectable(lang.c_str(), sel))
+			{
+				ui.language = lang;
+				viewSettings.guiPreviewLanguage = ui.language;
+				viewSettings.save();
+			}
+			if (sel)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+
 	//--- apply controls to the shared stage --------------------------------
 	const OrkigeEditor::GuiPreviewContext ctx = currentContext(ui);
 	const bool contextChanged = !ui.appliedValid ||
 		ctx != ui.appliedContext;
 	const bool fileChanged = !ui.appliedValid ||
 		ui.selectedFile != ui.appliedFile;
+	const bool languageChanged = !ui.appliedValid ||
+		ui.language != ui.appliedLanguage;
 
-	if (contextChanged || fileChanged)
+	if (contextChanged || fileChanged || languageChanged)
 	{
 		stage.setContext(ctx);
+		stage.setPreviewLanguage(ui.language);	// re-resolves @keys on show
 		std::string err;
 		stage.show(root, ui.selectedFile, err);	// "" file => empty state
 		ui.appliedContext = ctx;
 		ui.appliedFile = ui.selectedFile;
+		ui.appliedLanguage = ui.language;
 		ui.appliedValid = true;
 		// (re)arm the mtime watch on the newly shown file
 		ui.watchArmed = false;

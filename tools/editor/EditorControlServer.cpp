@@ -1369,9 +1369,18 @@ namespace Orkige
 				  "resolved 'width'/'height', and parallel 'ids'/'rects' (each rect "
 				  "'left top width height visible enabled modal', pixels; the first "
 				  "context for a sweep). Ogre-Next only (the classic editor reports "
-				  "an honest error). Does not disturb the human's GUI Preview tab.",
+				  "an honest error). Optional 'language' resolves the screen's "
+				  "'@key' captions in that target language (from the project's loc/ "
+				  "directory); omit for the source language. The result carries the "
+				  "applied 'language' and the available 'languages'; a project with "
+				  "no loc/ directory ignores 'language' with a 'language_note'. "
+				  "Does not disturb the human's GUI Preview tab.",
 				  { { "file", "string",
 				      "project-relative .oui path (e.g. 'screens/title.oui')", true },
+				    { "language", "string",
+				      "preview language (a target from the result's 'languages'); "
+				      "omit for the source language. Ignored with a note when the "
+				      "project has no loc/ directory", false },
 				    { "width", "number", "device width in pixels (default 1179)",
 				      false },
 				    { "height", "number", "device height in pixels (default 2556)",
@@ -3261,6 +3270,42 @@ namespace Orkige
 				}
 				const std::string root = state.project.getRootDirectory();
 
+				// language axis: load the project's loc/ directory (idempotent)
+				// and resolve the requested preview language. Empty => the source
+				// language. A project with no loc/ directory ignores 'language'
+				// with a note (no error); an unknown language IS an error listing
+				// the valid set.
+				stage->loadLocalisation(state.project);
+				const StringVector availableLanguages = stage->getLanguages();
+				const String requestedLanguage = request.get("language");
+				String appliedLanguage;
+				String languageNote;
+				if (!requestedLanguage.empty())
+				{
+					if (availableLanguages.empty())
+					{
+						languageNote = "the project has no localisation directory "
+							"(manifest Settings 'localisation'); language ignored";
+					}
+					else if (std::find(availableLanguages.begin(),
+						availableLanguages.end(), requestedLanguage) ==
+						availableLanguages.end())
+					{
+						std::string list;
+						for (String const& lang : availableLanguages)
+						{
+							list += (list.empty() ? "" : ", ") + lang;
+						}
+						this->sendErr(req, "preview_ui: unknown language '" +
+							requestedLanguage + "' (available: " + list + ")");
+						return;
+					}
+					else
+					{
+						appliedLanguage = requestedLanguage;
+					}
+				}
+
 				auto trim = [](std::string s) -> std::string
 				{
 					size_t a = s.find_first_not_of(" \t");
@@ -3392,6 +3437,8 @@ namespace Orkige
 				const OrkigeEditor::GuiPreviewContext savedContext =
 					stage->getContext();
 				const std::string savedFile = stage->getLoadedFile();
+				const std::string savedLanguage = stage->getPreviewLanguage();
+				stage->setPreviewLanguage(appliedLanguage);	// show() applies it
 
 				const bool sweep = contexts.size() > 1;
 				const std::string basePath = request.get("path").empty()
@@ -3452,6 +3499,7 @@ namespace Orkige
 				// restore the tab's previous view (undisturbed collaboration)
 				std::string restoreErr;
 				stage->setContext(savedContext);
+				stage->setPreviewLanguage(savedLanguage);
 				stage->show(root, savedFile, restoreErr);
 
 				if (!ok)
@@ -3472,6 +3520,14 @@ namespace Orkige
 				okMsg.setList("context_labels", labels);
 				okMsg.setList("ids", ids);
 				okMsg.setList("rects", rects);
+				// the language axis: the applied language ("" = source), the
+				// available set, and a note when a given language was ignored
+				okMsg.set("language", appliedLanguage);
+				okMsg.setList("languages", availableLanguages);
+				if (!languageNote.empty())
+				{
+					okMsg.set("language_note", languageNote);
+				}
 				this->sendOk(req, okMsg);
 				return;
 			}
@@ -7702,14 +7758,70 @@ namespace Orkige
 		{
 			// this leg needs an open project carrying a gui_default atlas; copy
 			// jumper-lua to a temp dir (never touch the repo) and open it
+			const std::string previewRoot =
+				(std::filesystem::temp_directory_path() /
+					("orkige_preview_project_" + std::to_string(port))).string();
 			{
 				std::error_code prepErr;
-				const std::string previewRoot =
-					(std::filesystem::temp_directory_path() /
-						("orkige_preview_project_" + std::to_string(port))).string();
 				std::filesystem::remove_all(previewRoot, prepErr);
 				std::filesystem::copy(ORKIGE_EDITOR_JUMPER_LUA_PROJECT, previewRoot,
 					std::filesystem::copy_options::recursive, prepErr);
+				// seed a tiny loc/ directory (en source + de target for one key)
+				// and point the copied manifest at it, so the language-axis leg
+				// below can preview a @key caption in German
+				{
+					const std::filesystem::path locDir =
+						std::filesystem::path(previewRoot) / "loc";
+					std::filesystem::create_directories(locDir, prepErr);
+					std::ofstream(locDir / "en.xlf")
+						<< "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+						<< "<xliff version=\"1.2\" xmlns=\"urn:oasis:names:tc:"
+						   "xliff:document:1.2\">\n"
+						<< "  <file original=\"orkige-strings\" "
+						   "source-language=\"en\" datatype=\"plaintext\">\n"
+						<< "    <body>\n"
+						<< "      <trans-unit id=\"preview.msg\" "
+						   "resname=\"preview.msg\" xml:space=\"preserve\">\n"
+						<< "        <source>Hello</source>\n"
+						<< "      </trans-unit>\n"
+						<< "    </body>\n  </file>\n</xliff>\n";
+					std::ofstream(locDir / "de.xlf")
+						<< "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+						<< "<xliff version=\"1.2\" xmlns=\"urn:oasis:names:tc:"
+						   "xliff:document:1.2\">\n"
+						<< "  <file original=\"orkige-strings\" "
+						   "source-language=\"en\" target-language=\"de\" "
+						   "datatype=\"plaintext\">\n"
+						<< "    <body>\n"
+						<< "      <trans-unit id=\"preview.msg\" "
+						   "resname=\"preview.msg\" xml:space=\"preserve\">\n"
+						<< "        <source>Hello</source>\n"
+						<< "        <target state=\"translated\">"
+						   "GutenTagDeutsch</target>\n"
+						<< "      </trans-unit>\n"
+						<< "    </body>\n  </file>\n</xliff>\n";
+					const std::filesystem::path manifest =
+						std::filesystem::path(previewRoot) / "project.orkproj";
+					std::string text;
+					{
+						std::ifstream in(manifest);
+						std::stringstream ss;
+						ss << in.rdbuf();
+						text = ss.str();
+					}
+					const std::string anchor = "</OrkigeProject>";
+					const size_t at = text.find(anchor);
+					if (at != std::string::npos)
+					{
+						// a <Settings> wrapper is what Project::loadFromFile reads
+						// (the bare <Setting> keys jumper-lua carries are for the
+						// exporter only) - point the C++ manifest at loc/
+						text.insert(at, "    <Settings>\n"
+							"        <Setting key=\"localisation\" value=\"loc\"/>\n"
+							"    </Settings>\n");
+						std::ofstream(manifest, std::ios::trunc) << text;
+					}
+				}
 				JsonValue openArgs = JsonValue::object();
 				openArgs.set("path", JsonValue(String(previewRoot)));
 				openArgs.set("force", JsonValue("1"));
@@ -7849,6 +7961,114 @@ namespace Orkige
 			SDL_Log("orkige_editor: control self-test - preview_ui OK (write -> "
 				"preview top=%d -> edit -> preview top=%d; missing file errored)",
 				topV1, topV2);
+
+			// language axis: a screen whose caption is an @key routed through the
+			// seeded loc/ (en source "Hello" / de target "GutenTag..."): preview it
+			// in the SOURCE language, then in de, and assert the two renders DIFFER
+			// (a different caption = different pixels) and that the result carries
+			// the 'language'/'languages' fields. An unknown language is an error.
+			{
+				JsonValue writeArgs = JsonValue::object();
+				writeArgs.set("path",
+					JsonValue(String("screens/preview_loc.oui")));
+				writeArgs.set("content", JsonValue(String(
+					"[Layout]\natlas = gui_default\n\n"
+					"[Label msg]\nz = 2\nfont = 9\ntext = @preview.msg\n"
+					"position = 40 40\nsize = 400 40\n")));
+				JsonValue ws;
+				bool we = true;
+				if (!callTool("write_project_file", writeArgs, true, ws, we) || we)
+				{
+					finish(false, "control self-test: preview_ui - loc screen write "
+						"failed");
+					return;
+				}
+				auto readBytes = [](std::string const& p) -> std::string
+				{
+					std::ifstream in(p, std::ios::binary);
+					std::stringstream ss;
+					ss << in.rdbuf();
+					return ss.str();
+				};
+				const std::string srcPng =
+					(std::filesystem::temp_directory_path() /
+						("orkige_preview_loc_src_" + std::to_string(port) +
+							".png")).string();
+				const std::string dePng =
+					(std::filesystem::temp_directory_path() /
+						("orkige_preview_loc_de_" + std::to_string(port) +
+							".png")).string();
+				// (a) source language: omit 'language'
+				JsonValue srcArgs = JsonValue::object();
+				srcArgs.set("file", JsonValue(String("screens/preview_loc.oui")));
+				srcArgs.set("path", JsonValue(String(srcPng)));
+				if (!callTool("preview_ui", srcArgs, true, structured, isError) ||
+					isError)
+				{
+					finish(false, "control self-test: preview_ui - source-language "
+						"loc render failed");
+					return;
+				}
+				// 'languages' must list the loaded set (source + de)
+				bool sawDe = false;
+				{
+					JsonValue const& langs = structured.get("languages");
+					for (size_t i = 0; i < langs.size(); ++i)
+					{
+						if (langs.at(i).asString() == "de")
+						{
+							sawDe = true;
+						}
+					}
+				}
+				if (!sawDe)
+				{
+					finish(false, "control self-test: preview_ui - 'languages' did "
+						"not list the loaded 'de'");
+					return;
+				}
+				// (b) German: the applied 'language' comes back as 'de'
+				JsonValue deArgs = JsonValue::object();
+				deArgs.set("file", JsonValue(String("screens/preview_loc.oui")));
+				deArgs.set("path", JsonValue(String(dePng)));
+				deArgs.set("language", JsonValue(String("de")));
+				if (!callTool("preview_ui", deArgs, true, structured, isError) ||
+					isError)
+				{
+					finish(false, "control self-test: preview_ui - de render "
+						"failed");
+					return;
+				}
+				if (structured.get("language").asString() != "de")
+				{
+					finish(false, "control self-test: preview_ui - result "
+						"'language' was not 'de'");
+					return;
+				}
+				// the German caption must actually change the rendered pixels
+				const std::string srcBytes = readBytes(srcPng);
+				const std::string deBytes = readBytes(dePng);
+				if (srcBytes.empty() || deBytes.empty() || srcBytes == deBytes)
+				{
+					finish(false, "control self-test: preview_ui - the de render did "
+						"not differ from the source render (localisation not "
+						"applied)");
+					return;
+				}
+				// (c) an unknown language is an honest error listing the set
+				JsonValue badLang = JsonValue::object();
+				badLang.set("file", JsonValue(String("screens/preview_loc.oui")));
+				badLang.set("language", JsonValue(String("zz")));
+				if (!callTool("preview_ui", badLang, true, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: preview_ui - an unknown "
+						"language should error");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - preview_ui language axis "
+					"OK (source vs de renders differ; unknown errored)");
+			}
 			}
 		}
 

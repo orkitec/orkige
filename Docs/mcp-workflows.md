@@ -488,6 +488,13 @@ preview_ui {                                                         // authed
 write_project_file { "path":"screens/title.oui", "content":"...position = 40 200..." }  // authed
 preview_ui { "file":"screens/title.oui", "width":2048, "height":1536, "scale":2 }       // authed
 //   → the returned rect for "play" moved - proof the edit took, no player booted
+
+// 5. preview a LOCALISED screen (its @key captions) in a target language, no
+//    play session: the result lists the loaded languages and echoes the applied
+//    one (a project with no loc/ directory ignores 'language' with a note)
+preview_ui { "file":"screens/title.oui", "language":"de" }                               // authed
+//   → { ..., "language":"de", "languages":["de","en","en-XA"] }
+//   read the png back to SEE the German text; omit 'language' for the source.
 ```
 
 Evidence, not assumption: `preview_ui` returns `batch_count` (> 0 means the gui

@@ -206,6 +206,10 @@ struct ViewSettings
 	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
 	//! device context into an offscreen target - the collaborative UI loop)
 	bool showGuiPreviewPanel = false;
+	//! GUI Preview language axis: the language tag the preview resolves `@key`
+	//! captions in ("" = the project's source language). Persisted so the tab
+	//! reopens on the last previewed language.
+	std::string guiPreviewLanguage;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;

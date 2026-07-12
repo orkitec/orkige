@@ -115,6 +115,10 @@ void ViewSettings::load()
 		{
 			this->layoutContentScale = std::strtof(value.c_str(), nullptr);
 		}
+		else if (key == "gui_preview_language")
+		{
+			this->guiPreviewLanguage = value;
+		}
 		else if (key == "recent_scene")
 		{
 			// one line per entry, newest first (the save order)
@@ -184,7 +188,8 @@ void ViewSettings::save() const
 			: this->themeMode == Orkige::EditorThemeMode::Light ? "light"
 			: "system")
 		<< "\n"
-		<< "layout_content_scale=" << this->layoutContentScale << "\n";
+		<< "layout_content_scale=" << this->layoutContentScale << "\n"
+		<< "gui_preview_language=" << this->guiPreviewLanguage << "\n";
 	for (std::string const& recent : this->recentScenes)
 	{
 		file << "recent_scene=" << recent << "\n";

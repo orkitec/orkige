@@ -31,6 +31,8 @@ namespace Orkige
 {
 	class RenderTexture;
 	class GuiFactory;
+	class StringTable;
+	class Project;
 }
 
 namespace OrkigeEditor
@@ -80,6 +82,35 @@ namespace OrkigeEditor
 		bool setContext(GuiPreviewContext const& context);
 		GuiPreviewContext const& getContext() const { return this->mContext; }
 
+		//! @brief load the open project's localisation directory (manifest
+		//! Settings "localisation", config-asset convention) into the stage's
+		//! OWN StringTable so a previewed screen's `@key` captions resolve. The
+		//! editor process otherwise has no game StringTable; the stage owns the
+		//! process singleton for its lifetime (an empty table just echoes keys,
+		//! the pre-localisation behaviour). Idempotent: reloads only when the
+		//! project or its directory changes - a language switch is table-resident
+		//! (no I/O). A project with no `localisation` setting clears the table
+		//! (source/none only). @see setPreviewLanguage.
+		void loadLocalisation(Orkige::Project const& project);
+		//! @brief every loaded language code, sorted (the source language
+		//! included); empty when the project has no loc/ directory. Feeds the
+		//! GUI Preview tab's language combo and the preview_ui `languages` field.
+		std::vector<std::string> getLanguages() const;
+		//! the loaded source-language code ("" when no loc/ directory is loaded)
+		std::string getSourceLanguage() const;
+		//! @brief set the language the preview resolves `@keys` in; a change is
+		//! applied to the stage's StringTable immediately, and the next show()
+		//! re-resolves the screen against it (so the panel/verb re-show to make a
+		//! switch live). An empty tag (or the source code) previews the SOURCE
+		//! text. Unknown tags are the caller's to reject (getLanguages lists the
+		//! valid set).
+		void setPreviewLanguage(std::string const& language);
+		//! the active preview language ("" = source language)
+		std::string const& getPreviewLanguage() const
+		{
+			return this->mPreviewLanguage;
+		}
+
 		//! @brief build the stage (if needed) and load a project-relative
 		//! `.oui` into it, replacing whatever was shown. An empty ouiRelPath
 		//! clears the stage (the empty state). Registers the file's directory
@@ -127,6 +158,9 @@ namespace OrkigeEditor
 		void teardown();
 		//! peek the `[Layout] atlas = ...` line of a `.oui` (default gui_default)
 		static std::string peekAtlas(std::string const& absOuiPath);
+		//! apply mPreviewLanguage to the stage's StringTable (empty => the source
+		//! language, so keys resolve to source text without miss-logging)
+		void applyPreviewLanguage();
 
 		GuiPreviewContext					mContext;
 		Orkige::optr<Orkige::RenderTexture>	mTarget;
@@ -135,6 +169,17 @@ namespace OrkigeEditor
 		std::string							mAtlas;			//!< the atlas the gui was built with
 		std::string							mLoadedFile;	//!< project-relative .oui path ("" = none)
 		std::string							mLastError;
+		//! the stage's own localisation table (the editor has no game one); its
+		//! ctor makes it the process StringTable singleton so GuiFactory's `@key`
+		//! routing resolves against it. Empty until loadLocalisation loads a
+		//! project's loc/ directory.
+		Orkige::optr<Orkige::StringTable>	mStringTable;
+		//! signature (root|absDir) of the localisation directory currently loaded,
+		//! so loadLocalisation reloads only on a real project/directory change
+		std::string							mLocSignature;
+		//! the previewed language ("" = source language); applied before @keys
+		//! resolve on show()
+		std::string							mPreviewLanguage;
 		//! directories registered in the project group for this stage's files;
 		//! kept so a project switch can be detected (rebuild frees the gui, the
 		//! locations stay - they are the project's own, idempotently re-added)
