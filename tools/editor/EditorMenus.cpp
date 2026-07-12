@@ -3,6 +3,7 @@
 // Changes/target pickers) and the dockspace + first-run DockBuilder layout.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorAutosave.h"
 #include "EditorScriptHost.h"
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
@@ -613,6 +614,36 @@ void drawEditorModals(EditorState& state, Orkige::EditorCore& core)
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel"))
 		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+	// "Autosave Recovery" confirm: openSceneFromPath raises it when the opened
+	// scene has a newer ".autosave" sibling - Restore loads the recovered work
+	// (marked dirty), Discard drops the autosave and keeps the on-disk scene
+	if (state.openAutosaveRecoveryPopup)
+	{
+		ImGui::OpenPopup("Autosave Recovery");
+		state.openAutosaveRecoveryPopup = false;
+	}
+	if (ImGui::BeginPopupModal("Autosave Recovery", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("A newer autosave of this scene was found -");
+		ImGui::TextUnformatted("a previous session may have ended unexpectedly.");
+		ImGui::Spacing();
+		if (ImGui::Button("Restore"))
+		{
+			restoreSceneAutosave(state, core, state.autosaveRecoveryScenePath);
+			state.autosaveRecoveryScenePath.clear();
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Discard"))
+		{
+			Orkige::EditorAutosave::removeAutosave(
+				state.autosaveRecoveryScenePath);
+			state.autosaveRecoveryScenePath.clear();
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();

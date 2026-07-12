@@ -17,11 +17,13 @@
 ***************************************************************/
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "CoreTestEnvironment.h"
 #include "TestComponents.h"
 
 #include <AssetTilePresentation.h>
+#include <EditorAutosave.h>
 #include <EditorCore.h>
 #include <MarqueeSelection.h>
 #include <core_game/LevelGrid.h>
@@ -29,6 +31,7 @@
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
 #include <engine_gocomponent/ScriptComponent.h>
+#include <engine_gocomponent/ScriptComponentRegistry.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -1574,4 +1577,219 @@ TEST_CASE("marquee screen-rect helpers normalise, intersect and gate the drag",
 	CHECK(Orkige::marqueeIsDrag(100.0f, 100.0f, 105.0f, 100.0f, 4.0f));
 	// exactly at the threshold distance counts as a drag (inclusive)
 	CHECK(Orkige::marqueeIsDrag(0.0f, 0.0f, 4.0f, 0.0f, 4.0f));
+}
+
+//--- component copy / paste -------------------------------------------------
+
+TEST_CASE("EditorCore copies a component's reflected values and pastes them "
+	"onto a present component, undoable in ONE step", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+
+	// SOURCE carries a fully-populated TestReflectComponent (one property of
+	// each core kind); TARGET already has the component at its defaults
+	optr<Orkige::GameObject> src = manager.createGameObject("Src").lock();
+	REQUIRE(src->addComponent<Orkige::TestReflectComponent>());
+	Orkige::TestReflectComponent* srcComp =
+		src->getComponentPtr<Orkige::TestReflectComponent>();
+	srcComp->setCount(42);
+	srcComp->setSpeed(3.5f);
+	srcComp->setEnabled(true);
+	srcComp->setLabel("hello");
+	srcComp->setTeam(Orkige::TestReflectComponent::TEAM_GREEN);
+
+	optr<Orkige::GameObject> dst = manager.createGameObject("Dst").lock();
+	REQUIRE(dst->addComponent<Orkige::TestReflectComponent>());
+
+	REQUIRE(core.copyComponent("Src", "TestReflectComponent"));
+	CHECK(core.hasComponentClipboard());
+	CHECK(core.getClipboardComponentTypeName() == "TestReflectComponent");
+
+	REQUIRE(core.pasteComponent("Dst"));
+	Orkige::TestReflectComponent* dstComp =
+		dst->getComponentPtr<Orkige::TestReflectComponent>();
+	REQUIRE(dstComp);
+	CHECK(dstComp->getCount() == 42);
+	CHECK(dstComp->getSpeed() == Catch::Approx(3.5f));
+	CHECK(dstComp->getEnabled() == true);
+	CHECK(dstComp->getLabel() == "hello");
+	CHECK(dstComp->getTeam() == Orkige::TestReflectComponent::TEAM_GREEN);
+
+	// a present-component paste is ONE undo step that restores the defaults
+	CHECK(core.getUndoStackSize() == 1);
+	REQUIRE(core.undo());
+	dstComp = dst->getComponentPtr<Orkige::TestReflectComponent>();
+	REQUIRE(dstComp);	// the component itself was not removed (only values)
+	CHECK(dstComp->getCount() == 0);
+	CHECK(dstComp->getLabel().empty());
+	CHECK(dstComp->getTeam() == Orkige::TestReflectComponent::TEAM_RED);
+}
+
+TEST_CASE("EditorCore paste onto an object lacking the kind adds it AND sets "
+	"the values as ONE undo step", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+
+	optr<Orkige::GameObject> src = manager.createGameObject("Src").lock();
+	REQUIRE(src->addComponent<Orkige::TestReflectComponent>());
+	src->getComponentPtr<Orkige::TestReflectComponent>()->setCount(7);
+	src->getComponentPtr<Orkige::TestReflectComponent>()->setLabel("copied");
+
+	optr<Orkige::GameObject> dst = manager.createGameObject("Dst").lock();
+	REQUIRE_FALSE(dst->hasComponent<Orkige::TestReflectComponent>());
+
+	REQUIRE(core.copyComponent("Src", "TestReflectComponent"));
+	REQUIRE(core.pasteComponent("Dst"));
+
+	// the component was added AND carries the copied values
+	REQUIRE(dst->hasComponent<Orkige::TestReflectComponent>());
+	Orkige::TestReflectComponent* dstComp =
+		dst->getComponentPtr<Orkige::TestReflectComponent>();
+	CHECK(dstComp->getCount() == 7);
+	CHECK(dstComp->getLabel() == "copied");
+
+	// one undo removes the whole thing (the add+set composite)
+	CHECK(core.getUndoStackSize() == 1);
+	REQUIRE(core.undo());
+	CHECK_FALSE(dst->hasComponent<Orkige::TestReflectComponent>());
+	// redo re-adds + re-sets
+	REQUIRE(core.redo());
+	REQUIRE(dst->hasComponent<Orkige::TestReflectComponent>());
+	CHECK(dst->getComponentPtr<Orkige::TestReflectComponent>()
+		->getCount() == 7);
+}
+
+TEST_CASE("EditorCore paste refuses cleanly with an empty clipboard / missing "
+	"object / unknown kind", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	Orkige::EditorCore core(manager);
+	optr<Orkige::GameObject> obj = manager.createGameObject("Obj").lock();
+	REQUIRE(obj->addComponent<Orkige::TestReflectComponent>());
+
+	CHECK_FALSE(core.hasComponentClipboard());
+	CHECK_FALSE(core.pasteComponent("Obj"));	// empty clipboard
+	CHECK_FALSE(core.copyComponent("Nope", "TestReflectComponent"));	// no object
+	CHECK_FALSE(core.copyComponent("Obj", "NoSuchComponent"));	// no component
+	REQUIRE(core.copyComponent("Obj", "TestReflectComponent"));
+	CHECK_FALSE(core.pasteComponent("Missing"));	// missing paste target
+	CHECK(core.getUndoStackSize() == 0);	// nothing polluted the stack
+}
+
+TEST_CASE("EditorCore copies and pastes a SCRIPT-KIND component's declared "
+	"values", "[editor]")
+{
+	Orkige::GameObjectManager& manager = freshWorld();
+	registerScriptComponent();
+	Orkige::EditorCore core(manager);
+
+	// register a script component KIND ("foo") the way a project scan does:
+	// a *.component.lua file turns into a factory alias (a plain directory walk,
+	// no scripting backend needed - works in every config)
+	const std::string scriptsDir =
+		(std::filesystem::temp_directory_path() /
+			("orkige_copypaste_" + std::to_string(getpid()))).string();
+	std::filesystem::create_directories(scriptsDir);
+	std::ofstream(std::filesystem::path(scriptsDir) / "foo.component.lua")
+		<< "-- a component kind\nproperties = {}\n";
+	Orkige::ScriptComponentRegistry::getSingleton().scanProject(scriptsDir,
+		scriptsDir);
+	REQUIRE(Orkige::ScriptComponentRegistry::getSingleton()
+		.isScriptComponent("foo"));
+
+	optr<Orkige::GameObject> src = manager.createGameObject("Src").lock();
+	REQUIRE(core.addComponentToObject("Src", "foo"));
+	// "enabled" is a DECLARED property of the script component - flip it so the
+	// copy has something non-default to carry (Bool canonicalises to "0"/"1")
+	REQUIRE(core.setObjectProperty("Src", "foo", "enabled", "false"));
+
+	optr<Orkige::GameObject> dst = manager.createGameObject("Dst").lock();
+	REQUIRE_FALSE(dst->hasComponent(Orkige::TypeInfo("foo")));
+
+	REQUIRE(core.copyComponent("Src", "foo"));
+	const std::size_t undoBefore = core.getUndoStackSize();
+	REQUIRE(core.pasteComponent("Dst"));
+
+	// the target now carries the "foo" kind with the copied declared value
+	REQUIRE(dst->hasComponent(Orkige::TypeInfo("foo")));
+	std::string enabled;
+	REQUIRE(core.getObjectProperty("Dst", "foo", "enabled", enabled));
+	CHECK(enabled == "0");
+
+	// the paste is ONE undo step; undo removes the kind again
+	CHECK(core.getUndoStackSize() == undoBefore + 1);
+	REQUIRE(core.undo());
+	CHECK_FALSE(dst->hasComponent(Orkige::TypeInfo("foo")));
+
+	// drop the alias so it does not leak into other tests, and clean the fixture
+	Orkige::ScriptComponentRegistry::getSingleton().clear();
+	std::error_code ec;
+	std::filesystem::remove_all(scriptsDir, ec);
+}
+
+//--- autosave naming / decision / filesystem helpers ------------------------
+
+TEST_CASE("EditorAutosave derives sibling paths and gates the timed save",
+	"[editor]")
+{
+	using namespace Orkige::EditorAutosave;
+
+	// sibling naming (pure strings; empty in -> empty out)
+	CHECK(autosavePath("scenes/level.oscene") == "scenes/level.oscene.autosave");
+	CHECK(backupPath("scenes/level.oscene") == "scenes/level.oscene.bak");
+	CHECK(autosavePath("").empty());
+	CHECK(backupPath("").empty());
+
+	const double interval = 120.0;
+	// fires only while dirty, past the interval, and not automated/play/prefab
+	CHECK(shouldAutosave(true, false, false, false, 200.0, interval));
+	CHECK_FALSE(shouldAutosave(false, false, false, false, 200.0, interval));
+	CHECK_FALSE(shouldAutosave(true, true, false, false, 200.0, interval));
+	CHECK_FALSE(shouldAutosave(true, false, true, false, 200.0, interval));
+	CHECK_FALSE(shouldAutosave(true, false, false, true, 200.0, interval));
+	CHECK_FALSE(shouldAutosave(true, false, false, false, 10.0, interval));
+	// exactly at the interval fires (inclusive)
+	CHECK(shouldAutosave(true, false, false, false, 120.0, interval));
+}
+
+TEST_CASE("EditorAutosave backup/remove/recovery act on the filesystem",
+	"[editor]")
+{
+	using namespace Orkige::EditorAutosave;
+	const std::filesystem::path dir =
+		std::filesystem::temp_directory_path() /
+			("orkige_autosave_" + std::to_string(getpid()));
+	std::filesystem::create_directories(dir);
+	const std::string scene = (dir / "level.oscene").string();
+
+	// a no-op (returns true) when there is nothing on disk yet
+	CHECK(writeBackup(scene));
+	CHECK_FALSE(std::filesystem::exists(backupPath(scene)));
+	CHECK_FALSE(recoveryAvailable(scene));
+
+	// write a scene file, then a NEWER autosave -> recovery is offered
+	std::ofstream(scene) << "scene-v1";
+	CHECK(writeBackup(scene));	// backs the file aside now
+	CHECK(std::filesystem::exists(backupPath(scene)));
+	std::ofstream(autosavePath(scene)) << "autosave-v2";
+	// make the autosave strictly newer than the scene
+	std::filesystem::last_write_time(autosavePath(scene),
+		std::filesystem::last_write_time(scene) + std::chrono::seconds(5));
+	CHECK(recoveryAvailable(scene));
+
+	// removing the autosave clears the recovery signal
+	CHECK(removeAutosave(scene));
+	CHECK_FALSE(std::filesystem::exists(autosavePath(scene)));
+	CHECK_FALSE(recoveryAvailable(scene));
+
+	// an autosave OLDER than the scene is not a recovery
+	std::ofstream(autosavePath(scene)) << "stale";
+	std::filesystem::last_write_time(autosavePath(scene),
+		std::filesystem::last_write_time(scene) - std::chrono::seconds(5));
+	CHECK_FALSE(recoveryAvailable(scene));
+
+	std::error_code ec;
+	std::filesystem::remove_all(dir, ec);
 }

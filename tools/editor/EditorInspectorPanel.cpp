@@ -637,6 +637,24 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 					typeName, &blockedBy);
 				if (ImGui::BeginPopupContextItem("##componentmenu"))
 				{
+					// Copy this component's reflected values, or paste the
+					// clipboard component onto THIS object (one undo step -
+					// add + set when the object lacks the kind)
+					if (ImGui::MenuItem("Copy Component"))
+					{
+						core.copyComponent(objectId, typeName);
+					}
+					const bool canPaste = core.hasComponentClipboard();
+					std::string pasteLabel = canPaste
+						? ("Paste " + core.getClipboardComponentTypeName())
+						: std::string("Paste Component");
+					ImGui::BeginDisabled(!canPaste);
+					if (ImGui::MenuItem(pasteLabel.c_str()))
+					{
+						core.pasteComponent(objectId);
+					}
+					ImGui::EndDisabled();
+					ImGui::Separator();
 					ImGui::BeginDisabled(!removable);
 					if (ImGui::MenuItem("Remove Component"))
 					{

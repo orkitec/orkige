@@ -16,6 +16,8 @@ find_package(imguizmo CONFIG REQUIRED)
 add_library(orkige_editor_core STATIC
     EditorCore.h
     EditorCore.cpp
+    EditorAutosave.h
+    EditorAutosave.cpp
     EditorCamera.h
     EditorCamera.cpp
     FileDialog.h

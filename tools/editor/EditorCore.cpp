@@ -1496,6 +1496,60 @@ namespace Orkige
 	}
 
 	//---------------------------------------------------------
+	//--- ApplyComponentPropertiesCommand ----------------------
+	//---------------------------------------------------------
+	ApplyComponentPropertiesCommand::ApplyComponentPropertiesCommand(
+		String const& objectId, String const& componentTypeName,
+		GameObject::ComponentPropertyMap const& properties)
+		: mObjectId(objectId), mComponentTypeName(componentTypeName),
+		mProperties(properties)
+	{
+	}
+	//---------------------------------------------------------
+	bool ApplyComponentPropertiesCommand::execute(EditorCore& core)
+	{
+		optr<GameObject> gameObject =
+			core.getGameObjectManager().getGameObject(mObjectId).lock();
+		TypeInfo componentType(mComponentTypeName);
+		if (!gameObject || !gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		GameObjectComponent* component =
+			gameObject->getComponentPtr(componentType);
+		oAssert(component);
+		// capture fresh on every execute so redo restores whatever the target
+		// held when the paste ran again (the RemoveComponent snapshot pattern)
+		mBefore = SceneSerializer::captureComponentProperties(*component);
+		SceneSerializer::applyComponentProperties(mProperties, *component);
+		// a pasted ModelComponent reloaded its entity through the setter
+		core.applyModelFixups(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	bool ApplyComponentPropertiesCommand::unexecute(EditorCore& core)
+	{
+		optr<GameObject> gameObject =
+			core.getGameObjectManager().getGameObject(mObjectId).lock();
+		TypeInfo componentType(mComponentTypeName);
+		if (!gameObject || !gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		GameObjectComponent* component =
+			gameObject->getComponentPtr(componentType);
+		oAssert(component);
+		SceneSerializer::applyComponentProperties(mBefore, *component);
+		core.applyModelFixups(mObjectId);
+		return true;
+	}
+	//---------------------------------------------------------
+	String ApplyComponentPropertiesCommand::getDescription() const
+	{
+		return "Paste " + mComponentTypeName + " values onto " + mObjectId;
+	}
+
+	//---------------------------------------------------------
 	//--- ChangeMeshCommand ------------------------------------
 	//---------------------------------------------------------
 	ChangeMeshCommand::ChangeMeshCommand(String const& objectId,
@@ -2470,6 +2524,59 @@ namespace Orkige
 			}
 		}
 		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::copyComponent(String const& id,
+		String const& componentTypeName)
+	{
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		TypeInfo componentType(componentTypeName);
+		if (!gameObject || !gameObject->hasComponent(componentType))
+		{
+			return false;
+		}
+		GameObjectComponent* component =
+			gameObject->getComponentPtr(componentType);
+		oAssert(component);
+		// capture through the reflection registry (the same per-property capture
+		// a scene save and a prefab baseline speak) - a script kind's exported
+		// fields ride in the dynamic half of the schema
+		mComponentClipboard =
+			SceneSerializer::captureComponentProperties(*component);
+		mComponentClipboardType = componentTypeName;
+		mComponentClipboardValid = true;
+		return true;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::pasteComponent(String const& id)
+	{
+		if (!mComponentClipboardValid)
+		{
+			return false;
+		}
+		optr<GameObject> gameObject =
+			mGameObjectManager.getGameObject(id).lock();
+		TypeInfo componentType(mComponentClipboardType);
+		if (!gameObject || !GameObject::isComponentRegistered(componentType))
+		{
+			return false;
+		}
+		// present -> overwrite the values (one command); absent -> add the
+		// component (factory by kind name, script kinds via the registry alias)
+		// then apply, folded into ONE undo step
+		if (gameObject->hasComponent(componentType))
+		{
+			return executeCommand(onew(new ApplyComponentPropertiesCommand(id,
+				mComponentClipboardType, mComponentClipboard)));
+		}
+		optr<CompositeCommand> composite =
+			onew(new CompositeCommand("Paste " + mComponentClipboardType));
+		composite->addCommand(onew(new AddComponentCommand(id,
+			mComponentClipboardType)));
+		composite->addCommand(onew(new ApplyComponentPropertiesCommand(id,
+			mComponentClipboardType, mComponentClipboard)));
+		return executeCommand(composite);
 	}
 	//---------------------------------------------------------
 	bool EditorCore::changeObjectMesh(String const& id, String const& meshName)

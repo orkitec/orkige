@@ -260,6 +260,7 @@ ViewSettings* gViewSettings = nullptr;
 EditorState* gEditorState = nullptr;
 Orkige::ImGuiFacadeRenderer* gImGuiRenderer = nullptr;
 bool gRecordRecents = true;
+bool gAutomatedRun = false;
 
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath)

@@ -279,6 +279,11 @@ extern Orkige::ImGuiFacadeRenderer* gImGuiRenderer;
 // interactive Open Recent lists (or become the reopened "last project")
 extern bool gRecordRecents;
 
+// true during automated runs (the automatedRun env probe): the timed autosave
+// stands down entirely and an open with a stale autosave auto-discards silently
+// instead of raising the recovery modal (a scripted test never blocks on one)
+extern bool gAutomatedRun;
+
 //! record a scene path in the Open Recent list and persist it
 void recordRecentScene(std::string const& scenePath);
 
@@ -483,6 +488,13 @@ struct EditorState
 	//! are drawn once per frame by drawEditorModals)
 	bool openAboutPopup = false;
 	bool openQuitConfirmPopup = false;
+	//! deferred "Autosave Recovery" confirm: openSceneFromPath raises it when the
+	//! opened scene has a NEWER ".autosave" sibling (a crash left recoverable
+	//! work); the modal offers Restore / Discard. autosaveRecoveryScenePath is
+	//! the real scene path whose autosave is on offer. Automated runs never raise
+	//! it (they auto-discard silently - see gAutomatedRun).
+	bool openAutosaveRecoveryPopup = false;
+	std::string autosaveRecoveryScenePath;
 	//! the open prefab edit stage (empty = normal scene editing). A vector so
 	//! a nested-prefab v2 becomes a stack; v1 holds at most ONE entry - see
 	//! PrefabEditContext and the EditorDocument.cpp free functions.
@@ -1145,6 +1157,21 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 
 bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string const& path);
+
+//! @brief write the timed autosave copy of the current world to the
+//! ".autosave" sibling of state.currentScenePath (SceneSerializer::saveScene,
+//! NOT the real file, dirty flag untouched). A no-op returning false for an
+//! untitled scene (no path to sit next to). Called by the frame loop's autosave
+//! tick; the crash-recovery counterpart to a manual save.
+bool writeSceneAutosave(EditorState& state, Orkige::EditorCore& core);
+
+//! @brief restore a recovered autosave into the world: load the ".autosave"
+//! sibling of scenePath, keep currentScenePath = scenePath, mark the scene dirty
+//! (the recovered state is newer than the file and unsaved) and remove the
+//! autosave file. The Restore branch of the recovery modal. False on load
+//! failure (the already-open scene is left in place).
+bool restoreSceneAutosave(EditorState& state, Orkige::EditorCore& core,
+	std::string const& scenePath);
 
 // "open a project, not a scene" - see EditorDocument.cpp
 bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,

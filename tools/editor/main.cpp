@@ -76,6 +76,7 @@
 #endif
 
 #include "EditorApp.h"
+#include "EditorAutosave.h"
 #include "EditorControlServer.h"
 #include "EditorScriptHost.h"
 #include "GuiPreviewStage.h"
@@ -170,6 +171,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_PREFABEDIT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_AUTOSAVETEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
 
 	int exitCode = 0;
@@ -370,6 +372,8 @@ int main(int argc, char** argv)
 		gViewSettings = &viewSettings;
 		// scripted runs must not rewrite the user's recents (see gRecordRecents)
 		gRecordRecents = !automatedRun;
+		// ... and must never autosave or block on a recovery modal (gAutomatedRun)
+		gAutomatedRun = automatedRun;
 		sceneCamera->setFOVy(Orkige::Degree(viewSettings.fovDeg));
 
 		// resolve + apply the editor theme now that the persisted preference is
@@ -1196,6 +1200,12 @@ int main(int argc, char** argv)
 		const char* scriptTestEnv = std::getenv("ORKIGE_EDITOR_SCRIPTTEST");
 		std::string scriptTestTempRoot;
 
+		// ORKIGE_EDITOR_AUTOSAVETEST=1: the autosave + backup + component
+		// copy/paste selfcheck (editor_autosave ctest). Frame 10 exercises the
+		// wired paths on a temp loose scene end to end.
+		const char* autosaveTestEnv = std::getenv("ORKIGE_EDITOR_AUTOSAVETEST");
+		std::string autosaveTestDir;
+
 		// ORKIGE_EDITOR_PREFABEDIT=<roller project dir>: the prefab edit-mode
 		// selfcheck (editor_prefab_edit ctest). Frame 10 copies the project to
 		// a temp dir, authors a tile instance with a per-instance override,
@@ -1213,6 +1223,14 @@ int main(int argc, char** argv)
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
+		// timed autosave bookkeeping: the wall-clock time the last autosave (or
+		// the loop start) ran, and the interval between them. Automated runs
+		// never autosave (gAutomatedRun gates shouldAutosave), so the selfcheck
+		// drives writeSceneAutosave directly.
+		std::chrono::steady_clock::time_point lastAutosaveTime =
+			std::chrono::steady_clock::now();
+		const double autosaveIntervalSeconds =
+			Orkige::EditorAutosave::defaultIntervalSeconds();
 		while (running)
 		{
 			// window title: a project ROOTS it ("Orkige Editor - <project> -
@@ -1382,6 +1400,31 @@ int main(int argc, char** argv)
 			// play mode: pump the debug link, watch the player process,
 			// handle crash/stop transitions - before the UI reads the state
 			updatePlaySession(playSession, console);
+
+			// timed autosave: a crash-recovery copy of a dirty scene to its
+			// ".autosave" sibling (never the real file). Stands down during an
+			// automated run, a play session and a prefab edit stage (whose world
+			// is the prefab subtree, not the scene) - see shouldAutosave.
+			{
+				const double secondsSinceLastAutosave =
+					std::chrono::duration_cast<std::chrono::duration<double>>(
+						std::chrono::steady_clock::now() - lastAutosaveTime)
+						.count();
+				if (Orkige::EditorAutosave::shouldAutosave(
+					editorCore.isSceneDirty(), gAutomatedRun,
+					playSession.isActive(), isPrefabEditActive(state),
+					secondsSinceLastAutosave, autosaveIntervalSeconds) &&
+					!state.currentScenePath.empty())
+				{
+					if (writeSceneAutosave(state, editorCore))
+					{
+						SDL_Log("orkige_editor: autosaved '%s'",
+							Orkige::EditorAutosave::autosavePath(
+								state.currentScenePath).c_str());
+					}
+					lastAutosaveTime = std::chrono::steady_clock::now();
+				}
+			}
 
 			// MCP endpoint: accept/read/dispatch HTTP JSON-RPC tool calls
 			// Pumped after the play session so play-control verbs act
@@ -4228,6 +4271,192 @@ int main(int argc, char** argv)
 									std::error_code cleanupErr;
 									std::filesystem::remove_all(
 										scriptTestTempRoot, cleanupErr);
+									running = false;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// --- autosave + backup + component copy/paste selfcheck ---
+			// (ORKIGE_EDITOR_AUTOSAVETEST=1) drives the WIRED paths on a temp
+			// loose scene: a clean save, a dirty autosave sibling, a clean save
+			// removing the autosave + writing a .bak, an automated-run stale
+			// autosave open that auto-discards (no modal), and a component
+			// copy/paste (one undo step). Single-shot, condition-driven.
+			if (autosaveTestEnv && frameCount == 10)
+			{
+				auto autosaveFail = [&](std::string const& why)
+				{
+					SDL_Log("orkige_editor: autosave test - FAILED: %s",
+						why.c_str());
+					exitCode = 15;
+					std::error_code ce;
+					if (!autosaveTestDir.empty())
+					{
+						std::filesystem::remove_all(autosaveTestDir, ce);
+					}
+					running = false;
+				};
+				std::error_code ec;
+				autosaveTestDir = (std::filesystem::temp_directory_path() /
+					("orkige_autosavetest_" + std::to_string(
+						std::chrono::steady_clock::now()
+							.time_since_epoch().count()))).string();
+				std::filesystem::create_directories(autosaveTestDir, ec);
+				const std::string scenePath =
+					(std::filesystem::path(autosaveTestDir) / "level.oscene")
+						.string();
+				const std::string autosavePath =
+					Orkige::EditorAutosave::autosavePath(scenePath);
+				const std::string backupPath =
+					Orkige::EditorAutosave::backupPath(scenePath);
+
+				// clean baseline: a fresh scene with one object, saved to disk
+				newScene(state, editorCore);
+				editorCore.createCube();	// dirties
+				if (!saveSceneToPath(state, editorCore, scenePath) ||
+					!std::filesystem::exists(scenePath))
+				{
+					autosaveFail("initial save did not write the scene");
+				}
+				else if (editorCore.isSceneDirty())
+				{
+					autosaveFail("save did not clear the dirty flag");
+				}
+				else if (std::filesystem::exists(autosavePath))
+				{
+					autosaveFail("a clean save left an autosave file");
+				}
+				// (a) a dirty scene autosaves to the SIBLING (never the file,
+				// dirty flag preserved)
+				else if (editorCore.createCube(), !editorCore.isSceneDirty())
+				{
+					autosaveFail("edit did not dirty the scene");
+				}
+				else if (!writeSceneAutosave(state, editorCore) ||
+					!std::filesystem::exists(autosavePath))
+				{
+					autosaveFail("autosave did not appear");
+				}
+				else if (!editorCore.isSceneDirty())
+				{
+					autosaveFail("autosave cleared the dirty flag (must not)");
+				}
+				// (b) a clean save removes the autosave AND writes a .bak
+				else if (!saveSceneToPath(state, editorCore, scenePath))
+				{
+					autosaveFail("second save failed");
+				}
+				else if (std::filesystem::exists(autosavePath))
+				{
+					autosaveFail("clean save did not remove the autosave");
+				}
+				else if (!std::filesystem::exists(backupPath))
+				{
+					autosaveFail("save did not create a .bak");
+				}
+				else
+				{
+					// (c) an automated-run open with a STALE (newer) autosave
+					// auto-discards silently - no modal - and loads the real
+					// scene, not the autosave content
+					std::ofstream(autosavePath) << "not a real scene";
+					std::filesystem::last_write_time(autosavePath,
+						std::filesystem::last_write_time(scenePath) +
+							std::chrono::seconds(5));
+					const std::size_t before =
+						gameObjectManager.getGameObjects().size();
+					const bool opened =
+						openSceneFromPath(state, editorCore, scenePath);
+					if (!opened)
+					{
+						autosaveFail("stale-autosave open failed to load");
+					}
+					else if (state.openAutosaveRecoveryPopup)
+					{
+						autosaveFail("automated run raised the recovery modal");
+					}
+					else if (std::filesystem::exists(autosavePath))
+					{
+						autosaveFail("automated run did not auto-discard the "
+							"stale autosave");
+					}
+					else if (gameObjectManager.getGameObjects().size() != before)
+					{
+						autosaveFail("the real scene did not load");
+					}
+					else
+					{
+						// (d) component copy/paste on two real objects, one undo
+						// step that reverts. Pick two objects carrying a
+						// TransformComponent.
+						Orkige::StringVector withTransform;
+						for (auto const& [id, go] :
+							gameObjectManager.getGameObjects())
+						{
+							if (go->hasComponent<Orkige::TransformComponent>())
+							{
+								withTransform.push_back(id);
+							}
+						}
+						if (withTransform.size() < 2)
+						{
+							autosaveFail("need two transform objects to test "
+								"copy/paste");
+						}
+						else
+						{
+							const std::string& a = withTransform[0];
+							const std::string& b = withTransform[1];
+							editorCore.setObjectProperty(a,
+								"TransformComponent", "position", "1 2 3");
+							std::string want;
+							editorCore.getObjectProperty(a,
+								"TransformComponent", "position", want);
+							const std::size_t undoBefore =
+								editorCore.getUndoStackSize();
+							std::string bBefore;
+							editorCore.getObjectProperty(b,
+								"TransformComponent", "position", bBefore);
+							bool ok = editorCore.copyComponent(a,
+								"TransformComponent") &&
+								editorCore.pasteComponent(b);
+							std::string bAfter;
+							editorCore.getObjectProperty(b,
+								"TransformComponent", "position", bAfter);
+							if (!ok || bAfter != want)
+							{
+								autosaveFail("paste did not copy the values (" +
+									bAfter + " != " + want + ")");
+							}
+							else if (editorCore.getUndoStackSize() !=
+								undoBefore + 1)
+							{
+								autosaveFail("paste is not ONE undo step");
+							}
+							else if (!editorCore.undo())
+							{
+								autosaveFail("undo of paste failed");
+							}
+							else
+							{
+								std::string bReverted;
+								editorCore.getObjectProperty(b,
+									"TransformComponent", "position", bReverted);
+								if (bReverted != bBefore)
+								{
+									autosaveFail("undo did not revert the paste");
+								}
+								else
+								{
+									SDL_Log("orkige_editor: autosave test - OK "
+										"(autosave sibling, .bak on save, "
+										"stale-open auto-discard, component "
+										"copy/paste one-undo)");
+									std::filesystem::remove_all(autosaveTestDir,
+										ec);
 									running = false;
 								}
 							}

@@ -591,6 +591,33 @@ namespace Orkige
 		EditorComponentSnapshot mSnapshot;	//!< captured fresh on every execute
 	};
 
+	//! @brief overwrite a component's reflected properties from a captured
+	//! name -> value map (the Paste Component values half). Values travel
+	//! through the SAME reflection registry the prefab-override machinery uses:
+	//! execute captures the component's current property values (for undo /
+	//! redo) then applies the pasted map via
+	//! SceneSerializer::applyComponentProperties; unexecute restores the
+	//! captured values. The component must already be attached (a paste onto an
+	//! object lacking the kind pairs this with an AddComponentCommand in a
+	//! CompositeCommand). No new serializer - it reuses the per-property
+	//! capture/apply that a scene save/load and a prefab override already speak.
+	class ApplyComponentPropertiesCommand : public EditorCommand
+	{
+	public:
+		ApplyComponentPropertiesCommand(String const& objectId,
+			String const& componentTypeName,
+			GameObject::ComponentPropertyMap const& properties);
+		virtual bool execute(EditorCore& core) override;
+		virtual bool unexecute(EditorCore& core) override;
+		virtual String getDescription() const override;
+
+	private:
+		String mObjectId;
+		String mComponentTypeName;
+		GameObject::ComponentPropertyMap mProperties;	//!< the pasted values
+		GameObject::ComponentPropertyMap mBefore;		//!< captured on execute
+	};
+
 	//! @brief swap the mesh of a ModelComponent (Inspector mesh field);
 	//! execute/unexecute reload the entity through ModelComponent::loadModel
 	class ChangeMeshCommand : public EditorCommand
@@ -894,6 +921,30 @@ namespace Orkige
 		//! receives the name of the first dependent component.
 		bool canRemoveComponent(String const& id,
 			String const& componentTypeName, String* blockedBy = nullptr) const;
+
+		//--- component copy / paste (Inspector context menu) -----------------
+		//! @brief copy a component's reflected property values into the editor's
+		//! single-slot clipboard (NOT undoable - like a selection change). The
+		//! values are captured through the reflection registry
+		//! (SceneSerializer::captureComponentProperties), so a script-KIND
+		//! component's declared/exported fields travel too. False if the object
+		//! or component is missing.
+		bool copyComponent(String const& id, String const& componentTypeName);
+		//! is a component currently on the clipboard
+		bool hasComponentClipboard() const { return mComponentClipboardValid; }
+		//! the type/kind name of the clipboard component ("" if empty)
+		String getClipboardComponentTypeName() const
+		{
+			return mComponentClipboardValid ? mComponentClipboardType : String();
+		}
+		//! @brief paste the clipboard component onto an object as ONE undo step.
+		//! Adds the component first when the object lacks the kind (factory by
+		//! kind name, script kinds via the registry alias) then applies the
+		//! copied values, or just overwrites the values when it is already
+		//! present - either way one undoable step (a CompositeCommand for the
+		//! add+set case). False when the clipboard is empty, the object is
+		//! missing or the kind is not registered.
+		bool pasteComponent(String const& id);
 		//! swap a ModelComponent's mesh (undoable; entity reloads); refused
 		//! if the object has no ModelComponent or the mesh fails to load
 		bool changeObjectMesh(String const& id, String const& meshName);
@@ -1087,5 +1138,10 @@ namespace Orkige
 		//! the open project's collision layers (dropdown source; default =
 		//! single "Default" layer) - the editor reads this, never simulates
 		PhysicsWorld::LayerConfig mPhysicsLayers;
+		//! single-slot component clipboard (copyComponent -> pasteComponent):
+		//! the source kind name + its captured reflected property values
+		bool mComponentClipboardValid = false;
+		String mComponentClipboardType;
+		GameObject::ComponentPropertyMap mComponentClipboard;
 	};
 }

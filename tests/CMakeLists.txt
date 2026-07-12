@@ -617,6 +617,20 @@ if(TARGET orkige_editor)
     set_tests_properties(editor_prefab_edit${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
         ENVIRONMENT "ORKIGE_EDITOR_PREFABEDIT=${Orkige_SOURCE_DIR}/projects/roller;ORKIGE_DEMO_FRAMES=120"
         LABELS integration TIMEOUT 120)
+
+    # editor safety + convenience end to end (no Play, pure edit-world): on a
+    # temp loose scene, a clean save clears the dirty flag and leaves no
+    # autosave; a dirty edit autosaves to the ".autosave" sibling (never the
+    # real file, dirty preserved); a clean save removes the autosave and writes
+    # a ".bak"; an automated-run open with a NEWER autosave auto-discards it
+    # silently (no recovery modal) and loads the real scene; and a component
+    # copy/paste across two objects matches values in ONE undoable step. Both
+    # flavors. Frame budget is the backstop.
+    add_test(NAME editor_autosave${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_autosave${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_AUTOSAVETEST=1;ORKIGE_DEMO_FRAMES=120"
+        LABELS integration TIMEOUT 120)
 endif()
 
 # (the Python MCP sidecar Util/orkige_mcp.py and its mcp_bridge_selftest ctest

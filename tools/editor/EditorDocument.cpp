@@ -3,6 +3,7 @@
 // resource group) and the mesh import (asset database wiring included).
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
 #include "EditorApp.h"
+#include "EditorAutosave.h"
 #include "MeshImport.h"
 #include "PythonToolchain.h"
 
@@ -50,6 +51,14 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 		return false;
 	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
+	// keep one backup generation: copy the existing on-disk scene aside to its
+	// ".bak" sibling BEFORE the save overwrites it (a no-op for a first save /
+	// Save As to a new path)
+	if (!Orkige::EditorAutosave::writeBackup(path))
+	{
+		SDL_Log("orkige_editor: could not back up scene '%s' before saving",
+			path.c_str());
+	}
 	if (!Orkige::SceneSerializer::saveScene(path, gameObjectManager))
 	{
 		SDL_Log("orkige_editor: saving scene '%s' failed", path.c_str());
@@ -59,6 +68,8 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 		path.c_str(), gameObjectManager.getGameObjects().size());
 	state.currentScenePath = path;
 	core.clearSceneDirty();
+	// the scene is clean on disk now - drop any stale autosave sibling
+	Orkige::EditorAutosave::removeAutosave(path);
 	recordRecentScene(path);
 	return true;
 }
@@ -84,6 +95,66 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 		path.c_str(), gameObjectManager.getGameObjects().size());
 	state.currentScenePath = path;
 	recordRecentScene(path);
+	// crash recovery: a ".autosave" sibling NEWER than the scene file means a
+	// prior session died with unsaved work. Automated runs auto-discard it
+	// silently (they must never block on a modal); an interactive session raises
+	// the Restore/Discard modal, drawn by drawEditorModals.
+	if (Orkige::EditorAutosave::recoveryAvailable(path))
+	{
+		if (gAutomatedRun)
+		{
+			Orkige::EditorAutosave::removeAutosave(path);
+			SDL_Log("orkige_editor: discarded a stale autosave for '%s' "
+				"(automated run)", path.c_str());
+		}
+		else
+		{
+			state.autosaveRecoveryScenePath = path;
+			state.openAutosaveRecoveryPopup = true;
+		}
+	}
+	return true;
+}
+
+bool writeSceneAutosave(EditorState& state, Orkige::EditorCore& core)
+{
+	if (state.currentScenePath.empty())
+	{
+		return false;	// an untitled scene has no file to sit next to
+	}
+	const std::string autosavePath =
+		Orkige::EditorAutosave::autosavePath(state.currentScenePath);
+	// write the world to the sibling - NEVER the real file, and the dirty flag
+	// stays set (the user still owes a real save)
+	if (!Orkige::SceneSerializer::saveScene(autosavePath,
+		core.getGameObjectManager()))
+	{
+		SDL_Log("orkige_editor: autosave to '%s' failed", autosavePath.c_str());
+		return false;
+	}
+	return true;
+}
+
+bool restoreSceneAutosave(EditorState& state, Orkige::EditorCore& core,
+	std::string const& scenePath)
+{
+	const std::string autosavePath =
+		Orkige::EditorAutosave::autosavePath(scenePath);
+	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
+	core.resetForScene();
+	if (!Orkige::SceneSerializer::loadScene(autosavePath, gameObjectManager))
+	{
+		SDL_Log("orkige_editor: restoring autosave '%s' failed",
+			autosavePath.c_str());
+		return false;
+	}
+	applyUnlitFixToLoadedModels(core);
+	state.currentScenePath = scenePath;
+	// the recovered state is unsaved (newer than the file) - mark dirty so the
+	// user saves it, and clear the autosave now that it lives in the world
+	core.markSceneDirty();
+	Orkige::EditorAutosave::removeAutosave(scenePath);
+	SDL_Log("orkige_editor: restored autosave for '%s'", scenePath.c_str());
 	return true;
 }
 
