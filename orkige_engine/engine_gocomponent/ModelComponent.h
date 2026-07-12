@@ -23,6 +23,18 @@ namespace Orkige
 	//! The historical shareSkeletonInstance flag of loadModel was dropped -
 	//! Ogre skeleton-instance sharing has no facade shape and no caller
 	//! (recoverable from git if a real need returns).
+	//!
+	//! MATERIAL: the reflected `material` reference names a `.omat` asset
+	//! (core_util/MaterialAsset) rendered over the mesh's imported materials -
+	//! whole-instance, all sub-meshes (@see MeshInstance::setMaterial). The
+	//! component reads the asset text through the resource system, parses it,
+	//! feeds RenderSystem::createMaterial under the shared name
+	//! "Omat/<asset>" (so every user of one `.omat` shares ONE live renderer
+	//! material - editing the asset updates them all on the next apply) and
+	//! assigns it. Clearing the reference reloads the mesh, restoring the
+	//! imported materials. A missing/malformed asset or a mesh that cannot
+	//! host the maps logs and leaves the mesh's current materials - honest,
+	//! never half-applied.
 	class ORKIGE_ENGINE_DLL ModelComponent : public GameObjectComponent, public SceneNodeGuard
 	{
 		OOBJECT(ModelComponent, GameObjectComponent)
@@ -42,6 +54,8 @@ namespace Orkige
 		optr<MeshInstance>	mesh;					//!< the current mesh instance or NULL
 		String				modelFileName;			//!< filename of the current model or empty String
 		String				modelAssetId;			//!< stable asset id of the mesh ("" = none/engine media)
+		String				materialFileName;		//!< `.omat` asset rendered over the imported materials ("" = none)
+		String				materialAssetId;		//!< stable asset id of the material ("" = none)
 		optr<StringUtil::StringObject> eventData;	//!< name of set or removed model
 	private:
 		//--- Methods -----------------------------------------------
@@ -60,11 +74,20 @@ namespace Orkige
 		//! node exists, otherwise just records the reference (a detached load).
 		//! Tolerant where loadModel asserts - so the property drive can set it.
 		void setModelReference(String const & modelFileName);
+		//! @brief set the `.omat` MATERIAL reference (the reflected AssetRef
+		//! setter, @see class remarks): a name applies the material when a
+		//! mesh is live (otherwise it is recorded and applied on load); empty
+		//! clears it and reloads the mesh with its imported materials.
+		void setMaterialReference(String const & materialFileName);
 
 		//! @see ModelComponent::modelFileName
 		inline String const & getCurrentModelFileName() const;
 		//! @see ModelComponent::modelAssetId
 		inline String const & getModelAssetId() const;
+		//! @see ModelComponent::materialFileName
+		inline String const & getMaterialFileName() const;
+		//! @see ModelComponent::materialAssetId
+		inline String const & getMaterialAssetId() const;
 		//! the facade mesh instance or NULL (@see ModelComponent::mesh)
 		inline optr<MeshInstance> const & getMeshInstance() const;
 
@@ -75,12 +98,17 @@ namespace Orkige
 		virtual void onRemove();
 		//! deactivated GameObjects hide their model
 		virtual void onSetActive(bool activeInHierarchy);
+		//! @brief read + parse the recorded `.omat` and render the live mesh
+		//! with it (@see class remarks); no-op without a mesh or a reference.
+		//! Any failure (missing/malformed asset, unsupported mesh) logs and
+		//! leaves the mesh's current materials.
+		void applyMaterial();
 		//--- SERIALIZATION ---
-		//! save the model file name (plus its stable asset id as the assetId
-		//! attribute) to Archive
+		//! save the model + material file names (each with its stable asset
+		//! id riding the record) to Archive
 		virtual void save(optr<IArchive> const & ar);
-		//! @brief load the model file name from Archive and load the model; a
-		//! mesh asset id that resolves in the open project's AssetDatabase
+		//! @brief load the model + material references from Archive and apply
+		//! them; an asset id that resolves in the open project's AssetDatabase
 		//! wins over a stale file name (rename survival)
 		virtual void load(optr<IArchive> const & ar);
 	private:
@@ -94,6 +122,16 @@ namespace Orkige
 	inline String const & ModelComponent::getModelAssetId() const
 	{
 		return this->modelAssetId;
+	}
+	//---------------------------------------------------------------
+	inline String const & ModelComponent::getMaterialFileName() const
+	{
+		return this->materialFileName;
+	}
+	//---------------------------------------------------------------
+	inline String const & ModelComponent::getMaterialAssetId() const
+	{
+		return this->materialAssetId;
 	}
 	//---------------------------------------------------------------
 	inline optr<MeshInstance> const & ModelComponent::getMeshInstance() const

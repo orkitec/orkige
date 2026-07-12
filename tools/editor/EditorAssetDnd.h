@@ -23,7 +23,8 @@ enum class AssetKind
 	Scene,		//!< .oscene (double-click / drop opens it)
 	Prefab,		//!< .oprefab (CreatePrefabInstanceCommand)
 	Audio,		//!< .wav/.ogg/... (added to an object as a SoundComponent)
-	VectorShape	//!< .oshape (CreateVectorShapeObjectCommand)
+	VectorShape,	//!< .oshape (CreateVectorShapeObjectCommand)
+	Material	//!< .omat (assigned into a ModelComponent's material slot; not instantiable on its own)
 };
 
 //! the single-item drag-drop payload bytes: kind + absolute path, fixed size so

@@ -322,7 +322,13 @@ the 2D camera, also reachable via `Engine::setCameraOrthographic`/`…Fit`),
 facade — reflected `type`/`colour`/`intensity`/`range`/`innerAngle`/`outerAngle`/
 `castsShadows`, serialized + Lua + MCP through the ONE property registry, follows
 the transform node, both flavors; `RenderWorld::setAmbientHemisphere` adds
-two-colour sky/ground ambient — native on next, averaged-flat on classic), the Lua
+two-colour sky/ground ambient — native on next, averaged-flat on classic;
+**PBS materials**: a `.omat` text asset — `core_util/MaterialAsset`, pure parser —
+feeds `RenderSystem::createMaterial` + `MeshInstance::setMaterial` via
+`ModelComponent`'s reflected `material` AssetRef; next = native HlmsPbs metal-rough
+incl. normal/emissive maps, classic = honest Blinn-Phong subset (maps ignored), no
+IBL until the sky/atmosphere surface — `Docs/materials.md`, `demo_material` per
+flavor), the Lua
 `ScriptComponent` — dormant unless a
 runtime ticks GameObjects, so the editor never runs scripts); `engine_input` is SDL3-based
 (KC_* keycodes preserved; `isKeyDown` reads the injectEvent-fed state, so synthetic

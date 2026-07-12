@@ -86,6 +86,17 @@ namespace Orkige
 		//! (self-check introspection used by editor/jumper today)
 		//! map: classic=SubEntity material Pass::getNumTextureUnitStates | next=HlmsDatablock texture probe | filament=MaterialInstance parameter probe
 		bool subMeshHasTexture(size_t index) const;
+		//! @brief render ALL sub-meshes with a RenderSystem::createMaterial
+		//! material (whole-instance assignment - per-sub-mesh granularity
+		//! waits for a real need). The assignment is per INSTANCE: other
+		//! instances of the same mesh resource keep their materials.
+		//! @return false + a log line when no such material exists, or (next)
+		//! when the mesh cannot host the material's maps - a normal map needs
+		//! tangents, any texture needs UVs; the importer provides both for
+		//! UV-mapped imports, but e.g. the procedural cube has neither. On
+		//! refusal the previous materials stay.
+		//! map: classic=SubEntity::setMaterial | next=SubItem::setDatablock (Hlms shader-gen guarded) | filament=RenderableManager::setMaterialInstanceAt
+		bool setMaterial(String const & materialName);
 
 		//--- animation (what AnimationComponent uses) ---
 		//! names of all animations the mesh's skeleton/resource carries

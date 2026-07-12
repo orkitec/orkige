@@ -456,6 +456,20 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_light PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_LIGHT=1;ORKIGE_DEMO_FRAMES=120")
 
+    # ORKIGE_DEMO_MATERIAL: the `.omat` PBS-material selfcheck - a
+    # ModelComponent imports the generated UV-mapped demo cube (textureless
+    # baseline), takes demo_material.omat through its reflected material
+    # reference (parse -> createMaterial -> setMaterial) and must then sample
+    # the albedo map; a hide/show triangle-count probe proves the material
+    # actually renders. Runs on both flavors: next = the full PBS datablock
+    # (metal-rough + normal/emissive maps over generated tangents), classic =
+    # its documented Blinn-Phong subset - a per-flavor probe, NOT a pixel
+    # parity case (lit content legitimately differs between the flavors).
+    add_test(NAME demo_material COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_material PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_MATERIAL=1;ORKIGE_DEMO_FRAMES=120")
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test
@@ -1246,7 +1260,7 @@ endif()
 # shared properties for all integration tests
 foreach(integration_test demo_plain demo_mesh demo_physics demo_sound demo_music
         demo_spriteanim demo_spriteatlas demo_particles demo_vectorshape
-        demo_light demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
+        demo_light demo_material demo_ui_scale demo_ui_safe_area demo_textentry demo_ttf
         demo_synth_esc editor_selfcheck editor_resize editor_edittest
         editor_selfcheck_next editor_resize_next editor_edittest_next
         player_example_scene player_example_project player_vectorshape_scene

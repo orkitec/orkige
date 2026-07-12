@@ -158,6 +158,27 @@ namespace Orkige
 		return pass && pass->getNumTextureUnitStates() > 0;
 	}
 	//---------------------------------------------------------
+	bool MeshInstance::setMaterial(String const & materialName)
+	{
+		Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton()
+			.getByName(materialName,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(!material)
+		{
+			oDebugError("engine", 0, "MeshInstance('"
+				<< this->mImpl->entity->getMesh()->getName()
+				<< "'): no material '" << materialName
+				<< "' (create it via RenderSystem::createMaterial first)");
+			return false;
+		}
+		for(unsigned int each = 0;
+			each < this->mImpl->entity->getNumSubEntities(); ++each)
+		{
+			this->mImpl->entity->getSubEntity(each)->setMaterial(material);
+		}
+		return true;
+	}
+	//---------------------------------------------------------
 	StringVector MeshInstance::getAnimationNames() const
 	{
 		StringVector names;

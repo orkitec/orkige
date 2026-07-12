@@ -697,6 +697,106 @@ namespace Orkige
 		return datablock;
 	}
 	//---------------------------------------------------------
+	Ogre::HlmsDatablock* RenderBackend::createOrUpdatePbsDatablock(
+		String const & name, RenderMaterialDesc const & desc, bool & outComplete)
+	{
+		oAssert(gRenderSystem);
+		oAssert(!name.empty());
+		outComplete = true;
+		Ogre::HlmsManager* hlmsManager =
+			gRenderSystem->mImpl->root->getHlmsManager();
+		Ogre::HlmsPbsDatablock* datablock = NULL;
+		if(Ogre::HlmsDatablock* existing =
+			hlmsManager->getDatablockNoDefault(name))
+		{
+			// update-in-place is only safe within the PBS family - refuse to
+			// stomp a generated sprite/unlit/2D-layer datablock of that name
+			if(!existing->getCreator() ||
+				existing->getCreator()->getType() != Ogre::HLMS_PBS)
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: material '" + name +
+					"' collides with an existing non-PBS datablock - refused");
+				outComplete = false;
+				return NULL;
+			}
+			datablock = static_cast<Ogre::HlmsPbsDatablock*>(existing);
+		}
+		else
+		{
+			Ogre::HlmsPbs* pbs = static_cast<Ogre::HlmsPbs*>(
+				hlmsManager->getHlms(Ogre::HLMS_PBS));
+			datablock = static_cast<Ogre::HlmsPbsDatablock*>(pbs->createDatablock(
+				name, name, Ogre::HlmsMacroblock(), Ogre::HlmsBlendblock(),
+				Ogre::HlmsParamVec()));
+			RenderBackend::registerContentDatablock(datablock);
+		}
+
+		// metallic workflow: metalness/roughness are native scalars - exactly
+		// the RenderMaterialDesc vocabulary (the specular-colour slot of the
+		// other workflows stays out of the facade)
+		datablock->setWorkflow(Ogre::HlmsPbsDatablock::MetallicWorkflow);
+		datablock->setDiffuse(Ogre::Vector3(desc.albedo.r, desc.albedo.g,
+			desc.albedo.b));
+		datablock->setMetalness(std::clamp(desc.metalness, 0.0f, 1.0f));
+		// the Hlms floors roughness itself (a hard 0 breaks the BRDF); mirror
+		// the floor here so the update path never trips its warning
+		datablock->setRoughness(std::max(desc.roughness, 0.02f));
+		datablock->setEmissive(Ogre::Vector3(desc.emissive.r, desc.emissive.g,
+			desc.emissive.b));
+
+		// textures: a set name binds the map, an empty one detaches it (the
+		// update path must be able to REMOVE a map). Albedo/emissive ride
+		// loadTexture2D (raw texels, AutomaticBatching, mipmaps - the
+		// gamma-space colour-parity convention of every content texture);
+		// the normal map goes through the PBS slot's string setter, whose
+		// suggested filters run the normal-map preparation (no sRGB there).
+		Ogre::ResourceGroupManager & resourceGroups =
+			Ogre::ResourceGroupManager::getSingleton();
+		struct MapBinding
+		{
+			String const &			textureName;
+			Ogre::PbsTextureTypes	slot;
+			bool					viaLoadTexture2D;
+		};
+		const MapBinding bindings[] = {
+			{ desc.albedoTexture,	Ogre::PBSM_DIFFUSE,		true },
+			{ desc.emissiveTexture,	Ogre::PBSM_EMISSIVE,	true },
+			{ desc.normalTexture,	Ogre::PBSM_NORMAL,		false },
+		};
+		for(MapBinding const & binding : bindings)
+		{
+			if(binding.textureName.empty())
+			{
+				datablock->setTexture(binding.slot,
+					static_cast<Ogre::TextureGpu*>(NULL));
+				continue;
+			}
+			if(!resourceGroups.resourceExistsInAnyGroup(binding.textureName))
+			{
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: material '" + name + "' texture '" +
+					binding.textureName + "' not found - map skipped");
+				datablock->setTexture(binding.slot,
+					static_cast<Ogre::TextureGpu*>(NULL));
+				outComplete = false;
+				continue;
+			}
+			if(binding.viaLoadTexture2D)
+			{
+				Ogre::TextureGpu* texture =
+					RenderBackend::loadTexture2D(binding.textureName);
+				datablock->setTexture(binding.slot, texture);
+				outComplete = outComplete && texture != NULL;
+			}
+			else
+			{
+				datablock->setTexture(binding.slot, binding.textureName);
+			}
+		}
+		return datablock;
+	}
+	//---------------------------------------------------------
 	Ogre::TextureGpu* RenderBackend::datablockDiffuseTexture(
 		Ogre::HlmsDatablock* datablock)
 	{

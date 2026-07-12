@@ -22,6 +22,7 @@
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/CameraComponent.h>
 #include <engine_gocomponent/LightComponent.h>
+#include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/ComponentPropertyReflect.h>
 #include <engine_render/RenderMath.h>
 
@@ -223,4 +224,65 @@ TEST_CASE("LightComponent properties round-trip on a DETACHED component",
 	CHECK(restored.getInnerAngle() == Approx(25.0f));
 	CHECK(restored.getOuterAngle() == Approx(55.0f));
 	CHECK(restored.getCastsShadows());
+}
+//---------------------------------------------------------
+TEST_CASE("ModelComponent declares mesh AND material references in its schema",
+	"[reflection][model][material]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		ModelComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+
+	// the mesh reference (asset-kind "mesh") and the `.omat` material
+	// reference (asset-kind "material") - both writable AssetRefs, so the
+	// Inspector picker, scene serialization and the MCP verbs reach them
+	// generically
+	PropertyDesc const * mesh = schema->find("mesh");
+	PropertyDesc const * material = schema->find("material");
+	REQUIRE(mesh != nullptr);
+	REQUIRE(material != nullptr);
+	CHECK(mesh->kind == PropertyKind::AssetRef);
+	CHECK(mesh->referenceHint == "mesh");
+	CHECK(material->kind == PropertyKind::AssetRef);
+	CHECK(material->referenceHint == "material");
+	CHECK_FALSE(material->isReadOnly());
+}
+//---------------------------------------------------------
+TEST_CASE("ModelComponent material reference round-trips on a DETACHED component",
+	"[reflection][model][material]")
+{
+	using namespace Orkige;
+	EngineTestEnvironment::get();
+
+	PropertySchema const * schema = TypeManager::getSingleton().getPropertySchema(
+		ModelComponent::getClassTypeInfo().getId());
+	REQUIRE(schema != nullptr);
+	PropertyDesc const * material = schema->find("material");
+	REQUIRE(material != nullptr);
+
+	// a detached model (no scene node, no mesh, no render system) RECORDS the
+	// reference through the type-erased set - the same tolerant setter the
+	// scene loader drives; the live apply happens when a mesh loads
+	ModelComponent model;
+	Object * instance = &model;
+	CHECK(material->get(instance).referenceId().empty());
+
+	material->set(instance,
+		PropertyValue::makeAssetRef("material", "rock.omat"));
+	CHECK(model.getMaterialFileName() == "rock.omat");
+	CHECK(material->get(instance).referenceId() == "rock.omat");
+
+	// the serialization path (capture -> apply) carries the reference
+	GameObject::ComponentPropertyMap captured =
+		SceneSerializer::captureComponentProperties(model);
+	ModelComponent restored;
+	SceneSerializer::applyComponentProperties(captured, restored);
+	CHECK(restored.getMaterialFileName() == "rock.omat");
+
+	// clearing detaches cleanly (no mesh to reload on a detached component)
+	material->set(instance, PropertyValue::makeAssetRef("material", ""));
+	CHECK(model.getMaterialFileName().empty());
 }

@@ -29,8 +29,15 @@
 #include <OgreSubItem.h>
 #include <OgreMesh2.h>
 #include <OgreResourceGroupManager.h>
+#include <OgreRoot.h>
+#include <OgreHlmsManager.h>
+#include <OgreHlmsDatablock.h>
+#include <OgreLogManager.h>
+#include <OgreException.h>
 #include <Animation/OgreSkeletonInstance.h>
 #include <Animation/OgreSkeletonAnimation.h>
+
+#include <vector>
 
 namespace Orkige
 {
@@ -175,6 +182,56 @@ namespace Orkige
 		}
 		return RenderBackend::datablockDiffuseTexture(
 			this->mImpl->item->getSubItem(index)->getDatablock()) != NULL;
+	}
+	//---------------------------------------------------------
+	bool MeshInstance::setMaterial(String const & materialName)
+	{
+		Ogre::Root* root = RenderBackend::ogreRoot();
+		oAssert(root);
+		Ogre::HlmsDatablock* datablock =
+			root->getHlmsManager()->getDatablockNoDefault(materialName);
+		if(!datablock)
+		{
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: mesh '" + this->mImpl->meshName +
+				"': no material '" + materialName +
+				"' (create it via RenderSystem::createMaterial first)");
+			return false;
+		}
+		// assign atomically: Hlms shader generation REFUSES a datablock the
+		// mesh cannot host (a normal map needs tangents, any texture needs
+		// UVs - it throws from the sub-item's hash calculation). Remember the
+		// previous datablocks and roll back on refusal, so a mesh that cannot
+		// take the material keeps rendering with what it had.
+		std::vector<Ogre::HlmsDatablock*> previous;
+		const size_t subItemCount = this->mImpl->item->getNumSubItems();
+		previous.reserve(subItemCount);
+		for(size_t each = 0; each < subItemCount; ++each)
+		{
+			previous.push_back(this->mImpl->item->getSubItem(each)
+				->getDatablock());
+		}
+		try
+		{
+			for(size_t each = 0; each < subItemCount; ++each)
+			{
+				this->mImpl->item->getSubItem(each)->setDatablock(datablock);
+			}
+		}
+		catch(Ogre::Exception const & e)
+		{
+			for(size_t each = 0; each < subItemCount; ++each)
+			{
+				this->mImpl->item->getSubItem(each)
+					->setDatablock(previous[each]);	// known-good, cannot throw
+			}
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: mesh '" + this->mImpl->meshName +
+				"' cannot render material '" + materialName + "': " +
+				e.getDescription());
+			return false;
+		}
+		return true;
 	}
 	//---------------------------------------------------------
 	StringVector MeshInstance::getAnimationNames() const

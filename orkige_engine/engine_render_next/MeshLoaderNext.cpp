@@ -26,10 +26,13 @@
 //! colour and diffuse texture - glb-embedded textures are decoded from
 //! memory, external references resolve through the resource groups.
 //! Assimp generates smooth normals (PBS needs them; the test glbs ship
-//! none) and BAKES node transforms (aiProcess_PreTransformVertices):
-//! the importer is static-meshes-only - skeletal glb import is an
-//! honest gap logged once (the facade animation surface itself is
-//! implemented over v2 SkeletonInstance in MeshInstanceNext.cpp).
+//! none), UV-mapped imports additionally get TANGENTS built on the v1
+//! intermediate (normal-mapping materials - RenderSystem::
+//! createMaterial - need them), and node transforms are BAKED
+//! (aiProcess_PreTransformVertices): the importer is static-meshes-only
+//! - skeletal glb import is an honest gap logged once (the facade
+//! animation surface itself is implemented over v2 SkeletonInstance in
+//! MeshInstanceNext.cpp).
 
 #include "engine_render_next/NextBackend.h"
 
@@ -289,6 +292,32 @@ namespace Orkige
 				meshName + "/v1import",
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
 				false /*buildShadowMapBuffers*/);
+			// UV-mapped imports get TANGENTS (from the v1 normals + UVs, they
+			// survive importV1): the Hlms REFUSES to render a normal-mapping
+			// material (RenderSystem::createMaterial) on a tangent-less mesh,
+			// so every mesh that CAN carry one (has UVs) does. Meshes without
+			// UVs can't take textured materials anyway - nothing to build.
+			bool anyUVs = false;
+			for(unsigned int each = 0; each < scene->mNumMeshes; ++each)
+			{
+				anyUVs = anyUVs || scene->mMeshes[each]->HasTextureCoords(0);
+			}
+			if(anyUVs)
+			{
+				try
+				{
+					v1Mesh->buildTangentVectors();
+				}
+				catch(Ogre::Exception const & e)
+				{
+					// degenerate UVs etc.: import without tangents (normal-
+					// mapping materials will be refused for this mesh, logged)
+					Ogre::LogManager::getSingleton().logMessage(
+						"Orkige next backend: mesh '" + meshName +
+						"': tangent generation failed (" + e.getDescription() +
+						") - normal-mapping materials will not apply");
+				}
+			}
 			Ogre::MeshPtr v2Mesh = importV1Mesh(v1Mesh, meshName);
 			if(!v2Mesh)
 			{

@@ -15,6 +15,8 @@
 #include <core_game/GameObject.h>
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
+#include <core_util/MaterialAsset.h>
+#include <core_debug/DebugMacros.h>
 
 namespace Orkige
 {
@@ -27,6 +29,8 @@ namespace Orkige
 	{
 		this->modelFileName = "";
 		this->modelAssetId = "";
+		this->materialFileName = "";
+		this->materialAssetId = "";
 		this->addDependency<TransformComponent>();
 		this->eventData = onew(new StringUtil::StringObject(StringUtil::BLANK));
 	}
@@ -42,30 +46,35 @@ namespace Orkige
 		oAssert(componentOwner);
 		oAssert(this->mNode);
 
+		// callers may pass this->modelFileName itself (the material-clear
+		// reload does) and removeModel() clears that member - copy before
+		// anything can mutate what the parameter aliases
+		const String fileName = modelFileName;
+
 		if(this->mesh)
 		{
 			this->removeModel();
 		}
 
-		if(modelFileName.empty())
+		if(fileName.empty())
 			return;
 
 		// the facade resolves the mesh through every resource group
 		// (engine media AND project assets); a load failure was already
 		// logged - the component honestly stays empty then
 		optr<MeshInstance> loaded =
-			RenderSystem::get()->getWorld()->createMeshInstance(modelFileName);
+			RenderSystem::get()->getWorld()->createMeshInstance(fileName);
 		if(!loaded)
 		{
 			return;
 		}
 
 		this->mesh = loaded;
-		this->modelFileName = modelFileName;
+		this->modelFileName = fileName;
 		// the asset id tracks the mesh: the open project's database knows it
 		// ("" without a project, or for engine media - honest either way)
 		this->modelAssetId = AssetDatabase::referenceIdForValue(
-			modelFileName, "", AssetDatabase::REF_FILE_NAME);
+			fileName, "", AssetDatabase::REF_FILE_NAME);
 		this->mesh->attachTo(this->getNode());
 		// content attached to an already-hidden node does not inherit the
 		// visibility - re-apply the owner's active state
@@ -73,7 +82,9 @@ namespace Orkige
 		{
 			this->setVisible(false);
 		}
-		this->eventData->setValue(modelFileName);
+		// a recorded material reference renders over the imported materials
+		this->applyMaterial();
+		this->eventData->setValue(fileName);
 		componentOwner->triggerEvent(Event(ModelComponent::ModelSetEvent, this->eventData));
 	}
 	//---------------------------------------------------------
@@ -121,7 +132,73 @@ namespace Orkige
 			modelFileName, "", AssetDatabase::REF_FILE_NAME);
 	}
 	//---------------------------------------------------------
+	void ModelComponent::setMaterialReference(String const & materialFileName)
+	{
+		if(materialFileName.empty())
+		{
+			this->materialFileName = "";
+			this->materialAssetId = "";
+			// the only road back to the IMPORTED materials is a fresh mesh
+			// instance - reload the model (a detached component has nothing
+			// live to restore)
+			if(this->mesh && !this->modelFileName.empty())
+			{
+				this->loadModel(this->modelFileName);
+			}
+			return;
+		}
+		this->materialFileName = materialFileName;
+		this->materialAssetId = AssetDatabase::referenceIdForValue(
+			materialFileName, "", AssetDatabase::REF_FILE_NAME);
+		// applies live when a mesh exists; otherwise the recorded reference
+		// applies when the model loads (loadModel calls applyMaterial)
+		this->applyMaterial();
+	}
+	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
+	//---------------------------------------------------------
+	void ModelComponent::applyMaterial()
+	{
+		if(!this->mesh || this->materialFileName.empty())
+		{
+			return;
+		}
+		RenderSystem* render = RenderSystem::get();
+		oAssert(render);	// there is a mesh, so a render system is up
+		String text;
+		if(!render->readResourceText(this->materialFileName, text))
+		{
+			oDebugError("engine", 0, "ModelComponent: material '"
+				<< this->materialFileName << "' not found - the mesh keeps "
+				"its current materials");
+			return;
+		}
+		MaterialAsset::ParsedMaterial parsed;
+		String parseError;
+		if(!MaterialAsset::parse(text, parsed, &parseError))
+		{
+			oDebugError("engine", 0, "ModelComponent: material '"
+				<< this->materialFileName << "' failed to parse (" << parseError
+				<< ") - the mesh keeps its current materials");
+			return;
+		}
+		// ONE live renderer material per asset, shared by every component
+		// referencing it (create-or-update: a re-apply after an asset edit
+		// updates all of them)
+		RenderMaterialDesc desc;
+		desc.albedo = Color(parsed.albedo.r, parsed.albedo.g, parsed.albedo.b,
+			parsed.albedo.a);
+		desc.albedoTexture = parsed.albedoTexture;
+		desc.metalness = parsed.metalness;
+		desc.roughness = parsed.roughness;
+		desc.normalTexture = parsed.normalTexture;
+		desc.emissive = Color(parsed.emissive.r, parsed.emissive.g,
+			parsed.emissive.b, 1.0f);
+		desc.emissiveTexture = parsed.emissiveTexture;
+		const String materialName = "Omat/" + this->materialFileName;
+		render->createMaterial(materialName, desc);	// texture misses logged
+		this->mesh->setMaterial(materialName);		// refusals logged + kept out
+	}
 	//---------------------------------------------------------
 	void ModelComponent::onAdd()
 	{
@@ -143,6 +220,8 @@ namespace Orkige
 		this->mesh.reset();
 		this->modelFileName = "";
 		this->modelAssetId = "";
+		this->materialFileName = "";
+		this->materialAssetId = "";
 		this->deinitSceneNodeGuard();
 	}
 	//---------------------------------------------------------
@@ -158,11 +237,11 @@ namespace Orkige
 	void ModelComponent::save(optr<IArchive> const & ar)
 	{
 		OParent::save(ar);
-		// reflection-driven NAMED serialization: the mesh AssetRef
-		// (its stable asset id rides in the record's reference field for rename
-		// survival) is the only serialized field; runtime tweaks applied to the
-		// mesh instance after loadModel (unlit fixup, visibility, ...) are not
-		// serialized
+		// reflection-driven NAMED serialization: the mesh and material
+		// AssetRefs (their stable asset ids ride in the records' reference
+		// fields for rename survival) are the serialized fields; runtime
+		// tweaks applied to the mesh instance after loadModel (unlit fixup,
+		// visibility, ...) are not serialized
 		SceneSerializer::saveComponentProperties(ar, *this);
 	}
 	//---------------------------------------------------------
@@ -181,8 +260,15 @@ namespace Orkige
 		GAMEOBJECTCOMPONENT()
 		OFUNC(loadModel)
 		OFUNCCR(getCurrentModelFileName)
+		OFUNC(setMaterialReference)
+		OFUNCCR(getMaterialFileName)
 		// reflected schema: the mesh reference (AssetRef, asset-kind
-		// "mesh"); its stable id rides the record so a project rename survives
+		// "mesh"); its stable id rides the record so a project rename
+		// survives. The material reference (AssetRef, asset-kind "material" -
+		// a `.omat`) follows the same rules and is declared AFTER the mesh so
+		// an in-order apply loads the model first (either order works: a
+		// material set before the mesh is recorded and applied by loadModel).
 		OPROPERTY_REF("mesh", Orkige::PropertyKind::AssetRef, "mesh", getCurrentModelFileName, setModelReference, Orkige::PROP_NONE)
+		OPROPERTY_REF("material", Orkige::PropertyKind::AssetRef, "material", getMaterialFileName, setMaterialReference, Orkige::PROP_NONE)
 	OOBJECT_END
 }

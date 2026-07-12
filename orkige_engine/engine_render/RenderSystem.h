@@ -11,6 +11,7 @@
 
 #include "engine_render/RenderPrerequisites.h"
 #include "engine_render/RenderMath.h"
+#include "engine_render/RenderMaterial.h"
 #include <core_util/String.h>
 
 namespace Orkige
@@ -155,6 +156,21 @@ namespace Orkige
 		//! their GPU memory in time for strict backends like Vulkan)
 		//! map: classic=TextureManager::remove (+ drop the cached 2D-layer material) | next=TextureGpuManager::destroyTexture (+ datablock detach) | filament=Engine::destroy(texture)
 		void destroyTexture2D(String const & name);
+
+		//--- scene-content materials ---
+		//! @brief create OR UPDATE the named scene-content material from a
+		//! PBS surface description (@see RenderMaterialDesc for the
+		//! per-backend capability statement). Idempotent per name: calling
+		//! again with new values updates the LIVE material, so everything
+		//! rendering with it follows (the scalar-drive path - e.g. lowering
+		//! `roughness` on a ground material to read wet). Texture names
+		//! resolve through the resource groups.
+		//! @return false + a log line when a referenced texture is missing
+		//! (the material is still created/updated with everything that DID
+		//! resolve) or when the name collides with a different material
+		//! family (a generated sprite/unlit material)
+		//! map: classic=MaterialManager Blinn-Phong material (approximation, @see RenderMaterialDesc) | next=HlmsPbs datablock (metallic workflow) | filament=lit material instance
+		bool createMaterial(String const & name, RenderMaterialDesc const & desc);
 
 		//--- the scene ---
 		//! the one world (multiple worlds stay a facade-compatible extension)

@@ -220,6 +220,10 @@ bool assetMatchesKind(std::string const& fileName, std::string const& kind)
 	{
 		return ext == "oprefab";
 	}
+	if (kind == "material")
+	{
+		return ext == "omat";
+	}
 	return true; // an unknown hint: offer everything rather than nothing
 }
 

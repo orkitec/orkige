@@ -467,6 +467,18 @@ namespace Orkige
 		//! backs setVertexColourUnlit and the cube-mesh service
 		static Ogre::HlmsDatablock* getOrCreateVertexColourUnlitDatablock(
 			String const & datablockName, Ogre::TextureGpu* texture);
+		//! @brief create OR UPDATE the named HLMS PBS datablock from a facade
+		//! surface description (RenderSystem::createMaterial). Metallic
+		//! workflow - every RenderMaterialDesc field is native on this
+		//! backend. Albedo/emissive maps load through loadTexture2D (raw
+		//! texels - the gamma-space colour-parity rule), the normal map
+		//! through the PBS slot's own suggested filters (normal-map
+		//! preparation). A missing texture is skipped + logged and clears
+		//! outComplete; NULL when the name belongs to a datablock of a
+		//! different family (a generated sprite/unlit block).
+		static Ogre::HlmsDatablock* createOrUpdatePbsDatablock(
+			String const & name, RenderMaterialDesc const & desc,
+			bool & outComplete);
 		//! the "DrawLayer2D/<tex>" HlmsUnlit datablock of a 2D batch
 		//! texture (unlit, alpha-blended, depth-IGNORED, two-sided,
 		//! clamped point sampling - the facade's 2D render contract);

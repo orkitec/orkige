@@ -19,6 +19,9 @@
 #include "engine_graphic/Engine.h"
 #include <core_debug/DebugMacros.h>
 
+#include <algorithm>
+#include <set>
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -277,6 +280,88 @@ namespace Orkige
 		// memory) alive past the render system - drop it first
 		RenderBackend::invalidateDrawLayer2DTexture(name);
 		Ogre::TextureManager::getSingleton().remove(texture);
+	}
+	//---------------------------------------------------------
+	Ogre::MaterialPtr RenderBackend::createOrUpdateSurfaceMaterial(
+		String const & name, RenderMaterialDesc const & desc, bool & outComplete)
+	{
+		oAssert(!name.empty());
+		outComplete = true;
+		Ogre::MaterialManager & materialManager =
+			Ogre::MaterialManager::getSingleton();
+		Ogre::MaterialPtr material = materialManager.getByName(name,
+			Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		if(!material)
+		{
+			material = materialManager.create(name,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+		}
+		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+		// the Blinn-Phong SUBSET of the metal-rough description (an
+		// approximation by design - no pixel parity for lit content):
+		// dielectrics get a faint neutral specular highlight, metals tint it
+		// with the albedo; roughness dampens its intensity and widens it
+		// (lower shininess exponent). Diffuse keeps the full albedo either
+		// way (metals rendering their tint diffusely is part of the subset).
+		const float metal = std::clamp(desc.metalness, 0.0f, 1.0f);
+		const float gloss = 1.0f - std::clamp(desc.roughness, 0.0f, 1.0f);
+		const float baseSpecular = 0.04f;	// the common dielectric F0
+		const Ogre::ColourValue specular(
+			(baseSpecular + (desc.albedo.r - baseSpecular) * metal) * gloss,
+			(baseSpecular + (desc.albedo.g - baseSpecular) * metal) * gloss,
+			(baseSpecular + (desc.albedo.b - baseSpecular) * metal) * gloss,
+			1.0f);
+		pass->setLightingEnabled(true);
+		pass->setDiffuse(desc.albedo);
+		pass->setAmbient(desc.albedo.r, desc.albedo.g, desc.albedo.b);
+		pass->setSpecular(specular);
+		pass->setShininess(std::max(gloss * gloss * 128.0f, 1.0f));
+		pass->setSelfIllumination(desc.emissive.r, desc.emissive.g,
+			desc.emissive.b);
+		// texture units are rebuilt from scratch (the update path must be
+		// able to REMOVE the albedo map)
+		pass->removeAllTextureUnitStates();
+		if(!desc.albedoTexture.empty())
+		{
+			try
+			{
+				// resolve through EVERY resource group, like sprite textures
+				Ogre::TexturePtr texture =
+					Ogre::TextureManager::getSingleton().load(desc.albedoTexture,
+						Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+				pass->createTextureUnitState()->setTexture(texture);
+			}
+			catch(Ogre::Exception const & e)
+			{
+				oDebugError("engine", 0, "RenderSystem::createMaterial('" << name
+					<< "'): albedo texture '" << desc.albedoTexture
+					<< "' failed to load: " << e.getDescription());
+				outComplete = false;
+			}
+		}
+		// the honest classic subset: normal/emissive MAPS are not rendered on
+		// this flavor (@see engine_render/RenderMaterial.h) - say so once per
+		// material name, then stay quiet
+		if(!desc.normalTexture.empty() || !desc.emissiveTexture.empty())
+		{
+			static std::set<String> warned;
+			if(warned.insert(name).second)
+			{
+				oDebugWarning(false, "RenderSystem::createMaterial('" << name
+					<< "'): this render flavor draws the Blinn-Phong "
+					"subset - the normal/emissive maps are ignored");
+			}
+		}
+		return material;
+	}
+	//---------------------------------------------------------
+	bool RenderSystem::createMaterial(String const & name,
+		RenderMaterialDesc const & desc)
+	{
+		oAssert(!name.empty());
+		bool complete = true;
+		return RenderBackend::createOrUpdateSurfaceMaterial(name, desc,
+			complete) && complete;
 	}
 	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const

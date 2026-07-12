@@ -335,6 +335,17 @@ namespace Orkige
 		//! depth-checked/not-written, two-sided, NO texture unit. Idempotent -
 		//! every vector shape renders through this one material.
 		static Ogre::MaterialPtr getOrCreateVectorFillMaterial();
+		//! @brief create OR UPDATE the named lit scene-content material from a
+		//! facade surface description (RenderSystem::createMaterial). This
+		//! flavor renders the honest Blinn-Phong SUBSET: albedo -> diffuse
+		//! colour + texture unit, metalness/roughness -> a DERIVED specular
+		//! colour + shininess, emissive colour -> self-illumination; the
+		//! normal map and the emissive texture are IGNORED (logged once per
+		//! material name) - see engine_render/RenderMaterial.h. A missing
+		//! albedo texture is skipped + logged and clears outComplete.
+		static Ogre::MaterialPtr createOrUpdateSurfaceMaterial(
+			String const & name, RenderMaterialDesc const & desc,
+			bool & outComplete);
 		//! zOrder -> render queue id (painter's sorting around MAIN)
 		static Ogre::uint8 renderQueueForZOrder(int zOrder);
 	};

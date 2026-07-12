@@ -669,7 +669,10 @@ TransformComponent.scale
 ## ModelComponent
 ModelComponent:loadModel(...)
 ModelComponent:getCurrentModelFileName(...)
+ModelComponent:setMaterialReference(...)
+ModelComponent:getMaterialFileName(...)
 ModelComponent.mesh
+ModelComponent.material
 
 ## SpriteComponent
 SpriteComponent:loadSprite(...)

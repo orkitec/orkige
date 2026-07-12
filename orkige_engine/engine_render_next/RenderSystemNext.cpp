@@ -217,6 +217,17 @@ namespace Orkige
 		RenderBackend::destroyTexture2DByName(name);
 	}
 	//---------------------------------------------------------
+	bool RenderSystem::createMaterial(String const & name,
+		RenderMaterialDesc const & desc)
+	{
+		oAssert(!name.empty());
+		// every field of the description is native on this backend (metallic
+		// workflow); a missing texture is skipped + logged (-> false)
+		bool complete = true;
+		return RenderBackend::createOrUpdatePbsDatablock(name, desc,
+			complete) != NULL && complete;
+	}
+	//---------------------------------------------------------
 	RenderWorld* RenderSystem::getWorld() const
 	{
 		return this->mImpl->world;

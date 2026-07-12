@@ -4447,6 +4447,14 @@ int main(int argc, char** argv)
 						"copy offset");
 					optr<Orkige::GameObject> copyObject = gameObjectManager
 						.getGameObject(editTestDuplicateId).lock();
+					if (copyObject &&
+						copyObject->hasComponent<Orkige::ModelComponent>())
+					{
+						SDL_Log("orkige_editor: edittest copy mesh name '%s'",
+							copyObject
+								->getComponentPtr<Orkige::ModelComponent>()
+								->getCurrentModelFileName().c_str());
+					}
 					require(copyObject && copyObject
 						->hasComponent<Orkige::ModelComponent>() &&
 						copyObject->getComponentPtr<Orkige::ModelComponent>()

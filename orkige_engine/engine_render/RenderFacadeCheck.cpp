@@ -21,6 +21,7 @@
 #include "engine_render/RenderWorld.h"
 #include "engine_render/RenderNode.h"
 #include "engine_render/MeshInstance.h"
+#include "engine_render/RenderMaterial.h"
 #include "engine_render/SpriteQuad.h"
 #include "engine_render/RenderCamera.h"
 #include "engine_render/RenderLight.h"

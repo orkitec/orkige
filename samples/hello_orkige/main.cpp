@@ -14,6 +14,7 @@
 #include <engine_util/PlatformWindow.h>
 #include <engine_gocomponent/TransformComponent.h>
 #include <engine_gocomponent/LightComponent.h>
+#include <engine_gocomponent/ModelComponent.h>
 #include <engine_gocomponent/SpriteComponent.h>
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
@@ -121,6 +122,10 @@ int main(int, char**)
 		(std::getenv("ORKIGE_DEMO_VECTORSHAPE") != nullptr);
 	// ORKIGE_DEMO_LIGHT=1: the LightComponent end-to-end selfcheck (below)
 	const bool demoLight = (std::getenv("ORKIGE_DEMO_LIGHT") != nullptr);
+	// ORKIGE_DEMO_MATERIAL=1: the `.omat` PBS-material selfcheck (below)
+	// loads the generated demo cube + material + texture maps from the
+	// sample media dir (Util/make_material_demo.py writes them)
+	const bool demoMaterial = (std::getenv("ORKIGE_DEMO_MATERIAL") != nullptr);
 
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window, engine
 	// singletons, the per-flavor Engine boot, the window-camera rig and the
@@ -153,7 +158,7 @@ int main(int, char**)
 			{
 				render->addResourceLocation(ORKIGE_SPRITE_TEXTURE_DIR);
 			}
-			if (demoMusic || demoVectorShape)
+			if (demoMusic || demoVectorShape || demoMaterial)
 			{
 				render->addResourceLocation(ORKIGE_DEMO_ASSET_DIR);
 			}
@@ -662,6 +667,77 @@ int main(int, char**)
 			world->setAmbientLight(Orkige::Color(0.05f, 0.05f, 0.05f));
 			SDL_Log("hello_orkige: LightComponent up - live facade light, params "
 				"applied, follows the transform node");
+		}
+
+		// --- ORKIGE_DEMO_MATERIAL=1: the `.omat` material selfcheck. A
+		// ModelComponent loads the generated UV-mapped demo cube (which
+		// imports with NO texture - the baseline) and then takes the
+		// generated demo_material.omat through its reflected material
+		// reference: parse -> RenderSystem::createMaterial ->
+		// MeshInstance::setMaterial. Component/introspection checks here;
+		// the frame loop below adds the it-renders triangle-count probe.
+		// Flavor note: on the default backend this is a full PBS datablock
+		// (metal-rough + normal/emissive maps over generated tangents); the
+		// classic flavor renders its documented Blinn-Phong subset (albedo
+		// texture + derived specular, maps ignored) - both must APPLY and
+		// render without erroring, which is exactly what is asserted.
+		Orkige::ModelComponent* materialModel = nullptr;
+		std::size_t materialHiddenTriangles = 0;
+		if (demoMaterial)
+		{
+			optr<Orkige::GameObject> materialObject =
+				gameObjectManager.createGameObject("matcube").lock();
+			if (!materialObject ||
+				!materialObject->addComponent<Orkige::ModelComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - ModelComponent creation failed");
+				return 1;
+			}
+			materialModel =
+				materialObject->getComponentPtr<Orkige::ModelComponent>();
+			Orkige::TransformComponent* materialTransform =
+				materialObject->getComponentPtr<Orkige::TransformComponent>();
+			if (!materialModel || !materialTransform)
+			{
+				SDL_Log("hello_orkige: FAILED - ModelComponent siblings missing");
+				return 1;
+			}
+			materialTransform->setPosition(Orkige::Vec3(0.0f, -2.0f, 0.0f));
+			materialModel->loadModel("demo_material_cube.glb");
+			if (!materialModel->getMeshInstance() ||
+				materialModel->getMeshInstance()->getNumSubMeshes() != 1)
+			{
+				SDL_Log("hello_orkige: FAILED - demo_material_cube.glb did "
+					"not import");
+				return 1;
+			}
+			// baseline: the glb carries no material, so nothing samples a
+			// texture yet - the material assignment must change that
+			if (materialModel->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - demo cube unexpectedly "
+					"imported WITH a texture (baseline broken)");
+				return 1;
+			}
+			materialModel->setMaterialReference("demo_material.omat");
+			if (materialModel->getMaterialFileName() != "demo_material.omat")
+			{
+				SDL_Log("hello_orkige: FAILED - material reference did not "
+					"record");
+				return 1;
+			}
+			if (!materialModel->getMeshInstance()->subMeshHasTexture(0))
+			{
+				SDL_Log("hello_orkige: FAILED - the material did not apply "
+					"(no albedo texture bound after setMaterialReference)");
+				return 1;
+			}
+			// light the surface so the PBS/Blinn-Phong response is real
+			// shading work, not just the ambient minimum
+			world->setAmbientHemisphere(Orkige::Color(0.45f, 0.45f, 0.5f),
+				Orkige::Color(0.2f, 0.18f, 0.15f));
+			SDL_Log("hello_orkige: material demo up - demo_material.omat "
+				"applied over the imported look (albedo map bound)");
 		}
 
 		cameraNode->setPosition(Orkige::Vec3(0.0f, 2.0f, 6.0f));
@@ -3472,6 +3548,42 @@ int main(int, char**)
 				}
 				SDL_Log("hello_orkige: particle selfcheck passed (burst raised "
 					"then decayed, single-draw batch)");
+			}
+			if (demoMaterial && frameCount == 20)
+			{
+				// hide the material cube, then sample the frame's triangle
+				// count with it gone at frame 25 - the baseline the shown
+				// count must exceed (the vector-shape probe's recipe)
+				materialModel->getMeshInstance()->setVisible(false);
+			}
+			if (demoMaterial && frameCount == 25)
+			{
+				materialHiddenTriangles =
+					render->getFrameStats().triangleCount;
+				materialModel->getMeshInstance()->setVisible(true);
+			}
+			if (demoMaterial && frameCount == 35)
+			{
+				// the cube renders WITH its material (12 triangles): frames
+				// after the re-show carry them - if the material had broken
+				// shader generation, renderOneFrame would have failed/thrown
+				// long before this line
+				const std::size_t shownTriangles =
+					render->getFrameStats().triangleCount;
+				const std::size_t risen =
+					(shownTriangles > materialHiddenTriangles)
+					? shownTriangles - materialHiddenTriangles : 0;
+				SDL_Log("hello_orkige: material cube triangles shown=%zu "
+					"(hidden %zu, +%zu)", shownTriangles,
+					materialHiddenTriangles, risen);
+				if (risen < 12)
+				{
+					SDL_Log("hello_orkige: FAILED - showing the material cube "
+						"did not raise the triangle count (it did not render)");
+					return 1;
+				}
+				SDL_Log("hello_orkige: material selfcheck passed (.omat "
+					"parsed, applied and rendering on this flavor)");
 			}
 			if (demoVectorShape && frameCount == 20)
 			{

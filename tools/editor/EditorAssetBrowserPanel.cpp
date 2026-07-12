@@ -267,6 +267,7 @@ optr<Orkige::EditorCommand> makeInstantiateCommand(EditorState& state,
 	case AssetKind::Scene:
 	case AssetKind::Script:
 	case AssetKind::Audio:
+	case AssetKind::Material:	// assigned into a material slot, not standalone
 	case AssetKind::Unknown:
 	default:
 		return optr<Orkige::EditorCommand>();
@@ -1234,6 +1235,10 @@ AssetKind classifyAsset(std::string const& path)
 	{
 		return AssetKind::VectorShape;
 	}
+	if (ext == ".omat")
+	{
+		return AssetKind::Material;
+	}
 	return AssetKind::Unknown;
 }
 
@@ -1248,6 +1253,7 @@ const char* assetKindLabel(AssetKind kind)
 	case AssetKind::Prefab:		return "prefab";
 	case AssetKind::Audio:		return "audio";
 	case AssetKind::VectorShape:	return "shape";
+	case AssetKind::Material:	return "material";
 	case AssetKind::Unknown:	break;
 	}
 	return "file";
@@ -1701,6 +1707,7 @@ ImU32 assetKindColor(AssetKind kind, bool isFolder)
 	case AssetKind::Prefab:		return IM_COL32(212, 150, 88, 255);
 	case AssetKind::Audio:		return IM_COL32(200, 110, 152, 255);
 	case AssetKind::VectorShape:	return IM_COL32(198, 132, 196, 255);
+	case AssetKind::Material:	return IM_COL32(176, 148, 96, 255);
 	case AssetKind::Unknown:
 	default:					return IM_COL32(122, 122, 122, 255);
 	}
@@ -1722,6 +1729,7 @@ const char* assetKindTag(AssetKind kind, bool isFolder)
 	case AssetKind::Prefab:		return "PFB";
 	case AssetKind::Audio:		return "SND";
 	case AssetKind::VectorShape:	return "SHP";
+	case AssetKind::Material:	return "MAT";
 	case AssetKind::Unknown:
 	default:					return "?";
 	}
@@ -1743,6 +1751,7 @@ const char* assetKindIcon(AssetKind kind, bool isFolder)
 	case AssetKind::Prefab:		return ICON_FA_CLONE;
 	case AssetKind::Audio:		return ICON_FA_MUSIC;
 	case AssetKind::VectorShape:	return ICON_FA_SHAPES;
+	case AssetKind::Material:	return ICON_FA_PALETTE;
 	case AssetKind::Unknown:
 	default:					return ICON_FA_FILE;
 	}
