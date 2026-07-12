@@ -240,6 +240,30 @@ namespace Orkige
 			Color(red, green, blue));
 	}
 	//---------------------------------------------------------
+	void Engine::setAtmosphere(bool enabled, float skyRed, float skyGreen,
+		float skyBlue, float density, float fogDensity)
+	{
+		AtmosphereDesc desc;
+		desc.enabled = enabled;
+		desc.skyRed = skyRed;
+		desc.skyGreen = skyGreen;
+		desc.skyBlue = skyBlue;
+		desc.density = density;
+		desc.fogDensity = fogDensity;
+		// fog colour tracks the sky tint (the next flavor derives its
+		// atmospheric fog colour from the sky; classic uses this directly)
+		desc.fogRed = skyRed;
+		desc.fogGreen = skyGreen;
+		desc.fogBlue = skyBlue;
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	void Engine::enableWireframeMode()
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -285,6 +309,8 @@ namespace Orkige
 		OFUNC(setCameraOrthographicFit)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
+		// sky/fog atmosphere: engine:setAtmosphere(enabled, r,g,b, density, fog)
+		OFUNC(setAtmosphere)
 		// UI capability probe: true on BOTH flavors since the DrawLayer2D
 		// port (gui renders through the engine_render facade); the probe
 		// stays so scripts can still gate honestly for a future UI-less flavor

@@ -128,6 +128,24 @@ build instead. TODO(linux): the Linux/Vulkan build is authored against the
 3.0.0 sources but first proven by the `linux-next` CI job - glslang API drift
 between ogre-next 3.0 and the current vcpkg glslang is the known risk.
 
+The **Atmosphere** component is ON (`OGRE_BUILD_COMPONENT_ATMOSPHERE`): its
+`AtmosphereNpr` is the sky dome + HlmsPbs-integrated object fog + sun-linkage
+solution the engine_render environment surface wires
+(`RenderWorld::setAtmosphere`, `Docs/render-abstraction.md`). It exports the
+`OgreNext::Atmosphere` target (lib `OgreNextAtmosphereStatic`, headers under
+`include/OGRE-Next/Atmosphere`). Its **sky material media** is installed beside
+the Hlms templates under `share/ogre-next/Media/Atmosphere` - only the sky's own
+files (`Atmosphere.material`, a trimmed `AtmosphereQuad.program` in place of the
+samples' full `Quad.program`, the `AtmosphereNprSky_ps` fragment shader +
+`QuadCameraDirNoUV_vs` vertex shader per shading language, and the shared
+`Any/AtmosphereNprSky_ps.any` include), NOT the whole samples Common material set
+(which carries unrelated effects + heavyweight LUT `.dds` files). The runtime
+registers `Media/Atmosphere` (the script dir plus each per-language shader subdir
+as its own location, so a script's bare `source X.metal` and shader includes
+resolve) alongside the Hlms media at boot; the HlmsPbs object-fog integration
+pieces (`Pbs/Any/Atmosphere/*.any`) already ride in the shipped Hlms Pbs
+templates.
+
 Overlay/samples/tools and all other components OFF until a phase needs them;
 zip archives OFF (would add zziplib - revisit when content work needs
 `addResourceLocation(LT_ZIP)`).
@@ -136,6 +154,7 @@ Upstream installs **no CMake package config** (only pkg-config templates
 whose static .pc unconditionally `Requires: gl` - removed); the port ships
 its own `OGRE-NextConfig.cmake` with namespaced imported targets
 (`OgreNext::Main`, `OgreNext::HlmsPbs`, `OgreNext::HlmsUnlit`,
+`OgreNext::Atmosphere`,
 `OgreNext::RenderSystem_Metal` on Apple / `OgreNext::RenderSystem_Vulkan`
 on Linux and Android, `OgreNext::RenderSystem_NULL`) plus
 `OGRE_NEXT_MEDIA_DIR` (the shipped `Media/Hlms` shader templates every

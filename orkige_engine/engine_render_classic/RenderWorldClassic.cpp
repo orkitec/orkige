@@ -193,6 +193,59 @@ namespace Orkige
 		return this->mImpl->shadowQuality;
 	}
 	//---------------------------------------------------------
+	bool RenderWorld::skyDomeSupported()
+	{
+		// honest "no": the compatibility flavor renders the fog + flat sky
+		// colour subset of setAtmosphere, but no atmospheric sky dome
+		return false;
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)
+	{
+		this->mImpl->atmosphere = desc;
+
+		// the flat sky: the window clear colour becomes the sky tint (the
+		// existing clear-colour path - no sky dome on this flavor)
+		if(RenderSystem* system = RenderSystem::get())
+		{
+			system->setWindowBackgroundColour(
+				Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+		}
+
+		// fixed-function exponential distance fog (the honest fog subset -
+		// colours will not match the next flavor's atmospheric fog)
+		if(desc.enabled && desc.fogDensity > 0.0f)
+		{
+			this->mImpl->sceneManager->setFog(Ogre::FOG_EXP2,
+				Ogre::ColourValue(desc.fogRed, desc.fogGreen, desc.fogBlue),
+				desc.fogDensity);
+		}
+		else
+		{
+			this->mImpl->sceneManager->setFog(Ogre::FOG_NONE);
+		}
+
+		// the sky DOME itself is not supported here: say so ONCE per process
+		// when an app enables the atmosphere, then stay silent
+		if(desc.enabled)
+		{
+			static bool warnedOnce = false;
+			if(!warnedOnce)
+			{
+				warnedOnce = true;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige classic backend: the atmospheric sky dome is not "
+					"supported on this render backend - applying the flat sky "
+					"clear colour + fixed-function fog subset only");
+			}
+		}
+	}
+	//---------------------------------------------------------
+	AtmosphereDesc const & RenderWorld::getAtmosphere() const
+	{
+		return this->mImpl->atmosphere;
+	}
+	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientHemisphereLower() const
 	{
 		return this->mImpl->ambientLower;

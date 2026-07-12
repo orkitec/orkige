@@ -986,6 +986,7 @@ Engine:setCameraOrthographic(...)
 Engine:setCameraOrthographicFit(...)
 Engine:setCameraPerspective(...)
 Engine:setWindowBackgroundColour(...)
+Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil  -- set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)
 Engine:hasUISystem(...)
 
 ## FrameEventData

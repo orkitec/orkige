@@ -152,6 +152,15 @@ set_target_properties(OgreNext::HlmsUnlit PROPERTIES
     INTERFACE_LINK_LIBRARIES "OgreNext::Main"
 )
 
+# AtmosphereNpr component (sky dome + object fog + sun linkage; integrated into
+# HlmsPbs). Built when OGRE_BUILD_COMPONENT_ATMOSPHERE=ON in the portfile; its
+# sky material media installs under share/ogre-next/Media/Atmosphere.
+_ogre_next_add_library(OgreNext::Atmosphere OgreNextAtmosphereStatic FALSE)
+set_target_properties(OgreNext::Atmosphere PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${OGRE_NEXT_INCLUDE_DIR}/Atmosphere"
+    INTERFACE_LINK_LIBRARIES "OgreNext::Main"
+)
+
 if(APPLE)
     # Metal RS: on iOS the view layer is QuartzCore (UIKit), no AppKit
     if(_ogre_next_ios)

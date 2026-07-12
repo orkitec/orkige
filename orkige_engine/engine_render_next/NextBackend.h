@@ -78,6 +78,7 @@ namespace Ogre
 	class TextureGpu;
 	class HlmsDatablock;
 	class Image2;
+	class AtmosphereNpr;
 }
 
 namespace Orkige
@@ -111,6 +112,9 @@ namespace Orkige
 		//! the shadow quality knob; maps render only while != SQ_OFF AND a
 		//! light casts (@see RenderBackend::activeShadowNodeName)
 		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
+		//! the sky/fog atmosphere last set (@see RenderWorld::setAtmosphere); the
+		//! live Ogre::AtmosphereNpr is a backend static (NextBackend.cpp)
+		AtmosphereDesc			atmosphere;
 	};
 
 	struct RenderNode::Impl
@@ -563,6 +567,22 @@ namespace Orkige
 		//! render-target registry (applyShadowConfig rebuilds them all)
 		static void registerRenderTarget(RenderTexture* target);
 		static void unregisterRenderTarget(RenderTexture* target);
+
+		//--- sky / fog atmosphere (AtmosphereNpr) --------------------
+		//! @brief create/update/tear down the one AtmosphereNpr from a facade
+		//! desc (RenderWorld::setAtmosphere). Links the first directional light
+		//! as the sun, reads its direction, drives its colour/power; a boot
+		//! without the atmosphere sky media degrades to an honest no-op (logged
+		//! once) - the flat window clear colour still follows the sky tint.
+		static void applyAtmosphere(AtmosphereDesc const & desc);
+		//! @brief a RenderLight became (isDirectional=true) or stopped being
+		//! (false) directional / is being destroyed. Maintains the directional
+		//! registry firstDirectionalLight reads and, while the atmosphere is
+		//! live, re-links it to the new first sun (never a dangling pointer).
+		static void noteDirectionalLight(Ogre::Light* light, bool isDirectional);
+		//! the first (creation order) directional light, or NULL - the sun the
+		//! atmosphere links to (@see RenderWorld::setAtmosphere)
+		static Ogre::Light* firstDirectionalLight();
 
 		//--- shared services -----------------------------------------
 		//! unique name for backend-created content ("prefix.<n>")

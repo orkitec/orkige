@@ -307,6 +307,19 @@ protected:
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
+		//! @brief set the scene's sky/fog atmosphere from Lua (the smallest
+		//! honest surface over RenderWorld::setAtmosphere / AtmosphereDesc).
+		//! @param enabled master switch (false = plain clear background, no fog)
+		//! @param skyRed,skyGreen,skyBlue zenith sky tint, linear [0;1]
+		//! @param density atmospheric haze density (thicker = hazier horizon)
+		//! @param fogDensity per-object exponential fog (0 = none)
+		//! @remarks the SUN is the first directional light in the scene - orient
+		//! that light to sweep the day/night arc, then re-call. The next flavor
+		//! renders a real atmospheric sky dome; classic applies the flat sky
+		//! colour + fixed-function fog subset (@see AtmosphereDesc). skyPower and
+		//! fog colour keep their neutral defaults (fog colour tracks the sky).
+		void setAtmosphere(bool enabled, float skyRed, float skyGreen,
+			float skyBlue, float density, float fogDensity);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

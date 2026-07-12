@@ -24,6 +24,10 @@
 		"sig": "(id) -> bool",
 		"doc": "is a GameObject with this id alive"
 	},
+	"Engine:setAtmosphere": {
+		"sig": "(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil",
+		"doc": "set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)"
+	},
 	"world.get": {
 		"sig": "(id) -> GameObject?",
 		"doc": "the live GameObject by id (nil if gone)"

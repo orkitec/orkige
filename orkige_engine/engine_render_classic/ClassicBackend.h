@@ -76,6 +76,9 @@ namespace Orkige
 		//! the shadow quality knob position - RECORDED only on this flavor
 		//! (no dynamic shadows on classic, @see RenderWorld::setShadowQuality)
 		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
+		//! the sky/fog atmosphere last set (@see RenderWorld::setAtmosphere);
+		//! classic renders the fog + flat sky colour subset, no sky dome
+		AtmosphereDesc			atmosphere;
 	};
 
 	struct RenderNode::Impl

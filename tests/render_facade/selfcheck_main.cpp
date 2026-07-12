@@ -1071,6 +1071,184 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	SELFCHECK(renderFrames(renderSystem, 2),
 		"frames render after content handles were dropped (RAII teardown)");
 
+	//--- sky / fog atmosphere ----------------------------------------------
+	// Two seams on BOTH flavors: enabling the atmosphere changes the
+	// background pixels (a real sky dome where skyDomeSupported, the flat sky
+	// clear colour otherwise) and thickening the fog changes a distant
+	// object's reading. Runs after the parity-compared captures on an emptied
+	// scene, writing only its own files.
+	{
+		unsigned int atmoW = 0, atmoH = 0;
+		renderSystem->getWindowSize(atmoW, atmoH);
+		// average a small pixel block's luminance from a saved shot (robust to
+		// a single pixel landing on a texture check / dither)
+		auto blockLuminance = [&](std::string const & imageFile,
+			unsigned int px, unsigned int py, float & outLuminance) -> bool
+		{
+			float sum = 0.0f;
+			int samples = 0;
+			for(int dx = -2; dx <= 2; ++dx)
+			{
+				for(int dy = -2; dy <= 2; ++dy)
+				{
+					const int sx = static_cast<int>(px) + dx * 2;
+					const int sy = static_cast<int>(py) + dy * 2;
+					if(sx < 0 || sy < 0 || sx >= static_cast<int>(atmoW) ||
+						sy >= static_cast<int>(atmoH))
+					{
+						continue;
+					}
+					float red = 0, green = 0, blue = 0;
+					if(!SelfcheckBootstrap::readImagePixel(imageFile,
+						static_cast<unsigned int>(sx),
+						static_cast<unsigned int>(sy), red, green, blue))
+					{
+						continue;
+					}
+					sum += (red + green + blue) / 3.0f;
+					++samples;
+				}
+			}
+			if(samples == 0)
+			{
+				return false;
+			}
+			outLuminance = sum / static_cast<float>(samples);
+			return true;
+		};
+
+		// point the camera at empty space so the upper frame is pure sky
+		camera->setPerspective(Degree(55), Real(1.0), Real(500));
+		cameraNode->setPosition(Vec3(0, 2, 0));
+		cameraNode->lookAt(Vec3(0, 4, -50), RenderNode::TS_WORLD);
+		const unsigned int skyX = atmoW / 2u;
+		const unsigned int skyY = static_cast<unsigned int>(atmoH * 0.18f);
+
+		// OFF baseline: a black sky, no dome, no fog
+		AtmosphereDesc offDesc;	// disabled by default
+		offDesc.skyRed = offDesc.skyGreen = offDesc.skyBlue = 0.0f;
+		world->setAtmosphere(offDesc);
+		SELFCHECK(!world->getAtmosphere().enabled,
+			"the atmosphere desc round-trips (disabled)");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the atmosphere off");
+		const std::string skyOffShot = outDir + "/selfcheck_atmosphere_off.png";
+		renderSystem->saveWindowContents(skyOffShot);
+		float skyOffLum = 0;
+		SELFCHECK(blockLuminance(skyOffShot, skyX, skyY, skyOffLum),
+			"the atmosphere-off sky probe decodes");
+
+		// ON: a bright daytime sky (a dome on next, the flat blue clear on classic)
+		AtmosphereDesc onDesc =
+			AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+		world->setAtmosphere(onDesc);
+		SELFCHECK(world->getAtmosphere().enabled,
+			"the atmosphere desc round-trips (enabled)");
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the atmosphere on");
+		const std::string skyOnShot = outDir + "/selfcheck_atmosphere_on.png";
+		renderSystem->saveWindowContents(skyOnShot);
+		float skyOnLum = 0;
+		SELFCHECK(blockLuminance(skyOnShot, skyX, skyY, skyOnLum),
+			"the atmosphere-on sky probe decodes");
+		std::printf("render_facade_selfcheck: atmosphere sky - off %.3f, "
+			"on %.3f\n", skyOffLum, skyOnLum);
+		SELFCHECK(skyOnLum > skyOffLum + 0.1f,
+			"enabling the atmosphere brightens the sky background");
+
+		// capability honesty: a shadowless-of-sky flavor says so ONCE
+		if(RenderWorld::skyDomeSupported())
+		{
+			SELFCHECK(true,
+				"this flavor renders an atmospheric sky dome (skyDomeSupported)");
+		}
+		else
+		{
+			std::ifstream logFile(outDir + "/render_facade_selfcheck.log");
+			SELFCHECK(logFile.good(), "the backend log file opens (sky)");
+			std::stringstream buffered;
+			buffered << logFile.rdbuf();
+			const std::string logText = buffered.str();
+			const std::string marker =
+				"atmospheric sky dome is not supported";
+			std::size_t occurrences = 0;
+			for(std::size_t at = logText.find(marker); at != std::string::npos;
+				at = logText.find(marker, at + marker.size()))
+			{
+				++occurrences;
+			}
+			SELFCHECK(occurrences == 1,
+				"the unsupported-sky-dome log line appears exactly once");
+		}
+
+		// fog: a distant lit object's reading shifts as fog thickens. The
+		// atmosphere stays ENABLED across both captures so only fogDensity
+		// varies (the sun colour the atmosphere drives is held constant).
+		world->setAmbientLight(Color(0.2f, 0.2f, 0.2f));
+		optr<RenderNode> fogSunNode = world->createNode("selfcheck.atmoSun");
+		fogSunNode->setDirection(Vec3(0.2f, -0.7f, -0.5f), RenderNode::TS_WORLD);
+		optr<RenderLight> fogSun = world->createLight();
+		fogSun->attachTo(fogSunNode);
+		fogSun->setType(RenderLight::LT_DIRECTIONAL);
+		fogSun->setDiffuseColour(Color(3.0f, 3.0f, 3.0f));
+		fogSun->setSpecularColour(Color(0.0f, 0.0f, 0.0f));
+		const Vec3 fogPoint(0, 0, -90);
+		optr<RenderNode> fogObjNode = world->createNode("selfcheck.fogObject");
+		fogObjNode->setPosition(fogPoint);
+		fogObjNode->setScale(Vec3(6, 6, 1));
+		optr<MeshInstance> fogObj =
+			world->createMeshInstance("jumper_platform.glb");
+		SELFCHECK(fogObj != NULL, "the distant fog object loads");
+		fogObj->attachTo(fogObjNode);
+		camera->setPerspective(Degree(55), Real(1.0), Real(500));
+		cameraNode->setPosition(Vec3(0, 0, 0));
+		cameraNode->lookAt(fogPoint, RenderNode::TS_WORLD);
+
+		AtmosphereDesc clearDesc =
+			AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+		clearDesc.fogDensity = 0.0f;
+		world->setAtmosphere(clearDesc);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with the atmosphere, no fog");
+		const std::string fogOffShot = outDir + "/selfcheck_fog_off.png";
+		renderSystem->saveWindowContents(fogOffShot);
+
+		AtmosphereDesc foggyDesc = clearDesc;
+		foggyDesc.fogDensity = 0.03f;
+		world->setAtmosphere(foggyDesc);
+		SELFCHECK(renderFrames(renderSystem, 3),
+			"frames render with heavy fog");
+		const std::string fogOnShot = outDir + "/selfcheck_fog_on.png";
+		renderSystem->saveWindowContents(fogOnShot);
+
+		Real fogNdcX = 0, fogNdcY = 0;
+		SELFCHECK(camera->projectPoint(fogPoint, fogNdcX, fogNdcY),
+			"the distant fog object projects");
+		const unsigned int fogObjX =
+			static_cast<unsigned int>(fogNdcX * (atmoW - 1));
+		const unsigned int fogObjY =
+			static_cast<unsigned int>(fogNdcY * (atmoH - 1));
+		float objClearLum = 0, objFoggyLum = 0;
+		SELFCHECK(blockLuminance(fogOffShot, fogObjX, fogObjY, objClearLum) &&
+			blockLuminance(fogOnShot, fogObjX, fogObjY, objFoggyLum),
+			"the distant fog object probes decode");
+		std::printf("render_facade_selfcheck: fog object - clear %.3f, "
+			"foggy %.3f\n", objClearLum, objFoggyLum);
+		// a relative test: fog measurably shifts the object's reading (its
+		// absolute luminance is atmosphere-driven, so compare against it - a
+		// >20%% shift is unambiguous fog, robust across flavors/lighting)
+		const float fogDelta = std::abs(objFoggyLum - objClearLum);
+		SELFCHECK(fogDelta > 0.2f * std::max(objClearLum, 0.03f),
+			"fog changes the distant object's contrast");
+
+		// restore the neutral state + tear the atmosphere probe content down
+		world->setAtmosphere(AtmosphereDesc());	// disabled
+		fogSun.reset();
+		fogObj.reset();
+		SELFCHECK(renderFrames(renderSystem, 2),
+			"frames render after the atmosphere probe was dropped (RAII teardown)");
+	}
+
 	std::printf("render_facade_selfcheck: all checks passed\n");
 	return 0;
 }

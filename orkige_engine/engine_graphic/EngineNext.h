@@ -116,6 +116,9 @@ namespace Orkige
 		void setCameraPerspective();
 		//! window clear colour (games pick their sky/void)
 		void setWindowBackgroundColour(float red, float green, float blue);
+		//! @copydoc Engine::setAtmosphere (classic)
+		void setAtmosphere(bool enabled, float skyRed, float skyGreen,
+			float skyBlue, float density, float fogDensity);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

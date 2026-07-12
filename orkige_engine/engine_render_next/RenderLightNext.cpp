@@ -51,6 +51,9 @@ namespace Orkige
 		// late destruction guard, same rule as RenderNode
 		if(this->mImpl->light && RenderBackend::system())
 		{
+			// leave the directional registry BEFORE the light dies so the
+			// atmosphere never keeps a dangling sun pointer (relinks if needed)
+			RenderBackend::noteDirectionalLight(this->mImpl->light, false);
 			// a dying caster leaves the tally (may detach the shadow node)
 			if(this->mImpl->castingShadows)
 			{
@@ -99,6 +102,10 @@ namespace Orkige
 			this->mImpl->light->setType(Ogre::Light::LT_SPOTLIGHT);
 			break;
 		}
+		// keep the directional-light registry (the atmosphere's sun source) in
+		// step with this light's kind
+		RenderBackend::noteDirectionalLight(this->mImpl->light,
+			type == LT_DIRECTIONAL);
 	}
 	//---------------------------------------------------------
 	RenderLight::LightType RenderLight::getType() const

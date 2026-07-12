@@ -1,0 +1,35 @@
+// Minimal quad vertex program for the AtmosphereNpr sky dome. Trimmed from
+// the Ogre-Next samples' Common/Quad.program to ONLY the compositor quad the
+// sky material (Atmosphere.material) references - so the sky media set ships
+// without pulling the other sample quad shaders. Source files (per shading
+// language) install beside this script under Metal/, GLSL/, HLSL/.
+
+vertex_program Ogre/Compositor/QuadCameraDirNoUV_vs_GLSL glsl
+{
+	source QuadCameraDirNoUV_vs.glsl
+}
+
+vertex_program Ogre/Compositor/QuadCameraDirNoUV_vs_VK glslvk
+{
+	source QuadCameraDirNoUV_vs.glsl
+}
+
+vertex_program Ogre/Compositor/QuadCameraDirNoUV_vs_HLSL hlsl
+{
+	source QuadCameraDirNoUV_vs.hlsl
+	entry_point main
+	target vs_5_0 vs_4_0 vs_4_0_level_9_1 vs_4_0_level_9_3
+}
+
+vertex_program Ogre/Compositor/QuadCameraDirNoUV_vs_Metal metal
+{
+	source QuadCameraDirNoUV_vs.metal
+}
+
+vertex_program Ogre/Compositor/QuadCameraDirNoUV_vs unified
+{
+	delegate Ogre/Compositor/QuadCameraDirNoUV_vs_GLSL
+	delegate Ogre/Compositor/QuadCameraDirNoUV_vs_VK
+	delegate Ogre/Compositor/QuadCameraDirNoUV_vs_HLSL
+	delegate Ogre/Compositor/QuadCameraDirNoUV_vs_Metal
+}

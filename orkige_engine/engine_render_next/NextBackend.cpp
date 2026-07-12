@@ -40,6 +40,10 @@
 #endif
 #include <OgrePlugin.h>
 #include <OgreRenderSystem.h>
+#include <OgreSceneManager.h>
+#include <OgreLight.h>
+#include <OgreMath.h>
+#include <OgreAtmosphereNpr.h>
 #include <OgreTextureGpuManager.h>
 #include <OgreTextureFilters.h>
 #include <OgreTextureBox.h>
@@ -97,6 +101,15 @@ namespace Orkige
 		//! every live render target (RenderTexture) - applyShadowConfig
 		//! rebuilds their workspaces so scene passes follow the shadow state
 		std::vector<RenderTexture*> gRenderTargets;
+		//! the one live sky/fog atmosphere (RenderWorld::setAtmosphere), NULL
+		//! while disabled; owned here, destroyed before the root teardown
+		Ogre::AtmosphereNpr* gAtmosphere = NULL;
+		//! did the atmosphere sky material media register at boot? (false on a
+		//! media-less/headless boot - setAtmosphere then degrades honestly)
+		bool gAtmosphereMediaAvailable = false;
+		//! directional lights in creation order - the sun the atmosphere links
+		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight)
+		std::vector<Ogre::Light*> gDirectionalLights;
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -170,6 +183,56 @@ namespace Orkige
 				hlmsManager->registerHlms(
 					OGRE_NEW Ogre::HlmsPbs(archivePbs, &libraryPbs));
 			}
+		}
+
+		//! register the AtmosphereNpr sky material media (the ogre-next port
+		//! ships it under <mediaRoot>/Atmosphere, beside Hlms/). These low-level
+		//! material + program scripts define "Ogre/Atmo/NprSky" that the
+		//! AtmosphereNpr ctor looks up; they parse into the DEFAULT group when
+		//! the app initialises its resource groups. Sets the availability flag
+		//! setAtmosphere reads (a media-less boot leaves it false → honest
+		//! no-op). The HlmsPbs object-fog integration pieces ride in the Hlms
+		//! Pbs templates registered above.
+		void registerAtmosphereMedia(String const & mediaRoot)
+		{
+			gAtmosphereMediaAvailable = false;
+			if(mediaRoot.empty())
+			{
+				return;
+			}
+			String root = mediaRoot;
+			if(root.back() != '/')
+			{
+				root += '/';
+			}
+			const String atmosphereDir = root + "Atmosphere";
+			if(!std::filesystem::exists(atmosphereDir))
+			{
+				return;	// port without the atmosphere media (older tree)
+			}
+			// Ogre resolves a script's `source X.metal` / shader include by the
+			// BARE filename via each location's open() - a recursive location
+			// indexes subdir files but does NOT open them by bare name. So the
+			// script dir AND each per-language shader subdir register as their
+			// own (non-recursive) location: the .material/.program parse from
+			// Atmosphere/, and the shader sources resolve from Metal/GLSL/HLSL/
+			// Any beside them.
+			Ogre::ResourceGroupManager & resourceGroups =
+				Ogre::ResourceGroupManager::getSingleton();
+			char const * const subdirs[] =
+				{ "", "Any", "Metal", "GLSL", "HLSL" };
+			for(char const * sub : subdirs)
+			{
+				const String location = *sub
+					? atmosphereDir + "/" + sub : atmosphereDir;
+				if(std::filesystem::exists(location))
+				{
+					resourceGroups.addResourceLocation(location, "FileSystem",
+						Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME,
+						false /*recursive*/);
+				}
+			}
+			gAtmosphereMediaAvailable = true;
 		}
 	}
 	//---------------------------------------------------------
@@ -269,6 +332,7 @@ namespace Orkige
 #endif
 
 		registerHlms(options.hlmsMediaDir);
+		registerAtmosphereMedia(options.hlmsMediaDir);
 
 		// one worker thread: the engine's scenes are small during the
 		// revival; tune when a real workload appears
@@ -292,6 +356,16 @@ namespace Orkige
 			return;
 		}
 		Ogre::Root* root = gRenderSystem->mImpl->root;
+		// the atmosphere owns a sky Rectangle2D attached to the scene manager +
+		// a material/const buffer - it must die BEFORE the root tears the scene
+		// manager down (its dtor touches both)
+		if(gAtmosphere)
+		{
+			OGRE_DELETE gAtmosphere;
+			gAtmosphere = NULL;
+		}
+		gAtmosphereMediaAvailable = false;
+		gDirectionalLights.clear();
 		delete gRenderSystem;	// ~RenderSystem deletes the world first
 		gRenderSystem = NULL;
 		// same late-handle rule as classic: handles that outlive the
@@ -510,6 +584,129 @@ namespace Orkige
 	{
 		gRenderTargets.erase(std::remove(gRenderTargets.begin(),
 			gRenderTargets.end(), target), gRenderTargets.end());
+	}
+	//---------------------------------------------------------
+	Ogre::Light* RenderBackend::firstDirectionalLight()
+	{
+		return gDirectionalLights.empty() ? NULL : gDirectionalLights.front();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteDirectionalLight(Ogre::Light* light,
+		bool isDirectional)
+	{
+		if(!light)
+		{
+			return;
+		}
+		const auto found = std::find(gDirectionalLights.begin(),
+			gDirectionalLights.end(), light);
+		const bool present = found != gDirectionalLights.end();
+		if(isDirectional && !present)
+		{
+			gDirectionalLights.push_back(light);
+		}
+		else if(!isDirectional && present)
+		{
+			gDirectionalLights.erase(found);
+		}
+		else
+		{
+			return;	// no membership change
+		}
+		// the sun set changed: while the atmosphere is live, re-resolve it to
+		// the new first directional light (drops a dangling pointer when the
+		// linked sun leaves/dies, or promotes a freshly-authored sun)
+		if(gAtmosphere && gRenderSystem)
+		{
+			RenderBackend::applyAtmosphere(
+				gRenderSystem->getWorld()->mImpl->atmosphere);
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::applyAtmosphere(AtmosphereDesc const & desc)
+	{
+		if(!gRenderSystem)
+		{
+			return;
+		}
+		Ogre::SceneManager* sceneManager = RenderBackend::worldSceneManager();
+		// the flat window clear colour tracks the sky tint on BOTH flavors, so
+		// the window edges / a media-less boot / a disabled atmosphere still
+		// read as sky (the classic subset is entirely this path)
+		gRenderSystem->setWindowBackgroundColour(
+			Color(desc.skyRed, desc.skyGreen, desc.skyBlue));
+
+		if(!desc.enabled)
+		{
+			// tear the sky + object fog down again (revert to plain clear)
+			if(gAtmosphere)
+			{
+				gAtmosphere->setSky(sceneManager, false);
+				OGRE_DELETE gAtmosphere;
+				gAtmosphere = NULL;
+			}
+			return;
+		}
+
+		if(!gAtmosphereMediaAvailable)
+		{
+			// enabled but the sky material never registered (headless/older
+			// media): honest no-op beyond the flat sky colour above
+			RenderBackend::notImplementedOnce(
+				"sky/fog atmosphere (sky material media not registered)");
+			return;
+		}
+
+		if(!gAtmosphere)
+		{
+			Ogre::VaoManager* vaoManager =
+				sceneManager->getDestinationRenderSystem()->getVaoManager();
+			try
+			{
+				gAtmosphere = OGRE_NEW Ogre::AtmosphereNpr(vaoManager);
+			}
+			catch(Ogre::Exception const & e)
+			{
+				// the sky material failed to load (e.g. resource groups not
+				// initialised yet): degrade honestly, keep the flat sky colour
+				gAtmosphereMediaAvailable = false;
+				Ogre::LogManager::getSingleton().logMessage(
+					"Orkige next backend: atmosphere sky unavailable - "
+					"rendering flat sky colour + no object fog: " +
+					e.getDescription());
+				return;
+			}
+			gAtmosphere->setSky(sceneManager, true);
+		}
+
+		// SUN LINKAGE: the first directional light is the sun; read its current
+		// direction (authored via its node) so orienting the light sweeps the
+		// day-night arc, then the atmosphere drives that light's colour/power
+		Ogre::Light* sun = RenderBackend::firstDirectionalLight();
+		gAtmosphere->setLight(sun);
+		Ogre::Vector3 sunDir(0.3f, 0.9f, 0.2f);	// default: high daytime sun
+		if(sun)
+		{
+			// -direction points FROM the surface TOWARD the sun
+			sunDir = -sun->getDerivedDirectionUpdated();
+		}
+		sunDir.normalise();
+		// the native day/night phase from the sun's elevation: sunHeight in the
+		// shader is sin(normTime * PI), so normTime = asin(elevation)/PI maps
+		// overhead(+1)->0.5 (noon), horizon(0)->0 and below(-1)->-0.5 (night)
+		const float elevation =
+			std::max(-1.0f, std::min(1.0f, static_cast<float>(sunDir.y)));
+		const float normTime = std::asin(elevation) /
+			static_cast<float>(Ogre::Math::PI);
+
+		Ogre::AtmosphereNpr::Preset preset;	// starts from the sane midday defaults
+		preset.skyColour =
+			Ogre::Vector3(desc.skyRed, desc.skyGreen, desc.skyBlue);
+		preset.skyPower = desc.skyPower;
+		preset.densityCoeff = desc.density;
+		preset.fogDensity = desc.fogDensity;
+		gAtmosphere->setPreset(preset);			// preset first (syncToLight reads it)
+		gAtmosphere->setSunDir(sunDir, normTime);	// then place the sun
 	}
 	//---------------------------------------------------------
 	void RenderBackend::recreateWindowWorkspace()

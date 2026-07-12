@@ -154,8 +154,11 @@ vcpkg_cmake_configure(
         # Hlms PBS/Unlit are the material system - effectively core
         -DOGRE_BUILD_COMPONENT_HLMS_PBS=ON
         -DOGRE_BUILD_COMPONENT_HLMS_UNLIT=ON
-        # everything else off until a phase needs it (B-phase skeleton scope)
-        -DOGRE_BUILD_COMPONENT_ATMOSPHERE=OFF
+        # AtmosphereNpr: the sky + object-fog + sun-linkage component the
+        # engine_render environment surface wires (see Docs/ports.md); its sky
+        # material media is installed below alongside the Hlms templates
+        -DOGRE_BUILD_COMPONENT_ATMOSPHERE=ON
+        # everything else off until a phase needs it
         -DOGRE_BUILD_COMPONENT_OVERLAY=OFF
         -DOGRE_BUILD_COMPONENT_MESHLODGENERATOR=OFF
         -DOGRE_BUILD_COMPONENT_PAGING=OFF
@@ -238,6 +241,32 @@ foreach(hlms_dir Common Pbs Unlit)
     file(COPY "${SOURCE_PATH}/Samples/Media/Hlms/${hlms_dir}"
         DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}/Media/Hlms")
 endforeach()
+
+# AtmosphereNpr sky material media (the runtime registers this alongside the
+# Hlms templates - see Docs/ports.md). ONLY the atmosphere sky programs +
+# material are shipped, NOT the whole Samples Common material set (which carries
+# unrelated sample effects + heavyweight LUT .dds files). The object-fog HlmsPbs
+# integration pieces (Pbs/Any/Atmosphere/*.any) already ride in the Pbs copy
+# above; these are the standalone sky-dome material + its quad vertex program.
+set(_atmo_src "${SOURCE_PATH}/Samples/Media/2.0/scripts/materials/Common")
+set(_atmo_dst "${CURRENT_PACKAGES_DIR}/share/${PORT}/Media/Atmosphere")
+file(COPY "${_atmo_src}/Atmosphere.material" DESTINATION "${_atmo_dst}")
+# a trimmed quad vertex program (only what Atmosphere.material references) in
+# place of the samples' full Quad.program, so no unrelated quad shaders are
+# needed to parse the media set cleanly
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/atmosphere-media/AtmosphereQuad.program"
+    DESTINATION "${_atmo_dst}")
+file(COPY "${_atmo_src}/Any/AtmosphereNprSky_ps.any" DESTINATION "${_atmo_dst}/Any")
+# the sky fragment shader + its quad vertex shader, per shading language
+# (Metal drives Apple; glsl covers the Vulkan RS on Android/Linux via the
+# glslvk delegate; hlsl for a future D3D path). The material resolves the
+# right delegate at load time from the running render system.
+file(COPY "${_atmo_src}/Metal/AtmosphereNprSky_ps.metal"    DESTINATION "${_atmo_dst}/Metal")
+file(COPY "${_atmo_src}/Metal/QuadCameraDirNoUV_vs.metal"   DESTINATION "${_atmo_dst}/Metal")
+file(COPY "${_atmo_src}/GLSL/AtmosphereNprSky_ps.glsl"      DESTINATION "${_atmo_dst}/GLSL")
+file(COPY "${_atmo_src}/GLSL/QuadCameraDirNoUV_vs.glsl"     DESTINATION "${_atmo_dst}/GLSL")
+file(COPY "${_atmo_src}/HLSL/AtmosphereNprSky_ps.hlsl"      DESTINATION "${_atmo_dst}/HLSL")
+file(COPY "${_atmo_src}/HLSL/QuadCameraDirNoUV_vs.hlsl"     DESTINATION "${_atmo_dst}/HLSL")
 
 # upstream installs no CMake package config (only .pc files) - ship ours
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/OGRE-NextConfig.cmake"

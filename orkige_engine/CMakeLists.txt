@@ -430,6 +430,9 @@ if(ORKIGE_RENDER_BACKEND STREQUAL "next")
             OgreNext::Main
             OgreNext::HlmsPbs
             OgreNext::HlmsUnlit
+            # sky + object fog + sun-linked day/night (engine_render environment
+            # surface; RenderWorld::setAtmosphere on the next flavor)
+            OgreNext::Atmosphere
         PRIVATE
             # backend-internal mesh import; assimp types never leave the
             # MeshLoaderNext translation unit

@@ -14,6 +14,7 @@
 #include "engine_render/SpriteBatch.h"
 #include "engine_render/VectorMesh.h"
 #include <core_util/ShadowPreset.h>
+#include <core_util/AtmosphereDesc.h>
 #include <core_util/String.h>
 #include <vector>
 
@@ -166,6 +167,33 @@ namespace Orkige
 		void setShadowQuality(ShadowPreset::Quality quality);
 		//! the knob position last set (default SQ_MEDIUM - the phone budget)
 		ShadowPreset::Quality getShadowQuality() const;
+
+		//--- sky / fog / atmosphere ---
+		//! @brief does this backend render a real sky dome + atmospheric fog?
+		//! (capability probe, mirrors shadowsSupported)
+		//! map: classic=false (flat clear-colour sky + fixed-function fog only -
+		//! the honest subset, @see setAtmosphere) | next=true (AtmosphereNpr) |
+		//! filament=true
+		static bool skyDomeSupported();
+		//! @brief set the scene's sky/fog atmosphere (@see AtmosphereDesc).
+		//! Idempotent - call again to change the look or animate time of day.
+		//!
+		//! SUN LINKAGE: while enabled the atmosphere links to the FIRST
+		//! directional light in the world (creation order) and reads that
+		//! light's current direction as the sun, then drives the light's
+		//! colour/power/direction from the atmospheric model so sun and sky
+		//! stay consistent. Orient that light (via its node) to place the sun /
+		//! sweep a day-night arc, then re-call to resolve it; with no
+		//! directional light the sky renders with a default overhead sun. A
+		//! second-sun / explicit-light setter can come later if a game needs it.
+		//!
+		//! map: next=Ogre::AtmosphereNpr (sky dome + HlmsPbs-integrated object
+		//! fog + linked directional sun; sky media from the ogre-next port) |
+		//! classic=fixed-function scene fog + flat window clear colour, NO sky
+		//! dome (logged once - the honest subset) | filament=Skybox + fog
+		void setAtmosphere(AtmosphereDesc const & desc);
+		//! the atmosphere description last set (default: disabled)
+		AtmosphereDesc const & getAtmosphere() const;
 
 		//--- queries (editor picking) ---
 		//! @brief all scene content whose bounds the ray hits, nearest first

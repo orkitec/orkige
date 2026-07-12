@@ -912,6 +912,30 @@ namespace Orkige
 			Color(red, green, blue));
 	}
 	//---------------------------------------------------------
+	void Engine::setAtmosphere(bool enabled, float skyRed, float skyGreen,
+		float skyBlue, float density, float fogDensity)
+	{
+		AtmosphereDesc desc;
+		desc.enabled = enabled;
+		desc.skyRed = skyRed;
+		desc.skyGreen = skyGreen;
+		desc.skyBlue = skyBlue;
+		desc.density = density;
+		desc.fogDensity = fogDensity;
+		// fog colour tracks the sky tint (a sensible default for both flavors;
+		// the next flavor derives its atmospheric fog colour from the sky anyway)
+		desc.fogRed = skyRed;
+		desc.fogGreen = skyGreen;
+		desc.fogBlue = skyBlue;
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
@@ -942,6 +966,8 @@ namespace Orkige
 		OFUNC(setCameraOrthographicFit)
 		OFUNC(setCameraPerspective)
 		OFUNC(setWindowBackgroundColour)
+		// sky/fog atmosphere: engine:setAtmosphere(enabled, r,g,b, density, fog)
+		OFUNC(setAtmosphere)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly

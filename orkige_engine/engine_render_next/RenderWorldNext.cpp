@@ -168,6 +168,22 @@ namespace Orkige
 		return this->mImpl->shadowQuality;
 	}
 	//---------------------------------------------------------
+	bool RenderWorld::skyDomeSupported()
+	{
+		return true;	// AtmosphereNpr renders a real sky dome + atmospheric fog
+	}
+	//---------------------------------------------------------
+	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)
+	{
+		this->mImpl->atmosphere = desc;
+		RenderBackend::applyAtmosphere(desc);
+	}
+	//---------------------------------------------------------
+	AtmosphereDesc const & RenderWorld::getAtmosphere() const
+	{
+		return this->mImpl->atmosphere;
+	}
+	//---------------------------------------------------------
 	std::vector<RenderWorld::RayQueryHit> RenderWorld::queryRay(
 		Ray3 const & ray, unsigned int queryMask) const
 	{
