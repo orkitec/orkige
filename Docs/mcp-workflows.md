@@ -471,8 +471,10 @@ preview_ui {                                                         // authed
 //   → { "path":"/tmp/orkige_preview_ui.png", "width":"1179", "height":"2556",
 //       "batch_count":"1",
 //       "ids":["play"], "rects":["40 40 300 96 1 1 0"] }
-//   read the png back to SEE it (rendered at the device size + content scale);
-//   read the rects to CHECK the layout ("left top w h visible enabled modal").
+//   the render comes back INLINE as an image content block - you SEE it in the
+//   tool result directly (no read-back hop); the path is still there for pixel
+//   diffing. read the rects to CHECK the layout ("left top w h visible enabled
+//   modal"). inline:false (or a PNG over 4 MiB) returns path-only.
 
 // 3. a device-matrix sweep in ONE call (phone + tablet) - one png per context
 preview_ui {                                                         // authed
@@ -505,6 +507,16 @@ the `editor_control` self-test (write → preview → edit → preview → asser
 moved → a missing file errors).
 
 The animation twin is `preview_animation { "asset":"assets/hero.oanim", "clip":"walk", "time":0.4, "blendClip":"run", "blendWeight":0.3 }` (authed): it renders a `.oanim` pose (import a Lottie `.json` with `import_asset` to cook one, or `write_project_file` the text directly) at a chosen clip/time — optionally blending a second same-rig clip — to a PNG plus a readback (`clips`, `frame`, `duration`, `layer_count`, `vertex_count`), so an agent scrubs a cycle (t=0 / mid / end differ) and validates a blend without a play session.
+
+`screenshot`, `preview_ui` and `preview_animation` inline the captured PNG as an
+MCP **image content block** alongside the text/`structuredContent` — you see the
+render in the tool result itself, no read-back hop. For a `preview_ui` sweep only
+the FIRST context's image is inlined (to bound payload; the row notes it); the
+other paths are on disk. Pass `inline:false` (or exceed the 4 MiB cap — noted as
+`"inline_skipped":"too_large"`) to get path-only. `screenshot_game` is async (the
+player writes the file after the accepted reply), so it has no image at reply time
+and stays path-only — poll `get_state` for the confirmation, then read the path
+off the shared filesystem.
 
 ## 6. Leave the human a reusable tool (editor scripts)
 

@@ -672,6 +672,71 @@ namespace Orkige
 			outError = "needs a 'cell' {col,row} or a world 'position'";
 			return false;
 		}
+		//---------------------------------------------------------
+		//--- inline-image support (MCP image content blocks) -----
+		//---------------------------------------------------------
+		//! standard base64 (RFC 4648) of a raw byte buffer. Hand-rolled to keep the
+		//! server dependency-free - the only consumer is the inline PNG block below.
+		std::string base64Encode(const unsigned char* data, size_t length)
+		{
+			static const char kTable[] =
+				"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+			std::string out;
+			out.reserve(((length + 2) / 3) * 4);
+			size_t i = 0;
+			for (; i + 3 <= length; i += 3)
+			{
+				const unsigned int n = (static_cast<unsigned int>(data[i]) << 16) |
+					(static_cast<unsigned int>(data[i + 1]) << 8) |
+					static_cast<unsigned int>(data[i + 2]);
+				out.push_back(kTable[(n >> 18) & 0x3F]);
+				out.push_back(kTable[(n >> 12) & 0x3F]);
+				out.push_back(kTable[(n >> 6) & 0x3F]);
+				out.push_back(kTable[n & 0x3F]);
+			}
+			const size_t rem = length - i;
+			if (rem == 1)
+			{
+				const unsigned int n = static_cast<unsigned int>(data[i]) << 16;
+				out.push_back(kTable[(n >> 18) & 0x3F]);
+				out.push_back(kTable[(n >> 12) & 0x3F]);
+				out.push_back('=');
+				out.push_back('=');
+			}
+			else if (rem == 2)
+			{
+				const unsigned int n = (static_cast<unsigned int>(data[i]) << 16) |
+					(static_cast<unsigned int>(data[i + 1]) << 8);
+				out.push_back(kTable[(n >> 18) & 0x3F]);
+				out.push_back(kTable[(n >> 12) & 0x3F]);
+				out.push_back(kTable[(n >> 6) & 0x3F]);
+				out.push_back('=');
+			}
+			return out;
+		}
+		//! largest PNG we inline into a tool result before it hurts the transport:
+		//! above this we skip the block and note "inline_skipped" (the path stays).
+		const size_t kMaxInlineImageBytes = 4u * 1024u * 1024u;	// 4 MiB
+		//! the PNG path a synchronously-capturing verb wrote, or "" when the verb
+		//! has no image at reply time (screenshot_game is async - see the docs).
+		//! For a preview_ui sweep only the FIRST context's image is inlined (the
+		//! reply has no scalar "path", so fall back to the head of "paths").
+		std::string inlineImagePathForVerb(String const& verb,
+			DebugMessage const& reply)
+		{
+			if (verb != "screenshot" && verb != "preview_ui" &&
+				verb != "preview_animation")
+			{
+				return std::string();
+			}
+			if (reply.has("path") && !reply.get("path").empty())
+			{
+				return reply.get("path");
+			}
+			const StringVector& paths = reply.getList("paths");
+			return paths.empty() ? std::string() : paths.front();
+		}
+		//---------------------------------------------------------
 		//! is this verb a pure read (allowed before authentication)?
 		bool isReadVerb(String const& type)
 		{
@@ -1179,9 +1244,13 @@ namespace Orkige
 				{ "screenshot",
 				  "Write a PNG of the EDITOR: the chrome-free scene viewport, or "
 				  "the whole editor window (window='1'). Returns the written "
-				  "path. For the RUNNING game's frame use screenshot_game.",
+				  "path AND inlines the PNG as an image content block (unless "
+				  "inline=false or it exceeds 4 MiB). For the RUNNING game's "
+				  "frame use screenshot_game.",
 				  { { "path", "string", "output PNG path", true },
-				    { "window", "string", "'1' for the whole window", false } } },
+				    { "window", "string", "'1' for the whole window", false },
+				    { "inline", "boolean", "inline the PNG as an image content "
+				      "block (default true)", false } } },
 				{ "runtime_hierarchy",
 				  "The RUNNING game's live GameObject hierarchy (ids/parents/"
 				  "active), streamed from the player during Play. Distinct from "
@@ -1309,7 +1378,10 @@ namespace Orkige
 				  "shared with the editor). ASYNC: returns accepted + "
 				  "prev_screenshot_seq; poll get_state until screenshot_seq "
 				  "exceeds it, then screenshot_path/screenshot_ok carry the "
-				  "result. Errors when no player is connected.",
+				  "result. The file does not exist yet at this reply, so (unlike "
+				  "screenshot/preview_ui/preview_animation) this verb cannot "
+				  "inline the image - read the confirmed path off the filesystem. "
+				  "Errors when no player is connected.",
 				  { { "path", "string", "output PNG path", true } } },
 				{ "record_trace",
 				  "Record a TEMPORAL TRACE of the RUNNING game to a .jsonl file "
@@ -1392,7 +1464,9 @@ namespace Orkige
 				  "directory); omit for the source language. The result carries the "
 				  "applied 'language' and the available 'languages'; a project with "
 				  "no loc/ directory ignores 'language' with a 'language_note'. "
-				  "Does not disturb the human's GUI Preview tab.",
+				  "The screenshot is also inlined as an image content block (the "
+				  "FIRST context for a sweep) unless inline=false or it exceeds "
+				  "4 MiB. Does not disturb the human's GUI Preview tab.",
 				  { { "file", "string",
 				      "project-relative .oui path (e.g. 'screens/title.oui')", true },
 				    { "language", "string",
@@ -1412,6 +1486,9 @@ namespace Orkige
 				      false },
 				    { "path", "string",
 				      "output PNG path (default a temp file; a sweep appends an index)",
+				      false },
+				    { "inline", "boolean", "inline the screenshot (the first "
+				      "sweep context) as an image content block (default true)",
 				      false } } },
 				{ "preview_animation",
 				  "Render a vector-animation asset (.oanim) at a chosen clip and "
@@ -1428,8 +1505,9 @@ namespace Orkige
 				  "on both render flavors. Returns 'path' (the PNG), the resolved "
 				  "'clip'/'frame'/'time', the rig 'duration' (frames)/'fps', "
 				  "'layerCount'/'shapeCount'/'vertexCount', 'atEnd', and the "
-				  "available 'clips'. Does not disturb the human's Animation "
-				  "Preview panel.",
+				  "available 'clips'. The PNG is also inlined as an image content "
+				  "block unless inline=false or it exceeds 4 MiB. Does not disturb "
+				  "the human's Animation Preview panel.",
 				  { { "asset", "string",
 				      "project-relative .oanim path (e.g. 'assets/hero.oanim')",
 				      true },
@@ -1446,7 +1524,9 @@ namespace Orkige
 				    { "size", "number",
 				      "square render size in pixels (default 256)", false },
 				    { "path", "string",
-				      "output PNG path (default a temp file)", false } } },
+				      "output PNG path (default a temp file)", false },
+				    { "inline", "boolean", "inline the PNG as an image content "
+				      "block (default true)", false } } },
 				{ "import_asset",
 				  "Import an OUTSIDE file into the open project (copy into "
 				  "assets/, mint its stable .orkmeta id, refresh the resource "
@@ -2079,7 +2159,7 @@ namespace Orkige
 		this->mAuthenticated = authenticated;
 		this->runVerb(request, context);
 
-		const JsonValue structured = replyToJson(this->mReply);
+		JsonValue structured = replyToJson(this->mReply);
 		JsonValue result = JsonValue::object();
 		JsonValue content = JsonValue::array();
 		JsonValue text = JsonValue::object();
@@ -2094,8 +2174,54 @@ namespace Orkige
 		}
 		else
 		{
+			// inline the just-captured PNG as an MCP image content block so a
+			// remote client sees the render directly (the path stays for pixel
+			// diffing). Only the verbs that write the file synchronously before
+			// this reply can carry it; opt out with argument inline:false, and a
+			// too-large PNG is skipped with a note (both leave the path intact).
+			// argToString maps a bool arg to "1"/"0", absent => "" (default on).
+			const bool wantInline = request.get("inline") != "0";
+			JsonValue imageBlock;
+			bool haveImage = false;
+			if (wantInline)
+			{
+				const std::string imagePath =
+					inlineImagePathForVerb(name, this->mReply);
+				if (!imagePath.empty())
+				{
+					std::ifstream file(imagePath,
+						std::ios::binary | std::ios::ate);
+					if (file)
+					{
+						const std::streamoff size = file.tellg();
+						if (size > 0 && static_cast<size_t>(size) >
+							kMaxInlineImageBytes)
+						{
+							structured.set("inline_skipped",
+								JsonValue("too_large"));
+						}
+						else if (size > 0)
+						{
+							std::vector<unsigned char> bytes(
+								static_cast<size_t>(size));
+							file.seekg(0);
+							file.read(reinterpret_cast<char*>(bytes.data()), size);
+							imageBlock = JsonValue::object();
+							imageBlock.set("type", JsonValue("image"));
+							imageBlock.set("data", JsonValue(
+								base64Encode(bytes.data(), bytes.size())));
+							imageBlock.set("mimeType", JsonValue("image/png"));
+							haveImage = true;
+						}
+					}
+				}
+			}
 			text.set("text", JsonValue(structured.serialize()));
 			content.push(text);
+			if (haveImage)
+			{
+				content.push(imageBlock);
+			}
 			result.set("content", content);
 			result.set("structuredContent", structured);
 			result.set("isError", JsonValue(false));
@@ -5664,6 +5790,70 @@ namespace Orkige
 			return true;
 		};
 
+		// like callTool but hands back the WHOLE tool result (content[] included)
+		// so a leg can inspect image content blocks alongside structuredContent
+		auto callToolFull = [&](String const& tool, JsonValue const& args,
+			bool withAuth, JsonValue& result) -> bool
+		{
+			JsonValue params = JsonValue::object();
+			params.set("name", JsonValue(tool));
+			params.set("arguments", args);
+			JsonValue reply;
+			if (!post("tools/call", params, withAuth, true, reply))
+			{
+				return false;
+			}
+			result = reply.get("result");
+			return true;
+		};
+
+		// decode standard base64 (the image block's 'data'); returns the bytes so
+		// a leg can assert an inlined PNG really carries the PNG signature
+		auto base64Decode = [](std::string const& in) -> std::vector<unsigned char>
+		{
+			auto sextet = [](char c) -> int
+			{
+				if (c >= 'A' && c <= 'Z') return c - 'A';
+				if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+				if (c >= '0' && c <= '9') return c - '0' + 52;
+				if (c == '+') return 62;
+				if (c == '/') return 63;
+				return -1;
+			};
+			std::vector<unsigned char> out;
+			int bits = 0, acc = 0;
+			for (char c : in)
+			{
+				if (c == '=') break;
+				const int v = sextet(c);
+				if (v < 0) continue;
+				acc = (acc << 6) | v;
+				bits += 6;
+				if (bits >= 8)
+				{
+					bits -= 8;
+					out.push_back(static_cast<unsigned char>((acc >> bits) & 0xFF));
+				}
+			}
+			return out;
+		};
+
+		// the first image content block's decoded bytes, or empty when none
+		auto firstInlineImage = [&](JsonValue const& result)
+			-> std::vector<unsigned char>
+		{
+			JsonValue const& content = result.get("content");
+			for (size_t i = 0; i < content.size(); ++i)
+			{
+				JsonValue const& block = content.at(i);
+				if (block.get("type").asString() == "image")
+				{
+					return base64Decode(block.get("data").asString());
+				}
+			}
+			return std::vector<unsigned char>();
+		};
+
 		// a get_state fetch (read, no auth) returning the structuredContent
 		auto getState = [&](JsonValue& state) -> bool
 		{
@@ -7228,6 +7418,49 @@ namespace Orkige
 					"identical PNGs at two different times");
 				return;
 			}
+			// INLINE IMAGE: a preview_animation result carries the PNG as an image
+			// content block (data decodes to the PNG signature); inline=false omits
+			// it. The path stays in structuredContent either way (pixel diffing).
+			{
+				const fs::path pngInline = fs::temp_directory_path() /
+					("orkige_mcp_anim_inline_" + std::to_string(port) + ".png");
+				JsonValue inlineArgs = JsonValue::object();
+				inlineArgs.set("asset", JsonValue(animRel));
+				inlineArgs.set("clip", JsonValue(String("idle")));
+				inlineArgs.set("path", JsonValue(pngInline.string()));
+				JsonValue withImage;
+				const bool okInline =
+					callToolFull("preview_animation", inlineArgs, true, withImage);
+				const std::vector<unsigned char> image =
+					okInline ? firstInlineImage(withImage)
+						: std::vector<unsigned char>();
+				static const unsigned char kPngSig[8] =
+					{ 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+				const bool imageOk = image.size() >= 8 &&
+					std::equal(kPngSig, kPngSig + 8, image.begin());
+				// structuredContent still carries the path
+				const bool pathKept = okInline &&
+					!withImage.get("structuredContent").get("path")
+						.asString().empty();
+
+				// inline=false: no image block, path still present
+				JsonValue noInlineArgs = inlineArgs;
+				noInlineArgs.set("inline", JsonValue(false));
+				JsonValue withoutImage;
+				const bool okNoInline = callToolFull("preview_animation",
+					noInlineArgs, true, withoutImage);
+				const bool noImage = okNoInline &&
+					firstInlineImage(withoutImage).empty();
+
+				fs::remove(pngInline, authIgnored);
+				if (!imageOk || !pathKept || !noImage)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: preview_animation inline image "
+						"block missing/malformed, or inline=false did not omit it");
+					return;
+				}
+			}
 			// AUTH: preview_animation without a token must be rejected (it writes)
 			JsonValue previewArgs = JsonValue::object();
 			previewArgs.set("asset", JsonValue(animRel));
@@ -7242,7 +7475,8 @@ namespace Orkige
 				return;
 			}
 			SDL_Log("orkige_editor: control self-test - Lottie import + "
-				"preview_animation OK (kept source, two poses differ)");
+				"preview_animation OK (kept source, two poses differ, "
+				"inline image block present)");
 		}
 
 		// (20) create_prefab -> instantiate_prefab round-trip: make an object, of
