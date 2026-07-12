@@ -484,7 +484,8 @@ TEST_CASE("ScriptEventBus stress: 200 subscribers, 1000 emits/frame", "[events][
 	std::fflush(stdout);
 	// correctness alongside the timing: every dispatch ran its handler
 	CHECK(sharedNumber("n") == static_cast<double>(totalDispatches));
-	// a sane frame budget backstop (generous - this is a stress far above any
-	// real game's event volume); the printed numbers are the real deliverable
-	CHECK(avgFrameMs < 100.0);
+	// NO wall-clock threshold: shared CI runners are many times slower than a
+	// dev machine and a timing gate makes the suite flaky by construction (the
+	// perf-contract policy everywhere else: the printed numbers are the
+	// deliverable, correctness is the assertion)
 }
