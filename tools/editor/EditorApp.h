@@ -365,17 +365,23 @@ struct AssetBrowserState
 //! 2D editor mode. A passive data struct (plain camelCase fields).
 struct TilePaletteState
 {
-	//! the armed prefab ("" = nothing armed, the Paint tool paints nothing)
-	std::string armedPrefabPath;		//!< absolute .oprefab path
-	std::string armedPrefabRef;			//!< project-relative reference
-	std::string armedPrefabAssetId;		//!< stable .orkmeta id
-	//! ghost-preview image for the armed prefab: the bare texture (else vector-
-	//! shape) ref probed from the prefab's visual at arm time, plus the resolved
-	//! absolute asset path the thumbnail machinery loads. Both empty for a pure-
-	//! logic prefab (no drawable) - the paint tool then shows only the outline.
+	//! the armed paint asset ("" = nothing armed, the Paint tool paints nothing).
+	//! The palette arms three kinds: a Prefab (instantiates the .oprefab), a
+	//! Texture or a VectorShape - the last two paint BARE tiles (a grid-cell
+	//! sprite/shape object, no prefab file). armedKind says which.
+	std::string armedAssetPath;		//!< absolute asset path (.oprefab / texture / .oshape)
+	std::string armedAssetRef;			//!< project-relative reference
+	std::string armedAssetId;		//!< stable .orkmeta id
+	AssetKind armedKind = AssetKind::Prefab;	//!< Prefab / Texture / VectorShape
+	//! ghost-preview image for the armed asset: for a prefab, the bare texture
+	//! (else vector-shape) ref probed from its visual at arm time; for a bare
+	//! texture/shape, the asset itself. Plus the resolved absolute path the
+	//! thumbnail machinery loads. Both empty for a pure-logic prefab (no
+	//! drawable) - the paint tool then shows only the outline.
 	std::string previewImageRef;
 	std::string previewImagePath;
-	//! prefab probe results, refreshed on arm (PrefabSerializer::listPrefabInfo)
+	//! prefab probe results, refreshed on arm (PrefabSerializer::listPrefabInfo);
+	//! empty for a bare-asset arm (no prefab file, no edge walls)
 	std::vector<std::string> prefabLocalIds;	//!< every local id in the file
 	bool hasEdgeWalls = false;			//!< all four TileComponent wall locals present
 	bool rootHasTileComponent = false;	//!< the prefab root already carries one
@@ -1463,19 +1469,23 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 
 //--- Tile Palette (EditorTilePalettePanel.cpp) ------------------------------
 
-//! @brief arm a prefab for grid painting (the palette click AND the test/MCP
-//! seam): derive its project-relative ref + asset id, probe it for its local
-//! ids / edge-wall children / root TileComponent, store it in
-//! state.tilePalette and switch the active tool to Paint. Passing "" disarms
-//! (tool back to Translate). False when the probe fails (not a prefab file).
-bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
+//! @brief arm a paint asset for grid painting (the palette click AND the
+//! test/MCP seam): classify the path (prefab / texture / .oshape), derive its
+//! project-relative ref + asset id, and for a PREFAB probe its local ids /
+//! edge-wall children / root TileComponent; a bare texture/shape arms a
+//! BARE-tile paint (its own thumbnail is the ghost). Stores it in
+//! state.tilePalette and switches the active tool to Paint. Passing "" disarms
+//! (tool back to Translate). False when the path is not a paintable asset (or a
+//! prefab probe fails).
+bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	std::string const& absolutePath);
 
-//! @brief build the EditorPaintDesc the armed prefab + paint options describe:
-//! the open edges become suppressed wall-child locals + the openEdges bitmask
-//! stamp (a TileComponent added when the prefab root lacks one), and the tags
-//! field is parsed comma-separated. The Scene panel paint path and the MCP
-//! paint verb both feed this to EditorCore::paintPrefabAtCell.
+//! @brief build the EditorPaintDesc the armed asset + paint options describe.
+//! PREFAB: the open edges become suppressed wall-child locals + the openEdges
+//! bitmask stamp (a TileComponent added when the prefab root lacks one).
+//! TEXTURE/SHAPE: a bare sprite/shape tile carrying the source-asset id. The
+//! tags field is parsed comma-separated for either kind. The Scene panel paint
+//! path and the MCP paint verb both feed this to EditorCore::paintTileAtCell.
 Orkige::EditorPaintDesc paletteMakePaintDesc(TilePaletteState const& palette);
 
 //! @brief the Tile Palette panel: lists the open project's prefabs (click to

@@ -30,6 +30,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	TileComponent::TileComponent()
 		: mOpenEdges(0)
+		, mSourceAssetId()
 	{
 	}
 	//---------------------------------------------------------
@@ -55,8 +56,11 @@ namespace Orkige
 		OFUNC(getOpenEdges)
 		OFUNC(setOpenEdges)
 		OFUNC(isEdgeOpen)
-		// reflected schema: the open-edges bitmask
+		OFUNC(getSourceAssetId)
+		OFUNC(setSourceAssetId)
+		// reflected schema: the open-edges bitmask + the bare-asset tile's source id
 		OPROPERTY("openEdges", Orkige::PropertyKind::Int, getOpenEdges, setOpenEdges, Orkige::PROP_NONE)
+		OPROPERTY("sourceAssetId", Orkige::PropertyKind::String, getSourceAssetId, setSourceAssetId, Orkige::PROP_NONE)
 	OOBJECT_END
 	//---------------------------------------------------------
 }

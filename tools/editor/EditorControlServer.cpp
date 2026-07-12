@@ -680,7 +680,8 @@ namespace Orkige
 				type == "runtime_hierarchy" || type == "runtime_state" ||
 				type == "read_project_file" || type == "list_project_files" ||
 				type == "list_play_targets" || type == "get_export_results" ||
-				type == "list_paint_prefabs" || type == "get_safe_area" ||
+				type == "list_paint_prefabs" ||
+				type == "list_paintable_assets" || type == "get_safe_area" ||
 				type == "get_ui_layout" || type == "get_breadcrumbs" ||
 				type == "get_lua_api";
 		}
@@ -1414,28 +1415,52 @@ namespace Orkige
 				  "failure, plus the exporter's 'outputTail'.",
 				  { { "jobId", "string", "the id export_project returned",
 				      true } } },
-				{ "list_paint_prefabs",
-				  "List the open project's prefab palette for the grid-paint level "
-				  "workflow and report the paint grid the paint verbs snap to. "
-				  "Returns parallel lists 'paths' (project-relative .oprefab paths) "
-				  "and 'names' (their stems), 'count', and the grid geometry "
+				{ "list_paintable_assets",
+				  "List the open project's paintable palette for the grid-paint "
+				  "level workflow and report the paint grid the paint verbs snap "
+				  "to. Returns parallel lists 'paths' (project-relative asset "
+				  "paths), 'names' (their stems) and 'kinds' ('prefab', 'texture' "
+				  "or 'shape' - a prefab instantiates its subtree, a texture/shape "
+				  "paints a bare tile), 'count', and the grid geometry "
 				  "'origin_x'/'origin_y'/'cell_size' (the grid coincides with the "
 				  "game's slots when the scene carries a level, else the editor's "
 				  "translate snap step at the world origin).",
 				  {} },
-				{ "paint_prefab",
-				  "Paint a prefab instance into one grid cell as ONE undoable step "
-				  "- the MCP equivalent of the editor's grid-paint tool (needs "
-				  "auth). An occupant of the SAME cell is replaced; painting the "
-				  "identical instance again is a no-op. Give the tile by 'cell' "
+				{ "list_paint_prefabs",
+				  "Back-compat alias of list_paintable_assets (which lists prefabs, "
+				  "textures AND shapes, not prefabs only). Same result shape "
+				  "including the 'kinds' list.",
+				  {} },
+				{ "paint_asset",
+				  "Paint a tile into one grid cell as ONE undoable step - the MCP "
+				  "equivalent of the editor's grid-paint tool (needs auth). The "
+				  "'asset' is a project-relative or absolute path: a .oprefab "
+				  "instantiates the prefab; a texture or .oshape paints a BARE tile "
+				  "(a grid-cell sprite/shape object, no prefab file). An occupant of "
+				  "the SAME cell is replaced (across kinds too); painting the "
+				  "identical tile again is a no-op. Give the tile by 'cell' "
 				  "{col,row} OR a world 'position' ('x y'/'x y z') snapped to the "
-				  "nearest cell. 'prefab' is a project-relative or absolute .oprefab "
-				  "path. Optional 'suppressed' drops those prefab-local child ids on "
-				  "the instance. Returns the painted-root 'id', the snapped 'col'/"
-				  "'row' and cell-center 'x'/'y', and 'painted' ('1', or '0' on a "
-				  "no-op).",
+				  "nearest cell. Optional 'suppressed' drops prefab-local child ids "
+				  "(prefab only). Returns the painted-root 'id', the 'kind', the "
+				  "snapped 'col'/'row' and cell-center 'x'/'y', and 'painted' ('1', "
+				  "or '0' on a no-op).",
+				  { { "asset", "string",
+				      "project-relative or absolute .oprefab/texture/.oshape path",
+				      true },
+				    { "cell", "object", "the target cell { col: int, row: int }",
+				      false },
+				    { "position", "string",
+				      "world position 'x y' (or 'x y z') snapped to a cell", false },
+				    { "suppressed", "array",
+				      "prefab-local child ids to drop on the instance (prefab only)",
+				      false } } },
+				{ "paint_prefab",
+				  "Back-compat alias of paint_asset. Accepts the source as 'prefab' "
+				  "or 'asset'; despite the name it paints a texture/.oshape as a "
+				  "bare tile too. Same result shape.",
 				  { { "prefab", "string",
-				      "project-relative or absolute .oprefab path", true },
+				      "project-relative or absolute .oprefab/texture/.oshape path",
+				      true },
 				    { "cell", "object", "the target cell { col: int, row: int }",
 				      false },
 				    { "position", "string",
@@ -1443,12 +1468,12 @@ namespace Orkige
 				    { "suppressed", "array",
 				      "prefab-local child ids to drop on the instance", false } } },
 				{ "erase_cell",
-				  "Erase the prefab instance in one grid cell as ONE undoable step "
-				  "(needs auth). Give the tile by 'cell' {col,row} OR a world "
-				  "'position' snapped to the nearest cell (same snap as "
-				  "paint_prefab). Returns the snapped 'col'/'row', cell-center "
-				  "'x'/'y' and 'erased' ('1' when a tile was removed, '0' when the "
-				  "cell was already free).",
+				  "Erase the tile in one grid cell as ONE undoable step, whatever "
+				  "kind it is (prefab instance or bare tile) (needs auth). Give the "
+				  "tile by 'cell' {col,row} OR a world 'position' snapped to the "
+				  "nearest cell (same snap as paint_asset). Returns the snapped "
+				  "'col'/'row', cell-center 'x'/'y' and 'erased' ('1' when a tile "
+				  "was removed, '0' when the cell was already free).",
 				  { { "cell", "object", "the target cell { col: int, row: int }",
 				      false },
 				    { "position", "string",
@@ -3780,34 +3805,44 @@ namespace Orkige
 		}
 
 		//--- 2D grid painting (level authoring) --------------
-		// list_paint_prefabs: the project's .oprefab palette + the grid the paint
-		// verbs snap to. Parallel 'paths'/'names' lists (the list_project_files
-		// shape); a loopback listing is harmless, so it is a read (no auth).
-		if (type == "list_paint_prefabs")
+		// list_paint_prefabs / list_paintable_assets: the project's paintable
+		// palette (prefabs + textures + .oshape) + the grid the paint verbs snap
+		// to. Parallel 'paths'/'names'/'kinds' lists (the list_project_files
+		// shape); a loopback listing is harmless, so it is a read (no auth). The
+		// two verb names share this handler - list_paintable_assets is the honest
+		// name now that bare art is paintable, list_paint_prefabs the back-compat
+		// alias.
+		if (type == "list_paint_prefabs" || type == "list_paintable_assets")
 		{
 			if (!state.project.isLoaded())
 			{
 				this->sendErr(req, "no project open - grid painting sources "
-					"prefabs from the project's assets/");
+					"tiles from the project's assets/");
 				return;
 			}
-			const unsigned int prefabMask =
-				1u << static_cast<unsigned int>(AssetKind::Prefab);
+			const unsigned int paintableMask =
+				(1u << static_cast<unsigned int>(AssetKind::Prefab)) |
+				(1u << static_cast<unsigned int>(AssetKind::Texture)) |
+				(1u << static_cast<unsigned int>(AssetKind::VectorShape));
 			std::vector<AssetBrowserItem> const items = searchAssets(
 				state.project, state.project.getRootDirectory(), String(), true,
-				prefabMask);
+				paintableMask);
 			StringVector paths;
 			StringVector names;
+			StringVector kinds;
 			for (AssetBrowserItem const& item : items)
 			{
 				paths.push_back(item.relativePath);
 				names.push_back(
 					std::filesystem::path(item.relativePath).stem().string());
+				kinds.push_back(item.kind == AssetKind::Prefab ? "prefab"
+					: item.kind == AssetKind::VectorShape ? "shape" : "texture");
 			}
 			const EditorPaintGrid grid = core.resolvePaintGrid();
 			DebugMessage ok(MSG_OK);
 			ok.setList("paths", paths);
 			ok.setList("names", names);
+			ok.setList("kinds", kinds);
 			ok.set("count", std::to_string(paths.size()));
 			ok.setFloat("origin_x", grid.originX);
 			ok.setFloat("origin_y", grid.originY);
@@ -3815,10 +3850,15 @@ namespace Orkige
 			this->sendOk(req, ok);
 			return;
 		}
-		// paint_prefab: instantiate a prefab into one grid cell (undoable, same
-		// cell replaces its occupant) - the grid-paint tool's core action, kept
-		// generic (no tag/stamp sugar; those are the editor palette's tile layer).
-		if (type == "paint_prefab")
+		// paint_prefab / paint_asset: paint a tile into one grid cell (undoable,
+		// same cell replaces its occupant of ANY kind) - the grid-paint tool's
+		// core action, kept generic (no tag/stamp sugar; those are the editor
+		// palette's tile layer). The source is a project-relative or absolute
+		// path: a .oprefab instantiates the prefab; a texture or .oshape paints a
+		// BARE tile (a grid-cell sprite/shape object, no prefab file). paint_asset
+		// is the honest name, paint_prefab the back-compat alias; either arg name
+		// ('prefab' or 'asset') is accepted.
+		if (type == "paint_prefab" || type == "paint_asset")
 		{
 			if (!state.project.isLoaded())
 			{
@@ -3826,56 +3866,82 @@ namespace Orkige
 					"project");
 				return;
 			}
-			String prefabArg = request.get("prefab");
-			if (prefabArg.empty())
+			String assetArg = request.get("asset");
+			if (assetArg.empty())
 			{
-				this->sendErr(req, "paint_prefab needs a 'prefab' .oprefab path");
+				assetArg = request.get("prefab");
+			}
+			if (assetArg.empty())
+			{
+				this->sendErr(req, type + " needs an 'asset' (or 'prefab') path: "
+					"a .oprefab, texture or .oshape");
 				return;
 			}
-			// resolve the prefab to an absolute path (a relative ref resolves
-			// against the project root), then derive its stored reference + id the
-			// same way the asset-browser instantiate does
-			std::filesystem::path absolute(prefabArg);
+			// resolve to an absolute path (a relative ref resolves against the
+			// project root), classify it, then derive its ref + id the same way
+			// the asset-browser instantiate does
+			std::filesystem::path absolute(assetArg);
 			if (!absolute.is_absolute())
 			{
 				absolute = std::filesystem::path(
-					state.project.resolvePath(prefabArg));
+					state.project.resolvePath(assetArg));
 			}
 			std::error_code ec;
-			if (!std::filesystem::is_regular_file(absolute, ec) ||
-				absolute.extension() != ".oprefab")
+			if (!std::filesystem::is_regular_file(absolute, ec))
 			{
-				this->sendErr(req, "paint_prefab: '" + prefabArg +
-					"' is not a .oprefab file");
+				this->sendErr(req, type + ": '" + assetArg + "' is not a file");
 				return;
 			}
-			const String prefabRef =
+			const AssetKind kind = classifyAsset(absolute.string());
+			if (kind != AssetKind::Prefab && kind != AssetKind::Texture &&
+				kind != AssetKind::VectorShape)
+			{
+				this->sendErr(req, type + ": '" + assetArg + "' is not a "
+					"paintable asset (prefab / texture / shape)");
+				return;
+			}
+			const String assetRef =
 				state.project.makeProjectRelative(absolute.string());
 			optr<AssetDatabase> const& database =
 				state.project.getAssetDatabase();
-			const String assetId = (database && !prefabRef.empty())
-				? database->idForPath(prefabRef) : String();
+			const String assetId = (database && !assetRef.empty())
+				? database->idForPath(assetRef) : String();
 			const EditorPaintGrid grid = core.resolvePaintGrid();
 			float centerX = 0.0f;
 			float centerY = 0.0f;
 			String cellError;
 			if (!resolvePaintCell(request, grid, centerX, centerY, cellError))
 			{
-				this->sendErr(req, "paint_prefab " + cellError);
+				this->sendErr(req, type + " " + cellError);
 				return;
 			}
 			EditorPaintDesc desc;
-			desc.prefabFilePath = absolute.string();
-			desc.prefabRef = prefabRef;
-			desc.prefabAssetId = assetId;
-			desc.suppressedChildren = request.getList("suppressed");
+			if (kind == AssetKind::Prefab)
+			{
+				desc.kind = PaintTileKind::Prefab;
+				desc.prefabFilePath = absolute.string();
+				desc.prefabRef = assetRef;
+				desc.prefabAssetId = assetId;
+				desc.suppressedChildren = request.getList("suppressed");
+			}
+			else
+			{
+				desc.kind = kind == AssetKind::VectorShape
+					? PaintTileKind::ShapeTile
+					: PaintTileKind::SpriteTile;
+				desc.assetName = absolute.filename().string();
+				desc.assetRef = assetRef;
+				desc.assetId = assetId;
+			}
 			const bool painted =
-				core.paintPrefabAtCell(desc, centerX, centerY, grid.cellSize, 0);
+				core.paintTileAtCell(desc, centerX, centerY, grid.cellSize, 0);
 			const String rootId =
-				core.findPrefabInstanceAtCell(centerX, centerY, grid.cellSize);
+				core.findTileAtCell(centerX, centerY, grid.cellSize);
 			DebugMessage ok(MSG_OK);
 			ok.set(DebugProtocol::FIELD_ID, rootId);
 			ok.set("painted", painted ? "1" : "0");
+			ok.set("kind", kind == AssetKind::Prefab ? "prefab"
+				: kind == AssetKind::VectorShape ? "shape" : "texture");
 			ok.set("col", std::to_string(
 				paintCellCoord(centerX, grid.originX, grid.cellSize)));
 			ok.set("row", std::to_string(
@@ -3885,7 +3951,7 @@ namespace Orkige
 			this->sendOk(req, ok);
 			return;
 		}
-		// erase_cell: remove the prefab instance in one grid cell (undoable)
+		// erase_cell: remove the tile in one grid cell (undoable, any kind)
 		if (type == "erase_cell")
 		{
 			const EditorPaintGrid grid = core.resolvePaintGrid();
@@ -3898,7 +3964,7 @@ namespace Orkige
 				return;
 			}
 			const bool erased =
-				core.erasePrefabAtCell(centerX, centerY, grid.cellSize, 0);
+				core.eraseTileAtCell(centerX, centerY, grid.cellSize, 0);
 			DebugMessage ok(MSG_OK);
 			ok.set("erased", erased ? "1" : "0");
 			ok.set("col", std::to_string(
@@ -6300,6 +6366,89 @@ namespace Orkige
 				finish(false, "control self-test: undo did not restore the erased "
 					"tile");
 				return;
+			}
+
+			// the SAME seam paints a BARE asset (a texture/.oshape) as a bare
+			// tile - no prefab file. Write a probe texture (classification is by
+			// extension; the sprite-quad load is harmless when the bytes are not a
+			// real image, the tile object still lands), then paint_asset it and
+			// erase it. list_paintable_assets must surface it as a 'texture'.
+			{
+				JsonValue writeArgs = JsonValue::object();
+				writeArgs.set("path", JsonValue(String("assets/probe_tile.png")));
+				writeArgs.set("content", JsonValue(String("probe-tile-bytes")));
+				bool wErr = true;
+				if (!callTool("write_project_file", writeArgs, true, structured,
+						wErr) || wErr)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: could not write the probe "
+						"texture for the bare-tile paint leg");
+					return;
+				}
+				bool listErr = true;
+				bool hasTexture = false;
+				if (callTool("list_paintable_assets", JsonValue::object(), false,
+						structured, listErr) && !listErr)
+				{
+					JsonValue const& paths = structured.get("paths");
+					JsonValue const& kinds = structured.get("kinds");
+					for (size_t i = 0; i < paths.size(); ++i)
+					{
+						if (paths.at(i).asString() == "assets/probe_tile.png" &&
+							i < kinds.size() &&
+							kinds.at(i).asString() == "texture")
+						{
+							hasTexture = true;
+						}
+					}
+				}
+				if (!hasTexture)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: list_paintable_assets did not "
+						"list the probe texture as a paintable 'texture'");
+					return;
+				}
+				JsonValue bareCell = JsonValue::object();
+				bareCell.set("col", JsonValue(24));
+				bareCell.set("row", JsonValue(-24));
+				JsonValue bareArgs = JsonValue::object();
+				bareArgs.set("asset", JsonValue(String("assets/probe_tile.png")));
+				bareArgs.set("cell", bareCell);
+				bool bareErr = true;
+				if (!callTool("paint_asset", bareArgs, true, structured, bareErr) ||
+					bareErr || structured.get("painted").asString() != "1" ||
+					structured.get("kind").asString() != "texture")
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: paint_asset did not paint a "
+						"bare texture tile");
+					return;
+				}
+				const String bareId = structured.get("id").asString();
+				if (bareId.empty() || !tileInHierarchy(bareId))
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: the bare texture tile is "
+						"missing from the hierarchy");
+					return;
+				}
+				JsonValue bareErase = JsonValue::object();
+				bareErase.set("cell", bareCell);
+				bool bareEraseErr = true;
+				if (!callTool("erase_cell", bareErase, true, structured,
+						bareEraseErr) || bareEraseErr ||
+					structured.get("erased").asString() != "1" ||
+					tileInHierarchy(bareId))
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: erase_cell did not erase the "
+						"bare texture tile");
+					return;
+				}
+				SDL_Log("orkige_editor: control self-test - bare-tile paint loop OK "
+					"(paint_asset/erase texture tile '%s')", bareId.c_str());
 			}
 			SDL_Log("orkige_editor: control self-test - grid paint loop OK "
 				"(paint/list/erase/undo tile '%s')", tileId.c_str());

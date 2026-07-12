@@ -163,7 +163,7 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	unregisterProjectResources();
 	// the armed tile prefab belongs to the outgoing project - painting it
 	// into the incoming one would reference a foreign asset path
-	paletteArmPrefab(state, core, std::string());
+	paletteArmAsset(state, core, std::string());
 	// the editor is the authoring tool: import the project's assets (mint
 	// sidecar .orkmeta ids for sidecar-less assets, drop orphaned sidecars) -
 	// runtimes only READ the sidecars (Project::load)
@@ -218,7 +218,7 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	newScene(state, core);
 	unregisterProjectResources();
 	// the armed tile prefab lives in the project being closed
-	paletteArmPrefab(state, core, std::string());
+	paletteArmAsset(state, core, std::string());
 	state.project.close();
 	Orkige::ScriptRuntime::getSingleton().setScriptSearchRoot("");
 	// drop the closing project's script component kinds (and their factory

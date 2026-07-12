@@ -65,16 +65,33 @@ namespace Orkige
 		String value;				//!< canonical string form of the value
 	};
 
-	//! @brief everything ONE paint action places: the prefab to instantiate,
-	//! the prefab-local children to suppress, the tags to stamp on the root and
-	//! the reflected property stamps to apply. Built by the palette; consumed
-	//! by EditorCore::paintPrefabAtCell.
+	//! @brief what ONE paint action places into a grid cell. The tool paints
+	//! two occupant kinds through the SAME seam: a PREFAB instance (its file +
+	//! ref/id, the prefab-local children to suppress) OR a BARE-ASSET tile - a
+	//! grid-cell-sized object built straight from a texture (SpriteTile) or an
+	//! .oshape (ShapeTile), NO prefab file generated, carrying a TileComponent
+	//! that stamps the source-asset id so the shared art propagates and a
+	//! re-paint of the same asset is a no-op. Tags and reflected-property stamps
+	//! apply to either kind. Built by the palette; consumed by paintTileAtCell.
+	enum class PaintTileKind
+	{
+		Prefab,		//!< instantiate the .oprefab (prefabFilePath/prefabRef/...)
+		SpriteTile,	//!< a bare quad tile: SpriteComponent(assetName) + TileComponent
+		ShapeTile	//!< a bare shape tile: VectorShapeComponent(assetName) + TileComponent
+	};
 	struct EditorPaintDesc
 	{
+		PaintTileKind kind = PaintTileKind::Prefab;	//!< which occupant to place
+		//--- PREFAB tile fields (kind == Prefab) ---
 		String prefabFilePath;			//!< absolute .oprefab source
 		String prefabRef;				//!< project-relative ref stored on the root
 		String prefabAssetId;			//!< stable .orkmeta id
 		StringVector suppressedChildren;	//!< prefab-local ids dropped at instantiate
+		//--- BARE-ASSET tile fields (kind == SpriteTile / ShapeTile) ---
+		String assetName;				//!< bare texture/.oshape file name (loadSprite/loadShape)
+		String assetRef;				//!< project-relative ref (diagnostic)
+		String assetId;					//!< stable id stamped on TileComponent.sourceAssetId
+		//--- either kind ---
 		StringVector tags;				//!< tags stamped on the root (empty = none)
 		std::vector<EditorPaintStamp> stamps;	//!< reflected property stamps
 	};
@@ -824,29 +841,40 @@ namespace Orkige
 		//! {origin (0,0), cellSize = the translate snap step}. Cells coincide
 		//! with the game's slots whenever a LevelComponent is present.
 		EditorPaintGrid resolvePaintGrid() const;
-		//! @brief the id of the prefab INSTANCE occupying the cell centered at
-		//! (centerX, centerY), or "" when the cell is free. A cell is occupied by
-		//! a ROOT-level object (no parent) carrying a non-empty prefabRef whose
-		//! TransformComponent position lies within half a cell of the center in
-		//! BOTH axes. Non-prefab scene objects (a Ball, a Level) are never
-		//! returned - they cannot be painted over or erased.
-		String findPrefabInstanceAtCell(float centerX, float centerY,
+		//! @brief the id of the TILE occupying the cell centered at (centerX,
+		//! centerY), or "" when the cell is free. A cell is occupied by a
+		//! ROOT-level object (no parent) whose TransformComponent position lies
+		//! within half a cell of the center in BOTH axes AND that is a paintable
+		//! tile: a PREFAB instance (non-empty prefabRef) OR a BARE-ASSET tile
+		//! (carries a TileComponent). Plain scene objects (a Ball, a Level, a
+		//! loose Decoration - neither a prefab instance nor a tile marker) are
+		//! never returned; they cannot be painted over or erased.
+		String findTileAtCell(float centerX, float centerY,
 			float cellSize) const;
-		//! @brief paint a prefab instance into the cell centered at
-		//! (centerX, centerY) as ONE undoable step: an occupant of the same cell
-		//! is replaced (erase then create). Returns false (no-op) when the cell
-		//! already holds an instance with the SAME prefab, suppressed set and
-		//! stamp values - so dragging across a painted cell does not churn the
-		//! undo stack. Pass the stroke's merge session so consecutive cells
-		//! collapse into one undo step. Requires a booted engine.
-		bool paintPrefabAtCell(EditorPaintDesc const& desc,
+		//! @brief paint a tile into the cell centered at (centerX, centerY) as
+		//! ONE undoable step - a prefab instance OR a bare-asset sprite/shape tile
+		//! per desc.kind. An occupant of the same cell is replaced (erase then
+		//! create), even across kinds (a sprite tile can replace a prefab tile).
+		//! Returns false (no-op) when the cell already holds an IDENTICAL tile
+		//! (same prefab + suppressed set + stamps, or same bare asset id) - so
+		//! dragging across a painted cell does not churn the undo stack. Pass the
+		//! stroke's merge session so consecutive cells collapse into one undo
+		//! step. Requires a booted engine.
+		bool paintTileAtCell(EditorPaintDesc const& desc,
 			float centerX, float centerY, float cellSize,
 			unsigned int mergeSession = 0);
-		//! @brief erase the prefab instance in the cell centered at
-		//! (centerX, centerY) as one undoable step (DeleteSubtreeCommand);
-		//! false (no-op) when the cell is free. Pass the stroke's merge session.
-		bool erasePrefabAtCell(float centerX, float centerY, float cellSize,
+		//! @brief erase the tile in the cell centered at (centerX, centerY) as
+		//! one undoable step (DeleteSubtreeCommand), whatever kind it is; false
+		//! (no-op) when the cell is free. Pass the stroke's merge session.
+		bool eraseTileAtCell(float centerX, float centerY, float cellSize,
 			unsigned int mergeSession = 0);
+		//! @brief would painting desc onto the existing tile occupantId be a
+		//! no-op (the occupant already IS that tile)? Prefab: same prefab ref,
+		//! suppressed set and stamps; bare tile: same source-asset id (or bare
+		//! name) and matching visual component for the kind. Drives the
+		//! drag-across-a-cell no-op in paintTileAtCell.
+		bool tileCellIsIdentical(String const& occupantId,
+			EditorPaintDesc const& desc) const;
 
 		//--- component operations (undoable) ------------------
 		//! all component type names the Add Component popup may offer

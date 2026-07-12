@@ -13,13 +13,18 @@
 
 namespace Orkige
 {
-	//! @brief a thin marker on a level's movable tile roots. v1 carries only an
+	//! @brief a thin marker on a level's movable tile roots. It carries an
 	//! open-edges bitmask (bit 0 top, 1 bottom, 2 left, 3 right) that is future
 	//! home for slide-legality validation - the game does not yet read it (the
 	//! tiles' scene positions and their prefab-suppressed wall children already
-	//! encode the layout). Its PRESENCE (and the "tile" tag the generator sets)
-	//! is what game.lua discovers tile roots by, and it gives the editor's 2D
-	//! authoring a component to stamp when a tile becomes a tile.
+	//! encode the layout) - and, for a tile painted straight from a texture or
+	//! .oshape (no prefab), the stable id of that source asset (sourceAssetId).
+	//! Its PRESENCE (and the "tile" tag the generator sets) is what game.lua
+	//! discovers tile roots by, and it gives the editor's 2D authoring a
+	//! component to stamp when a tile becomes a tile: a PREFAB tile leaves
+	//! sourceAssetId empty (its prefabRef is its identity), a BARE-asset tile
+	//! records the painted asset there so a re-paint of the same asset is a
+	//! no-op and the grid-paint tool knows what a cell holds.
 	class ORKIGE_CORE_DLL TileComponent : public GameObjectComponent
 	{
 		OOBJECT(TileComponent, GameObjectComponent)
@@ -48,6 +53,9 @@ namespace Orkige
 		//--- Variables ---------------------------------------
 	private:
 		int	mOpenEdges;		//!< bitmask of OpenEdge (0 = fully walled)
+		//! stable id of the source texture/.oshape for a bare-asset tile (a tile
+		//! painted directly from an asset, no prefab); empty for a prefab tile
+		String	mSourceAssetId;
 		//--- Methods -----------------------------------------
 	public:
 		TileComponent();
@@ -57,6 +65,9 @@ namespace Orkige
 		void setOpenEdges(int mask) { mOpenEdges = mask; }
 		//! is the given edge (a single OpenEdge bit) open
 		bool isEdgeOpen(int edgeBit) const { return (mOpenEdges & edgeBit) != 0; }
+		//! @see TileComponent::mSourceAssetId
+		String const & getSourceAssetId() const { return mSourceAssetId; }
+		void setSourceAssetId(String const & id) { mSourceAssetId = id; }
 
 		//--- SERIALIZATION ---
 		virtual void save(optr<IArchive> const & ar);

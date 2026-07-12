@@ -1238,6 +1238,10 @@ int main(int argc, char** argv)
 		std::chrono::steady_clock::time_point levelPaintDeadline;
 		std::string levelPaintTempRoot;
 		Orkige::StringVector levelPaintExpectedRoots;
+		//! bare-asset tile roots painted into the same scene (a sprite tile) -
+		//! the play acceptance requires them in the remote hierarchy too, but
+		//! they carry no prefab-provided children
+		Orkige::StringVector levelPaintExpectedBareRoots;
 
 		// ORKIGE_EDITOR_MARQUEE=<roller project dir>: the 2D editing-ergonomics
 		// test (editor_marquee ctest). Frame 10 copies the project, paints three
@@ -2815,7 +2819,7 @@ int main(int argc, char** argv)
 				std::string lpFail;
 				const auto cellRoot = [&](float x, float y)
 				{
-					return editorCore.findPrefabInstanceAtCell(x, y, 6.0f);
+					return editorCore.findTileAtCell(x, y, 6.0f);
 				};
 				if (levelPaintPhase == LevelPaintPhase::Idle && frameCount == 10)
 				{
@@ -2865,10 +2869,10 @@ int main(int argc, char** argv)
 						const std::string tilePrefab =
 							(std::filesystem::path(levelPaintTempRoot) / "assets" /
 								"tile.oprefab").string();
-						if (!paletteArmPrefab(state, editorCore, tilePrefab))
+						if (!paletteArmAsset(state, editorCore, tilePrefab))
 						{
 							lpFailed = true;
-							lpFail = "paletteArmPrefab failed";
+							lpFail = "paletteArmAsset failed";
 						}
 						else if (editorCore.getActiveTool() !=
 								Orkige::EditorTool::Paint ||
@@ -2888,10 +2892,10 @@ int main(int argc, char** argv)
 						const std::size_t undoBefore =
 							editorCore.getUndoStackSize();
 						const unsigned int stroke = editorCore.beginMergeSession();
-						editorCore.paintPrefabAtCell(
+						editorCore.paintTileAtCell(
 							paletteMakePaintDesc(state.tilePalette),
 							-3.0f, -3.0f, 6.0f, stroke);
-						editorCore.paintPrefabAtCell(
+						editorCore.paintTileAtCell(
 							paletteMakePaintDesc(state.tilePalette),
 							3.0f, -3.0f, 6.0f, stroke);
 						const std::string r0 = cellRoot(-3.0f, -3.0f);
@@ -2953,7 +2957,7 @@ int main(int argc, char** argv)
 					{
 						state.tilePalette.edgeOpen[3] = false;	// right
 						state.tilePalette.edgeOpen[2] = true;	// left
-						editorCore.paintPrefabAtCell(
+						editorCore.paintTileAtCell(
 							paletteMakePaintDesc(state.tilePalette),
 							-3.0f, -3.0f, 6.0f, 0);
 						const std::string rNew = cellRoot(-3.0f, -3.0f);
@@ -2964,7 +2968,7 @@ int main(int argc, char** argv)
 							: Orkige::StringVector();
 						const bool replaced =
 							supp.size() == 1 && supp[0] == "WallLeft";
-						const bool noop = !editorCore.paintPrefabAtCell(
+						const bool noop = !editorCore.paintTileAtCell(
 							paletteMakePaintDesc(state.tilePalette),
 							-3.0f, -3.0f, 6.0f, 0);
 						if (!replaced || !noop)
@@ -2977,7 +2981,7 @@ int main(int argc, char** argv)
 					if (!lpFailed)
 					{
 						const bool erased =
-							editorCore.erasePrefabAtCell(3.0f, -3.0f, 6.0f, 0);
+							editorCore.eraseTileAtCell(3.0f, -3.0f, 6.0f, 0);
 						const bool gone = cellRoot(3.0f, -3.0f).empty();
 						editorCore.undo();
 						const std::string back = cellRoot(3.0f, -3.0f);
@@ -2990,6 +2994,159 @@ int main(int argc, char** argv)
 							lpFail = "erase / undo did not round-trip the tile";
 						}
 					}
+					// BARE-ASSET tiles: paint a texture straight into a free cell -
+					// a grid-cell sprite object + a TileComponent stamping the
+					// source id, NO prefab file. wall.png ships in roller and is
+					// id-tracked; its own thumbnail is the ghost preview.
+					if (!lpFailed)
+					{
+						const std::string wallTex =
+							(std::filesystem::path(levelPaintTempRoot) / "assets" /
+								"wall.png").string();
+						if (!paletteArmAsset(state, editorCore, wallTex))
+						{
+							lpFailed = true;
+							lpFail = "arming a bare texture failed";
+						}
+						else if (state.tilePalette.armedKind !=
+								AssetKind::Texture ||
+							editorCore.getActiveTool() !=
+								Orkige::EditorTool::Paint ||
+							state.tilePalette.hasEdgeWalls ||
+							state.tilePalette.previewImagePath.empty() ||
+							assetThumbnailFor(state,
+								state.tilePalette.previewImagePath) == 0)
+						{
+							lpFailed = true;
+							lpFail = "bare-texture arm / ghost preview wrong";
+						}
+					}
+					if (!lpFailed)
+					{
+						// paint a bare sprite tile into free cell (9,-3), tagged
+						SDL_strlcpy(state.tilePalette.paintTags, "tile",
+							sizeof(state.tilePalette.paintTags));
+						editorCore.paintTileAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							9.0f, -3.0f, 6.0f, 0);
+						const std::string sr = cellRoot(9.0f, -3.0f);
+						optr<Orkige::GameObject> root =
+							gameObjectManager.getGameObject(sr).lock();
+						std::string srcId;
+						std::string width;
+						const bool hasSprite = editorCore.getObjectProperty(sr,
+							"SpriteComponent", "width", width);
+						editorCore.getObjectProperty(sr, "TileComponent",
+							"sourceAssetId", srcId);
+						Orkige::StringVector tags;
+						editorCore.getObjectTags(sr, tags);
+						const bool ok = root && !sr.empty() &&
+							root->getPrefabRef().empty() && hasSprite &&
+							!srcId.empty() &&
+							std::fabs(std::stof(width) - 6.0f) < 1e-3f &&
+							std::find(tags.begin(), tags.end(), "tile") !=
+								tags.end();
+						// dragging back over an identical bare tile is a no-op
+						const bool noop = !editorCore.paintTileAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							9.0f, -3.0f, 6.0f, 0);
+						if (!ok || !noop)
+						{
+							lpFailed = true;
+							lpFail = "bare sprite tile structure / no-op wrong";
+						}
+					}
+					// MIXED grid: a bare sprite tile replaces a prefab tile in the
+					// same cell and vice versa (one seam, across kinds)
+					if (!lpFailed)
+					{
+						const std::string tilePrefab =
+							(std::filesystem::path(levelPaintTempRoot) / "assets" /
+								"tile.oprefab").string();
+						paletteArmAsset(state, editorCore, tilePrefab);
+						editorCore.paintTileAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							9.0f, 3.0f, 6.0f, 0);
+						const std::string asPrefab = cellRoot(9.0f, 3.0f);
+						optr<Orkige::GameObject> prefabRoot =
+							gameObjectManager.getGameObject(asPrefab).lock();
+						const bool wasPrefab = prefabRoot &&
+							!prefabRoot->getPrefabRef().empty();
+						// paint the bare texture over the prefab tile -> replaced
+						const std::string wallTex =
+							(std::filesystem::path(levelPaintTempRoot) / "assets" /
+								"wall.png").string();
+						paletteArmAsset(state, editorCore, wallTex);
+						SDL_strlcpy(state.tilePalette.paintTags, "",
+							sizeof(state.tilePalette.paintTags));
+						editorCore.paintTileAtCell(
+							paletteMakePaintDesc(state.tilePalette),
+							9.0f, 3.0f, 6.0f, 0);
+						const std::string asSprite = cellRoot(9.0f, 3.0f);
+						optr<Orkige::GameObject> spriteRoot =
+							gameObjectManager.getGameObject(asSprite).lock();
+						std::string spriteWidth;
+						const bool nowSprite = spriteRoot &&
+							spriteRoot->getPrefabRef().empty() &&
+							editorCore.getObjectProperty(asSprite,
+								"SpriteComponent", "width", spriteWidth) &&
+							!gameObjectManager.objectExists(asPrefab);
+						// erase the scratch cell (bare tile erases like any tile)
+						const bool erased =
+							editorCore.eraseTileAtCell(9.0f, 3.0f, 6.0f, 0);
+						if (!wasPrefab || !nowSprite || !erased ||
+							!cellRoot(9.0f, 3.0f).empty())
+						{
+							lpFailed = true;
+							lpFail = "mixed-grid replace across kinds wrong";
+						}
+					}
+					// a bare SHAPE tile (VectorShapeComponent + TileComponent):
+					// copy a shape asset in, arm it, paint/erase in a free cell
+					if (!lpFailed)
+					{
+						// the shape asset lives in a sibling sample project of the
+						// source roller dir (levelPaintEnv), not the temp copy
+						const std::string shapeSrc =
+							(std::filesystem::path(levelPaintEnv)
+								.parent_path() / "vectorshapes" / "assets" /
+								"blob.oshape").string();
+						const std::string shapeDst =
+							(std::filesystem::path(levelPaintTempRoot) / "assets" /
+								"blob.oshape").string();
+						std::error_code shErr;
+						std::filesystem::copy_file(shapeSrc, shapeDst,
+							std::filesystem::copy_options::overwrite_existing,
+							shErr);
+						SDL_strlcpy(state.tilePalette.paintTags, "",
+							sizeof(state.tilePalette.paintTags));
+						const bool armed = !shErr &&
+							paletteArmAsset(state, editorCore, shapeDst) &&
+							state.tilePalette.armedKind == AssetKind::VectorShape;
+						if (armed)
+						{
+							editorCore.paintTileAtCell(
+								paletteMakePaintDesc(state.tilePalette),
+								-3.0f, 3.0f, 6.0f, 0);
+						}
+						const std::string shapeRoot = cellRoot(-3.0f, 3.0f);
+						optr<Orkige::GameObject> root =
+							gameObjectManager.getGameObject(shapeRoot).lock();
+						std::string shapeName;
+						const bool ok = armed && root && !shapeRoot.empty() &&
+							root->getPrefabRef().empty() &&
+							editorCore.getObjectProperty(shapeRoot,
+								"VectorShapeComponent", "shape", shapeName) &&
+							editorCore.getObjectProperty(shapeRoot,
+								"TileComponent", "sourceAssetId", shapeName);
+						const bool erased =
+							editorCore.eraseTileAtCell(-3.0f, 3.0f, 6.0f, 0);
+						if (!ok || !erased || !cellRoot(-3.0f, 3.0f).empty())
+						{
+							lpFailed = true;
+							lpFail = "bare shape tile paint / erase wrong";
+						}
+					}
 					// a NON-prefab object at a cell is never painted over/erased
 					if (!lpFailed)
 					{
@@ -2999,7 +3156,7 @@ int main(int argc, char** argv)
 						editorCore.setObjectProperty("Decoration",
 							"TransformComponent", "position", "3 -3 0");
 						const std::string at = cellRoot(3.0f, -3.0f);
-						editorCore.erasePrefabAtCell(3.0f, -3.0f, 6.0f, 0);
+						editorCore.eraseTileAtCell(3.0f, -3.0f, 6.0f, 0);
 						const bool decorationSurvives =
 							gameObjectManager.objectExists("Decoration");
 						editorCore.undo();	// bring the erased tile back
@@ -3023,7 +3180,19 @@ int main(int argc, char** argv)
 							openSceneFromPath(state, editorCore, scenePath);
 						const std::string r0 = cellRoot(-3.0f, -3.0f);
 						const std::string r1 = cellRoot(3.0f, -3.0f);
-						bool ok = reopened && !r0.empty() && !r1.empty();
+						// the bare sprite tile at (9,-3) must survive the round-trip
+						// as a plain SpriteComponent object carrying its Tile
+						// component + source id (no prefab file was ever generated)
+						const std::string sr = cellRoot(9.0f, -3.0f);
+						std::string spriteWidth;
+						std::string spriteSrcId;
+						const bool bareOk = !sr.empty() &&
+							editorCore.getObjectProperty(sr, "SpriteComponent",
+								"width", spriteWidth) &&
+							editorCore.getObjectProperty(sr, "TileComponent",
+								"sourceAssetId", spriteSrcId) &&
+							!spriteSrcId.empty();
+						bool ok = reopened && !r0.empty() && !r1.empty() && bareOk;
 						if (ok)
 						{
 							// r1 (the right-open tile): WallRight suppressed,
@@ -3055,6 +3224,8 @@ int main(int argc, char** argv)
 							levelPaintExpectedRoots.clear();
 							levelPaintExpectedRoots.push_back(r0);
 							levelPaintExpectedRoots.push_back(r1);
+							levelPaintExpectedBareRoots.clear();
+							levelPaintExpectedBareRoots.push_back(sr);
 						}
 					}
 					// append the scene to the level sequence; a duplicate refuses
@@ -3122,6 +3293,14 @@ int main(int argc, char** argv)
 								ok = false;
 							}
 						}
+						// the bare sprite tile (no prefab children) must arrive too
+						for (std::string const& root : levelPaintExpectedBareRoots)
+						{
+							if (!inRemote(root))
+							{
+								ok = false;
+							}
+						}
 						if (!ok)
 						{
 							lpFailed = true;
@@ -3159,7 +3338,7 @@ int main(int argc, char** argv)
 							"tile.oprefab").string();
 					if (levelPaintEscapeStep == 0)
 					{
-						if (!paletteArmPrefab(state, editorCore, escTile) ||
+						if (!paletteArmAsset(state, editorCore, escTile) ||
 							editorCore.getActiveTool() !=
 								Orkige::EditorTool::Paint)
 						{
@@ -3188,7 +3367,7 @@ int main(int argc, char** argv)
 					{
 						if (editorCore.getActiveTool() !=
 								Orkige::EditorTool::Translate ||
-							!state.tilePalette.armedPrefabPath.empty())
+							!state.tilePalette.armedAssetPath.empty())
 						{
 							lpFailed = true;
 							lpFail = "Escape did not leave paint mode";
@@ -3196,7 +3375,7 @@ int main(int argc, char** argv)
 						// arm again, then close the project: the armed prefab
 						// belongs to it and must not survive
 						if (!lpFailed &&
-							(!paletteArmPrefab(state, editorCore, escTile) ||
+							(!paletteArmAsset(state, editorCore, escTile) ||
 								editorCore.getActiveTool() !=
 									Orkige::EditorTool::Paint))
 						{
@@ -3206,7 +3385,7 @@ int main(int argc, char** argv)
 						if (!lpFailed)
 						{
 							closeProject(state, editorCore);
-							if (!state.tilePalette.armedPrefabPath.empty() ||
+							if (!state.tilePalette.armedAssetPath.empty() ||
 								editorCore.getActiveTool() ==
 									Orkige::EditorTool::Paint)
 							{
@@ -3358,9 +3537,9 @@ int main(int argc, char** argv)
 						const std::string tilePrefab =
 							(std::filesystem::path(mqTempRoot) / "assets" /
 								"tile.oprefab").string();
-						if (!paletteArmPrefab(state, editorCore, tilePrefab))
+						if (!paletteArmAsset(state, editorCore, tilePrefab))
 						{
-							mqAbort("paletteArmPrefab failed");
+							mqAbort("paletteArmAsset failed");
 						}
 						// GHOST PREVIEW: arming a sprite-bearing prefab yields a
 						// non-null preview handle (the tile's texture thumbnail)
@@ -3375,31 +3554,31 @@ int main(int argc, char** argv)
 						{
 							const Orkige::EditorPaintDesc desc =
 								paletteMakePaintDesc(state.tilePalette);
-							editorCore.paintPrefabAtCell(desc, -16.0f, 0.0f,
+							editorCore.paintTileAtCell(desc, -16.0f, 0.0f,
 								6.0f, 0);
-							editorCore.paintPrefabAtCell(desc, 0.0f, 0.0f,
+							editorCore.paintTileAtCell(desc, 0.0f, 0.0f,
 								6.0f, 0);
-							editorCore.paintPrefabAtCell(desc, 16.0f, 0.0f,
+							editorCore.paintTileAtCell(desc, 16.0f, 0.0f,
 								6.0f, 0);
 							// DROP-CELL PAINT is undoable: the same seam a Tile
 							// Palette drag-drop uses (paint a cell, one undo
 							// step that removes it)
-							editorCore.paintPrefabAtCell(desc, 32.0f, 0.0f,
+							editorCore.paintTileAtCell(desc, 32.0f, 0.0f,
 								6.0f, 0);
 							const bool dropped = !editorCore
-								.findPrefabInstanceAtCell(32.0f, 0.0f, 6.0f)
+								.findTileAtCell(32.0f, 0.0f, 6.0f)
 								.empty();
 							editorCore.undo();
 							const bool undone = editorCore
-								.findPrefabInstanceAtCell(32.0f, 0.0f, 6.0f)
+								.findTileAtCell(32.0f, 0.0f, 6.0f)
 								.empty();
 							mqTileIds.clear();
 							mqTileIds.push_back(editorCore
-								.findPrefabInstanceAtCell(-16.0f, 0.0f, 6.0f));
+								.findTileAtCell(-16.0f, 0.0f, 6.0f));
 							mqTileIds.push_back(editorCore
-								.findPrefabInstanceAtCell(0.0f, 0.0f, 6.0f));
+								.findTileAtCell(0.0f, 0.0f, 6.0f));
 							mqTileIds.push_back(editorCore
-								.findPrefabInstanceAtCell(16.0f, 0.0f, 6.0f));
+								.findTileAtCell(16.0f, 0.0f, 6.0f));
 							if (!dropped || !undone || mqTileIds[0].empty() ||
 								mqTileIds[1].empty() || mqTileIds[2].empty())
 							{

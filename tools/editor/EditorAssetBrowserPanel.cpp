@@ -1375,11 +1375,12 @@ bool handleSceneDropTarget(EditorState& state, Orkige::EditorCore& core,
 		return false;
 	}
 	bool tileDrop = false;
-	// 2D editor mode: a single PREFAB dragged onto the grid paints into the
-	// hovered cell (arming it first, exactly like a Tile Palette click). Peek to
-	// classify the payload before deciding - only a prefab claims the grid path,
-	// everything else (a non-prefab, a multi-drag, the 3D view) stays with the
-	// generic instantiate-at-origin below.
+	// 2D editor mode: a single PAINTABLE asset dragged onto the grid paints into
+	// the hovered cell (arming it first, exactly like a Tile Palette click). A
+	// prefab instantiates; a bare texture/.oshape paints a bare tile. Peek to
+	// classify the payload before deciding - only a paintable single asset claims
+	// the grid path, everything else (a mesh/audio, a multi-drag, the 3D view)
+	// stays with the generic instantiate-at-origin below.
 	if (editor2D)
 	{
 		if (ImGuiPayload const* peek = ImGui::AcceptDragDropPayload(
@@ -1391,11 +1392,13 @@ bool handleSceneDropTarget(EditorState& state, Orkige::EditorCore& core,
 				AssetDragDropPayload data;
 				std::memcpy(&data, peek->Data, sizeof(data));
 				data.path[sizeof(data.path) - 1] = '\0';
-				if (data.kind == AssetKind::Prefab)
+				if (data.kind == AssetKind::Prefab ||
+					data.kind == AssetKind::Texture ||
+					data.kind == AssetKind::VectorShape)
 				{
 					tileDrop = true;	// the grid owns this payload
 					if (peek->IsDelivery() &&
-						paletteArmPrefab(state, core, data.path))
+						paletteArmAsset(state, core, data.path))
 					{
 						ImGuiIO& io = ImGui::GetIO();
 						const float nx =
@@ -1412,7 +1415,7 @@ bool handleSceneDropTarget(EditorState& state, Orkige::EditorCore& core,
 							world.x, grid.originX, grid.cellSize);
 						const int row = Orkige::paintCellCoord(
 							world.y, grid.originY, grid.cellSize);
-						core.paintPrefabAtCell(
+						core.paintTileAtCell(
 							paletteMakePaintDesc(state.tilePalette),
 							Orkige::paintCellCenter(col, grid.originX,
 								grid.cellSize),

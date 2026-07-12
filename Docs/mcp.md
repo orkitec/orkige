@@ -92,7 +92,7 @@ the reply back into MCP tool content (a text block + `structuredContent`, or
 
 ## Tools
 
-The endpoint advertises 63 tools (the `toolSpecs` table in
+The endpoint advertises 65 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -128,9 +128,11 @@ The endpoint advertises 63 tools (the `toolSpecs` table in
 | `import_asset(sourcePath, targetDir?)` | copy an OUTSIDE file into the project via `importAssetFile` (sidecar minted, id returned; optional relocate via `AssetDatabase::moveAsset`). An `.svg` source is cooked to a native `.oshape` on the way in (`Util/cook_shapes.py`); the returned `path`/`assetId` point at the produced `.oshape` |
 | `create_prefab(objectId, path)` | `PrefabSerializer::savePrefab` + `AssetDatabase::importAsset` + `EditorCore::makePrefabInstance` (write a subtree as a `.oprefab`, convert to an instance) |
 | `instantiate_prefab(path, parent?)` | `CreatePrefabInstanceCommand` (a fresh instance of a `.oprefab`, optionally reparented) |
-| `list_paint_prefabs()` | `searchAssets` (the project's `.oprefab` palette) + `EditorCore::resolvePaintGrid` → parallel `paths`/`names`, `count` and the grid `origin_x`/`origin_y`/`cell_size` |
-| `paint_prefab(prefab, cell?, position?, suppressed?)` | **auth** — `EditorCore::paintPrefabAtCell` (paint a prefab into one grid cell as one undo step; same cell replaces its occupant) → the painted-root `id`, snapped `col`/`row`/`x`/`y`, `painted` |
-| `erase_cell(cell?, position?)` | **auth** — `EditorCore::erasePrefabAtCell` (erase the prefab instance in one grid cell as one undo step) → snapped `col`/`row`/`x`/`y`, `erased` |
+| `list_paintable_assets()` | `searchAssets` (the project's paintable palette: prefabs + textures + `.oshape`) + `EditorCore::resolvePaintGrid` → parallel `paths`/`names`/`kinds` (`prefab`/`texture`/`shape`), `count` and the grid `origin_x`/`origin_y`/`cell_size` |
+| `list_paint_prefabs()` | back-compat alias of `list_paintable_assets` (lists textures + shapes too, not prefabs only; same result shape incl. `kinds`) |
+| `paint_asset(asset, cell?, position?, suppressed?)` | **auth** — `EditorCore::paintTileAtCell` (paint a tile into one grid cell as one undo step; same cell replaces its occupant of ANY kind). A `.oprefab` `asset` instantiates the prefab; a texture or `.oshape` paints a BARE tile (a grid-cell sprite/shape object carrying a `TileComponent` source id — no prefab file) → the painted-root `id`, `kind`, snapped `col`/`row`/`x`/`y`, `painted` |
+| `paint_prefab(prefab\|asset, cell?, position?, suppressed?)` | back-compat alias of `paint_asset` (accepts the source as `prefab` or `asset`; paints a texture/`.oshape` as a bare tile too) |
+| `erase_cell(cell?, position?)` | **auth** — `EditorCore::eraseTileAtCell` (erase the tile in one grid cell as one undo step, any kind — prefab instance or bare tile) → snapped `col`/`row`/`x`/`y`, `erased` |
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
 | `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, or read `modal` to assert a dialog is up |
@@ -678,8 +680,10 @@ user's recents (the editor's `gRecordRecents`/`automatedRun` suppression).
   instance appears in `list_hierarchy`), and the GRID-PAINT loop over that same
   prefab (`list_paint_prefabs` lists it and reports a grid, an auth-rejected
   `paint_prefab`, then `paint_prefab` into a cell — the painted root appears in
-  `list_hierarchy` — `erase_cell` removes it and `undo` brings it back). It also
-  covers the RUN tools:
+  `list_hierarchy` — `erase_cell` removes it and `undo` brings it back) PLUS the
+  bare-tile path (a probe texture is written, `list_paintable_assets` surfaces it
+  as a `texture`, `paint_asset` paints it as a bare tile, `erase_cell` removes it).
+  It also covers the RUN tools:
   `list_play_targets` reports the desktop target, and `export_project` refuses an
   unauthenticated request, a no-project request, an unknown platform and (on a
   next-flavored editor tree) the classic-pinned flavor check — all as fast

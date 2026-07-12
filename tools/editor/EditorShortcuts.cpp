@@ -137,7 +137,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		// B arms the 2D grid-paint tool - only meaningful once a prefab is
 		// armed in the Tile Palette (a no-op otherwise)
 		if (ImGui::IsKeyPressed(ImGuiKey_B, false) &&
-			!state.tilePalette.armedPrefabPath.empty())
+			!state.tilePalette.armedAssetPath.empty())
 		{
 			core.setActiveTool(Orkige::EditorTool::Paint);
 		}
@@ -147,7 +147,7 @@ void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,
 		if (ImGui::IsKeyPressed(ImGuiKey_Escape, false) &&
 			core.getActiveTool() == Orkige::EditorTool::Paint)
 		{
-			paletteArmPrefab(state, core, std::string());
+			paletteArmAsset(state, core, std::string());
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_X, false))
 		{

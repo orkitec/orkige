@@ -315,7 +315,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		// Paint (B): 2D grid painting, usable once a prefab is armed in the
 		// Tile Palette - the button greys out until then
 		{
-			const bool armed = !state.tilePalette.armedPrefabPath.empty();
+			const bool armed = !state.tilePalette.armedAssetPath.empty();
 			const bool active =
 				(core.getActiveTool() == Orkige::EditorTool::Paint);
 			ImGui::BeginDisabled(!armed);

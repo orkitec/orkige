@@ -499,7 +499,10 @@ LevelComponent.par
 TileComponent:getOpenEdges(...)
 TileComponent:setOpenEdges(...)
 TileComponent:isEdgeOpen(...)
+TileComponent:getSourceAssetId(...)
+TileComponent:setSourceAssetId(...)
 TileComponent.openEdges
+TileComponent.sourceAssetId
 
 ## GuiFactory
 GuiFactory(...)

@@ -2,7 +2,7 @@
 // input. The palette arms a project prefab (click a row) and stamps paint
 // options (open edges + tags); the Scene panel then paints/erases prefab
 // instances snapped to the grid in 2D editor mode. All authoring rides the
-// EditorCore paint seams (paintPrefabAtCell/erasePrefabAtCell) and the generic
+// EditorCore paint seams (paintTileAtCell/eraseTileAtCell) and the generic
 // prefab/reflection machinery - the editor knows nothing game-specific.
 // Split out of main.cpp's panel set (see EditorApp.h).
 #include "EditorApp.h"
@@ -102,16 +102,17 @@ namespace
 	}
 }
 
-bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
+bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	std::string const& absolutePath)
 {
 	TilePaletteState& palette = state.tilePalette;
-	// disarm: "" clears the armed prefab and restores the translate tool
+	// disarm: "" clears the armed asset and restores the translate tool
 	if (absolutePath.empty())
 	{
-		palette.armedPrefabPath.clear();
-		palette.armedPrefabRef.clear();
-		palette.armedPrefabAssetId.clear();
+		palette.armedAssetPath.clear();
+		palette.armedAssetRef.clear();
+		palette.armedAssetId.clear();
+		palette.armedKind = AssetKind::Prefab;
 		palette.previewImageRef.clear();
 		palette.previewImagePath.clear();
 		palette.prefabLocalIds.clear();
@@ -125,10 +126,22 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 		return true;
 	}
 
+	// only three kinds are paintable: a prefab (instantiated) or a bare texture/
+	// .oshape (painted as a bare sprite/shape tile - no prefab file)
+	const AssetKind kind = classifyAsset(absolutePath);
+	if (kind != AssetKind::Prefab && kind != AssetKind::Texture &&
+		kind != AssetKind::VectorShape)
+	{
+		SDL_Log("orkige_editor: cannot arm '%s' - not a paintable asset "
+			"(prefab / texture / shape)", absolutePath.c_str());
+		return false;
+	}
+
 	Orkige::StringVector locals;
 	Orkige::StringVector rootComponents;
-	if (!Orkige::PrefabSerializer::listPrefabInfo(absolutePath, locals,
-		rootComponents))
+	if (kind == AssetKind::Prefab &&
+		!Orkige::PrefabSerializer::listPrefabInfo(absolutePath, locals,
+			rootComponents))
 	{
 		SDL_Log("orkige_editor: cannot arm '%s' - not a readable prefab file",
 			absolutePath.c_str());
@@ -136,46 +149,60 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 	}
 
 	// derive the project-relative reference + stable asset id (the same wiring
-	// the Asset browser's instantiate uses), so a painted instance re-resolves
-	// its prefab across renames/moves
-	palette.armedPrefabPath = absolutePath;
-	palette.armedPrefabRef.clear();
-	palette.armedPrefabAssetId.clear();
+	// the Asset browser's instantiate uses), so a painted tile re-resolves its
+	// source across renames/moves
+	palette.armedAssetPath = absolutePath;
+	palette.armedKind = kind;
+	palette.armedAssetRef.clear();
+	palette.armedAssetId.clear();
 	if (state.project.isLoaded())
 	{
-		palette.armedPrefabRef =
+		palette.armedAssetRef =
 			state.project.makeProjectRelative(absolutePath);
 		if (optr<Orkige::AssetDatabase> const& database =
 			state.project.getAssetDatabase())
 		{
-			palette.armedPrefabAssetId =
-				database->idForPath(palette.armedPrefabRef);
+			palette.armedAssetId =
+				database->idForPath(palette.armedAssetRef);
 		}
 	}
 	palette.prefabLocalIds = locals;
-
-	// edge-wall detection: all four conventional wall children present ->
-	// the palette offers edge-open toggles for this prefab
-	palette.hasEdgeWalls = true;
-	for (int edge = 0; edge < Orkige::TileComponent::EDGE_COUNT; ++edge)
-	{
-		if (std::find(locals.begin(), locals.end(),
-			Orkige::TileComponent::EDGE_WALL_LOCAL_IDS[edge]) == locals.end())
-		{
-			palette.hasEdgeWalls = false;
-			break;
-		}
-	}
-	palette.rootHasTileComponent = std::find(rootComponents.begin(),
-		rootComponents.end(), "TileComponent") != rootComponents.end();
 	palette.strokeActive = false;
 
-	// ghost preview: probe the prefab for a representative texture/shape and
-	// resolve it to an absolute path the thumbnail machinery loads (empty for a
-	// pure-logic prefab - the paint tool then falls back to the outline only)
-	palette.previewImageRef = probePrefabPreviewRef(absolutePath);
-	palette.previewImagePath =
-		resolvePreviewImagePath(state.project, palette.previewImageRef);
+	if (kind == AssetKind::Prefab)
+	{
+		// edge-wall detection: all four conventional wall children present ->
+		// the palette offers edge-open toggles for this prefab
+		palette.hasEdgeWalls = true;
+		for (int edge = 0; edge < Orkige::TileComponent::EDGE_COUNT; ++edge)
+		{
+			if (std::find(locals.begin(), locals.end(),
+				Orkige::TileComponent::EDGE_WALL_LOCAL_IDS[edge]) == locals.end())
+			{
+				palette.hasEdgeWalls = false;
+				break;
+			}
+		}
+		palette.rootHasTileComponent = std::find(rootComponents.begin(),
+			rootComponents.end(), "TileComponent") != rootComponents.end();
+		// ghost preview: probe the prefab for a representative texture/shape and
+		// resolve it to an absolute path the thumbnail machinery loads (empty for
+		// a pure-logic prefab - the paint tool then falls back to the outline)
+		palette.previewImageRef = probePrefabPreviewRef(absolutePath);
+		palette.previewImagePath =
+			resolvePreviewImagePath(state.project, palette.previewImageRef);
+	}
+	else
+	{
+		// a bare texture/shape: no prefab structure, and its OWN thumbnail is the
+		// ghost (the browser thumbnail machinery loads a texture directly and
+		// CPU-rasterizes an .oshape)
+		palette.hasEdgeWalls = false;
+		palette.rootHasTileComponent = false;
+		palette.previewImageRef =
+			fs::path(absolutePath).filename().string();
+		palette.previewImagePath = absolutePath;
+	}
 
 	core.setActiveTool(Orkige::EditorTool::Paint);
 	return true;
@@ -184,9 +211,24 @@ bool paletteArmPrefab(EditorState& state, Orkige::EditorCore& core,
 Orkige::EditorPaintDesc paletteMakePaintDesc(TilePaletteState const& palette)
 {
 	Orkige::EditorPaintDesc desc;
-	desc.prefabFilePath = palette.armedPrefabPath;
-	desc.prefabRef = palette.armedPrefabRef;
-	desc.prefabAssetId = palette.armedPrefabAssetId;
+	if (palette.armedKind != AssetKind::Prefab)
+	{
+		// a BARE-asset tile: a sprite (texture) or shape (.oshape) object, sized
+		// to the grid cell, carrying a TileComponent that stamps the source id
+		desc.kind = palette.armedKind == AssetKind::VectorShape
+			? Orkige::PaintTileKind::ShapeTile
+			: Orkige::PaintTileKind::SpriteTile;
+		desc.assetName = fs::path(palette.armedAssetPath).filename().string();
+		desc.assetRef = palette.armedAssetRef;
+		desc.assetId = palette.armedAssetId;
+		desc.tags = parsePaintTags(palette.paintTags);
+		return desc;
+	}
+
+	desc.kind = Orkige::PaintTileKind::Prefab;
+	desc.prefabFilePath = palette.armedAssetPath;
+	desc.prefabRef = palette.armedAssetRef;
+	desc.prefabAssetId = palette.armedAssetId;
 
 	if (palette.hasEdgeWalls)
 	{
@@ -227,7 +269,7 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 
 	if (!state.project.isLoaded())
 	{
-		ImGui::TextDisabled("Open a project to paint its prefabs.");
+		ImGui::TextDisabled("Open a project to paint its tiles.");
 		ImGui::TextDisabled("(File > Open Project...)");
 		ImGui::End();
 		return;
@@ -241,7 +283,7 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	ImGui::Text("Grid: %.2g cells%s", grid.cellSize,
 		fromLevel ? " (from Level)" : " (from snap step)");
 
-	if (!state.tilePalette.armedPrefabPath.empty() &&
+	if (!state.tilePalette.armedAssetPath.empty() &&
 		!gViewSettings->editor2D)
 	{
 		ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
@@ -255,48 +297,65 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	}
 	ImGui::Separator();
 
-	// the prefab list: one selectable row per project prefab (arm/disarm)
-	const std::vector<AssetBrowserItem> prefabs =
+	// the paintable list: one selectable row per project prefab, texture and
+	// .oshape. A prefab instantiates its subtree; a bare texture/shape paints a
+	// bare tile (a grid-cell sprite/shape object, no prefab file). Prefab rows
+	// are tagged "(prefab)" to set them apart from the bare-art rows.
+	const unsigned int paintableMask =
+		(1u << static_cast<unsigned>(AssetKind::Prefab)) |
+		(1u << static_cast<unsigned>(AssetKind::Texture)) |
+		(1u << static_cast<unsigned>(AssetKind::VectorShape));
+	const std::vector<AssetBrowserItem> paintables =
 		searchAssets(state.project, state.project.getAssetsDirectory(), "",
-			true, 1u << static_cast<unsigned>(AssetKind::Prefab));
-	if (prefabs.empty())
+			true, paintableMask);
+	if (paintables.empty())
 	{
-		ImGui::TextDisabled("No prefabs in assets/.");
+		ImGui::TextDisabled("No prefabs, textures or shapes in assets/.");
 	}
-	ImGui::BeginChild("##prefablist", ImVec2(0.0f, 0.0f), false);
-	for (AssetBrowserItem const& item : prefabs)
+	ImGui::BeginChild("##paintlist", ImVec2(0.0f, 0.0f), false);
+	for (AssetBrowserItem const& item : paintables)
 	{
 		const std::string stem = fs::path(item.absolutePath).stem().string();
-		const bool armed = palette.armedPrefabPath == item.absolutePath;
-		if (ImGui::Selectable((stem + "###" + item.relativePath).c_str(),
+		const std::string label = item.kind == AssetKind::Prefab
+			? stem + " (prefab)" : stem;
+		const bool armed = palette.armedAssetPath == item.absolutePath;
+		if (ImGui::Selectable((label + "###" + item.relativePath).c_str(),
 			armed))
 		{
-			// clicking the armed prefab again disarms it
-			paletteArmPrefab(state, core, armed ? std::string()
+			// clicking the armed row again disarms it
+			paletteArmAsset(state, core, armed ? std::string()
 				: item.absolutePath);
 		}
 		// a palette row is ALSO a drag source: dropping it on the 2D grid paints
 		// the drop cell (the Scene panel's handleSceneDropTarget), the same
-		// ORKIGE_ASSET prefab payload the Asset browser emits
+		// ORKIGE_ASSET payload the Asset browser emits (its own kind)
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
 		{
 			AssetDragDropPayload payload;
-			payload.kind = AssetKind::Prefab;
+			payload.kind = item.kind;
 			SDL_strlcpy(payload.path, item.absolutePath.c_str(),
 				sizeof(payload.path));
 			ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload,
 				sizeof(payload));
-			ImGui::TextUnformatted(stem.c_str());
+			ImGui::TextUnformatted(label.c_str());
 			ImGui::EndDragDropSource();
 		}
 	}
 	ImGui::EndChild();
 
-	if (!palette.armedPrefabPath.empty())
+	if (!palette.armedAssetPath.empty())
 	{
 		ImGui::Separator();
-		ImGui::Text("Armed: %s",
-			fs::path(palette.armedPrefabPath).stem().string().c_str());
+		const bool bareTile = palette.armedKind != AssetKind::Prefab;
+		ImGui::Text("Armed: %s%s",
+			fs::path(palette.armedAssetPath).stem().string().c_str(),
+			bareTile ? "" : " (prefab)");
+		if (bareTile)
+		{
+			// bare tiles all share the one texture/shape asset: edit the art and
+			// every painted tile updates (no per-tile prefab to re-apply)
+			ImGui::TextDisabled("Bare tile - all painted tiles share this asset.");
+		}
 		if (palette.hasEdgeWalls)
 		{
 			ImGui::TextDisabled("Open edges (suppress the wall):");
@@ -312,7 +371,7 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 			palette.paintTags, sizeof(palette.paintTags));
 		if (ImGui::SmallButton("Disarm"))
 		{
-			paletteArmPrefab(state, core, std::string());
+			paletteArmAsset(state, core, std::string());
 		}
 	}
 	ImGui::End();
@@ -325,7 +384,7 @@ bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 	TilePaletteState& palette = state.tilePalette;
 	const bool paintMode = editMode && viewSettings.editor2D &&
 		core.getActiveTool() == Orkige::EditorTool::Paint &&
-		!palette.armedPrefabPath.empty();
+		!palette.armedAssetPath.empty();
 	if (!paintMode)
 	{
 		palette.strokeActive = false;
@@ -394,7 +453,7 @@ bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 	// mode banner: while armed, paint consumes every viewport click - say so
 	// on screen and name the exits
 	const std::string bannerText = "Painting '" +
-		fs::path(palette.armedPrefabPath).stem().string() +
+		fs::path(palette.armedAssetPath).stem().string() +
 		"'   left: paint   right/Alt: erase   Esc: stop";
 	const ImVec2 bannerPos(rectMin.x + 10.0f, rectMin.y + 8.0f);
 	const ImVec2 bannerSize = ImGui::CalcTextSize(bannerText.c_str());
@@ -434,12 +493,12 @@ bool handleScenePaintInput(EditorState& state, Orkige::EditorCore& core,
 		palette.lastRow = row;
 		if (eraseButton)
 		{
-			core.erasePrefabAtCell(centerX, centerY, grid.cellSize,
+			core.eraseTileAtCell(centerX, centerY, grid.cellSize,
 				palette.strokeSession);
 		}
 		else
 		{
-			core.paintPrefabAtCell(paletteMakePaintDesc(palette),
+			core.paintTileAtCell(paletteMakePaintDesc(palette),
 				centerX, centerY, grid.cellSize, palette.strokeSession);
 		}
 	}

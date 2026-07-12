@@ -16,6 +16,7 @@
 #include <core_game/LevelComponent.h>
 #include <core_game/PrefabSerializer.h>
 #include <core_game/SceneSerializer.h>
+#include <core_game/TileComponent.h>
 #include <core_serialization/XMLArchive.h>
 
 #include <algorithm>
@@ -2189,18 +2190,21 @@ namespace Orkige
 		return grid;
 	}
 	//---------------------------------------------------------
-	String EditorCore::findPrefabInstanceAtCell(float centerX, float centerY,
+	String EditorCore::findTileAtCell(float centerX, float centerY,
 		float cellSize) const
 	{
 		const float halfCell = cellSize * 0.5f;
-		// only ROOT-level prefab instances occupy a paint cell (a Ball or a
-		// Level object, and every prefab-provided child, are never candidates)
+		// only ROOT-level TILES occupy a paint cell: a prefab instance (non-empty
+		// prefabRef) or a bare-asset tile (a TileComponent marker). A Ball, a
+		// Level, a loose Decoration, and every prefab-provided child are never
+		// candidates - they cannot be painted over or erased.
 		for (String const& id : mGameObjectManager.getRootObjectIds())
 		{
 			optr<GameObject> gameObject =
 				mGameObjectManager.getGameObject(id).lock();
-			if (!gameObject || gameObject->getPrefabRef().empty() ||
-				!gameObject->hasComponent<TransformComponent>())
+			if (!gameObject || !gameObject->hasComponent<TransformComponent>() ||
+				(gameObject->getPrefabRef().empty() &&
+					!gameObject->hasComponent<TileComponent>()))
 			{
 				continue;
 			}
@@ -2215,77 +2219,84 @@ namespace Orkige
 		return String();
 	}
 	//---------------------------------------------------------
-	bool EditorCore::paintPrefabAtCell(EditorPaintDesc const& desc,
+	bool EditorCore::paintTileAtCell(EditorPaintDesc const& desc,
 		float centerX, float centerY, float cellSize, unsigned int mergeSession)
 	{
-		if (desc.prefabFilePath.empty())
+		const bool prefabTile = desc.kind == PaintTileKind::Prefab;
+		const bool shapeTile = desc.kind == PaintTileKind::ShapeTile;
+		// a paint action needs a source: a prefab file, or a bare asset name
+		if (prefabTile ? desc.prefabFilePath.empty() : desc.assetName.empty())
 		{
 			return false;
 		}
-		const String occupantId =
-			findPrefabInstanceAtCell(centerX, centerY, cellSize);
-		if (!occupantId.empty())
+		const String occupantId = findTileAtCell(centerX, centerY, cellSize);
+		if (!occupantId.empty() &&
+			tileCellIsIdentical(occupantId, desc))
 		{
-			// dragging back over a cell that already holds an identical instance
+			// dragging back over a cell that already holds the IDENTICAL tile
 			// must not churn the undo stack
-			optr<GameObject> occupant =
-				mGameObjectManager.getGameObject(occupantId).lock();
-			if (occupant && occupant->getPrefabRef() == desc.prefabRef)
-			{
-				StringVector const& occupantSuppressed =
-					occupant->getSuppressedPrefabChildren();
-				bool sameSuppressed =
-					occupantSuppressed.size() == desc.suppressedChildren.size();
-				for (String const& localId : desc.suppressedChildren)
-				{
-					if (std::find(occupantSuppressed.begin(),
-						occupantSuppressed.end(), localId) ==
-						occupantSuppressed.end())
-					{
-						sameSuppressed = false;
-						break;
-					}
-				}
-				bool sameStamps = true;
-				for (EditorPaintStamp const& stamp : desc.stamps)
-				{
-					if (stamp.propertyName.empty())
-					{
-						continue;
-					}
-					String current;
-					if (!getObjectProperty(occupantId, stamp.componentTypeName,
-						stamp.propertyName, current) || current != stamp.value)
-					{
-						sameStamps = false;
-						break;
-					}
-				}
-				if (sameSuppressed && sameStamps)
-				{
-					return false;
-				}
-			}
+			return false;
 		}
 
-		const String stem =
-			std::filesystem::path(desc.prefabFilePath).stem().string();
-		const String rootId = generateObjectId(stem.empty() ? "Prefab" : stem);
+		// the root id derives from the source name (prefab stem, or the bare
+		// asset's base name); a bare shape/sprite tile reads as "grass", "wall"
+		const String baseName = prefabTile
+			? std::filesystem::path(desc.prefabFilePath).stem().string()
+			: std::filesystem::path(desc.assetName).stem().string();
+		const String rootId =
+			generateObjectId(baseName.empty() ? "Tile" : baseName);
 
 		optr<CompositeCommand> composite = onew(new CompositeCommand(
-			"Paint " + (stem.empty() ? String("Prefab") : stem)));
-		// replace: erase whatever prefab instance already sits in this cell
+			"Paint " + (baseName.empty() ? String("Tile") : baseName)));
+		// replace: erase whatever tile already sits in this cell (any kind)
 		if (!occupantId.empty())
 		{
 			composite->addCommand(onew(new DeleteSubtreeCommand(occupantId)));
 		}
-		composite->addCommand(onew(new CreatePrefabInstanceCommand(rootId,
-			desc.prefabFilePath, desc.prefabRef, desc.prefabAssetId,
-			Vec3(centerX, centerY, 0.0f), desc.suppressedChildren)));
+		const Vec3 position(centerX, centerY, 0.0f);
+		if (prefabTile)
+		{
+			composite->addCommand(onew(new CreatePrefabInstanceCommand(rootId,
+				desc.prefabFilePath, desc.prefabRef, desc.prefabAssetId,
+				position, desc.suppressedChildren)));
+		}
+		else if (shapeTile)
+		{
+			composite->addCommand(onew(new CreateVectorShapeObjectCommand(rootId,
+				desc.assetName, position)));
+		}
+		else	// SpriteTile: a grid-cell-sized textured quad
+		{
+			composite->addCommand(onew(new CreateSpriteObjectCommand(rootId,
+				desc.assetName, position)));
+			// size the quad to the cell so painted sprites tile the grid (a
+			// prefab tile carries its own size; a bare quad derives from the
+			// texture aspect otherwise). Reflected width/height stamps run after
+			// the create command in the composite, so the object exists.
+			if (cellSize > 0.0f)
+			{
+				const String cell = std::to_string(cellSize);
+				composite->addCommand(onew(new PropertyChangeCommand(rootId,
+					"SpriteComponent", "width", cell, cell)));
+				composite->addCommand(onew(new PropertyChangeCommand(rootId,
+					"SpriteComponent", "height", cell, cell)));
+			}
+		}
+		// bare-asset tiles carry a TileComponent stamping the source-asset id -
+		// the marker the grid tool and game.lua discover tiles by, and the key
+		// that makes a re-paint of the same asset a no-op
+		if (!prefabTile)
+		{
+			composite->addCommand(onew(new AddComponentCommand(rootId,
+				"TileComponent")));
+			composite->addCommand(onew(new PropertyChangeCommand(rootId,
+				"TileComponent", "sourceAssetId", desc.assetId, desc.assetId)));
+		}
 		// generic reflected stamps (the palette uses this to stamp
-		// TileComponent.openEdges): add the component when the prefab root does
-		// not carry it, then set the property. The before value only feeds an
-		// undo that removes the just-added component, so it need not be exact.
+		// TileComponent.openEdges on a prefab tile): add the component when the
+		// root does not carry it, then set the property. The before value only
+		// feeds an undo that removes the just-added component, so it need not be
+		// exact.
 		for (EditorPaintStamp const& stamp : desc.stamps)
 		{
 			if (stamp.componentTypeName.empty())
@@ -2312,11 +2323,84 @@ namespace Orkige
 		return executeCommand(composite);
 	}
 	//---------------------------------------------------------
-	bool EditorCore::erasePrefabAtCell(float centerX, float centerY,
+	bool EditorCore::tileCellIsIdentical(String const& occupantId,
+		EditorPaintDesc const& desc) const
+	{
+		optr<GameObject> occupant =
+			mGameObjectManager.getGameObject(occupantId).lock();
+		if (!occupant)
+		{
+			return false;
+		}
+		if (desc.kind == PaintTileKind::Prefab)
+		{
+			// same prefab, same suppressed set, same stamp values
+			if (occupant->getPrefabRef() != desc.prefabRef)
+			{
+				return false;
+			}
+			StringVector const& occupantSuppressed =
+				occupant->getSuppressedPrefabChildren();
+			if (occupantSuppressed.size() != desc.suppressedChildren.size())
+			{
+				return false;
+			}
+			for (String const& localId : desc.suppressedChildren)
+			{
+				if (std::find(occupantSuppressed.begin(),
+					occupantSuppressed.end(), localId) ==
+					occupantSuppressed.end())
+				{
+					return false;
+				}
+			}
+			for (EditorPaintStamp const& stamp : desc.stamps)
+			{
+				if (stamp.propertyName.empty())
+				{
+					continue;
+				}
+				String current;
+				if (!getObjectProperty(occupantId, stamp.componentTypeName,
+					stamp.propertyName, current) || current != stamp.value)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+		// a bare tile: a matching TileComponent marker whose source id equals the
+		// painted asset's (id when tracked; otherwise the bare asset name it
+		// resolves by) AND the matching visual component for the kind
+		if (!occupant->getPrefabRef().empty() ||
+			!occupant->hasComponent<TileComponent>())
+		{
+			return false;
+		}
+		const bool shapeTile = desc.kind == PaintTileKind::ShapeTile;
+		const char* const visual =
+			shapeTile ? "VectorShapeComponent" : "SpriteComponent";
+		String occupantVisual;
+		if (!getObjectProperty(occupantId, visual,
+			shapeTile ? "shape" : "texture", occupantVisual))
+		{
+			return false;	// wrong kind (no such visual on the occupant)
+		}
+		if (!desc.assetId.empty())
+		{
+			String occupantSource;
+			getObjectProperty(occupantId, "TileComponent", "sourceAssetId",
+				occupantSource);
+			return occupantSource == desc.assetId;
+		}
+		return occupantVisual == desc.assetName;
+	}
+	//---------------------------------------------------------
+	bool EditorCore::eraseTileAtCell(float centerX, float centerY,
 		float cellSize, unsigned int mergeSession)
 	{
 		const String occupantId =
-			findPrefabInstanceAtCell(centerX, centerY, cellSize);
+			findTileAtCell(centerX, centerY, cellSize);
 		if (occupantId.empty())
 		{
 			return false;

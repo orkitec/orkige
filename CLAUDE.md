@@ -241,7 +241,7 @@ internal DebugMessage request/reply and returns the reply as MCP tool content
 file; reads are open; no token file ⇒ auth off for dev). Correlation is JSON-RPC's
 native `id`. POST-only (no SSE); long ops (play boot) return an accepted result
 and are polled via `get_state`. Play control is translated into the ONE existing
-player debug protocol — never a second player port. The 61 tools cover the whole
+player debug protocol — never a second player port. The 63 tools cover the whole
 agent dev-loop: scene authoring (project/scene lifecycle, hierarchy CRUD,
 get/set_component generically over the reflected property registry, prefabs),
 project-file authoring (write/read/list jailed to the project root, import_asset),
@@ -542,17 +542,30 @@ look when touching one:
   loaded from one file, scroll shifts the rects, a scrolled checkbox still
   hit-tests). Agents author `.oui` over MCP `write_project_file` and verify the
   resolve via `get_ui_layout` — no new MCP verb (see `Docs/mcp.md`).
-- **Level authoring**: the editor's **Tile Palette** panel arms a project prefab
-  and the **grid-paint tool** (Paint tool, `B`) paints/erases prefab instances
-  snapped to a grid in 2D mode — the cell size comes from a scene
-  `LevelComponent` else the translate snap step, a stroke is ONE undo step
-  (`CompositeCommand::mergeWith`), erase/replace is instance-safe
-  (`DeleteSubtreeCommand`), and open edges become suppressed prefab wall children
-  + a `TileComponent.openEdges` stamp (the wall-local convention lives in
-  `TileComponent::EDGE_WALL_LOCAL_IDS`). File > **Add Scene to Level Sequence**
-  appends the scene to `levels.olevels`. Reachable by agents via the MCP verbs
-  `list_paint_prefabs` / `paint_prefab` / `erase_cell` / `add_scene_to_levels`.
-  Verified by `editor_level_paint` (paint → save → reload → PLAYS, both flavors).
+- **Level authoring**: the editor's **Tile Palette** panel arms a paintable
+  asset and the **grid-paint tool** (Paint tool, `B`) paints/erases tiles snapped
+  to a grid in 2D mode. Two occupant kinds through ONE seam
+  (`EditorCore::paintTileAtCell`/`findTileAtCell`/`eraseTileAtCell`,
+  `EditorPaintDesc::kind`): a **prefab** tile (instantiates its `.oprefab`
+  subtree — open edges become suppressed prefab wall children + a
+  `TileComponent.openEdges` stamp, wall-local convention in
+  `TileComponent::EDGE_WALL_LOCAL_IDS`) OR a **bare-asset** tile painted straight
+  from a **texture** (a grid-cell `SpriteComponent` quad) or an **`.oshape`** (a
+  `VectorShapeComponent`), with NO prefab file generated — the tile carries a
+  `TileComponent` stamping the source-asset id (`TileComponent.sourceAssetId`).
+  The palette lists all three kinds (`wall_block (prefab)` vs bare `grass`);
+  bare-tile LOOK propagation is the shared asset itself (edit the texture/shape,
+  every painted tile updates — no per-tile prefab to re-apply). The cell size
+  comes from a scene `LevelComponent` else the translate snap step, a stroke is
+  ONE undo step (`CompositeCommand::mergeWith`), erase/replace is subtree-safe and
+  works across kinds (`DeleteSubtreeCommand`). File > **Add Scene to Level
+  Sequence** appends the scene to `levels.olevels`. Reachable by agents via the
+  MCP verbs `list_paintable_assets` (alias `list_paint_prefabs`) / `paint_asset`
+  (alias `paint_prefab`, accepts a texture/shape too) / `erase_cell` /
+  `add_scene_to_levels`. Verified by `editor_level_paint` (prefab AND bare
+  sprite/shape tiles, mixed grid, paint → save → reload → PLAYS, both flavors) +
+  the `editor_control` MCP bare-tile leg. (Future, not built: a bulk "convert
+  painted bare tiles to prefab instances" op if bare tiles later need structure.)
 - **Physics** (`engine_physic/PhysicsWorld`, Jolt): a data-driven **collision layer
   matrix** (`physics.olayers`), `RigidBodyComponent` layer + **sensor** flag, and
   **contact events** (worker-thread callbacks → mutex queue → main-thread drain →
