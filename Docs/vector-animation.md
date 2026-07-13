@@ -133,7 +133,15 @@ ONE segment count chosen from the worst-case curvature across ALL of the
 path's keyframes, applied at every key — identical vertex counts by
 construction (the `.oanim` topology law), and because beziers are linear in
 their control points, lerping the flattened vertices equals flattening the
-lerped curve exactly.
+lerped curve exactly. The per-edge count is the larger of two bounds: an
+ABSOLUTE one (the chord-deviation must stay under a fraction of the whole
+composition, keeping a heavy rig cheap) and an ANGULAR floor
+(`EDGE_MAX_SEGMENT_ANGLE`: at least one segment per fixed turn of the control
+polygon). The angular floor is size-independent, so a small tightly-curved
+feature (an eye, a claw) stays as round as a large curve of the same shape
+instead of collapsing to a facet — the extra detail lands only where it is
+cheap (short, few edges); near-straight edges turn through no angle and are
+untouched. `MAX_EDGE_SEGMENTS` still caps every edge.
 
 DENSIFICATION: whatever the runtime grammar cannot express directly is baked
 into per-frame linear keys at cook — spatial position tangents (`ti`/`to`),

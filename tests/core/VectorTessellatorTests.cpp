@@ -17,6 +17,7 @@
 
 #include "core_util/VectorTessellator.h"
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
@@ -317,4 +318,88 @@ TEST_CASE("vectortess_gpu_vertex_gradients", "[unit][vectortess][gradient]")
 	}
 	CHECK(sawFocalRed);
 	CHECK(sawCentreProgress);
+}
+
+TEST_CASE("vectortess_gradient_feather_uses_gradient_colour",
+	"[unit][vectortess][gradient]")
+{
+	// A gradient region carries no flat fill (region.fill is left at its white
+	// default). The soft edge must feather in the GRADIENT colour sampled at
+	// each edge point - not that white default, which would draw a bright halo
+	// around every gradient shape. Feed a dark red->dark blue gradient and
+	// assert no feather vertex is the white default.
+	Region region = squareRegion(1.0f);
+	region.fill = Colour(1.0f, 1.0f, 1.0f, 1.0f);	// unset gradient fill default
+	region.paintType = VectorTessellator::PAINT_LINEAR_GRADIENT;
+	region.gradientStart = Point(-1.0f, 0.0f);
+	region.gradientEnd = Point(1.0f, 0.0f);
+	region.gradientStops.push_back(VectorTessellator::GradientStop(
+		0.0f, Colour(0.5f, 0.0f, 0.0f, 1.0f)));
+	region.gradientStops.push_back(VectorTessellator::GradientStop(
+		1.0f, Colour(0.0f, 0.0f, 0.5f, 1.0f)));
+
+	std::vector<Region> regions;
+	regions.push_back(region);
+	Mesh mesh;
+	VectorTessellator::build(regions, 0.05f, mesh);
+
+	// the opaque (inner) feather vertices must carry the gradient's colours, not
+	// white - a pure-white opaque vertex would be the old halo bug
+	bool sawGradientEdge = false;
+	for(Colour const & c : mesh.colours)
+	{
+		if(c.a > 0.99f)
+		{
+			CHECK_FALSE((c.r > 0.95f && c.g > 0.95f && c.b > 0.95f));
+			if(c.g < 0.05f && (c.r > 0.2f || c.b > 0.2f))
+				sawGradientEdge = true;
+		}
+	}
+	CHECK(sawGradientEdge);
+}
+
+TEST_CASE("vectortess_feather_clamped_to_region_thickness",
+	"[unit][vectortess]")
+{
+	// A single global feather width sized for a whole rig, applied to a THIN
+	// ribbon, would extrude the soft edge far past the ribbon itself - the
+	// halo/streak bug. build() must clamp the per-region feather to a fraction
+	// of the region's own thickness, so a long thin strip does not balloon.
+	const float thickness = 0.02f;
+	const float length = 2.0f;
+	Region ribbon;
+	ribbon.fill = Colour(0.2f, 0.6f, 0.9f, 1.0f);
+	ribbon.outer.push_back(Point(-length, -thickness * 0.5f));
+	ribbon.outer.push_back(Point(length, -thickness * 0.5f));
+	ribbon.outer.push_back(Point(length, thickness * 0.5f));
+	ribbon.outer.push_back(Point(-length, thickness * 0.5f));
+
+	std::vector<Region> regions;
+	regions.push_back(ribbon);
+	Mesh mesh;
+	// a feather width MUCH larger than the ribbon's thickness (as a whole-rig
+	// default would be) must NOT push the outer ring out by that full amount
+	VectorTessellator::build(regions, 1.0f, mesh);
+
+	float maxBeyond = 0.0f;
+	for(Point const & p : mesh.positions)
+	{
+		const float beyond = std::abs(p.y) - thickness * 0.5f;
+		if(beyond > maxBeyond)
+			maxBeyond = beyond;
+	}
+	// the feather extends at most ~thickness (not the 1.0 global width): the
+	// clamp keeps a thin ribbon crisp
+	CHECK(maxBeyond < thickness);
+	CHECK(maxBeyond > 0.0f);	// but a soft edge still exists
+
+	// a compact region of the same feather budget keeps its full soft edge
+	std::vector<Region> big;
+	big.push_back(squareRegion(1.0f));
+	Mesh bigMesh;
+	VectorTessellator::build(big, 0.05f, bigMesh);
+	float bigBeyond = 0.0f;
+	for(Point const & p : bigMesh.positions)
+		bigBeyond = std::max(bigBeyond, std::abs(p.x) - 1.0f);
+	CHECK(bigBeyond == Approx(0.05f).margin(0.02f));
 }

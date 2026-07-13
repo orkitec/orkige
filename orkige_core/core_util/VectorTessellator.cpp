@@ -53,6 +53,15 @@ namespace Orkige
 		//! recursion cap so a pathological control net cannot spin forever
 		const int FLATTEN_MAX_DEPTH = 16;
 		const int GRADIENT_SUBDIVISION_DEPTH = 3;
+		//! how much of a region's OWN thickness the soft edge may occupy. The
+		//! feather is a constant visual weight sized off the whole shape's
+		//! bounds, but a thin stroke ribbon or a tiny detail is far smaller than
+		//! that: applying the full width would balloon it into a halo/streak far
+		//! bigger than the shape. Capping the per-region feather at a fraction of
+		//! that region's thickness (2*area/perimeter - orientation-independent,
+		//! so it catches thin diagonal ribbons a bounding box misses) keeps small
+		//! shapes crisp while big shapes still get the full soft edge.
+		const float FEATHER_THICKNESS_FRACTION = 0.5f;
 
 		float clamp01(float value)
 		{
@@ -222,6 +231,108 @@ namespace Orkige
 			flattenCubicRecursive(p0, p01, p012, mid, toleranceSq, depth + 1, out);
 			flattenCubicRecursive(mid, p123, p23, p3, toleranceSq, depth + 1, out);
 		}
+
+		//! total edge length of a closed contour
+		float contourPerimeter(std::vector<VectorTessellator::Point> const & c)
+		{
+			const std::size_t n = c.size();
+			float total = 0.0f;
+			for(std::size_t i = 0; i < n; ++i)
+			{
+				VectorTessellator::Point const & a = c[i];
+				VectorTessellator::Point const & b = c[(i + 1) % n];
+				const float dx = b.x - a.x;
+				const float dy = b.y - a.y;
+				total += std::sqrt(dx * dx + dy * dy);
+			}
+			return total;
+		}
+
+		//! the mean thickness of a filled contour: 2*area/perimeter. For a long
+		//! thin ribbon this is its (small) width regardless of orientation, for a
+		//! disc it is the radius - the right ceiling for a per-region feather so
+		//! a thin/small shape is not swallowed by an edge sized for the whole rig.
+		float contourThickness(std::vector<VectorTessellator::Point> const & c)
+		{
+			const float perimeter = contourPerimeter(c);
+			if(perimeter <= 1e-6f)
+			{
+				return 0.0f;
+			}
+			return 2.0f * std::fabs(VectorTessellator::signedArea(c)) / perimeter;
+		}
+
+		//! append one alpha-ramp feather ring along a closed contour; the inner
+		//! (on-contour) colour of each vertex comes from innerAt so a solid fill
+		//! feathers in its flat colour while a gradient feathers in the gradient
+		//! colour sampled AT that edge point (a white default fill would otherwise
+		//! draw a bright halo around every gradient shape). The outer ring is the
+		//! same rgb at alpha 0 (the soft fade). Shared by appendFeather and build.
+		template <typename InnerColourFn>
+		void featherRing(std::vector<VectorTessellator::Point> const & contour,
+			float width, InnerColourFn innerAt, VectorTessellator::Mesh & out)
+		{
+			const std::size_t n = contour.size();
+			if(n < 3 || width <= 0.0f)
+			{
+				return;
+			}
+			// outward normals point away from the interior; the winding sign
+			// flips them so a clockwise contour feathers outward too
+			const float windingSign =
+				VectorTessellator::signedArea(contour) >= 0.0f ? 1.0f : -1.0f;
+			const unsigned int base =
+				static_cast<unsigned int>(out.positions.size());
+			for(std::size_t i = 0; i < n; ++i)
+			{
+				VectorTessellator::Point const & prev = contour[(i + n - 1) % n];
+				VectorTessellator::Point const & here = contour[i];
+				VectorTessellator::Point const & next = contour[(i + 1) % n];
+				// per-edge outward normal (for CCW: right of the travel direction)
+				float pnx = (here.y - prev.y);
+				float pny = -(here.x - prev.x);
+				float nnx = (next.y - here.y);
+				float nny = -(next.x - here.x);
+				auto norm = [](float & x, float & y)
+				{
+					const float len = std::sqrt(x * x + y * y);
+					if(len > 1e-6f)
+					{
+						x /= len;
+						y /= len;
+					}
+				};
+				norm(pnx, pny);
+				norm(nnx, nny);
+				float nx = (pnx + nnx) * windingSign;
+				float ny = (pny + nny) * windingSign;
+				norm(nx, ny);
+
+				const VectorTessellator::Colour inner = innerAt(here);
+				out.positions.push_back(here);
+				out.colours.push_back(inner);
+				out.positions.push_back(VectorTessellator::Point(
+					here.x + nx * width, here.y + ny * width));
+				out.colours.push_back(VectorTessellator::Colour(
+					inner.r, inner.g, inner.b, 0.0f));
+			}
+			for(std::size_t i = 0; i < n; ++i)
+			{
+				const unsigned int innerHere =
+					base + static_cast<unsigned int>(i * 2);
+				const unsigned int outerHere = innerHere + 1;
+				const std::size_t j = (i + 1) % n;
+				const unsigned int innerNext =
+					base + static_cast<unsigned int>(j * 2);
+				const unsigned int outerNext = innerNext + 1;
+				out.indices.push_back(innerHere);
+				out.indices.push_back(outerHere);
+				out.indices.push_back(outerNext);
+				out.indices.push_back(innerHere);
+				out.indices.push_back(outerNext);
+				out.indices.push_back(innerNext);
+			}
+		}
 	}
 
 	//---------------------------------------------------------
@@ -322,66 +433,7 @@ namespace Orkige
 	void VectorTessellator::appendFeather(std::vector<Point> const & contour,
 		Colour const & fill, float width, Mesh & out)
 	{
-		const std::size_t n = contour.size();
-		if(n < 3 || width <= 0.0f)
-		{
-			return;
-		}
-		// outward normals point away from the interior; the winding sign flips
-		// them so a clockwise contour feathers outward too
-		const float windingSign = signedArea(contour) >= 0.0f ? 1.0f : -1.0f;
-		const Colour outerColour(fill.r, fill.g, fill.b, 0.0f);
-		const Colour innerColour(fill.r, fill.g, fill.b, fill.a);
-
-		const unsigned int base =
-			static_cast<unsigned int>(out.positions.size());
-		for(std::size_t i = 0; i < n; ++i)
-		{
-			Point const & prev = contour[(i + n - 1) % n];
-			Point const & here = contour[i];
-			Point const & next = contour[(i + 1) % n];
-			// per-edge outward normal (for CCW: right of the travel direction)
-			float pnx = (here.y - prev.y);
-			float pny = -(here.x - prev.x);
-			float nnx = (next.y - here.y);
-			float nny = -(next.x - here.x);
-			// normalize each, then average, then normalize the result
-			auto norm = [](float & x, float & y)
-			{
-				const float len = std::sqrt(x * x + y * y);
-				if(len > 1e-6f)
-				{
-					x /= len;
-					y /= len;
-				}
-			};
-			norm(pnx, pny);
-			norm(nnx, nny);
-			float nx = (pnx + nnx) * windingSign;
-			float ny = (pny + nny) * windingSign;
-			norm(nx, ny);
-
-			// inner vertex sits on the contour (opaque), outer is extruded out
-			out.positions.push_back(here);
-			out.colours.push_back(innerColour);
-			out.positions.push_back(Point(here.x + nx * width,
-				here.y + ny * width));
-			out.colours.push_back(outerColour);
-		}
-		for(std::size_t i = 0; i < n; ++i)
-		{
-			const unsigned int innerHere = base + static_cast<unsigned int>(i * 2);
-			const unsigned int outerHere = innerHere + 1;
-			const std::size_t j = (i + 1) % n;
-			const unsigned int innerNext = base + static_cast<unsigned int>(j * 2);
-			const unsigned int outerNext = innerNext + 1;
-			out.indices.push_back(innerHere);
-			out.indices.push_back(outerHere);
-			out.indices.push_back(outerNext);
-			out.indices.push_back(innerHere);
-			out.indices.push_back(outerNext);
-			out.indices.push_back(innerNext);
-		}
+		featherRing(contour, width, [&fill](Point const &) { return fill; }, out);
 	}
 	//---------------------------------------------------------
 	void VectorTessellator::build(std::vector<Region> const & regions,
@@ -396,7 +448,27 @@ namespace Orkige
 		{
 			for(Region const & region : regions)
 			{
-				appendFeather(region.outer, region.fill, featherWidth, out);
+				// clamp the shared edge width to this region's own thickness so
+				// a thin ribbon / tiny detail is not swallowed by a halo sized
+				// for the whole rig (@see FEATHER_THICKNESS_FRACTION)
+				const float cap =
+					contourThickness(region.outer) * FEATHER_THICKNESS_FRACTION;
+				const float width =
+					cap > 0.0f && cap < featherWidth ? cap : featherWidth;
+				if(region.paintType != PAINT_SOLID &&
+					!region.gradientStops.empty())
+				{
+					// a gradient shape feathers in its gradient colour at each
+					// edge point, not the (unset, white) flat fill
+					featherRing(region.outer, width,
+						[&region](Point const & p) { return paintAt(region, p); },
+						out);
+				}
+				else
+				{
+					featherRing(region.outer, width,
+						[&region](Point const &) { return region.fill; }, out);
+				}
 			}
 		}
 		out.bounds = computeBounds(regions);

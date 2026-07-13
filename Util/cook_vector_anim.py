@@ -72,6 +72,18 @@ KAPPA = 0.5522847498307936      # cubic arc approximation of a quarter circle
 MAX_EDGE_SEGMENTS = 32          # per-edge flattening cap
 MIN_EDGE_SEGMENTS = 1
 EPS = 1e-6
+# Per-edge angular smoothness: the absolute chord tolerance (a fraction of the
+# whole composition) sets how many segments a curve needs for a given ABSOLUTE
+# deviation, which grows with the curve's size - so a big belly curve gets many
+# segments while a small but equally-round eye or claw gets only a facet or two.
+# Roundness, though, is an ANGULAR property: a quarter-turn arc needs the same
+# number of segments to read as round whether it is large or tiny. So a curved
+# edge also gets a floor of ceil(turningAngle / EDGE_MAX_SEGMENT_ANGLE) segments,
+# size-independent. This lifts ONLY genuinely curved small edges (cheap: they are
+# short and few); the near-straight edges that dominate a heavy rig turn through
+# almost no angle and are untouched, so the large rig barely grows. The absolute
+# MAX_EDGE_SEGMENTS cap still bounds every edge.
+EDGE_MAX_SEGMENT_ANGLE = math.radians(30.0)   # max turn per flattened segment
 
 
 class CookError(ValueError):
@@ -126,6 +138,24 @@ def _dist_to_segment(p, a, b):
     t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length_sq
     t = min(max(t, 0.0), 1.0)
     return math.hypot(p[0] - (a[0] + t * dx), p[1] - (a[1] + t * dy))
+
+
+def _control_turn_angle(p0, c1, c2, p3):
+    """Total turning of a cubic's control polygon p0->c1->c2->p3 (radians): the
+    sum of the direction changes at c1 and c2. Size-independent, so a small
+    tight arc and a big one of the same shape report the same angle - the basis
+    for a roundness floor on segment counts. Degenerate handles contribute 0."""
+    pts = [p0, c1, c2, p3]
+    total = 0.0
+    for i in range(len(pts) - 2):
+        ax, ay = pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]
+        bx, by = pts[i + 2][0] - pts[i + 1][0], pts[i + 2][1] - pts[i + 1][1]
+        la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+        if la <= EPS or lb <= EPS:
+            continue
+        cosang = (ax * bx + ay * by) / (la * lb)
+        total += math.acos(min(max(cosang, -1.0), 1.0))
+    return total
 
 
 def _point_in_polygon(p, poly):
@@ -450,15 +480,22 @@ def _edge_segment_counts(paths_across_keys, tol):
     counts = []
     for j in range(n):
         deviation = 0.0
+        angle = 0.0
         for path in paths_across_keys:
             p0, c1, c2, p3 = _path_edges(path)[j]
             deviation = max(deviation,
                             _dist_to_segment(c1, p0, p3),
                             _dist_to_segment(c2, p0, p3))
+            angle = max(angle, _control_turn_angle(p0, c1, c2, p3))
         if deviation <= EPS:
             counts.append(MIN_EDGE_SEGMENTS)
         else:
+            # absolute-deviation count (whole-rig smoothness, size-dependent)
             need = math.ceil(math.sqrt(0.75 * deviation / max(tol, EPS)))
+            # angular floor (roundness, size-independent) so small tight curves
+            # are not flattened to facets a big equivalent curve would round out
+            need = max(need,
+                       math.ceil(angle / EDGE_MAX_SEGMENT_ANGLE))
             counts.append(min(max(need, MIN_EDGE_SEGMENTS),
                               MAX_EDGE_SEGMENTS))
     return counts
@@ -3465,6 +3502,31 @@ def _selftest():
     expected = reference.read_text(encoding="utf-8")
     assert cooked == expected, \
         "tests/assets/vectoranim/modifiers.oanim is stale"
+    checks += 1
+
+    # --- angular smoothness floor keeps small curves round -----------------
+    # A curve's roundness is an ANGULAR property, so a small tight circle and a
+    # large one flatten to the same-quality polygon. The absolute chord
+    # tolerance alone would flatten the small circle to a facet or two (its
+    # deviation is tiny); the per-edge angular floor lifts it back to a smooth
+    # ring, cheaply, without touching the already-dense large curve.
+    def _circle_path(radius):
+        k = KAPPA
+        return {"closed": True,
+                "v": [(radius, 0), (0, radius), (-radius, 0), (0, -radius)],
+                "o": [(0, radius * k), (-radius * k, 0), (0, -radius * k),
+                      (radius * k, 0)],
+                "i": [(0, -radius * k), (radius * k, 0), (0, radius * k),
+                      (-radius * k, 0)]}
+    small_counts = _edge_segment_counts([_circle_path(2.0)], 0.5)
+    large_counts = _edge_segment_counts([_circle_path(200.0)], 0.5)
+    floor = math.ceil((math.pi / 2.0) / EDGE_MAX_SEGMENT_ANGLE)
+    assert min(small_counts) >= floor, \
+        "small circle lost its angular floor: %r" % (small_counts,)
+    assert sum(small_counts) >= 12, \
+        "small circle flattened too coarse: %r" % (small_counts,)
+    assert min(large_counts) >= min(small_counts), \
+        "a larger curve must never be rougher than a small one"
     checks += 1
 
     print("cook_vector_anim selftest OK: %d feature groups, every "
