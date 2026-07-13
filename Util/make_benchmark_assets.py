@@ -617,7 +617,7 @@ def build_vista():
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0,
                       quat=(0.9239, -0.3827, 0.0, 0.0)),  # tilted down ~45deg
-          s.light(light_type=0, colour=(1.0, 0.95, 0.85), intensity=3.0,
+          s.light(light_type=0, colour=(1.0, 0.95, 0.85), intensity=1.1,
                   casts=True),
           tags=("sun",))
     terrain_object(s)
@@ -655,7 +655,7 @@ def build_lake():
     director(s, "lake", "Still Water", 10.0)
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9659, -0.2588, 0.0, 0.0)),
-          s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=2.4,
+          s.light(light_type=0, colour=(1.0, 0.7, 0.5), intensity=1.0,
                   casts=True),
           tags=("sun",))
     terrain_object(s, y=-4.5)
@@ -736,7 +736,7 @@ def build_field():
     director(s, "field", "Instance Field", 12.0)
     s.add("Sun",
           s.transform(0.0, 20.0, 0.0, quat=(0.9239, -0.3827, 0.0, 0.0)),
-          s.light(light_type=0, colour=(1.0, 0.96, 0.9), intensity=2.6,
+          s.light(light_type=0, colour=(1.0, 0.96, 0.9), intensity=1.1,
                   casts=True),
           tags=("sun",))
     # a large field of ModelComponents sharing ONE mesh + ONE material - the

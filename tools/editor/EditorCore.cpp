@@ -3222,12 +3222,20 @@ namespace Orkige
 		{
 			return;
 		}
-		optr<MeshInstance> mesh =
-			gameObject->getComponentPtr<ModelComponent>()->getMeshInstance();
+		ModelComponent* model =
+			gameObject->getComponentPtr<ModelComponent>();
+		// ONLY material-less models get the legacy unlit vertex-colour look
+		// (under the editor's ambient-only light the vertex colours would
+		// drown otherwise). A model with a recorded .omat reference is LIT
+		// content - stomping it here made every material render flat white
+		// in the viewport (the shared boot fixup had the same defect).
+		if (!model->getMaterialFileName().empty())
+		{
+			return;
+		}
+		optr<MeshInstance> mesh = model->getMeshInstance();
 		if (mesh)
 		{
-			// imported materials keep lighting enabled - under the editor's
-			// ambient-only light the vertex colours would drown
 			mesh->setVertexColourUnlit();
 		}
 	}
