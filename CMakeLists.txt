@@ -27,6 +27,11 @@ endif()
 # APK by tools/player/android/package_apk.sh.
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(ORKIGE_ANDROID TRUE)
+    # The Ninja generator otherwise chooses the host clang-scan-deps binary,
+    # which cannot consume a PCH emitted by the Android NDK's Clang build.
+    # Orkige does not use C++ modules, so Android builds need no dependency
+    # scanner; normal compiler depfiles continue to track includes.
+    set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 else()
     set(ORKIGE_ANDROID FALSE)
 endif()

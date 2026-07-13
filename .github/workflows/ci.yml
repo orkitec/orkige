@@ -11,7 +11,7 @@
 #                  desktop suite, then an arm64 iOS Simulator build + tests.
 #                  Hard gates.
 #   windows-next   - the default flavor on MSVC: build + full non-device
-#                  desktop suite under SwiftShader software Vulkan. Hard gate.
+#                  desktop suite under Mesa lavapipe software Vulkan. Hard gate.
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
 # set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
@@ -445,7 +445,14 @@ jobs:
       - name: Complete macOS desktop suite (Metal - MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
-        run: ctest --preset desktop-macos-ci --timeout 300
+        run: |
+          # list_play_targets probes adb. Start its daemon outside the MCP
+          # request deadline so a cold hosted runner cannot consume the whole
+          # request while Android device discovery initializes.
+          if command -v adb > /dev/null 2>&1; then
+            adb start-server
+          fi
+          ctest --preset desktop-macos-ci --timeout 300
 
       - name: Prepare iPhone 16 simulator
         run: |
@@ -500,8 +507,8 @@ jobs:
           xcrun simctl delete "$ORKIGE_CI_SIMULATOR" || true
 
   # Windows on the default Ogre-Next flavor. The standard hosted runner has
-  # no physical GPU/Vulkan ICD; its preinstalled Android emulator carries
-  # SwiftShader, which provides the software Vulkan driver for desktop tests.
+  # no physical GPU/Vulkan ICD, so the desktop tests install a software driver
+  # with Win32 presentation support.
   windows-next:
     name: Windows next (Vulkan) - build + desktop tests
     runs-on: windows-latest
@@ -557,19 +564,33 @@ jobs:
         shell: pwsh
         run: ctest --preset unit-windows
 
-      - name: Locate SwiftShader software Vulkan driver
-        shell: pwsh
-        run: |
-          $icd = Get-ChildItem "$env:ANDROID_HOME/emulator" -Recurse -Filter vk_swiftshader_icd.json |
-            Select-Object -First 1
-          if (-not $icd) {
-            throw "The hosted runner's Android emulator did not provide vk_swiftshader_icd.json"
-          }
-          Write-Host "Using Vulkan ICD: $($icd.FullName)"
-          "VK_DRIVER_FILES=$($icd.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VK_ICD_FILENAMES=$($icd.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      # The Android emulator's bundled SwiftShader ICD is headless on Windows:
+      # it omits VK_KHR_win32_surface. Mesa's lavapipe ICD provides software
+      # Vulkan with Win32 presentation, so the complete windowed suite remains
+      # a hard gate on hosted runners without a GPU.
+      - name: Install Mesa software Vulkan driver
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-mesa
 
-      - name: Complete Windows desktop suite (SwiftShader - MUST pass)
+      - name: Locate Mesa lavapipe Vulkan driver
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $icd = Join-Path $env:MSYS2_LOCATION "ucrt64/share/vulkan/icd.d/lvp_icd.x86_64.json"
+          if (-not (Test-Path $icd)) {
+            throw "The MSYS2 Mesa package did not provide $icd"
+          }
+          Write-Host "Using Vulkan ICD: $icd"
+          "VK_DRIVER_FILES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VK_ICD_FILENAMES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          (Join-Path $env:MSYS2_LOCATION "ucrt64/bin") | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: Complete Windows desktop suite (lavapipe - MUST pass)
         shell: pwsh
         env:
           ALSOFT_DRIVERS: "null"

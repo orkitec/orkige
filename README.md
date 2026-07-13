@@ -132,7 +132,7 @@ Every push builds and tests both Linux render flavors. Ogre-Next remains the
 default and owns scripting-off, ASan + UBSan, and the full desktop suite under
 a virtual display; classic also runs its unit + desktop compatibility suites.
 CI additionally runs the full non-device Ogre-Next desktop suites on macOS
-(Metal) and Windows (SwiftShader software Vulkan).
+(Metal) and Windows (Mesa lavapipe software Vulkan).
 CI also builds and runs the Android
 player in a hardware-accelerated x86_64 emulator and the iOS player in an arm64
 iPhone Simulator (`.github/workflows/ci.yml`).

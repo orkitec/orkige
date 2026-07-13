@@ -168,8 +168,8 @@ suite. All tests are hard gates on the next flavor. The next job also builds the
 for an accelerated x86_64 emulator and runs the adb Play test; macOS next builds
 and runs the complete non-device host suite, builds the arm64 iOS Simulator
 player, then runs the simulator export/Play/cold-boot/safe-area tests; Windows
-next (MSVC) runs its units and complete non-device desktop suite through the
-Android emulator's bundled SwiftShader Vulkan ICD. The local
+next (MSVC) runs its units and complete non-device desktop suite through a
+Mesa lavapipe software Vulkan ICD with Win32 presentation support. The local
 noscript tree is preset-encoded too: `cmake --preset macos-debug-noscript`,
 `ctest --preset unit-noscript`. A `pre-push` git
 hook (install once per clone: `Util/install_git_hooks.sh`) spawns
@@ -801,8 +801,8 @@ adb Play test (shipping Android remains arm64-v8a). **macOS-next** builds the
 default flavor on Apple hardware, runs the complete non-device desktop suite,
 builds the arm64 iOS Simulator player, and runs its export + runtime device
 tests. **Windows-next** builds the default flavor on MSVC and runs the complete
-non-device desktop suite using the Android emulator's bundled SwiftShader
-software Vulkan ICD (preset `windows-debug`, x64-windows-static-md triplet,
+non-device desktop suite using a Mesa lavapipe software Vulkan ICD with Win32
+presentation support (preset `windows-debug`, x64-windows-static-md triplet,
 NOMINMAX/WIN32_LEAN_AND_MEAN globally).
 Linux builds with **clang** (`CC/CXX` in the workflow env;
 matches the clang-oriented codebase), and needs a few system dev packages the cold

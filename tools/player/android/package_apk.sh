@@ -82,6 +82,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build/android-debug}"
+[ -d "$BUILD_DIR" ] || fail "no build directory at $BUILD_DIR"
+BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
 
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 BUILD_TOOLS="$SDK/build-tools/35.0.0"
