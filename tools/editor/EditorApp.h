@@ -23,6 +23,7 @@
 #include "EditorTheme.h"
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
+#include "SyntaxHighlight.h"
 
 #include <core_debugnet/DebugClient.h>
 #include <core_project/AssetDatabase.h>
@@ -396,6 +397,16 @@ struct AssetBrowserState
 	//! from disk, so the section always reflects the selected texture)
 	Orkige::TextureImport editImport;
 	std::string editImportPath;
+	//! the Inspector's text-preview cache: the project-relative file whose
+	//! highlighted read-only content is shown, its lines split for the clipper,
+	//! the chosen highlight family and the size-cap bookkeeping. A changed path
+	//! re-reads from disk (bounded at TEXT_PREVIEW_CAP_BYTES).
+	std::string textPreviewPath;
+	std::vector<std::string> textPreviewLines;
+	Orkige::SyntaxFormat textPreviewFormat = Orkige::SyntaxFormat::PlainText;
+	bool textPreviewTruncated = false;
+	std::size_t textPreviewTotalBytes = 0;
+	static constexpr std::size_t TEXT_PREVIEW_CAP_BYTES = 256u * 1024u;
 	//! transient footer notice (e.g. a create that failed): shown in the status
 	//! footer until statusMessageExpiry (ImGui::GetTime seconds) passes. A
 	//! failed filesystem op is otherwise invisible, so it surfaces here.
@@ -1471,6 +1482,13 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 void drawAnimationPreviewPanel(EditorState& state,
 	OrkigeEditor::AnimationPreviewStage& stage, ViewSettings& viewSettings);
 
+// the shared preview WIDGET body (clip dropdown, Play/Pause/Reset, time scrub,
+// blend try-out, status line + the rasterised pose image), stage-backed so it
+// carries no external UI state. Both the Animation Preview panel and the
+// Inspector's asset-view animation section call it; assumes stage.isLoaded().
+// Defined in AnimationPreviewPanel.cpp.
+void drawAnimationPreviewBody(OrkigeEditor::AnimationPreviewStage& stage);
+
 // the Scene Hierarchy panel (edit mode: EditorCore world; play mode: the
 // remote hierarchy) - EditorHierarchyPanel.cpp
 void drawHierarchyPanel(EditorState& state, PlaySession& session,
@@ -1478,9 +1496,12 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 	bool* visible);
 
 // the Inspector panel (edit mode: component editors; play mode: the remote
-// object_state) - EditorInspectorPanel.cpp
+// object_state) - EditorInspectorPanel.cpp. The animation preview stage backs
+// the asset-view's inline .oanim preview (shared with the Animation Preview
+// panel; if both show the same asset they share the one stage's clock).
 void drawInspectorPanel(EditorState& state, PlaySession& session,
-	Orkige::EditorCore& core, bool* visible);
+	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
+	bool* visible);
 
 // the editor-wide keyboard map - EditorShortcuts.cpp documents the bindings
 void handleEditorShortcuts(EditorState& state, Orkige::EditorCore& core,

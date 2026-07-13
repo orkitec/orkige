@@ -15,6 +15,7 @@ add_executable(orkige_editor_core_tests
 	EditorCameraTests.cpp
 	EditorPanelRegistryTests.cpp
 	ExternalEditorTests.cpp
+	SyntaxHighlightTests.cpp
     FileDialogTests.cpp
     MeshImportTests.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../core/TestComponents.cpp

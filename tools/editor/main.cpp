@@ -1671,7 +1671,7 @@ int main(int argc, char** argv)
 			if (viewSettings.showInspectorPanel)
 			{
 				drawInspectorPanel(state, playSession, editorCore,
-					&viewSettings.showInspectorPanel);
+					animPreviewStage, &viewSettings.showInspectorPanel);
 			}
 			if (viewSettings.showStatsPanel)
 			{

@@ -28,6 +28,8 @@ add_library(orkige_editor_core STATIC
     EditorScriptTools.cpp
     ExternalEditor.h
     ExternalEditor.cpp
+    SyntaxHighlight.h
+    SyntaxHighlight.cpp
     PythonToolchain.h
     PythonToolchain.cpp
 )

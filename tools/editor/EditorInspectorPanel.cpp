@@ -2,9 +2,11 @@
 // (Transform/Model/Script/RigidBody/Camera/Sprite), the Add Component popup
 // and the remote play-mode object_state view.
 // Split out of main.cpp (mechanical decomposition, see EditorApp.h).
+#include "AnimationPreviewStage.h"
 #include "EditorApp.h"
 #include "EditorPropertyWidgets.h"
 #include "EditorTheme.h"
+#include "SyntaxHighlight.h"
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
@@ -13,8 +15,11 @@
 #include <core_util/StringUtil.h>
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 
 using Orkige::optr;
 using Orkige::woptr;
@@ -519,10 +524,298 @@ bool drawTextureImportSection(EditorState& state)
 	return true;
 }
 
+//! the lowercase extension (with dot) of the single browser selection, or ""
+//! when the selection is not exactly one asset in a loaded project
+std::string singleSelectionExtension(EditorState& state, std::string& outRel)
+{
+	AssetBrowserState const& browser = state.assetBrowser;
+	if (browser.selection.size() != 1 || !state.project.isLoaded())
+	{
+		return std::string();
+	}
+	outRel = *browser.selection.begin();
+	return Orkige::StringUtil::to_lower_copy(
+		std::filesystem::path(outRel).extension().string());
+}
+
+//! the animation the single selection targets: a `.oanim` directly, or a
+//! Lottie `.json` whose sibling `.oanim` exists (the import keeps the pair).
+//! Returns the project-relative `.oanim` path, or "".
+std::string selectedBrowserAnimation(EditorState& state)
+{
+	std::string rel;
+	const std::string ext = singleSelectionExtension(state, rel);
+	if (ext == ".oanim")
+	{
+		return rel;
+	}
+	if (ext == ".json")
+	{
+		const std::string sibling =
+			std::filesystem::path(rel).replace_extension(".oanim").generic_string();
+		const std::string absolute = state.project.resolvePath(sibling);
+		std::error_code ec;
+		if (std::filesystem::is_regular_file(absolute, ec))
+		{
+			return sibling;
+		}
+	}
+	return std::string();
+}
+
+//! the inline animation-preview section: shown when the SCENE selection is
+//! empty AND the single browser selection is a `.oanim` (or a `.json` with a
+//! cooked sibling). Loads the rig into the SHARED preview stage on a selection
+//! change and draws the SAME widget the Animation Preview panel does (clip
+//! dropdown, Play/Pause/Reset, scrub, blend, status + pose image). Returns true
+//! when it drew the section.
+bool drawAnimationPreviewSection(EditorState& state,
+	OrkigeEditor::AnimationPreviewStage& stage)
+{
+	const std::string animRel = selectedBrowserAnimation(state);
+	if (animRel.empty())
+	{
+		return false;
+	}
+	if (stage.getLoadedFile() != animRel)
+	{
+		std::string err;
+		stage.load(state.project.getRootDirectory(), animRel, err);
+		stage.clearBlend();
+	}
+	ImGui::TextUnformatted("Animation Preview");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(animRel).filename().string().c_str());
+	ImGui::Separator();
+	if (!stage.isLoaded())
+	{
+		ImGui::TextWrapped("Could not preview '%s': %s", animRel.c_str(),
+			stage.getLastError().c_str());
+		return true;
+	}
+	drawAnimationPreviewBody(stage);
+	return true;
+}
+
+//! is this extension one the Inspector shows highlighted source for? The
+//! engine's text-authored formats plus the common plain-text kinds. A `.oanim`
+//! shows the animation preview instead, and a texture its import settings, so
+//! neither reaches this list.
+bool isTextPreviewExtension(std::string const& ext)
+{
+	static const char* const kinds[] = {
+		".lua", ".oui", ".ogui", ".omat", ".oshape", ".xlf", ".json",
+		".oactions", ".olayers", ".olevels", ".orkproj", ".md", ".txt",
+	};
+	for (const char* kind : kinds)
+	{
+		if (ext == kind)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+//! (re)read the selected text file into the browser preview cache when the
+//! selection changed. Reads at most TEXT_PREVIEW_CAP_BYTES and records the true
+//! total so the footer can say how much was elided.
+void refreshTextPreview(EditorState& state, std::string const& rel)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	if (browser.textPreviewPath == rel)
+	{
+		return;
+	}
+	browser.textPreviewPath = rel;
+	browser.textPreviewLines.clear();
+	browser.textPreviewTruncated = false;
+	browser.textPreviewTotalBytes = 0;
+	browser.textPreviewFormat = Orkige::syntaxFormatForExtension(
+		std::filesystem::path(rel).extension().string());
+	const std::string absolute = state.project.resolvePath(rel);
+	std::ifstream in(absolute, std::ios::binary);
+	if (!in)
+	{
+		return;
+	}
+	in.seekg(0, std::ios::end);
+	const std::streamoff size = in.tellg();
+	browser.textPreviewTotalBytes = size > 0
+		? static_cast<std::size_t>(size) : 0;
+	in.seekg(0, std::ios::beg);
+	const std::size_t cap = AssetBrowserState::TEXT_PREVIEW_CAP_BYTES;
+	browser.textPreviewTruncated = browser.textPreviewTotalBytes > cap;
+	std::vector<char> buffer(std::min(browser.textPreviewTotalBytes, cap));
+	if (!buffer.empty())
+	{
+		in.read(buffer.data(),
+			static_cast<std::streamsize>(buffer.size()));
+	}
+	const std::size_t got = buffer.empty() ? 0
+		: static_cast<std::size_t>(in.gcount());
+	// split into lines, stripping a trailing CR so a CRLF file reads clean
+	std::string line;
+	for (std::size_t i = 0; i < got; ++i)
+	{
+		const char c = buffer[i];
+		if (c == '\n')
+		{
+			if (!line.empty() && line.back() == '\r')
+			{
+				line.pop_back();
+			}
+			browser.textPreviewLines.push_back(line);
+			line.clear();
+		}
+		else
+		{
+			line.push_back(c);
+		}
+	}
+	if (!line.empty())
+	{
+		if (line.back() == '\r')
+		{
+			line.pop_back();
+		}
+		browser.textPreviewLines.push_back(line);
+	}
+}
+
+//! the read-only, syntax-highlighted content section: shown when the single
+//! browser selection is one of the text-preview formats. An "Open in External
+//! Editor" button heads it; the content scrolls in a bordered child region with
+//! per-token muted colours; a truncated file gets a footer line. Returns true
+//! when it drew the section.
+bool drawTextPreviewSection(EditorState& state)
+{
+	std::string rel;
+	const std::string ext = singleSelectionExtension(state, rel);
+	if (ext.empty() || !isTextPreviewExtension(ext))
+	{
+		return false;
+	}
+	refreshTextPreview(state, rel);
+	AssetBrowserState& browser = state.assetBrowser;
+
+	if (gViewSettings && ImGui::Button("Open in External Editor"))
+	{
+		openInExternalEditor(resolveProjectFilePath(state.project, rel), 0,
+			*gViewSettings);
+	}
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(rel).filename().string().c_str());
+	ImGui::Separator();
+
+	const bool dark = Orkige::currentEditorThemeVariant() ==
+		Orkige::EditorThemeVariant::Dark;
+	// leave room for the truncation footer below the scroll region
+	const float footer = browser.textPreviewTruncated
+		? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
+	ImGui::BeginChild("##textpreview", ImVec2(0.0f, -footer),
+		ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+	// tight vertical spacing so a code listing reads as lines, not paragraphs
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,
+		ImVec2(0.0f, ImGui::GetStyle().ItemSpacing.y * 0.25f));
+	ImGuiListClipper clipper;
+	clipper.Begin(static_cast<int>(browser.textPreviewLines.size()));
+	while (clipper.Step())
+	{
+		for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
+		{
+			std::string const& line = browser.textPreviewLines[row];
+			if (line.empty())
+			{
+				ImGui::NewLine();
+				continue;
+			}
+			const std::vector<Orkige::SyntaxSpan> spans =
+				Orkige::highlightLine(line, browser.textPreviewFormat);
+			bool first = true;
+			for (Orkige::SyntaxSpan const& span : spans)
+			{
+				if (!first)
+				{
+					ImGui::SameLine(0.0f, 0.0f);
+				}
+				first = false;
+				const unsigned int rgba =
+					Orkige::syntaxTokenColor(span.token, dark);
+				ImGui::PushStyleColor(ImGuiCol_Text,
+					IM_COL32((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF,
+						(rgba >> 8) & 0xFF, rgba & 0xFF));
+				ImGui::TextUnformatted(line.c_str() + span.begin,
+					line.c_str() + span.end);
+				ImGui::PopStyleColor();
+			}
+		}
+	}
+	clipper.End();
+	ImGui::PopStyleVar();
+	ImGui::EndChild();
+
+	if (browser.textPreviewTruncated)
+	{
+		ImGui::TextDisabled("truncated - %zu KiB total",
+			browser.textPreviewTotalBytes / 1024);
+	}
+	return true;
+}
+
+//! a human-friendly byte count for the no-preview line (B / KiB / MiB)
+std::string humanFileSize(std::uintmax_t bytes)
+{
+	char buffer[64];
+	if (bytes < 1024)
+	{
+		std::snprintf(buffer, sizeof(buffer), "%llu B",
+			static_cast<unsigned long long>(bytes));
+	}
+	else if (bytes < 1024 * 1024)
+	{
+		std::snprintf(buffer, sizeof(buffer), "%.1f KiB", bytes / 1024.0);
+	}
+	else
+	{
+		std::snprintf(buffer, sizeof(buffer), "%.1f MiB",
+			bytes / (1024.0 * 1024.0));
+	}
+	return buffer;
+}
+
+//! the fallback for a single selected asset that has no richer view (a mesh,
+//! audio, an unknown/binary kind): a one-line size + "no preview" - never a
+//! binary dump. Returns true when it drew (a folder selection returns false so
+//! the caller shows "nothing selected"). Order-wise the LAST asset section.
+bool drawUnknownAssetSection(EditorState& state)
+{
+	std::string rel;
+	const std::string ext = singleSelectionExtension(state, rel);
+	if (ext.empty() && rel.empty())
+	{
+		return false;
+	}
+	const std::string absolute = state.project.resolvePath(rel);
+	std::error_code ec;
+	if (!std::filesystem::is_regular_file(absolute, ec))
+	{
+		return false;	// a folder (or a vanished file): no asset section
+	}
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(rel).filename().string().c_str());
+	ImGui::Separator();
+	const std::uintmax_t size = std::filesystem::file_size(absolute, ec);
+	ImGui::TextDisabled("%s - no preview",
+		humanFileSize(ec ? 0 : size).c_str());
+	return true;
+}
+
 } // namespace
 
 void drawInspectorPanel(EditorState& state, PlaySession& session,
-	Orkige::EditorCore& core, bool* visible)
+	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
+	bool* visible)
 {
 	const bool remote = session.isActive();
 	if (ImGui::Begin(remote ? INSPECTOR_WINDOW_REMOTE : INSPECTOR_WINDOW_EDIT,
@@ -542,9 +835,15 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		}
 		if (!gameObject)
 		{
-			// with no scene object selected, a single texture selected in the
-			// Asset browser shows its import settings instead
-			if (!drawTextureImportSection(state))
+			// with no scene object selected, a single asset selected in the
+			// Asset browser shows a live view instead - exactly one section
+			// draws, in priority order: a texture's import settings, an
+			// animation preview (a `.oanim` / a cooked `.json`), a text
+			// asset's highlighted content, else a bare size + "no preview".
+			if (!drawTextureImportSection(state) &&
+				!drawAnimationPreviewSection(state, animStage) &&
+				!drawTextPreviewSection(state) &&
+				!drawUnknownAssetSection(state))
 			{
 				ImGui::TextDisabled("nothing selected");
 			}

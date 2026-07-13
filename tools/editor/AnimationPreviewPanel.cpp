@@ -36,8 +36,6 @@ namespace
 		std::string					projectRoot;	//!< the project the file list is for
 		std::vector<std::string>	animFiles;		//!< project-relative .oanim paths
 		std::string					appliedFile;	//!< the file currently loaded in the stage
-		int							blendClip = -1;	//!< blend-clip index (-1 = none)
-		float						blendWeight = 0.0f;	//!< blend mix 0..1
 	};
 
 	//! scan a project for `.oanim` rigs (project-relative, sorted)
@@ -60,6 +58,114 @@ namespace
 			}
 		}
 		std::sort(out.begin(), out.end());
+	}
+}
+
+void drawAnimationPreviewBody(OrkigeEditor::AnimationPreviewStage& stage)
+{
+	const OrkigeEditor::AnimationPreviewInfo info = stage.getInfo();
+
+	//--- clip + playback ---------------------------------------------------
+	const int clipIndex = info.clipIndex;
+	const char* clipLabel = (clipIndex >= 0 &&
+		clipIndex < static_cast<int>(info.clipNames.size()))
+		? info.clipNames[clipIndex].c_str() : "(none)";
+	ImGui::SetNextItemWidth(200.0f);
+	if (ImGui::BeginCombo("Clip", clipLabel))
+	{
+		for (int each = 0; each < static_cast<int>(info.clipNames.size()); ++each)
+		{
+			const bool sel = (each == clipIndex);
+			if (ImGui::Selectable(info.clipNames[each].c_str(), sel))
+			{
+				stage.setClipIndex(each);
+			}
+			if (sel)
+			{
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+
+	bool playing = stage.isPlaying();
+	ImGui::SameLine();
+	if (ImGui::Button(playing ? "Pause" : "Play"))
+	{
+		stage.setPlaying(!playing);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reset"))
+	{
+		stage.setTimeSeconds(0.0f);
+	}
+
+	// scrub slider over the clip's seconds (pausing while dragging)
+	float t = info.timeSeconds;
+	const float clipSeconds = info.clipDurationSeconds > 0.0f
+		? info.clipDurationSeconds : 1.0f;
+	ImGui::SetNextItemWidth(300.0f);
+	if (ImGui::SliderFloat("Time (s)", &t, 0.0f, clipSeconds, "%.2f"))
+	{
+		stage.setPlaying(false);
+		stage.setTimeSeconds(t);
+	}
+
+	//--- blend try-out: a SECOND clip mixed in at the same time (stage-backed)
+	const int blendClip = info.blendClipIndex;
+	const char* blendLabel = (blendClip >= 0 &&
+		blendClip < static_cast<int>(info.clipNames.size()))
+		? info.clipNames[blendClip].c_str() : "(none)";
+	ImGui::SetNextItemWidth(200.0f);
+	if (ImGui::BeginCombo("Blend clip", blendLabel))
+	{
+		if (ImGui::Selectable("(none)", blendClip < 0))
+		{
+			stage.clearBlend();
+		}
+		for (int each = 0; each < static_cast<int>(info.clipNames.size()); ++each)
+		{
+			const bool sel = (each == blendClip);
+			if (ImGui::Selectable(info.clipNames[each].c_str(), sel))
+			{
+				stage.setBlend(info.clipNames[each], info.blendWeight);
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if (blendClip >= 0)
+	{
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(200.0f);
+		float weight = info.blendWeight;
+		if (ImGui::SliderFloat("Weight", &weight, 0.0f, 1.0f, "%.2f"))
+		{
+			stage.setBlend(info.clipNames[blendClip], weight);
+		}
+	}
+
+	// advance the OWN clock and re-raster the pose into a texture
+	stage.tick(ImGui::GetIO().DeltaTime);
+	const std::string uploadName = stage.uploadTexture();
+
+	//--- status + image ----------------------------------------------------
+	ImGui::Separator();
+	ImGui::Text("frame %.1f / %.0f  |  %d layers, %d shapes, %d verts%s",
+		info.frame, info.durationFrames, info.layerCount, info.shapeCount,
+		info.vertexCount,
+		info.blending ? "  |  blending" : (info.atEnd ? "  |  ended" : ""));
+
+	if (!uploadName.empty() && gImGuiRenderer)
+	{
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		const float side = std::max(64.0f, std::min(avail.x, avail.y));
+		const float offsetX = (avail.x - side) * 0.5f;
+		if (offsetX > 0.0f)
+		{
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+		}
+		ImGui::Image(gImGuiRenderer->textureIdForResource(uploadName),
+			ImVec2(side, side));
 	}
 }
 
@@ -140,8 +246,6 @@ void drawAnimationPreviewPanel(EditorState& state,
 		std::string err;
 		stage.load(root, ui.selectedFile, err);
 		ui.appliedFile = ui.selectedFile;
-		ui.blendClip = -1;
-		ui.blendWeight = 0.0f;
 		stage.clearBlend();
 	}
 
@@ -160,110 +264,8 @@ void drawAnimationPreviewPanel(EditorState& state,
 		return;
 	}
 
-	const OrkigeEditor::AnimationPreviewInfo info = stage.getInfo();
-
-	//--- clip + playback ---------------------------------------------------
-	const int clipIndex = info.clipIndex;
-	const char* clipLabel = (clipIndex >= 0 &&
-		clipIndex < static_cast<int>(info.clipNames.size()))
-		? info.clipNames[clipIndex].c_str() : "(none)";
-	ImGui::SetNextItemWidth(200.0f);
-	if (ImGui::BeginCombo("Clip", clipLabel))
-	{
-		for (int each = 0; each < static_cast<int>(info.clipNames.size()); ++each)
-		{
-			const bool sel = (each == clipIndex);
-			if (ImGui::Selectable(info.clipNames[each].c_str(), sel))
-			{
-				stage.setClipIndex(each);
-			}
-			if (sel)
-			{
-				ImGui::SetItemDefaultFocus();
-			}
-		}
-		ImGui::EndCombo();
-	}
-
-	bool playing = stage.isPlaying();
-	ImGui::SameLine();
-	if (ImGui::Button(playing ? "Pause" : "Play"))
-	{
-		stage.setPlaying(!playing);
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("Reset"))
-	{
-		stage.setTimeSeconds(0.0f);
-	}
-
-	// scrub slider over the clip's seconds (pausing while dragging)
-	float t = info.timeSeconds;
-	const float clipSeconds = info.clipDurationSeconds > 0.0f
-		? info.clipDurationSeconds : 1.0f;
-	ImGui::SetNextItemWidth(300.0f);
-	if (ImGui::SliderFloat("Time (s)", &t, 0.0f, clipSeconds, "%.2f"))
-	{
-		stage.setPlaying(false);
-		stage.setTimeSeconds(t);
-	}
-
-	//--- blend try-out: a SECOND clip mixed in at the same time ------------
-	const char* blendLabel = (ui.blendClip >= 0 &&
-		ui.blendClip < static_cast<int>(info.clipNames.size()))
-		? info.clipNames[ui.blendClip].c_str() : "(none)";
-	ImGui::SetNextItemWidth(200.0f);
-	if (ImGui::BeginCombo("Blend clip", blendLabel))
-	{
-		if (ImGui::Selectable("(none)", ui.blendClip < 0))
-		{
-			ui.blendClip = -1;
-			stage.clearBlend();
-		}
-		for (int each = 0; each < static_cast<int>(info.clipNames.size()); ++each)
-		{
-			const bool sel = (each == ui.blendClip);
-			if (ImGui::Selectable(info.clipNames[each].c_str(), sel))
-			{
-				ui.blendClip = each;
-				stage.setBlend(info.clipNames[each], ui.blendWeight);
-			}
-		}
-		ImGui::EndCombo();
-	}
-	if (ui.blendClip >= 0)
-	{
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(200.0f);
-		if (ImGui::SliderFloat("Weight", &ui.blendWeight, 0.0f, 1.0f, "%.2f"))
-		{
-			stage.setBlend(info.clipNames[ui.blendClip], ui.blendWeight);
-		}
-	}
-
-	// advance the OWN clock and re-raster the pose into a texture
-	stage.tick(ImGui::GetIO().DeltaTime);
-	const std::string uploadName = stage.uploadTexture();
-
-	//--- status + image ----------------------------------------------------
-	ImGui::Separator();
-	ImGui::Text("frame %.1f / %.0f  |  %d layers, %d shapes, %d verts%s",
-		info.frame, info.durationFrames, info.layerCount, info.shapeCount,
-		info.vertexCount,
-		info.blending ? "  |  blending" : (info.atEnd ? "  |  ended" : ""));
-
-	if (!uploadName.empty() && gImGuiRenderer)
-	{
-		const ImVec2 avail = ImGui::GetContentRegionAvail();
-		const float side = std::max(64.0f, std::min(avail.x, avail.y));
-		const float offsetX = (avail.x - side) * 0.5f;
-		if (offsetX > 0.0f)
-		{
-			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
-		}
-		ImGui::Image(gImGuiRenderer->textureIdForResource(uploadName),
-			ImVec2(side, side));
-	}
+	// the shared preview widget body (also used by the Inspector's asset view)
+	drawAnimationPreviewBody(stage);
 
 	ImGui::End();
 }
