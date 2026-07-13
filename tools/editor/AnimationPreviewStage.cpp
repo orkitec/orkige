@@ -91,6 +91,8 @@ namespace OrkigeEditor
 		this->mBlendClipIndex = -1;
 		this->mBlendWeight = 0.0f;
 		this->mPlaying = false;
+		this->mDisplayedUpload = -1;
+		this->mDocumentUploadReady = false;
 		this->invalidateRender();
 		this->mLastError.clear();
 		outError.clear();
@@ -106,6 +108,8 @@ namespace OrkigeEditor
 		this->mBlendClipIndex = -1;
 		this->mBlendWeight = 0.0f;
 		this->mPlaying = false;
+		this->mDisplayedUpload = -1;
+		this->mDocumentUploadReady = false;
 		this->mVertexCount = 0;
 		this->mVisiblePixelCount = 0;
 		this->mColouredPixelCount = 0;
@@ -274,14 +278,21 @@ namespace OrkigeEditor
 		}
 		if (!this->mTextureDirty && this->mActiveUpload >= 0)
 		{
-			return this->mUploadNames[this->mActiveUpload];
+			// The newest upload has now survived one panel frame. Promote it for
+			// display; a paused preview therefore appears on the frame after load,
+			// while Play always samples the preceding settled pose.
+			this->mDisplayedUpload = this->mActiveUpload;
+			return this->mUploadNames[this->mDisplayedUpload];
 		}
 		this->render();
 		if (this->mPixels.empty())
 		{
 			return "";
 		}
-		const int nextUpload = (this->mActiveUpload + 1) % 2;
+		const int previousUpload = this->mDocumentUploadReady
+			? this->mActiveUpload : -1;
+		const int nextUpload = (this->mActiveUpload + 1) %
+			static_cast<int>(UPLOAD_RING_SIZE);
 		if (this->mUploadNames[nextUpload].empty())
 		{
 			const std::string base = "__oanimpreview_" +
@@ -298,8 +309,16 @@ namespace OrkigeEditor
 			return "";
 		}
 		this->mActiveUpload = nextUpload;
+		this->mDocumentUploadReady = true;
 		this->mTextureDirty = false;
-		return this->mUploadNames[this->mActiveUpload];
+		// Do not submit a texture in the same frame it was created/replaced.
+		// Ogre-Next's upload and descriptor handoff completes at the render
+		// boundary; sampling the new entry immediately is the white-square path
+		// seen by continuously playing previews. One-pose display latency keeps
+		// the animation smooth and every sampled ring entry fully settled.
+		this->mDisplayedUpload = previousUpload;
+		return this->mDisplayedUpload >= 0
+			? this->mUploadNames[this->mDisplayedUpload] : std::string();
 	}
 	//---------------------------------------------------------
 	bool AnimationPreviewStage::renderToPng(std::string const & pngPath,

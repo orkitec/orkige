@@ -66,6 +66,10 @@ namespace OrkigeEditor
 	class AnimationPreviewStage
 	{
 	public:
+		//! Enough distinct uploads to keep every texture alive beyond the
+		//! renderer's normal multi-frame submission window while playing.
+		static constexpr std::size_t UPLOAD_RING_SIZE = 8;
+
 		AnimationPreviewStage();
 		~AnimationPreviewStage();
 
@@ -119,12 +123,13 @@ namespace OrkigeEditor
 		//! ring; @return the active upload name ("" on failure). An unchanged
 		//! pose reuses its texture. Needs a RenderSystem.
 		std::string uploadTexture();
-		//! currently displayed half of the live double buffer (test/readback)
+		//! currently displayed settled entry of the live upload ring
+		//! (test/readback)
 		std::string const & getActiveUploadName() const
 		{
 			static const std::string empty;
-			return this->mActiveUpload >= 0
-				? this->mUploadNames[this->mActiveUpload] : empty;
+			return this->mDisplayedUpload >= 0
+				? this->mUploadNames[this->mDisplayedUpload] : empty;
 		}
 		//! @brief render() then write the buffer as a PNG. @return false +
 		//! getLastError() when unloaded or the file cannot be written.
@@ -164,10 +169,13 @@ namespace OrkigeEditor
 		std::size_t							mColouredPixelCount = 0;
 		bool									mPixelsDirty = true;
 		bool									mTextureDirty = true;
-		//! Double-buffered names keep Ogre-Next from destroying the texture still
-		//! referenced by the previous frame's submitted ImGui batch.
-		std::array<std::string, 2>			mUploadNames;
-		int										mActiveUpload = -1;
+		//! A small upload ring keeps Ogre-Next from destroying a texture still
+		//! referenced by an in-flight ImGui batch. Eight 256px RGBA entries are
+		//! only 2 MiB and exceed the backend's normal buffered-frame window.
+		std::array<std::string, UPLOAD_RING_SIZE>	mUploadNames;
+		int										mActiveUpload = -1; //!< newest uploaded entry
+		int										mDisplayedUpload = -1; //!< safe ImGui entry
+		bool									mDocumentUploadReady = false;
 	};
 }
 

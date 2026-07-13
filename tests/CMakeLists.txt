@@ -604,7 +604,7 @@ if(TARGET orkige_editor)
 	# request seams as the Assets panel, verifies both dock beside Scene, and
 	# proves their live texture IDs occur in ImGui's submitted draw data. The
 	# animation path also checks its paused upload is stable and a changed frame
-	# rotates to the safe second GPU buffer. GUI Preview needs offscreen-owned
+	# defers display until the next upload-ring handoff. GUI Preview needs offscreen-owned
 	# layers, which is an Ogre-Next capability; classic is covered by its honest
 	# unsupported-path assertion in editor_control.
 	if(ORKIGE_RENDER_BACKEND STREQUAL "next")

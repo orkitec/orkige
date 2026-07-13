@@ -485,8 +485,9 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// zOrder, not creation order
 		optr<DrawLayer2D> topLayer = renderSystem->createDrawLayer2D(10);
 		optr<DrawLayer2D> bottomLayer = renderSystem->createDrawLayer2D(0);
+		optr<DrawLayer2D> dynamicLayer = renderSystem->createDrawLayer2D(5);
 		optr<DrawLayer2D> hiddenLayer = renderSystem->createDrawLayer2D(20);
-		SELFCHECK(topLayer && bottomLayer && hiddenLayer,
+		SELFCHECK(topLayer && bottomLayer && dynamicLayer && hiddenLayer,
 			"createDrawLayer2D works");
 		SELFCHECK(topLayer->getZOrder() == 10 && bottomLayer->isVisible(),
 			"draw layers report zOrder and visibility");
@@ -602,6 +603,58 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			SELFCHECK(texturedRendered,
 				"2D pattern: the textured batch binds through the resource system");
 		}
+		// Live raw-RGBA upload: mirror the animation-preview handoff by replacing
+		// ring entries every frame while submitting the PREVIOUS settled entry.
+		// The final screenshot is taken while a new red upload is happening, but
+		// must contain the preceding blue pose rather than a white fallback.
+		{
+			const String uploadNames[2] = {
+				"selfcheck_dynamic_rgba_0", "selfcheck_dynamic_rgba_1"
+			};
+			std::vector<unsigned char> pixels(16u * 16u * 4u, 255u);
+			std::vector<DrawLayer2D::Vertex2D> dynamicQuad =
+				makeQuad(600, 140, 728, 212, Color(1, 1, 1, 1));
+			for(int frame = 0; frame <= 8; ++frame)
+			{
+				const bool blueFrame = (frame & 1) != 0;
+				for(size_t pixel = 0; pixel < pixels.size(); pixel += 4u)
+				{
+					pixels[pixel] = blueFrame ? 24u : 230u;
+					pixels[pixel + 1u] = blueFrame ? 48u : 24u;
+					pixels[pixel + 2u] = blueFrame ? 230u : 24u;
+					pixels[pixel + 3u] = 255u;
+				}
+				const String & uploadName = uploadNames[frame & 1];
+				SELFCHECK(renderSystem->createTexture2D(uploadName, pixels.data(),
+					16u, 16u), "a live raw-RGBA texture uploads");
+				dynamicLayer->clear();
+				if(frame > 0)
+				{
+					dynamicLayer->addTriangles(uploadNames[(frame - 1) & 1],
+						dynamicQuad.data(), dynamicQuad.size());
+				}
+				if(frame < 8)
+				{
+					SELFCHECK(renderFrames(renderSystem, 1),
+						"a frame renders during raw-RGBA texture churn");
+				}
+			}
+			// The newly replaced red entry intentionally gets no settling frame;
+			// the normal render submits the blue entry uploaded and rendered on the
+			// preceding frame. The screenshot then verifies the displayed handoff.
+			SELFCHECK(renderFrames(renderSystem, 1),
+				"the settled raw-RGBA ring entry renders during a new upload");
+			const std::string dynamicShot =
+				outDir + "/selfcheck_drawlayer2d_dynamic.png";
+			renderSystem->saveWindowContents(dynamicShot);
+			SELFCHECK(SelfcheckBootstrap::readImagePixel(dynamicShot, 664, 176,
+				red, green, blue), "live raw-RGBA texture probe decodes");
+			SELFCHECK(blue > red + 0.4f && blue > green + 0.4f,
+				"2D pattern: live raw-RGBA handoff displays the settled pose");
+			dynamicLayer->clear();
+			renderSystem->destroyTexture2D(uploadNames[0]);
+			renderSystem->destroyTexture2D(uploadNames[1]);
+		}
 		// dynamic show/hide: unhide the magenta layer and re-verify
 		hiddenLayer->setVisible(true);
 		SELFCHECK(renderFrames(renderSystem, 2), "frames render after show()");
@@ -628,6 +681,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// RAII: dropping the handles removes the layers
 		topLayer.reset();
 		bottomLayer.reset();
+		dynamicLayer.reset();
 		hiddenLayer.reset();
 		SELFCHECK(renderFrames(renderSystem, 2),
 			"frames render after 2D layers were dropped (RAII teardown)");

@@ -5707,6 +5707,8 @@ int main(int argc, char** argv)
 				const ImTextureID animationTexture = gImGuiRenderer
 					? gImGuiRenderer->textureIdForResource(firstUpload) : 0;
 				animPreviewStage.setTimeSeconds(0.25f);
+				const std::string deferredUpload =
+					animPreviewStage.uploadTexture();
 				const std::string secondUpload =
 					animPreviewStage.uploadTexture();
 				const std::string stableUpload =
@@ -5715,6 +5717,7 @@ int main(int argc, char** argv)
 					info.visiblePixelCount > 100 && info.colouredPixelCount > 100 &&
 					textureExists && textureW == 256 && textureH == 256 &&
 					drawDataUses(animationTexture) &&
+					deferredUpload == firstUpload &&
 					!secondUpload.empty() && secondUpload != firstUpload &&
 					stableUpload == secondUpload;
 				SDL_Log("orkige_editor: preview selfcheck - animation live image %s "
