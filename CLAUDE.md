@@ -158,13 +158,18 @@ The rule: every change ships with tests that verify it — unit tests for core
 logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
 pass before committing.
 
-CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds + tests
-Linux classic (unit gate + the full windowed desktop suite under
-xvfb/llvmpipe, both hard gates), the `ORKIGE_SCRIPTING=OFF` configuration
-(build + unit, hard gate — the script-seam enforcement leg, preset
-`linux-debug-noscript`), Linux next (Vulkan — the default backend, hard
-gate), macOS next (build + unit, hard gate), and Windows next (MSVC,
-build + unit, hard gate; preset `windows-debug`). The local
+CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds and runs the
+unit + full desktop compatibility suites for Linux classic. Linux next (Vulkan
+— the default backend) also runs the unit gate and full windowed desktop suite
+under xvfb/lavapipe, plus the
+`ORKIGE_SCRIPTING=OFF` build + unit gate (preset `linux-debug-noscript`), and a
+CI-only ASan + UBSan build running the complete unit + desktop integration
+suite. All tests are hard gates on the next flavor. The next job also builds the Android player
+for an accelerated x86_64 emulator and runs the adb Play test; macOS next builds
+and runs the complete non-device host suite, builds the arm64 iOS Simulator
+player, then runs the simulator export/Play/cold-boot/safe-area tests; Windows
+next (MSVC) runs its units and complete non-device desktop suite through the
+Android emulator's bundled SwiftShader Vulkan ICD. The local
 noscript tree is preset-encoded too: `cmake --preset macos-debug-noscript`,
 `ctest --preset unit-noscript`. A `pre-push` git
 hook (install once per clone: `Util/install_git_hooks.sh`) spawns
@@ -786,18 +791,21 @@ look when touching one:
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push. The
-**Linux-classic** job (GL3Plus) builds engine/editor/player/samples, runs the
-headless unit suite, the full windowed desktop suite under xvfb/llvmpipe, and
-builds + unit-tests the **`ORKIGE_SCRIPTING=OFF`** configuration (all hard
-gates; scripting is a CMake-level switch, so it reuses the job's vcpkg binary
-cache). **Linux-next** (Vulkan, the default backend) is a hard gate too:
-build + units + smoke under lavapipe. **macOS-next** builds the default
-flavor on Apple hardware + units. **Windows-next** builds the default
-flavor on MSVC + units (preset `windows-debug`, x64-windows-static-md
-triplet, NOMINMAX/WIN32_LEAN_AND_MEAN globally).
+**Linux-classic** (GL3Plus) builds engine/editor/player/samples and runs its
+unit + full non-device desktop compatibility suites under xvfb/llvmpipe.
+**Linux-next** (Vulkan, the default backend) runs the tests: units and the full
+windowed desktop suite under xvfb/lavapipe, the **`ORKIGE_SCRIPTING=OFF`**
+build + unit gate, and a CI-only **ASan + UBSan** configuration with the complete
+unit + desktop integration suite. Every test is a hard gate. It also runs an x86_64 Android emulator build and
+adb Play test (shipping Android remains arm64-v8a). **macOS-next** builds the
+default flavor on Apple hardware, runs the complete non-device desktop suite,
+builds the arm64 iOS Simulator player, and runs its export + runtime device
+tests. **Windows-next** builds the default flavor on MSVC and runs the complete
+non-device desktop suite using the Android emulator's bundled SwiftShader
+software Vulkan ICD (preset `windows-debug`, x64-windows-static-md triplet,
+NOMINMAX/WIN32_LEAN_AND_MEAN globally).
 Linux builds with **clang** (`CC/CXX` in the workflow env;
 matches the clang-oriented codebase), and needs a few system dev packages the cold
 vcpkg build surfaced (autoconf-archive, libltdl-dev, libxtst/libxinerama; SDL's builtin
 iconv via the `triplets/x64-linux.cmake` overlay). A `pre-push` hook (`Util/install_git_hooks.sh`) spawns `Util/watch_ci.sh` to report
 each push's result.
-

@@ -77,6 +77,21 @@ option(ORKIGE_BUILD_ENGINE "Build the engine modules (requires OGRE)" OFF)
 # ORKIGE_BUILD_ENGINE by default; override with -DORKIGE_BUILD_TOOLS=ON/OFF.
 option(ORKIGE_BUILD_TOOLS  "Build the tool executables" ${ORKIGE_BUILD_ENGINE})
 option(ORKIGE_BUILD_TESTS  "Build the unit tests and register the ctest suite" ON)
+option(ORKIGE_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(ORKIGE_ENABLE_SANITIZERS)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR
+            "ORKIGE_ENABLE_SANITIZERS requires a Clang or GCC toolchain")
+    endif()
+
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address,undefined>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize-recover=undefined>"
+    )
+    add_link_options(-fsanitize=address,undefined)
+endif()
 
 # Render backend: which renderer implements the engine_render facade
 # (Docs/render-abstraction.md). BUILD-time selection only - classic OGRE and

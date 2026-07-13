@@ -942,18 +942,19 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # adb push + run-as, debug link over an 'adb forward tcp' bridge).
     # SKIPPED (exit 77) when no adb device has the APK installed - build
     # (android-debug preset), package (tools/player/android/package_apk.sh)
-    # and adb install it. APPLE-gated with the simulator flow above: the
-    # host-side adb/packaging flow is a dev-machine concern today.
-    # TODO(linux): the adb flow itself is host-portable - ungate once a
-    # Linux machine actually drives Android devices.
-    if(APPLE)
+    # and adb install it. The host-side flow is portable across macOS and
+    # Linux; Linux CI drives an x86_64 emulator while shipping builds remain
+    # arm64-v8a.
+    if(UNIX)
         add_test(NAME editor_play_android COMMAND orkige_editor
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(editor_play_android PROPERTIES
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_ANDROID=auto"
             SKIP_RETURN_CODE 77)
+    endif()
 
+    if(APPLE)
         # Play on physical iOS hardware: the deploy GATE probe. Unlike the
         # simulator/Android flows this is an export-and-deploy (build + sign +
         # devicectl install/launch), not a live play session - a USB device has

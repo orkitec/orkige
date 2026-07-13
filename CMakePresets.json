@@ -106,7 +106,7 @@
     },
     {
       "name": "linux-debug-next",
-      "displayName": "Linux Debug (Ogre-Next / Vulkan - experimental until the linux-next CI job is green)",
+      "displayName": "Linux Debug (Ogre-Next / Vulkan - the default CI test flavor)",
       "inherits": "linux-base",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -116,10 +116,18 @@
     },
     {
       "name": "linux-debug-noscript",
-      "displayName": "Linux Debug (classic, ORKIGE_SCRIPTING=OFF - the seam-enforcement CI leg)",
-      "inherits": "linux-debug-classic",
+      "displayName": "Linux Debug (Ogre-Next, ORKIGE_SCRIPTING=OFF - the seam-enforcement CI leg)",
+      "inherits": "linux-debug-next",
       "cacheVariables": {
         "ORKIGE_SCRIPTING": "OFF"
+      }
+    },
+    {
+      "name": "linux-debug-sanitize",
+      "displayName": "Linux Debug (Ogre-Next, ASan + UBSan - CI only)",
+      "inherits": "linux-debug-next",
+      "cacheVariables": {
+        "ORKIGE_ENABLE_SANITIZERS": "ON"
       }
     },
     {
@@ -192,6 +200,18 @@
         "ORKIGE_BUILD_ENGINE": "ON",
         "ORKIGE_BUILD_TOOLS": "ON",
         "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "android-emulator-debug-ci",
+      "displayName": "Android Emulator Debug (x86_64, Ogre-Next/Vulkan - CI only)",
+      "inherits": "android-debug",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{ANDROID_NDK_HOME}"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-android",
+        "ANDROID_ABI": "x86_64"
       }
     },
     {
@@ -356,6 +376,10 @@
       "configurePreset": "linux-debug-noscript"
     },
     {
+      "name": "linux-debug-sanitize",
+      "configurePreset": "linux-debug-sanitize"
+    },
+    {
       "name": "linux-debug-next",
       "configurePreset": "linux-debug-next"
     },
@@ -370,6 +394,10 @@
     {
       "name": "android-debug",
       "configurePreset": "android-debug"
+    },
+    {
+      "name": "android-emulator-debug-ci",
+      "configurePreset": "android-emulator-debug-ci"
     },
     {
       "name": "android-release",
@@ -497,6 +525,41 @@
       }
     },
     {
+      "name": "desktop-macos-ci",
+      "displayName": "macOS CI: complete Ogre-Next desktop suite (device tests excluded)",
+      "configurePreset": "macos-debug",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 3
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "device-macos-ios-ci",
+      "displayName": "iOS Simulator CI: export + play + cold-boot + safe-area tests",
+      "configurePreset": "macos-debug",
+      "environment": {
+        "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
+      },
+      "filter": {
+        "include": {
+          "name": "^(export_ios_simulator|editor_play_simulator|editor_play_simulator_boot|player_safearea_device)$"
+        }
+      },
+      "execution": {
+        "jobs": 1
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "unit-windows",
       "displayName": "Windows CI: headless unit tests (Ogre-Next flavor)",
       "configurePreset": "windows-debug",
@@ -513,8 +576,24 @@
       }
     },
     {
+      "name": "desktop-windows",
+      "displayName": "Windows CI: complete Ogre-Next desktop suite under software Vulkan (device tests excluded)",
+      "configurePreset": "windows-debug",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 2
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "unit-linux",
-      "displayName": "Linux classic: headless unit tests (the hard CI gate - no display needed)",
+      "displayName": "Linux classic: local headless unit suite",
       "configurePreset": "linux-debug-classic",
       "filter": {
         "include": {
@@ -530,7 +609,7 @@
     },
     {
       "name": "smoke-linux",
-      "displayName": "Linux classic: windowed smoke subset for xvfb + Mesa llvmpipe (best-effort in CI; promote tests into desktop-linux as they prove out)",
+      "displayName": "Linux classic: focused local smoke subset",
       "configurePreset": "linux-debug-classic",
       "filter": {
         "include": {
@@ -546,7 +625,23 @@
     },
     {
       "name": "desktop-linux",
-      "displayName": "Linux classic: full desktop suite (unit + all windowed integration; needs a real/virtual X display)",
+      "displayName": "Linux next: full desktop suite (unit + all windowed integration; needs a real/virtual X display)",
+      "configurePreset": "linux-debug-next",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-linux-classic",
+      "displayName": "Linux classic: full compatibility suite (unit + all windowed integration; needs a real/virtual X display)",
       "configurePreset": "linux-debug-classic",
       "filter": {
         "exclude": {
@@ -555,6 +650,22 @@
       },
       "execution": {
         "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-linux-sanitize",
+      "displayName": "Linux CI sanitizers: all unit + desktop integration tests (device tests excluded)",
+      "configurePreset": "linux-debug-sanitize",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 2
       },
       "output": {
         "outputOnFailure": true
@@ -578,7 +689,7 @@
     },
     {
       "name": "unit-linux-next",
-      "displayName": "Linux next: headless unit tests (experimental flavor)",
+      "displayName": "Linux next: headless unit tests (the hard CI gate - no display needed)",
       "configurePreset": "linux-debug-next",
       "filter": {
         "include": {
@@ -594,11 +705,30 @@
     },
     {
       "name": "smoke-linux-next",
-      "displayName": "Linux next: Vulkan smoke subset for xvfb + Mesa lavapipe (best-effort in CI)",
+      "displayName": "Linux next: focused local Vulkan smoke subset for xvfb + Mesa lavapipe",
       "configurePreset": "linux-debug-next",
       "filter": {
         "include": {
           "name": "^(render_next_smoke|render_facade_selfcheck)$"
+        }
+      },
+      "execution": {
+        "jobs": 1
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "device-linux-android-ci",
+      "displayName": "Android Emulator CI: install and exercise Play over adb",
+      "configurePreset": "linux-debug-next",
+      "environment": {
+        "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
+      },
+      "filter": {
+        "include": {
+          "name": "^editor_play_android$"
         }
       },
       "execution": {

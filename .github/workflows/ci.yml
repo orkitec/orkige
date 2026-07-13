@@ -1,19 +1,17 @@
 # Orkige CI - Linux build + test on every push and pull request.
 #
 # Jobs:
-#   linux-classic  - the classic OGRE / GL3Plus compatibility flavor: full
-#                  build, headless unit gate, the full windowed desktop suite
-#                  under xvfb + Mesa llvmpipe, and the ORKIGE_SCRIPTING=OFF
-#                  configuration (the compile-time guard that keeps Lua an
-#                  implementation detail behind the core_script seam). All
-#                  hard gates.
+#   linux-classic  - the classic OGRE / GL3Plus compatibility flavor: build,
+#                  units, and the full non-device desktop suite.
 #   linux-next     - the Ogre-Next / Vulkan flavor (the engine's DEFAULT
-#                  backend): build + headless units + Vulkan smoke under
-#                  lavapipe. Hard gate.
-#   macos-next     - the default flavor on Apple hardware: build + headless
-#                  units. Hard gate.
-#   windows-next   - the default flavor on MSVC: build + headless units.
-#                  Hard gate; a red job means a red run - no masked failures.
+#                  backend): full desktop tests, scripting-off and sanitizer
+#                  gates under Mesa lavapipe, then an x86_64 Android build +
+#                  emulator Play test. All hard gates.
+#   macos-next     - the default flavor on Apple hardware: full non-device
+#                  desktop suite, then an arm64 iOS Simulator build + tests.
+#                  Hard gates.
+#   windows-next   - the default flavor on MSVC: build + full non-device
+#                  desktop suite under SwiftShader software Vulkan. Hard gate.
 #
 # TIMING EXPECTATIONS: the very first run compiles the whole vcpkg dependency
 # set (classic OGRE or Ogre-Next, assimp, freeimage, SDL3, Jolt, OpenAL, Lua,
@@ -47,11 +45,10 @@ env:
   VCPKG_ROOT_DIR: /home/runner/Development/vcpkg
   VCPKG_DEFAULT_BINARY_CACHE: /home/runner/vcpkg-binary-cache
   CCACHE_DIR: /home/runner/.ccache
-  # the classic job compiles TWO configurations (scripting on + off, which
-  # differ in global defines, so their object caches do not overlap)
+  # The next job compiles three host configurations (regular, scripting off,
+  # and sanitizers, whose object caches do not overlap) plus Android.
   CCACHE_MAXSIZE: 2G
-  # PCH-friendly ccache (same setting CLAUDE.md documents for dev machines;
-  # the classic flavor precompiles <Ogre.h>)
+  # PCH-friendly ccache (same setting CLAUDE.md documents for dev machines).
   CCACHE_SLOPPINESS: pch_defines,time_macros,include_file_mtime,include_file_ctime
   # Build with clang, NOT the runner-default gcc. Orkige is a clang-oriented
   # codebase (AppleClang on the dev Macs, .clangd, the containment lint) and
@@ -66,7 +63,7 @@ env:
 
 jobs:
   linux-classic:
-    name: Linux classic (GL3Plus) - build + unit + windowed smoke
+    name: Linux classic (GL3Plus) - compatibility build + tests
     runs-on: ubuntu-latest
     timeout-minutes: 240 # cold vcpkg build headroom; cached runs take minutes
     steps:
@@ -153,23 +150,7 @@ jobs:
       - name: Unit tests (headless - MUST pass)
         run: ctest --preset unit-linux
 
-      # The scripting-OFF configuration exists to enforce the scripting seam:
-      # nothing outside the Meta backends and the ScriptRuntime implementation
-      # may depend on Lua/sol2, and the moment something does, this leg breaks
-      # at compile time. Same dependency set (the scripting switch is
-      # CMake-level, not a vcpkg feature), so the binary cache above serves
-      # this configure too.
-      - name: Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)
-        run: |
-          cmake --preset linux-debug-noscript \
-            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset linux-debug-noscript
-          ctest --preset unit-linux-noscript
-
-      # A hard gate: the full desktop suite under a virtual display. GL3Plus
-      # renders via llvmpipe (software GL 4.5); audio routes to openal-soft's
-      # null backend (no audio device on runners).
-      - name: Windowed desktop suite (xvfb + Mesa llvmpipe - MUST pass)
+      - name: Windowed desktop compatibility suite (xvfb + Mesa llvmpipe - MUST pass)
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
           GALLIUM_DRIVER: llvmpipe
@@ -178,7 +159,7 @@ jobs:
         run: |
           glxinfo -B > /dev/null 2>&1 || true
           xvfb-run -a -s "-screen 0 1280x1024x24" \
-            ctest --preset desktop-linux --timeout 300
+            ctest --preset desktop-linux-classic --timeout 300
 
       - name: Upload logs
         if: always()
@@ -188,16 +169,15 @@ jobs:
           path: |
             build/linux-debug-classic/Testing/**/*.log
             build/linux-debug-classic/tests/**/*.log
-            build/linux-debug-noscript/Testing/**/*.log
             *.log
           if-no-files-found: ignore
 
   # The Ogre-Next flavor on Linux (Vulkan RS + lavapipe) - the engine's
-  # DEFAULT backend, verified per push: build, headless units, Vulkan smoke.
+  # DEFAULT backend, verified per push with the complete desktop suite.
   linux-next:
-    name: Linux next (Vulkan) - build + unit + smoke
+    name: Linux next + Android emulator - build + tests
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
 
@@ -219,6 +199,15 @@ jobs:
             libibus-1.0-dev \
             xvfb mesa-utils libgl1-mesa-dri \
             mesa-vulkan-drivers vulkan-tools
+
+      - name: Install pinned Android build toolchain
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager \
+            "ndk;27.2.12479018" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
 
       - name: Check out pinned vcpkg
         run: |
@@ -250,6 +239,11 @@ jobs:
           cmake --preset linux-debug-next \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
+      - name: Configure Android emulator player (x86_64)
+        run: |
+          cmake --preset android-emulator-debug-ci \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -260,18 +254,18 @@ jobs:
       - name: Build (engine + editor + player + tests)
         run: cmake --build --preset linux-debug-next
 
-      - name: Save ccache
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: /home/runner/.ccache
-          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+      - name: Build + package Android emulator player
+        run: |
+          cmake --build --preset android-emulator-debug-ci --target orkige_player
+          tools/player/android/package_apk.sh build/android-emulator-debug-ci
 
       - name: Unit tests (headless)
         run: ctest --preset unit-linux-next
 
-      - name: Vulkan smoke subset (xvfb + Mesa lavapipe - best-effort)
-        continue-on-error: true
+      # A hard gate: the full Ogre-Next desktop suite under a virtual display.
+      # Vulkan renders through lavapipe; audio routes to openal-soft's null
+      # backend because hosted runners have no audio device.
+      - name: Windowed desktop suite (xvfb + Mesa lavapipe - MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
           SDL_VIDEO_DRIVER: x11
@@ -284,7 +278,69 @@ jobs:
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
           vulkaninfo --summary || true
           xvfb-run -a -s "-screen 0 1280x1024x24" \
-            ctest --preset smoke-linux-next --timeout 300
+            ctest --preset desktop-linux --timeout 300
+
+      # The scripting-OFF configuration enforces the Lua/sol2 dependency seam.
+      # It uses Ogre-Next as well so every test configuration exercises the
+      # default backend.
+      - name: Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)
+        run: |
+          cmake --preset linux-debug-noscript \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --build --preset linux-debug-noscript
+          ctest --preset unit-linux-noscript
+
+      # ASan and UBSan stay out of normal developer builds. CI runs the full
+      # non-device Ogre-Next suite in a dedicated instrumented tree.
+      - name: Configure + build (ASan + UBSan)
+        run: |
+          cmake --preset linux-debug-sanitize \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --build --preset linux-debug-sanitize
+
+      - name: Sanitizer unit + desktop integration suite (MUST pass)
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          ALSOFT_DRIVERS: "null"
+          SDL_VIDEO_DRIVER: x11
+        run: |
+          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+          xvfb-run -a -s "-screen 0 1280x1024x24" \
+            ctest --preset desktop-linux-sanitize --timeout 300
+
+      - name: Enable Android emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Android emulator Play test (MUST pass)
+        uses: reactivecircus/android-emulator-runner@v2.37.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            adb install -r build/android-emulator-debug-ci/apk/OrkigePlayer.apk
+            adb shell pm path com.orkitec.orkigeplayer
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
+            export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
+            export ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11
+            xvfb-run -a -s "-screen 0 1280x1024x24" \
+              ctest --preset device-linux-android-ci --timeout 420
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
       - name: Upload logs
         if: always()
@@ -294,18 +350,21 @@ jobs:
           path: |
             build/linux-debug-next/Testing/**/*.log
             build/linux-debug-next/tests/**/*.log
+            build/linux-debug-noscript/Testing/**/*.log
+            build/linux-debug-sanitize/Testing/**/*.log
+            build/linux-debug-sanitize/tests/**/*.log
+            build/android-emulator-debug-ci/**/*.log
             *.log
           if-no-files-found: ignore
 
   # macOS on the default (Ogre-Next) flavor: build everything + the headless
-  # unit suite. Same architecture as the primary dev machines, so this job
-  # is expected to be stable; promote to required once proven.
+  # unit suite, then build, boot and test the iOS Simulator player.
   macos-next:
-    name: macOS next (Metal) - build + unit
+    name: macOS next + iOS Simulator - build + tests
     # macos-15's default toolchain: openal-soft 1.25 needs a newer AppleClang
     # than the macos-14 image ships (CTAD in its event handling)
     runs-on: macos-15
-    timeout-minutes: 240
+    timeout-minutes: 360
     env:
       VCPKG_ROOT_DIR: /Users/runner/Development/vcpkg
       VCPKG_DEFAULT_BINARY_CACHE: /Users/runner/vcpkg-binary-cache
@@ -350,6 +409,11 @@ jobs:
           cmake --preset macos-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
+      - name: Configure iOS Simulator player (arm64)
+        run: |
+          cmake --preset ios-simulator-debug \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -359,6 +423,9 @@ jobs:
 
       - name: Build (engine + editor + player + tests)
         run: cmake --build --preset macos-debug
+
+      - name: Build iOS Simulator player
+        run: cmake --build --preset ios-simulator-debug --target orkige_player
 
       - name: Save ccache
         if: always()
@@ -370,11 +437,68 @@ jobs:
       - name: Unit tests (headless)
         run: ctest --preset unit-macos-ci
 
-  # Windows on the default (Ogre-Next) flavor: EXPERIMENTAL - the codebase
-  # has never compiled on Windows; this job is the verification loop for
-  # that port. Promote once green.
+      - name: Complete macOS desktop suite (Metal - MUST pass)
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: ctest --preset desktop-macos-ci --timeout 300
+
+      - name: Prepare iPhone 16 simulator
+        run: |
+          DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devicetypes"]; phones=[x for x in d if x["name"].startswith("iPhone") and "SE" not in x["name"]]; print(next((x["identifier"] for x in phones if "iPhone 16 Pro" in x["name"]), phones[0]["identifier"]))')
+          RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["runtimes"]; ios=[x for x in d if ".iOS-" in x["identifier"]]; print(max(ios, key=lambda x: tuple(map(int, x["version"].split("."))))["identifier"])')
+          UDID=$(xcrun simctl create orkige-ci "$DEVICE_TYPE" "$RUNTIME")
+          echo "ORKIGE_CI_SIMULATOR=$UDID" >> "$GITHUB_ENV"
+
+          # CoreSimulator occasionally fails its first boot on hosted runners.
+          # Open the UI process explicitly and retry with a bounded 3-minute
+          # bootstatus wait instead of hanging the whole job.
+          open "$(xcode-select -p)/Applications/Simulator.app"
+          BOOTED=false
+          for attempt in 1 2 3; do
+            echo "Simulator boot attempt $attempt/3 ($UDID)"
+            if [ "$attempt" -gt 1 ]; then
+              xcrun simctl shutdown "$UDID" || true
+              sleep 5
+            fi
+            xcrun simctl boot "$UDID" || true
+            if ORKIGE_SIMULATOR_UDID="$UDID" python3 -c 'import os,subprocess; subprocess.run(["xcrun", "simctl", "bootstatus", os.environ["ORKIGE_SIMULATOR_UDID"], "-b"], check=True, timeout=180)'; then
+              BOOTED=true
+              break
+            fi
+          done
+          if [ "$BOOTED" != true ]; then
+            xcrun simctl list devices available
+            exit 1
+          fi
+          xcrun simctl install "$UDID" build/ios-simulator-debug/tools/player/OrkigePlayer.app
+
+      - name: iOS Simulator export + runtime tests (MUST pass)
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: ctest --preset device-macos-ios-ci --timeout 420
+
+      - name: Upload iOS test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-simulator-diagnostics
+          path: |
+            build/macos-debug/Testing/**/*.log
+            build/macos-debug/tests/**/*.log
+            ~/Library/Logs/DiagnosticReports/**
+          if-no-files-found: ignore
+
+      - name: Remove CI simulator
+        if: always() && env.ORKIGE_CI_SIMULATOR != ''
+        run: |
+          xcrun simctl shutdown "$ORKIGE_CI_SIMULATOR" || true
+          xcrun simctl delete "$ORKIGE_CI_SIMULATOR" || true
+
+  # Windows on the default Ogre-Next flavor. The standard hosted runner has
+  # no physical GPU/Vulkan ICD; its preinstalled Android emulator carries
+  # SwiftShader, which provides the software Vulkan driver for desktop tests.
   windows-next:
-    name: Windows next (Vulkan) - build + unit
+    name: Windows next (Vulkan) - build + desktop tests
     runs-on: windows-latest
     timeout-minutes: 240
     env:
@@ -427,3 +551,32 @@ jobs:
       - name: Unit tests (headless)
         shell: pwsh
         run: ctest --preset unit-windows
+
+      - name: Locate SwiftShader software Vulkan driver
+        shell: pwsh
+        run: |
+          $icd = Get-ChildItem "$env:ANDROID_HOME/emulator" -Recurse -Filter vk_swiftshader_icd.json |
+            Select-Object -First 1
+          if (-not $icd) {
+            throw "The hosted runner's Android emulator did not provide vk_swiftshader_icd.json"
+          }
+          Write-Host "Using Vulkan ICD: $($icd.FullName)"
+          "VK_DRIVER_FILES=$($icd.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VK_ICD_FILENAMES=$($icd.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Complete Windows desktop suite (SwiftShader - MUST pass)
+        shell: pwsh
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: ctest --preset desktop-windows --timeout 300
+
+      - name: Upload Windows test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-next-logs
+          path: |
+            build/windows-debug/Testing/**/*.log
+            build/windows-debug/tests/**/*.log
+            *.log
+          if-no-files-found: ignore

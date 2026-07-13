@@ -499,8 +499,10 @@ int main(int argc, char** argv)
 		// "auto-shutdown" ONLY accepts a shutdown simulator - the scripted
 		// boot-path test uses it so the flow is really exercised end to end.
 		// Both SKIP the run (exit 77 = the ctest SKIP_RETURN_CODE) when no
-		// suitable simulator exists, so the tests stay green on unprepared
-		// machines. The install fallbacks require the built app on disk
+		// suitable simulator exists, so local tests stay green on unprepared
+		// machines. CI sets ORKIGE_REQUIRE_DEVICE_TEST_TARGET, which turns that
+		// missing-device skip into a hard failure. The install fallbacks require
+		// the built app on disk
 		// (get_app_container cannot answer for shutdown devices).
 		if (const char* simulatorSelector =
 			std::getenv("ORKIGE_EDITOR_PLAY_SIMULATOR"))
@@ -550,7 +552,8 @@ int main(int argc, char** argv)
 						"installed, or shutdown + the app built at %s), "
 						"skipping", selector.c_str(),
 						ORKIGE_EDITOR_IOS_PLAYER_APP);
-					return 77;
+					return std::getenv(
+						"ORKIGE_REQUIRE_DEVICE_TEST_TARGET") ? 2 : 77;
 				}
 				SDL_Log("orkige_editor: play simulator '%s' -> '%s' (%s)",
 					selector.c_str(), playSession.simulatorLabel.c_str(),
@@ -568,7 +571,8 @@ int main(int argc, char** argv)
 		// a serial is taken as-is, "auto" resolves to the first adb device
 		// with the player APK installed and SKIPS the run (exit 77) when
 		// there is none, so the editor_play_android test stays green on
-		// unprepared machines).
+		// unprepared machines. CI sets ORKIGE_REQUIRE_DEVICE_TEST_TARGET so a
+		// missing emulator fails instead of skipping.)
 		if (const char* androidSelector =
 			std::getenv("ORKIGE_EDITOR_PLAY_ANDROID"))
 		{
@@ -587,7 +591,8 @@ int main(int argc, char** argv)
 				{
 					SDL_Log("orkige_editor: play android 'auto' - no adb "
 						"device with the player APK installed, skipping");
-					return 77;
+					return std::getenv(
+						"ORKIGE_REQUIRE_DEVICE_TEST_TARGET") ? 2 : 77;
 				}
 				SDL_Log("orkige_editor: play android 'auto' -> '%s'",
 					playSession.androidLabel.c_str());

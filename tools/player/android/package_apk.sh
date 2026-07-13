@@ -10,10 +10,9 @@
 # store release needs it.
 #
 # What goes in:
-#   lib/arm64-v8a/libmain.so  <- build/android-debug/tools/player/libmain.so
-#                                (stripped copy; SDL3+OGRE+engine statically
-#                                linked, built by 'cmake --build --preset
-#                                android-debug')
+#   lib/<abi>/libmain.so      <- <build-dir>/tools/player/libmain.so (stripped
+#                                copy; arm64-v8a for shipping builds, x86_64
+#                                for the CI emulator)
 #   classes.dex               <- SDL3's Java glue (taken from the exact SDL
 #                                source vcpkg built, see sdl_java_sources) +
 #                                OrkigeActivity
@@ -84,14 +83,34 @@ while [ $# -gt 0 ]; do
 done
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build/android-debug}"
 
-SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
 BUILD_TOOLS="$SDK/build-tools/35.0.0"
 PLATFORM_JAR="$SDK/platforms/android-35/android.jar"
 NDK="${ANDROID_NDK_HOME:-$SDK/ndk/27.2.12479018}"
-STRIP="$NDK/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
 JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"
 VCPKG_ROOT="${VCPKG_ROOT:-$HOME/Development/vcpkg}"
-VCPKG_INSTALLED="$BUILD_DIR/vcpkg_installed/arm64-android"
+
+cache_value() {
+    sed -n "s/^$1:[^=]*=//p" "$BUILD_DIR/CMakeCache.txt" 2>/dev/null | head -1
+}
+
+ANDROID_ABI="$(cache_value ANDROID_ABI)"
+TARGET_TRIPLET="$(cache_value VCPKG_TARGET_TRIPLET)"
+ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
+case "$ANDROID_ABI" in
+    arm64-v8a) TARGET_TRIPLET="${TARGET_TRIPLET:-arm64-android}" ;;
+    x86_64)    TARGET_TRIPLET="${TARGET_TRIPLET:-x64-android}" ;;
+    *)         fail "unsupported Android ABI '$ANDROID_ABI'" ;;
+esac
+
+# Prefer the exact strip tool recorded by the Android configure. This keeps
+# packaging reproducible from an existing build tree even when the calling
+# shell does not export ANDROID_NDK_HOME (for example a host-side export test).
+STRIP="$(cache_value CMAKE_STRIP)"
+if [ ! -x "$STRIP" ]; then
+    STRIP="$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/llvm-strip' -type f -print -quit 2>/dev/null)"
+fi
+VCPKG_INSTALLED="$BUILD_DIR/vcpkg_installed/$TARGET_TRIPLET"
 
 # render flavor of the build tree (classic ships the RTSS shader lib, next
 # ships the Hlms shader templates) - read from the tree's CMake cache
@@ -109,7 +128,7 @@ else
 fi
 STAGE="$OUT_DIR/stage"
 
-[ -f "$NATIVE_LIB" ] || fail "no $NATIVE_LIB - build it first: cmake --build --preset android-debug"
+[ -f "$NATIVE_LIB" ] || fail "no $NATIVE_LIB - build the Android preset first"
 [ -f "$PLATFORM_JAR" ] || fail "no android-35 platform jar at $PLATFORM_JAR"
 [ -x "$BUILD_TOOLS/aapt2" ] || fail "no build-tools 35.0.0 at $BUILD_TOOLS"
 [ -x "$STRIP" ] || fail "no llvm-strip at $STRIP"
@@ -142,12 +161,12 @@ SDL_JAVA_DIR="$(sdl_java_sources)"
 echo "== SDL3 Java glue: $SDL_JAVA_DIR"
 
 rm -rf "$STAGE" "$OUT_DIR/classes" "$OUT_DIR/dex"
-mkdir -p "$STAGE/lib/arm64-v8a" "$STAGE/assets" "$OUT_DIR/classes" "$OUT_DIR/dex"
+mkdir -p "$STAGE/lib/$ANDROID_ABI" "$STAGE/assets" "$OUT_DIR/classes" "$OUT_DIR/dex"
 
 # --- native lib (stripped - the debug .so carries hundreds of MB of DWARF;
 # symbols stay available in the build tree for ndk-stack) ------------------
 echo "== stripping libmain.so"
-"$STRIP" --strip-unneeded -o "$STAGE/lib/arm64-v8a/libmain.so" "$NATIVE_LIB"
+"$STRIP" --strip-unneeded -o "$STAGE/lib/$ANDROID_ABI/libmain.so" "$NATIVE_LIB"
 
 # --- Java -> dex ----------------------------------------------------------
 echo "== compiling Java (SDL glue + OrkigeActivity)"
