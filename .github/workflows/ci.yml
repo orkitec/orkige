@@ -158,7 +158,7 @@ jobs:
           SDL_VIDEO_DRIVER: x11
         run: |
           glxinfo -B > /dev/null 2>&1 || true
-          xvfb-run -a -s "-screen 0 1280x1024x24" \
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux-classic --timeout 300
 
       - name: Upload logs
@@ -288,7 +288,7 @@ jobs:
           echo "using ICD: $LVP_ICD"
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
           vulkaninfo --summary || true
-          xvfb-run -a -s "-screen 0 1280x1024x24" \
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux --timeout 300
 
       # The scripting-OFF configuration enforces the Lua/sol2 dependency seam.
@@ -318,7 +318,7 @@ jobs:
         run: |
           LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
-          xvfb-run -a -s "-screen 0 1280x1024x24" \
+          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux-sanitize --timeout 300
 
       - name: Enable Android emulator acceleration
@@ -343,7 +343,7 @@ jobs:
             LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
             export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
             export ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11
-            xvfb-run -a -s "-screen 0 1280x1024x24" \
+            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
               ctest --preset device-linux-android-ci --timeout 420
 
       - name: Save ccache
