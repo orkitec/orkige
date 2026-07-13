@@ -193,6 +193,7 @@ jobs:
             libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
             libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
             libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
             libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
@@ -226,9 +227,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: /home/runner/vcpkg-binary-cache
-          key: vcpkg-next-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          key: vcpkg-next-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
           restore-keys: |
-            vcpkg-next-${{ runner.os }}-
+            vcpkg-next-v2-${{ runner.os }}-
 
       - name: Restore ccache
         id: ccache-cache
