@@ -62,7 +62,9 @@ namespace Orkige
 			VectorTessellator::Region const & b)
 		{
 			if(a.outer.size() != b.outer.size() ||
-				a.holes.size() != b.holes.size())
+				a.holes.size() != b.holes.size() ||
+				a.paintType != b.paintType ||
+				a.gradientStops.size() != b.gradientStops.size())
 			{
 				return false;
 			}
@@ -114,8 +116,10 @@ namespace Orkige
 		int shapeRemaining = 0;		//!< shape keys still expected
 		bool inShapeKey = false;	//!< a shape key's region is being built
 		bool shapeKeyHasFill = false;	//!< the open shape key saw its `fill`
+		bool shapeKeyHasFocal = false;	//!< radial key saw its optional focal
 		VertexTarget target = TARGET_NONE;	//!< where `v` lines go
 		int vertsRemaining = 0;		//!< vertices still expected for the loop
+		int stopsRemaining = 0;		//!< gradient stops still expected
 
 		// close the open shape key (if any): its vertex runs must be complete,
 		// the region fillable, and its topology must match the block's first key
@@ -125,7 +129,7 @@ namespace Orkige
 			{
 				return true;
 			}
-			if(vertsRemaining != 0 || !shapeKeyHasFill)
+			if(vertsRemaining != 0 || stopsRemaining != 0 || !shapeKeyHasFill)
 			{
 				return false;
 			}
@@ -282,8 +286,10 @@ namespace Orkige
 					--shapeRemaining;
 					inShapeKey = true;
 					shapeKeyHasFill = false;
+					shapeKeyHasFocal = false;
 					target = TARGET_NONE;
 					vertsRemaining = 0;
+					stopsRemaining = 0;
 				}
 				else
 				{
@@ -306,10 +312,74 @@ namespace Orkige
 					VectorTessellator::Colour(r, g, b, a);
 				shapeKeyHasFill = true;
 			}
+			else if(keyword == "linear" || keyword == "radial")
+			{
+				if(!inShapeKey || shapeKeyHasFill || vertsRemaining != 0)
+				{
+					return false;
+				}
+				float sx = 0.0f, sy = 0.0f, ex = 0.0f, ey = 0.0f;
+				int count = 0;
+				if(!(tokens >> sx >> sy >> ex >> ey >> count) || count < 2)
+				{
+					return false;
+				}
+				VectorTessellator::Region & region =
+					openShape->keys.back().region;
+				region.paintType = keyword == "linear"
+					? VectorTessellator::PAINT_LINEAR_GRADIENT
+					: VectorTessellator::PAINT_RADIAL_GRADIENT;
+				region.gradientStart = VectorTessellator::Point(sx, sy);
+				region.gradientEnd = VectorTessellator::Point(ex, ey);
+				region.gradientFocal = region.gradientStart;
+				region.gradientStops.reserve(count);
+				stopsRemaining = count;
+				shapeKeyHasFill = true;
+			}
+			else if(keyword == "focal")
+			{
+				if(!inShapeKey || !shapeKeyHasFill || shapeKeyHasFocal ||
+					vertsRemaining != 0 || stopsRemaining <= 0)
+				{
+					return false;
+				}
+				VectorTessellator::Region & region =
+					openShape->keys.back().region;
+				float fx = 0.0f, fy = 0.0f;
+				if(region.paintType != VectorTessellator::PAINT_RADIAL_GRADIENT ||
+					!(tokens >> fx >> fy))
+				{
+					return false;
+				}
+				region.gradientFocal = VectorTessellator::Point(fx, fy);
+				shapeKeyHasFocal = true;
+			}
+			else if(keyword == "stop")
+			{
+				if(!inShapeKey || !shapeKeyHasFill || stopsRemaining <= 0)
+				{
+					return false;
+				}
+				float at = 0.0f, r = 0.0f, g = 0.0f, b = 0.0f, a = 0.0f;
+				if(!(tokens >> at >> r >> g >> b >> a) || at < 0.0f || at > 1.0f)
+				{
+					return false;
+				}
+				std::vector<VectorTessellator::GradientStop> & stops =
+					openShape->keys.back().region.gradientStops;
+				if(!stops.empty() && at < stops.back().offset)
+				{
+					return false;
+				}
+				stops.push_back(VectorTessellator::GradientStop(at,
+					VectorTessellator::Colour(r, g, b, a)));
+				--stopsRemaining;
+			}
 			else if(keyword == "contour")
 			{
 				int count = 0;
 				if(!inShapeKey || !shapeKeyHasFill || vertsRemaining != 0 ||
+					stopsRemaining != 0 ||
 					!openShape->keys.back().region.outer.empty() ||
 					!(tokens >> count) || count <= 0)
 				{

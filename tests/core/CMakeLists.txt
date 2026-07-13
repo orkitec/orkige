@@ -62,6 +62,7 @@ add_executable(orkige_core_tests
     VectorAnimAssetTests.cpp
     VectorAnimEvalTests.cpp
     CookVectorAnimRoundTripTests.cpp
+    LottieCorpusTests.cpp
     PngWriterTests.cpp
     WobbleSpringTests.cpp
     SoftBodyDeformTests.cpp
@@ -86,6 +87,7 @@ target_link_libraries(orkige_core_tests PRIVATE
 # against the live cook is enforced by cook_vector_anim_selftest)
 target_compile_definitions(orkige_core_tests PRIVATE
     ORKIGE_TESTS_ASSET_DIR="${Orkige_SOURCE_DIR}/tests/assets"
+    ORKIGE_BENCHMARK_ASSET_DIR="${Orkige_SOURCE_DIR}/projects/benchmark/assets"
 )
 
 include(Catch)

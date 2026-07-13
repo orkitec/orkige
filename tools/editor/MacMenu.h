@@ -27,6 +27,8 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #pragma once
 
+#include "EditorPanelRegistry.h"
+
 #include <functional>
 #include <string>
 #include <utility>
@@ -34,18 +36,6 @@
 
 namespace Orkige
 {
-	//! the dockable editor panels the View menu toggles (indices shared
-	//! between the menu layer and the UI shell)
-	enum EditorPanelIndex
-	{
-		PANEL_HIERARCHY = 0,
-		PANEL_INSPECTOR,
-		PANEL_CONSOLE,
-		PANEL_STATS,
-		PANEL_SCENE,
-		PANEL_COUNT
-	};
-
 	//! callback table the native menu routes into (installed from main.cpp)
 	struct MacMenuActions
 	{
@@ -108,7 +98,11 @@ namespace Orkige
 		//! Close Prefab enables (mirrors the ImGui menu gating)
 		bool prefabEditActive = false;
 		std::string saveLabel = "Save Scene";	//!< "Save Prefab" while staged
-		bool panelVisible[PANEL_COUNT] = { true, true, true, true, true };
+		bool panelVisible[PANEL_COUNT] = {
+#define ORKIGE_EDITOR_PANEL_DEFAULT(id, label, visible, member) visible,
+			ORKIGE_EDITOR_PANEL_LIST(ORKIGE_EDITOR_PANEL_DEFAULT)
+#undef ORKIGE_EDITOR_PANEL_DEFAULT
+		};
 		//! File > Open Recent entries, newest first (empty = placeholder item)
 		std::vector<std::string> recentScenes;
 		//! File > Open Recent Project entries, newest first

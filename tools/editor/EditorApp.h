@@ -19,6 +19,7 @@
 #include "EditorAssetDnd.h"
 #include "EditorCamera.h"
 #include "EditorCore.h"
+#include "EditorPanelRegistry.h"
 #include "EditorTheme.h"
 #include "FileDialog.h"
 #include "MarqueeSelection.h"
@@ -560,6 +561,12 @@ struct EditorState
 	//! through state.editorScripts (kept off the menu's own callback so the run
 	//! happens at a clean point in the loop, like requestedExport)
 	std::string requestedEditorScript;
+	//! Asset-browser request to open a project-relative `.oanim` in the
+	//! Animation Preview panel. Double-clicking either the cooked asset or its
+	//! sibling Lottie `.json` sets this; the panel consumes it once.
+	std::string requestedAnimationPreviewAsset;
+	//! Asset-browser request to open a project-relative `.oui` in GUI Preview.
+	std::string requestedGuiPreviewAsset;
 	//! the editor-tool host (owned by main): discovers *.editor.lua tools and
 	//! runs one on demand through the verb handler. Non-null once main wires it;
 	//! the menus read its tool list and EditorDocument rescans it on project
@@ -1441,6 +1448,10 @@ float drawToolbar(EditorState& state, PlaySession& session,
 // (absolute-pixel node sizes would otherwise mis-proportion the panels).
 void drawDockspace(EditorState& state, float toolbarHeight,
 	ViewSettings& viewSettings, float contentScale);
+
+//! Put a newly opened preview into the Scene panel's dock node. Existing saved
+//! docking wins, and the one-shot flag lets users undock it afterwards.
+void dockPreviewBesideSceneOnce(const char* panelWindowName, bool& attempted);
 
 // the Scene panel: RTT image, gizmos, picking, camera navigation -
 // EditorScenePanel.cpp

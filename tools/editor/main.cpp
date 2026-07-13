@@ -374,11 +374,16 @@ int main(int argc, char** argv)
 		ImGui::GetIO().IniFilename = automatedRun ? nullptr : imguiIniPath.c_str();
 
 		// viewport settings (grid/orientation gizmo/camera feel) persist in
-		// a simple key=value file next to the imgui ini
+		// a simple key=value file next to the imgui ini. Automated runs use
+		// defaults and an empty path: one test must neither inherit nor rewrite
+		// another test's/user's panel visibility, camera, theme or snap settings.
 		ViewSettings viewSettings;
-		viewSettings.path = std::string(sdlBasePath ? sdlBasePath : "") +
-			"orkige_editor_view.ini";
-		viewSettings.load();
+		if (!automatedRun)
+		{
+			viewSettings.path = std::string(sdlBasePath ? sdlBasePath : "") +
+				"orkige_editor_view.ini";
+			viewSettings.load();
+		}
 		// scene open/save feed File > Open Recent through this pointer
 		gViewSettings = &viewSettings;
 		// scripted runs must not rewrite the user's recents (see gRecordRecents)
@@ -813,16 +818,10 @@ int main(int argc, char** argv)
 			{
 				switch (panel)
 				{
-				case Orkige::PANEL_HIERARCHY:
-					viewPtr->showHierarchyPanel = visible; break;
-				case Orkige::PANEL_INSPECTOR:
-					viewPtr->showInspectorPanel = visible; break;
-				case Orkige::PANEL_CONSOLE:
-					viewPtr->showConsolePanel = visible; break;
-				case Orkige::PANEL_STATS:
-					viewPtr->showStatsPanel = visible; break;
-				case Orkige::PANEL_SCENE:
-					viewPtr->showScenePanel = visible; break;
+#define ORKIGE_SET_PANEL_CASE(id, label, defaultVisible, member) \
+				case Orkige::id: viewPtr->member = visible; break;
+				ORKIGE_EDITOR_PANEL_LIST(ORKIGE_SET_PANEL_CASE)
+#undef ORKIGE_SET_PANEL_CASE
 				default: break;
 				}
 				viewPtr->save();
@@ -905,6 +904,11 @@ int main(int argc, char** argv)
 		// playtest presses Play at frame 40; with a project open the player
 		// receives --project, so the plumbing is covered end to end.
 		const char* projectTestEnv = std::getenv("ORKIGE_EDITOR_PROJECT_TEST");
+		// ORKIGE_EDITOR_PREVIEW_SELFCHECK=<project>: open the project and prove
+		// both human preview tabs load real assets, dock beside Scene and submit
+		// their live texture IDs. Used by editor_previews_next.
+		const char* previewSelfcheckEnv =
+			std::getenv("ORKIGE_EDITOR_PREVIEW_SELFCHECK");
 
 		// ORKIGE_EDITOR_NATIVE_PLAYTEST=path: scripted compile-on-Play run
 		// against a project with a native module (the editor_project_native_
@@ -1593,15 +1597,22 @@ int main(int argc, char** argv)
 				static_cast<float>(drawableHeight));
 			ImGui::NewFrame();
 			ImGuizmo::BeginFrame();
+			// Exercise the real preview-panel docking path in the editor selfcheck:
+			// both panels must join Scene's dock node, not appear as loose windows.
+			if (selfCheck && frameCount == 5)
+			{
+				viewSettings.showGuiPreviewPanel = true;
+				viewSettings.showAnimationPreviewPanel = true;
+			}
 
 			// snapshot the panel visibility: a close-button click (the x in
 			// a docked tab) must persist exactly like a View-menu toggle
-			const bool panelsBefore[8] = { viewSettings.showHierarchyPanel,
-				viewSettings.showInspectorPanel, viewSettings.showConsolePanel,
-				viewSettings.showStatsPanel, viewSettings.showScenePanel,
-				viewSettings.showAssetBrowserPanel,
-				viewSettings.showTilePalettePanel,
-				viewSettings.showGuiPreviewPanel };
+			const bool panelsBefore[Orkige::PANEL_COUNT] = {
+#define ORKIGE_PANEL_VISIBILITY(id, label, visible, member) \
+				viewSettings.member,
+				ORKIGE_EDITOR_PANEL_LIST(ORKIGE_PANEL_VISIBILITY)
+#undef ORKIGE_PANEL_VISIBILITY
+			};
 #ifdef __APPLE__
 			// the native NSMenu bar replaces the ImGui menu bar on mac; the
 			// ImGui bar only steps in when AppKit gave us no menu (headless)
@@ -1694,14 +1705,13 @@ int main(int argc, char** argv)
 			{
 				drawAnimationPreviewPanel(state, animPreviewStage, viewSettings);
 			}
-			if (panelsBefore[0] != viewSettings.showHierarchyPanel ||
-				panelsBefore[1] != viewSettings.showInspectorPanel ||
-				panelsBefore[2] != viewSettings.showConsolePanel ||
-				panelsBefore[3] != viewSettings.showStatsPanel ||
-				panelsBefore[4] != viewSettings.showScenePanel ||
-				panelsBefore[5] != viewSettings.showAssetBrowserPanel ||
-				panelsBefore[6] != viewSettings.showTilePalettePanel ||
-				panelsBefore[7] != viewSettings.showGuiPreviewPanel)
+			bool panelVisibilityChanged = false;
+#define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
+			panelVisibilityChanged |= \
+				panelsBefore[Orkige::id] != viewSettings.member;
+			ORKIGE_EDITOR_PANEL_LIST(ORKIGE_CHECK_PANEL_VISIBILITY)
+#undef ORKIGE_CHECK_PANEL_VISIBILITY
+			if (panelVisibilityChanged)
 			{
 				viewSettings.save();
 			}
@@ -1723,16 +1733,10 @@ int main(int argc, char** argv)
 					state.project.isLoaded() && !state.currentScenePath.empty();
 				menuStatus.canExport =
 					state.project.isLoaded() && !exportJob.isActive();
-				menuStatus.panelVisible[Orkige::PANEL_HIERARCHY] =
-					viewSettings.showHierarchyPanel;
-				menuStatus.panelVisible[Orkige::PANEL_INSPECTOR] =
-					viewSettings.showInspectorPanel;
-				menuStatus.panelVisible[Orkige::PANEL_CONSOLE] =
-					viewSettings.showConsolePanel;
-				menuStatus.panelVisible[Orkige::PANEL_STATS] =
-					viewSettings.showStatsPanel;
-				menuStatus.panelVisible[Orkige::PANEL_SCENE] =
-					viewSettings.showScenePanel;
+#define ORKIGE_SYNC_PANEL_STATUS(id, label, visible, member) \
+				menuStatus.panelVisible[Orkige::id] = viewSettings.member;
+				ORKIGE_EDITOR_PANEL_LIST(ORKIGE_SYNC_PANEL_STATUS)
+#undef ORKIGE_SYNC_PANEL_STATUS
 				menuStatus.recentScenes = viewSettings.recentScenes;
 				menuStatus.recentProjects = viewSettings.recentProjects;
 				menuStatus.prefabEditActive = isPrefabEditActive(state);
@@ -1895,18 +1899,29 @@ int main(int argc, char** argv)
 				const int nativeMenuItems = -1;
 				const bool nativeMenuOk = true;
 #endif
+				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
+				ImGuiWindow* guiPreviewWindow =
+					ImGui::FindWindowByName("GuiPreview");
+				ImGuiWindow* animPreviewWindow =
+					ImGui::FindWindowByName("AnimationPreview");
+				const bool previewDockOk = sceneWindow &&
+					sceneWindow->DockId != 0 && guiPreviewWindow &&
+					guiPreviewWindow->DockId == sceneWindow->DockId &&
+					animPreviewWindow &&
+					animPreviewWindow->DockId == sceneWindow->DockId;
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
 					"(fixture cubes + test mesh %s), test_mesh.glb resource %s, "
 					"imgui vertices=%d, scene RTT %dx%d (panel wants %dx%d), "
-					"native menu items=%d (%s)",
+					"native menu items=%d (%s), previews docked=%s",
 					gameObjectManager.getGameObjects().size(),
 					objectsOk ? "present" : "MISSING",
 					meshResourceOk ? "loaded" : "NOT LOADED", imguiVertices,
 					sceneTarget.width, sceneTarget.height,
 					state.scenePanelWidth, state.scenePanelHeight,
-					nativeMenuItems, nativeMenuOk ? "ok" : "MISSING");
+					nativeMenuItems, nativeMenuOk ? "ok" : "MISSING",
+					previewDockOk ? "yes" : "NO");
 				if (!objectsOk || !meshResourceOk || imguiVertices <= 0 ||
-					!rttOk || !nativeMenuOk)
+					!rttOk || !nativeMenuOk || !previewDockOk)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck");
 					exitCode = 2;
@@ -3867,11 +3882,6 @@ int main(int argc, char** argv)
 					e.key.down = down;
 					SDL_PushEvent(&e);
 				};
-				auto frac = [&](float fx, float fy, float& px, float& py)
-				{
-					px = state.sceneImageMin.x + fx * state.sceneImageSize.x;
-					py = state.sceneImageMin.y + fy * state.sceneImageSize.y;
-				};
 				auto projectTile = [&](float wx, float wy, float& px,
 					float& py) -> bool
 				{
@@ -3997,10 +4007,35 @@ int main(int argc, char** argv)
 							mqStep = 3;	// hold until the panel has drawn
 							break;
 						}
-						// marquee box corners as image fractions (start in the
-						// empty top strip; the box spans the tile row)
-						frac(0.15f, 0.12f, mqStartX, mqStartY);
-						frac(0.85f, 0.85f, mqEndX, mqEndY);
+						// Derive the all-tiles box from the live camera projection.
+						// Fixed image fractions became stale when the Scene dock's
+						// aspect ratio changed (for example after adding preview tabs).
+						// A 45%-of-centre-gap pad encloses each 6-unit tile while the
+						// press corner remains in empty space between tile bounds.
+						{
+							float lx = 0.0f, ly = 0.0f, mx = 0.0f, my = 0.0f;
+							float rx = 0.0f, ry = 0.0f;
+							if (!projectTile(-16.0f, 0.0f, lx, ly) ||
+								!projectTile(0.0f, 0.0f, mx, my) ||
+								!projectTile(16.0f, 0.0f, rx, ry))
+							{
+								mqAbort("tile projection failed before marquee");
+								break;
+							}
+							const float gap = std::min(std::abs(mx - lx),
+								std::abs(rx - mx));
+							const float pad = gap * 0.45f;
+							const float minX = state.sceneImageMin.x + 2.0f;
+							const float minY = state.sceneImageMin.y + 2.0f;
+							const float maxX = state.sceneImageMin.x +
+								state.sceneImageSize.x - 2.0f;
+							const float maxY = state.sceneImageMin.y +
+								state.sceneImageSize.y - 2.0f;
+							mqStartX = std::max(minX, std::min({lx, mx, rx}) - pad);
+							mqStartY = std::max(minY, std::min({ly, my, ry}) - pad);
+							mqEndX = std::min(maxX, std::max({lx, mx, rx}) + pad);
+							mqEndY = std::min(maxY, std::max({ly, my, ry}) + pad);
+						}
 						pushMove(mqStartX, mqStartY);
 						break;
 					case 7:
@@ -5627,6 +5662,106 @@ int main(int argc, char** argv)
 					SDL_Log("orkige_editor: theme switch selfcheck OK");
 					running = false;
 				}
+			}
+
+			// --- live human preview panels (real docking + texture submission) ---
+			if (previewSelfcheckEnv && frameCount == 10)
+			{
+				if (!openProjectFromPath(state, editorCore, previewSelfcheckEnv))
+				{
+					SDL_Log("orkige_editor: FAILED preview selfcheck (open project)");
+					exitCode = 13;
+					running = false;
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 20 && exitCode == 0)
+			{
+				state.requestedAnimationPreviewAsset =
+					"assets/lottie/hamster.oanim";
+				viewSettings.showAnimationPreviewPanel = true;
+			}
+			if (previewSelfcheckEnv && frameCount == 30 && exitCode == 0)
+			{
+				auto drawDataUses = [](ImTextureID wanted)
+				{
+					ImDrawData* draw = ImGui::GetDrawData();
+					if (!draw || wanted == 0) return false;
+					for (int list = 0; list < draw->CmdListsCount; ++list)
+					{
+						for (ImDrawCmd const& command :
+							draw->CmdLists[list]->CmdBuffer)
+						{
+							if (command.GetTexID() == wanted) return true;
+						}
+					}
+					return false;
+				};
+				const OrkigeEditor::AnimationPreviewInfo info =
+					animPreviewStage.getInfo();
+				const std::string firstUpload =
+					animPreviewStage.getActiveUploadName();
+				unsigned int textureW = 0, textureH = 0;
+				const bool textureExists = !firstUpload.empty() &&
+					Orkige::RenderSystem::get()->getTextureSize(firstUpload,
+						textureW, textureH);
+				const ImTextureID animationTexture = gImGuiRenderer
+					? gImGuiRenderer->textureIdForResource(firstUpload) : 0;
+				animPreviewStage.setTimeSeconds(0.25f);
+				const std::string secondUpload =
+					animPreviewStage.uploadTexture();
+				const std::string stableUpload =
+					animPreviewStage.uploadTexture();
+				const bool animationOk = animPreviewStage.isLoaded() &&
+					info.visiblePixelCount > 100 && info.colouredPixelCount > 100 &&
+					textureExists && textureW == 256 && textureH == 256 &&
+					drawDataUses(animationTexture) &&
+					!secondUpload.empty() && secondUpload != firstUpload &&
+					stableUpload == secondUpload;
+				SDL_Log("orkige_editor: preview selfcheck - animation live image %s "
+					"(%zu visible, %zu coloured)", animationOk ? "OK" : "FAILED",
+					info.visiblePixelCount, info.colouredPixelCount);
+				if (!animationOk)
+				{
+					exitCode = 13;
+					running = false;
+				}
+				else
+				{
+					state.requestedGuiPreviewAsset = "assets/hud.oui";
+					viewSettings.showGuiPreviewPanel = true;
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 40 && exitCode == 0)
+			{
+				auto drawDataUses = [](ImTextureID wanted)
+				{
+					ImDrawData* draw = ImGui::GetDrawData();
+					if (!draw || wanted == 0) return false;
+					for (int list = 0; list < draw->CmdListsCount; ++list)
+						for (ImDrawCmd const& command :
+							draw->CmdLists[list]->CmdBuffer)
+							if (command.GetTexID() == wanted) return true;
+					return false;
+				};
+				const Orkige::optr<Orkige::RenderTexture> guiTarget =
+					guiPreviewStage.getTarget();
+				const ImTextureID guiTexture = gImGuiRenderer
+					? gImGuiRenderer->textureIdFor(guiTarget) : 0;
+				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
+				ImGuiWindow* guiWindow = ImGui::FindWindowByName("GuiPreview");
+				const bool guiOk = guiPreviewStage.isLoaded() && guiTarget &&
+					guiPreviewStage.getLastBatchCount() > 0 &&
+					drawDataUses(guiTexture) && sceneWindow && guiWindow &&
+					sceneWindow->DockId != 0 &&
+					guiWindow->DockId == sceneWindow->DockId;
+				SDL_Log("orkige_editor: preview selfcheck - GUI live image %s "
+					"(%zu batches)", guiOk ? "OK" : "FAILED",
+					guiPreviewStage.getLastBatchCount());
+				if (!guiOk)
+				{
+					exitCode = 13;
+				}
+				running = false;
 			}
 
 			// --- scripted project test (ORKIGE_EDITOR_PROJECT_TEST=path) ---

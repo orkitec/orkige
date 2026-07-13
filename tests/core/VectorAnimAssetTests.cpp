@@ -322,6 +322,27 @@ TEST_CASE("vectoranim_parse_topology_enforced", "[unit][vectoranim]")
 	CHECK(doc.layers.empty());
 }
 
+TEST_CASE("vectoranim_parse_gradient_paint", "[unit][vectoranim][gradient]")
+{
+	VectorAnimAsset::Document doc;
+	REQUIRE(VectorAnimAsset::parse(
+		"version 1\nfps 30\nduration 60\nlayer glow parent -1\n"
+		"shape k 1\nkf 0\nradial 0 0 1 0 3\nfocal 0.4 0.2\n"
+		"stop 0 1 0 0 1\nstop 0.5 0 1 0 0.8\nstop 1 0 0 1 0\n"
+		"contour 4\nv -1 -1\nv 1 -1\nv 1 1\nv -1 1\n", doc));
+	VectorTessellator::Region const & region =
+		doc.layers[0].shapes[0].keys[0].region;
+	CHECK(region.paintType == VectorTessellator::PAINT_RADIAL_GRADIENT);
+	CHECK(region.gradientStart.x == Approx(0.0f));
+	CHECK(region.gradientEnd.x == Approx(1.0f));
+	CHECK(region.gradientFocal.x == Approx(0.4f));
+	CHECK(region.gradientFocal.y == Approx(0.2f));
+	REQUIRE(region.gradientStops.size() == 3u);
+	CHECK(region.gradientStops[1].offset == Approx(0.5f));
+	CHECK(region.gradientStops[1].colour.g == Approx(1.0f));
+	CHECK(region.gradientStops[2].colour.a == Approx(0.0f));
+}
+
 TEST_CASE("vectoranim_parse_defaults_and_reserved", "[unit][vectoranim]")
 {
 	// a clip-less file gets ONE implicit looping clip over the whole

@@ -87,6 +87,11 @@ namespace Orkige
 			VectorTessellator::Region & dst)
 		{
 			dst.fill = src.fill;
+			dst.paintType = src.paintType;
+			dst.gradientStart = src.gradientStart;
+			dst.gradientEnd = src.gradientEnd;
+			dst.gradientFocal = src.gradientFocal;
+			dst.gradientStops = src.gradientStops;
 			dst.outer.resize(src.outer.size());
 			std::copy(src.outer.begin(), src.outer.end(), dst.outer.begin());
 			dst.holes.resize(src.holes.size());
@@ -106,6 +111,27 @@ namespace Orkige
 			dst.fill = VectorTessellator::Colour(
 				lerp(a.fill.r, b.fill.r, t), lerp(a.fill.g, b.fill.g, t),
 				lerp(a.fill.b, b.fill.b, t), lerp(a.fill.a, b.fill.a, t));
+			dst.paintType = a.paintType;
+			dst.gradientStart = VectorTessellator::Point(
+				lerp(a.gradientStart.x, b.gradientStart.x, t),
+				lerp(a.gradientStart.y, b.gradientStart.y, t));
+			dst.gradientEnd = VectorTessellator::Point(
+				lerp(a.gradientEnd.x, b.gradientEnd.x, t),
+				lerp(a.gradientEnd.y, b.gradientEnd.y, t));
+			dst.gradientFocal = VectorTessellator::Point(
+				lerp(a.gradientFocal.x, b.gradientFocal.x, t),
+				lerp(a.gradientFocal.y, b.gradientFocal.y, t));
+			dst.gradientStops.resize(a.gradientStops.size());
+			for(std::size_t i = 0; i < a.gradientStops.size(); ++i)
+			{
+				dst.gradientStops[i].offset = lerp(a.gradientStops[i].offset,
+					b.gradientStops[i].offset, t);
+				dst.gradientStops[i].colour = VectorTessellator::Colour(
+					lerp(a.gradientStops[i].colour.r, b.gradientStops[i].colour.r, t),
+					lerp(a.gradientStops[i].colour.g, b.gradientStops[i].colour.g, t),
+					lerp(a.gradientStops[i].colour.b, b.gradientStops[i].colour.b, t),
+					lerp(a.gradientStops[i].colour.a, b.gradientStops[i].colour.a, t));
+			}
 			dst.outer.resize(a.outer.size());
 			for(std::size_t v = 0; v < a.outer.size(); ++v)
 			{
@@ -160,7 +186,9 @@ namespace Orkige
 			VectorTessellator::Region const & b)
 		{
 			if(a.outer.size() != b.outer.size() ||
-				a.holes.size() != b.holes.size())
+				a.holes.size() != b.holes.size() ||
+				a.paintType != b.paintType ||
+				a.gradientStops.size() != b.gradientStops.size())
 			{
 				return false;
 			}
@@ -495,6 +523,20 @@ namespace Orkige
 			Region & dst = out[s];
 			dst.fill = src.fill;
 			dst.fill.a *= this->mWorldOpacity[layer];
+			dst.paintType = src.paintType;
+			dst.gradientStops = src.gradientStops;
+			for(VectorTessellator::GradientStop & stop : dst.gradientStops)
+			{
+				stop.colour.a *= this->mWorldOpacity[layer];
+			}
+			auto transformPoint = [&world](Point const & point)
+			{
+				return Point(world.a * point.x + world.b * point.y + world.tx,
+					world.c * point.x + world.d * point.y + world.ty);
+			};
+			dst.gradientStart = transformPoint(src.gradientStart);
+			dst.gradientEnd = transformPoint(src.gradientEnd);
+			dst.gradientFocal = transformPoint(src.gradientFocal);
 			dst.outer.resize(src.outer.size());
 			for(std::size_t v = 0; v < src.outer.size(); ++v)
 			{

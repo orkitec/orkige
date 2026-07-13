@@ -23,9 +23,13 @@ namespace Orkige
 		const bool solid = spriteName.empty() || spriteName == "none";
 		if(solid)
 		{
-			oAssertDesc(size != Ogre::Vector2::ZERO,
-				"A spriteless (solid) decor widget needs an explicit size");
-			this->rect = this->layer->createRectangle(position, size);
+			// `.oui` anchor/group layout resolves a widget's real rectangle only
+			// in pass 2, after every widget exists. A solid panel may therefore be
+			// constructed with size zero legitimately; give it a harmless 1x1
+			// placeholder which applyLayoutKeys replaces before the first frame.
+			const Ogre::Vector2 initialSize = size == Ogre::Vector2::ZERO
+				? Ogre::Vector2(1, 1) : size;
+			this->rect = this->layer->createRectangle(position, initialSize);
 			oAssert(this->rect);
 			this->rect->background_image("none");	// solid whitepixel fill
 			return;

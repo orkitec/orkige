@@ -3883,6 +3883,10 @@ namespace Orkige
 				okMsg.set("layer_count", std::to_string(info.layerCount));
 				okMsg.set("shape_count", std::to_string(info.shapeCount));
 				okMsg.set("vertex_count", std::to_string(info.vertexCount));
+				okMsg.set("visible_pixel_count",
+					std::to_string(info.visiblePixelCount));
+				okMsg.set("coloured_pixel_count",
+					std::to_string(info.colouredPixelCount));
 				okMsg.set("at_end", info.atEnd ? "1" : "0");
 				if (info.blending)
 				{
@@ -7470,14 +7474,19 @@ namespace Orkige
 				if (clips.at(i).asString() == "walk") sawWalk = true;
 			}
 			const String layerCount = p0.get("layer_count").asString();
+			const int visiblePixels = std::atoi(
+				p0.get("visible_pixel_count").asString().c_str());
+			const int colouredPixels = std::atoi(
+				p0.get("coloured_pixel_count").asString().c_str());
 			if (!sawIdle || !sawWalk || layerCount.empty() || layerCount == "0" ||
-				p0.get("clip").asString() != "idle")
+				p0.get("clip").asString() != "idle" || visiblePixels < 100 ||
+				colouredPixels < 100)
 			{
 				fs::remove(png0, authIgnored);
 				fs::remove(png1, authIgnored);
 				fs::remove_all(authRoot, authIgnored);
 				finish(false, "control self-test: preview_animation readback missing "
-					"clips/layers");
+					"clips/layers or rendered a blank/white image");
 				return;
 			}
 			// the two poses (0.0s vs 0.5s of a rotating rig) must render DIFFERENT
@@ -8662,6 +8671,20 @@ namespace Orkige
 					"the 'box' widget rect");
 				return;
 			}
+			auto readPreviewPng = [](std::string const& path)
+				-> std::vector<char>
+			{
+				std::ifstream input(path, std::ios::binary);
+				return std::vector<char>(std::istreambuf_iterator<char>(input),
+					std::istreambuf_iterator<char>());
+			};
+			const std::vector<char> previewPixelsV1 = readPreviewPng(previewPng);
+			if (previewPixelsV1.empty())
+			{
+				finish(false, "control self-test: GUI Preview produced an empty "
+					"first image");
+				return;
+			}
 			// MODIFY the screen (move the box down) and preview again - the rect
 			// must follow the edit (auto-reload of the shared stage)
 			if (!writeOui(900))
@@ -8681,6 +8704,13 @@ namespace Orkige
 			{
 				finish(false, "control self-test: preview_ui - the widget rect did "
 					"not follow the .oui edit");
+				return;
+			}
+			const std::vector<char> previewPixelsV2 = readPreviewPng(previewPng);
+			if (previewPixelsV2.empty() || previewPixelsV2 == previewPixelsV1)
+			{
+				finish(false, "control self-test: GUI Preview image did not change "
+					"after moving the rendered widget");
 				return;
 			}
 			// bad file => honest error (not a crash, not a silent success)

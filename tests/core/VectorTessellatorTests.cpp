@@ -254,3 +254,67 @@ TEST_CASE("vectortess_default_feather_scales_with_bounds", "[unit][vectortess]")
 	CHECK(bigWidth == Approx(smallWidth * 10.0f).margin(1e-4f));
 	CHECK(smallWidth > 0.0f);
 }
+
+TEST_CASE("vectortess_gpu_vertex_gradients", "[unit][vectortess][gradient]")
+{
+	Region linear = squareRegion(1.0f);
+	linear.paintType = VectorTessellator::PAINT_LINEAR_GRADIENT;
+	linear.gradientStart = Point(-1.0f, 0.0f);
+	linear.gradientEnd = Point(1.0f, 0.0f);
+	linear.gradientStops.push_back(VectorTessellator::GradientStop(
+		0.0f, Colour(1, 0, 0, 1)));
+	linear.gradientStops.push_back(VectorTessellator::GradientStop(
+		1.0f, Colour(0, 0, 1, 1)));
+	Mesh mesh;
+	VectorTessellator::triangulateFill(linear, mesh);
+	REQUIRE(mesh.triangleCount() > 2u); // deterministic gradient subdivision
+	bool sawRed = false, sawBlue = false, sawBlend = false;
+	for(Colour const & colour : mesh.colours)
+	{
+		sawRed |= colour.r > 0.95f && colour.b < 0.05f;
+		sawBlue |= colour.b > 0.95f && colour.r < 0.05f;
+		sawBlend |= colour.r > 0.35f && colour.r < 0.65f &&
+			colour.b > 0.35f && colour.b < 0.65f;
+	}
+	CHECK(sawRed);
+	CHECK(sawBlue);
+	CHECK(sawBlend);
+
+	Region radial = linear;
+	radial.paintType = VectorTessellator::PAINT_RADIAL_GRADIENT;
+	radial.gradientStart = Point(0.0f, 0.0f);
+	radial.gradientEnd = Point(1.0f, 0.0f);
+	Mesh radialMesh;
+	VectorTessellator::triangulateFill(radial, radialMesh);
+	bool sawCentreRed = false, sawCornerBlue = false;
+	for(std::size_t i = 0; i < radialMesh.positions.size(); ++i)
+	{
+		Point const & point = radialMesh.positions[i];
+		Colour const & colour = radialMesh.colours[i];
+		if(std::abs(point.x) < 0.01f && std::abs(point.y) < 0.01f)
+			sawCentreRed |= colour.r > 0.95f;
+		if(std::abs(point.x) > 0.95f && std::abs(point.y) > 0.95f)
+			sawCornerBlue |= colour.b > 0.95f;
+	}
+	CHECK(sawCentreRed);
+	CHECK(sawCornerBlue);
+
+	// An off-centre focal point is the zero of the radial ramp; the authored
+	// centre is already part-way toward the opposite edge of the circle.
+	radial.gradientFocal = Point(0.5f, 0.0f);
+	Mesh focalMesh;
+	VectorTessellator::triangulateFill(radial, focalMesh);
+	bool sawFocalRed = false, sawCentreProgress = false;
+	for(std::size_t i = 0; i < focalMesh.positions.size(); ++i)
+	{
+		Point const & point = focalMesh.positions[i];
+		Colour const & colour = focalMesh.colours[i];
+		if(std::abs(point.x - 0.5f) < 0.01f && std::abs(point.y) < 0.01f)
+			sawFocalRed |= colour.r > 0.95f && colour.b < 0.05f;
+		if(std::abs(point.x) < 0.01f && std::abs(point.y) < 0.01f)
+			sawCentreProgress |= colour.r > 0.55f && colour.r < 0.8f &&
+				colour.b > 0.2f && colour.b < 0.45f;
+	}
+	CHECK(sawFocalRed);
+	CHECK(sawCentreProgress);
+}

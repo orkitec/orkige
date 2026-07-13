@@ -52,6 +52,124 @@ namespace Orkige
 	{
 		//! recursion cap so a pathological control net cannot spin forever
 		const int FLATTEN_MAX_DEPTH = 16;
+		const int GRADIENT_SUBDIVISION_DEPTH = 3;
+
+		float clamp01(float value)
+		{
+			return value < 0.0f ? 0.0f : (value > 1.0f ? 1.0f : value);
+		}
+
+		VectorTessellator::Colour lerpColour(
+			VectorTessellator::Colour const & a,
+			VectorTessellator::Colour const & b, float t)
+		{
+			return VectorTessellator::Colour(
+				a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
+				a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t);
+		}
+
+		VectorTessellator::Colour paintAt(
+			VectorTessellator::Region const & region,
+			VectorTessellator::Point const & point)
+		{
+			if(region.paintType == VectorTessellator::PAINT_SOLID ||
+				region.gradientStops.empty())
+			{
+				return region.fill;
+			}
+			const float dx = region.gradientEnd.x - region.gradientStart.x;
+			const float dy = region.gradientEnd.y - region.gradientStart.y;
+			float t = 0.0f;
+			if(region.paintType == VectorTessellator::PAINT_LINEAR_GRADIENT)
+			{
+				const float lengthSq = dx * dx + dy * dy;
+				if(lengthSq > 1e-12f)
+				{
+					t = ((point.x - region.gradientStart.x) * dx +
+						(point.y - region.gradientStart.y) * dy) / lengthSq;
+				}
+			}
+			else
+			{
+				const float radius = std::sqrt(dx * dx + dy * dy);
+				if(radius > 1e-6f)
+				{
+					// The radial ramp starts at a possibly off-centre focal
+					// point and reaches 1 where that ray intersects the outer
+					// circle. Solve the ray/circle quadratic, then invert its
+					// intersection distance so the current point is the ramp t.
+					const float rayX = point.x - region.gradientFocal.x;
+					const float rayY = point.y - region.gradientFocal.y;
+					const float rayLengthSq = rayX * rayX + rayY * rayY;
+					if(rayLengthSq > 1e-12f)
+					{
+						const float focalX = region.gradientFocal.x -
+							region.gradientStart.x;
+						const float focalY = region.gradientFocal.y -
+							region.gradientStart.y;
+						const float b = 2.0f *
+							(rayX * focalX + rayY * focalY);
+						const float c = focalX * focalX + focalY * focalY -
+							radius * radius;
+						const float discriminant = b * b -
+							4.0f * rayLengthSq * c;
+						if(discriminant >= 0.0f)
+						{
+							const float root = (-b + std::sqrt(discriminant)) /
+								(2.0f * rayLengthSq);
+							if(root > 1e-6f)
+								t = 1.0f / root;
+						}
+					}
+				}
+			}
+			t = clamp01(t);
+			std::vector<VectorTessellator::GradientStop> const & stops =
+				region.gradientStops;
+			if(t <= stops.front().offset)
+			{
+				return stops.front().colour;
+			}
+			for(std::size_t i = 0; i + 1 < stops.size(); ++i)
+			{
+				if(t <= stops[i + 1].offset)
+				{
+					const float span = stops[i + 1].offset - stops[i].offset;
+					const float u = span > 1e-6f
+						? (t - stops[i].offset) / span : 0.0f;
+					return lerpColour(stops[i].colour, stops[i + 1].colour, u);
+				}
+			}
+			return stops.back().colour;
+		}
+
+		void appendGradientTriangle(VectorTessellator::Region const & region,
+			VectorTessellator::Point const & a,
+			VectorTessellator::Point const & b,
+			VectorTessellator::Point const & c, int depth,
+			VectorTessellator::Mesh & out)
+		{
+			if(depth > 0)
+			{
+				const VectorTessellator::Point ab((a.x + b.x) * 0.5f,
+					(a.y + b.y) * 0.5f);
+				const VectorTessellator::Point bc((b.x + c.x) * 0.5f,
+					(b.y + c.y) * 0.5f);
+				const VectorTessellator::Point ca((c.x + a.x) * 0.5f,
+					(c.y + a.y) * 0.5f);
+				appendGradientTriangle(region, a, ab, ca, depth - 1, out);
+				appendGradientTriangle(region, ab, b, bc, depth - 1, out);
+				appendGradientTriangle(region, ca, bc, c, depth - 1, out);
+				appendGradientTriangle(region, ab, bc, ca, depth - 1, out);
+				return;
+			}
+			const unsigned int base = static_cast<unsigned int>(out.positions.size());
+			out.positions.push_back(a); out.colours.push_back(paintAt(region, a));
+			out.positions.push_back(b); out.colours.push_back(paintAt(region, b));
+			out.positions.push_back(c); out.colours.push_back(paintAt(region, c));
+			out.indices.push_back(base); out.indices.push_back(base + 1);
+			out.indices.push_back(base + 2);
+		}
 
 		//! squared distance of point p from the infinite line through a,b
 		float distanceSqToLine(VectorTessellator::Point const & p,
@@ -170,15 +288,30 @@ namespace Orkige
 		{
 			return;	// earcut could not triangulate (degenerate) - skip honestly
 		}
-		const unsigned int base =
-			static_cast<unsigned int>(out.positions.size());
+		std::vector<Point> flatPoints;
 		for(std::vector<Point> const & ring : polygon)
 		{
 			for(Point const & point : ring)
 			{
-				out.positions.push_back(point);
-				out.colours.push_back(region.fill);
+				flatPoints.push_back(point);
 			}
+		}
+		if(region.paintType != PAINT_SOLID && !region.gradientStops.empty())
+		{
+			for(std::size_t index = 0; index < localIndices.size(); index += 3)
+			{
+				appendGradientTriangle(region, flatPoints[localIndices[index]],
+					flatPoints[localIndices[index + 1]],
+					flatPoints[localIndices[index + 2]],
+					GRADIENT_SUBDIVISION_DEPTH, out);
+			}
+			return;
+		}
+		const unsigned int base = static_cast<unsigned int>(out.positions.size());
+		for(Point const & point : flatPoints)
+		{
+			out.positions.push_back(point);
+			out.colours.push_back(region.fill);
 		}
 		for(unsigned int index : localIndices)
 		{

@@ -30,6 +30,9 @@
 #include <core_util/VectorTessellator.h>
 #include <core_util/String.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -50,6 +53,8 @@ namespace OrkigeEditor
 		int			layerCount = 0;					//!< rig layer count
 		int			shapeCount = 0;					//!< rig shape-block count
 		int			vertexCount = 0;				//!< vertices in the composed pose
+		std::size_t visiblePixelCount = 0;		//!< preview pixels with useful alpha
+		std::size_t colouredPixelCount = 0;		//!< visible pixels that are not white
 		bool		atEnd = false;					//!< a `once` clip reached its end
 		bool		blending = false;				//!< a blend clip is mixed in
 		int			blendClipIndex = -1;			//!< the second clip ("" = none)
@@ -110,10 +115,17 @@ namespace OrkigeEditor
 		//! into the internal RGBA buffer. Called by uploadTexture/renderToPng;
 		//! safe to call directly (headless). No-op (transparent) when unloaded.
 		void render();
-		//! @brief render() then upload the buffer as a named texture the panel
-		//! binds; @return the upload name ("" on failure). Idempotent name per
-		//! stage, replaced each call. Needs a RenderSystem.
+		//! @brief render dirty state, then upload it to the panel's two-texture
+		//! ring; @return the active upload name ("" on failure). An unchanged
+		//! pose reuses its texture. Needs a RenderSystem.
 		std::string uploadTexture();
+		//! currently displayed half of the live double buffer (test/readback)
+		std::string const & getActiveUploadName() const
+		{
+			static const std::string empty;
+			return this->mActiveUpload >= 0
+				? this->mUploadNames[this->mActiveUpload] : empty;
+		}
 		//! @brief render() then write the buffer as a PNG. @return false +
 		//! getLastError() when unloaded or the file cannot be written.
 		bool renderToPng(std::string const & pngPath, std::string & outError);
@@ -126,6 +138,8 @@ namespace OrkigeEditor
 	private:
 		//! resolve mClipIndex into the valid range (0 when nothing selected)
 		int resolvedClipIndex() const;
+		//! pose-affecting state changed: the CPU raster and GPU upload are stale
+		void invalidateRender();
 
 		Orkige::VectorAnimEval		mEval;			//!< the built rig (empty until load)
 		std::string					mLoadedFile;	//!< project-relative .oanim ("" = none)
@@ -146,7 +160,14 @@ namespace OrkigeEditor
 		Orkige::VectorTessellator::Mesh			mMesh;		//!< tessellated pose
 		std::vector<unsigned char>				mPixels;	//!< RGBA raster buffer
 		int										mVertexCount = 0;	//!< composed pose vertices
-		std::string								mUploadName;	//!< the panel texture name
+		std::size_t							mVisiblePixelCount = 0;
+		std::size_t							mColouredPixelCount = 0;
+		bool									mPixelsDirty = true;
+		bool									mTextureDirty = true;
+		//! Double-buffered names keep Ogre-Next from destroying the texture still
+		//! referenced by the previous frame's submitted ImGui batch.
+		std::array<std::string, 2>			mUploadNames;
+		int										mActiveUpload = -1;
 	};
 }
 

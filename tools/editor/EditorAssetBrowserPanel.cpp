@@ -1599,6 +1599,47 @@ void folderDropTarget(EditorState& state, std::string const& destDir)
 void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 	AssetBrowserItem const& entry)
 {
+	// A cooked vector animation has an in-editor viewer. The kept Lottie source
+	// opens the same viewer when its sibling `.oanim` exists, so either tile in
+	// the import pair does the useful thing on double-click.
+	fs::path previewPath;
+	const std::string extension = lowerExtension(entry.absolutePath);
+	if (extension == ".oui")
+	{
+		state.requestedGuiPreviewAsset =
+			state.project.makeProjectRelative(entry.absolutePath);
+		if (gViewSettings)
+		{
+			gViewSettings->showGuiPreviewPanel = true;
+			gViewSettings->save();
+		}
+		return;
+	}
+	if (extension == ".oanim")
+	{
+		previewPath = entry.absolutePath;
+	}
+	else if (extension == ".json")
+	{
+		previewPath = fs::path(entry.absolutePath).replace_extension(".oanim");
+		std::error_code ec;
+		if (!fs::is_regular_file(previewPath, ec))
+		{
+			previewPath.clear();
+		}
+	}
+	if (!previewPath.empty())
+	{
+		state.requestedAnimationPreviewAsset =
+			state.project.makeProjectRelative(previewPath.string());
+		if (gViewSettings)
+		{
+			gViewSettings->showAnimationPreviewPanel = true;
+			gViewSettings->save();
+		}
+		return;
+	}
+
 	switch (entry.kind)
 	{
 	case AssetKind::Scene:

@@ -24,7 +24,7 @@
 
 namespace Orkige
 {
-	//! @brief the pure geometry core of the flat-colour vector-shape pipeline
+	//! @brief the pure geometry core of the vector-shape paint pipeline
 	//! @remarks Static functions only - no state. Types are plain PODs (no
 	//! renderer math) so this compiles into orkige_core with zero Ogre
 	//! coupling. Triangulation is Mapbox earcut (concave polygons + holes),
@@ -52,6 +52,20 @@ namespace Orkige
 			Colour(float pr, float pg, float pb, float pa)
 				: r(pr), g(pg), b(pb), a(pa) {}
 		};
+		enum PaintType
+		{
+			PAINT_SOLID,
+			PAINT_LINEAR_GRADIENT,
+			PAINT_RADIAL_GRADIENT
+		};
+		struct GradientStop
+		{
+			float offset;
+			Colour colour;
+			GradientStop() : offset(0.0f) {}
+			GradientStop(float at, Colour const & value)
+				: offset(at), colour(value) {}
+		};
 		//! one flattened filled region: a closed outer contour, optional inner
 		//! loops (holes), and one flat fill colour. Contours are already
 		//! bezier-flattened (the cook does it); the runtime reads polylines.
@@ -60,6 +74,12 @@ namespace Orkige
 			std::vector<Point>				outer;	//!< closed outer contour (no repeated last point)
 			std::vector<std::vector<Point> >	holes;	//!< optional inner loops cut out of the fill
 			Colour							fill;	//!< flat fill colour of the region
+			PaintType						paintType;	//!< solid, linear or radial
+			Point							gradientStart;
+			Point							gradientEnd;
+			Point							gradientFocal;	//!< radial focal point; start by default
+			std::vector<GradientStop>			gradientStops;
+			Region() : paintType(PAINT_SOLID) {}
 		};
 		//! a 2D axis-aligned bounds (thumbnail/fit + feather-width derivation)
 		struct Bounds

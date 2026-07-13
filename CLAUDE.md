@@ -549,7 +549,7 @@ look when touching one:
   clip/speed/playing/transitionTime props, a `once` clip's end raises a
   VectorAnimationEndedEvent + the `animation.ended` bus event, Lua drive via
   `self.anim` (`play`/`setClip`/`crossFade`/`scrub`/…). Editor: `.oanim`
-  thumbnails, the View ▸ Animation Preview panel (own clock, CPU raster) and
+  thumbnails, the View ▸ Panels ▸ Animation Preview panel (own clock, CPU raster) and
   the `preview_animation` MCP verb (clip/time/blend → PNG + pose readback).
   Sample: `projects/vectorshapes/scenes/vectoranim.oscene` (idle → one-shot
   hop crossfade, ended-event into Lua), `player_vectoranim_selfcheck` on both

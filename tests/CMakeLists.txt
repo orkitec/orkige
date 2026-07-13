@@ -596,8 +596,23 @@ if(TARGET orkige_editor)
     # 45/65, scene round-trip self-check at frame 90
     add_test(NAME editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
-    set_tests_properties(editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck.oscene")
+	set_tests_properties(editor_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+		ENVIRONMENT "ORKIGE_EDITOR_SELFCHECK=1;ORKIGE_DEMO_FRAMES=120;ORKIGE_EDITOR_SELFCHECK_SCENE=${CMAKE_CURRENT_BINARY_DIR}/editor_selfcheck.oscene")
+
+	# The two human preview tabs, end to end. Opens the benchmark project,
+	# double-click-routes a real Lottie character and .oui through the same
+	# request seams as the Assets panel, verifies both dock beside Scene, and
+	# proves their live texture IDs occur in ImGui's submitted draw data. The
+	# animation path also checks its paused upload is stable and a changed frame
+	# rotates to the safe second GPU buffer. GUI Preview needs offscreen-owned
+	# layers, which is an Ogre-Next capability; classic is covered by its honest
+	# unsupported-path assertion in editor_control.
+	if(ORKIGE_RENDER_BACKEND STREQUAL "next")
+		add_test(NAME editor_previews_next COMMAND orkige_editor
+			WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+		set_tests_properties(editor_previews_next PROPERTIES
+			ENVIRONMENT "ORKIGE_EDITOR_PREVIEW_SELFCHECK=${Orkige_SOURCE_DIR}/projects/benchmark;ORKIGE_DEMO_FRAMES=90")
+	endif()
 
     # programmatic SDL_SetWindowSize at frame 80 (resize robustness)
     add_test(NAME editor_resize${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
@@ -1598,3 +1613,21 @@ foreach(device_test editor_play_simulator editor_play_simulator_boot
             LABELS "integration;device" RESOURCE_LOCK mobile_device)
     endif()
 endforeach()
+
+# LaunchServices can abort while registering two copies of the same macOS app
+# bundle concurrently (the desktop presets intentionally run several tests in
+# parallel). Keep unrelated unit/player work parallel, but serialize every
+# test in this directory whose name denotes an editor-app process. The lock is
+# a CTest scheduling resource, so it has no effect on normal editor launches or
+# on other platforms.
+if(APPLE AND TARGET orkige_editor)
+    get_property(_orkige_registered_tests DIRECTORY PROPERTY TESTS)
+    foreach(_orkige_test IN LISTS _orkige_registered_tests)
+        if(_orkige_test MATCHES "^editor_")
+            set_property(TEST "${_orkige_test}" APPEND PROPERTY
+                RESOURCE_LOCK orkige_editor_app)
+        endif()
+    endforeach()
+    unset(_orkige_registered_tests)
+    unset(_orkige_test)
+endif()

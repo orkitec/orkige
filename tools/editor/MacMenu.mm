@@ -451,13 +451,15 @@ namespace Orkige
 		NSMenu* panelsMenu = [[NSMenu alloc] initWithTitle:@"Panels"];
 		[panelsItem setSubmenu:panelsMenu];
 		[viewMenu addItem:panelsItem];
-		NSString* const panelTitles[PANEL_COUNT] = { @"Scene Hierarchy",
-			@"Inspector", @"Console", @"Stats", @"Scene" };
 		for (int panel = 0; panel < PANEL_COUNT; ++panel)
 		{
-			gPanelItems[panel] = addItem(panelsMenu, panelTitles[panel],
+			NSString* title = [NSString stringWithUTF8String:
+				EDITOR_PANEL_REGISTRY[panel].label];
+			gPanelItems[panel] = addItem(panelsMenu, title,
 				static_cast<MenuTag>(TAG_PANEL_BASE + panel), @"", 0);
-			[gPanelItems[panel] setState:NSControlStateValueOn];
+			[gPanelItems[panel] setState:
+				EDITOR_PANEL_REGISTRY[panel].defaultVisible
+					? NSControlStateValueOn : NSControlStateValueOff];
 		}
 		addItem(viewMenu, @"Reset Layout", TAG_RESET_LAYOUT, @"", 0);
 		[viewMenu addItem:[NSMenuItem separatorItem]];

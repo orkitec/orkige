@@ -11,16 +11,16 @@ never silently at play. The source .json stays the artist's living document;
 the cook is idempotent and deterministic, so re-running it after an edit
 regenerates the same .oanim byte-for-byte.
 
-Supported subset (v1, flat-colour art direction):
+Supported subset (v1, game-ready vector art):
   layers    shape (ty 4), null (ty 3), solid (ty 1), precomp (ty 0 - inlined
             at cook when untimed: stretch 1, no time remap; nested inlining
-            works, the crop rectangle is not applied), parenting, in/out
-            windows (baked into the opacity channel), hidden layers skipped
-  shapes    groups (static group transforms baked into vertices, animated
-            group opacity folded into the fill), paths, ellipses, rects
-            (incl. rounded - flattened to beziers), flat fills with animated
-            colour and opacity; fill rule (nonzero/evenodd) drives hole
-            assignment
+            works), parenting, in/out windows, hidden layers
+  shapes    groups (static/animated transforms baked into shape poses), paths,
+            ellipses, rects, polystars; flat and linear/radial gradient fills;
+            strokes expanded to vector outlines (caps, miter/round/bevel joins,
+            animated width/paint, dash/gap/offset); parallel trim paths,
+            rounded-corner and pucker/bloat modifiers; additive merge
+  clipping  one additive, non-inverted convex mask per layer (animated paths)
   timing    keyframes with cubic value-bezier easing and hold keys; markers
             become clips (a `#once` comment suffix makes a one-shot clip;
             zero-duration markers extend to the next marker); `--clips`
@@ -36,9 +36,11 @@ flattened vertices equals flattening the lerped bezier exactly (beziers are
 linear in their control points).
 
 Out of subset - each a named, per-layer cook error (never a silent skip):
-gradients, strokes, masks, track mattes, layer effects, expressions, image
-and text layers, repeaters, merge/trim paths, rounded-corner modifiers,
-skew, auto-orient, 3D layers, time stretch/remap, TIMED precomps.
+track mattes, layer effects, arbitrary expressions, image/text layers,
+repeaters, boolean merge paths, sequential trim, non-convex/multiple/subtract
+masks, zig-zag/offset/twist modifiers, skew, auto-orient, 3D layers, time
+stretch/remap and timed precomps. Direct layer-transform link expressions are
+resolved before validation.
 
 A document where NOTHING animates cooks to a plain .oshape instead (the
 static one-shape-core case) - the output path's suffix is switched.
@@ -56,6 +58,7 @@ unit test, which feeds the SAME .oanim through the real parser + evaluator.
 """
 
 import argparse
+import copy
 import json
 import math
 import re
@@ -364,6 +367,48 @@ def _path_rect(center, size, radius, rounded_topology):
     return {"closed": True, "v": v, "o": o, "i": i}
 
 
+def _path_polystar(item, frame):
+    """Lottie `sr` polygon/star primitive as a path. Point counts are rounded
+    exactly as the reference players do. Roundness is deliberately expressed
+    as cubic handles, so the normal fixed-topology flattening path handles
+    both static and animated stars without a renderer special case."""
+    points = max(2, int(round(_sample_prop(item.get("pt"), 1, [5.0], frame)[0])))
+    center = _sample_prop(item.get("p"), 2, [0.0, 0.0], frame)
+    rotation = math.radians(
+        _sample_prop(item.get("r"), 1, [0.0], frame)[0] - 90.0)
+    outer = abs(_sample_prop(item.get("or"), 1, [0.0], frame)[0])
+    outer_round = max(0.0, _sample_prop(item.get("os"), 1, [0.0], frame)[0]) / 100.0
+    is_star = int(item.get("sy", 1)) == 1
+    inner = abs(_sample_prop(item.get("ir"), 1, [outer * 0.5], frame)[0])
+    inner_round = max(0.0, _sample_prop(item.get("is"), 1, [0.0], frame)[0]) / 100.0
+    count = points * 2 if is_star else points
+    step = (math.pi * 2.0) / count
+    direction = -1.0 if int(item.get("d", 1)) == 3 else 1.0
+    vertices = []
+    radii = []
+    rounds = []
+    for index in range(count):
+        use_inner = is_star and index % 2 == 1
+        radius = inner if use_inner else outer
+        angle = rotation + direction * step * index
+        vertices.append((center[0] + math.cos(angle) * radius,
+                         center[1] + math.sin(angle) * radius))
+        radii.append(radius)
+        rounds.append(inner_round if use_inner else outer_round)
+    incoming = []
+    outgoing = []
+    # AE's roundness handles are tangent to the circumcircle. The 0.47829
+    # factor is Bodymovin's star/polygon handle constant.
+    for index, (x, y) in enumerate(vertices):
+        angle = rotation + direction * step * index
+        handle = radii[index] * rounds[index] * 0.47829 * step
+        tx = -math.sin(angle) * direction * handle
+        ty = math.cos(angle) * direction * handle
+        incoming.append((-tx, -ty))
+        outgoing.append((tx, ty))
+    return {"closed": True, "v": vertices, "i": incoming, "o": outgoing}
+
+
 def _transform_path(path, affine):
     """Apply a static 2x3 affine (a, b, c, d, tx, ty) to a bezier path:
     vertices fully, tangents by the linear part only."""
@@ -455,14 +500,7 @@ _LAYER_TYPE_NAMES = {
 }
 
 _SHAPE_ITEM_ERRORS = {
-    "gf": "gradient fill (flat fills only)",
-    "gs": "gradient stroke (flat fills only)",
-    "st": "stroke (flat fills only)",
     "rp": "repeater",
-    "mm": "merge paths",
-    "tm": "trim paths",
-    "rd": "rounded-corners modifier (round the source path instead)",
-    "pb": "pucker/bloat",
     "zz": "zig-zag",
     "op": "offset path",
     "tw": "twist",
@@ -503,35 +541,57 @@ def _validate_transform(ks, layer_name, errors):
 
 
 def _walk_shape_items(items, layer_name, group_affines, group_opacities,
-                      blocks, errors):
+                      blocks, errors, inherited_trim=None,
+                      inherited_modifiers=None):
     """Recurse a shape-item list. Paths accumulate per group; each fill emits
     one paint block over that group's paths (styles bind within their group).
-    group_affines: composed STATIC group transforms (outer to inner);
+    group_affines: group transform records (outer to inner), sampled while
+    shape keys are baked;
     group_opacities: animatable group-opacity props on the chain."""
     # the group transform rides as the (by convention last) `tr` item but
     # applies to the WHOLE group: bind it before walking the paints
     for item in items:
         if item.get("ty") != "tr" or item.get("hd"):
             continue
-        # static only (an animated group transform is out of subset -
-        # animate the LAYER instead); group opacity MAY animate (it folds
-        # into the fill alpha)
+        # Group transforms are baked into the shape poses. This keeps the
+        # runtime rig small while preserving the hierarchy used by authored
+        # character parts.
         for prop_name, dim, what in (("p", 2, "position"),
                                      ("a", 2, "anchor"),
                                      ("s", 2, "scale"),
                                      ("r", 1, "rotation")):
             prop = item.get(prop_name)
             _check_expressions(prop, layer_name, "group " + what, errors)
-            if _is_animated(prop, dim):
-                errors.append(
-                    "animated group %s on layer '%s' - animate the "
-                    "layer transform or split into layers" %
-                    (what, layer_name))
+            if prop_name == "p" and isinstance(prop, dict) and prop.get("s"):
+                for component in ("x", "y"):
+                    _check_expressions(prop.get(component), layer_name,
+                                       "group position." + component, errors)
         opacity = item.get("o")
         _check_expressions(opacity, layer_name, "group opacity", errors)
         if opacity is not None:
             group_opacities.append(opacity)
-        group_affines.append(_static_group_affine(item))
+        group_affines.append(item)
+
+    # A trim in a containing group applies to preceding nested path groups.
+    # The common simultaneous mode (m=1) is preserved as one shared length
+    # domain by attaching the modifier to every affected stroke block.
+    trim = inherited_trim
+    modifiers = list(inherited_modifiers or [])
+    for item in items:
+        if item.get("ty") == "tm" and not item.get("hd"):
+            if int(item.get("m", 1)) != 1:
+                errors.append("sequential trim paths on layer '%s' are not "
+                              "supported; use parallel trim or bake the "
+                              "result" % layer_name)
+            trim = item
+        elif item.get("ty") == "rd" and not item.get("hd"):
+            _check_expressions(item.get("r"), layer_name,
+                               "rounded corners", errors)
+            modifiers.append(item)
+        elif item.get("ty") == "pb" and not item.get("hd"):
+            _check_expressions(item.get("a"), layer_name,
+                               "pucker/bloat", errors)
+            modifiers.append(item)
 
     paths = []      # (kind, props) collected in this group, document order
     for item in items:
@@ -546,7 +606,7 @@ def _walk_shape_items(items, layer_name, group_affines, group_opacities,
         elif ty == "gr":
             _walk_shape_items(item.get("it", []), layer_name,
                               list(group_affines), list(group_opacities),
-                              blocks, errors)
+                              blocks, errors, trim, modifiers)
         elif ty == "sh":
             _check_expressions(item.get("ks"), layer_name, "path", errors)
             paths.append(("sh", item))
@@ -558,6 +618,11 @@ def _walk_shape_items(items, layer_name, group_affines, group_opacities,
             for prop in (item.get("p"), item.get("s"), item.get("r")):
                 _check_expressions(prop, layer_name, "rect", errors)
             paths.append(("rc", item))
+        elif ty == "sr":
+            for prop_name in ("pt", "p", "r", "or", "os", "ir", "is"):
+                _check_expressions(item.get(prop_name), layer_name,
+                                   "polystar " + prop_name, errors)
+            paths.append(("sr", item))
         elif ty == "fl":
             _check_expressions(item.get("c"), layer_name, "fill colour",
                                errors)
@@ -568,10 +633,57 @@ def _walk_shape_items(items, layer_name, group_affines, group_opacities,
             blocks.append({
                 "paths": list(paths),
                 "fill": item,
+                "kind": "fill",
                 "affines": list(group_affines),
                 "opacities": list(group_opacities),
+                "modifiers": list(modifiers),
                 "layer": layer_name,
             })
+        elif ty == "gf":
+            _validate_gradient_style(item, layer_name, errors)
+            if paths:
+                blocks.append({
+                    "paths": list(paths), "fill": item,
+                    "kind": "gradient_fill",
+                    "affines": list(group_affines),
+                    "opacities": list(group_opacities),
+                    "modifiers": list(modifiers), "layer": layer_name,
+                })
+        elif ty == "st":
+            for prop_name in ("c", "o", "w"):
+                _check_expressions(item.get(prop_name), layer_name,
+                                   "stroke " + prop_name, errors)
+            _validate_stroke_dashes(item, layer_name, errors)
+            if paths:
+                blocks.append({
+                    "paths": list(paths), "fill": item, "kind": "stroke",
+                    "trim": trim, "affines": list(group_affines),
+                    "opacities": list(group_opacities),
+                    "modifiers": list(modifiers), "layer": layer_name,
+                })
+        elif ty == "gs":
+            _validate_gradient_style(item, layer_name, errors)
+            _validate_stroke_dashes(item, layer_name, errors)
+            if paths:
+                blocks.append({
+                    "paths": list(paths), "fill": item,
+                    "kind": "gradient_stroke", "trim": trim,
+                    "affines": list(group_affines),
+                    "opacities": list(group_opacities),
+                    "modifiers": list(modifiers), "layer": layer_name,
+                })
+        elif ty in ("tm", "rd", "pb"):
+            # Consumed above and inherited by nested groups.
+            continue
+        elif ty == "mm":
+            # Mode 1 is additive merge. Keeping its input contours is
+            # equivalent for an opaque fill and for subsequent strokes; the
+            # tessellator handles the individual contours. Boolean subtract,
+            # intersect and exclusion need a clipping stage.
+            if int(item.get("mm", 1)) != 1:
+                errors.append("merge paths mode %s on layer '%s' - only "
+                              "additive merge is supported" %
+                              (item.get("mm"), layer_name))
         else:
             errors.append("unsupported shape item '%s' on layer '%s' - not "
                           "in the cook subset" % (ty, layer_name))
@@ -580,10 +692,61 @@ def _walk_shape_items(items, layer_name, group_affines, group_opacities,
 def _static_group_affine(tr):
     """A group transform as a static 2x3 affine in Lottie (y-down) space:
     translate(p) . rotate(r) . scale(s) . translate(-a)."""
-    p = _static_value(tr.get("p"), 2, [0.0, 0.0])
-    a = _static_value(tr.get("a"), 2, [0.0, 0.0])
-    s = _static_value(tr.get("s"), 2, [100.0, 100.0])
-    r = _static_value(tr.get("r"), 1, [0.0])[0]
+    return _group_affine_at(tr, 0.0)
+
+
+def _validate_stroke_dashes(style, layer_name, errors):
+    entries = style.get("d", [])
+    if not isinstance(entries, list) or not entries:
+        return
+    pattern_index = 0
+    offset_seen = False
+    for index, entry in enumerate(entries):
+        dash_type = entry.get("n", "d")
+        _check_expressions(entry.get("v"), layer_name,
+                           "stroke dash " + dash_type, errors)
+        if dash_type == "o":
+            if offset_seen or index != len(entries) - 1:
+                errors.append("stroke dash offset on layer '%s' must appear "
+                              "once at the end" % layer_name)
+            offset_seen = True
+            continue
+        expected = "d" if pattern_index % 2 == 0 else "g"
+        if dash_type != expected:
+            errors.append("stroke dash pattern on layer '%s' must alternate "
+                          "dash/gap starting with dash" % layer_name)
+            return
+        pattern_index += 1
+    if pattern_index == 0:
+        errors.append("stroke dash pattern on layer '%s' has no dash/gap "
+                      "entries" % layer_name)
+
+
+def _validate_gradient_style(style, layer_name, errors):
+    gradient = style.get("g", {})
+    for prop, label in ((gradient.get("k"), "gradient stops"),
+                        (style.get("s"), "gradient start"),
+                        (style.get("e"), "gradient end"),
+                        (style.get("o"), "gradient opacity"),
+                        (style.get("h"), "gradient highlight"),
+                        (style.get("a"), "gradient highlight angle")):
+        _check_expressions(prop, layer_name, label, errors)
+
+
+def _sample_position(prop, frame, default=(0.0, 0.0)):
+    """Sample a combined or split-dimension Lottie position property."""
+    if isinstance(prop, dict) and prop.get("s"):
+        return [_sample_prop(prop.get("x"), 1, [default[0]], frame)[0],
+                _sample_prop(prop.get("y"), 1, [default[1]], frame)[0]]
+    return _sample_prop(prop, 2, list(default), frame)
+
+
+def _group_affine_at(tr, frame):
+    """Sample one shape-group transform as a 2x3 y-down affine."""
+    p = _sample_position(tr.get("p"), frame)
+    a = _sample_prop(tr.get("a"), 2, [0.0, 0.0], frame)
+    s = _sample_prop(tr.get("s"), 2, [100.0, 100.0], frame)
+    r = _sample_prop(tr.get("r"), 1, [0.0], frame)[0]
     rad = math.radians(r)
     cos_r, sin_r = math.cos(rad), math.sin(rad)
     sx, sy = s[0] / 100.0, s[1] / 100.0
@@ -595,6 +758,39 @@ def _static_group_affine(tr):
     return (la, lb, lc, ld, tx, ty)
 
 
+def _block_affine_at(block, frame):
+    return _compose_affines([_group_affine_at(transform, frame)
+                             for transform in block["affines"]])
+
+
+def _group_transform_key_times(block, offset):
+    """Output-frame key times for every animated group transform in a block."""
+    times = []
+    for transform in block["affines"]:
+        position = transform.get("p")
+        if isinstance(position, dict) and position.get("s"):
+            props = ((position.get("x"), 1), (position.get("y"), 1))
+        else:
+            props = ((position, 2),)
+        props += ((transform.get("a"), 2), (transform.get("s"), 2),
+                  (transform.get("r"), 1))
+        for prop, dim in props:
+            if _is_animated(prop, dim):
+                times.extend(key["t"] + offset
+                             for key in _prop_keys(prop, dim))
+    return times
+
+
+def _path_modifier_key_times(block, offset):
+    times = []
+    for modifier in block.get("modifiers", []):
+        prop = modifier.get("r") if modifier.get("ty") == "rd" else \
+            modifier.get("a")
+        if _is_animated(prop, 1):
+            times.extend(key["t"] + offset for key in _prop_keys(prop, 1))
+    return times
+
+
 def _compose_affines(affines):
     out = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
     for aff in affines:
@@ -604,6 +800,52 @@ def _compose_affines(affines):
                c0 * a1 + d0 * c1, c0 * b1 + d0 * d1,
                a0 * tx1 + b0 * ty1 + tx0, c0 * tx1 + d0 * ty1 + ty0)
     return out
+
+
+_LINK_EXPRESSION = re.compile(
+    r"thisComp\.layer\(\s*(['\"])(.*?)\1\s*\)\.transform\."
+    r"(position|anchorPoint|scale|rotation|opacity)\b")
+
+
+def _resolve_link_expressions(data):
+    """Bake the common Bodymovin expression form that directly links one
+    layer transform property to another. It is declarative rather than an
+    arbitrary program and maps losslessly to `.oanim`: copy the referenced
+    keyframed property before normal channel conversion. Unknown expressions
+    remain in place and are still rejected honestly by validation."""
+    prop_names = {"position": "p", "anchorPoint": "a", "scale": "s",
+                  "rotation": "r", "opacity": "o"}
+
+    def resolve_comp(layers):
+        if not isinstance(layers, list):
+            return
+        by_name = {str(layer.get("nm", "")): layer for layer in layers
+                   if isinstance(layer, dict)}
+        for layer in layers:
+            if not isinstance(layer, dict):
+                continue
+            ks = layer.get("ks")
+            if not isinstance(ks, dict):
+                continue
+            for key in ("p", "a", "s", "r", "o"):
+                prop = ks.get(key)
+                expression = prop.get("x") if isinstance(prop, dict) else None
+                if not isinstance(expression, str):
+                    continue
+                match = _LINK_EXPRESSION.search(expression)
+                if not match:
+                    continue
+                target = by_name.get(match.group(2))
+                target_ks = target.get("ks") if isinstance(target, dict) else None
+                source = target_ks.get(prop_names[match.group(3)]) \
+                    if isinstance(target_ks, dict) else None
+                if source is not None:
+                    ks[key] = copy.deepcopy(source)
+
+    resolve_comp(data.get("layers"))
+    for asset in data.get("assets", []):
+        if isinstance(asset, dict):
+            resolve_comp(asset.get("layers"))
 
 
 def _flatten_layers(data, errors):
@@ -618,6 +860,7 @@ def _flatten_layers(data, errors):
     def walk(layers, prefix, offset, parent_of_root, ref_stack):
         # per-comp map: Lottie layer ind -> flat entry (for parent links)
         by_ind = {}
+        local_entries = []
         for raw in layers:
             ty = raw.get("ty")
             name = _sanitize_name(raw.get("nm"),
@@ -647,9 +890,19 @@ def _flatten_layers(data, errors):
                 errors.append("track matte on layer '%s' - not supported" %
                               name)
                 continue
-            if raw.get("masksProperties"):
-                errors.append("mask on layer '%s' - not supported" % name)
-                continue
+            masks = raw.get("masksProperties", [])
+            for mask in masks:
+                mode = mask.get("mode", "a")
+                if mode != "a" or mask.get("inv"):
+                    errors.append("mask mode '%s'%s on layer '%s' - this "
+                                  "vector cook currently supports additive "
+                                  "non-inverted masks" %
+                                  (mode, " inverted" if mask.get("inv") else "",
+                                   name))
+                _check_expressions(mask.get("pt"), name, "mask path", errors)
+                if abs(_static_value(mask.get("x"), 1, [0.0])[0]) > EPS:
+                    errors.append("expanded mask on layer '%s' - not "
+                                  "supported" % name)
             if raw.get("ef"):
                 errors.append("layer effects on layer '%s' - not supported" %
                               name)
@@ -671,20 +924,18 @@ def _flatten_layers(data, errors):
                 "blocks": [],
                 "inherit_opacity": False,
             }
-            parent_ind = raw.get("parent")
-            if parent_ind is not None:
-                if parent_ind in by_ind:
-                    entry["parent"] = by_ind[parent_ind]
-                else:
-                    errors.append("layer '%s' parents a missing or "
-                                  "unsupported layer (ind %s)" %
-                                  (name, parent_ind))
-            else:
-                entry["parent"] = parent_of_root
+            # Lottie paint order is top-first and parents commonly appear
+            # later in the layer array. Resolve after this composition has
+            # been walked instead of requiring a backward reference.
+            entry["parent_ind"] = raw.get("parent")
+            entry["parent"] = parent_of_root
+            local_entries.append(entry)
 
             if ty == 4:
                 _walk_shape_items(raw.get("shapes", []), name, [], [],
                                   entry["blocks"], errors)
+                for block in entry["blocks"]:
+                    block["masks"] = masks
             elif ty == 1:
                 entry["blocks"].append(_solid_block(raw, name, errors))
             elif ty == 0:
@@ -712,6 +963,17 @@ def _flatten_layers(data, errors):
             flat.append(entry)
             if raw.get("ind") is not None:
                 by_ind[raw.get("ind")] = entry
+
+        for entry in local_entries:
+            parent_ind = entry.pop("parent_ind", None)
+            if parent_ind is None:
+                continue
+            if parent_ind in by_ind:
+                entry["parent"] = by_ind[parent_ind]
+            else:
+                errors.append("layer '%s' parents a missing or unsupported "
+                              "layer (ind %s)" %
+                              (entry["name"], parent_ind))
 
     walk(data.get("layers", []), "", -comp_ip, None, [])
     return flat
@@ -903,12 +1165,117 @@ def _block_path_at(kind, item, frame):
         p = _sample_prop(item.get("p"), 2, [0.0, 0.0], frame)
         s = _sample_prop(item.get("s"), 2, [0.0, 0.0], frame)
         return _path_ellipse(p, s)
+    if kind == "sr":
+        return _path_polystar(item, frame)
     # rc
     p = _sample_prop(item.get("p"), 2, [0.0, 0.0], frame)
     s = _sample_prop(item.get("s"), 2, [0.0, 0.0], frame)
     r = _sample_prop(item.get("r"), 1, [0.0], frame)[0]
     rounded = _rect_max_radius(item) > EPS
     return _path_rect(p, s, r, rounded)
+
+
+def _edge_is_linear(path, index):
+    edge = _path_edges(path)[index]
+    p0, c1, c2, p3 = edge
+    tolerance = max(1e-5, math.hypot(p3[0] - p0[0], p3[1] - p0[1]) * 1e-5)
+    return _dist_to_segment(c1, p0, p3) <= tolerance and \
+        _dist_to_segment(c2, p0, p3) <= tolerance
+
+
+def _round_path_corners(path, radius):
+    """Apply one rounded-corner modifier without changing its output
+    topology as the radius animates. Unrounded vertices are represented by a
+    zero-length pair whose split tangents reproduce the original curve."""
+    count = len(path["v"])
+    if count < 2:
+        return path
+    radius = max(float(radius), 0.0)
+    vertices, incoming, outgoing = [], [], []
+    for index, vertex in enumerate(path["v"]):
+        endpoint = not path["closed"] and index in (0, count - 1)
+        previous = (index - 1) % count
+        following = (index + 1) % count
+        roundable = not endpoint and _edge_is_linear(path, previous) and \
+            _edge_is_linear(path, index)
+        if roundable and radius > EPS:
+            before = path["v"][previous]
+            after = path["v"][following]
+            before_length = math.hypot(before[0] - vertex[0],
+                                       before[1] - vertex[1])
+            after_length = math.hypot(after[0] - vertex[0],
+                                      after[1] - vertex[1])
+            distance = min(radius, before_length * 0.5,
+                           after_length * 0.5)
+            if distance > EPS and before_length > EPS and after_length > EPS:
+                first = (vertex[0] + (before[0] - vertex[0]) *
+                         distance / before_length,
+                         vertex[1] + (before[1] - vertex[1]) *
+                         distance / before_length)
+                second = (vertex[0] + (after[0] - vertex[0]) *
+                          distance / after_length,
+                          vertex[1] + (after[1] - vertex[1]) *
+                          distance / after_length)
+                vertices.extend((first, second))
+                incoming.extend(((0.0, 0.0),
+                                 ((vertex[0] - second[0]) * KAPPA,
+                                  (vertex[1] - second[1]) * KAPPA)))
+                outgoing.extend((((vertex[0] - first[0]) * KAPPA,
+                                  (vertex[1] - first[1]) * KAPPA),
+                                 (0.0, 0.0)))
+                continue
+        if endpoint:
+            vertices.append(vertex)
+            incoming.append(path["i"][index])
+            outgoing.append(path["o"][index])
+        else:
+            vertices.extend((vertex, vertex))
+            incoming.extend((path["i"][index], (0.0, 0.0)))
+            outgoing.extend(((0.0, 0.0), path["o"][index]))
+    return {"closed": path["closed"], "v": vertices,
+            "i": incoming, "o": outgoing}
+
+
+def _pucker_bloat_path(path, raw_amount):
+    """Move vertices and their absolute handles according to the standard
+    pucker/bloat modifier. Vertex count and closure remain unchanged."""
+    if not path["v"]:
+        return path
+    amount = float(raw_amount) / 100.0
+    center = (sum(point[0] for point in path["v"]) / len(path["v"]),
+              sum(point[1] for point in path["v"]) / len(path["v"]))
+    vertices, incoming, outgoing = [], [], []
+    for vertex, in_handle, out_handle in zip(
+            path["v"], path["i"], path["o"]):
+        moved = (vertex[0] + amount * (center[0] - vertex[0]),
+                 vertex[1] + amount * (center[1] - vertex[1]))
+        absolute_in = (vertex[0] + in_handle[0],
+                       vertex[1] + in_handle[1])
+        absolute_out = (vertex[0] + out_handle[0],
+                        vertex[1] + out_handle[1])
+        moved_in = (absolute_in[0] - amount * (center[0] - absolute_in[0]),
+                    absolute_in[1] - amount * (center[1] - absolute_in[1]))
+        moved_out = (absolute_out[0] - amount *
+                     (center[0] - absolute_out[0]),
+                     absolute_out[1] - amount *
+                     (center[1] - absolute_out[1]))
+        vertices.append(moved)
+        incoming.append((moved_in[0] - moved[0], moved_in[1] - moved[1]))
+        outgoing.append((moved_out[0] - moved[0], moved_out[1] - moved[1]))
+    return {"closed": path["closed"], "v": vertices,
+            "i": incoming, "o": outgoing}
+
+
+def _block_path_with_modifiers(block, kind, item, frame):
+    path = _block_path_at(kind, item, frame)
+    for modifier in block.get("modifiers", []):
+        if modifier.get("ty") == "rd":
+            radius = _sample_prop(modifier.get("r"), 1, [0.0], frame)[0]
+            path = _round_path_corners(path, radius)
+        elif modifier.get("ty") == "pb":
+            amount = _sample_prop(modifier.get("a"), 1, [0.0], frame)[0]
+            path = _pucker_bloat_path(path, amount)
+    return path
 
 
 def _rect_max_radius(item):
@@ -1021,11 +1388,81 @@ def _sample_fill_rgba(block, frame):
     return (clamp(value[0]), clamp(value[1]), clamp(value[2]), clamp(alpha))
 
 
+def _sample_gradient_paint(block, frame, affine, place):
+    style = block["fill"]
+    count = max(2, int(style.get("g", {}).get("p", 2)))
+    prop = style.get("g", {}).get("k", {})
+    raw = prop.get("k", []) if isinstance(prop, dict) else prop
+    if isinstance(prop, dict) and int(prop.get("a", 0)) == 1 and raw:
+        dimension = len(_as_list(raw[0].get("s", [])))
+        values = _sample_prop(prop, dimension, [0.0] * dimension, frame)
+    else:
+        values = [float(v) for v in _as_list(raw)]
+    while len(values) < count * 4:
+        values.append(0.0)
+    colour_stops = []
+    for index in range(count):
+        base = index * 4
+        colour_stops.append([min(max(values[base], 0.0), 1.0),
+                             min(max(values[base + 1], 0.0), 1.0),
+                             min(max(values[base + 2], 0.0), 1.0),
+                             min(max(values[base + 3], 0.0), 1.0), 1.0])
+    alpha_stops = []
+    for index in range(count * 4, len(values) - 1, 2):
+        alpha_stops.append((min(max(values[index], 0.0), 1.0),
+                            min(max(values[index + 1], 0.0), 1.0)))
+
+    def alpha_at(position):
+        if not alpha_stops:
+            return 1.0
+        if position <= alpha_stops[0][0]:
+            return alpha_stops[0][1]
+        for left, right in zip(alpha_stops, alpha_stops[1:]):
+            if position <= right[0]:
+                span = max(right[0] - left[0], EPS)
+                u = (position - left[0]) / span
+                return left[1] + u * (right[1] - left[1])
+        return alpha_stops[-1][1]
+
+    opacity = _sample_prop(style.get("o"), 1, [100.0], frame)[0] / 100.0
+    for group_opacity in block["opacities"]:
+        opacity *= _sample_prop(group_opacity, 1, [100.0], frame)[0] / 100.0
+    stops = [(stop[0], stop[1], stop[2], stop[3],
+              min(max(alpha_at(stop[0]) * opacity, 0.0), 1.0))
+             for stop in colour_stops]
+
+    def transformed(point):
+        x = affine[0] * point[0] + affine[1] * point[1] + affine[4]
+        y = affine[2] * point[0] + affine[3] * point[1] + affine[5]
+        return place((x, y))
+    start_value = _sample_prop(style.get("s"), 2, [0.0, 0.0], frame)
+    end_value = _sample_prop(style.get("e"), 2, [0.0, 0.0], frame)
+    radial = int(style.get("t", 1)) != 1
+    focal_value = list(start_value)
+    if radial:
+        highlight = _sample_prop(style.get("h"), 1, [0.0], frame)[0] / 100.0
+        highlight = min(max(highlight, -0.99), 0.99)
+        angle = math.radians(
+            _sample_prop(style.get("a"), 1, [0.0], frame)[0])
+        radius = math.hypot(end_value[0] - start_value[0],
+                            end_value[1] - start_value[1])
+        focal_value = [start_value[0] + math.cos(angle) * radius * highlight,
+                       start_value[1] + math.sin(angle) * radius * highlight]
+    return {"type": "radial" if radial else "linear",
+            "start": transformed(start_value), "end": transformed(end_value),
+            "focal": transformed(focal_value), "stops": stops}
+
+
 def _block_sample_times(block, duration, offset):
     """(times, eases, densified): the shape-key timeline of a block in
     OUTPUT frames. Direct when exactly one animated source exists, it is a
     'sh' path or scalar chain with expressible easing and in-range keys;
     otherwise the union span densifies to integer frames."""
+    if block.get("kind", "fill") in ("stroke", "gradient_stroke"):
+        return _stroke_sample_times(block, duration, offset)
+    if block.get("kind") == "gradient_fill":
+        return _gradient_sample_times(block, duration, offset)
+
     animated_paths = []
     for kind, item in block["paths"]:
         if kind == "sh":
@@ -1040,8 +1477,13 @@ def _block_sample_times(block, duration, offset):
     colour_animated = _is_animated(block["fill"].get("c"), 4)
     alpha_animated = any(_is_animated(p, 1) for p in _fill_alpha_props(block))
 
+    mask_times = _mask_key_times(block, offset)
+    group_transform_times = _group_transform_key_times(block, offset)
+    modifier_times = _path_modifier_key_times(block, offset)
     sources = len(animated_paths) + (1 if colour_animated else 0) + \
-        (1 if alpha_animated else 0)
+        (1 if alpha_animated else 0) + (1 if mask_times else 0) + \
+        (1 if group_transform_times else 0) + \
+        (1 if modifier_times else 0)
     if sources == 0:
         return [0.0], [None], False
 
@@ -1059,7 +1501,8 @@ def _block_sample_times(block, duration, offset):
             eases.append(ease)
         if ok and len(keys) >= 2:
             return ([k["t"] + offset for k in keys], eases + [None], False)
-    elif sources == 1 and not animated_paths:
+    elif sources == 1 and not animated_paths and not mask_times and \
+            not group_transform_times and not modifier_times:
         prop = block["fill"].get("c") if colour_animated else None
         if prop is None:
             animated_alpha = [p for p in _fill_alpha_props(block)
@@ -1096,8 +1539,539 @@ def _block_sample_times(block, duration, offset):
     for prop in _fill_alpha_props(block):
         if _is_animated(prop, 1):
             times += [k["t"] + offset for k in _prop_keys(prop, 1)]
+    times += mask_times
+    times += group_transform_times
+    times += modifier_times
     frames = _densify_frames(min(times), max(times), duration)
     return frames, [("lin",)] * (len(frames) - 1) + [None], True
+
+
+def _stroke_sample_times(block, duration, offset):
+    """Strokes are expanded to filled vector outlines during cooking. Any
+    animated centreline, width, colour, opacity or trim therefore densifies
+    over its union span, keeping the runtime grammar and interpolation small."""
+    times = []
+
+    def add_prop(prop, dim):
+        if _is_animated(prop, dim):
+            times.extend(k["t"] + offset for k in _prop_keys(prop, dim))
+
+    for kind, item in block["paths"]:
+        if kind == "sh" and _is_animated_path(item.get("ks", {})):
+            times.extend(k["t"] + offset
+                         for k in _path_prop_keys(item.get("ks", {})))
+        elif kind in ("el", "rc"):
+            for name, dim in (("p", 2), ("s", 2), ("r", 1)):
+                add_prop(item.get(name), dim)
+        elif kind == "sr":
+            for name, dim in (("pt", 1), ("p", 2), ("r", 1),
+                              ("or", 1), ("os", 1), ("ir", 1), ("is", 1)):
+                add_prop(item.get(name), dim)
+    style = block["fill"]
+    if block.get("kind") == "gradient_stroke":
+        _add_gradient_times(style, add_prop)
+    else:
+        add_prop(style.get("c"), 4)
+    add_prop(style.get("o"), 1)
+    add_prop(style.get("w"), 1)
+    for dash in style.get("d", []):
+        add_prop(dash.get("v"), 1)
+    for prop in block["opacities"]:
+        add_prop(prop, 1)
+    trim = block.get("trim")
+    if isinstance(trim, dict):
+        for name in ("s", "e", "o"):
+            add_prop(trim.get(name), 1)
+    times += _mask_key_times(block, offset)
+    times += _group_transform_key_times(block, offset)
+    times += _path_modifier_key_times(block, offset)
+    if not times:
+        return [0.0], [None], False
+    frames = _densify_frames(min(times), max(times), duration)
+    return frames, [("lin",)] * (len(frames) - 1) + [None], True
+
+
+def _add_gradient_times(style, add_prop):
+    count = max(2, int(style.get("g", {}).get("p", 2)))
+    gradient_prop = style.get("g", {}).get("k")
+    if isinstance(gradient_prop, dict):
+        raw = gradient_prop.get("k", [])
+        if int(gradient_prop.get("a", 0)) == 1 and raw:
+            first = _as_list(raw[0].get("s", []))
+            add_prop(gradient_prop, max(len(first), count * 4))
+    for name in ("s", "e"):
+        add_prop(style.get(name), 2)
+    if int(style.get("t", 1)) != 1:
+        add_prop(style.get("h"), 1)
+        add_prop(style.get("a"), 1)
+
+
+def _gradient_sample_times(block, duration, offset):
+    times = []
+    def add_prop(prop, dim):
+        if _is_animated(prop, dim):
+            times.extend(k["t"] + offset for k in _prop_keys(prop, dim))
+    # Include geometry animation by reusing the fill analyser, then add the
+    # gradient-specific channels. Sampling all integer frames keeps combined
+    # path/paint animation aligned.
+    for kind, item in block["paths"]:
+        if kind == "sh" and _is_animated_path(item.get("ks", {})):
+            times.extend(k["t"] + offset
+                         for k in _path_prop_keys(item.get("ks", {})))
+        elif kind in ("el", "rc"):
+            for name, dim in (("p", 2), ("s", 2), ("r", 1)):
+                add_prop(item.get(name), dim)
+    _add_gradient_times(block["fill"], add_prop)
+    add_prop(block["fill"].get("o"), 1)
+    for prop in block["opacities"]:
+        add_prop(prop, 1)
+    times += _mask_key_times(block, offset)
+    times += _group_transform_key_times(block, offset)
+    times += _path_modifier_key_times(block, offset)
+    if not times:
+        return [0.0], [None], False
+    frames = _densify_frames(min(times), max(times), duration)
+    return frames, [("lin",)] * (len(frames) - 1) + [None], True
+
+
+def _mask_key_times(block, offset):
+    times = []
+    for mask in block.get("masks", []):
+        prop = mask.get("pt", {})
+        if _is_animated_path(prop):
+            times.extend(key["t"] + offset for key in _path_prop_keys(prop))
+    return times
+
+
+def _trim_polyline(points, closed, trim, frame):
+    """Apply a Lottie trim modifier to a flattened centreline and resample
+    it at a fixed count. Fixed sampling is important: animated trim endpoints
+    may move, but every `.oanim` key must keep identical topology."""
+    if not isinstance(trim, dict) or len(points) < 2:
+        return points, closed
+    start = _sample_prop(trim.get("s"), 1, [0.0], frame)[0] / 100.0
+    end = _sample_prop(trim.get("e"), 1, [100.0], frame)[0] / 100.0
+    offset = _sample_prop(trim.get("o"), 1, [0.0], frame)[0] / 360.0
+    span = end - start
+    if abs(span) >= 1.0 - 1e-5:
+        return points, closed
+    start = (start + offset) % 1.0
+    span = span % 1.0
+    if span <= 1e-5:
+        span = 1e-5
+
+    chain = list(points)
+    if closed:
+        chain.append(points[0])
+    lengths = [0.0]
+    for a, b in zip(chain, chain[1:]):
+        lengths.append(lengths[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    total = lengths[-1]
+    if total <= EPS:
+        return points, False
+
+    def point_at(fraction):
+        distance = (fraction % 1.0) * total
+        for index in range(len(chain) - 1):
+            if distance <= lengths[index + 1] + EPS:
+                edge = lengths[index + 1] - lengths[index]
+                u = 0.0 if edge <= EPS else (distance - lengths[index]) / edge
+                a, b = chain[index], chain[index + 1]
+                return (a[0] + (b[0] - a[0]) * u,
+                        a[1] + (b[1] - a[1]) * u)
+        return chain[-1]
+
+    count = max(len(points), 16)
+    sampled = [point_at(start + span * i / (count - 1))
+               for i in range(count)]
+    return sampled, False
+
+
+def _polyline_chain(points, closed):
+    chain = list(points)
+    if closed and chain and chain[-1] != chain[0]:
+        chain.append(chain[0])
+    lengths = [0.0]
+    for first, second in zip(chain, chain[1:]):
+        lengths.append(lengths[-1] + math.hypot(
+            second[0] - first[0], second[1] - first[1]))
+    return chain, lengths
+
+
+def _point_on_chain(chain, lengths, distance):
+    if not chain:
+        return (0.0, 0.0)
+    distance = min(max(distance, 0.0), lengths[-1])
+    for index in range(len(chain) - 1):
+        if distance <= lengths[index + 1] + EPS:
+            span = lengths[index + 1] - lengths[index]
+            u = 0.0 if span <= EPS else \
+                (distance - lengths[index]) / span
+            first, second = chain[index], chain[index + 1]
+            return (first[0] + (second[0] - first[0]) * u,
+                    first[1] + (second[1] - first[1]) * u)
+    return chain[-1]
+
+
+def _slice_chain(chain, lengths, start, end):
+    points = [_point_on_chain(chain, lengths, start)]
+    for index in range(1, len(chain) - 1):
+        if start + EPS < lengths[index] < end - EPS:
+            points.append(chain[index])
+    points.append(_point_on_chain(chain, lengths, end))
+    return points
+
+
+def _resample_open(points, count):
+    chain, lengths = _polyline_chain(points, False)
+    if len(chain) < 2 or lengths[-1] <= EPS:
+        anchor = chain[0] if chain else (0.0, 0.0)
+        return [anchor] * count
+    return [_point_on_chain(chain, lengths,
+                            lengths[-1] * index / (count - 1))
+            for index in range(count)]
+
+
+def _dash_segments(points, closed, style, frame, transform_scale):
+    """Split a flattened centreline by the authored dash/gap pattern.
+    Returns None when the standard says the invalid pattern is ignored."""
+    entries = style.get("d", [])
+    if not entries:
+        return None
+    pattern = []
+    offset = 0.0
+    for entry in entries:
+        value = _sample_prop(entry.get("v"), 1, [0.0], frame)[0] * \
+            transform_scale
+        if entry.get("n", "d") == "o":
+            offset = value
+        else:
+            pattern.append(value)
+    if not pattern or any(value < 0.0 for value in pattern) or \
+            sum(pattern) <= EPS:
+        return None
+    # An odd dash/gap sequence repeats with inverted roles.
+    if len(pattern) % 2 == 1:
+        pattern += list(pattern)
+    chain, lengths = _polyline_chain(points, closed)
+    if len(chain) < 2 or lengths[-1] <= EPS:
+        return []
+    period = sum(pattern)
+    phase = offset % period
+    pattern_index = 0
+    zero_guard = 0
+    while phase >= pattern[pattern_index] - EPS and zero_guard < len(pattern):
+        phase -= pattern[pattern_index]
+        pattern_index = (pattern_index + 1) % len(pattern)
+        zero_guard += 1
+    remaining = max(pattern[pattern_index] - phase, 0.0)
+    cursor = 0.0
+    segments = []
+    while cursor < lengths[-1] - EPS:
+        if remaining <= EPS:
+            pattern_index = (pattern_index + 1) % len(pattern)
+            remaining = pattern[pattern_index]
+            continue
+        step = min(remaining, lengths[-1] - cursor)
+        if pattern_index % 2 == 0 and step > EPS:
+            segments.append(_resample_open(
+                _slice_chain(chain, lengths, cursor, cursor + step), 8))
+            if len(segments) > 512:
+                raise ValueError("stroke dash pattern expands beyond 512 "
+                                 "dash regions")
+        cursor += step
+        remaining -= step
+    return segments
+
+
+def _stroke_outline(points, closed, width, cap, join, miter_limit):
+    """Expand one flattened path into a fillable outline. Joins use stable
+    miter geometry with the authored limit (bevel fallback); round end caps
+    use a fixed arc count so animated paths retain topology."""
+    if len(points) < 2:
+        return []
+    half = max(abs(width) * 0.5, EPS)
+    work = list(points)
+    if closed and math.hypot(work[0][0] - work[-1][0],
+                             work[0][1] - work[-1][1]) <= EPS:
+        work.pop()
+    if len(work) < 2:
+        return []
+
+    segment_count = len(work) if closed else len(work) - 1
+    normals = []
+    directions = []
+    for index in range(segment_count):
+        a = work[index]
+        b = work[(index + 1) % len(work)]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy)
+        if length <= EPS:
+            dx, dy, length = 1.0, 0.0, 1.0
+        directions.append((dx / length, dy / length))
+        normals.append((-dy / length, dx / length))
+
+    def miter_point(point, previous_normal, next_normal, side):
+        nx = previous_normal[0] + next_normal[0]
+        ny = previous_normal[1] + next_normal[1]
+        length = math.hypot(nx, ny)
+        if length <= EPS:
+            nx, ny, factor = next_normal[0], next_normal[1], half
+        else:
+            nx, ny = nx / length, ny / length
+            denominator = max(abs(nx * next_normal[0] +
+                                  ny * next_normal[1]), 1e-3)
+            factor = min(half / denominator,
+                         half * max(float(miter_limit), 1.0))
+        return (point[0] + side * nx * factor,
+                point[1] + side * ny * factor)
+
+    def join_points(index, side):
+        point = work[index]
+        if not closed and index == 0:
+            normal = normals[0]
+            return [(point[0] + side * normal[0] * half,
+                     point[1] + side * normal[1] * half)]
+        if not closed and index == len(work) - 1:
+            normal = normals[-1]
+            return [(point[0] + side * normal[0] * half,
+                     point[1] + side * normal[1] * half)]
+        previous_index = (index - 1) % segment_count
+        next_index = index % segment_count
+        previous_normal = normals[previous_index]
+        next_normal = normals[next_index]
+        previous_direction = directions[previous_index]
+        next_direction = directions[next_index]
+        turn = (previous_direction[0] * next_direction[1] -
+                previous_direction[1] * next_direction[0])
+        outer = turn * side < -EPS
+        if join == 1 or not outer or abs(turn) <= EPS:
+            return [miter_point(point, previous_normal, next_normal, side)]
+        first = (point[0] + side * previous_normal[0] * half,
+                 point[1] + side * previous_normal[1] * half)
+        last = (point[0] + side * next_normal[0] * half,
+                point[1] + side * next_normal[1] * half)
+        if join == 3:       # bevel
+            return [first, last]
+        # Round join: a fixed eight-step arc keeps topology predictable.
+        start_angle = math.atan2(first[1] - point[1],
+                                 first[0] - point[0])
+        end_angle = math.atan2(last[1] - point[1],
+                               last[0] - point[0])
+        sweep_sign = 1.0 if turn > 0.0 else -1.0
+        if sweep_sign > 0.0:
+            while end_angle < start_angle:
+                end_angle += math.pi * 2.0
+        else:
+            while end_angle > start_angle:
+                end_angle -= math.pi * 2.0
+        return [(point[0] + math.cos(start_angle +
+                                    (end_angle - start_angle) * step / 8.0) *
+                 half,
+                 point[1] + math.sin(start_angle +
+                                    (end_angle - start_angle) * step / 8.0) *
+                 half)
+                for step in range(9)]
+
+    left, right = [], []
+    for index in range(len(work)):
+        left.extend(join_points(index, 1.0))
+        right.extend(join_points(index, -1.0))
+
+    if closed:
+        area = _polygon_area(work)
+        outer, hole = (right, left) if area > 0.0 else (left, right)
+        return [(outer, [list(reversed(hole))])]
+
+    # Projecting-square caps move both sides along the path direction.
+    if cap == 3:
+        sx, sy = directions[0]
+        ex, ey = directions[-1]
+        left[0] = (left[0][0] - sx * half, left[0][1] - sy * half)
+        right[0] = (right[0][0] - sx * half, right[0][1] - sy * half)
+        left[-1] = (left[-1][0] + ex * half, left[-1][1] + ey * half)
+        right[-1] = (right[-1][0] + ex * half, right[-1][1] + ey * half)
+
+    contour = list(left)
+    if cap == 2:
+        # end: left -> right around the forward-facing semicircle
+        angle = math.atan2(directions[-1][1], directions[-1][0])
+        center = work[-1]
+        contour += [(center[0] + math.cos(angle + math.pi * 0.5 -
+                                          math.pi * i / 8.0) * half,
+                     center[1] + math.sin(angle + math.pi * 0.5 -
+                                          math.pi * i / 8.0) * half)
+                    for i in range(1, 8)]
+    contour += list(reversed(right))
+    if cap == 2:
+        angle = math.atan2(directions[0][1], directions[0][0])
+        center = work[0]
+        contour += [(center[0] + math.cos(angle - math.pi * 0.5 -
+                                          math.pi * i / 8.0) * half,
+                     center[1] + math.sin(angle - math.pi * 0.5 -
+                                          math.pi * i / 8.0) * half)
+                    for i in range(1, 8)]
+    return [(contour, [])]
+
+
+def _clip_convex(subject, clip):
+    """Sutherland-Hodgman polygon clipping against a convex mask."""
+    if len(subject) < 3 or len(clip) < 3:
+        return []
+    sign = 1.0 if _polygon_area(clip) >= 0.0 else -1.0
+
+    def inside(point, a, b):
+        return sign * ((b[0] - a[0]) * (point[1] - a[1]) -
+                       (b[1] - a[1]) * (point[0] - a[0])) >= -EPS
+
+    def intersection(p, q, a, b):
+        rx, ry = q[0] - p[0], q[1] - p[1]
+        sx, sy = b[0] - a[0], b[1] - a[1]
+        denominator = rx * sy - ry * sx
+        if abs(denominator) <= EPS:
+            return q
+        t = ((a[0] - p[0]) * sy - (a[1] - p[1]) * sx) / denominator
+        return (p[0] + t * rx, p[1] + t * ry)
+
+    output = list(subject)
+    for index, a in enumerate(clip):
+        b = clip[(index + 1) % len(clip)]
+        source = output
+        output = []
+        if not source:
+            break
+        previous = source[-1]
+        previous_inside = inside(previous, a, b)
+        for current in source:
+            current_inside = inside(current, a, b)
+            if current_inside:
+                if not previous_inside:
+                    output.append(intersection(previous, current, a, b))
+                output.append(current)
+            elif previous_inside:
+                output.append(intersection(previous, current, a, b))
+            previous, previous_inside = current, current_inside
+    return output
+
+
+def _resample_closed(points, count):
+    if len(points) < 3 or count < 3:
+        return points
+    chain = list(points) + [points[0]]
+    lengths = [0.0]
+    for a, b in zip(chain, chain[1:]):
+        lengths.append(lengths[-1] + math.hypot(b[0] - a[0], b[1] - a[1]))
+    total = lengths[-1]
+    if total <= EPS:
+        return [points[0]] * count
+    result = []
+    for sample in range(count):
+        distance = total * sample / count
+        for index in range(len(points)):
+            if distance <= lengths[index + 1] + EPS:
+                span = max(lengths[index + 1] - lengths[index], EPS)
+                u = (distance - lengths[index]) / span
+                a, b = chain[index], chain[index + 1]
+                result.append((a[0] + (b[0] - a[0]) * u,
+                               a[1] + (b[1] - a[1]) * u))
+                break
+    return result
+
+
+def _mask_series(block, times, offset, tol, errors):
+    masks = block.get("masks", [])
+    if not masks:
+        return None
+    if len(masks) != 1:
+        errors.append("layer '%s' uses %d additive masks - multiple-mask "
+                      "union is not yet supported" %
+                      (block["layer"], len(masks)))
+        return None
+    prop = masks[0].get("pt", {})
+    paths = []
+    for t in times:
+        path = _sample_path_keys(_path_prop_keys(prop), t - offset) \
+            if _is_animated_path(prop) else \
+            _path_from_lottie(_static_path_value(prop))
+        paths.append(path)
+    if not paths or any(len(path["v"]) < 3 for path in paths):
+        errors.append("empty mask path on layer '%s'" % block["layer"])
+        return None
+    counts = _edge_segment_counts(paths, tol)
+    contours = [_flatten_path(path, counts) for path in paths]
+    for contour in contours:
+        direction = 0
+        for index in range(len(contour)):
+            a, b, c = contour[index - 1], contour[index], \
+                contour[(index + 1) % len(contour)]
+            cross = ((b[0] - a[0]) * (c[1] - b[1]) -
+                     (b[1] - a[1]) * (c[0] - b[0]))
+            if abs(cross) <= EPS:
+                continue
+            current = 1 if cross > 0 else -1
+            if direction and current != direction:
+                errors.append("non-convex mask on layer '%s' - general mask "
+                              "tessellation is not yet supported" %
+                              block["layer"])
+                return None
+            direction = current
+    return contours
+
+
+def _clip_key_regions(key_regions, masks, layer, errors):
+    """Clip (outer,holes) tuples per key and normalize the resulting boundary
+    counts so the animated `.oanim` topology remains fixed."""
+    if masks is None:
+        return key_regions
+    clipped = []
+    for (outer, holes), mask in zip(key_regions, masks):
+        clipped.append((_clip_convex(outer, mask),
+                        [_clip_convex(hole, mask) for hole in holes]))
+    # A fully clipped key still needs valid, fixed topology. Represent it by
+    # a microscopic triangle and make its paint transparent at emission; as
+    # the mask reveals the shape, interpolation grows from that boundary.
+    normalized = []
+    for index, (outer, holes) in enumerate(clipped):
+        hidden_outer = len(outer) < 3
+        if len(outer) < 3:
+            anchor = masks[index][0]
+            tiny = 1e-4
+            outer = [anchor, (anchor[0] + tiny, anchor[1]),
+                     (anchor[0], anchor[1] + tiny)]
+        expected_holes = len(key_regions[index][1])
+        fixed_holes = []
+        anchor_x = sum(point[0] for point in outer) / len(outer)
+        anchor_y = sum(point[1] for point in outer) / len(outer)
+        for hole_index in range(expected_holes):
+            hole = holes[hole_index] if hole_index < len(holes) else []
+            if len(hole) < 3:
+                tiny = 1e-6 if hidden_outer else 1e-5
+                hole = [(anchor_x, anchor_y),
+                        (anchor_x, anchor_y + tiny),
+                        (anchor_x + tiny, anchor_y)]
+            fixed_holes.append(hole)
+        holes = fixed_holes
+        normalized.append((outer, holes))
+    clipped = normalized
+    outer_count = max(len(outer) for outer, _ in clipped)
+    hole_count = len(clipped[0][1])
+    if any(len(holes) != hole_count for _, holes in clipped):
+        errors.append("mask changes hole topology on layer '%s'" % layer)
+        return key_regions
+    hole_sizes = [max(len(holes[h]) for _, holes in clipped)
+                  for h in range(hole_count)]
+    return [(_resample_closed(outer, outer_count),
+             [_resample_closed(holes[h], hole_sizes[h])
+              for h in range(hole_count)]) for outer, holes in clipped]
+
+
+def _transparent_paint(paint):
+    if isinstance(paint, dict):
+        hidden = copy.deepcopy(paint)
+        hidden["stops"] = [tuple(list(stop[:4]) + [0.0])
+                           for stop in hidden["stops"]]
+        return hidden
+    return (paint[0], paint[1], paint[2], 0.0)
 
 
 def _assign_holes(contours, fill_rule):
@@ -1139,12 +2113,155 @@ def _assign_holes(contours, fill_rule):
     return regions
 
 
+def _normalize_stroke_regions(key_outlines, region_index, anchors):
+    """Give one stroke/dash region a fixed outer/hole vertex structure at
+    every emitted frame. Missing animated dashes become transparent triangles
+    at the centreline, ready to grow back without changing the grammar."""
+    poses = []
+    hidden = []
+    for outlines, anchor in zip(key_outlines, anchors):
+        if region_index < len(outlines):
+            poses.append(outlines[region_index])
+            hidden.append(False)
+        else:
+            tiny = 1e-4
+            poses.append(([anchor, (anchor[0] + tiny, anchor[1]),
+                           (anchor[0], anchor[1] + tiny)], []))
+            hidden.append(True)
+    outer_count = max(len(outer) for outer, _holes in poses)
+    hole_count = max(len(holes) for _outer, holes in poses)
+    hole_sizes = []
+    for hole_index in range(hole_count):
+        hole_sizes.append(max(
+            len(holes[hole_index]) if hole_index < len(holes) else 3
+            for _outer, holes in poses))
+    normalized = []
+    for outer, holes in poses:
+        outer = _resample_closed(outer, outer_count)
+        fixed_holes = []
+        center = (sum(point[0] for point in outer) / len(outer),
+                  sum(point[1] for point in outer) / len(outer))
+        for hole_index, size in enumerate(hole_sizes):
+            if hole_index < len(holes) and len(holes[hole_index]) >= 3:
+                hole = holes[hole_index]
+            else:
+                tiny = 1e-5
+                hole = [center, (center[0], center[1] + tiny),
+                        (center[0] + tiny, center[1])]
+            fixed_holes.append(_resample_closed(hole, size))
+        normalized.append((outer, fixed_holes))
+    return normalized, hidden
+
+
+def _convert_stroke_block(block, duration, offset, tol, place, errors):
+    """Cook one Lottie stroke into ordinary filled `.oanim` regions. This is
+    still vector geometry: resolution-independent outlines are generated from
+    the authored centreline, not rasterized. It also lets the existing GPU
+    tessellator render strokes without a second runtime primitive."""
+    times, eases, _ = _stroke_sample_times(block, duration, offset)
+    affines = [_block_affine_at(block, time - offset) for time in times]
+    style = block["fill"]
+    cap = int(style.get("lc", 1))
+    join = int(style.get("lj", 1))
+    miter_limit = float(style.get("ml", 4.0))
+    entries = []
+
+    for kind, item in block["paths"]:
+        # Evaluate every emitted pose when choosing curve subdivision. This is
+        # conservative and guarantees an identical centreline vertex count.
+        beziers = [_transform_path(
+            _block_path_with_modifiers(block, kind, item, time - offset),
+            affine)
+            for time, affine in zip(times, affines)]
+        if not beziers or len(set(len(path["v"]) for path in beziers)) > 1:
+            errors.append("stroke path keyframes with differing vertex counts "
+                          "on layer '%s'" % block["layer"])
+            continue
+        if len(beziers[0]["v"]) < 2:
+            continue
+        counts = _edge_segment_counts(beziers, tol)
+        stroke_states = []
+        for path, t, affine in zip(beziers, times, affines):
+            centerline = _flatten_path(path, counts)
+            centerline, closed = _trim_polyline(
+                centerline, path["closed"], block.get("trim"), t - offset)
+            determinant = abs(affine[0] * affine[3] -
+                              affine[1] * affine[2])
+            width_scale = math.sqrt(determinant) \
+                if determinant > EPS else 1.0
+            width = _sample_prop(style.get("w"), 1, [1.0],
+                                 t - offset)[0] * width_scale
+            try:
+                dashes = _dash_segments(centerline, closed, style,
+                                         t - offset, width_scale)
+            except ValueError as exc:
+                errors.append("%s on layer '%s'" % (exc, block["layer"]))
+                dashes = []
+            stroke_states.append((centerline, closed, width, dashes))
+        if errors:
+            continue
+        # A negative/zero pattern is ignored as a whole by the format. If an
+        # animation crosses that invalid state, keep this stroke solid for the
+        # complete clip instead of changing its region/hole semantics midway.
+        use_dashes = bool(style.get("d")) and \
+            all(state[3] is not None for state in stroke_states)
+        key_outlines = []
+        anchors = []
+        for centerline, closed, width, dashes in stroke_states:
+            anchors.append(centerline[0] if centerline else (0.0, 0.0))
+            source_lines = [(segment, False) for segment in dashes] \
+                if use_dashes else [(centerline, closed)]
+            outlines = []
+            for source_line, source_closed in source_lines:
+                outlines += _stroke_outline(source_line, source_closed,
+                                             width, cap, join, miter_limit)
+            key_outlines.append(outlines)
+        region_count = max((len(outlines) for outlines in key_outlines),
+                           default=0)
+        for region_index in range(region_count):
+            masks = _mask_series(block, times, offset, tol, errors)
+            region_poses, hidden = _normalize_stroke_regions(
+                key_outlines, region_index, anchors)
+            region_poses = _clip_key_regions(region_poses, masks,
+                                             block["layer"], errors)
+            keys = []
+            topology = None
+            for time_index, t in enumerate(times):
+                outer, holes = region_poses[time_index]
+                current = (len(outer), tuple(len(h) for h in holes))
+                if topology is None:
+                    topology = current
+                elif topology != current:
+                    errors.append("stroke outline topology changes on layer "
+                                  "'%s'" % block["layer"])
+                    keys = []
+                    break
+                paint = _sample_gradient_paint(
+                    block, t - offset, affines[time_index], place) \
+                    if block.get("kind") == "gradient_stroke" \
+                    else _sample_fill_rgba(block, t - offset)
+                if hidden[time_index] or (masks is not None and
+                        abs(_polygon_area(outer)) < 1e-6):
+                    paint = _transparent_paint(paint)
+                keys.append((t, eases[time_index], paint,
+                             [place(point) for point in outer],
+                             [[place(point) for point in hole]
+                              for hole in holes]))
+            if keys and len(keys[0][3]) >= 3:
+                entries.append({"keys": keys})
+    return entries
+
+
 def _convert_block(block, duration, offset, tol, place, errors):
     """One paint block -> a list of .oanim shape entries, each
     {"keys": [(frame, ease, fill_rgba, outer, holes)]} with fixed topology
     across keys. Vertices are placed to world (cooked) space."""
-    affine = _compose_affines(block["affines"])
+    if block.get("kind", "fill") in ("stroke", "gradient_stroke"):
+        return _convert_stroke_block(block, duration, offset, tol, place,
+                                     errors)
+
     times, eases, _densified = _block_sample_times(block, duration, offset)
+    affines = [_block_affine_at(block, time - offset) for time in times]
 
     # worst-case flattening resolution: gather every path's bezier at every
     # source KEY time (interpolated paths are lerps of key paths, so key
@@ -1159,28 +2276,29 @@ def _convert_block(block, duration, offset, tol, place, errors):
                 prop = item.get(prop_name) if kind != "sh" else None
                 if prop is not None and _is_animated(prop, dim):
                     key_times |= {k["t"] for k in _prop_keys(prop, dim)}
-        if not key_times:
-            key_times = {times[0] - offset}
-        beziers = [_transform_path(_block_path_at(kind, item, t), affine)
-                   for t in sorted(key_times)]
+        # Sampling every emitted pose includes animated group transforms and
+        # bounds the required curve subdivision after scaling/rotation.
+        beziers = [_transform_path(
+            _block_path_with_modifiers(block, kind, item, time - offset),
+            affine)
+            for time, affine in zip(times, affines)]
         if len(set(len(b["v"]) for b in beziers)) > 1:
             errors.append("path keyframes with differing vertex counts on "
                           "layer '%s' - every key must share one path "
                           "structure" % block["layer"])
             return []
-        if len(beziers[0]["v"]) < 3 and kind == "sh":
-            errors.append("a path with fewer than 3 vertices on layer '%s'" %
-                          block["layer"])
-            return []
+        # One- and two-point paths have no fill area but may share a group
+        # with real fill contours (and often carry a visible stroke). Keep
+        # walking; the region emission below naturally drops degenerates.
         per_path_counts.append(_edge_segment_counts(beziers, tol))
 
     # flatten every path at every emitted time (fixed counts = fixed verts)
     contours_per_time = []
-    for t in times:
+    for t, affine in zip(times, affines):
         contours = []
         for (kind, item), counts in zip(block["paths"], per_path_counts):
-            path = _transform_path(_block_path_at(kind, item, t - offset),
-                                   affine)
+            path = _transform_path(_block_path_with_modifiers(
+                block, kind, item, t - offset), affine)
             contours.append(_flatten_path(path, counts))
         contours_per_time.append(contours)
 
@@ -1190,16 +2308,29 @@ def _convert_block(block, duration, offset, tol, place, errors):
     regions = _assign_holes(contours_per_time[0], fill_rule)
 
     entries = []
+    masks = _mask_series(block, times, offset, tol, errors)
     for outer_idx, hole_indices in regions:
         if len(contours_per_time[0][outer_idx]) < 3:
             continue
+        region_poses = []
+        for t_idx, _t in enumerate(times):
+            region_poses.append((contours_per_time[t_idx][outer_idx],
+                [contours_per_time[t_idx][h] for h in hole_indices if
+                 len(contours_per_time[0][h]) >= 3]))
+        region_poses = _clip_key_regions(region_poses, masks, block["layer"],
+                                         errors)
         keys = []
         for t_idx, t in enumerate(times):
-            rgba = _sample_fill_rgba(block, t - offset)
-            outer = [place(p) for p in contours_per_time[t_idx][outer_idx]]
-            holes = [[place(p) for p in contours_per_time[t_idx][h]]
-                     for h in hole_indices if
-                     len(contours_per_time[0][h]) >= 3]
+            rgba = _sample_gradient_paint(
+                block, t - offset, affines[t_idx], place) \
+                if block.get("kind") == "gradient_fill" \
+                else _sample_fill_rgba(block, t - offset)
+            if masks is not None and abs(_polygon_area(
+                    region_poses[t_idx][0])) < 1e-6:
+                rgba = _transparent_paint(rgba)
+            outer = [place(p) for p in region_poses[t_idx][0]]
+            holes = [[place(p) for p in hole]
+                     for hole in region_poses[t_idx][1]]
             keys.append((t, eases[t_idx], rgba, outer, holes))
         entries.append({"keys": keys})
     return entries
@@ -1471,7 +2602,24 @@ def _emit_oanim(fps, duration, clips, rig):
             for frame, ease, rgba, outer, holes in shape["keys"]:
                 lines.append("    kf %s%s" % (_fmt_frame(frame),
                                               _fmt_ease(ease)))
-                lines.append("      fill %.4f %.4f %.4f %.4f" % rgba)
+                if isinstance(rgba, dict):
+                    start, end = rgba["start"], rgba["end"]
+                    lines.append("      %s %s %s %s %s %d" % (
+                        rgba["type"], _fmt_val(start[0]), _fmt_val(start[1]),
+                        _fmt_val(end[0]), _fmt_val(end[1]),
+                        len(rgba["stops"])))
+                    if rgba["type"] == "radial" and \
+                            (abs(rgba["focal"][0] - start[0]) > EPS or
+                             abs(rgba["focal"][1] - start[1]) > EPS):
+                        lines.append("      focal %s %s" % (
+                            _fmt_val(rgba["focal"][0]),
+                            _fmt_val(rgba["focal"][1])))
+                    for stop in rgba["stops"]:
+                        lines.append("      stop %s %.4f %.4f %.4f %.4f" % (
+                            _fmt_val(stop[0]), stop[1], stop[2], stop[3],
+                            stop[4]))
+                else:
+                    lines.append("      fill %.4f %.4f %.4f %.4f" % rgba)
                 lines.append("      contour %d" % len(outer))
                 for p in outer:
                     lines.append("      v %s %s" % (_fmt_val(p[0]),
@@ -1490,6 +2638,8 @@ def _rig_is_static(rig):
             if converted[1]:
                 return False
         for shape in layer["shapes"]:
+            if shape["keys"] and isinstance(shape["keys"][0][2], dict):
+                return False  # .oshape v1 has no gradient paint vocabulary
             if len(shape["keys"]) > 1:
                 return False
     return True
@@ -1567,6 +2717,8 @@ def cook(lottie_text, extent=2.0, tolerance=None, clips_override=None):
     if not isinstance(data, dict) or not isinstance(data.get("layers"), list):
         raise CookError("not a Lottie document (no layer list)")
 
+    _resolve_link_expressions(data)
+
     fps = float(data.get("fr", 0.0))
     comp_ip = float(data.get("ip", 0.0))
     comp_op = float(data.get("op", 0.0))
@@ -1613,12 +2765,13 @@ def _parse_oanim(text):
     doc = {"fps": None, "duration": None, "clips": [], "layers": []}
     state = {"channel": None, "chan_left": 0, "chan_dim": 0,
              "shape": None, "shape_left": 0, "key": None,
-             "target": None, "verts_left": 0}
+             "target": None, "verts_left": 0, "stops_left": 0}
 
     def close_key():
         key = state["key"]
         if key is not None:
             assert state["verts_left"] == 0, "truncated vertex run"
+            assert state["stops_left"] == 0, "truncated gradient stops"
             assert key["fill"] is not None and len(key["outer"]) >= 3
             first = state["shape"]["keys"][0]
             assert len(key["outer"]) == len(first["outer"]), "topology"
@@ -1684,6 +2837,29 @@ def _parse_oanim(text):
             key = state["key"]
             assert key is not None and key["fill"] is None
             key["fill"] = tuple(float(t) for t in tokens[1:5])
+        elif word in ("linear", "radial"):
+            key = state["key"]
+            assert key is not None and key["fill"] is None
+            count = int(tokens[5])
+            assert count >= 2
+            key["fill"] = {"type": word,
+                           "start": (float(tokens[1]), float(tokens[2])),
+                           "end": (float(tokens[3]), float(tokens[4])),
+                           "focal": (float(tokens[1]), float(tokens[2])),
+                           "stops": []}
+            state["stops_left"] = count
+        elif word == "focal":
+            key = state["key"]
+            assert key is not None and isinstance(key["fill"], dict)
+            assert key["fill"]["type"] == "radial"
+            assert state["stops_left"] > 0 and len(tokens) == 3
+            key["fill"]["focal"] = (float(tokens[1]), float(tokens[2]))
+        elif word == "stop":
+            key = state["key"]
+            assert key is not None and isinstance(key["fill"], dict)
+            assert state["stops_left"] > 0
+            key["fill"]["stops"].append(tuple(float(t) for t in tokens[1:6]))
+            state["stops_left"] -= 1
         elif word == "contour":
             key = state["key"]
             assert key is not None and key["fill"] is not None and \
@@ -2060,32 +3236,110 @@ def _selftest():
                   clips_override="bad:30:30")
     checks += 1
 
+    # --- 14: animated group transforms bake into fixed-topology shape keys -
+    fixture = _fx_doc(layers=[_fx_shape_layer("group_motion", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "rc", "p": _fx_static([50, 0]),
+             "s": _fx_static([20, 10]), "r": _fx_static(0)},
+            {"ty": "fl", "c": _fx_static([0.8, 0.2, 0.1, 1]),
+             "o": _fx_static(100)},
+            {"ty": "tr", "p": _fx_static([0, 0]),
+             "a": _fx_static([0, 0]), "s": _fx_static([100, 100]),
+             "r": {"a": 1, "k": [dict(t=0, s=[0], **lin),
+                                     {"t": 60, "s": [90]}]},
+             "o": _fx_static(100)}]}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    keys = _layer_by_name(doc, "group_motion")["shapes"][0]["keys"]
+    assert len(keys) > 10
+    assert len({len(key["outer"]) for key in keys}) == 1
+    start_x = sum(point[0] for point in keys[0]["outer"]) / \
+        len(keys[0]["outer"])
+    end_y = sum(point[1] for point in keys[-1]["outer"]) / \
+        len(keys[-1]["outer"])
+    assert abs(start_x - 0.5) < 1e-3 and abs(end_y + 0.5) < 1e-3
+    checks += 1
+
+    # --- 15: animated rounded-corner modifiers keep a stable contour ------
+    fixture = _fx_doc(layers=[_fx_shape_layer("rounded_modifier", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "rc", "p": _fx_static([100, 100]),
+             "s": _fx_static([100, 80]), "r": _fx_static(0)},
+            {"ty": "rd", "r": {"a": 1, "k": [
+                dict(t=0, s=[0], **lin), {"t": 60, "s": [20]}]}},
+            {"ty": "fl", "c": _fx_static([0.1, 0.6, 0.9, 1]),
+             "o": _fx_static(100)}]}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    keys = _layer_by_name(doc, "rounded_modifier")["shapes"][0]["keys"]
+    assert len(keys) > 10
+    assert len({len(key["outer"]) for key in keys}) == 1
+    assert len(keys[0]["outer"]) > 4
+    assert keys[0]["outer"] != keys[-1]["outer"]
+    checks += 1
+
+    # --- 16: animated pucker/bloat modifiers preserve bezier topology ------
+    fixture = _fx_doc(layers=[_fx_shape_layer("pucker", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "rc", "p": _fx_static([100, 100]),
+             "s": _fx_static([100, 80]), "r": _fx_static(0)},
+            {"ty": "pb", "a": {"a": 1, "k": [
+                dict(t=0, s=[0], **lin), {"t": 60, "s": [50]}]}},
+            {"ty": "fl", "c": _fx_static([0.9, 0.4, 0.2, 1]),
+             "o": _fx_static(100)}]}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    keys = _layer_by_name(doc, "pucker")["shapes"][0]["keys"]
+    assert len(keys) > 10
+    assert len({len(key["outer"]) for key in keys}) == 1
+    assert keys[0]["outer"] != keys[-1]["outer"]
+    raw_rect = _path_rect([100, 100], [100, 80], 0, False)
+    puckered = _pucker_bloat_path(raw_rect, 50)
+    assert max(point[0] for point in puckered["v"]) - \
+        min(point[0] for point in puckered["v"]) == 50
+    checks += 1
+
+    # --- 17: stroke dash/gap/offset becomes stable filled dash regions -----
+    dashed_path = {"c": False, "v": [[20, 100], [180, 100]],
+                   "i": [[0, 0], [0, 0]], "o": [[0, 0], [0, 0]]}
+    dashed_stroke = {
+        "ty": "st", "c": _fx_static([0.2, 0.2, 0.8, 1]),
+        "o": _fx_static(100), "w": _fx_static(8),
+        "lc": 2, "lj": 1, "ml": 4,
+        "d": [
+            {"n": "d", "v": _fx_static(20)},
+            {"n": "g", "v": _fx_static(10)},
+            {"n": "o", "v": {"a": 1, "k": [
+                dict(t=0, s=[0], **lin), {"t": 60, "s": [15]}]}}]}
+    fixture = _fx_doc(layers=[_fx_shape_layer("dashed", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "sh", "ks": _fx_static(dashed_path)},
+            dashed_stroke]}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    shapes = _layer_by_name(doc, "dashed")["shapes"]
+    assert len(shapes) >= 5
+    assert all(len(shape["keys"]) > 10 for shape in shapes)
+    assert all(len({len(key["outer"]) for key in shape["keys"]}) == 1
+               for shape in shapes)
+    assert shapes[0]["keys"][0]["outer"] != \
+        shapes[0]["keys"][-1]["outer"]
+    checks += 1
+
     # --- every out-of-subset feature raises its named error ----------------
     def with_shape_item(item):
         return _fx_doc(layers=[_fx_shape_layer("hero", 1, [
             {"ty": "gr", "it": [
                 {"ty": "el", "p": _fx_static([0, 0]),
                  "s": _fx_static([50, 50])}, item]}])])
-    _expect_error(with_shape_item({"ty": "gf", "nm": "shine"}),
-                  "gradient fill", "hero", "shine")
-    _expect_error(with_shape_item({"ty": "gs"}), "gradient stroke", "hero")
-    _expect_error(with_shape_item({"ty": "st"}), "stroke", "hero")
     _expect_error(with_shape_item({"ty": "rp"}), "repeater", "hero")
-    _expect_error(with_shape_item({"ty": "mm"}), "merge paths", "hero")
-    _expect_error(with_shape_item({"ty": "tm"}), "trim paths", "hero")
-    _expect_error(with_shape_item({"ty": "rd"}), "rounded-corners", "hero")
+    _expect_error(with_shape_item({"ty": "mm", "mm": 2}),
+                  "merge paths mode 2", "hero")
+    _expect_error(with_shape_item({"ty": "tm", "m": 2}),
+                  "sequential trim paths", "hero")
     _expect_error(with_shape_item({"ty": "xyz"}),
                   "unsupported shape item 'xyz'", "hero")
-    _expect_error(with_shape_item({
-        "ty": "tr", "p": _fx_static([0, 0]), "a": _fx_static([0, 0]),
-        "s": _fx_static([100, 100]),
-        "r": {"a": 1, "k": [dict(t=0, s=[0], **lin), {"t": 60, "s": [90]}]},
-        "o": _fx_static(100)}), "animated group rotation", "hero")
-
     def one_layer(**extra):
         return _fx_doc(layers=[
             _fx_shape_layer("hero", 1, [_fx_ellipse_group()], **extra)])
-    _expect_error(one_layer(masksProperties=[{"mode": "a"}]), "mask", "hero")
+    _expect_error(one_layer(masksProperties=[{"mode": "s", "inv": True}]),
+                  "mask mode", "hero")
     _expect_error(one_layer(tt=1), "track matte", "hero")
     _expect_error(one_layer(ef=[{"ty": 21}]), "layer effects", "hero")
     _expect_error(one_layer(sr=2), "time stretch", "hero")
@@ -2121,6 +3375,67 @@ def _selftest():
     _expect_error("{ not json")
     checks += 1
 
+    # --- pinned real-world character corpus cooks and stays reproducible ---
+    corpus_dir = Path(__file__).resolve().parent.parent / "projects" / \
+        "benchmark" / "assets" / "lottie"
+    for name in ("hamster", "dragon", "cat_loader", "frog_vr", "snail"):
+        kind, cooked = cook((corpus_dir / (name + ".json")).read_text(
+            encoding="utf-8"))
+        assert kind == "oanim", name
+        parsed = _parse_oanim(cooked)
+        assert parsed["layers"] and any(layer["shapes"]
+                                        for layer in parsed["layers"]), name
+        expected = (corpus_dir / (name + ".oanim")).read_text(
+            encoding="utf-8")
+        assert cooked == expected, "%s.oanim is stale" % name
+    checks += 1
+
+    # --- strokes + trim paths cook to filled vector outlines --------------
+    open_path = {"c": False, "v": [[20, 100], [100, 20], [180, 100]],
+                 "i": [[0, 0]] * 3, "o": [[0, 0]] * 3}
+    fixture = _fx_doc(layers=[_fx_shape_layer("ink", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "sh", "ks": _fx_static(open_path)},
+            {"ty": "st", "c": _fx_static([0.2, 0.3, 0.4, 1]),
+             "o": _fx_static(100), "w": _fx_static(12),
+             "lc": 2, "lj": 1, "ml": 4}]},
+        {"ty": "tm", "s": {"a": 1, "k": [
+             dict(t=0, s=[10], **lin), {"t": 60, "s": [20]}]},
+         "e": _fx_static(80),
+         "o": _fx_static(0), "m": 1}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    stroke = _layer_by_name(doc, "ink")["shapes"][0]["keys"][0]
+    assert len(stroke["outer"]) >= 16 and not stroke["holes"]
+    assert stroke["fill"][:3] == (0.2, 0.3, 0.4)
+    miter_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
+                                    False, 4, 1, 1, 4)[0][0]
+    round_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
+                                    False, 4, 1, 2, 4)[0][0]
+    bevel_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
+                                    False, 4, 1, 3, 4)[0][0]
+    assert len(round_outline) > len(bevel_outline) > len(miter_outline)
+    checks += 1
+
+    # --- animated linear/radial gradient paint survives into the grammar ---
+    gradient = {"ty": "gf", "t": 2, "g": {"p": 3, "k": _fx_static([
+        0, 1, 0, 0, 0.5, 0, 1, 0, 1, 0, 0, 1])},
+        "s": _fx_static([0, 0]),
+        "e": {"a": 1, "k": [dict(t=0, s=[40, 0], **lin),
+                                 {"t": 60, "s": [80, 0]}]},
+        "h": _fx_static(50), "a": _fx_static(0),
+        "o": _fx_static(100)}
+    fixture = _fx_doc(layers=[_fx_shape_layer("gradient", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "rc", "p": _fx_static([100, 100]),
+             "s": _fx_static([100, 100]), "r": _fx_static(0)},
+            gradient]}])])
+    doc = _parse_oanim(cook(fixture)[1])
+    paint = _layer_by_name(doc, "gradient")["shapes"][0]["keys"][0]["fill"]
+    assert paint["type"] == "radial" and len(paint["stops"]) == 3
+    assert paint["stops"][1][0] == 0.5
+    assert paint["focal"] != paint["start"]
+    checks += 1
+
     # --- the committed round-trip fixture reproduces byte-identically ------
     fixture_dir = Path(__file__).resolve().parent.parent / "tests" / \
         "assets" / "vectoranim"
@@ -2136,6 +3451,20 @@ def _selftest():
          "(python3 Util/cook_vector_anim.py %s %s), re-run the "
          "cook_vector_anim_roundtrip unit test, and commit both" %
          (source, reference))
+    checks += 1
+
+    # --- advanced modifier fixture is pinned into the real C++ test suite --
+    source = fixture_dir / "modifiers.json"
+    reference = fixture_dir / "modifiers.oanim"
+    kind, cooked = cook(source.read_text(encoding="utf-8"))
+    assert kind == "oanim"
+    parsed = _parse_oanim(cooked)
+    assert len(_layer_by_name(parsed, "dashed")["shapes"]) >= 5
+    assert len(_layer_by_name(parsed, "modifiers")["shapes"][0]["keys"]) > 2
+    assert len(_layer_by_name(parsed, "group_motion")["shapes"][0]["keys"]) > 2
+    expected = reference.read_text(encoding="utf-8")
+    assert cooked == expected, \
+        "tests/assets/vectoranim/modifiers.oanim is stale"
     checks += 1
 
     print("cook_vector_anim selftest OK: %d feature groups, every "

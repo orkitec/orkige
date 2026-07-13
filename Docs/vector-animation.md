@@ -1,6 +1,6 @@
 # Vector animation (`.oanim`)
 
-Keyframed animation for flat-colour vector shapes: a layer rig whose
+Keyframed animation for vector shapes: a layer rig whose
 transforms, opacities and path poses are keyframed over one frame timeline,
 carved into named clips (idle/walk/run/...), evaluated by the pure
 `core_util/VectorAnimEval` and blended clip-to-clip at the pose level. The
@@ -117,9 +117,15 @@ carries the centering); rotations negate (to CCW, +y up); Lottie scale 100 →
 | layer in/out window (`ip`/`op`) | baked into the opacity channel (hold keys at 0 outside the window) |
 | hidden layers/items (`hd`) | skipped (they never render) |
 | position/anchor/scale/rotation/opacity keyframes | the five transform channels, easing preserved |
-| bezier path (`sh`), ellipse (`el`), rect (`rc`, incl. rounded) | flattened contours; an animated corner radius keeps the 8-vertex rounded topology so counts stay fixed |
-| flat fill (`fl`), animated colour/opacity | per-key `fill`; the fill rule (nonzero/evenodd) drives hole assignment for multi-path fills |
-| group (`gr`) | recursed; its STATIC transform is baked into vertices; animated group opacity folds into the fill alpha |
+| bezier path (`sh`), ellipse (`el`), rect (`rc`, incl. rounded), polystar (`sr`) | flattened contours; animated primitive parameters preserve one fixed topology |
+| flat fill (`fl`), linear/radial gradient fill (`gf`) | per-key paint; animated colours, stops, endpoints, radial focal highlight/angle and opacity; fill rule (nonzero/evenodd) drives hole assignment |
+| stroke / gradient stroke (`st` / `gs`) | resolution-independent filled outlines with butt/round/square caps, miter/round/bevel joins, animated width/paint and dash/gap/offset patterns |
+| parallel trim path (`tm`, `m` 1) | the flattened centreline is length-trimmed before stroke expansion; animated start/end/offset stays fixed-topology |
+| rounded corners (`rd`), pucker/bloat (`pb`) | modifiers bake into path poses, including animated amounts |
+| additive merge (`mm` 1) | input contours remain separate and are tessellated together |
+| group (`gr`) | recursed; static and animated position/anchor/scale/rotation bake into shape poses; animated group opacity folds into paint alpha |
+| one additive, non-inverted convex layer mask | clipped vector contours; animated mask paths are topology-normalised |
+| direct layer-transform link expression | copied from the named source layer before normal channel conversion |
 | markers | clips (`#once` comment suffix = one-shot; a zero-duration marker extends to the next marker); `--clips name:start:end[:loop\|once],...` overrides for marker-less tools |
 
 Path flattening obeys the fixed-segment-count discipline: each path edge gets
@@ -138,16 +144,15 @@ interpolator stays cubic value-bezier + hold.
 
 ### Out of subset — named, per-layer errors
 
-The cook collects EVERY violation and refuses (never a silent skip):
-gradients (fill/stroke), strokes, masks, track mattes, layer effects,
-expressions, image layers, text layers, repeaters, merge paths, trim paths,
-rounded-corner modifiers, other path modifiers (pucker/zig-zag/offset/twist),
-skew, auto-orient, 3D layers, time stretch, time remap, TIMED precomps and
-precomp cycles. Example:
+The cook collects EVERY violation and refuses (never a silent skip): track
+mattes, layer effects, arbitrary expressions, image layers, text layers,
+repeaters, boolean merge modes, sequential trim, non-convex/multiple/subtract
+masks, unsupported modifiers (zig-zag/offset/twist), skew, auto-orient, 3D
+layers, time stretch, time remap, timed precomps and precomp cycles. Example:
 
 ```
 cook_vector_anim: cannot cook bad.json:
-  gradient fill (flat fills only) on layer 'hero' (item 'shine') - not supported
+  sequential trim paths on layer 'hero' are not supported; use parallel trim or bake the result
   unsupported text layer 'caption' - only shape, null, solid and untimed precomp layers cook
 ```
 
@@ -187,7 +192,7 @@ uploaded via `RenderSystem::createTexture2D` — the exact `.oshape` thumbnail
 path with the animation evaluator in front (`EditorAssetBrowserPanel.cpp`
 `buildAnimThumbnail`).
 
-**Animation Preview panel** (View ▸ Animation Preview) — pick a project
+**Animation Preview panel** (View ▸ Panels ▸ Animation Preview) — pick a project
 `.oanim`, choose a clip and scrub / play-pause it, and try a same-rig blend
 (a second clip + a weight). The panel drives the editor-owned
 `AnimationPreviewStage` on its OWN clock (the editor never ticks GameObjects):
@@ -202,8 +207,9 @@ that one stage. Input `{ asset, clip?, time?, blendClip?, blendWeight?, size?,
 path? }` renders the evaluated (optionally blended) pose to a PNG (encoded by
 the dependency-free `core_util/PngWriter`) and returns
 `{ clip, frame, time, duration, fps, layer_count, shape_count, vertex_count,
-at_end, clips }`, so an agent verifies a cycle (t=0 / mid / end screenshots +
-numbers) and a blend without a play session. It does not disturb the human's
+visible_pixel_count, coloured_pixel_count, at_end, clips }`, so an agent
+verifies a cycle (t=0 / mid / end screenshots + numbers), rejects blank or
+all-white output and checks a blend without a play session. It does not disturb the human's
 Animation Preview panel (snapshot/restore). Covered by an `editor_control`
 self-test leg (import a `.json` → `.oanim` with the source kept → preview at two
 times → the PNGs differ and the readback carries the clips/layers) plus the

@@ -31,6 +31,7 @@ namespace
 	//! persistent panel UI state (one editor => one panel => a function static)
 	struct AnimPanelState
 	{
+		bool						autoDockAttempted = false;
 		std::string					selectedFile;	//!< project-relative .oanim ("" = none)
 		std::string					projectRoot;	//!< the project the file list is for
 		std::vector<std::string>	animFiles;		//!< project-relative .oanim paths
@@ -66,6 +67,11 @@ void drawAnimationPreviewPanel(EditorState& state,
 	OrkigeEditor::AnimationPreviewStage& stage, ViewSettings& viewSettings)
 {
 	static AnimPanelState ui;
+	dockPreviewBesideSceneOnce("AnimationPreview", ui.autoDockAttempted);
+	if (!state.requestedAnimationPreviewAsset.empty())
+	{
+		ImGui::SetNextWindowFocus();
+	}
 
 	if (!ImGui::Begin("AnimationPreview", &viewSettings.showAnimationPreviewPanel))
 	{
@@ -90,6 +96,17 @@ void drawAnimationPreviewPanel(EditorState& state,
 		scanAnimFiles(root, ui.animFiles);
 		ui.selectedFile.clear();
 		ui.appliedFile.clear();
+	}
+
+	// Asset-browser double-click: select and load the requested animation in
+	// this already-open panel. Rescan first so a freshly imported cook appears
+	// without requiring the user to press Refresh.
+	if (!state.requestedAnimationPreviewAsset.empty())
+	{
+		scanAnimFiles(root, ui.animFiles);
+		ui.selectedFile = state.requestedAnimationPreviewAsset;
+		ui.appliedFile.clear();
+		state.requestedAnimationPreviewAsset.clear();
 	}
 
 	//--- file picker -------------------------------------------------------

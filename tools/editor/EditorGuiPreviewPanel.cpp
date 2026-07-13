@@ -69,6 +69,7 @@ namespace
 	//! persistent panel UI state (one editor => one panel => a function static)
 	struct PreviewPanelState
 	{
+		bool						autoDockAttempted = false;
 		int							presetIndex = 0;
 		int							customWidth = 1080;
 		int							customHeight = 1920;
@@ -151,6 +152,11 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 {
 	(void)core;
 	static PreviewPanelState ui;
+	dockPreviewBesideSceneOnce("GuiPreview", ui.autoDockAttempted);
+	if (!state.requestedGuiPreviewAsset.empty())
+	{
+		ImGui::SetNextWindowFocus();
+	}
 
 	if (!ImGui::Begin("GuiPreview", &viewSettings.showGuiPreviewPanel))
 	{
@@ -182,6 +188,13 @@ void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stag
 		ui.projectRoot = root;
 		scanOuiFiles(root, ui.ouiFiles);
 		ui.selectedFile.clear();
+	}
+	if (!state.requestedGuiPreviewAsset.empty())
+	{
+		scanOuiFiles(root, ui.ouiFiles);
+		ui.selectedFile = state.requestedGuiPreviewAsset;
+		ui.appliedValid = false;
+		state.requestedGuiPreviewAsset.clear();
 	}
 
 	// load the open project's localisation directory into the stage's own

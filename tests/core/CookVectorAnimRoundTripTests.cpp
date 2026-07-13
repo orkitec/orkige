@@ -156,3 +156,94 @@ TEST_CASE("cook_vector_anim_roundtrip", "[unit][vectoranim]")
 	CHECK(regions[1].fill.r == Approx(0.42f).margin(0.01f));
 	CHECK(regions[1].fill.g == Approx(0.9f).margin(0.01f));
 }
+
+TEST_CASE("cook_vector_anim_group_modifiers_and_dashes",
+	"[unit][vectoranim][lottie][modifiers]")
+{
+	std::ifstream file(
+		ORKIGE_TESTS_ASSET_DIR "/vectoranim/modifiers.oanim");
+	REQUIRE(file.is_open());
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+
+	VectorAnimAsset::Document doc;
+	REQUIRE(VectorAnimAsset::parse(buffer.str(), doc));
+	CHECK(doc.fps == Approx(10.0f));
+	CHECK(doc.duration == Approx(10.0f));
+
+	auto findLayer = [&doc](String const & name) -> VectorAnimAsset::Layer const *
+	{
+		for(VectorAnimAsset::Layer const & layer : doc.layers)
+		{
+			if(layer.name == name)
+				return &layer;
+		}
+		return nullptr;
+	};
+
+	VectorAnimAsset::Layer const * groupMotion = findLayer("group_motion");
+	VectorAnimAsset::Layer const * modifiers = findLayer("modifiers");
+	VectorAnimAsset::Layer const * dashed = findLayer("dashed");
+	REQUIRE(groupMotion);
+	REQUIRE(modifiers);
+	REQUIRE(dashed);
+
+	// Animated group rotation was baked into per-frame shape poses.
+	REQUIRE(groupMotion->shapes.size() == 1u);
+	VectorAnimAsset::Shape const & movingShape = groupMotion->shapes[0];
+	REQUIRE(movingShape.keys.size() == 11u);
+	CHECK(movingShape.keys.front().region.outer.size() ==
+		movingShape.keys.back().region.outer.size());
+	VectorTessellator::Point movingStart =
+		contourCentroid(movingShape.keys.front().region.outer);
+	VectorTessellator::Point movingEnd =
+		contourCentroid(movingShape.keys.back().region.outer);
+	CHECK(movingStart.x != Approx(movingEnd.x).margin(0.05f));
+	CHECK(movingStart.y != Approx(movingEnd.y).margin(0.05f));
+
+	// Rounded-corner and pucker/bloat modifiers change geometry while keeping
+	// the parser/evaluator's fixed-topology contract.
+	REQUIRE(modifiers->shapes.size() == 1u);
+	VectorAnimAsset::Shape const & modifiedShape = modifiers->shapes[0];
+	REQUIRE(modifiedShape.keys.size() == 11u);
+	CHECK(modifiedShape.keys.front().region.outer.size() ==
+		modifiedShape.keys.back().region.outer.size());
+	bool modifiedGeometryChanged = false;
+	for(std::size_t i = 0;
+		i < modifiedShape.keys.front().region.outer.size(); ++i)
+	{
+		VectorTessellator::Point const & first =
+			modifiedShape.keys.front().region.outer[i];
+		VectorTessellator::Point const & last =
+			modifiedShape.keys.back().region.outer[i];
+		modifiedGeometryChanged = modifiedGeometryChanged ||
+			std::abs(first.x - last.x) > 1e-4f ||
+			std::abs(first.y - last.y) > 1e-4f;
+	}
+	CHECK(modifiedGeometryChanged);
+
+	// Each dash is ordinary filled vector geometry. Animated offset may move a
+	// dash on/off the path, but every emitted shape keeps one stable topology.
+	REQUIRE(dashed->shapes.size() >= 5u);
+	for(VectorAnimAsset::Shape const & dash : dashed->shapes)
+	{
+		REQUIRE(dash.keys.size() == 11u);
+		const std::size_t vertices = dash.keys.front().region.outer.size();
+		REQUIRE(vertices >= 3u);
+		for(VectorAnimAsset::ShapeKey const & key : dash.keys)
+			CHECK(key.region.outer.size() == vertices);
+	}
+
+	// The normal evaluator consumes the complete cooked fixture at both ends.
+	VectorAnimEval eval;
+	REQUIRE(eval.build(doc));
+	VectorAnimEval::Pose pose;
+	std::vector<VectorAnimEval::Region> startRegions;
+	std::vector<VectorAnimEval::Region> endRegions;
+	REQUIRE(eval.evaluateAt(0, 0.0f, pose));
+	eval.composeRegions(pose, startRegions);
+	REQUIRE(eval.evaluateAt(0, 1.0f, pose));
+	eval.composeRegions(pose, endRegions);
+	REQUIRE(startRegions.size() == endRegions.size());
+	CHECK(startRegions.size() >= 7u);
+}

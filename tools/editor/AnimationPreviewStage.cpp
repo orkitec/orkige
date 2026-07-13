@@ -33,13 +33,22 @@ namespace OrkigeEditor
 	//---------------------------------------------------------
 	AnimationPreviewStage::~AnimationPreviewStage()
 	{
-		if (!this->mUploadName.empty())
+		if (Orkige::RenderSystem * render = Orkige::RenderSystem::get())
 		{
-			if (Orkige::RenderSystem * render = Orkige::RenderSystem::get())
+			for (std::string const & name : this->mUploadNames)
 			{
-				render->destroyTexture2D(this->mUploadName);
+				if (!name.empty())
+				{
+					render->destroyTexture2D(name);
+				}
 			}
 		}
+	}
+	//---------------------------------------------------------
+	void AnimationPreviewStage::invalidateRender()
+	{
+		this->mPixelsDirty = true;
+		this->mTextureDirty = true;
 	}
 	//---------------------------------------------------------
 	bool AnimationPreviewStage::load(std::string const & projectRoot,
@@ -82,6 +91,7 @@ namespace OrkigeEditor
 		this->mBlendClipIndex = -1;
 		this->mBlendWeight = 0.0f;
 		this->mPlaying = false;
+		this->invalidateRender();
 		this->mLastError.clear();
 		outError.clear();
 		return true;
@@ -97,11 +107,19 @@ namespace OrkigeEditor
 		this->mBlendWeight = 0.0f;
 		this->mPlaying = false;
 		this->mVertexCount = 0;
+		this->mVisiblePixelCount = 0;
+		this->mColouredPixelCount = 0;
+		this->invalidateRender();
 	}
 	//---------------------------------------------------------
 	void AnimationPreviewStage::setSize(int side)
 	{
-		this->mSide = side < 16 ? 16 : (side > 2048 ? 2048 : side);
+		const int resolved = side < 16 ? 16 : (side > 2048 ? 2048 : side);
+		if (this->mSide != resolved)
+		{
+			this->mSide = resolved;
+			this->invalidateRender();
+		}
 	}
 	//---------------------------------------------------------
 	int AnimationPreviewStage::resolvedClipIndex() const
@@ -138,11 +156,17 @@ namespace OrkigeEditor
 		}
 		this->mClipIndex = index;
 		this->mTimeSeconds = 0.0f;
+		this->invalidateRender();
 	}
 	//---------------------------------------------------------
 	void AnimationPreviewStage::setTimeSeconds(float seconds)
 	{
-		this->mTimeSeconds = seconds < 0.0f ? 0.0f : seconds;
+		const float resolved = seconds < 0.0f ? 0.0f : seconds;
+		if (this->mTimeSeconds != resolved)
+		{
+			this->mTimeSeconds = resolved;
+			this->invalidateRender();
+		}
 	}
 	//---------------------------------------------------------
 	bool AnimationPreviewStage::setBlend(std::string const & clipName,
@@ -160,6 +184,7 @@ namespace OrkigeEditor
 		}
 		this->mBlendClipIndex = index;
 		this->mBlendWeight = weight < 0.0f ? 0.0f : (weight > 1.0f ? 1.0f : weight);
+		this->invalidateRender();
 		return true;
 	}
 	//---------------------------------------------------------
@@ -167,6 +192,7 @@ namespace OrkigeEditor
 	{
 		this->mBlendClipIndex = -1;
 		this->mBlendWeight = 0.0f;
+		this->invalidateRender();
 	}
 	//---------------------------------------------------------
 	void AnimationPreviewStage::tick(float deltaSeconds)
@@ -174,15 +200,23 @@ namespace OrkigeEditor
 		if (this->mPlaying && this->isLoaded() && deltaSeconds > 0.0f)
 		{
 			this->mTimeSeconds += deltaSeconds;
+			this->invalidateRender();
 		}
 	}
 	//---------------------------------------------------------
 	void AnimationPreviewStage::render()
 	{
+		if (!this->mPixelsDirty)
+		{
+			return;
+		}
 		const std::size_t pixelBytes =
 			static_cast<std::size_t>(this->mSide) * this->mSide * 4;
 		this->mPixels.assign(pixelBytes, 0);
 		this->mVertexCount = 0;
+		this->mVisiblePixelCount = 0;
+		this->mColouredPixelCount = 0;
+		this->mPixelsDirty = false;
 		if (!this->isLoaded())
 		{
 			return;
@@ -216,29 +250,56 @@ namespace OrkigeEditor
 		}
 		Orkige::VectorShapeRaster::rasterize(this->mMesh, this->mSide,
 			this->mSide, this->mPixels.data());
+		for (std::size_t pixel = 0; pixel + 3 < this->mPixels.size(); pixel += 4)
+		{
+			if (this->mPixels[pixel + 3] > 8)
+			{
+				++this->mVisiblePixelCount;
+				if (this->mPixels[pixel] < 245 ||
+					this->mPixels[pixel + 1] < 245 ||
+					this->mPixels[pixel + 2] < 245)
+				{
+					++this->mColouredPixelCount;
+				}
+			}
+		}
 	}
 	//---------------------------------------------------------
 	std::string AnimationPreviewStage::uploadTexture()
 	{
-		this->render();
 		Orkige::RenderSystem * render = Orkige::RenderSystem::get();
-		if (!render || this->mPixels.empty())
+		if (!render)
 		{
 			return "";
 		}
-		if (this->mUploadName.empty())
+		if (!this->mTextureDirty && this->mActiveUpload >= 0)
 		{
-			this->mUploadName = "__oanimpreview_" +
-				std::to_string(std::hash<std::string>{}(this->mLoadedFile.empty()
-					? std::string("stage") : this->mLoadedFile));
+			return this->mUploadNames[this->mActiveUpload];
 		}
-		if (!render->createTexture2D(this->mUploadName, this->mPixels.data(),
+		this->render();
+		if (this->mPixels.empty())
+		{
+			return "";
+		}
+		const int nextUpload = (this->mActiveUpload + 1) % 2;
+		if (this->mUploadNames[nextUpload].empty())
+		{
+			const std::string base = "__oanimpreview_" +
+				std::to_string(std::hash<std::string>{}(
+					std::to_string(reinterpret_cast<std::uintptr_t>(this))));
+			this->mUploadNames[nextUpload] = base + "_" +
+				std::to_string(nextUpload);
+		}
+		if (!render->createTexture2D(this->mUploadNames[nextUpload],
+			this->mPixels.data(),
 			static_cast<unsigned int>(this->mSide),
 			static_cast<unsigned int>(this->mSide)))
 		{
 			return "";
 		}
-		return this->mUploadName;
+		this->mActiveUpload = nextUpload;
+		this->mTextureDirty = false;
+		return this->mUploadNames[this->mActiveUpload];
 	}
 	//---------------------------------------------------------
 	bool AnimationPreviewStage::renderToPng(std::string const & pngPath,
@@ -275,6 +336,8 @@ namespace OrkigeEditor
 		info.layerCount = static_cast<int>(doc.layers.size());
 		info.shapeCount = static_cast<int>(this->mEval.shapeCount());
 		info.vertexCount = this->mVertexCount;
+		info.visiblePixelCount = this->mVisiblePixelCount;
+		info.colouredPixelCount = this->mColouredPixelCount;
 		for (VectorAnimAsset::Clip const & clip : doc.clips)
 		{
 			info.clipNames.push_back(clip.name);

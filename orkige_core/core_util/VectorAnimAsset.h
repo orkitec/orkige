@@ -12,7 +12,7 @@
 //! @file VectorAnimAsset.h
 //! @brief parser for the `.oanim` text asset - a keyframed vector-shape
 //! animation rig (the animated sibling of `.oshape`)
-//! @remarks An `.oanim` is the NATIVE runtime form of a flat-colour vector
+//! @remarks An `.oanim` is the NATIVE runtime form of a vector
 //! animation (imported animation sources cook to it): a layer hierarchy whose
 //! transforms, opacities and path poses are keyframed over one frame timeline,
 //! carved into named clips. Like `.oshape` it is plain text an agent can write
@@ -68,6 +68,10 @@
 //!                                `.oshape` vocabulary:
 //!   fill r g b a                 straight RGBA 0..1 (colour animates by
 //!                                differing per key)
+//!   linear sx sy ex ey N         linear gradient followed by N `stop`
+//!   radial sx sy ex ey N         radial centre/radius gradient; optional
+//!   focal fx fy                  off-centre focal point before its N stops
+//!   stop at r g b a              ordered gradient stop (at = 0..1)
 //!   contour C                    C follows as C `v x y` lines (outer loop)
 //!   v x y                        one contour/hole vertex (shape-local, +y up)
 //!   hole H                       optional inner loop cut out of the fill

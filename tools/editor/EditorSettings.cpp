@@ -80,6 +80,14 @@ void ViewSettings::load()
 		{
 			this->showTilePalettePanel = (value == "1");
 		}
+		else if (key == "panel_gui_preview")
+		{
+			this->showGuiPreviewPanel = (value == "1");
+		}
+		else if (key == "panel_animation_preview")
+		{
+			this->showAnimationPreviewPanel = (value == "1");
+		}
 		else if (key == "snap_enabled")
 		{
 			this->snapEnabled = (value == "1");
@@ -180,6 +188,9 @@ void ViewSettings::save() const
 		<< "panel_scene=" << (this->showScenePanel ? 1 : 0) << "\n"
 		<< "panel_assets=" << (this->showAssetBrowserPanel ? 1 : 0) << "\n"
 		<< "panel_tilepalette=" << (this->showTilePalettePanel ? 1 : 0) << "\n"
+		<< "panel_gui_preview=" << (this->showGuiPreviewPanel ? 1 : 0) << "\n"
+		<< "panel_animation_preview="
+		<< (this->showAnimationPreviewPanel ? 1 : 0) << "\n"
 		<< "snap_enabled=" << (this->snapEnabled ? 1 : 0) << "\n"
 		<< "snap_translate=" << this->snapTranslate << "\n"
 		<< "snap_rotate_deg=" << this->snapRotateDegrees << "\n"
@@ -251,13 +262,9 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 
 void ViewSettings::showAllPanels()
 {
-	this->showHierarchyPanel = true;
-	this->showInspectorPanel = true;
-	this->showConsolePanel = true;
-	this->showStatsPanel = true;
-	this->showScenePanel = true;
-	this->showAssetBrowserPanel = true;
-	this->showTilePalettePanel = true;
+#define ORKIGE_SHOW_PANEL(id, label, visible, member) this->member = true;
+	ORKIGE_EDITOR_PANEL_LIST(ORKIGE_SHOW_PANEL)
+#undef ORKIGE_SHOW_PANEL
 }
 
 // the editor-wide globals (declared extern in EditorApp.h)

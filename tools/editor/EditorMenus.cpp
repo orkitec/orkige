@@ -47,24 +47,10 @@ namespace
 bool drawPanelToggleItems(ViewSettings& viewSettings)
 {
 	bool changed = false;
-	changed |= ImGui::MenuItem("Scene Hierarchy", nullptr,
-		&viewSettings.showHierarchyPanel);
-	changed |= ImGui::MenuItem("Inspector", nullptr,
-		&viewSettings.showInspectorPanel);
-	changed |= ImGui::MenuItem("Console", nullptr,
-		&viewSettings.showConsolePanel);
-	changed |= ImGui::MenuItem("Stats", nullptr,
-		&viewSettings.showStatsPanel);
-	changed |= ImGui::MenuItem("Scene", nullptr,
-		&viewSettings.showScenePanel);
-	changed |= ImGui::MenuItem("Assets", nullptr,
-		&viewSettings.showAssetBrowserPanel);
-	changed |= ImGui::MenuItem("Tile Palette", nullptr,
-		&viewSettings.showTilePalettePanel);
-	changed |= ImGui::MenuItem("GUI Preview", nullptr,
-		&viewSettings.showGuiPreviewPanel);
-	changed |= ImGui::MenuItem("Animation Preview", nullptr,
-		&viewSettings.showAnimationPreviewPanel);
+#define ORKIGE_DRAW_PANEL_ITEM(id, label, visible, member) \
+	changed |= ImGui::MenuItem(label, nullptr, &viewSettings.member);
+	ORKIGE_EDITOR_PANEL_LIST(ORKIGE_DRAW_PANEL_ITEM)
+#undef ORKIGE_DRAW_PANEL_ITEM
 	return changed;
 }
 
@@ -765,5 +751,25 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// the GUI Preview shares the center node with the Scene (a tab beside
 	// it - the human flips between the 3D scene and the UI screen)
 	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
+	ImGui::DockBuilderDockWindow("AnimationPreview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
+}
+
+void dockPreviewBesideSceneOnce(const char* panelWindowName, bool& attempted)
+{
+	if (attempted)
+	{
+		return;
+	}
+	ImGuiWindow* scene = ImGui::FindWindowByName("Scene");
+	if (!scene || scene->DockId == 0)
+	{
+		return; // Scene may not have been submitted yet; retry next frame
+	}
+	ImGuiWindow* preview = ImGui::FindWindowByName(panelWindowName);
+	if (!preview || preview->DockId == 0)
+	{
+		ImGui::SetNextWindowDockID(scene->DockId, ImGuiCond_Always);
+	}
+	attempted = true;
 }

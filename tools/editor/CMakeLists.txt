@@ -44,8 +44,9 @@ orkige_pch_ccache_compat(orkige_editor_core)
 # (EditorApp.h is the shared-state/seam header) so a single-panel edit
 # recompiles one small TU instead of the former 8600-line monolith.
 add_executable(orkige_editor
-    main.cpp
-    EditorApp.h
+	main.cpp
+	EditorApp.h
+	EditorPanelRegistry.h
     AnimationPreviewStage.h
     AnimationPreviewStage.cpp
     AnimationPreviewPanel.cpp
