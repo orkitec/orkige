@@ -27,6 +27,70 @@ bool runProcessCaptured(const char* const* args, std::string& output,
 	return true;
 }
 
+//! the BOUNDED sibling for the device probes: a first simctl/devicectl call
+//! on a cold machine can take the better part of a minute (service spin-up),
+//! and a probe that blocks past its caller's deadline reads as a failure. The
+//! child is killed at the deadline and the probe reports false - an empty
+//! device list, never a stall.
+bool runProcessCapturedTimeout(std::vector<std::string> const& args,
+	std::string& output, int& exitCode, unsigned int timeoutMs)
+{
+	std::vector<const char*> argv;
+	argv.reserve(args.size() + 1);
+	for (std::string const& arg : args)
+	{
+		argv.push_back(arg.c_str());
+	}
+	argv.push_back(nullptr);
+	SDL_Process* process = SDL_CreateProcess(argv.data(), true);
+	if (!process)
+	{
+		return false;
+	}
+	SDL_IOStream* stdoutStream = SDL_GetProcessOutput(process);
+	output.clear();
+	const Uint64 deadline = SDL_GetTicks() + timeoutMs;
+	char buffer[4096];
+	for (;;)
+	{
+		if (stdoutStream)
+		{
+			size_t got;
+			while ((got = SDL_ReadIO(stdoutStream, buffer,
+				sizeof(buffer))) > 0)
+			{
+				output.append(buffer, got);
+			}
+		}
+		if (SDL_WaitProcess(process, false, &exitCode))
+		{
+			// drain whatever arrived between the last read and the exit
+			if (stdoutStream)
+			{
+				size_t got;
+				while ((got = SDL_ReadIO(stdoutStream, buffer,
+					sizeof(buffer))) > 0)
+				{
+					output.append(buffer, got);
+				}
+			}
+			SDL_DestroyProcess(process);
+			return true;
+		}
+		if (SDL_GetTicks() >= deadline)
+		{
+			SDL_KillProcess(process, true);
+			SDL_WaitProcess(process, true, &exitCode);
+			SDL_DestroyProcess(process);
+			SDL_Log("orkige_editor: device probe '%s' exceeded %ums - "
+				"treated as no devices", args.empty() ? "" : args[0].c_str(),
+				timeoutMs);
+			return false;
+		}
+		SDL_Delay(25);
+	}
+}
+
 //! vector-of-strings convenience wrapper around runProcessCaptured
 bool runProcessCaptured(std::vector<std::string> const& args,
 	std::string& output, int& exitCode)
@@ -72,7 +136,8 @@ std::vector<AndroidDevice> listAdbDevices()
 	std::vector<AndroidDevice> devices;
 	std::string output;
 	int exitCode = 0;
-	if (!runProcessCaptured({ adbPath(), "devices", "-l" }, output, exitCode) ||
+	if (!runProcessCapturedTimeout({ adbPath(), "devices", "-l" }, output,
+		exitCode, 10000) ||
 		exitCode != 0)
 	{
 		return devices;
@@ -122,11 +187,11 @@ bool androidPlayerInstalled(std::string const& serial)
 std::vector<SimulatorDevice> listSimulators()
 {
 	std::vector<SimulatorDevice> devices;
-	const char* args[] = { "/usr/bin/xcrun", "simctl", "list", "devices",
-		"available", nullptr };
 	std::string output;
 	int exitCode = 0;
-	if (!runProcessCaptured(args, output, exitCode) || exitCode != 0)
+	if (!runProcessCapturedTimeout({ "/usr/bin/xcrun", "simctl", "list",
+			"devices", "available" }, output, exitCode, 10000) ||
+		exitCode != 0)
 	{
 		return devices;
 	}
@@ -306,11 +371,11 @@ std::vector<IosHardwareDevice> listIosHardwareDevices()
 	const std::string jsonPath =
 		(std::filesystem::temp_directory_path() / "orkige_devicectl.json")
 			.string();
-	const char* args[] = { "/usr/bin/xcrun", "devicectl", "list", "devices",
-		"--json-output", jsonPath.c_str(), nullptr };
 	std::string output;
 	int exitCode = 0;
-	if (!runProcessCaptured(args, output, exitCode) || exitCode != 0)
+	if (!runProcessCapturedTimeout({ "/usr/bin/xcrun", "devicectl", "list",
+			"devices", "--json-output", jsonPath }, output, exitCode,
+			10000) || exitCode != 0)
 	{
 		return devices;
 	}

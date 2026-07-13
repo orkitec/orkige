@@ -262,6 +262,12 @@ jobs:
       - name: Build + package Android emulator player
         run: |
           cmake --build --preset android-emulator-debug-ci --target orkige_player
+          # a binary-cache hit skips source extraction, but the APK packer
+          # pulls SDL's Java glue from the source tarball - prime the download
+          # (classic mode from a neutral cwd; the repo root is manifest mode)
+          if ! ls "$VCPKG_ROOT_DIR"/downloads/libsdl-org-SDL-release-3.*.tar.gz >/dev/null 2>&1; then
+            (cd "$VCPKG_ROOT_DIR" && ./vcpkg install sdl3 --only-downloads)
+          fi
           tools/player/android/package_apk.sh build/android-emulator-debug-ci
 
       - name: Unit tests (headless)
@@ -588,6 +594,12 @@ jobs:
           Write-Host "Using Vulkan ICD: $icd"
           "VK_DRIVER_FILES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VK_ICD_FILENAMES=$icd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # the ICD's lvp DLL depends on the MSYS2 UCRT runtime DLLs; the test
+          # processes load it OUTSIDE any MSYS2 shell, so those DLLs must be
+          # resolvable on the plain Windows PATH or instance creation fails
+          # with no devices
+          $ucrtBin = Join-Path $env:MSYS2_LOCATION "ucrt64/bin"
+          $ucrtBin | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           (Join-Path $env:MSYS2_LOCATION "ucrt64/bin") | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Complete Windows desktop suite (lavapipe - MUST pass)

@@ -951,6 +951,12 @@ const int PLAY_STOP_GRACE_MS = 3000;
 bool runProcessCaptured(const char* const* args, std::string& output,
 	int& exitCode);
 
+//! bounded variant for device probes: kills the child at timeoutMs and
+//! returns false (a stalled cold simctl/devicectl must read as "no devices",
+//! never hang its caller past a deadline)
+bool runProcessCapturedTimeout(std::vector<std::string> const& args,
+	std::string& output, int& exitCode, unsigned int timeoutMs);
+
 //! vector-of-strings convenience wrapper around runProcessCaptured
 bool runProcessCaptured(std::vector<std::string> const& args,
 	std::string& output, int& exitCode);
