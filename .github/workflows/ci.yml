@@ -202,8 +202,13 @@ jobs:
 
       - name: Install pinned Android build toolchain
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager \
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $ANDROID_HOME/cmdline-tools" >&2
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" \
             "ndk;27.2.12479018" \
             "platforms;android-35" \
             "build-tools;35.0.0"
