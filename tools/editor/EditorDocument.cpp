@@ -81,6 +81,13 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	{
 		return false;
 	}
+	// defence in depth for every caller (menu, MCP, editor scripts): an empty
+	// path must fail honestly here - downstream loadScene asserts on it
+	if (path.empty())
+	{
+		SDL_Log("orkige_editor: open scene refused - empty scene path");
+		return false;
+	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
 	// loadScene replaces the current world (clears the manager first); the
 	// undo history refers to the old world, so it goes too

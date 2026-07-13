@@ -2164,6 +2164,36 @@ namespace Orkige
 		}
 		const String name = params.get("name").asString();
 
+		// enforce the advertised inputSchema's REQUIRED parameters before
+		// dispatch: a missing (or misnamed - unknown keys are dropped by the
+		// codec) required argument must come back as an honest tool error,
+		// never flow into a verb as an empty field (an empty scene path once
+		// reached an internal assert and took the whole editor down)
+		for (ToolSpec const& spec : toolSpecs())
+		{
+			if (name != spec.name)
+			{
+				continue;
+			}
+			JsonValue const& arguments = params.get("arguments");
+			for (PropSpec const& prop : spec.properties)
+			{
+				if (!prop.required)
+				{
+					continue;
+				}
+				JsonValue const& value = arguments.get(prop.name);
+				const bool missing = value.isNull() ||
+					(value.isString() && value.asString().empty());
+				if (missing)
+				{
+					return toolError(String(name) +
+						": missing required parameter '" + prop.name + "'");
+				}
+			}
+			break;
+		}
+
 		DebugMessage request(name);
 		applyArguments(request, params.get("arguments"));
 
@@ -5963,6 +5993,21 @@ namespace Orkige
 					("orkige_ctrl_playscene_" + std::to_string(port) +
 						".oscene")).string();
 			{
+				// required-parameter enforcement: a tools/call missing a
+				// REQUIRED schema argument (or sending it under a wrong name -
+				// the codec drops unknown keys) must come back as an honest
+				// isError, and the editor must SURVIVE - an empty scene path
+				// once flowed through open_scene into an internal assert and
+				// aborted the whole editor
+				JsonValue noArgs = JsonValue::object();
+				if (!callTool("open_scene", noArgs, true, structured, isError) ||
+					!isError)
+				{
+					finish(false, "control self-test: open_scene without its "
+						"required 'scene' argument must be an isError reply");
+					return;
+				}
+
 				JsonValue saveArgs = JsonValue::object();
 				saveArgs.set("scene", JsonValue(String(playSceneFile)));
 				if (!callTool("save_scene", saveArgs, true, structured, isError) ||
