@@ -327,6 +327,13 @@ void drawLocalHierarchy(EditorState& state, Orkige::EditorCore& core,
 			handleAssetDropTarget(state, core);
 		}
 	}
+	// left-click on empty space: deselect (the viewport's empty-click
+	// behaviour, mirrored - the Inspector falls back to the asset view)
+	if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
+		ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+	{
+		core.clearSelection();
+	}
 	// right-click on empty space: creation menu
 	if (ImGui::BeginPopupContextWindow("##createmenu",
 		ImGuiPopupFlags_MouseButtonRight |

@@ -456,6 +456,20 @@ bool drawTextureImportSection(EditorState& state)
 	std::string assetId;
 	if (!selectedBrowserTextureMeta(state, metaFilePath, assetId))
 	{
+		// honesty for the near-miss: a single selected texture WITHOUT a
+		// sidecar has no settings to edit - say so instead of falling back
+		// to "nothing selected" (which reads as the feature being gone)
+		AssetBrowserState const& browser = state.assetBrowser;
+		if (browser.selection.size() == 1 && state.project.isLoaded() &&
+			classifyAsset(*browser.selection.begin()) == AssetKind::Texture)
+		{
+			ImGui::TextUnformatted("Texture Import Settings");
+			ImGui::Separator();
+			ImGui::TextDisabled(
+				"not an imported asset (no .orkmeta sidecar) -\n"
+				"import it through the Asset browser to edit settings");
+			return true;
+		}
 		return false;
 	}
 	AssetBrowserState& browser = state.assetBrowser;

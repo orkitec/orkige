@@ -2762,7 +2762,17 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 				}
 			}
 			msio = ImGui::EndMultiSelect();
+			const std::set<std::string> selectionBefore = browser.selection;
 			applyMultiSelectRequests(msio, entries, browser);
+			// selecting an asset moves the Inspector's focus here: a CHANGED,
+			// non-empty browser selection deselects the scene object so the
+			// asset view (texture import settings, ...) shows without a
+			// separate deselect click in the viewport
+			if (!browser.selection.empty() &&
+				browser.selection != selectionBefore)
+			{
+				core.clearSelection();
+			}
 			// the focused item becomes the range anchor / keyboard target
 			if (msio->NavIdItem != -1)
 			{
