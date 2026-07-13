@@ -936,6 +936,23 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setAtmosphereBlend(String const & fromSky, String const & toSky,
+		float t)
+	{
+		AtmospherePreset::Sky from = AtmospherePreset::SKY_DAY;
+		AtmospherePreset::Sky to = AtmospherePreset::SKY_DAY;
+		AtmospherePreset::parseSky(fromSky, from);
+		AtmospherePreset::parseSky(toSky, to);
+		const AtmosphereDesc desc = AtmospherePreset::blend(from, to, t);
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
@@ -968,6 +985,8 @@ namespace Orkige
 		OFUNC(setWindowBackgroundColour)
 		// sky/fog atmosphere: engine:setAtmosphere(enabled, r,g,b, density, fog)
 		OFUNC(setAtmosphere)
+		// day->night arc from tested looks: engine:setAtmosphereBlend(from,to,t)
+		OFUNC(setAtmosphereBlend)
 		// UI capability probe: true here - the classic flavor carries
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly

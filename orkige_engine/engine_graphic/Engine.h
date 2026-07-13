@@ -320,6 +320,17 @@ protected:
 		//! fog colour keep their neutral defaults (fog colour tracks the sky).
 		void setAtmosphere(bool enabled, float skyRed, float skyGreen,
 			float skyBlue, float density, float fogDensity);
+		//! @brief set the atmosphere by blending two TESTED named looks from Lua
+		//! @param fromSky,toSky look words ("day"/"sunset"/"night"/"custom",
+		//! case-insensitive); an unknown word falls back to "day"
+		//! @param t blend weight in [0;1] (0 = fromSky, 1 = toSky)
+		//! @remarks the friendly, non-blind day->night arc surface: the numbers
+		//! come from AtmospherePreset (hand-tuned, unit-tested, un-tonemapped-safe
+		//! exposure), so a director animates the sky by naming two looks + a
+		//! weight instead of authoring raw sky/fog/exposure scalars. Orient the
+		//! first directional light to sweep the sun; @see setAtmosphere.
+		void setAtmosphereBlend(String const & fromSky, String const & toSky,
+			float t);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

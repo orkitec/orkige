@@ -264,6 +264,23 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void Engine::setAtmosphereBlend(String const & fromSky, String const & toSky,
+		float t)
+	{
+		AtmospherePreset::Sky from = AtmospherePreset::SKY_DAY;
+		AtmospherePreset::Sky to = AtmospherePreset::SKY_DAY;
+		AtmospherePreset::parseSky(fromSky, from);
+		AtmospherePreset::parseSky(toSky, to);
+		const AtmosphereDesc desc = AtmospherePreset::blend(from, to, t);
+		if(RenderSystem* renderSystem = this->getRenderSystem())
+		{
+			if(RenderWorld* world = renderSystem->getWorld())
+			{
+				world->setAtmosphere(desc);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	void Engine::enableWireframeMode()
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -311,6 +328,8 @@ namespace Orkige
 		OFUNC(setWindowBackgroundColour)
 		// sky/fog atmosphere: engine:setAtmosphere(enabled, r,g,b, density, fog)
 		OFUNC(setAtmosphere)
+		// day->night arc from tested looks: engine:setAtmosphereBlend(from,to,t)
+		OFUNC(setAtmosphereBlend)
 		// UI capability probe: true on BOTH flavors since the DrawLayer2D
 		// port (gui renders through the engine_render facade); the probe
 		// stays so scripts can still gate honestly for a future UI-less flavor

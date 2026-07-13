@@ -15,6 +15,7 @@
 ***************************************************************/
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include <core_util/AtmosphereDesc.h>
 
@@ -30,6 +31,11 @@ TEST_CASE("AtmosphereDesc: the default is disabled and fog-free",
 	CHECK(desc.skyBlue > desc.skyRed);
 	CHECK(desc.skyPower > 0.0f);
 	CHECK(desc.density > 0.0f);
+	// the un-tonemapped exposure is safe below the native PI sun drive (which
+	// clips lit surfaces to white) yet bright enough to light the scene
+	CHECK(desc.sunPower > 0.0f);
+	CHECK(desc.sunPower < 3.14159f);
+	CHECK(desc.ambientPower > 0.0f);
 }
 
 TEST_CASE("AtmosphereDesc: named looks are enabled and coherent",
@@ -63,6 +69,42 @@ TEST_CASE("AtmosphereDesc: named looks are enabled and coherent",
 	CHECK(night.skyPower < day.skyPower);
 	CHECK(night.skyBlue < day.skyBlue);
 	CHECK(night.fogDensity > 0.0f);
+}
+
+TEST_CASE("AtmosphereDesc: blend interpolates between tested looks",
+	"[atmosphere]")
+{
+	const AtmosphereDesc day = AtmospherePreset::forSky(AtmospherePreset::SKY_DAY);
+	const AtmosphereDesc night =
+		AtmospherePreset::forSky(AtmospherePreset::SKY_NIGHT);
+
+	// the endpoints ARE the named looks (and are enabled)
+	const AtmosphereDesc atStart =
+		AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+			AtmospherePreset::SKY_NIGHT, 0.0f);
+	CHECK(atStart.enabled);
+	CHECK(atStart.sunPower == day.sunPower);
+	CHECK(atStart.skyBlue == day.skyBlue);
+	const AtmosphereDesc atEnd =
+		AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+			AtmospherePreset::SKY_NIGHT, 1.0f);
+	CHECK(atEnd.sunPower == Catch::Approx(night.sunPower));
+
+	// a mid blend lands strictly between the endpoints (day is brighter)
+	const AtmosphereDesc mid =
+		AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+			AtmospherePreset::SKY_NIGHT, 0.5f);
+	CHECK(mid.sunPower < day.sunPower);
+	CHECK(mid.sunPower > night.sunPower);
+	CHECK(mid.skyPower < day.skyPower);
+	CHECK(mid.skyPower > night.skyPower);
+
+	// t is clamped to [0;1]
+	CHECK(AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+		AtmospherePreset::SKY_NIGHT, -1.0f).sunPower == day.sunPower);
+	CHECK(AtmospherePreset::blend(AtmospherePreset::SKY_DAY,
+		AtmospherePreset::SKY_NIGHT, 2.0f).sunPower ==
+		Catch::Approx(night.sunPower));
 }
 
 TEST_CASE("AtmosphereDesc: look words round-trip (the config dialect)",

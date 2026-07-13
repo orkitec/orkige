@@ -1548,6 +1548,13 @@ foreach(play_test player_debug_pause editor_play_stop editor_play_crash
     endif()
 endforeach()
 
+# the render-facade conformance suite decodes its screenshot once per pixel
+# probe, and the atmosphere exposure/fog legs put the honest runtime past the
+# blanket 60s - a coarse backstop, not a perf bar
+if(TEST render_facade_selfcheck)
+    set_tests_properties(render_facade_selfcheck PROPERTIES TIMEOUT 240)
+endif()
+
 # the native compile-on-Play tests run a REAL cmake configure + compile of
 # the jumper-native module inside the run - the first (or break-variant,
 # always-cold) build of the OGRE-including TU plus the full static link

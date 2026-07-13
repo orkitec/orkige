@@ -667,10 +667,10 @@ def selftest():
         scripts = os.path.join(root, "scripts")
         os.makedirs(media)
         os.makedirs(scripts)
-        with open(os.path.join(media, "s.oui"), "w") as f:
+        with open(os.path.join(media, "s.oui"), "w", encoding="utf-8") as f:
             f.write("[Label a]\ntext = @menu.play\n"
                     "[Label b]\ntext = @hud.score\n")
-        with open(os.path.join(scripts, "g.lua"), "w") as f:
+        with open(os.path.join(scripts, "g.lua"), "w", encoding="utf-8") as f:
             f.write("loc('menu.quit')\n")
         # a pre-existing target with a stale translation for a key whose source
         # we are about to change, plus an orphan key to be pruned
@@ -742,11 +742,11 @@ def selftest():
         # --write is idempotent (byte-for-byte on a second pass)
         before = {}
         for fn in sorted(os.listdir(loc_dir(root))):
-            with open(os.path.join(loc_dir(root), fn)) as f:
+            with open(os.path.join(loc_dir(root), fn), encoding="utf-8") as f:
                 before[fn] = f.read()
         assert cmd_write(root, do_pseudo=True) == 0
         for fn, content in before.items():
-            with open(os.path.join(loc_dir(root), fn)) as f:
+            with open(os.path.join(loc_dir(root), fn), encoding="utf-8") as f:
                 assert f.read() == content, "non-idempotent write: %s" % fn
 
         # --check is green on the freshly-written, in-sync tree
@@ -756,7 +756,7 @@ def selftest():
         de_doc, _ = load_doc(os.path.join(loc_dir(root), "de.xlf"), w)
         de_doc.index()["hud.score"].target = "Punkte ohne code"   # dropped %%0%%
         write_doc(os.path.join(loc_dir(root), "de.xlf"), de_doc)
-        with open(os.path.join(media, "s.oui"), "a") as f:
+        with open(os.path.join(media, "s.oui"), "a", encoding="utf-8") as f:
             f.write("[Label c]\ntext = @brand.new\n")             # not in en.xlf
         assert cmd_check(root) == 1, "check should fail on drift"
 

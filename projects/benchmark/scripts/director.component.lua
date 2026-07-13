@@ -97,24 +97,17 @@ local function driveSun(p)
 	sun:setOrientation(Quaternion(math.cos(half), math.sin(half), 0, 0))
 end
 
--- day -> sunset -> night atmosphere blend as `p` goes 0..1
+-- day -> sunset -> night atmosphere blend as `p` goes 0..1. The sky, fog and
+-- exposure numbers all come from the TESTED AtmospherePreset looks (C++,
+-- unit-tested, un-tonemapped-safe) via engine:setAtmosphereBlend - the director
+-- only picks the two looks + a weight, it authors no raw sky/fog/exposure values
+-- (raw guesses whited surfaces out / blacked the sky - see the preset ranges).
 local function driveAtmosphere(p)
-	local function lerp(a, b, t) return a + (b - a) * t end
-	local sky, density, fog
-	if p < 0.45 then
-		local t = p / 0.45
-		sky = { lerp(0.45, 0.9, t), lerp(0.62, 0.55, t), lerp(0.85, 0.35, t) }
-		density, fog = 0.02, 0.010
-	elseif p < 0.75 then
-		local t = (p - 0.45) / 0.30
-		sky = { lerp(0.9, 0.25, t), lerp(0.55, 0.20, t), lerp(0.35, 0.30, t) }
-		density, fog = 0.03, 0.018
+	if p < 0.6 then
+		engine:setAtmosphereBlend("day", "sunset", p / 0.6)
 	else
-		local t = (p - 0.75) / 0.25
-		sky = { lerp(0.25, 0.04, t), lerp(0.20, 0.05, t), lerp(0.30, 0.12, t) }
-		density, fog = 0.05, 0.025
+		engine:setAtmosphereBlend("sunset", "night", (p - 0.6) / 0.4)
 	end
-	engine:setAtmosphere(true, sky[1], sky[2], sky[3], density, fog)
 end
 
 local function gatherPool()
@@ -370,7 +363,9 @@ function init(self)
 		buildHud()
 	elseif mode == "swarm" then
 		setPerspectiveCamera(16.0, 8.0, -8.0)
-		engine:setAtmosphere(true, 0.10, 0.10, 0.16, 0.03, 0.015)
+		-- a clean night sky (tested preset: dim sun, cool fill, sane haze) so
+		-- the glowing embers read against the dark
+		engine:setAtmosphereBlend("night", "night", 0.0)
 		gatherPool()
 		buildHud()
 	elseif mode == "field" then

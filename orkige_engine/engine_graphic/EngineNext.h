@@ -119,6 +119,9 @@ namespace Orkige
 		//! @copydoc Engine::setAtmosphere (classic)
 		void setAtmosphere(bool enabled, float skyRed, float skyGreen,
 			float skyBlue, float density, float fogDensity);
+		//! @copydoc Engine::setAtmosphereBlend (classic)
+		void setAtmosphereBlend(String const & fromSky, String const & toSky,
+			float t);
 		//! @brief does this build carry the gui UI system?
 		//! @remarks true on BOTH flavors
 		//! (gui renders through the engine_render facade); the probe

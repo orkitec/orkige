@@ -29,8 +29,40 @@ namespace Orkige
 	//! AtmosphereNpr (sky dome + HlmsPbs-integrated fog + sun colour/power). On
 	//! the classic compatibility flavor there is no sky dome: @c fogDensity /
 	//! @c fog* drive fixed-function exponential fog and @c sky* becomes the flat
-	//! window clear colour (@c skyPower / @c density are ignored) - the honest
-	//! subset (@see the capability matrix in Docs/render-abstraction.md).
+	//! window clear colour (@c skyPower / @c density / @c sunPower / @c
+	//! ambientPower are ignored) - the honest subset (@see the capability
+	//! matrix in Docs/render-abstraction.md).
+	//!
+	//! Field ranges + coupling (next flavor / AtmosphereNpr; verified against
+	//! the NprSky model - Components/Atmosphere in the Ogre-Next source):
+	//!  - @c skyRed/Green/Blue : the sky's Rayleigh tint. It is NOT a literal
+	//!    background colour: the shader mixes it with the sun-height weight and
+	//!    the Rayleigh absorption, so a blue-dominant tint reads blue at zenith
+	//!    and warms toward the horizon. Keep components in [0;1].
+	//!  - @c skyPower : HDR sky-dome brightness multiplier (NprSky finalMultiplier
+	//!    scales by it). ~1 = neutral midday; lower for dusk/night. Only touches
+	//!    the SKY pixels, not lit surfaces.
+	//!  - @c density : Rayleigh density coefficient (NprSky densityCoeff, default
+	//!    0.47). Sensible ~[0.05;1.0]: thin (0.08) = a crisp high-altitude sky,
+	//!    thick (0.9) = a hazy, washed-out horizon. Couples with sun height: the
+	//!    shader divides by sun elevation, so the SAME density reads far hazier
+	//!    at a low (sunset) sun than at noon. Above ~1.2 the horizon whites out.
+	//!  - @c fogDensity : per-object exponential distance fog (NprSky fogDensity,
+	//!    default 0.0001). VERY sensitive - sensible ~[0;0.01]. 0 = none, ~0.002
+	//!    is a gentle depth haze at tens of units, ~0.01 buries mid-distance
+	//!    geometry. This is object fog, INDEPENDENT of @c density (which is the
+	//!    sky dome only); do not confuse the two.
+	//!  - @c sunPower : drives the linked directional light's power (NprSky
+	//!    linkedLightPower). The pipeline has NO tonemapper, so this is the
+	//!    exposure knob for lit surfaces: at the native default (Math::PI) a
+	//!    mid-albedo surface under the zenith sun clips to white. The neutral
+	//!    default here lands a mid-grey surface in a believable mid-range with
+	//!    headroom below 1.0. Sensible ~[0.2;3.0] (0.2 = a dim moonlit night).
+	//!  - @c ambientPower : scales the atmosphere-driven hemisphere ambient
+	//!    (NprSky linkedSceneAmbient*Power) - the shadowed-surface fill. 1 = the
+	//!    native fill; raise for flatter/softer shadows, lower toward 0 for hard,
+	//!    dark shadows. Also un-tonemapped, so it stacks with @c sunPower on
+	//!    sun-facing surfaces - keep their sum from over-driving bright albedos.
 	struct AtmosphereDesc
 	{
 		bool	enabled;		//!< master switch: false = plain clear background, no fog
@@ -39,8 +71,12 @@ namespace Orkige
 		float	skyRed;			//!< zenith sky tint, linear [0;1]
 		float	skyGreen;
 		float	skyBlue;
-		float	skyPower;		//!< HDR sky brightness multiplier (1 = neutral)
-		float	density;		//!< atmospheric haze density coefficient (thicker = hazier horizon)
+		float	skyPower;		//!< HDR sky-dome brightness multiplier (1 = neutral)
+		float	density;		//!< sky Rayleigh density coefficient (thicker = hazier horizon)
+
+		//--- surface lighting drive (un-tonemapped exposure knobs) ---
+		float	sunPower;		//!< linked directional light power (exposure); native PI clips
+		float	ambientPower;	//!< scales the driven hemisphere ambient fill (1 = native)
 
 		//--- per-object exponential distance fog ---
 		float	fogDensity;		//!< 0 = no object fog; larger = objects fade to fog sooner
@@ -50,12 +86,16 @@ namespace Orkige
 
 		//! neutral defaults: a clear daytime sky, no fog, atmosphere OFF (an
 		//! app opts in by setting enabled). density/skyPower mirror the
-		//! AtmosphereNpr midday defaults so an enabled-only desc looks sane.
+		//! AtmosphereNpr midday defaults; sunPower/ambientPower are the
+		//! un-tonemapped-safe exposure (the native PI sun-power clips) so an
+		//! enabled-only desc lights surfaces without blowing out to white.
 		AtmosphereDesc()
 			: enabled(false)
 			, skyRed(0.334f), skyGreen(0.57f), skyBlue(1.0f)
 			, skyPower(1.0f)
 			, density(0.47f)
+			, sunPower(1.6f)
+			, ambientPower(1.0f)
 			, fogDensity(0.0f)
 			, fogRed(0.7f), fogGreen(0.8f), fogBlue(0.9f)
 		{
@@ -88,6 +128,8 @@ namespace Orkige
 				desc.skyRed = 0.334f; desc.skyGreen = 0.57f; desc.skyBlue = 1.0f;
 				desc.skyPower = 1.0f;
 				desc.density = 0.47f;
+				desc.sunPower = 1.6f;
+				desc.ambientPower = 1.0f;
 				desc.fogDensity = 0.0f;
 				desc.fogRed = 0.75f; desc.fogGreen = 0.85f; desc.fogBlue = 0.95f;
 				break;
@@ -95,6 +137,10 @@ namespace Orkige
 				desc.skyRed = 1.0f; desc.skyGreen = 0.5f; desc.skyBlue = 0.25f;
 				desc.skyPower = 1.0f;
 				desc.density = 0.9f;
+				// a warm low sun reads dimmer than noon; a touch of fill keeps
+				// the long shadows readable, a whisper of object haze
+				desc.sunPower = 1.3f;
+				desc.ambientPower = 1.2f;
 				desc.fogDensity = 0.0025f;
 				desc.fogRed = 0.85f; desc.fogGreen = 0.55f; desc.fogBlue = 0.4f;
 				break;
@@ -102,6 +148,10 @@ namespace Orkige
 				desc.skyRed = 0.05f; desc.skyGreen = 0.08f; desc.skyBlue = 0.18f;
 				desc.skyPower = 0.2f;
 				desc.density = 0.08f;
+				// a dim moon: a low sun drive, a cool ambient fill so shapes
+				// stay legible instead of crushing to black
+				desc.sunPower = 0.35f;
+				desc.ambientPower = 0.8f;
 				desc.fogDensity = 0.0015f;
 				desc.fogRed = 0.04f; desc.fogGreen = 0.06f; desc.fogBlue = 0.12f;
 				break;
@@ -110,6 +160,35 @@ namespace Orkige
 				break;
 			}
 			return desc;
+		}
+
+		//! @brief field-wise blend between two named looks, @c t in [0;1]
+		//! (t=0 -> @c a, t=1 -> @c b). The result is enabled. The linear lerp
+		//! is honest for these hand-tuned looks: every field moves monotonically
+		//! day -> sunset -> night, so a mid blend is a plausible in-between sky
+		//! (the couplings in AtmosphereDesc are per-field-monotone across the
+		//! three presets). Pure, so a day/night director drives it headlessly
+		//! and both flavors read the same numbers.
+		inline AtmosphereDesc blend(Sky a, Sky b, float t)
+		{
+			t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+			const AtmosphereDesc da = forSky(a);
+			const AtmosphereDesc db = forSky(b);
+			auto mix = [t](float x, float y) { return x + (y - x) * t; };
+			AtmosphereDesc out;
+			out.enabled = true;
+			out.skyRed = mix(da.skyRed, db.skyRed);
+			out.skyGreen = mix(da.skyGreen, db.skyGreen);
+			out.skyBlue = mix(da.skyBlue, db.skyBlue);
+			out.skyPower = mix(da.skyPower, db.skyPower);
+			out.density = mix(da.density, db.density);
+			out.sunPower = mix(da.sunPower, db.sunPower);
+			out.ambientPower = mix(da.ambientPower, db.ambientPower);
+			out.fogDensity = mix(da.fogDensity, db.fogDensity);
+			out.fogRed = mix(da.fogRed, db.fogRed);
+			out.fogGreen = mix(da.fogGreen, db.fogGreen);
+			out.fogBlue = mix(da.fogBlue, db.fogBlue);
+			return out;
 		}
 
 		//! @brief the canonical word for a named look (the cvar/manifest dialect)

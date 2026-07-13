@@ -1181,6 +1181,114 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"the unsupported-sky-dome log line appears exactly once");
 		}
 
+		// NOT-CLIPPED exposure: the atmosphere drives its linked sun's power for
+		// an HDR pipeline, but THIS pipeline has no tonemapper - the native sun
+		// power (Math::PI) clips a mid-albedo surface to pure white. A mid-grey,
+		// colour-only PBS surface (the terrain case: a horizontal slab under a
+		// near-vertical daytime sun) must render NEITHER white (clipped) NOR
+		// black (unlit) - the regression guard for the un-tonemapped sun-drive
+		// scale (AtmosphereDesc::sunPower). Runs on the next flavor only (the
+		// classic subset has no sky dome / sun linkage - it applies the flat sky
+		// clear colour, no PBS sun drive to clip).
+		if(RenderWorld::skyDomeSupported())
+		{
+			// a mid-grey, colour-only PBS material (no maps, so the reading is
+			// the pure albedo * lighting - the exposure the sun drive controls)
+			RenderMaterialDesc greyDesc;
+			greyDesc.albedo = Color(0.5f, 0.5f, 0.5f, 1.0f);	// mid-grey
+			greyDesc.metalness = 0.0f;
+			greyDesc.roughness = 1.0f;
+			SELFCHECK(renderSystem->createMaterial("selfcheck.midGrey", greyDesc),
+				"the mid-grey exposure probe material builds");
+			// a wide horizontal slab (the terrain analogy: a flat lit surface
+			// under a near-vertical daytime sun) taking the mid-grey material -
+			// jumper_platform's top is a flat surface the shadow probe above
+			// proved the directional sun shades. The atmosphere OVERRIDES the
+			// sun's colour/power via its linkage, so the reading is entirely the
+			// atmosphere's exposure drive.
+			optr<RenderNode> greyNode =
+				world->createNode("selfcheck.midGreyNode");
+			greyNode->setPosition(Vec3(600, 0, 0));
+			greyNode->setScale(Vec3(16, 1, 16));
+			optr<MeshInstance> greySlab =
+				world->createMeshInstance("jumper_platform.glb");
+			SELFCHECK(greySlab != NULL, "the exposure probe mesh loads");
+			greySlab->attachTo(greyNode);
+			greySlab->setCastShadows(false);
+			SELFCHECK(greySlab->setMaterial("selfcheck.midGrey"),
+				"the exposure probe mesh takes the mid-grey material");
+			// the sun: a near-vertical daytime directional light (the FIRST
+			// directional light, so the atmosphere links + drives it). The
+			// AtmosphereNpr convention orients the light TOWARD the sun (so a
+			// noon sun's node points up); the linkage drives the actual light
+			// travel direction down onto the slab top.
+			optr<RenderNode> exposureSunNode =
+				world->createNode("selfcheck.exposureSun");
+			exposureSunNode->setDirection(Vec3(0.15f, 1.0f, 0.1f),
+				RenderNode::TS_WORLD);
+			optr<RenderLight> exposureSun = world->createLight();
+			exposureSun->attachTo(exposureSunNode);
+			exposureSun->setType(RenderLight::LT_DIRECTIONAL);
+			exposureSun->setSpecularColour(Color(0, 0, 0));	// flat diffuse read
+			world->setAtmosphere(
+				AtmospherePreset::forSky(AtmospherePreset::SKY_DAY));
+			// camera above the slab, looking down at the sunlit top
+			camera->setPerspective(Degree(55), Real(1.0), Real(500));
+			cameraNode->setPosition(Vec3(600, 9, 6));
+			cameraNode->lookAt(Vec3(600, 0.5f, 0), RenderNode::TS_WORLD);
+			SELFCHECK(renderFrames(renderSystem, 4),
+				"frames render with the sunlit exposure slab");
+			const std::string exposureShot =
+				outDir + "/selfcheck_atmosphere_exposure.png";
+			renderSystem->saveWindowContents(exposureShot);
+			// scan a spread of slab-top world points and take the BRIGHTEST
+			// reading: the sun-facing part of the slab is the surface that would
+			// clip to white at the native sun power (the slab's normal-mapped
+			// checker + the angled sun leave some cells facing away, so a single
+			// centre probe is unreliable - the max over the top is the exposure
+			// the fix must keep below clipping)
+			float slabLum = 0;
+			bool slabDecoded = false;
+			// a 3x3 spread is enough to catch a sun-facing cell, and each
+			// probe re-decodes the whole screenshot - a wider scan blows the
+			// test timeout on a large window
+			for(int gx = -1; gx <= 1; ++gx)
+			{
+				for(int gz = -1; gz <= 1; ++gz)
+				{
+					const Vec3 slabPoint(600.0f + gx * 5.0f, 0.5f, gz * 5.0f);
+					Real nx = 0, ny = 0;
+					if(!camera->projectPoint(slabPoint, nx, ny))
+					{
+						continue;
+					}
+					float blockLum = 0;
+					if(!blockLuminance(exposureShot,
+						static_cast<unsigned int>(nx * (atmoW - 1)),
+						static_cast<unsigned int>(ny * (atmoH - 1)), blockLum))
+					{
+						continue;
+					}
+					slabDecoded = true;
+					slabLum = std::max(slabLum, blockLum);
+				}
+			}
+			SELFCHECK(slabDecoded, "the exposure probe decodes");
+			std::printf("render_facade_selfcheck: exposure probe - "
+				"sunlit slab (brightest) %.3f (want > 0.05 and < 0.95)\n", slabLum);
+			SELFCHECK(slabLum > 0.05f,
+				"the slab is lit by the atmosphere sun (not black)");
+			SELFCHECK(slabLum < 0.95f,
+				"the sunlit slab does NOT clip to white (the sun drive is capped)");
+			// tear the exposure probe content down (the fog section rebuilds its
+			// own sun + object below)
+			exposureSun.reset();
+			greySlab.reset();
+			world->setAtmosphere(AtmosphereDesc());	// disabled, clean slate
+			SELFCHECK(renderFrames(renderSystem, 2),
+				"frames render after the exposure probe was dropped");
+		}
+
 		// fog: a distant lit object's reading shifts as fog thickens. The
 		// atmosphere stays ENABLED across both captures so only fogDensity
 		// varies (the sun colour the atmosphere drives is held constant).

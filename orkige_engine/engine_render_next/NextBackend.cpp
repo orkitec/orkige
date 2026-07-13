@@ -717,6 +717,17 @@ namespace Orkige
 		preset.skyPower = desc.skyPower;
 		preset.densityCoeff = desc.density;
 		preset.fogDensity = desc.fogDensity;
+		// EXPOSURE: this pipeline has no tonemapper, so the native sun/ambient
+		// powers (linkedLightPower = PI, linkedSceneAmbient*Power = 0.1/0.01 PI)
+		// clip lit surfaces to white. Drive them from the desc's un-tonemapped
+		// exposure knobs instead (AtmosphereDesc::sunPower/ambientPower carry the
+		// safe defaults); the ambient multiplier scales the native hemisphere
+		// fill so it stays proportioned to the sun.
+		preset.linkedLightPower = desc.sunPower;
+		preset.linkedSceneAmbientUpperPower =
+			0.1f * static_cast<float>(Ogre::Math::PI) * desc.ambientPower;
+		preset.linkedSceneAmbientLowerPower =
+			0.01f * static_cast<float>(Ogre::Math::PI) * desc.ambientPower;
 		gAtmosphere->setPreset(preset);			// preset first (syncToLight reads it)
 		gAtmosphere->setSunDir(sunDir, normTime);	// then place the sun
 	}
