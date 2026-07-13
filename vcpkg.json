@@ -47,6 +47,15 @@
     {
       "name": "catch2",
       "platform": "!ios & !android"
+    },
+    {
+      "name": "vulkan-loader",
+      "features": [
+        "xcb",
+        "xlib",
+        "wayland"
+      ],
+      "platform": "linux"
     }
   ],
   "features": {
