@@ -854,3 +854,39 @@ TEST_CASE("AssetDatabase rescan after a move is stable - the moved id persists",
 	CHECK(second.idForPath("assets/sub/x.png") == id);
 	CHECK(second.idForPath("assets/ball.png").empty());
 }
+
+TEST_CASE("texture_import_applied_size", "[unit][asset]")
+{
+	using Orkige::TextureImportSettings;
+	int w = 0, h = 0;
+
+	// uncapped: source passes straight through
+	TextureImportSettings uncapped;
+	uncapped.maxSize = 0;
+	uncapped.appliedSize(2048, 1024, w, h);
+	CHECK(w == 2048);
+	CHECK(h == 1024);
+
+	// cap on the longest side, other side scaled in proportion
+	TextureImportSettings capped;
+	capped.maxSize = 512;
+	capped.appliedSize(2048, 1024, w, h);
+	CHECK(w == 512);
+	CHECK(h == 256);
+
+	// already within the cap: never upscales
+	capped.appliedSize(256, 128, w, h);
+	CHECK(w == 256);
+	CHECK(h == 128);
+
+	// a tall image caps on height; the narrow side clamps to at least one texel
+	capped.maxSize = 100;
+	capped.appliedSize(50, 5000, w, h);
+	CHECK(h == 100);
+	CHECK(w == 1);
+
+	// a degenerate source dimension passes through as zero (nothing to preview)
+	capped.appliedSize(0, 0, w, h);
+	CHECK(w == 0);
+	CHECK(h == 0);
+}

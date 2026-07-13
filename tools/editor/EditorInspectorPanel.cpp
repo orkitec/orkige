@@ -7,19 +7,31 @@
 #include "EditorPropertyWidgets.h"
 #include "EditorTheme.h"
 #include "SyntaxHighlight.h"
+#include "ImGuiFacadeRenderer.h"
+#include "MeshPreviewStage.h"
 
 #include <core_base/PropertySchema.h>
 #include <core_base/TypeManager.h>
 #include <core_game/GameObjectManager.h>
 #include <core_project/AssetDatabase.h>
+#include <core_util/MaterialAsset.h>
 #include <core_util/StringUtil.h>
+#include <core_util/VectorShapeAsset.h>
+#include <core_util/VectorShapeRaster.h>
+#include <core_util/VectorTessellator.h>
+
+#include <engine_render/RenderSystem.h>
+#include <engine_render/RenderTexture.h>
+#include <engine_render/RenderMaterial.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 using Orkige::optr;
 using Orkige::woptr;
@@ -450,6 +462,115 @@ void drawTextureSettingsFields(Orkige::TextureImportSettings& settings)
 	Orkige::compactCheckbox("Generate Mips", &settings.generateMips);
 }
 
+//! the texture-import PREVIEW block appended to the settings section: a
+//! Base/Android/iOS platform selector (the two overrides appear only when
+//! enabled), the source image drawn as it would import (scaled to the platform's
+//! resolved maxSize downscale so the shrink is visible) and an "as imported:
+//! WxH (from WxH source)" status line with the filter/wrap the runtime samples
+//! with. The honest limits: ImGui draws the FULL-RES bindable texture scaled
+//! down (there is no CPU image decode or texture readback in the tree to
+//! re-upload a point-sampled downscaled copy), so the shrink is shown by draw
+//! scale, not a re-cook - the DIMENSIONS are exact (the pure appliedSize the
+//! export cook shares), the pixels are a linear-sampled approximation.
+void drawTexturePreviewBlock(EditorState& state, std::string const& relativePath)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render || !gImGuiRenderer)
+	{
+		return;
+	}
+	const std::string bareName =
+		std::filesystem::path(relativePath).filename().string();
+	unsigned int srcW = 0;
+	unsigned int srcH = 0;
+	// getTextureSize LOADS + measures the real image; a miss means it is not a
+	// bindable texture (a broken/non-image file) - say so honestly
+	if (!render->getTextureSize(bareName, srcW, srcH) || srcW == 0 || srcH == 0)
+	{
+		ImGui::Separator();
+		ImGui::TextDisabled("preview unavailable (image did not load)");
+		return;
+	}
+	ImGui::Separator();
+	ImGui::TextUnformatted("Preview");
+	// the platform selector: Base always, Android/iOS only when an override is
+	// enabled (otherwise they resolve to Base - nothing to choose). A dropped
+	// override snaps the selection back to Base.
+	std::vector<std::pair<const char*, const char*>> platforms;
+	platforms.push_back({ "Base", "" });
+	if (browser.editImport.hasAndroid)
+	{
+		platforms.push_back({ "Android", "android" });
+	}
+	if (browser.editImport.hasIos)
+	{
+		platforms.push_back({ "iOS", "ios" });
+	}
+	bool valid = false;
+	for (auto const& option : platforms)
+	{
+		if (browser.previewPlatform == option.second)
+		{
+			valid = true;
+			break;
+		}
+	}
+	if (!valid)
+	{
+		browser.previewPlatform.clear();
+	}
+	const char* currentLabel = "Base";
+	for (auto const& option : platforms)
+	{
+		if (browser.previewPlatform == option.second)
+		{
+			currentLabel = option.first;
+		}
+	}
+	if (ImGui::BeginCombo("Platform", currentLabel))
+	{
+		for (auto const& option : platforms)
+		{
+			if (ImGui::Selectable(option.first,
+				browser.previewPlatform == option.second))
+			{
+				browser.previewPlatform = option.second;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	// the resolved settings drive the imported dimensions (the live edit cache,
+	// so the preview follows an in-flight maxSize change before Apply)
+	Orkige::TextureImportSettings const& resolved =
+		browser.editImport.resolvedFor(browser.previewPlatform);
+	int impW = 0;
+	int impH = 0;
+	resolved.appliedSize(static_cast<int>(srcW), static_cast<int>(srcH),
+		impW, impH);
+	// draw the image at the imported pixel size, capped to the inspector width
+	// (so a big texture is not clipped) - the downscale reads visually
+	const float avail = ImGui::GetContentRegionAvail().x;
+	float drawW = static_cast<float>(impW);
+	float drawH = static_cast<float>(impH);
+	if (drawW > avail && drawW > 0.0f)
+	{
+		const float scale = avail / drawW;
+		drawW *= scale;
+		drawH *= scale;
+	}
+	const ImTextureID id = gImGuiRenderer->textureIdForResource(bareName);
+	if (id != 0 && drawW > 0.0f && drawH > 0.0f)
+	{
+		ImGui::Image(id, ImVec2(drawW, drawH));
+	}
+	ImGui::Text("as imported: %d x %d", impW, impH);
+	ImGui::SameLine();
+	ImGui::TextDisabled("(from %u x %u source)", srcW, srcH);
+	ImGui::TextDisabled("%s filter, %s wrap%s", resolved.filter.c_str(),
+		resolved.wrap.c_str(), resolved.premultiply ? ", premultiplied" : "");
+}
+
 //! the "Texture Import Settings" Inspector section: shown when the SCENE
 //! selection is empty AND exactly one id-tracked TEXTURE is selected in the
 //! Asset browser. Reads the sidecar's import block on a selection change, edits
@@ -521,6 +642,7 @@ bool drawTextureImportSection(EditorState& state)
 	{
 		applyTextureImportEdit(state, browser.editImport);
 	}
+	drawTexturePreviewBlock(state, relativePath);
 	return true;
 }
 
@@ -811,10 +933,445 @@ bool drawUnknownAssetSection(EditorState& state)
 	return true;
 }
 
+
+//! as its project-relative path, or "" when the selection is not exactly one
+std::string singleSelectedAsset(EditorState& state)
+{
+	AssetBrowserState const& browser = state.assetBrowser;
+	if (!state.project.isLoaded() || browser.selection.size() != 1)
+	{
+		return std::string();
+	}
+	return *browser.selection.begin();
+}
+
+//! the ".oshape" Inspector section: the tessellated flat-colour fill rendered
+//! at Inspector width (the thumbnail raster at a larger size, cached per file),
+//! a "View source" toggle switching to the raw text, and a vertex/triangle
+//! status line. Returns true when it drew the section.
+bool drawShapeInspectorSection(EditorState& state,
+	std::string const& relativePath)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string absolutePath =
+		resolveProjectFilePath(state.project, relativePath);
+	std::error_code ec;
+	const long long mtime = static_cast<long long>(
+		std::filesystem::last_write_time(absolutePath, ec)
+			.time_since_epoch().count());
+	const std::string key = absolutePath + "|" + std::to_string(mtime);
+
+	ImGui::TextUnformatted("Vector Shape");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(relativePath).filename().string().c_str());
+	ImGui::Separator();
+	Orkige::compactCheckbox("View source", &browser.shapeShowSource);
+
+	// (re)build the raster + read the counts (and cache the source text) when
+	// the selected file or its mtime changes
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (browser.shapePreviewKey != key)
+	{
+		if (!browser.shapePreviewUpload.empty() && render)
+		{
+			render->destroyTexture2D(browser.shapePreviewUpload);
+		}
+		browser.shapePreviewUpload.clear();
+		browser.shapePreviewVertices = 0;
+		browser.shapePreviewTriangles = 0;
+		browser.shapePreviewKey = key;
+		browser.shapeSourceText.clear();
+		std::ifstream in(absolutePath, std::ios::binary);
+		if (in)
+		{
+			std::stringstream buffer;
+			buffer << in.rdbuf();
+			browser.shapeSourceText = buffer.str();
+			std::vector<Orkige::VectorTessellator::Region> regions;
+			if (Orkige::VectorShapeAsset::parse(browser.shapeSourceText, regions))
+			{
+				const Orkige::VectorTessellator::Bounds bounds =
+					Orkige::VectorTessellator::computeBounds(regions);
+				Orkige::VectorTessellator::Mesh mesh;
+				Orkige::VectorTessellator::build(regions,
+					Orkige::VectorTessellator::defaultFeatherWidth(bounds), mesh);
+				browser.shapePreviewVertices =
+					static_cast<int>(mesh.positions.size());
+				browser.shapePreviewTriangles =
+					static_cast<int>(mesh.indices.size() / 3);
+				if (!mesh.indices.empty() && render)
+				{
+					const int side = 256;
+					std::vector<unsigned char> pixels(
+						static_cast<std::size_t>(side) * side * 4, 0);
+					Orkige::VectorShapeRaster::rasterize(mesh, side, side,
+						pixels.data());
+					const std::string uploadName = "__oshapeinspector";
+					if (render->createTexture2D(uploadName, pixels.data(),
+						side, side))
+					{
+						browser.shapePreviewUpload = uploadName;
+					}
+				}
+			}
+		}
+	}
+
+	if (browser.shapeShowSource)
+	{
+		// the raw text view (the "existing highlighted-text" toggle target -
+		// a read-only monospaced dump of the .oshape source)
+		ImGui::InputTextMultiline("##shapesource",
+			browser.shapeSourceText.data(), browser.shapeSourceText.size() + 1,
+			ImVec2(ImGui::GetContentRegionAvail().x,
+				ImGui::GetTextLineHeight() * 12.0f),
+			ImGuiInputTextFlags_ReadOnly);
+	}
+	else if (!browser.shapePreviewUpload.empty() && gImGuiRenderer)
+	{
+		const float side = std::min(ImGui::GetContentRegionAvail().x, 256.0f);
+		ImGui::Image(gImGuiRenderer->textureIdForResource(
+			browser.shapePreviewUpload), ImVec2(side, side));
+	}
+	else
+	{
+		ImGui::TextDisabled("(shape did not tessellate - see the source)");
+	}
+	ImGui::Text("%d vertices, %d triangles", browser.shapePreviewVertices,
+		browser.shapePreviewTriangles);
+	return true;
+}
+
+//! shared mouse-drag orbit on a just-drawn preview image: a left-drag over the
+//! image rotates the mesh stage (cheap - per drag, not per frame)
+void applyPreviewOrbitDrag(OrkigeEditor::MeshPreviewStage& meshPreview)
+{
+	if (ImGui::IsItemHovered() &&
+		ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+	{
+		const ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
+		meshPreview.addOrbit(delta.x * 0.4f, -delta.y * 0.4f);
+		ImGui::ResetMouseDragDelta(ImGuiMouseButton_Left);
+	}
+}
+
+//! the ".glb"/mesh Inspector section: a static-snapshot 3D preview from
+//! MeshPreviewStage (a framed 3/4 view, orbit by dragging the image). Degrades
+//! honestly to bounds + submesh-count text when the RTT is unavailable (a
+//! backend without offscreen 3D targets, or a load failure). Returns true.
+bool drawMeshInspectorSection(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& meshPreview, std::string const& relativePath)
+{
+	ImGui::TextUnformatted("Mesh");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(relativePath).filename().string().c_str());
+	ImGui::Separator();
+	// (re)stage the mesh on a selection change
+	if (meshPreview.getLoadedFile() != relativePath)
+	{
+		std::string error;
+		if (!meshPreview.load(state.project.getRootDirectory(), relativePath,
+			error))
+		{
+			ImGui::TextDisabled("preview unavailable: %s", error.c_str());
+		}
+	}
+	const OrkigeEditor::MeshPreviewInfo info = meshPreview.getInfo();
+	Orkige::optr<Orkige::RenderTexture> target = meshPreview.getTarget();
+	if (target && gImGuiRenderer)
+	{
+		const float side = std::min(ImGui::GetContentRegionAvail().x, 320.0f);
+		ImGui::Image(gImGuiRenderer->textureIdFor(target), ImVec2(side, side));
+		applyPreviewOrbitDrag(meshPreview);
+		ImGui::SetItemTooltip("drag to orbit");
+	}
+	else if (info.loaded)
+	{
+		// honest degrade: no offscreen 3D target on this backend - show the
+		// facts the stage still measured
+		ImGui::TextDisabled("3D preview unavailable on this render backend");
+	}
+	if (info.loaded)
+	{
+		ImGui::Text("%d sub-mesh%s", info.subMeshCount,
+			info.subMeshCount == 1 ? "" : "es");
+		ImGui::TextDisabled("bounds %.2f x %.2f x %.2f  (radius %.2f)",
+			info.sizeX, info.sizeY, info.sizeZ, info.boundingRadius);
+	}
+	return true;
+}
+
+//! a texture-reference field for the .omat editor: an InputText + a "pick"
+//! popup listing the project's texture assets (reusing the AssetDatabase the
+//! component ref-picker uses). Returns true when the reference changed.
+bool drawMaterialTextureRef(EditorState& state, const char* label,
+	Orkige::String& ref)
+{
+	bool changed = false;
+	char buffer[256];
+	SDL_strlcpy(buffer, ref.c_str(), sizeof(buffer));
+	ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 90.0f);
+	if (ImGui::InputText(label, buffer, sizeof(buffer)))
+	{
+		ref = buffer;
+		changed = true;
+	}
+	ImGui::SameLine();
+	ImGui::PushID(label);
+	if (ImGui::Button("pick"))
+	{
+		ImGui::OpenPopup("##pickTex");
+	}
+	if (ImGui::BeginPopup("##pickTex"))
+	{
+		if (ImGui::Selectable("(none)"))
+		{
+			ref.clear();
+			changed = true;
+		}
+		if (optr<Orkige::AssetDatabase> const& database =
+			state.project.getAssetDatabase())
+		{
+			for (Orkige::AssetEntry const& asset : database->listAssets())
+			{
+				if (classifyAsset(asset.fileName) != AssetKind::Texture)
+				{
+					continue;
+				}
+				if (ImGui::Selectable(asset.fileName.c_str()))
+				{
+					ref = asset.fileName;
+					changed = true;
+				}
+			}
+		}
+		ImGui::EndPopup();
+	}
+	ImGui::PopID();
+	return changed;
+}
+
+//! build a live renderer material from the edited .omat and point BOTH the
+//! preview mesh AND any scene ModelComponent at it: createMaterial is
+//! create-or-update keyed by "Omat/<bare>" - the SAME name ModelComponent
+//! builds - so editing updates every mesh using this material live
+void refreshMaterialPreview(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& meshPreview)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render)
+	{
+		return;
+	}
+	Orkige::RenderMaterialDesc desc;
+	Orkige::MaterialAsset::ParsedMaterial const& m = browser.editMaterial;
+	desc.albedo = Orkige::Color(m.albedo.r, m.albedo.g, m.albedo.b, m.albedo.a);
+	desc.albedoTexture = m.albedoTexture;
+	desc.metalness = m.metalness;
+	desc.roughness = m.roughness;
+	desc.normalTexture = m.normalTexture;
+	desc.emissive = Orkige::Color(m.emissive.r, m.emissive.g, m.emissive.b, 1.0f);
+	desc.emissiveTexture = m.emissiveTexture;
+	const std::string materialName = "Omat/" + browser.editMaterialRef;
+	render->createMaterial(materialName, desc);
+	std::string error;
+	meshPreview.setMaterial(materialName, error);
+}
+
+//! the ".omat" Inspector section: editable PBS fields (albedo/metalness/
+//! roughness/normal/emissive) with Apply/Revert writing the file back, and a
+//! LIVE 3D preview (the shared preview mesh with the edited material) that also
+//! drives any scene mesh using the material. Returns true.
+bool drawMaterialInspectorSection(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& meshPreview, std::string const& relativePath)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string absolutePath =
+		resolveProjectFilePath(state.project, relativePath);
+	const std::string bareName =
+		std::filesystem::path(relativePath).filename().string();
+
+	ImGui::TextUnformatted("Material");
+	ImGui::TextDisabled("%s", bareName.c_str());
+	ImGui::Separator();
+
+	// (re)read + parse on a selection change; stage the shared preview mesh
+	if (browser.editMaterialPath != absolutePath)
+	{
+		browser.editMaterialPath = absolutePath;
+		browser.editMaterialRef = bareName;
+		browser.editMaterialStatus.clear();
+		browser.editMaterial = Orkige::MaterialAsset::ParsedMaterial();
+		std::ifstream in(absolutePath, std::ios::binary);
+		std::stringstream buffer;
+		buffer << in.rdbuf();
+		browser.editMaterialOriginal = buffer.str();
+		Orkige::String parseError;
+		if (!Orkige::MaterialAsset::parse(browser.editMaterialOriginal,
+			browser.editMaterial, &parseError))
+		{
+			browser.editMaterialStatus = "parse error: " + parseError;
+		}
+		std::string meshError;
+		// the shared lit preview surface: a unit cube WITH normals + UV0 (the
+		// engine's material-demo cube, registered by the editor) so HlmsPbs
+		// accepts the datablock; a miss degrades to the swatch below
+		meshPreview.loadNamedMesh("demo_material_cube.glb", "", meshError);
+		refreshMaterialPreview(state, meshPreview);
+	}
+
+	// the live preview (or an albedo swatch degrade)
+	Orkige::optr<Orkige::RenderTexture> target = meshPreview.getTarget();
+	if (target && gImGuiRenderer)
+	{
+		const float side = std::min(ImGui::GetContentRegionAvail().x, 320.0f);
+		ImGui::Image(gImGuiRenderer->textureIdFor(target), ImVec2(side, side));
+		applyPreviewOrbitDrag(meshPreview);
+		ImGui::SetItemTooltip("drag to orbit");
+	}
+	else
+	{
+		ImGui::TextDisabled("3D preview unavailable - showing albedo swatch");
+		ImGui::ColorButton("##albedoswatch",
+			ImVec4(browser.editMaterial.albedo.r, browser.editMaterial.albedo.g,
+				browser.editMaterial.albedo.b, 1.0f),
+			ImGuiColorEditFlags_NoTooltip, ImVec2(120.0f, 60.0f));
+	}
+	ImGui::Separator();
+
+	// the editable PBS fields; any change re-cooks the live material
+	bool edited = false;
+	Orkige::MaterialAsset::ParsedMaterial& m = browser.editMaterial;
+	float albedo[4] = { m.albedo.r, m.albedo.g, m.albedo.b, m.albedo.a };
+	if (ImGui::ColorEdit4("Albedo", albedo))
+	{
+		m.albedo = Orkige::MaterialAsset::Colour(albedo[0], albedo[1],
+			albedo[2], albedo[3]);
+		edited = true;
+	}
+	edited |= drawMaterialTextureRef(state, "Albedo Map", m.albedoTexture);
+	if (ImGui::SliderFloat("Metalness", &m.metalness, 0.0f, 1.0f))
+	{
+		edited = true;
+	}
+	if (ImGui::SliderFloat("Roughness", &m.roughness, 0.0f, 1.0f))
+	{
+		edited = true;
+	}
+	edited |= drawMaterialTextureRef(state, "Normal Map", m.normalTexture);
+	float emissive[3] = { m.emissive.r, m.emissive.g, m.emissive.b };
+	if (ImGui::ColorEdit3("Emissive", emissive))
+	{
+		m.emissive = Orkige::MaterialAsset::Colour(emissive[0], emissive[1],
+			emissive[2], 1.0f);
+		edited = true;
+	}
+	edited |= drawMaterialTextureRef(state, "Emissive Map", m.emissiveTexture);
+	if (edited)
+	{
+		refreshMaterialPreview(state, meshPreview);
+	}
+
+	ImGui::Separator();
+	const bool dirty =
+		Orkige::MaterialAsset::serialize(m) != browser.editMaterialOriginal;
+	ImGui::BeginDisabled(!dirty);
+	if (ImGui::Button("Apply"))
+	{
+		// regenerate clean text and write it back (the .omat is a
+		// generated-style asset - a rewrite regenerates, not preserves)
+		const Orkige::String text = Orkige::MaterialAsset::serialize(m);
+		std::ofstream out(absolutePath, std::ios::binary | std::ios::trunc);
+		if (out)
+		{
+			out << text;
+			out.close();
+			browser.editMaterialOriginal = text;
+			// re-run createMaterial so every scene mesh using this .omat picks
+			// the change up live (create-or-update, the ModelComponent path)
+			refreshMaterialPreview(state, meshPreview);
+			browser.editMaterialStatus = "written to " + bareName;
+		}
+		else
+		{
+			browser.editMaterialStatus = "could not write " + bareName;
+		}
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::BeginDisabled(!dirty);
+	if (ImGui::Button("Revert"))
+	{
+		Orkige::MaterialAsset::parse(browser.editMaterialOriginal, m, nullptr);
+		refreshMaterialPreview(state, meshPreview);
+		browser.editMaterialStatus.clear();
+	}
+	ImGui::EndDisabled();
+	if (!browser.editMaterialStatus.empty())
+	{
+		ImGui::TextDisabled("%s", browser.editMaterialStatus.c_str());
+	}
+	return true;
+}
+
+//! the ONE asset-inspector section shown when nothing in the scene is selected
+//! but exactly one asset is selected in the browser: dispatch by asset kind to
+//! the single matching section (texture import + preview / vector-shape preview
+//! / mesh 3D preview / material editor). Exactly one section ever draws - other
+//! kinds fall through to the caller's "nothing selected". Returns true when it
+//! drew a section.
+
+bool drawAssetInspectorSection(EditorState& state,
+	OrkigeEditor::AnimationPreviewStage& animStage,
+	OrkigeEditor::MeshPreviewStage& meshPreview)
+{
+	const std::string selected = singleSelectedAsset(state);
+	if (selected.empty())
+	{
+		return false;
+	}
+	const AssetKind kind = classifyAsset(selected);
+	// the mesh preview stage is shared by the mesh + material sections only;
+	// any OTHER section frees it (its far-staged content renders every frame
+	// while alive). Leaving the material section also clears its edit cache so
+	// re-selecting the same .omat re-stages the preview mesh from scratch.
+	if (kind != AssetKind::Mesh && kind != AssetKind::Material)
+	{
+		meshPreview.clear();
+		state.assetBrowser.editMaterialPath.clear();
+	}
+	else if (kind == AssetKind::Mesh)
+	{
+		state.assetBrowser.editMaterialPath.clear();
+	}
+	// EXACTLY ONE section draws, by asset kind. The kinds the AssetDatabase
+	// classifies get their editor/preview; everything else falls through to
+	// the extension-driven sections (an animation rig, a text asset), else a
+	// bare size line.
+	switch (kind)
+	{
+	case AssetKind::Texture:
+		return drawTextureImportSection(state);
+	case AssetKind::VectorShape:
+		return drawShapeInspectorSection(state, selected);
+	case AssetKind::Mesh:
+		return drawMeshInspectorSection(state, meshPreview, selected);
+	case AssetKind::Material:
+		return drawMaterialInspectorSection(state, meshPreview, selected);
+	default:
+		break;
+	}
+	return drawAnimationPreviewSection(state, animStage) ||
+		drawTextPreviewSection(state) ||
+		drawUnknownAssetSection(state);
+}
+
 } // namespace
 
 void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
+	OrkigeEditor::MeshPreviewStage& meshPreview,
 	bool* visible)
 {
 	const bool remote = session.isActive();
@@ -836,15 +1393,13 @@ void drawInspectorPanel(EditorState& state, PlaySession& session,
 		if (!gameObject)
 		{
 			// with no scene object selected, a single asset selected in the
-			// Asset browser shows a live view instead - exactly one section
-			// draws, in priority order: a texture's import settings, an
-			// animation preview (a `.oanim` / a cooked `.json`), a text
-			// asset's highlighted content, else a bare size + "no preview".
-			if (!drawTextureImportSection(state) &&
-				!drawAnimationPreviewSection(state, animStage) &&
-				!drawTextPreviewSection(state) &&
-				!drawUnknownAssetSection(state))
+			// the Asset browser's selection shows its own view instead:
+			// EXACTLY ONE section draws (texture import, vector shape, mesh
+			// preview, material editor, animation preview, highlighted text,
+			// else a bare size line)
+			if (!drawAssetInspectorSection(state, animStage, meshPreview))
 			{
+				meshPreview.clear();	// nothing to preview: free the stage
 				ImGui::TextDisabled("nothing selected");
 			}
 		}

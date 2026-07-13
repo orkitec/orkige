@@ -28,6 +28,7 @@
 #include <core_debugnet/DebugClient.h>
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
+#include <core_util/MaterialAsset.h>
 #include <core_util/String.h>
 #include <engine_base/EngineLog.h>
 #include <engine_render/MeshInstance.h>
@@ -58,6 +59,7 @@ namespace OrkigeEditor
 {
 	class GuiPreviewStage;	//!< the GUI Preview stage (GuiPreviewStage.h)
 	class AnimationPreviewStage;	//!< the animation preview stage
+	class MeshPreviewStage;	//!< the 3D mesh/material preview stage (MeshPreviewStage.h)
 }
 
 //--- Console (engine/editor/remote log streaming) --------------------------
@@ -407,6 +409,30 @@ struct AssetBrowserState
 	bool textPreviewTruncated = false;
 	std::size_t textPreviewTotalBytes = 0;
 	static constexpr std::size_t TEXT_PREVIEW_CAP_BYTES = 256u * 1024u;
+	//! the Inspector texture-preview platform selector: "" (Base/desktop),
+	//! "android" or "ios" - the resolved settings drive the "as imported" size
+	std::string previewPlatform;
+
+	//! the Inspector `.oshape` preview cache: the tessellated fill rasterised
+	//! ONCE per file (keyed absolute-path + mtime) and uploaded as a named
+	//! texture, plus the vertex/triangle counts shown as a status line and the
+	//! "View source" toggle (switches the section to the raw-text view)
+	std::string shapePreviewKey;		//!< "<abs>|<mtime>" the upload was built for
+	std::string shapePreviewUpload;		//!< createTexture2D name ("" = none)
+	int shapePreviewVertices = 0;
+	int shapePreviewTriangles = 0;
+	bool shapeShowSource = false;		//!< View source: raw text instead of the fill
+	std::string shapeSourceText;		//!< cached raw .oshape text for the source view
+
+	//! the Inspector `.omat` editor cache: the parsed material being edited,
+	//! the file it was read from (a changed path re-reads), the scene material
+	//! ref (bare name - the create-or-update key the scene shares), the on-disk
+	//! text at read time (Revert + a dirty check) and a transient status line
+	Orkige::MaterialAsset::ParsedMaterial editMaterial;
+	std::string editMaterialPath;		//!< absolute .omat path ("" = none)
+	std::string editMaterialRef;		//!< bare file name (the scene material ref)
+	std::string editMaterialOriginal;	//!< on-disk text at read time
+	std::string editMaterialStatus;		//!< transient apply/parse message
 	//! transient footer notice (e.g. a create that failed): shown in the status
 	//! footer until statusMessageExpiry (ImGui::GetTime seconds) passes. A
 	//! failed filesystem op is otherwise invisible, so it surfaces here.
@@ -1501,6 +1527,7 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 // panel; if both show the same asset they share the one stage's clock).
 void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
+	OrkigeEditor::MeshPreviewStage& meshPreview,
 	bool* visible);
 
 // the editor-wide keyboard map - EditorShortcuts.cpp documents the bindings

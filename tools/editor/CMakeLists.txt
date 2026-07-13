@@ -66,6 +66,8 @@ add_executable(orkige_editor
     EditorMenus.cpp
     GuiPreviewStage.h
     GuiPreviewStage.cpp
+    MeshPreviewStage.h
+    MeshPreviewStage.cpp
     EditorGuiPreviewPanel.cpp
     EditorPlaySession.cpp
     EditorPropertyWidgets.h

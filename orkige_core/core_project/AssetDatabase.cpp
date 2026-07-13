@@ -63,6 +63,29 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void TextureImportSettings::appliedSize(int srcW, int srcH,
+		int & outW, int & outH) const
+	{
+		outW = srcW > 0 ? srcW : 0;
+		outH = srcH > 0 ? srcH : 0;
+		if (this->maxSize <= 0 || outW <= 0 || outH <= 0)
+		{
+			return;		// uncapped, or a degenerate source: pass through
+		}
+		const int longest = outW > outH ? outW : outH;
+		if (longest <= this->maxSize)
+		{
+			return;		// already within the cap - never upscales
+		}
+		// scale the longest side down to the cap, the other in proportion,
+		// rounding each and never collapsing a side below one texel
+		const double scale = static_cast<double>(this->maxSize) / longest;
+		outW = static_cast<int>(outW * scale + 0.5);
+		outH = static_cast<int>(outH * scale + 0.5);
+		if (outW < 1) { outW = 1; }
+		if (outH < 1) { outH = 1; }
+	}
+	//---------------------------------------------------------
 	TextureImportSettings const & TextureImport::resolvedFor(
 		String const & platform) const
 	{

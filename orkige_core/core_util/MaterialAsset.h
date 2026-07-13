@@ -79,6 +79,16 @@ namespace Orkige
 		//! "no material" fallback, never a crash.
 		static bool parse(String const & text, ParsedMaterial & out,
 			String * outError = NULL);
+
+		//! @brief regenerate canonical `.omat` text from a parsed material -
+		//! the clean-format inverse of parse(). Emits `version 1` then only the
+		//! directives that differ from the defaults (a plain white dielectric
+		//! serialises to just the version line), one per line in the header's
+		//! declaration order, scalars trimmed to a short fixed form. The output
+		//! round-trips: parse(serialize(m)) reproduces m. This is the editor's
+		//! Apply path - the `.omat` is a generated-style asset, so a rewrite
+		//! regenerates cleanly rather than preserving hand comments.
+		static String serialize(ParsedMaterial const & material);
 	};
 }
 

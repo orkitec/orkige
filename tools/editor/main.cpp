@@ -81,6 +81,7 @@
 #include "EditorScriptHost.h"
 #include "AnimationPreviewStage.h"
 #include "GuiPreviewStage.h"
+#include "MeshPreviewStage.h"
 
 #include <algorithm>
 #include <chrono>
@@ -682,6 +683,10 @@ int main(int argc, char** argv)
 		// stack driven by BOTH the Animation Preview panel and the
 		// preview_animation MCP verb
 		OrkigeEditor::AnimationPreviewStage animPreviewStage;
+		// the shared 3D mesh/material preview stage: the Inspector renders a
+		// selected .glb (or a .omat on the shared preview mesh) into an
+		// offscreen RTT through this one stage
+		OrkigeEditor::MeshPreviewStage meshPreviewStage;
 		Orkige::EditorControlServer controlServer;
 		Orkige::EditorControlContext controlContext;
 		controlContext.state = &state;
@@ -1671,7 +1676,8 @@ int main(int argc, char** argv)
 			if (viewSettings.showInspectorPanel)
 			{
 				drawInspectorPanel(state, playSession, editorCore,
-					animPreviewStage, &viewSettings.showInspectorPanel);
+					animPreviewStage, meshPreviewStage,
+					&viewSettings.showInspectorPanel);
 			}
 			if (viewSettings.showStatsPanel)
 			{
@@ -5763,8 +5769,116 @@ int main(int argc, char** argv)
 				if (!guiOk)
 				{
 					exitCode = 13;
+					running = false;
 				}
-				running = false;
+			}
+			// --- Inspector asset previews: seed the browser selection to each
+			// asset kind (not MCP-drivable) and prove the sections render. The
+			// optional ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR writes preview PNGs
+			// for eyeball verification; the ctest leaves it unset. ---
+			if (previewSelfcheckEnv && exitCode == 0)
+			{
+				const char* previewShotDir =
+					std::getenv("ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR");
+				auto seedSelection = [&](const char* relPath)
+				{
+					editorCore.clearSelection();
+					state.assetBrowser.selection.clear();
+					state.assetBrowser.selection.insert(relPath);
+					viewSettings.showInspectorPanel = true;
+				};
+				if (frameCount == 50)
+				{
+					seedSelection("assets/demo_material_cube.glb");
+				}
+				else if (frameCount == 56)
+				{
+					const OrkigeEditor::MeshPreviewInfo info =
+						meshPreviewStage.getInfo();
+					const bool meshOk = info.loaded && info.subMeshCount > 0 &&
+						info.boundingRadius > 0.0f && meshPreviewStage.getTarget();
+					SDL_Log("orkige_editor: inspector preview - .glb mesh %s "
+						"(%d sub-meshes, radius %.2f)", meshOk ? "OK" : "FAILED",
+						info.subMeshCount, info.boundingRadius);
+					if (previewShotDir && meshOk)
+					{
+						// the RTT auto-rendered over the prior frames; write what
+						// it holds (no extra renderOneFrame mid ImGui frame)
+						meshPreviewStage.getTarget()->writeContentsToFile(
+							std::string(previewShotDir) + "/mesh_preview.png");
+						render->saveWindowContents(
+							std::string(previewShotDir) + "/inspector_mesh.png");
+					}
+					if (!meshOk) { exitCode = 13; running = false; }
+				}
+				else if (frameCount == 60)
+				{
+					seedSelection("assets/demo_material.omat");
+				}
+				else if (frameCount == 66)
+				{
+					const bool matOk = !state.assetBrowser.editMaterialPath.empty()
+						&& meshPreviewStage.getTarget() &&
+						meshPreviewStage.getInfo().loaded;
+					SDL_Log("orkige_editor: inspector preview - .omat editor %s "
+						"(albedo %.2f/%.2f/%.2f)", matOk ? "OK" : "FAILED",
+						state.assetBrowser.editMaterial.albedo.r,
+						state.assetBrowser.editMaterial.albedo.g,
+						state.assetBrowser.editMaterial.albedo.b);
+					if (previewShotDir && matOk)
+					{
+						meshPreviewStage.getTarget()->writeContentsToFile(
+							std::string(previewShotDir) + "/material_preview.png");
+						render->saveWindowContents(
+							std::string(previewShotDir) + "/inspector_material.png");
+					}
+					if (!matOk) { exitCode = 13; running = false; }
+				}
+				else if (frameCount == 70)
+				{
+					seedSelection("assets/blob.oshape");
+				}
+				else if (frameCount == 74)
+				{
+					const bool shapeOk =
+						state.assetBrowser.shapePreviewVertices > 0 &&
+						state.assetBrowser.shapePreviewTriangles > 0 &&
+						!state.assetBrowser.shapePreviewUpload.empty();
+					SDL_Log("orkige_editor: inspector preview - .oshape fill %s "
+						"(%d verts, %d tris)", shapeOk ? "OK" : "FAILED",
+						state.assetBrowser.shapePreviewVertices,
+						state.assetBrowser.shapePreviewTriangles);
+					if (previewShotDir && shapeOk)
+					{
+						render->saveWindowContents(
+							std::string(previewShotDir) + "/inspector_shape.png");
+					}
+					if (!shapeOk) { exitCode = 13; running = false; }
+				}
+				else if (frameCount == 78)
+				{
+					seedSelection("assets/particle_dot.png");
+				}
+				else if (frameCount == 82)
+				{
+					// the texture section always draws for a texture; assert it
+					// stayed the shown section and did not disturb the mesh stage
+					const bool texOk =
+						!state.assetBrowser.editImportPath.empty() ||
+						classifyAsset("assets/particle_dot.png") ==
+							AssetKind::Texture;
+					SDL_Log("orkige_editor: inspector preview - texture section %s",
+						texOk ? "OK" : "FAILED");
+					if (previewShotDir && texOk)
+					{
+						render->saveWindowContents(
+							std::string(previewShotDir) + "/inspector_texture.png");
+					}
+					if (!texOk) { exitCode = 13; }
+					SDL_Log("orkige_editor: inspector asset previews done (exit %d)",
+						exitCode);
+					running = false;
+				}
 			}
 
 			// --- scripted project test (ORKIGE_EDITOR_PROJECT_TEST=path) ---

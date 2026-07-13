@@ -141,3 +141,51 @@ TEST_CASE("material_parse_omat_malformed", "[unit][material]")
 		CHECK(material.albedoTexture.empty());
 	}
 }
+
+TEST_CASE("material_serialize_roundtrips", "[unit][material]")
+{
+	// a fully-specified material serialises to canonical text that parses
+	// back to the identical description (the editor's Apply path)
+	MaterialAsset::ParsedMaterial original;
+	original.albedo = MaterialAsset::Colour(0.8f, 0.4f, 0.2f, 1.0f);
+	original.albedoTexture = "rock_albedo.png";
+	original.metalness = 0.25f;
+	original.roughness = 0.6f;
+	original.normalTexture = "rock_normal.png";
+	original.emissive = MaterialAsset::Colour(0.9f, 0.7f, 0.3f, 1.0f);
+	original.emissiveTexture = "rock_glow.png";
+
+	const String text = MaterialAsset::serialize(original);
+	// the version line is always present and the canonical scalars are short
+	CHECK(text.find("version 1") != String::npos);
+	CHECK(text.find("metalness 0.25") != String::npos);
+
+	MaterialAsset::ParsedMaterial reparsed;
+	String error;
+	REQUIRE(MaterialAsset::parse(text, reparsed, &error));
+	CHECK(reparsed.albedo.r == Approx(0.8f));
+	CHECK(reparsed.albedo.a == Approx(1.0f));
+	CHECK(reparsed.albedoTexture == "rock_albedo.png");
+	CHECK(reparsed.metalness == Approx(0.25f));
+	CHECK(reparsed.roughness == Approx(0.6f));
+	CHECK(reparsed.normalTexture == "rock_normal.png");
+	CHECK(reparsed.emissive.g == Approx(0.7f));
+	CHECK(reparsed.emissiveTexture == "rock_glow.png");
+}
+
+TEST_CASE("material_serialize_defaults_are_minimal", "[unit][material]")
+{
+	// a plain white dielectric emits only the version line (nothing differs
+	// from the defaults) and still parses back to the defaults
+	const MaterialAsset::ParsedMaterial defaults;
+	const String text = MaterialAsset::serialize(defaults);
+	CHECK(text.find("albedo ") == String::npos);
+	CHECK(text.find("metalness") == String::npos);
+	CHECK(text.find("emissive") == String::npos);
+
+	MaterialAsset::ParsedMaterial reparsed;
+	REQUIRE(MaterialAsset::parse(text, reparsed, nullptr));
+	CHECK(reparsed.metalness == Approx(0.0f));
+	CHECK(reparsed.roughness == Approx(1.0f));
+	CHECK(reparsed.albedoTexture.empty());
+}

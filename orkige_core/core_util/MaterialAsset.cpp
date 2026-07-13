@@ -171,4 +171,76 @@ namespace Orkige
 		out = parsed;
 		return true;
 	}
+	//---------------------------------------------------------
+	namespace
+	{
+		//! a short, round-trippable float form: fixed 4 decimals with trailing
+		//! zeros (and a bare trailing dot) trimmed - "0.5", "1", "0.2500" -> "0.25"
+		String shortFloat(float value)
+		{
+			std::ostringstream out;
+			out.setf(std::ios::fixed);
+			out.precision(4);
+			out << value;
+			String text = out.str();
+			const std::size_t dot = text.find('.');
+			if(dot != String::npos)
+			{
+				std::size_t last = text.find_last_not_of('0');
+				if(last == dot)		// nothing but zeros after the point
+				{
+					--last;
+				}
+				text.erase(last + 1);
+			}
+			return text;
+		}
+	}
+	//---------------------------------------------------------
+	String MaterialAsset::serialize(ParsedMaterial const & material)
+	{
+		const ParsedMaterial defaults;
+		std::ostringstream out;
+		// the version line is always emitted so a hand read shows the grammar
+		out << "version 1\n";
+		if(material.albedo.r != defaults.albedo.r ||
+			material.albedo.g != defaults.albedo.g ||
+			material.albedo.b != defaults.albedo.b ||
+			material.albedo.a != defaults.albedo.a)
+		{
+			out << "albedo " << shortFloat(material.albedo.r) << " "
+				<< shortFloat(material.albedo.g) << " "
+				<< shortFloat(material.albedo.b) << " "
+				<< shortFloat(material.albedo.a) << "\n";
+		}
+		if(!material.albedoTexture.empty())
+		{
+			out << "albedoTexture " << material.albedoTexture << "\n";
+		}
+		if(material.metalness != defaults.metalness)
+		{
+			out << "metalness " << shortFloat(material.metalness) << "\n";
+		}
+		if(material.roughness != defaults.roughness)
+		{
+			out << "roughness " << shortFloat(material.roughness) << "\n";
+		}
+		if(!material.normalTexture.empty())
+		{
+			out << "normalTexture " << material.normalTexture << "\n";
+		}
+		if(material.emissive.r != defaults.emissive.r ||
+			material.emissive.g != defaults.emissive.g ||
+			material.emissive.b != defaults.emissive.b)
+		{
+			out << "emissive " << shortFloat(material.emissive.r) << " "
+				<< shortFloat(material.emissive.g) << " "
+				<< shortFloat(material.emissive.b) << "\n";
+		}
+		if(!material.emissiveTexture.empty())
+		{
+			out << "emissiveTexture " << material.emissiveTexture << "\n";
+		}
+		return out.str();
+	}
 }

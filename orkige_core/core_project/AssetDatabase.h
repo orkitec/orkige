@@ -51,6 +51,14 @@ namespace Orkige
 		int		maxSize = 0;			//!< texel cap (longest side); 0 = uncapped
 		bool	premultiply = false;	//!< cook premultiplies alpha into RGB
 		bool	generateMips = false;	//!< reserved (the cook does not build mips yet)
+
+		//! @brief the imported texel dimensions this setting produces from a
+		//! source image @p srcW x @p srcH: the maxSize cap (0 = uncapped)
+		//! applied to the LONGEST side, the other side scaled in proportion
+		//! (rounded, min one texel). Never upscales. A non-positive source
+		//! dimension passes through as 0. Pure - the Inspector texture preview
+		//! and the export cook agree on "as imported: WxH".
+		void appliedSize(int srcW, int srcH, int & outW, int & outH) const;
 	};
 
 	//! @brief the full <texture> import block of a sidecar: the default
