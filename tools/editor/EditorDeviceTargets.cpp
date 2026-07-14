@@ -27,25 +27,19 @@ bool runProcessCaptured(const char* const* args, std::string& output,
 	return true;
 }
 
-//! the BOUNDED sibling for the device probes: a first simctl/devicectl call
-//! on a cold machine can take the better part of a minute (service spin-up),
-//! and a probe that blocks past its caller's deadline reads as a failure. The
-//! child is killed at the deadline and the probe reports false - an empty
-//! device list, never a stall.
-bool runProcessCapturedTimeout(std::vector<std::string> const& args,
+//! run a device probe ONCE with a hard deadline. Returns Completed (the child
+//! exited - exitCode/output are set), TimedOut (killed at the deadline) or
+//! SpawnFailed. A genuinely-absent device returns Completed fast with an empty
+//! list, so a TimedOut only ever means a slow/hung probe, never "no device".
+enum class ProbeResult { Completed, TimedOut, SpawnFailed };
+static ProbeResult runProbeOnce(std::vector<const char*> const& argv,
 	std::string& output, int& exitCode, unsigned int timeoutMs)
 {
-	std::vector<const char*> argv;
-	argv.reserve(args.size() + 1);
-	for (std::string const& arg : args)
-	{
-		argv.push_back(arg.c_str());
-	}
-	argv.push_back(nullptr);
-	SDL_Process* process = SDL_CreateProcess(argv.data(), true);
+	SDL_Process* process = SDL_CreateProcess(
+		const_cast<const char* const*>(argv.data()), true);
 	if (!process)
 	{
-		return false;
+		return ProbeResult::SpawnFailed;
 	}
 	SDL_IOStream* stdoutStream = SDL_GetProcessOutput(process);
 	output.clear();
@@ -75,19 +69,79 @@ bool runProcessCapturedTimeout(std::vector<std::string> const& args,
 				}
 			}
 			SDL_DestroyProcess(process);
-			return true;
+			return ProbeResult::Completed;
 		}
 		if (SDL_GetTicks() >= deadline)
 		{
 			SDL_KillProcess(process, true);
 			SDL_WaitProcess(process, true, &exitCode);
 			SDL_DestroyProcess(process);
-			SDL_Log("orkige_editor: device probe '%s' exceeded %ums - "
-				"treated as no devices", args.empty() ? "" : args[0].c_str(),
-				timeoutMs);
-			return false;
+			return ProbeResult::TimedOut;
 		}
 		SDL_Delay(25);
+	}
+}
+
+//! the BOUNDED sibling for the device probes: a first simctl/devicectl call
+//! on a cold machine can take the better part of a minute (service spin-up),
+//! and a probe that blocks past its caller's deadline reads as a failure. The
+//! child is killed at the deadline and the probe reports false.
+//!
+//! A probe TIMEOUT is NOT the same as an empty device list: an absent device
+//! returns fast+empty, so a timeout only ever means a SLOW probe (a loaded CI
+//! runner's simctl/devicectl) - concluding "no devices" there wrongly hides a
+//! PRESENT device (e.g. the sim CI booted, ORKIGE_CI_SIMULATOR). So a timeout
+//! (never a spawn failure, never a clean empty result) retries the probe ONCE
+//! with a longer budget, and when a device is expected the first budget is
+//! already generous. Only a SECOND timeout concludes "no devices", and it says
+//! so distinctly (slow probe, device may still be present) so CI self-diagnoses.
+bool runProcessCapturedTimeout(std::vector<std::string> const& args,
+	std::string& output, int& exitCode, unsigned int timeoutMs)
+{
+	std::vector<const char*> argv;
+	argv.reserve(args.size() + 1);
+	for (std::string const& arg : args)
+	{
+		argv.push_back(arg.c_str());
+	}
+	argv.push_back(nullptr);
+	const char* probeName = args.empty() ? "" : args[0].c_str();
+
+	// a device is EXPECTED (CI boots one and sets ORKIGE_CI_SIMULATOR): a slow
+	// probe there must not read as absent, so start with a generous budget
+	const bool deviceExpected =
+		std::getenv("ORKIGE_CI_SIMULATOR") != nullptr;
+	unsigned int budget = timeoutMs;
+	if (deviceExpected && budget < 30000u)
+	{
+		budget = 30000u;
+	}
+
+	for (int attempt = 1; ; ++attempt)
+	{
+		const ProbeResult result =
+			runProbeOnce(argv, output, exitCode, budget);
+		if (result == ProbeResult::Completed)
+		{
+			return true;
+		}
+		if (result == ProbeResult::SpawnFailed)
+		{
+			return false;	// a genuine spawn failure - never retried
+		}
+		// TimedOut: retry once with a longer budget before giving up
+		if (attempt < 2)
+		{
+			SDL_Log("orkige_editor: device probe '%s' exceeded %ums - "
+				"retrying once with a longer budget (slow probe, not "
+				"necessarily absent)", probeName, budget);
+			budget *= 3u;
+			continue;
+		}
+		SDL_Log("orkige_editor: device probe '%s' still exceeded %ums after "
+			"%d attempts - treated as no devices (slow probe; a device may "
+			"still be present)", probeName, budget, attempt);
+		return false;
 	}
 }
 

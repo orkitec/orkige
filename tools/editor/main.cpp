@@ -1267,6 +1267,13 @@ int main(int argc, char** argv)
 		std::chrono::steady_clock::time_point safeAreaDeadline;
 		bool safeAreaFailed = false;
 		std::string safeAreaFailure;
+		// the first MSG_STATS can carry a still-settling top inset of 0 before
+		// UIKit lays the view out; hold a bounded window for a real notch to
+		// arrive (well under the WaitStream deadline) and, if it never does,
+		// report the specific "not > 0" cause rather than a generic timeout
+		bool safeAreaSawStream = false;
+		std::chrono::steady_clock::time_point safeAreaStreamAt;
+		const std::chrono::seconds safeAreaInsetSettle{ 20 };
 
 		// ORKIGE_EDITOR_LEVELPAINT=<roller project dir>: the level-paint state
 		// seam test (editor_level_paint ctest). Frame 10 copies the project to a
@@ -6747,20 +6754,22 @@ int main(int argc, char** argv)
 						safeAreaFailure =
 							"play session ended before the safe-area stream";
 					}
-					// wait for BOTH the safe-area insets (MSG_STATS) and at
-					// least one widget rect (MSG_UI_LAYOUT) to arrive
-					else if (playSession.remoteSafeTop >= 0 &&
-						playSession.remoteWindowW > 0 &&
+					// note once that the window/layout stream arrived, so a
+					// timeout can distinguish "no stream" from "notch never
+					// reported" (the specific failure)
+					else if (playSession.remoteWindowW > 0 &&
 						!playSession.remoteUiLayout.empty())
 					{
-						if (playSession.remoteSafeTop <= 0)
+						if (!safeAreaSawStream)
 						{
-							safeAreaFailed = true;
-							safeAreaFailure = "reported top safe-area inset is "
-								"not > 0 (expected a notch on the iPhone 16 "
-								"profile)";
+							safeAreaSawStream = true;
+							safeAreaStreamAt = safeAreaNow;
 						}
-						else
+						// HOLD until a POSITIVE top inset arrives: the first
+						// MSG_STATS can carry a still-settling 0 before UIKit lays
+						// the view out, so re-check each frame (bounded by the
+						// settle window below) rather than failing on the first
+						if (playSession.remoteSafeTop > 0)
 						{
 							const long long boxLeft = playSession.remoteSafeLeft;
 							const long long boxTop = playSession.remoteSafeTop;
@@ -6786,18 +6795,29 @@ int main(int argc, char** argv)
 									break;
 								}
 							}
+							if (!safeAreaFailed)
+							{
+								SDL_Log("orkige_editor: safe-area device run - top "
+									"inset %lld px, %zu HUD widgets inside the safe "
+									"box", playSession.remoteSafeTop,
+									playSession.remoteUiLayout.size());
+							}
+							requestStopPlay(playSession);
+							safeAreaPhase = SafeAreaPhase::WaitStop;
+							safeAreaDeadline =
+								safeAreaNow + std::chrono::seconds(30);
 						}
-						if (!safeAreaFailed)
+						else if (safeAreaNow - safeAreaStreamAt >=
+							safeAreaInsetSettle)
 						{
-							SDL_Log("orkige_editor: safe-area device run - top "
-								"inset %lld px, %zu HUD widgets inside the safe "
-								"box", playSession.remoteSafeTop,
-								playSession.remoteUiLayout.size());
+							// the stream has flowed for the whole settle window
+							// but the top inset never went positive - report the
+							// specific cause (not the generic deadline)
+							safeAreaFailed = true;
+							safeAreaFailure = "reported top safe-area inset is not "
+								"> 0 (expected a notch on the iPhone 16 profile)";
 						}
-						requestStopPlay(playSession);
-						safeAreaPhase = SafeAreaPhase::WaitStop;
-						safeAreaDeadline =
-							safeAreaNow + std::chrono::seconds(30);
+						// else: keep waiting for the notch inset to settle
 					}
 				}
 				else if (safeAreaPhase == SafeAreaPhase::WaitStop)

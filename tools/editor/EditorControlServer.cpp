@@ -6065,19 +6065,40 @@ namespace Orkige
 
 			// (R3) runtime_hierarchy (read) must list the running objects - and
 			// specifically Cube1 from the scene we asked play to open, proving
-			// the scene path took effect
-			if (!callTool("runtime_hierarchy", JsonValue::object(), false,
-					structured, isError) || isError)
+			// the scene path took effect. remote_connected only means the debug
+			// link is up; the player streams its hierarchy a VARIABLE number of
+			// polls later, so hold + re-query until it lists objects (bounded, the
+			// same 0.1s cadence as pollState) before asserting.
+			JsonValue ids;
+			bool hierarchyReady = false;
+			int hierarchyWaits = 0;
+			for (int attempt = 0; attempt < kPlayerPollAttempts; ++attempt)
 			{
-				finish(false, "control self-test: runtime_hierarchy failed");
-				return;
+				if (!callTool("runtime_hierarchy", JsonValue::object(), false,
+						structured, isError) || isError)
+				{
+					finish(false, "control self-test: runtime_hierarchy failed");
+					return;
+				}
+				ids = structured.get("ids");
+				if (ids.size() > 0)
+				{
+					hierarchyReady = true;
+					break;
+				}
+				++hierarchyWaits;
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
 			}
-			JsonValue const& ids = structured.get("ids");
-			if (ids.size() == 0)
+			if (!hierarchyReady)
 			{
 				finish(false, "control self-test: runtime_hierarchy returned no "
 					"objects");
 				return;
+			}
+			if (hierarchyWaits > 0)
+			{
+				SDL_Log("orkige_editor: control self-test - runtime_hierarchy "
+					"settled after %d extra poll(s)", hierarchyWaits);
 			}
 			bool playedSceneLoaded = false;
 			for (size_t i = 0; i < ids.size(); ++i)

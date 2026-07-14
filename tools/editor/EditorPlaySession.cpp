@@ -293,6 +293,26 @@ void advanceSimulatorPrep(PlaySession& session)
 		if (exitCode != 0 &&
 			output.find("current state: Booted") == std::string::npos)
 		{
+			// a transient CoreSimulator hiccup can fail an otherwise-healthy
+			// boot; retry the BOOT STEP once before giving up. This is bounded
+			// (1 max, per play session) and re-attempts only the boot spawn -
+			// never the play launch or any test assertion.
+			if (session.simBootRetries < 1)
+			{
+				++session.simBootRetries;
+				SDL_Log("orkige_editor: 'simctl boot %s' exited with %d: %s - "
+					"retrying the boot once", session.simulatorUdid.c_str(),
+					exitCode, output.c_str());
+				const char* bootArgs[] = { "/usr/bin/xcrun", "simctl", "boot",
+					session.simulatorUdid.c_str(), nullptr };
+				session.simPrepProcess = SDL_CreateProcess(bootArgs, true);
+				if (session.simPrepProcess)
+				{
+					session.simPrep = PlaySession::SimPrep::WaitBootProcess;
+					return;	// reap the retried boot next tick
+				}
+				// the re-spawn itself failed - fall through to the hard failure
+			}
 			SDL_Log("orkige_editor: play failed - 'simctl boot %s' exited "
 				"with %d: %s", session.simulatorUdid.c_str(), exitCode,
 				output.c_str());

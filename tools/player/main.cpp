@@ -668,7 +668,7 @@ int main(int argc, char** argv)
 			hotreloadCheck || scriptPropCheck ||
 			integrationContactCheck || integrationLevelCheck ||
 			breadcrumbCheck || fadeCheck || lifecycleCheck || softbodyCheck ||
-			perfCheck || benchmarkCheck ||
+			perfCheck || benchmarkCheck || vectorAnimCheck ||
 			!assetIdCheckTexture.empty() || frameLimit != 0;
 
 #ifdef ORKIGE_IPHONE

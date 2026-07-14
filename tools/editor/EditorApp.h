@@ -750,6 +750,9 @@ struct PlaySession
 	enum class SimPrep { None, WaitBootProcess, WaitBooted, Installing };
 	SimPrep simPrep = SimPrep::None;
 	SDL_Process* simPrepProcess = nullptr;	//!< async simctl boot/install
+	//! bounded retry of the simulator BOOT step only (a transient CoreSimulator
+	//! hiccup can fail an otherwise-healthy boot); 1 retry max, per play session
+	int simBootRetries = 0;
 	std::chrono::steady_clock::time_point simPrepStart;
 	std::chrono::steady_clock::time_point simLastPoll;
 	//! the editor booted the simulator for THIS run (the scripted play test
