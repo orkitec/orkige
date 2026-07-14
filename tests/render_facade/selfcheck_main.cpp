@@ -95,14 +95,12 @@ namespace
 
 	//! Render up to maxFrames one at a time, saving the window and probing
 	//! pixel (x,y) after each, until predicate(r,g,b) holds; returns whether
-	//! it settled. A window DrawLayer2D batch whose visibility just changed
-	//! (a retained create-once / show-hide / drop) does not settle on screen
-	//! in a single frame on the Vulkan backend: its ManualObject vertex
-	//! buffer is triple-buffered, so a batch has to be drawn (or a removed one
-	//! flushed) across a few frames before it fully rasterizes or clears. The
-	//! real 2D consumers (gui, editor) redraw every frame and never see it;
-	//! probing to settle keeps the check deterministic across drivers instead
-	//! of pinning an exact frame count.
+	//! it settled. A DrawLayer2D show/hide/drop settles within the backend's
+	//! frame depth (the visibility-settling contract in DrawLayer2D.h), so a
+	//! retained batch takes a few frames to appear or clear where the backend's
+	//! vertex buffers are multi-buffered. Settle on the pixel rather than pin a
+	//! frame count: a single-frame backend passes on the first iteration, a
+	//! multi-buffered one within its depth - deterministic on every driver.
 	template <typename Predicate>
 	bool settleUntilPixel(RenderSystem* renderSystem, std::string const & shotPath,
 		unsigned int x, unsigned int y, Predicate predicate, int maxFrames)

@@ -26,6 +26,14 @@ namespace Orkige
 	//! (gui) resubmit only when their content went dirty - the
 	//! backend renders whatever the layer currently holds either way.
 	//!
+	//! Visibility settles within the backend's frame depth: a batch that
+	//! newly starts or stops being drawn - a fresh addTriangles, a
+	//! setVisible toggle, a dropped layer - reaches the screen (or clears
+	//! from it) within the backend's vertex-buffer depth, up to 3 frames
+	//! where that buffer is triple-buffered; a per-frame rewriter sees the
+	//! change immediately. Content that must react on the next frame should
+	//! be rewritten each frame, as gui and ImGui do.
+	//!
 	//! Coordinate contract: positions are PIXELS in main-window drawable
 	//! space, origin top-left, +x right, +y down (the gui/ImGui
 	//! convention); UVs are the usual 0..1 with v running top-down;
@@ -110,7 +118,8 @@ namespace Orkige
 		~DrawLayer2D();
 
 		//--- layer control ---
-		//! hide/show the whole layer (batches stay submitted)
+		//! hide/show the whole layer (batches stay submitted). A show/hide
+		//! settles within the backend's frame depth (see the class remarks).
 		//! map: classic=listener skips the layer | next=per-batch MovableObject visibility | filament=View skip
 		void setVisible(bool visible);
 		bool isVisible() const;

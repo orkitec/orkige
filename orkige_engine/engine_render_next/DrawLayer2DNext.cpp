@@ -437,13 +437,11 @@ namespace Orkige
 			oAssert(datablock);
 			datablockName = "DrawLayer2D/" + datablockTexture;
 		}
-		// a v2 ManualObject's vertex/index buffers are BT_DYNAMIC (triple-
-		// buffered): a batch built once and left standing only settles on
-		// screen after it has been drawn across the VaoManager's dynamic-buffer
-		// multiplier of frames. Immediate-mode consumers (gui, editor) clear()
-		// and re-add every frame, so their batches redraw continuously and are
-		// always current; retained create-once / show-hide content takes a few
-		// frames to appear or clear on this backend.
+		// a v2 ManualObject's vertex/index buffers are BT_DYNAMIC, triple-
+		// buffered to the VaoManager's dynamic-buffer depth: this is the source
+		// of the facade's visibility-settling contract (@see DrawLayer2D.h) -
+		// a batch has to be drawn across that depth of frames before it fully
+		// rasterizes, which per-frame rewriters (gui, editor) never notice.
 		batch.object = sceneManager->createManualObject(Ogre::SCENE_DYNAMIC);
 		batch.object->setName(
 			RenderBackend::generateName("RenderFacade/DrawLayer2D"));
