@@ -478,8 +478,10 @@ def command_android(opts):
     preset = "android-debug"
     staleness = facts["trees"][preset]["staleness"]
     package = android_package(project)
+    # the export names the APK after the project's executable name - a
+    # hardcoded player name breaks every project whose name differs
     apk_path = os.path.join(project.root, "builds", "android",
-                            "OrkigePlayer.apk")
+                            project.exe_name + ".apk")
     export_py = os.path.join(UTIL_DIR, "orkige_export.py")
 
     steps = android_steps(
