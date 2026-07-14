@@ -92,6 +92,37 @@ namespace
 		}
 		return true;
 	}
+
+	//! Render up to maxFrames one at a time, saving the window and probing
+	//! pixel (x,y) after each, until predicate(r,g,b) holds; returns whether
+	//! it settled. A window DrawLayer2D batch whose visibility just changed
+	//! (a retained create-once / show-hide / drop) does not settle on screen
+	//! in a single frame on the Vulkan backend: its ManualObject vertex
+	//! buffer is triple-buffered, so a batch has to be drawn (or a removed one
+	//! flushed) across a few frames before it fully rasterizes or clears. The
+	//! real 2D consumers (gui, editor) redraw every frame and never see it;
+	//! probing to settle keeps the check deterministic across drivers instead
+	//! of pinning an exact frame count.
+	template <typename Predicate>
+	bool settleUntilPixel(RenderSystem* renderSystem, std::string const & shotPath,
+		unsigned int x, unsigned int y, Predicate predicate, int maxFrames)
+	{
+		float r = 0, g = 0, b = 0;
+		for(int each = 0; each < maxFrames; ++each)
+		{
+			if(!renderFrames(renderSystem, 1))
+			{
+				return false;
+			}
+			renderSystem->saveWindowContents(shotPath);
+			if(SelfcheckBootstrap::readImagePixel(shotPath, x, y, r, g, b) &&
+				predicate(r, g, b))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
 }
 
 static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
@@ -717,14 +748,13 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			dynamicLayer->clear();
 			renderSystem->destroyTexture2D(atlasName);
 		}
-		// dynamic show/hide: unhide the magenta layer and re-verify
+		// dynamic show/hide: unhide the magenta layer and re-verify. The shown
+		// batch settles over a few frames on Vulkan (@see settleUntilPixel).
 		hiddenLayer->setVisible(true);
-		SELFCHECK(renderFrames(renderSystem, 2), "frames render after show()");
 		const std::string shownShot = outDir + "/selfcheck_drawlayer2d_shown.png";
-		renderSystem->saveWindowContents(shownShot);
-		SELFCHECK(SelfcheckBootstrap::readImagePixel(shownShot, 750, 70,
-			red, green, blue), "shown-layer probe decodes");
-		SELFCHECK(red > 0.5f && blue > 0.5f && green < red - 0.3f,
+		SELFCHECK(settleUntilPixel(renderSystem, shownShot, 750, 70,
+			[](float r, float g, float b)
+			{ return r > 0.5f && b > 0.5f && g < r - 0.3f; }, 6),
 			"2D pattern: show() brings the layer back (magenta)");
 		// the RTT must NOT contain the 2D layers (window-only contract):
 		// the cyan bait quad above sits exactly in the RTT camera's world
@@ -740,18 +770,17 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		bottomLayer->clear();
 		bottomLayer->addTriangles("", redQuad.data(), redQuad.size());
 		SELFCHECK(renderFrames(renderSystem, 2), "frames render after clear+resubmit");
-		// RAII: dropping the handles removes the layers
+		// RAII: dropping the handles removes the layers. A removed batch's last
+		// draws stay in flight for a few frames on Vulkan, so settle on the red
+		// quad clearing rather than pin a frame count (@see settleUntilPixel).
 		topLayer.reset();
 		bottomLayer.reset();
 		dynamicLayer.reset();
 		hiddenLayer.reset();
-		SELFCHECK(renderFrames(renderSystem, 2),
-			"frames render after 2D layers were dropped (RAII teardown)");
 		const std::string removedShot = outDir + "/selfcheck_drawlayer2d_removed.png";
-		renderSystem->saveWindowContents(removedShot);
-		SELFCHECK(SelfcheckBootstrap::readImagePixel(removedShot, 170, 60,
-			red, green, blue), "post-teardown probe decodes");
-		SELFCHECK(!(red > green + 0.3f && red > blue + 0.3f),
+		SELFCHECK(settleUntilPixel(renderSystem, removedShot, 170, 60,
+			[](float r, float g, float b)
+			{ return !(r > g + 0.3f && r > b + 0.3f); }, 6),
 			"2D pattern: dropped layers stop rendering");
 	}
 

@@ -437,6 +437,13 @@ namespace Orkige
 			oAssert(datablock);
 			datablockName = "DrawLayer2D/" + datablockTexture;
 		}
+		// a v2 ManualObject's vertex/index buffers are BT_DYNAMIC (triple-
+		// buffered): a batch built once and left standing only settles on
+		// screen after it has been drawn across the VaoManager's dynamic-buffer
+		// multiplier of frames. Immediate-mode consumers (gui, editor) clear()
+		// and re-add every frame, so their batches redraw continuously and are
+		// always current; retained create-once / show-hide content takes a few
+		// frames to appear or clear on this backend.
 		batch.object = sceneManager->createManualObject(Ogre::SCENE_DYNAMIC);
 		batch.object->setName(
 			RenderBackend::generateName("RenderFacade/DrawLayer2D"));
