@@ -39,8 +39,27 @@ namespace Orkige
 		//! get (and on first call boot) the shared test environment
 		static CoreTestEnvironment & get()
 		{
-			static CoreTestEnvironment environment;
-			return environment;
+			// Heap-allocated and intentionally never freed. The environment
+			// owns a ScriptRuntime whose sol2 Lua state, if closed during C++
+			// static destruction, runs lua_close AFTER sol's per-usertype name
+			// statics (usertype_traits<T>::metatable(), each constructed later
+			// at registration time) are already gone - lua_close then reads a
+			// freed std::string name (a heap-use-after-free at process exit).
+			// Never destroying the environment skips that exit-time close
+			// entirely; the process is ending, the OS reclaims the memory, and
+			// the static pointer keeps the object reachable so LeakSanitizer
+			// stays quiet. Mirrors ScriptManager::metaExportState()'s fallback
+			// state, which is never freed for the identical reason.
+			//
+			// This deliberately removes static-destruction-order teardown from
+			// test coverage, and that is correct: no application ever tears the
+			// singletons down at __cxa_finalize. Production owns an ORDERED
+			// teardown (AppHost, exercised by every app selfcheck and the
+			// dedicated teardown demos); a test environment dying at process
+			// exit was only ever exercising undefined-order behaviour no user
+			// hits. Do not "fix" this back to a by-value static.
+			static CoreTestEnvironment * environment = new CoreTestEnvironment();
+			return *environment;
 		}
 	private:
 		CoreTestEnvironment()
