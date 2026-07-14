@@ -158,6 +158,23 @@ The rule: every change ships with tests that verify it — unit tests for core
 logic, a self-check hook wired into ctest for app/runtime behavior. `ctest` must
 pass before committing.
 
+**Local Linux rig** (`Util/linux_rig/`): `run_container.sh` builds the
+`orkige-ci-linux` image (ubuntu 24.04, clang, xvfb + Mesa lavapipe/llvmpipe,
+the CI-pinned vcpkg) and starts the long-lived `orkige-ci` container with the
+repo bind-mounted and build trees/caches in named volumes — a local twin of
+the CI Linux jobs for anything macOS can't reproduce. Every linux-* preset
+works inside; the important one is `linux-debug-sanitize`: the ASan/UBSan
+gate runs on **libstdc++**, which exposes memory bugs libc++ (macOS) masks
+even under a local macOS ASan build (destroyed-container internals differ) —
+memory-safety findings from CI are reproduced and fixes proven in the
+container, and any core lifecycle/teardown change should pass a container
+sanitizer-unit run before pushing. On an arm64 host, configure with
+`-DVCPKG_INSTALL_OPTIONS="--clean-after-build;--allow-unsupported"`
+(ogre-next's supports-list has no linux&arm64 entry;
+`triplets/arm64-linux.cmake` covers the triplet). Windowed tests run the CI
+way: `xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest ...`
+with `VK_DRIVER_FILES` pointed at the lavapipe ICD.
+
 CI (GitHub Actions, `.github/workflows/ci.yml`): every push builds and runs the
 unit + full desktop compatibility suites for Linux classic. Linux next (Vulkan
 — the default backend) also runs the unit gate and full windowed desktop suite
