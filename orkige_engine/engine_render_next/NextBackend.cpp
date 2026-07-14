@@ -922,8 +922,20 @@ namespace Orkige
 				Ogre::ResourceGroupManager::getSingleton();
 			const String group =
 				resourceGroups.findGroupContainingResource(textureName);
-			fprintf(stderr, "CODECDBG loadTexture2D name='%s' group='%s'\n",
-				textureName.c_str(), group.c_str()); fflush(stderr);
+			// Decode-PROBE on this (main) thread before handing the file to the
+			// texture manager's ASYNC loader. An undecodable file (a non-image
+			// asset given a texture name) makes the worker's error-recovery path
+			// corrupt the heap and abort the process - unreachable and
+			// uncatchable from here (the worker's codec throw itself is handled,
+			// but the recovery that follows is not). A clean main-thread codec
+			// failure throws here and degrades to the NULL + log contract. The
+			// async path below then only ever sees a decodable file.
+			{
+				Ogre::DataStreamPtr probe =
+					resourceGroups.openResource(textureName, group);
+				Ogre::Image2 probeImage;
+				probeImage.load2(probe, textureName);
+			}
 			// NOT CommonTextureTypes::Diffuse: that would add
 			// PrefersLoadingFromFileAsSRGB, decoding texels in the shader -
 			// the classic pipeline samples texels raw (colour parity rule,
