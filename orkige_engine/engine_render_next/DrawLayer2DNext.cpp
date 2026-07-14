@@ -332,7 +332,12 @@ namespace Orkige
 			// re-point at the target's current incarnation when it changed
 			Ogre::HlmsUnlitDatablock* unlitBlock =
 				static_cast<Ogre::HlmsUnlitDatablock*>(existing);
-			if(unlitBlock->getTexture(0u) != current)
+			// never re-point at nothing: a textured Unlit datablock whose
+			// texture is nulled still carries a texture slot into the shader,
+			// and the descriptor write then takes a null view. Callers skip
+			// the batch while a target has no texture (above), so the stale
+			// binding simply waits for the target's next incarnation.
+			if(current && unlitBlock->getTexture(0u) != current)
 			{
 				unlitBlock->setTexture(0u, current);
 			}
@@ -388,7 +393,17 @@ namespace Orkige
 		{
 			// offscreen-target batch: a per-target datablock re-pointed at
 			// the target's CURRENT texture (resize-by-recreate safe; the
-			// dying incarnation detaches itself, RenderTextureNext.cpp)
+			// dying incarnation detaches itself, RenderTextureNext.cpp).
+			// A target with NO live texture (destroyed, or between the two
+			// halves of a recreate) must not be drawn at all: an explicit-
+			// layout backend writes the datablock's texture straight into a
+			// descriptor set, and a null image view faults inside the driver
+			// (Metal's implicit binding merely drew nothing). The batch is
+			// re-emitted the frame the target is back.
+			if(!RenderBackend::renderTextureGpu(batch.renderTexture))
+			{
+				return;
+			}
 			Ogre::HlmsDatablock* datablock =
 				RenderBackend::getOrCreateDrawLayer2DRTTDatablock(
 					batch.renderTexture);

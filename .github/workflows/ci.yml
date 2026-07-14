@@ -277,24 +277,6 @@ jobs:
       # A hard gate: the full Ogre-Next desktop suite under a virtual display.
       # Vulkan renders through lavapipe; audio routes to openal-soft's null
       # backend because hosted runners have no audio device.
-      # TEMPORARY: the editor segfaults on Vulkan (and only there - Metal and
-      # GL3Plus are green), and no dev machine here can run Vulkan. Capture a
-      # real backtrace instead of guessing at the cause.
-      - name: Editor segfault backtrace (diagnostic)
-        continue-on-error: true
-        env:
-          ALSOFT_DRIVERS: "null"
-          SDL_VIDEO_DRIVER: x11
-          ORKIGE_AUTOMATED_RUN: "1"
-          ORKIGE_DEMO_FRAMES: "30"
-        run: |
-          sudo apt-get install -y --no-install-recommends gdb
-          LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
-          export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
-          xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
-            gdb -batch -ex run -ex "bt 40" -ex "info threads" \
-              --args build/linux-debug-next/tools/editor/orkige_editor 2>&1 | tail -60
-
       - name: Windowed desktop suite (xvfb + Mesa lavapipe - MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
