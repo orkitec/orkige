@@ -102,6 +102,14 @@ namespace
 	}
 }
 
+void disarmPaintTileOnIntent(EditorState& state, Orkige::EditorCore& core)
+{
+	if (!state.tilePalette.armedAssetPath.empty())
+	{
+		paletteArmAsset(state, core, std::string());
+	}
+}
+
 bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	std::string const& absolutePath)
 {

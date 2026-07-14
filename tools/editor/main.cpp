@@ -176,9 +176,64 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_ASSETTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_AUTOSAVETEST") != nullptr ||
-		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr;
+		std::getenv("ORKIGE_EDITOR_THEME_SWITCH") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr;
 
 	int exitCode = 0;
+
+	// migration selfcheck (ORKIGE_EDITOR_MIGRATE_TEST): synthesize an ini from
+	// before the panel-defaults rework and verify the one-time migration closes
+	// the Tile Palette + GUI Preview, flags the palette re-dock, stamps the
+	// version, persists it, and is idempotent on a second load. Pure settings
+	// IO - it needs no window, so it runs and exits before the render boot.
+	if (std::getenv("ORKIGE_EDITOR_MIGRATE_TEST") != nullptr)
+	{
+		int migrateExit = 0;
+		const std::string testIni =
+			(std::filesystem::temp_directory_path() /
+				"orkige_migrate_test_view.ini").string();
+		{
+			// a pre-rework ini: both panels OPEN, no layout_version stamp
+			std::ofstream oldIni(testIni, std::ios::trunc);
+			oldIni << "panel_tilepalette=1\n"
+				<< "panel_gui_preview=1\n"
+				<< "mode_2d=0\n";
+		}
+		auto check = [&](bool cond, const char* what)
+		{
+			SDL_Log("orkige_editor: migrate-test %s: %s", what,
+				cond ? "ok" : "FAILED");
+			if (!cond)
+			{
+				migrateExit = 2;
+			}
+		};
+		ViewSettings migrated;
+		migrated.path = testIni;
+		migrated.load();
+		check(migrated.showTilePalettePanel && migrated.showGuiPreviewPanel,
+			"old ini loaded with both panels open");
+		check(migrated.layoutVersion == 0, "old ini has no version stamp");
+		const bool dockPending = migrated.migrateLayoutDefaults();
+		migrated.save();
+		check(!migrated.showTilePalettePanel, "tile palette closed");
+		check(!migrated.showGuiPreviewPanel, "gui preview closed");
+		check(dockPending, "palette re-dock flagged");
+		check(migrated.layoutVersion == ViewSettings::CURRENT_LAYOUT_VERSION,
+			"version stamped");
+		// reload the saved ini: the stamp persisted and a re-migrate is a no-op
+		ViewSettings reloaded;
+		reloaded.path = testIni;
+		reloaded.load();
+		check(reloaded.layoutVersion == ViewSettings::CURRENT_LAYOUT_VERSION,
+			"version persisted");
+		check(!reloaded.migrateLayoutDefaults(), "re-migrate is a no-op");
+		std::error_code removeError;
+		std::filesystem::remove(testIni, removeError);
+		SDL_Log("orkige_editor: migrate-test %s",
+			migrateExit == 0 ? "PASSED" : "FAILED");
+		return migrateExit;
+	}
 	// the shared boot spine (engine_runtime/AppHost.h). The editor is the
 	// bespoke host: a resizable window, no window-camera rig (the scene
 	// renders offscreen into the Scene panel's RenderTexture), and the two
@@ -380,11 +435,23 @@ int main(int argc, char** argv)
 		// defaults and an empty path: one test must neither inherit nor rewrite
 		// another test's/user's panel visibility, camera, theme or snap settings.
 		ViewSettings viewSettings;
+		// deferred to a frame with a live Assets node: re-dock the Tile Palette
+		// after an older-ini layout migration (set just below)
+		bool layoutMigrationDockPending = false;
 		if (!automatedRun)
 		{
 			viewSettings.path = std::string(sdlBasePath ? sdlBasePath : "") +
 				"orkige_editor_view.ini";
 			viewSettings.load();
+			// an ini saved before the panel-defaults rework never got the new
+			// closed-by-default Tile Palette / GUI Preview or the palette's
+			// bottom-node home - reconcile it once, then the stamp persists
+			if (viewSettings.layoutVersion <
+				ViewSettings::CURRENT_LAYOUT_VERSION)
+			{
+				layoutMigrationDockPending = viewSettings.migrateLayoutDefaults();
+				viewSettings.save();
+			}
 		}
 		// scene open/save feed File > Open Recent through this pointer
 		gViewSettings = &viewSettings;
@@ -446,8 +513,8 @@ int main(int argc, char** argv)
 		// input: ImGui first, engine InputManager for whatever is left.
 		// ESC through the shared listener - also proves that non-ImGui input
 		// still reaches the engine; the intercept (set below, once the
-		// EditorCore exists) makes a first ESC clear the selection, so only
-		// ESC with nothing selected quits the editor.
+		// EditorCore exists) makes ESC step out of the current mode without
+		// ever quitting the editor from the scene view.
 		Orkige::InputManager inputManager;
 		Orkige::ImGuiSDL3Input imguiInput(window);
 		Orkige::QuitOnEscape quitOnEscape;
@@ -474,15 +541,8 @@ int main(int argc, char** argv)
 		// the UI-independent editor logic (selection, tools, undo/redo,
 		// object operations) - everything below drives THIS layer
 		Orkige::EditorCore editorCore(gameObjectManager);
-		quitOnEscape.intercept = [&editorCore]()
-		{
-			if (editorCore.hasSelection())
-			{
-				editorCore.clearSelection();
-				return true;	// consumed - a second ESC quits
-			}
-			return false;
-		};
+		// quitOnEscape.intercept is set once EditorState exists (it disarms the
+		// paint tile, which lives in the editor UI state) - see below.
 		// persisted snap settings (toolbar toggle + editable step values);
 		// scripted runs keep the factory defaults - the edittest asserts them
 		if (!automatedRun)
@@ -668,6 +728,29 @@ int main(int argc, char** argv)
 		// reachable from the shared menu widgets (e.g. the Theme selector raises
 		// state.themeReapplyRequested for the loop below)
 		gEditorState = &state;
+		// a pending older-ini layout migration re-docks the palette once the UI
+		// is up (deferred to a frame where the Assets node exists)
+		state.migratePaletteDock = layoutMigrationDockPending;
+		// ESC steps out of the current mode; it NEVER quits the editor from the
+		// scene view (Cmd+Q / the window close button own quitting, with the
+		// unsaved-changes confirm). Priority: disarm the paint tile first, so
+		// leaving paint is a single clean action; otherwise clear a selection.
+		// The disarm lives here (not only in EditorShortcuts, which is gated on
+		// the scene panel being focused) so ESC leaves paint from anywhere.
+		// Always consumed, so QuitOnEscape's quit path is never reached from ESC.
+		quitOnEscape.intercept = [&editorCore, &state]()
+		{
+			if (editorCore.getActiveTool() == Orkige::EditorTool::Paint ||
+				!state.tilePalette.armedAssetPath.empty())
+			{
+				disarmPaintTileOnIntent(state, editorCore);
+			}
+			else if (editorCore.hasSelection())
+			{
+				editorCore.clearSelection();
+			}
+			return true;
+		};
 		// the Asset browser opens at the persisted thumbnail-size zoom
 		state.assetBrowser.thumbnailSize = viewSettings.assetThumbnailSize;
 
@@ -1708,6 +1791,22 @@ int main(int argc, char** argv)
 			{
 				drawAssetBrowserPanel(state, editorCore,
 					&viewSettings.showAssetBrowserPanel);
+			}
+			// one-time layout migration: with the Assets (bottom) node live this
+			// frame, move the Tile Palette there so its 2D auto-open lands beside
+			// the browser instead of the pre-rework slot the restored ini kept.
+			// The palette is closed here (migration closed it), so this only
+			// updates its docked home for the next time it opens.
+			if (state.migratePaletteDock)
+			{
+				ImGuiWindow* assetsWindow =
+					ImGui::FindWindowByName("Assets###Assets");
+				if (assetsWindow && assetsWindow->DockId != 0)
+				{
+					ImGui::DockBuilderDockWindow("Tile Palette###TilePalette",
+						assetsWindow->DockId);
+					state.migratePaletteDock = false;
+				}
 			}
 			// entering 2D editor mode auto-opens the Tile Palette (it docks
 			// beside the Asset Browser); leaving 2D never auto-closes it, and a
@@ -3744,6 +3843,38 @@ int main(int argc, char** argv)
 						{
 							lpFailed = true;
 							lpFail = "Escape did not leave paint mode";
+						}
+						// Escape must DISARM, never quit: reaching this phase proves
+						// the loop still runs, and quitRequested must be untouched
+						// (an ESC that reached the quit path would have set it)
+						if (!lpFailed && state.quitRequested)
+						{
+							lpFailed = true;
+							lpFail = "Escape triggered a quit instead of disarming";
+						}
+						// disarm-by-intent: the shared "did something that isn't
+						// painting" exit (a scene/hierarchy select, an empty-space
+						// click, a browser asset select all route through it)
+						if (!lpFailed)
+						{
+							if (!paletteArmAsset(state, editorCore, escTile) ||
+								editorCore.getActiveTool() !=
+									Orkige::EditorTool::Paint)
+							{
+								lpFailed = true;
+								lpFail = "re-arm for the intent-disarm check failed";
+							}
+							else
+							{
+								disarmPaintTileOnIntent(state, editorCore);
+								if (editorCore.getActiveTool() !=
+										Orkige::EditorTool::Translate ||
+									!state.tilePalette.armedAssetPath.empty())
+								{
+									lpFailed = true;
+									lpFail = "disarm-by-intent stayed in paint mode";
+								}
+							}
 						}
 						// arm again, then close the project: the armed prefab
 						// belongs to it and must not survive

@@ -244,6 +244,13 @@ struct ViewSettings
 	//! so drawDockspace rebuilds the ratio-based default when this differs from
 	//! the live scale. 0 = unknown (older ini / never saved).
 	float layoutContentScale = 0.0f;
+	//! layout-defaults schema version stamped into the ini. A one-time
+	//! migration runs when a persisted ini predates the current defaults (an
+	//! older or absent stamp): it reconciles the saved layout with a defaults
+	//! rework the ini never saw, then bumps the stamp so it runs once. 0 = a
+	//! pre-migration ini (panels/docks from before the panel rework).
+	static constexpr int CURRENT_LAYOUT_VERSION = 1;
+	int layoutVersion = 0;
 	//! most-recently-used scene paths (newest first) for File > Open Recent;
 	//! filled by every successful open/save, capped at MAX_RECENT_SCENES
 	std::vector<std::string> recentScenes;
@@ -254,6 +261,13 @@ struct ViewSettings
 
 	void load();
 	void save() const;
+
+	//! One-time reconciliation of a loaded ini that predates the current layout
+	//! defaults (layoutVersion < CURRENT_LAYOUT_VERSION): applies the panel
+	//! defaults the ini never saw and stamps the current version. Returns true
+	//! when a Tile Palette re-dock is pending (the caller defers it to a frame
+	//! where the Assets node exists). A no-op on an already-current ini.
+	bool migrateLayoutDefaults();
 
 	//! record a successfully opened/saved scene path for File > Open Recent:
 	//! move-to-front, dedupe, cap at MAX_RECENT_SCENES (caller persists)
@@ -565,6 +579,11 @@ struct EditorState
 	int peekTargetLine = 0;
 	//! first-frame guard for the DockBuilder default layout
 	bool dockLayoutChecked = false;
+	//! pending one-time layout migration: re-dock the Tile Palette into the
+	//! Assets (bottom) node so its 2D auto-open lands there, not a pre-rework
+	//! slot a restored ini remembers. Set when an older-stamped ini loads,
+	//! consumed once the Assets node exists (@see ViewSettings::layoutVersion).
+	bool migratePaletteDock = false;
 	//! content size the Scene panel wants for the RTT (recorded while drawing)
 	int scenePanelWidth = 0;
 	int scenePanelHeight = 0;
@@ -1805,6 +1824,12 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 //! prefab probe fails).
 bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	std::string const& absolutePath);
+
+//! @brief disarm the paint tile if one is armed (a no-op otherwise). The
+//! shared "you did something that isn't painting" exit: selecting a scene or
+//! hierarchy object, clicking empty scene space, or selecting a browser asset
+//! all call this so painting is easy to leave (@see paletteArmAsset).
+void disarmPaintTileOnIntent(EditorState& state, Orkige::EditorCore& core);
 
 //! @brief build the EditorPaintDesc the armed asset + paint options describe.
 //! PREFAB: the open edges become suppressed wall-child locals + the openEdges

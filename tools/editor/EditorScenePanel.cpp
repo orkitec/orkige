@@ -749,6 +749,10 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 				if (!paintOwnsMouse &&
 					ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 				{
+					// a scene click that reaches here is NOT a paint stroke
+					// (paint owns the mouse in paint mode) - so clicking the
+					// scene to pick or marquee leaves paint mode
+					disarmPaintTileOnIntent(state, core);
 					const float nx = (io.MousePos.x - rectMin.x) / avail.x;
 					const float ny = (io.MousePos.y - rectMin.y) / avail.y;
 					// marquee tools (Select/Translate): a press on EMPTY space

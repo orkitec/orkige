@@ -188,6 +188,8 @@ void drawLocalHierarchyNode(EditorState& state, Orkige::EditorCore& core,
 	if (ImGui::IsItemClicked(ImGuiMouseButton_Left) &&
 		!ImGui::IsItemToggledOpen())
 	{
+		// selecting a hierarchy object is "not painting": leave paint mode
+		disarmPaintTileOnIntent(state, core);
 		const bool additive = ImGui::GetIO().KeySuper ||
 			ImGui::GetIO().KeyCtrl;
 		if (additive)

@@ -2951,11 +2951,13 @@ void drawAssetBrowserPanel(EditorState& state, Orkige::EditorCore& core,
 			// selecting an asset moves the Inspector's focus here: a CHANGED,
 			// non-empty browser selection deselects the scene object so the
 			// asset view (texture import settings, ...) shows without a
-			// separate deselect click in the viewport
+			// separate deselect click in the viewport - and, since browsing
+			// assets is "not painting", leaves paint mode too
 			if (!browser.selection.empty() &&
 				browser.selection != selectionBefore)
 			{
 				core.clearSelection();
+				disarmPaintTileOnIntent(state, core);
 			}
 			// the focused item becomes the range anchor / keyboard target
 			if (msio->NavIdItem != -1)

@@ -780,6 +780,17 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         ENVIRONMENT "ORKIGE_EDITOR_LEVELPAINT=${Orkige_SOURCE_DIR}/projects/roller"
         LABELS integration TIMEOUT 120)
 
+    # one-time layout-defaults migration: synthesize an ini from before the
+    # panel-defaults rework (Tile Palette + GUI Preview open, no version stamp)
+    # and verify the migration closes both, flags the palette re-dock, stamps +
+    # persists the version, and is idempotent on a re-load. Pure settings IO -
+    # exits before the render boot.
+    add_test(NAME editor_migrate${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_migrate${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_MIGRATE_TEST=1"
+        LABELS integration TIMEOUT 60)
+
     # 2D editing-ergonomics: paint three tiles in 2D mode, then drive the REAL
     # scene-panel mouse path with SYNTHETIC SDL events - a rubber-band marquee
     # selects all three tiles, a plain click selects exactly one (no marquee), a

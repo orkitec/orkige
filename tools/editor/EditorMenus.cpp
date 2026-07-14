@@ -13,13 +13,20 @@
 using Orkige::optr;
 using Orkige::woptr;
 
-// every quit path (File > Quit, ESC with nothing selected, the window close
-// button / Cmd+Q via SDL_EVENT_QUIT, the native mac menu) funnels through
-// here: unsaved changes raise the "Unsaved Changes" confirm modal instead of
-// silently dropping the scene. Frame-capped automation runs bypass this on
-// purpose (they stop the loop directly).
+// every quit path (File > Quit, the window close button / Cmd+Q via
+// SDL_EVENT_QUIT, the native mac menu) funnels through here: unsaved changes
+// raise the "Unsaved Changes" confirm modal instead of silently dropping the
+// scene. ESC never quits (see the QuitOnEscape intercept in main). Automated
+// runs quit directly - a scripted test must exit cleanly without stopping on
+// the confirm modal (it stops the loop; here we belt-and-suspenders the case
+// where a test drives a quit path with a dirty scene).
 void requestQuit(EditorState& state, Orkige::EditorCore& core)
 {
+	if (gAutomatedRun)
+	{
+		state.quitRequested = true;
+		return;
+	}
 	if (isPrefabEditActive(state))
 	{
 		// close the prefab stage first (its own Save/Discard/Cancel confirm

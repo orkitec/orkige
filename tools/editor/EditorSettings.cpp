@@ -123,6 +123,10 @@ void ViewSettings::load()
 		{
 			this->layoutContentScale = std::strtof(value.c_str(), nullptr);
 		}
+		else if (key == "layout_version")
+		{
+			this->layoutVersion = std::atoi(value.c_str());
+		}
 		else if (key == "gui_preview_language")
 		{
 			this->guiPreviewLanguage = value;
@@ -199,6 +203,7 @@ void ViewSettings::save() const
 			: "system")
 		<< "\n"
 		<< "layout_content_scale=" << this->layoutContentScale << "\n"
+		<< "layout_version=" << this->layoutVersion << "\n"
 		<< "gui_preview_language=" << this->guiPreviewLanguage << "\n";
 	for (std::string const& recent : this->recentScenes)
 	{
@@ -208,6 +213,28 @@ void ViewSettings::save() const
 	{
 		file << "recent_project=" << recent << "\n";
 	}
+}
+
+bool ViewSettings::migrateLayoutDefaults()
+{
+	if (this->layoutVersion >= CURRENT_LAYOUT_VERSION)
+	{
+		return false;
+	}
+	bool paletteRedockPending = false;
+	if (this->layoutVersion < 1)
+	{
+		// v1 - the panel-defaults rework: the Tile Palette and GUI Preview are
+		// closed by default (they appear on intent: 2D mode / Open Preview),
+		// and the palette homes in the bottom (Assets) node. An ini from before
+		// the rework kept both open in their old slots; close them and flag the
+		// palette re-dock. Everything else in the user's layout is untouched.
+		this->showTilePalettePanel = false;
+		this->showGuiPreviewPanel = false;
+		paletteRedockPending = true;
+	}
+	this->layoutVersion = CURRENT_LAYOUT_VERSION;
+	return paletteRedockPending;
 }
 
 void ViewSettings::addRecentScene(std::string const& scenePath)
