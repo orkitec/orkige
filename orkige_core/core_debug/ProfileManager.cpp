@@ -62,8 +62,17 @@ namespace Orkige
 			};
 			Registry & registry()
 			{
-				static Registry sRegistry;
-				return sRegistry;
+				// heap-allocated and intentionally never freed: a thread_local
+				// ThreadState's destructor calls registry() at THREAD exit, and
+				// for the main thread that is program exit - where the ordering
+				// between a function-local static's destructor and a main-thread
+				// thread_local's destructor is not guaranteed across the atexit /
+				// __cxa_thread_atexit mechanisms (macOS destroys the static
+				// first, so a plain `static Registry` would be a use-after-free
+				// here). Leaking it keeps it live for every ThreadState dtor; the
+				// static pointer keeps it reachable, so LeakSanitizer stays quiet.
+				static Registry * sRegistry = new Registry();
+				return *sRegistry;
 			}
 
 			//! per-thread tree + cursor; registers itself on the thread's
