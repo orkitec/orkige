@@ -5772,6 +5772,62 @@ int main(int argc, char** argv)
 					running = false;
 				}
 			}
+			// Device-preset SWITCH stress: selecting a different phone in the
+			// GUI Preview combo setContext()s + re-show()s,
+			// tearing the preview surface down and rebuilding it while the dying
+			// incarnation's UI camera still lives (2D batches hold the old target
+			// an extra frame). A stable camera name collides on createCamera ->
+			// abort; per-incarnation naming must let N switches rebuild without a
+			// crash and still render.
+			if (previewSelfcheckEnv && exitCode == 0 &&
+				(frameCount == 42 || frameCount == 44 || frameCount == 46))
+			{
+				OrkigeEditor::GuiPreviewContext ctx =
+					guiPreviewStage.getContext();
+				if (frameCount == 42)
+				{
+					ctx.width = 1284; ctx.height = 2778; ctx.contentScale = 3.0f;
+				}
+				else if (frameCount == 44)
+				{
+					ctx.width = 2048; ctx.height = 1536; ctx.contentScale = 2.0f;
+				}
+				else
+				{
+					ctx.width = 1170; ctx.height = 2532; ctx.contentScale = 3.0f;
+				}
+				guiPreviewStage.setContext(ctx);
+				std::string switchError;
+				const bool shown = guiPreviewStage.show(
+					state.project.getRootDirectory(), "assets/hud.oui",
+					switchError);
+				const bool switchOk = shown && guiPreviewStage.isLoaded() &&
+					guiPreviewStage.getTarget();
+				SDL_Log("orkige_editor: preview selfcheck - device switch %ux%u "
+					"%s (%s)", ctx.width, ctx.height, switchOk ? "OK" : "FAILED",
+					switchError.c_str());
+				if (!switchOk)
+				{
+					exitCode = 13;
+					running = false;
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 48 && exitCode == 0)
+			{
+				// reaching here at all proves no duplicate-camera abort; the
+				// rebuilt surface must also still submit its batch
+				const bool recovered = guiPreviewStage.isLoaded() &&
+					guiPreviewStage.getTarget() &&
+					guiPreviewStage.getLastBatchCount() > 0;
+				SDL_Log("orkige_editor: preview selfcheck - survived device "
+					"switches %s (%zu batches)", recovered ? "OK" : "FAILED",
+					guiPreviewStage.getLastBatchCount());
+				if (!recovered)
+				{
+					exitCode = 13;
+					running = false;
+				}
+			}
 			// --- Inspector asset previews: seed the browser selection to each
 			// asset kind (not MCP-drivable) and prove the sections render. The
 			// optional ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR writes preview PNGs

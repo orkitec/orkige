@@ -100,7 +100,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	String RenderTexture::Impl::uiCameraName() const
 	{
-		return "Orkige/DrawLayer2D/TargetCamera/" + this->name;
+		return this->uiCamName;
 	}
 	//---------------------------------------------------------
 	void RenderTexture::Impl::recreate()
@@ -334,6 +334,10 @@ namespace Orkige
 			Ogre::SceneManager* sceneManager =
 				RenderBackend::worldSceneManager();
 			oAssert(sceneManager);
+			// unique per incarnation so a preview device switch never collides
+			// with the dying incarnation's still-live camera (@see uiCamName)
+			this->mImpl->uiCamName = RenderBackend::generateName(
+				"Orkige/DrawLayer2D/TargetCamera/" + this->mImpl->name);
 			this->mImpl->uiCamera =
 				sceneManager->createCamera(this->mImpl->uiCameraName());
 			this->mImpl->uiCamera->setProjectionType(Ogre::PT_ORTHOGRAPHIC);

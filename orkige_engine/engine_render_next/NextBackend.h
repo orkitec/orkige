@@ -290,13 +290,21 @@ namespace Orkige
 		//! per-target pixel-space ortho UI camera (owned by the scene manager;
 		//! sized to width/height - the simulated device resolution)
 		Ogre::Camera*		uiCamera = NULL;
+		//! the UI camera's backend name, made UNIQUE PER INCARNATION via
+		//! generateName (set once in createLayer). The facade name is stable
+		//! across incarnations, but a preview device switch builds a fresh
+		//! surface while the dying incarnation's camera still lives (2D batches
+		//! hold the old target an extra frame) - a stable camera name would
+		//! then collide on createCamera and abort. Same identity-per-incarnation
+		//! rule as the RTT datablock.
+		String				uiCamName;
 
 		//! (re)create texture + workspace from the state above
 		//! (resize-by-recreate, same contract as the classic backend)
 		void recreate();
 		//! drop workspace + texture (dtor and the recreate path)
 		void destroyTarget();
-		//! the per-target UI camera's backend name (unique per target)
+		//! the per-incarnation UI camera backend name (@see uiCamName)
 		String uiCameraName() const;
 	};
 
