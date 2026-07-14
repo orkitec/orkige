@@ -810,6 +810,71 @@ void refreshTextPreview(EditorState& state, std::string const& rel)
 //! Editor" button heads it; the content scrolls in a bordered child region with
 //! per-token muted colours; a truncated file gets a footer line. Returns true
 //! when it drew the section.
+//! the .oui section header: a small static GUI-screen thumbnail (baked by the
+//! main loop through the shared GuiPreviewStage - a .oui is a GPU render, not a
+//! CPU raster, so it cannot bake mid-frame; the Inspector sets ouiPreviewRequest
+//! and the loop bakes it post-render) plus an "Open Preview" button that opens
+//! the full GUI Preview panel on this screen. The .oui syntax-text view follows
+//! below (drawTextPreviewSection). A no-op unless a single .oui is selected.
+void drawGuiPreviewInspectorHeader(EditorState& state)
+{
+	std::string rel;
+	if (singleSelectionExtension(state, rel) != ".oui")
+	{
+		return;
+	}
+	AssetBrowserState& browser = state.assetBrowser;
+	const std::string absolutePath = resolveProjectFilePath(state.project, rel);
+	std::error_code ec;
+	const long long mtime = static_cast<long long>(
+		std::filesystem::last_write_time(absolutePath, ec)
+			.time_since_epoch().count());
+	const std::string key = absolutePath + "|" + std::to_string(mtime);
+
+	ImGui::TextUnformatted("GUI Screen");
+	ImGui::TextDisabled("%s",
+		std::filesystem::path(rel).filename().string().c_str());
+
+	// (re)bake when the file/mtime changed - the loop picks up the request
+	if (browser.ouiPreviewKey != key)
+	{
+		browser.ouiPreviewRequest = absolutePath;
+	}
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	unsigned int tw = 0;
+	unsigned int th = 0;
+	const bool haveThumb = browser.ouiPreviewKey == key &&
+		!browser.ouiPreviewUpload.empty() && render &&
+		render->getTextureSize(browser.ouiPreviewUpload, tw, th) &&
+		tw > 0 && th > 0;
+	const float maxH = 190.0f;
+	if (haveThumb && gImGuiRenderer)
+	{
+		const float aspect = static_cast<float>(tw) / static_cast<float>(th);
+		ImGui::Image(gImGuiRenderer->textureIdForResource(
+			browser.ouiPreviewUpload), ImVec2(maxH * aspect, maxH));
+	}
+	else
+	{
+		ImGui::Dummy(ImVec2(maxH * 0.5f, maxH * 0.5f));
+		ImGui::SameLine();
+		ImGui::TextDisabled("generating preview...");
+	}
+	if (ImGui::Button("Open Preview"))
+	{
+		// the full panel: a phone-portrait canvas + device / notch / language
+		// controls that need more room than the Inspector column offers
+		state.requestedGuiPreviewAsset = rel;
+		if (gViewSettings)
+		{
+			gViewSettings->showGuiPreviewPanel = true;
+			gViewSettings->save();
+		}
+	}
+	ImGui::SetItemTooltip("open the full GUI Preview panel on this screen");
+	ImGui::Separator();
+}
+
 bool drawTextPreviewSection(EditorState& state)
 {
 	std::string rel;
@@ -1362,6 +1427,9 @@ bool drawAssetInspectorSection(EditorState& state,
 	default:
 		break;
 	}
+	// a .oui prepends its GUI-screen thumbnail + Open Preview button, then its
+	// syntax-text view follows via drawTextPreviewSection (a no-op for others)
+	drawGuiPreviewInspectorHeader(state);
 	return drawAnimationPreviewSection(state, animStage) ||
 		drawTextPreviewSection(state) ||
 		drawUnknownAssetSection(state);

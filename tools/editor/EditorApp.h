@@ -434,6 +434,15 @@ struct AssetBrowserState
 	bool shapeShowSource = false;		//!< View source: raw text instead of the fill
 	std::string shapeSourceText;		//!< cached raw .oshape text for the source view
 
+	//! the Inspector `.oui` preview thumbnail cache: a .oui renders through the
+	//! GPU GuiPreviewStage (not a CPU raster), so the Inspector cannot bake it
+	//! mid-frame - it sets ouiPreviewRequest to the absolute path and the main
+	//! loop bakes it once post-render (readback -> named texture), keyed by
+	//! "<abs>|<mtime>". "Open Preview" opens the full panel on that screen.
+	std::string ouiPreviewKey;			//!< "<abs>|<mtime>" the upload was built for
+	std::string ouiPreviewUpload;		//!< createTexture2D name ("" = none)
+	std::string ouiPreviewRequest;		//!< abs .oui the loop should bake ("" = none)
+
 	//! the Inspector `.omat` editor cache: the parsed material being edited,
 	//! the file it was read from (a changed path re-reads), the scene material
 	//! ref (bare name - the create-or-update key the scene shares), the on-disk

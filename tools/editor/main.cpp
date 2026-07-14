@@ -80,6 +80,7 @@
 #include "EditorControlServer.h"
 #include "EditorScriptHost.h"
 #include "AnimationPreviewStage.h"
+#include "EditorImageDecode.h"
 #include "GuiPreviewStage.h"
 #include "MeshPreviewStage.h"
 
@@ -1798,6 +1799,51 @@ int main(int argc, char** argv)
 			// that the frame (and the baker's offscreen target) has rendered -
 			// OUTSIDE the ImGui frame, so nothing re-enters renderOneFrame
 			serviceThumbnailBakes(state, thumbnailBaker, frameCount);
+
+			// bake the Inspector's .oui thumbnail post-render: a .oui is a GPU
+			// render (GuiPreviewStage), so the Inspector cannot bake it mid-frame
+			// - it requests here. Borrow the shared stage while the full panel is
+			// CLOSED (the panel drives the stage when open), render one frame,
+			// read the target back, and upload it as a cached named texture.
+			if (!state.assetBrowser.ouiPreviewRequest.empty() &&
+				!viewSettings.showGuiPreviewPanel && state.project.isLoaded())
+			{
+				const std::string ouiAbs = state.assetBrowser.ouiPreviewRequest;
+				state.assetBrowser.ouiPreviewRequest.clear();
+				std::error_code ouiEc;
+				const long long ouiMtime = static_cast<long long>(
+					std::filesystem::last_write_time(ouiAbs, ouiEc)
+						.time_since_epoch().count());
+				const std::string ouiKey = ouiAbs + "|" + std::to_string(ouiMtime);
+				const std::string ouiRel =
+					state.project.makeProjectRelative(ouiAbs);
+				std::string ouiErr;
+				if (guiPreviewStage.show(state.project.getRootDirectory(),
+					ouiRel, ouiErr))
+				{
+					const std::filesystem::path ouiTmp =
+						std::filesystem::temp_directory_path(ouiEc) /
+						("orkige_ouithumb_" + std::to_string(
+							std::hash<std::string>{}(ouiAbs)) + ".png");
+					if (guiPreviewStage.renderAndCapture(ouiTmp.string(), ouiErr))
+					{
+						std::vector<unsigned char> ouiRgba;
+						int ouiW = 0;
+						int ouiH = 0;
+						if (OrkigeEditor::decodeImageRgba(ouiTmp.string(),
+							ouiRgba, ouiW, ouiH) && ouiW > 0 && ouiH > 0 && render &&
+							render->createTexture2D("__ouiinspector", ouiRgba.data(),
+								static_cast<unsigned int>(ouiW),
+								static_cast<unsigned int>(ouiH)))
+						{
+							state.assetBrowser.ouiPreviewUpload = "__ouiinspector";
+							state.assetBrowser.ouiPreviewKey = ouiKey;
+						}
+						std::filesystem::remove(ouiTmp, ouiEc);
+					}
+				}
+				guiPreviewStage.clear();
+			}
 
 			if (frameCount == 1 && selfCheck)
 			{
@@ -5953,6 +5999,46 @@ int main(int argc, char** argv)
 				}
 				else
 				{
+					// select hud.oui so the Inspector shows its GUI-screen thumbnail
+					// + Open Preview button (the full panel is closed by default)
+					editorCore.clearSelection();
+					state.assetBrowser.selection.clear();
+					state.assetBrowser.selection.insert("assets/hud.oui");
+					state.assetBrowser.selectionAnchor = "assets/hud.oui";
+					state.assetBrowser.currentDir =
+						state.project.getAssetsDirectory();
+					viewSettings.showInspectorPanel = true;
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 32 && exitCode == 0)
+			{
+				if (const char* shot =
+					std::getenv("ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR"))
+				{
+					render->saveWindowContents(std::string(shot) + "/oui_inspector.png");
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 34 && exitCode == 0)
+			{
+				// the Inspector baked the .oui GUI-screen thumbnail (a real texture,
+				// not the placeholder); then the Open Preview button opens the panel
+				unsigned int ouiTw = 0;
+				unsigned int ouiTh = 0;
+				const bool ouiThumbOk =
+					!state.assetBrowser.ouiPreviewUpload.empty() &&
+					Orkige::RenderSystem::get()->getTextureSize(
+						state.assetBrowser.ouiPreviewUpload, ouiTw, ouiTh) &&
+					ouiTw > 0 && ouiTh > 0;
+				SDL_Log("orkige_editor: preview selfcheck - .oui inspector thumbnail "
+					"%s (%ux%u)", ouiThumbOk ? "OK" : "FAILED", ouiTw, ouiTh);
+				if (!ouiThumbOk)
+				{
+					exitCode = 13;
+					running = false;
+				}
+				else
+				{
+					// the Open Preview button opens the full panel on this screen
 					state.requestedGuiPreviewAsset = "assets/hud.oui";
 					viewSettings.showGuiPreviewPanel = true;
 				}
@@ -5987,6 +6073,14 @@ int main(int argc, char** argv)
 				{
 					exitCode = 13;
 					running = false;
+				}
+			}
+			if (previewSelfcheckEnv && frameCount == 41 && exitCode == 0)
+			{
+				if (const char* shot =
+					std::getenv("ORKIGE_EDITOR_INSPECTOR_PREVIEW_DIR"))
+				{
+					render->saveWindowContents(std::string(shot) + "/oui_panel.png");
 				}
 			}
 			// Device-preset SWITCH stress: selecting a different phone in the
