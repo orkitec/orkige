@@ -491,16 +491,15 @@ jobs:
           fi
           xcrun simctl install "$UDID" build/ios-simulator-debug/tools/player/OrkigePlayer.app
 
-      - name: Prepare an iOS simulator (booted, player installed)
+      - name: Install the player on the CI simulator
         run: |
           # the device tests expect the LOCAL convention: a booted simulator
-          # with the built player installed (they skip/fail otherwise). Boot
-          # the newest available iPhone simulator and install the app.
-          UDID=$(xcrun simctl list devices available --json |             python3 -c "import json,sys; devs=[d for r in json.load(sys.stdin)['devices'].values() for d in r if 'iPhone' in d['name']]; print(devs[-1]['udid'] if devs else '')")
-          if [ -z "$UDID" ]; then echo "no iPhone simulator available"; exit 1; fi
-          xcrun simctl boot "$UDID" || true
-          xcrun simctl bootstatus "$UDID" -b
-          xcrun simctl install "$UDID"             build/ios-simulator-debug/tools/player/OrkigePlayer.app
+          # with the player app INSTALLED. Install onto the simulator this job
+          # already created and booted ($ORKIGE_CI_SIMULATOR) - booting a second
+          # one left the app on the wrong device, so the tests' 'auto' pick
+          # found a bare simulator and the safe-area gate failed.
+          xcrun simctl install "$ORKIGE_CI_SIMULATOR" \
+            build/ios-simulator-debug/tools/player/OrkigePlayer.app
 
       - name: iOS Simulator export + runtime tests (MUST pass)
         env:
@@ -624,6 +623,17 @@ jobs:
           Get-ChildItem "C:/Windows/System32/vulkan-1.dll" -ErrorAction SilentlyContinue
           Get-ChildItem -Recurse build/windows-debug/vcpkg_installed -Filter vulkan-1.dll -ErrorAction SilentlyContinue | Select-Object FullName
           Get-ChildItem -Recurse build/windows-debug -Filter vulkan-1.dll -ErrorAction SilentlyContinue | Select-Object FullName -First 5
+
+      - name: Use the system Vulkan loader for the test run
+        shell: pwsh
+        run: |
+          # our processes load the vcpkg-built vulkan-1.dll copied next to every
+          # test exe, and it enumerates almost nothing - not even VK_KHR_surface -
+          # so the render system honestly refuses to draw. MSYS2's Mesa loader is
+          # a complete one and is already on PATH; remove the copies so the DLL
+          # search resolves it instead.
+          Get-ChildItem -Recurse build/windows-debug -Filter vulkan-1.dll |
+            ForEach-Object { Write-Host "removing $($_.FullName)"; Remove-Item $_.FullName -Force }
 
       - name: Complete Windows desktop suite (lavapipe - MUST pass)
         shell: pwsh
