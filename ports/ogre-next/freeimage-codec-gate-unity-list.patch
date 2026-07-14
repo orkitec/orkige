@@ -1,0 +1,19 @@
+diff --git a/OgreMain/CMakeLists.txt b/OgreMain/CMakeLists.txt
+index 5b7a672..d20b1c4 100644
+--- a/OgreMain/CMakeLists.txt
++++ b/OgreMain/CMakeLists.txt
+@@ -400,7 +400,13 @@ endif ()
+
+ set (TARGET_LINK_FLAGS "")
+
+-set( BROKEN_FILES_IN_UNITY_BUILD "src/OgreFreeImageCodec2.cpp" )
++# the SEPARATE list is appended to the target's sources unconditionally by
++# create_unity_build_files, so the FreeImage codec must only enter it when
++# the codec is actually enabled (FreeImage headers are absent otherwise)
++set( BROKEN_FILES_IN_UNITY_BUILD "" )
++if (OGRE_CONFIG_ENABLE_FREEIMAGE)
++  set( BROKEN_FILES_IN_UNITY_BUILD "src/OgreFreeImageCodec2.cpp" )
++endif ()
+
+ # setup OgreMain target
+ if (WINDOWS_STORE OR WINDOWS_PHONE)
