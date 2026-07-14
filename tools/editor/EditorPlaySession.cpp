@@ -289,8 +289,10 @@ void advanceSimulatorPrep(PlaySession& session)
 			return; // simctl boot still running
 		}
 		// 'simctl boot' on an already-booted device exits 149 ("current
-		// state: Booted") - a race with a manually started boot, not an error
-		if (exitCode != 0 &&
+		// state: Booted") - a race with a manually started boot, not an error.
+		// The exit code is the reliable signal (simctl may print the message to
+		// stderr, which this probe does not capture), so accept 149 on its own.
+		if (exitCode != 0 && exitCode != 149 &&
 			output.find("current state: Booted") == std::string::npos)
 		{
 			// a transient CoreSimulator hiccup can fail an otherwise-healthy
