@@ -164,6 +164,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderBackend::updateDrawLayer2DFrame()
 	{
+		// free the datablocks of dead offscreen-target incarnations now that
+		// the batches drawing them have been rebuilt (unlinked) for this frame,
+		// before the render binds any descriptor set
+		RenderBackend::flushRetiredRTTDatablocks();
 		if(!gUICamera || !RenderBackend::system())
 		{
 			return;
@@ -316,31 +320,36 @@ namespace Orkige
 		return datablock;
 	}
 	//---------------------------------------------------------
+	String RenderBackend::rttDatablockName(Ogre::TextureGpu* texture)
+	{
+		if(!texture)
+		{
+			return String();
+		}
+		return "DrawLayer2D/RTT/" + texture->getNameStr();
+	}
+	//---------------------------------------------------------
 	Ogre::HlmsDatablock* RenderBackend::getOrCreateDrawLayer2DRTTDatablock(
 		optr<RenderTexture> const & renderTexture)
 	{
 		oAssert(renderTexture);
-		Ogre::HlmsManager* hlmsManager =
-			RenderBackend::ogreRoot()->getHlmsManager();
-		const String name =
-			"DrawLayer2D/RTT/" + RenderBackend::renderTextureName(renderTexture);
 		Ogre::TextureGpu* current =
 			RenderBackend::renderTextureGpu(renderTexture);
+		oAssert(current);	// buildBatchObject skips a target with no texture
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		// keyed by the incarnation's backend texture name, not the facade
+		// name: the texture-gpu manager reuses the POINTER across a recreate,
+		// so a stable-named datablock kept across incarnations would re-bind a
+		// descriptor set the driver still caches against that pointer - the
+		// destroyed incarnation's freed image view (a use-after-free at the
+		// next 2D draw). A fresh incarnation gets a fresh datablock instead.
+		const String name = RenderBackend::rttDatablockName(current);
 		if(Ogre::HlmsDatablock* existing =
 			hlmsManager->getDatablockNoDefault(name))
 		{
-			// re-point at the target's current incarnation when it changed
-			Ogre::HlmsUnlitDatablock* unlitBlock =
-				static_cast<Ogre::HlmsUnlitDatablock*>(existing);
-			// never re-point at nothing: a textured Unlit datablock whose
-			// texture is nulled still carries a texture slot into the shader,
-			// and the descriptor write then takes a null view. Callers skip
-			// the batch while a target has no texture (above), so the stale
-			// binding simply waits for the target's next incarnation.
-			if(current && unlitBlock->getTexture(0u) != current)
-			{
-				unlitBlock->setTexture(0u, current);
-			}
+			// this incarnation already owns its datablock; the texture never
+			// changes under a fixed incarnation, so there is nothing to re-point
 			return existing;
 		}
 		// the 2D render contract minus the blending: RenderTexture batches
@@ -366,13 +375,10 @@ namespace Orkige
 			static_cast<Ogre::HlmsUnlitDatablock*>(unlit->createDatablock(
 				name, name, macroblock, blendblock,
 				Ogre::HlmsParamVec()));
-		if(current)
-		{
-			Ogre::HlmsSamplerblock samplerblock;
-			samplerblock.setFiltering(Ogre::TFO_NONE);
-			samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
-			datablock->setTexture(0u, current, &samplerblock);
-		}
+		Ogre::HlmsSamplerblock samplerblock;
+		samplerblock.setFiltering(Ogre::TFO_NONE);
+		samplerblock.setAddressingMode(Ogre::TAM_CLAMP);
+		datablock->setTexture(0u, current, &samplerblock);
 		RenderBackend::registerContentDatablock(datablock);
 		return datablock;
 	}
@@ -391,16 +397,17 @@ namespace Orkige
 		String datablockName;
 		if(batch.renderTexture)
 		{
-			// offscreen-target batch: a per-target datablock re-pointed at
-			// the target's CURRENT texture (resize-by-recreate safe; the
-			// dying incarnation detaches itself, RenderTextureNext.cpp).
-			// A target with NO live texture (destroyed, or between the two
-			// halves of a recreate) must not be drawn at all: an explicit-
-			// layout backend writes the datablock's texture straight into a
-			// descriptor set, and a null image view faults inside the driver
-			// (Metal's implicit binding merely drew nothing). The batch is
-			// re-emitted the frame the target is back.
-			if(!RenderBackend::renderTextureGpu(batch.renderTexture))
+			// offscreen-target batch: a per-INCARNATION datablock keyed by the
+			// target's current backend texture name (getOrCreateDrawLayer2D-
+			// RTTDatablock). A target with NO live texture (destroyed, or
+			// between the two halves of a recreate) must not be drawn at all:
+			// an explicit-layout backend writes the datablock's texture
+			// straight into a descriptor set, and a null image view faults
+			// inside the driver (Metal's implicit binding merely drew nothing).
+			// The batch is re-emitted the frame the target is back.
+			Ogre::TextureGpu* targetTexture =
+				RenderBackend::renderTextureGpu(batch.renderTexture);
+			if(!targetTexture)
 			{
 				return;
 			}
@@ -408,8 +415,7 @@ namespace Orkige
 				RenderBackend::getOrCreateDrawLayer2DRTTDatablock(
 					batch.renderTexture);
 			oAssert(datablock);
-			datablockName = "DrawLayer2D/RTT/" +
-				RenderBackend::renderTextureName(batch.renderTexture);
+			datablockName = RenderBackend::rttDatablockName(targetTexture);
 		}
 		else
 		{

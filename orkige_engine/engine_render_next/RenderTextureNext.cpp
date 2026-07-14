@@ -83,19 +83,15 @@ namespace Orkige
 		}
 		if(this->texture)
 		{
-			// a 2D-layer batch may have bound this incarnation into the
-			// per-target "DrawLayer2D/RTT/<name>" datablock - detach before
-			// the texture dies (the next batch build re-points it)
-			if(Ogre::HlmsDatablock* datablock = root->getHlmsManager()
-				->getDatablockNoDefault("DrawLayer2D/RTT/" + this->name))
-			{
-				Ogre::HlmsUnlitDatablock* unlitBlock =
-					static_cast<Ogre::HlmsUnlitDatablock*>(datablock);
-				if(unlitBlock->getTexture(0u) == this->texture)
-				{
-					unlitBlock->setTexture(0u, (Ogre::TextureGpu*)NULL);
-				}
-			}
+			// this incarnation owns its own "DrawLayer2D/RTT/<backendTexName>"
+			// datablock (per-incarnation identity, DrawLayer2DNext.cpp). Retire
+			// it: the texture-gpu manager reuses this pointer for the next
+			// incarnation, so a datablock kept across the recreate would bind a
+			// descriptor set the driver caches against the pointer - this
+			// incarnation's freed image view. The retired datablock is dropped
+			// once its batch stops linking it (flushRetiredRTTDatablocks).
+			RenderBackend::retireRTTDatablock(
+				RenderBackend::rttDatablockName(this->texture));
 			root->getRenderSystem()->getTextureGpuManager()
 				->destroyTexture(this->texture);
 			this->texture = NULL;

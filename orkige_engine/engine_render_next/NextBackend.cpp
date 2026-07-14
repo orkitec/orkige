@@ -98,6 +98,10 @@ namespace Orkige
 		//! every datablock the backend generated (wireframe toggle target);
 		//! datablocks are shared by name and live until teardown
 		std::vector<Ogre::HlmsDatablock*> gContentDatablocks;
+		//! per-incarnation RTT datablocks whose incarnation has died but whose
+		//! batch may still link them; destroyed once unlinked (@see
+		//! RenderBackend::retireRTTDatablock / flushRetiredRTTDatablocks)
+		std::set<String> gRetiredRTTDatablocks;
 		//! current global wireframe state (applied to late datablocks too)
 		bool gWireframe = false;
 		//! per water-datablock ripple tunables (waveScale/waveSpeed), so the
@@ -210,9 +214,15 @@ namespace Orkige
 					libraryUnlit.push_back(archiveManager.load(
 						rootFolder + each, "FileSystem", true));
 				}
-				// registerHlms takes ownership (deleteOnExit default)
-				hlmsManager->registerHlms(
-					OGRE_NEW Ogre::HlmsUnlit(archiveUnlit, &libraryUnlit));
+				// registerHlms takes ownership (deleteOnExit default). Silence
+				// the debug shader dump first: a Debug build defaults the Hlms
+				// debug output to on, so every generated shader is written into
+				// the process working directory - the engine keeps its runtime
+				// directories clean.
+				Ogre::HlmsUnlit* unlit =
+					OGRE_NEW Ogre::HlmsUnlit(archiveUnlit, &libraryUnlit);
+				unlit->setDebugOutputPath(false, false);
+				hlmsManager->registerHlms(unlit);
 			}
 			{
 				Ogre::HlmsPbs::getDefaultPaths(mainFolderPath,
@@ -225,8 +235,10 @@ namespace Orkige
 					libraryPbs.push_back(archiveManager.load(
 						rootFolder + each, "FileSystem", true));
 				}
-				hlmsManager->registerHlms(
-					OGRE_NEW Ogre::HlmsPbs(archivePbs, &libraryPbs));
+				Ogre::HlmsPbs* pbs =
+					OGRE_NEW Ogre::HlmsPbs(archivePbs, &libraryPbs);
+				pbs->setDebugOutputPath(false, false);	// as above
+				hlmsManager->registerHlms(pbs);
 			}
 		}
 
@@ -417,6 +429,7 @@ namespace Orkige
 		// backend free facade memory only (their dtors check system())
 		gNodeRegistry.clear();
 		gContentDatablocks.clear();	// owned by their Hlms, die with the root
+		gRetiredRTTDatablocks.clear();	// their datablocks died with the root
 		gWaterAnims.clear();		// datablocks die with the root
 		gWireframe = false;
 		gShadowCasterCount = 0;		// late light handles no-op (system() gate)
@@ -909,6 +922,8 @@ namespace Orkige
 				Ogre::ResourceGroupManager::getSingleton();
 			const String group =
 				resourceGroups.findGroupContainingResource(textureName);
+			fprintf(stderr, "CODECDBG loadTexture2D name='%s' group='%s'\n",
+				textureName.c_str(), group.c_str()); fflush(stderr);
 			// NOT CommonTextureTypes::Diffuse: that would add
 			// PrefersLoadingFromFileAsSRGB, decoding texels in the shader -
 			// the classic pipeline samples texels raw (colour parity rule,
@@ -1440,6 +1455,46 @@ namespace Orkige
 		if(gWireframe)
 		{
 			applyWireframe(datablock, true);	// late-created content joins
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::retireRTTDatablock(String const & name)
+	{
+		if(!name.empty())
+		{
+			gRetiredRTTDatablocks.insert(name);
+		}
+	}
+	//---------------------------------------------------------
+	void RenderBackend::flushRetiredRTTDatablocks()
+	{
+		if(gRetiredRTTDatablocks.empty() || !gRenderSystem)
+		{
+			return;
+		}
+		Ogre::HlmsManager* hlmsManager =
+			RenderBackend::ogreRoot()->getHlmsManager();
+		for(auto it = gRetiredRTTDatablocks.begin();
+			it != gRetiredRTTDatablocks.end();)
+		{
+			Ogre::HlmsDatablock* datablock =
+				hlmsManager->getDatablockNoDefault(*it);
+			if(!datablock)
+			{
+				it = gRetiredRTTDatablocks.erase(it);	// already gone
+				continue;
+			}
+			// a datablock still drawn by a batch cannot be destroyed
+			// (~HlmsDatablock asserts on linked renderables) - wait a frame
+			if(!datablock->getLinkedRenderables().empty())
+			{
+				++it;
+				continue;
+			}
+			gContentDatablocks.erase(std::remove(gContentDatablocks.begin(),
+				gContentDatablocks.end(), datablock), gContentDatablocks.end());
+			datablock->getCreator()->destroyDatablock(datablock->getName());
+			it = gRetiredRTTDatablocks.erase(it);
 		}
 	}
 	//---------------------------------------------------------

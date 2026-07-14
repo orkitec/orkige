@@ -515,11 +515,31 @@ namespace Orkige
 		//! @return NULL + one log line when the texture cannot be loaded
 		static Ogre::HlmsDatablock* getOrCreateDrawLayer2DDatablock(
 			String const & textureName);
-		//! the per-target "DrawLayer2D/RTT/<name>" datablock of an
-		//! offscreen-target 2D batch (same render contract), re-pointed at
-		//! the target's CURRENT texture on every call (resize safe)
+		//! the per-INCARNATION "DrawLayer2D/RTT/<backendTexName>" datablock of
+		//! an offscreen-target 2D batch (same render contract). Keyed by the
+		//! target's current backend texture name (unique per resize-by-
+		//! recreate), NOT the stable facade name: the texture-gpu manager
+		//! reuses the TextureGpu POINTER across a recreate, so a datablock kept
+		//! across incarnations would re-bind a descriptor set the driver still
+		//! caches against that pointer - the destroyed incarnation's freed
+		//! image view. A fresh incarnation gets a fresh datablock; the retired
+		//! one is dropped via retireRTTDatablock once its batch is gone.
 		static Ogre::HlmsDatablock* getOrCreateDrawLayer2DRTTDatablock(
 			optr<RenderTexture> const & renderTexture);
+		//! the per-incarnation RTT datablock name for a backend texture, or ""
+		//! when it is NULL ("DrawLayer2D/RTT/" + the texture's backend name)
+		static String rttDatablockName(Ogre::TextureGpu* texture);
+		//! mark a dying incarnation's RTT datablock for destruction. It cannot
+		//! be destroyed immediately: a still-linked datablock trips the
+		//! ~HlmsDatablock renderable assert, and the batch that draws it is not
+		//! cleared until the layer next rebuilds. flushRetiredRTTDatablocks
+		//! destroys it once no renderable links it.
+		static void retireRTTDatablock(String const & name);
+		//! destroy every retired RTT datablock that no renderable links any
+		//! more (freeing its pooled descriptor set, so a later incarnation on
+		//! the reused texture pointer never binds the dead image view); called
+		//! once per frame from updateDrawLayer2DFrame, before the render
+		static void flushRetiredRTTDatablocks();
 		//! the diffuse texture of a backend datablock or NULL (PBS
 		//! diffuse slot / Unlit slot 0 - the subMeshHasTexture probe)
 		static Ogre::TextureGpu* datablockDiffuseTexture(
