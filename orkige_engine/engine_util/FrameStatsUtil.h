@@ -84,6 +84,10 @@ namespace Orkige
 			return sorted[index];
 		}
 
+		// the SLOW FRAMES hint and the frame-stats line below stay on SDL_Log by
+		// policy: they are demo/perf MEASUREMENT output (the sanctioned class),
+		// not operational diagnostics - do not reroute to oDebug* on a re-audit.
+
 		//! one-time hint when the measured frame times make the game feel
 		//! bad; call once per frame (no-op until enough samples arrived)
 		void maybeWarnSlow(char const* appName)

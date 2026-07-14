@@ -143,7 +143,7 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 		int prepExit = 0;
 		if (!SDL_WaitProcess(session.simPrepProcess, false, &prepExit))
 		{
-			SDL_Log("orkige_editor: play - abandoning the running simulator "
+			oDebugMsg("editor.play", 0, "play - abandoning the running simulator "
 				"preparation step (simctl finishes in the background)");
 		}
 		SDL_DestroyProcess(session.simPrepProcess);
@@ -194,7 +194,7 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 	clearRemoteState(session);
 	session.projectRoot.clear();
 	session.mode = PlaySession::Mode::Edit;
-	SDL_Log("orkige_editor: play mode ended (%s)", reason.c_str());
+	oDebugMsg("editor.play", 0, "play mode ended (" << reason << ")");
 }
 
 namespace
@@ -244,9 +244,9 @@ void launchPlayerOnSimulator(PlaySession& session)
 	if (!runProcessCaptured(launchArgs, launchOutput, launchExit) ||
 		launchExit != 0)
 	{
-		SDL_Log("orkige_editor: play failed - simctl launch on '%s' (exit "
-			"%d): %s", session.simulatorLabel.c_str(), launchExit,
-			launchOutput.c_str());
+		oDebugError("editor.play", 0, "play failed - simctl launch on '" <<
+			session.simulatorLabel << "' (exit " << launchExit << "): " <<
+			launchOutput);
 		endPlaySession(session, "simctl launch failed");
 		return;
 	}
@@ -256,9 +256,9 @@ void launchPlayerOnSimulator(PlaySession& session)
 	// the connect window starts NOW - boot/install time must not eat into it
 	session.launchStart = std::chrono::steady_clock::now();
 	session.lastConnectAttempt = std::chrono::steady_clock::time_point();
-	SDL_Log("orkige_editor: play - launched player on simulator '%s' (scene "
-		"'%s', port %u)", session.simulatorLabel.c_str(),
-		session.tempScenePath.c_str(), static_cast<unsigned>(session.port));
+	oDebugMsg("editor.play", 0, "play - launched player on simulator '" <<
+		session.simulatorLabel << "' (scene '" << session.tempScenePath <<
+		"', port " << static_cast<unsigned>(session.port) << ")");
 }
 
 //! @brief per-frame simulator preparation pump (mode == Launching with
@@ -272,9 +272,9 @@ void advanceSimulatorPrep(PlaySession& session)
 	if (now - session.simPrepStart >
 		std::chrono::seconds(PLAY_SIM_PREP_TIMEOUT_SECONDS))
 	{
-		SDL_Log("orkige_editor: play failed - simulator '%s' did not become "
-			"ready within %d seconds", session.simulatorLabel.c_str(),
-			PLAY_SIM_PREP_TIMEOUT_SECONDS);
+		oDebugError("editor.play", 0, "play failed - simulator '" <<
+			session.simulatorLabel << "' did not become ready within " <<
+			PLAY_SIM_PREP_TIMEOUT_SECONDS << " seconds");
 		endPlaySession(session, "simulator preparation timed out");
 		return;
 	}
@@ -302,9 +302,9 @@ void advanceSimulatorPrep(PlaySession& session)
 			if (session.simBootRetries < 1)
 			{
 				++session.simBootRetries;
-				SDL_Log("orkige_editor: 'simctl boot %s' exited with %d: %s - "
-					"retrying the boot once", session.simulatorUdid.c_str(),
-					exitCode, output.c_str());
+				oDebugWarn("editor.play", 0, "'simctl boot " <<
+					session.simulatorUdid << "' exited with " << exitCode <<
+					": " << output << " - retrying the boot once");
 				const char* bootArgs[] = { "/usr/bin/xcrun", "simctl", "boot",
 					session.simulatorUdid.c_str(), nullptr };
 				session.simPrepProcess = SDL_CreateProcess(bootArgs, true);
@@ -315,9 +315,9 @@ void advanceSimulatorPrep(PlaySession& session)
 				}
 				// the re-spawn itself failed - fall through to the hard failure
 			}
-			SDL_Log("orkige_editor: play failed - 'simctl boot %s' exited "
-				"with %d: %s", session.simulatorUdid.c_str(), exitCode,
-				output.c_str());
+			oDebugError("editor.play", 0, "play failed - 'simctl boot " <<
+				session.simulatorUdid << "' exited with " << exitCode << ": " <<
+				output);
 			endPlaySession(session, "simctl boot failed");
 			return;
 		}
@@ -349,11 +349,11 @@ void advanceSimulatorPrep(PlaySession& session)
 		std::error_code ignored;
 		if (!std::filesystem::exists(ORKIGE_EDITOR_IOS_PLAYER_APP, ignored))
 		{
-			SDL_Log("orkige_editor: play failed - OrkigePlayer.app is "
-				"neither installed on '%s' nor built at '%s'. Build the iOS "
-				"player first: cmake --preset ios-simulator-debug && cmake "
-				"--build --preset ios-simulator-debug",
-				session.simulatorLabel.c_str(), ORKIGE_EDITOR_IOS_PLAYER_APP);
+			oDebugError("editor.play", 0, "play failed - OrkigePlayer.app is "
+				"neither installed on '" << session.simulatorLabel <<
+				"' nor built at '" << ORKIGE_EDITOR_IOS_PLAYER_APP << "'. Build "
+				"the iOS player first: cmake --preset ios-simulator-debug && "
+				"cmake --build --preset ios-simulator-debug");
 			endPlaySession(session, "player app not available");
 			return;
 		}
@@ -363,16 +363,17 @@ void advanceSimulatorPrep(PlaySession& session)
 		session.simPrepProcess = SDL_CreateProcess(installArgs, true);
 		if (!session.simPrepProcess)
 		{
-			SDL_Log("orkige_editor: play failed - could not run 'simctl "
-				"install': %s", SDL_GetError());
+			oDebugError("editor.play", 0, "play failed - could not run 'simctl "
+				"install': " << SDL_GetError());
 			endPlaySession(session, "simctl install spawn failed");
 			return;
 		}
 		session.simPrep = PlaySession::SimPrep::Installing;
 		session.launchStatus = "installing player on '" +
 			session.simulatorLabel + "'...";
-		SDL_Log("orkige_editor: play - installing '%s' on '%s'",
-			ORKIGE_EDITOR_IOS_PLAYER_APP, session.simulatorLabel.c_str());
+		oDebugMsg("editor.play", 0, "play - installing '" <<
+			ORKIGE_EDITOR_IOS_PLAYER_APP << "' on '" <<
+			session.simulatorLabel << "'");
 		return;
 	}
 	case PlaySession::SimPrep::Installing:
@@ -385,13 +386,13 @@ void advanceSimulatorPrep(PlaySession& session)
 		}
 		if (exitCode != 0)
 		{
-			SDL_Log("orkige_editor: play failed - 'simctl install' exited "
-				"with %d: %s", exitCode, output.c_str());
+			oDebugError("editor.play", 0, "play failed - 'simctl install' "
+				"exited with " << exitCode << ": " << output);
 			endPlaySession(session, "simctl install failed");
 			return;
 		}
-		SDL_Log("orkige_editor: play - player installed on '%s'",
-			session.simulatorLabel.c_str());
+		oDebugMsg("editor.play", 0, "play - player installed on '" <<
+			session.simulatorLabel << "'");
 		launchPlayerOnSimulator(session);
 		return;
 	}
@@ -434,8 +435,8 @@ bool spawnDesktopPlayProcess(PlaySession& session,
 	SDL_DestroyEnvironment(playerEnvironment);
 	if (!session.process)
 	{
-		SDL_Log("orkige_editor: play failed - SDL_CreateProcess '%s': %s",
-			executablePath.c_str(), SDL_GetError());
+		oDebugError("editor.play", 0, "play failed - SDL_CreateProcess '" <<
+			executablePath << "': " << SDL_GetError());
 		endPlaySession(session, "spawn failed");
 		return false;
 	}
@@ -444,9 +445,9 @@ bool spawnDesktopPlayProcess(PlaySession& session,
 	session.launchStatus.clear();
 	session.launchStart = std::chrono::steady_clock::now();
 	session.lastConnectAttempt = std::chrono::steady_clock::time_point();
-	SDL_Log("orkige_editor: play - spawned '%s' (scene '%s', port %u)",
-		executablePath.c_str(), session.tempScenePath.c_str(),
-		static_cast<unsigned>(session.port));
+	oDebugMsg("editor.play", 0, "play - spawned '" << executablePath <<
+		"' (scene '" << session.tempScenePath << "', port " <<
+		static_cast<unsigned>(session.port) << ")");
 	return true;
 }
 
@@ -482,6 +483,10 @@ bool startNextBuildStep(PlaySession& session)
 	SDL_DestroyProperties(spawnProperties);
 	if (!session.buildProcess)
 	{
+		// these "[build]"-prefixed lines STAY on SDL_Log: they are Console
+		// command-echo, and the native-play selfcheck asserts the Console holds
+		// lines STARTING with "[build]" (main.cpp) - the oDebug* sink's [tag]
+		// prefix would break that bracket-prefix contract.
 		SDL_Log("[build] FAILED to run '%s': %s", commandLine.c_str(),
 			SDL_GetError());
 		endPlaySession(session, "native build spawn failed");
@@ -583,7 +588,7 @@ bool startPlay(PlaySession& session,
 	session.buildOutcome = PlaySession::BuildOutcome::None;
 	session.buildStatusTarget.clear();
 	session.buildErrorLog.clear();
-	const std::string projectRoot = project.getRootDirectory();
+	const std::string& projectRoot = project.getRootDirectory();
 	const Orkige::NativeModule::Config nativeConfig = project.isLoaded()
 		? Orkige::NativeModule::configFromProject(project)
 		: Orkige::NativeModule::Config();
@@ -593,10 +598,10 @@ bool startPlay(PlaySession& session,
 		// honest refusal instead of silently playing the wrong binary: the
 		// module was built for the desktop host - device builds of native
 		// modules are the export milestone's job
-		SDL_Log("orkige_editor: play refused - project '%s' has a native "
-			"module ('%s'), which can only play on the Desktop target for "
-			"now (device targets need the export pipeline)",
-			project.getName().c_str(), nativeConfig.target.c_str());
+		oDebugWarn("editor.play", 0, "play refused - project '" <<
+			project.getName() << "' has a native module ('" <<
+			nativeConfig.target << "'), which can only play on the Desktop "
+			"target for now (device targets need the export pipeline)");
 		return false;
 	}
 	if (nativeConfig.enabled && !session.desktopPlayerPath.empty())
@@ -604,10 +609,11 @@ bool startPlay(PlaySession& session,
 		// same honesty for the cross-flavor desktop target: the module
 		// compiles and links against THIS editor's build tree - it cannot
 		// play on the other render flavor's runtime
-		SDL_Log("orkige_editor: play refused - project '%s' has a native "
-			"module ('%s'), which plays its own executable built against "
-			"this editor's render flavor (pick the plain Desktop target)",
-			project.getName().c_str(), nativeConfig.target.c_str());
+		oDebugWarn("editor.play", 0, "play refused - project '" <<
+			project.getName() << "' has a native module ('" <<
+			nativeConfig.target << "'), which plays its own executable built "
+			"against this editor's render flavor (pick the plain Desktop "
+			"target)");
 		return false;
 	}
 	session.projectRoot = projectRoot;
@@ -621,8 +627,8 @@ bool startPlay(PlaySession& session,
 	if (!Orkige::SceneSerializer::saveScene(session.tempScenePath,
 		gameObjectManager))
 	{
-		SDL_Log("orkige_editor: play failed - could not save temp scene '%s'",
-			session.tempScenePath.c_str());
+		oDebugError("editor.play", 0, "play failed - could not save temp scene '"
+			<< session.tempScenePath << "'");
 		session.tempScenePath.clear();
 		return false;
 	}
@@ -633,7 +639,7 @@ bool startPlay(PlaySession& session,
 		Orkige::DebugServer portProbe;
 		if (!portProbe.start(0))
 		{
-			SDL_Log("orkige_editor: play failed - no free debug port");
+			oDebugError("editor.play", 0, "play failed - no free debug port");
 			endPlaySession(session, "port probe failed");
 			return false;
 		}
@@ -656,10 +662,10 @@ bool startPlay(PlaySession& session,
 		if (!std::filesystem::exists(
 			std::filesystem::path(moduleSourceDir) / "CMakeLists.txt", ignored))
 		{
-			SDL_Log("orkige_editor: play failed - project '%s' declares "
-				"native module '%s' but '%s' has no CMakeLists.txt",
-				project.getName().c_str(), nativeConfig.target.c_str(),
-				moduleSourceDir.c_str());
+			oDebugError("editor.play", 0, "play failed - project '" <<
+				project.getName() << "' declares native module '" <<
+				nativeConfig.target << "' but '" << moduleSourceDir <<
+				"' has no CMakeLists.txt");
 			endPlaySession(session, "native module misconfigured");
 			return false;
 		}
@@ -746,11 +752,10 @@ bool startPlay(PlaySession& session,
 			int exitCode = 0;
 			if (!runProcessCaptured(step, output, exitCode) || exitCode != 0)
 			{
-				SDL_Log("orkige_editor: play failed - adb step '%s' on '%s' "
-					"(exit %d): %s (is the player APK installed? see "
-					"tools/player/android/package_apk.sh)",
-					step[3].c_str(), session.androidLabel.c_str(), exitCode,
-					output.c_str());
+				oDebugError("editor.play", 0, "play failed - adb step '" <<
+					step[3] << "' on '" << session.androidLabel << "' (exit " <<
+					exitCode << "): " << output << " (is the player APK "
+					"installed? see tools/player/android/package_apk.sh)");
 				endPlaySession(session, "adb deploy failed");
 				return false;
 			}
@@ -764,9 +769,9 @@ bool startPlay(PlaySession& session,
 		session.mode = PlaySession::Mode::Launching;
 		session.launchStart = std::chrono::steady_clock::now();
 		session.lastConnectAttempt = std::chrono::steady_clock::time_point();
-		SDL_Log("orkige_editor: play - launched player on Android '%s' "
-			"(scene '%s', forwarded port %u)", session.androidLabel.c_str(),
-			session.tempScenePath.c_str(), static_cast<unsigned>(session.port));
+		oDebugMsg("editor.play", 0, "play - launched player on Android '" <<
+			session.androidLabel << "' (scene '" << session.tempScenePath <<
+			"', forwarded port " << static_cast<unsigned>(session.port) << ")");
 		return true;
 	}
 #ifdef __APPLE__
@@ -806,9 +811,9 @@ bool startPlay(PlaySession& session,
 			if (!runProcessCaptured(openArgs, openOutput, openExit) ||
 				openExit != 0)
 			{
-				SDL_Log("orkige_editor: play - 'open -a Simulator' failed "
-					"(exit %d): %s - continuing headless", openExit,
-					openOutput.c_str());
+				oDebugWarn("editor.play", 0, "play - 'open -a Simulator' failed "
+					"(exit " << openExit << "): " << openOutput <<
+					" - continuing headless");
 			}
 		}
 		if (!booted)
@@ -818,8 +823,8 @@ bool startPlay(PlaySession& session,
 			session.simPrepProcess = SDL_CreateProcess(bootArgs, true);
 			if (!session.simPrepProcess)
 			{
-				SDL_Log("orkige_editor: play failed - could not run 'simctl "
-					"boot' for '%s': %s", session.simulatorLabel.c_str(),
+				oDebugError("editor.play", 0, "play failed - could not run "
+					"'simctl boot' for '" << session.simulatorLabel << "': " <<
 					SDL_GetError());
 				endPlaySession(session, "simctl boot spawn failed");
 				return false;
@@ -828,9 +833,9 @@ bool startPlay(PlaySession& session,
 			session.simPrep = PlaySession::SimPrep::WaitBootProcess;
 			session.launchStatus = "booting simulator '" +
 				session.simulatorLabel + "'...";
-			SDL_Log("orkige_editor: play - booting shutdown simulator '%s' "
-				"(%s)", session.simulatorLabel.c_str(),
-				session.simulatorUdid.c_str());
+			oDebugMsg("editor.play", 0, "play - booting shutdown simulator '" <<
+				session.simulatorLabel << "' (" << session.simulatorUdid <<
+				")");
 		}
 		else
 		{
@@ -872,7 +877,7 @@ void requestStopPlay(PlaySession& session)
 	}
 	session.mode = PlaySession::Mode::Stopping;
 	session.stopRequestTime = std::chrono::steady_clock::now();
-	SDL_Log("orkige_editor: play - stop requested");
+	oDebugMsg("editor.play", 0, "play - stop requested");
 }
 
 //! remote selection: remember it and tell the player what to stream
@@ -979,7 +984,8 @@ void reloadRemoteScripts(PlaySession& session, EditorConsole& console)
 	}
 	// reload-ALL (v1): no FIELD_ID means every ScriptComponent on the player
 	session.client.send(Orkige::DebugMessage(Protocol::MSG_RELOAD_SCRIPT));
-	SDL_Log("orkige_editor: script change detected - reload sent to the player");
+	oDebugMsg("editor.play", 0,
+		"script change detected - reload sent to the player");
 	console.addLine(ConsoleLevel::Info,
 		"[reload] scripts changed - hot-reloading the running player");
 	// optimistic: assume the reload heals whatever was broken. The player
@@ -999,8 +1005,8 @@ void reloadRemoteUi(PlaySession& session, EditorConsole& console,
 	Orkige::DebugMessage reload(Protocol::MSG_RELOAD_UI);
 	reload.set(Protocol::FIELD_PATH, ouiName);
 	session.client.send(reload);
-	SDL_Log("orkige_editor: .oui change detected (%s) - reload sent to the "
-		"player", ouiName.c_str());
+	oDebugMsg("editor.play", 0, ".oui change detected (" << ouiName <<
+		") - reload sent to the player");
 	console.addLine(ConsoleLevel::Info,
 		"[reload] ui '" + ouiName + "' changed - hot-reloading the running "
 		"player");
@@ -1157,9 +1163,9 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			session.remoteScenePath = message.get(Protocol::FIELD_SCENE);
 			if (message.version != Protocol::VERSION)
 			{
-				SDL_Log("orkige_editor: play - protocol version mismatch "
-					"(player %d, editor %d)", message.version,
-					Protocol::VERSION);
+				oDebugWarn("editor.play", 0, "play - protocol version mismatch "
+					"(player " << message.version << ", editor " <<
+					Protocol::VERSION << ")");
 			}
 		}
 		else if (message.type == Protocol::MSG_HIERARCHY)
@@ -1226,7 +1232,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		{
 			// player log lines go into the Console tagged [remote]; severity
 			// travels in the "level" field (errors always colour as errors)
-			const std::string levelText = message.get(Protocol::FIELD_LEVEL);
+			const std::string& levelText = message.get(Protocol::FIELD_LEVEL);
 			ConsoleLevel level = ConsoleLevel::Info;
 			if (message.type == Protocol::MSG_ERROR || levelText == "error")
 			{
@@ -1246,7 +1252,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			// Console line per object per session (the player already dedupes
 			// per connection; the set guards against reconnect repeats), plus
 			// the toolbar marker and the hierarchy tint fed by scriptErrorIds
-			const std::string id = message.get(Protocol::FIELD_ID);
+			const std::string& id = message.get(Protocol::FIELD_ID);
 			if (session.scriptErrorIds.insert(id).second)
 			{
 				console.addLine(ConsoleLevel::Error,
@@ -1455,7 +1461,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		}
 		else if (message.type == Protocol::MSG_BYE)
 		{
-			SDL_Log("orkige_editor: play - player said bye");
+			oDebugMsg("editor.play", 0, "play - player said bye");
 		}
 		// unknown message types fall through silently on purpose: newer
 		// players may add message types (the protocol grows additively)
@@ -1532,7 +1538,7 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			(!session.onAndroid || session.helloReceived))
 		{
 			session.mode = PlaySession::Mode::Playing;
-			SDL_Log("orkige_editor: play - connected to the player");
+			oDebugMsg("editor.play", 0, "play - connected to the player");
 			return;
 		}
 		// the player needs a few seconds to boot before it listens: keep
@@ -1596,7 +1602,8 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		if (now - session.stopRequestTime >
 			std::chrono::milliseconds(PLAY_STOP_GRACE_MS))
 		{
-			SDL_Log("orkige_editor: play - player ignored quit, killing it");
+			oDebugWarn("editor.play", 0, "play - player ignored quit, killing "
+				"it");
 			endPlaySession(session, "stopped (killed after grace timeout)");
 		}
 		return;

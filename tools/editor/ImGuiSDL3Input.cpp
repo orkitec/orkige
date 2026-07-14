@@ -4,6 +4,7 @@
 #include "ImGuiSDL3Input.h"
 
 #include <SDL3/SDL.h>
+#include <core_debug/DebugMacros.h>
 
 #include <cfloat>
 
@@ -254,9 +255,9 @@ namespace Orkige
 				// degraded but usable: motion events still carry xrel/yrel
 				// (window points), only the cursor stays visible and can
 				// hit the screen edge
-				SDL_Log("ImGuiSDL3Input: relative mouse mode unavailable "
-					"(%s) - fly look falls back to unconstrained deltas",
-					SDL_GetError());
+				oDebugWarn("editor.input", 0, "ImGuiSDL3Input: relative mouse "
+					"mode unavailable (" << SDL_GetError() <<
+					") - fly look falls back to unconstrained deltas");
 			}
 		}
 		else

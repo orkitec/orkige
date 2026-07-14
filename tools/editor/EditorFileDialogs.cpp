@@ -189,9 +189,9 @@ void dispatchFileDialogResults(EditorState& state, Orkige::EditorCore& core)
 	{
 		if (result.failed)
 		{
-			SDL_Log("orkige_editor: native file dialog failed (%s) - "
-				"falling back to the path-input modal",
-				result.errorMessage.c_str());
+			oDebugWarn("editor.dialog", 0, "native file dialog failed (" <<
+				result.errorMessage << ") - falling back to the path-input "
+				"modal");
 			requestScenePathPopup(state, result.action);
 			continue;
 		}

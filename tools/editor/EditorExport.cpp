@@ -86,7 +86,10 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 	job.platform = platform;
 	job.outputBuffer.clear();
 	job.artifactPath.clear();
-	// the SDL log hook mirrors this into the Console as an "[export]" line
+	// stays on SDL_Log: a Console command-echo streamed under the "[export]"
+	// prefix (the "[build]" precedent in EditorPlaySession), not an operational
+	// diagnostic - the sink's [tag] prefix would break the bracket-prefix
+	// contract Console readers key on
 	SDL_Log("[export] $ %s", commandLine.c_str());
 	return true;
 }

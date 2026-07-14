@@ -3,6 +3,7 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "ImGuiFacadeRenderer.h"
 
+#include <core_debug/DebugMacros.h>
 #include <engine_render/RenderSystem.h>
 #include <engine_render/RenderTexture.h>
 
@@ -30,8 +31,8 @@ namespace Orkige
 		RenderSystem* render = RenderSystem::get();
 		if(!render)
 		{
-			SDL_Log("ImGuiFacadeRenderer: no render system - initialise "
-				"after Engine::setup");
+			oDebugError("editor.imgui", 0, "ImGuiFacadeRenderer: no render "
+				"system - initialise after Engine::setup");
 			return false;
 		}
 		// the legacy imgui texture protocol (no RendererHasTextures):
@@ -45,14 +46,16 @@ namespace Orkige
 		io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 		if(!pixels || width <= 0 || height <= 0)
 		{
-			SDL_Log("ImGuiFacadeRenderer: font atlas build failed");
+			oDebugError("editor.imgui", 0,
+				"ImGuiFacadeRenderer: font atlas build failed");
 			return false;
 		}
 		if(!render->createTexture2D(FONT_ATLAS_NAME, pixels,
 			static_cast<unsigned int>(width),
 			static_cast<unsigned int>(height)))
 		{
-			SDL_Log("ImGuiFacadeRenderer: font atlas upload failed");
+			oDebugError("editor.imgui", 0,
+				"ImGuiFacadeRenderer: font atlas upload failed");
 			return false;
 		}
 		this->mEntries.push_back(Entry{ FONT_ATLAS_NAME, {} });

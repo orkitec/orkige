@@ -134,8 +134,8 @@ void openInExternalEditor(std::string const& absolutePath, int line,
 			macOS);
 	if (resolution.argv.empty())
 	{
-		SDL_Log("orkige_editor: no way to open '%s' in an external editor",
-			absolutePath.c_str());
+		oDebugWarn("editor.extern", 0, "no way to open '" << absolutePath <<
+			"' in an external editor");
 		return;
 	}
 	// build the null-terminated argv SDL_CreateProcess wants
@@ -154,15 +154,15 @@ void openInExternalEditor(std::string const& absolutePath, int line,
 		SDL_DestroyProcess(process);
 		if (line > 0 && !resolution.opensAtLine)
 		{
-			SDL_Log("orkige_editor: opened '%s' (this opener cannot jump to "
-				"line %d - set an External Editor command to enable it)",
-				absolutePath.c_str(), line);
+			oDebugMsg("editor.extern", 0, "opened '" << absolutePath <<
+				"' (this opener cannot jump to line " << line <<
+				" - set an External Editor command to enable it)");
 		}
 	}
 	else
 	{
-		SDL_Log("orkige_editor: could not launch external editor for '%s' - %s",
-			absolutePath.c_str(), SDL_GetError());
+		oDebugError("editor.extern", 0, "could not launch external editor for '"
+			<< absolutePath << "' - " << SDL_GetError());
 	}
 }
 

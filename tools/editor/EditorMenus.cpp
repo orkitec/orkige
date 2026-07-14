@@ -8,8 +8,6 @@
 
 #include <imgui_internal.h> // DockBuilder API (programmatic first-run layout)
 
-#include <filesystem>
-
 using Orkige::optr;
 using Orkige::woptr;
 

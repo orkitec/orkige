@@ -132,15 +132,16 @@ bool runProcessCapturedTimeout(std::vector<std::string> const& args,
 		// TimedOut: retry once with a longer budget before giving up
 		if (attempt < 2)
 		{
-			SDL_Log("orkige_editor: device probe '%s' exceeded %ums - "
-				"retrying once with a longer budget (slow probe, not "
-				"necessarily absent)", probeName, budget);
+			oDebugWarn("editor.device", 0, "device probe '" << probeName <<
+				"' exceeded " << budget << "ms - retrying once with a longer "
+				"budget (slow probe, not necessarily absent)");
 			budget *= 3u;
 			continue;
 		}
-		SDL_Log("orkige_editor: device probe '%s' still exceeded %ums after "
-			"%d attempts - treated as no devices (slow probe; a device may "
-			"still be present)", probeName, budget, attempt);
+		oDebugWarn("editor.device", 0, "device probe '" << probeName <<
+			"' still exceeded " << budget << "ms after " << attempt <<
+			" attempts - treated as no devices (slow probe; a device may still "
+			"be present)");
 		return false;
 	}
 }

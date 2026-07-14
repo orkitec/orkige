@@ -56,16 +56,16 @@ bool saveSceneToPath(EditorState& state, Orkige::EditorCore& core,
 	// Save As to a new path)
 	if (!Orkige::EditorAutosave::writeBackup(path))
 	{
-		SDL_Log("orkige_editor: could not back up scene '%s' before saving",
-			path.c_str());
+		oDebugWarn("editor.scene", 0, "could not back up scene '" << path <<
+			"' before saving");
 	}
 	if (!Orkige::SceneSerializer::saveScene(path, gameObjectManager))
 	{
-		SDL_Log("orkige_editor: saving scene '%s' failed", path.c_str());
+		oDebugError("editor.scene", 0, "saving scene '" << path << "' failed");
 		return false;
 	}
-	SDL_Log("orkige_editor: scene saved to '%s' (%zu GameObjects)",
-		path.c_str(), gameObjectManager.getGameObjects().size());
+	oDebugMsg("editor.scene", 0, "scene saved to '" << path << "' (" <<
+		gameObjectManager.getGameObjects().size() << " GameObjects)");
 	state.currentScenePath = path;
 	core.clearSceneDirty();
 	// the scene is clean on disk now - drop any stale autosave sibling
@@ -85,7 +85,7 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	// path must fail honestly here - downstream loadScene asserts on it
 	if (path.empty())
 	{
-		SDL_Log("orkige_editor: open scene refused - empty scene path");
+		oDebugWarn("editor.scene", 0, "open scene refused - empty scene path");
 		return false;
 	}
 	Orkige::GameObjectManager& gameObjectManager = core.getGameObjectManager();
@@ -94,12 +94,12 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 	core.resetForScene();
 	if (!Orkige::SceneSerializer::loadScene(path, gameObjectManager))
 	{
-		SDL_Log("orkige_editor: opening scene '%s' failed", path.c_str());
+		oDebugError("editor.scene", 0, "opening scene '" << path << "' failed");
 		return false;
 	}
 	applyUnlitFixToLoadedModels(core);
-	SDL_Log("orkige_editor: scene opened from '%s' (%zu GameObjects)",
-		path.c_str(), gameObjectManager.getGameObjects().size());
+	oDebugMsg("editor.scene", 0, "scene opened from '" << path << "' (" <<
+		gameObjectManager.getGameObjects().size() << " GameObjects)");
 	state.currentScenePath = path;
 	recordRecentScene(path);
 	// crash recovery: a ".autosave" sibling NEWER than the scene file means a
@@ -111,8 +111,8 @@ bool openSceneFromPath(EditorState& state, Orkige::EditorCore& core,
 		if (gAutomatedRun)
 		{
 			Orkige::EditorAutosave::removeAutosave(path);
-			SDL_Log("orkige_editor: discarded a stale autosave for '%s' "
-				"(automated run)", path.c_str());
+			oDebugMsg("editor.scene", 0, "discarded a stale autosave for '" <<
+				path << "' (automated run)");
 		}
 		else
 		{
@@ -136,7 +136,8 @@ bool writeSceneAutosave(EditorState& state, Orkige::EditorCore& core)
 	if (!Orkige::SceneSerializer::saveScene(autosavePath,
 		core.getGameObjectManager()))
 	{
-		SDL_Log("orkige_editor: autosave to '%s' failed", autosavePath.c_str());
+		oDebugWarn("editor.scene", 0, "autosave to '" << autosavePath <<
+			"' failed");
 		return false;
 	}
 	return true;
@@ -151,8 +152,8 @@ bool restoreSceneAutosave(EditorState& state, Orkige::EditorCore& core,
 	core.resetForScene();
 	if (!Orkige::SceneSerializer::loadScene(autosavePath, gameObjectManager))
 	{
-		SDL_Log("orkige_editor: restoring autosave '%s' failed",
-			autosavePath.c_str());
+		oDebugError("editor.scene", 0, "restoring autosave '" << autosavePath <<
+			"' failed");
 		return false;
 	}
 	applyUnlitFixToLoadedModels(core);
@@ -161,7 +162,7 @@ bool restoreSceneAutosave(EditorState& state, Orkige::EditorCore& core,
 	// user saves it, and clear the autosave now that it lives in the world
 	core.markSceneDirty();
 	Orkige::EditorAutosave::removeAutosave(scenePath);
-	SDL_Log("orkige_editor: restored autosave for '%s'", scenePath.c_str());
+	oDebugMsg("editor.scene", 0, "restored autosave for '" << scenePath << "'");
 	return true;
 }
 
@@ -202,8 +203,8 @@ void registerProjectResources(Orkige::Project const& project)
 	}
 	else
 	{
-		SDL_Log("orkige_editor: project directory '%s' does not exist - "
-			"not registered", scenesDir.c_str());
+		oDebugWarn("editor.project", 0, "project directory '" << scenesDir <<
+			"' does not exist - not registered");
 	}
 }
 
@@ -256,7 +257,7 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	std::string error;
 	if (!project.load(path, &error))
 	{
-		SDL_Log("orkige_editor: opening project failed - %s", error.c_str());
+		oDebugError("editor.project", 0, "opening project failed - " << error);
 		return false;
 	}
 	newScene(state, core);
@@ -291,10 +292,9 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	// the collision-layer config feeds the RigidBody Inspector's layer dropdown
 	// (the editor never simulates; this is purely for authoring)
 	core.loadPhysicsLayers(state.project);
-	SDL_Log("orkige_editor: project '%s' opened (root '%s', %zu scenes)",
-		state.project.getName().c_str(),
-		state.project.getRootDirectory().c_str(),
-		state.project.listScenes().size());
+	oDebugMsg("editor.project", 0, "project '" << state.project.getName() <<
+		"' opened (root '" << state.project.getRootDirectory() << "', " <<
+		state.project.listScenes().size() << " scenes)");
 	const std::string mainScenePath = state.project.getMainScenePath();
 	std::error_code ignored;
 	if (!mainScenePath.empty() &&
@@ -304,9 +304,8 @@ bool openProjectFromPath(EditorState& state, Orkige::EditorCore& core,
 	}
 	else
 	{
-		SDL_Log("orkige_editor: project '%s' has no main scene yet - "
-			"starting on an empty scene",
-			state.project.getName().c_str());
+		oDebugMsg("editor.project", 0, "project '" << state.project.getName() <<
+			"' has no main scene yet - starting on an empty scene");
 	}
 	return true;
 }
@@ -323,8 +322,8 @@ void closeProject(EditorState& state, Orkige::EditorCore& core)
 	{
 		return;
 	}
-	SDL_Log("orkige_editor: project '%s' closed",
-		state.project.getName().c_str());
+	oDebugMsg("editor.project", 0, "project '" << state.project.getName() <<
+		"' closed");
 	newScene(state, core);
 	unregisterProjectResources();
 	// the armed tile prefab lives in the project being closed
@@ -357,7 +356,7 @@ bool newProjectAtPath(EditorState& state, Orkige::EditorCore& core,
 	std::string error;
 	if (!Orkige::Project::create(folder, "", created, &error))
 	{
-		SDL_Log("orkige_editor: creating project failed - %s", error.c_str());
+		oDebugError("editor.project", 0, "creating project failed - " << error);
 		return false;
 	}
 	if (!openProjectFromPath(state, core, created.getRootDirectory()))
@@ -416,7 +415,7 @@ std::string cookSvgFileToDir(std::string const& sourcePath,
 {
 	auto fail = [error](std::string const& message) -> std::string
 	{
-		SDL_Log("orkige_editor: SVG cook failed - %s", message.c_str());
+		oDebugError("editor.assets", 0, "SVG cook failed - " << message);
 		if (error)
 		{
 			*error = message;
@@ -474,7 +473,7 @@ std::string cookLottieFileToDir(std::string const& sourcePath,
 {
 	auto fail = [error](std::string const& message) -> std::string
 	{
-		SDL_Log("orkige_editor: Lottie cook failed - %s", message.c_str());
+		oDebugError("editor.assets", 0, "Lottie cook failed - " << message);
 		if (error)
 		{
 			*error = message;
@@ -566,8 +565,8 @@ std::string importAssetFile(EditorState& state, std::string const& sourcePath,
 			: Orkige::importMeshFileToDir(sourcePath, destDir, &localError);
 	if (destPath.empty())
 	{
-		SDL_Log("orkige_editor: import of '%s' failed - %s",
-			sourcePath.c_str(), localError.c_str());
+		oDebugError("editor.assets", 0, "import of '" << sourcePath <<
+			"' failed - " << localError);
 		if (error)
 		{
 			*error = localError;
@@ -608,9 +607,9 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 {
 	if (!Orkige::isSupportedMeshFile(sourcePath))
 	{
-		SDL_Log("orkige_editor: import refused - '%s' is not a supported mesh "
-			"file (.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh)",
-			sourcePath.c_str());
+		oDebugWarn("editor.assets", 0, "import refused - '" << sourcePath <<
+			"' is not a supported mesh file "
+			"(.glb/.gltf/.obj/.fbx/.dae/.stl/.ply/.3ds/.mesh)");
 		return false;
 	}
 	// copy into the project (+ sidecar mint + resource-location refresh)
@@ -641,12 +640,13 @@ bool importMeshFromPath(EditorState& state, Orkige::EditorCore& core,
 	if (!core.executeCommand(Orkige::onew(new Orkige::CreateObjectCommand(
 		objectId, meshName, Orkige::Vec3::ZERO))))
 	{
-		SDL_Log("orkige_editor: import of '%s' failed - mesh '%s' did not "
-			"load (see the log above)", sourcePath.c_str(), meshName.c_str());
+		oDebugError("editor.assets", 0, "import of '" << sourcePath <<
+			"' failed - mesh '" << meshName << "' did not load (see the log "
+			"above)");
 		return false;
 	}
-	SDL_Log("orkige_editor: imported '%s' -> '%s' as GameObject '%s'",
-		sourcePath.c_str(), destPath.c_str(), objectId.c_str());
+	oDebugMsg("editor.assets", 0, "imported '" << sourcePath << "' -> '" <<
+		destPath << "' as GameObject '" << objectId << "'");
 	return true;
 }
 
@@ -672,12 +672,12 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!core.hasSelection())
 	{
-		SDL_Log("orkige_editor: Create Prefab needs a selected object");
+		oDebugWarn("editor.prefab", 0, "Create Prefab needs a selected object");
 		return false;
 	}
 	if (!state.project.isLoaded())
 	{
-		SDL_Log("orkige_editor: Create Prefab needs an open project - "
+		oDebugWarn("editor.prefab", 0, "Create Prefab needs an open project - "
 			"prefabs live in the project's assets/");
 		return false;
 	}
@@ -685,8 +685,8 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 	Orkige::String reason;
 	if (!core.canMakePrefab(rootId, &reason))
 	{
-		SDL_Log("orkige_editor: Create Prefab refused for '%s' - %s",
-			rootId.c_str(), reason.c_str());
+		oDebugWarn("editor.prefab", 0, "Create Prefab refused for '" << rootId <<
+			"' - " << reason);
 		return false;
 	}
 	Orkige::GameObjectManager& manager = core.getGameObjectManager();
@@ -718,9 +718,9 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 		std::error_code ignored;
 		if (std::filesystem::exists(prefabPath, ignored))
 		{
-			SDL_Log("orkige_editor: Create Prefab refused - '%s' already "
-				"exists (rename the object or remove the file first)",
-				prefabPath.c_str());
+			oDebugWarn("editor.prefab", 0, "Create Prefab refused - '" <<
+				prefabPath << "' already exists (rename the object or remove "
+				"the file first)");
 			return false;
 		}
 	}
@@ -731,8 +731,8 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!Orkige::PrefabSerializer::savePrefab(prefabPath, manager, rootId))
 	{
-		SDL_Log("orkige_editor: Create Prefab failed - could not write '%s' "
-			"(see the log above)", prefabPath.c_str());
+		oDebugError("editor.prefab", 0, "Create Prefab failed - could not write '"
+			<< prefabPath << "' (see the log above)");
 		return false;
 	}
 	// editor-side asset creation mints the stable id right away (an existing
@@ -751,19 +751,19 @@ bool createPrefabFromSelection(EditorState& state, Orkige::EditorCore& core)
 			assetId.empty() ? root->getPrefabAssetId() : assetId);
 		root->setSuppressedPrefabChildren(Orkige::StringVector());
 		core.markSceneDirty();
-		SDL_Log("orkige_editor: prefab '%s' re-made from instance '%s'",
-			prefabRef.c_str(), rootId.c_str());
+		oDebugMsg("editor.prefab", 0, "prefab '" << prefabRef <<
+			"' re-made from instance '" << rootId << "'");
 		return true;
 	}
 	if (!core.makePrefabInstance(rootId, prefabPath, prefabRef, assetId))
 	{
-		SDL_Log("orkige_editor: Create Prefab failed - could not convert "
-			"'%s' into an instance (see the log above)", rootId.c_str());
+		oDebugError("editor.prefab", 0, "Create Prefab failed - could not "
+			"convert '" << rootId << "' into an instance (see the log above)");
 		return false;
 	}
-	SDL_Log("orkige_editor: prefab '%s' created from '%s' (asset id %s)",
-		prefabRef.c_str(), rootId.c_str(),
-		assetId.empty() ? "<none>" : assetId.c_str());
+	oDebugMsg("editor.prefab", 0, "prefab '" << prefabRef << "' created from '" <<
+		rootId << "' (asset id " << (assetId.empty() ? "<none>" : assetId) <<
+		")");
 	return true;
 }
 
@@ -777,15 +777,15 @@ namespace
 	{
 		if (!core.hasSelection())
 		{
-			SDL_Log("orkige_editor: %s needs a selected prefab instance",
-				action.c_str());
+			oDebugWarn("editor.prefab", 0, action <<
+				" needs a selected prefab instance");
 			return "";
 		}
 		outRootId = core.getSelectedObjectId();
 		if (!core.canApplyOrRevertPrefab(outRootId))
 		{
-			SDL_Log("orkige_editor: %s refused - '%s' is not a prefab instance "
-				"root", action.c_str(), outRootId.c_str());
+			oDebugWarn("editor.prefab", 0, action << " refused - '" << outRootId <<
+				"' is not a prefab instance root");
 			return "";
 		}
 		optr<Orkige::GameObject> root =
@@ -800,8 +800,8 @@ namespace
 		std::error_code ignored;
 		if (!std::filesystem::exists(prefabPath, ignored))
 		{
-			SDL_Log("orkige_editor: %s refused - prefab '%s' not found (%s)",
-				action.c_str(), prefabRef.c_str(), prefabPath.c_str());
+			oDebugWarn("editor.prefab", 0, action << " refused - prefab '" <<
+				prefabRef << "' not found (" << prefabPath << ")");
 			return "";
 		}
 		return prefabPath;
@@ -823,8 +823,8 @@ bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!core.applyPrefabToSource(rootId, prefabPath))
 	{
-		SDL_Log("orkige_editor: Apply Prefab failed - could not write '%s' "
-			"(see the log above)", prefabPath.c_str());
+		oDebugError("editor.prefab", 0, "Apply Prefab failed - could not write '"
+			<< prefabPath << "' (see the log above)");
 		return false;
 	}
 	// re-import so the asset database picks up the rewritten file
@@ -833,8 +833,8 @@ bool applyPrefabOverrides(EditorState& state, Orkige::EditorCore& core)
 	{
 		assetDatabase->importAsset(prefabPath);
 	}
-	SDL_Log("orkige_editor: applied instance '%s' back to its prefab",
-		rootId.c_str());
+	oDebugMsg("editor.prefab", 0, "applied instance '" << rootId <<
+		"' back to its prefab");
 	return true;
 }
 
@@ -853,12 +853,12 @@ bool revertPrefabInstance(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!core.revertPrefabInstance(rootId, prefabPath))
 	{
-		SDL_Log("orkige_editor: Revert Prefab failed for '%s' (see the log "
-			"above)", rootId.c_str());
+		oDebugError("editor.prefab", 0, "Revert Prefab failed for '" << rootId <<
+			"' (see the log above)");
 		return false;
 	}
-	SDL_Log("orkige_editor: reverted instance '%s' to its pristine prefab",
-		rootId.c_str());
+	oDebugMsg("editor.prefab", 0, "reverted instance '" << rootId <<
+		"' to its pristine prefab");
 	return true;
 }
 
@@ -895,9 +895,9 @@ bool prefabEditBlocks(EditorState const& state, char const* action)
 	{
 		return false;
 	}
-	SDL_Log("orkige_editor: %s is unavailable while editing prefab '%s' - "
-		"close the prefab first", action,
-		state.prefabEditStack.back().prefabPath.c_str());
+	oDebugWarn("editor.prefab", 0, action << " is unavailable while editing "
+		"prefab '" << state.prefabEditStack.back().prefabPath <<
+		"' - close the prefab first");
 	return true;
 }
 
@@ -906,16 +906,16 @@ bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
 {
 	if (isPrefabEditActive(state))
 	{
-		SDL_Log("orkige_editor: Open Prefab refused - already editing '%s' "
-			"(close the current prefab first)",
-			state.prefabEditStack.back().prefabPath.c_str());
+		oDebugWarn("editor.prefab", 0, "Open Prefab refused - already editing '"
+			<< state.prefabEditStack.back().prefabPath <<
+			"' (close the current prefab first)");
 		return false;
 	}
 	std::error_code ignored;
 	if (!std::filesystem::is_regular_file(prefabPath, ignored))
 	{
-		SDL_Log("orkige_editor: Open Prefab refused - '%s' not found",
-			prefabPath.c_str());
+		oDebugWarn("editor.prefab", 0, "Open Prefab refused - '" << prefabPath <<
+			"' not found");
 		return false;
 	}
 
@@ -929,8 +929,8 @@ bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
 					.time_since_epoch().count()) + ".oscene")).string();
 	if (!Orkige::SceneSerializer::saveScene(snapshotPath, manager))
 	{
-		SDL_Log("orkige_editor: Open Prefab refused - could not snapshot the "
-			"scene to '%s'", snapshotPath.c_str());
+		oDebugError("editor.prefab", 0, "Open Prefab refused - could not "
+			"snapshot the scene to '" << snapshotPath << "'");
 		return false;
 	}
 
@@ -963,9 +963,9 @@ bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
 	{
 		// corrupt file (or a nested prefab - the format hard-errors): put the
 		// scene back and report; the editor never strands on an empty world
-		SDL_Log("orkige_editor: Open Prefab failed - could not instantiate "
-			"'%s' (see the log above); restoring the scene",
-			prefabPath.c_str());
+		oDebugError("editor.prefab", 0, "Open Prefab failed - could not "
+			"instantiate '" << prefabPath <<
+			"' (see the log above); restoring the scene");
 		core.resetForScene();
 		Orkige::SceneSerializer::loadScene(snapshotPath, manager);
 		applyUnlitFixToLoadedModels(core);
@@ -991,9 +991,9 @@ bool openPrefabForEdit(EditorState& state, Orkige::EditorCore& core,
 	state.currentScenePath.clear();
 	core.selectObject(context.rootId);
 	state.frameSelectedRequested = true;
-	SDL_Log("orkige_editor: editing prefab '%s' (root '%s', %zu objects)",
-		prefabPath.c_str(), context.rootId.c_str(),
-		manager.getGameObjects().size());
+	oDebugMsg("editor.prefab", 0, "editing prefab '" << prefabPath <<
+		"' (root '" << context.rootId << "', " <<
+		manager.getGameObjects().size() << " objects)");
 	return true;
 }
 
@@ -1001,9 +1001,9 @@ bool openSelectedInstancePrefab(EditorState& state, Orkige::EditorCore& core)
 {
 	if (isPrefabEditActive(state))
 	{
-		SDL_Log("orkige_editor: Open Prefab refused - already editing '%s' "
-			"(close the current prefab first)",
-			state.prefabEditStack.back().prefabPath.c_str());
+		oDebugWarn("editor.prefab", 0, "Open Prefab refused - already editing '"
+			<< state.prefabEditStack.back().prefabPath <<
+			"' (close the current prefab first)");
 		return false;
 	}
 	std::string rootId;
@@ -1020,15 +1020,15 @@ bool savePrefabEdit(EditorState& state, Orkige::EditorCore& core)
 {
 	if (!isPrefabEditActive(state))
 	{
-		SDL_Log("orkige_editor: Save Prefab refused - no prefab is open");
+		oDebugWarn("editor.prefab", 0, "Save Prefab refused - no prefab is open");
 		return false;
 	}
 	PrefabEditContext const& context = state.prefabEditStack.back();
 	Orkige::GameObjectManager& manager = core.getGameObjectManager();
 	if (!manager.objectExists(context.rootId))
 	{
-		SDL_Log("orkige_editor: Save Prefab refused - the prefab root '%s' "
-			"was deleted (undo to restore it)", context.rootId.c_str());
+		oDebugWarn("editor.prefab", 0, "Save Prefab refused - the prefab root '"
+			<< context.rootId << "' was deleted (undo to restore it)");
 		return false;
 	}
 	// savePrefab writes ONE subtree: stray root-level objects would silently
@@ -1043,16 +1043,16 @@ bool savePrefabEdit(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!strays.empty())
 	{
-		SDL_Log("orkige_editor: Save Prefab refused - objects outside the "
-			"prefab root '%s': %s (parent them under the root or delete "
-			"them)", context.rootId.c_str(), strays.c_str());
+		oDebugWarn("editor.prefab", 0, "Save Prefab refused - objects outside "
+			"the prefab root '" << context.rootId << "': " << strays <<
+			" (parent them under the root or delete them)");
 		return false;
 	}
 	if (!Orkige::PrefabSerializer::savePrefab(context.prefabPath, manager,
 		context.rootId))
 	{
-		SDL_Log("orkige_editor: Save Prefab failed - could not write '%s' "
-			"(see the log above)", context.prefabPath.c_str());
+		oDebugError("editor.prefab", 0, "Save Prefab failed - could not write '"
+			<< context.prefabPath << "' (see the log above)");
 		return false;
 	}
 	// re-import so the asset database keeps the rewritten file's stable id
@@ -1066,8 +1066,8 @@ bool savePrefabEdit(EditorState& state, Orkige::EditorCore& core)
 		}
 	}
 	core.clearSceneDirty();	// per-context: "prefab dirty" while staged
-	SDL_Log("orkige_editor: prefab saved to '%s'",
-		context.prefabPath.c_str());
+	oDebugMsg("editor.prefab", 0, "prefab saved to '" << context.prefabPath <<
+		"'");
 	return true;
 }
 
@@ -1076,7 +1076,8 @@ bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
 {
 	if (!isPrefabEditActive(state))
 	{
-		SDL_Log("orkige_editor: Close Prefab refused - no prefab is open");
+		oDebugWarn("editor.prefab", 0, "Close Prefab refused - no prefab is "
+			"open");
 		return false;
 	}
 	if (policy == PrefabClosePolicy::Save && core.isSceneDirty() &&
@@ -1084,8 +1085,8 @@ bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
 	{
 		// never silently discard on a refused save - the stage stays open
 		// with its edits (fix the refusal or close with Discard)
-		SDL_Log("orkige_editor: Close Prefab cancelled - saving the prefab "
-			"failed (see above)");
+		oDebugWarn("editor.prefab", 0, "Close Prefab cancelled - saving the "
+			"prefab failed (see above)");
 		return false;
 	}
 	const PrefabEditContext context = state.prefabEditStack.back();
@@ -1101,9 +1102,8 @@ bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
 	{
 		// the snapshot was written by openPrefabForEdit - failing to read it
 		// back is exceptional; report loudly and leave the file for rescue
-		SDL_Log("orkige_editor: Close Prefab - restoring the scene from '%s' "
-			"FAILED; the snapshot file is kept",
-			context.snapshotPath.c_str());
+		oDebugError("editor.prefab", 0, "Close Prefab - restoring the scene from '"
+			<< context.snapshotPath << "' FAILED; the snapshot file is kept");
 		state.currentScenePath = context.stashedScenePath;
 		return false;
 	}
@@ -1130,9 +1130,9 @@ bool closePrefabEdit(EditorState& state, Orkige::EditorCore& core,
 	}
 	std::error_code ignored;
 	std::filesystem::remove(context.snapshotPath, ignored);
-	SDL_Log("orkige_editor: closed prefab '%s' - scene restored (%zu "
-		"GameObjects)", context.prefabPath.c_str(),
-		manager.getGameObjects().size());
+	oDebugMsg("editor.prefab", 0, "closed prefab '" << context.prefabPath <<
+		"' - scene restored (" << manager.getGameObjects().size() <<
+		" GameObjects)");
 	return true;
 }
 
@@ -1185,22 +1185,22 @@ bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
 	}
 	if (!state.project.isLoaded())
 	{
-		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - no open "
-			"project");
+		oDebugWarn("editor.level", 0, "Add Scene to Level Sequence refused - no "
+			"open project");
 		return false;
 	}
 	if (state.currentScenePath.empty())
 	{
-		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - save the "
-			"scene first");
+		oDebugWarn("editor.level", 0, "Add Scene to Level Sequence refused - "
+			"save the scene first");
 		return false;
 	}
 	const Orkige::String rel =
 		state.project.makeProjectRelative(state.currentScenePath);
 	if (rel.empty())
 	{
-		SDL_Log("orkige_editor: Add Scene to Level Sequence refused - the scene "
-			"lies outside the project root");
+		oDebugWarn("editor.level", 0, "Add Scene to Level Sequence refused - the "
+			"scene lies outside the project root");
 		return false;
 	}
 
@@ -1215,8 +1215,8 @@ bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
 	{
 		if (entry.scenePath == rel)
 		{
-			SDL_Log("orkige_editor: Add Scene to Level Sequence refused - '%s' "
-				"is already level %d", rel.c_str(), levelIndex);
+			oDebugWarn("editor.level", 0, "Add Scene to Level Sequence refused - '"
+				<< rel << "' is already level " << levelIndex);
 			return false;
 		}
 		++levelIndex;
@@ -1239,8 +1239,8 @@ bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
 	sequence.addEntry(Orkige::LevelSequence::Entry(rel, name, par));
 	if (!sequence.save(levelsAbs))
 	{
-		SDL_Log("orkige_editor: Add Scene to Level Sequence failed - could not "
-			"write '%s'", levelsAbs.c_str());
+		oDebugError("editor.level", 0, "Add Scene to Level Sequence failed - "
+			"could not write '" << levelsAbs << "'");
 		return false;
 	}
 	// mint the manifest setting the first time so the game (and export) find
@@ -1251,7 +1251,7 @@ bool addCurrentSceneToLevels(EditorState& state, Orkige::EditorCore& core)
 			levelsRel);
 		state.project.save();
 	}
-	SDL_Log("orkige_editor: added scene '%s' as level %d of '%s'", rel.c_str(),
-		sequence.getCount(), levelsRel.c_str());
+	oDebugMsg("editor.level", 0, "added scene '" << rel << "' as level " <<
+		sequence.getCount() << " of '" << levelsRel << "'");
 	return true;
 }

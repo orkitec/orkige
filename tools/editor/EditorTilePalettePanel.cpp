@@ -147,8 +147,8 @@ bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 	if (kind != AssetKind::Prefab && kind != AssetKind::Texture &&
 		kind != AssetKind::VectorShape)
 	{
-		SDL_Log("orkige_editor: cannot arm '%s' - not a paintable asset "
-			"(prefab / texture / shape)", absolutePath.c_str());
+		oDebugWarn("editor.tiles", 0, "cannot arm '" << absolutePath <<
+			"' - not a paintable asset (prefab / texture / shape)");
 		return false;
 	}
 
@@ -158,8 +158,8 @@ bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 		!Orkige::PrefabSerializer::listPrefabInfo(absolutePath, locals,
 			rootComponents))
 	{
-		SDL_Log("orkige_editor: cannot arm '%s' - not a readable prefab file",
-			absolutePath.c_str());
+		oDebugWarn("editor.tiles", 0, "cannot arm '" << absolutePath <<
+			"' - not a readable prefab file");
 		return false;
 	}
 

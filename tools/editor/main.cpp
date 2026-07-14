@@ -400,7 +400,7 @@ int main(int argc, char** argv)
 		if (!Orkige::loadMacSystemFont(ImGui::GetIO(), 14.0f,
 			editorContentScale))
 		{
-			SDL_Log("orkige_editor: system font unavailable - using the "
+			oDebugWarn("editor.boot", 0, "system font unavailable - using the "
 				"ImGui default font");
 		}
 		// merge the icon font (Font Awesome 6 solid) for the asset browser's
@@ -628,17 +628,16 @@ int main(int argc, char** argv)
 				}
 				if (playSession.simulatorUdid.empty())
 				{
-					SDL_Log("orkige_editor: play simulator '%s' - no "
-						"suitable simulator (booted with OrkigePlayer.app "
-						"installed, or shutdown + the app built at %s), "
-						"skipping", selector.c_str(),
-						ORKIGE_EDITOR_IOS_PLAYER_APP);
+					oDebugWarn("editor.play", 0, "play simulator '" << selector <<
+						"' - no suitable simulator (booted with OrkigePlayer.app "
+						"installed, or shutdown + the app built at " <<
+						ORKIGE_EDITOR_IOS_PLAYER_APP << "), skipping");
 					return std::getenv(
 						"ORKIGE_REQUIRE_DEVICE_TEST_TARGET") ? 2 : 77;
 				}
-				SDL_Log("orkige_editor: play simulator '%s' -> '%s' (%s)",
-					selector.c_str(), playSession.simulatorLabel.c_str(),
-					playSession.simulatorUdid.c_str());
+				oDebugMsg("editor.play", 0, "play simulator '" << selector <<
+					"' -> '" << playSession.simulatorLabel << "' (" <<
+					playSession.simulatorUdid << ")");
 			}
 			else
 			{
@@ -670,13 +669,13 @@ int main(int argc, char** argv)
 				}
 				if (playSession.androidSerial.empty())
 				{
-					SDL_Log("orkige_editor: play android 'auto' - no adb "
+					oDebugWarn("editor.play", 0, "play android 'auto' - no adb "
 						"device with the player APK installed, skipping");
 					return std::getenv(
 						"ORKIGE_REQUIRE_DEVICE_TEST_TARGET") ? 2 : 77;
 				}
-				SDL_Log("orkige_editor: play android 'auto' -> '%s'",
-					playSession.androidLabel.c_str());
+				oDebugMsg("editor.play", 0, "play android 'auto' -> '" <<
+					playSession.androidLabel << "'");
 			}
 			else
 			{
@@ -715,17 +714,18 @@ int main(int argc, char** argv)
 				}
 				if (devices.empty() || !deviceTreeBuilt)
 				{
-					SDL_Log("orkige_editor: play ios-device 'auto' - gate "
-						"closed (signing configured: %s, connected devices: %zu, "
-						"device player built: %s), skipping",
-						isIosSigningConfigured() ? "yes" : "no", devices.size(),
-						deviceTreeBuilt ? "yes" : "no");
+					oDebugWarn("editor.play", 0, "play ios-device 'auto' - gate "
+						"closed (signing configured: " <<
+						(isIosSigningConfigured() ? "yes" : "no") <<
+						", connected devices: " << devices.size() <<
+						", device player built: " <<
+						(deviceTreeBuilt ? "yes" : "no") << "), skipping");
 					return 77;
 				}
-				SDL_Log("orkige_editor: play ios-device 'auto' - gate OPEN, "
-					"target '%s' (%s); interactive deploy is owner-validated "
-					"(see Docs/ios-signing.md)", devices.front().name.c_str(),
-					devices.front().udid.c_str());
+				oDebugMsg("editor.play", 0, "play ios-device 'auto' - gate "
+					"OPEN, target '" << devices.front().name << "' (" <<
+					devices.front().udid << "); interactive deploy is "
+					"owner-validated (see Docs/ios-signing.md)");
 				return 0;
 			}
 		}
@@ -841,10 +841,10 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				SDL_Log("orkige_editor: MCP endpoint listening at "
-					"http://127.0.0.1:%u/mcp%s", controlServer.getPort(),
-					controlTokenFile.empty() ? " (no token file - auth off)"
-						: "");
+				oDebugMsg("editor.mcp", 0, "MCP endpoint listening at "
+					"http://127.0.0.1:" << controlServer.getPort() << "/mcp" <<
+					(controlTokenFile.empty() ? " (no token file - auth off)"
+						: ""));
 			}
 		}
 
@@ -940,8 +940,8 @@ int main(int argc, char** argv)
 			menuActions.about = [statePtr]()
 				{ statePtr->openAboutPopup = true; };
 			Orkige::macMenuInstall(menuActions);
-			SDL_Log("orkige_editor: native menu bar installed (%d top-level "
-				"items)", Orkige::macMenuItemCount());
+			oDebugMsg("editor.boot", 0, "native menu bar installed (" <<
+				Orkige::macMenuItemCount() << " top-level items)");
 		}
 #endif
 
@@ -1115,9 +1115,8 @@ int main(int argc, char** argv)
 			std::error_code reopenError;
 			if (std::filesystem::is_directory(lastProjectRoot, reopenError))
 			{
-				SDL_Log("orkige_editor: reopening last project '%s' "
-					"(View Settings > Reopen Last Project)",
-					lastProjectRoot.c_str());
+				oDebugMsg("editor.project", 0, "reopening last project '" <<
+					lastProjectRoot << "' (View Settings > Reopen Last Project)");
 				openProjectFromPath(state, editorCore, lastProjectRoot);
 			}
 		}
@@ -1541,8 +1540,8 @@ int main(int argc, char** argv)
 					}
 					else if (!importAssetFile(state, dropped).empty())
 					{
-						SDL_Log("orkige_editor: imported '%s' into the project "
-							"assets", dropped.c_str());
+						oDebugMsg("editor.assets", 0, "imported '" << dropped <<
+							"' into the project assets");
 					}
 				}
 				// ImGui gets every event first; only forward into the engine
@@ -1648,9 +1647,9 @@ int main(int argc, char** argv)
 				{
 					if (writeSceneAutosave(state, editorCore))
 					{
-						SDL_Log("orkige_editor: autosaved '%s'",
+						oDebugMsg("editor.scene", 0, "autosaved '" <<
 							Orkige::EditorAutosave::autosavePath(
-								state.currentScenePath).c_str());
+								state.currentScenePath) << "'");
 					}
 					lastAutosaveTime = std::chrono::steady_clock::now();
 				}

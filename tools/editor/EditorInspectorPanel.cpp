@@ -121,7 +121,7 @@ std::string propertyWidgetHint(Orkige::PropertyDesc const& desc)
 void drawComponentProperties(EditorState& state, Orkige::EditorCore& core,
 	std::string const& objectId, Orkige::TypeInfo const& componentType)
 {
-	const std::string componentName = componentType.getName();
+	const std::string& componentName = componentType.getName();
 	// the union schema (static per-type + dynamic per-instance) so a
 	// ScriptComponent's exported script properties render in the Inspector too
 	// - discovered per instance since a script's exports are
@@ -273,9 +273,8 @@ void drawAddComponentButton(EditorState& state, Orkige::EditorCore& core,
 				if (!core.addComponentToObject(gameObject->getObjectID(),
 					typeName))
 				{
-					SDL_Log("orkige_editor: adding %s to '%s' failed",
-						typeName.c_str(),
-						gameObject->getObjectID().c_str());
+					oDebugError("editor.inspector", 0, "adding " << typeName <<
+						" to '" << gameObject->getObjectID() << "' failed");
 				}
 				ImGui::CloseCurrentPopup();
 			}
