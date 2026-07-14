@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # clang-tools provides clang-scan-deps, which vcpkg's CMake requires for
 # C++20 module scanning during port builds (absent = ports fail at ninja)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential clang clang-tools ninja-build ccache python3 pkg-config \
+    build-essential clang clang-tools libclang-rt-18-dev ninja-build ccache python3 pkg-config \
     cmake git ca-certificates gdb \
     autoconf autoconf-archive automake libtool curl zip unzip tar \
     libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
