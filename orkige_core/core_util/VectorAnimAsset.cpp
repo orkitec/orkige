@@ -11,6 +11,7 @@
 //! @brief the `.oanim` grammar parser (@see VectorAnimAsset.h)
 
 #include "core_util/VectorAnimAsset.h"
+#include "core_util/VectorShapeAsset.h"
 
 #include <sstream>
 
@@ -18,12 +19,13 @@ namespace Orkige
 {
 	namespace
 	{
-		//! which loop the current `contour`/`hole` vertex run is filling
+		//! which loop the current `contour`/`hole`/`mask` vertex run is filling
 		enum VertexTarget
 		{
 			TARGET_NONE,
 			TARGET_OUTER,
-			TARGET_HOLE
+			TARGET_HOLE,
+			TARGET_MASK
 		};
 
 		//! @brief the optional trailing easing spec of a `kf` line: absent =
@@ -65,6 +67,15 @@ namespace Orkige
 				a.holes.size() != b.holes.size() ||
 				a.paintType != b.paintType ||
 				a.gradientStops.size() != b.gradientStops.size())
+			{
+				return false;
+			}
+			// a stroke keeps its kind, style and mask structure across keys -
+			// only its centreline, width and paint animate
+			if(a.kind != b.kind || a.strokeCap != b.strokeCap ||
+				a.strokeJoin != b.strokeJoin ||
+				a.strokeClosed != b.strokeClosed ||
+				a.mask.size() != b.mask.size())
 			{
 				return false;
 			}
@@ -135,7 +146,19 @@ namespace Orkige
 			}
 			VectorTessellator::Region const & region =
 				openShape->keys.back().region;
-			if(region.outer.size() < 3)
+			const bool isStroke =
+				region.kind == VectorTessellator::REGION_STROKE;
+			// a stroke's contour is a CENTRELINE (two points is a straight
+			// ribbon); a fill's is a boundary and needs an area
+			if(region.outer.size() < (isStroke ? 2u : 3u))
+			{
+				return false;
+			}
+			if(isStroke && !region.holes.empty())
+			{
+				return false;	// a stroke has no holes
+			}
+			if(!region.mask.empty() && region.mask.size() < 3)
 			{
 				return false;
 			}
@@ -213,6 +236,10 @@ namespace Orkige
 				if(target == TARGET_OUTER)
 				{
 					region.outer.push_back(VectorTessellator::Point(x, y));
+				}
+				else if(target == TARGET_MASK)
+				{
+					region.mask.push_back(VectorTessellator::Point(x, y));
 				}
 				else
 				{
@@ -375,13 +402,44 @@ namespace Orkige
 					VectorTessellator::Colour(r, g, b, a)));
 				--stopsRemaining;
 			}
-			else if(keyword == "contour")
+			else if(keyword == "stroke")
 			{
-				int count = 0;
+				// the open key's region becomes a stroke: its contour is the
+				// centreline, swept at render time (@see VectorTessellator)
 				if(!inShapeKey || !shapeKeyHasFill || vertsRemaining != 0 ||
 					stopsRemaining != 0 ||
 					!openShape->keys.back().region.outer.empty() ||
-					!(tokens >> count) || count <= 0)
+					!VectorShapeAsset::parseStrokeSpec(tokens,
+						openShape->keys.back().region))
+				{
+					return false;
+				}
+			}
+			else if(keyword == "mask")
+			{
+				// an optional convex clip polygon for this key's stroke
+				int count = 0;
+				if(!inShapeKey || vertsRemaining != 0 || stopsRemaining != 0 ||
+					openShape->keys.back().region.outer.empty() ||
+					!openShape->keys.back().region.mask.empty() ||
+					!(tokens >> count) || count < 3)
+				{
+					return false;
+				}
+				openShape->keys.back().region.mask.reserve(count);
+				target = TARGET_MASK;
+				vertsRemaining = count;
+			}
+			else if(keyword == "contour")
+			{
+				int count = 0;
+				const bool stroke = inShapeKey &&
+					openShape->keys.back().region.kind ==
+						VectorTessellator::REGION_STROKE;
+				if(!inShapeKey || !shapeKeyHasFill || vertsRemaining != 0 ||
+					stopsRemaining != 0 ||
+					!openShape->keys.back().region.outer.empty() ||
+					!(tokens >> count) || count < (stroke ? 2 : 1))
 				{
 					return false;
 				}
@@ -394,6 +452,8 @@ namespace Orkige
 				int count = 0;
 				if(!inShapeKey || vertsRemaining != 0 ||
 					openShape->keys.back().region.outer.empty() ||
+					openShape->keys.back().region.kind !=
+						VectorTessellator::REGION_FILL ||
 					!(tokens >> count) || count <= 0)
 				{
 					return false;

@@ -20,10 +20,13 @@
 
 #include "core_util/VectorAnimAsset.h"
 #include "core_util/VectorAnimEval.h"
+#include "core_util/VectorTessellator.h"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <vector>
 
 using namespace Orkige;
 using Catch::Approx;
@@ -246,4 +249,79 @@ TEST_CASE("cook_vector_anim_group_modifiers_and_dashes",
 	eval.composeRegions(pose, endRegions);
 	REQUIRE(startRegions.size() == endRegions.size());
 	CHECK(startRegions.size() >= 7u);
+}
+
+TEST_CASE("cook_vector_anim_stroke_regions_sweep_clean",
+	"[unit][vectoranim][lottie][stroke]")
+{
+	// tests/assets/vectoranim/stroke.oanim is the cooked regression fixture:
+	// a hairpin whose curvature is far tighter than its half width (an offset
+	// OUTLINE of it self-intersects, and a triangulator turns that into stray
+	// spikes/filaments - the defect this asset pins) plus a closed ring whose
+	// width animates under a rotating layer.
+	std::ifstream file(ORKIGE_TESTS_ASSET_DIR "/vectoranim/stroke.oanim");
+	REQUIRE(file.is_open());
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+
+	VectorAnimAsset::Document doc;
+	REQUIRE(VectorAnimAsset::parse(buffer.str(), doc));
+	VectorAnimEval eval;
+	REQUIRE(eval.build(doc));
+
+	VectorAnimEval::Pose pose;
+	std::vector<VectorTessellator::Region> regions;
+	float ringWidthStart = 0.0f;
+	float ringWidthEnd = 0.0f;
+	// (a looping clip wraps at its end frame, so the last probe sits just
+	// inside the timeline)
+	for(float fraction : {0.0f, 0.5f, 0.99f})
+	{
+		const float seconds = doc.duration * fraction / doc.fps;
+		REQUIRE(eval.evaluateAt(0, seconds, pose));
+		eval.composeRegions(pose, regions);
+		REQUIRE(regions.size() == 2u);
+
+		bool sawOpen = false;
+		bool sawClosed = false;
+		for(VectorTessellator::Region const & region : regions)
+		{
+			// both shapes are STROKE regions: a centreline plus a style, never
+			// a pre-expanded outline
+			REQUIRE(region.kind == VectorTessellator::REGION_STROKE);
+			CHECK(region.holes.empty());
+			CHECK(region.strokeWidth > 0.0f);
+			sawOpen = sawOpen || !region.strokeClosed;
+			sawClosed = sawClosed || region.strokeClosed;
+
+			// the swept ribbon stays within half a width (plus the miter
+			// allowance) of the centreline: no filament can escape
+			VectorTessellator::Mesh mesh;
+			VectorTessellator::appendStroke(region, mesh);
+			CHECK(mesh.triangleCount() > 0u);
+			const float reach = region.strokeWidth * 0.5f *
+				std::max(region.strokeMiterLimit, 1.0f) + 1e-3f;
+			for(VectorTessellator::Point const & vertex : mesh.positions)
+			{
+				float nearest = 1e30f;
+				for(VectorTessellator::Point const & p : region.outer)
+				{
+					const float dx = vertex.x - p.x;
+					const float dy = vertex.y - p.y;
+					nearest = std::min(nearest,
+						std::sqrt(dx * dx + dy * dy));
+				}
+				CHECK(nearest <= reach);
+			}
+			if(region.strokeClosed)
+			{
+				if(fraction == 0.0f) { ringWidthStart = region.strokeWidth; }
+				if(fraction > 0.9f) { ringWidthEnd = region.strokeWidth; }
+			}
+		}
+		CHECK(sawOpen);
+		CHECK(sawClosed);
+	}
+	// the ring's authored width animation survives cook, parse and compose
+	CHECK(ringWidthEnd > ringWidthStart * 1.5f);
 }

@@ -53,6 +53,9 @@ namespace Orkige
 		//! recursion cap so a pathological control net cannot spin forever
 		const int FLATTEN_MAX_DEPTH = 16;
 		const int GRADIENT_SUBDIVISION_DEPTH = 3;
+		//! steps of a round join/cap arc - a fixed count keeps a stroke's
+		//! triangle count constant while its centreline animates
+		const int STROKE_ARC_STEPS = 8;
 		//! how much of a region's OWN thickness the soft edge may occupy. The
 		//! feather is a constant visual weight sized off the whole shape's
 		//! bounds, but a thin stroke ribbon or a tiny detail is far smaller than
@@ -333,6 +336,441 @@ namespace Orkige
 				out.indices.push_back(innerNext);
 			}
 		}
+
+		//--- stroke sweep ------------------------------------------
+		// A stroke is swept as independently CONVEX pieces (@see appendStroke):
+		// no triangulator is involved, so a corner tighter than the half width -
+		// which makes an offset OUTLINE self-intersect, and a self-intersecting
+		// polygon makes earcut emit garbage - simply produces overlapping pieces,
+		// which for an opaque stroke is exact.
+
+		typedef VectorTessellator::Point TessPoint;
+		typedef VectorTessellator::Colour TessColour;
+
+		TessPoint pointAdd(TessPoint const & a, TessPoint const & b, float scale)
+		{
+			return TessPoint(a.x + b.x * scale, a.y + b.y * scale);
+		}
+		//! normalize in place; a zero vector stays zero
+		TessPoint normalized(float x, float y)
+		{
+			const float length = std::sqrt(x * x + y * y);
+			if(length <= 1e-9f)
+			{
+				return TessPoint(0.0f, 0.0f);
+			}
+			return TessPoint(x / length, y / length);
+		}
+
+		//! the prepared sweep frame of one stroke centreline
+		struct StrokeFrame
+		{
+			std::vector<TessPoint>	work;		//!< centreline (a closed one drops its repeated end point)
+			std::vector<TessPoint>	direction;	//!< unit travel direction per segment
+			std::vector<TessPoint>	normal;		//!< unit LEFT normal per segment
+			std::size_t				segments;	//!< direction/normal count
+			bool					closed;
+			float					half;		//!< half the stroke width
+			StrokeFrame() : segments(0), closed(false), half(0.0f) {}
+		};
+
+		//! @brief prepare a stroke region for sweeping. A zero-length segment
+		//! inherits the previous direction (a duplicated authored point can not
+		//! spin the frame); the first one falls back to +x.
+		bool buildStrokeFrame(VectorTessellator::Region const & region,
+			StrokeFrame & frame)
+		{
+			frame.work.clear();
+			frame.direction.clear();
+			frame.normal.clear();
+			frame.segments = 0;
+			frame.closed = region.strokeClosed;
+			frame.half = region.strokeWidth * 0.5f;
+			if(region.kind != VectorTessellator::REGION_STROKE ||
+				frame.half <= 0.0f || region.outer.size() < 2)
+			{
+				return false;
+			}
+			frame.work = region.outer;
+			if(frame.closed && frame.work.size() > 2)
+			{
+				TessPoint const & first = frame.work.front();
+				TessPoint const & last = frame.work.back();
+				if(std::fabs(first.x - last.x) <= 1e-6f &&
+					std::fabs(first.y - last.y) <= 1e-6f)
+				{
+					frame.work.pop_back();	// the closing point is implicit
+				}
+			}
+			const std::size_t n = frame.work.size();
+			if(n < 2)
+			{
+				return false;
+			}
+			frame.segments = frame.closed ? n : n - 1;
+			TessPoint previous(1.0f, 0.0f);
+			for(std::size_t s = 0; s < frame.segments; ++s)
+			{
+				TessPoint const & a = frame.work[s];
+				TessPoint const & b = frame.work[(s + 1) % n];
+				TessPoint step = normalized(b.x - a.x, b.y - a.y);
+				if(step.x == 0.0f && step.y == 0.0f)
+				{
+					step = previous;	// degenerate segment: keep the frame stable
+				}
+				previous = step;
+				frame.direction.push_back(step);
+				frame.normal.push_back(TessPoint(-step.y, step.x));
+			}
+			return frame.segments >= 1;
+		}
+
+		//! @brief the limited miter point of a corner on one side: the offset
+		//! edges' crossing, pulled back to a bevel-like position once the miter
+		//! grows past miterLimit half-widths (the spike guard)
+		TessPoint miterPoint(TessPoint const & corner, TessPoint const & previous,
+			TessPoint const & next, float side, float half, float miterLimit)
+		{
+			TessPoint bisector = normalized(previous.x + next.x,
+				previous.y + next.y);
+			float factor = half;
+			if(bisector.x != 0.0f || bisector.y != 0.0f)
+			{
+				const float cosine = std::fabs(bisector.x * next.x +
+					bisector.y * next.y);
+				const float limit = miterLimit > 1.0f ? miterLimit : 1.0f;
+				factor = half / (cosine > 1e-3f ? cosine : 1e-3f);
+				if(factor > half * limit)
+				{
+					factor = half * limit;
+				}
+			}
+			else
+			{
+				bisector = next;	// a full reversal: fall back to the next edge
+			}
+			return TessPoint(corner.x + side * bisector.x * factor,
+				corner.y + side * bisector.y * factor);
+		}
+
+		//! clip a convex polygon (with per-vertex colours) against a convex mask;
+		//! the colour of an introduced vertex interpolates along the cut edge
+		void clipConvex(std::vector<TessPoint> & points,
+			std::vector<TessColour> & colours,
+			std::vector<TessPoint> const & mask)
+		{
+			if(mask.size() < 3 || points.size() < 3)
+			{
+				if(mask.size() >= 3)
+				{
+					points.clear();
+					colours.clear();
+				}
+				return;
+			}
+			const float sign =
+				VectorTessellator::signedArea(mask) >= 0.0f ? 1.0f : -1.0f;
+			std::vector<TessPoint> nextPoints;
+			std::vector<TessColour> nextColours;
+			for(std::size_t edge = 0; edge < mask.size(); ++edge)
+			{
+				TessPoint const & a = mask[edge];
+				TessPoint const & b = mask[(edge + 1) % mask.size()];
+				nextPoints.clear();
+				nextColours.clear();
+				if(points.empty())
+				{
+					break;
+				}
+				auto inside = [&](TessPoint const & p)
+				{
+					return sign * ((b.x - a.x) * (p.y - a.y) -
+						(b.y - a.y) * (p.x - a.x)) >= -1e-9f;
+				};
+				auto cut = [&](std::size_t from, std::size_t to)
+				{
+					TessPoint const & p = points[from];
+					TessPoint const & q = points[to];
+					const float rx = q.x - p.x;
+					const float ry = q.y - p.y;
+					const float sx = b.x - a.x;
+					const float sy = b.y - a.y;
+					const float denominator = rx * sy - ry * sx;
+					float t = 0.0f;
+					if(std::fabs(denominator) > 1e-12f)
+					{
+						t = ((a.x - p.x) * sy - (a.y - p.y) * sx) / denominator;
+						t = clamp01(t);
+					}
+					nextPoints.push_back(TessPoint(p.x + t * rx, p.y + t * ry));
+					nextColours.push_back(lerpColour(colours[from],
+						colours[to], t));
+				};
+				std::size_t previous = points.size() - 1;
+				bool previousInside = inside(points[previous]);
+				for(std::size_t current = 0; current < points.size(); ++current)
+				{
+					const bool currentInside = inside(points[current]);
+					if(currentInside)
+					{
+						if(!previousInside)
+						{
+							cut(previous, current);
+						}
+						nextPoints.push_back(points[current]);
+						nextColours.push_back(colours[current]);
+					}
+					else if(previousInside)
+					{
+						cut(previous, current);
+					}
+					previous = current;
+					previousInside = currentInside;
+				}
+				points.swap(nextPoints);
+				colours.swap(nextColours);
+			}
+		}
+
+		//! @brief emit ONE convex piece (optionally clipped by the region's
+		//! convex mask) as a triangle fan - the only geometry path a stroke uses
+		void emitConvexPiece(VectorTessellator::Region const & region,
+			std::vector<TessPoint> & points, std::vector<TessColour> & colours,
+			VectorTessellator::Mesh & out)
+		{
+			if(!region.mask.empty())
+			{
+				clipConvex(points, colours, region.mask);
+			}
+			if(points.size() < 3)
+			{
+				return;
+			}
+			const unsigned int base =
+				static_cast<unsigned int>(out.positions.size());
+			for(std::size_t i = 0; i < points.size(); ++i)
+			{
+				out.positions.push_back(points[i]);
+				out.colours.push_back(colours[i]);
+			}
+			for(std::size_t i = 1; i + 1 < points.size(); ++i)
+			{
+				out.indices.push_back(base);
+				out.indices.push_back(base + static_cast<unsigned int>(i));
+				out.indices.push_back(base + static_cast<unsigned int>(i + 1));
+			}
+		}
+
+		//! emit a convex piece painted with the region's paint at every vertex
+		void emitPaintedPiece(VectorTessellator::Region const & region,
+			std::vector<TessPoint> & points, VectorTessellator::Mesh & out)
+		{
+			std::vector<TessColour> colours;
+			colours.reserve(points.size());
+			for(TessPoint const & point : points)
+			{
+				colours.push_back(paintAt(region, point));
+			}
+			emitConvexPiece(region, points, colours, out);
+		}
+
+		//! one point of the ribbon's outline, with the direction its soft edge
+		//! extrudes (radial at an arc, the corner bisector at a cap corner)
+		struct RimPoint
+		{
+			TessPoint	point;
+			TessPoint	outward;
+			RimPoint() {}
+			RimPoint(TessPoint const & p, TessPoint const & o)
+				: point(p), outward(o) {}
+		};
+
+		//! @brief append the boundary points of ONE corner on ONE side of the
+		//! ribbon. The OUTER side of the turn gets the join geometry (a limited
+		//! miter, a bevel edge or an arc), the inner side the single miter point
+		//! - the two segment quads already cover the inside. forceOuter keeps a
+		//! join wedge's point COUNT constant even when a frame happens to
+		//! straighten the corner (a degenerate wedge, not a missing one).
+		void appendCornerRim(StrokeFrame const & frame,
+			VectorTessellator::Region const & region, std::size_t index,
+			float side, bool forceOuter, std::vector<RimPoint> & chain)
+		{
+			TessPoint const & corner = frame.work[index];
+			const std::size_t previousSegment =
+				(index + frame.segments - 1) % frame.segments;
+			const std::size_t nextSegment = index % frame.segments;
+			TessPoint const & previousNormal = frame.normal[previousSegment];
+			TessPoint const & nextNormal = frame.normal[nextSegment];
+			TessPoint const & previousDirection = frame.direction[previousSegment];
+			TessPoint const & nextDirection = frame.direction[nextSegment];
+			const float turn = previousDirection.x * nextDirection.y -
+				previousDirection.y * nextDirection.x;
+			const bool outer = forceOuter || turn * side < -1e-9f;
+			const TessPoint first(corner.x + side * previousNormal.x * frame.half,
+				corner.y + side * previousNormal.y * frame.half);
+			const TessPoint last(corner.x + side * nextNormal.x * frame.half,
+				corner.y + side * nextNormal.y * frame.half);
+			if(!outer)
+			{
+				// the inside of a corner takes the single (limited) miter point:
+				// the two segment quads already overlap there
+				const TessPoint m = miterPoint(corner, previousNormal, nextNormal,
+					side, frame.half, region.strokeMiterLimit);
+				chain.push_back(RimPoint(m,
+					normalized(m.x - corner.x, m.y - corner.y)));
+				return;
+			}
+			if(region.strokeJoin != VectorTessellator::JOIN_ROUND)
+			{
+				// miter: the two offset edges meet at the (limited) miter point;
+				// bevel: they are joined straight across
+				chain.push_back(RimPoint(first, normalized(
+					first.x - corner.x, first.y - corner.y)));
+				if(region.strokeJoin == VectorTessellator::JOIN_MITER)
+				{
+					const TessPoint m = miterPoint(corner, previousNormal,
+						nextNormal, side, frame.half, region.strokeMiterLimit);
+					chain.push_back(RimPoint(m,
+						normalized(m.x - corner.x, m.y - corner.y)));
+				}
+				chain.push_back(RimPoint(last, normalized(
+					last.x - corner.x, last.y - corner.y)));
+				return;
+			}
+			// round: a fixed-step arc between the two offset points
+			float startAngle = std::atan2(first.y - corner.y, first.x - corner.x);
+			float endAngle = std::atan2(last.y - corner.y, last.x - corner.x);
+			const float twoPi = 6.2831853071795864f;
+			if(turn > 0.0f)
+			{
+				while(endAngle < startAngle) { endAngle += twoPi; }
+			}
+			else
+			{
+				while(endAngle > startAngle) { endAngle -= twoPi; }
+			}
+			for(int step = 0; step <= STROKE_ARC_STEPS; ++step)
+			{
+				const float angle = startAngle + (endAngle - startAngle) *
+					static_cast<float>(step) /
+					static_cast<float>(STROKE_ARC_STEPS);
+				const TessPoint radial(std::cos(angle), std::sin(angle));
+				chain.push_back(RimPoint(pointAdd(corner, radial, frame.half),
+					radial));
+			}
+		}
+
+		//! @brief the ribbon outline of a stroke: one closed loop for an open
+		//! centreline (both sides + the two caps), two for a closed one (the
+		//! outer and the inner boundary). Feather-only: the FILL never sees it.
+		void strokeRimLoops(StrokeFrame const & frame,
+			VectorTessellator::Region const & region,
+			std::vector<std::vector<RimPoint> > & loops)
+		{
+			loops.clear();
+			const std::size_t n = frame.work.size();
+			std::vector<RimPoint> left;
+			std::vector<RimPoint> right;
+			const std::size_t firstCorner = frame.closed ? 0 : 1;
+			const std::size_t lastCorner = frame.closed ? n : n - 1;
+			if(!frame.closed)
+			{
+				// the terminal offset points; their outward direction is fixed up
+				// with the cap below
+				left.push_back(RimPoint(pointAdd(frame.work[0], frame.normal[0],
+					frame.half), frame.normal[0]));
+				right.push_back(RimPoint(pointAdd(frame.work[0],
+					frame.normal[0], -frame.half),
+					TessPoint(-frame.normal[0].x, -frame.normal[0].y)));
+			}
+			for(std::size_t index = firstCorner; index < lastCorner; ++index)
+			{
+				appendCornerRim(frame, region, index, 1.0f, false, left);
+				appendCornerRim(frame, region, index, -1.0f, false, right);
+			}
+			if(frame.closed)
+			{
+				loops.push_back(left);
+				loops.push_back(right);
+				return;
+			}
+			TessPoint const & endNormal = frame.normal[frame.segments - 1];
+			left.push_back(RimPoint(pointAdd(frame.work[n - 1], endNormal,
+				frame.half), endNormal));
+			right.push_back(RimPoint(pointAdd(frame.work[n - 1], endNormal,
+				-frame.half), TessPoint(-endNormal.x, -endNormal.y)));
+
+			const TessPoint startOut(-frame.direction[0].x,
+				-frame.direction[0].y);
+			const TessPoint endOut = frame.direction[frame.segments - 1];
+			std::vector<RimPoint> loop;
+			if(region.strokeCap == VectorTessellator::CAP_SQUARE)
+			{
+				// the ribbon projects half a width past each end; the corner's
+				// soft edge extrudes along the corner bisector
+				left.front().point = pointAdd(left.front().point, startOut,
+					frame.half);
+				right.front().point = pointAdd(right.front().point, startOut,
+					frame.half);
+				left.back().point = pointAdd(left.back().point, endOut,
+					frame.half);
+				right.back().point = pointAdd(right.back().point, endOut,
+					frame.half);
+			}
+			if(region.strokeCap != VectorTessellator::CAP_ROUND)
+			{
+				left.front().outward = normalized(
+					left.front().outward.x + startOut.x,
+					left.front().outward.y + startOut.y);
+				right.front().outward = normalized(
+					right.front().outward.x + startOut.x,
+					right.front().outward.y + startOut.y);
+				left.back().outward = normalized(
+					left.back().outward.x + endOut.x,
+					left.back().outward.y + endOut.y);
+				right.back().outward = normalized(
+					right.back().outward.x + endOut.x,
+					right.back().outward.y + endOut.y);
+			}
+			// walk the outline: down the left side, around the end cap, back up
+			// the right side, around the start cap
+			loop.insert(loop.end(), left.begin(), left.end());
+			if(region.strokeCap == VectorTessellator::CAP_ROUND)
+			{
+				const float angle = std::atan2(endOut.y, endOut.x);
+				const float halfPi = 1.5707963267948966f;
+				const float pi = 3.14159265358979f;
+				for(int step = 1; step < STROKE_ARC_STEPS; ++step)
+				{
+					const float a = angle + halfPi - pi *
+						static_cast<float>(step) /
+						static_cast<float>(STROKE_ARC_STEPS);
+					const TessPoint radial(std::cos(a), std::sin(a));
+					loop.push_back(RimPoint(pointAdd(frame.work[n - 1], radial,
+						frame.half), radial));
+				}
+			}
+			for(std::size_t i = right.size(); i > 0; --i)
+			{
+				loop.push_back(right[i - 1]);
+			}
+			if(region.strokeCap == VectorTessellator::CAP_ROUND)
+			{
+				const float angle = std::atan2(startOut.y, startOut.x);
+				const float halfPi = 1.5707963267948966f;
+				const float pi = 3.14159265358979f;
+				for(int step = 1; step < STROKE_ARC_STEPS; ++step)
+				{
+					const float a = angle + halfPi - pi *
+						static_cast<float>(step) /
+						static_cast<float>(STROKE_ARC_STEPS);
+					const TessPoint radial(std::cos(a), std::sin(a));
+					loop.push_back(RimPoint(pointAdd(frame.work[0], radial,
+						frame.half), radial));
+				}
+			}
+			loops.push_back(loop);
+		}
 	}
 
 	//---------------------------------------------------------
@@ -378,9 +816,9 @@ namespace Orkige
 	//---------------------------------------------------------
 	void VectorTessellator::triangulateFill(Region const & region, Mesh & out)
 	{
-		if(region.outer.size() < 3)
+		if(region.kind != REGION_FILL || region.outer.size() < 3)
 		{
-			return;	// not a fillable area
+			return;	// not a fillable area (a stroke sweeps, @see appendStroke)
 		}
 		// earcut input: ring 0 = outer, rings 1.. = holes. Indices it returns
 		// address the outer+holes vertices in concatenation order.
@@ -430,6 +868,146 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	void VectorTessellator::appendStroke(Region const & region, Mesh & out)
+	{
+		StrokeFrame frame;
+		if(!buildStrokeFrame(region, frame))
+		{
+			return;
+		}
+		const std::size_t n = frame.work.size();
+		std::vector<Point> piece;
+
+		// one quad per segment: the ribbon between the two offset edges
+		for(std::size_t s = 0; s < frame.segments; ++s)
+		{
+			Point const & a = frame.work[s];
+			Point const & b = frame.work[(s + 1) % n];
+			Point const & normal = frame.normal[s];
+			piece.clear();
+			piece.push_back(pointAdd(a, normal, frame.half));
+			piece.push_back(pointAdd(b, normal, frame.half));
+			piece.push_back(pointAdd(b, normal, -frame.half));
+			piece.push_back(pointAdd(a, normal, -frame.half));
+			emitPaintedPiece(region, piece, out);
+		}
+
+		// one wedge per interior corner, on the OUTER side of the turn (the
+		// inner side is already covered by the two overlapping segment quads)
+		const std::size_t firstCorner = frame.closed ? 0 : 1;
+		const std::size_t lastCorner = frame.closed ? n : n - 1;
+		for(std::size_t index = firstCorner; index < lastCorner; ++index)
+		{
+			Point const & corner = frame.work[index];
+			const std::size_t previousSegment =
+				(index + frame.segments - 1) % frame.segments;
+			const std::size_t nextSegment = index % frame.segments;
+			Point const & previousDirection = frame.direction[previousSegment];
+			Point const & nextDirection = frame.direction[nextSegment];
+			const float turn = previousDirection.x * nextDirection.y -
+				previousDirection.y * nextDirection.x;
+			// the outer side of the corner is the side the path turns away from
+			const float side = turn > 0.0f ? -1.0f : 1.0f;
+			piece.clear();
+			piece.push_back(corner);
+			std::vector<RimPoint> rim;
+			appendCornerRim(frame, region, index, side, true, rim);
+			for(RimPoint const & each : rim)
+			{
+				piece.push_back(each.point);
+			}
+			emitPaintedPiece(region, piece, out);
+		}
+		if(frame.closed || region.strokeCap == CAP_BUTT)
+		{
+			return;		// a closed ribbon has no ends; a butt end adds nothing
+		}
+		// the two open ends
+		const Point starts[2] = { frame.work[0], frame.work[n - 1] };
+		const Point normals[2] = { frame.normal[0],
+			frame.normal[frame.segments - 1] };
+		const Point outs[2] = {
+			Point(-frame.direction[0].x, -frame.direction[0].y),
+			frame.direction[frame.segments - 1] };
+		for(int end = 0; end < 2; ++end)
+		{
+			const Point centre = starts[end];
+			const Point normal = normals[end];
+			const Point outward = outs[end];
+			piece.clear();
+			if(region.strokeCap == CAP_SQUARE)
+			{
+				const Point a = pointAdd(centre, normal, frame.half);
+				const Point b = pointAdd(centre, normal, -frame.half);
+				piece.push_back(a);
+				piece.push_back(pointAdd(a, outward, frame.half));
+				piece.push_back(pointAdd(b, outward, frame.half));
+				piece.push_back(b);
+			}
+			else	// round: a half-disc fan of fixed step count
+			{
+				const float angle = std::atan2(outward.y, outward.x);
+				const float halfPi = 1.5707963267948966f;
+				const float pi = 3.14159265358979f;
+				piece.push_back(centre);
+				for(int step = 0; step <= STROKE_ARC_STEPS; ++step)
+				{
+					const float a = angle - halfPi + pi *
+						static_cast<float>(step) /
+						static_cast<float>(STROKE_ARC_STEPS);
+					piece.push_back(pointAdd(centre,
+						Point(std::cos(a), std::sin(a)), frame.half));
+				}
+			}
+			emitPaintedPiece(region, piece, out);
+		}
+	}
+	//---------------------------------------------------------
+	void VectorTessellator::appendStrokeFeather(Region const & region,
+		float width, Mesh & out)
+	{
+		StrokeFrame frame;
+		if(width <= 0.0f || !buildStrokeFrame(region, frame))
+		{
+			return;
+		}
+		std::vector<std::vector<RimPoint> > loops;
+		strokeRimLoops(frame, region, loops);
+		std::vector<Point> quad;
+		std::vector<Colour> colours;
+		for(std::vector<RimPoint> const & loop : loops)
+		{
+			const std::size_t count = loop.size();
+			if(count < 2)
+			{
+				continue;
+			}
+			// one alpha-ramp quad per outline edge: the inner edge sits ON the
+			// ribbon in the paint colour, the outer edge is the same colour at
+			// alpha 0, extruded along each point's own outward direction
+			for(std::size_t i = 0; i < count; ++i)
+			{
+				RimPoint const & here = loop[i];
+				RimPoint const & next = loop[(i + 1) % count];
+				const Colour innerHere = paintAt(region, here.point);
+				const Colour innerNext = paintAt(region, next.point);
+				quad.clear();
+				colours.clear();
+				quad.push_back(here.point);
+				colours.push_back(innerHere);
+				quad.push_back(pointAdd(here.point, here.outward, width));
+				colours.push_back(Colour(innerHere.r, innerHere.g, innerHere.b,
+					0.0f));
+				quad.push_back(pointAdd(next.point, next.outward, width));
+				colours.push_back(Colour(innerNext.r, innerNext.g, innerNext.b,
+					0.0f));
+				quad.push_back(next.point);
+				colours.push_back(innerNext);
+				emitConvexPiece(region, quad, colours, out);
+			}
+		}
+	}
+	//---------------------------------------------------------
 	void VectorTessellator::appendFeather(std::vector<Point> const & contour,
 		Colour const & fill, float width, Mesh & out)
 	{
@@ -442,7 +1020,14 @@ namespace Orkige
 		out.clear();
 		for(Region const & region : regions)
 		{
-			triangulateFill(region, out);
+			if(region.kind == REGION_STROKE)
+			{
+				appendStroke(region, out);
+			}
+			else
+			{
+				triangulateFill(region, out);
+			}
 		}
 		if(featherWidth > 0.0f)
 		{
@@ -450,12 +1035,19 @@ namespace Orkige
 			{
 				// clamp the shared edge width to this region's own thickness so
 				// a thin ribbon / tiny detail is not swallowed by a halo sized
-				// for the whole rig (@see FEATHER_THICKNESS_FRACTION)
-				const float cap =
-					contourThickness(region.outer) * FEATHER_THICKNESS_FRACTION;
+				// for the whole rig (@see FEATHER_THICKNESS_FRACTION). A stroke's
+				// thickness IS its width.
+				const float cap = (region.kind == REGION_STROKE
+					? region.strokeWidth
+					: contourThickness(region.outer)) *
+					FEATHER_THICKNESS_FRACTION;
 				const float width =
 					cap > 0.0f && cap < featherWidth ? cap : featherWidth;
-				if(region.paintType != PAINT_SOLID &&
+				if(region.kind == REGION_STROKE)
+				{
+					appendStrokeFeather(region, width, out);
+				}
+				else if(region.paintType != PAINT_SOLID &&
 					!region.gradientStops.empty())
 				{
 					// a gradient shape feathers in its gradient colour at each
@@ -480,19 +1072,28 @@ namespace Orkige
 		Bounds bounds;
 		for(Region const & region : regions)
 		{
+			// a stroke paints half a width either side of its centreline
+			const float grow = region.kind == REGION_STROKE
+				? region.strokeWidth * 0.5f : 0.0f;
 			for(Point const & point : region.outer)
 			{
 				if(!bounds.valid)
 				{
-					bounds.minX = bounds.maxX = point.x;
-					bounds.minY = bounds.maxY = point.y;
+					bounds.minX = point.x - grow;
+					bounds.maxX = point.x + grow;
+					bounds.minY = point.y - grow;
+					bounds.maxY = point.y + grow;
 					bounds.valid = true;
 					continue;
 				}
-				bounds.minX = point.x < bounds.minX ? point.x : bounds.minX;
-				bounds.minY = point.y < bounds.minY ? point.y : bounds.minY;
-				bounds.maxX = point.x > bounds.maxX ? point.x : bounds.maxX;
-				bounds.maxY = point.y > bounds.maxY ? point.y : bounds.maxY;
+				bounds.minX = point.x - grow < bounds.minX
+					? point.x - grow : bounds.minX;
+				bounds.minY = point.y - grow < bounds.minY
+					? point.y - grow : bounds.minY;
+				bounds.maxX = point.x + grow > bounds.maxX
+					? point.x + grow : bounds.maxX;
+				bounds.maxY = point.y + grow > bounds.maxY
+					? point.y + grow : bounds.maxY;
 			}
 		}
 		return bounds;

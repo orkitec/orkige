@@ -1821,136 +1821,6 @@ def _dash_segments(points, closed, style, frame, transform_scale):
     return segments
 
 
-def _stroke_outline(points, closed, width, cap, join, miter_limit):
-    """Expand one flattened path into a fillable outline. Joins use stable
-    miter geometry with the authored limit (bevel fallback); round end caps
-    use a fixed arc count so animated paths retain topology."""
-    if len(points) < 2:
-        return []
-    half = max(abs(width) * 0.5, EPS)
-    work = list(points)
-    if closed and math.hypot(work[0][0] - work[-1][0],
-                             work[0][1] - work[-1][1]) <= EPS:
-        work.pop()
-    if len(work) < 2:
-        return []
-
-    segment_count = len(work) if closed else len(work) - 1
-    normals = []
-    directions = []
-    for index in range(segment_count):
-        a = work[index]
-        b = work[(index + 1) % len(work)]
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        length = math.hypot(dx, dy)
-        if length <= EPS:
-            dx, dy, length = 1.0, 0.0, 1.0
-        directions.append((dx / length, dy / length))
-        normals.append((-dy / length, dx / length))
-
-    def miter_point(point, previous_normal, next_normal, side):
-        nx = previous_normal[0] + next_normal[0]
-        ny = previous_normal[1] + next_normal[1]
-        length = math.hypot(nx, ny)
-        if length <= EPS:
-            nx, ny, factor = next_normal[0], next_normal[1], half
-        else:
-            nx, ny = nx / length, ny / length
-            denominator = max(abs(nx * next_normal[0] +
-                                  ny * next_normal[1]), 1e-3)
-            factor = min(half / denominator,
-                         half * max(float(miter_limit), 1.0))
-        return (point[0] + side * nx * factor,
-                point[1] + side * ny * factor)
-
-    def join_points(index, side):
-        point = work[index]
-        if not closed and index == 0:
-            normal = normals[0]
-            return [(point[0] + side * normal[0] * half,
-                     point[1] + side * normal[1] * half)]
-        if not closed and index == len(work) - 1:
-            normal = normals[-1]
-            return [(point[0] + side * normal[0] * half,
-                     point[1] + side * normal[1] * half)]
-        previous_index = (index - 1) % segment_count
-        next_index = index % segment_count
-        previous_normal = normals[previous_index]
-        next_normal = normals[next_index]
-        previous_direction = directions[previous_index]
-        next_direction = directions[next_index]
-        turn = (previous_direction[0] * next_direction[1] -
-                previous_direction[1] * next_direction[0])
-        outer = turn * side < -EPS
-        if join == 1 or not outer or abs(turn) <= EPS:
-            return [miter_point(point, previous_normal, next_normal, side)]
-        first = (point[0] + side * previous_normal[0] * half,
-                 point[1] + side * previous_normal[1] * half)
-        last = (point[0] + side * next_normal[0] * half,
-                point[1] + side * next_normal[1] * half)
-        if join == 3:       # bevel
-            return [first, last]
-        # Round join: a fixed eight-step arc keeps topology predictable.
-        start_angle = math.atan2(first[1] - point[1],
-                                 first[0] - point[0])
-        end_angle = math.atan2(last[1] - point[1],
-                               last[0] - point[0])
-        sweep_sign = 1.0 if turn > 0.0 else -1.0
-        if sweep_sign > 0.0:
-            while end_angle < start_angle:
-                end_angle += math.pi * 2.0
-        else:
-            while end_angle > start_angle:
-                end_angle -= math.pi * 2.0
-        return [(point[0] + math.cos(start_angle +
-                                    (end_angle - start_angle) * step / 8.0) *
-                 half,
-                 point[1] + math.sin(start_angle +
-                                    (end_angle - start_angle) * step / 8.0) *
-                 half)
-                for step in range(9)]
-
-    left, right = [], []
-    for index in range(len(work)):
-        left.extend(join_points(index, 1.0))
-        right.extend(join_points(index, -1.0))
-
-    if closed:
-        area = _polygon_area(work)
-        outer, hole = (right, left) if area > 0.0 else (left, right)
-        return [(outer, [list(reversed(hole))])]
-
-    # Projecting-square caps move both sides along the path direction.
-    if cap == 3:
-        sx, sy = directions[0]
-        ex, ey = directions[-1]
-        left[0] = (left[0][0] - sx * half, left[0][1] - sy * half)
-        right[0] = (right[0][0] - sx * half, right[0][1] - sy * half)
-        left[-1] = (left[-1][0] + ex * half, left[-1][1] + ey * half)
-        right[-1] = (right[-1][0] + ex * half, right[-1][1] + ey * half)
-
-    contour = list(left)
-    if cap == 2:
-        # end: left -> right around the forward-facing semicircle
-        angle = math.atan2(directions[-1][1], directions[-1][0])
-        center = work[-1]
-        contour += [(center[0] + math.cos(angle + math.pi * 0.5 -
-                                          math.pi * i / 8.0) * half,
-                     center[1] + math.sin(angle + math.pi * 0.5 -
-                                          math.pi * i / 8.0) * half)
-                    for i in range(1, 8)]
-    contour += list(reversed(right))
-    if cap == 2:
-        angle = math.atan2(directions[0][1], directions[0][0])
-        center = work[0]
-        contour += [(center[0] + math.cos(angle - math.pi * 0.5 -
-                                          math.pi * i / 8.0) * half,
-                     center[1] + math.sin(angle - math.pi * 0.5 -
-                                          math.pi * i / 8.0) * half)
-                    for i in range(1, 8)]
-    return [(contour, [])]
-
-
 def _clip_convex(subject, clip):
     """Sutherland-Hodgman polygon clipping against a convex mask."""
     if len(subject) < 3 or len(clip) < 3:
@@ -2150,57 +2020,26 @@ def _assign_holes(contours, fill_rule):
     return regions
 
 
-def _normalize_stroke_regions(key_outlines, region_index, anchors):
-    """Give one stroke/dash region a fixed outer/hole vertex structure at
-    every emitted frame. Missing animated dashes become transparent triangles
-    at the centreline, ready to grow back without changing the grammar."""
-    poses = []
-    hidden = []
-    for outlines, anchor in zip(key_outlines, anchors):
-        if region_index < len(outlines):
-            poses.append(outlines[region_index])
-            hidden.append(False)
-        else:
-            tiny = 1e-4
-            poses.append(([anchor, (anchor[0] + tiny, anchor[1]),
-                           (anchor[0], anchor[1] + tiny)], []))
-            hidden.append(True)
-    outer_count = max(len(outer) for outer, _holes in poses)
-    hole_count = max(len(holes) for _outer, holes in poses)
-    hole_sizes = []
-    for hole_index in range(hole_count):
-        hole_sizes.append(max(
-            len(holes[hole_index]) if hole_index < len(holes) else 3
-            for _outer, holes in poses))
-    normalized = []
-    for outer, holes in poses:
-        outer = _resample_closed(outer, outer_count)
-        fixed_holes = []
-        center = (sum(point[0] for point in outer) / len(outer),
-                  sum(point[1] for point in outer) / len(outer))
-        for hole_index, size in enumerate(hole_sizes):
-            if hole_index < len(holes) and len(holes[hole_index]) >= 3:
-                hole = holes[hole_index]
-            else:
-                tiny = 1e-5
-                hole = [center, (center[0], center[1] + tiny),
-                        (center[0] + tiny, center[1])]
-            fixed_holes.append(_resample_closed(hole, size))
-        normalized.append((outer, fixed_holes))
-    return normalized, hidden
+_STROKE_CAPS = {1: "butt", 2: "round", 3: "square"}
+_STROKE_JOINS = {1: "miter", 2: "round", 3: "bevel"}
 
 
 def _convert_stroke_block(block, duration, offset, tol, place, errors):
-    """Cook one Lottie stroke into ordinary filled `.oanim` regions. This is
-    still vector geometry: resolution-independent outlines are generated from
-    the authored centreline, not rasterized. It also lets the existing GPU
-    tessellator render strokes without a second runtime primitive."""
+    """Cook one Lottie stroke into `.oanim` STROKE regions: the flattened
+    CENTRELINE plus width/cap/join/limit. The renderer sweeps that centreline
+    into convex pieces at draw time (@see VectorTessellator::appendStroke), so
+    nothing here expands an offset outline - an outline self-intersects wherever
+    the path curves tighter than the half width, and a triangulator turns such a
+    polygon into stray spikes and filaments."""
     times, eases, _ = _stroke_sample_times(block, duration, offset)
     affines = [_block_affine_at(block, time - offset) for time in times]
     style = block["fill"]
-    cap = int(style.get("lc", 1))
-    join = int(style.get("lj", 1))
-    miter_limit = float(style.get("ml", 4.0))
+    cap = _STROKE_CAPS.get(int(style.get("lc", 1)), "butt")
+    join = _STROKE_JOINS.get(int(style.get("lj", 1)), "miter")
+    miter_limit = max(float(style.get("ml", 4.0)), 1.0)
+    # the cook's world scale (Lottie units -> .oanim units): a stroke width is a
+    # length, so it rides the same factor its geometry does
+    unit_scale = abs(place((1.0, 0.0))[0])
     entries = []
 
     for kind, item in block["paths"]:
@@ -2239,52 +2078,56 @@ def _convert_stroke_block(block, duration, offset, tol, place, errors):
             continue
         # A negative/zero pattern is ignored as a whole by the format. If an
         # animation crosses that invalid state, keep this stroke solid for the
-        # complete clip instead of changing its region/hole semantics midway.
+        # complete clip instead of changing its region semantics midway.
         use_dashes = bool(style.get("d")) and \
             all(state[3] is not None for state in stroke_states)
-        key_outlines = []
+        # one region per dash (an undashed stroke is one region); a dash the
+        # pattern drops at some frames keeps its slot as a degenerate,
+        # transparent centreline, so the topology stays fixed
+        key_lines = []
         anchors = []
-        for centerline, closed, width, dashes in stroke_states:
+        for centerline, closed, _width, dashes in stroke_states:
             anchors.append(centerline[0] if centerline else (0.0, 0.0))
-            source_lines = [(segment, False) for segment in dashes] \
-                if use_dashes else [(centerline, closed)]
-            outlines = []
-            for source_line, source_closed in source_lines:
-                outlines += _stroke_outline(source_line, source_closed,
-                                             width, cap, join, miter_limit)
-            key_outlines.append(outlines)
-        region_count = max((len(outlines) for outlines in key_outlines),
-                           default=0)
+            key_lines.append([(segment, False) for segment in dashes]
+                             if use_dashes else [(centerline, closed)])
+        region_count = max((len(lines) for lines in key_lines), default=0)
+        masks = _mask_series(block, times, offset, tol, errors)
         for region_index in range(region_count):
-            masks = _mask_series(block, times, offset, tol, errors)
-            region_poses, hidden = _normalize_stroke_regions(
-                key_outlines, region_index, anchors)
-            region_poses = _clip_key_regions(region_poses, masks,
-                                             block["layer"], errors)
             keys = []
             topology = None
             for time_index, t in enumerate(times):
-                outer, holes = region_poses[time_index]
-                current = (len(outer), tuple(len(h) for h in holes))
+                lines = key_lines[time_index]
+                hidden = region_index >= len(lines)
+                if hidden:
+                    line, closed = [anchors[time_index]] * 8, False
+                else:
+                    line, closed = lines[region_index]
+                current = (len(line), closed)
                 if topology is None:
                     topology = current
                 elif topology != current:
-                    errors.append("stroke outline topology changes on layer "
-                                  "'%s'" % block["layer"])
+                    errors.append("stroke centreline topology changes on layer "
+                                  "'%s' - bake the trim/dash animation or keep "
+                                  "its path count fixed" % block["layer"])
                     keys = []
                     break
                 paint = _sample_gradient_paint(
                     block, t - offset, affines[time_index], place) \
                     if block.get("kind") == "gradient_stroke" \
                     else _sample_fill_rgba(block, t - offset)
-                if hidden[time_index] or (masks is not None and
-                        abs(_polygon_area(outer)) < 1e-6):
+                if hidden:
                     paint = _transparent_paint(paint)
-                keys.append((t, eases[time_index], paint,
-                             [place(point) for point in outer],
-                             [[place(point) for point in hole]
-                              for hole in holes]))
-            if keys and len(keys[0][3]) >= 3:
+                stroke = {
+                    "width": stroke_states[time_index][2] * unit_scale,
+                    "cap": cap, "join": join, "miter": miter_limit,
+                    "closed": bool(closed)}
+                keys.append({
+                    "frame": t, "ease": eases[time_index], "paint": paint,
+                    "outer": [place(point) for point in line], "holes": [],
+                    "stroke": stroke,
+                    "mask": [place(point) for point in masks[time_index]]
+                    if masks is not None else None})
+            if keys and len(keys[0]["outer"]) >= 2:
                 entries.append({"keys": keys})
     return entries
 
@@ -2368,7 +2211,9 @@ def _convert_block(block, duration, offset, tol, place, errors):
             outer = [place(p) for p in region_poses[t_idx][0]]
             holes = [[place(p) for p in hole]
                      for hole in region_poses[t_idx][1]]
-            keys.append((t, eases[t_idx], rgba, outer, holes))
+            keys.append({"frame": t, "ease": eases[t_idx], "paint": rgba,
+                         "outer": outer, "holes": holes, "stroke": None,
+                         "mask": None})
         entries.append({"keys": keys})
     return entries
 
@@ -2611,10 +2456,37 @@ def _fmt_ease(ease):
     return " ease %.4f %.4f %.4f %.4f" % ease[1:]
 
 
+def _emit_paint(lines, indent, paint):
+    """The shared `fill` / `linear` / `radial` paint vocabulary of one key."""
+    if isinstance(paint, dict):
+        start, end = paint["start"], paint["end"]
+        lines.append("%s%s %s %s %s %s %d" % (
+            indent, paint["type"], _fmt_val(start[0]), _fmt_val(start[1]),
+            _fmt_val(end[0]), _fmt_val(end[1]), len(paint["stops"])))
+        if paint["type"] == "radial" and \
+                (abs(paint["focal"][0] - start[0]) > EPS or
+                 abs(paint["focal"][1] - start[1]) > EPS):
+            lines.append("%sfocal %s %s" % (
+                indent, _fmt_val(paint["focal"][0]),
+                _fmt_val(paint["focal"][1])))
+        for stop in paint["stops"]:
+            lines.append("%sstop %s %.4f %.4f %.4f %.4f" % (
+                indent, _fmt_val(stop[0]), stop[1], stop[2], stop[3], stop[4]))
+    else:
+        lines.append("%sfill %.4f %.4f %.4f %.4f" % ((indent,) + tuple(paint)))
+
+
+def _emit_stroke(lines, indent, stroke):
+    """The `stroke W CAP JOIN LIMIT ENDS` spec of a stroke region."""
+    lines.append("%sstroke %s %s %s %s %s" % (
+        indent, _fmt_val(stroke["width"]), stroke["cap"], stroke["join"],
+        _fmt_val(stroke["miter"]), "closed" if stroke["closed"] else "open"))
+
+
 def _emit_oanim(fps, duration, clips, rig):
-    lines = ["# orkige vector animation v1 - cooked from Lottie JSON by "
+    lines = ["# orkige vector animation v2 - cooked from Lottie JSON by "
              "Util/cook_vector_anim.py",
-             "version 1",
+             "version 2",
              "fps %s" % _fmt_frame(fps),
              "duration %s" % _fmt_frame(duration)]
     for name, start, end, loop in clips:
@@ -2636,34 +2508,24 @@ def _emit_oanim(fps, duration, clips, rig):
                     _fmt_ease(ease)))
         for shape in layer["shapes"]:
             lines.append("  shape k %d" % len(shape["keys"]))
-            for frame, ease, rgba, outer, holes in shape["keys"]:
-                lines.append("    kf %s%s" % (_fmt_frame(frame),
-                                              _fmt_ease(ease)))
-                if isinstance(rgba, dict):
-                    start, end = rgba["start"], rgba["end"]
-                    lines.append("      %s %s %s %s %s %d" % (
-                        rgba["type"], _fmt_val(start[0]), _fmt_val(start[1]),
-                        _fmt_val(end[0]), _fmt_val(end[1]),
-                        len(rgba["stops"])))
-                    if rgba["type"] == "radial" and \
-                            (abs(rgba["focal"][0] - start[0]) > EPS or
-                             abs(rgba["focal"][1] - start[1]) > EPS):
-                        lines.append("      focal %s %s" % (
-                            _fmt_val(rgba["focal"][0]),
-                            _fmt_val(rgba["focal"][1])))
-                    for stop in rgba["stops"]:
-                        lines.append("      stop %s %.4f %.4f %.4f %.4f" % (
-                            _fmt_val(stop[0]), stop[1], stop[2], stop[3],
-                            stop[4]))
-                else:
-                    lines.append("      fill %.4f %.4f %.4f %.4f" % rgba)
-                lines.append("      contour %d" % len(outer))
-                for p in outer:
+            for key in shape["keys"]:
+                lines.append("    kf %s%s" % (_fmt_frame(key["frame"]),
+                                              _fmt_ease(key["ease"])))
+                _emit_paint(lines, "      ", key["paint"])
+                if key["stroke"] is not None:
+                    _emit_stroke(lines, "      ", key["stroke"])
+                lines.append("      contour %d" % len(key["outer"]))
+                for p in key["outer"]:
                     lines.append("      v %s %s" % (_fmt_val(p[0]),
                                                     _fmt_val(p[1])))
-                for hole in holes:
+                for hole in key["holes"]:
                     lines.append("      hole %d" % len(hole))
                     for p in hole:
+                        lines.append("      v %s %s" % (_fmt_val(p[0]),
+                                                        _fmt_val(p[1])))
+                if key["mask"]:
+                    lines.append("      mask %d" % len(key["mask"]))
+                    for p in key["mask"]:
                         lines.append("      v %s %s" % (_fmt_val(p[0]),
                                                         _fmt_val(p[1])))
     return "\n".join(lines) + "\n"
@@ -2675,8 +2537,8 @@ def _rig_is_static(rig):
             if converted[1]:
                 return False
         for shape in layer["shapes"]:
-            if shape["keys"] and isinstance(shape["keys"][0][2], dict):
-                return False  # .oshape v1 has no gradient paint vocabulary
+            if shape["keys"] and isinstance(shape["keys"][0]["paint"], dict):
+                return False  # .oshape has no gradient paint vocabulary
             if len(shape["keys"]) > 1:
                 return False
     return True
@@ -2684,12 +2546,13 @@ def _rig_is_static(rig):
 
 def _emit_oshape_static(rig):
     """The static case: compose every layer's frame-0 transform chain and
-    write a plain .oshape (fill/contour/hole vocabulary, world space)."""
+    write a plain .oshape (fill/stroke/contour/hole/mask vocabulary, world
+    space)."""
     affines = []
     opacities = []
-    lines = ["# orkige vector shape v1 - cooked from a static Lottie "
+    lines = ["# orkige vector shape v2 - cooked from a static Lottie "
              "document by Util/cook_vector_anim.py",
-             "version 1"]
+             "version 2"]
     emitted = 0
     for layer in rig:
         def channel_value(name):
@@ -2719,18 +2582,32 @@ def _emit_oshape_static(rig):
         a, b, c, d, wtx, wty = world
         def xf(p):
             return (a * p[0] + b * p[1] + wtx, c * p[0] + d * p[1] + wty)
+        # a length under this world affine scales by its area factor (the
+        # non-uniform-scale-honest scalar the runtime uses for a stroke width)
+        width_scale = math.sqrt(abs(a * d - b * c)) if abs(a * d - b * c) > EPS \
+            else 1.0
         for shape in layer["shapes"]:
-            _frame, _ease, rgba, outer, holes = shape["keys"][0]
+            key = shape["keys"][0]
+            rgba = key["paint"]
             lines.append("fill %.4f %.4f %.4f %.4f" %
                          (rgba[0], rgba[1], rgba[2],
                           rgba[3] * world_opacity))
-            lines.append("contour %d" % len(outer))
-            for p in outer:
+            if key["stroke"] is not None:
+                stroke = dict(key["stroke"])
+                stroke["width"] *= width_scale
+                _emit_stroke(lines, "", stroke)
+            lines.append("contour %d" % len(key["outer"]))
+            for p in key["outer"]:
                 wx, wy = xf(p)
                 lines.append("v %s %s" % (_fmt_val(wx), _fmt_val(wy)))
-            for hole in holes:
+            for hole in key["holes"]:
                 lines.append("hole %d" % len(hole))
                 for p in hole:
+                    wx, wy = xf(p)
+                    lines.append("v %s %s" % (_fmt_val(wx), _fmt_val(wy)))
+            if key["mask"]:
+                lines.append("mask %d" % len(key["mask"]))
+                for p in key["mask"]:
                     wx, wy = xf(p)
                     lines.append("v %s %s" % (_fmt_val(wx), _fmt_val(wy)))
             emitted += 1
@@ -2809,11 +2686,23 @@ def _parse_oanim(text):
         if key is not None:
             assert state["verts_left"] == 0, "truncated vertex run"
             assert state["stops_left"] == 0, "truncated gradient stops"
-            assert key["fill"] is not None and len(key["outer"]) >= 3
+            assert key["fill"] is not None
+            stroke = key["stroke"]
+            # a stroke's contour is a centreline (>= 2 points, no holes); a
+            # fill's is a boundary (>= 3)
+            assert len(key["outer"]) >= (2 if stroke else 3)
+            assert not (stroke and key["holes"])
+            assert not key["mask"] or len(key["mask"]) >= 3
             first = state["shape"]["keys"][0]
             assert len(key["outer"]) == len(first["outer"]), "topology"
             assert [len(h) for h in key["holes"]] == \
                 [len(h) for h in first["holes"]], "hole topology"
+            assert len(key["mask"]) == len(first["mask"]), "mask topology"
+            if stroke or first["stroke"]:
+                assert stroke and first["stroke"], "stroke topology"
+                for field in ("cap", "join", "closed"):
+                    assert stroke[field] == first["stroke"][field], \
+                        "stroke style must not animate"
         state["key"] = None
         state["target"] = None
 
@@ -2866,7 +2755,7 @@ def _parse_oanim(text):
                 keys = state["shape"]["keys"]
                 assert not keys or frame > keys[-1]["frame"]
                 key = {"frame": frame, "ease": ease, "fill": None,
-                       "outer": [], "holes": []}
+                       "outer": [], "holes": [], "stroke": None, "mask": []}
                 keys.append(key)
                 state["key"] = key
                 state["shape_left"] -= 1
@@ -2897,20 +2786,39 @@ def _parse_oanim(text):
             assert state["stops_left"] > 0
             key["fill"]["stops"].append(tuple(float(t) for t in tokens[1:6]))
             state["stops_left"] -= 1
+        elif word == "stroke":
+            key = state["key"]
+            assert key is not None and key["fill"] is not None and \
+                not key["outer"] and key["stroke"] is None
+            assert len(tokens) == 6, "bad stroke spec"
+            assert tokens[2] in ("butt", "round", "square"), "bad cap"
+            assert tokens[3] in ("miter", "round", "bevel"), "bad join"
+            assert tokens[5] in ("open", "closed"), "bad stroke ends"
+            assert float(tokens[1]) >= 0.0 and float(tokens[4]) >= 1.0
+            key["stroke"] = {"width": float(tokens[1]), "cap": tokens[2],
+                             "join": tokens[3], "miter": float(tokens[4]),
+                             "closed": tokens[5] == "closed"}
         elif word == "contour":
             key = state["key"]
             assert key is not None and key["fill"] is not None and \
                 not key["outer"]
             state["verts_left"] = int(tokens[1])
-            assert state["verts_left"] > 0
+            assert state["verts_left"] >= (2 if key["stroke"] else 1)
             state["target"] = key["outer"]
         elif word == "hole":
             key = state["key"]
             assert key is not None and key["outer"] and \
-                state["verts_left"] == 0
+                state["verts_left"] == 0 and key["stroke"] is None
             key["holes"].append([])
             state["verts_left"] = int(tokens[1])
             state["target"] = key["holes"][-1]
+        elif word == "mask":
+            key = state["key"]
+            assert key is not None and key["outer"] and \
+                state["verts_left"] == 0 and not key["mask"]
+            state["verts_left"] = int(tokens[1])
+            assert state["verts_left"] >= 3
+            state["target"] = key["mask"]
         elif word in ("pos", "anchor", "scale", "rot", "opacity"):
             close_all()
             assert doc["layers"], "channel before any layer"
@@ -2948,7 +2856,7 @@ def _parse_oanim(text):
         elif word == "duration":
             doc["duration"] = float(tokens[1])
         elif word == "version":
-            assert int(tokens[1]) == 1
+            assert int(tokens[1]) == 2
         else:
             raise AssertionError("unknown keyword '%s'" % word)
     close_all()
@@ -3441,16 +3349,34 @@ def _selftest():
          "e": _fx_static(80),
          "o": _fx_static(0), "m": 1}])])
     doc = _parse_oanim(cook(fixture)[1])
-    stroke = _layer_by_name(doc, "ink")["shapes"][0]["keys"][0]
-    assert len(stroke["outer"]) >= 16 and not stroke["holes"]
+    keys = _layer_by_name(doc, "ink")["shapes"][0]["keys"]
+    stroke = keys[0]
+    # a stroke cooks to a STROKE region: a centreline plus width/cap/join, NOT
+    # an expanded outline (the renderer sweeps convex pieces from it)
+    assert stroke["stroke"] is not None and not stroke["holes"]
+    assert stroke["stroke"]["cap"] == "round"
+    assert stroke["stroke"]["join"] == "miter"
+    assert stroke["stroke"]["width"] > 0.0 and not stroke["stroke"]["closed"]
+    assert len(stroke["outer"]) >= 2
     assert stroke["fill"][:3] == (0.2, 0.3, 0.4)
-    miter_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
-                                    False, 4, 1, 1, 4)[0][0]
-    round_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
-                                    False, 4, 1, 2, 4)[0][0]
-    bevel_outline = _stroke_outline([(0, 0), (20, 0), (20, 20)],
-                                    False, 4, 1, 3, 4)[0][0]
-    assert len(round_outline) > len(bevel_outline) > len(miter_outline)
+    # the animated trim keeps a fixed centreline topology across every key
+    assert len({len(key["outer"]) for key in keys}) == 1
+    assert keys[0]["outer"] != keys[-1]["outer"]
+    checks += 1
+
+    # --- a closed stroke keeps its closedness; the width rides the scale ----
+    ring = {"c": True, "v": [[20, 20], [80, 20], [80, 80], [20, 80]],
+            "i": [[0, 0]] * 4, "o": [[0, 0]] * 4}
+    fixture = _fx_doc(layers=[_fx_shape_layer("ring", 1, [
+        {"ty": "gr", "it": [
+            {"ty": "sh", "ks": _fx_static(ring)},
+            {"ty": "st", "c": _fx_static([0, 0, 0, 1]), "o": _fx_static(100),
+             "w": {"a": 1, "k": [dict(t=0, s=[4], **lin), {"t": 60, "s": [8]}]},
+             "lc": 1, "lj": 3, "ml": 4}]}])])
+    keys = _layer_by_name(_parse_oanim(cook(fixture)[1]),
+                          "ring")["shapes"][0]["keys"]
+    assert keys[0]["stroke"]["closed"] and keys[0]["stroke"]["join"] == "bevel"
+    assert keys[-1]["stroke"]["width"] > keys[0]["stroke"]["width"]
     checks += 1
 
     # --- animated linear/radial gradient paint survives into the grammar ---
@@ -3488,6 +3414,22 @@ def _selftest():
          "(python3 Util/cook_vector_anim.py %s %s), re-run the "
          "cook_vector_anim_roundtrip unit test, and commit both" %
          (source, reference))
+    checks += 1
+
+    # --- the stroke regression fixture re-cooks byte-identically ----------
+    source = fixture_dir / "stroke.json"
+    reference = fixture_dir / "stroke.oanim"
+    kind, cooked = cook(source.read_text(encoding="utf-8"))
+    assert kind == "oanim"
+    parsed = _parse_oanim(cooked)
+    strokes = [key for layer in parsed["layers"] for shape in layer["shapes"]
+               for key in shape["keys"] if key["stroke"]]
+    assert strokes and all(len(key["outer"]) >= 2 and not key["holes"]
+                           for key in strokes)
+    assert cooked == reference.read_text(encoding="utf-8"), \
+        ("the cook no longer reproduces tests/assets/vectoranim/stroke.oanim "
+         "byte-identically - regenerate the fixture (python3 "
+         "Util/cook_vector_anim.py %s) and commit it" % source)
     checks += 1
 
     # --- advanced modifier fixture is pinned into the real C++ test suite --

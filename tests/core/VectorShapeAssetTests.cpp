@@ -112,11 +112,11 @@ TEST_CASE("vectorshape_parse_oshape_malformed", "[unit][vectorshape]")
 
 TEST_CASE("vectorshape_parse_ignores_reserved_words", "[unit][vectorshape]")
 {
-	// stroke/gradient are reserved for later phases: present but ignored, the
-	// shape still parses to its fill
+	// gradient paint stays a reserved word: present but ignored, the shape
+	// still parses to its fill
 	const String text =
 		"fill 0.5 0.5 0.5 1\n"
-		"stroke 0 0 0 1 0.1\n"
+		"gradient 0 0 1 1\n"
 		"contour 3\n"
 		"v 0 0\n"
 		"v 1 0\n"
@@ -125,6 +125,53 @@ TEST_CASE("vectorshape_parse_ignores_reserved_words", "[unit][vectorshape]")
 	REQUIRE(VectorShapeAsset::parse(text, regions));
 	REQUIRE(regions.size() == 1u);
 	CHECK(regions[0].outer.size() == 3u);
+}
+
+TEST_CASE("vectorshape_parse_stroke_region", "[unit][vectorshape][stroke]")
+{
+	// a stroke region: `contour` is the CENTRELINE (two points is a legal
+	// straight ribbon), no holes, plus an optional convex clip mask
+	const String text =
+		"version 2\n"
+		"fill 0 0 0 1\n"
+		"stroke 0.5 round bevel 4 open\n"
+		"contour 2\n"
+		"v 0 0\n"
+		"v 2 0\n"
+		"mask 4\n"
+		"v -1 -1\n"
+		"v 3 -1\n"
+		"v 3 1\n"
+		"v -1 1\n";
+	std::vector<VectorTessellator::Region> regions;
+	REQUIRE(VectorShapeAsset::parse(text, regions));
+	REQUIRE(regions.size() == 1u);
+	CHECK(regions[0].kind == VectorTessellator::REGION_STROKE);
+	CHECK(regions[0].strokeWidth == Approx(0.5f));
+	CHECK(regions[0].strokeCap == VectorTessellator::CAP_ROUND);
+	CHECK(regions[0].strokeJoin == VectorTessellator::JOIN_BEVEL);
+	CHECK_FALSE(regions[0].strokeClosed);
+	CHECK(regions[0].outer.size() == 2u);
+	CHECK(regions[0].mask.size() == 4u);
+}
+
+TEST_CASE("vectorshape_parse_refuses_malformed_stroke",
+	"[unit][vectorshape][stroke]")
+{
+	std::vector<VectorTessellator::Region> regions;
+	// an unknown cap word is not silently accepted
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 0 0 0 1\nstroke 1 flat miter 4 open\ncontour 2\nv 0 0\nv 1 0\n",
+		regions));
+	// a stroke carries no holes
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 0 0 0 1\nstroke 1 butt miter 4 open\ncontour 2\nv 0 0\nv 1 0\n"
+		"hole 3\nv 0 0\nv 1 0\nv 1 1\n", regions));
+	// a one-point centreline is no ribbon
+	CHECK_FALSE(VectorShapeAsset::parse(
+		"fill 0 0 0 1\nstroke 1 butt miter 4 open\ncontour 1\nv 0 0\n",
+		regions));
+	CHECK(regions.empty());
 }
 
 TEST_CASE("vectorshape_parse_morph_targets", "[unit][vectorshape]")

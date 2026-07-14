@@ -58,6 +58,27 @@ namespace Orkige
 			PAINT_LINEAR_GRADIENT,
 			PAINT_RADIAL_GRADIENT
 		};
+		//! what a region paints: an area (its contour is a closed boundary) or
+		//! a stroke (its contour is a CENTRELINE swept by strokeWidth)
+		enum RegionKind
+		{
+			REGION_FILL,
+			REGION_STROKE
+		};
+		//! how an OPEN stroke's ends are finished
+		enum StrokeCap
+		{
+			CAP_BUTT,		//!< the end stops at the last centreline point
+			CAP_ROUND,		//!< a half-disc of radius strokeWidth/2
+			CAP_SQUARE		//!< the ribbon projects strokeWidth/2 past the end
+		};
+		//! how a stroke turns a corner
+		enum StrokeJoin
+		{
+			JOIN_MITER,		//!< extend both edges to their crossing (limited)
+			JOIN_ROUND,		//!< an arc of radius strokeWidth/2
+			JOIN_BEVEL		//!< one triangle across the corner
+		};
 		struct GradientStop
 		{
 			float offset;
@@ -66,20 +87,33 @@ namespace Orkige
 			GradientStop(float at, Colour const & value)
 				: offset(at), colour(value) {}
 		};
-		//! one flattened filled region: a closed outer contour, optional inner
-		//! loops (holes), and one flat fill colour. Contours are already
+		//! one flattened region: a FILL (closed outer contour + optional holes)
+		//! or a STROKE (outer is the centreline, swept by strokeWidth). Both
+		//! carry one paint (flat colour or gradient). Contours are already
 		//! bezier-flattened (the cook does it); the runtime reads polylines.
 		struct Region
 		{
-			std::vector<Point>				outer;	//!< closed outer contour (no repeated last point)
-			std::vector<std::vector<Point> >	holes;	//!< optional inner loops cut out of the fill
+			std::vector<Point>				outer;	//!< fill: closed outer contour (no repeated last point); stroke: the centreline
+			std::vector<std::vector<Point> >	holes;	//!< optional inner loops cut out of the fill (fill regions only)
 			Colour							fill;	//!< flat fill colour of the region
 			PaintType						paintType;	//!< solid, linear or radial
 			Point							gradientStart;
 			Point							gradientEnd;
 			Point							gradientFocal;	//!< radial focal point; start by default
 			std::vector<GradientStop>			gradientStops;
-			Region() : paintType(PAINT_SOLID) {}
+			RegionKind						kind;		//!< area or stroke (@see RegionKind)
+			float							strokeWidth;	//!< full ribbon width (stroke regions)
+			StrokeCap						strokeCap;	//!< end finish of an OPEN stroke
+			StrokeJoin						strokeJoin;	//!< corner finish
+			float							strokeMiterLimit;	//!< miter length / half width ceiling; beyond it the corner bevels
+			bool							strokeClosed;	//!< the centreline is a closed loop (no caps)
+			//! optional CONVEX clip polygon (a layer mask): stroke geometry is
+			//! clipped against it. Empty = unclipped. A fill region's contour is
+			//! clipped where it is authored/cooked, so this is stroke-only.
+			std::vector<Point>				mask;
+			Region() : paintType(PAINT_SOLID), kind(REGION_FILL),
+				strokeWidth(0.0f), strokeCap(CAP_BUTT), strokeJoin(JOIN_MITER),
+				strokeMiterLimit(4.0f), strokeClosed(false) {}
 		};
 		//! a 2D axis-aligned bounds (thumbnail/fit + feather-width derivation)
 		struct Bounds
@@ -131,6 +165,30 @@ namespace Orkige
 		//! contributes nothing.
 		static void triangulateFill(Region const & region, Mesh & out);
 
+		//! @brief sweep ONE stroke region's centreline into triangles, APPENDING
+		//! to out. The ribbon is emitted as independently CONVEX pieces - a quad
+		//! per segment, a wedge per interior corner (round fan / limited miter /
+		//! bevel) and a cap per open end - NOT as one offset outline handed to a
+		//! triangulator: an offset outline self-intersects wherever the path
+		//! curves tighter than the half width or doubles back, and a triangulator
+		//! needs a SIMPLE polygon, so such a corner produces garbage (spikes and
+		//! filaments). Convex pieces cannot: each is valid on its own and pieces
+		//! may overlap harmlessly. Overlap is only visible for a TRANSLUCENT
+		//! stroke, where a join blends twice (an opaque stroke - the common case -
+		//! is exact). A non-stroke region, a width <= 0 or fewer than 2
+		//! centreline points contributes nothing. An optional convex region.mask
+		//! clips every piece.
+		static void appendStroke(Region const & region, Mesh & out);
+
+		//! @brief append the alpha-ramp feather rim of a stroke region: the same
+		//! soft edge appendFeather gives a fill, walked along the ribbon's two
+		//! offset boundaries (joins and caps included), extruded outward by
+		//! width. Where the rim crosses the ribbon's own overlap it draws the
+		//! stroke's colour over the stroke's colour, which is invisible. A width
+		//! <= 0 or a non-stroke region contributes nothing.
+		static void appendStrokeFeather(Region const & region, float width,
+			Mesh & out);
+
 		//! @brief append an alpha-ramp feather strip along a closed contour: a
 		//! one-quad-per-edge ring whose INNER edge sits on the contour at the
 		//! fill colour (alpha = fill.a) and whose OUTER edge is the same rgb at
@@ -141,14 +199,16 @@ namespace Orkige
 		static void appendFeather(std::vector<Point> const & contour,
 			Colour const & fill, float width, Mesh & out);
 
-		//! @brief full build: triangulate every region's fill, then feather
-		//! every region's OUTER contour, into one mesh. featherWidth <= 0 skips
-		//! the feather entirely. The mesh's bounds cover the fill regions.
+		//! @brief full build: paint every region in order (a fill is triangulated,
+		//! a stroke is swept into convex pieces), then feather every region's
+		//! edge, into one mesh. featherWidth <= 0 skips the feather entirely.
+		//! The mesh's bounds cover the painted regions.
 		static void build(std::vector<Region> const & regions,
 			float featherWidth, Mesh & out);
 
 		//--- helpers -----------------------------------------------
-		//! @brief bounds over every region's OUTER contour (fill extent)
+		//! @brief bounds over every region's painted extent (a fill's outer
+		//! contour; a stroke's centreline grown by its half width)
 		static Bounds computeBounds(std::vector<Region> const & regions);
 		//! @brief the default feather width for a shape of the given bounds:
 		//! a small fraction of the bounding diagonal, so the soft edge stays

@@ -18,15 +18,18 @@ namespace Orkige
 {
 	namespace
 	{
-		//! which loop the current `contour`/`hole` run is filling
+		//! which loop the current `contour`/`hole`/`mask` run is filling
 		enum FillTarget
 		{
 			TARGET_NONE,
 			TARGET_OUTER,
-			TARGET_HOLE
+			TARGET_HOLE,
+			TARGET_MASK
 		};
 
-		//! @brief every filled region must be fillable: outer >= 3, holes >= 3
+		//! @brief every region must be paintable: a fill needs outer >= 3 and
+		//! holes >= 3, a stroke needs a centreline of >= 2 points (a two-point
+		//! ribbon is a legitimate straight stroke) and no holes
 		bool validateRegions(
 			std::vector<VectorTessellator::Region> const & regions)
 		{
@@ -36,6 +39,19 @@ namespace Orkige
 			}
 			for(VectorTessellator::Region const & region : regions)
 			{
+				if(region.kind == VectorTessellator::REGION_STROKE)
+				{
+					if(region.outer.size() < 2 || region.strokeWidth < 0.0f ||
+						!region.holes.empty())
+					{
+						return false;
+					}
+					if(!region.mask.empty() && region.mask.size() < 3)
+					{
+						return false;
+					}
+					continue;
+				}
 				if(region.outer.size() < 3)
 				{
 					return false;
@@ -51,6 +67,36 @@ namespace Orkige
 			}
 			return true;
 		}
+	}
+	//---------------------------------------------------------
+	bool VectorShapeAsset::parseStrokeSpec(std::istringstream & tokens,
+		VectorTessellator::Region & region)
+	{
+		float width = 0.0f;
+		String cap, join, ends;
+		float miterLimit = 0.0f;
+		// a zero width is legal and paints nothing (a source may animate a
+		// stroke's width to 0 to hide it); a negative one is malformed
+		if(!(tokens >> width >> cap >> join >> miterLimit >> ends) ||
+			width < 0.0f || miterLimit < 1.0f)
+		{
+			return false;
+		}
+		if(cap == "butt") { region.strokeCap = VectorTessellator::CAP_BUTT; }
+		else if(cap == "round") { region.strokeCap = VectorTessellator::CAP_ROUND; }
+		else if(cap == "square") { region.strokeCap = VectorTessellator::CAP_SQUARE; }
+		else { return false; }
+		if(join == "miter") { region.strokeJoin = VectorTessellator::JOIN_MITER; }
+		else if(join == "round") { region.strokeJoin = VectorTessellator::JOIN_ROUND; }
+		else if(join == "bevel") { region.strokeJoin = VectorTessellator::JOIN_BEVEL; }
+		else { return false; }
+		if(ends == "open") { region.strokeClosed = false; }
+		else if(ends == "closed") { region.strokeClosed = true; }
+		else { return false; }
+		region.kind = VectorTessellator::REGION_STROKE;
+		region.strokeWidth = width;
+		region.strokeMiterLimit = miterLimit;
+		return true;
 	}
 	//---------------------------------------------------------
 	bool VectorShapeAsset::parse(String const & text,
@@ -114,6 +160,10 @@ namespace Orkige
 				{
 					region.outer.push_back(VectorTessellator::Point(x, y));
 				}
+				else if(target == TARGET_MASK)
+				{
+					region.mask.push_back(VectorTessellator::Point(x, y));
+				}
 				else
 				{
 					region.holes.back().push_back(
@@ -139,6 +189,16 @@ namespace Orkige
 				haveRegion = true;
 				target = TARGET_NONE;
 			}
+			else if(keyword == "stroke")
+			{
+				// the open region becomes a stroke: its contour is a centreline
+				if(remaining != 0 || !haveRegion ||
+					!current->back().outer.empty() ||
+					!parseStrokeSpec(tokens, current->back()))
+				{
+					return false;
+				}
+			}
 			else if(keyword == "contour")
 			{
 				int count = 0;
@@ -155,13 +215,26 @@ namespace Orkige
 			{
 				int count = 0;
 				if(remaining != 0 || !haveRegion || !(tokens >> count) ||
-					count <= 0)
+					count <= 0 ||
+					current->back().kind != VectorTessellator::REGION_FILL)
 				{
-					return false;
+					return false;	// a stroke has no holes
 				}
 				current->back().holes.push_back(
 					std::vector<VectorTessellator::Point>());
 				target = TARGET_HOLE;
+				remaining = count;
+			}
+			else if(keyword == "mask")
+			{
+				int count = 0;
+				if(remaining != 0 || !haveRegion ||
+					!current->back().mask.empty() || !(tokens >> count) ||
+					count < 3)
+				{
+					return false;
+				}
+				target = TARGET_MASK;
 				remaining = count;
 			}
 			else if(keyword == "morph")

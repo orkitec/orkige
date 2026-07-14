@@ -7,7 +7,7 @@ carved into named clips (idle/walk/run/...), evaluated by the pure
 `.oanim` text asset is the animated sibling of `.oshape` — same fill/contour
 vocabulary, same agent-authorable plain text.
 
-## The `.oanim` format (v1)
+## The `.oanim` format (v2)
 
 One token stream, `#` starts a line comment, indentation is cosmetic.
 Coordinates are shape-local units, +y up (the `.oshape` space); colours are
@@ -15,7 +15,7 @@ straight RGBA 0..1. The authoritative grammar lives in
 `orkige_core/core_util/VectorAnimAsset.h`; summary:
 
 ```
-version 1
+version 2
 fps 30                          # frames per second (> 0), required
 duration 60                     # timeline length in frames (> 0), required
 clip idle 0 30 loop             # name start end loop|once — header, unique names;
@@ -39,6 +39,20 @@ layer body parent 0             #   frames strictly increasing, within 0..durati
       v -1  1
     kf 30
       ...
+layer ink parent 0              # a STROKE region (v2): the contour is a CENTRELINE
+  shape k 1                     #   the renderer sweeps, not a filled boundary
+    kf 0
+      fill 0.1 0.1 0.1 1        # stroke W CAP JOIN LIMIT ENDS
+      stroke 0.08 round round 4 open   #   CAP butt|round|square, JOIN miter|round|bevel,
+      contour 3                 #   LIMIT = miter ceiling in half widths,
+      v -1 0                    #   ENDS open|closed (a closed centreline has no caps)
+      v  0 1                    # W animates across keys; the style does not.
+      v  1 0                    # A stroke takes no `hole`; 2 points is a legal ribbon.
+      mask 4                    # optional CONVEX clip polygon (a cooked layer mask)
+      v -2 -2
+      v  2 -2
+      v  2  2
+      v -2  2
 ```
 
 Easing: `lin` is linear, `hold` is constant until the next key, `ease` is a
@@ -47,11 +61,50 @@ fraction (clamped to 0..1 so time stays monotone), y the value fraction (free,
 for overshoot). This is the whole runtime interpolator vocabulary by design:
 anything richer in an imported source is densified into extra keys at cook.
 
+v2 only ADDED `stroke`/`mask`, so every v1 file is a valid v2 file.
+
 Malformation honesty: `VectorAnimAsset::parse` returns false and an EMPTY
 document on any malformation (missing header, bad clip ranges, forward/self
 parents, truncated key or vertex runs, topology mismatches) — never a
 half-loaded rig. Unknown keywords between complete elements are reserved and
 ignored.
+
+## Strokes
+
+A stroke is NOT expanded into a filled outline. The asset carries the
+CENTRELINE plus a width/cap/join/limit (a `stroke` region), and
+`VectorTessellator::appendStroke` sweeps it into geometry at build time:
+
+- a **quad** per segment (the ribbon between the two offset edges),
+- a **wedge** per interior corner on the OUTER side of the turn (a round fan, a
+  miter limited to `LIMIT` half widths, or a bevel triangle) — the inner side
+  needs nothing, the two segment quads already overlap there,
+- a **cap** per open end (butt = nothing, square = a quad, round = a half disc).
+
+Every piece is CONVEX and independently valid, so no triangulator is involved.
+That is the whole point: an offset outline self-intersects wherever the path
+curves tighter than the half width, doubles back, or has a near-degenerate
+segment, and a triangulator (which requires a SIMPLE polygon) turns such an
+outline into stray spikes, filaments and streaks. Overlapping convex pieces
+cannot. Both render flavors share this one pure implementation, so they stay
+pixel-identical by construction.
+
+The soft edge (the engine forces FSAA 0, so edge AA is baked geometry) walks the
+ribbon's two offset boundaries — joins and caps included — as an alpha ramp,
+clamped to the stroke's own width so a hairline is not swallowed by a halo.
+Where a rim quad crosses the ribbon's own overlap it paints the stroke's colour
+over the stroke's colour, which is invisible.
+
+HONEST LIMIT: a TRANSLUCENT stroke double-blends where pieces overlap (a sharp
+corner's join wedge over the segment quads, and the rim over the ribbon), so its
+corners read slightly darker. An opaque stroke — the common case, and what
+flat-colour vector art uses — is exact. Removing that would need either a
+stencil/depth pre-pass or a stroke-to-fill boolean union; neither is worth its
+cost here.
+
+Layer masks over strokes ride along: the cooked convex mask polygon travels with
+the region (`mask`) and every piece (fill and rim) is clipped convex-against-
+convex before it is emitted — again no triangulator.
 
 ## The evaluator (`core_util/VectorAnimEval`)
 
@@ -70,7 +123,9 @@ shape's region in its layer's own space.
   (`local(v) = pos + R(rot) · (scale · (v − anchor))`, opacity multiplied down
   the chain into fill alpha) and emit a `VectorTessellator::Region` list in
   paint order with CONSTANT topology across frames — a consumer tessellates
-  once and then only moves vertices.
+  once and then only moves vertices. A stroke region's WIDTH rides the same
+  chain (scaled by the world affine's area factor, the honest scalar under a
+  non-uniform scale), as does its mask.
 - `setClip` / `crossFadeTo(clip, seconds)` / `update(dt)` — playback with
   crossfades: BOTH clips keep advancing while a smoothstepped weight ramps
   0 → 1, then the outgoing clip is dropped (steady-state cost = one clip).
@@ -105,7 +160,7 @@ scale so the composition's larger side spans `--extent` world units (default
 carries the centering); rotations negate (to CCW, +y up); Lottie scale 100 →
 1.0 and opacity 100 → 1.0; value beziers carry over 1:1.
 
-### Subset (v1)
+### Subset
 
 | Source feature | Cooks to |
 |---|---|
@@ -119,8 +174,8 @@ carries the centering); rotations negate (to CCW, +y up); Lottie scale 100 →
 | position/anchor/scale/rotation/opacity keyframes | the five transform channels, easing preserved |
 | bezier path (`sh`), ellipse (`el`), rect (`rc`, incl. rounded), polystar (`sr`) | flattened contours; animated primitive parameters preserve one fixed topology |
 | flat fill (`fl`), linear/radial gradient fill (`gf`) | per-key paint; animated colours, stops, endpoints, radial focal highlight/angle and opacity; fill rule (nonzero/evenodd) drives hole assignment |
-| stroke / gradient stroke (`st` / `gs`) | resolution-independent filled outlines with butt/round/square caps, miter/round/bevel joins, animated width/paint and dash/gap/offset patterns |
-| parallel trim path (`tm`, `m` 1) | the flattened centreline is length-trimmed before stroke expansion; animated start/end/offset stays fixed-topology |
+| stroke / gradient stroke (`st` / `gs`) | a `stroke` REGION — the flattened centreline plus width/cap/join/limit, swept by the renderer (see [Strokes](#strokes)) — with butt/round/square caps, miter/round/bevel joins, animated width/paint and dash/gap/offset patterns (one region per dash) |
+| parallel trim path (`tm`, `m` 1) | the flattened centreline is length-trimmed before it becomes the stroke region; animated start/end/offset stays fixed-topology |
 | rounded corners (`rd`), pucker/bloat (`pb`) | modifiers bake into path poses, including animated amounts |
 | additive merge (`mm` 1) | input contours remain separate and are tessellated together |
 | group (`gr`) | recursed; static and animated position/anchor/scale/rotation bake into shape poses; animated group opacity folds into paint alpha |
@@ -177,10 +232,16 @@ text directly (see the grammar above) — the cook is an on-ramp, not a gate.
 
 Verification: `cook_vector_anim_selftest` (a unit ctest) cooks embedded
 fixtures for every mapped feature and every error path, and re-cooks
-`tests/assets/vectoranim/roundtrip.json` asserting byte identity with the
-committed `roundtrip.oanim`; the `cook_vector_anim_roundtrip` unit test feeds
-that same `.oanim` through the real parser + evaluator and pins evaluated
-poses (rotation easing, parent composition, colour animation).
+`tests/assets/vectoranim/roundtrip.json` and `stroke.json` asserting byte
+identity with the committed `.oanim` beside each; the
+`cook_vector_anim_roundtrip` unit test feeds that same `.oanim` through the real
+parser + evaluator and pins evaluated poses (rotation easing, parent
+composition, colour animation), and `cook_vector_anim_stroke_regions_sweep_clean`
+pins the stroke fixture — a hairpin whose curvature is far tighter than its half
+width plus a closed ring with an animated width — asserting the swept geometry
+never escapes the ribbon. The sweep itself (segment quads, every join and cap,
+the miter-limit fallback, tight curvature, degenerate segments, the mask clip)
+is pinned in `tests/core/VectorTessellatorTests.cpp`.
 
 ## In the editor: import, thumbnails and preview
 

@@ -403,3 +403,325 @@ TEST_CASE("vectortess_feather_clamped_to_region_thickness",
 		bigBeyond = std::max(bigBeyond, std::abs(p.x) - 1.0f);
 	CHECK(bigBeyond == Approx(0.05f).margin(0.02f));
 }
+
+// --- stroke sweep ----------------------------------------------------------
+// A stroke is swept as convex pieces (segment quads, join wedges, caps) instead
+// of one offset OUTLINE handed to the triangulator: an outline self-intersects
+// wherever the path curves tighter than the half width, and a self-intersecting
+// polygon makes a triangulator emit garbage (the spikes/filaments defect).
+
+namespace
+{
+	//! a stroke region over a centreline, in the given style
+	Region strokeRegion(std::vector<Point> const & centreline, float width,
+		VectorTessellator::StrokeCap cap, VectorTessellator::StrokeJoin join,
+		bool closed)
+	{
+		Region region;
+		region.kind = VectorTessellator::REGION_STROKE;
+		region.fill = Colour(0.0f, 0.0f, 0.0f, 1.0f);
+		region.outer = centreline;
+		region.strokeWidth = width;
+		region.strokeCap = cap;
+		region.strokeJoin = join;
+		region.strokeClosed = closed;
+		return region;
+	}
+
+	//! is p inside (or on) any triangle of the mesh
+	bool meshCovers(Mesh const & mesh, Point const & p, float epsilon = 1e-4f)
+	{
+		for(std::size_t t = 0; t < mesh.indices.size(); t += 3)
+		{
+			Point const & a = mesh.positions[mesh.indices[t + 0]];
+			Point const & b = mesh.positions[mesh.indices[t + 1]];
+			Point const & c = mesh.positions[mesh.indices[t + 2]];
+			const float d1 = (p.x - b.x) * (a.y - b.y) - (a.x - b.x) * (p.y - b.y);
+			const float d2 = (p.x - c.x) * (b.y - c.y) - (b.x - c.x) * (p.y - c.y);
+			const float d3 = (p.x - a.x) * (c.y - a.y) - (c.x - a.x) * (p.y - a.y);
+			const bool negative = (d1 < -epsilon) || (d2 < -epsilon) ||
+				(d3 < -epsilon);
+			const bool positive = (d1 > epsilon) || (d2 > epsilon) ||
+				(d3 > epsilon);
+			if(!(negative && positive))
+			{
+				return true;	// same sign (or on an edge): inside
+			}
+		}
+		return false;
+	}
+
+	//! the farthest any mesh vertex sits from the centreline's own points
+	float maxDistanceFromPoints(Mesh const & mesh,
+		std::vector<Point> const & points)
+	{
+		float worst = 0.0f;
+		for(Point const & v : mesh.positions)
+		{
+			float best = 1e30f;
+			for(Point const & p : points)
+			{
+				const float dx = v.x - p.x;
+				const float dy = v.y - p.y;
+				const float distance = std::sqrt(dx * dx + dy * dy);
+				best = std::min(best, distance);
+			}
+			worst = std::max(worst, best);
+		}
+		return worst;
+	}
+}
+
+TEST_CASE("vectortessellator_stroke_segment_is_a_quad",
+	"[unit][vectorshape][stroke]")
+{
+	// one straight segment, butt caps: exactly the 2-triangle ribbon, and its
+	// area is length * width
+	std::vector<Point> line;
+	line.push_back(Point(0.0f, 0.0f));
+	line.push_back(Point(4.0f, 0.0f));
+	Mesh mesh;
+	VectorTessellator::appendStroke(strokeRegion(line, 0.5f,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_MITER, false),
+		mesh);
+	CHECK(mesh.triangleCount() == 2u);
+	CHECK(meshTriangleArea(mesh) == Approx(4.0f * 0.5f));
+	CHECK(meshCovers(mesh, Point(2.0f, 0.2f)));
+	CHECK_FALSE(meshCovers(mesh, Point(2.0f, 0.4f)));	// outside the half width
+}
+
+TEST_CASE("vectortessellator_stroke_caps", "[unit][vectorshape][stroke]")
+{
+	std::vector<Point> line;
+	line.push_back(Point(0.0f, 0.0f));
+	line.push_back(Point(4.0f, 0.0f));
+	const float width = 1.0f;
+	Mesh butt;
+	VectorTessellator::appendStroke(strokeRegion(line, width,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_MITER, false),
+		butt);
+	Mesh square;
+	VectorTessellator::appendStroke(strokeRegion(line, width,
+		VectorTessellator::CAP_SQUARE, VectorTessellator::JOIN_MITER, false),
+		square);
+	Mesh round;
+	VectorTessellator::appendStroke(strokeRegion(line, width,
+		VectorTessellator::CAP_ROUND, VectorTessellator::JOIN_MITER, false),
+		round);
+
+	// butt stops at the end point; square projects half a width; round adds a
+	// half disc (area = pi r^2 over the two ends)
+	CHECK(meshTriangleArea(butt) == Approx(4.0f));
+	CHECK(meshTriangleArea(square) == Approx(4.0f + 2.0f * 0.5f * width));
+	CHECK(meshTriangleArea(round) ==
+		Approx(4.0f + 3.14159265f * 0.25f).margin(0.03f));
+	CHECK_FALSE(meshCovers(butt, Point(4.2f, 0.0f)));
+	CHECK(meshCovers(square, Point(4.2f, 0.4f)));
+	CHECK(meshCovers(round, Point(4.2f, 0.0f)));
+	// the disc is round where the square cap's box is not
+	CHECK_FALSE(meshCovers(round, Point(4.4f, 0.4f)));
+	CHECK(meshCovers(square, Point(4.4f, 0.4f)));
+}
+
+TEST_CASE("vectortessellator_stroke_joins", "[unit][vectorshape][stroke]")
+{
+	// a right-angle corner: the three join kinds fill the outer corner
+	// differently, but all of them cover the inner corner and none spike
+	std::vector<Point> corner;
+	corner.push_back(Point(0.0f, 0.0f));
+	corner.push_back(Point(4.0f, 0.0f));
+	corner.push_back(Point(4.0f, 4.0f));
+	const float width = 2.0f;	// half width 1: the corner is well inside it
+
+	Mesh miter;
+	VectorTessellator::appendStroke(strokeRegion(corner, width,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_MITER, false),
+		miter);
+	Mesh bevel;
+	VectorTessellator::appendStroke(strokeRegion(corner, width,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_BEVEL, false),
+		bevel);
+	Mesh round;
+	VectorTessellator::appendStroke(strokeRegion(corner, width,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_ROUND, false),
+		round);
+
+	// the outer corner of a 90 degree turn: the miter reaches (5,-1), the bevel
+	// cuts it off, the round arc sits between the two
+	CHECK(meshCovers(miter, Point(4.9f, -0.9f)));
+	CHECK_FALSE(meshCovers(bevel, Point(4.9f, -0.9f)));
+	CHECK_FALSE(meshCovers(round, Point(4.9f, -0.9f)));
+	CHECK(meshCovers(round, Point(4.6f, -0.6f)));	// inside the arc radius
+	CHECK(meshTriangleArea(miter) > meshTriangleArea(round));
+	CHECK(meshTriangleArea(round) > meshTriangleArea(bevel));
+	// every kind covers the inside of the corner (the segment quads overlap)
+	CHECK(meshCovers(bevel, Point(3.5f, 0.5f)));
+}
+
+TEST_CASE("vectortessellator_stroke_miter_limit_falls_back",
+	"[unit][vectorshape][stroke]")
+{
+	// a hairpin turn: an unlimited miter would spike to infinity, the limit
+	// pulls the corner back to a bevel-like stub
+	std::vector<Point> hairpin;
+	hairpin.push_back(Point(0.0f, 0.0f));
+	hairpin.push_back(Point(4.0f, 0.0f));
+	hairpin.push_back(Point(0.2f, 0.4f));
+	Region region = strokeRegion(hairpin, 1.0f, VectorTessellator::CAP_BUTT,
+		VectorTessellator::JOIN_MITER, false);
+	region.strokeMiterLimit = 2.0f;
+	Mesh mesh;
+	VectorTessellator::appendStroke(region, mesh);
+
+	// no vertex may sit further from the path than the miter limit allows
+	// (limit * half width), so the spike is impossible by construction
+	CHECK(maxDistanceFromPoints(mesh, hairpin) <= 2.0f * 0.5f + 1e-3f);
+	// a bigger limit lets the same corner reach further out
+	region.strokeMiterLimit = 8.0f;
+	Mesh generous;
+	VectorTessellator::appendStroke(region, generous);
+	CHECK(maxDistanceFromPoints(generous, hairpin) >
+		maxDistanceFromPoints(mesh, hairpin));
+}
+
+TEST_CASE("vectortessellator_stroke_tight_curvature_is_clean",
+	"[unit][vectorshape][stroke]")
+{
+	// THE regression: a path whose curvature radius is far smaller than the
+	// stroke half width. Its offset OUTLINE self-intersects (the inner offset
+	// doubles back through itself), which is exactly what makes a triangulator
+	// emit stray spikes/filaments. The convex-piece sweep cannot: every vertex
+	// stays within half a width (plus the miter allowance) of the centreline,
+	// and the ribbon still covers the path.
+	std::vector<Point> spiral;
+	const int steps = 24;
+	for(int i = 0; i <= steps; ++i)
+	{
+		const float t = static_cast<float>(i) / static_cast<float>(steps);
+		const float angle = t * 6.0f;
+		const float radius = 0.05f + 0.15f * t;	// far tighter than the half width
+		spiral.push_back(Point(radius * std::cos(angle),
+			radius * std::sin(angle)));
+	}
+	Region region = strokeRegion(spiral, 1.0f, VectorTessellator::CAP_ROUND,
+		VectorTessellator::JOIN_ROUND, false);
+	Mesh mesh;
+	VectorTessellator::appendStroke(region, mesh);
+	REQUIRE(mesh.triangleCount() > 0u);
+	// no filament: nothing reaches past the half width from the centreline
+	CHECK(maxDistanceFromPoints(mesh, spiral) <= 0.5f + 1e-3f);
+	// and the ribbon really is painted along the path
+	CHECK(meshCovers(mesh, spiral[steps / 2]));
+}
+
+TEST_CASE("vectortessellator_stroke_degenerate_input",
+	"[unit][vectorshape][stroke]")
+{
+	// zero-length segments (duplicated authored points) and a zero width are
+	// honest no-ops / stable, never a crash or a spike
+	std::vector<Point> duplicated;
+	duplicated.push_back(Point(0.0f, 0.0f));
+	duplicated.push_back(Point(0.0f, 0.0f));
+	duplicated.push_back(Point(1.0f, 0.0f));
+	duplicated.push_back(Point(1.0f, 0.0f));
+	Mesh mesh;
+	VectorTessellator::appendStroke(strokeRegion(duplicated, 0.4f,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_MITER, false),
+		mesh);
+	CHECK(meshTriangleArea(mesh) == Approx(1.0f * 0.4f).margin(1e-3f));
+	CHECK(maxDistanceFromPoints(mesh, duplicated) <= 0.2f + 1e-3f);
+
+	Mesh empty;
+	std::vector<Point> single;
+	single.push_back(Point(0.0f, 0.0f));
+	VectorTessellator::appendStroke(strokeRegion(single, 1.0f,
+		VectorTessellator::CAP_ROUND, VectorTessellator::JOIN_ROUND, false),
+		empty);
+	CHECK(empty.triangleCount() == 0u);
+	std::vector<Point> line;
+	line.push_back(Point(0.0f, 0.0f));
+	line.push_back(Point(1.0f, 0.0f));
+	VectorTessellator::appendStroke(strokeRegion(line, 0.0f,
+		VectorTessellator::CAP_ROUND, VectorTessellator::JOIN_ROUND, false),
+		empty);
+	CHECK(empty.triangleCount() == 0u);
+}
+
+TEST_CASE("vectortessellator_stroke_closed_ring", "[unit][vectorshape][stroke]")
+{
+	// a closed centreline has no caps and paints a ring: the band is covered,
+	// the middle of the ring is NOT
+	std::vector<Point> ring;
+	const int steps = 32;
+	for(int i = 0; i < steps; ++i)
+	{
+		const float angle = 6.2831853f * static_cast<float>(i) /
+			static_cast<float>(steps);
+		ring.push_back(Point(2.0f * std::cos(angle), 2.0f * std::sin(angle)));
+	}
+	Mesh mesh;
+	VectorTessellator::appendStroke(strokeRegion(ring, 0.4f,
+		VectorTessellator::CAP_BUTT, VectorTessellator::JOIN_ROUND, true),
+		mesh);
+	CHECK(meshCovers(mesh, Point(2.0f, 0.0f)));		// on the ring
+	CHECK_FALSE(meshCovers(mesh, Point(0.0f, 0.0f)));	// the hole stays empty
+	// area of an annulus of width 0.4 at radius 2 (a polygon ring is slightly
+	// smaller than the circle it approximates)
+	CHECK(meshTriangleArea(mesh) ==
+		Approx(2.0f * 3.14159265f * 2.0f * 0.4f).margin(0.15f));
+}
+
+TEST_CASE("vectortessellator_stroke_mask_clips", "[unit][vectorshape][stroke]")
+{
+	// a convex mask clips the ribbon (a cooked layer mask) - pieces are clipped
+	// convex-against-convex, so no triangulator is involved there either
+	std::vector<Point> line;
+	line.push_back(Point(-4.0f, 0.0f));
+	line.push_back(Point(4.0f, 0.0f));
+	Region region = strokeRegion(line, 1.0f, VectorTessellator::CAP_BUTT,
+		VectorTessellator::JOIN_MITER, false);
+	region.mask.push_back(Point(-1.0f, -1.0f));
+	region.mask.push_back(Point(1.0f, -1.0f));
+	region.mask.push_back(Point(1.0f, 1.0f));
+	region.mask.push_back(Point(-1.0f, 1.0f));
+	Mesh mesh;
+	VectorTessellator::appendStroke(region, mesh);
+	CHECK(meshTriangleArea(mesh) == Approx(2.0f * 1.0f));	// only the masked part
+	CHECK(meshCovers(mesh, Point(0.0f, 0.0f)));
+	CHECK_FALSE(meshCovers(mesh, Point(2.0f, 0.0f)));
+}
+
+TEST_CASE("vectortessellator_stroke_feather_rims_the_ribbon",
+	"[unit][vectorshape][stroke]")
+{
+	// build() sweeps the stroke and feathers its rim: the soft edge fades to
+	// alpha 0 just outside the ribbon, clamped to the stroke's own width so a
+	// hairline is not swallowed by a halo
+	std::vector<Point> line;
+	line.push_back(Point(0.0f, 0.0f));
+	line.push_back(Point(4.0f, 0.0f));
+	std::vector<Region> regions;
+	regions.push_back(strokeRegion(line, 0.2f, VectorTessellator::CAP_BUTT,
+		VectorTessellator::JOIN_MITER, false));
+	Mesh mesh;
+	VectorTessellator::build(regions, 1.0f, mesh);	// a wildly generous feather
+
+	float maxBeyond = 0.0f;
+	bool sawTransparent = false;
+	for(std::size_t i = 0; i < mesh.positions.size(); ++i)
+	{
+		maxBeyond = std::max(maxBeyond,
+			std::fabs(mesh.positions[i].y) - 0.1f);
+		if(mesh.colours[i].a < 0.01f)
+		{
+			sawTransparent = true;
+		}
+	}
+	CHECK(sawTransparent);				// the alpha ramp exists
+	CHECK(maxBeyond <= 0.2f + 1e-3f);	// clamped to the stroke's own width
+	// the bounds of a stroke cover the ribbon, not just the centreline
+	const VectorTessellator::Bounds bounds =
+		VectorTessellator::computeBounds(regions);
+	CHECK(bounds.minY == Approx(-0.1f));
+	CHECK(bounds.maxY == Approx(0.1f));
+}

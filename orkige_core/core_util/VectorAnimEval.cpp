@@ -92,8 +92,16 @@ namespace Orkige
 			dst.gradientEnd = src.gradientEnd;
 			dst.gradientFocal = src.gradientFocal;
 			dst.gradientStops = src.gradientStops;
+			dst.kind = src.kind;
+			dst.strokeWidth = src.strokeWidth;
+			dst.strokeCap = src.strokeCap;
+			dst.strokeJoin = src.strokeJoin;
+			dst.strokeMiterLimit = src.strokeMiterLimit;
+			dst.strokeClosed = src.strokeClosed;
 			dst.outer.resize(src.outer.size());
 			std::copy(src.outer.begin(), src.outer.end(), dst.outer.begin());
+			dst.mask.resize(src.mask.size());
+			std::copy(src.mask.begin(), src.mask.end(), dst.mask.begin());
 			dst.holes.resize(src.holes.size());
 			for(std::size_t h = 0; h < src.holes.size(); ++h)
 			{
@@ -132,12 +140,28 @@ namespace Orkige
 					lerp(a.gradientStops[i].colour.b, b.gradientStops[i].colour.b, t),
 					lerp(a.gradientStops[i].colour.a, b.gradientStops[i].colour.a, t));
 			}
+			// stroke style is fixed across a block's keys (the parser enforces
+			// it); only the centreline, the width and the paint animate
+			dst.kind = a.kind;
+			dst.strokeCap = a.strokeCap;
+			dst.strokeJoin = a.strokeJoin;
+			dst.strokeClosed = a.strokeClosed;
+			dst.strokeWidth = lerp(a.strokeWidth, b.strokeWidth, t);
+			dst.strokeMiterLimit = lerp(a.strokeMiterLimit, b.strokeMiterLimit,
+				t);
 			dst.outer.resize(a.outer.size());
 			for(std::size_t v = 0; v < a.outer.size(); ++v)
 			{
 				dst.outer[v] = VectorTessellator::Point(
 					lerp(a.outer[v].x, b.outer[v].x, t),
 					lerp(a.outer[v].y, b.outer[v].y, t));
+			}
+			dst.mask.resize(a.mask.size());
+			for(std::size_t v = 0; v < a.mask.size(); ++v)
+			{
+				dst.mask[v] = VectorTessellator::Point(
+					lerp(a.mask[v].x, b.mask[v].x, t),
+					lerp(a.mask[v].y, b.mask[v].y, t));
 			}
 			dst.holes.resize(a.holes.size());
 			for(std::size_t h = 0; h < a.holes.size(); ++h)
@@ -188,7 +212,10 @@ namespace Orkige
 			if(a.outer.size() != b.outer.size() ||
 				a.holes.size() != b.holes.size() ||
 				a.paintType != b.paintType ||
-				a.gradientStops.size() != b.gradientStops.size())
+				a.gradientStops.size() != b.gradientStops.size() ||
+				a.kind != b.kind || a.mask.size() != b.mask.size() ||
+				a.strokeCap != b.strokeCap || a.strokeJoin != b.strokeJoin ||
+				a.strokeClosed != b.strokeClosed)
 			{
 				return false;
 			}
@@ -284,7 +311,14 @@ namespace Orkige
 				doc.layers[this->mShapeLayer[s]]
 					.shapes[this->mShapeIndex[s]].keys.front().region;
 			Region & region = pose.shapes[s];
+			region.kind = reference.kind;
+			region.strokeCap = reference.strokeCap;
+			region.strokeJoin = reference.strokeJoin;
+			region.strokeClosed = reference.strokeClosed;
+			region.strokeWidth = reference.strokeWidth;
+			region.strokeMiterLimit = reference.strokeMiterLimit;
 			region.outer.resize(reference.outer.size());
+			region.mask.resize(reference.mask.size());
 			region.holes.resize(reference.holes.size());
 			for(std::size_t h = 0; h < reference.holes.size(); ++h)
 			{
@@ -537,6 +571,24 @@ namespace Orkige
 			dst.gradientStart = transformPoint(src.gradientStart);
 			dst.gradientEnd = transformPoint(src.gradientEnd);
 			dst.gradientFocal = transformPoint(src.gradientFocal);
+			// a stroke's WIDTH rides the layer chain like its geometry: the
+			// area scale factor of the world affine (sqrt of |determinant|) is
+			// the one honest scalar for a width under a possibly non-uniform
+			// scale, and it degrades to the plain factor when the scale is
+			// uniform (the usual case)
+			dst.kind = src.kind;
+			dst.strokeCap = src.strokeCap;
+			dst.strokeJoin = src.strokeJoin;
+			dst.strokeClosed = src.strokeClosed;
+			dst.strokeMiterLimit = src.strokeMiterLimit;
+			const float determinant = std::fabs(world.a * world.d -
+				world.b * world.c);
+			dst.strokeWidth = src.strokeWidth * std::sqrt(determinant);
+			dst.mask.resize(src.mask.size());
+			for(std::size_t v = 0; v < src.mask.size(); ++v)
+			{
+				dst.mask[v] = transformPoint(src.mask[v]);
+			}
 			dst.outer.resize(src.outer.size());
 			for(std::size_t v = 0; v < src.outer.size(); ++v)
 			{

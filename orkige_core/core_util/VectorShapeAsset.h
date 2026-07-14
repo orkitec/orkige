@@ -18,21 +18,37 @@
 //! headless (orkige_core), unit-tested without a renderer; it turns the text
 //! into VectorTessellator::Region lists the tessellator consumes.
 //!
-//! Grammar (v1), one token stream, `#` starts a line comment:
-//!   version 1
-//!   fill  r g b a                 straight RGBA 0..1 - opens a filled region
-//!   contour N                     N follows as N `v x y` lines (the outer loop)
-//!   v  x y                        one contour/hole vertex (world units, +y up)
+//! Grammar (v2), one token stream, `#` starts a line comment:
+//!   version 2
+//!   fill  r g b a                 straight RGBA 0..1 - opens a region
+//!   stroke W CAP JOIN LIMIT ENDS  makes the open region a STROKE of width W:
+//!                                 its `contour` is a CENTRELINE the renderer
+//!                                 sweeps, not a filled boundary. CAP is
+//!                                 butt|round|square (how an open end finishes),
+//!                                 JOIN is miter|round|bevel (how a corner
+//!                                 turns), LIMIT is the miter ceiling in half
+//!                                 widths, ENDS is open|closed (a closed
+//!                                 centreline has no caps). It comes after
+//!                                 `fill`, before `contour`; a stroke takes no
+//!                                 `hole`, and its centreline may be 2 points.
+//!   contour N                     N follows as N `v x y` lines (the outer loop,
+//!                                 or the stroke's centreline)
+//!   v  x y                        one contour/hole/mask vertex (world units, +y up)
 //!   hole M                        optional inner loop cut out of the region
+//!   mask K                        optional CONVEX clip polygon (K >= 3 `v`
+//!                                 lines) the region's stroke is clipped against
+//!                                 - an authored/cooked layer mask
 //!   morph NAME                    opens a MORPH TARGET: a same-structure pose
 //!                                 (its own fill/contour/v/hole run) the runtime
 //!                                 blends toward for soft-shape squash/stretch
 //!                                 animation. Everything before the first `morph`
 //!                                 is the BASE pose; each `morph` starts another.
-//! Reserved words for later phases (stroke/gradient) are ignored when present.
+//! Reserved words (gradient paint) are ignored when present. A v1 file is a
+//! valid v2 file (v2 only ADDS the stroke/mask vocabulary).
 
 #include "core_util/VectorTessellator.h"
 #include <core_util/String.h>
+#include <sstream>
 #include <vector>
 
 namespace Orkige
@@ -72,6 +88,14 @@ namespace Orkige
 		//! agreement between base and morphs is NOT enforced here (the deformer
 		//! reports a mismatch), so a partly-authored file still loads its base.
 		static bool parse(String const & text, ParsedShape & out);
+
+		//! @brief parse the `stroke W CAP JOIN LIMIT ENDS` grammar fragment from
+		//! an open token stream into region (kind, width, cap, join, miter limit,
+		//! closedness). The `.oanim` shape keys reuse this VERBATIM - one
+		//! definition of the stroke vocabulary, two assets.
+		//! @return false on a malformed spec (region left untouched)
+		static bool parseStrokeSpec(std::istringstream & tokens,
+			VectorTessellator::Region & region);
 	};
 }
 

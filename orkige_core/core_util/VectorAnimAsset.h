@@ -20,10 +20,11 @@
 //! (@see VectorAnimEval) turns the parsed document into per-frame poses that
 //! feed VectorTessellator::Region streams.
 //!
-//! Grammar (v1), one token stream, `#` starts a line comment. Indentation is
-//! cosmetic; structure comes from the keywords alone:
+//! Grammar (v2), one token stream, `#` starts a line comment. Indentation is
+//! cosmetic; structure comes from the keywords alone. v2 ADDED the stroke/mask
+//! vocabulary, so every v1 file is a valid v2 file:
 //!
-//!   version 1
+//!   version 2
 //!   fps F                        frames per second (> 0); REQUIRED, before
 //!                                any clip/layer
 //!   duration D                   timeline length in frames (> 0); REQUIRED,
@@ -72,15 +73,28 @@
 //!   radial sx sy ex ey N         radial centre/radius gradient; optional
 //!   focal fx fy                  off-centre focal point before its N stops
 //!   stop at r g b a              ordered gradient stop (at = 0..1)
-//!   contour C                    C follows as C `v x y` lines (outer loop)
-//!   v x y                        one contour/hole vertex (shape-local, +y up)
+//!   stroke W CAP JOIN LIMIT ENDS makes the key's region a STROKE (@see
+//!                                VectorShapeAsset::parseStrokeSpec - the SAME
+//!                                grammar fragment): its `contour` is a
+//!                                CENTRELINE the renderer sweeps at width W,
+//!                                with butt|round|square caps, miter|round|bevel
+//!                                joins, a miter LIMIT in half widths and
+//!                                open|closed ENDS. W animates across keys; the
+//!                                cap/join/ends style does NOT (it is the
+//!                                block's identity). A stroke takes no `hole`.
+//!   contour C                    C follows as C `v x y` lines (outer loop, or
+//!                                a stroke's centreline - 2 points is legal)
+//!   v x y                        one contour/hole/mask vertex (shape-local, +y up)
 //!   hole H                       optional inner loop cut out of the fill
+//!   mask K                       optional CONVEX clip polygon (K >= 3 `v`
+//!                                lines) the key's stroke is clipped against -
+//!                                a layer mask, cooked per key
 //!                                EVERY key of one shape block MUST repeat the
 //!                                first key's topology exactly (same contour
-//!                                count, same hole counts) - the fixed-vertex-
-//!                                count law that makes path keys a pure vertex
-//!                                lerp (the `.oshape` morph discipline); a
-//!                                mismatch is malformed.
+//!                                count, same hole/mask counts, same stroke
+//!                                style) - the fixed-vertex-count law that makes
+//!                                path keys a pure vertex lerp (the `.oshape`
+//!                                morph discipline); a mismatch is malformed.
 //!
 //! Unknown keywords are reserved for later versions and ignored - but never
 //! inside an open key/vertex run, which would corrupt it. On ANY malformation
