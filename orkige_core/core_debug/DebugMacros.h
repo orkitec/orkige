@@ -55,6 +55,7 @@
 #endif //ORKIGE_DEBUG
 
 #include <cstring>
+#include <functional>
 #include <sstream>
 #include <string>
 //#undef _DEBUG //test defines
@@ -99,6 +100,19 @@ namespace Orkige
 	const char* logLevelName(int level);
 	//! register the log.<tag> + log.default cvars (idempotent; auto-run at startup)
 	void logInstallCVars();
+
+	//! extra log sink: a single optional callback handed every EMITTED (already
+	//! gated) line, for a consumer that surfaces the diagnostic stream in its
+	//! own UI (the editor Console). ONE slot by design - reuse-before-invent, a
+	//! subscriber list waits for a second consumer. It runs on the logging
+	//! thread AFTER the gate, so a disabled tag/level never reaches it.
+	//! LIFETIME: the consumer MUST logClearSink() before its captured state
+	//! dies; set/clear and the emit-time call share a mutex, so a clear cannot
+	//! return while a call is in flight (no dangling-callback teardown fault).
+	using LogSink =
+		std::function<void(int level, const char* tag, const char* message)>;
+	void logSetSink(LogSink sink);
+	void logClearSink();
 	/** @} End of "addtogroup Debug"*/
 }
 
@@ -238,6 +252,10 @@ inline bool __isNull(const void * pointer, const char* file, int line)
 	} while(0)
 
 #define oDebugMsg(tag, level, message)		ORKIGE_LOG_EMIT((tag), ::Orkige::LL_DEBUG, message)
+//! tagged WARN sibling of oDebugMsg/oDebugError (the unconditional counterpart
+//! to the condition-guarded oDebugWarning below): a recoverable anomaly the
+//! user should see. On by default, so it reaches the editor Console.
+#define oDebugWarn(tag, level, message)		ORKIGE_LOG_EMIT((tag), ::Orkige::LL_WARN, message)
 #define oDebugError(tag, level, message)	ORKIGE_LOG_EMIT((tag), ::Orkige::LL_ERROR, message)
 #define oDebugWrite(tag, level, message, priority, file, line)	ORKIGE_LOG_EMIT((tag), ::Orkige::LL_DEBUG, message)
 

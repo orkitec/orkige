@@ -320,7 +320,7 @@ void deleteAssetFile(std::string const& absolutePath)
 	fs::remove(absolutePath, ec);
 	fs::remove(absolutePath +
 		Orkige::AssetDatabase::META_FILE_EXTENSION, ec);
-	SDL_Log("orkige_editor: deleted asset '%s'", absolutePath.c_str());
+	oDebugMsg("editor.assets", 0, "deleted asset '" << absolutePath << "'");
 }
 
 //! rebuild the project's assets/ resource index after a filesystem change so a
@@ -366,8 +366,8 @@ bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
 	const fs::path dest = source.parent_path() / wanted;
 	if (fs::exists(dest, ec))
 	{
-		SDL_Log("orkige_editor: rename target '%s' already exists",
-			dest.string().c_str());
+		oDebugWarn("editor.assets", 0, "rename target '" << dest.string() <<
+			"' already exists");
 		return false;
 	}
 	optr<Orkige::AssetDatabase> const& database =
@@ -400,8 +400,8 @@ bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
 	}
 	if (!ok)
 	{
-		SDL_Log("orkige_editor: rename '%s' -> '%s' failed",
-			source.string().c_str(), dest.string().c_str());
+		oDebugError("editor.assets", 0, "rename '" << source.string() <<
+			"' -> '" << dest.string() << "' failed");
 		return false;
 	}
 	// the selection + thumbnail keys follow the asset to its new name
@@ -417,8 +417,8 @@ bool renameAssetEntry(EditorState& state, AssetBrowserItem const& item,
 	}
 	dropCachedThumbnail(state.assetBrowser, source.string());
 	reindexProjectAssets(state);	// the new bare name resolves again
-	SDL_Log("orkige_editor: renamed '%s' to '%s'", item.relativePath.c_str(),
-		newRel.c_str());
+	oDebugMsg("editor.assets", 0, "renamed '" << item.relativePath << "' to '" <<
+		newRel << "'");
 	return true;
 }
 
@@ -444,8 +444,8 @@ int moveAssetsIntoFolder(EditorState& state,
 		const fs::path dest = fs::path(destDir) / source.filename();
 		if (fs::exists(dest, ec))
 		{
-			SDL_Log("orkige_editor: '%s' already exists in the destination",
-				source.filename().string().c_str());
+			oDebugWarn("editor.assets", 0, "'" << source.filename().string() <<
+				"' already exists in the destination");
 			continue;
 		}
 		const bool isDir = fs::is_directory(source, ec);
@@ -467,8 +467,8 @@ int moveAssetsIntoFolder(EditorState& state,
 			}
 			if (intoOwnDescendant)
 			{
-				SDL_Log("orkige_editor: cannot move folder '%s' into itself",
-					source.string().c_str());
+				oDebugWarn("editor.assets", 0, "cannot move folder '" <<
+					source.string() << "' into itself");
 				continue;
 			}
 		}
@@ -503,8 +503,8 @@ int moveAssetsIntoFolder(EditorState& state,
 		}
 		if (!ok)
 		{
-			SDL_Log("orkige_editor: move '%s' -> '%s' failed",
-				source.string().c_str(), dest.string().c_str());
+			oDebugError("editor.assets", 0, "move '" << source.string() <<
+				"' -> '" << dest.string() << "' failed");
 			continue;
 		}
 		++moved;
@@ -519,8 +519,8 @@ int moveAssetsIntoFolder(EditorState& state,
 	if (moved > 0)
 	{
 		reindexProjectAssets(state);	// moved bare names resolve again
-		SDL_Log("orkige_editor: moved %d asset(s) into '%s'", moved,
-			destDir.c_str());
+		oDebugMsg("editor.assets", 0, "moved " << moved << " asset(s) into '" <<
+			destDir << "'");
 	}
 	return moved;
 }
@@ -574,8 +574,8 @@ int duplicateAssetEntries(EditorState& state,
 		state.assetBrowser.selection = copies;
 		state.assetBrowser.selectionAnchor = *copies.rbegin();
 		reindexProjectAssets(state);	// the copies resolve by bare name
-		SDL_Log("orkige_editor: duplicated %d asset(s)",
-			static_cast<int>(copies.size()));
+		oDebugMsg("editor.assets", 0, "duplicated " <<
+			static_cast<int>(copies.size()) << " asset(s)");
 	}
 	return static_cast<int>(copies.size());
 }
@@ -614,7 +614,7 @@ int deleteAssetEntries(EditorState& state,
 			database->refresh(state.project.getRootDirectory(), true);
 		}
 	}
-	SDL_Log("orkige_editor: deleted %d item(s)", deleted);
+	oDebugMsg("editor.assets", 0, "deleted " << deleted << " item(s)");
 	return deleted;
 }
 
@@ -1074,10 +1074,11 @@ std::string createFolderInDir(std::string const& dir, std::string const& name)
 	const fs::path target = fs::path(dir) / name;
 	if (fs::exists(target, ec) || !fs::create_directory(target, ec))
 	{
-		SDL_Log("orkige_editor: New Folder '%s' failed", target.string().c_str());
+		oDebugError("editor.assets", 0, "New Folder '" << target.string() <<
+			"' failed");
 		return "";
 	}
-	SDL_Log("orkige_editor: created folder '%s'", target.string().c_str());
+	oDebugMsg("editor.assets", 0, "created folder '" << target.string() << "'");
 	return target.string();
 }
 
@@ -1101,7 +1102,8 @@ std::string createScriptInDir(EditorState& state, std::string const& dir,
 		std::ofstream out(scriptPath, std::ios::binary | std::ios::trunc);
 		if (!out)
 		{
-			SDL_Log("orkige_editor: New Script '%s' failed", scriptPath.c_str());
+			oDebugError("editor.assets", 0, "New Script '" << scriptPath <<
+				"' failed");
 			return "";
 		}
 		out <<
@@ -1130,7 +1132,7 @@ std::string createScriptInDir(EditorState& state, std::string const& dir,
 			database->importAsset(scriptPath);
 		}
 	}
-	SDL_Log("orkige_editor: created script '%s'", scriptPath.c_str());
+	oDebugMsg("editor.assets", 0, "created script '" << scriptPath << "'");
 	return scriptPath;
 }
 
@@ -1154,7 +1156,7 @@ std::string createSceneInDir(std::string const& dir, std::string const& name)
 	optr<Orkige::XMLArchive> archive = Orkige::onew(new Orkige::XMLArchive());
 	if (!archive->startWriting(scenePath))
 	{
-		SDL_Log("orkige_editor: New Scene '%s' failed", scenePath.c_str());
+		oDebugError("editor.assets", 0, "New Scene '" << scenePath << "' failed");
 		return "";
 	}
 	Orkige::String magic = Orkige::SceneSerializer::SCENE_FORMAT_MAGIC;
@@ -1165,10 +1167,11 @@ std::string createSceneInDir(std::string const& dir, std::string const& name)
 	archive << objectCount;
 	if (!archive->stopWriting())
 	{
-		SDL_Log("orkige_editor: New Scene '%s' write error", scenePath.c_str());
+		oDebugError("editor.assets", 0, "New Scene '" << scenePath <<
+			"' write error");
 		return "";
 	}
-	SDL_Log("orkige_editor: created scene '%s'", scenePath.c_str());
+	oDebugMsg("editor.assets", 0, "created scene '" << scenePath << "'");
 	return scenePath;
 }
 
@@ -1288,8 +1291,8 @@ void openWithDefaultApp(std::string const& absolutePath)
 	const std::string url = fileUrlForPath(absolutePath);
 	if (!SDL_OpenURL(url.c_str()))
 	{
-		SDL_Log("orkige_editor: could not open '%s' with the default app - %s",
-			absolutePath.c_str(), SDL_GetError());
+		oDebugWarn("editor.assets", 0, "could not open '" << absolutePath <<
+			"' with the default app - " << SDL_GetError());
 	}
 }
 
@@ -1364,9 +1367,9 @@ void instantiateAssetIntoScene(EditorState& state, Orkige::EditorCore& core,
 		core.executeCommand(command);
 		return;
 	}
-	SDL_Log("orkige_editor: '%s' cannot be instantiated on its own "
-		"(add it to an object as a component instead)",
-		fs::path(absolutePath).filename().string().c_str());
+	oDebugWarn("editor.assets", 0, "'" <<
+		fs::path(absolutePath).filename().string() << "' cannot be instantiated "
+		"on its own (add it to an object as a component instead)");
 }
 
 void instantiateAssetsIntoScene(EditorState& state, Orkige::EditorCore& core,
@@ -1586,9 +1589,9 @@ bool applyTextureImportEdit(EditorState& state,
 		Orkige::AssetDatabase::writeMetaFile(metaFilePath, preservedId, texture);
 	if (ok)
 	{
-		SDL_Log("orkige_editor: wrote texture import settings for '%s' "
-			"(already-loaded sprites re-sample on the texture's next load)",
-			metaFilePath.c_str());
+		oDebugMsg("editor.assets", 0, "wrote texture import settings for '" <<
+			metaFilePath << "' (already-loaded sprites re-sample on the "
+			"texture's next load)");
 	}
 	return ok;
 }

@@ -14,6 +14,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+#include <vector>
+
 #include <core_debug/DebugMacros.h>
 #include <core_debug/CVarManager.h>
 #include <core_debug/Breadcrumbs.h>
@@ -149,4 +152,47 @@ TEST_CASE("log.<tag> cvar raises a tag's verbosity live", "[log][cvar][unit]")
 	REQUIRE(cvars.setString("log.render", "", &err));
 	CHECK(logTagEnabled("render", LL_ERROR));		// inherits default again
 	CHECK_FALSE(logTagEnabled("render", LL_DEBUG));
+}
+
+TEST_CASE("log extra sink receives gated lines and clears safely", "[log][unit]")
+{
+	const char * tag = "test.sink";
+	TagGuard guard(tag);
+	struct Captured { int level; std::string tag; std::string message; };
+	std::vector<Captured> lines;
+	logSetSink([&lines](int level, const char * t, const char * m)
+	{
+		lines.push_back({ level, t ? t : "", m ? m : "" });
+	});
+
+	// every level reaches the sink while the tag is fully verbose, tag+message
+	// arrive intact, and the sink runs on the emitting call (no async)
+	logSetTagLevel(tag, LL_DEBUG);
+	oDebugError(tag, 0, "an error line");
+	oDebugMsg(tag, 0, "a debug line");
+	REQUIRE(lines.size() == 2);
+	CHECK(lines[0].level == LL_ERROR);
+	CHECK(lines[0].tag == String(tag));
+	CHECK(lines[0].message == "an error line");
+	CHECK(lines[1].level == LL_DEBUG);
+	CHECK(lines[1].message == "a debug line");
+
+	// the sink fires AFTER the gate: a line quieter than the threshold never
+	// reaches it (same fast-reject contract as stderr)
+	lines.clear();
+	logSetTagLevel(tag, LL_ERROR);
+	oDebugMsg(tag, 0, "a suppressed debug line");	// debug < error -> gated
+	oDebugError(tag, 0, "a passing error line");
+	REQUIRE(lines.size() == 1);
+	CHECK(lines[0].message == "a passing error line");
+
+	// after clearing, no further line reaches the (now-gone) sink - the
+	// unregister is explicit and complete, so a captured reference can never
+	// dangle past the consumer's lifetime (the guard mutex also blocks a clear
+	// until any in-flight call returns)
+	logClearSink();
+	lines.clear();
+	logSetTagLevel(tag, LL_DEBUG);
+	oDebugError(tag, 0, "after clear");
+	CHECK(lines.empty());
 }

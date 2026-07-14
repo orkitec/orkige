@@ -22,6 +22,7 @@
 // classic GLX cannot do it, Ogre-Next 3.0 has no Vulkan Wayland windowing -
 // and (b) a wl_surface branch here. Revisit when a backend can consume it.
 #include <SDL3/SDL.h>
+#include <core_debug/DebugMacros.h>
 
 #include <cstdint>
 
@@ -54,9 +55,11 @@ extern "C" void* orkige_native_window_handle(SDL_Window* window)
 		properties, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
 	if(!sdlHandles.display || !sdlHandles.xwindow)
 	{
-		SDL_Log("orkige_native_window_handle: no X11 handles on this SDL "
-			"window (video driver: %s) - the render system will create its "
-			"own window; run under X11/XWayland", SDL_GetCurrentVideoDriver());
+		const char* videoDriver = SDL_GetCurrentVideoDriver();
+		oWarning("orkige_native_window_handle: no X11 handles on this SDL "
+			"window (video driver: " << (videoDriver ? videoDriver : "?") <<
+			") - the render system will create its own window; run under "
+			"X11/XWayland");
 		return NULL;
 	}
 	return &sdlHandles;
@@ -67,9 +70,10 @@ extern "C" void* orkige_native_window_handle(SDL_Window* window)
 		properties, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
 	if(!xwindow)
 	{
-		SDL_Log("orkige_native_window_handle: no X11 window number on this "
-			"SDL window (video driver: %s) - run under X11/XWayland",
-			SDL_GetCurrentVideoDriver());
+		const char* videoDriver = SDL_GetCurrentVideoDriver();
+		oWarning("orkige_native_window_handle: no X11 window number on this "
+			"SDL window (video driver: " << (videoDriver ? videoDriver : "?") <<
+			") - run under X11/XWayland");
 	}
 	return reinterpret_cast<void*>(xwindow);
 #endif

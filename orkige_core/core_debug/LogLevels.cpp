@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -44,6 +45,12 @@ namespace Orkige
 		//! the loudest active threshold across the default and every override -
 		//! a message strictly quieter than this is rejected without taking a lock
 		std::atomic<int>							gLogMax{ kBuildDefaultLevel };
+
+		//! the optional extra sink (@see logSetSink) and its guard. The guard is
+		//! held across the emit-time call so logClearSink() cannot return while a
+		//! call is still running - the callback's captures stay alive for it.
+		std::mutex									gSinkMutex;
+		LogSink										gSink;
 
 		//! recompute the fast-reject ceiling (call under gLogMutex)
 		void recomputeMax()
@@ -119,6 +126,28 @@ namespace Orkige
 			Breadcrumbs::getSingleton().record("error",
 				String(safeTag) + ": " + message);
 		}
+
+		// the optional extra sink (the editor Console) - runs here, past the
+		// gate, under the guard so a concurrent logClearSink() waits for it
+		{
+			std::lock_guard<std::mutex> lock(gSinkMutex);
+			if (gSink)
+			{
+				gSink(level, safeTag, message.c_str());
+			}
+		}
+	}
+	//---------------------------------------------------------------
+	void logSetSink(LogSink sink)
+	{
+		std::lock_guard<std::mutex> lock(gSinkMutex);
+		gSink = std::move(sink);
+	}
+	//---------------------------------------------------------------
+	void logClearSink()
+	{
+		std::lock_guard<std::mutex> lock(gSinkMutex);
+		gSink = nullptr;
 	}
 	//---------------------------------------------------------------
 	void logSetTagLevel(const char* tag, int level)

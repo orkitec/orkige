@@ -63,6 +63,7 @@
 #include <imgui.h>
 #include <imgui_internal.h> // FindWindowByName (the selfcheck's panel probes)
 #include <ImGuizmo.h>
+#include <core_debug/DebugMacros.h> // oDebug* + the Console log sink
 
 #include "EditorCamera.h"
 #include "EditorCore.h"
@@ -87,7 +88,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -258,6 +258,20 @@ int main(int argc, char** argv)
 		SDL_GetLogOutputFunction(&sdlLogHook.previous,
 			&sdlLogHook.previousUserdata);
 		SDL_SetLogOutputFunction(consoleSdlLogOutput, &sdlLogHook);
+		// mirror the engine's tagged diagnostic stream (oDebug*) into the
+		// Console, so operational messages moved off SDL_Log stay visible here.
+		// The sink only references the console; it is cleared before the console
+		// dies (at scope teardown below), honouring the lifetime contract.
+		Orkige::logSetSink([&console](int level, const char* tag,
+			const char* message)
+		{
+			const ConsoleLevel consoleLevel =
+				level == Orkige::LL_ERROR ? ConsoleLevel::Error
+				: level == Orkige::LL_WARN ? ConsoleLevel::Warning
+				: ConsoleLevel::Info;
+			console.addLine(consoleLevel, (tag && tag[0])
+				? (std::string("[") + tag + "] " + message) : message);
+		});
 
 		if (!host.initialise(hostConfig))
 		{
@@ -8008,7 +8022,11 @@ int main(int argc, char** argv)
 		gImGuiRenderer = nullptr;
 		ImGui::DestroyContext();
 		// the console dies with this scope - detach the log hooks first
-		// (the engine log capture detaches itself in its destructor)
+		// (the engine log capture detaches itself in its destructor). Clearing
+		// the oDebug* sink here, before the console, is the lifetime contract:
+		// logClearSink blocks until any in-flight emit finishes, so the sink's
+		// console reference can never dangle.
+		Orkige::logClearSink();
 		engineLogCapture.detach();
 		SDL_SetLogOutputFunction(sdlLogHook.previous,
 			sdlLogHook.previousUserdata);

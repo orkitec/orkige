@@ -25,6 +25,7 @@
 #include "MarqueeSelection.h"
 #include "SyntaxHighlight.h"
 
+#include <core_debug/DebugMacros.h>	// tagged oDebug* diagnostics (SDL_Log policy)
 #include <core_debugnet/DebugClient.h>
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
