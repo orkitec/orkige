@@ -19,12 +19,11 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OGRECave/ogre-next
-    REF "v${VERSION}"
-    SHA512 2ef8f16517c96cc7ddb31986857e4d0002e33c2eeff845b4af0b8e5848c3e92289dc3b10ededbe66fb63ef6234cbee88ed513466182bd4e70d710d0507f98418
+    REF 5c9fcc30416f501aafdb30518daf9facd401f3f1
+    SHA512 db50f797b3e6840b1687a62b5076a6dd3b04cb3f51a1f184d3c6c7bace24b5c8f6a718734ca56f34dca276b59b32e33bd6e2454585b850d8f58afb70d543f73b
     HEAD_REF master
     PATCHES
-        apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber CMAKE_OSX_SYSROOT (macOS "macosx" and iOS "iphoneos") with a symbolic name under single-config generators (Xcode-only assumptions upstream)
-        apple-ninja-no-framework-postbuild.patch  # macOS: the framework-header POST_BUILD uses Xcode $(PLATFORM_NAME) vars - guard it behind OGRE_BUILD_LIBS_AS_FRAMEWORKS
+        apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber the iOS "iphoneos" CMAKE_OSX_SYSROOT with a symbolic name under single-config generators (the macOS block gained an upstream NOT-CMAKE_OSX_SYSROOT guard; the iOS block still needs this)
         vulkan-no-shaderc-probe.patch             # the Vulkan RS compiles GLSL via glslang only - stop the find-probe from requiring shaderc_combined (absent from vcpkg and the NDK), which silently disabled the whole RS
         lib-install-path.patch                    # iOS + Windows: keep the standard vcpkg bin/lib layout (upstream installs into per-config lib/Release-style subdirs there, plugins under /opt on Windows)
 )

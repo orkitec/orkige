@@ -52,8 +52,14 @@ Local additions:
 
 ## ports/ogre-next
 
-Locally authored port (3.0.0, pinned tag `v3.0.0` - the latest stable of
-OGRECave/ogre-next; no upstream vcpkg port exists). The Ogre-Next backend of
+Locally authored port (pinned master commit `5c9fcc30416f501aafdb30518daf9facd401f3f1`,
+2026-07-11, declared as `version-date` in the port's vcpkg.json; no upstream
+vcpkg port exists). Master over the v3.0.0 tag by decision: upstream maintains
+only master (no patch releases since the 2024 tag) and it carries Vulkan
+hardening the engine wants - device-loss recovery in `VulkanRootLayout`, an
+Adreno 6xx workaround - plus it absorbed part of this port's Apple patches
+(below). The pin moves deliberately (a reviewed bump, full-suite verified,
+roughly monthly), never implicitly. The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
 never builds it. Static, `supports: (osx & arm64) | (linux & x64) | (windows & x64 & !uwp) |
@@ -124,9 +130,9 @@ feature-summary log line), surfacing later only as a missing interface include
 dir in the consumer's generate step. The portfile asserts (FATAL_ERROR) after
 install, on the Vulkan platforms, that `libRenderSystem_VulkanStatic.a` and the
 `RenderSystems/Vulkan/include` header dir actually landed - failing in the port
-build instead. TODO(linux): the Linux/Vulkan build is authored against the
-3.0.0 sources but first proven by the `linux-next` CI job - glslang API drift
-between ogre-next 3.0 and the current vcpkg glslang is the known risk.
+build instead. (The Linux/Vulkan build is proven end-to-end by the
+`linux-next` CI job - it renders the full windowed desktop suite under Mesa
+lavapipe.)
 
 The **Atmosphere** component is ON (`OGRE_BUILD_COMPONENT_ATMOSPHERE`): its
 `AtmosphereNpr` is the sky dome + HlmsPbs-integrated object fog + sun-linkage
@@ -170,22 +176,23 @@ Patches (the same Xcode-oriented-CMake class as classic's ios/metal patches):
 - `apple-ninja-objcxx-sysroot.patch` - upstream assumes Xcode on Apple:
   (a) enable OBJC/OBJCXX so the `.mm` sources (OgreMain/src/OSX,
   RenderSystem_Metal) compile under single-config generators; (b) do not
-  clobber `CMAKE_OSX_SYSROOT` with a symbolic SDK name after `project()`
-  (Ninja passes `-isysroot` verbatim; resolve via xcodebuild only when unset)
-  - carried for BOTH the macOS "macosx" block and the iOS "iphoneos" block
-  (the iOS hunk stops upstream from overwriting the simulator triplet's
-  `iphonesimulator` sysroot with `iphoneos` under Ninja); (c) mirror
+  clobber the iOS `CMAKE_OSX_SYSROOT` with the symbolic "iphoneos" SDK name
+  after `project()` (Ninja passes `-isysroot` verbatim; the hunk stops
+  upstream from overwriting the simulator triplet's `iphonesimulator`
+  sysroot). The equivalent macOS "macosx" hunk this patch used to carry is
+  upstream now - master guards that block with `if(NOT CMAKE_OSX_SYSROOT)`,
+  and CMake resolves the sysroot to a real path before `project()`, so the
+  guard skips it; the iOS block is still unguarded upstream; (c) mirror
   upstream's `-DDEBUG=1` debug flag into the OBJCXX/OBJC debug flags -
   `OGRE_DEBUG_MODE` is ABI-relevant (`generateAbiCookie`) and the Metal
   plugin's ObjC++ TUs must agree with OgreMain's C++ TUs.
-- `apple-ninja-no-framework-postbuild.patch` - macOS: OgreMain's
-  framework-header POST_BUILD step uses Xcode `$(PLATFORM_NAME)` variables
-  (literal `$(...)` under Ninja); guard it behind
-  `OGRE_BUILD_LIBS_AS_FRAMEWORKS`.
+  (A second patch this port used to carry, guarding OgreMain's
+  framework-header POST_BUILD behind `OGRE_BUILD_LIBS_AS_FRAMEWORKS`, was
+  dropped when the pin moved to master: upstream added the identical guard.)
 - `vulkan-no-shaderc-probe.patch` - ogre-next's bundled
   `CMake/Packages/FindVulkan.cmake` requires `libshaderc_combined` (via
   `Vulkan_SHADERC_LIB_REL`/`_DBG`) in its `find_package_handle_standard_args`,
-  a Windows-Vulkan-SDK-ism. The v3.0.0 Vulkan RS compiles GLSL to SPIR-V
+  a Windows-Vulkan-SDK-ism. The Vulkan RS compiles GLSL to SPIR-V
   through **glslang only** (`OgreVulkanProgram.cpp` uses `glslang/Public/
   ShaderLang.h` and self-declares the `GlslangToSpv` prototypes - zero shaderc
   usage under `RenderSystems/Vulkan/`), and neither vcpkg nor the NDK ships

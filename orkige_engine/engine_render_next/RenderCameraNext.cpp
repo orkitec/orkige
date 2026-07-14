@@ -24,6 +24,23 @@
 #include <OgreSceneNode.h>
 #include <OgreCamera.h>
 
+namespace
+{
+	//! Bring the camera's node transform up to date before a view-matrix read.
+	//! The view matrix derives from the parent node's world transform, and the
+	//! facade exposes view/projection queries during the game-update phase -
+	//! before the scene graph's per-frame transform pass - so the node has to
+	//! be brought current on demand, otherwise its derived transform is read
+	//! while still stale.
+	void ensureCameraNodeCurrent(Ogre::Camera* camera)
+	{
+		if(Ogre::Node* node = camera->getParentNode())
+		{
+			node->_getDerivedPositionUpdated();
+		}
+	}
+}
+
 namespace Orkige
 {
 	//---------------------------------------------------------
@@ -131,12 +148,14 @@ namespace Orkige
 	//---------------------------------------------------------
 	Ray3 RenderCamera::viewportPointToRay(Real nx, Real ny) const
 	{
+		ensureCameraNodeCurrent(this->mImpl->camera);
 		return this->mImpl->camera->getCameraToViewportRay(nx, ny);
 	}
 	//---------------------------------------------------------
 	bool RenderCamera::projectPoint(Vec3 const & worldPoint, Real & outNx,
 		Real & outNy) const
 	{
+		ensureCameraNodeCurrent(this->mImpl->camera);
 		// identical math to the classic backend (facade contract)
 		const Ogre::Vector4 clip = this->mImpl->camera->getProjectionMatrix() *
 			(this->mImpl->camera->getViewMatrix() *
@@ -152,6 +171,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	Mat4 RenderCamera::getViewMatrix() const
 	{
+		ensureCameraNodeCurrent(this->mImpl->camera);
 		return this->mImpl->camera->getViewMatrix();
 	}
 	//---------------------------------------------------------
