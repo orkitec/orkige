@@ -197,18 +197,20 @@ namespace Orkige
 	void RenderSystem::saveWindowContents(String const & fileName) const
 	{
 		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
-		// writeContentsToFile reads the BACK buffer, but renderOneFrame has
-		// already swapped, so the back buffer holds the PREVIOUS frame - a
-		// screenshot taken right after a render would lag one frame. Static
-		// content is byte-identical across frames and hides the lag; only
-		// per-frame-changing content (a live texture handoff) reveals it.
-		// Read the FRONT buffer - the frame just presented - to capture the
-		// current image (the same buffer the fullscreen path already reads).
+		// neither buffer can be read reliably AFTER the swap: with a
+		// flip-style swap (macOS GL) the back buffer holds the PREVIOUS
+		// frame, and the front buffer of a double-buffered window is
+		// undefined under a copy-style swap on a virtual display (black on
+		// llvmpipe/Xvfb). Re-render the current state WITHOUT swapping and
+		// read the freshly drawn back buffer - deterministic under both swap
+		// strategies - then swap the extra frame out normally.
+		window->update(false);
 		Ogre::Image image(window->suggestPixelFormat(), window->getWidth(),
 			window->getHeight());
 		Ogre::PixelBox pixels = image.getPixelBox();
 		window->copyContentsToMemory(pixels, pixels,
-			Ogre::RenderTarget::FB_FRONT);
+			Ogre::RenderTarget::FB_BACK);
+		window->swapBuffers();
 		image.save(fileName);
 	}
 	//---------------------------------------------------------
