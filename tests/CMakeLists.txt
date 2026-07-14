@@ -386,6 +386,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_luateardown PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_LUATEARDOWN=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_LUAORPHAN: the widget-outlives-its-layer acceptance test -
+    # orthogonal to the teardown ORDER above. A script nils the GuiManager while
+    # still holding widget handles, GCs (freeing the views/screens/UiLayers),
+    # THEN drops the orphaned widgets: pre-fix a widget destructor touches its
+    # freed layer (SIGSEGV in ~GuiLabel/~GuiDecorWidget), post-fix
+    # GuiWidget::isLayerAlive() no-ops the dead-layer cleanup. The CLEAN EXIT is
+    # the contract. Flavor-neutral (gui draws through DrawLayer2D).
+    add_test(NAME demo_luaorphan COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_luaorphan PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LUAORPHAN=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
     # loads a whole settings screen from a committed .oui file (nine-slice
     # panel + a scroll viewport whose vertical group of rows overflows) through

@@ -71,10 +71,16 @@ namespace Orkige
 		{
 			GuiManager::getSingleton().notifyTextEntryDestroyed(this);
 		}
-		this->layer->destroyRectangle(this->mCaret);
-		this->layer->destroyCaption(this->mMeasure);
-		this->layer->destroyCaption(this->mCaption);
-		this->layer->destroyRectangle(this->mBackground);
+		// skip the layer cleanup if this widget outlived its view (a Lua-orphaned
+		// widget finalising after its manager) - the screen already released
+		// these elements, so touching the dead layer would be a use-after-free
+		if(this->isLayerAlive())
+		{
+			this->layer->destroyRectangle(this->mCaret);
+			this->layer->destroyCaption(this->mMeasure);
+			this->layer->destroyCaption(this->mCaption);
+			this->layer->destroyRectangle(this->mBackground);
+		}
 	}
 	//---------------------------------------------------------
 	void GuiTextEntry::setPosition(Ogre::Real left, Ogre::Real top)

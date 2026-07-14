@@ -2084,6 +2084,56 @@ int main(int, char**)
 				"ScriptRuntime finalizes before the GUI system dies");
 		}
 
+		// ORKIGE_DEMO_LUAORPHAN=1: the widget-outlives-its-layer acceptance test.
+		// Orthogonal to the AppHost teardown ORDER above: even with a correct
+		// order, a script that nils the GuiManager while STILL holding widget
+		// handles orphans those widgets - the manager finalises its views (=
+		// screens = UiLayers), leaving the widgets pointing at freed layers, and
+		// GC finalizer order across the two is unordered. This leg forces that
+		// deterministically (destroy the manager, GC, THEN drop the widgets):
+		// pre-fix a widget destructor touches its dead layer (SIGSEGV in
+		// ~GuiLabel / ~GuiDecorWidget), post-fix GuiWidget::isLayerAlive() no-ops
+		// the dead-layer cleanup. The CLEAN EXIT is the contract. Flavor-neutral.
+		if (std::getenv("ORKIGE_DEMO_LUAORPHAN") &&
+			Orkige::ScriptRuntime::available())
+		{
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+			const Orkige::ScriptRuntime::Result orphan =
+				scriptRuntime.runString(R"lua(
+				lua_orphan_factory = GuiFactory()
+				lua_orphan_gui = GuiManager(lua_orphan_factory, "gui_default", "General")
+				lua_orphan_label = lua_orphan_factory:createLabel(
+					"orphanLabel", 9, "orphaned", Vector2(10, 10), "", 6, false)
+				lua_orphan_panel = lua_orphan_factory:createDecorWidget(
+					"orphanPanel", "panel", Vector2(0, 0), Vector2(120, 80), "", 5)
+				-- destroy the MANAGER (and its factory) FIRST while still holding
+				-- the widget handles: the manager finalises its views -> screens
+				-- -> UiLayers, leaving the widgets pointing at freed layers.
+				lua_orphan_gui = nil
+				lua_orphan_factory = nil
+				collectgarbage("collect")
+				collectgarbage("collect")
+				-- now drop the orphaned widgets: their destructors run onto the
+				-- already-freed layers. Pre-fix this is a use-after-free; post-fix
+				-- isLayerAlive() no-ops the dead-layer cleanup.
+				lua_orphan_label = nil
+				lua_orphan_panel = nil
+				collectgarbage("collect")
+				collectgarbage("collect")
+				lua_orphan_ok = 1
+			)lua");
+			if (!orphan.success)
+			{
+				SDL_Log("hello_orkige: FAILED - Lua orphan leg errored: %s",
+					orphan.error.c_str());
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua orphan leg passed - a widget outliving its "
+				"destroyed manager's UiLayer cleaned up safely (no dead-layer "
+				"use-after-free)");
+		}
+
 		// ORKIGE_DEMO_OUI=1: the declarative-UI + scroll + groups selfcheck
 		// (flavor-neutral). Loads a whole settings screen from a committed .oui
 		// file (an anchored nine-slice panel, a scroll viewport whose content is

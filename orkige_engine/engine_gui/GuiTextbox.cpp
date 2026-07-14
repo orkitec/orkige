@@ -22,7 +22,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	GuiTextbox::~GuiTextbox()
 	{
-		this->layer->destroyMarkupText(this->markupText);
+		// the layer is gone if this widget outlived its view (a Lua-orphaned
+		// widget finalising after its manager) - the screen already released
+		// the markup text, so cleaning up would be a use-after-free
+		if(this->isLayerAlive())
+		{
+			this->layer->destroyMarkupText(this->markupText);
+		}
 	}
 	//---------------------------------------------------------
 	void GuiTextbox::setPosition(Ogre::Real left, Ogre::Real top)

@@ -34,8 +34,10 @@ namespace Orkige
 	GuiScrollView::~GuiScrollView()
 	{
 		// the clip layer is shared with the content widgets (owned by the view);
-		// drop our clip so a later widget on the same z is not trimmed
-		if(this->layer != NULL)
+		// drop our clip so a later widget on the same z is not trimmed. Skip it
+		// if this widget outlived its view (a Lua-orphaned widget finalising
+		// after its manager): the layer is freed and touching it is a UAF.
+		if(this->isLayerAlive())
 		{
 			this->layer->clearScissor();
 		}

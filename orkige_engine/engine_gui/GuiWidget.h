@@ -97,6 +97,16 @@ namespace Orkige
 		virtual Ogre::Vector2 getPosition() = 0;
 		//! get layer this widget is in
 		inline UiLayer* getLayer() const;
+		//! @brief is this widget's UiLayer still alive to be touched during
+		//! teardown? The layer is owned by the view's screen (@see GuiView), so
+		//! it dies WITH the view. A widget can outlive its view - a Lua GC
+		//! finalizer running after the owning GuiManager (and its views) are
+		//! already gone, e.g. a script that nils the manager while still holding
+		//! a widget handle - and its raw `layer` pointer then dangles. A dtor
+		//! that cleans up this widget's captions/rectangles/scissor MUST gate on
+		//! this: once the layer is destroyed the screen already released every
+		//! element, so the cleanup is a no-op, not a use-after-free.
+		inline bool isLayerAlive() const { return !this->view.expired(); }
 		//! get the view of this layer
 		inline woptr<GuiView> getView();
 		//! center widget horizontally on the screen

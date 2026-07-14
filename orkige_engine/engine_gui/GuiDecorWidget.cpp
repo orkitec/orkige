@@ -52,7 +52,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	GuiDecorWidget::~GuiDecorWidget()
 	{
-		this->layer->destroyRectangle(this->rect);
+		// the layer is gone if this widget outlived its view (a Lua-orphaned
+		// widget finalising after its manager) - the screen already released
+		// the rectangle, so cleaning up would be a use-after-free
+		if(this->isLayerAlive())
+		{
+			this->layer->destroyRectangle(this->rect);
+		}
 	}
 	//---------------------------------------------------------
 	void GuiDecorWidget::setPosition(Ogre::Real left, Ogre::Real top)

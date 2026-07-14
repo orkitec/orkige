@@ -24,8 +24,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	GuiLabel::~GuiLabel()
 	{
-		this->layer->destroyCaption(this->caption);
-		//this->layer->destroyAllCaptions();
+		// the layer is gone if this widget outlived its view (a Lua-orphaned
+		// widget finalising after its manager) - the screen already released
+		// the caption, so cleaning up would be a use-after-free
+		if(this->isLayerAlive())
+		{
+			this->layer->destroyCaption(this->caption);
+		}
 	}
 	//---------------------------------------------------------
 	void GuiLabel::setPosition(Ogre::Real left, Ogre::Real top)
