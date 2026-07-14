@@ -196,7 +196,20 @@ namespace Orkige
 	//---------------------------------------------------------
 	void RenderSystem::saveWindowContents(String const & fileName) const
 	{
-		this->mImpl->engine->getRenderWindow(0)->writeContentsToFile(fileName);
+		Ogre::RenderWindow* window = this->mImpl->engine->getRenderWindow(0);
+		// writeContentsToFile reads the BACK buffer, but renderOneFrame has
+		// already swapped, so the back buffer holds the PREVIOUS frame - a
+		// screenshot taken right after a render would lag one frame. Static
+		// content is byte-identical across frames and hides the lag; only
+		// per-frame-changing content (a live texture handoff) reveals it.
+		// Read the FRONT buffer - the frame just presented - to capture the
+		// current image (the same buffer the fullscreen path already reads).
+		Ogre::Image image(window->suggestPixelFormat(), window->getWidth(),
+			window->getHeight());
+		Ogre::PixelBox pixels = image.getPixelBox();
+		window->copyContentsToMemory(pixels, pixels,
+			Ogre::RenderTarget::FB_FRONT);
+		image.save(fileName);
 	}
 	//---------------------------------------------------------
 	optr<RenderTexture> RenderSystem::createRenderTexture(String const & name,
