@@ -144,6 +144,8 @@
 
 #define OFUNCOVERL(FunctionName, CCast)
 
+#define OFUNC_CUSTOM(FunctionName, ...)
+
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							
 

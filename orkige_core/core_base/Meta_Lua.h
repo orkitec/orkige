@@ -242,6 +242,11 @@ namespace Orkige
 
 #define OFUNCOVERL(FunctionName, CCast)						py_class[#FunctionName] = static_cast<CCast>(&ExposedClassType::FunctionName);
 
+//! bind a custom callable (typically a lambda adapting a signature the
+//! script layer cannot pass directly) under the given script-facing name.
+//! Variadic so the callable may contain commas.
+#define OFUNC_CUSTOM(FunctionName, ...)						py_class[#FunctionName] = __VA_ARGS__;
+
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							OFUNC(FunctionName)
 

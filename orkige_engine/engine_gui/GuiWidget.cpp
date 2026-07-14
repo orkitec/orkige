@@ -424,10 +424,10 @@ namespace Orkige
 		// the plain OFUNC binding was uncallable from Lua. The owning shared_ptr
 		// is recovered from the parent's cached weak self; a null/unregistered
 		// parent detaches (resolves against the screen root) rather than throwing.
-		py_class["setParent"] = [](GuiWidget & self, GuiWidget & parent)
+		OFUNC_CUSTOM(setParent, [](GuiWidget & self, GuiWidget & parent)
 		{
 			self.setParent(parent.sharedSelf());
-		};
+		})
 		OFUNC(setAnchors)
 		OFUNC(setAnchorPreset)
 		OFUNC(setPivot)
