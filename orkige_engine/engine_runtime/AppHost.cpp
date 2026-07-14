@@ -42,16 +42,28 @@ namespace Orkige
 	//---------------------------------------------------------
 	AppHost::~AppHost()
 	{
-		// the exact reverse of the bring-up order: the game world first (its
-		// components release facade objects into a live renderer), then the
-		// engine, then the script/event singletons, the window last
+		// Teardown order. Scripts are the TOPMOST layer: their userdata reach
+		// DOWN into engine objects (widgets, render nodes, the camera), so the
+		// Lua state must finalize while those systems are still alive - else an
+		// owning handle a script still holds runs its widget/node destructor
+		// into an already-dead UiLayer/renderer (the shutdown UAF). So:
+		//   1. the game world first - its ScriptComponents get their `shutdown`
+		//      (needs the ScriptRuntime AND a live renderer), facade objects
+		//      release into a live renderer;
+		//   2. THEN reset the ScriptRuntime - lua_close runs the GC finalizers
+		//      that destroy any widget/node handle a script still owns, while
+		//      the render facade + GUI system below are still up;
+		//   3. only then the render facade + engine + event singletons, window
+		//      last. This deliberately breaks the strict reverse-of-bring-up
+		//      (ScriptRuntime came up before the Engine) because Lua holds
+		//      references INTO the Engine's systems and must go down first.
 		this->mGameObjectManager.reset();
+		this->mScriptRuntime.reset();
 		this->mCameraNode.reset();
 		this->mWindowCamera.reset();
 		this->mRenderWorld = nullptr;
 		this->mRenderSystem = nullptr;
 		this->mEngine.reset();
-		this->mScriptRuntime.reset();
 		this->mEventManager.reset();
 		if (this->mWindow)
 		{

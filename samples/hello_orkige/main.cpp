@@ -2033,6 +2033,57 @@ int main(int, char**)
 				"reference scale)");
 		}
 
+		// ORKIGE_DEMO_LUATEARDOWN=1: the shutdown-after-Lua-GUI-use acceptance
+		// test. A script acquires widget handles (create* AND findWidget/typed
+		// finder) and does NO cleanup - the handles are held in Lua globals until
+		// the app tears down. Owning handles at lua_close are only safe if the
+		// ScriptRuntime finalizes while the GUI system it reaches is still alive
+		// (the AppHost teardown order): this leg CRASHES (SIGSEGV in a widget
+		// destructor on a dead UiLayer) if that order regresses, and passes when
+		// it holds. It exists precisely because a naive script author will not
+		// nil their handles. There is no in-process assertion - the CLEAN EXIT is
+		// the contract (a ctest checks the exit code).
+		if (std::getenv("ORKIGE_DEMO_LUATEARDOWN") &&
+			Orkige::ScriptRuntime::available())
+		{
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+			const Orkige::ScriptRuntime::Result td =
+				scriptRuntime.runString(R"lua(
+				lua_td_factory = GuiFactory()
+				lua_td_gui = GuiManager(lua_td_factory, "gui_default", "General")
+				lua_td_panel = lua_td_factory:createDecorWidget(
+					"tdPanel", "panel", Vector2(0, 0), Vector2(120, 80), "", 5)
+				lua_td_label = lua_td_factory:createLabel(
+					"tdLabel", 9, "held past shutdown", Vector2(10, 10), "", 6, false)
+				-- acquire BOTH a base findWidget handle and a typed finder handle;
+				-- keep every handle live in globals - NO cleanup on purpose
+				lua_td_found = lua_td_gui:findWidget("tdLabel")
+				lua_td_typed = lua_td_gui:findLabel("tdLabel")
+				-- ALSO hold ENGINE-owned handles a script commonly acquires
+				-- (render nodes, the camera): they reach objects living in the
+				-- Engine's render world, so if the ScriptRuntime finalizes AFTER
+				-- the Engine dies their destructors run into a dead render world
+				local engine = Engine.getSingleton()
+				local render = engine:getRenderSystem()
+				lua_td_world = render:getWorld()
+				lua_td_rootnode = lua_td_world:getRootNode()
+				lua_td_camera = engine:getCamera()
+				lua_td_camnode = lua_td_camera:getNode()
+				lua_td_ok = 1
+			)lua");
+			if (!td.success)
+			{
+				SDL_Log("hello_orkige: FAILED - Lua teardown leg errored: %s",
+					td.error.c_str());
+				return 1;
+			}
+			render->renderOneFrame();	// resolve, as a real screen would
+			SDL_Log("hello_orkige: Lua teardown leg armed - a script holds widget "
+				"+ finder handles with NO cleanup; a clean exit proves the "
+				"ScriptRuntime finalizes before the GUI system dies");
+		}
+
 		// ORKIGE_DEMO_OUI=1: the declarative-UI + scroll + groups selfcheck
 		// (flavor-neutral). Loads a whole settings screen from a committed .oui
 		// file (an anchored nine-slice panel, a scroll viewport whose content is

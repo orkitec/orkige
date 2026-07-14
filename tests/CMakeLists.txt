@@ -374,6 +374,18 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_layout PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_LAYOUT=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_LUATEARDOWN: the shutdown-after-Lua-GUI-use acceptance test -
+    # a script acquires widget + finder + engine-owned (render node, camera)
+    # handles and holds them with NO cleanup, then the app tears down. The
+    # CLEAN EXIT is the contract: the ScriptRuntime must finalize while the GUI
+    # + render systems its userdata reach are still alive (the AppHost teardown
+    # order). A widget/node destructor into a dead system is a SIGSEGV, so a
+    # nonzero exit fails here. Flavor-neutral.
+    add_test(NAME demo_luateardown COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_luateardown PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LUATEARDOWN=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
     # loads a whole settings screen from a committed .oui file (nine-slice
     # panel + a scroll viewport whose vertical group of rows overflows) through
