@@ -1519,7 +1519,7 @@ namespace Orkige
 				  "'layerCount'/'shapeCount'/'vertexCount', 'atEnd', and the "
 				  "available 'clips'. The PNG is also inlined as an image content "
 				  "block unless inline=false or it exceeds 4 MiB. Does not disturb "
-				  "the human's Animation Preview panel.",
+				  "the human's Inspector animation preview.",
 				  { { "asset", "string",
 				      "project-relative .oanim path (e.g. 'assets/hero.oanim')",
 				      true },

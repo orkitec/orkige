@@ -215,10 +215,6 @@ struct ViewSettings
 	//! captions in ("" = the project's source language). Persisted so the tab
 	//! reopens on the last previewed language.
 	std::string guiPreviewLanguage;
-	//! Animation Preview panel (project-only; evaluates a .oanim rig on its own
-	//! clock and CPU-rasterizes the pose - scrub, play/pause, clip + blend
-	//! try-out; shares its stage with the preview_animation MCP verb)
-	bool showAnimationPreviewPanel = false;
 	//! snap settings (toolbar toggle + editable step values);
 	//! mirrored into EditorCore on startup, persisted on every popover edit
 	bool snapEnabled = false;
@@ -391,6 +387,16 @@ struct AssetBrowserState
 	//! did not have cached, serviced oldest-first a few per frame so a big
 	//! folder never hitches
 	std::deque<std::string> thumbnailQueue;
+	//! GPU-rendered thumbnail bake queue: .glb/.omat previews cannot decode on
+	//! the CPU like a .oshape - they render through a MeshPreviewStage offscreen
+	//! target, so they are staged + captured across frames by the browser's
+	//! dedicated baker (one at a time, off the ImGui paint path). thumbBakeQueue
+	//! holds the absolute paths still to bake; thumbBakeInFlight is the one
+	//! currently staged ("" = idle) and thumbBakeStagedFrame the loop frame it
+	//! was staged (a short residency delay before the readback).
+	std::deque<std::string> thumbBakeQueue;
+	std::string thumbBakeInFlight;
+	int thumbBakeStagedFrame = -1;
 	//! the panel held keyboard focus while drawing (gates its local shortcut
 	//! handling, mirrors scenePanelFocused / hierarchyFocused)
 	bool focused = false;
@@ -598,10 +604,6 @@ struct EditorState
 	//! through state.editorScripts (kept off the menu's own callback so the run
 	//! happens at a clean point in the loop, like requestedExport)
 	std::string requestedEditorScript;
-	//! Asset-browser request to open a project-relative `.oanim` in the
-	//! Animation Preview panel. Double-clicking either the cooked asset or its
-	//! sibling Lottie `.json` sets this; the panel consumes it once.
-	std::string requestedAnimationPreviewAsset;
 	//! Asset-browser request to open a project-relative `.oui` in GUI Preview.
 	std::string requestedGuiPreviewAsset;
 	//! the editor-tool host (owned by main): discovers *.editor.lua tools and
@@ -1503,16 +1505,11 @@ void drawScenePanel(EditorState& state, Orkige::EditorCore& core,
 void drawGuiPreviewPanel(EditorState& state, OrkigeEditor::GuiPreviewStage& stage,
 	Orkige::EditorCore& core, ViewSettings& viewSettings);
 
-// the Animation Preview panel: a .oanim rig evaluated on its own clock and
-// CPU-rasterized here (scrub/play/clip/blend try-out) - AnimationPreviewPanel.cpp
-void drawAnimationPreviewPanel(EditorState& state,
-	OrkigeEditor::AnimationPreviewStage& stage, ViewSettings& viewSettings);
-
 // the shared preview WIDGET body (clip dropdown, Play/Pause/Reset, time scrub,
 // blend try-out, status line + the rasterised pose image), stage-backed so it
-// carries no external UI state. Both the Animation Preview panel and the
-// Inspector's asset-view animation section call it; assumes stage.isLoaded().
-// Defined in AnimationPreviewPanel.cpp.
+// carries no external UI state. The Inspector's asset-view animation section
+// calls it (the standalone Animation Preview panel was retired); assumes
+// stage.isLoaded(). Defined in AnimationPreviewPanel.cpp.
 void drawAnimationPreviewBody(OrkigeEditor::AnimationPreviewStage& stage);
 
 // the Scene Hierarchy panel (edit mode: EditorCore world; play mode: the
@@ -1523,8 +1520,8 @@ void drawHierarchyPanel(EditorState& state, PlaySession& session,
 
 // the Inspector panel (edit mode: component editors; play mode: the remote
 // object_state) - EditorInspectorPanel.cpp. The animation preview stage backs
-// the asset-view's inline .oanim preview (shared with the Animation Preview
-// panel; if both show the same asset they share the one stage's clock).
+// the asset-view's inline .oanim preview (the Inspector owns this preview; it
+// shares the one stage's clock with the preview_animation MCP verb).
 void drawInspectorPanel(EditorState& state, PlaySession& session,
 	Orkige::EditorCore& core, OrkigeEditor::AnimationPreviewStage& animStage,
 	OrkigeEditor::MeshPreviewStage& meshPreview,
@@ -1612,6 +1609,12 @@ ImTextureID assetThumbnailFor(EditorState& state,
 //! while the render system is still up (manual textures are not resource-group
 //! content, so nothing else frees them in time for strict backends)
 void clearCachedThumbnails(AssetBrowserState& browser);
+//! @brief bake at most one queued .glb/.omat thumbnail this frame into @p baker
+//! (a MeshPreviewStage on its own instance slot), reading the target back into
+//! an owned thumbnail texture. Driven from the main loop OUTSIDE the ImGui
+//! frame; @p frameCount is the loop frame (a residency delay before readback).
+void serviceThumbnailBakes(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& baker, int frameCount);
 //! thumbnail cache cap (see AssetBrowserState::thumbnails)
 const std::size_t ASSET_THUMBNAIL_CACHE_MAX = 512;
 

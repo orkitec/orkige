@@ -8,12 +8,13 @@
 *********************************************************************/
 
 //! @file AnimationPreviewPanel.cpp
-//! @brief the editor's Animation Preview tab: pick a project `.oanim` rig,
-//! choose a clip and scrub/play it, and try a same-rig blend - all on the
-//! stage's OWN clock (the editor never ticks GameObjects). The pose is
-//! CPU-rasterized (VectorShapeRaster) and shown here; the SAME
-//! AnimationPreviewStage backs the preview_animation MCP verb, so the human
-//! panel and an agent's screenshots see one evaluator.
+//! @brief the shared `.oanim` preview WIDGET: choose a clip and scrub/play it,
+//! and try a same-rig blend - all on the stage's OWN clock (the editor never
+//! ticks GameObjects). The pose is CPU-rasterized (VectorShapeRaster) and shown
+//! here; the SAME AnimationPreviewStage backs the preview_animation MCP verb, so
+//! the Inspector's animation section and an agent's screenshots see one
+//! evaluator. (The standalone Animation Preview panel was retired - the
+//! Inspector shows this widget when a .oanim asset is selected.)
 
 #include "AnimationPreviewStage.h"
 #include "EditorApp.h"
@@ -22,44 +23,7 @@
 #include <imgui.h>
 
 #include <algorithm>
-#include <filesystem>
 #include <string>
-#include <vector>
-
-namespace
-{
-	//! persistent panel UI state (one editor => one panel => a function static)
-	struct AnimPanelState
-	{
-		bool						autoDockAttempted = false;
-		std::string					selectedFile;	//!< project-relative .oanim ("" = none)
-		std::string					projectRoot;	//!< the project the file list is for
-		std::vector<std::string>	animFiles;		//!< project-relative .oanim paths
-		std::string					appliedFile;	//!< the file currently loaded in the stage
-	};
-
-	//! scan a project for `.oanim` rigs (project-relative, sorted)
-	void scanAnimFiles(std::string const& root, std::vector<std::string>& out)
-	{
-		out.clear();
-		if (root.empty())
-		{
-			return;
-		}
-		namespace fs = std::filesystem;
-		std::error_code ec;
-		const fs::path base(root);
-		for (fs::recursive_directory_iterator it(base, ec), end;
-			!ec && it != end; it.increment(ec))
-		{
-			if (it->is_regular_file(ec) && it->path().extension() == ".oanim")
-			{
-				out.push_back(fs::relative(it->path(), base, ec).generic_string());
-			}
-		}
-		std::sort(out.begin(), out.end());
-	}
-}
 
 void drawAnimationPreviewBody(OrkigeEditor::AnimationPreviewStage& stage)
 {
@@ -167,105 +131,4 @@ void drawAnimationPreviewBody(OrkigeEditor::AnimationPreviewStage& stage)
 		ImGui::Image(gImGuiRenderer->textureIdForResource(uploadName),
 			ImVec2(side, side));
 	}
-}
-
-void drawAnimationPreviewPanel(EditorState& state,
-	OrkigeEditor::AnimationPreviewStage& stage, ViewSettings& viewSettings)
-{
-	static AnimPanelState ui;
-	dockPreviewBesideSceneOnce("AnimationPreview", ui.autoDockAttempted);
-	if (!state.requestedAnimationPreviewAsset.empty())
-	{
-		ImGui::SetNextWindowFocus();
-	}
-
-	if (!ImGui::Begin("AnimationPreview", &viewSettings.showAnimationPreviewPanel))
-	{
-		ImGui::End();
-		return;
-	}
-
-	const bool projectOpen = state.project.isLoaded();
-	const std::string root = projectOpen ? state.project.getRootDirectory()
-		: std::string();
-	if (!projectOpen)
-	{
-		ImGui::TextDisabled("Open a project to preview its vector animations.");
-		ImGui::End();
-		return;
-	}
-
-	// refresh the .oanim list when the project changed (cheap; also on demand)
-	if (ui.projectRoot != root)
-	{
-		ui.projectRoot = root;
-		scanAnimFiles(root, ui.animFiles);
-		ui.selectedFile.clear();
-		ui.appliedFile.clear();
-	}
-
-	// Asset-browser double-click: select and load the requested animation in
-	// this already-open panel. Rescan first so a freshly imported cook appears
-	// without requiring the user to press Refresh.
-	if (!state.requestedAnimationPreviewAsset.empty())
-	{
-		scanAnimFiles(root, ui.animFiles);
-		ui.selectedFile = state.requestedAnimationPreviewAsset;
-		ui.appliedFile.clear();
-		state.requestedAnimationPreviewAsset.clear();
-	}
-
-	//--- file picker -------------------------------------------------------
-	ImGui::SetNextItemWidth(240.0f);
-	if (ImGui::BeginCombo("Animation", ui.selectedFile.empty()
-		? "(none)" : ui.selectedFile.c_str()))
-	{
-		for (std::string const& file : ui.animFiles)
-		{
-			const bool sel = (file == ui.selectedFile);
-			if (ImGui::Selectable(file.c_str(), sel))
-			{
-				ui.selectedFile = file;
-			}
-			if (sel)
-			{
-				ImGui::SetItemDefaultFocus();
-			}
-		}
-		ImGui::EndCombo();
-	}
-	ImGui::SameLine();
-	if (ImGui::Button("Refresh"))
-	{
-		scanAnimFiles(root, ui.animFiles);
-	}
-
-	// (re)load the stage when the selection changed
-	if (ui.selectedFile != ui.appliedFile)
-	{
-		std::string err;
-		stage.load(root, ui.selectedFile, err);
-		ui.appliedFile = ui.selectedFile;
-		stage.clearBlend();
-	}
-
-	if (ui.selectedFile.empty())
-	{
-		ImGui::TextDisabled("Pick a .oanim rig above to preview it "
-			"(imported from a Lottie .json, or authored directly).");
-		ImGui::End();
-		return;
-	}
-	if (!stage.isLoaded())
-	{
-		ImGui::TextWrapped("Could not preview '%s': %s",
-			ui.selectedFile.c_str(), stage.getLastError().c_str());
-		ImGui::End();
-		return;
-	}
-
-	// the shared preview widget body (also used by the Inspector's asset view)
-	drawAnimationPreviewBody(stage);
-
-	ImGui::End();
 }

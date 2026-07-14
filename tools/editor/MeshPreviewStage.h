@@ -63,7 +63,12 @@ namespace OrkigeEditor
 	class MeshPreviewStage
 	{
 	public:
-		MeshPreviewStage();
+		//! @param instanceSlot distinguishes coexisting stages: it offsets the
+		//! staging origin and suffixes the offscreen target name so a second
+		//! stage (the asset-browser thumbnail baker) never collides with the
+		//! Inspector's stage on the shared render world. Slot 0 is the default
+		//! Inspector stage (unchanged origin + target name).
+		explicit MeshPreviewStage(int instanceSlot = 0);
 		~MeshPreviewStage();
 
 		//! @brief stage a project-relative `.glb`/`.gltf`/... mesh, replacing
@@ -148,6 +153,7 @@ namespace OrkigeEditor
 		std::string	mLastError;
 		MeshPreviewInfo	mInfo;
 
+		int		mInstanceSlot = 0;	//!< stage identity (origin offset + target name)
 		int		mSide = 320;		//!< target pixel side
 		float	mYawDeg = 35.0f;	//!< orbit around the model
 		float	mPitchDeg = 22.0f;

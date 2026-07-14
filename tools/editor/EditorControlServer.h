@@ -87,8 +87,8 @@ namespace Orkige
 		//! GUI Preview tab shares the same instance) - GuiPreviewStage.h
 		OrkigeEditor::GuiPreviewStage* previewStage = nullptr;
 		//! the shared vector-animation preview stage (the preview_animation verb
-		//! drives it; the Animation Preview panel shares the same instance) -
-		//! AnimationPreviewStage.h
+		//! drives it; the Inspector's animation section shares the same instance)
+		//! - AnimationPreviewStage.h
 		OrkigeEditor::AnimationPreviewStage* animPreviewStage = nullptr;
 	};
 

@@ -680,13 +680,17 @@ int main(int argc, char** argv)
 		// driven by BOTH the GUI Preview tab and the preview_ui MCP verb
 		OrkigeEditor::GuiPreviewStage guiPreviewStage;
 		// the shared vector-animation preview stage: one .oanim-on-CPU-raster
-		// stack driven by BOTH the Animation Preview panel and the
+		// stack driven by the Inspector's animation section and the
 		// preview_animation MCP verb
 		OrkigeEditor::AnimationPreviewStage animPreviewStage;
 		// the shared 3D mesh/material preview stage: the Inspector renders a
 		// selected .glb (or a .omat on the shared preview mesh) into an
 		// offscreen RTT through this one stage
 		OrkigeEditor::MeshPreviewStage meshPreviewStage;
+		// a second mesh preview stage (instance slot 1: its own far origin +
+		// target name) the asset browser bakes .glb/.omat thumbnails through,
+		// one per frame, without disturbing the Inspector's stage
+		OrkigeEditor::MeshPreviewStage thumbnailBaker(1);
 		Orkige::EditorControlServer controlServer;
 		Orkige::EditorControlContext controlContext;
 		controlContext.state = &state;
@@ -1604,11 +1608,11 @@ int main(int argc, char** argv)
 			ImGui::NewFrame();
 			ImGuizmo::BeginFrame();
 			// Exercise the real preview-panel docking path in the editor selfcheck:
-			// both panels must join Scene's dock node, not appear as loose windows.
+			// the GUI Preview panel must join Scene's dock node, not appear as a
+			// loose window.
 			if (selfCheck && frameCount == 5)
 			{
 				viewSettings.showGuiPreviewPanel = true;
-				viewSettings.showAnimationPreviewPanel = true;
 			}
 
 			// snapshot the panel visibility: a close-button click (the x in
@@ -1708,10 +1712,6 @@ int main(int argc, char** argv)
 				drawGuiPreviewPanel(state, guiPreviewStage, editorCore,
 					viewSettings);
 			}
-			if (viewSettings.showAnimationPreviewPanel)
-			{
-				drawAnimationPreviewPanel(state, animPreviewStage, viewSettings);
-			}
 			bool panelVisibilityChanged = false;
 #define ORKIGE_CHECK_PANEL_VISIBILITY(id, label, visible, member) \
 			panelVisibilityChanged |= \
@@ -1775,6 +1775,11 @@ int main(int argc, char** argv)
 				running = false;
 			}
 			++frameCount;
+
+			// bake at most one queued .glb/.omat asset-browser thumbnail now
+			// that the frame (and the baker's offscreen target) has rendered -
+			// OUTSIDE the ImGui frame, so nothing re-enters renderOneFrame
+			serviceThumbnailBakes(state, thumbnailBaker, frameCount);
 
 			if (frameCount == 1 && selfCheck)
 			{
@@ -1909,13 +1914,9 @@ int main(int argc, char** argv)
 				ImGuiWindow* sceneWindow = ImGui::FindWindowByName("Scene");
 				ImGuiWindow* guiPreviewWindow =
 					ImGui::FindWindowByName("GuiPreview");
-				ImGuiWindow* animPreviewWindow =
-					ImGui::FindWindowByName("AnimationPreview");
 				const bool previewDockOk = sceneWindow &&
 					sceneWindow->DockId != 0 && guiPreviewWindow &&
-					guiPreviewWindow->DockId == sceneWindow->DockId &&
-					animPreviewWindow &&
-					animPreviewWindow->DockId == sceneWindow->DockId;
+					guiPreviewWindow->DockId == sceneWindow->DockId;
 				SDL_Log("orkige_editor: selfcheck frame 30 - gameobjects=%zu "
 					"(fixture cubes + test mesh %s), test_mesh.glb resource %s, "
 					"imgui vertices=%d, scene RTT %dx%d (panel wants %dx%d), "
@@ -2959,6 +2960,57 @@ int main(int argc, char** argv)
 					{
 						assetOk = false;
 						assetFail = "createFolderAndReveal did not reveal in place";
+					}
+				}
+				// (12) .glb + .omat get a GPU-rendered preview thumbnail baked
+				// through the deferred baker (staged + read back across frames).
+				// Drive the queue synchronously here (this block runs after the
+				// frame's renderOneFrame, so extra renders are safe) and assert
+				// both land a REAL owned upload - a bindable handle plus an owned
+				// texture name, i.e. not the glyph placeholder (id 0, no upload).
+				if (assetOk)
+				{
+					const std::string glbAbs =
+						state.project.getAssetsDirectory() + "/test_mesh.glb";
+					const std::string omatAbs =
+						state.project.getAssetsDirectory() + "/thumb_probe.omat";
+					{
+						std::ofstream f(omatAbs,
+							std::ios::binary | std::ios::trunc);
+						f << "version 1\nalbedo 0.85 0.30 0.25 1.0\n"
+							"metalness 0.10\nroughness 0.50\n"
+							"emissive 0.0 0.0 0.0\n";
+					}
+					// request both (routes them into the bake queue, returns 0)
+					assetThumbnailFor(state, glbAbs);
+					assetThumbnailFor(state, omatAbs);
+					// drain the queue: each asset stages, settles a couple of
+					// frames, then is captured (one per pass)
+					for (int pump = 0; pump < 60 &&
+						(!state.assetBrowser.thumbBakeQueue.empty() ||
+							!state.assetBrowser.thumbBakeInFlight.empty()); ++pump)
+					{
+						host.getEngine().renderOneFrame();
+						serviceThumbnailBakes(state, thumbnailBaker,
+							frameCount + pump + 1);
+					}
+					const auto bakedRealThumbnail =
+						[&](std::string const& abs) -> bool
+					{
+						auto it = state.assetBrowser.thumbnails.find(abs);
+						return it != state.assetBrowser.thumbnails.end() &&
+							it->second.textureId != 0 &&
+							!it->second.uploadName.empty();
+					};
+					if (!bakedRealThumbnail(glbAbs))
+					{
+						assetOk = false;
+						assetFail = "no baked thumbnail for a .glb model";
+					}
+					else if (!bakedRealThumbnail(omatAbs))
+					{
+						assetOk = false;
+						assetFail = "no baked thumbnail for a .omat material";
 					}
 				}
 				std::filesystem::remove_all(assetTempRoot, assetErr);
@@ -5723,9 +5775,14 @@ int main(int argc, char** argv)
 			}
 			if (previewSelfcheckEnv && frameCount == 20 && exitCode == 0)
 			{
-				state.requestedAnimationPreviewAsset =
-					"assets/lottie/hamster.oanim";
-				viewSettings.showAnimationPreviewPanel = true;
+				// select the .oanim so the Inspector's animation section stages
+				// it in animPreviewStage (the standalone Animation Preview panel
+				// was retired - the Inspector owns this preview now)
+				editorCore.clearSelection();
+				state.assetBrowser.selection.clear();
+				state.assetBrowser.selection.insert("assets/lottie/hamster.oanim");
+				state.assetBrowser.selectionAnchor = "assets/lottie/hamster.oanim";
+				viewSettings.showInspectorPanel = true;
 			}
 			if (previewSelfcheckEnv && frameCount == 30 && exitCode == 0)
 			{
@@ -5974,6 +6031,34 @@ int main(int argc, char** argv)
 					if (!texOk) { exitCode = 13; }
 					SDL_Log("orkige_editor: inspector asset previews done (exit %d)",
 						exitCode);
+					// when capturing evidence, continue to the asset-browser
+					// thumbnail shot below; otherwise stop here (the ctest path)
+					if (!previewShotDir) { running = false; }
+				}
+				// asset-browser thumbnail evidence (capture-only): navigate to the
+				// assets folder so the .glb/.omat tiles draw + bake, then dump the
+				// whole window once the baked thumbnails are on screen
+				else if (previewShotDir && frameCount == 84)
+				{
+					editorCore.clearSelection();
+					state.assetBrowser.selection.clear();
+					state.assetBrowser.currentDir =
+						state.project.getAssetsDirectory();
+					state.assetBrowser.thumbnailSize = 96.0f;
+					viewSettings.showAssetBrowserPanel = true;
+					viewSettings.showInspectorPanel = false;
+					// the Assets panel shares the bottom dock node with Stats +
+					// Console (tabs); hide the siblings so it is the visible tab
+					viewSettings.showStatsPanel = false;
+					viewSettings.showConsolePanel = false;
+				}
+				else if (previewShotDir && frameCount == 130)
+				{
+					// captured well after the navigate so the deferred baker (one
+					// thumbnail per frame) has drained every visible .glb/.omat tile
+					render->saveWindowContents(
+						std::string(previewShotDir) + "/asset_browser_thumbs.png");
+					SDL_Log("orkige_editor: asset-browser thumbnail shot written");
 					running = false;
 				}
 			}

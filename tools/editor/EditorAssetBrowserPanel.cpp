@@ -42,10 +42,12 @@
 // Part of orkige (orkitec Game Engine), (c) 2009-2026 orkitec
 #include "EditorApp.h"
 #include "AssetTilePresentation.h"
+#include "EditorImageDecode.h"
 #include "EditorTheme.h"
 #include "IconsFontAwesome6.h"
 #include "ImGuiFacadeRenderer.h"
 #include "MeshImport.h"
+#include "MeshPreviewStage.h"
 
 #include <core_game/SceneSerializer.h>
 #include <core_project/AssetDatabase.h>
@@ -54,9 +56,12 @@
 #include <core_util/VectorAnimAsset.h>
 #include <core_util/VectorAnimEval.h>
 #include <core_util/VectorShapeAsset.h>
+#include <core_util/MaterialAsset.h>
 #include <core_util/VectorShapeRaster.h>
 #include <core_util/VectorTessellator.h>
+#include <engine_render/RenderMaterial.h>
 #include <engine_render/RenderSystem.h>
+#include <engine_render/RenderTexture.h>
 
 #include <SDL3/SDL.h>
 
@@ -875,6 +880,9 @@ void clearCachedThumbnails(AssetBrowserState& browser)
 		}
 	}
 	browser.thumbnails.clear();
+	// keep the deferred bake bookkeeping consistent with the cleared cache
+	browser.thumbBakeQueue.clear();
+	browser.thumbBakeInFlight.clear();
 }
 
 // rasterize a .oshape into a CPU RGBA buffer and upload it as a named texture,
@@ -994,6 +1002,24 @@ ImTextureID assetThumbnailFor(EditorState& state,
 	if (cached != browser.thumbnails.end() && cached->second.mtime == mtime)
 	{
 		return cached->second.textureId;
+	}
+	// .glb/.omat previews render through a MeshPreviewStage offscreen target -
+	// they cannot decode on the CPU here like a .oshape. Hand them to the
+	// deferred baker (staged + read back across frames) and do NOT write a cache
+	// entry: the paint path keeps requesting until the bake lands a real texture.
+	{
+		const std::string ext = lowerExtension(absolutePath);
+		if (ext == ".glb" || ext == ".gltf" || ext == ".omat")
+		{
+			if (browser.thumbBakeInFlight != absolutePath &&
+				std::find(browser.thumbBakeQueue.begin(),
+					browser.thumbBakeQueue.end(), absolutePath) ==
+					browser.thumbBakeQueue.end())
+			{
+				browser.thumbBakeQueue.push_back(absolutePath);
+			}
+			return 0;
+		}
 	}
 	// bound the cache: a full clear is cheap and simple (the visible working
 	// set of a folder is small; nothing here needs true LRU eviction yet).
@@ -1599,10 +1625,8 @@ void folderDropTarget(EditorState& state, std::string const& destDir)
 void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 	AssetBrowserItem const& entry)
 {
-	// A cooked vector animation has an in-editor viewer. The kept Lottie source
-	// opens the same viewer when its sibling `.oanim` exists, so either tile in
-	// the import pair does the useful thing on double-click.
-	fs::path previewPath;
+	// A cooked vector animation previews in the Inspector when selected; a
+	// double-click selects it and surfaces the Inspector.
 	const std::string extension = lowerExtension(entry.absolutePath);
 	if (extension == ".oui")
 	{
@@ -1615,26 +1639,17 @@ void openAssetEntry(EditorState& state, Orkige::EditorCore& core,
 		}
 		return;
 	}
+	// a .oanim rig previews in the Inspector when the asset is selected (the
+	// standalone Animation Preview panel was retired) - selecting it and
+	// surfacing the Inspector is what double-click does now
 	if (extension == ".oanim")
 	{
-		previewPath = entry.absolutePath;
-	}
-	else if (extension == ".json")
-	{
-		previewPath = fs::path(entry.absolutePath).replace_extension(".oanim");
-		std::error_code ec;
-		if (!fs::is_regular_file(previewPath, ec))
-		{
-			previewPath.clear();
-		}
-	}
-	if (!previewPath.empty())
-	{
-		state.requestedAnimationPreviewAsset =
-			state.project.makeProjectRelative(previewPath.string());
+		state.assetBrowser.selection.clear();
+		state.assetBrowser.selection.insert(entry.relativePath);
+		state.assetBrowser.selectionAnchor = entry.relativePath;
 		if (gViewSettings)
 		{
-			gViewSettings->showAnimationPreviewPanel = true;
+			gViewSettings->showInspectorPanel = true;
 			gViewSettings->save();
 		}
 		return;
@@ -2027,6 +2042,171 @@ void serviceThumbnailQueue(EditorState& state)
 	}
 }
 
+//! stage one .glb/.omat asset into the thumbnail baker (a MeshPreviewStage on
+//! its own instance slot). .glb loads the mesh by project-relative name; .omat
+//! cooks a live material and applies it to the shared preview cube - the same
+//! surface the Inspector's material section stages. Returns false only when the
+//! stage cannot be built at all (no render system / unreadable mesh).
+bool stageThumbnailBake(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& baker, std::string const& absolutePath)
+{
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render)
+	{
+		return false;
+	}
+	std::string error;
+	if (lowerExtension(absolutePath) == ".omat")
+	{
+		std::ifstream in(absolutePath, std::ios::binary);
+		if (!in)
+		{
+			return false;
+		}
+		std::stringstream buffer;
+		buffer << in.rdbuf();
+		Orkige::MaterialAsset::ParsedMaterial m;
+		Orkige::String parseError;
+		// a parse failure still previews the shared cube with the default
+		// material (a degrade, not a skip - the tile shows a real ball)
+		Orkige::MaterialAsset::parse(buffer.str(), m, &parseError);
+		Orkige::RenderMaterialDesc desc;
+		desc.albedo = Orkige::Color(m.albedo.r, m.albedo.g, m.albedo.b,
+			m.albedo.a);
+		desc.albedoTexture = m.albedoTexture;
+		desc.metalness = m.metalness;
+		desc.roughness = m.roughness;
+		desc.normalTexture = m.normalTexture;
+		desc.emissive = Orkige::Color(m.emissive.r, m.emissive.g, m.emissive.b,
+			1.0f);
+		desc.emissiveTexture = m.emissiveTexture;
+		const std::string materialName = "OmatThumb/" +
+			fs::path(absolutePath).filename().string();
+		render->createMaterial(materialName, desc);
+		// the shared lit preview surface (a unit cube WITH normals + UV0) so
+		// HlmsPbs accepts the datablock - the Inspector's .omat mesh
+		return baker.loadNamedMesh("demo_material_cube.glb", materialName, error);
+	}
+	// .glb / .gltf: load the mesh by its project-relative path
+	const std::string root = state.project.getRootDirectory();
+	std::error_code ec;
+	std::string rel = fs::relative(absolutePath, root, ec).generic_string();
+	if (rel.empty() || rel.rfind("..", 0) == 0)
+	{
+		rel = fs::path(absolutePath).filename().string();	// outside the root
+	}
+	return baker.load(root, rel, error);
+}
+
+}	// namespace: the bake service below is called from main.cpp, so it needs
+	// external linkage (the file-local helpers above stay in the anon namespace)
+
+//! bake at most one queued .glb/.omat thumbnail per editor frame. The baker
+//! stage renders into its own offscreen target (auto-rendered by the main
+//! renderOneFrame), so a bake is deferred: stage one frame, let the target
+//! reach residency, then read it back to RGBA and upload it as an owned named
+//! texture (the .oshape thumbnail contract). Driven from the main loop OUTSIDE
+//! the ImGui frame - it never forces its own render.
+void serviceThumbnailBakes(EditorState& state,
+	OrkigeEditor::MeshPreviewStage& baker, int frameCount)
+{
+	AssetBrowserState& browser = state.assetBrowser;
+	Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+	if (!render || !gImGuiRenderer)
+	{
+		return;
+	}
+	// frames to let the staged mesh + material reach GPU residency before the
+	// target is read back (the target auto-renders each of these frames)
+	const int kResidencyFrames = 2;
+
+	if (!browser.thumbBakeInFlight.empty())
+	{
+		const std::string abs = browser.thumbBakeInFlight;
+		const long long mtime = fileMTime(abs);
+		if (!baker.isLoaded() || !baker.getTarget())
+		{
+			// staging did not produce a target: cache a miss (glyph fallback)
+			// so the paint path stops re-requesting this file
+			browser.thumbnails[abs] = AssetThumbnail{ 0, mtime, std::string() };
+			baker.clear();
+			browser.thumbBakeInFlight.clear();
+			return;
+		}
+		if (frameCount - browser.thumbBakeStagedFrame < kResidencyFrames)
+		{
+			return;		// still settling; the target keeps rendering
+		}
+		// read the target back through the facade's only pixel egress (a temp
+		// PNG), decode on the CPU, and upload as an owned named texture
+		ImTextureID id = 0;
+		std::string uploadName;
+		std::error_code ec;
+		const fs::path tmp = fs::temp_directory_path(ec) /
+			("orkige_thumb_" +
+				std::to_string(std::hash<std::string>{}(abs)) + ".png");
+		bool wrote = false;
+		try
+		{
+			baker.getTarget()->writeContentsToFile(tmp.string());
+			wrote = true;
+		}
+		catch (std::exception const&)
+		{
+			wrote = false;
+		}
+		if (wrote)
+		{
+			std::vector<unsigned char> rgba;
+			int w = 0;
+			int h = 0;
+			if (OrkigeEditor::decodeImageRgba(tmp.string(), rgba, w, h) &&
+				w > 0 && h > 0)
+			{
+				const std::string name = "__meshthumb_" +
+					std::to_string(std::hash<std::string>{}(abs));
+				if (render->createTexture2D(name, rgba.data(),
+					static_cast<unsigned int>(w),
+					static_cast<unsigned int>(h)))
+				{
+					uploadName = name;
+					id = gImGuiRenderer->textureIdForResource(name);
+				}
+			}
+			fs::remove(tmp, ec);
+		}
+		dropCachedThumbnail(browser, abs);	// free a prior owned upload if any
+		browser.thumbnails[abs] = AssetThumbnail{ id, mtime, uploadName };
+		baker.clear();
+		browser.thumbBakeInFlight.clear();
+		return;
+	}
+
+	// nothing in flight: stage the next queued asset (one per frame)
+	while (!browser.thumbBakeQueue.empty())
+	{
+		const std::string abs = browser.thumbBakeQueue.front();
+		browser.thumbBakeQueue.pop_front();
+		const long long mtime = fileMTime(abs);
+		auto cached = browser.thumbnails.find(abs);
+		if (cached != browser.thumbnails.end() && cached->second.mtime == mtime)
+		{
+			continue;	// became cached while queued
+		}
+		if (stageThumbnailBake(state, baker, abs))
+		{
+			browser.thumbBakeInFlight = abs;
+			browser.thumbBakeStagedFrame = frameCount;
+			return;
+		}
+		// could not stage at all: cache a miss so it is not retried forever
+		browser.thumbnails[abs] = AssetThumbnail{ 0, mtime, std::string() };
+	}
+}
+
+namespace
+{
+
 //! one entry in the content pane's flat, index-addressable grid: a folder or a
 //! file, carrying the display name and (search mode) the containing folder
 struct GridEntry
@@ -2215,11 +2395,15 @@ void drawContentItem(EditorState& state, Orkige::EditorCore& core,
 	const bool renaming = entry.item.relativePath == browser.renamingPath;
 	// texture thumbnails plus the CPU-rasterized vector kinds (a .oshape fill,
 	// a .oanim default-clip pose - both resolved by assetThumbnailFor); .oanim
-	// is not its own AssetKind, so it is matched by extension
+	// is not its own AssetKind, so it is matched by extension. .glb/.gltf and
+	// .omat get a GPU-rendered preview baked through the thumbnail baker (also
+	// resolved via assetThumbnailFor, which routes them to the bake queue).
+	const std::string tileExt = lowerExtension(entry.item.absolutePath);
 	const bool wantsThumbnail = !entry.isFolder &&
 		(entry.item.kind == AssetKind::Texture ||
 			entry.item.kind == AssetKind::VectorShape ||
-			lowerExtension(entry.item.absolutePath) == ".oanim");
+			tileExt == ".oanim" || tileExt == ".glb" || tileExt == ".gltf" ||
+			tileExt == ".omat");
 	const ImTextureID thumb = wantsThumbnail
 		? queuedThumbnail(state, entry.item) : 0;
 	ImDrawList* drawList = ImGui::GetWindowDrawList();

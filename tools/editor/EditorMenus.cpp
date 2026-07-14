@@ -751,7 +751,6 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	// the GUI Preview shares the center node with the Scene (a tab beside
 	// it - the human flips between the 3D scene and the UI screen)
 	ImGui::DockBuilderDockWindow("GuiPreview", centerId);
-	ImGui::DockBuilderDockWindow("AnimationPreview", centerId);
 	ImGui::DockBuilderFinish(dockspaceId);
 }
 

@@ -36,7 +36,10 @@ namespace OrkigeEditor
 		//! editor camera's 100000-unit far clip (so the main view never draws
 		//! it) yet moderate enough that float precision on a preview-scale mesh
 		//! stays adequate (only this one axis is large). @see the header.
+		//! Per-instance stages step along +X so their content and lights never
+		//! reach each other (the offset dwarfs any preview-scale mesh).
 		const Vec3 STAGING_ORIGIN(0.0f, 120000.0f, 0.0f);
+		const float STAGING_SLOT_STRIDE = 8000.0f;
 		//! a neutral studio background so light and dark materials both read
 		const Color PREVIEW_BACKGROUND(0.16f, 0.17f, 0.19f, 1.0f);
 		//! the preview target's backend name (one stage per editor in practice)
@@ -56,7 +59,8 @@ namespace OrkigeEditor
 	}
 
 	//---------------------------------------------------------
-	MeshPreviewStage::MeshPreviewStage() {}
+	MeshPreviewStage::MeshPreviewStage(int instanceSlot)
+		: mInstanceSlot(instanceSlot) {}
 	//---------------------------------------------------------
 	MeshPreviewStage::~MeshPreviewStage()
 	{
@@ -205,9 +209,13 @@ namespace OrkigeEditor
 		RenderSystem* render = RenderSystem::get();
 		RenderWorld* world = render->getWorld();
 
+		// per-instance staging origin: coexisting stages step apart on +X
+		const Vec3 stagingOrigin = STAGING_ORIGIN +
+			Vec3(this->mInstanceSlot * STAGING_SLOT_STRIDE, 0.0f, 0.0f);
+
 		// stage the mesh far outside the editing scene, invisible to picking
 		this->mStagingNode = world->createNode();
-		this->mStagingNode->setPosition(STAGING_ORIGIN);
+		this->mStagingNode->setPosition(stagingOrigin);
 		this->mMesh->attachTo(this->mStagingNode);
 		this->mMesh->setQueryFlags(0);	// marquee/picking never see it
 		this->mMesh->setCastShadows(false);
@@ -223,7 +231,7 @@ namespace OrkigeEditor
 			half = bounds.getHalfSize();
 		}
 		this->mRadius = std::max(half.length(), 0.001f);
-		const Vec3 worldCentre = STAGING_ORIGIN + centre;
+		const Vec3 worldCentre = stagingOrigin + centre;
 		this->mCenterX = worldCentre.x;
 		this->mCenterY = worldCentre.y;
 		this->mCenterZ = worldCentre.z;
@@ -274,8 +282,12 @@ namespace OrkigeEditor
 			orbitDirection(this->mYawDeg - 130.0f, 10.0f) * (this->mRadius * 3.0f));
 		this->mFillLight->attachTo(this->mFillLightNode);
 
-		// the offscreen target the mesh renders into (auto-updates each frame)
-		this->mTarget = render->createRenderTexture(PREVIEW_TARGET_NAME,
+		// the offscreen target the mesh renders into (auto-updates each frame);
+		// the name is per-instance so a second stage owns a distinct target
+		const std::string targetName = this->mInstanceSlot == 0
+			? std::string(PREVIEW_TARGET_NAME)
+			: PREVIEW_TARGET_NAME + std::to_string(this->mInstanceSlot);
+		this->mTarget = render->createRenderTexture(targetName,
 			static_cast<unsigned int>(this->mSide),
 			static_cast<unsigned int>(this->mSide));
 		if(!this->mTarget)

@@ -62,6 +62,8 @@ add_executable(orkige_editor
     EditorExport.cpp
     EditorFileDialogs.cpp
     EditorHierarchyPanel.cpp
+    EditorImageDecode.h
+    EditorImageDecode.cpp
     EditorInspectorPanel.cpp
     EditorMenus.cpp
     GuiPreviewStage.h
@@ -102,6 +104,14 @@ target_precompile_headers(orkige_editor PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:<imgui.h$<ANGLE-R>>"
 )
 orkige_pch_ccache_compat(orkige_editor)
+
+# the single-file stb_image decoder is compiled in exactly one TU (the asset
+# browser bakes a GPU-rendered preview to PNG then reads it back to RGBA for a
+# thumbnail upload): only it sees the stb include, and it stays off the PCH.
+find_package(Stb REQUIRED)
+set_source_files_properties(EditorImageDecode.cpp PROPERTIES
+    SKIP_PRECOMPILE_HEADERS ON
+    INCLUDE_DIRECTORIES "${Stb_INCLUDE_DIR}")
 
 if(APPLE)
     # native macOS menu bar (NSMenu mirror of the editor menus; ObjC++)

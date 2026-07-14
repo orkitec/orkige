@@ -688,8 +688,8 @@ std::string selectedBrowserAnimation(EditorState& state)
 //! the inline animation-preview section: shown when the SCENE selection is
 //! empty AND the single browser selection is a `.oanim` (or a `.json` with a
 //! cooked sibling). Loads the rig into the SHARED preview stage on a selection
-//! change and draws the SAME widget the Animation Preview panel does (clip
-//! dropdown, Play/Pause/Reset, scrub, blend, status + pose image). Returns true
+//! change and draws the shared animation preview widget (clip dropdown,
+//! Play/Pause/Reset, scrub, blend, status + pose image). Returns true
 //! when it drew the section.
 bool drawAnimationPreviewSection(EditorState& state,
 	OrkigeEditor::AnimationPreviewStage& stage)
