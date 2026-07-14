@@ -142,9 +142,23 @@
 //member function returning a woptr
 #define OFUNCWEAK(FunctionName)
 
+//map a class subtree to one handle base - no scripting surface in this backend
+#define OHANDLE_BASE(BaseClass)
+
 #define OFUNCOVERL(FunctionName, CCast)
 
 #define OFUNC_CUSTOM(FunctionName, ...)
+
+//weak Lua handle macros (option C) - no scripting surface in this backend
+#define OWEAKHANDLE_BEGIN(BaseClass, LuaName, DeadNoun, LeafNoun)
+#define OWEAKHANDLE_BASEMETHOD(Method)
+#define OWEAKHANDLE_LEAFMETHOD(LeafClass, Method)
+#define OWEAKHANDLE_LEAFMETHOD2(Method, Leaf1, Leaf2)
+#define OWEAKHANDLE_LEAFMETHOD3(Method, Leaf1, Leaf2, Leaf3)
+#define OWEAKHANDLE_PARENTMETHOD(Method)
+#define OWEAKHANDLE_HANDLEMETHOD(Method)
+#define OWEAKHANDLE_WIDGETPARAM(Method, ParamLeaf)
+#define OWEAKHANDLE_END
 
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							

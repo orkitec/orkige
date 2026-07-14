@@ -10,6 +10,7 @@
 *********************************************************************/
 
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiWidgetHandle.h"	// widget -> WidgetHandle base mapping for the finders' OFUNCWEAK
 #include "engine_gui/FontAtlas.h"
 #include "engine_render/RenderSystem.h"
 #include <OgreString.h>
@@ -2252,9 +2253,11 @@ namespace Orkige
 		// the .oui <-> Lua bridge: find a declaratively-authored widget by id and
 		// wire behavior (setters, guitween.*, transitions) onto it
 		OFUNCWEAK(findWidget)
-		// typed companions: return the LEAF (or nil on absent/wrong-type) so a
-		// script can call a leaf's own methods (label:setText, ...) that the
-		// base findWidget handle can't reach
+		// typed companions: acquisition-time TYPE FILTERS - each returns a
+		// WidgetHandle (or nil on an absent / wrong-type id) so a script grabs a
+		// widget by kind. Once held, the WidgetHandle exposes the whole widget
+		// surface gated by the live type (findWidget hands the SAME handle), so
+		// findLabel(id):setText works and findButton(id):setText errors distinctly.
 		OFUNCWEAK(findLabel)
 		OFUNCWEAK(findButton)
 		OFUNCWEAK(findCheckBox)

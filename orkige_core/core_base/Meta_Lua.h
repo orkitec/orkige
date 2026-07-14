@@ -45,6 +45,8 @@
 
 #include <sol/sol.hpp>
 #include <memory>
+#include <string>
+#include <stdexcept>
 
 //! usertype opener helper - the exposed type is passed as __VA_ARGS__ so
 //! template arguments containing commas survive macro expansion
@@ -223,22 +225,326 @@ namespace Orkige
 {
 	namespace MetaLuaDetail
 	{
-		//! @brief wrap a woptr-returning member function for OFUNCWEAK: Lua
-		//! receives the locked optr (nil when expired) - sol2 understands
-		//! std::shared_ptr natively but cannot push a std::weak_ptr
-		template<typename ResultType, typename ClassType, typename... ArgTypes>
-		inline auto lockedResult(ResultType (ClassType::*function)(ArgTypes...))
+		//! @brief the handle BASE for a returned leaf type. A woptr<Leaf>-returning
+		//! accessor (OFUNCWEAK) hands Lua a LuaWeakHandle<base>. The primary maps a
+		//! type to ITSELF (its own handle currency - GuiFactory, GuiToggleGroup,
+		//! GameObject); the engine specialises every GuiWidget descendant to
+		//! GuiWidget so ALL widget finders/create* share the ONE WidgetHandle (see
+		//! engine_gui/GuiWidgetHandle.h). Must be visible, consistently, in every
+		//! TU that registers a woptr<Leaf>-returning accessor for that leaf. The
+		//! second parameter is an SFINAE slot for the engine's OHANDLE_BASE
+		//! family-mapping specialisation (a whole subtree -> one handle base).
+		template<typename T, typename = void>
+		struct LuaHandleBase { using type = T; };
+
+		//--- weak Lua handles (option C) --------------------------------------
+		//! @brief a WEAK Lua-side proxy to an engine object. Lua NEVER owns the
+		//! object: the handle holds a weak_ptr to the BASE type plus the leaf kind
+		//! name + id captured at creation. Every bound method locks for the call
+		//! and raises an honest (pcall-catchable) script error when the object is
+		//! gone - a mistake is visible at the line that made it, with no zombie
+		//! extending the object's lifetime and no silent no-op, safe under every
+		//! destruction order. ONE handle type carries a whole surface; a leaf
+		//! method dynamic_casts the locked base to its leaf.
+		template<typename Base>
+		struct LuaWeakHandle
+		{
+			std::weak_ptr<Base> weak;
+			std::string kind;	//!< dynamic type name at creation (error text + cast target)
+			std::string id;		//!< object id, for the error message
+		};
+
+		//! @brief lock a handle for a call or raise a dead-handle error. noun is
+		//! the surface's word ("widget handle" / "handle") so the message reads
+		//! e.g. "widget handle is dead (GuiLabel 'coinLabel')".
+		template<typename Base>
+		inline std::shared_ptr<Base> lockHandle(LuaWeakHandle<Base> const & handle, char const * noun)
+		{
+			std::shared_ptr<Base> locked = handle.weak.lock();
+			if (!locked)
+			{
+				std::string message = noun;
+				message += " is dead";
+				if (!handle.kind.empty())
+				{
+					message += " (";
+					message += handle.kind;
+					if (!handle.id.empty())
+					{
+						message += " '";
+						message += handle.id;
+						message += "'";
+					}
+					message += ")";
+				}
+				throw std::runtime_error(message);
+			}
+			return locked;
+		}
+
+		//! @brief narrow a locked base pointer to a leaf, or raise a DISTINCT
+		//! wrong-leaf error ("widget 'foo' is a GuiButton, not a GuiLabel") - a
+		//! live-but-wrong-type call fails honestly instead of pretending death.
+		//! noun is the surface's singular ("widget").
+		template<typename Leaf, typename Base>
+		inline Leaf * leafOrRaise(std::shared_ptr<Base> const & locked,
+			LuaWeakHandle<Base> const & handle, char const * noun)
+		{
+			Leaf * leaf = dynamic_cast<Leaf *>(locked.get());
+			if (!leaf)
+			{
+				std::string message = noun;
+				message += " '";
+				message += handle.id;
+				message += "' is a ";
+				message += handle.kind;
+				message += ", not a ";
+				message += Leaf::getClassTypeInfo().getName();
+				throw std::runtime_error(message);
+			}
+			return leaf;
+		}
+
+		//! detect the Object surface (getTypeInfo / getObjectID) so a handle over a
+		//! non-Object base (GuiFactory, GuiToggleGroup) still compiles - it just
+		//! carries no dynamic kind / id for the error text.
+		template<typename T, typename = void> struct HasTypeInfo : std::false_type {};
+		template<typename T> struct HasTypeInfo<T, std::void_t<decltype(std::declval<T &>().getTypeInfo())>> : std::true_type {};
+		template<typename T, typename = void> struct HasObjectID : std::false_type {};
+		template<typename T> struct HasObjectID<T, std::void_t<decltype(std::declval<T &>().getObjectID())>> : std::true_type {};
+
+		//! @brief construct a handle-or-nil from a woptr<Leaf>: nil when empty
+		//! (absent / wrong type - preserves the typed-finder contract), else a weak
+		//! handle over the deduced base, capturing the leaf's DYNAMIC kind + id now
+		//! (blank for a non-Object base - its dead-handle text is just the noun).
+		template<typename Leaf>
+		inline sol::optional<LuaWeakHandle<typename LuaHandleBase<Leaf>::type>>
+			makeHandle(std::weak_ptr<Leaf> const & weak)
+		{
+			using Base = typename LuaHandleBase<Leaf>::type;
+			std::shared_ptr<Leaf> locked = weak.lock();
+			if (!locked)
+			{
+				return sol::nullopt;
+			}
+			std::string kind;
+			std::string id;
+			if constexpr (HasTypeInfo<Leaf>::value)
+			{
+				kind = locked->getTypeInfo().getName();		// dynamic leaf type
+			}
+			if constexpr (HasObjectID<Leaf>::value)
+			{
+				id = locked->getObjectID();
+			}
+			std::shared_ptr<Base> base = locked;	// upcast to the handle base
+			return LuaWeakHandle<Base>{ std::weak_ptr<Base>(base), kind, id };
+		}
+
+		//! @brief OFUNCWEAK's registration: wrap a woptr-returning accessor so Lua
+		//! receives a WEAK handle (never an owning optr). The handle base is
+		//! deduced from the returned leaf via LuaHandleBase.
+		template<typename Leaf, typename ClassType, typename... ArgTypes>
+		inline auto handleResult(std::weak_ptr<Leaf> (ClassType::*function)(ArgTypes...))
 		{
 			return [function](ClassType & object, ArgTypes... args)
 			{
-				return (object.*function)(static_cast<ArgTypes>(args)...).lock();
+				return makeHandle((object.*function)(static_cast<ArgTypes>(args)...));
+			};
+		}
+
+		//! @brief lock-and-forward wrapper for a BASE method bound on a handle
+		//! usertype: lock (raising on a dead handle), then call on the base.
+		template<typename Base, typename ResultType, typename ClassType, typename... ArgTypes>
+		inline auto forwardBase(char const * noun, ResultType (ClassType::*function)(ArgTypes...))
+		{
+			return [noun, function](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				return (lockHandle(handle, noun).get()->*function)(static_cast<ArgTypes>(args)...);
+			};
+		}
+
+		//! const-qualified overload of forwardBase (a base getter)
+		template<typename Base, typename ResultType, typename ClassType, typename... ArgTypes>
+		inline auto forwardBase(char const * noun, ResultType (ClassType::*function)(ArgTypes...) const)
+		{
+			return [noun, function](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				return (lockHandle(handle, noun).get()->*function)(static_cast<ArgTypes>(args)...);
+			};
+		}
+
+		//! @brief lock-and-forward wrapper for a LEAF method: lock, dynamic_cast
+		//! to the leaf (raising the wrong-leaf error on a live widget of another
+		//! type), then call.
+		template<typename Base, typename Leaf, typename ResultType, typename ClassType, typename... ArgTypes>
+		inline auto forwardLeaf(char const * deadNoun, char const * leafNoun,
+			ResultType (ClassType::*function)(ArgTypes...))
+		{
+			return [deadNoun, leafNoun, function](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				std::shared_ptr<Base> locked = lockHandle(handle, deadNoun);
+				Leaf * leaf = leafOrRaise<Leaf>(locked, handle, leafNoun);
+				return (leaf->*function)(static_cast<ArgTypes>(args)...);
+			};
+		}
+
+		//! const-qualified overload of forwardLeaf (a single-leaf getter)
+		template<typename Base, typename Leaf, typename ResultType, typename ClassType, typename... ArgTypes>
+		inline auto forwardLeaf(char const * deadNoun, char const * leafNoun,
+			ResultType (ClassType::*function)(ArgTypes...) const)
+		{
+			return [deadNoun, leafNoun, function](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				std::shared_ptr<Base> locked = lockHandle(handle, deadNoun);
+				Leaf * leaf = leafOrRaise<Leaf>(locked, handle, leafNoun);
+				return (leaf->*function)(static_cast<ArgTypes>(args)...);
+			};
+		}
+
+		//! @brief lock-and-forward wrapper for a base method taking ANOTHER
+		//! widget as a parameter (setParent): lock self, and lock/convert the
+		//! parameter handle INSIDE the wrapper (a passed-but-dead handle raises;
+		//! nil detaches). This is what dissolves the setParent interim adapter - a
+		//! widget-valued parameter is just a handle the wrapper locks.
+		template<typename Base>
+		inline auto forwardParent(char const * noun,
+			void (Base::*function)(std::shared_ptr<Base> const &))
+		{
+			return [noun, function](LuaWeakHandle<Base> & handle,
+				sol::optional<LuaWeakHandle<Base>> parent)
+			{
+				std::shared_ptr<Base> self = lockHandle(handle, noun);
+				std::shared_ptr<Base> other;	// nil parent = detach
+				if (parent)
+				{
+					other = lockHandle(*parent, noun);
+				}
+				(self.get()->*function)(other);
+			};
+		}
+
+		//! @brief raise the multi-leaf wrong-kind error, naming the ACCEPTED kinds
+		//! so the script author learns the contract from the error itself:
+		//! "widget 'foo' is a GuiDecorWidget; setText needs GuiLabel or GuiTextEntry".
+		template<typename Base>
+		[[noreturn]] inline void raiseWrongKinds(LuaWeakHandle<Base> const & handle,
+			char const * noun, char const * method, char const * accepted)
+		{
+			std::string message = noun;
+			message += " '";
+			message += handle.id;
+			message += "' is a ";
+			message += handle.kind;
+			message += "; ";
+			message += method;
+			message += " needs ";
+			message += accepted;
+			throw std::runtime_error(message);
+		}
+
+		//! @brief lock-and-forward for a method whose Lua NAME is shared by TWO
+		//! DISTINCT leaves that have no common base (a collision set). Tries each
+		//! in turn and calls the one the live object actually is; if neither,
+		//! raises naming the accepted kinds. The candidates share the Lua-facing
+		//! signature (deduced from the first); the second's member pointer may be
+		//! const-qualified (Fn2 is opaque). @see OWEAKHANDLE_LEAFMETHOD2.
+		template<typename Base, typename Leaf1, typename Leaf2,
+			typename Fn2, typename ResultType, typename... ArgTypes>
+		inline auto forwardLeaf2(char const * deadNoun, char const * leafNoun,
+			char const * method, char const * accepted,
+			ResultType (Leaf1::*fn1)(ArgTypes...), Fn2 fn2)
+		{
+			return [=](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				std::shared_ptr<Base> locked = lockHandle(handle, deadNoun);
+				if (Leaf1 * l1 = dynamic_cast<Leaf1 *>(locked.get()))
+					return (l1->*fn1)(static_cast<ArgTypes>(args)...);
+				if (Leaf2 * l2 = dynamic_cast<Leaf2 *>(locked.get()))
+					return (l2->*fn2)(static_cast<ArgTypes>(args)...);
+				raiseWrongKinds(handle, leafNoun, method, accepted);
+			};
+		}
+
+		//! @brief the three-leaf collision-set sibling of forwardLeaf2.
+		template<typename Base, typename Leaf1, typename Leaf2, typename Leaf3,
+			typename Fn2, typename Fn3, typename ResultType, typename... ArgTypes>
+		inline auto forwardLeaf3(char const * deadNoun, char const * leafNoun,
+			char const * method, char const * accepted,
+			ResultType (Leaf1::*fn1)(ArgTypes...), Fn2 fn2, Fn3 fn3)
+		{
+			return [=](LuaWeakHandle<Base> & handle, ArgTypes... args) -> ResultType
+			{
+				std::shared_ptr<Base> locked = lockHandle(handle, deadNoun);
+				if (Leaf1 * l1 = dynamic_cast<Leaf1 *>(locked.get()))
+					return (l1->*fn1)(static_cast<ArgTypes>(args)...);
+				if (Leaf2 * l2 = dynamic_cast<Leaf2 *>(locked.get()))
+					return (l2->*fn2)(static_cast<ArgTypes>(args)...);
+				if (Leaf3 * l3 = dynamic_cast<Leaf3 *>(locked.get()))
+					return (l3->*fn3)(static_cast<ArgTypes>(args)...);
+				raiseWrongKinds(handle, leafNoun, method, accepted);
+			};
+		}
+
+		//! @brief lock-and-forward for a base method that itself RETURNS a
+		//! woptr<Leaf2> (a factory create* on a FactoryHandle): lock self, call,
+		//! and wrap the result as its own weak handle-or-nil.
+		template<typename Base, typename Leaf, typename ClassType, typename... ArgTypes>
+		inline auto forwardHandle(char const * noun, std::weak_ptr<Leaf> (ClassType::*function)(ArgTypes...))
+		{
+			return [noun, function](LuaWeakHandle<Base> & handle, ArgTypes... args)
+			{
+				std::shared_ptr<Base> self = lockHandle(handle, noun);
+				return makeHandle((self.get()->*function)(static_cast<ArgTypes>(args)...));
+			};
+		}
+
+		//! @brief lock-and-forward for a method taking ANOTHER family's handle as a
+		//! parameter narrowed to a leaf (GuiToggleGroup::addMember takes a checkbox,
+		//! passed as a WidgetHandle): lock self, lock the parameter handle (its base
+		//! deduced via LuaHandleBase), narrow it to ParamLeaf (raising the distinct
+		//! wrong-kind error), and forward the owning leaf pointer. nil parameter
+		//! forwards null.
+		template<typename SelfBase, typename ParamLeaf>
+		inline auto forwardHandleParam(char const * selfNoun, char const * paramNoun,
+			char const * paramLeafNoun, void (SelfBase::*function)(std::shared_ptr<ParamLeaf> const &))
+		{
+			using ParamBase = typename LuaHandleBase<ParamLeaf>::type;
+			return [=](LuaWeakHandle<SelfBase> & self, sol::optional<LuaWeakHandle<ParamBase>> param)
+			{
+				std::shared_ptr<SelfBase> s = lockHandle(self, selfNoun);
+				std::shared_ptr<ParamLeaf> leaf;
+				if (param)
+				{
+					std::shared_ptr<ParamBase> locked = lockHandle(*param, paramNoun);
+					(void)leafOrRaise<ParamLeaf>(locked, *param, paramLeafNoun);
+					leaf = std::static_pointer_cast<ParamLeaf>(locked);
+				}
+				(s.get()->*function)(leaf);
 			};
 		}
 	}
 }
 
-//member function returning a woptr - registered so Lua gets the locked optr
-#define OFUNCWEAK(FunctionName)								py_class[#FunctionName] = Orkige::MetaLuaDetail::lockedResult(&ExposedClassType::FunctionName);
+//! a woptr-returning accessor: hands Lua a WEAK handle (locks per method call,
+//! raises an honest error when the object is gone) - never an owning optr. The
+//! handle base is deduced from the returned leaf via LuaHandleBase (all GuiWidget
+//! descendants share the ONE WidgetHandle). The name is finally true: OFUNCWEAK IS
+//! the weak-handle registration, the sole accessor macro; there is no owning path.
+#define OFUNCWEAK(FunctionName)								py_class[#FunctionName] = Orkige::MetaLuaDetail::handleResult(&ExposedClassType::FunctionName);
+
+//! map a whole class SUBTREE to ONE handle base: every descendant of BaseClass
+//! (and BaseClass itself) returned by an OFUNCWEAK accessor hands Lua a
+//! LuaWeakHandle<BaseClass> - the shared currency for that family (all widgets ->
+//! WidgetHandle). Emit ONCE at namespace scope in an engine header with BaseClass
+//! complete + <type_traits> included; no-op in the noscript backend. Do NOT use a
+//! raw #ifdef for this - the macro is the sanctioned seam.
+#define OHANDLE_BASE(BaseClass)								namespace Orkige { namespace MetaLuaDetail {							\
+																template<typename OrkigeHandleLeaf>									\
+																struct LuaHandleBase<OrkigeHandleLeaf,								\
+																	std::enable_if_t<std::is_base_of_v<BaseClass, OrkigeHandleLeaf>>>	\
+																{ using type = BaseClass; };										\
+															} }
 
 #define OFUNCOVERL(FunctionName, CCast)						py_class[#FunctionName] = static_cast<CCast>(&ExposedClassType::FunctionName);
 
@@ -246,6 +552,54 @@ namespace Orkige
 //! script layer cannot pass directly) under the given script-facing name.
 //! Variadic so the callable may contain commas.
 #define OFUNC_CUSTOM(FunctionName, ...)						py_class[#FunctionName] = __VA_ARGS__;
+
+//--- weak Lua handle macros (option C) --------------------------------------
+//! open a weak-handle usertype for BaseClass under the Lua name LuaName; the
+//! enclosed OWEAKHANDLE_* entries bind lock-and-forward wrappers on it.
+//! DeadNoun / LeafNoun are the surface's error vocabulary.
+#define OWEAKHANDLE_BEGIN(BaseClass, LuaName, DeadNoun, LeafNoun)	{								\
+			typedef BaseClass WeakHandleBase;															\
+			[[maybe_unused]] char const * whDeadNoun = DeadNoun;										\
+			[[maybe_unused]] char const * whLeafNoun = LeafNoun;										\
+			[[maybe_unused]] sol::usertype<Orkige::MetaLuaDetail::LuaWeakHandle<BaseClass>> wh_class =	\
+				Orkige::ScriptManager::metaExportState()												\
+					.new_usertype<Orkige::MetaLuaDetail::LuaWeakHandle<BaseClass>>(					\
+						LuaName, sol::no_constructor);
+
+//! bind an inherited/base method (member of the handle base) as lock-and-forward
+#define OWEAKHANDLE_BASEMETHOD(Method)						wh_class[#Method] = Orkige::MetaLuaDetail::forwardBase<WeakHandleBase>(whDeadNoun, &WeakHandleBase::Method);
+
+//! bind a LEAF method (member of LeafClass): locks then dynamic_casts, with a
+//! distinct wrong-leaf error on a live widget of another type
+#define OWEAKHANDLE_LEAFMETHOD(LeafClass, Method)			wh_class[#Method] = Orkige::MetaLuaDetail::forwardLeaf<WeakHandleBase, LeafClass>(whDeadNoun, whLeafNoun, &LeafClass::Method);
+
+//! bind a base method taking another handle as a PARAMETER (setParent): both
+//! self and the parameter handle are locked/converted inside the wrapper
+#define OWEAKHANDLE_PARENTMETHOD(Method)					wh_class[#Method] = Orkige::MetaLuaDetail::forwardParent<WeakHandleBase>(whDeadNoun, &WeakHandleBase::Method);
+
+//! COLLISION SET: one Lua method NAME implemented by SEVERAL distinct leaves that
+//! share no common base (e.g. setText on GuiLabel and GuiTextEntry). One usertype
+//! binds one function per name, so the candidates are listed HERE, declaratively,
+//! and the wrapper tries each in turn (a live wrong-kind object raises naming the
+//! accepted kinds). MAINTENANCE RULE: a new widget type that adds a method name
+//! ALREADY in a collision set below MUST join that set's registration here - grep
+//! OWEAKHANDLE_LEAFMETHOD2 / _LEAFMETHOD3. (A name on a single leaf stays
+//! OWEAKHANDLE_LEAFMETHOD; a virtual override of a base method - TextEntry's
+//! setPosition etc. - stays a single OWEAKHANDLE_BASEMETHOD, the vtable dispatches.)
+#define OWEAKHANDLE_LEAFMETHOD2(Method, Leaf1, Leaf2)		wh_class[#Method] = Orkige::MetaLuaDetail::forwardLeaf2<WeakHandleBase, Leaf1, Leaf2>(whDeadNoun, whLeafNoun, #Method, #Leaf1 " or " #Leaf2, &Leaf1::Method, &Leaf2::Method);
+
+#define OWEAKHANDLE_LEAFMETHOD3(Method, Leaf1, Leaf2, Leaf3)	wh_class[#Method] = Orkige::MetaLuaDetail::forwardLeaf3<WeakHandleBase, Leaf1, Leaf2, Leaf3>(whDeadNoun, whLeafNoun, #Method, #Leaf1 ", " #Leaf2 " or " #Leaf3, &Leaf1::Method, &Leaf2::Method, &Leaf3::Method);
+
+//! bind a base method that itself RETURNS a woptr (a FactoryHandle's create*):
+//! locks self, calls, and hands Lua the result as its OWN weak handle-or-nil
+#define OWEAKHANDLE_HANDLEMETHOD(Method)					wh_class[#Method] = Orkige::MetaLuaDetail::forwardHandle<WeakHandleBase>(whDeadNoun, &WeakHandleBase::Method);
+
+//! bind a method taking ANOTHER family's handle narrowed to a widget leaf as its
+//! parameter (GuiToggleGroup::addMember takes a checkbox WidgetHandle): the
+//! parameter is locked + narrowed to ParamLeaf inside the wrapper
+#define OWEAKHANDLE_WIDGETPARAM(Method, ParamLeaf)			wh_class[#Method] = Orkige::MetaLuaDetail::forwardHandleParam<WeakHandleBase, ParamLeaf>(whDeadNoun, "widget handle", "widget", &WeakHandleBase::Method);
+
+#define OWEAKHANDLE_END										}
 
 //standard function
 #define OVIRTUAL_FUNC(FunctionName)							OFUNC(FunctionName)

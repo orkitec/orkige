@@ -381,6 +381,44 @@ local resume = gui:findButton("resumeBtn")
 -- each frame: if resume and resume:wasClicked() then ... end
 ```
 
+## Widget & object handles (weak, per-call-locked)
+
+Accessors that hand a script a reference to an engine-owned object — every
+`GuiManager` finder (`findWidget`, `findLabel`, …), `gui:getFactory()`,
+`getToggleGroup`, every factory `create*`, and `GameObject:getParent()` — return
+a **weak handle**, not an owning reference. Lua never owns the object; the engine
+does (the `GuiManager` owns its widgets, the world owns its objects). Each method
+call **locks** the handle for the duration of the call. If the object is already
+gone, the call raises a normal, `pcall`-catchable Lua error at the line that made
+it — e.g. `widget handle is dead (GuiLabel 'coinLabel')` — instead of a crash, a
+zombie that keeps the object alive, or a silent no-op. A mistake is visible where
+it happened, and the app keeps running.
+
+There is **one** widget handle type (`WidgetHandle`). It carries the whole widget
+method surface and resolves each method against the object's **live type**, so
+there are two complementary idioms:
+
+- **Filter at acquisition** — the typed finders (`findLabel`, `findButton`, …)
+  return `nil` for a wrong-kind or absent id, so `gui:findLabel("x")` hands back a
+  handle only when `x` really is a label.
+- **Gate at the call** — any handle exposes any widget method; the call succeeds
+  when the live object actually is that kind and otherwise raises distinctly, e.g.
+  `widget 'x' is a GuiButton, not a GuiLabel` (for a name several kinds share, the
+  error names the accepted kinds: `… ; setText needs GuiLabel or GuiTextEntry`).
+  So `gui:findWidget("x"):setText(...)` works when `x` is a label and errors
+  honestly when it is not.
+
+You never keep a handle alive to keep the widget alive — destroy it through the
+manager (or let the manager tear down), and any handle to it simply raises on the
+next touch.
+
+`GameObject:getParent()` uses the same weak-handle mechanism (`handle is dead
+(GameObject 'Player')`). This is a deliberate, documented inconsistency for now:
+`world.find`, `world.get` and `self.gameObject` still hand back **owning**
+`GameObject`s (the shared world currency scripts pass around). Unifying the two is
+a tracked follow-up; treat a `getParent()` result as a short-lived handle you read
+and discard, not a stored owning reference.
+
 ## Canonical snippets
 
 **Screen from a `.oui` + wire it.**

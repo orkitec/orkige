@@ -39,6 +39,17 @@
 #include "engine_sound/MusicStream.h"
 #include "engine_gui/IGuiObject.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiWidget.h"
+#include "engine_gui/GuiWidgetHandle.h"
+#include "engine_gui/GuiFactory.h"
+#include "engine_gui/GuiLabel.h"
+#include "engine_gui/GuiButton.h"
+#include "engine_gui/GuiCheckBox.h"
+#include "engine_gui/GuiDecorWidget.h"
+#include "engine_gui/GuiProgressBar.h"
+#include "engine_gui/GuiScrollView.h"
+#include "engine_gui/GuiSelectMenu.h"
+#include "engine_gui/GuiTextEntry.h"
 #include "engine_gui/GuiToggleGroup.h"
 #include "engine_gui/GuiDropDown.h"
 #include "engine_gui/GuiToast.h"
@@ -211,6 +222,127 @@ ORKIGE_MODULE(orkige_engine)
 	// GuiWidget layout setters (setParent/setAnchorPreset/...)
 	OEXPORT(GuiScrollView)
 	OEXPORT(DragEventData)
+
+	// Weak Lua widget handles (option C). A finder or a factory create* hands Lua
+	// a WidgetHandle: a WEAK proxy over the base GuiWidget. Every method locks the
+	// object for the call (a dead handle raises an honest, pcall-catchable script
+	// error naming the kind + id); a base method calls straight through (a virtual
+	// override - e.g. GuiTextEntry::setPosition - is reached by the vtable); a leaf
+	// method dynamic_casts the locked base to its leaf (a wrong-leaf call on a LIVE
+	// widget of another type errors distinctly rather than pretending death); a
+	// COLLISION name shared by several leaves lists its candidates and tries each
+	// (see OWEAKHANDLE_LEAFMETHOD2/3 + the maintenance rule in Meta_Lua.h). ONE
+	// handle carries the whole widget surface, so any handle can call any method
+	// gated by the live type - findWidget(id):setText(...) works when the object
+	// really is a label; the typed finders stay acquisition-time filters (nil on
+	// the wrong kind). setParent takes another handle as a PARAMETER, locked inside
+	// the wrapper (this is what dissolved the interim setParent adapter).
+	OWEAKHANDLE_BEGIN(Orkige::GuiWidget, "WidgetHandle", "widget handle", "widget")
+		// --- GuiWidget base surface (calls straight through; vtable reaches leaf overrides) ---
+		OWEAKHANDLE_BASEMETHOD(setPosition)
+		OWEAKHANDLE_BASEMETHOD(setSize)
+		OWEAKHANDLE_BASEMETHOD(getSize)
+		OWEAKHANDLE_BASEMETHOD(getPosition)
+		OWEAKHANDLE_BASEMETHOD(centerHorizontal)
+		OWEAKHANDLE_BASEMETHOD(setEnabled)
+		OWEAKHANDLE_BASEMETHOD(isEnabled)
+		OWEAKHANDLE_BASEMETHOD(getLayer)
+		OWEAKHANDLE_PARENTMETHOD(setParent)					// widget-valued parameter
+		OWEAKHANDLE_BASEMETHOD(setAnchors)
+		OWEAKHANDLE_BASEMETHOD(setAnchorPreset)
+		OWEAKHANDLE_BASEMETHOD(setPivot)
+		OWEAKHANDLE_BASEMETHOD(setOffsets)
+		OWEAKHANDLE_BASEMETHOD(setAnchoredPosition)
+		OWEAKHANDLE_BASEMETHOD(setSizeDelta)
+		OWEAKHANDLE_BASEMETHOD(setUseSafeArea)
+		OWEAKHANDLE_BASEMETHOD(setLayoutGroup)
+		OWEAKHANDLE_BASEMETHOD(setGroupPadding)
+		OWEAKHANDLE_BASEMETHOD(setGroupSpacing)
+		OWEAKHANDLE_BASEMETHOD(setChildAlignment)
+		OWEAKHANDLE_BASEMETHOD(setChildForceExpand)
+		OWEAKHANDLE_BASEMETHOD(setGridCellSize)
+		OWEAKHANDLE_BASEMETHOD(setGridConstraint)
+		OWEAKHANDLE_BASEMETHOD(setContentSizeFit)
+		OWEAKHANDLE_BASEMETHOD(setRenderScale)
+		OWEAKHANDLE_BASEMETHOD(getRenderScaleX)
+		OWEAKHANDLE_BASEMETHOD(getRenderScaleY)
+		OWEAKHANDLE_BASEMETHOD(setRenderRotation)
+		OWEAKHANDLE_BASEMETHOD(getRenderRotation)
+		OWEAKHANDLE_BASEMETHOD(setGroupAlpha)
+		OWEAKHANDLE_BASEMETHOD(getGroupAlpha)
+		OWEAKHANDLE_BASEMETHOD(getEffectiveAlpha)
+		OWEAKHANDLE_BASEMETHOD(setAlphaBlocksInput)
+		OWEAKHANDLE_BASEMETHOD(setTransition)
+		// --- collision sets (one Lua name, several distinct leaves) ---
+		OWEAKHANDLE_LEAFMETHOD2(setText, Orkige::GuiLabel, Orkige::GuiTextEntry)
+		OWEAKHANDLE_LEAFMETHOD2(setAlpha, Orkige::GuiLabel, Orkige::GuiDecorWidget)
+		OWEAKHANDLE_LEAFMETHOD2(setNineSlice, Orkige::GuiButton, Orkige::GuiDecorWidget)
+		OWEAKHANDLE_LEAFMETHOD2(setTiled, Orkige::GuiButton, Orkige::GuiDecorWidget)
+		OWEAKHANDLE_LEAFMETHOD3(getCaption, Orkige::GuiButton, Orkige::GuiProgressBar, Orkige::GuiSelectMenu)
+		OWEAKHANDLE_LEAFMETHOD3(setCaption, Orkige::GuiButton, Orkige::GuiProgressBar, Orkige::GuiSelectMenu)
+		OWEAKHANDLE_LEAFMETHOD2(setItems, Orkige::GuiSelectMenu, Orkige::GuiDropDown)
+		OWEAKHANDLE_LEAFMETHOD2(setItemsString, Orkige::GuiSelectMenu, Orkige::GuiDropDown)
+		OWEAKHANDLE_LEAFMETHOD2(getSelectedItem, Orkige::GuiSelectMenu, Orkige::GuiDropDown)
+		// --- single-leaf methods ---
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiLabel, setAlignment)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiButton, getState)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiButton, wasClicked)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiButton, setPressFeedback)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiCheckBox, isChecked)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiCheckBox, setChecked)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiCheckBox, toggle)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiDecorWidget, setSprite)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiDecorWidget, setColour)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiDropDown, getSelectedIndex)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiDropDown, selectIndex)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiDropDown, isMenuOpen)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiProgressBar, setProgress)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiProgressBar, addProgress)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiProgressBar, getProgress)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, setScroll)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, getScroll)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiScrollView, getMaxScroll)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, getSelectedItemIndex)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, selectItemIndex)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiSelectMenu, selectItem)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, getText)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, setPlaceholder)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, setMaxLength)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, getMaxLength)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, isFocused)
+		OWEAKHANDLE_LEAFMETHOD(Orkige::GuiTextEntry, wasSubmitted)
+	OWEAKHANDLE_END
+
+	// FactoryHandle: gui:getFactory() hands Lua a WEAK handle over the GuiFactory
+	// (own its own currency - not a widget). Its create* lock the factory then hand
+	// back the new widget as a WidgetHandle (the manager owns the widget; Lua holds
+	// only weak handles). The owning GuiFactory usertype (the GuiFactory() ctor)
+	// exposes the same create* through OFUNCWEAK, so both factory-acquisition paths
+	// behave identically.
+	OWEAKHANDLE_BEGIN(Orkige::GuiFactory, "FactoryHandle", "factory handle", "factory")
+		OWEAKHANDLE_HANDLEMETHOD(createLabel)
+		OWEAKHANDLE_HANDLEMETHOD(createButton)
+		OWEAKHANDLE_HANDLEMETHOD(createProgressBar)
+		OWEAKHANDLE_HANDLEMETHOD(createCheckBox)
+		OWEAKHANDLE_HANDLEMETHOD(createSlider)
+		OWEAKHANDLE_HANDLEMETHOD(createSelectMenu)
+		OWEAKHANDLE_HANDLEMETHOD(createDecorWidget)
+		OWEAKHANDLE_HANDLEMETHOD(createTextEntry)
+		OWEAKHANDLE_HANDLEMETHOD(createScrollView)
+		OWEAKHANDLE_HANDLEMETHOD(createDropDown)
+	OWEAKHANDLE_END
+
+	// ToggleGroupHandle: create/getToggleGroup hand Lua a WEAK handle over the
+	// GuiToggleGroup (the single-selection radio group). addMember takes a checkbox
+	// as a WidgetHandle PARAMETER, narrowed to GuiCheckBox inside the wrapper.
+	OWEAKHANDLE_BEGIN(Orkige::GuiToggleGroup, "ToggleGroupHandle", "toggle group handle", "toggle group")
+		OWEAKHANDLE_WIDGETPARAM(addMember, Orkige::GuiCheckBox)
+		OWEAKHANDLE_BASEMETHOD(getSelected)
+		OWEAKHANDLE_BASEMETHOD(setSelected)
+		OWEAKHANDLE_BASEMETHOD(setAllowNone)
+		OWEAKHANDLE_BASEMETHOD(getMemberCount)
+		OWEAKHANDLE_BASEMETHOD(pollChanged)
+	OWEAKHANDLE_END
 
 	// the math value types scripts actually compute with (the engine math
 	// vocabulary - Ogre spellings per the RenderMath.h alias decision);

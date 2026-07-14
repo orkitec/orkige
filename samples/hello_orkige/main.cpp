@@ -1935,15 +1935,24 @@ int main(int, char**)
 							local found = g:findWidget("luaLayoutChild")
 							lua_found_ok = (found ~= nil) and 1 or 0
 							lua_ui_scale = g:getUiScale()
-							-- base findWidget hands back a GuiWidget, so a DERIVED
-							-- method (setText) on it is NOT reachable - that is what
-							-- the typed finders below solve
+							-- findWidget hands the SAME weak WidgetHandle as the typed
+							-- finders, so a widget method resolves by the LIVE type:
+							-- setText on the child (a label) WORKS, while setText on the
+							-- panel (a DecorWidget) errors DISTINCTLY - the unified handle
+							-- gated at the call replaced the old base-can't-reach split.
 							lua_found_settext_ok = 0
 							if found ~= nil then
 								lua_found_settext_ok =
 									pcall(function() found:setText("via-find") end) and 1 or 0
 							end
 							found = nil
+							local panel = g:findWidget("luaLayoutPanel")
+							lua_found_wrongtype_raised = 0
+							if panel ~= nil then
+								lua_found_wrongtype_raised =
+									pcall(function() panel:setText("nope") end) and 0 or 1
+							end
+							panel = nil
 							-- TYPED finders: findLabel returns the LEAF (setText
 							-- works), nil on an absent id, nil on a wrong-type id
 							local tl = g:findLabel("luaLayoutChild")
@@ -1981,16 +1990,19 @@ int main(int, char**)
 							scriptRuntime.getNumber({"lua_typed_absent"}, 0));
 						const int typedWrongType = static_cast<int>(
 							scriptRuntime.getNumber({"lua_typed_wrongtype"}, 0));
+							const int findWrongType = static_cast<int>(
+								scriptRuntime.getNumber({"lua_found_wrongtype_raised"}, 0));
 						// base findWidget can't reach setText (0, expected - it is
 						// a GuiWidget); the TYPED findLabel does (1), and answers nil
 						// on an absent (1) and a wrong-type (1) id.
 						SDL_Log("hello_orkige: Lua layout probes - findWidget=%d, "
-							"uiScale=%.1f, findWidget:setText=%d (base can't), "
+							"uiScale=%.1f, findWidget:setText=%d (live label), "
+							"findWidget wrong-type raised=%d, "
 							"findLabel:setText=%d, findLabel absent-nil=%d, "
 							"wrongtype-nil=%d", foundOk, uiScale, findSetText,
-							typedSetText, typedAbsent, typedWrongType);
-						if (foundOk != 1 || uiScale < 1.0 || typedFound != 1 ||
-							typedSetText != 1 || typedAbsent != 1 ||
+							findWrongType, typedSetText, typedAbsent, typedWrongType);
+							if (foundOk != 1 || uiScale < 1.0 || findSetText != 1 ||
+								findWrongType != 1 || typedFound != 1 ||
 							typedWrongType != 1)
 						{
 							SDL_Log("hello_orkige: FAILED - finder/getUiScale probe "
@@ -2084,16 +2096,14 @@ int main(int, char**)
 				"ScriptRuntime finalizes before the GUI system dies");
 		}
 
-		// ORKIGE_DEMO_LUAORPHAN=1: the widget-outlives-its-layer acceptance test.
-		// Orthogonal to the AppHost teardown ORDER above: even with a correct
-		// order, a script that nils the GuiManager while STILL holding widget
-		// handles orphans those widgets - the manager finalises its views (=
-		// screens = UiLayers), leaving the widgets pointing at freed layers, and
-		// GC finalizer order across the two is unordered. This leg forces that
-		// deterministically (destroy the manager, GC, THEN drop the widgets):
-		// pre-fix a widget destructor touches its dead layer (SIGSEGV in
-		// ~GuiLabel / ~GuiDecorWidget), post-fix GuiWidget::isLayerAlive() no-ops
-		// the dead-layer cleanup. The CLEAN EXIT is the contract. Flavor-neutral.
+		// ORKIGE_DEMO_LUAORPHAN=1: the weak-handle orphan contract (option C). Under
+		// weak handles Lua NEVER owns a widget, so the old "a dropped handle runs a
+		// widget destructor onto its already-freed UiLayer" use-after-free cannot
+		// happen by construction. The honest replacement contract: a live handle
+		// works; after the owning GuiManager is destroyed (it owns the widgets AND
+		// their layers, torn down together), TOUCHING a still-held handle raises the
+		// catchable "widget handle is dead" error at the touching line - never a
+		// crash, never a silent no-op. Clean exit remains the contract. Flavor-neutral.
 		if (std::getenv("ORKIGE_DEMO_LUAORPHAN") &&
 			Orkige::ScriptRuntime::available())
 		{
@@ -2103,23 +2113,25 @@ int main(int, char**)
 				scriptRuntime.runString(R"lua(
 				lua_orphan_factory = GuiFactory()
 				lua_orphan_gui = GuiManager(lua_orphan_factory, "gui_default", "General")
-				lua_orphan_label = lua_orphan_factory:createLabel(
+				-- the MANAGER owns the widgets; Lua holds only a WEAK handle
+				lua_orphan_factory:createLabel(
 					"orphanLabel", 9, "orphaned", Vector2(10, 10), "", 6, false)
-				lua_orphan_panel = lua_orphan_factory:createDecorWidget(
-					"orphanPanel", "panel", Vector2(0, 0), Vector2(120, 80), "", 5)
-				-- destroy the MANAGER (and its factory) FIRST while still holding
-				-- the widget handles: the manager finalises its views -> screens
-				-- -> UiLayers, leaving the widgets pointing at freed layers.
+				local label = lua_orphan_gui:findLabel("orphanLabel")
+				lua_orphan_live_ok = pcall(function() label:setText("live") end) and 1 or 0
+				-- destroy the manager (owns widgets + views/screens/UiLayers): they die
+				-- WITH it, in order - no orphaned widget pointing at a freed layer.
 				lua_orphan_gui = nil
 				lua_orphan_factory = nil
 				collectgarbage("collect")
 				collectgarbage("collect")
-				-- now drop the orphaned widgets: their destructors run onto the
-				-- already-freed layers. Pre-fix this is a use-after-free; post-fix
-				-- isLayerAlive() no-ops the dead-layer cleanup.
-				lua_orphan_label = nil
-				lua_orphan_panel = nil
-				collectgarbage("collect")
+				-- touching the now-stale handle raises the honest, catchable error HERE
+				local ok, err = pcall(function() label:setText("after death") end)
+				lua_orphan_raised = ok and 0 or 1
+				lua_orphan_msg = tostring(err)
+				lua_orphan_msg_ok = ((not ok)
+					and string.find(lua_orphan_msg, "widget handle is dead", 1, true) ~= nil
+					and string.find(lua_orphan_msg, "orphanLabel", 1, true) ~= nil) and 1 or 0
+				label = nil
 				collectgarbage("collect")
 				lua_orphan_ok = 1
 			)lua");
@@ -2129,9 +2141,156 @@ int main(int, char**)
 					orphan.error.c_str());
 				return 1;
 			}
-			SDL_Log("hello_orkige: Lua orphan leg passed - a widget outliving its "
-				"destroyed manager's UiLayer cleaned up safely (no dead-layer "
-				"use-after-free)");
+			const int orphanLive = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_live_ok"}, 0));
+			const int orphanRaised = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_raised"}, 0));
+			const int orphanMsgOk = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_msg_ok"}, 0));
+			const Orkige::String orphanMsg = scriptRuntime.getString({"lua_orphan_msg"}, "");
+			SDL_Log("hello_orkige: orphan handle error - [%s]", orphanMsg.c_str());
+			if (orphanLive != 1 || orphanRaised != 1 || orphanMsgOk != 1)
+			{
+				SDL_Log("hello_orkige: FAILED - orphan handle contract (live=%d raised=%d msgOk=%d)",
+					orphanLive, orphanRaised, orphanMsgOk);
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua orphan leg passed - a widget cannot outlive its "
+				"manager's layer under weak handles; touching the stale handle raised "
+				"the honest error and the app kept running");
+		}
+
+		// ORKIGE_DEMO_LUAHANDLE=1: the weak-widget-handle (option C) acceptance
+		// test. findLabel now hands Lua a WEAK WidgetHandle: a leaf method
+		// (GuiLabel::setText) and an inherited base method (GuiWidget::setEnabled)
+		// both dispatch through it; setParent proves a widget-valued PARAMETER
+		// (another handle, locked inside the wrapper; nil detaches); a wrong-leaf
+		// method on a LIVE label raises a DISTINCT error; and touching the handle
+		// after its widget is destroyed raises the honest "widget handle is dead"
+		// script error at the touching line (catchable, never an abort). Ends with
+		// a live owning-call vs weak-handle-call A/B so the per-call lock cost is
+		// measured. Flavor-neutral.
+		if (std::getenv("ORKIGE_DEMO_LUAHANDLE") &&
+			Orkige::ScriptRuntime::available())
+		{
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+			const Orkige::ScriptRuntime::Result handleLeg =
+				scriptRuntime.runString(R"lua(
+				lua_h_factory = GuiFactory()
+				lua_h_gui = GuiManager(lua_h_factory, "gui_default", "General")
+				-- an OWNING label (createLabel still hands Lua an optr) for the A/B
+				lua_h_parentw = lua_h_factory:createLabel(
+					"hParent", 9, "parent", Vector2(0, 0), "", 6, false)
+				lua_h_factory:createLabel(
+					"hOwn", 9, "own", Vector2(0, 0), "", 6, false)
+				local gui = lua_h_gui
+				-- findLabel hands back a WEAK WidgetHandle now
+				local h = gui:findLabel("hOwn")
+				lua_h_present = (h ~= nil) and 1 or 0
+				-- leaf method (GuiLabel::setText) through the handle
+				lua_h_leaf = pcall(function() h:setText("live") end) and 1 or 0
+				-- inherited base method (GuiWidget::setEnabled)
+				lua_h_base = pcall(function() h:setEnabled(false) end) and 1 or 0
+				-- widget-valued PARAMETER: setParent takes another handle
+				local parent = gui:findLabel("hParent")
+				lua_h_param = pcall(function() h:setParent(parent) end) and 1 or 0
+				-- nil parent detaches, must NOT raise
+				lua_h_param_nil = pcall(function() h:setParent(nil) end) and 1 or 0
+				-- wrong-leaf: a GuiCheckBox method on a LIVE label errors DISTINCTLY
+				local wl_ok, wl_err = pcall(function() h:setChecked(true, true) end)
+				lua_h_wrongleaf_raised = wl_ok and 0 or 1
+				lua_h_wrongleaf_msg = tostring(wl_err)
+				lua_h_wrongleaf_msg_ok = ((not wl_ok)
+					and string.find(lua_h_wrongleaf_msg, "not a GuiCheckBox", 1, true) ~= nil
+					and string.find(lua_h_wrongleaf_msg, "GuiLabel", 1, true) ~= nil) and 1 or 0
+				-- a second live handle for the perf A/B (before we kill hOwn)
+				lua_h_perf = gui:findLabel("hParent")
+				-- destroy the widget behind h; the manager drops its owner, GC frees it
+				gui:destroyWidget("hOwn")
+				collectgarbage("collect")
+				collectgarbage("collect")
+				-- touching the dead handle raises the honest error at THIS line
+				local d_ok, d_err = pcall(function() h:setText("after death") end)
+				lua_h_dead_raised = d_ok and 0 or 1
+				lua_h_dead_msg = tostring(d_err)
+				lua_h_dead_msg_ok = ((not d_ok)
+					and string.find(lua_h_dead_msg, "widget handle is dead", 1, true) ~= nil
+					and string.find(lua_h_dead_msg, "GuiLabel", 1, true) ~= nil
+					and string.find(lua_h_dead_msg, "hOwn", 1, true) ~= nil) and 1 or 0
+				lua_h_ok = 1
+			)lua");
+			if (!handleLeg.success)
+			{
+				SDL_Log("hello_orkige: FAILED - Lua handle leg errored: %s",
+					handleLeg.error.c_str());
+				return 1;
+			}
+			render->renderOneFrame();
+			const int present = static_cast<int>(scriptRuntime.getNumber({"lua_h_present"}, 0));
+			const int leaf = static_cast<int>(scriptRuntime.getNumber({"lua_h_leaf"}, 0));
+			const int base = static_cast<int>(scriptRuntime.getNumber({"lua_h_base"}, 0));
+			const int param = static_cast<int>(scriptRuntime.getNumber({"lua_h_param"}, 0));
+			const int paramNil = static_cast<int>(scriptRuntime.getNumber({"lua_h_param_nil"}, 0));
+			const int wrongRaised = static_cast<int>(scriptRuntime.getNumber({"lua_h_wrongleaf_raised"}, 0));
+			const int wrongMsgOk = static_cast<int>(scriptRuntime.getNumber({"lua_h_wrongleaf_msg_ok"}, 0));
+			const int deadRaised = static_cast<int>(scriptRuntime.getNumber({"lua_h_dead_raised"}, 0));
+			const int deadMsgOk = static_cast<int>(scriptRuntime.getNumber({"lua_h_dead_msg_ok"}, 0));
+			const Orkige::String wrongMsg = scriptRuntime.getString({"lua_h_wrongleaf_msg"}, "");
+			const Orkige::String deadMsg = scriptRuntime.getString({"lua_h_dead_msg"}, "");
+			SDL_Log("hello_orkige: handle leg errors - wrongleaf=[%s] dead=[%s]",
+				wrongMsg.c_str(), deadMsg.c_str());
+			// per-call cost: an idempotent handle call (setEnabled(false), a cheap
+			// early-out) on a live widget through the weak WidgetHandle - warm the
+			// loop, then take the min over trials. Reported alongside the raw
+			// weak_ptr.lock() in isolation: that one atomic refcount pair is all a
+			// handle method adds over a plain binding, and it is far below the Lua
+			// call + method cost. (Post-landing there is no owning binding left to
+			// A/B against - every widget accessor is a weak handle now.)
+			const int perfN = 200000;
+			const Uint64 freq = SDL_GetPerformanceFrequency();
+			scriptRuntime.runString("lua_h_perf_n = " + std::to_string(perfN));
+			const char* handleLoop =
+				"for i = 1, lua_h_perf_n do lua_h_perf:setEnabled(false) end";
+			scriptRuntime.runString(handleLoop);	// warm
+			double handleNs = 1e18;
+			for (int trial = 0; trial < 4; ++trial)
+			{
+				const Uint64 s = SDL_GetPerformanceCounter();
+				scriptRuntime.runString(handleLoop);
+				const Uint64 e = SDL_GetPerformanceCounter();
+				const double ns = static_cast<double>(e - s) / freq * 1e9 / perfN;
+				if (ns < handleNs) handleNs = ns;
+			}
+			double rawLockNs = 1e18;
+			{
+				std::shared_ptr<int> owner = std::make_shared<int>(0);
+				std::weak_ptr<int> w = owner;
+				volatile int sink = 0;
+				for (int i = 0; i < perfN; ++i) { auto s = w.lock(); sink += (s != nullptr); }
+				for (int trial = 0; trial < 4; ++trial)
+				{
+					const Uint64 s = SDL_GetPerformanceCounter();
+					for (int i = 0; i < perfN; ++i) { auto sp = w.lock(); sink += (sp != nullptr); }
+					const Uint64 e = SDL_GetPerformanceCounter();
+					const double ns = static_cast<double>(e - s) / freq * 1e9 / perfN;
+					if (ns < rawLockNs) rawLockNs = ns;
+				}
+				(void)sink;
+			}
+			SDL_Log("hello_orkige: handle per-call cost - weak-handle call="
+				"%.0fns/call, of which raw weak_ptr.lock()=%.1fns (Debug -O0, "
+				"min of 4, N=%d)", handleNs, rawLockNs, perfN);
+			if (present != 1 || leaf != 1 || base != 1 || param != 1 ||
+				paramNil != 1 || wrongRaised != 1 || wrongMsgOk != 1 ||
+				deadRaised != 1 || deadMsgOk != 1)
+			{
+				SDL_Log("hello_orkige: FAILED - handle leg (present=%d leaf=%d "
+					"base=%d param=%d paramNil=%d wrongRaised=%d wrongMsgOk=%d "
+					"deadRaised=%d deadMsgOk=%d)", present, leaf, base, param,
+					paramNil, wrongRaised, wrongMsgOk, deadRaised, deadMsgOk);
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua handle leg passed - weak WidgetHandle: leaf "
+				"+ inherited + setParent(handle) dispatched, wrong-leaf and "
+				"dead-handle each raised the honest catchable error");
 		}
 
 		// ORKIGE_DEMO_OUI=1: the declarative-UI + scroll + groups selfcheck

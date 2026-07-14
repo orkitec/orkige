@@ -560,5 +560,28 @@ namespace Orkige
 		OFUNC(hasTag)
 		OFUNC(addTag)
 		OFUNC(removeTag)
+
+		// getParent (above) hands Lua a WEAK GameObjectHandle - the same weak-handle
+		// currency as the widgets (OFUNCWEAK is the one weak-registration macro). It
+		// locks per method call and raises "handle is dead (GameObject 'id')" once
+		// the object is gone. The handle carries the read/hierarchy/tag surface a
+		// script walks a parent chain with; getParent itself chains as a handle.
+		// NOTE: the deliberate, AUDITED inconsistency - world.find / self.gameObject
+		// still hand OWNING GameObjects (the shared world currency); unifying them is
+		// the remaining-surface follow-up (Docs/lua-api.md). setParent (an overloaded
+		// mutator) and the `.id` property stay on the owning surface for now.
+		OWEAKHANDLE_BEGIN(Orkige::GameObject, "GameObjectHandle", "handle", "object")
+			OWEAKHANDLE_BASEMETHOD(getObjectID)
+			OWEAKHANDLE_BASEMETHOD(getParentId)
+			OWEAKHANDLE_BASEMETHOD(getChildIds)
+			OWEAKHANDLE_BASEMETHOD(getPrefabRef)
+			OWEAKHANDLE_BASEMETHOD(setActive)
+			OWEAKHANDLE_BASEMETHOD(isActiveSelf)
+			OWEAKHANDLE_BASEMETHOD(isActiveInHierarchy)
+			OWEAKHANDLE_BASEMETHOD(hasTag)
+			OWEAKHANDLE_BASEMETHOD(addTag)
+			OWEAKHANDLE_BASEMETHOD(removeTag)
+			OWEAKHANDLE_HANDLEMETHOD(getParent)		// chains up as a handle
+		OWEAKHANDLE_END
 	OOBJECT_END
 }
