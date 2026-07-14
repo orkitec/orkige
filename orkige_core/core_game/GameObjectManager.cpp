@@ -26,6 +26,17 @@ namespace Orkige
 	//---------------------------------------------------------
 	GameObjectManager::~GameObjectManager()
 	{
+		// detach the world through the teardown hook BEFORE any member dies.
+		// A GameObject's destructor removes its components, and component
+		// removal calls back into disableUpdates() to drop the component from
+		// updatableComponents. But updatableComponents is declared before the
+		// objects map, so plain member destruction frees the update vector
+		// FIRST and the objects map (destroyed last) would then re-enter
+		// disableUpdates() on freed storage. clear() empties the update list
+		// (and zeroes numUpdatableComponents, making disableUpdates a no-op)
+		// while every member is still alive, so no object destructor can reach
+		// a dead list.
+		this->clear();
 	}
 	//---------------------------------------------------------
 	bool GameObjectManager::enableEvent(EventType const & eventType)
