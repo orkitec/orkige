@@ -1539,6 +1539,13 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		{
 			session.mode = PlaySession::Mode::Playing;
 			oDebugMsg("editor.play", 0, "play - connected to the player");
+			// arm the scripts/.oui hot-reload baseline NOW, at the instant the
+			// session becomes playable - not lazily on the next Playing-mode
+			// poll. The message drain above can deliver the player's first UI
+			// layout in this same frame, and the frame's later logic may edit a
+			// watched file before the next poll; arming a frame late would fold
+			// that first edit into the baseline and never hot-reload it.
+			watchProjectScripts(session, console, now);
 			return;
 		}
 		// the player needs a few seconds to boot before it listens: keep

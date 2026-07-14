@@ -7812,7 +7812,11 @@ int main(int argc, char** argv)
 						(std::isnan(lastLeft) ? std::string("none")
 							: std::to_string(lastLeft)) +
 						", mode=" + std::to_string(
-							static_cast<int>(playSession.mode)) + ")";
+							static_cast<int>(playSession.mode)) +
+						", reloadLine=" +
+						(consoleHasReloadLine() ? "yes" : "no") +
+						", reloadUiErr=" +
+						(consoleHasReloadUiErrorLine() ? "yes" : "no") + ")";
 				}
 				if (uiFailed)
 				{
