@@ -417,7 +417,17 @@ namespace Orkige
 		// rect-anchor layout (opt-in): parent under another widget and pin/
 		// stretch against it or the screen root. A widget that never calls
 		// these keeps its absolute authored pixels (no migration).
-		OFUNC(setParent)
+		//
+		// setParent takes the parent by REFERENCE (not the C++ optr signature):
+		// a script holds the DERIVED widget handle, and sol2 can down-convert a
+		// derived instance to a base REFERENCE but NOT a shared_ptr ARGUMENT, so
+		// the plain OFUNC binding was uncallable from Lua. The owning shared_ptr
+		// is recovered from the parent's cached weak self; a null/unregistered
+		// parent detaches (resolves against the screen root) rather than throwing.
+		py_class["setParent"] = [](GuiWidget & self, GuiWidget & parent)
+		{
+			self.setParent(parent.sharedSelf());
+		};
 		OFUNC(setAnchors)
 		OFUNC(setAnchorPreset)
 		OFUNC(setPivot)

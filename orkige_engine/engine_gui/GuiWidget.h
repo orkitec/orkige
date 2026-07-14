@@ -51,6 +51,11 @@ namespace Orkige
 		bool layoutEnabled;
 		LayoutNode layout;
 		woptr<GuiWidget> layoutParent;
+		//! this widget's own weak self-handle, bound by GuiManager::addWidget. A
+		//! Lua binding is handed the DERIVED widget by REFERENCE (sol2 cannot
+		//! down-convert a shared_ptr ARGUMENT to the base, but a base reference
+		//! works), and recovers the owning shared_ptr through this cache.
+		woptr<GuiWidget> weakSelf;
 		//! resolve against the safe-area root rather than the full window (only
 		//! consulted for a parentless widget)
 		bool layoutUseSafeArea;
@@ -211,6 +216,11 @@ namespace Orkige
 		inline LayoutContentFit const & getContentFit() const { return this->layoutFit; }
 		//! @brief the layout parent (empty for a screen-root child)
 		inline woptr<GuiWidget> getLayoutParent() const { return this->layoutParent; }
+		//! @brief bind this widget's own weak self-handle (GuiManager::addWidget)
+		inline void bindWeakSelf(woptr<GuiWidget> const & self) { this->weakSelf = self; }
+		//! @brief the owning shared_ptr (null if never registered / expired); lets
+		//! a Lua binding recover an optr from a widget reference for setParent
+		inline optr<GuiWidget> sharedSelf() const { return this->weakSelf.lock(); }
 		//! @brief resolve against the safe-area root (parentless widgets only)
 		inline bool getUseSafeArea() const { return this->layoutUseSafeArea; }
 		//! @brief the intrinsic preferred content size fed to content-size-fit and

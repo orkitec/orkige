@@ -275,6 +275,9 @@ namespace Orkige
 		{
 			return false;
 		}
+		// cache the widget's own weak self-handle so a Lua binding can recover a
+		// shared_ptr from a base reference (the setParent seam)
+		widget->bindWeakSelf(widget);
 		this->widgets[widget->getObjectID()] = widget;
 		this->sortedWidgets.push_back(widget);
 		this->sortedWidgets.sort(GuiWidgetOptrCmp());
@@ -1607,6 +1610,11 @@ namespace Orkige
 			Real(windowHeight));
 	}
 	//---------------------------------------------------------
+	float GuiManager::getUiScale() const
+	{
+		return UiGlyph::scale.x;
+	}
+	//---------------------------------------------------------
 	void GuiManager::surfaceSize(unsigned int & width, unsigned int & height) const
 	{
 		if(this->previewActive)
@@ -2215,6 +2223,9 @@ namespace Orkige
 		OFUNC(setLayoutMatchMode)
 		OFUNC(setRootSpace)
 		OFUNC(getLayoutScale)
+		// the engine's real device ui scale (what getContentScale rounds to);
+		// scripts sizing UI by hand want this, but measuring getSize() is better
+		OFUNC(getUiScale)
 		// modal dialogs: showConfirm(title,message,yes,no) /
 		// showAlert(title,message,ok) build a dialog and return its modal id;
 		// poll getDialogResult(id) (1=yes/ok, 2=no, 0=pending). showModal(id,

@@ -1890,6 +1890,106 @@ int main(int, char**)
 						layoutOk = false;
 					}
 				}
+				// Lua-driven regression: the documented layout setters (setParent
+				// + anchors) must be callable from a SCRIPT holding the DERIVED
+				// widget handle - the exact call that threw before the binding fix.
+				// A script reaches the LIVE C++ manager + factory (getSingleton /
+				// getFactory) so the widgets it makes are owned by this manager and
+				// torn down cleanly with it, not left for the Lua VM at shutdown.
+				if (layoutOk && Orkige::ScriptRuntime::available())
+				{
+					// clean slate: reset the design scale + root the earlier C++
+					// legs left set, so a StretchAll panel resolves to a 20px inset
+					gui.setDesignResolution(W, H, 0.0f);
+					gui.setRootSpace("FullWindow");
+					const Orkige::ScriptRuntime::Result build =
+						scriptRuntime.runString(R"lua(
+						local gui = GuiManager.getSingleton()
+						local factory = gui:getFactory()
+						lua_layout_panel = factory:createDecorWidget(
+							"luaLayoutPanel", "panel", Vector2(0, 0), Vector2(64, 64), "", 5)
+						lua_layout_panel:setAnchorPreset("StretchAll")
+						lua_layout_panel:setOffsets(20, 20, -20, -20)
+						lua_layout_child = factory:createLabel(
+							"luaLayoutChild", 9, "hi", Vector2(0, 0), "", 6, false)
+						lua_layout_child:setParent(lua_layout_panel)
+						lua_layout_child:setAnchorPreset("TopLeft")
+						lua_layout_child:setAnchoredPosition(12, 12)
+					)lua");
+					if (!build.success)
+					{
+						SDL_Log("hello_orkige: FAILED - Lua layout setParent/anchors "
+							"threw: %s", build.error.c_str());
+						layoutOk = false;
+					}
+					else
+					{
+						render->renderOneFrame();	// run the layout resolve pass
+						scriptRuntime.runString(R"lua(
+							local c = lua_layout_child:getPosition()
+							local p = lua_layout_panel:getPosition()
+							lua_layout_child_x, lua_layout_child_y = c.x, c.y
+							lua_layout_panel_x, lua_layout_panel_y = p.x, p.y
+							-- findWidget hands back a usable handle; getUiScale answers
+							local g = GuiManager.getSingleton()
+							local found = g:findWidget("luaLayoutChild")
+							lua_found_ok = (found ~= nil) and 1 or 0
+							lua_ui_scale = g:getUiScale()
+							-- the documented .oui flow calls a DERIVED method
+							-- (setText) on a found widget; probe whether that works
+							lua_found_settext_ok = 0
+							if found ~= nil then
+								lua_found_settext_ok =
+									pcall(function() found:setText("via-find") end) and 1 or 0
+							end
+							-- destroy the widgets THIS leg made (leave the C++
+							-- manager + its own widgets intact), while render is alive
+							g:destroyWidget("luaLayoutChild")
+							g:destroyWidget("luaLayoutPanel")
+							found = nil
+							lua_layout_child, lua_layout_panel = nil, nil
+							collectgarbage("collect")
+						)lua");
+						const int foundOk = static_cast<int>(
+							scriptRuntime.getNumber({"lua_found_ok"}, 0));
+						const double uiScale =
+							scriptRuntime.getNumber({"lua_ui_scale"}, 0);
+						const int findSetText = static_cast<int>(
+							scriptRuntime.getNumber({"lua_found_settext_ok"}, 0));
+						// findWidget + getUiScale must work; findWidget():setText()
+						// (a DERIVED method on a base-typed found handle) is a KNOWN
+						// gap - logged, not asserted - findWidget returns GuiWidget.
+						SDL_Log("hello_orkige: Lua layout probes - findWidget=%d, "
+							"uiScale=%.1f, findWidget:setText=%d (0 = known gap)",
+							foundOk, uiScale, findSetText);
+						if (foundOk != 1 || uiScale < 1.0)
+						{
+							SDL_Log("hello_orkige: FAILED - findWidget/getUiScale "
+								"probe (found=%d, uiScale=%.1f)", foundOk, uiScale);
+							layoutOk = false;
+						}
+						const double cx = scriptRuntime.getNumber({"lua_layout_child_x"}, -1);
+						const double cy = scriptRuntime.getNumber({"lua_layout_child_y"}, -1);
+						const double px = scriptRuntime.getNumber({"lua_layout_panel_x"}, -1);
+						const double py = scriptRuntime.getNumber({"lua_layout_panel_y"}, -1);
+						if (std::abs(cx - (px + 12.0)) > 1.5 ||
+							std::abs(cy - (py + 12.0)) > 1.5 ||
+							std::abs(px - 20.0) > 1.5)
+						{
+							SDL_Log("hello_orkige: FAILED - Lua-anchored child at "
+								"(%.1f,%.1f), panel (%.1f,%.1f); expected child = "
+								"panel+(12,12) and panel x=20", cx, cy, px, py);
+							layoutOk = false;
+						}
+						else
+						{
+							SDL_Log("hello_orkige: Lua layout OK - a script parented "
+								"+ anchored a widget, resolver placed it inside the "
+								"panel (child %.0f,%.0f = panel %.0f,%.0f + 12)",
+								cx, cy, px, py);
+						}
+					}
+				}
 			}
 			Orkige::PlatformWindow::setContentScaleOverride(0.0f);
 			Orkige::PlatformWindow::clearSafeAreaInsetsOverride();

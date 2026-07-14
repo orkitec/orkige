@@ -403,6 +403,12 @@ namespace Orkige
 		//! @brief the current layout scale (design units -> window pixels) for
 		//! the live window size (1 when no design resolution is set)
 		float getLayoutScale() const;
+		//! @brief the engine's REAL device ui scale (the integer-snapped content
+		//! scale glyphs bake at and GuiFactory scales authored sizes by). This is
+		//! what Engine::getContentScale rounds to; a script sizing UI by hand
+		//! wants THIS, not the raw content scale. Prefer measuring a rendered
+		//! label's getSize() when you can - it folds this in without rounding.
+		float getUiScale() const;
 		//! @brief mark the layout tree dirty so the next frame re-resolves it
 		//! (widgets call this from their layout setters)
 		void markLayoutDirty();
