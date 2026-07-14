@@ -20,6 +20,13 @@
 #include "engine_gui/GuiToggleGroup.h"
 #include "engine_gui/GuiToast.h"
 #include "engine_gui/GuiDecorWidget.h"
+#include "engine_gui/GuiLabel.h"
+#include "engine_gui/GuiButton.h"
+#include "engine_gui/GuiCheckBox.h"
+#include "engine_gui/GuiSlider.h"
+#include "engine_gui/GuiSelectMenu.h"
+#include "engine_gui/GuiProgressBar.h"
+#include "engine_gui/GuiScrollView.h"
 #include "engine_graphic/Engine.h"
 #include <core_util/foreach.h>
 #include <core_util/StringTable.h>
@@ -309,6 +316,39 @@ namespace Orkige
 		}
 		return oNULL(GuiWidget);
 	}
+	//---------------------------------------------------------
+	//--- typed finders: findWidget + a leaf-type requirement --
+	// A dynamic_pointer_cast that yields empty for both an absent id and a
+	// present-but-wrong-type id, so the returned handle is either the leaf a
+	// script can drive or nil - never a base handle that silently lacks the
+	// method the script is about to call.
+	namespace
+	{
+		template<typename WidgetType>
+		woptr<WidgetType> findWidgetLeaf(GuiManager & manager, String const & id)
+		{
+			optr<GuiWidget> widget = manager.findWidget(id).lock();
+			return std::dynamic_pointer_cast<WidgetType>(widget);
+		}
+	}
+	woptr<GuiLabel> GuiManager::findLabel(String const & id)
+	{ return findWidgetLeaf<GuiLabel>(*this, id); }
+	woptr<GuiButton> GuiManager::findButton(String const & id)
+	{ return findWidgetLeaf<GuiButton>(*this, id); }
+	woptr<GuiCheckBox> GuiManager::findCheckBox(String const & id)
+	{ return findWidgetLeaf<GuiCheckBox>(*this, id); }
+	woptr<GuiSlider> GuiManager::findSlider(String const & id)
+	{ return findWidgetLeaf<GuiSlider>(*this, id); }
+	woptr<GuiSelectMenu> GuiManager::findSelectMenu(String const & id)
+	{ return findWidgetLeaf<GuiSelectMenu>(*this, id); }
+	woptr<GuiProgressBar> GuiManager::findProgressBar(String const & id)
+	{ return findWidgetLeaf<GuiProgressBar>(*this, id); }
+	woptr<GuiDecorWidget> GuiManager::findDecor(String const & id)
+	{ return findWidgetLeaf<GuiDecorWidget>(*this, id); }
+	woptr<GuiTextEntry> GuiManager::findTextEntry(String const & id)
+	{ return findWidgetLeaf<GuiTextEntry>(*this, id); }
+	woptr<GuiScrollView> GuiManager::findScrollView(String const & id)
+	{ return findWidgetLeaf<GuiScrollView>(*this, id); }
 	//---------------------------------------------------------
 	void GuiManager::destroyAllWidgets()
 	{
@@ -2212,6 +2252,18 @@ namespace Orkige
 		// the .oui <-> Lua bridge: find a declaratively-authored widget by id and
 		// wire behavior (setters, guitween.*, transitions) onto it
 		OFUNCWEAK(findWidget)
+		// typed companions: return the LEAF (or nil on absent/wrong-type) so a
+		// script can call a leaf's own methods (label:setText, ...) that the
+		// base findWidget handle can't reach
+		OFUNCWEAK(findLabel)
+		OFUNCWEAK(findButton)
+		OFUNCWEAK(findCheckBox)
+		OFUNCWEAK(findSlider)
+		OFUNCWEAK(findSelectMenu)
+		OFUNCWEAK(findProgressBar)
+		OFUNCWEAK(findDecor)
+		OFUNCWEAK(findTextEntry)
+		OFUNCWEAK(findScrollView)
 		OFUNC(destroyWidget)
 		OFUNC(destroyAllWidgets)
 		OFUNC(hideAllViews)

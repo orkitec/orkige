@@ -31,6 +31,14 @@
 namespace Orkige
 {
 	class GuiTextEntry;
+	class GuiLabel;
+	class GuiButton;
+	class GuiCheckBox;
+	class GuiSlider;
+	class GuiSelectMenu;
+	class GuiProgressBar;
+	class GuiDecorWidget;
+	class GuiScrollView;
 	class FontAtlas;
 	class GuiToggleGroup;
 	class GuiToast;
@@ -277,6 +285,22 @@ namespace Orkige
 		//! a `.oui`. Returns empty (nil in Lua) when absent, unlike getWidget which
 		//! asserts. The two authoring modes compose through this lookup.
 		woptr<GuiWidget> findWidget(String const & id);
+		//! @brief find a widget by id AND require a leaf type - the TYPED
+		//! companions to findWidget. findWidget hands a script a base GuiWidget
+		//! handle, which cannot reach a leaf's own methods (a label's setText, a
+		//! checkbox's setChecked, ...); these return the leaf so those calls work.
+		//! Each returns empty (nil in Lua) when the id is absent OR present but a
+		//! DIFFERENT type, so a script tells "missing" from "wrong type" by also
+		//! consulting findWidget. Scripts author a `.oui` skeleton then drive it.
+		woptr<GuiLabel> findLabel(String const & id);
+		woptr<GuiButton> findButton(String const & id);
+		woptr<GuiCheckBox> findCheckBox(String const & id);
+		woptr<GuiSlider> findSlider(String const & id);
+		woptr<GuiSelectMenu> findSelectMenu(String const & id);
+		woptr<GuiProgressBar> findProgressBar(String const & id);
+		woptr<GuiDecorWidget> findDecor(String const & id);
+		woptr<GuiTextEntry> findTextEntry(String const & id);
+		woptr<GuiScrollView> findScrollView(String const & id);
 		//! get widget of given type with given id
 		template<typename WidgetType>
 		inline woptr<WidgetType> getWidgetAs(String const & id);

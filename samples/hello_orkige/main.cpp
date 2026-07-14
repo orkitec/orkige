@@ -1935,13 +1935,30 @@ int main(int, char**)
 							local found = g:findWidget("luaLayoutChild")
 							lua_found_ok = (found ~= nil) and 1 or 0
 							lua_ui_scale = g:getUiScale()
-							-- the documented .oui flow calls a DERIVED method
-							-- (setText) on a found widget; probe whether that works
+							-- base findWidget hands back a GuiWidget, so a DERIVED
+							-- method (setText) on it is NOT reachable - that is what
+							-- the typed finders below solve
 							lua_found_settext_ok = 0
 							if found ~= nil then
 								lua_found_settext_ok =
 									pcall(function() found:setText("via-find") end) and 1 or 0
 							end
+							found = nil
+							-- TYPED finders: findLabel returns the LEAF (setText
+							-- works), nil on an absent id, nil on a wrong-type id
+							local tl = g:findLabel("luaLayoutChild")
+							lua_typed_found = (tl ~= nil) and 1 or 0
+							lua_typed_settext = 0
+							if tl ~= nil then
+								lua_typed_settext =
+									pcall(function() tl:setText("typed") end) and 1 or 0
+							end
+							tl = nil
+							lua_typed_absent =
+								(g:findLabel("no_such_widget_id") == nil) and 1 or 0
+							-- luaLayoutPanel is a DecorWidget, so findLabel must nil
+							lua_typed_wrongtype =
+								(g:findLabel("luaLayoutPanel") == nil) and 1 or 0
 							-- destroy the widgets THIS leg made (leave the C++
 							-- manager + its own widgets intact), while render is alive
 							g:destroyWidget("luaLayoutChild")
@@ -1956,16 +1973,30 @@ int main(int, char**)
 							scriptRuntime.getNumber({"lua_ui_scale"}, 0);
 						const int findSetText = static_cast<int>(
 							scriptRuntime.getNumber({"lua_found_settext_ok"}, 0));
-						// findWidget + getUiScale must work; findWidget():setText()
-						// (a DERIVED method on a base-typed found handle) is a KNOWN
-						// gap - logged, not asserted - findWidget returns GuiWidget.
+						const int typedFound = static_cast<int>(
+							scriptRuntime.getNumber({"lua_typed_found"}, 0));
+						const int typedSetText = static_cast<int>(
+							scriptRuntime.getNumber({"lua_typed_settext"}, 0));
+						const int typedAbsent = static_cast<int>(
+							scriptRuntime.getNumber({"lua_typed_absent"}, 0));
+						const int typedWrongType = static_cast<int>(
+							scriptRuntime.getNumber({"lua_typed_wrongtype"}, 0));
+						// base findWidget can't reach setText (0, expected - it is
+						// a GuiWidget); the TYPED findLabel does (1), and answers nil
+						// on an absent (1) and a wrong-type (1) id.
 						SDL_Log("hello_orkige: Lua layout probes - findWidget=%d, "
-							"uiScale=%.1f, findWidget:setText=%d (0 = known gap)",
-							foundOk, uiScale, findSetText);
-						if (foundOk != 1 || uiScale < 1.0)
+							"uiScale=%.1f, findWidget:setText=%d (base can't), "
+							"findLabel:setText=%d, findLabel absent-nil=%d, "
+							"wrongtype-nil=%d", foundOk, uiScale, findSetText,
+							typedSetText, typedAbsent, typedWrongType);
+						if (foundOk != 1 || uiScale < 1.0 || typedFound != 1 ||
+							typedSetText != 1 || typedAbsent != 1 ||
+							typedWrongType != 1)
 						{
-							SDL_Log("hello_orkige: FAILED - findWidget/getUiScale "
-								"probe (found=%d, uiScale=%.1f)", foundOk, uiScale);
+							SDL_Log("hello_orkige: FAILED - finder/getUiScale probe "
+								"(found=%d uiScale=%.1f typedFound=%d typedSetText=%d "
+								"absent=%d wrongtype=%d)", foundOk, uiScale, typedFound,
+								typedSetText, typedAbsent, typedWrongType);
 							layoutOk = false;
 						}
 						const double cx = scriptRuntime.getNumber({"lua_layout_child_x"}, -1);

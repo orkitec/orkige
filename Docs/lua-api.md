@@ -375,8 +375,10 @@ by id and wire behavior — the bridge between declarative UI and script:
 
 ```lua
 factory:loadLayout("screens/pause.oui")   -- or gui:loadLayout(...)
-local resume = gui:findWidget("resumeBtn")  -- nil when absent
--- each frame: if resume:wasClicked() then ... end
+-- TYPED finders return the leaf so its own methods work; nil when absent OR
+-- a different type. findWidget returns the base GuiWidget (layout setters only).
+local resume = gui:findButton("resumeBtn")
+-- each frame: if resume and resume:wasClicked() then ... end
 ```
 
 ## Canonical snippets
@@ -386,7 +388,7 @@ local resume = gui:findWidget("resumeBtn")  -- nil when absent
 ```lua
 function init(self)
     factory:loadLayout("screens/hud.oui")
-    self.coins = gui:findWidget("coinLabel")
+    self.coins = gui:findLabel("coinLabel")   -- typed: label:setText works
 end
 function update(self, dt)
     if self.coins then self.coins:setText(tostring(save.getNumber("coins", 0))) end
@@ -1146,6 +1148,15 @@ GuiManager:enableInputEvents(...)
 GuiManager:disableInputEvents(...)
 GuiManager:widgetExists(...)
 GuiManager:findWidget(...)
+GuiManager:findLabel(...)
+GuiManager:findButton(...)
+GuiManager:findCheckBox(...)
+GuiManager:findSlider(...)
+GuiManager:findSelectMenu(...)
+GuiManager:findProgressBar(...)
+GuiManager:findDecor(...)
+GuiManager:findTextEntry(...)
+GuiManager:findScrollView(...)
 GuiManager:destroyWidget(...)
 GuiManager:destroyAllWidgets(...)
 GuiManager:hideAllViews(...)
