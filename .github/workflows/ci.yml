@@ -240,12 +240,13 @@ jobs:
           restore-keys: |
             ccache-next-${{ runner.os }}-
 
-      - name: Configure (linux-debug-next)
+      - name: "[linux] Configure (linux-debug-next)"
         run: |
           cmake --preset linux-debug-next \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
-      - name: Configure Android emulator player (x86_64)
+      - name: "[android] Configure emulator player (x86_64)"
+        id: android_configure
         run: |
           cmake --preset android-emulator-debug-ci \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
@@ -257,10 +258,11 @@ jobs:
           path: /home/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
-      - name: Build (engine + editor + player + tests)
+      - name: "[linux] Build (engine + editor + player + tests)"
         run: cmake --build --preset linux-debug-next
 
-      - name: Build + package Android emulator player
+      - name: "[android] Build + package emulator player"
+        id: android_build
         run: |
           cmake --build --preset android-emulator-debug-ci --target orkige_player
           # a binary-cache hit skips source extraction, but the APK packer
@@ -271,13 +273,15 @@ jobs:
           fi
           tools/player/android/package_apk.sh build/android-emulator-debug-ci
 
-      - name: Unit tests (headless)
+      - name: "[linux] Unit tests (headless)"
+        id: linux_units
         run: ctest --preset unit-linux-next
 
       # A hard gate: the full Ogre-Next desktop suite under a virtual display.
       # Vulkan renders through lavapipe; audio routes to openal-soft's null
       # backend because hosted runners have no audio device.
-      - name: Windowed desktop suite (xvfb + Mesa lavapipe - MUST pass)
+      - name: "[linux] Windowed desktop suite (xvfb + Mesa lavapipe - MUST pass)"
+        id: linux_desktop
         env:
           ALSOFT_DRIVERS: "null"
           SDL_VIDEO_DRIVER: x11
@@ -295,7 +299,8 @@ jobs:
       # The scripting-OFF configuration enforces the Lua/sol2 dependency seam.
       # It uses Ogre-Next as well so every test configuration exercises the
       # default backend.
-      - name: Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)
+      - name: "[linux] Configure + build + unit tests (ORKIGE_SCRIPTING=OFF - MUST pass)"
+        id: linux_noscript
         run: |
           cmake --preset linux-debug-noscript \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
@@ -304,13 +309,14 @@ jobs:
 
       # ASan and UBSan stay out of normal developer builds. CI runs the full
       # non-device Ogre-Next suite in a dedicated instrumented tree.
-      - name: Configure + build (ASan + UBSan)
+      - name: "[linux] Configure + build (ASan + UBSan)"
         run: |
           cmake --preset linux-debug-sanitize \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
           cmake --build --preset linux-debug-sanitize
 
-      - name: Sanitizer unit + desktop integration suite (MUST pass)
+      - name: "[linux] Sanitizer unit + desktop integration suite (MUST pass)"
+        id: linux_sanitizer
         env:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
@@ -322,14 +328,15 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux-sanitize --timeout 300
 
-      - name: Enable Android emulator acceleration
+      - name: "[android] Enable emulator acceleration"
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Android emulator Play test (MUST pass)
+      - name: "[android] Emulator Play test (MUST pass)"
+        id: android_play
         uses: reactivecircus/android-emulator-runner@v2.37.0
         with:
           api-level: 35
@@ -346,6 +353,17 @@ jobs:
             export ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11
             xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
               ctest --preset device-linux-android-ci --timeout 420
+
+      - name: Platform verdict summary
+        if: always()
+        run: |
+          verdict() { case "$1" in success) echo ok;; skipped|cancelled) echo "-";; *) echo FAILED;; esac; }
+          {
+            echo "| platform | verdict |"
+            echo "|---|---|"
+            echo "| linux | units $(verdict '${{ steps.linux_units.outcome }}') / desktop $(verdict '${{ steps.linux_desktop.outcome }}') / noscript $(verdict '${{ steps.linux_noscript.outcome }}') / sanitizer $(verdict '${{ steps.linux_sanitizer.outcome }}') |"
+            echo "| android | configure $(verdict '${{ steps.android_configure.outcome }}') / build $(verdict '${{ steps.android_build.outcome }}') / play $(verdict '${{ steps.android_play.outcome }}') |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save ccache
         if: always()
@@ -416,12 +434,13 @@ jobs:
           restore-keys: |
             ccache-macos-next-${{ runner.os }}-
 
-      - name: Configure (macos-debug)
+      - name: "[macos] Configure (macos-debug)"
         run: |
           cmake --preset macos-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
 
-      - name: Configure iOS Simulator player (arm64)
+      - name: "[ios] Configure Simulator player (arm64)"
+        id: ios_configure
         run: |
           cmake --preset ios-simulator-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
@@ -433,10 +452,11 @@ jobs:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
-      - name: Build (engine + editor + player + tests)
+      - name: "[macos] Build (engine + editor + player + tests)"
         run: cmake --build --preset macos-debug
 
-      - name: Build iOS Simulator player
+      - name: "[ios] Build Simulator player"
+        id: ios_build
         run: cmake --build --preset ios-simulator-debug --target orkige_player
 
       - name: Save ccache
@@ -446,10 +466,12 @@ jobs:
           path: /Users/runner/.ccache
           key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
 
-      - name: Unit tests (headless)
+      - name: "[macos] Unit tests (headless)"
+        id: macos_units
         run: ctest --preset unit-macos-ci
 
-      - name: Complete macOS desktop suite (Metal - MUST pass)
+      - name: "[macos] Complete desktop suite (Metal - MUST pass)"
+        id: macos_desktop
         env:
           ALSOFT_DRIVERS: "null"
         run: |
@@ -461,7 +483,7 @@ jobs:
           fi
           ctest --preset desktop-macos-ci --timeout 300
 
-      - name: Prepare iPhone 16 simulator
+      - name: "[ios] Prepare iPhone 16 simulator"
         run: |
           DEVICE_TYPE=$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devicetypes"]; phones=[x for x in d if x["name"].startswith("iPhone") and "SE" not in x["name"]]; print(next((x["identifier"] for x in phones if "iPhone 16 Pro" in x["name"]), phones[0]["identifier"]))')
           RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["runtimes"]; ios=[x for x in d if ".iOS-" in x["identifier"]]; print(max(ios, key=lambda x: tuple(map(int, x["version"].split("."))))["identifier"])')
@@ -491,7 +513,7 @@ jobs:
           fi
           xcrun simctl install "$UDID" build/ios-simulator-debug/tools/player/OrkigePlayer.app
 
-      - name: Install the player on the CI simulator
+      - name: "[ios] Install the player on the CI simulator"
         run: |
           # the device tests expect the LOCAL convention: a booted simulator
           # with the player app INSTALLED. Install onto the simulator this job
@@ -501,12 +523,13 @@ jobs:
           xcrun simctl install "$ORKIGE_CI_SIMULATOR" \
             build/ios-simulator-debug/tools/player/OrkigePlayer.app
 
-      - name: iOS Simulator export + runtime tests (MUST pass)
+      - name: "[ios] Simulator export + runtime tests (MUST pass)"
+        id: ios_tests
         env:
           ALSOFT_DRIVERS: "null"
         run: ctest --preset device-macos-ios-ci --timeout 420
 
-      - name: Upload iOS test diagnostics
+      - name: "[ios] Upload test diagnostics"
         if: failure()
         uses: actions/upload-artifact@v7
         with:
@@ -517,7 +540,18 @@ jobs:
             ~/Library/Logs/DiagnosticReports/**
           if-no-files-found: ignore
 
-      - name: Remove CI simulator
+      - name: Platform verdict summary
+        if: always()
+        run: |
+          verdict() { case "$1" in success) echo ok;; skipped|cancelled) echo "-";; *) echo FAILED;; esac; }
+          {
+            echo "| platform | verdict |"
+            echo "|---|---|"
+            echo "| macos | units $(verdict '${{ steps.macos_units.outcome }}') / desktop $(verdict '${{ steps.macos_desktop.outcome }}') |"
+            echo "| ios | configure $(verdict '${{ steps.ios_configure.outcome }}') / build $(verdict '${{ steps.ios_build.outcome }}') / tests $(verdict '${{ steps.ios_tests.outcome }}') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "[ios] Remove CI simulator"
         if: always() && env.ORKIGE_CI_SIMULATOR != ''
         run: |
           xcrun simctl shutdown "$ORKIGE_CI_SIMULATOR" || true
