@@ -200,9 +200,12 @@ namespace Orkige
 			Colour const & fill, float width, Mesh & out);
 
 		//! @brief full build: paint every region in order (a fill is triangulated,
-		//! a stroke is swept into convex pieces), then feather every region's
-		//! edge, into one mesh. featherWidth <= 0 skips the feather entirely.
-		//! The mesh's bounds cover the painted regions.
+		//! a stroke is swept into convex pieces), each immediately followed by
+		//! its own feather rim, into one mesh - so a later region occludes an
+		//! earlier region's body AND soft edge (a feather appended after all
+		//! bodies would redraw hidden contours above the geometry covering
+		//! them). featherWidth <= 0 skips the feather entirely. The mesh's
+		//! bounds cover the painted regions.
 		static void build(std::vector<Region> const & regions,
 			float featherWidth, Mesh & out);
 

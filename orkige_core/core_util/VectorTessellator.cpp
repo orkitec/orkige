@@ -1020,6 +1020,12 @@ namespace Orkige
 		out.clear();
 		for(Region const & region : regions)
 		{
+			// paint the region's body, then IMMEDIATELY its feather rim: the
+			// soft edge belongs to the region it wraps, so a region painted
+			// later occludes body and rim together. (Feathering every region
+			// after every body would redraw each region's outline above ALL
+			// the geometry painted over it - the contour of a shape a later
+			// region legitimately hides would bleed through as a stray line.)
 			if(region.kind == REGION_STROKE)
 			{
 				appendStroke(region, out);
@@ -1028,39 +1034,37 @@ namespace Orkige
 			{
 				triangulateFill(region, out);
 			}
-		}
-		if(featherWidth > 0.0f)
-		{
-			for(Region const & region : regions)
+			if(featherWidth <= 0.0f)
 			{
-				// clamp the shared edge width to this region's own thickness so
-				// a thin ribbon / tiny detail is not swallowed by a halo sized
-				// for the whole rig (@see FEATHER_THICKNESS_FRACTION). A stroke's
-				// thickness IS its width.
-				const float cap = (region.kind == REGION_STROKE
-					? region.strokeWidth
-					: contourThickness(region.outer)) *
-					FEATHER_THICKNESS_FRACTION;
-				const float width =
-					cap > 0.0f && cap < featherWidth ? cap : featherWidth;
-				if(region.kind == REGION_STROKE)
-				{
-					appendStrokeFeather(region, width, out);
-				}
-				else if(region.paintType != PAINT_SOLID &&
-					!region.gradientStops.empty())
-				{
-					// a gradient shape feathers in its gradient colour at each
-					// edge point, not the (unset, white) flat fill
-					featherRing(region.outer, width,
-						[&region](Point const & p) { return paintAt(region, p); },
-						out);
-				}
-				else
-				{
-					featherRing(region.outer, width,
-						[&region](Point const &) { return region.fill; }, out);
-				}
+				continue;
+			}
+			// clamp the shared edge width to this region's own thickness so
+			// a thin ribbon / tiny detail is not swallowed by a halo sized
+			// for the whole rig (@see FEATHER_THICKNESS_FRACTION). A stroke's
+			// thickness IS its width.
+			const float cap = (region.kind == REGION_STROKE
+				? region.strokeWidth
+				: contourThickness(region.outer)) *
+				FEATHER_THICKNESS_FRACTION;
+			const float width =
+				cap > 0.0f && cap < featherWidth ? cap : featherWidth;
+			if(region.kind == REGION_STROKE)
+			{
+				appendStrokeFeather(region, width, out);
+			}
+			else if(region.paintType != PAINT_SOLID &&
+				!region.gradientStops.empty())
+			{
+				// a gradient shape feathers in its gradient colour at each
+				// edge point, not the (unset, white) flat fill
+				featherRing(region.outer, width,
+					[&region](Point const & p) { return paintAt(region, p); },
+					out);
+			}
+			else
+			{
+				featherRing(region.outer, width,
+					[&region](Point const &) { return region.fill; }, out);
 			}
 		}
 		out.bounds = computeBounds(regions);

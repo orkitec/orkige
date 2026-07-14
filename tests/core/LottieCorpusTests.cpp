@@ -120,3 +120,60 @@ TEST_CASE("lottie_character_corpus_is_native_vector_and_topology_stable",
 	}
 	CHECK(sawOffCentreRadialGradient);
 }
+
+TEST_CASE("lottie_dragon_hidden_contours_stay_hidden",
+	"[unit][lottie][vectoranim][corpus]")
+{
+	// The dragon rig outlines every body part with coloured strokes; parts
+	// painted later (the body, the keyboard) legitimately COVER the outlines
+	// of parts behind them. Pin that occlusion at the pixel level: probe
+	// points that a hidden outline used to cross must show the covering
+	// fill, not the outline colour. (The tessellator paints each region's
+	// feather rim with its own body for exactly this reason - a rim appended
+	// after every body redraws hidden contours above their cover.)
+	const String path = String(ORKIGE_BENCHMARK_ASSET_DIR) +
+		"/lottie/dragon.oanim";
+	std::ifstream input(path.c_str(), std::ios::binary);
+	REQUIRE(input.good());
+	std::ostringstream buffer;
+	buffer << input.rdbuf();
+	VectorAnimAsset::Document document;
+	REQUIRE(VectorAnimAsset::parse(buffer.str(), document));
+	VectorAnimEval evaluator;
+	REQUIRE(evaluator.build(document));
+	VectorAnimEval::Pose pose;
+	REQUIRE(evaluator.evaluateAt(0, 0.0f, pose));
+	std::vector<VectorTessellator::Region> regions;
+	evaluator.composeRegions(pose, regions);
+	VectorTessellator::Mesh mesh;
+	const VectorTessellator::Bounds bounds =
+		VectorTessellator::computeBounds(regions);
+	VectorTessellator::build(regions,
+		VectorTessellator::defaultFeatherWidth(bounds), mesh);
+	constexpr int SIDE = 700;
+	std::vector<unsigned char> pixels(SIDE * SIDE * 4, 0);
+	VectorShapeRaster::rasterize(mesh, SIDE, SIDE, pixels.data());
+	auto at = [&](int x, int y, int channel) {
+		return pixels[(static_cast<std::size_t>(y) * SIDE + x) * 4 +
+			channel];
+	};
+	// white keyboard keys that hidden dark-green outlines used to cross:
+	// every channel stays bright (a leaked outline pulls red/blue far down)
+	const int keys[][2] = { { 184, 332 }, { 200, 350 }, { 178, 338 } };
+	for(auto const & probe : keys)
+	{
+		CAPTURE(probe[0], probe[1]);
+		CHECK(at(probe[0], probe[1], 0) >= 200);
+		CHECK(at(probe[0], probe[1], 1) >= 200);
+		CHECK(at(probe[0], probe[1], 2) >= 200);
+	}
+	// body pixels that the back spikes' hidden red outlines used to cross:
+	// the body green dominates (a leak turns them red-brown)
+	const int body[][2] = { { 484, 188 }, { 506, 246 } };
+	for(auto const & probe : body)
+	{
+		CAPTURE(probe[0], probe[1]);
+		CHECK(at(probe[0], probe[1], 1) >= 150);					// green
+		CHECK(at(probe[0], probe[1], 0) < at(probe[0], probe[1], 1));	// > red
+	}
+}

@@ -725,3 +725,51 @@ TEST_CASE("vectortessellator_stroke_feather_rims_the_ribbon",
 	CHECK(bounds.minY == Approx(-0.1f));
 	CHECK(bounds.maxY == Approx(0.1f));
 }
+
+TEST_CASE("vectortessellator_feather_rides_its_own_region",
+	"[unit][vectorshape][stroke]")
+{
+	// Painter's-algorithm honesty: a region painted later must occlude an
+	// earlier region's body AND its feather rim together. build() therefore
+	// appends each region's feather immediately after that region's body -
+	// were every rim appended after every body instead, the outline of a
+	// stroke a later fill legitimately covers would be redrawn above the
+	// fill and bleed through as a stray line.
+	std::vector<Point> line;
+	line.push_back(Point(-2.0f, 0.0f));
+	line.push_back(Point(2.0f, 0.0f));
+	Region stroke = strokeRegion(line, 0.5f, VectorTessellator::CAP_BUTT,
+		VectorTessellator::JOIN_MITER, false);
+	stroke.fill = Colour(1.0f, 0.0f, 0.0f, 1.0f);	// red, hidden below ...
+	Region cover = squareRegion(3.0f);				// ... an opaque cover
+	cover.fill = Colour(0.0f, 0.0f, 1.0f, 1.0f);
+
+	std::vector<Region> regions;
+	regions.push_back(stroke);
+	regions.push_back(cover);
+	Mesh mesh;
+	VectorTessellator::build(regions, 0.5f, mesh);	// a generous feather
+
+	// classify each triangle by its vertex rgb (the two regions use disjoint
+	// colours; feather vertices keep their region's rgb at ramped alpha)
+	std::ptrdiff_t lastRed = -1;
+	std::ptrdiff_t firstBlue = -1;
+	for(std::size_t t = 0; t < mesh.indices.size(); t += 3)
+	{
+		Colour const & colour = mesh.colours[mesh.indices[t]];
+		if(colour.r > 0.5f && colour.b < 0.5f)
+		{
+			lastRed = static_cast<std::ptrdiff_t>(t);
+		}
+		else if(colour.b > 0.5f && colour.r < 0.5f &&
+			firstBlue < 0)
+		{
+			firstBlue = static_cast<std::ptrdiff_t>(t);
+		}
+	}
+	REQUIRE(lastRed >= 0);		// the stroke (body + rim) is in the mesh
+	REQUIRE(firstBlue >= 0);	// so is the cover
+	// every red triangle - the stroke's body AND its feather rim - precedes
+	// the covering fill in draw order, so the cover hides all of it
+	CHECK(lastRed < firstBlue);
+}

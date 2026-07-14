@@ -1,5 +1,5 @@
-# orkige vector animation v1 - cooked from Lottie JSON by Util/cook_vector_anim.py
-version 1
+# orkige vector animation v2 - cooked from Lottie JSON by Util/cook_vector_anim.py
+version 2
 fps 30
 duration 60
 clip idle 0 30 loop
