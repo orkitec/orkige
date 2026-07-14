@@ -698,9 +698,10 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	state.resetDockLayout = false;
 	if (resetRequested)
 	{
-		// View > Reset Layout: rebuild from scratch and re-open every panel
-		// (a hidden panel would otherwise stay lost in the fresh layout)
-		viewSettings.showAllPanels();
+		// View > Reset Layout: rebuild from scratch and restore each panel to
+		// its default visibility (the default-closed Tile Palette / GUI Preview
+		// stay closed, matching a fresh launch; they re-open on demand)
+		viewSettings.resetPanelVisibility();
 		viewSettings.save();
 	}
 	else
@@ -740,13 +741,13 @@ void drawDockspace(EditorState& state, float toolbarHeight,
 	ImGui::DockBuilderSplitNode(centerId, ImGuiDir_Down, 0.30f,
 		&bottomId, &centerId);
 	ImGui::DockBuilderDockWindow(HIERARCHY_WINDOW_EDIT, leftId);
-	// the Tile Palette shares the left node with the Hierarchy (painting
-	// alternates with hierarchy inspection; the bottom node is already tabbed)
-	ImGui::DockBuilderDockWindow("Tile Palette###TilePalette", leftId);
 	ImGui::DockBuilderDockWindow(INSPECTOR_WINDOW_EDIT, rightId);
 	ImGui::DockBuilderDockWindow("Console", bottomId);
 	ImGui::DockBuilderDockWindow("Stats", bottomId);
 	ImGui::DockBuilderDockWindow("Assets###Assets", bottomId);
+	// the Tile Palette tabs into the bottom node beside the Asset Browser
+	// (both are asset pickers; it auto-opens here when the Scene enters 2D)
+	ImGui::DockBuilderDockWindow("Tile Palette###TilePalette", bottomId);
 	ImGui::DockBuilderDockWindow("Scene", centerId);
 	// the GUI Preview shares the center node with the Scene (a tab beside
 	// it - the human flips between the 3D scene and the UI screen)

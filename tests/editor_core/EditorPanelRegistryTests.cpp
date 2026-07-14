@@ -26,4 +26,6 @@ TEST_CASE("ImGui and macOS menus share one complete panel registry",
 	}
 
 	CHECK(EDITOR_PANEL_REGISTRY[PANEL_GUI_PREVIEW].defaultVisible == false);
+	// the Tile Palette is closed by default (it auto-opens on entering 2D mode)
+	CHECK(EDITOR_PANEL_REGISTRY[PANEL_TILE_PALETTE].defaultVisible == false);
 }

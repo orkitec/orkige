@@ -254,9 +254,9 @@ void ViewSettings::resetCameraAndDisplayDefaults()
 	this->assetThumbnailSize = defaults.assetThumbnailSize;
 }
 
-void ViewSettings::showAllPanels()
+void ViewSettings::resetPanelVisibility()
 {
-#define ORKIGE_SHOW_PANEL(id, label, visible, member) this->member = true;
+#define ORKIGE_SHOW_PANEL(id, label, visible, member) this->member = visible;
 	ORKIGE_EDITOR_PANEL_LIST(ORKIGE_SHOW_PANEL)
 #undef ORKIGE_SHOW_PANEL
 }

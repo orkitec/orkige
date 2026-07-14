@@ -263,6 +263,18 @@ Orkige::EditorPaintDesc paletteMakePaintDesc(TilePaletteState const& palette)
 	return desc;
 }
 
+ImTextureID paletteTileThumbnail(EditorState& state,
+	AssetBrowserItem const& item)
+{
+	// a prefab shows its probed primary visual, a bare texture/shape shows
+	// itself; "" (a pure-logic prefab) => 0, a generic tile
+	const std::string thumbPath = item.kind == AssetKind::Prefab
+		? resolvePreviewImagePath(state.project,
+			probePrefabPreviewRef(item.absolutePath))
+		: item.absolutePath;
+	return thumbPath.empty() ? 0 : assetThumbnailFor(state, thumbPath);
+}
+
 void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	bool* visible)
 {
@@ -304,10 +316,11 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	}
 	ImGui::Separator();
 
-	// the paintable list: one selectable row per project prefab, texture and
-	// .oshape. A prefab instantiates its subtree; a bare texture/shape paints a
-	// bare tile (a grid-cell sprite/shape object, no prefab file). Prefab rows
-	// are tagged "(prefab)" to set them apart from the bare-art rows.
+	// the paintable tiles: one THUMBNAIL per project prefab, texture and .oshape.
+	// A prefab instantiates its subtree; a bare texture/shape paints a bare tile.
+	// Textures/shapes show their own thumbnail (the asset-browser cache); a
+	// prefab shows its primary visual (its sprite texture or .oshape) through the
+	// same cache, or a generic prefab tile when it has no cheap drawable.
 	const unsigned int paintableMask =
 		(1u << static_cast<unsigned>(AssetKind::Prefab)) |
 		(1u << static_cast<unsigned>(AssetKind::Texture)) |
@@ -319,21 +332,66 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 	{
 		ImGui::TextDisabled("No prefabs, textures or shapes in assets/.");
 	}
-	ImGui::BeginChild("##paintlist", ImVec2(0.0f, 0.0f), false);
+	else if (palette.armedAssetPath.empty())
+	{
+		// mode-gating hint: the Paint tool (B) stays inert until a tile is armed
+		ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.4f, 1.0f),
+			"Select a tile to arm the Paint tool (B).");
+	}
+
+	ImGui::BeginChild("##paintgrid", ImVec2(0.0f, 0.0f), false);
+	ImDrawList* drawList = ImGui::GetWindowDrawList();
+	const ImGuiStyle& style = ImGui::GetStyle();
+	const float tileSize = ImGui::GetFontSize() * 3.5f;	// DPI-aware
+	const float step = tileSize + style.ItemSpacing.x;
+	const float avail = ImGui::GetContentRegionAvail().x;
+	const int perRow = std::max(1,
+		static_cast<int>((avail + style.ItemSpacing.x) / step));
+	int col = 0;
 	for (AssetBrowserItem const& item : paintables)
 	{
-		const std::string stem = fs::path(item.absolutePath).stem().string();
-		const std::string label = item.kind == AssetKind::Prefab
-			? stem + " (prefab)" : stem;
+		ImGui::PushID(item.relativePath.c_str());
 		const bool armed = palette.armedAssetPath == item.absolutePath;
-		if (ImGui::Selectable((label + "###" + item.relativePath).c_str(),
-			armed))
+		// the tile's thumbnail (prefab primary visual / the bare texture-shape
+		// itself; 0 => a generic tile drawn below)
+		const ImTextureID thumb = paletteTileThumbnail(state, item);
+
+		const ImVec2 tileMin = ImGui::GetCursorScreenPos();
+		const bool clicked = ImGui::Selectable("##tile", armed,
+			ImGuiSelectableFlags_None, ImVec2(tileSize, tileSize));
+		const ImVec2 tileMax(tileMin.x + tileSize, tileMin.y + tileSize);
+		if (thumb)
 		{
-			// clicking the armed row again disarms it
+			drawList->AddImageRounded(thumb, tileMin, tileMax,
+				ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32_WHITE, 4.0f);
+		}
+		else
+		{
+			// generic tile: a rounded backing + a short label, so a pure-logic
+			// prefab (no drawable) still reads as a distinct tile
+			drawList->AddRectFilled(tileMin, tileMax,
+				IM_COL32(58, 62, 70, 255), 4.0f);
+			const char* glyph =
+				item.kind == AssetKind::Prefab ? "prefab" : "?";
+			const ImVec2 gsz = ImGui::CalcTextSize(glyph);
+			drawList->AddText(
+				ImVec2(tileMin.x + (tileSize - gsz.x) * 0.5f,
+					tileMin.y + (tileSize - gsz.y) * 0.5f),
+				IM_COL32(200, 205, 215, 255), glyph);
+		}
+		// selection highlight: a bright border framing the armed tile
+		if (armed)
+		{
+			drawList->AddRect(tileMin, tileMax, IM_COL32(255, 210, 70, 255),
+				4.0f, 0, 2.5f);
+		}
+		if (clicked)
+		{
+			// clicking the armed tile again disarms it
 			paletteArmAsset(state, core, armed ? std::string()
 				: item.absolutePath);
 		}
-		// a palette row is ALSO a drag source: dropping it on the 2D grid paints
+		// a palette tile is ALSO a drag source: dropping it on the 2D grid paints
 		// the drop cell (the Scene panel's handleSceneDropTarget), the same
 		// ORKIGE_ASSET payload the Asset browser emits (its own kind)
 		if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
@@ -344,9 +402,22 @@ void drawTilePalettePanel(EditorState& state, Orkige::EditorCore& core,
 				sizeof(payload.path));
 			ImGui::SetDragDropPayload(ASSET_DND_PAYLOAD, &payload,
 				sizeof(payload));
-			ImGui::TextUnformatted(label.c_str());
+			ImGui::TextUnformatted(
+				fs::path(item.absolutePath).stem().string().c_str());
 			ImGui::EndDragDropSource();
 		}
+		ImGui::SetItemTooltip("%s%s",
+			fs::path(item.absolutePath).stem().string().c_str(),
+			item.kind == AssetKind::Prefab ? " (prefab)" : "");
+		if (++col < perRow)
+		{
+			ImGui::SameLine();
+		}
+		else
+		{
+			col = 0;
+		}
+		ImGui::PopID();
 	}
 	ImGui::EndChild();
 

@@ -1352,6 +1352,9 @@ int main(int argc, char** argv)
 		bool running = true;
 		unsigned long frameCount = 0;
 		std::string lastWindowTitle;
+		// the Tile Palette auto-opens when the Scene ENTERS 2D editor mode (and
+		// never auto-closes); track the prior state to fire only on the edge
+		bool prevEditor2D = viewSettings.editor2D;
 		// timed autosave bookkeeping: the wall-clock time the last autosave (or
 		// the loop start) ran, and the interval between them. Automated runs
 		// never autosave (gAutomatedRun gates shouldAutosave), so the selfcheck
@@ -1705,6 +1708,14 @@ int main(int argc, char** argv)
 				drawAssetBrowserPanel(state, editorCore,
 					&viewSettings.showAssetBrowserPanel);
 			}
+			// entering 2D editor mode auto-opens the Tile Palette (it docks
+			// beside the Asset Browser); leaving 2D never auto-closes it, and a
+			// saved layout that had it open/closed is left untouched
+			if (viewSettings.editor2D && !prevEditor2D)
+			{
+				viewSettings.showTilePalettePanel = true;
+			}
+			prevEditor2D = viewSettings.editor2D;
 			if (viewSettings.showTilePalettePanel)
 			{
 				drawTilePalettePanel(state, editorCore,
@@ -1801,6 +1812,9 @@ int main(int argc, char** argv)
 					state.currentScenePath.empty() &&
 					!editorCore.isSceneDirty() &&
 					!editorCore.canUndo() && !editorCore.canRedo() &&
+					// the Tile Palette is closed on a cold start (it auto-opens
+					// only when the Scene enters 2D mode)
+					!viewSettings.showTilePalettePanel &&
 					lastWindowTitle == "Orkige Editor - untitled";
 				SDL_Log("orkige_editor: selfcheck frame 1 - empty start "
 					"(objects=%zu, selection=%zu, title='%s'): %s",
@@ -2027,6 +2041,37 @@ int main(int argc, char** argv)
 				if (!statsReopened)
 				{
 					SDL_Log("orkige_editor: FAILED selfcheck (panel reopen)");
+					exitCode = 2;
+					running = false;
+				}
+			}
+			if (frameCount == 90 && selfCheck)
+			{
+				// entering 2D editor mode auto-opens the Tile Palette
+				viewSettings.editor2D = true;
+			}
+			if (frameCount == 100 && selfCheck)
+			{
+				// the palette opened AND docked into the bottom node beside the
+				// Asset Browser (same dock node as Assets); also confirms Reset
+				// Layout at frame 75 did NOT reopen it (it is default-closed)
+				ImGuiWindow* paletteWindow =
+					ImGui::FindWindowByName("Tile Palette###TilePalette");
+				ImGuiWindow* assetsWindow =
+					ImGui::FindWindowByName("Assets###Assets");
+				const bool paletteAutoOpened =
+					viewSettings.showTilePalettePanel && paletteWindow != nullptr;
+				const bool paletteDockedWithAssets =
+					paletteWindow && assetsWindow && assetsWindow->DockId != 0 &&
+					paletteWindow->DockId == assetsWindow->DockId;
+				SDL_Log("orkige_editor: selfcheck frame 100 - 2D toggle opened "
+					"Tile Palette: %s, tabbed with Assets: %s",
+					paletteAutoOpened ? "yes" : "NO",
+					paletteDockedWithAssets ? "yes" : "NO");
+				if (!paletteAutoOpened || !paletteDockedWithAssets)
+				{
+					SDL_Log("orkige_editor: FAILED selfcheck (tile palette 2D "
+						"auto-open/dock)");
 					exitCode = 2;
 					running = false;
 				}
@@ -3083,6 +3128,25 @@ int main(int argc, char** argv)
 							lpFail = "resolvePaintGrid did not come from the Level";
 						}
 					}
+					// GATE: with nothing armed the palette must not have armed the
+					// Paint tool, and no cell may be painted - painting only
+					// happens once a palette tile is selected (mode gating)
+					if (!lpFailed)
+					{
+						if (!state.tilePalette.armedAssetPath.empty() ||
+							editorCore.getActiveTool() ==
+								Orkige::EditorTool::Paint)
+						{
+							lpFailed = true;
+							lpFail = "palette should start disarmed with the Paint "
+								"tool inactive";
+						}
+						else if (!cellRoot(-3.0f, -3.0f).empty())
+						{
+							lpFailed = true;
+							lpFail = "a cell was painted with nothing selected";
+						}
+					}
 					// arm the tile prefab and probe it
 					if (!lpFailed)
 					{
@@ -3101,6 +3165,49 @@ int main(int argc, char** argv)
 						{
 							lpFailed = true;
 							lpFail = "prefab probe wrong (tool/edgeWalls/rootTile)";
+						}
+					}
+					// palette THUMBNAILS: a prefab (its probed primary visual), a
+					// texture and a .oshape each resolve a REAL cached thumbnail (not
+					// the generic-tile 0). Drop a known-good shape in so all three
+					// paintable kinds exist in the temp project.
+					if (!lpFailed)
+					{
+						const std::string shapeSrc =
+							(std::filesystem::path(levelPaintEnv).parent_path() /
+								"benchmark" / "assets" / "blob.oshape").string();
+						const std::string shapeDst =
+							state.project.getAssetsDirectory() + "/probe.oshape";
+						std::error_code shpErr;
+						std::filesystem::copy_file(shapeSrc, shapeDst,
+							std::filesystem::copy_options::overwrite_existing, shpErr);
+						const unsigned int pMask =
+							(1u << static_cast<unsigned>(AssetKind::Prefab)) |
+							(1u << static_cast<unsigned>(AssetKind::Texture)) |
+							(1u << static_cast<unsigned>(AssetKind::VectorShape));
+						ImTextureID prefabThumb = 0;
+						ImTextureID texThumb = 0;
+						ImTextureID shapeThumb = 0;
+						for (AssetBrowserItem const& pit : searchAssets(
+							state.project, state.project.getAssetsDirectory(), "",
+							true, pMask))
+						{
+							if (pit.kind == AssetKind::Prefab && !prefabThumb)
+								prefabThumb = paletteTileThumbnail(state, pit);
+							else if (pit.kind == AssetKind::Texture && !texThumb)
+								texThumb = paletteTileThumbnail(state, pit);
+							else if (pit.kind == AssetKind::VectorShape && !shapeThumb)
+								shapeThumb = paletteTileThumbnail(state, pit);
+						}
+						SDL_Log("orkige_editor: level-paint - palette thumbs "
+							"prefab=%s texture=%s shape=%s",
+							prefabThumb ? "ok" : "MISSING", texThumb ? "ok" : "MISSING",
+							shapeThumb ? "ok" : "MISSING");
+						if (!prefabThumb || !texThumb || !shapeThumb)
+						{
+							lpFailed = true;
+							lpFail = "palette thumbnail missing for a prefab / texture / "
+								"shape";
 						}
 					}
 					// paint two cells in ONE stroke (right edge open, tagged)
@@ -5790,6 +5897,11 @@ int main(int argc, char** argv)
 				state.assetBrowser.selection.insert("assets/lottie/hamster.oanim");
 				state.assetBrowser.selectionAnchor = "assets/lottie/hamster.oanim";
 				viewSettings.showInspectorPanel = true;
+				// show the asset's folder so the browser keeps it selected (a
+				// selection is pruned when the shown folder lacks it) - the
+				// Inspector animation preview reads the browser selection
+				state.assetBrowser.currentDir =
+					state.project.getAssetsDirectory() + "/lottie";
 			}
 			if (previewSelfcheckEnv && frameCount == 30 && exitCode == 0)
 			{
@@ -5947,6 +6059,11 @@ int main(int argc, char** argv)
 					state.assetBrowser.selection.clear();
 					state.assetBrowser.selection.insert(relPath);
 					viewSettings.showInspectorPanel = true;
+					// show the asset's own folder so the browser keeps it selected
+					// (a selection is pruned when the shown folder lacks it)
+					state.assetBrowser.currentDir = (std::filesystem::path(
+						state.project.getRootDirectory()) /
+						std::filesystem::path(relPath).parent_path()).string();
 				};
 				if (frameCount == 50)
 				{

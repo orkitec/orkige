@@ -206,8 +206,10 @@ struct ViewSettings
 	bool showScenePanel = true;
 	//! project Asset browser panel (project-only content)
 	bool showAssetBrowserPanel = true;
-	//! Tile Palette panel (project-only; arms a prefab for 2D grid painting)
-	bool showTilePalettePanel = true;
+	//! Tile Palette panel (project-only; arms a tile for 2D grid painting).
+	//! Closed by default - it auto-opens when the Scene enters 2D editor mode
+	//! (and never auto-closes); a saved layout in orkige_editor_view.ini wins.
+	bool showTilePalettePanel = false;
 	//! GUI Preview panel (project-only; renders a .oui screen at a simulated
 	//! device context into an offscreen target - the collaborative UI loop)
 	bool showGuiPreviewPanel = false;
@@ -265,8 +267,10 @@ struct ViewSettings
 	//! panel visibility is NOT touched - that belongs to Reset Layout
 	void resetCameraAndDisplayDefaults();
 
-	//! all panels visible again (Reset Layout re-opens everything)
-	void showAllPanels();
+	//! restore each panel to its registry default visibility (Reset Layout):
+	//! the default-visible panels re-open, the default-closed ones (Tile
+	//! Palette, GUI Preview) stay closed so a reset matches a fresh launch
+	void resetPanelVisibility();
 };
 
 // The live ViewSettings instance (owned by main), reachable from the scene
@@ -1800,6 +1804,14 @@ bool paletteArmAsset(EditorState& state, Orkige::EditorCore& core,
 //! tags field is parsed comma-separated for either kind. The Scene panel paint
 //! path and the MCP paint verb both feed this to EditorCore::paintTileAtCell.
 Orkige::EditorPaintDesc paletteMakePaintDesc(TilePaletteState const& palette);
+
+//! @brief resolve the thumbnail texture a palette tile shows: a bare
+//! texture/shape shows itself; a prefab shows its probed primary visual (its
+//! first sprite texture or .oshape) - all through the asset-browser thumbnail
+//! cache. Returns 0 for a pure-logic prefab with no cheap drawable (a generic
+//! tile). Shared by the panel grid and the level-paint selfcheck.
+ImTextureID paletteTileThumbnail(EditorState& state,
+	AssetBrowserItem const& item);
 
 //! @brief the Tile Palette panel: lists the open project's prefabs (click to
 //! arm), the armed prefab's edge-open toggles + tags field, a 2D-mode hint and

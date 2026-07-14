@@ -13,7 +13,7 @@
 	X(PANEL_STATS, "Stats", true, showStatsPanel) \
 	X(PANEL_SCENE, "Scene", true, showScenePanel) \
 	X(PANEL_ASSETS, "Assets", true, showAssetBrowserPanel) \
-	X(PANEL_TILE_PALETTE, "Tile Palette", true, showTilePalettePanel) \
+	X(PANEL_TILE_PALETTE, "Tile Palette", false, showTilePalettePanel) \
 	X(PANEL_GUI_PREVIEW, "GUI Preview", false, showGuiPreviewPanel)
 
 namespace Orkige
