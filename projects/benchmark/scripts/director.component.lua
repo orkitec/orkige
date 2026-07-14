@@ -196,55 +196,65 @@ local function buildResults()
 		factory = GuiFactory()
 		gui = GuiManager(factory, "gui_default", PROJECT_GROUP)
 		local w, h = engine:getWindowWidth(), engine:getWindowHeight()
-		-- Device-pixel scale: glyphs bake at round(contentScale) and GuiFactory
-		-- scales authored widget SIZES (but not positions) by the same factor,
-		-- so the card geometry and line spacing scale with it to stay
-		-- proportional from a desktop 1x screen to a 2-3x phone.
-		local s = 1.0
-		if engine.getContentScale ~= nil then
-			s = math.max(1.0, math.floor(engine:getContentScale() + 0.5))
-		end
-		local pad = 22 * s
-		local titleGap = 44 * s
-		local lineH = 26 * s
-		local rows = #SCENE_ORDER + 1               -- scene lines + frame line
-		local panelH = pad + titleGap + rows * lineH + pad
-		local panelW = math.min(460 * s, w * 0.9)
-		-- centre the card in the window (works at any aspect - portrait phone or
-		-- landscape desktop). Positions below are window pixels relative to this
-		-- rect, so the score lines stay INSIDE the panel (the reported bug was
-		-- labels pinned to the screen's left edge while the panel drew centred).
-		local px = (w - panelW) * 0.5
-		local py = (h - panelH) * 0.5
-
-		-- createDecorWidget scales the passed SIZE by the ui scale, so divide it
-		-- back out to land on an exact panelW x panelH window rect.
+		-- The card is laid out from the ACTUAL rendered text extents, measured
+		-- off the real labels (getSize folds in the device ui-scale), so the
+		-- spacing and panel bounds stay proportional on any DPI - a desktop 1x
+		-- screen or a 2-3x phone - with no scale-factor guessing. Everything is
+		-- placed in raw window pixels via setPosition/setSize, so every line
+		-- lands INSIDE the panel (the reported bug was labels pinned to the
+		-- screen's left edge while the panel drew centred - two different spaces).
 		local panel = factory:createDecorWidget("res.panel", "panel",
-			Vector2(px, py), Vector2(panelW / s, panelH / s), "", 4)
+			Vector2(0, 0), Vector2(64, 64), "", 4)
 		if panel.setNineSlice ~= nil then
 			panel:setNineSlice(true)
 		end
-		-- the panel is window-centred, so screen-centring the title also centres
-		-- it over the panel
 		local title = factory:createLabel("res.title", 24, loc("bench.results"),
-			Vector2(0, py + pad), "", 6, false)
-		title:centerHorizontal()
+			Vector2(0, 0), "", 6, false)
+		local titleSize = title:getSize()
 
-		local y = py + pad + titleGap
+		local rowLabels = {}
+		local widest = titleSize.x
 		local tour = shared.tour or {}
-		for _, name in ipairs(SCENE_ORDER) do
+		for i, name in ipairs(SCENE_ORDER) do
 			local info = tour[name]
 			local line = name
 			if info ~= nil and info.detail ~= nil then
 				line = name .. "  -  " .. info.detail
 			end
-			factory:createLabel("res." .. name, 9, line,
-				Vector2(px + pad, y), "", 6, false)
+			local row = factory:createLabel("res." .. name, 9, line,
+				Vector2(0, 0), "", 6, false)
+			rowLabels[i] = row
+			widest = math.max(widest, row:getSize().x)
+		end
+		local frame = factory:createLabel("res.frame", 9,
+			string.format("%s: %.2f ms", loc("bench.frameMs"),
+				1000.0 / fpsSmoothed), Vector2(0, 0), "", 6, false)
+		widest = math.max(widest, frame:getSize().x)
+
+		-- metrics derived from the measured glyph heights (UiRenderer requires
+		-- integer pixel positions/sizes, so every coordinate is floored)
+		local floor = math.floor
+		local rowH = rowLabels[1] ~= nil and rowLabels[1]:getSize().y or titleSize.y
+		local pad = floor(rowH * 1.3)
+		local lineH = floor(rowH * 1.8)
+		local titleGap = floor(titleSize.y + rowH * 0.9)
+		local nlines = #rowLabels + 1               -- scene lines + frame line
+		local panelW = floor(math.min(widest + pad * 2, w - pad))
+		local panelH = pad + titleGap + nlines * lineH + pad
+		local px = floor((w - panelW) * 0.5)
+		local py = floor((h - panelH) * 0.5)
+
+		panel:setPosition(px, py)
+		panel:setSize(panelW, panelH)
+		-- centre the title over the panel
+		title:setPosition(px + floor((panelW - titleSize.x) * 0.5), py + pad)
+
+		local y = py + pad + titleGap
+		for _, row in ipairs(rowLabels) do
+			row:setPosition(px + pad, y)
 			y = y + lineH
 		end
-		factory:createLabel("res.frame", 9,
-			string.format("%s: %.2f ms", loc("bench.frameMs"),
-				1000.0 / fpsSmoothed), Vector2(px + pad, y), "", 6, false)
+		frame:setPosition(px + pad, y)
 	end)
 end
 
