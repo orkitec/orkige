@@ -655,6 +655,57 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			renderSystem->destroyTexture2D(uploadNames[0]);
 			renderSystem->destroyTexture2D(uploadNames[1]);
 		}
+		// Create-or-REPLACE under the same name, with NO frame rendered in
+		// between: the shape a runtime font atlas takes when it bakes a glyph
+		// on demand and re-uploads its page right after the boot bake. The
+		// first upload's pixels can still be in flight then, and a backend that
+		// only defers freeing the previous incarnation would refuse the second
+		// create under that name (the name must be free the moment the replace
+		// returns). Batches bound to the name must follow the new incarnation.
+		{
+			const String atlasName = "selfcheck_atlas_rebake";
+			std::vector<DrawLayer2D::Vertex2D> atlasQuad =
+				makeQuad(600, 140, 728, 212, Color(1, 1, 1, 1));
+			auto fillPage = [](std::vector<unsigned char> & page,
+				unsigned char r, unsigned char g, unsigned char b)
+			{
+				for(size_t pixel = 0; pixel < page.size(); pixel += 4u)
+				{
+					page[pixel] = r;
+					page[pixel + 1u] = g;
+					page[pixel + 2u] = b;
+					page[pixel + 3u] = 255u;
+				}
+			};
+			std::vector<unsigned char> page(32u * 32u * 4u, 255u);
+			fillPage(page, 230u, 24u, 24u);
+			SELFCHECK(renderSystem->createTexture2D(atlasName, page.data(),
+				32u, 32u), "an atlas page uploads");
+			// the replace, before a single frame has rendered
+			fillPage(page, 24u, 230u, 24u);
+			SELFCHECK(renderSystem->createTexture2D(atlasName, page.data(),
+				32u, 32u),
+				"the same atlas page re-uploads before a frame renders");
+			// and once more at a DIFFERENT size (a page that outgrew itself)
+			std::vector<unsigned char> grown(64u * 64u * 4u, 255u);
+			fillPage(grown, 24u, 48u, 230u);
+			SELFCHECK(renderSystem->createTexture2D(atlasName, grown.data(),
+				64u, 64u), "the atlas page re-uploads at a new size");
+			dynamicLayer->clear();
+			dynamicLayer->addTriangles(atlasName, atlasQuad.data(),
+				atlasQuad.size());
+			SELFCHECK(renderFrames(renderSystem, 2),
+				"frames render after an atlas re-upload");
+			const std::string rebakeShot =
+				outDir + "/selfcheck_drawlayer2d_rebake.png";
+			renderSystem->saveWindowContents(rebakeShot);
+			SELFCHECK(SelfcheckBootstrap::readImagePixel(rebakeShot, 664, 176,
+				red, green, blue), "atlas re-upload probe decodes");
+			SELFCHECK(blue > red + 0.4f && blue > green + 0.4f,
+				"2D pattern: a re-uploaded atlas renders its NEWEST contents");
+			dynamicLayer->clear();
+			renderSystem->destroyTexture2D(atlasName);
+		}
 		// dynamic show/hide: unhide the magenta layer and re-verify
 		hiddenLayer->setVisible(true);
 		SELFCHECK(renderFrames(renderSystem, 2), "frames render after show()");

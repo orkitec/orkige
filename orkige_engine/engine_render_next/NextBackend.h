@@ -583,6 +583,12 @@ namespace Orkige
 		//! render-target registry (applyShadowConfig rebuilds them all)
 		static void registerRenderTarget(RenderTexture* target);
 		static void unregisterRenderTarget(RenderTexture* target);
+		//! @brief put every live offscreen target into the SAMPLEABLE resource
+		//! layout (the barrier the compositor cannot derive, because the batch
+		//! that samples a RenderTexture lives in another workspace); called
+		//! from the window workspace's per-pass listener, before the pass opens
+		//! its render pass. A target already sampleable costs nothing.
+		static void transitionRenderTargetsForSampling();
 
 		//--- sky / fog atmosphere (AtmosphereNpr) --------------------
 		//! @brief create/update/tear down the one AtmosphereNpr from a facade

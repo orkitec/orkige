@@ -51,10 +51,15 @@
 #include <OgreDataStream.h>
 #include <OgrePixelFormatGpuUtils.h>
 #include <OgreException.h>
+#include <OgreResourceTransition.h>
+#include <OgreTextureGpu.h>
 #include <Compositor/OgreCompositorManager2.h>
 #include <Compositor/OgreCompositorNodeDef.h>
 #include <Compositor/OgreCompositorShadowNode.h>
+#include <Compositor/OgreCompositorWorkspace.h>
 #include <Compositor/OgreCompositorWorkspaceDef.h>
+#include <Compositor/OgreCompositorWorkspaceListener.h>
+#include <Compositor/Pass/OgreCompositorPass.h>
 #include <Compositor/Pass/PassScene/OgreCompositorPassSceneDef.h>
 
 #include <algorithm>
@@ -121,6 +126,35 @@ namespace Orkige
 		//! directional lights in creation order - the sun the atmosphere links
 		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight)
 		std::vector<Ogre::Light*> gDirectionalLights;
+
+		//! @brief puts every live offscreen target back into the SAMPLEABLE
+		//! resource layout before the window's passes run
+		//! @remarks this backend tracks a GPU resource layout per texture and
+		//! derives the barriers a pass needs from what the COMPOSITOR declares.
+		//! An offscreen target is rendered by its own workspace and then
+		//! SAMPLED by a 2D batch of the WINDOW workspace (the editor's scene
+		//! and preview panels bind a RenderTexture into DrawLayer2D) - a
+		//! dependency no workspace definition carries, so nothing moves the
+		//! target out of the render-target layout it was left in. Backends with
+		//! explicit layouts REJECT sampling a texture in that layout; implicit
+		//! ones tolerate it. This listener rides the SAMPLING workspace and
+		//! resolves the transition itself, which is the same barrier the
+		//! compositor would insert for a declared input (the layout tracker
+		//! dedupes, so a target already sampleable costs nothing). It runs from
+		//! passPreExecute - before the pass opens its render pass, the only
+		//! point at which a barrier may be issued.
+		class RenderTargetSampleBarrier
+			: public Ogre::CompositorWorkspaceListener
+		{
+		public:
+			virtual void passPreExecute(Ogre::CompositorPass* /*pass*/)
+			{
+				RenderBackend::transitionRenderTargetsForSampling();
+			}
+		};
+		//! one instance, attached to the window workspace on every rebuild
+		//! (a listener is a plain observer - the workspace does not own it)
+		RenderTargetSampleBarrier gRenderTargetSampleBarrier;
 
 		//! apply the global wireframe state to one datablock (keeps the
 		//! datablock's other macroblock state - culling, depth - intact)
@@ -598,6 +632,33 @@ namespace Orkige
 			gRenderTargets.end(), target), gRenderTargets.end());
 	}
 	//---------------------------------------------------------
+	void RenderBackend::transitionRenderTargetsForSampling()
+	{
+		if(gRenderTargets.empty() || !gRenderSystem)
+		{
+			return;
+		}
+		Ogre::RenderSystem* renderSystem =
+			gRenderSystem->mImpl->root->getRenderSystem();
+		Ogre::BarrierSolver & solver = renderSystem->getBarrierSolver();
+		Ogre::ResourceTransitionArray & barriers =
+			solver.getNewResourceTransitionsArrayTmp();
+		for(RenderTexture* each : gRenderTargets)
+		{
+			if(!each->mImpl->texture)
+			{
+				continue;
+			}
+			// no-op unless the target actually sits in another layout (the
+			// solver compares against what it last recorded)
+			solver.resolveTransition(barriers, each->mImpl->texture,
+				Ogre::ResourceLayout::Texture, Ogre::ResourceAccess::Read,
+				Ogre::c_allGraphicStagesMask);
+		}
+		// empty (the steady state) = a cheap early-out inside the render system
+		renderSystem->executeResourceTransition(barriers);
+	}
+	//---------------------------------------------------------
 	Ogre::Light* RenderBackend::firstDirectionalLight()
 	{
 		return gDirectionalLights.empty() ? NULL : gDirectionalLights.front();
@@ -816,6 +877,10 @@ namespace Orkige
 			impl->window->getTexture(),
 			backendCamera ? backendCamera : uiCamera, definitionName,
 			true /*enabled*/);
+		// the window is the surface that SAMPLES the offscreen targets (a 2D
+		// batch binds a RenderTexture): hand its passes the resource-layout
+		// barrier the compositor cannot derive (@see RenderTargetSampleBarrier)
+		impl->workspace->addListener(&gRenderTargetSampleBarrier);
 		if(backendCamera && impl->window->getHeight() > 0)
 		{
 			backendCamera->setAspectRatio(
@@ -925,9 +990,27 @@ namespace Orkige
 		}
 		Ogre::TextureGpuManager* textureManager = gRenderSystem->mImpl->root
 			->getRenderSystem()->getTextureGpuManager();
-		// replace-by-recreate (atlas rebuilds): drop any existing
-		// incarnation, then re-point the 2D-layer datablock below
+		// replace-by-recreate (atlas rebuilds): drop any existing incarnation -
+		// which frees the NAME, see destroyTexture2DByName - then re-point the
+		// 2D-layer datablock below
 		RenderBackend::destroyTexture2DByName(name);
+		Ogre::TextureGpu* texture = NULL;
+		try
+		{
+			texture = textureManager->createTexture(name,
+				Ogre::GpuPageOutStrategy::Discard,
+				Ogre::TextureFlags::AutomaticBatching,
+				Ogre::TextureTypes::Type2D);
+		}
+		catch(Ogre::Exception const & e)
+		{
+			// the name is somehow still taken: degrade honestly (the caller
+			// keeps its pixels and can retry) instead of taking the app down
+			Ogre::LogManager::getSingleton().logMessage(
+				"Orkige next backend: createTexture2DFromPixels('" + name +
+				"') refused: " + e.getDescription());
+			return NULL;
+		}
 		// hand a SIMD-allocated copy to Image2 (it owns + frees it)
 		const size_t sizeBytes = Ogre::PixelFormatGpuUtils::getSizeBytes(
 			width, height, 1u, 1u, Ogre::PFG_RGBA8_UNORM, 4u);
@@ -937,10 +1020,6 @@ namespace Orkige
 		image->loadDynamicImage(pixelCopy, width, height, 1u,
 			Ogre::TextureTypes::Type2D, Ogre::PFG_RGBA8_UNORM,
 			true /*autoDelete*/, 1u);
-		Ogre::TextureGpu* texture = textureManager->createTexture(name,
-			Ogre::GpuPageOutStrategy::Discard,
-			Ogre::TextureFlags::AutomaticBatching,
-			Ogre::TextureTypes::Type2D);
 		texture->setResolution(width, height);
 		texture->setPixelFormat(Ogre::PFG_RGBA8_UNORM);
 		texture->setNumMipmaps(1u);
@@ -988,6 +1067,20 @@ namespace Orkige
 			{
 				unlitBlock->setTexture(0u, (Ogre::TextureGpu*)NULL);
 			}
+		}
+		// THE NAME MUST BE FREE WHEN WE RETURN. The texture manager DEFERS a
+		// destroy while the texture's own upload is still in flight: the entry
+		// then LINGERS under its name (merely flagged destroy-requested) until
+		// the streaming queue catches up - invisible to a lookup, but a create
+		// under the same name meanwhile fails as a duplicate. That is exactly
+		// what a create-then-replace does (a runtime font atlas re-uploading
+		// its page after baking a glyph on demand, before a single frame has
+		// been rendered). Wait for the pixels to land so the destroy runs
+		// immediately; whether the wait is needed at all is timing- and
+		// platform-dependent, so it must not be left to luck.
+		if(!existing->isDataReady())
+		{
+			existing->waitForData();
 		}
 		textureManager->destroyTexture(existing);
 	}
