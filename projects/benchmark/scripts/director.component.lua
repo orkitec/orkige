@@ -196,15 +196,41 @@ local function buildResults()
 		factory = GuiFactory()
 		gui = GuiManager(factory, "gui_default", PROJECT_GROUP)
 		local w, h = engine:getWindowWidth(), engine:getWindowHeight()
+		-- Device-pixel scale: glyphs bake at round(contentScale) and GuiFactory
+		-- scales authored widget SIZES (but not positions) by the same factor,
+		-- so the card geometry and line spacing scale with it to stay
+		-- proportional from a desktop 1x screen to a 2-3x phone.
+		local s = 1.0
+		if engine.getContentScale ~= nil then
+			s = math.max(1.0, math.floor(engine:getContentScale() + 0.5))
+		end
+		local pad = 22 * s
+		local titleGap = 44 * s
+		local lineH = 26 * s
+		local rows = #SCENE_ORDER + 1               -- scene lines + frame line
+		local panelH = pad + titleGap + rows * lineH + pad
+		local panelW = math.min(460 * s, w * 0.9)
+		-- centre the card in the window (works at any aspect - portrait phone or
+		-- landscape desktop). Positions below are window pixels relative to this
+		-- rect, so the score lines stay INSIDE the panel (the reported bug was
+		-- labels pinned to the screen's left edge while the panel drew centred).
+		local px = (w - panelW) * 0.5
+		local py = (h - panelH) * 0.5
+
+		-- createDecorWidget scales the passed SIZE by the ui scale, so divide it
+		-- back out to land on an exact panelW x panelH window rect.
 		local panel = factory:createDecorWidget("res.panel", "panel",
-			Vector2(w * 0.5 - 220, 40), Vector2(440, h - 100), "", 4)
+			Vector2(px, py), Vector2(panelW / s, panelH / s), "", 4)
 		if panel.setNineSlice ~= nil then
 			panel:setNineSlice(true)
 		end
+		-- the panel is window-centred, so screen-centring the title also centres
+		-- it over the panel
 		local title = factory:createLabel("res.title", 24, loc("bench.results"),
-			Vector2(0, 60), "", 6, false)
+			Vector2(0, py + pad), "", 6, false)
 		title:centerHorizontal()
-		local y = 120
+
+		local y = py + pad + titleGap
 		local tour = shared.tour or {}
 		for _, name in ipairs(SCENE_ORDER) do
 			local info = tour[name]
@@ -212,12 +238,13 @@ local function buildResults()
 			if info ~= nil and info.detail ~= nil then
 				line = name .. "  -  " .. info.detail
 			end
-			factory:createLabel("res." .. name, 9, line, Vector2(60, y), "", 6, false)
-			y = y + 30
+			factory:createLabel("res." .. name, 9, line,
+				Vector2(px + pad, y), "", 6, false)
+			y = y + lineH
 		end
 		factory:createLabel("res.frame", 9,
 			string.format("%s: %.2f ms", loc("bench.frameMs"),
-				1000.0 / fpsSmoothed), Vector2(60, y + 10), "", 6, false)
+				1000.0 / fpsSmoothed), Vector2(px + pad, y), "", 6, false)
 	end)
 end
 
