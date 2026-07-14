@@ -5215,6 +5215,16 @@ int main(int argc, char** argv)
 
 		frameStats.logAtExit("orkige_player");
 
+		// tear the world down here, while physicsWorld and the Lua state are
+		// still alive: the host owns the GameObjectManager (it outlives this
+		// block), so its ScriptComponents (whose shutdown may call
+		// physics:setPaused) and RigidBodyComponents (which remove bodies from
+		// physicsWorld) must run the GameObjectManager::clear teardown hook
+		// now, not in AppHost's later destructor once physicsWorld's stack
+		// slot is gone. The debug link is still up so a teardown log reaches
+		// the editor.
+		gameObjectManager.clear();
+
 		// orderly protocol shutdown: detach the log forwarder (the link dies
 		// before the engine - declaration order), tell the editor we are
 		// going down (the quit path already sent bye), flush the socket
