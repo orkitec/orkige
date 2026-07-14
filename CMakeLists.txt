@@ -90,12 +90,16 @@ if(ORKIGE_ENABLE_SANITIZERS)
             "ORKIGE_ENABLE_SANITIZERS requires a Clang or GCC toolchain")
     endif()
 
+    # vptr is excluded: it emits references to the typeinfo of third-party
+    # base classes, and RTTI-less static dependencies (Jolt builds with
+    # -fno-rtti) provide none - the link then fails on their typeinfo symbols
     add_compile_options(
         "$<$<COMPILE_LANGUAGE:CXX>:-fsanitize=address,undefined>"
+        "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize=vptr>"
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-omit-frame-pointer>"
         "$<$<COMPILE_LANGUAGE:CXX>:-fno-sanitize-recover=undefined>"
     )
-    add_link_options(-fsanitize=address,undefined)
+    add_link_options(-fsanitize=address,undefined -fno-sanitize=vptr)
 endif()
 
 # Render backend: which renderer implements the engine_render facade
