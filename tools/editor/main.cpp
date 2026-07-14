@@ -1297,6 +1297,7 @@ int main(int argc, char** argv)
 		enum class MarqueePhase { Idle, Run, Done };
 		MarqueePhase marqueePhase = MarqueePhase::Idle;
 		int mqStep = 0;
+		int mqSettleHold = 0;	// frames an assert step has waited to settle
 		std::string mqTempRoot;
 		Orkige::StringVector mqTileIds;		// the three painted tile roots
 		// screen points (render-target pixels), computed once the 2D layout is
@@ -3910,6 +3911,37 @@ int main(int argc, char** argv)
 					std::filesystem::remove_all(mqTempRoot, cleanupErr);
 					running = false;
 				};
+				// A verification step's state is CONDITION-driven, not
+				// frame-driven: a pushed SDL event travels event-pump -> ImGui
+				// io -> scene panel over a variable number of frames, so a fixed
+				// step gap can check the marquee/selection before it settled
+				// (a CI runner-image timing shift is enough to flake it). Hold
+				// the step and re-check each frame until the state settles;
+				// only fail (with the real reason) after a generous budget the
+				// deadline backstop also guards. Returns true when settled.
+				const int mqSettleBudget = 30;
+				auto mqSettled = [&](int stepId, bool condition,
+					char const* why) -> bool
+				{
+					if (condition)
+					{
+						if (mqSettleHold > 0)
+						{
+							SDL_Log("orkige_editor: marquee step %d settled "
+								"after %d extra frame(s)", stepId, mqSettleHold);
+						}
+						mqSettleHold = 0;
+						return true;
+					}
+					if (++mqSettleHold <= mqSettleBudget)
+					{
+						mqStep = stepId - 1;	// re-run this case next frame
+						return false;
+					}
+					mqSettleHold = 0;
+					mqAbort(why);
+					return false;
+				};
 
 				if (marqueePhase == MarqueePhase::Idle && frameCount == 10)
 				{
@@ -4058,16 +4090,17 @@ int main(int argc, char** argv)
 						// EVERY tile ROOT is now selected, and the marquee closed
 						const Orkige::StringVector& sel =
 							editorCore.getSelection();
-						bool all = sel.size() == mqTileIds.size();
+						bool all = sel.size() == mqTileIds.size() &&
+							!state.marqueePending && !state.marqueeActive;
 						for (std::string const& id : mqTileIds)
 						{
 							all = all && editorCore.isSelected(id);
 						}
-						if (!all || state.marqueePending || state.marqueeActive)
+						if (!mqSettled(16, all,
+							"marquee did not select all tiles"))
 						{
-							mqAbort("marquee did not select all tiles");
+							break;
 						}
-						else
 						{
 							// project the three tiles to place: the mid-tile click
 							// point, and the single-tile boxes over left / right
@@ -4124,10 +4157,12 @@ int main(int argc, char** argv)
 						// assert only "one object, and no marquee ran"
 						const Orkige::StringVector& sel =
 							editorCore.getSelection();
-						if (sel.size() != 1 || state.marqueeActive ||
-							state.marqueePending)
+						const bool one = sel.size() == 1 &&
+							!state.marqueeActive && !state.marqueePending;
+						if (!mqSettled(28, one,
+							"click did not select exactly one object"))
 						{
-							mqAbort("click did not select exactly one object");
+							break;
 						}
 						break;
 					}
@@ -4148,11 +4183,12 @@ int main(int argc, char** argv)
 					{
 						const Orkige::StringVector& sel =
 							editorCore.getSelection();
-						if (sel.size() != 1 ||
-							!editorCore.isSelected(mqTileIds[0]))
+						const bool leftOnly = sel.size() == 1 &&
+							editorCore.isSelected(mqTileIds[0]);
+						if (!mqSettled(43, leftOnly,
+							"marquee over the left tile did not replace-select it"))
 						{
-							mqAbort("marquee over the left tile did not "
-								"replace-select it");
+							break;
 						}
 						break;
 					}
@@ -4181,18 +4217,23 @@ int main(int argc, char** argv)
 						// cleared it)
 						const Orkige::StringVector& sel =
 							editorCore.getSelection();
-						if (sel.size() != 2 ||
-							!editorCore.isSelected(mqTileIds[0]) ||
-							!editorCore.isSelected(mqTileIds[2]))
+						const bool both = sel.size() == 2 &&
+							editorCore.isSelected(mqTileIds[0]) &&
+							editorCore.isSelected(mqTileIds[2]);
+						if (!both && mqSettleHold == mqSettleBudget)
 						{
+							// the last hold frame before we give up: diagnose
 							SDL_Log("orkige_editor: marquee extend diag - "
 								"selCount=%zu left=%d right=%d",
 								sel.size(),
 								editorCore.isSelected(mqTileIds[0]) ? 1 : 0,
 								editorCore.isSelected(mqTileIds[2]) ? 1 : 0);
-							mqAbort("Cmd-drag did not extend the selection");
 						}
-						else
+						if (!mqSettled(64, both,
+							"Cmd-drag did not extend the selection"))
+						{
+							break;
+						}
 						{
 							SDL_Log("orkige_editor: marquee test - OK "
 								"(select-all, click, replace, Cmd-extend, "
