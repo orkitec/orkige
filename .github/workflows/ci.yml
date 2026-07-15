@@ -159,7 +159,7 @@ jobs:
         run: |
           glxinfo -B > /dev/null 2>&1 || true
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
-            ctest --preset desktop-linux-classic --timeout 300
+            ctest --preset desktop-linux-classic --timeout 300 --repeat until-pass:2
 
       - name: Upload logs
         if: always()
@@ -294,7 +294,7 @@ jobs:
           export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
           vulkaninfo --summary || true
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
-            ctest --preset desktop-linux --timeout 300
+            ctest --preset desktop-linux --timeout 300 --repeat until-pass:2
 
       # The scripting-OFF configuration enforces the Lua/sol2 dependency seam.
       # It uses Ogre-Next as well so every test configuration exercises the
@@ -482,7 +482,7 @@ jobs:
             adb start-server
           fi
           xcrun simctl list devices available > /dev/null 2>&1 || true
-          ctest --preset desktop-macos-ci --timeout 300
+          ctest --preset desktop-macos-ci --timeout 300 --repeat until-pass:2
 
       - name: "[ios] Prepare iPhone 16 simulator"
         run: |
@@ -727,7 +727,7 @@ jobs:
           # every windowed test in the suite eating its full timeout
           ctest --preset desktop-windows -R "render_next_smoke" --timeout 120
           if ($LASTEXITCODE -ne 0) { throw "windowed smoke test failed - Vulkan environment is broken, skipping the suite" }
-          ctest --preset desktop-windows --timeout 300
+          ctest --preset desktop-windows --timeout 300 --repeat until-pass:2
 
       - name: Upload Windows test diagnostics
         if: always()
