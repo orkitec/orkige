@@ -1059,7 +1059,7 @@ jobs:
           # the runner image ships an untrusted third-party tap that makes
           # every brew call warn - drop it, it serves nothing here
           brew untap aws/tap 2>/dev/null || true
-          brew install ninja ccache autoconf automake autoconf-archive libtool
+          brew install ninja ccache autoconf automake autoconf-archive libtool molten-vk
 
       - name: Check out pinned vcpkg
         run: |
@@ -1179,6 +1179,11 @@ jobs:
       - name: Simulator export + runtime tests (MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
+          # the HOST classic editor drives these tests and must render on the
+          # runner's virtual GPU: Vulkan via MoltenVK (the Metal path works,
+          # the deprecated GL stack does not) - same rationale as the
+          # macos-classic desktop suite
+          ORKIGE_RENDERSYSTEM: Vulkan
         run: ctest --preset device-macos-ios-ci-classic --timeout 800
 
       - name: Upload test diagnostics
