@@ -1213,9 +1213,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up the MSVC environment for Ninja
-        uses: ilammy/msvc-dev-cmd@v1.13.0
-        with:
-          arch: x64
+        # first-party vcvarsall import (the third-party action for this stayed
+        # on a deprecated Node runtime); vswhere ships on every runner image
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "no Visual Studio with C++ tools found" }
+          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvarsall.bat`" x64 > nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              Add-Content -Path $env:GITHUB_ENV -Value "$($Matches[1])=$($Matches[2])"
+            }
+          }
 
       - name: Check out pinned vcpkg
         shell: pwsh
@@ -1364,9 +1372,17 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up the MSVC environment for Ninja
-        uses: ilammy/msvc-dev-cmd@v1.13.0
-        with:
-          arch: x64
+        # first-party vcvarsall import (the third-party action for this stayed
+        # on a deprecated Node runtime); vswhere ships on every runner image
+        shell: pwsh
+        run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "no Visual Studio with C++ tools found" }
+          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvarsall.bat`" x64 > nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              Add-Content -Path $env:GITHUB_ENV -Value "$($Matches[1])=$($Matches[2])"
+            }
+          }
 
       - name: Check out pinned vcpkg
         shell: pwsh
