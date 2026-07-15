@@ -7121,7 +7121,13 @@ namespace Orkige
 					"add_test(NAME rtprobe_fail COMMAND \"${CMAKE_COMMAND}\" "
 					"-P \"${CMAKE_CURRENT_SOURCE_DIR}/failing.cmake\")\n";
 			}
+			// the generator is pinned SINGLE-CONFIG: the platform default can
+			// be a multi-config one, and ctest without a -C on such a tree
+			// quietly marks every test "notrun" (total counts, nothing passes
+			// or fails). Ninja is the project's required build tool, so it is
+			// present wherever this editor was built.
 			std::vector<std::string> configure = { std::string(ORKIGE_EDITOR_CMAKE),
+				"-G", "Ninja",
 				"-S", probeSrc.string(), "-B", probeBuild.string() };
 			std::string configureOutput;
 			int configureExit = 0;
