@@ -516,6 +516,32 @@ jobs:
           fi
           xcrun simctl install "$UDID" build/ios-simulator-debug/tools/player/OrkigePlayer.app
 
+          # a SECOND device, pre-warmed then shut down, for the boot-path Play
+          # test (editor_play_simulator_boot): its auto-shutdown picker prefers
+          # ORKIGE_CI_SIMULATOR_SHUTDOWN, and a warm re-boot takes seconds
+          # where a never-booted device's cold first boot can exceed the test
+          # budget on a loaded runner. Warming rides the same retry pattern.
+          UDID2=$(xcrun simctl create orkige-ci-boot "$DEVICE_TYPE" "$RUNTIME")
+          echo "ORKIGE_CI_SIMULATOR_SHUTDOWN=$UDID2" >> "$GITHUB_ENV"
+          WARMED=false
+          for attempt in 1 2 3; do
+            echo "Warm-boot attempt $attempt/3 ($UDID2)"
+            if [ "$attempt" -gt 1 ]; then
+              xcrun simctl shutdown "$UDID2" || true
+              sleep 5
+            fi
+            xcrun simctl boot "$UDID2" || true
+            if ORKIGE_SIMULATOR_UDID="$UDID2" python3 -c 'import os,subprocess; subprocess.run(["xcrun", "simctl", "bootstatus", os.environ["ORKIGE_SIMULATOR_UDID"], "-b"], check=True, timeout=420)'; then
+              WARMED=true
+              break
+            fi
+          done
+          if [ "$WARMED" != true ]; then
+            xcrun simctl list devices available
+            exit 1
+          fi
+          xcrun simctl shutdown "$UDID2"
+
       - name: "[ios] Install the player on the CI simulator"
         run: |
           # the device tests expect the LOCAL convention: a booted simulator
@@ -559,6 +585,10 @@ jobs:
         run: |
           xcrun simctl shutdown "$ORKIGE_CI_SIMULATOR" || true
           xcrun simctl delete "$ORKIGE_CI_SIMULATOR" || true
+          if [ -n "$ORKIGE_CI_SIMULATOR_SHUTDOWN" ]; then
+            xcrun simctl shutdown "$ORKIGE_CI_SIMULATOR_SHUTDOWN" || true
+            xcrun simctl delete "$ORKIGE_CI_SIMULATOR_SHUTDOWN" || true
+          fi
 
   # Windows on the default Ogre-Next flavor. The standard hosted runner has
   # no physical GPU/Vulkan ICD, so the desktop tests install a software driver

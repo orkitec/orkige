@@ -363,11 +363,18 @@ namespace OrkigeEditor
 			outError = this->mLastError;
 			return false;
 		}
-		// submit the current layout, render one frame so the offscreen target
-		// holds it, then read it back. The MCP pump runs before the editor's
-		// own NewFrame/renderOneFrame, so an extra render here is safe.
+		// submit the current layout, render the backend's FRAME DEPTH so the
+		// offscreen target holds the CURRENT geometry, then read it back:
+		// freshly rewritten 2D batches settle within up to 3 frames where the
+		// vertex buffers are multi-buffered (the DrawLayer2D visibility
+		// contract) - a single frame can capture the previous layout. The MCP
+		// pump runs before the editor's own NewFrame/renderOneFrame, so the
+		// extra renders here are safe.
 		this->mGui->profileTick(0.0f);
-		RenderSystem::get()->renderOneFrame();
+		for(int settleFrame = 0; settleFrame < 3; ++settleFrame)
+		{
+			RenderSystem::get()->renderOneFrame();
+		}
 		try
 		{
 			this->mTarget->writeContentsToFile(pngPath);

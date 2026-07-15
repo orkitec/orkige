@@ -610,18 +610,29 @@ int main(int argc, char** argv)
 				if (playSession.simulatorUdid.empty())
 				{
 					// boot path: a shutdown simulator qualifies when the
-					// built app exists (Play boots it and installs the app)
+					// built app exists (Play boots it and installs the app).
+					// ORKIGE_CI_SIMULATOR_SHUTDOWN names a PRE-WARMED shutdown
+					// device (CI boots and shuts it down during prep) and wins
+					// over the arbitrary first pick: a never-booted device's
+					// cold first boot takes many minutes on a loaded runner,
+					// a warm re-boot seconds - the flow exercised is identical.
 					std::error_code ignored;
 					if (std::filesystem::exists(ORKIGE_EDITOR_IOS_PLAYER_APP,
 						ignored))
 					{
+						const char* warmShutdown =
+							std::getenv("ORKIGE_CI_SIMULATOR_SHUTDOWN");
 						for (SimulatorDevice const& device : simulators)
 						{
-							if (!device.booted)
+							if (device.booted)
+							{
+								continue;
+							}
+							if (playSession.simulatorUdid.empty() ||
+								(warmShutdown && device.udid == warmShutdown))
 							{
 								playSession.simulatorUdid = device.udid;
 								playSession.simulatorLabel = device.name;
-								break;
 							}
 						}
 					}

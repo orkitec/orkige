@@ -150,11 +150,14 @@ namespace Orkige
 		}
 
 		//! system UI font candidates, best first: the macOS system font
-		//! (San Francisco, present on every macOS install) and common Linux
-		//! distro fonts; loaded at runtime, never shipped with the project.
+		//! (San Francisco, present on every macOS install), the Windows UI
+		//! font and common Linux distro fonts; loaded at runtime, never
+		//! shipped with the project.
 		//! No match -> nullptr -> ImGui's embedded default font.
 		const char* const SYSTEM_FONT_PATHS[] = {
 			"/System/Library/Fonts/SFNS.ttf",						// macOS
+			"C:/Windows/Fonts/segoeui.ttf",							// Windows
+			"C:/Windows/Fonts/tahoma.ttf",							// Windows fallback
 			"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",		// Debian/Ubuntu
 			"/usr/share/fonts/TTF/DejaVuSans.ttf",					// Arch/Fedora-ish
 			"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",	// Noto fallback
@@ -364,10 +367,15 @@ namespace Orkige
 		}
 		// MergeMode needs a base font to merge into; if none was loaded (no
 		// system font found) fall back to ImGui's built-in so inline icons still
-		// have a host font
+		// have a host font. The fallback must carry an EXPLICIT pixel size: the
+		// icon merge below passes one, and merging an explicit-size font into an
+		// implicit-size destination is an ImGui assertion (on a platform whose
+		// asserts open a dialog, that hang eats a headless test's whole timeout).
 		if (io.Fonts->Fonts.empty())
 		{
-			io.Fonts->AddFontDefault();
+			ImFontConfig defaultConfig;
+			defaultConfig.SizePixels = sizePoints * contentScale;
+			io.Fonts->AddFontDefault(&defaultConfig);
 		}
 		// (1) merge the icons into the base UI font so they render inline with
 		//     text (list rows, labelled buttons) at text size

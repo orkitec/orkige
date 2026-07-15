@@ -1426,27 +1426,41 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 				"frames render after the exposure probe was dropped");
 		}
 
-		// fog: a distant lit object's reading shifts as fog thickens. The
-		// atmosphere stays ENABLED across both captures so only fogDensity
-		// varies (the sun colour the atmosphere drives is held constant).
+		// fog: a distant SUNLIT surface's reading shifts as fog thickens - the
+		// exposure probe's recipe (mid-grey slab top under a near-vertical,
+		// atmosphere-driven sun) at fog distance, so the clear reading is
+		// bright and the fogged one converges to the ray's dark in-scatter
+		// colour: a large, driver-robust delta (a dark object barely moves -
+		// fog swaps its lighting for an equally dark colour). The atmosphere
+		// stays ENABLED across both captures so only fogDensity varies.
 		world->setAmbientLight(Color(0.2f, 0.2f, 0.2f));
 		optr<RenderNode> fogSunNode = world->createNode("selfcheck.atmoSun");
-		fogSunNode->setDirection(Vec3(0.2f, -0.7f, -0.5f), RenderNode::TS_WORLD);
+		fogSunNode->setDirection(Vec3(0.15f, 1.0f, 0.1f), RenderNode::TS_WORLD);
 		optr<RenderLight> fogSun = world->createLight();
 		fogSun->attachTo(fogSunNode);
 		fogSun->setType(RenderLight::LT_DIRECTIONAL);
-		fogSun->setDiffuseColour(Color(3.0f, 3.0f, 3.0f));
 		fogSun->setSpecularColour(Color(0.0f, 0.0f, 0.0f));
 		const Vec3 fogPoint(0, 0, -90);
 		optr<RenderNode> fogObjNode = world->createNode("selfcheck.fogObject");
 		fogObjNode->setPosition(fogPoint);
-		fogObjNode->setScale(Vec3(6, 6, 1));
+		fogObjNode->setScale(Vec3(16, 1, 16));
 		optr<MeshInstance> fogObj =
 			world->createMeshInstance("jumper_platform.glb");
 		SELFCHECK(fogObj != NULL, "the distant fog object loads");
 		fogObj->attachTo(fogObjNode);
+		fogObj->setCastShadows(false);
+		// the fog leg's own mid-grey (the exposure probe's material only
+		// exists where the sky dome does - this leg runs on BOTH flavors)
+		RenderMaterialDesc fogGreyDesc;
+		fogGreyDesc.albedo = Color(0.5f, 0.5f, 0.5f, 1.0f);
+		fogGreyDesc.metalness = 0.0f;
+		fogGreyDesc.roughness = 1.0f;
+		SELFCHECK(renderSystem->createMaterial("selfcheck.fogGrey", fogGreyDesc),
+			"the fog probe material builds");
+		SELFCHECK(fogObj->setMaterial("selfcheck.fogGrey"),
+			"the fog probe takes the mid-grey material");
 		camera->setPerspective(Degree(55), Real(1.0), Real(500));
-		cameraNode->setPosition(Vec3(0, 0, 0));
+		cameraNode->setPosition(Vec3(0, 40, 0));
 		cameraNode->lookAt(fogPoint, RenderNode::TS_WORLD);
 
 		AtmosphereDesc clearDesc =
@@ -1459,7 +1473,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		renderSystem->saveWindowContents(fogOffShot);
 
 		AtmosphereDesc foggyDesc = clearDesc;
-		foggyDesc.fogDensity = 0.03f;
+		foggyDesc.fogDensity = 1.0f;
 		world->setAtmosphere(foggyDesc);
 		SELFCHECK(renderFrames(renderSystem, 3),
 			"frames render with heavy fog");
