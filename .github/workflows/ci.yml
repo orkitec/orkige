@@ -475,12 +475,13 @@ jobs:
         env:
           ALSOFT_DRIVERS: "null"
         run: |
-          # list_play_targets probes adb. Start its daemon outside the MCP
-          # request deadline so a cold hosted runner cannot consume the whole
-          # request while Android device discovery initializes.
+          # list_play_targets probes adb and simctl. Warm both outside the
+          # MCP request deadline so a cold hosted runner cannot consume the
+          # whole request while device discovery services spin up.
           if command -v adb > /dev/null 2>&1; then
             adb start-server
           fi
+          xcrun simctl list devices available > /dev/null 2>&1 || true
           ctest --preset desktop-macos-ci --timeout 300
 
       - name: "[ios] Prepare iPhone 16 simulator"

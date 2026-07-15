@@ -53,6 +53,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <map>
 #include <mutex>
@@ -3206,8 +3207,16 @@ namespace Orkige
 		if (type == "list_play_targets")
 		{
 			// what the Play target picker shows: the desktop player, iOS
-			// simulators (APPLE), enumerated iOS hardware (gated) and adb
-			// devices/emulators. Parallel lists keyed by index.
+			// simulators (APPLE), enumerated iOS hardware (only once signing
+			// is configured, mirroring the toolbar - devicectl is the slowest
+			// probe and its devices are undeployable without an identity) and
+			// adb devices/emulators. Parallel lists keyed by index.
+			//
+			// The probes run CONCURRENTLY: each carries its own cold-service
+			// timeout-and-retry budget, and the CLIENT times the whole verb
+			// (the self-test reads with a 45s socket deadline) - sequential
+			// worst cases add up past any such deadline, while the max of
+			// them stays below it.
 			DebugMessage ok(MSG_OK);
 			StringVector kinds;
 			StringVector ids;
@@ -3218,23 +3227,37 @@ namespace Orkige
 			names.push_back("Desktop");
 			states.push_back("ready");
 #ifdef __APPLE__
-			for (SimulatorDevice const& device : listSimulators())
+			std::future<std::vector<SimulatorDevice>> simulatorProbe =
+				std::async(std::launch::async, listSimulators);
+			std::future<std::vector<IosHardwareDevice>> hardwareProbe =
+				std::async(std::launch::async, []
+				{
+					return isIosSigningConfigured()
+						? listIosHardwareDevices()
+						: std::vector<IosHardwareDevice>();
+				});
+#endif
+			std::future<std::vector<AndroidDevice>> androidProbe =
+				std::async(std::launch::async, listAdbDevices);
+#ifdef __APPLE__
+			for (SimulatorDevice const& device : simulatorProbe.get())
 			{
 				kinds.push_back("ios-simulator");
 				ids.push_back(device.udid);
 				names.push_back(device.name);
 				states.push_back(device.booted ? "booted" : "shutdown");
 			}
-			for (IosHardwareDevice const& device : listIosHardwareDevices())
+			for (IosHardwareDevice const& device : hardwareProbe.get())
 			{
-				// enumerated but not yet deployable (signed deploys are gated)
+				// enumerated but not deployable over MCP (Play on iOS
+				// hardware is the toolbar's export-and-deploy flow)
 				kinds.push_back("ios-device");
 				ids.push_back(device.udid);
 				names.push_back(device.name);
 				states.push_back("gated");
 			}
 #endif
-			for (AndroidDevice const& device : listAdbDevices())
+			for (AndroidDevice const& device : androidProbe.get())
 			{
 				kinds.push_back("android");
 				ids.push_back(device.serial);
