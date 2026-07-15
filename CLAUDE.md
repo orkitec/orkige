@@ -812,20 +812,34 @@ look when touching one:
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push. The
-**Linux-classic** (GL3Plus) builds engine/editor/player/samples and runs its
-unit + full non-device desktop compatibility suites under xvfb/llvmpipe.
-**Linux-next** (Vulkan, the default backend) runs the tests: units and the full
-windowed desktop suite under xvfb/lavapipe, the **`ORKIGE_SCRIPTING=OFF`**
-build + unit gate, and a CI-only **ASan + UBSan** configuration with the complete
-unit + desktop integration suite. Every test is a hard gate. It also runs an x86_64 Android emulator build and
-adb Play test (shipping Android remains arm64-v8a). **macOS-next** builds the
-default flavor on Apple hardware, runs the complete non-device desktop suite,
-builds the arm64 iOS Simulator player, and runs its export + runtime device
-tests. **Windows-next** builds the default flavor on MSVC and runs the complete
-non-device desktop suite using a Mesa lavapipe software Vulkan ICD with Win32
-presentation support (preset `windows-debug`, x64-windows-static-md triplet,
-NOMINMAX/WIN32_LEAN_AND_MEAN globally).
+GitHub Actions (`.github/workflows/ci.yml`) builds + tests on every push —
+**ten parallel jobs, one per platform x flavor**, so a failure names itself
+and every verdict lands as early as its own build allows (public-repo
+runners are free; the only cap is 5 concurrent macOS jobs):
+**linux-next**/**linux-classic** run the full windowed desktop suites under
+xvfb (lavapipe / llvmpipe); linux-next adds the **`ORKIGE_SCRIPTING=OFF`**
+build + unit gate and the CI-only **ASan + UBSan** tree with the complete
+unit + desktop suite (the sanitizer suite runs with ZERO retries).
+**android-emulator-next**/**-classic** build the x86_64 emulator player
+FIRST (the fail-fast the job exists for), then the host editor, then run
+the adb Play test (shipping Android remains arm64-v8a).
+**macos-next**/**macos-classic** run the complete non-device desktop suites
+on Apple hardware (classic includes the MoltenVK Vulkan runs — brew
+molten-vk in the job, the documented driver-tier setup).
+**ios-simulator-next**/**-classic** build the Simulator player first, then
+the host editor, then run the export/Play/boot/safe-area device tests
+against a prepared iPhone simulator plus a PRE-WARMED shutdown device (a
+hosted runner boots even a warm simulator in 4-6 minutes — the Play
+session/phase/ctest budgets are spaced for that, see EditorApp.h).
+**windows-next** builds on MSVC and runs the complete desktop suite through
+a Mesa lavapipe software Vulkan ICD registered in the REGISTRY (elevated
+processes ignore the loader's env overrides) with Win32 presentation
+(preset `windows-debug`, x64-windows-static-md triplet,
+NOMINMAX/WIN32_LEAN_AND_MEAN globally); **windows-classic** is the build +
+headless-unit gate (no software GL on hosted Windows for the windowed set —
+the classic windowed gate runs on Linux and macOS). The windowed CI suites
+retry a failing test once (`--repeat until-pass:2`); local runs and the
+sanitizer suite stay strict so flakes remain visible.
 Linux builds with **clang** (`CC/CXX` in the workflow env;
 matches the clang-oriented codebase), and needs a few system dev packages the cold
 vcpkg build surfaced (autoconf-archive, libltdl-dev, libxtst/libxinerama; SDL's builtin
