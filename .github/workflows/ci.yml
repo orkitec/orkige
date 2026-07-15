@@ -503,7 +503,9 @@ jobs:
               sleep 5
             fi
             xcrun simctl boot "$UDID" || true
-            if ORKIGE_SIMULATOR_UDID="$UDID" python3 -c 'import os,subprocess; subprocess.run(["xcrun", "simctl", "bootstatus", os.environ["ORKIGE_SIMULATOR_UDID"], "-b"], check=True, timeout=180)'; then
+            # a HEALTHY hosted runner boots in 2-3.5 minutes; 180s per attempt
+            # exhausted all three retries on a slow-but-sound runner
+            if ORKIGE_SIMULATOR_UDID="$UDID" python3 -c 'import os,subprocess; subprocess.run(["xcrun", "simctl", "bootstatus", os.environ["ORKIGE_SIMULATOR_UDID"], "-b"], check=True, timeout=420)'; then
               BOOTED=true
               break
             fi
