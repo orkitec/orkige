@@ -409,6 +409,10 @@
       "configurePreset": "windows-debug"
     },
     {
+      "name": "windows-debug-classic",
+      "configurePreset": "windows-debug-classic"
+    },
+    {
       "name": "ios-simulator-debug",
       "configurePreset": "ios-simulator-debug"
     },
@@ -419,6 +423,10 @@
     {
       "name": "android-emulator-debug-ci",
       "configurePreset": "android-emulator-debug-ci"
+    },
+    {
+      "name": "android-emulator-debug-ci-classic",
+      "configurePreset": "android-emulator-debug-ci-classic"
     },
     {
       "name": "android-release",
