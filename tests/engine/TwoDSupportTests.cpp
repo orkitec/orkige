@@ -137,19 +137,19 @@ TEST_CASE("SpriteComponent UV corners honor the rect and the flips", "[sprite]")
 
 TEST_CASE("SpriteComponent zOrder maps to a clamped render queue", "[sprite]")
 {
-	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(0) ==
-		static_cast<Ogre::uint8>(Ogre::RENDER_QUEUE_MAIN));
-	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(3) ==
-		static_cast<Ogre::uint8>(Ogre::RENDER_QUEUE_MAIN) + 3);
-	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(-3) ==
-		static_cast<Ogre::uint8>(Ogre::RENDER_QUEUE_MAIN) - 3);
+	// 50 = the shared painter's-window base queue on BOTH flavors (the classic
+	// main-queue id, and the base SpriteComponent maps zOrder 0 onto for the
+	// same sorting window on the other backend) - the same documented literal
+	// renderQueueForZOrder itself is built on
+	const unsigned char QUEUE_BASE = 50;
+	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(0) == QUEUE_BASE);
+	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(3) == QUEUE_BASE + 3);
+	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(-3) == QUEUE_BASE - 3);
 	// out-of-range zOrders clamp instead of wandering into overlay queues
 	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(10000) ==
-		static_cast<Ogre::uint8>(Ogre::RENDER_QUEUE_MAIN) +
-		Orkige::SpriteComponent::ZORDER_MAX);
+		QUEUE_BASE + Orkige::SpriteComponent::ZORDER_MAX);
 	CHECK(Orkige::SpriteComponent::renderQueueForZOrder(-10000) ==
-		static_cast<Ogre::uint8>(Ogre::RENDER_QUEUE_MAIN) +
-		Orkige::SpriteComponent::ZORDER_MIN);
+		QUEUE_BASE + Orkige::SpriteComponent::ZORDER_MIN);
 }
 
 TEST_CASE("frameToUVRect maps grid cells to UV sub-rects", "[sprite][flipbook]")

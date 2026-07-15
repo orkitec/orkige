@@ -6,7 +6,6 @@ find_package(Catch2 3 CONFIG REQUIRED)
 add_executable(orkige_engine_tests
     TestRunListener.cpp
     EngineTestEnvironment.h
-    RenderSystemSelectionTests.cpp
     GuiAtlasTests.cpp
     NineSliceLayoutTests.cpp
     GuiLayoutIoTests.cpp
@@ -38,6 +37,14 @@ target_link_libraries(orkige_engine_tests PRIVATE
     Orkige::Engine
     Catch2::Catch2WithMain
 )
+
+# the ONE classic-bound suite: Engine::matchRenderSystemName (the runtime
+# graphics-API pick behind ORKIGE_RENDERSYSTEM) exists only on the classic
+# Engine - the next flavor boots its fixed per-platform render system and
+# has no matcher to test
+if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+    target_sources(orkige_engine_tests PRIVATE RenderSystemSelectionTests.cpp)
+endif()
 
 # GuiAtlasTests parses the generated gui atlas through the real
 # UiAtlas parser (headless constructor - the GPU half is covered by the

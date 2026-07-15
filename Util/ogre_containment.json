@@ -42,7 +42,7 @@
   "tests/render_facade/bootstrap_classic.cpp": "the classic backend's bootstrap TU of the render_facade selfcheck - per-backend by design",
   "tests/render_facade/bootstrap_next.cpp": "the Ogre-Next backend's bootstrap TU of the render_facade selfcheck/smoke - per-backend by design",
   "tests/engine/GuiAtlasTests.cpp": "parses .ogui atlases through the UiAtlas headless constructor + Ogre::ConfigFile (present in both flavors)",
-  "tests/engine/TwoDSupportTests.cpp": "math values + render-queue id constants (RENDER_QUEUE_MAIN) asserted against the pure helpers",
+  "tests/engine/TwoDSupportTests.cpp": "math value types (Ogre::Vector2, present in both flavors) asserted against the pure helpers",
   "tests/jumper/JumperLogicTests.cpp": "math values (JumperLogic surface) - alias vocabulary pending",
   "tests/editor_core/EditorCameraTests.cpp": "math values - alias vocabulary pending",
   "tests/editor_core/EditorCoreTests.cpp": "math values - alias vocabulary pending",

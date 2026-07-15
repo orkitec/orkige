@@ -211,15 +211,13 @@ add_test(NAME loc_currency
 set_tests_properties(loc_currency PROPERTIES LABELS unit TIMEOUT 30)
 
 if(TARGET orkige_engine)
-    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
-        # pure-logic engine unit tests (no window/GPU); still classic-only:
-        # two of the five suites are classic-bound (GuiAtlasTests =
-        # gui zone, RenderSystemSelectionTests = the classic Engine's
-        # graphics-API pick) - splitting the executable per flavor buys
-        # little while the default (next-flavor) desktop preset runs the
-        # same logic through the game selfchecks
-        add_subdirectory(engine)
-    endif()
+    # pure-logic engine unit tests (no window/GPU, no flavor #ifdefs) - they
+    # register on BOTH render flavors so the default (next) tree's unit gate
+    # covers the engine layer too; every suite links only the backend-neutral
+    # engine surface (RenderSystemSelectionTests exercises the pure
+    # Engine::matchRenderSystemName matcher, GuiAtlasTests the headless
+    # UiAtlas parser - gui runs on both flavors)
+    add_subdirectory(engine)
 
     # render_facade_selfcheck - THE backend conformance suite of the
     # engine_render facade (Docs/render-abstraction.md): one headed run
@@ -1135,9 +1133,9 @@ if(TARGET orkige_player)
     # (see the ORKIGE_JUMPER_LUA_SELFCHECK block in tools/player/main.cpp)
     if(ORKIGE_SCRIPTING STREQUAL "LUA")
         # the game selfchecks run on BOTH flavors - the next flavor's
-        # registrations carry a _next suffix and the UI assertions are
-        # compile-time-skipped there (gui is classic-only;
-        # game.lua probes engine:hasUISystem() and runs HUD-less)
+        # registrations carry a _next suffix. gui renders on both flavors,
+        # so the UI assertions run everywhere (game.lua still probes
+        # engine:hasUISystem() so a future UI-less flavor degrades honestly)
         add_test(NAME player_jumper_lua_selfcheck${ORKIGE_FLAVOR_TEST_SUFFIX}
             COMMAND orkige_player --project projects/jumper-lua
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
