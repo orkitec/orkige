@@ -653,6 +653,21 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_water PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_WATER=1;ORKIGE_DEMO_FRAMES=120")
 
+    # water_looks_right: the PIXEL probe demo_water's triangle count could not be
+    # (the fog-leg lesson - a near-black slab passed "renders"). Captures the
+    # water at two frames and asserts it is LIT (not near-black), has a SPECULAR
+    # sun GLINT in the centre-bottom reflection (an unlit/flat slab has ~0 glint
+    # contrast - the exact next-water regression), and SCROLLS (the ripple moves
+    # between frames). Both flavors (the demo carries a directional sun so PBS
+    # water has something to light). Skips (77) if the app is unbuilt.
+    add_test(NAME water_looks_right COMMAND python3
+        "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_water_probe_test.py"
+        --binary "$<TARGET_FILE:hello_orkige>"
+        --out "${CMAKE_CURRENT_BINARY_DIR}/water_looks_right"
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(water_looks_right PROPERTIES
+        LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 240)
+
     # no frame cap on purpose: the synthesized ESC (at frame 60) must quit the
     # app through the input pipeline - if that path regresses, the run hangs
     # and the TIMEOUT fails the test

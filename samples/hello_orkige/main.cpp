@@ -954,6 +954,12 @@ int main(int, char**)
 		Orkige::WaterComponent* water = nullptr;
 		std::size_t waterHiddenTriangles = 0;
 		float waterScrollAtShow = 0.0f;
+		// the water sun: PBS water reflects a light source - with NO directional
+		// light the surface is unlit and reads near-black (a metal-rough dielectric
+		// with nothing to reflect), so a lit water scene MUST carry a sun. Kept
+		// alive past the setup scope.
+		optr<Orkige::RenderNode> waterSunNode;
+		optr<Orkige::RenderLight> waterSun;
 		if (demoWater)
 		{
 			optr<Orkige::GameObject> waterObject =
@@ -1001,9 +1007,26 @@ int main(int, char**)
 					"before any tick");
 				return 1;
 			}
-			// light the surface so the PBS/Blinn-Phong response is real work
+			// light the surface so the PBS/metal-rough response is real work
 			world->setAmbientHemisphere(Orkige::Color(0.4f, 0.46f, 0.55f),
 				Orkige::Color(0.12f, 0.16f, 0.2f));
+			// the sun: a directional light the water reflects - without it PBS
+			// water has nothing to light and reads near-black. Aimed low so the
+			// reflection catches the ripples and the fresnel edge shows.
+			waterSunNode = world->createNode("water.sun");
+			waterSunNode->setDirection(Orkige::Vec3(0.0f, -0.65f, 0.75f),
+				Orkige::RenderNode::TS_WORLD);
+			waterSun = world->createLight();
+			waterSun->attachTo(waterSunNode);
+			waterSun->setType(Orkige::RenderLight::LT_DIRECTIONAL);
+			waterSun->setDiffuseColour(Orkige::Color(1.0f, 0.96f, 0.86f));
+			// a READABLE demo water preset: the RenderWaterDesc defaults are a
+			// near-black deep-ocean blue (0.02,0.10,0.18) that renders as a dark
+			// slab in a showcase; a brighter teal deep + a clear shallow scatter
+			// let the ripples, the fresnel edge and the deep/shallow colour read.
+			water->setDeepColour(Orkige::Color(0.04f, 0.20f, 0.30f, 1.0f));
+			water->setShallowColour(Orkige::Color(0.22f, 0.55f, 0.62f, 1.0f));
+			water->setOpacity(0.82f);
 			SDL_Log("hello_orkige: water demo up - water plane + scrolling "
 				"material '%s' applied", water->getMaterialName().c_str());
 		}
@@ -4311,6 +4334,17 @@ int main(int, char**)
 				running = false;
 			}
 			++frameCount;
+			if (demoWater && frameCount == 40)
+			{
+				// ORKIGE_DEMO_SCREENSHOT2: an earlier water frame so a driver can
+				// prove the ripple SCROLLED (motion) between here and frame 60,
+				// and that the surface carries real colour variation (not a flat
+				// slab) - the water_looks_right probe (the fog-leg lesson)
+				if (const char* shotPath = std::getenv("ORKIGE_DEMO_SCREENSHOT2"))
+				{
+					render->saveWindowContents(shotPath);
+				}
+			}
 			if (frameCount == 60)
 			{
 				// ORKIGE_DEMO_SCREENSHOT: dump the framebuffer for automated
