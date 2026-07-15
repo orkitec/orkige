@@ -10,3 +10,7 @@ projects/*/native/build-export/
 __pycache__/
 projects/*/builds/
 .claude/
+
+# runtime crash trail written to the cwd by players/tests run from the repo root
+breadcrumbs.jsonl
+breadcrumbs.prev.jsonl
