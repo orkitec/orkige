@@ -81,9 +81,13 @@ namespace Orkige
 		//! @brief does this backend support 2D layers compositing INTO the
 		//! target (createLayer)? The generalization of the window-only
 		//! DrawLayer2D contract to per-target surfaces. Ogre-Next: yes;
-		//! classic OGRE: no (the compositor hook is main-window-only there,
-		//! so the editor shows its GUI Preview tab disabled - see the flavor
-		//! capability matrix in Docs/render-abstraction.md).
+		//! classic OGRE: no - a REGISTERED next-only capability. classic's 2D
+		//! compositor is one main-window-gated RenderQueueListener over
+		//! shader-only materials the RTSS transiently rebuilds; per-target
+		//! offscreen composition is a distinct next-only render path, so the
+		//! editor disables the GUI Preview tab on classic (@see the flavor
+		//! capability matrix in Docs/render-abstraction.md - a future RenderCaps
+		//! entry).
 		//! map: classic=false | next=true | filament=true (dedicated UI View)
 		static bool canOwnLayers();
 		//! @brief create a 2D overlay layer that composites INTO this target

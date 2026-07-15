@@ -684,7 +684,7 @@ all in place. **Flavor capability matrix**:
 | engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
 | components/game objects/serialization | yes | yes |
 | `LightComponent` (dir/point/spot over `RenderLight`; reflected/serialized/Lua/MCP) | yes | yes (per-flavor lit-vs-unlit selfcheck; the demo meshes carry no PBS normals, so the render-difference probe drives the ambient term) |
-| hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | yes (averaged to flat ambient — honest subset) | yes (native two-colour sky/ground term) |
+| hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | REGISTERED subset: the two hemisphere colours are AVERAGED to one flat ambient. classic OGRE's `SceneManager::setAmbientLight` takes a single colour, and the RTSS lighting stages consume the flat `ACT_DERIVED_AMBIENT_LIGHT_COLOUR` auto-param — a true two-colour sky/ground blend would need a custom RTSS sub-render-state (a next-only capability, a future RenderCaps entry) | yes (native two-colour sky/ground term, `setAmbientLight(upper, lower, dir)`) |
 | PBS materials (`.omat` → `RenderSystem::createMaterial` + `MeshInstance::setMaterial`; `ModelComponent.material`) | RTSS metal-rough: `SRS_COOK_TORRANCE_LIGHTING` (metalness/roughness from `specular.xy`, albedo colour+map, emissive colour) + `SRS_NORMALMAP` (normal map, tangents built on demand in `setMaterial`) + an additive pass for the emissive map (opaque only) — maps render, but the shading model/ambient differ so still no pixel parity for lit content | yes — native HlmsPbs metallic workflow incl. normal/emissive maps (tangents generated at import for UV meshes); per-flavor `demo_material` selfcheck |
 | animated water (`RenderWaterDesc` → `RenderSystem::createWaterMaterial` + `setWaterTime`; `WaterComponent`) | RTSS metal-rough transparent plane: Cook-Torrance on the deep/shallow tint (opacity=alpha) with an intrinsic Fresnel edge, plus a COMPOSITE of two cues from the one normal map — the RTSS normal-map stage LIGHTS the ripples (a static sun-catching relief) while the same map bound a second time gives a scrolling colour-shimmer MOTION. REGISTERED subset: the lit ripple detail is STATIC (RTSS classic samples the raw texcoord, so a normal map lights OR scrolls on one unit, not both) — fully animated normal-mapped water + the two detail-normal ripple are next-only | yes — HlmsPbs specular-as-fresnel dielectric: TWO detail normal maps scrolling in different directions/speeds (the ripple), realistic fresnel-preserving transparency, deep-colour water body + subtle shallow-colour scatter; per-flavor `demo_water` selfcheck. Common v1 boundary BOTH flavors: NO screen-space refraction distortion and NO true depth-graded deep→shallow transmission — both need a compositor refraction/depth pass (a future desktop quality knob, see below) |
 | dynamic shadows (`RenderWorld::setShadowQuality` knob + `r.shadowQuality` cvar; `LightComponent.castsShadows`) | no (honest: knob accepted + round-trips, ONE "not supported" log line, renders nothing; `shadowsSupported()` = false) | yes (PSSM/PCF compositor shadow node in the window and RTT workspaces, attached lazily while quality ≠ off AND a light casts; v1 = DIRECTIONAL casters; budgets in `core_util/ShadowPreset.h` — medium default is the phone budget: 2 cascades, 1024 base atlas ≈ 6 MB, 3×3 PCF) |
@@ -693,7 +693,7 @@ all in place. **Flavor capability matrix**:
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
 | gui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
-| offscreen 2D composition (DrawLayer2D into an RTT; the editor GUI Preview tab + `preview_ui`) | no (honest `RenderTexture::canOwnLayers()==false`; the tab is disabled with a note) | yes (per-target UI pass + visibility band; `render_facade_selfcheck` pixel case) |
+| offscreen 2D composition (DrawLayer2D into an RTT; the editor GUI Preview tab + `preview_ui`) | REGISTERED next-only: `RenderTexture::canOwnLayers()==false`. classic's 2D composite is one main-window-gated RenderQueueListener over shader-only materials the RTSS transiently rebuilds; per-target offscreen surfaces are a distinct next-only render path — the tab disables with a note (a future RenderCaps entry) | yes (per-target UI pass + visibility band; `render_facade_selfcheck` pixel case) |
 | IngameConsole | yes | no — classic Overlay zone (rebuild on gui/DrawLayer2D when wanted) |
 | editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (the editor-stays-classic decision was superseded, see the editor-on-both-flavors section) |
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
@@ -970,12 +970,17 @@ simulated device size — so the facade grew per-target 2D layer ownership:
   UI camera sized to the target); a UI-only target (no 3D camera - the preview
   case) is one clear + UI pass. `render_facade_selfcheck` pixel-verifies a
   gui-like pattern composited into an RTT plus the bidirectional isolation.
-- **classic OGRE** (`canOwnLayers()==false`): the 2D compositor hook is a
-  `RenderQueueListener` gated on the main-window viewport; routing it into an
-  offscreen viewport was judged disproportionate for the one feature that needs
-  it, so classic reports honest no-support (`createLayer` returns NULL, logged
-  once) and the editor disables the GUI Preview tab with a note. The facade
-  surface stays backend-neutral; the capability matrix row records it.
+- **classic OGRE** (`canOwnLayers()==false`): REGISTERED next-only capability.
+  The 2D compositor hook is a single `RenderQueueListener` gated on the
+  main-window viewport, and its 2D materials are shader-only on GL3Plus — the
+  RTSS transiently drops their generated technique whenever the dynamic light
+  count changes or a scene teardown churns materials, so the composite carries
+  a recompile-on-demand guard tied to that one viewport. Generalizing it to
+  per-target offscreen surfaces (a new UI-only-RTT render path) is a next-only
+  capability; classic reports honest no-support (`createLayer` returns NULL,
+  logged once) and the editor disables the GUI Preview tab with a note. The
+  facade surface stays backend-neutral; the capability matrix records it (a
+  future RenderCaps entry).
 - **filament** (future): a dedicated UI View on the target.
 
 The gui stack renders into a preview target through
