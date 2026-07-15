@@ -678,17 +678,20 @@ jobs:
           ALSOFT_DRIVERS: "null"
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          # the ICD/PATH env is set IN-PROCESS rather than via GITHUB_ENV:
-          # the GITHUB_ENV writes from the locate step demonstrably did not
-          # reach later steps on this runner (the loader fell back to a
-          # registry lookup and found no drivers), and a process-level
-          # assignment always propagates to the ctest child processes.
+          # the ICD is registered in the REGISTRY, not (only) the environment:
+          # the runner executes elevated (runneradmin), and the Vulkan loader
+          # deliberately IGNORES VK_DRIVER_FILES/VK_ICD_FILENAMES in elevated
+          # processes - both the GITHUB_ENV and the in-process env attempts
+          # ended in "vkCreateInstance: Found no drivers". Registry-registered
+          # drivers are honored regardless of elevation.
           $icd = Join-Path $env:MSYS2_LOCATION "ucrt64/share/vulkan/icd.d/lvp_icd.x86_64.json"
           if (-not (Test-Path $icd)) { throw "lavapipe ICD not found at $icd" }
-          $env:VK_DRIVER_FILES = $icd
-          $env:VK_ICD_FILENAMES = $icd
+          New-Item -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Khronos\Vulkan\Drivers" `
+            -Name $icd -Value 0 -PropertyType DWord -Force | Out-Null
+          # the lvp DLL's MSYS2 UCRT runtime deps must resolve on PATH
           $env:PATH = (Join-Path $env:MSYS2_LOCATION "ucrt64/bin") + ";" + $env:PATH
-          Write-Host "VK_DRIVER_FILES=$env:VK_DRIVER_FILES"
+          Write-Host "registered Vulkan ICD in HKLM: $icd"
           # fast gate: ONE windowed smoke test first, so a wholesale-broken
           # Vulkan environment fails the step in about a minute instead of
           # every windowed test in the suite eating its full timeout
