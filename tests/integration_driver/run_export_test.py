@@ -261,8 +261,8 @@ def main():
     player_dir = os.path.join(args.engine_build, "tools", "player")
     if args.platform == "ios-simulator" and not os.path.isdir(
             os.path.join(player_dir, "OrkigePlayer.app")):
-        skip("no built iOS player app under '%s' - build the "
-             "ios-simulator-debug preset to enable this test" % player_dir)
+        skip("no built iOS player app under '%s' - build the matching "
+             "ios-simulator preset to enable this test" % player_dir)
     aapt2 = ""
     if args.platform in ("android", "android-aab"):
         if not os.path.isfile(os.path.join(player_dir, "libmain.so")):

@@ -1521,13 +1521,20 @@ if(TARGET orkige_player)
 
         # mobile exports: structural assertions only (no simulator/emulator
         # boots, so these stay desktop-runnable); SKIPPED (exit 77) when the
-        # platform's preset tree (or the Android build-tools) is absent
+        # platform's preset tree (or the Android build-tools) is absent.
+        # The mobile preset trees are flavor-suffixed like the desktop ones -
+        # each flavor's tree checks the export of ITS OWN mobile player.
+        if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+            set(ORKIGE_MOBILE_TREE_SUFFIX "-classic")
+        else()
+            set(ORKIGE_MOBILE_TREE_SUFFIX "")
+        endif()
         add_test(NAME export_ios_simulator
             COMMAND python3 "${ORKIGE_EXPORT_DRIVER}"
                 --repo "${Orkige_SOURCE_DIR}"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform ios-simulator
-                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug"
+                --engine-build "${Orkige_SOURCE_DIR}/build/ios-simulator-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/ios-simulator-lua"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_ios_simulator PROPERTIES SKIP_RETURN_CODE 77)
@@ -1537,7 +1544,7 @@ if(TARGET orkige_player)
                 --repo "${Orkige_SOURCE_DIR}"
                 --project "${Orkige_SOURCE_DIR}/projects/jumper-lua"
                 --platform android
-                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug"
+                --engine-build "${Orkige_SOURCE_DIR}/build/android-debug${ORKIGE_MOBILE_TREE_SUFFIX}"
                 --output "${CMAKE_CURRENT_BINARY_DIR}/export/android-lua"
             WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
         set_tests_properties(export_android PROPERTIES SKIP_RETURN_CODE 77)

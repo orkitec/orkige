@@ -623,14 +623,11 @@
     },
     {
       "name": "device-macos-ios-ci-classic",
-      "displayName": "iOS Simulator CI (classic flavor): export + play + cold-boot + safe-area tests",
+      "displayName": "iOS Simulator CI (classic flavor): player export structure test (the editor-session device tests run on the next job + local hardware - the hosted classic editor is unreliable on virtual GPUs, like the macos-classic desktop suite)",
       "configurePreset": "macos-debug-classic",
-      "environment": {
-        "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
-      },
       "filter": {
         "include": {
-          "name": "^(export_ios_simulator|editor_play_simulator|editor_play_simulator_boot|player_safearea_device)$"
+          "name": "^(export_ios_simulator)$"
         }
       },
       "execution": {

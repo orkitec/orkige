@@ -826,11 +826,17 @@ the adb Play test (shipping Android remains arm64-v8a).
 **macos-next**/**macos-classic** run the complete non-device desktop suites
 on Apple hardware (classic includes the MoltenVK Vulkan runs — brew
 molten-vk in the job, the documented driver-tier setup).
-**ios-simulator-next**/**-classic** build the Simulator player first, then
-the host editor, then run the export/Play/boot/safe-area device tests
+**ios-simulator-next** builds the Simulator player first, then
+the host editor, then runs the export/Play/boot/safe-area device tests
 against a prepared iPhone simulator plus a PRE-WARMED shutdown device (a
 hosted runner boots even a warm simulator in 4-6 minutes — the Play
-session/phase/ctest budgets are spaced for that, see EditorApp.h).
+session/phase/ctest budgets are spaced for that, see EditorApp.h);
+**ios-simulator-classic** builds the classic Simulator player (fail-fast)
+and runs the export structure test with a may-not-skip guard — the
+editor-session device tests stay on the next job + local hardware, because
+the HOST classic editor is unreliable on hosted virtual GPUs (the
+macos-classic finding; the classic device suite runs locally via
+`ctest --preset all` on the classic tree).
 **windows-next** builds on MSVC and runs the complete desktop suite through
 a Mesa lavapipe software Vulkan ICD registered in the REGISTRY (elevated
 processes ignore the loader's env overrides) with Win32 presentation
