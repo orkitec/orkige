@@ -551,34 +551,100 @@ namespace Orkige
 			material = materialManager.create(name,
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		}
-		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
-		// the honest subset: the deep/shallow colours blend into ONE flat water
-		// tint (no depth-graded transmission here), a glossy specular highlight
-		// (the fresnelPower knob widens/brightens it), and alpha transparency.
+		Ogre::Technique* technique = material->getTechnique(0);
+		Ogre::Pass* pass = technique->getPass(0);
+		// the water body colour: the deep/shallow colours blend into ONE tint
+		// (no depth-graded transmission here), alpha = opacity so the lakebed
+		// shows through. The metal-rough lighting below adds the sun reflection.
 		const float blend = 0.4f;	// lean toward the deep body colour
 		const Ogre::ColourValue tint(
 			desc.deepColour.r + (desc.shallowColour.r - desc.deepColour.r) * blend,
 			desc.deepColour.g + (desc.shallowColour.g - desc.deepColour.g) * blend,
 			desc.deepColour.b + (desc.shallowColour.b - desc.deepColour.b) * blend,
 			std::clamp(desc.opacity, 0.0f, 1.0f));
-		const float spec = std::clamp(0.25f * std::max(desc.fresnelPower, 0.0f),
-			0.0f, 1.0f);
 		pass->setLightingEnabled(true);
-		pass->setDiffuse(tint);
+		pass->setDiffuse(tint);				// alpha carries the opacity
 		pass->setAmbient(tint.r, tint.g, tint.b);
-		pass->setSpecular(spec, spec, spec, 1.0f);
-		pass->setShininess(96.0f);
 		pass->setSelfIllumination(0.0f, 0.0f, 0.0f);
 		// transparent surface: alpha-blend over the scene, no depth write (the
 		// lakebed shows through)
 		pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
 		pass->setDepthWriteEnabled(false);
-		// the scrolling shimmer overlay (approximating moving ripples): the
-		// tiling water normal map bound as a modulating texture unit and
-		// scrolled by setWaterMaterialTime. On the Blinn-Phong subset a normal
-		// map cannot light the surface, so it reads as a moving colour shimmer -
-		// say so once, then stay quiet.
 		pass->removeAllTextureUnitStates();
+		gNormalMappedMaterials.erase(name);	// a re-create may have been mapped
+#ifdef USE_RTSHADER_SYSTEM
+		if(Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+		{
+			// a glossy dielectric: Cook-Torrance reads metalness from specular.x
+			// (0 = non-metal water) and roughness from specular.y. fresnelPower
+			// sharpens the reflection (lower roughness = a tighter, brighter sun
+			// glint riding the ripples).
+			const float roughness = std::clamp(
+				0.15f / std::max(desc.fresnelPower, 0.25f), 0.03f, 0.4f);
+			pass->setSpecular(0.0f, roughness, 0.0f, 1.0f);
+			pass->setShininess(0.0f);
+			// A COMPOSITE of two water cues, because RTSS classic can light a
+			// normal map OR scroll a texture, not both on one unit (the
+			// NormalMap stage samples the RAW texcoord, ignoring the scroll):
+			//  - TU 0 = the normal map as a scrolling COLOUR shimmer (the FFP
+			//    texturing stage applies setWaterTime's scroll), carrying the
+			//    visible MOTION - subtle, so the water tint stays dominant;
+			//  - TU 1 = the SAME normal map marked non-FFP, which the NormalMap
+			//    stage samples to LIGHT the ripples (a static relief that catches
+			//    the sun). Together: lit ripples + a moving surface. Fully
+			//    animated normal-mapped water is next-only.
+			int normalTuIndex = -1;
+			if(!desc.normalTexture.empty())
+			{
+				try
+				{
+					Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
+						.load(desc.normalTexture,
+							Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+					const float invScale = 1.0f / std::max(desc.waveScale, 0.001f);
+					// TU 0: the scrolling colour shimmer (motion) - the one
+					// setWaterMaterialTime scrolls
+					Ogre::TextureUnitState* shimmer = pass->createTextureUnitState();
+					shimmer->setTexture(texture);
+					shimmer->setTextureScale(invScale, invScale);
+					shimmer->setColourOperationEx(Ogre::LBX_BLEND_MANUAL,
+						Ogre::LBS_TEXTURE, Ogre::LBS_CURRENT,
+						Ogre::ColourValue::White, Ogre::ColourValue::White, 0.18f);
+					// TU 1: the lit normal map (static relief catching the sun)
+					Ogre::TextureUnitState* normalUnit =
+						pass->createTextureUnitState();
+					normalUnit->setTexture(texture);
+					normalUnit->setTextureScale(invScale, invScale);
+					normalTuIndex =
+						static_cast<int>(pass->getNumTextureUnitStates()) - 1;
+					Ogre::RTShader::ShaderGenerator::_markNonFFP(normalUnit);
+					gNormalMappedMaterials.insert(name);
+				}
+				catch(Ogre::Exception const & e)
+				{
+					oDebugError("engine", 0, "RenderSystem::createWaterMaterial('"
+						<< name << "'): normal map '" << desc.normalTexture
+						<< "' failed to load: " << e.getDescription());
+					outComplete = false;
+				}
+			}
+			// Cook-Torrance (+ the normal-map stage): the same metal-rough path
+			// the surface materials use, so the ripples light + the intrinsic
+			// Fresnel term brightens the grazing-angle reflection
+			configureSurfaceShaderState(generator, material, normalTuIndex);
+			gWaterScrollSpeeds[name] = desc.waveSpeed;
+			return material;
+		}
+#endif // USE_RTSHADER_SYSTEM
+		// fixed-function fallback (no shader generator): the transparent Blinn-
+		// Phong subset - a glossy specular highlight (fresnelPower widens it) and
+		// the normal map bound as a scrolling colour shimmer (it cannot light the
+		// surface here), logged once.
+		const float spec = std::clamp(0.25f * std::max(desc.fresnelPower, 0.0f),
+			0.0f, 1.0f);
+		pass->setSpecular(spec, spec, spec, 1.0f);
+		pass->setShininess(96.0f);
 		if(!desc.normalTexture.empty())
 		{
 			try
@@ -590,7 +656,6 @@ namespace Orkige
 				unit->setTexture(texture);
 				unit->setTextureScale(1.0f / std::max(desc.waveScale, 0.001f),
 					1.0f / std::max(desc.waveScale, 0.001f));
-				// modulate lightly so the water tint stays dominant
 				unit->setColourOperationEx(Ogre::LBX_BLEND_MANUAL,
 					Ogre::LBS_TEXTURE, Ogre::LBS_CURRENT,
 					Ogre::ColourValue::White, Ogre::ColourValue::White, 0.35f);
@@ -606,9 +671,8 @@ namespace Orkige
 			if(warned.insert(name).second)
 			{
 				oDebugWarning(false, "RenderSystem::createWaterMaterial('" << name
-					<< "'): this render flavor draws the transparent Blinn-Phong "
-					"subset - the normal map animates as a scrolling shimmer "
-					"(true fresnel normal-mapped water is next-only)");
+					<< "'): no shader generator - drawing the transparent Blinn-"
+					"Phong subset, the normal map animates as a colour shimmer");
 			}
 		}
 		gWaterScrollSpeeds[name] = desc.waveSpeed;

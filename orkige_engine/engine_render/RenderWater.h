@@ -32,11 +32,16 @@ namespace Orkige
 	//! transparency that preserves the fresnel edge reflection, the deep colour
 	//! as the water-body albedo and a subtle shallow-colour scatter term. The
 	//! plane needs mesh TANGENTS (the water plane mesh is UV-mapped, so the
-	//! importer builds them). classic = a transparent Blinn-Phong plane: the
-	//! deep/shallow colours blend into one flat water tint, a glossy specular
-	//! highlight, alpha transparency, and the normal map bound as a scrolling
-	//! shimmer overlay (an honest illusion - true tangent-space normal-mapped
-	//! fresnel water is next-only; logged once per material).
+	//! importer builds them; classic builds tangents on demand). classic = a
+	//! transparent metal-rough plane through RTSS: Cook-Torrance lighting on the
+	//! deep/shallow tint (opacity = alpha) with an intrinsic Fresnel edge, plus a
+	//! COMPOSITE of two cues from the one normal map - it is sampled by the RTSS
+	//! normal-map stage to LIGHT the ripples (a static relief that catches the
+	//! sun) AND bound a second time as a scrolling colour shimmer for visible
+	//! MOTION. Classic can light a normal map OR scroll a texture on one unit,
+	//! not both (the normal-map stage samples the RAW texcoord), so the lit
+	//! ripple detail is STATIC; fully animated normal-mapped water - and the two
+	//! detail-normal ripple - is next-only.
 	//!
 	//! Honest v1 boundaries (both flavors): NO screen-space refraction
 	//! distortion and NO true depth-graded deep->shallow transmission (both

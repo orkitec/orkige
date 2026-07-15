@@ -224,11 +224,15 @@ the ripple lives entirely in the scrolling normal maps.
   preserves the fresnel edge reflection; the deep colour as the water-body
   albedo (`setBackgroundDiffuse`) and the shallow colour as a subtle scatter
   emissive; `fresnelPower` scales F0 up from water's physical ~0.02.
-- **classic** (transparent Blinn-Phong subset): the deep/shallow colours blend
-  into ONE flat water tint, a glossy specular highlight, alpha transparency, and
-  the normal map bound as a scrolling SHIMMER overlay (an illusion — a
-  Blinn-Phong pass cannot light a normal map; logged once). `fresnelPower`
-  scales the specular strength.
+- **classic** (RTSS metal-rough transparent plane): Cook-Torrance lights the
+  deep/shallow tint (opacity = alpha) with the intrinsic Fresnel edge, and the
+  one tiling normal map is used TWO ways at once — the RTSS normal-map stage
+  samples it to LIGHT the ripples (a static relief that catches the sun) and it
+  is bound a second time as a scrolling colour shimmer for visible MOTION.
+  `fresnelPower` sharpens the reflection (lowers the roughness). REGISTERED
+  subset: the lit ripple relief is STATIC — RTSS classic samples the raw
+  texcoord, so a normal map can light OR scroll on one unit, not both; fully
+  animated normal-mapped water (and the two-detail-normal ripple) is next-only.
 
 This is a per-flavor LOOK, not a pixel-parity case (transparent lit content
 legitimately differs between the flavors).
