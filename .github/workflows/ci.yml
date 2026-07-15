@@ -674,7 +674,25 @@ jobs:
         shell: pwsh
         env:
           ALSOFT_DRIVERS: "null"
-        run: ctest --preset desktop-windows --timeout 300
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          # the ICD/PATH env is set IN-PROCESS rather than via GITHUB_ENV:
+          # the GITHUB_ENV writes from the locate step demonstrably did not
+          # reach later steps on this runner (the loader fell back to a
+          # registry lookup and found no drivers), and a process-level
+          # assignment always propagates to the ctest child processes.
+          $icd = Join-Path $env:MSYS2_LOCATION "ucrt64/share/vulkan/icd.d/lvp_icd.x86_64.json"
+          if (-not (Test-Path $icd)) { throw "lavapipe ICD not found at $icd" }
+          $env:VK_DRIVER_FILES = $icd
+          $env:VK_ICD_FILENAMES = $icd
+          $env:PATH = (Join-Path $env:MSYS2_LOCATION "ucrt64/bin") + ";" + $env:PATH
+          Write-Host "VK_DRIVER_FILES=$env:VK_DRIVER_FILES"
+          # fast gate: ONE windowed smoke test first, so a wholesale-broken
+          # Vulkan environment fails the step in about a minute instead of
+          # every windowed test in the suite eating its full timeout
+          ctest --preset desktop-windows -R "render_next_smoke" --timeout 120
+          if ($LASTEXITCODE -ne 0) { throw "windowed smoke test failed - Vulkan environment is broken, skipping the suite" }
+          ctest --preset desktop-windows --timeout 300
 
       - name: Upload Windows test diagnostics
         if: always()
