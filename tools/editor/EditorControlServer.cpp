@@ -7090,7 +7090,9 @@ namespace Orkige
 		// (13) run_tests FAILURE PATH: build a throwaway CTest tree (one passing
 		// + one failing test) and run it, so the failed[] + logTail parse is
 		// exercised on a real failure without breaking the real suite. The
-		// failing test writes to stderr, so its logTail must be non-empty.
+		// failing test prints to STDOUT before failing - some CTest builds
+		// omit a test's stderr from the JUnit system-out, so stdout is the
+		// only capture every writer preserves; the logTail must be non-empty.
 		{
 			namespace fs = std::filesystem;
 			const fs::path probeRoot = fs::temp_directory_path() /
@@ -7101,6 +7103,14 @@ namespace Orkige
 			fs::remove_all(probeRoot, ignored);
 			fs::create_directories(probeSrc, ignored);
 			{
+				// a -P script fails AFTER printing to stdout (message(STATUS)),
+				// so the captured output is non-empty on every CTest writer
+				std::ofstream failing(probeSrc / "failing.cmake");
+				failing <<
+					"message(STATUS \"rtprobe_fail: deliberate probe failure\")\n"
+					"message(FATAL_ERROR \"rtprobe_fail fails by design\")\n";
+			}
+			{
 				std::ofstream lists(probeSrc / "CMakeLists.txt");
 				lists <<
 					"cmake_minimum_required(VERSION 3.20)\n"
@@ -7109,7 +7119,7 @@ namespace Orkige
 					"add_test(NAME rtprobe_pass COMMAND \"${CMAKE_COMMAND}\" "
 					"-E true)\n"
 					"add_test(NAME rtprobe_fail COMMAND \"${CMAKE_COMMAND}\" "
-					"-E cat /orkige_no_such_file_probe)\n";
+					"-P \"${CMAKE_CURRENT_SOURCE_DIR}/failing.cmake\")\n";
 			}
 			std::vector<std::string> configure = { std::string(ORKIGE_EDITOR_CMAKE),
 				"-S", probeSrc.string(), "-B", probeBuild.string() };
@@ -7160,8 +7170,24 @@ namespace Orkige
 			fs::remove_all(probeRoot, ignored);
 			if (!ok || !failureReported)
 			{
+				// name what actually came back - the variants (counts wrong,
+				// name missing, tail empty) need different fixes
+				String got = "finished=" + String(finished ? "1" : "0") +
+					" total=" + result.get("total").asString() +
+					" passed=" + result.get("passed").asString() +
+					" failed=" + result.get("failed").asString() +
+					" names=[";
+				JsonValue const& gotNames = result.get("failed_names");
+				JsonValue const& gotTails = result.get("failed_logtails");
+				for (size_t i = 0; i < gotNames.size(); ++i)
+				{
+					got += (i ? "," : "") + gotNames.at(i).asString() +
+						"(tail " + std::to_string(
+							gotTails.at(i).asString().size()) + "b)";
+				}
+				got += "]";
 				finish(false, "control self-test: run_tests (failure path) did "
-					"not report the failing test with a log tail");
+					"not report the failing test with a log tail - " + got);
 				return;
 			}
 			SDL_Log("orkige_editor: control self-test - run_tests failure path OK "
