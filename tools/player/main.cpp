@@ -378,6 +378,27 @@ int main(int argc, char** argv)
 	// unless armed from ORKIGE_BENCHMARK below. Declared alongside breadcrumbs
 	// so its results artifact is flushed through the whole teardown.
 	Orkige::BenchmarkRecorder benchmarkRecorder;
+	// mobile orientation: constrain the window / UIKit view-controller
+	// orientations to the project's export.orientation BEFORE the window is
+	// created. iOS otherwise picks the boot orientation from the allowed set by
+	// the initial window aspect - and the mobile window is created desktop-wide
+	// (w>h), so an unconstrained app boots LANDSCAPE. Pinning the hint makes the
+	// render surface match the orientation the OS presents (the iOS 90°-rotation
+	// guard) and keeps the safe-area insets deterministic. PORTRAIT is the default
+	// (and where any unrecognised value lands); explicit "auto" leaves the hint
+	// unset (SDL allows every orientation). A no-op on desktop.
+	{
+		const Orkige::String orientation =
+			project.getSetting("export.orientation", "portrait");
+		if (orientation == "landscape")
+		{
+			SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+		}
+		else if (orientation != "auto")
+		{
+			SDL_SetHint(SDL_HINT_ORIENTATIONS, "Portrait");
+		}
+	}
 	// the shared boot spine (engine_runtime/AppHost.h): SDL window (mobile
 	// fullscreen / desktop high-pixel-density), engine singletons, the
 	// per-flavor Engine boot, the window-camera rig and the GameObject world

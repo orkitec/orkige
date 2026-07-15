@@ -753,7 +753,8 @@ namespace Orkige
 				type == "list_paintable_assets" || type == "get_safe_area" ||
 				type == "get_ui_layout" || type == "get_breadcrumbs" ||
 				type == "get_benchmark_results" ||
-				type == "get_profile" || type == "get_lua_api";
+				type == "get_profile" || type == "get_lua_api" ||
+				type == "get_project_setting";
 		}
 		//---------------------------------------------------------
 		//! @brief verbs refused while a prefab edit stage is open: they address
@@ -1769,6 +1770,25 @@ namespace Orkige
 				  "see Docs/lua-api.md for conventions (self/world/shared, the "
 				  "lifecycle hooks) and the fuller type reference.",
 				  {} },
+				{ "get_project_setting",
+				  "Read a project manifest Setting from the OPEN project - the "
+				  "free-form key/value pairs in the .orkproj (e.g. "
+				  "export.orientation, export.ios.bundleId). With 'key' returns that "
+				  "one ('value' + 'has'); omit 'key' to return every setting as "
+				  "'settings'. Read-only.",
+				  { { "key", "string", "the Setting key (omit for all settings)",
+				      false } } },
+				{ "set_project_setting",
+				  "Write a project manifest Setting on the OPEN project and persist "
+				  "the .orkproj (needs auth). The authoritative path for export.* "
+				  "config (export.orientation = portrait|landscape|auto, bundle ids, "
+				  "versions): it updates the editor's IN-MEMORY project so a following "
+				  "Build/export sees it - unlike a raw write_project_file of the "
+				  ".orkproj, which the editor would not pick up. Refused when no "
+				  "project is open.",
+				  { { "key", "string", "the Setting key (e.g. export.orientation)",
+				      true },
+				    { "value", "string", "the new value", true } } },
 			};
 			return specs;
 		}
@@ -5078,6 +5098,74 @@ namespace Orkige
 			return;
 		}
 
+		// get_project_setting: read one manifest Setting ('key' -> value + has) or,
+		// with no 'key', every setting as the parallel 'keys'/'values' lists.
+		if (type == "get_project_setting")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - get_project_setting reads "
+					"the open project's manifest Settings");
+				return;
+			}
+			const String key = request.get("key");
+			DebugMessage ok(MSG_OK);
+			if (key.empty())
+			{
+				StringVector keys;
+				StringVector values;
+				for (auto const & [settingKey, settingValue] :
+					state.project.getSettings())
+				{
+					keys.push_back(settingKey);
+					values.push_back(settingValue);
+				}
+				ok.setList("keys", keys);
+				ok.setList("values", values);
+			}
+			else
+			{
+				ok.set("key", key);
+				ok.set("value", state.project.getSetting(key, ""));
+				ok.set("has", state.project.hasSetting(key) ? "true" : "false");
+			}
+			this->sendOk(req, ok);
+			return;
+		}
+
+		// set_project_setting: write one manifest Setting and persist the .orkproj
+		// (auth-gated). Goes through the editor's IN-MEMORY project so a following
+		// Build/export sees it - the authoritative path for export.* config.
+		if (type == "set_project_setting")
+		{
+			if (!state.project.isLoaded())
+			{
+				this->sendErr(req, "no project open - set_project_setting writes "
+					"the open project's manifest Settings");
+				return;
+			}
+			const String key = request.get("key");
+			if (key.empty())
+			{
+				this->sendErr(req, "set_project_setting needs a non-empty 'key'");
+				return;
+			}
+			const String value = request.get("value");
+			state.project.setSetting(key, value);
+			String saveError;
+			if (!state.project.save(&saveError))
+			{
+				this->sendErr(req, "set_project_setting could not save the "
+					"manifest: " + saveError);
+				return;
+			}
+			DebugMessage ok(MSG_OK);
+			ok.set("key", key);
+			ok.set("value", value);
+			this->sendOk(req, ok);
+			return;
+		}
+
 		//--- editor script tools -----------------------------
 		// run_editor_script: run a project *.editor.lua tool ONCE through the
 		// editor-tool host (the same tool a human runs from the Tools menu). The
@@ -7199,6 +7287,50 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - write/read_project_file "
 				"round-trip OK (CRLF normalized to LF)");
+		}
+
+		// (15b) set_project_setting -> get_project_setting round-trip on the OPEN
+		// project (the manifest Settings the exporter reads). An unauthenticated
+		// set must be rejected; an authed set persists and reads back.
+		{
+			JsonValue setArgs = JsonValue::object();
+			setArgs.set("key", JsonValue("export.orientation"));
+			setArgs.set("value", JsonValue("landscape"));
+			JsonValue structured;
+			bool isError = false;
+			// unauthenticated set is rejected (it mutates + writes the manifest)
+			if (!callTool("set_project_setting", setArgs, false, structured,
+					isError) || !isError)
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: unauthenticated "
+					"set_project_setting was NOT rejected");
+				return;
+			}
+			isError = true;
+			if (!callTool("set_project_setting", setArgs, true, structured,
+					isError) || isError ||
+				structured.get("value").asString() != "landscape")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: set_project_setting did not "
+					"persist the value");
+				return;
+			}
+			JsonValue getArgs = JsonValue::object();
+			getArgs.set("key", JsonValue("export.orientation"));
+			if (!callTool("get_project_setting", getArgs, false, structured,
+					isError) || isError ||
+				structured.get("value").asString() != "landscape" ||
+				structured.get("has").asString() != "true")
+			{
+				fs::remove_all(authRoot, authIgnored);
+				finish(false, "control self-test: get_project_setting did not "
+					"read back the written setting");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - set/get_project_setting "
+				"round-trip OK (export.orientation=landscape, auth enforced)");
 		}
 
 		// (16) JAIL VIOLATIONS: an absolute path and a '..' escape must BOTH be

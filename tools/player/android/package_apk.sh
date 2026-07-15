@@ -65,6 +65,7 @@ PACKAGE=""
 LABEL=""
 RES_DIR=""
 LAUNCH_COLOR="#12161f"
+ORIENTATION=""
 OUTPUT=""
 STAGE_ONLY=""
 BUILD_DIR=""
@@ -75,6 +76,7 @@ while [ $# -gt 0 ]; do
         --label)           LABEL="$2"; shift 2 ;;
         --res-dir)         RES_DIR="$2"; shift 2 ;;
         --launch-color)    LAUNCH_COLOR="$2"; shift 2 ;;
+        --orientation)     ORIENTATION="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
         --stage-only)      STAGE_ONLY=1; shift ;;
         -*)                fail "unknown option '$1'" ;;
@@ -286,12 +288,19 @@ fi
 # swapped in ONLY when --res-dir is set (a bare run keeps the resource-free
 # framework theme).
 MANIFEST="$SCRIPT_DIR/AndroidManifest.xml"
-if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$RES_DIR" ]; then
+if [ -n "$PACKAGE" ] || [ -n "$LABEL" ] || [ -n "$RES_DIR" ] || [ -n "$ORIENTATION" ]; then
     MANIFEST="$OUT_DIR/AndroidManifest.xml"
     SED_ARGS=(
         -e "s|package=\"com.orkitec.orkigeplayer\"|package=\"${PACKAGE:-com.orkitec.orkigeplayer}\"|"
         -e "s|android:label=\"Orkige Player\"|android:label=\"${LABEL:-Orkige Player}\"|"
     )
+    # lock the activity's screen orientation when the export requests one; auto
+    # passes no --orientation, so the template's default (unspecified) stays
+    if [ -n "$ORIENTATION" ]; then
+        SED_ARGS+=(
+            -e "s|android:configChanges=|android:screenOrientation=\"$ORIENTATION\" android:configChanges=|"
+        )
+    fi
     if [ -n "$RES_DIR" ]; then
         SED_ARGS+=(
             -e "s|android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\"|android:icon=\"@mipmap/ic_launcher\"\n        android:theme=\"@style/OrkigeLaunch\"|"

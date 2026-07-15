@@ -937,6 +937,8 @@ int main(int argc, char** argv)
 				{ statePtr->resetDockLayout = true; };
 			menuActions.viewSettings = [statePtr]()
 				{ statePtr->showViewSettingsWindow = true; };
+			menuActions.projectSettings = [statePtr]()
+				{ statePtr->showProjectSettingsWindow = true; };
 			menuActions.about = [statePtr]()
 				{ statePtr->openAboutPopup = true; };
 			Orkige::macMenuInstall(menuActions);
@@ -1746,6 +1748,7 @@ int main(int argc, char** argv)
 			// independently of whichever menu bar is active
 			drawEditorModals(state, editorCore);
 			drawViewSettingsWindow(state, viewSettings, sceneTarget.camera);
+			drawProjectSettingsWindow(state);
 			// the View menu may have toggled the grid; 2D mode hides the XZ
 			// ground grid (it lies edge-on to the top-down view; an
 			// XY grid redraw is deferred)

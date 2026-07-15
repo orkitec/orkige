@@ -655,6 +655,8 @@ struct EditorState
 	//! the native View > View Settings... opens it since the ImGui menu bar
 	//! that used to host the sliders is not drawn there
 	bool showViewSettingsWindow = false;
+	//! Build > Project Settings...: the manifest-Settings editor (orientation)
+	bool showProjectSettingsWindow = false;
 	//! View > Reset Layout: rebuild the default dock layout next frame
 	bool resetDockLayout = false;
 	//! View > Theme changed: re-apply the ImGui style (and refresh the window
@@ -1502,6 +1504,10 @@ void requestQuit(EditorState& state, Orkige::EditorCore& core);
 // the floating View Settings window (on mac the native menu opens it)
 void drawViewSettingsWindow(EditorState& state, ViewSettings& viewSettings,
 	optr<Orkige::RenderCamera> const& sceneCamera);
+
+// the floating Project Settings window: the manifest Settings that shape an
+// export (screen orientation) - reads/writes the open project + saves .orkproj
+void drawProjectSettingsWindow(EditorState& state);
 
 // the in-window ImGui menu bar (NOT drawn on macOS - MacMenu.mm mirrors it)
 void drawMainMenuBar(EditorState& state, Orkige::EditorCore& core,

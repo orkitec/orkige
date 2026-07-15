@@ -101,7 +101,7 @@ filesystem.
 
 ## Tools
 
-The endpoint advertises 75 tools (the `toolSpecs` table in
+The endpoint advertises 77 tools (the `toolSpecs` table in
 `EditorControlServer.cpp`). Each maps onto an existing `EditorCore` method or an
 `EditorDocument` free function — nothing bypasses the verb handler.
 
@@ -149,6 +149,8 @@ The endpoint advertises 75 tools (the `toolSpecs` table in
 | `paint_prefab(prefab\|asset, cell?, position?, suppressed?)` | back-compat alias of `paint_asset` (accepts the source as `prefab` or `asset`; paints a texture/`.oshape` as a bare tile too) |
 | `erase_cell(cell?, position?)` | **auth** — `EditorCore::eraseTileAtCell` (erase the tile in one grid cell as one undo step, any kind — prefab instance or bare tile) → snapped `col`/`row`/`x`/`y`, `erased` |
 | `add_scene_to_levels()` | **auth** — `addCurrentSceneToLevels` (append the current saved scene to `levels.olevels`, minting the manifest `levels` setting the first time; NOT undoable) |
+| `get_project_setting(key?)` | a project manifest Setting from the OPEN project (the free-form `.orkproj` key/values — `export.orientation`, `export.ios.bundleId`, …): with `key` returns `value` + `has`; omit `key` for every setting as parallel `keys`/`values`. Read-only |
+| `set_project_setting(key, value)` | **auth** — write one manifest Setting and persist the `.orkproj`. The authoritative path for `export.*` config (`export.orientation` = `portrait`/`landscape`/`auto`, bundle ids, versions): it goes through the editor's IN-MEMORY project so a following Build/export sees it — unlike a raw `write_project_file` of the `.orkproj`, which the editor would not pick up. Refused with no project open |
 | `get_safe_area()` | the RUNNING game's window size + safe-area insets (notch/rounded corners/home indicator), pixels: `window_w`/`window_h` + `safe_left`/`safe_top`/`safe_right`/`safe_bottom` (streamed on `MSG_STATS`; `-1` until reported, desktop insets 0) |
 | `get_ui_layout()` | the RUNNING game's gui widget rects: parallel `ids`/`rects` (each rect `"left top width height visible enabled modal"`, pixels; the three flags are `1`/`0` — `enabled`=interactive, `modal`=part of an active modal dialog; streamed on `MSG_UI_LAYOUT`) — combine with `get_safe_area` to assert every visible HUD widget lies inside the safe box, or read `modal` to assert a dialog is up |
 | `gui_press(id)` | **auth** — synthesize a press on a gui widget by id in the RUNNING game, routed through the REAL input path so modal/disabled semantics apply (a button under a modal scrim does NOT fire; a disabled widget stays inert) (`MSG_GUI_PRESS`) |

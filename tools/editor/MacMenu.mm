@@ -34,6 +34,7 @@ namespace
 		TAG_EXPORT_MACOS,			//!< Build > Build for macOS
 		TAG_EXPORT_IOS_SIMULATOR,	//!< Build > Build for iOS Simulator
 		TAG_EXPORT_ANDROID,			//!< Build > Build for Android APK
+		TAG_PROJECT_SETTINGS,		//!< Build > Project Settings...
 		TAG_RUN_EDITOR_SCRIPT,		//!< Tools > <tool> (name = representedObject)
 		TAG_RESET_LAYOUT,
 		TAG_VIEW_SETTINGS,
@@ -130,6 +131,7 @@ namespace
 	case TAG_CREATE_PREFAB:		action = &gActions.createPrefab; break;
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
 	case TAG_VIEW_SETTINGS:		action = &gActions.viewSettings; break;
+	case TAG_PROJECT_SETTINGS:	action = &gActions.projectSettings; break;
 	case TAG_ABOUT:				action = &gActions.about; break;
 	default: break;
 	}
@@ -170,6 +172,7 @@ namespace
 	case TAG_EXPORT_MACOS:
 	case TAG_EXPORT_IOS_SIMULATOR:
 	case TAG_EXPORT_ANDROID:
+	case TAG_PROJECT_SETTINGS:
 							return gStatus.canExport ? YES : NO;
 	default:				return YES;
 	}
@@ -432,6 +435,8 @@ namespace Orkige
 			TAG_EXPORT_IOS_SIMULATOR, @"", 0);
 		addItem(buildMenu, @"Build for Android APK", TAG_EXPORT_ANDROID,
 			@"", 0);
+		[buildMenu addItem:[NSMenuItem separatorItem]];
+		addItem(buildMenu, @"Project Settings…", TAG_PROJECT_SETTINGS, @"", 0);
 
 		// Tools - the project's editor scripts (scripts/*.editor.lua), rebuilt
 		// from macMenuUpdate's status like the recent-scenes submenu

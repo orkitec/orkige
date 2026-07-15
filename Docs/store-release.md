@@ -21,6 +21,38 @@ the pipeline stays honest even on a machine (like CI) with no signing material.
 
 ---
 
+## Screen orientation
+
+`export.orientation` is a project manifest Setting (applies to **every** mobile
+export — `ios-simulator`, `ios`, `ios-ipa`, `android`, `android-aab`):
+
+```xml
+<Setting key="export.orientation" value="landscape"/>   <!-- portrait | landscape | auto -->
+```
+
+| value | iOS `UISupportedInterfaceOrientations` | Android `android:screenOrientation` |
+|---|---|---|
+| `portrait` (default) | Portrait | `sensorPortrait` |
+| `landscape` | LandscapeLeft + LandscapeRight | `sensorLandscape` |
+| `auto` | Portrait + LandscapeLeft + LandscapeRight | *(unset — the OS default)* |
+
+**Portrait is the default** (an absent or unrecognised value), so a mobile game
+is portrait unless it says otherwise. This also keeps the boot orientation
+deterministic: iOS picks the initial interface orientation from the *allowed* set
+by the window aspect, and the engine creates a desktop-wide (w>h) window, so an
+**unconstrained app boots landscape**. `auto` opts back into every orientation
+(and accepts that landscape boot).
+
+Set it in the editor (**Build ▸ Project Settings…**), over MCP
+(`set_project_setting export.orientation …`), or by hand in the `.orkproj`. The
+exporter writes it into the iOS `Info.plist` and the Android manifest, and the
+player also reads it at boot to constrain the window orientation
+(`SDL_HINT_ORIENTATIONS`) so the render surface matches the orientation the OS
+presents — the lock and the drawable agree. Verified by
+`orkige_export.py --selftest`; on-device upright rendering is a manual check.
+
+---
+
 ## Google Play — release App Bundle (`.aab`)
 
 ### One-time setup

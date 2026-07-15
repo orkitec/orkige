@@ -62,6 +62,7 @@ PACKAGE=""
 LABEL=""
 RES_DIR=""
 LAUNCH_COLOR="#12161f"
+ORIENTATION=""
 VERSION_CODE=""
 VERSION_NAME=""
 OUTPUT=""
@@ -77,6 +78,7 @@ while [ $# -gt 0 ]; do
         --label)           LABEL="$2"; shift 2 ;;
         --res-dir)         RES_DIR="$2"; shift 2 ;;
         --launch-color)    LAUNCH_COLOR="$2"; shift 2 ;;
+        --orientation)     ORIENTATION="$2"; shift 2 ;;
         --version-code)    VERSION_CODE="$2"; shift 2 ;;
         --version-name)    VERSION_NAME="$2"; shift 2 ;;
         --output)          OUTPUT="$2"; shift 2 ;;
@@ -131,6 +133,9 @@ SED_ARGS=(
 )
 [ -n "$VERSION_CODE" ] && SED_ARGS+=(-e "s|android:versionCode=\"1\"|android:versionCode=\"$VERSION_CODE\"|")
 [ -n "$VERSION_NAME" ] && SED_ARGS+=(-e "s|android:versionName=\"2.0.0-dev\"|android:versionName=\"$VERSION_NAME\"|")
+# lock the activity's screen orientation when the release requests one (auto
+# passes no --orientation, keeping the template default)
+[ -n "$ORIENTATION" ] && SED_ARGS+=(-e "s|android:configChanges=|android:screenOrientation=\"$ORIENTATION\" android:configChanges=|")
 if [ -n "$RES_DIR" ]; then
     SED_ARGS+=(
         -e "s|android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\"|android:icon=\"@mipmap/ic_launcher\"\n        android:theme=\"@style/OrkigeLaunch\"|"

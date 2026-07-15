@@ -266,6 +266,55 @@ def launch_background(project):
     return DEFAULT_LAUNCH_BACKGROUND
 
 
+# the export.orientation Setting - portrait | landscape | auto. PORTRAIT is the
+# default (and the value an absent or unrecognised setting degrades to): a mobile
+# game is portrait unless it says otherwise, and it keeps the window's initial
+# interface orientation deterministic - iOS picks the boot orientation from the
+# allowed set by the window aspect, so an unconstrained app boots landscape (the
+# desktop-ish window is wider than tall). auto opts back into every orientation.
+# It maps to the iOS UISupportedInterfaceOrientations array and the Android
+# activity's android:screenOrientation. The runtime reads the SAME setting to
+# constrain the window orientation (SDL hint), so the OS-level lock and the
+# render surface agree.
+IOS_ORIENTATIONS = {
+    "portrait": ["UIInterfaceOrientationPortrait"],
+    "landscape": ["UIInterfaceOrientationLandscapeLeft",
+                  "UIInterfaceOrientationLandscapeRight"],
+    "auto": ["UIInterfaceOrientationPortrait",
+             "UIInterfaceOrientationLandscapeLeft",
+             "UIInterfaceOrientationLandscapeRight"],
+}
+ANDROID_SCREEN_ORIENTATION = {
+    "portrait": "sensorPortrait",
+    "landscape": "sensorLandscape",
+    "auto": "unspecified",
+}
+
+
+DEFAULT_ORIENTATION = "portrait"
+
+
+def orientation_setting(settings):
+    """the normalised export.orientation - portrait | landscape | auto. portrait
+    is the default; an unrecognised value degrades to it with a warning."""
+    value = (settings.get("export.orientation", "") or "").strip().lower()
+    if value in IOS_ORIENTATIONS:
+        return value
+    if value:
+        warn("export.orientation '%s' is not portrait/landscape/auto - using "
+             "%s" % (value, DEFAULT_ORIENTATION))
+    return DEFAULT_ORIENTATION
+
+
+def apply_ios_orientation(info, settings):
+    """write UISupportedInterfaceOrientations onto an Info.plist dict per the
+    project's export.orientation. Shared by the simulator + device plist rewrites
+    (and exercised directly by the selftest)."""
+    info["UISupportedInterfaceOrientations"] = \
+        IOS_ORIENTATIONS[orientation_setting(settings)]
+    return info
+
+
 def write_marker(directory):
     with open(os.path.join(directory, PROJECT_MARKER_FILE_NAME), "w",
               newline="\n") as marker:
@@ -729,6 +778,7 @@ def export_ios_simulator(project, engine_build, output_dir):
     info["CFBundleIcons"] = {"CFBundlePrimaryIcon": {
         "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
     info.setdefault("UILaunchScreen", {})  # native full-resolution launch
+    apply_ios_orientation(info, project.settings)
     with open(plist_path, "wb") as handle:
         plistlib.dump(info, handle)
     log("bundle id %s" % info["CFBundleIdentifier"])
@@ -871,6 +921,7 @@ def build_signed_ios_bundle(project, source_app, output_dir, identity, profile,
     info["CFBundleIcons"] = {"CFBundlePrimaryIcon": {
         "CFBundleIconFiles": [name[:-4] for name in icon_files]}}
     info.setdefault("UILaunchScreen", {})
+    apply_ios_orientation(info, project.settings)
     with open(plist_path, "wb") as handle:
         plistlib.dump(info, handle)
 
@@ -1037,16 +1088,22 @@ def export_android(project, engine_build, output_dir):
     res_dir, launch_color = stage_android_res(project, output_dir)
 
     apk_path = os.path.join(output_dir, project.exe_name + ".apk")
-    run(["bash",
-         os.path.join(REPO_ROOT, "tools", "player", "android",
-                      "package_apk.sh"),
-         "--project-payload", payload_dir,
-         "--package", package,
-         "--label", project.name,
-         "--res-dir", res_dir,
-         "--launch-color", launch_color,
-         "--output", apk_path,
-         engine_build])
+    command = ["bash",
+               os.path.join(REPO_ROOT, "tools", "player", "android",
+                            "package_apk.sh"),
+               "--project-payload", payload_dir,
+               "--package", package,
+               "--label", project.name,
+               "--res-dir", res_dir,
+               "--launch-color", launch_color,
+               "--output", apk_path]
+    # only a non-auto lock injects android:screenOrientation; auto keeps the
+    # template's default (unspecified) so the manifest stays byte-identical
+    orientation = orientation_setting(project.settings)
+    if orientation != "auto":
+        command += ["--orientation", ANDROID_SCREEN_ORIENTATION[orientation]]
+    command.append(engine_build)
+    run(command)
     shutil.rmtree(payload_dir)
     shutil.rmtree(res_dir, ignore_errors=True)
     if not os.path.isfile(apk_path):
@@ -1136,8 +1193,12 @@ def export_android_bundle(project, engine_build, output_dir, args, environ):
                "--launch-color", launch_color,
                "--version-code", str(version_code),
                "--version-name", version_name,
-               "--output", artifact,
-               engine_build]
+               "--output", artifact]
+    # only a non-auto lock injects android:screenOrientation (see export_android)
+    orientation = orientation_setting(project.settings)
+    if orientation != "auto":
+        command += ["--orientation", ANDROID_SCREEN_ORIENTATION[orientation]]
+    command.append(engine_build)
     if module_only:
         command.append("--module-only")
     else:
@@ -1372,6 +1433,53 @@ def selftest():
         "malformed hex -> default"
     assert launch_background(_Stub("")) == DEFAULT_LAUNCH_BACKGROUND, \
         "absent -> default"
+
+    # export.orientation -> the iOS UISupportedInterfaceOrientations array and
+    # the Android android:screenOrientation. portrait is the default and the
+    # degrade target; the platform maps are the exact values the plist/manifest
+    # rewrites write.
+    assert orientation_setting({}) == "portrait", \
+        "absent orientation -> portrait (mobile default)"
+    assert orientation_setting({"export.orientation": "auto"}) == "auto", \
+        "explicit auto opts into all orientations"
+    assert orientation_setting({"export.orientation": "Portrait"}) == "portrait", \
+        "case-insensitive"
+    assert orientation_setting({"export.orientation": " landscape "}) == "landscape", \
+        "trimmed"
+    assert orientation_setting({"export.orientation": "sideways"}) == "portrait", \
+        "unknown -> portrait default"
+    assert IOS_ORIENTATIONS["portrait"] == ["UIInterfaceOrientationPortrait"], \
+        "portrait plist"
+    assert IOS_ORIENTATIONS["landscape"] == [
+        "UIInterfaceOrientationLandscapeLeft",
+        "UIInterfaceOrientationLandscapeRight"], "landscape plist"
+    assert len(IOS_ORIENTATIONS["auto"]) == 3, "auto plist keeps all three"
+    assert ANDROID_SCREEN_ORIENTATION == {
+        "portrait": "sensorPortrait", "landscape": "sensorLandscape",
+        "auto": "unspecified"}, "android screenOrientation map"
+    # the actual iOS plist rewrite (the exact helper both export paths call),
+    # through a plistlib round-trip so the array survives serialization
+    for value, expected in (("portrait", IOS_ORIENTATIONS["portrait"]),
+                            ("landscape", IOS_ORIENTATIONS["landscape"]),
+                            ("auto", IOS_ORIENTATIONS["auto"])):
+        info = apply_ios_orientation({"UILaunchScreen": {}},
+                                     {"export.orientation": value})
+        reloaded = plistlib.loads(plistlib.dumps(info))
+        assert reloaded["UISupportedInterfaceOrientations"] == expected, \
+            "ios plist orientation '%s'" % value
+        assert reloaded["UILaunchScreen"] == {}, "orientation keeps other keys"
+    # the Android manifest injection the packagers apply (the same portable sed),
+    # asserted well-formed with screenOrientation ahead of configChanges
+    manifest_template = os.path.join(
+        REPO_ROOT, "tools", "player", "android", "AndroidManifest.xml")
+    injected = subprocess.run(
+        ["sed", "-e", "s|android:configChanges=|android:screenOrientation="
+         "\"sensorPortrait\" android:configChanges=|", manifest_template],
+        capture_output=True, text=True, check=True).stdout
+    assert 'android:screenOrientation="sensorPortrait"' in injected, \
+        "android manifest injection"
+    import xml.dom.minidom
+    xml.dom.minidom.parseString(injected)  # raises if malformed
 
     # config-setting staging: a FILE setting copies one file preserving its
     # relative path; a DIRECTORY setting (localisation names loc/) copies the

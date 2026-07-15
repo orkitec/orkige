@@ -71,6 +71,8 @@ namespace Orkige
 		// Build (project export via Util/orkige_export.py); platform is
 		// "macos", "ios-simulator" or "android"
 		std::function<void(std::string const& platform)> exportProject;
+		//! Build > Project Settings... (the manifest-Settings editor window)
+		std::function<void()> projectSettings;
 		// Tools > an editor script tool was clicked (name = its stable name)
 		std::function<void(std::string const& toolName)> runEditorScript;
 		// View
