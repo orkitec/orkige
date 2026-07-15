@@ -273,11 +273,12 @@ namespace Orkige
 					body = xml.substr(tagEnd + 1, close - (tagEnd + 1));
 				}
 				++result.total;
-				if (status == "run")
-				{
-					++result.passed;
-				}
-				else if (status == "fail")
+				// a failed case is EITHER status="fail" (one CTest JUnit
+				// convention) OR a <failure> child element under status="run"
+				// (the other) - accept both, the writer varies by CTest build
+				const bool hasFailureElement =
+					body.find("<failure") != String::npos;
+				if (status == "fail" || hasFailureElement)
 				{
 					++result.failed;
 					String captured;
@@ -293,11 +294,25 @@ namespace Orkige
 								body.substr(textAt, soEnd - textAt));
 						}
 					}
+					if (captured.empty() && hasFailureElement)
+					{
+						// no captured output: the <failure message="..."> is
+						// the only trace this writer left - better than blank
+						const size_t failAt = body.find("<failure");
+						const String message = xmlAttribute(
+							body.substr(failAt, body.find('>', failAt) -
+								failAt + 1), "message");
+						captured = xmlUnescape(message);
+					}
 					TestFailure failure;
 					failure.name = name;
 					failure.durationSec = time;
 					failure.logTail = lastLines(captured, 40);
 					result.failures.push_back(failure);
+				}
+				else if (status == "run")
+				{
+					++result.passed;
 				}
 				// any other status (notrun/disabled) counts toward total only
 				pos = close != String::npos ? close + 11 : tagEnd + 1;

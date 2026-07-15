@@ -100,8 +100,6 @@
 #include <vector>
 
 #ifndef _WIN32
-#include <signal.h> // ORKIGE_EDITOR_PLAYTEST=crash kills the player with SIGKILL
-
 using Orkige::optr;
 using Orkige::woptr;
 #endif
@@ -6973,29 +6971,23 @@ int main(int argc, char** argv)
 					{
 						if (playtestCrash)
 						{
-#ifndef _WIN32
-							// simulate a player crash: SIGKILL, not Stop -
-							// the editor must recover via the link drop
-							const Sint64 playerPid = SDL_GetNumberProperty(
-								SDL_GetProcessProperties(playSession.process),
-								SDL_PROP_PROCESS_PID_NUMBER, 0);
-							if (playerPid <= 0)
+							// simulate a player crash: a forced kill, not
+							// Stop - the editor must recover via the link
+							// drop. SDL_KillProcess(force) is the abrupt
+							// death on every platform (SIGKILL / a hard
+							// process termination).
+							if (!SDL_KillProcess(playSession.process, true))
 							{
 								playtestFailed = true;
-								playtestFailure = "could not get player pid";
+								playtestFailure = std::string(
+									"could not kill the player: ") +
+									SDL_GetError();
 							}
 							else
 							{
-								::kill(static_cast<pid_t>(playerPid), SIGKILL);
-								SDL_Log("orkige_editor: playtest - SIGKILLed "
-									"player pid %lld",
-									static_cast<long long>(playerPid));
+								SDL_Log("orkige_editor: playtest - force-"
+									"killed the player process");
 							}
-#else
-							playtestFailed = true;
-							playtestFailure =
-								"crash playtest not supported on this platform";
-#endif
 						}
 						else
 						{
