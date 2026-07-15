@@ -839,9 +839,16 @@ jobs:
       - name: Unit tests (headless - MUST pass)
         run: ctest --preset unit-macos-classic-ci
 
-      - name: Complete desktop suite (MUST pass)
+      - name: Complete desktop suite (Vulkan via MoltenVK - MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
+          # classic on the hosted mac runs its VULKAN render system through
+          # MoltenVK (Metal is the virtual GPU's solid path - the next job
+          # proves it; the deprecated GL stack exhausts contexts over a long
+          # windowed run and late tests fail to boot). This is also the ONE
+          # CI exercise of classic's runtime render-system pick; the GL3Plus
+          # classic coverage lives on the Linux classic job (llvmpipe).
+          ORKIGE_RENDERSYSTEM: Vulkan
         run: |
           if command -v adb > /dev/null 2>&1; then
             adb start-server
