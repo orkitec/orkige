@@ -31,6 +31,24 @@ namespace Orkige
 			}
 			return states->getAnimationState(name);
 		}
+		//! true when any of @p mesh's sub-meshes already declares a vertex
+		//! element with @p semantic (shared or dedicated vertex data)
+		bool meshDeclares(Ogre::MeshPtr const & mesh,
+			Ogre::VertexElementSemantic semantic)
+		{
+			for(unsigned short each = 0; each < mesh->getNumSubMeshes(); ++each)
+			{
+				Ogre::SubMesh* sub = mesh->getSubMesh(each);
+				Ogre::VertexData* data =
+					sub->useSharedVertices ? mesh->sharedVertexData : sub->vertexData;
+				if(data && data->vertexDeclaration
+					->findElementBySemantic(semantic))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 	//---------------------------------------------------------
 	optr<MeshInstance> RenderBackend::createMeshInstance(
@@ -170,6 +188,29 @@ namespace Orkige
 				<< "'): no material '" << materialName
 				<< "' (create it via RenderSystem::createMaterial first)");
 			return false;
+		}
+		// a normal-mapped material needs tangents to perturb the lit normal;
+		// build them on demand (mirrors the next flavor's load-time build) so a
+		// plain material never pays for it. UV-less meshes can't be normal-mapped
+		// anyway - nothing to build.
+		if(RenderBackend::materialUsesNormalMap(materialName))
+		{
+			Ogre::MeshPtr mesh = this->mImpl->entity->getMesh();
+			if(mesh && !meshDeclares(mesh, Ogre::VES_TANGENT)
+				&& meshDeclares(mesh, Ogre::VES_TEXTURE_COORDINATES))
+			{
+				try
+				{
+					mesh->buildTangentVectors();
+				}
+				catch(Ogre::Exception const & e)
+				{
+					oDebugWarning(false, "MeshInstance('" << mesh->getName()
+						<< "'): tangent generation failed (" << e.getDescription()
+						<< ") - the normal-mapped material '" << materialName
+						<< "' lights without normal perturbation");
+				}
+			}
 		}
 		for(unsigned int each = 0;
 			each < this->mImpl->entity->getNumSubEntities(); ++each)

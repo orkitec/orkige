@@ -32,6 +32,68 @@ namespace Orkige
 		//! material name; a stale entry (its material dropped on a project
 		//! switch) is harmless - the scroll looks the name up and no-ops.
 		std::unordered_map<String, float> gWaterScrollSpeeds;
+
+		//! surface materials that bind a normal map (createOrUpdateSurfaceMaterial
+		//! records them). MeshInstance::setMaterial reads this to build tangents
+		//! on the mesh a normal-mapped material lands on - and ONLY then, so a
+		//! plain material never pays for tangent generation.
+		std::set<String> gNormalMappedMaterials;
+
+#ifdef USE_RTSHADER_SYSTEM
+		//! @brief pin @p material's RTSS render state to a metal-rough Cook-
+		//! Torrance lighting stage (reading albedo/metalness/roughness/emissive
+		//! off the pass) plus, when @p normalTuIndex >= 0, a normal-map stage
+		//! that perturbs the lit normal from the texture unit at that index.
+		//! Rebuilds the shader technique so create AND update both re-derive
+		//! cleanly. A no-op when no shader generator is active (fixed function).
+		void configureSurfaceShaderState(Ogre::RTShader::ShaderGenerator* generator,
+			Ogre::MaterialPtr const & material, int normalTuIndex)
+		{
+			oAssert(generator);
+			const String & name = material->getName();
+			const String & group = material->getGroup();
+			const String scheme =
+				Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME;
+			// drop any technique generated from a previous description, then
+			// clone the current fixed-function technique (all passes) into the
+			// shader scheme so the render state below drives freshly built shaders
+			generator->removeAllShaderBasedTechniques(name, group);
+			if(!generator->createShaderBasedTechnique(*material,
+				Ogre::MaterialManager::DEFAULT_SCHEME_NAME, scheme))
+			{
+				return;	// no shader technique (unexpected on a shader RS) - the
+						// pass values still stand for a fixed-function flavor
+			}
+			// removeAllShaderBasedTechniques dropped the prior render state, so
+			// this one is fresh/empty - build it up from scratch
+			Ogre::RTShader::RenderState* renderState =
+				generator->getRenderState(scheme, name, group, 0);
+			// the fixed-function equivalents EXCEPT lighting (Cook-Torrance
+			// replaces it): transform, vertex colour, texturing, fog, alpha test
+			renderState->addTemplateSubRenderStates(
+				{ Ogre::RTShader::SRS_TRANSFORM,
+				  Ogre::RTShader::SRS_VERTEX_COLOUR,
+				  Ogre::RTShader::SRS_TEXTURING,
+				  Ogre::RTShader::SRS_FOG,
+				  Ogre::RTShader::SRS_ALPHA_TEST });
+			// the metal-rough lighting stage (specular.xy = metalness/roughness,
+			// diffuse = albedo, derived scene colour carries the emissive)
+			renderState->addTemplateSubRenderState(generator->createSubRenderState(
+				Ogre::RTShader::SRS_COOK_TORRANCE_LIGHTING));
+			// the normal-map stage runs one step before lighting (it writes the
+			// view-space normal the lighting stage then reads)
+			if(normalTuIndex >= 0)
+			{
+				Ogre::RTShader::SubRenderState* normalMap =
+					generator->createSubRenderState(Ogre::RTShader::SRS_NORMALMAP);
+				normalMap->setParameter("texture_index",
+					Ogre::StringConverter::toString(normalTuIndex));
+				normalMap->setParameter("normalmap_space", "tangent_space");
+				renderState->addTemplateSubRenderState(normalMap);
+			}
+			generator->invalidateMaterial(scheme, name, group);
+		}
+#endif // USE_RTSHADER_SYSTEM
 	}
 	//---------------------------------------------------------
 	RenderSystem::FrameStats::FrameStats()
@@ -320,30 +382,21 @@ namespace Orkige
 			material = materialManager.create(name,
 				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 		}
-		Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
-		// the Blinn-Phong SUBSET of the metal-rough description (an
-		// approximation by design - no pixel parity for lit content):
-		// dielectrics get a faint neutral specular highlight, metals tint it
-		// with the albedo; roughness dampens its intensity and widens it
-		// (lower shininess exponent). Diffuse keeps the full albedo either
-		// way (metals rendering their tint diffusely is part of the subset).
-		const float metal = std::clamp(desc.metalness, 0.0f, 1.0f);
-		const float gloss = 1.0f - std::clamp(desc.roughness, 0.0f, 1.0f);
-		const float baseSpecular = 0.04f;	// the common dielectric F0
-		const Ogre::ColourValue specular(
-			(baseSpecular + (desc.albedo.r - baseSpecular) * metal) * gloss,
-			(baseSpecular + (desc.albedo.g - baseSpecular) * metal) * gloss,
-			(baseSpecular + (desc.albedo.b - baseSpecular) * metal) * gloss,
-			1.0f);
+		Ogre::Technique* technique = material->getTechnique(0);
+		// an UPDATE may have appended an emissive-map pass last time - collapse
+		// back to the single surface pass before rebuilding it
+		while(technique->getNumPasses() > 1)
+		{
+			technique->removePass(1);
+		}
+		Ogre::Pass* pass = technique->getPass(0);
 		pass->setLightingEnabled(true);
 		pass->setDiffuse(desc.albedo);
 		pass->setAmbient(desc.albedo.r, desc.albedo.g, desc.albedo.b);
-		pass->setSpecular(specular);
-		pass->setShininess(std::max(gloss * gloss * 128.0f, 1.0f));
 		pass->setSelfIllumination(desc.emissive.r, desc.emissive.g,
 			desc.emissive.b);
 		// texture units are rebuilt from scratch (the update path must be
-		// able to REMOVE the albedo map)
+		// able to REMOVE the albedo map). Albedo lands at texture unit 0.
 		pass->removeAllTextureUnitStates();
 		if(!desc.albedoTexture.empty())
 		{
@@ -363,20 +416,125 @@ namespace Orkige
 				outComplete = false;
 			}
 		}
-		// the honest classic subset: normal/emissive MAPS are not rendered on
-		// this flavor (@see engine_render/RenderMaterial.h) - say so once per
-		// material name, then stay quiet
+		// a re-created material may have been normal-mapped before this update
+		gNormalMappedMaterials.erase(name);
+#ifdef USE_RTSHADER_SYSTEM
+		if(Ogre::RTShader::ShaderGenerator* generator =
+			Ogre::RTShader::ShaderGenerator::getSingletonPtr())
+		{
+			// metal-rough response: the Cook-Torrance lighting stage reads
+			// metalness from specular.x and roughness from specular.y (the
+			// shininess exponent is unused there)
+			pass->setSpecular(std::clamp(desc.metalness, 0.0f, 1.0f),
+				std::clamp(desc.roughness, 0.0f, 1.0f), 0.0f, 1.0f);
+			pass->setShininess(0.0f);
+			// the tangent-space normal map, bound as a texture unit the normal-
+			// map stage samples (kept OUT of the colour texturing stage)
+			int normalTuIndex = -1;
+			if(!desc.normalTexture.empty())
+			{
+				try
+				{
+					Ogre::TexturePtr texture = Ogre::TextureManager::getSingleton()
+						.load(desc.normalTexture,
+							Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+					Ogre::TextureUnitState* unit = pass->createTextureUnitState();
+					unit->setTexture(texture);
+					normalTuIndex =
+						static_cast<int>(pass->getNumTextureUnitStates()) - 1;
+					Ogre::RTShader::ShaderGenerator::_markNonFFP(unit);
+					gNormalMappedMaterials.insert(name);
+				}
+				catch(Ogre::Exception const & e)
+				{
+					oDebugError("engine", 0, "RenderSystem::createMaterial('"
+						<< name << "'): normal map '" << desc.normalTexture
+						<< "' failed to load: " << e.getDescription());
+					outComplete = false;
+				}
+			}
+			// the emissive MAP as an additive self-illumination pass. Surface
+			// materials are opaque (RenderMaterial.h), so additive-over-scene is
+			// safe; guard the odd translucent albedo (additive on a transparent
+			// base double-counts the backdrop) and say so once.
+			if(!desc.emissiveTexture.empty())
+			{
+				if(desc.albedo.a < 1.0f)
+				{
+					static std::set<String> warned;
+					if(warned.insert(name).second)
+					{
+						oDebugWarning(false, "RenderSystem::createMaterial('"
+							<< name << "'): the emissive map is skipped on a "
+							"translucent surface (the additive glow pass is "
+							"opaque-material only)");
+					}
+				}
+				else
+				{
+					try
+					{
+						Ogre::TexturePtr texture =
+							Ogre::TextureManager::getSingleton().load(
+								desc.emissiveTexture,
+								Ogre::ResourceGroupManager::AUTODETECT_RESOURCE_GROUP_NAME);
+						Ogre::Pass* glow = technique->createPass();
+						glow->setLightingEnabled(false);
+						glow->setSceneBlending(Ogre::SBT_ADD);
+						glow->setDepthWriteEnabled(false);
+						Ogre::TextureUnitState* unit =
+							glow->createTextureUnitState();
+						unit->setTexture(texture);
+						// modulate the emissive map by the emissive colour factor
+						unit->setColourOperationEx(Ogre::LBX_MODULATE,
+							Ogre::LBS_TEXTURE, Ogre::LBS_MANUAL,
+							Ogre::ColourValue::White, Ogre::ColourValue(
+								desc.emissive.r, desc.emissive.g, desc.emissive.b));
+					}
+					catch(Ogre::Exception const & e)
+					{
+						oDebugError("engine", 0, "RenderSystem::createMaterial('"
+							<< name << "'): emissive map '" << desc.emissiveTexture
+							<< "' failed to load: " << e.getDescription());
+						outComplete = false;
+					}
+				}
+			}
+			// pin the shader render state LAST, so createShaderBasedTechnique
+			// clones both the surface pass and any emissive pass
+			configureSurfaceShaderState(generator, material, normalTuIndex);
+			return material;
+		}
+#endif // USE_RTSHADER_SYSTEM
+		// fixed-function fallback (no shader generator active): the Blinn-Phong
+		// SUBSET of the metal-rough description - dielectrics get a faint neutral
+		// highlight, metals tint it with the albedo, roughness dampens/widens it;
+		// the normal/emissive MAPS cannot render here (logged once).
+		const float metal = std::clamp(desc.metalness, 0.0f, 1.0f);
+		const float gloss = 1.0f - std::clamp(desc.roughness, 0.0f, 1.0f);
+		const float baseSpecular = 0.04f;	// the common dielectric F0
+		pass->setSpecular(
+			(baseSpecular + (desc.albedo.r - baseSpecular) * metal) * gloss,
+			(baseSpecular + (desc.albedo.g - baseSpecular) * metal) * gloss,
+			(baseSpecular + (desc.albedo.b - baseSpecular) * metal) * gloss,
+			1.0f);
+		pass->setShininess(std::max(gloss * gloss * 128.0f, 1.0f));
 		if(!desc.normalTexture.empty() || !desc.emissiveTexture.empty())
 		{
 			static std::set<String> warned;
 			if(warned.insert(name).second)
 			{
 				oDebugWarning(false, "RenderSystem::createMaterial('" << name
-					<< "'): this render flavor draws the Blinn-Phong "
-					"subset - the normal/emissive maps are ignored");
+					<< "'): no shader generator active - drawing the Blinn-Phong "
+					"subset, the normal/emissive maps are ignored");
 			}
 		}
 		return material;
+	}
+	//---------------------------------------------------------
+	bool RenderBackend::materialUsesNormalMap(String const & name)
+	{
+		return gNormalMappedMaterials.find(name) != gNormalMappedMaterials.end();
 	}
 	//---------------------------------------------------------
 	Ogre::MaterialPtr RenderBackend::createOrUpdateWaterMaterial(

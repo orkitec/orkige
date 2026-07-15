@@ -73,24 +73,36 @@ look. In the editor's asset browser a `.omat` classifies as kind
 
 ## Flavor capability
 
-| Field | next (default; HlmsPbs datablock, metallic workflow) | classic (generated Blinn-Phong material) |
+| Field | next (default; HlmsPbs datablock, metallic workflow) | classic (RTSS Cook-Torrance material) |
 |---|---|---|
 | albedo colour + texture | native (diffuse colour + PBS diffuse map) | diffuse colour + texture unit |
-| metalness / roughness | native scalars | DERIVED specular colour + shininess (approximation) |
-| normal map | native (needs mesh tangents — see below) | **ignored** (logged once per material) |
+| metalness / roughness | native scalars | native scalars (the Cook-Torrance stage reads them from `specular.xy`) |
+| normal map | native (needs mesh tangents — see below) | native (RTSS normal-map stage; needs mesh tangents — see below) |
 | emissive colour | native | self-illumination |
-| emissive texture | native | **ignored** (logged once per material) |
+| emissive texture | native | additive self-illumination pass (opaque materials only) |
 
-Lit content is therefore **not pixel-parity-gated** between the flavors —
-classic renders a documented approximation. The `demo_material` selfcheck
-runs per flavor and asserts apply + render on each, not image equality.
+Both flavors now light `.omat` content through a metal-rough model:
+Ogre-Next's HlmsPbs and classic's RTSS `SRS_COOK_TORRANCE_LIGHTING` stage
+(`SRS_NORMALMAP` when a normal map is present). Lit content still is **not
+pixel-parity-gated** — the shading models are not bit-identical and the
+ambient/exposure differs (classic's two-colour hemisphere ambient is
+averaged flat until the hemisphere-ambient parity step) — but the maps
+render on both. The `demo_material` selfcheck runs per flavor and asserts
+apply + render on each, not image equality.
 
-**Tangents (next)**: Hlms shader generation REFUSES a normal-mapping
-material on a tangent-less mesh (and any textured material on a UV-less
-mesh, e.g. the procedural editor cube). The assimp import road builds
-tangents for every UV-mapped mesh (`MeshLoaderNext.cpp`, on the v1
-intermediate); `MeshInstance::setMaterial` guards the assignment and rolls
-back atomically with a log line when the mesh can't take the material.
+**Tangents**: both flavors need mesh tangents to perturb the lit normal from
+a normal map. Next builds them for every UV-mapped mesh at import
+(`MeshLoaderNext.cpp`, on the v1 intermediate) and the Hlms REFUSES a
+normal-mapping material on a tangent-less mesh. Classic builds them ON
+DEMAND: `MeshInstance::setMaterial` builds tangents (`Ogre::Mesh::
+buildTangentVectors`, guarded/logged) only when the material being applied
+binds a normal map and the mesh has UVs but no tangents yet — so a plain
+material never pays for tangent generation.
+
+**Emissive map (classic)**: rendered as a second additive pass (lighting
+off, `SBT_ADD`, the emissive map modulated by the emissive colour). Surface
+materials are opaque, so additive-over-scene is safe; a translucent albedo
+skips the glow pass with one log line.
 
 **Colour space (next)**: PBS textures load raw (no sRGB flag), matching the
 backend's gamma-space passthrough pipeline (the classic colour-parity rule

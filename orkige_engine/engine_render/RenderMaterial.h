@@ -31,13 +31,16 @@ namespace Orkige
 	//! next = an HLMS PBS datablock, metallic workflow - every field is
 	//! native (albedo/metalness/roughness/normal map/emissive). The normal
 	//! map needs mesh TANGENTS; the mesh importer generates them for every
-	//! UV-mapped import. classic = a generated Blinn-Phong material: albedo
-	//! -> diffuse colour + texture, metalness/roughness -> a DERIVED
-	//! specular colour + shininess (an approximation, no pixel parity for
-	//! lit content), emissive colour -> self-illumination; the normal map
-	//! and the emissive texture are IGNORED (logged once per material) -
-	//! the honest classic subset. filament = lit material instance
-	//! (baseColor/metallic/roughness/normal/emissive are native there too).
+	//! UV-mapped import. classic = an RTSS metal-rough material: a
+	//! Cook-Torrance lighting stage (albedo -> diffuse colour + texture,
+	//! metalness/roughness read off specular.xy, emissive colour ->
+	//! self-illumination), an RTSS normal-map stage when a normal map is
+	//! present (tangents built on demand when the material is applied) and
+	//! an additive pass for the emissive map (opaque materials only). The
+	//! maps render on both flavors; the shading model and ambient still
+	//! differ, so lit content is not pixel-parity-gated. filament = lit
+	//! material instance (baseColor/metallic/roughness/normal/emissive are
+	//! native there too).
 	//!
 	//! Honest v1 boundaries (both flavors): opaque only, no reflection
 	//! cubemap yet (image-based lighting lands with the sky/atmosphere

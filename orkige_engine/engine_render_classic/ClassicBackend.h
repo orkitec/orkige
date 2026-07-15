@@ -342,16 +342,25 @@ namespace Orkige
 		//! every vector shape renders through this one material.
 		static Ogre::MaterialPtr getOrCreateVectorFillMaterial();
 		//! @brief create OR UPDATE the named lit scene-content material from a
-		//! facade surface description (RenderSystem::createMaterial). This
-		//! flavor renders the honest Blinn-Phong SUBSET: albedo -> diffuse
-		//! colour + texture unit, metalness/roughness -> a DERIVED specular
-		//! colour + shininess, emissive colour -> self-illumination; the
-		//! normal map and the emissive texture are IGNORED (logged once per
-		//! material name) - see engine_render/RenderMaterial.h. A missing
-		//! albedo texture is skipped + logged and clears outComplete.
+		//! facade surface description (RenderSystem::createMaterial). When the
+		//! RTSS shader generator is active (the shader-only render systems this
+		//! flavor targets - GL3Plus/Vulkan/GLES2) the material renders through a
+		//! metal-rough Cook-Torrance lighting stage: albedo -> diffuse colour +
+		//! texture unit, metalness/roughness -> the specular.xy the lighting
+		//! stage reads, emissive colour -> self-illumination, the tangent-space
+		//! normal map -> an RTSS normal-map stage that perturbs the lit normal,
+		//! and the emissive map -> an additive self-illumination pass. Without a
+		//! shader generator it degrades to the fixed-function Blinn-Phong subset
+		//! (derived specular, maps ignored + logged once). A missing texture is
+		//! skipped + logged and clears outComplete.
 		static Ogre::MaterialPtr createOrUpdateSurfaceMaterial(
 			String const & name, RenderMaterialDesc const & desc,
 			bool & outComplete);
+		//! @brief true when the named surface material binds a normal map, so a
+		//! mesh it is applied to must carry tangents (MeshInstance::setMaterial
+		//! builds them on demand). Populated by createOrUpdateSurfaceMaterial;
+		//! an unknown name answers false.
+		static bool materialUsesNormalMap(String const & name);
 		//! @brief create OR UPDATE the named transparent WATER material
 		//! (RenderSystem::createWaterMaterial). This flavor renders the honest
 		//! subset: the deep/shallow colours blend into ONE flat water tint, a
