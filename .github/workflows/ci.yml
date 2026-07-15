@@ -345,14 +345,14 @@ jobs:
           profile: pixel_7_pro
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
+          # The emulator action runs EACH LINE of this script as its own
+          # `sh -c`: exports do not persist to the next line and a trailing
+          # backslash is passed through as a literal argument. Everything
+          # the ctest invocation needs must therefore share its one line.
           script: |
             adb install -r build/android-emulator-debug-ci/apk/OrkigePlayer.apk
             adb shell pm path com.orkitec.orkigeplayer
-            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)
-            export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD"
-            export ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11
-            xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
-              ctest --preset device-linux-android-ci --timeout 420
+            LVP_ICD=$(ls /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1); export VK_DRIVER_FILES="$LVP_ICD" VK_ICD_FILENAMES="$LVP_ICD" ALSOFT_DRIVERS=null SDL_VIDEO_DRIVER=x11; xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" ctest --preset device-linux-android-ci --timeout 420
 
       - name: Platform verdict summary
         if: always()
