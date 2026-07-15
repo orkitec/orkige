@@ -1001,11 +1001,10 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         set_tests_properties(editor_play_simulator_boot PROPERTIES
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_SIMULATOR=auto-shutdown"
-            SKIP_RETURN_CODE 77
-            # booting a simulator takes seconds warm on a dev box but 4-5
-            # minutes on a hosted CI runner - the budget must clear the
-            # editor's own in-test boot deadline, not the suite default
-            TIMEOUT 700)
+            SKIP_RETURN_CODE 77)
+        # NOTE the timeout is set at the simulator-headroom block at the end
+        # of this file - properties are last-write-wins, a TIMEOUT here would
+        # be silently shadowed
 
         # the safe-area DEVICE gate: play roller (its Lua HUD anchors to the
         # safe area) on a booted iPhone 16 simulator - a Dynamic Island device,
@@ -1660,13 +1659,16 @@ foreach(native_test editor_project_native_play
     endif()
 endforeach()
 
-# the simulator tests may have to cold-boot a simulator (+ install the app)
-# before the player even starts - give the boot flow real headroom
+# the simulator tests may have to boot a simulator (+ install the app)
+# before the player even starts - and a hosted CI runner boots even a warm
+# simulator in 4-5 minutes, so the boot-path test's budget must clear the
+# editor's own 540s in-test boot deadline (this is the LAST property write
+# for these tests and therefore the authoritative timeout)
 if(TEST editor_play_simulator)
     set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 360)
 endif()
 if(TEST editor_play_simulator_boot)
-    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 360)
+    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 700)
 endif()
 
 # device tests boot iOS simulators / Android emulators - by far the slowest
