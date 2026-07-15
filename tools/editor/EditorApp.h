@@ -1019,11 +1019,16 @@ inline const char* playSessionBuildName(PlaySession const& session)
 	return "none";
 }
 
-//! seconds the editor keeps re-connecting while the player engine boots
-const int PLAY_CONNECT_TIMEOUT_SECONDS = 30;
+//! seconds the editor keeps re-connecting while the player engine boots -
+//! generous because a first launch on a freshly booted simulator compiles
+//! shaders and warms caches before the debug port answers
+const int PLAY_CONNECT_TIMEOUT_SECONDS = 90;
 //! seconds a shutdown simulator gets to boot (+ app install) before Play
-//! gives up with an honest error - cold boots are slow, but never silent
-const int PLAY_SIM_PREP_TIMEOUT_SECONDS = 180;
+//! gives up with an honest error. A hosted CI runner boots even a warm
+//! simulator in 4-6 minutes (the widely-used simulator actions default to
+//! 360s per boot attempt); the scripted boot test's outer deadlines are
+//! spaced above this, prep + connect must stay inside them
+const int PLAY_SIM_PREP_TIMEOUT_SECONDS = 480;
 //! milliseconds between connect attempts while launching
 const int PLAY_CONNECT_RETRY_MS = 250;
 //! milliseconds a stopped player gets before it is killed

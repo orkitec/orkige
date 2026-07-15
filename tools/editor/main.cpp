@@ -6876,11 +6876,15 @@ int main(int argc, char** argv)
 						playtestPhase = PlaytestPhase::WaitRemote;
 						// a simulator target may have to boot the device
 						// (+ install the app) before the player can even
-						// start - and a hosted CI runner boots even a warm
-						// simulator in 4-5 minutes, so the headroom must
-						// clear that comfortably
+						// start - this deadline must cover the play
+						// session's OWN prep + connect budgets
+						// (PLAY_SIM_PREP_TIMEOUT_SECONDS +
+						// PLAY_CONNECT_TIMEOUT_SECONDS) with slack, or the
+						// test reports the vaguer of two failures
 						playtestDeadline = playtestNow + std::chrono::seconds(
-							playSession.simulatorUdid.empty() ? 60 : 540);
+							playSession.simulatorUdid.empty() ? 60 :
+								PLAY_SIM_PREP_TIMEOUT_SECONDS +
+								PLAY_CONNECT_TIMEOUT_SECONDS + 70);
 					}
 				}
 				else if (playtestPhase == PlaytestPhase::WaitRemote)
