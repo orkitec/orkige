@@ -4,7 +4,7 @@
 	author:     hicham.allaoui  
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 
 #ifndef __GuiSlider__h__3_11_2010__19_56_54__

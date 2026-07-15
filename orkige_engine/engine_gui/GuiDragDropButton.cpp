@@ -2,8 +2,9 @@
 	created:	Monday 2010/11/01
 	filename:	GuiDragDropButton.cpp
 	author:		philipp.engelhard
-	notice:		based on Orkige::GuiButton
-	copyright:	(c) 2010 kunst-stoff
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 
 #include "engine_gui/GuiDragDropButton.h"

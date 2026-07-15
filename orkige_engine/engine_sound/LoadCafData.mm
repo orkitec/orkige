@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 // Apple-only: decodes .caf files through AudioToolbox (ExtAudioFile) into
 // 16 bit signed PCM for OpenAL Soft. Works on macOS and iOS alike now (used

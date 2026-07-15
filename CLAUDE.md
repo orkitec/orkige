@@ -226,6 +226,11 @@ everyone's confidence in the suite.
   the old `__declspec` DLL export macros in the prerequisites headers are inert.
 - Keep the existing code style when editing old files: tabs, `m`-prefixed members,
   Doxygen-style comments, `#ifndef` include guards with date suffixes.
+- File copyright headers read `copyright:	(c) 2009-2026 orkitec` — one range
+  spanning the orkige heritage; new files use the standard header block
+  verbatim (created/filename/author/notice/copyright, see any engine header).
+  The owner consolidated the old kunst-stoff-era files under orkitec on
+  2026-07-15, so the whole tree carries the ONE notice.
 - Line endings are LF everywhere, enforced by `.gitattributes` (the tree was normalized
   in a dedicated commit on 2026-07-08; the old preserve-CRLF rule is obsolete).
 - Commit messages: no `Co-Authored-By` trailers.

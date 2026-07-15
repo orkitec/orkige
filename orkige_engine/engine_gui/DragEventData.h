@@ -2,9 +2,10 @@
 	created:	2010/11/02
 	filename: 	DragEventData.h
 	author:		philipp.engelhard
-	purpose:	
-	copyright:	(c) 2010 kunst-stoff
-***************************************************************/
+	notice:		This source file is part of orkige (orkitec Game engine)
+				For the latest info, see http://www.orkitec.com/
+	copyright:	(c) 2009-2026 orkitec
+*********************************************************************/
 #ifndef __ORKIGE__DragEventData_h__
 #define __ORKIGE__DragEventData_h__
 

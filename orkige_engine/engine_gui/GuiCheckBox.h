@@ -4,7 +4,7 @@ filename:   GuiCheckBox.h
 author:     hicham.allaoui  
 notice:		This source file is part of orkige (orkitec Game engine)
 			For the latest info, see http://www.orkitec.com/
-copyright:	(c) 2009-2011 orkitec
+copyright:	(c) 2009-2026 orkitec
 *********************************************************************/
 #ifndef __GUICHECKBOX__h__2_11_2010__17_50_02__
 #define __GUICHECKBOX__h__2_11_2010__17_50_02__

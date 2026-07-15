@@ -4,7 +4,7 @@
 	author:		steffen.roemer
 	notice:		This source file is part of orkige (orkitec Game engine)
 				For the latest info, see http://www.orkitec.com/
-	copyright:	(c) 2009-2011 orkitec
+	copyright:	(c) 2009-2026 orkitec
 ***************************************************************/
 #ifndef __DynamicRenderable_h__7_9_2010__2_48_31__
 #define __DynamicRenderable_h__7_9_2010__2_48_31__
