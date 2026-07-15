@@ -8929,7 +8929,23 @@ namespace Orkige
 					"not follow the .oui edit");
 				return;
 			}
-			const std::vector<char> previewPixelsV2 = readPreviewPng(previewPng);
+			// the offscreen readback can trail the resolved layout by a frame
+			// or two on a slow machine even after the stage's own settle -
+			// preview_ui re-renders and re-captures per call, so SETTLE on the
+			// pixels changing with a bounded budget instead of asserting the
+			// first capture (the layout rect above already proved the reload)
+			std::vector<char> previewPixelsV2 = readPreviewPng(previewPng);
+			for (int settle = 0;
+				(previewPixelsV2.empty() || previewPixelsV2 == previewPixelsV1)
+					&& settle < 5; ++settle)
+			{
+				if (!callTool("preview_ui", pargs, true, structured, isError) ||
+					isError)
+				{
+					break;
+				}
+				previewPixelsV2 = readPreviewPng(previewPng);
+			}
 			if (previewPixelsV2.empty() || previewPixelsV2 == previewPixelsV1)
 			{
 				finish(false, "control self-test: GUI Preview image did not change "
