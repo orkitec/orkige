@@ -1324,10 +1324,11 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// colour-only PBS surface (the terrain case: a horizontal slab under a
 		// near-vertical daytime sun) must render NEITHER white (clipped) NOR
 		// black (unlit) - the regression guard for the un-tonemapped sun-drive
-		// scale (AtmosphereDesc::sunPower). Runs on the next flavor only (the
-		// classic subset has no sky dome / sun linkage - it applies the flat sky
-		// clear colour, no PBS sun drive to clip).
-		if(RenderWorld::skyDomeSupported())
+		// scale (AtmosphereDesc::sunPower). Gated on the sun-EXPOSURE linkage
+		// (next only), NOT skyDomeSupported() (both flavors render a dome now):
+		// classic's dome reads the sun direction but never drives the light's
+		// power, so there is no exposure to clip.
+		if(SelfcheckBootstrap::atmosphereDrivesSunExposure())
 		{
 			// a mid-grey, colour-only PBS material (no maps, so the reading is
 			// the pure albedo * lighting - the exposure the sun drive controls)

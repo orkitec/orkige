@@ -77,8 +77,14 @@ namespace Orkige
 		//! (no dynamic shadows on classic, @see RenderWorld::setShadowQuality)
 		ShadowPreset::Quality	shadowQuality = ShadowPreset::SQ_MEDIUM;
 		//! the sky/fog atmosphere last set (@see RenderWorld::setAtmosphere);
-		//! classic renders the fog + flat sky colour subset, no sky dome
+		//! classic renders the fog subset + a vertex-colour gradient sky dome
 		AtmosphereDesc			atmosphere;
+		//! the gradient sky dome (built lazily when the atmosphere is enabled;
+		//! a camera-following inward sphere in the sky render queue). Its vertex
+		//! colours recompute from the atmosphere + the sun (first directional
+		//! light); NULL until the first enabled setAtmosphere.
+		Ogre::ManualObject*		skyDome = NULL;
+		Ogre::SceneNode*		skyNode = NULL;
 	};
 
 	struct RenderNode::Impl
@@ -277,6 +283,18 @@ namespace Orkige
 		//! bridge behind RenderSystem::getWindowCamera)
 		static optr<RenderCamera> wrapCamera(Ogre::Camera* camera, bool owned);
 		static optr<RenderLight> createLight(Ogre::SceneManager* sceneManager);
+		//! the SUN the sky dome links to: the FIRST directional light in
+		//! creation order (same semantic as the next flavor), or NULL. The
+		//! registry below keeps this in step as lights change kind or die.
+		static Ogre::Light* firstDirectionalLight();
+		//! keep the directional-light registry in step with @p light's kind
+		//! (RenderLight::setType / ~RenderLight). A membership change re-resolves
+		//! a live sky dome's sun so orienting/retyping the sun updates the sky.
+		static void noteDirectionalLight(Ogre::Light* light, bool isDirectional);
+		//! recompute the live sky dome's vertex colours from the cached
+		//! atmosphere + the current sun (a no-op when no dome is up). Called
+		//! when the sun registry changes (@see noteDirectionalLight).
+		static void refreshSkyDome();
 		static optr<RenderTexture> createRenderTexture(String const & name,
 			unsigned int width, unsigned int height);
 		//! create a 2D overlay layer (registers it with the render hook -

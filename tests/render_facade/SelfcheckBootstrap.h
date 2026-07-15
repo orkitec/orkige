@@ -61,6 +61,14 @@ namespace SelfcheckBootstrap
 	//! per call, so a dense probe must go through this). -1 when the file
 	//! cannot be decoded.
 	float imageMaxBrightness(Orkige::String const & fileName);
+	//! @brief does this flavor's atmosphere DRIVE the linked sun's colour/power
+	//! (not just read its direction)? True on the next flavor - the native
+	//! AtmosphereNpr overrides the sun exposure, an un-tonemapped drive that the
+	//! selfcheck's clip guard tests. False on classic: its sky dome reads the sun
+	//! DIRECTION for the glow but never touches the light's power, so there is no
+	//! exposure drive to clip. A capability distinct from RenderWorld::
+	//! skyDomeSupported() (both flavors now render a dome).
+	bool atmosphereDrivesSunExposure();
 }
 
 #endif //__SelfcheckBootstrap_h__8_7_2026__18_00_00__

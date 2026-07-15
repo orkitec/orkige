@@ -27,11 +27,13 @@ namespace Orkige
 	//!
 	//! Flavor honesty: on the Ogre-Next flavor every field drives the native
 	//! AtmosphereNpr (sky dome + HlmsPbs-integrated fog + sun colour/power). On
-	//! the classic compatibility flavor there is no sky dome: @c fogDensity /
-	//! @c fog* drive fixed-function exponential fog and @c sky* becomes the flat
-	//! window clear colour (@c skyPower / @c density / @c sunPower / @c
-	//! ambientPower are ignored) - the honest subset (@see the capability
-	//! matrix in Docs/render-abstraction.md).
+	//! the classic compatibility flavor a vertex-colour gradient sky dome reads
+	//! @c sky* / @c skyPower / @c density for its zenith->horizon gradient and
+	//! the sun glow direction from the first directional light, while @c
+	//! fogDensity / @c fog* drive fixed-function exponential fog; @c sunPower /
+	//! @c ambientPower are ignored (classic does not drive the sun's exposure) -
+	//! the honest subset (@see the capability matrix in
+	//! Docs/render-abstraction.md).
 	//!
 	//! Field ranges + coupling (next flavor / AtmosphereNpr; verified against
 	//! the NprSky model - Components/Atmosphere in the Ogre-Next source):

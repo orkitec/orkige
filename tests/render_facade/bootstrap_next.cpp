@@ -239,4 +239,10 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
+	bool atmosphereDrivesSunExposure()
+	{
+		// the native AtmosphereNpr links + drives the sun's colour/power - the
+		// un-tonemapped exposure the clip guard tests
+		return true;
+	}
 }

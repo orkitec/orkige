@@ -32,6 +32,43 @@ namespace Orkige
 		std::unordered_map<Ogre::SceneNode*, woptr<RenderNode>> gNodeRegistry;
 		//! monotonic counter behind RenderBackend::generateName
 		unsigned long gNameCounter = 0;
+		//! directional lights in creation order - the sun the sky dome links
+		//! to is the FIRST of these (@see RenderBackend::firstDirectionalLight,
+		//! mirrors the next flavor's registry)
+		std::vector<Ogre::Light*> gDirectionalLights;
+	}
+	//---------------------------------------------------------
+	Ogre::Light* RenderBackend::firstDirectionalLight()
+	{
+		return gDirectionalLights.empty() ? NULL : gDirectionalLights.front();
+	}
+	//---------------------------------------------------------
+	void RenderBackend::noteDirectionalLight(Ogre::Light* light,
+		bool isDirectional)
+	{
+		if(!light)
+		{
+			return;
+		}
+		const auto found = std::find(gDirectionalLights.begin(),
+			gDirectionalLights.end(), light);
+		const bool present = found != gDirectionalLights.end();
+		if(isDirectional && !present)
+		{
+			gDirectionalLights.push_back(light);
+		}
+		else if(!isDirectional && present)
+		{
+			gDirectionalLights.erase(found);
+		}
+		else
+		{
+			return;	// no membership change
+		}
+		// the sun set changed: re-resolve a live sky dome to the new first
+		// directional light (drops a dangling sun when it leaves/dies,
+		// promotes a freshly-authored one)
+		RenderBackend::refreshSkyDome();
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::createRenderSystem(Engine* engine)
@@ -66,6 +103,8 @@ namespace Orkige
 		// and free facade memory only. Drop the mappings so late lookups
 		// resolve to NULL instead of dangling.
 		gNodeRegistry.clear();
+		// the sun registry points at lights the scene manager is tearing down
+		gDirectionalLights.clear();
 	}
 	//---------------------------------------------------------
 	RenderSystem* RenderBackend::system()

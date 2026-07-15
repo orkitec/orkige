@@ -40,6 +40,9 @@ namespace Orkige
 	{
 		if(this->mImpl->light)
 		{
+			// leave the directional registry BEFORE the light dies so the sky
+			// dome never keeps a dangling sun pointer (re-resolves if needed)
+			RenderBackend::noteDirectionalLight(this->mImpl->light, false);
 			if(this->mImpl->light->isAttached())
 			{
 				this->mImpl->light->detachFromParent();
@@ -83,6 +86,10 @@ namespace Orkige
 			this->mImpl->light->setType(Ogre::Light::LT_SPOTLIGHT);
 			break;
 		}
+		// keep the directional-light registry (the sky dome's sun source) in
+		// step with this light's kind
+		RenderBackend::noteDirectionalLight(this->mImpl->light,
+			type == LT_DIRECTIONAL);
 	}
 	//---------------------------------------------------------
 	RenderLight::LightType RenderLight::getType() const

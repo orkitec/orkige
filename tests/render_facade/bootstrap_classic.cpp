@@ -273,4 +273,10 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
+	bool atmosphereDrivesSunExposure()
+	{
+		// classic's sky dome reads the sun DIRECTION for its glow but never
+		// overrides the linked light's colour/power - no exposure drive to clip
+		return false;
+	}
 }

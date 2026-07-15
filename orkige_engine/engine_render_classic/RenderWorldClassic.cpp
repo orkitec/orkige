@@ -15,8 +15,236 @@
 #include "engine_render_classic/ClassicBackend.h"
 #include "engine_util/PrimitiveUtil.h"
 
+#include <cmath>
+
 namespace Orkige
 {
+	namespace
+	{
+		//! the sky dome's material name (generated once, RTSS auto-shaded)
+		const char* const kSkyDomeMaterial = "Orkige/SkyDome";
+		//! tessellation of the gradient sphere - enough rings/segments that the
+		//! vertical gradient and the sun glow read smooth, still trivially cheap
+		const unsigned int kSkyRings = 24;		//!< latitude divisions
+		const unsigned int kSkySegments = 48;	//!< longitude divisions
+
+		//! the node the sky dome hangs off, followed to the rendering camera by
+		//! the listener below (NULL when no dome is up). File-scope like the next
+		//! flavor's gAtmosphere - one world per process.
+		Ogre::SceneNode* gSkyDomeNode = NULL;
+
+		//! smoothstep 0..1 (Hermite), for the elevation gradient blend
+		inline float smoothstep01(float t)
+		{
+			t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+			return t * t * (3.0f - 2.0f * t);
+		}
+		//! component-wise lerp of two colours
+		inline Ogre::ColourValue mixColour(Ogre::ColourValue const & a,
+			Ogre::ColourValue const & b, float t)
+		{
+			return Ogre::ColourValue(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
+				a.b + (b.b - a.b) * t, 1.0f);
+		}
+		//! saturate a colour to [0;1] per channel (the un-tonemapped sum can
+		//! exceed 1 where the sun glow stacks on a bright sky)
+		inline Ogre::ColourValue saturateColour(Ogre::ColourValue c)
+		{
+			c.r = std::min(1.0f, std::max(0.0f, c.r));
+			c.g = std::min(1.0f, std::max(0.0f, c.g));
+			c.b = std::min(1.0f, std::max(0.0f, c.b));
+			c.a = 1.0f;
+			return c;
+		}
+		//! the sky colour for a unit view direction: a zenith -> horizon ->
+		//! ground vertical gradient (horizon hazed/brightened by density) plus a
+		//! soft sun glow toward @p sunDir. Approximates the next flavor's
+		//! atmospheric look - "same sky, softer", not a pixel match.
+		Ogre::ColourValue skyDirectionColour(Ogre::Vector3 const & dir,
+			AtmosphereDesc const & desc, Ogre::Vector3 const & sunDir)
+		{
+			const float power = std::max(desc.skyPower, 0.0f);
+			const Ogre::ColourValue zenith(desc.skyRed * power,
+				desc.skyGreen * power, desc.skyBlue * power, 1.0f);
+			// density washes the horizon toward a bright haze (hazier = thicker)
+			const float haze = std::min(0.85f, std::max(0.0f, desc.density * 0.6f));
+			const float hazeLevel = std::min(1.2f, std::max(power, 0.15f));
+			const Ogre::ColourValue horizon = mixColour(zenith,
+				Ogre::ColourValue(hazeLevel, hazeLevel, hazeLevel, 1.0f), haze);
+			const Ogre::ColourValue ground(zenith.r * 0.35f, zenith.g * 0.35f,
+				zenith.b * 0.35f, 1.0f);
+			const float elevation = dir.y;	// unit sphere: y is the elevation
+			Ogre::ColourValue base = elevation >= 0.0f
+				? mixColour(horizon, zenith, smoothstep01(elevation))
+				: mixColour(horizon, ground, smoothstep01(-elevation));
+			// the sun glow: a tight bright core + a soft wide halo toward the sun
+			const float toward = std::max(0.0f, dir.dotProduct(sunDir));
+			const float glow = std::pow(toward, 160.0f) * 0.85f
+				+ std::pow(toward, 6.0f) * 0.25f;
+			const Ogre::ColourValue sunColour(1.0f, 0.92f, 0.78f, 1.0f);
+			return saturateColour(Ogre::ColourValue(base.r + sunColour.r * glow,
+				base.g + sunColour.g * glow, base.b + sunColour.b * glow, 1.0f));
+		}
+		//! the sun direction the dome links to: -direction of the FIRST
+		//! directional light points FROM a surface TOWARD the sun (same rule as
+		//! the next flavor); a default high daytime sun when there is none
+		Ogre::Vector3 resolveSunDirection()
+		{
+			Ogre::Vector3 dir(0.3f, 0.9f, 0.2f);
+			if(Ogre::Light* sun = RenderBackend::firstDirectionalLight())
+			{
+				dir = -sun->getDerivedDirection();
+			}
+			dir.normalise();
+			return dir;
+		}
+		//! create the sky material once: unlit, vertex-colour, no depth test/
+		//! write, two-sided - drawn first (sky queue) as the backdrop. RTSS
+		//! auto-shades it (transform + vertex colour, no lighting).
+		void ensureSkyDomeMaterial()
+		{
+			Ogre::MaterialManager & materialManager =
+				Ogre::MaterialManager::getSingleton();
+			if(materialManager.resourceExists(kSkyDomeMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME))
+			{
+				return;
+			}
+			Ogre::MaterialPtr material = materialManager.create(kSkyDomeMaterial,
+				Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+			Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+			pass->setLightingEnabled(false);
+			pass->setVertexColourTracking(Ogre::TVC_DIFFUSE);
+			pass->setDepthWriteEnabled(false);
+			pass->setDepthCheckEnabled(false);	// always behind everything drawn after
+			pass->setCullingMode(Ogre::CULL_NONE);
+		}
+		//! (re)emit the gradient sphere geometry into @p dome from @p desc + the
+		//! current sun. Rebuilt (clear + begin/end) on each atmosphere change -
+		//! infrequent, so a fresh section is simpler than a dynamic update.
+		void buildSkyDomeGeometry(Ogre::ManualObject* dome,
+			AtmosphereDesc const & desc)
+		{
+			const Ogre::Vector3 sunDir = resolveSunDirection();
+			dome->clear();
+			dome->begin(kSkyDomeMaterial, Ogre::RenderOperation::OT_TRIANGLE_LIST);
+			for(unsigned int ring = 0; ring <= kSkyRings; ++ring)
+			{
+				const float theta =
+					Ogre::Math::PI * float(ring) / float(kSkyRings);
+				const float y = std::cos(theta);
+				const float r = std::sin(theta);
+				for(unsigned int seg = 0; seg <= kSkySegments; ++seg)
+				{
+					const float phi =
+						2.0f * Ogre::Math::PI * float(seg) / float(kSkySegments);
+					const Ogre::Vector3 dir(r * std::cos(phi), y,
+						r * std::sin(phi));
+					dome->position(dir);
+					dome->colour(skyDirectionColour(dir, desc, sunDir));
+				}
+			}
+			const unsigned int stride = kSkySegments + 1;
+			for(unsigned int ring = 0; ring < kSkyRings; ++ring)
+			{
+				for(unsigned int seg = 0; seg < kSkySegments; ++seg)
+				{
+					const unsigned int a = ring * stride + seg;
+					const unsigned int b = a + 1;
+					const unsigned int c = a + stride;
+					const unsigned int d = c + 1;
+					// two-sided material, so winding is irrelevant
+					dome->triangle(a, c, b);
+					dome->triangle(b, c, d);
+				}
+			}
+			dome->end();
+			// never frustum-cull the sky (it wraps whatever camera it follows)
+			dome->setBoundingBox(Ogre::AxisAlignedBox::BOX_INFINITE);
+		}
+
+		//! keeps the sky dome centred on whatever camera is about to render
+		//! (window, editor RTT, ...). preFindVisibleObjects fires per viewport
+		//! BEFORE culling, so the reposition takes effect this frame - one
+		//! listener covers every camera (the DrawLayer2D RenderQueueListener is
+		//! the sibling precedent).
+		class SkyDomeCameraFollower : public Ogre::SceneManager::Listener
+		{
+		public:
+			void preFindVisibleObjects(Ogre::SceneManager*,
+				Ogre::SceneManager::IlluminationRenderStage,
+				Ogre::Viewport* viewport) override
+			{
+				if(!gSkyDomeNode || !viewport)
+				{
+					return;
+				}
+				Ogre::Camera* camera = viewport->getCamera();
+				if(!camera)
+				{
+					return;
+				}
+				// centre on the camera; a radius just past the near plane can
+				// never be sliced by it and stays well inside the far plane
+				gSkyDomeNode->setPosition(camera->getDerivedPosition());
+				const float radius = camera->getNearClipDistance() * 4.0f;
+				gSkyDomeNode->setScale(radius, radius, radius);
+			}
+		};
+		SkyDomeCameraFollower gSkyFollower;
+		bool gSkyFollowerRegistered = false;
+
+		//! build the dome on first use (ManualObject + node + material + the
+		//! camera-follow listener) then (re)emit its gradient from the cached
+		//! atmosphere; makes it visible. Idempotent. Takes the world's fields by
+		//! reference (the RenderWorld::Impl type is not free-function-accessible).
+		void rebuildSkyDome(Ogre::SceneManager* sceneManager,
+			Ogre::ManualObject*& skyDome, Ogre::SceneNode*& skyNode,
+			AtmosphereDesc const & atmosphere)
+		{
+			ensureSkyDomeMaterial();
+			if(!skyDome)
+			{
+				skyDome = sceneManager->createManualObject(
+					RenderBackend::generateName("Orkige/SkyDome"));
+				skyDome->setRenderQueueGroup(Ogre::RENDER_QUEUE_SKIES_EARLY);
+				skyDome->setCastShadows(false);
+				skyNode = sceneManager->getRootSceneNode()->createChildSceneNode();
+				skyNode->attachObject(skyDome);
+				gSkyDomeNode = skyNode;
+				if(!gSkyFollowerRegistered)
+				{
+					sceneManager->addListener(&gSkyFollower);
+					gSkyFollowerRegistered = true;
+				}
+			}
+			buildSkyDomeGeometry(skyDome, atmosphere);
+			skyDome->setVisible(true);
+		}
+		//! drop the dome + its listener (world teardown)
+		void teardownSkyDome(Ogre::SceneManager* sceneManager,
+			Ogre::ManualObject*& skyDome, Ogre::SceneNode*& skyNode)
+		{
+			if(gSkyFollowerRegistered && sceneManager)
+			{
+				sceneManager->removeListener(&gSkyFollower);
+				gSkyFollowerRegistered = false;
+			}
+			gSkyDomeNode = NULL;
+			if(skyDome && sceneManager)
+			{
+				if(skyNode)
+				{
+					skyNode->detachAllObjects();
+					sceneManager->destroySceneNode(skyNode);
+					skyNode = NULL;
+				}
+				sceneManager->destroyManualObject(skyDome);
+				skyDome = NULL;
+			}
+		}
+	}
+
 	const unsigned int RenderWorld::QUERYFLAG_DEFAULT = 1;
 	//---------------------------------------------------------
 	RenderWorld::RayQueryHit::RayQueryHit()
@@ -32,6 +260,10 @@ namespace Orkige
 	//---------------------------------------------------------
 	RenderWorld::~RenderWorld()
 	{
+		// drop the sky dome (its ManualObject/node + the camera-follow listener)
+		// before the scene manager tears down
+		teardownSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
+			this->mImpl->skyNode);
 		// the scene manager itself stays with Engine (classic bootstrap);
 		// dropping the root handle unregisters it (owned=false, so the
 		// backend root node is not destroyed)
@@ -195,17 +427,18 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool RenderWorld::skyDomeSupported()
 	{
-		// honest "no": the compatibility flavor renders the fog + flat sky
-		// colour subset of setAtmosphere, but no atmospheric sky dome
-		return false;
+		// the compatibility flavor renders a vertex-colour gradient sky dome
+		// (a subset of the next flavor's atmospheric NPR dome - "same sky,
+		// softer", no true scattering) plus fixed-function fog
+		return true;
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)
 	{
 		this->mImpl->atmosphere = desc;
 
-		// the flat sky: the window clear colour becomes the sky tint (the
-		// existing clear-colour path - no sky dome on this flavor)
+		// the window clear colour tracks the sky tint so the window edges / a
+		// disabled atmosphere still read as sky (the dome covers the rest)
 		if(RenderSystem* system = RenderSystem::get())
 		{
 			system->setWindowBackgroundColour(
@@ -225,25 +458,38 @@ namespace Orkige
 			this->mImpl->sceneManager->setFog(Ogre::FOG_NONE);
 		}
 
-		// the sky DOME itself is not supported here: say so ONCE per process
-		// when an app enables the atmosphere, then stay silent
+		// the gradient sky dome: build/refresh it while enabled, hide it when
+		// the atmosphere is switched off (kept built for a cheap re-enable)
 		if(desc.enabled)
 		{
-			static bool warnedOnce = false;
-			if(!warnedOnce)
-			{
-				warnedOnce = true;
-				Ogre::LogManager::getSingleton().logMessage(
-					"Orkige classic backend: the atmospheric sky dome is not "
-					"supported on this render backend - applying the flat sky "
-					"clear colour + fixed-function fog subset only");
-			}
+			rebuildSkyDome(this->mImpl->sceneManager, this->mImpl->skyDome,
+				this->mImpl->skyNode, this->mImpl->atmosphere);
+		}
+		else if(this->mImpl->skyDome)
+		{
+			this->mImpl->skyDome->setVisible(false);
 		}
 	}
 	//---------------------------------------------------------
 	AtmosphereDesc const & RenderWorld::getAtmosphere() const
 	{
 		return this->mImpl->atmosphere;
+	}
+	//---------------------------------------------------------
+	void RenderBackend::refreshSkyDome()
+	{
+		RenderSystem* system = RenderBackend::system();
+		if(!system || !system->getWorld())
+		{
+			return;
+		}
+		RenderWorld::Impl* impl = system->getWorld()->mImpl;
+		if(impl->skyDome && impl->atmosphere.enabled)
+		{
+			// the sun set changed under a live dome: re-emit its gradient
+			// (the sun glow tracks the new first directional light)
+			buildSkyDomeGeometry(impl->skyDome, impl->atmosphere);
+		}
 	}
 	//---------------------------------------------------------
 	Color const & RenderWorld::getAmbientHemisphereLower() const
