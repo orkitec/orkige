@@ -555,5 +555,18 @@ namespace Orkige
 		OPROPERTY("flutterFrequency", Orkige::PropertyKind::Float, getFlutterFrequency, setFlutterFrequency, Orkige::PROP_NONE)
 		OPROPERTY("additive", Orkige::PropertyKind::Bool, getAdditive, setAdditive, Orkige::PROP_NONE)
 		OPROPERTY("maxParticles", Orkige::PropertyKind::Int, getMaxParticles, setMaxParticles, Orkige::PROP_NONE)
+
+		// self.particles / world.getParticles(id) hand Lua a WEAK handle: locks per
+		// call, raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::ParticleComponent, "ParticleComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(setTexture)
+			OWEAKHANDLE_BASEMETHOD(getTextureName)
+			OWEAKHANDLE_BASEMETHOD(burst)
+			OWEAKHANDLE_BASEMETHOD(start)
+			OWEAKHANDLE_BASEMETHOD(stop)
+			OWEAKHANDLE_BASEMETHOD(setEmitting)
+			OWEAKHANDLE_BASEMETHOD(isEmitting)
+			OWEAKHANDLE_BASEMETHOD(getLiveCount)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

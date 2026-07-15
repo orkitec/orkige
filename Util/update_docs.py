@@ -156,8 +156,13 @@ def parse_script_component(text):
     'globals' list under the key '' for registerGlobalFunction."""
     tables = {}
     order = []
+    # registerFunction binds a raw callable; registerHandleAccessor /
+    # registerHandleListAccessor bind a woptr resolver that Lua receives as a
+    # WEAK handle (world.get* / findByTag) - all three are <table>.<fn>(args)
+    # bindings for the docs model.
     for m in re.finditer(
-            r'registerFunction\(\s*"([^"]+)"\s*,\s*"([^"]+)"', text):
+            r'register(?:Function|HandleAccessor|HandleListAccessor)'
+            r'\(\s*"([^"]+)"\s*,\s*"([^"]+)"', text):
         table, fn = m.group(1), m.group(2)
         if table not in tables:
             tables[table] = []

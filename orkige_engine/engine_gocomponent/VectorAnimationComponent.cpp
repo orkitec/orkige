@@ -697,5 +697,30 @@ namespace Orkige
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
 		OPROPERTY("visible", Orkige::PropertyKind::Bool, isAnimationVisible, setAnimationVisible, Orkige::PROP_NONE)
 		OPROPERTY_REF("animation", Orkige::PropertyKind::AssetRef, "vectoranim", getAnimationName, setAnimationReference, Orkige::PROP_NONE)
+
+		// self.anim / world.get(id):getAnim... hand Lua a WEAK handle: locks per
+		// call, raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::VectorAnimationComponent, "VectorAnimationComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(loadAnimation)
+			OWEAKHANDLE_BASEMETHOD(removeAnimation)
+			OWEAKHANDLE_BASEMETHOD(getAnimationName)
+			OWEAKHANDLE_BASEMETHOD(hasAnimation)
+			OWEAKHANDLE_BASEMETHOD(getTriangleCount)
+			OWEAKHANDLE_BASEMETHOD(getVertexCount)
+			OWEAKHANDLE_BASEMETHOD(getPoseSignature)
+			OWEAKHANDLE_BASEMETHOD(play)
+			OWEAKHANDLE_BASEMETHOD(stop)
+			OWEAKHANDLE_BASEMETHOD(setClip)
+			OWEAKHANDLE_BASEMETHOD(crossFade)
+			OWEAKHANDLE_BASEMETHOD(scrub)
+			OWEAKHANDLE_BASEMETHOD(isPlaying)
+			OWEAKHANDLE_BASEMETHOD(currentClip)
+			OWEAKHANDLE_BASEMETHOD(getClipCount)
+			OWEAKHANDLE_BASEMETHOD(getClipNames)
+			OWEAKHANDLE_BASEMETHOD(currentFrame)
+			OWEAKHANDLE_BASEMETHOD(isAtEnd)
+			OWEAKHANDLE_BASEMETHOD(setSpeed)
+			OWEAKHANDLE_BASEMETHOD(getSpeed)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

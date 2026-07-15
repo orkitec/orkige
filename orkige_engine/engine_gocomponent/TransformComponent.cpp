@@ -292,5 +292,25 @@ namespace Orkige
 		OPROPERTY("position", Orkige::PropertyKind::Vec3, getPosition, setPosition, Orkige::PROP_NONE)
 		OPROPERTY("orientation", Orkige::PropertyKind::Quat, getOrientation, setOrientation, Orkige::PROP_NONE)
 		OPROPERTY("scale", Orkige::PropertyKind::Vec3, getScale, setScale, Orkige::PROP_NONE)
+
+		// self.transform / world.getTransform(id) hand Lua a WEAK handle - a
+		// distinct per-type currency (a component is its own handle base) that
+		// locks per method call and raises an honest, pcall-catchable error
+		// naming the owner ("component handle is dead (TransformComponent 'hero')")
+		// once the object is gone, never a raw pointer outliving its component.
+		OWEAKHANDLE_BEGIN(Orkige::TransformComponent, "TransformComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(getPosition)
+			OWEAKHANDLE_BASEMETHOD(getScale)
+			OWEAKHANDLE_BASEMETHOD(getOrientation)
+			OWEAKHANDLE_BASEMETHOD(setPosition)
+			OWEAKHANDLE_BASEMETHOD(setScale)
+			OWEAKHANDLE_BASEMETHOD(setOrientation)
+			OWEAKHANDLE_BASEMETHOD(getWorldPosition)
+			OWEAKHANDLE_BASEMETHOD(getWorldOrientation)
+			OWEAKHANDLE_BASEMETHOD(getWorldScale)
+			OWEAKHANDLE_BASEMETHOD(setWorldPosition)
+			OWEAKHANDLE_BASEMETHOD(setWorldOrientation)
+			OWEAKHANDLE_BASEMETHOD(teleport)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

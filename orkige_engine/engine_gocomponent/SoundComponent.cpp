@@ -295,5 +295,20 @@ namespace Orkige
                 OFUNC(getGroup)
                 OFUNC(setPitchVariation)
                 OFUNC(setVolumeVariation)
+
+                // self.* / world.getSound(id) hand Lua a WEAK handle: locks per
+                // call, raises an honest error naming the owner once gone. @see TransformComponent.
+                OWEAKHANDLE_BEGIN(Orkige::SoundComponent, "SoundComponentHandle", "component handle", "component")
+                        OWEAKHANDLE_BASEMETHOD(addSound)
+                        OWEAKHANDLE_BASEMETHOD(play)
+                        OWEAKHANDLE_BASEMETHOD(stop)
+                        OWEAKHANDLE_BASEMETHOD(stopAllSounds)
+                        OWEAKHANDLE_BASEMETHOD(setVolume)
+                        OWEAKHANDLE_BASEMETHOD(getVolume)
+                        OWEAKHANDLE_BASEMETHOD(setGroup)
+                        OWEAKHANDLE_BASEMETHOD(getGroup)
+                        OWEAKHANDLE_BASEMETHOD(setPitchVariation)
+                        OWEAKHANDLE_BASEMETHOD(setVolumeVariation)
+                OWEAKHANDLE_END
         OOBJECT_END
 }

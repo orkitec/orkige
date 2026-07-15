@@ -371,5 +371,28 @@ namespace Orkige
 		OPROPERTY_REF("followTarget", Orkige::PropertyKind::ObjectRef, "", getFollowTarget, setFollowTarget, Orkige::PROP_NONE)
 		OPROPERTY("followDamping", Orkige::PropertyKind::Float, getFollowDamping, setFollowDamping, Orkige::PROP_NONE)
 		OPROPERTY("followOffset", Orkige::PropertyKind::Vec3, getFollowOffset, setFollowOffset, Orkige::PROP_NONE)
+
+		// world.getCamera(id) hands Lua a WEAK handle: locks per call, raises an
+		// honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::CameraComponent, "CameraComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(setProjectionMode)
+			OWEAKHANDLE_BASEMETHOD(getProjectionMode)
+			OWEAKHANDLE_BASEMETHOD(setOrthoSize)
+			OWEAKHANDLE_BASEMETHOD(getOrthoSize)
+			OWEAKHANDLE_BASEMETHOD(setFitMode)
+			OWEAKHANDLE_BASEMETHOD(getFitMode)
+			OWEAKHANDLE_BASEMETHOD(setDesignWidth)
+			OWEAKHANDLE_BASEMETHOD(getDesignWidth)
+			OWEAKHANDLE_BASEMETHOD(setDesignHeight)
+			OWEAKHANDLE_BASEMETHOD(getDesignHeight)
+			OWEAKHANDLE_BASEMETHOD(follow)
+			OWEAKHANDLE_BASEMETHOD(stopFollow)
+			OWEAKHANDLE_BASEMETHOD(setFollowTarget)
+			OWEAKHANDLE_BASEMETHOD(getFollowTarget)
+			OWEAKHANDLE_BASEMETHOD(setFollowDamping)
+			OWEAKHANDLE_BASEMETHOD(getFollowDamping)
+			OWEAKHANDLE_BASEMETHOD(setFollowOffset)
+			OWEAKHANDLE_BASEMETHOD(getFollowOffset)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

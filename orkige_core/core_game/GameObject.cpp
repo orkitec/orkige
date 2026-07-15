@@ -561,18 +561,23 @@ namespace Orkige
 		OFUNC(addTag)
 		OFUNC(removeTag)
 
-		// getParent (above) hands Lua a WEAK GameObjectHandle - the same weak-handle
-		// currency as the widgets (OFUNCWEAK is the one weak-registration macro). It
-		// locks per method call and raises "handle is dead (GameObject 'id')" once
-		// the object is gone. The handle carries the read/hierarchy/tag surface a
-		// script walks a parent chain with; getParent itself chains as a handle.
-		// NOTE: the deliberate, AUDITED inconsistency - world.find / self.gameObject
-		// still hand OWNING GameObjects (the shared world currency); unifying them is
-		// the remaining-surface follow-up (Docs/lua-api.md). setParent (an overloaded
-		// mutator) and the `.id` property stay on the owning surface for now.
+		// getParent (above), world.get / world.findByTag / self.gameObject and the
+		// contact-event OTHER object all hand Lua this ONE weak GameObjectHandle -
+		// the whole world-object currency (OFUNCWEAK is the one weak-registration
+		// macro). It locks per method call and raises "handle is dead (GameObject
+		// 'id')" once the object is gone. The handle mirrors the ENTIRE old owning
+		// GameObject Lua surface - the `.id` field (a locked read-only property),
+		// setParent (the single-id overload) and the load/save template pair join
+		// the read/hierarchy/tag methods - so scripts that reached a world object
+		// as a raw pointer run UNCHANGED against the handle. getParent chains up as
+		// another handle.
 		OWEAKHANDLE_BEGIN(Orkige::GameObject, "GameObjectHandle", "handle", "object")
+			OWEAKHANDLE_PROPERTY_RO("id", getObjectID)		// obj.id field access
 			OWEAKHANDLE_BASEMETHOD(getObjectID)
+			OWEAKHANDLE_BASEMETHOD(loadTemplate)
+			OWEAKHANDLE_BASEMETHOD(saveTemplate)
 			OWEAKHANDLE_BASEMETHOD(getParentId)
+			OWEAKHANDLE_BASEMETHOD_OVERL(setParent, bool (Orkige::GameObject::*)(Orkige::String const &))
 			OWEAKHANDLE_BASEMETHOD(getChildIds)
 			OWEAKHANDLE_BASEMETHOD(getPrefabRef)
 			OWEAKHANDLE_BASEMETHOD(setActive)

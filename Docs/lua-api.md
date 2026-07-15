@@ -383,16 +383,33 @@ local resume = gui:findButton("resumeBtn")
 
 ## Widget & object handles (weak, per-call-locked)
 
-Accessors that hand a script a reference to an engine-owned object — every
-`GuiManager` finder (`findWidget`, `findLabel`, …), `gui:getFactory()`,
-`getToggleGroup`, every factory `create*`, and `GameObject:getParent()` — return
-a **weak handle**, not an owning reference. Lua never owns the object; the engine
-does (the `GuiManager` owns its widgets, the world owns its objects). Each method
-call **locks** the handle for the duration of the call. If the object is already
-gone, the call raises a normal, `pcall`-catchable Lua error at the line that made
-it — e.g. `widget handle is dead (GuiLabel 'coinLabel')` — instead of a crash, a
-zombie that keeps the object alive, or a silent no-op. A mistake is visible where
-it happened, and the app keeps running.
+Accessors that hand a script a reference to an engine-owned object return a
+**weak handle**, not an owning reference. This is the whole object surface:
+
+- every `GuiManager` finder (`findWidget`, `findLabel`, …), `gui:getFactory()`,
+  `getToggleGroup`, every factory `create*`;
+- every `world.*` lookup — `world.get(id)`, the per-component `world.getTransform`
+  / `getRigidBody` / `getModel` / `getSprite` / `getParticles` / `getScript` /
+  `getSound` / `getCamera` / `getLevel`, and `world.findByTag` (an array of
+  handles);
+- the `self` fields a `ScriptComponent` injects — `self.gameObject`, `self.script`
+  and each sibling component (`self.transform`, `self.rigidbody`, `self.sprite`,
+  `self.shape`, `self.anim`, …);
+- the OTHER object delivered to `onContactBegin` / `onContactEnd`;
+- `GameObject:getParent()`;
+- `widget:getLayer()` — a screen-scoped `UiLayer` handle. A layer dies with its
+  view, so an `.oui` hot-reload or a preview teardown makes a cached layer handle
+  raise `layer handle is dead` (keyed on the view's liveness) rather than dangle.
+
+Lua never owns the object; the engine does (the `GuiManager` owns its widgets, the
+world owns its objects, a `GameObject` owns its components). Each method call
+**locks** the handle for the duration of the call. If the object is already gone,
+the call raises a normal, `pcall`-catchable Lua error at the line that made it —
+e.g. `widget handle is dead (GuiLabel 'coinLabel')`, `handle is dead (GameObject
+'Player')`, or `component handle is dead (TransformComponent 'Player')` (a
+component names its OWNING object) — instead of a crash, a zombie that keeps the
+object alive, or a silent no-op. A mistake is visible where it happened, and the
+app keeps running. `self.id` stays a plain string, not a handle.
 
 There is **one** widget handle type (`WidgetHandle`). It carries the whole widget
 method surface and resolves each method against the object's **live type**, so
@@ -412,12 +429,18 @@ You never keep a handle alive to keep the widget alive — destroy it through th
 manager (or let the manager tear down), and any handle to it simply raises on the
 next touch.
 
-`GameObject:getParent()` uses the same weak-handle mechanism (`handle is dead
-(GameObject 'Player')`). This is a deliberate, documented inconsistency for now:
-`world.find`, `world.get` and `self.gameObject` still hand back **owning**
-`GameObject`s (the shared world currency scripts pass around). Unifying the two is
-a tracked follow-up; treat a `getParent()` result as a short-lived handle you read
-and discard, not a stored owning reference.
+The **GameObject and component** surface follows the same rule. `world.get(id)`,
+`self.gameObject`, `GameObject:getParent()` and the contact-event OTHER object are
+all one `GameObjectHandle` type carrying the read / hierarchy / tag / active
+surface. Each component accessor (`world.getTransform`, `self.transform`, …) is
+its own per-type handle carrying that component's methods — a `TransformComponent`
+handle exposes `setPosition` / `teleport` / …, a `RigidBodyComponent` handle
+exposes `applyImpulse` / `setLinearVelocity` / …, and so on. There is no wrong-type
+gate for components (each type has its own accessor), so a component handle only
+ever raises the dead-handle error, naming the object it belonged to. A cached
+handle — `self.gameObject` stored across frames, a contact OTHER stashed for later
+— is always safe: it locks per call and raises honestly once its object is
+destroyed, never dereferencing freed engine state.
 
 ## Canonical snippets
 
@@ -667,12 +690,6 @@ GuiToggleGroup:setSelected(...)
 GuiToggleGroup:setAllowNone(...)
 GuiToggleGroup:getMemberCount(...)
 GuiToggleGroup:pollChanged(...)
-
-## GuiLayer
-GuiLayer:show(...)
-GuiLayer:hide(...)
-GuiLayer:isVisible(...)
-GuiLayer:setVisible(...)
 
 ## RenderNode
 RenderNode:getPosition(...)
@@ -1121,7 +1138,6 @@ GuiWidget:getPosition(...)
 GuiWidget:centerHorizontal(...)
 GuiWidget:setEnabled(...)
 GuiWidget:isEnabled(...)
-GuiWidget:getLayer(...)
 GuiWidget:setAnchors(...)
 GuiWidget:setAnchorPreset(...)
 GuiWidget:setPivot(...)

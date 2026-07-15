@@ -23,6 +23,11 @@
 // sites include this header unconditionally and never test ORKIGE_LUA.
 #ifdef ORKIGE_LUA
 #include "core_script/ScriptManager.h"
+// MetaLuaDetail::makeHandle (the weak-handle factory) backs the handle seams
+// below - setSelfHandle / callHookWithObject / registerHandle*Accessor - so
+// callers hand engine objects to Lua as WEAK handles without ever naming a
+// backend detail or testing ORKIGE_LUA themselves.
+#include "core_base/Meta.h"
 #include <sol/sol.hpp>
 #include <utility>
 #endif
@@ -330,6 +335,70 @@ namespace Orkige
 #endif
 		}
 
+		//! @brief register <tableName>.<functionName>(id) that hands Lua a WEAK
+		//! handle over the woptr the resolver returns (nil when the woptr is
+		//! empty). The handle locks per method call and raises an honest,
+		//! pcall-catchable error naming the object once it is gone - never a raw
+		//! pointer outliving its engine object. Backend-neutral: the resolver
+		//! deals only in woptr, the weak-handle wrapping stays behind this seam.
+		//! No-op without a scripting backend.
+		template<typename Resolver>
+		void registerHandleAccessor(char const * tableName,
+			char const * functionName, Resolver resolver)
+		{
+#ifdef ORKIGE_LUA
+			sol::state & lua = this->luaManager.state();
+			if (!lua[tableName].is<sol::table>())
+			{
+				lua[tableName] = lua.create_table();
+			}
+			lua[tableName][functionName] = [resolver](String const & id)
+			{
+				return MetaLuaDetail::makeHandle(resolver(id));
+			};
+#else
+			(void)tableName;
+			(void)functionName;
+			(void)resolver;
+#endif
+		}
+
+		//! @brief the array sibling of registerHandleAccessor: the resolver
+		//! returns a std::vector<woptr<T>> and Lua receives an array of WEAK
+		//! handles (empty entries dropped). No-op without a scripting backend.
+		template<typename Resolver>
+		void registerHandleListAccessor(char const * tableName,
+			char const * functionName, Resolver resolver)
+		{
+#ifdef ORKIGE_LUA
+			sol::state & lua = this->luaManager.state();
+			if (!lua[tableName].is<sol::table>())
+			{
+				lua[tableName] = lua.create_table();
+			}
+			lua[tableName][functionName] = [resolver](String const & id)
+			{
+				auto weaks = resolver(id);
+				std::vector<typename decltype(
+					MetaLuaDetail::makeHandle(weaks.front()))::value_type> handles;
+				handles.reserve(weaks.size());
+				for (auto const & weak : weaks)
+				{
+					auto handle = MetaLuaDetail::makeHandle(weak);
+					if (handle)
+					{
+						handles.push_back(*handle);
+					}
+				}
+				return handles;
+			};
+#else
+			(void)tableName;
+			(void)functionName;
+			(void)resolver;
+#endif
+		}
+
 		//! @brief register a host callback as <tableName>.<functionName>(args)
 		//! (the table is created when missing): the script passes ONE table of
 		//! arguments, which arrives as a ScriptValueMap; the callback fills a
@@ -393,6 +462,23 @@ namespace Orkige
 			(void)value;
 #endif
 		}
+		//! @brief set a `self` field to a WEAK handle over the given woptr (nil
+		//! when it is empty): the script reads e.g. self.transform / self.gameObject
+		//! as a handle that locks per method call and raises an honest,
+		//! pcall-catchable error once the object is gone - never a raw pointer a
+		//! cached field could dereference after teardown. Backend-neutral: the
+		//! caller passes only a woptr, the weak-handle wrapping stays behind this
+		//! seam. No-op without a scripting backend.
+		template<typename ObjectType>
+		void setSelfHandle(char const * key, woptr<ObjectType> const & weak)
+		{
+#ifdef ORKIGE_LUA
+			this->selfTable[key] = MetaLuaDetail::makeHandle(weak);
+#else
+			(void)key;
+			(void)weak;
+#endif
+		}
 		//! @brief inject a reflected PropertyValue onto the `self` table as its
 		//! natural Lua type (a script's EXPORTED properties are
 		//! pushed here before init so the script reads them as tunables -
@@ -453,6 +539,25 @@ namespace Orkige
 			((void)args, ...);	// fold: silence the unused forwarded args
 			*outError = "scripting disabled (built with ORKIGE_SCRIPTING=OFF)";
 			return false;
+#endif
+		}
+		//! @brief call an OPTIONAL hook name(self, handle) passing a WEAK handle
+		//! over the given woptr (nil when empty) - the weak-handle sibling of
+		//! callFunction for delivering an engine object (the OTHER GameObject of a
+		//! contact event) as a handle rather than a raw pointer. A hook that
+		//! stashes the handle touches it safely later: a stale touch raises an
+		//! honest script error instead of reading freed state. Backend-neutral:
+		//! the caller passes only a woptr. No-op semantics match callFunction.
+		template<typename ObjectType>
+		bool callHookWithObject(char const * name, String * outError,
+			woptr<ObjectType> const & weak)
+		{
+#ifdef ORKIGE_LUA
+			return this->callFunction(name, outError,
+				MetaLuaDetail::makeHandle(weak));
+#else
+			(void)weak;
+			return this->callFunction(name, outError);
 #endif
 		}
 	protected:

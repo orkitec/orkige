@@ -312,7 +312,11 @@ namespace Orkige
 		// the window camera; scripts place it via its rig node:
 		// Engine.getSingleton():getCamera():getNode()
 		OFUNC_REN(getWindowCamera,getCamera)
-		// render services (RenderSystem/RenderWorld usertypes in module.cpp)
+		// render services (RenderSystem/RenderWorld usertypes in module.cpp).
+		// Stays RAW: RenderSystem is engine-lifetime facade
+		// infrastructure the Engine owns by value - not shared_ptr-managed (no
+		// weak_ptr source) and strictly outliving any script; a per-call entry
+		// point, not a per-object resource that can vanish under a live script.
 		OFUNC(getRenderSystem)
 		// window size in pixels for UI layout
 		OFUNC(getWindowWidth)

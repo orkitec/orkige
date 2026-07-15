@@ -312,6 +312,12 @@ namespace Orkige
 		template<typename T> struct HasTypeInfo<T, std::void_t<decltype(std::declval<T &>().getTypeInfo())>> : std::true_type {};
 		template<typename T, typename = void> struct HasObjectID : std::false_type {};
 		template<typename T> struct HasObjectID<T, std::void_t<decltype(std::declval<T &>().getObjectID())>> : std::true_type {};
+		//! detect a component that carries no id of its own but knows its owning
+		//! GameObject (getGameObject()): the handle then borrows the OWNER's id, so
+		//! a component's dead-handle text names the object it belonged to
+		//! ("component handle is dead (TransformComponent 'hero')").
+		template<typename T, typename = void> struct HasGameObjectOwner : std::false_type {};
+		template<typename T> struct HasGameObjectOwner<T, std::void_t<decltype(std::declval<T &>().getGameObject()->getObjectID())>> : std::true_type {};
 
 		//! @brief construct a handle-or-nil from a woptr<Leaf>: nil when empty
 		//! (absent / wrong type - preserves the typed-finder contract), else a weak
@@ -333,9 +339,22 @@ namespace Orkige
 			{
 				kind = locked->getTypeInfo().getName();		// dynamic leaf type
 			}
-			if constexpr (HasObjectID<Leaf>::value)
+			if constexpr (HasGameObjectOwner<Leaf>::value)
 			{
-				id = locked->getObjectID();
+				// a component carries no meaningful id of its own (its inherited
+				// Object id is blank) - borrow the OWNER's for the error text so
+				// it names the object the component belonged to. Checked BEFORE
+				// getObjectID so it wins for components; a GameObject has no
+				// getGameObject() and falls through to its own id below. (owner
+				// type deduced - core_base never names GameObject.)
+				if (auto * owner = locked->getGameObject())
+				{
+					id = owner->getObjectID();
+				}
+			}
+			else if constexpr (HasObjectID<Leaf>::value)
+			{
+				id = locked->getObjectID();					// object's own id
 			}
 			std::shared_ptr<Base> base = locked;	// upcast to the handle base
 			return LuaWeakHandle<Base>{ std::weak_ptr<Base>(base), kind, id };
@@ -568,6 +587,22 @@ namespace Orkige
 
 //! bind an inherited/base method (member of the handle base) as lock-and-forward
 #define OWEAKHANDLE_BASEMETHOD(Method)						wh_class[#Method] = Orkige::MetaLuaDetail::forwardBase<WeakHandleBase>(whDeadNoun, &WeakHandleBase::Method);
+
+//! bind an OVERLOADED base method, disambiguated by the member-pointer cast type
+//! CCast (the handle-surface counterpart of OFUNCOVERL) as lock-and-forward
+#define OWEAKHANDLE_BASEMETHOD_OVERL(Method, CCast)			wh_class[#Method] = Orkige::MetaLuaDetail::forwardBase<WeakHandleBase>(whDeadNoun, static_cast<CCast>(&WeakHandleBase::Method));
+
+//! bind a READ-ONLY property (Lua field syntax obj.PropName) whose getter is the
+//! base Getter, locked per read (the handle-surface counterpart of OPROP). Keeps
+//! a script's `obj.id` field access working across the raw-pointer -> handle flip.
+#define OWEAKHANDLE_PROPERTY_RO(PropName, Getter)			wh_class[PropName] = sol::property(Orkige::MetaLuaDetail::forwardBase<WeakHandleBase>(whDeadNoun, &WeakHandleBase::Getter));
+
+//! bind a CUSTOM callable (a lambda taking LuaWeakHandle<WeakHandleBase>&) as a
+//! handle method - the escape hatch (the handle-surface counterpart of
+//! OFUNC_CUSTOM) for a method whose result is neither a plain value nor a
+//! standard handle: e.g. getLayer, which locks the widget then hands back a
+//! view-keyed GuiLayerHandle. Variadic so the lambda may contain commas.
+#define OWEAKHANDLE_CUSTOM(Method, ...)						wh_class[#Method] = __VA_ARGS__;
 
 //! bind a LEAF method (member of LeafClass): locks then dynamic_casts, with a
 //! distinct wrong-leaf error on a live widget of another type

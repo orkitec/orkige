@@ -618,5 +618,29 @@ namespace Orkige
 		OPROPERTY("zOrder", Orkige::PropertyKind::Int, getZOrder, setZOrder, Orkige::PROP_NONE)
 		OPROPERTY("visible", Orkige::PropertyKind::Bool, isSpriteVisible, setSpriteVisible, Orkige::PROP_NONE)
 		OPROPERTY_REF("texture", Orkige::PropertyKind::AssetRef, "texture", getTextureName, setTextureReference, Orkige::PROP_NONE)
+
+		// self.sprite / world.getSprite(id) hand Lua a WEAK handle: locks per call,
+		// raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::SpriteComponent, "SpriteComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(loadSprite)
+			OWEAKHANDLE_BASEMETHOD(loadSpriteFromAtlas)
+			OWEAKHANDLE_BASEMETHOD(removeSprite)
+			OWEAKHANDLE_BASEMETHOD(getTextureName)
+			OWEAKHANDLE_BASEMETHOD(hasSprite)
+			OWEAKHANDLE_BASEMETHOD(setSize)
+			OWEAKHANDLE_BASEMETHOD(getWidth)
+			OWEAKHANDLE_BASEMETHOD(getHeight)
+			OWEAKHANDLE_BASEMETHOD(getRenderedWidth)
+			OWEAKHANDLE_BASEMETHOD(getRenderedHeight)
+			OWEAKHANDLE_BASEMETHOD(setUVRect)
+			OWEAKHANDLE_BASEMETHOD(setTint)
+			OWEAKHANDLE_BASEMETHOD(setFlip)
+			OWEAKHANDLE_BASEMETHOD(getFlipX)
+			OWEAKHANDLE_BASEMETHOD(getFlipY)
+			OWEAKHANDLE_BASEMETHOD(setZOrder)
+			OWEAKHANDLE_BASEMETHOD(getZOrder)
+			OWEAKHANDLE_BASEMETHOD(setSpriteVisible)
+			OWEAKHANDLE_BASEMETHOD(isSpriteVisible)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

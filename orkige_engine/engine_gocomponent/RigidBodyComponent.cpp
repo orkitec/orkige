@@ -538,5 +538,33 @@ namespace Orkige
 		OPROPERTY("linear_velocity", Orkige::PropertyKind::Vec3, getLinearVelocity, setLinearVelocity, Orkige::PROP_TRANSIENT)
 		OPROPERTY("angular_velocity", Orkige::PropertyKind::Vec3, getAngularVelocity, setAngularVelocity, Orkige::PROP_TRANSIENT)
 		OPROPERTY_RO("has_body", Orkige::PropertyKind::Bool, hasBody, Orkige::PROP_TRANSIENT)
+
+		// self.rigidbody / world.getRigidBody(id) hand Lua a WEAK handle: locks
+		// per call, raises an honest error naming the owner once the body's
+		// object is gone (never a raw pointer). @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::RigidBodyComponent, "RigidBodyComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(setBodyType)
+			OWEAKHANDLE_BASEMETHOD(setBoxShape)
+			OWEAKHANDLE_BASEMETHOD(setSphereShape)
+			OWEAKHANDLE_BASEMETHOD(setCapsuleShape)
+			OWEAKHANDLE_BASEMETHOD(setMass)
+			OWEAKHANDLE_BASEMETHOD(setFriction)
+			OWEAKHANDLE_BASEMETHOD(setRestitution)
+			OWEAKHANDLE_BASEMETHOD(setPlanarMode)
+			OWEAKHANDLE_BASEMETHOD(getPlanarMode)
+			OWEAKHANDLE_BASEMETHOD(setLayer)
+			OWEAKHANDLE_BASEMETHOD(getLayer)
+			OWEAKHANDLE_BASEMETHOD(setIsSensor)
+			OWEAKHANDLE_BASEMETHOD(isSensor)
+			OWEAKHANDLE_BASEMETHOD(setLinearVelocity)
+			OWEAKHANDLE_BASEMETHOD(getLinearVelocity)
+			OWEAKHANDLE_BASEMETHOD(setAngularVelocity)
+			OWEAKHANDLE_BASEMETHOD(getAngularVelocity)
+			OWEAKHANDLE_BASEMETHOD(applyImpulse)
+			OWEAKHANDLE_BASEMETHOD(applyForce)
+			OWEAKHANDLE_BASEMETHOD(teleport)
+			OWEAKHANDLE_BASEMETHOD(hasBody)
+			OWEAKHANDLE_BASEMETHOD(getBodyId)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

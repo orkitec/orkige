@@ -270,5 +270,14 @@ namespace Orkige
 		// material set before the mesh is recorded and applied by loadModel).
 		OPROPERTY_REF("mesh", Orkige::PropertyKind::AssetRef, "mesh", getCurrentModelFileName, setModelReference, Orkige::PROP_NONE)
 		OPROPERTY_REF("material", Orkige::PropertyKind::AssetRef, "material", getMaterialFileName, setMaterialReference, Orkige::PROP_NONE)
+
+		// self.model / world.getModel(id) hand Lua a WEAK handle: locks per call,
+		// raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::ModelComponent, "ModelComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(loadModel)
+			OWEAKHANDLE_BASEMETHOD(getCurrentModelFileName)
+			OWEAKHANDLE_BASEMETHOD(setMaterialReference)
+			OWEAKHANDLE_BASEMETHOD(getMaterialFileName)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

@@ -41,6 +41,7 @@
 #include "engine_gui/GuiManager.h"
 #include "engine_gui/GuiWidget.h"
 #include "engine_gui/GuiWidgetHandle.h"
+#include "engine_gui/GuiLayerHandle.h"
 #include "engine_gui/GuiFactory.h"
 #include "engine_gui/GuiLabel.h"
 #include "engine_gui/GuiButton.h"
@@ -189,12 +190,21 @@ ORKIGE_MODULE(orkige_engine)
 		OVAR(mBottom)
 	OSIMPLEEXPORT_END
 
-	// widget visibility rides on the shared per-z UiLayer
-	OSIMPLEEXPORT(Orkige::UiLayer,GuiLayer)
-		OFUNC(show)
-		OFUNC(hide)
-		OFUNC(isVisible)
-		OFUNC(setVisible)
+	// widget visibility rides on the shared per-z UiLayer, reached via
+	// widget:getLayer(). Lua holds a WEAK GuiLayerHandle (not the raw UiLayer): a
+	// layer is SCREEN-scoped and dies with its view (an .oui hot-reload or a
+	// preview teardown destroys the screen mid-session), so each method locks the
+	// view for the call and raises "layer handle is dead" once the screen is gone
+	// rather than dangling. @see engine_gui/GuiLayerHandle.h
+	OSIMPLEEXPORT(Orkige::MetaLuaDetail::GuiLayerHandle,GuiLayer)
+		OFUNC_CUSTOM(show, [](Orkige::MetaLuaDetail::GuiLayerHandle & h)
+			{ Orkige::MetaLuaDetail::lockLayerHandle(h)->show(); })
+		OFUNC_CUSTOM(hide, [](Orkige::MetaLuaDetail::GuiLayerHandle & h)
+			{ Orkige::MetaLuaDetail::lockLayerHandle(h)->hide(); })
+		OFUNC_CUSTOM(isVisible, [](Orkige::MetaLuaDetail::GuiLayerHandle & h)
+			{ return Orkige::MetaLuaDetail::lockLayerHandle(h)->isVisible(); })
+		OFUNC_CUSTOM(setVisible, [](Orkige::MetaLuaDetail::GuiLayerHandle & h, bool visible)
+			{ Orkige::MetaLuaDetail::lockLayerHandle(h)->setVisible(visible); })
 	OSIMPLEEXPORT_END
 
 	OEXPORT(IGuiObject)
@@ -246,7 +256,11 @@ ORKIGE_MODULE(orkige_engine)
 		OWEAKHANDLE_BASEMETHOD(centerHorizontal)
 		OWEAKHANDLE_BASEMETHOD(setEnabled)
 		OWEAKHANDLE_BASEMETHOD(isEnabled)
-		OWEAKHANDLE_BASEMETHOD(getLayer)
+		// getLayer locks the widget, then hands back the view-keyed weak
+		// GuiLayerHandle (a screen-scoped layer must not dangle behind a cached
+		// handle) - @see engine_gui/GuiLayerHandle.h
+		OWEAKHANDLE_CUSTOM(getLayer, [](Orkige::MetaLuaDetail::LuaWeakHandle<Orkige::GuiWidget> & h)
+			{ return Orkige::makeLayerHandle(*Orkige::MetaLuaDetail::lockHandle(h, "widget handle")); })
 		OWEAKHANDLE_PARENTMETHOD(setParent)					// widget-valued parameter
 		OWEAKHANDLE_BASEMETHOD(setAnchors)
 		OWEAKHANDLE_BASEMETHOD(setAnchorPreset)
@@ -402,7 +416,14 @@ ORKIGE_MODULE(orkige_engine)
 	// exists - scripts rotate via setOrientation/lookAt/setDirection.
 
 	// the transform-hierarchy node handle (what scripts place cameras and
-	// objects with)
+	// objects with).
+	// Ownership (by design): createChild / getParent stay OWNING by
+	// design - RenderNode IS an optr-shared owning handle (RenderNode.h: "the
+	// handle OWNS the backend node: destroying the last optr detaches+destroys
+	// it"; the graph mirrors children with woptr, createChild transfers sole
+	// ownership). A script legitimately HOLDS the node it places content on;
+	// handing a weak handle would destroy the node the moment the Lua temporary
+	// dropped. This is the sanctioned "by-design ownership the script holds".
 	OSIMPLEEXPORT(Orkige::RenderNode,RenderNode)
 		OFUNCIR(getPosition)
 		OFUNC(setPosition)
@@ -435,6 +456,9 @@ ORKIGE_MODULE(orkige_engine)
 	// the camera handle: scripts fetch the window camera from the Engine
 	// singleton (engine:getCamera()) and move it via getNode()
 	OSIMPLEEXPORT(Orkige::RenderCamera,RenderCamera)
+		// getNode stays OWNING: it hands back the node the camera is attached to
+		// (an optr the camera also holds) - the script drives the camera by
+		// holding/moving this node, the same by-design RenderNode ownership.
 		OFUNC(getNode)
 		// (verticalHalfExtent, nearClip, farClip) - Engine's
 		// setCameraOrthographic wraps this preserving the clips
@@ -452,14 +476,22 @@ ORKIGE_MODULE(orkige_engine)
 
 	// the renderer entry point (engine:getRenderSystem()) - the services a
 	// script can meaningfully reach; sizes/stats with out-parameters stay
-	// C++-only (Engine wraps the window size as getWindowWidth/Height)
+	// C++-only (Engine wraps the window size as getWindowWidth/Height).
+	// getWorld stays RAW: RenderWorld is scene-lifetime facade infrastructure the
+	// RenderSystem owns by value (not shared_ptr-managed, so no weak_ptr source
+	// exists) and it strictly outlives any script instance (scripts retire with
+	// the scene). It is engine plumbing a script reaches per call, not a per-
+	// object resource that can vanish under a live script - no weak flip applies.
 	OSIMPLEEXPORT(Orkige::RenderSystem,RenderSystem)
 		OFUNC(getWindowCamera)
 		OFUNC(getWorld)
 		OFUNC(saveWindowContents)
 	OSIMPLEEXPORT_END
 
-	// the scene world: node factory + root access for scripts
+	// the scene world: node factory + root access for scripts.
+	// getRootNode / createNode stay OWNING - the RenderNode ownership contract
+	// (see the RenderNode block above): createNode transfers sole ownership, and
+	// the script is meant to hold the nodes it builds a scene subtree from.
 	OSIMPLEEXPORT(Orkige::RenderWorld,RenderWorld)
 		OFUNC(getRootNode)
 		// (name) - empty string = backend-generated name

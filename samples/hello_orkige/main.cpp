@@ -20,7 +20,11 @@
 #include <engine_gocomponent/SpriteAnimationComponent.h>
 #include <engine_gocomponent/ParticleComponent.h>
 #include <engine_gocomponent/VectorShapeComponent.h>
+#include <engine_gocomponent/VectorAnimationComponent.h>
 #include <engine_gocomponent/RigidBodyComponent.h>
+#include <engine_gocomponent/SoundComponent.h>
+#include <engine_gocomponent/CameraComponent.h>
+#include <core_game/LevelComponent.h>
 #include <engine_physic/PhysicsWorld.h>
 // gui is flavor-neutral - the
 // ORKIGE_DEMO_GUI smoke test below runs on both render flavors
@@ -2118,6 +2122,12 @@ int main(int, char**)
 					"orphanLabel", 9, "orphaned", Vector2(10, 10), "", 6, false)
 				local label = lua_orphan_gui:findLabel("orphanLabel")
 				lua_orphan_live_ok = pcall(function() label:setText("live") end) and 1 or 0
+				-- a widget:getLayer() handle is the SCREEN-scoped case: the layer
+				-- dies with the view, so a cached layer handle must raise once the
+				-- screen is gone. Grab one and confirm it dispatches while live.
+				local layer = label:getLayer()
+				lua_orphan_layer_live = pcall(function()
+					layer:isVisible(); layer:show() end) and 1 or 0
 				-- destroy the manager (owns widgets + views/screens/UiLayers): they die
 				-- WITH it, in order - no orphaned widget pointing at a freed layer.
 				lua_orphan_gui = nil
@@ -2131,7 +2141,14 @@ int main(int, char**)
 				lua_orphan_msg_ok = ((not ok)
 					and string.find(lua_orphan_msg, "widget handle is dead", 1, true) ~= nil
 					and string.find(lua_orphan_msg, "orphanLabel", 1, true) ~= nil) and 1 or 0
+				-- the cached layer handle is stale too (its view died with the manager)
+				local lok, lerr = pcall(function() layer:hide() end)
+				lua_orphan_layer_raised = lok and 0 or 1
+				lua_orphan_layer_msg = tostring(lerr)
+				lua_orphan_layer_msg_ok = ((not lok)
+					and string.find(lua_orphan_layer_msg, "layer handle is dead", 1, true) ~= nil) and 1 or 0
 				label = nil
+				layer = nil
 				collectgarbage("collect")
 				lua_orphan_ok = 1
 			)lua");
@@ -2144,17 +2161,24 @@ int main(int, char**)
 			const int orphanLive = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_live_ok"}, 0));
 			const int orphanRaised = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_raised"}, 0));
 			const int orphanMsgOk = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_msg_ok"}, 0));
+			const int layerLive = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_layer_live"}, 0));
+			const int layerRaised = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_layer_raised"}, 0));
+			const int layerMsgOk = static_cast<int>(scriptRuntime.getNumber({"lua_orphan_layer_msg_ok"}, 0));
 			const Orkige::String orphanMsg = scriptRuntime.getString({"lua_orphan_msg"}, "");
-			SDL_Log("hello_orkige: orphan handle error - [%s]", orphanMsg.c_str());
-			if (orphanLive != 1 || orphanRaised != 1 || orphanMsgOk != 1)
+			const Orkige::String layerMsg = scriptRuntime.getString({"lua_orphan_layer_msg"}, "");
+			SDL_Log("hello_orkige: orphan handle errors - widget=[%s] layer=[%s]",
+				orphanMsg.c_str(), layerMsg.c_str());
+			if (orphanLive != 1 || orphanRaised != 1 || orphanMsgOk != 1 ||
+				layerLive != 1 || layerRaised != 1 || layerMsgOk != 1)
 			{
-				SDL_Log("hello_orkige: FAILED - orphan handle contract (live=%d raised=%d msgOk=%d)",
-					orphanLive, orphanRaised, orphanMsgOk);
+				SDL_Log("hello_orkige: FAILED - orphan handle contract (live=%d raised=%d "
+					"msgOk=%d layerLive=%d layerRaised=%d layerMsgOk=%d)", orphanLive,
+					orphanRaised, orphanMsgOk, layerLive, layerRaised, layerMsgOk);
 				return 1;
 			}
-			SDL_Log("hello_orkige: Lua orphan leg passed - a widget cannot outlive its "
-				"manager's layer under weak handles; touching the stale handle raised "
-				"the honest error and the app kept running");
+			SDL_Log("hello_orkige: Lua orphan leg passed - neither a widget nor its "
+				"screen-scoped layer can outlive the destroyed manager under weak "
+				"handles; each stale touch raised the honest error, app kept running");
 		}
 
 		// ORKIGE_DEMO_LUAHANDLE=1: the weak-widget-handle (option C) acceptance
@@ -2291,6 +2315,248 @@ int main(int, char**)
 			SDL_Log("hello_orkige: Lua handle leg passed - weak WidgetHandle: leaf "
 				"+ inherited + setParent(handle) dispatched, wrong-leaf and "
 				"dead-handle each raised the honest catchable error");
+		}
+
+		// ORKIGE_DEMO_LUAGOHANDLE=1: the GameObject/component weak-handle (option
+		// b) acceptance test. The world API (world.get*) and a ScriptComponent's
+		// `self` hand Lua WEAK handles now, never raw pointers: a live handle
+		// dispatches; the SAME handle after its GameObject is destroyed raises the
+		// honest, pcall-catchable error naming kind + id ("handle is dead
+		// (GameObject 'hero')" / "component handle is dead (TransformComponent
+		// 'hero')") at the touching line, app still running; and a self.gameObject
+		// tick-loop measures the per-call lock cost. Scripting-gated, flavor-
+		// neutral (reads ids/flags/error strings, no render readback).
+		if (std::getenv("ORKIGE_DEMO_LUAGOHANDLE") &&
+			Orkige::ScriptRuntime::available())
+		{
+			// world.get* live behind ensureScriptApi (idempotent); the probe
+			// script resolves against the demo media dir
+			scriptRuntime.setScriptSearchRoot(ORKIGE_DEMO_ASSET_DIR);
+			Orkige::ScriptComponent::ensureScriptApi();
+			Orkige::GameObjectManager& gom = host.getGameObjectManager();
+			optr<Orkige::GameObject> hero = gom.createGameObject("hero").lock();
+			if (!hero || !hero->addComponent<Orkige::TransformComponent>() ||
+				!hero->addComponent<Orkige::ScriptComponent>())
+			{
+				SDL_Log("hello_orkige: FAILED - go-handle probe object setup");
+				return 1;
+			}
+			Orkige::ScriptComponent* probe =
+				hero->getComponentPtr<Orkige::ScriptComponent>();
+			probe->setScriptFile("go_handle_probe.lua");
+			probe->setScriptEnabled(true);
+			// one tick loads + inits the script: populateSelfTable pushes the weak
+			// self.gameObject / self.transform handles, init caches them to `shared`
+			gom.update(0.016f);
+			// world.get(id) hands the same weak GameObjectHandle - cache it too
+			scriptRuntime.runString("shared.probe_world_go = world.get('hero')");
+
+			// --- live dispatch through the handles ---
+			const Orkige::String liveId =
+				scriptRuntime.getString({"shared", "probe_live_id"}, "");
+			const Orkige::ScriptRuntime::Result liveLeg =
+				scriptRuntime.runString(R"lua(
+				lua_go_world_live = pcall(function()
+					return shared.probe_world_go:getObjectID() end) and 1 or 0
+				lua_go_comp_live = pcall(function()
+					return shared.probe_self_tf:getScale().x end) and 1 or 0
+			)lua");
+			if (!liveLeg.success)
+			{
+				SDL_Log("hello_orkige: FAILED - go-handle live leg: %s",
+					liveLeg.error.c_str());
+				return 1;
+			}
+
+			// --- perf A/B: self.gameObject:isActiveSelf() (a cheap bool, so the
+			// timing is the weak-handle lock + Lua boundary, not method work) in a
+			// tight loop, against a raw weak_ptr.lock() in isolation ---
+			const int perfN = 200000;
+			const Uint64 freq = SDL_GetPerformanceFrequency();
+			scriptRuntime.runString("lua_go_perf_n = " + std::to_string(perfN));
+			const char* goLoop = "for i = 1, lua_go_perf_n do "
+				"shared.probe_self_go:isActiveSelf() end";
+			scriptRuntime.runString(goLoop);	// warm
+			double handleNs = 1e18;
+			for (int trial = 0; trial < 4; ++trial)
+			{
+				const Uint64 s = SDL_GetPerformanceCounter();
+				scriptRuntime.runString(goLoop);
+				const Uint64 e = SDL_GetPerformanceCounter();
+				const double ns =
+					static_cast<double>(e - s) / freq * 1e9 / perfN;
+				if (ns < handleNs) handleNs = ns;
+			}
+			double rawLockNs = 1e18;
+			{
+				std::shared_ptr<int> owner = std::make_shared<int>(0);
+				std::weak_ptr<int> w = owner;
+				volatile int sink = 0;
+				for (int i = 0; i < perfN; ++i)
+				{
+					auto s = w.lock();
+					sink += (s != nullptr);
+				}
+				for (int trial = 0; trial < 4; ++trial)
+				{
+					const Uint64 s = SDL_GetPerformanceCounter();
+					for (int i = 0; i < perfN; ++i)
+					{
+						auto sp = w.lock();
+						sink += (sp != nullptr);
+					}
+					const Uint64 e = SDL_GetPerformanceCounter();
+					const double ns =
+						static_cast<double>(e - s) / freq * 1e9 / perfN;
+					if (ns < rawLockNs) rawLockNs = ns;
+				}
+				(void)sink;
+			}
+			SDL_Log("hello_orkige: self.gameObject per-call cost - weak-handle "
+				"call=%.0fns/call, of which raw weak_ptr.lock()=%.1fns (Debug "
+				"-O0, min of 4, N=%d)", handleNs, rawLockNs, perfN);
+
+			// --- destroy the owning GameObject: drop every strong ref so the
+			// woptrs inside the cached handles expire ---
+			hero.reset();
+			gom.delGameObject("hero");
+			scriptRuntime.runString(
+				"collectgarbage('collect'); collectgarbage('collect')");
+
+			// --- stale touches raise the honest kind+id error at the touch ---
+			const Orkige::ScriptRuntime::Result staleLeg =
+				scriptRuntime.runString(R"lua(
+				local ok1, e1 = pcall(function()
+					return shared.probe_self_go:getObjectID() end)
+				lua_go_self_raised = ok1 and 0 or 1
+				lua_go_self_msg = tostring(e1)
+				lua_go_self_msg_ok = ((not ok1)
+					and string.find(lua_go_self_msg, "handle is dead", 1, true) ~= nil
+					and string.find(lua_go_self_msg, "GameObject", 1, true) ~= nil
+					and string.find(lua_go_self_msg, "hero", 1, true) ~= nil) and 1 or 0
+				local ok2, e2 = pcall(function()
+					return shared.probe_world_go:getObjectID() end)
+				lua_go_world_raised = ok2 and 0 or 1
+				lua_go_world_msg = tostring(e2)
+				lua_go_world_msg_ok = ((not ok2)
+					and string.find(lua_go_world_msg, "handle is dead", 1, true) ~= nil
+					and string.find(lua_go_world_msg, "hero", 1, true) ~= nil) and 1 or 0
+				local ok3, e3 = pcall(function()
+					return shared.probe_self_tf:getScale().x end)
+				lua_go_comp_raised = ok3 and 0 or 1
+				lua_go_comp_msg = tostring(e3)
+				lua_go_comp_msg_ok = ((not ok3)
+					and string.find(lua_go_comp_msg, "component handle is dead", 1, true) ~= nil
+					and string.find(lua_go_comp_msg, "TransformComponent", 1, true) ~= nil
+					and string.find(lua_go_comp_msg, "hero", 1, true) ~= nil) and 1 or 0
+			)lua");
+			if (!staleLeg.success)
+			{
+				SDL_Log("hello_orkige: FAILED - go-handle stale leg: %s",
+					staleLeg.error.c_str());
+				return 1;
+			}
+			const int worldLive =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_world_live"}, 0));
+			const int compLive =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_comp_live"}, 0));
+			const int selfRaised =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_self_raised"}, 0));
+			const int selfMsgOk =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_self_msg_ok"}, 0));
+			const int worldRaised =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_world_raised"}, 0));
+			const int worldMsgOk =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_world_msg_ok"}, 0));
+			const int compRaised =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_comp_raised"}, 0));
+			const int compMsgOk =
+				static_cast<int>(scriptRuntime.getNumber({"lua_go_comp_msg_ok"}, 0));
+			const Orkige::String selfMsg =
+				scriptRuntime.getString({"lua_go_self_msg"}, "");
+			const Orkige::String compMsg =
+				scriptRuntime.getString({"lua_go_comp_msg"}, "");
+			SDL_Log("hello_orkige: go-handle stale errors - self=[%s] comp=[%s]",
+				selfMsg.c_str(), compMsg.c_str());
+			if (liveId != "hero" || worldLive != 1 || compLive != 1 ||
+				selfRaised != 1 || selfMsgOk != 1 || worldRaised != 1 ||
+				worldMsgOk != 1 || compRaised != 1 || compMsgOk != 1)
+			{
+				SDL_Log("hello_orkige: FAILED - go-handle contract (liveId=%s "
+					"worldLive=%d compLive=%d selfRaised=%d selfMsgOk=%d "
+					"worldRaised=%d worldMsgOk=%d compRaised=%d compMsgOk=%d)",
+					liveId.c_str(), worldLive, compLive, selfRaised, selfMsgOk,
+					worldRaised, worldMsgOk, compRaised, compMsgOk);
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua go-handle leg passed - world.get + "
+				"self.gameObject + a component handle each dispatched live, then "
+				"raised the honest kind+id error once the object was destroyed");
+		}
+
+		// ORKIGE_DEMO_LUAHANDLE_SURFACE=1: the weak-handle COMPLETENESS sweep. One
+		// live GameObject carries every scriptable component, so its probe script's
+		// `self` hands a handle for each; world.get* covers the sound/camera/level
+		// accessors and a gui label backs the layer handle. init() CALLS every
+		// method the handles bind and hard-fails on any name that is not a bound
+		// function - a dropped/renamed binding is caught here (semantic call
+		// failures are tolerated; the point is that every method DISPATCHES). The
+		// living spec of the whole handle surface. Scripting-gated, flavor-neutral.
+		if (std::getenv("ORKIGE_DEMO_LUAHANDLE_SURFACE") &&
+			Orkige::ScriptRuntime::available())
+		{
+			scriptRuntime.setScriptSearchRoot(ORKIGE_DEMO_ASSET_DIR);
+			Orkige::ScriptComponent::ensureScriptApi();
+			render->addResourceLocation(ORKIGE_DEMO_GUI_ATLAS_DIR);
+			render->initialiseResourceGroups();
+			Orkige::GameObjectManager& gom = host.getGameObjectManager();
+			optr<Orkige::GameObject> surface =
+				gom.createGameObject("surface").lock();
+			// carry every component whose handle surface the sweep drives; each add
+			// is required (a missing component leaves its self.* handle nil and the
+			// sweep refuses to verify that surface)
+			const bool addOk = surface &&
+				surface->addComponent<Orkige::TransformComponent>() &&
+				surface->addComponent<Orkige::RigidBodyComponent>() &&
+				surface->addComponent<Orkige::ModelComponent>() &&
+				surface->addComponent<Orkige::SpriteComponent>() &&
+				surface->addComponent<Orkige::ParticleComponent>() &&
+				surface->addComponent<Orkige::VectorShapeComponent>() &&
+				surface->addComponent<Orkige::VectorAnimationComponent>() &&
+				surface->addComponent<Orkige::SoundComponent>() &&
+				surface->addComponent<Orkige::CameraComponent>() &&
+				surface->addComponent<Orkige::LevelComponent>() &&
+				surface->addComponent<Orkige::ScriptComponent>();
+			if (!addOk)
+			{
+				SDL_Log("hello_orkige: FAILED - surface component add");
+				return 1;
+			}
+			surface->addTag("surfaceTag");
+			Orkige::ScriptComponent* probe =
+				surface->getComponentPtr<Orkige::ScriptComponent>();
+			probe->setScriptFile("handle_surface_probe.lua");
+			probe->setScriptEnabled(true);
+			// one tick loads + inits the probe: populateSelfTable pushes every
+			// self.* handle, init() runs the sweep and records into `shared`
+			gom.update(0.016f);
+
+			const int missingN =
+				static_cast<int>(scriptRuntime.getNumber({"shared", "surf_missing_n"}, 1));
+			const int calledN =
+				static_cast<int>(scriptRuntime.getNumber({"shared", "surf_called"}, 0));
+			const Orkige::String missMsg =
+				scriptRuntime.getString({"shared", "surf_missing"}, "?");
+			SDL_Log("hello_orkige: handle surface sweep - %d methods driven; "
+				"missing=[%s]", calledN, missMsg.c_str());
+			if (missingN != 0 || calledN < 150)
+			{
+				SDL_Log("hello_orkige: FAILED - surface sweep (missing=%d driven=%d)",
+					missingN, calledN);
+				return 1;
+			}
+			SDL_Log("hello_orkige: Lua handle-surface leg passed - every method of "
+				"the GameObject / component / layer handles is bound and dispatches");
 		}
 
 		// ORKIGE_DEMO_OUI=1: the declarative-UI + scroll + groups selfcheck

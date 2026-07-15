@@ -83,11 +83,37 @@ namespace Orkige
 			}
 			return gameObject->getComponentPtr<ComponentType>();
 		}
-		//! every live GameObject carrying the given tag (the manager tag index),
-		//! as raw pointers - the Lua array world.findByTag returns
-		std::vector<GameObject*> worldFindByTag(String const & tag)
+		//--- weak-woptr resolvers for the Lua world API. Each returns a backend-
+		//--- neutral woptr; ScriptRuntime::registerHandle*Accessor wraps it into a
+		//--- WEAK handle Lua holds (locks per call, honest error once gone), so
+		//--- ScriptComponent never names a scripting-backend detail. The raw
+		//--- helpers above stay for the C++-internal callers (tween plumbing). ----
+		//! world.get(id) -> the GameObject as a woptr (empty when the id is unknown)
+		inline woptr<GameObject> worldGameObjectWeak(String const & id)
 		{
-			std::vector<GameObject*> result;
+			if (GameObjectManager::getSingletonPtr() == NULL)
+			{
+				return woptr<GameObject>();
+			}
+			return GameObjectManager::getSingleton().getGameObject(id);
+		}
+		//! world.get<Component>(id) -> the component as a woptr (empty when the
+		//! object or the component is absent - the quiet-probe contract)
+		template<typename ComponentType>
+		inline woptr<ComponentType> worldComponentWeak(String const & id)
+		{
+			GameObject* gameObject = worldGetGameObject(id);
+			if (!gameObject)
+			{
+				return woptr<ComponentType>();
+			}
+			return gameObject->getComponent<ComponentType>();
+		}
+		//! world.findByTag(tag) -> the tagged GameObjects as woptrs (the manager
+		//! tag index drives the set)
+		std::vector<woptr<GameObject>> worldFindByTagWeak(String const & tag)
+		{
+			std::vector<woptr<GameObject>> result;
 			if (GameObjectManager::getSingletonPtr() == NULL)
 			{
 				return result;
@@ -97,10 +123,7 @@ namespace Orkige
 			result.reserve(ids.size());
 			foreach(String const & id, ids)
 			{
-				if (GameObject* gameObject = manager.getGameObject(id).lock().get())
-				{
-					result.push_back(gameObject);
-				}
+				result.push_back(manager.getGameObject(id));
 			}
 			return result;
 		}
@@ -388,7 +411,16 @@ namespace Orkige
 		}
 		const char* const hook = began ? "onContactBegin" : "onContactEnd";
 		String error;
-		if (!this->mInstance->callFunction(hook, &error, other))
+		// the OTHER object arrives as a WEAK GameObjectHandle (never a raw
+		// pointer): a hook that stashes it for later touches it safely - a stale
+		// touch raises an honest script error instead of reading freed state
+		woptr<GameObject> otherWeak;
+		if (GameObjectManager::getSingletonPtr() != NULL && other)
+		{
+			otherWeak = GameObjectManager::getSingleton().getGameObject(
+				other->getObjectID());
+		}
+		if (!this->mInstance->callHookWithObject(hook, &error, otherWeak))
 		{
 			// an error inside the hook disables the instance like any other
 			// script error (logged once through failScript)
@@ -582,46 +614,58 @@ namespace Orkige
 		// stale snapshot - engine-side state survives the swap this way
 		GameObject* componentOwner = this->getComponentOwner();
 		oAssert(componentOwner);
+		// self.gameObject / self.script / self.<component> are WEAK handles (the
+		// same currency as the world API): each locks per method call and raises
+		// an honest, pcall-catchable error naming the owner once the object is
+		// gone, so a cached `self` field can never touch freed engine state. id
+		// stays a plain string. makeHandle over an absent component yields nil, so
+		// the has-component guards below are what set a field at all.
 		instance->setSelfValue("id", componentOwner->getObjectID());
-		instance->setSelfValue("gameObject", componentOwner);
-		instance->setSelfValue("script", this);
+		instance->setSelfHandle("gameObject",
+			GameObjectManager::getSingleton().getGameObject(
+				componentOwner->getObjectID()));
+		// self.script is a handle to THIS script component (keyed by its own kind,
+		// since script kinds live under their name key, not "ScriptComponent")
+		instance->setSelfHandle("script",
+			componentOwner->getComponent<ScriptComponent>(
+				this->getComponentKey()));
 		if (componentOwner->hasComponent<TransformComponent>())
 		{
-			instance->setSelfValue("transform",
-				componentOwner->getComponentPtr<TransformComponent>());
+			instance->setSelfHandle("transform",
+				componentOwner->getComponent<TransformComponent>());
 		}
 		if (componentOwner->hasComponent<RigidBodyComponent>())
 		{
-			instance->setSelfValue("rigidbody",
-				componentOwner->getComponentPtr<RigidBodyComponent>());
+			instance->setSelfHandle("rigidbody",
+				componentOwner->getComponent<RigidBodyComponent>());
 		}
 		if (componentOwner->hasComponent<ModelComponent>())
 		{
-			instance->setSelfValue("model",
-				componentOwner->getComponentPtr<ModelComponent>());
+			instance->setSelfHandle("model",
+				componentOwner->getComponent<ModelComponent>());
 		}
 		if (componentOwner->hasComponent<SpriteComponent>())
 		{
-			instance->setSelfValue("sprite",
-				componentOwner->getComponentPtr<SpriteComponent>());
+			instance->setSelfHandle("sprite",
+				componentOwner->getComponent<SpriteComponent>());
 		}
 		if (componentOwner->hasComponent<ParticleComponent>())
 		{
-			instance->setSelfValue("particles",
-				componentOwner->getComponentPtr<ParticleComponent>());
+			instance->setSelfHandle("particles",
+				componentOwner->getComponent<ParticleComponent>());
 		}
 		if (componentOwner->hasComponent<VectorShapeComponent>())
 		{
 			// self.shape:impulse(...) / :playMorph(...) drive the soft-body deform
-			instance->setSelfValue("shape",
-				componentOwner->getComponentPtr<VectorShapeComponent>());
+			instance->setSelfHandle("shape",
+				componentOwner->getComponent<VectorShapeComponent>());
 		}
 		if (componentOwner->hasComponent<VectorAnimationComponent>())
 		{
 			// self.anim:play(...) / :setClip(...) / :crossFade(...) drive the
 			// vector-animation rig's clip playback and blending
-			instance->setSelfValue("anim",
-				componentOwner->getComponentPtr<VectorAnimationComponent>());
+			instance->setSelfHandle("anim",
+				componentOwner->getComponent<VectorAnimationComponent>());
 		}
 		// inject the EXPORTED property values as their natural
 		// Lua types BEFORE init runs, so the script reads them as tunables
@@ -744,48 +788,60 @@ namespace Orkige
 		{
 			return worldGetGameObject(id) != NULL;
 		});
-		runtime.registerFunction("world", "get", &worldGetGameObject);
-		runtime.registerFunction("world", "getTransform",
-			&worldGetComponent<TransformComponent>);
-		runtime.registerFunction("world", "getRigidBody",
-			&worldGetComponent<RigidBodyComponent>);
-		runtime.registerFunction("world", "getModel",
-			&worldGetComponent<ModelComponent>);
-		runtime.registerFunction("world", "getSprite",
-			&worldGetComponent<SpriteComponent>);
-		runtime.registerFunction("world", "getParticles",
-			&worldGetComponent<ParticleComponent>);
+		// every world.get* below hands Lua a WEAK handle (never a raw pointer):
+		// it locks per method call and raises an honest, pcall-catchable error
+		// naming the kind + id once the object is gone. registerHandleAccessor
+		// wraps the woptr resolver so this file names no scripting-backend detail.
+		runtime.registerHandleAccessor("world", "get", &worldGameObjectWeak);
+		runtime.registerHandleAccessor("world", "getTransform",
+			&worldComponentWeak<TransformComponent>);
+		runtime.registerHandleAccessor("world", "getRigidBody",
+			&worldComponentWeak<RigidBodyComponent>);
+		runtime.registerHandleAccessor("world", "getModel",
+			&worldComponentWeak<ModelComponent>);
+		runtime.registerHandleAccessor("world", "getSprite",
+			&worldComponentWeak<SpriteComponent>);
+		runtime.registerHandleAccessor("world", "getParticles",
+			&worldComponentWeak<ParticleComponent>);
 		// world.getScript(id): a script component on the object. Script kinds are
 		// keyed by script name, not "ScriptComponent", so reach them by scan and
-		// return the FIRST (an object with several scripts is better reached by
-		// world.get(id) + the shared table; this stays the convenience accessor)
-		runtime.registerFunction("world", "getScript",
-			[](String const & id) -> ScriptComponent*
+		// return the FIRST as a weak handle (an object with several scripts is
+		// better reached by world.get(id) + the shared table; this stays the
+		// convenience accessor)
+		runtime.registerHandleAccessor("world", "getScript",
+			[](String const & id) -> woptr<ScriptComponent>
 		{
 			GameObject* gameObject = worldGetGameObject(id);
 			if (!gameObject)
 			{
-				return NULL;
+				return woptr<ScriptComponent>();
 			}
 			std::vector<ScriptComponent*> scripts =
 				ScriptComponent::collectFrom(*gameObject);
-			return scripts.empty() ? NULL : scripts.front();
+			if (scripts.empty())
+			{
+				return woptr<ScriptComponent>();
+			}
+			// the woptr keyed by the found script's kind (script components
+			// live under their name key, not "ScriptComponent")
+			return gameObject->getComponent<ScriptComponent>(
+				scripts.front()->getComponentKey());
 		});
-		runtime.registerFunction("world", "getSound",
-			&worldGetComponent<SoundComponent>);
+		runtime.registerHandleAccessor("world", "getSound",
+			&worldComponentWeak<SoundComponent>);
 		// world.getCamera(id) -> the object's CameraComponent (nil when absent);
 		// the accessor a script uses to drive smooth follow, e.g.
 		//   world.getCamera("Camera"):follow("Hero", 0.2)
 		// follow COMPOSES with the ortho fit policy (fit sizes the projection,
 		// follow moves the camera position). Reflected props (followTarget /
 		// followDamping / followOffset) reach get/set_component over MCP too.
-		runtime.registerFunction("world", "getCamera",
-			&worldGetComponent<CameraComponent>);
+		runtime.registerHandleAccessor("world", "getCamera",
+			&worldComponentWeak<CameraComponent>);
 		// world.findByTag(tag) -> array of the GameObjects carrying that tag
 		// (empty table when none); tags are set in the editor Inspector or via
 		// GameObject:addTag, indexed by the GameObjectManager
-		runtime.registerFunction("world", "getLevel",
-			&worldGetComponent<LevelComponent>);
+		runtime.registerHandleAccessor("world", "getLevel",
+			&worldComponentWeak<LevelComponent>);
 		// world.loadScene(path): request a DEFERRED, re-entrant scene
 		// switch - the pending request is applied by the runtime at the frame
 		// boundary after physics (never mid-update), tearing the old world down
@@ -805,7 +861,8 @@ namespace Orkige
 					"- this runtime does not switch scenes (editor edit mode?)");
 			}
 		});
-		runtime.registerFunction("world", "findByTag", &worldFindByTag);
+		runtime.registerHandleListAccessor("world", "findByTag",
+			&worldFindByTagWeak);
 		// world.setTimeScale(s) / getTimeScale(): the gameplay time scale the
 		// player loop applies to the delta it feeds scripts, tweens and physics
 		// (1 = normal, 0.5 = slow motion, 0 = hitstop - the world freezes but
@@ -2016,5 +2073,21 @@ namespace Orkige
 		// ONE registry (loud failures still ride the separate MSG_SCRIPT_ERROR).
 		OPROPERTY_RO("started", Orkige::PropertyKind::Bool, isScriptStarted, Orkige::PROP_TRANSIENT)
 		OPROPERTY_RO("error", Orkige::PropertyKind::String, getScriptError, Orkige::PROP_TRANSIENT)
+
+		// self.script / world.getScript(id) hand Lua a WEAK handle: locks per call,
+		// raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::ScriptComponent, "ScriptComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(setScriptFile)
+			OWEAKHANDLE_BASEMETHOD(getScriptFile)
+			OWEAKHANDLE_BASEMETHOD(setScriptEnabled)
+			OWEAKHANDLE_BASEMETHOD(isScriptEnabled)
+			OWEAKHANDLE_BASEMETHOD(hasScriptError)
+			OWEAKHANDLE_BASEMETHOD(getScriptError)
+			OWEAKHANDLE_BASEMETHOD(isScriptStarted)
+			OWEAKHANDLE_BASEMETHOD(reloadScript)
+			OWEAKHANDLE_BASEMETHOD(hotReload)
+			OWEAKHANDLE_BASEMETHOD(hasReloadError)
+			OWEAKHANDLE_BASEMETHOD(getLastReloadError)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

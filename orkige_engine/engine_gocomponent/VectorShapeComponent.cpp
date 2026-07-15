@@ -602,5 +602,34 @@ namespace Orkige
 		OPROPERTY("morphSpeed", Orkige::PropertyKind::Float, getMorphSpeed, setMorphSpeed, Orkige::PROP_NONE)
 		OPROPERTY("morphLoop", Orkige::PropertyKind::Bool, getMorphLoop, setMorphLoop, Orkige::PROP_NONE)
 		OPROPERTY_REF("shape", Orkige::PropertyKind::AssetRef, "shape", getShapeName, setShapeReference, Orkige::PROP_NONE)
+
+		// self.shape / world.get(id):getShape... hand Lua a WEAK handle: locks per
+		// call, raises an honest error naming the owner once gone. @see TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::VectorShapeComponent, "VectorShapeComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(loadShape)
+			OWEAKHANDLE_BASEMETHOD(removeShape)
+			OWEAKHANDLE_BASEMETHOD(getShapeName)
+			OWEAKHANDLE_BASEMETHOD(hasShape)
+			OWEAKHANDLE_BASEMETHOD(getTriangleCount)
+			OWEAKHANDLE_BASEMETHOD(setTint)
+			OWEAKHANDLE_BASEMETHOD(setScale)
+			OWEAKHANDLE_BASEMETHOD(getScale)
+			OWEAKHANDLE_BASEMETHOD(setEdgeSoftness)
+			OWEAKHANDLE_BASEMETHOD(getEdgeSoftness)
+			OWEAKHANDLE_BASEMETHOD(setZOrder)
+			OWEAKHANDLE_BASEMETHOD(getZOrder)
+			OWEAKHANDLE_BASEMETHOD(setShapeVisible)
+			OWEAKHANDLE_BASEMETHOD(isShapeVisible)
+			OWEAKHANDLE_BASEMETHOD(setSoftBodyEnabled)
+			OWEAKHANDLE_BASEMETHOD(isSoftBodyEnabled)
+			OWEAKHANDLE_BASEMETHOD(impulse)
+			OWEAKHANDLE_BASEMETHOD(playMorph)
+			OWEAKHANDLE_BASEMETHOD(stopMorph)
+			OWEAKHANDLE_BASEMETHOD(getDeformDisplacement)
+			OWEAKHANDLE_BASEMETHOD(getSquash)
+			OWEAKHANDLE_BASEMETHOD(isDeforming)
+			OWEAKHANDLE_BASEMETHOD(getControlPointCount)
+			OWEAKHANDLE_BASEMETHOD(getMorphTargetCount)
+		OWEAKHANDLE_END
 	OOBJECT_END
 }

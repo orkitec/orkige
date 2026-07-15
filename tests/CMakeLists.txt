@@ -408,6 +408,29 @@ if(TARGET hello_orkige)
     set_tests_properties(demo_luahandle PROPERTIES
         ENVIRONMENT "ORKIGE_DEMO_LUAHANDLE=1;ORKIGE_DEMO_FRAMES=4")
 
+    # ORKIGE_DEMO_LUAGOHANDLE: the GameObject/component weak-handle acceptance
+    # test. world.get(id) and a ScriptComponent's self.gameObject /
+    # self.transform hand Lua weak handles; a live handle dispatches, and the
+    # SAME handle after its GameObject is destroyed raises the honest, catchable
+    # "handle is dead (GameObject 'hero')" / "component handle is dead
+    # (TransformComponent 'hero')" error at the touching line (never a crash,
+    # never a silent no-op). Includes a self.gameObject tick-loop per-call cost
+    # probe. Scripting-gated. Flavor-neutral (reads ids/flags/error strings).
+    add_test(NAME demo_luagohandle COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_luagohandle PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LUAGOHANDLE=1;ORKIGE_DEMO_FRAMES=4")
+
+    # ORKIGE_DEMO_LUAHANDLE_SURFACE: the weak-handle completeness sweep. One live
+    # GameObject carries every scriptable component; the probe script calls every
+    # method the GameObject / per-component / layer handles bind and hard-fails on
+    # any name that is not a bound function (a dropped/renamed binding is caught
+    # here). The living spec of the whole handle surface. Flavor-neutral.
+    add_test(NAME demo_luahandle_surface COMMAND hello_orkige
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(demo_luahandle_surface PROPERTIES
+        ENVIRONMENT "ORKIGE_DEMO_LUAHANDLE_SURFACE=1;ORKIGE_DEMO_FRAMES=4")
+
     # ORKIGE_DEMO_OUI: the declarative-UI + layout-group + scroll selfcheck -
     # loads a whole settings screen from a committed .oui file (nine-slice
     # panel + a scroll viewport whose vertical group of rows overflows) through

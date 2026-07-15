@@ -152,6 +152,9 @@
 //weak Lua handle macros (option C) - no scripting surface in this backend
 #define OWEAKHANDLE_BEGIN(BaseClass, LuaName, DeadNoun, LeafNoun)
 #define OWEAKHANDLE_BASEMETHOD(Method)
+#define OWEAKHANDLE_BASEMETHOD_OVERL(Method, CCast)
+#define OWEAKHANDLE_PROPERTY_RO(PropName, Getter)
+#define OWEAKHANDLE_CUSTOM(Method, ...)
 #define OWEAKHANDLE_LEAFMETHOD(LeafClass, Method)
 #define OWEAKHANDLE_LEAFMETHOD2(Method, Leaf1, Leaf2)
 #define OWEAKHANDLE_LEAFMETHOD3(Method, Leaf1, Leaf2, Leaf3)

@@ -10,6 +10,7 @@
 #include "engine_gui/GuiWidget.h"
 #include "engine_render/RenderSystem.h"
 #include "engine_gui/GuiManager.h"
+#include "engine_gui/GuiLayerHandle.h"
 #include "engine_graphic/Engine.h"
 
 #include <OgreString.h>
@@ -17,6 +18,14 @@
 
 namespace Orkige
 {
+	//---------------------------------------------------------
+	// build a weak layer handle from a live widget: the widget's view is the
+	// liveness key (the layer dies with its screen), the widget's UiLayer the
+	// guarded target. @see engine_gui/GuiLayerHandle.h
+	MetaLuaDetail::GuiLayerHandle makeLayerHandle(GuiWidget & widget)
+	{
+		return MetaLuaDetail::GuiLayerHandle{ widget.getView(), widget.getLayer() };
+	}
 	//---------------------------------------------------------
 	//--- public: ---------------------------------------------
 	//---------------------------------------------------------
@@ -412,8 +421,14 @@ namespace Orkige
 		OFUNC(setEnabled)
 		OFUNC(isEnabled)
 		// visibility rides on the shared per-z UiLayer (see the jumper
-		// HUD): widget:getLayer():hide()/show()/isVisible()
-		OFUNC(getLayer)
+		// HUD): widget:getLayer():hide()/show()/isVisible(). getLayer hands Lua a
+		// WEAK GuiLayerHandle, not the raw UiLayer: a layer is SCREEN-scoped and
+		// dies with its view (an .oui hot-reload or a preview teardown destroys
+		// the screen mid-session), so a cached layer handle locks the view per
+		// call and raises "layer handle is dead" once the screen is gone rather
+		// than dangling. @see engine_gui/GuiLayerHandle.h
+		OFUNC_CUSTOM(getLayer, [](Orkige::GuiWidget & widget)
+			{ return Orkige::makeLayerHandle(widget); })
 		// rect-anchor layout (opt-in): parent under another widget and pin/
 		// stretch against it or the screen root. A widget that never calls
 		// these keeps its absolute authored pixels (no migration). setParent

@@ -116,6 +116,27 @@ namespace Orkige
 		OPROPERTY("originY", Orkige::PropertyKind::Float, getOriginY, setOriginYValue, Orkige::PROP_NONE)
 		OPROPERTY("goalSlot", Orkige::PropertyKind::Int, getGoalSlot, setGoalSlot, Orkige::PROP_NONE)
 		OPROPERTY("par", Orkige::PropertyKind::Int, getPar, setPar, Orkige::PROP_NONE)
+
+		// world.getLevel(id) hands Lua a WEAK handle: locks per call, raises an
+		// honest error naming the owner once gone (never a raw pointer). The
+		// per-type weak-handle currency; @see engine_gocomponent/TransformComponent.
+		OWEAKHANDLE_BEGIN(Orkige::LevelComponent, "LevelComponentHandle", "component handle", "component")
+			OWEAKHANDLE_BASEMETHOD(getCols)
+			OWEAKHANDLE_BASEMETHOD(getRows)
+			OWEAKHANDLE_BASEMETHOD(getTileSize)
+			OWEAKHANDLE_BASEMETHOD(getOriginX)
+			OWEAKHANDLE_BASEMETHOD(getOriginY)
+			OWEAKHANDLE_BASEMETHOD(getGoalSlot)
+			OWEAKHANDLE_BASEMETHOD(getPar)
+			OWEAKHANDLE_BASEMETHOD(getSlotCount)
+			OWEAKHANDLE_BASEMETHOD(slotForPosition)
+			OWEAKHANDLE_BASEMETHOD(slotForCell)
+			OWEAKHANDLE_BASEMETHOD(slotCol)
+			OWEAKHANDLE_BASEMETHOD(slotRow)
+			OWEAKHANDLE_BASEMETHOD(slotCenterX)
+			OWEAKHANDLE_BASEMETHOD(slotCenterY)
+			OWEAKHANDLE_BASEMETHOD(starsForMoves)
+		OWEAKHANDLE_END
 	OOBJECT_END
 	//---------------------------------------------------------
 }
