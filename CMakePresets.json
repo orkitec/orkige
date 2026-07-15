@@ -314,6 +314,25 @@
       }
     },
     {
+      "name": "web-release",
+      "displayName": "Web Release (wasm32 via Emscripten, classic OGRE/GLES2->WebGL - the browser player)",
+      "inherits": "base",
+      "environment": {
+        "EMSDK": "$penv{HOME}/Development/emsdk"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_SYSROOT": null,
+        "VCPKG_TARGET_TRIPLET": "wasm32-emscripten",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+        "VCPKG_INSTALL_OPTIONS": "--clean-buildtrees-after-build",
+        "ORKIGE_RENDER_BACKEND": "classic",
+        "ORKIGE_BUILD_ENGINE": "ON",
+        "ORKIGE_BUILD_TOOLS": "ON",
+        "ORKIGE_BUILD_TESTS": "OFF"
+      }
+    },
+    {
       "name": "ios-device-base",
       "hidden": true,
       "inherits": "base",
@@ -443,6 +462,10 @@
     {
       "name": "android-release-classic",
       "configurePreset": "android-release-classic"
+    },
+    {
+      "name": "web-release",
+      "configurePreset": "web-release"
     },
     {
       "name": "ios-device-debug",

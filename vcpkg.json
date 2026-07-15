@@ -13,7 +13,7 @@
         "zip",
         {
           "name": "freeimage",
-          "platform": "!ios & !android"
+          "platform": "!ios & !android & !emscripten"
         },
         {
           "name": "metal",
@@ -26,7 +26,10 @@
       ]
     },
     "sdl3",
-    "openal-soft",
+    {
+      "name": "openal-soft",
+      "platform": "!emscripten"
+    },
     "stb",
     "nanosvg",
     "earcut-hpp",
@@ -38,11 +41,11 @@
       "features": [
         "docking-experimental"
       ],
-      "platform": "!ios & !android"
+      "platform": "!ios & !android & !emscripten"
     },
     {
       "name": "imguizmo",
-      "platform": "!ios & !android"
+      "platform": "!ios & !android & !emscripten"
     },
     {
       "name": "catch2",
