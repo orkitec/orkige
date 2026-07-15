@@ -164,6 +164,15 @@
       }
     },
     {
+      "name": "windows-debug-classic",
+      "displayName": "Windows Debug (classic OGRE - the compatibility flavor)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ORKIGE_RENDER_BACKEND": "classic"
+      }
+    },
+    {
       "name": "ios-simulator-debug",
       "displayName": "iOS Simulator Debug (arm64, Ogre-Next/Metal - the default backend)",
       "inherits": "base",
@@ -206,6 +215,18 @@
       "name": "android-emulator-debug-ci",
       "displayName": "Android Emulator Debug (x86_64, Ogre-Next/Vulkan - CI only)",
       "inherits": "android-debug",
+      "environment": {
+        "ANDROID_NDK_HOME": "$penv{ANDROID_NDK_HOME}"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-android",
+        "ANDROID_ABI": "x86_64"
+      }
+    },
+    {
+      "name": "android-emulator-debug-ci-classic",
+      "displayName": "Android Emulator Debug (x86_64, classic OGRE/GLES2 - CI only)",
+      "inherits": "android-debug-classic",
       "environment": {
         "ANDROID_NDK_HOME": "$penv{ANDROID_NDK_HOME}"
       },
@@ -541,6 +562,38 @@
       }
     },
     {
+      "name": "unit-macos-classic-ci",
+      "displayName": "macOS CI: headless unit tests on the classic tree",
+      "configurePreset": "macos-debug-classic",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 3
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "desktop-macos-classic-ci",
+      "displayName": "macOS CI: complete classic desktop suite (device tests excluded)",
+      "configurePreset": "macos-debug-classic",
+      "filter": {
+        "exclude": {
+          "label": "device"
+        }
+      },
+      "execution": {
+        "jobs": 3
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "device-macos-ios-ci",
       "displayName": "iOS Simulator CI: export + play + cold-boot + safe-area tests",
       "configurePreset": "macos-debug",
@@ -560,9 +613,44 @@
       }
     },
     {
+      "name": "device-macos-ios-ci-classic",
+      "displayName": "iOS Simulator CI (classic flavor): export + play + cold-boot + safe-area tests",
+      "configurePreset": "macos-debug-classic",
+      "environment": {
+        "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
+      },
+      "filter": {
+        "include": {
+          "name": "^(export_ios_simulator|editor_play_simulator|editor_play_simulator_boot|player_safearea_device)$"
+        }
+      },
+      "execution": {
+        "jobs": 1
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "unit-windows",
       "displayName": "Windows CI: headless unit tests (Ogre-Next flavor)",
       "configurePreset": "windows-debug",
+      "filter": {
+        "include": {
+          "label": "unit"
+        }
+      },
+      "execution": {
+        "jobs": 4
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "unit-windows-classic",
+      "displayName": "Windows CI: headless unit tests (classic flavor)",
+      "configurePreset": "windows-debug-classic",
       "filter": {
         "include": {
           "label": "unit"
@@ -723,6 +811,25 @@
       "name": "device-linux-android-ci",
       "displayName": "Android Emulator CI: install and exercise Play over adb",
       "configurePreset": "linux-debug-next",
+      "environment": {
+        "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
+      },
+      "filter": {
+        "include": {
+          "name": "^editor_play_android$"
+        }
+      },
+      "execution": {
+        "jobs": 1
+      },
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "device-linux-android-ci-classic",
+      "displayName": "Android Emulator CI (classic flavor): install and exercise Play over adb",
+      "configurePreset": "linux-debug-classic",
       "environment": {
         "ORKIGE_REQUIRE_DEVICE_TEST_TARGET": "1"
       },
