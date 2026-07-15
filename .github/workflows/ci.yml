@@ -468,10 +468,25 @@ jobs:
             ccache-android-next-${{ runner.os }}-
             ccache-next-${{ runner.os }}-
 
-      - name: Configure + build + package the Android player (MUST pass)
+      - name: Configure Android + host (vcpkg dependency builds)
         run: |
           cmake --preset android-emulator-debug-ci \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --preset linux-debug-next \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      # save right after the configures (that is when vcpkg builds/installs),
+      # BEFORE anything that can fail - a red build must not lose the cold
+      # dependency work
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build + package the Android player (MUST pass)
+        run: |
           cmake --build --preset android-emulator-debug-ci --target orkige_player
           # a binary-cache hit skips source extraction, but the APK packer
           # pulls SDL's Java glue from the source tarball - prime the download
@@ -481,18 +496,8 @@ jobs:
           fi
           tools/player/android/package_apk.sh build/android-emulator-debug-ci
 
-      - name: Configure + build the host editor (drives the Play test)
-        run: |
-          cmake --preset linux-debug-next \
-            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset linux-debug-next
-
-      - name: Save vcpkg binary cache
-        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: /home/runner/vcpkg-binary-cache
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+      - name: Build the host editor (drives the Play test)
+        run: cmake --build --preset linux-debug-next
 
       - name: Save ccache
         if: always()
@@ -608,10 +613,25 @@ jobs:
             ccache-android-classic-${{ runner.os }}-
             ccache-classic-${{ runner.os }}-
 
-      - name: Configure + build + package the Android player (MUST pass)
+      - name: Configure Android + host (vcpkg dependency builds)
         run: |
           cmake --preset android-emulator-debug-ci-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+          cmake --preset linux-debug-classic \
+            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
+
+      # save right after the configures (that is when vcpkg builds/installs),
+      # BEFORE anything that can fail - a red build must not lose the cold
+      # dependency work
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build + package the Android player (MUST pass)
+        run: |
           cmake --build --preset android-emulator-debug-ci-classic --target orkige_player
           # a binary-cache hit skips source extraction, but the APK packer
           # pulls SDL's Java glue from the source tarball - prime the download
@@ -621,18 +641,8 @@ jobs:
           fi
           tools/player/android/package_apk.sh build/android-emulator-debug-ci-classic
 
-      - name: Configure + build the host editor (drives the Play test)
-        run: |
-          cmake --preset linux-debug-classic \
-            -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset linux-debug-classic
-
-      - name: Save vcpkg binary cache
-        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: /home/runner/vcpkg-binary-cache
-          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+      - name: Build the host editor (drives the Play test)
+        run: cmake --build --preset linux-debug-classic
 
       - name: Save ccache
         if: always()
@@ -915,24 +925,28 @@ jobs:
             ccache-ios-next-${{ runner.os }}-
             ccache-macos-next-${{ runner.os }}-
 
-      - name: Configure + build the Simulator player (MUST pass)
+      - name: Configure Simulator + host (vcpkg dependency builds)
         run: |
           cmake --preset ios-simulator-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset ios-simulator-debug --target orkige_player
-
-      - name: Configure + build the host editor (drives the device tests)
-        run: |
           cmake --preset macos-debug \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset macos-debug
 
+      # save right after the configures (that is when vcpkg builds/installs),
+      # BEFORE anything that can fail - a red build must not lose the cold
+      # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build the Simulator player (MUST pass)
+        run: cmake --build --preset ios-simulator-debug --target orkige_player
+
+      - name: Build the host editor (drives the device tests)
+        run: cmake --build --preset macos-debug
 
       - name: Save ccache
         if: always()
@@ -1074,24 +1088,28 @@ jobs:
             ccache-ios-classic-${{ runner.os }}-
             ccache-macos-classic-${{ runner.os }}-
 
-      - name: Configure + build the Simulator player (MUST pass)
+      - name: Configure Simulator + host (vcpkg dependency builds)
         run: |
           cmake --preset ios-simulator-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset ios-simulator-debug-classic --target orkige_player
-
-      - name: Configure + build the host editor (drives the device tests)
-        run: |
           cmake --preset macos-debug-classic \
             -DVCPKG_INSTALL_OPTIONS=--clean-after-build
-          cmake --build --preset macos-debug-classic
 
+      # save right after the configures (that is when vcpkg builds/installs),
+      # BEFORE anything that can fail - a red build must not lose the cold
+      # dependency work
       - name: Save vcpkg binary cache
         if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: /Users/runner/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Build the Simulator player (MUST pass)
+        run: cmake --build --preset ios-simulator-debug-classic --target orkige_player
+
+      - name: Build the host editor (drives the device tests)
+        run: cmake --build --preset macos-debug-classic
 
       - name: Save ccache
         if: always()
