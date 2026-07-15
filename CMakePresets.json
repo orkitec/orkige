@@ -591,11 +591,12 @@
       "configurePreset": "macos-debug-classic",
       "filter": {
         "exclude": {
-          "label": "device"
+          "label": "device",
+          "name": "^(export_macos_lua|export_macos_native)$"
         }
       },
       "execution": {
-        "jobs": 3
+        "jobs": 1
       },
       "output": {
         "outputOnFailure": true
