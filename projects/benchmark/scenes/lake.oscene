@@ -173,11 +173,11 @@
         <String value=""/>
         <String value="deepColour"/>
         <int value="7"/>
-        <String value="0.02 0.08 0.12 1"/>
+        <String value="0.04 0.2 0.3 1"/>
         <String value=""/>
         <String value="shallowColour"/>
         <int value="7"/>
-        <String value="0.1 0.4 0.45 1"/>
+        <String value="0.22 0.55 0.62 1"/>
         <String value=""/>
         <String value="opacity"/>
         <int value="1"/>

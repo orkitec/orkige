@@ -660,10 +660,16 @@ def build_lake():
                   casts=True),
           tags=("sun",))
     terrain_object(s, y=-4.5)
-    # the water expanse just below the shoreline
+    # the water expanse just below the shoreline. A READABLE showcase preset
+    # (brighter teal deep + a clear shallow scatter): the water() defaults are a
+    # near-black deep-ocean blue that reads as a dark slab even lit, so the lake
+    # vignette carries a lighter body that lets the ripples, the fresnel edge and
+    # the deep/shallow colour read.
     s.add("Lake",
           s.transform(0.0, -3.2, -6.0),
-          s.water(size_x=60.0, size_z=60.0),
+          s.water(size_x=60.0, size_z=60.0,
+                  deep=(0.04, 0.20, 0.30, 1.0),
+                  shallow=(0.22, 0.55, 0.62, 1.0)),
           tags=("water",))
     # a couple of rocks along the shore
     for i, (x, z) in enumerate([(-8.0, -3.0), (9.0, -5.0), (2.0, -10.0)]):
