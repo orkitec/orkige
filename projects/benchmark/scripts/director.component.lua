@@ -65,11 +65,37 @@ local PROJECT_GROUP = "OrkigeProject"
 
 --- helpers -------------------------------------------------------------------
 
+-- perspective framing fit: the orbit distances are tuned for a landscape
+-- aspect, but the window is portrait on a phone (the default orientation) - and
+-- a perspective camera's horizontal field shrinks with the aspect (hFOV grows
+-- from vFOV by the width/height ratio), so a portrait window crops the wide
+-- vista to a narrow centre slice. Pull the camera back (and up, to hold the
+-- pitch so the horizon stays put) proportionally, capped so the content never
+-- shrinks to nothing - the panorama keeps its breadth in portrait.
+local DESIGN_ASPECT = 16.0 / 9.0
+local MAX_FRAMING_PULLBACK = 1.7
+local function framingFit()
+	local w, h = engine:getWindowWidth(), engine:getWindowHeight()
+	if w <= 0 or h <= 0 then
+		return 1.0
+	end
+	local aspect = w / h
+	if aspect >= DESIGN_ASPECT then
+		return 1.0
+	end
+	local fit = DESIGN_ASPECT / aspect
+	if fit > MAX_FRAMING_PULLBACK then
+		fit = MAX_FRAMING_PULLBACK
+	end
+	return fit
+end
+
 local function setPerspectiveCamera(radius, height, center)
 	engine:setCameraPerspective()
 	camRadius, camHeight, camCenter = radius, height, center
 	if camNode ~= nil then
-		camNode:setPosition(Vector3(0, height, center + radius))
+		local fit = framingFit()
+		camNode:setPosition(Vector3(0, height * fit, center + radius * fit))
 		camNode:lookAt(Vector3(0, 0, center), TS.TS_WORLD, Vector3(0, 0, -1))
 	end
 end
@@ -78,10 +104,12 @@ local function orbitCamera(t)
 	if camNode == nil then
 		return
 	end
+	local fit = framingFit()
+	local radius, height = camRadius * fit, camHeight * fit
 	local a = t * 0.15
-	local x = math.sin(a) * camRadius
-	local z = camCenter + math.cos(a) * camRadius
-	camNode:setPosition(Vector3(x, camHeight, z))
+	local x = math.sin(a) * radius
+	local z = camCenter + math.cos(a) * radius
+	camNode:setPosition(Vector3(x, height, z))
 	camNode:lookAt(Vector3(0, 1, camCenter), TS.TS_WORLD, Vector3(0, 0, -1))
 end
 

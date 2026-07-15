@@ -737,6 +737,19 @@ int main(int argc, char** argv)
 		hostConfig.automatedRun = automatedRun;
 		hostConfig.engineLogFile = engineLogPath;
 		hostConfig.classicMediaDir = playerMediaDir;
+		// ORKIGE_WINDOW_SIZE=WxH overrides the desktop window size (e.g. a
+		// portrait 540x960 to preview a phone aspect from the desktop). Ignored
+		// on mobile, where the window is the device screen. A dev/CI affordance.
+		if (const char* sizeEnv = std::getenv("ORKIGE_WINDOW_SIZE"))
+		{
+			int w = 0;
+			int h = 0;
+			if (std::sscanf(sizeEnv, "%dx%d", &w, &h) == 2 && w > 0 && h > 0)
+			{
+				hostConfig.windowWidth = w;
+				hostConfig.windowHeight = h;
+			}
+		}
 		if (!host.boot(hostConfig, [&]()
 			{
 				Orkige::RenderSystem* render = host.getRenderSystem();
