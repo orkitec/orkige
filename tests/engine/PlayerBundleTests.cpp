@@ -59,11 +59,13 @@ TEST_CASE("marker resolves the bundled project against the base directory",
 	BundleFixture fixture;
 	std::filesystem::create_directories(fixture.base / "project");
 	fixture.writeMarker("project\n");
-	// with and without the trailing separator on the base dir
-	CHECK(Orkige::PlayerBundle::findBundledProject(fixture.base.string())
-		== (fixture.base / "project").string());
-	CHECK(Orkige::PlayerBundle::findBundledProject(
-		fixture.base.string() + "/") == (fixture.base / "project").string());
+	// with and without the trailing separator on the base dir. Compared as
+	// PATHS, not strings: the resolver joins with '/', std::filesystem with
+	// the platform's preferred separator - the same path either way.
+	CHECK(std::filesystem::path(Orkige::PlayerBundle::findBundledProject(
+		fixture.base.string())) == fixture.base / "project");
+	CHECK(std::filesystem::path(Orkige::PlayerBundle::findBundledProject(
+		fixture.base.string() + "/")) == fixture.base / "project");
 }
 
 TEST_CASE("marker tolerates trailing whitespace and CRLF",
@@ -72,8 +74,8 @@ TEST_CASE("marker tolerates trailing whitespace and CRLF",
 	BundleFixture fixture;
 	std::filesystem::create_directories(fixture.base / "project");
 	fixture.writeMarker("project\r\n");
-	CHECK(Orkige::PlayerBundle::findBundledProject(fixture.base.string())
-		== (fixture.base / "project").string());
+	CHECK(std::filesystem::path(Orkige::PlayerBundle::findBundledProject(
+		fixture.base.string())) == fixture.base / "project");
 }
 
 TEST_CASE("marker naming a missing path is an honest miss",
@@ -106,8 +108,8 @@ TEST_CASE("bundled media overrides the fallback only when Media/Main exists",
 		fixture.base.string()) == "/dev/fallback");
 	// the real classic bundled layout wins (Media/Main = RTSS library)
 	std::filesystem::create_directories(fixture.base / "Media" / "Main");
-	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback",
-		fixture.base.string()) == (fixture.base / "Media").string());
+	CHECK(std::filesystem::path(Orkige::PlayerBundle::resolveMediaDirectory(
+		"/dev/fallback", fixture.base.string())) == fixture.base / "Media");
 }
 
 TEST_CASE("bundled next-flavor media (Media/Hlms) also overrides the fallback",
@@ -117,8 +119,8 @@ TEST_CASE("bundled next-flavor media (Media/Hlms) also overrides the fallback",
 	// the Ogre-Next flavor bundles its Hlms shader templates instead of the
 	// classic Main/RTShaderLib set - Media/Hlms alone marks a bundled Media
 	std::filesystem::create_directories(fixture.base / "Media" / "Hlms");
-	CHECK(Orkige::PlayerBundle::resolveMediaDirectory("/dev/fallback",
-		fixture.base.string()) == (fixture.base / "Media").string());
+	CHECK(std::filesystem::path(Orkige::PlayerBundle::resolveMediaDirectory(
+		"/dev/fallback", fixture.base.string())) == fixture.base / "Media");
 }
 
 TEST_CASE("empty base directory falls through safely",
