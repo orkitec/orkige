@@ -185,6 +185,27 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool AppHost::setupEngine(std::function<void()> const & registerResources)
 	{
+		// Boot is exception-SAFE end to end: any failure between the window
+		// coming up and the first frame - engine setup, resource-group init, a
+		// render call a contended/broken driver throws from - unwinds to a clean
+		// `false` (a non-zero app exit), never an uncaught throw that terminates
+		// the process (segfaulting mid-unwind on some drivers). std::exception
+		// covers Ogre's exceptions too (they derive from it), so the render
+		// backend stays uncoupled from this flavor-neutral host.
+		try
+		{
+			return this->setupEngineBody(registerResources);
+		}
+		catch (std::exception const & e)
+		{
+			oDebugError("engine", 0, "AppHost: engine setup failed with an "
+				"exception - exiting cleanly instead of crashing: " << e.what());
+			return false;
+		}
+	}
+	//---------------------------------------------------------
+	bool AppHost::setupEngineBody(std::function<void()> const & registerResources)
+	{
 		if (!this->mEngine->setup(this->mConfig.windowTitle,
 			Engine::SHOW_NEVER, StringUtil::Converter::toString(
 				reinterpret_cast<size_t>(
@@ -202,6 +223,17 @@ namespace Orkige
 		if (registerResources)
 		{
 			registerResources();
+		}
+		// TEST SEAM: a post-setup failure (resource-group init throwing on a
+		// contended/broken driver, the last step before the first frame) must
+		// also unwind to a clean exit, not crash
+		if (const char* stage = std::getenv("ORKIGE_TEST_FORCE_BOOT_FAILURE"))
+		{
+			if (String(stage) == "resources")
+			{
+				throw std::runtime_error(
+					"forced resource-init boot failure (test seam)");
+			}
 		}
 		this->mRenderSystem->initialiseResourceGroups();
 

@@ -87,6 +87,11 @@ namespace Orkige
 		optr<RenderNode>			mCameraNode;
 		uptr<GameObjectManager>		mGameObjectManager;
 		//--- Methods -----------------------------------------
+		//! @brief the setupEngine body, run inside an exception guard so a
+		//! failure between window creation and the first frame (engine setup,
+		//! resource-group init, a contended driver call) returns false - a clean
+		//! non-zero app exit - instead of escaping as an uncaught throw. @see setupEngine
+		bool setupEngineBody(std::function<void()> const & registerResources);
 	public:
 		AppHost();
 		//! mirrored teardown: world before engine, engine before the script/

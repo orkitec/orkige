@@ -299,8 +299,37 @@ namespace Orkige
 	//---------------------------------------------------------
 	bool Engine::setup(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle)
 	{
+		// Boot is exception-SAFE: a failure anywhere between window creation and
+		// the first frame (RTSS init, scene-manager creation, a render-system
+		// call that a contended/broken driver throws from) unwinds to a clean
+		// `false` here - a non-zero app exit - instead of escaping as an uncaught
+		// throw. An uncaught throw terminates the process (and on some drivers,
+		// e.g. MoltenVK on the CI hosts, segfaults while unwinding partial GPU
+		// state). configure() already returns false on a window-creation failure;
+		// this catches everything after it.
+		try
+		{
+			return this->setupBody(windowTitle, showConfigBehavior,
+				externalHandle, topLevelHandle);
+		}
+		catch(Ogre::Exception const & e)
+		{
+			oDebugError("engine", 0, "Engine::setup failed with a render "
+				"exception - the app exits cleanly instead of crashing: "
+				<< e.getFullDescription());
+			return false;
+		}
+		catch(std::exception const & e)
+		{
+			oDebugError("engine", 0, "Engine::setup failed: " << e.what());
+			return false;
+		}
+	}
+	//---------------------------------------------------------
+	bool Engine::setupBody(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle)
+	{
 		this->externalWindowHandle = externalHandle;
-		
+
 		if(topLevelHandle.empty() && !externalHandle.empty())
 		{ 
 			this->topLevelWindowHandle = externalHandle;
@@ -311,6 +340,19 @@ namespace Orkige
 		}
 		if(!this->configure(windowTitle, showConfigBehavior))
 			return false;
+
+		// TEST SEAM: reproduce the mid-setup boot failure that fires AFTER a
+		// successful-looking render-system + window init (the CI ios-classic
+		// case) but before the first frame - createSceneManager/RTSS init/etc.
+		if(const char* stage = std::getenv("ORKIGE_TEST_FORCE_BOOT_FAILURE"))
+		{
+			if(String(stage) == "postwindow")
+			{
+				OGRE_EXCEPT(Ogre::Exception::ERR_RENDERINGAPI_ERROR,
+					"forced post-window boot failure (test seam)",
+					"Engine::setup");
+			}
+		}
 
 		// Create the SceneManager
 		this->sceneManager = root->createSceneManager(this->sceneManagerTypeName, "OrkigeSceneManager");
@@ -696,6 +738,16 @@ namespace Orkige
 					//if there are no params for window 0 we use the auto create window
 					bool autoCreateWindow = this->windowParams[0].empty();
 
+					// TEST SEAM: reproduce the mid-setup boot failure (a render
+					// system is already set on the root, the window is not up yet)
+					// that GPU contention triggers on the CI hosts - the throw
+					// lands in the catch below exactly like a failed initialise
+					if(std::getenv("ORKIGE_TEST_FORCE_BOOT_FAILURE"))
+					{
+						OGRE_EXCEPT(Ogre::Exception::ERR_RENDERINGAPI_ERROR,
+							"forced mid-setup boot failure (test seam)",
+							"Engine::configure");
+					}
 					this->renderWindow[0] = this->root->initialise(autoCreateWindow, windowTitle);
 					
 					for (unsigned int each = (autoCreateWindow ? 1 : 0); each < this->numberOfWindows; ++each)
@@ -767,6 +819,21 @@ namespace Orkige
 
 				try
 				{
+					// TEST SEAM: reproduce the mid-setup boot failure the CI hosts
+					// hit under GPU contention - the render system is ALREADY
+					// initialised (root->initialise above), only the window
+					// creation fails; the throw lands in the catch below exactly
+					// like a contended createRenderWindow
+					if(const char* stage =
+						std::getenv("ORKIGE_TEST_FORCE_BOOT_FAILURE"))
+					{
+						if(String(stage) == "window")
+						{
+							OGRE_EXCEPT(Ogre::Exception::ERR_RENDERINGAPI_ERROR,
+								"forced window-creation boot failure (test seam)",
+								"Engine::configure");
+						}
+					}
 					oDebugMsg("core", 0, "Trying to create external RenderWindow with handle: " << this->externalWindowHandle << " and size: " << width << "x" << height);
 					this->renderWindow[0] = this->root->createRenderWindow(windowTitle, width, height, false, &params);
 

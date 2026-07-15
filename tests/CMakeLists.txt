@@ -315,6 +315,25 @@ if(TARGET jumper)
 endif()
 
 if(TARGET hello_orkige)
+    # boot_failure_clean_exit: a failed engine boot must unwind to a CLEAN
+    # non-zero exit, never an uncaught throw. The driver forces a failure at each
+    # staged point between window creation and the first frame (window creation,
+    # the post-window engine region, resource-group init) and asserts the process
+    # exits without a crash signal or a hang. Guards the classic MoltenVK boot
+    # crash the CI hosts hit under contention. Classic-scoped: the window/post-
+    # window failure seams live in the classic Engine bootstrapper (the next
+    # flavor's EngineNext has no equivalent boot stages); the shared exception
+    # guard in AppHost::setupEngine protects the next flavor too and is exercised
+    # here through the resource-init stage. Skips (77) if the app is unbuilt.
+    if(ORKIGE_RENDER_BACKEND STREQUAL "classic")
+        add_test(NAME boot_failure_clean_exit COMMAND python3
+            "${CMAKE_CURRENT_SOURCE_DIR}/integration_driver/run_boot_failure_test.py"
+            --binary "$<TARGET_FILE:hello_orkige>"
+            WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+        set_tests_properties(boot_failure_clean_exit PROPERTIES
+            LABELS integration SKIP_RETURN_CODE 77 TIMEOUT 240)
+    endif()
+
     # frame-capped demo runs; 120 frames ~= 2s
     add_test(NAME demo_plain COMMAND hello_orkige
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")

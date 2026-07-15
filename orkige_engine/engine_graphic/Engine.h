@@ -238,6 +238,14 @@ protected:
 		//! @param externalHandle can be used for embedding Engine into custom created window
 		//! @param topLevelHandle can be used for if externalHandle is not the topmost window
 		bool setup(String const & windowTitle = StringUtil::BLANK, ShowConfigBehavior showConfigBehavior = Engine::SHOW_IFERROR, String const & externalHandle = StringUtil::BLANK, String const & topLevelHandle = StringUtil::BLANK);
+	private:
+		//! @brief the boot body setup() runs inside an exception guard - any
+		//! failure between window creation and the first frame (RTSS init, scene
+		//! manager, a contended MoltenVK call) MUST return false, never escape as
+		//! an uncaught throw (that terminates the process, and segfaults
+		//! mid-unwind on some drivers). @see setup
+		bool setupBody(String const & windowTitle, ShowConfigBehavior showConfigBehavior, String const & externalHandle, String const & topLevelHandle);
+	public:
 
 		//! @brief DEPRECATED classic camera path: apps create a
 		//! facade camera rig instead (RenderWorld::createCamera + createNode +
