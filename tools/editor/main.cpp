@@ -6874,11 +6874,13 @@ int main(int argc, char** argv)
 					else
 					{
 						playtestPhase = PlaytestPhase::WaitRemote;
-						// a simulator target may have to cold-boot the
-						// device (+ install the app) before the player can
-						// even start - give it real headroom
+						// a simulator target may have to boot the device
+						// (+ install the app) before the player can even
+						// start - and a hosted CI runner boots even a warm
+						// simulator in 4-5 minutes, so the headroom must
+						// clear that comfortably
 						playtestDeadline = playtestNow + std::chrono::seconds(
-							playSession.simulatorUdid.empty() ? 60 : 240);
+							playSession.simulatorUdid.empty() ? 60 : 540);
 					}
 				}
 				else if (playtestPhase == PlaytestPhase::WaitRemote)

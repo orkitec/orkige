@@ -1001,7 +1001,11 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         set_tests_properties(editor_play_simulator_boot PROPERTIES
             ENVIRONMENT
                 "ORKIGE_EDITOR_PLAYTEST=stop;ORKIGE_EDITOR_PLAY_SIMULATOR=auto-shutdown"
-            SKIP_RETURN_CODE 77)
+            SKIP_RETURN_CODE 77
+            # booting a simulator takes seconds warm on a dev box but 4-5
+            # minutes on a hosted CI runner - the budget must clear the
+            # editor's own in-test boot deadline, not the suite default
+            TIMEOUT 700)
 
         # the safe-area DEVICE gate: play roller (its Lua HUD anchors to the
         # safe area) on a booted iPhone 16 simulator - a Dynamic Island device,
