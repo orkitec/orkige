@@ -4,7 +4,9 @@
 # verdict lands as early as its own build allows (all run in parallel;
 # public-repo runners are free, the only cap is 5 concurrent macOS jobs):
 #   linux-next / linux-classic       - full desktop suites (next adds the
-#                                    scripting-off and ASan/UBSan gates)
+#                                    scripting-off gate)
+#   linux-sanitizer                  - the ASan/UBSan instrumented tree +
+#                                    full suite, zero retries
 #   android-emulator-next / -classic - x86_64 player build + emulator Play
 #   macos-next / macos-classic       - full desktop suites on Apple hardware
 #   ios-simulator-next / -classic    - Simulator player + device tests
@@ -276,6 +278,82 @@ jobs:
 
       # ASan and UBSan stay out of normal developer builds. CI runs the full
       # non-device Ogre-Next suite in a dedicated instrumented tree.
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/.ccache
+          key: ${{ steps.ccache-cache.outputs.cache-primary-key }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-next-logs
+          path: |
+            build/linux-debug-next/Testing/**/*.log
+            build/linux-debug-next/tests/**/*.log
+            build/linux-debug-noscript/Testing/**/*.log
+            *.log
+          if-no-files-found: ignore
+
+
+  # The ASan + UBSan gate as its own job: the instrumented tree is the
+  # slowest Linux build and its verdict must not wait behind (or delay) the
+  # plain desktop suites. libstdc++ + clang, full unit + desktop integration
+  # suite, ZERO test retries - a nondeterministic memory finding must never
+  # be masked.
+  linux-sanitizer:
+    name: Linux sanitizer (ASan + UBSan) - full suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang ninja-build ccache python3 pkg-config \
+            autoconf autoconf-archive automake libtool curl zip unzip tar \
+            libx11-dev libxft-dev libxext-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxfixes-dev libxrender-dev libxss-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxt-dev libxaw7-dev \
+            libx11-xcb-dev libxcb-randr0-dev libxtst-dev libxinerama-dev \
+            libxcb1-dev libxcb-keysyms1-dev libxcb-ewmh-dev libxcb-icccm4-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libltdl-dev \
+            libibus-1.0-dev \
+            xvfb mesa-utils libgl1-mesa-dri \
+            mesa-vulkan-drivers vulkan-tools
+
+      - name: Check out pinned vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT_DIR"
+          git -C "$VCPKG_ROOT_DIR" checkout "$VCPKG_COMMIT"
+          "$VCPKG_ROOT_DIR/bootstrap-vcpkg.sh" -disableMetrics
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: vcpkg-sanitize-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'ports/**', 'triplets/**') }}-${{ env.VCPKG_COMMIT }}
+          restore-keys: |
+            vcpkg-sanitize-${{ runner.os }}-
+            vcpkg-next-v2-${{ runner.os }}-
+
+      - name: Restore ccache
+        id: ccache-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: /home/runner/.ccache
+          key: ccache-sanitize-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-sanitize-${{ runner.os }}-
+
       - name: Configure + build (ASan + UBSan)
         run: |
           cmake --preset linux-debug-sanitize \
@@ -295,6 +373,13 @@ jobs:
           xvfb-run -a -s "-screen 0 1280x1024x24 +extension RANDR" \
             ctest --preset desktop-linux-sanitize --timeout 300
 
+      - name: Save vcpkg binary cache
+        if: always() && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: /home/runner/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
       - name: Save ccache
         if: always()
         uses: actions/cache/save@v6
@@ -306,14 +391,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: linux-next-logs
+          name: linux-sanitizer-logs
           path: |
-            build/linux-debug-next/Testing/**/*.log
-            build/linux-debug-next/tests/**/*.log
-            build/linux-debug-noscript/Testing/**/*.log
             build/linux-debug-sanitize/Testing/**/*.log
             build/linux-debug-sanitize/tests/**/*.log
-            *.log
           if-no-files-found: ignore
 
   # Android emulator on the default Ogre-Next/Vulkan flavor, as its own
