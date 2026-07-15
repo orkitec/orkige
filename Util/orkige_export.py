@@ -32,8 +32,10 @@ build of the project's own module). Per platform:
                                               buildDir>-export.
                    Contents/Frameworks/       the executable's non-system
                                               dylib closure (today: the vcpkg
-                                              Vulkan loader), rpaths rewritten
-                                              to @executable_path/../Frameworks
+                                              Vulkan loader) plus each dylib's
+                                              dlopen symlink aliases, rpaths
+                                              rewritten to
+                                              @executable_path/../Frameworks
                                               (build-tree rpaths removed) and
                                               the binary ad-hoc re-signed - the
                                               bundle must not depend on this
@@ -474,6 +476,22 @@ def macos_collect_dylibs(executable, search_dirs):
     return dependencies
 
 
+def macos_dylib_aliases(source_dir, dylib_name):
+    """the symlink leaf names in source_dir that resolve to dylib_name -
+    the dlopen aliases of a versioned dylib (e.g. libvulkan.dylib and
+    libvulkan.1.dylib -> libvulkan.1.4.350.dylib). A leaf-name dlopen (the
+    Vulkan loader probe in the render system) asks for the unversioned
+    names, so a self-contained bundle must carry them beside the real file."""
+    aliases = []
+    target = os.path.realpath(os.path.join(source_dir, dylib_name))
+    for entry in sorted(os.listdir(source_dir)):
+        path = os.path.join(source_dir, entry)
+        if entry != dylib_name and os.path.islink(path) \
+                and os.path.realpath(path) == target:
+            aliases.append(entry)
+    return aliases
+
+
 def macos_rpaths(executable):
     output = subprocess.run(["otool", "-l", executable], capture_output=True,
                             text=True, check=True).stdout
@@ -502,6 +520,18 @@ def macos_make_self_contained(executable, frameworks_dir, search_dirs):
         shutil.copy2(resolved, os.path.join(frameworks_dir,
                                             os.path.basename(resolved)))
         log("bundled dylib %s" % os.path.basename(resolved))
+        # recreate the source dir's symlink aliases beside the copy: dyld
+        # resolves the direct @rpath dependency by its versioned name, but a
+        # leaf-name dlopen (the Vulkan loader probe) asks for the unversioned
+        # aliases, which live as symlinks in the vcpkg lib dir
+        for alias in macos_dylib_aliases(os.path.dirname(resolved),
+                                         os.path.basename(resolved)):
+            alias_path = os.path.join(frameworks_dir, alias)
+            if os.path.lexists(alias_path):
+                os.remove(alias_path)
+            os.symlink(os.path.basename(resolved), alias_path)
+            log("aliased dylib %s -> %s"
+                % (alias, os.path.basename(resolved)))
         if not dep.startswith("@rpath/"):
             # absolute dev path -> load via the bundle rpath instead
             run(["install_name_tool", "-change", dep,
@@ -1524,6 +1554,22 @@ def selftest():
         os.makedirs(os.path.join(media_without_sky, "Hlms"))
         assert ogre_next_media_subdirs(media_without_sky) == ("Hlms",), \
             "Atmosphere skipped when absent (older vcpkg port pin)"
+
+    # dlopen symlink aliases of a versioned dylib: symlinks resolving to the
+    # real file are found, the file itself and unrelated entries are not
+    with tempfile.TemporaryDirectory() as work:
+        real = os.path.join(work, "libfoo.1.2.3.dylib")
+        with open(real, "w") as handle:
+            handle.write("x")
+        os.symlink("libfoo.1.2.3.dylib", os.path.join(work, "libfoo.dylib"))
+        os.symlink("libfoo.1.2.3.dylib", os.path.join(work, "libfoo.1.dylib"))
+        with open(os.path.join(work, "libbar.dylib"), "w") as handle:
+            handle.write("x")
+        os.symlink("libbar.dylib", os.path.join(work, "libbar.1.dylib"))
+        assert macos_dylib_aliases(work, "libfoo.1.2.3.dylib") == \
+            ["libfoo.1.dylib", "libfoo.dylib"], "loader aliases discovered"
+        assert macos_dylib_aliases(work, "libbar.dylib") == \
+            ["libbar.1.dylib"], "unrelated aliases stay separate"
 
     print("orkige_export: selftest OK")
 

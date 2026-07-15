@@ -123,6 +123,19 @@ def check_macos(app_dir, exe_name, run_frames, flavor):
         else:
             fail("executable references a machine path: " + dep)
 
+    # a bundled Vulkan loader must carry its dlopen leaf-name aliases: the
+    # render system's loader probe dlopens the unversioned names
+    # ("libvulkan.dylib"/"libvulkan.1.dylib"), which the exporter recreates
+    # as symlinks beside the versioned file (macos_dylib_aliases)
+    frameworks = os.path.join(contents, "Frameworks")
+    loader_bundled = os.path.isdir(frameworks) and any(
+        re.match(r"libvulkan\.[0-9.]+\.dylib$", name)
+        for name in os.listdir(frameworks))
+    if loader_bundled:
+        for alias in ("libvulkan.dylib", "libvulkan.1.dylib"):
+            require(os.path.isfile(os.path.join(frameworks, alias)),
+                    "Vulkan loader dlopen alias bundled: " + alias)
+
     # THE proof: the exported app runs standalone, from a NEUTRAL cwd (the
     # output dir - never the source tree, whose files could mask a missing
     # resource), and exits 0 after the frame cap
@@ -134,6 +147,23 @@ def check_macos(app_dir, exe_name, run_frames, flavor):
                             env=environment)
     require(result.returncode == 0,
             "exported app ran standalone and exited 0")
+
+    # Vulkan leg (classic flavor): with the loader + aliases bundled and the
+    # platform's Vulkan driver installed (MoltenVK via brew, found through its
+    # ICD manifest - the engine points the loader at it when the env is
+    # unset), the exported app must also boot with the Vulkan render system
+    # explicitly picked. Quietly skipped where the driver is absent.
+    moltenvk_icd = "/opt/homebrew/etc/vulkan/icd.d/MoltenVK_icd.json"
+    if flavor != "next" and loader_bundled and os.path.isfile(moltenvk_icd):
+        environment["ORKIGE_RENDERSYSTEM"] = "Vulkan"
+        log("running the exported app with ORKIGE_RENDERSYSTEM=Vulkan")
+        result = subprocess.run([executable], cwd=os.path.dirname(app_dir),
+                                env=environment)
+        require(result.returncode == 0,
+                "exported app ran on the Vulkan render system and exited 0")
+    elif flavor != "next":
+        log("Vulkan leg skipped (loader bundled: %s, MoltenVK ICD: %s)"
+            % (loader_bundled, os.path.isfile(moltenvk_icd)))
 
 
 def check_ios(app_dir, flavor):
