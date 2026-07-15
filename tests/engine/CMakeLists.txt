@@ -23,6 +23,7 @@ add_executable(orkige_engine_tests
     ParticleSimTests.cpp
     SoundMixerTests.cpp
     MusicStreamTests.cpp
+    SoundTeardownTests.cpp
     TweenScriptTests.cpp
     InputActionTests.cpp
     CVarProtocolBehaviourTests.cpp
