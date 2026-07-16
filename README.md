@@ -161,15 +161,10 @@ private archive.
 
 ## Upstream
 
-Fixes discovered during the revival are contributed back. Merged: OGRE
-[#3667](https://github.com/OGRECave/ogre/pull/3667),
-[#3668](https://github.com/OGRECave/ogre/pull/3668),
-[#3669](https://github.com/OGRECave/ogre/pull/3669) (Vulkan-on-Apple via
-`VK_EXT_metal_surface`) and Ogre-Next
-[#582](https://github.com/OGRECave/ogre-next/pull/582) (the NEON build on
-Linux). Open: OGRE
-[#3673](https://github.com/OGRECave/ogre/pull/3673) (a zip-lookup call in the
-non-strict resource path).
+Fixes discovered during the revival are contributed back to OGRE and
+Ogre-Next; until a fix ships in a pinned release, it is carried as a
+documented overlay-port patch. The running record — every PR, its status,
+and the matching patch lifecycle — lives in [Docs/ports.md](Docs/ports.md).
 
 ---
 
