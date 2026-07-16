@@ -179,3 +179,19 @@ TEST_CASE("probe succeeds for a real python3 meeting the floor", "[python]")
 	CHECK(pythonVersionAtLeast(result.version, PYTHON_FLOOR_MAJOR,
 		PYTHON_FLOOR_MINOR));
 }
+
+TEST_CASE("fallback candidates are absolute per-platform locations", "[python]")
+{
+	// the discovery order behind probePythonToolchain: PATH's python3 first,
+	// then these well-known locations (a Finder/Dock-launched app on macOS
+	// inherits the bare system PATH, whose python3 sits below the floor)
+	for (String const& candidate : pythonFallbackCandidates())
+	{
+		CHECK(!candidate.empty());
+		CHECK(candidate.front() == '/');
+		CHECK(candidate.find("python3") != String::npos);
+	}
+#if defined(__APPLE__)
+	CHECK_FALSE(pythonFallbackCandidates().empty());
+#endif
+}

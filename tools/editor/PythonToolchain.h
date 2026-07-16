@@ -23,6 +23,8 @@
 
 #include <core_util/String.h>
 
+#include <vector>
+
 namespace Orkige
 {
 	//! the toolchain floor: python3 >= 3.10 (match statements in the Util
@@ -74,8 +76,15 @@ namespace Orkige
 	PythonProbeResult probePythonToolchainUncached(String const& executable,
 		int floorMajor = PYTHON_FLOOR_MAJOR, int floorMinor = PYTHON_FLOOR_MINOR);
 
+	//! @brief the platform's well-known interpreter locations tried when the
+	//! PATH python3 misses the floor and no ORKIGE_PYTHON override exists (a
+	//! Finder/Dock-launched app inherits the bare system PATH on macOS).
+	std::vector<String> pythonFallbackCandidates();
+
 	//! @brief the lazy, per-run-cached probe the spawn sites call before their
-	//! first python3 use. Reads pythonExecutable() and caches the result for the
-	//! rest of the run (the interpreter does not change under a running editor).
+	//! first python3 use. An explicit ORKIGE_PYTHON is probed verbatim; else
+	//! the PATH python3, then pythonFallbackCandidates() - the first
+	//! floor-meeting interpreter wins, and total failure reports the PATH
+	//! probe's message. Cached for the rest of the run.
 	PythonProbeResult const& probePythonToolchain();
 }

@@ -178,11 +178,47 @@ namespace Orkige
 		return result;
 	}
 	//---------------------------------------------------------
+	std::vector<String> pythonFallbackCandidates()
+	{
+#if defined(__APPLE__)
+		// an app launched from the Finder/Dock inherits the BARE system PATH
+		// (/usr/bin:...), where python3 is the OS toolchain interpreter -
+		// usually below the floor. The well-known package-manager locations
+		// answer that launch honestly instead of demanding a terminal launch.
+		return { "/opt/homebrew/bin/python3", "/usr/local/bin/python3" };
+#else
+		return {};
+#endif
+	}
+	//---------------------------------------------------------
 	PythonProbeResult const& probePythonToolchain()
 	{
 		// per-run cache: the interpreter does not change under a running editor
-		static const PythonProbeResult cached =
-			probePythonToolchainUncached(pythonExecutable());
+		static const PythonProbeResult cached = []()
+		{
+			// an explicit ORKIGE_PYTHON is an instruction, not a hint: probe
+			// exactly it and report its failure without second-guessing
+			const char* explicitPython = std::getenv("ORKIGE_PYTHON");
+			if (explicitPython && explicitPython[0] != '\0')
+			{
+				return probePythonToolchainUncached(explicitPython);
+			}
+			PythonProbeResult primary = probePythonToolchainUncached("python3");
+			if (primary.ok)
+			{
+				return primary;
+			}
+			for (String const& candidate : pythonFallbackCandidates())
+			{
+				PythonProbeResult fallback =
+					probePythonToolchainUncached(candidate);
+				if (fallback.ok)
+				{
+					return fallback;
+				}
+			}
+			return primary;	// the PATH probe's message names the requirement
+		}();
 		return cached;
 	}
 }

@@ -30,6 +30,18 @@ void drainEngineLogIntoConsole(Orkige::EngineLogCapture& capture,
 		{
 			level = ConsoleLevel::Error;
 		}
+		// a RECOVERED render-backend probe, not a failure: the shader
+		// preprocessor first asks the resource system for an #include, and
+		// for a system header (metal_stdlib) that lookup throws, is caught,
+		// and the compiler resolves the header itself - the backend logs the
+		// caught exception at error level anyway, so it is downgraded here
+		// to keep the Console's red lines meaningful
+		if (level == ConsoleLevel::Error &&
+			line.text.find("FileNotFoundException") != std::string::npos &&
+			line.text.find("metal_stdlib") != std::string::npos)
+		{
+			level = ConsoleLevel::Info;
+		}
 		console.addLine(level, line.text);
 	}
 }
@@ -173,6 +185,12 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 		console.clear();
 	}
 	ImGui::SameLine();
+	// the filtered view as one clipboard block (per-line copy lives in each
+	// line's right-click menu) - ImGui's clipboard is the system clipboard
+	// through the SDL backend
+	bool copyShown = ImGui::Button("Copy");
+	ImGui::SetItemTooltip("copy the shown (filtered) lines to the clipboard");
+	ImGui::SameLine();
 	Orkige::compactCheckbox("Auto-scroll", &console.autoScroll);
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(-FLT_MIN);
@@ -185,6 +203,19 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 		ImGuiWindowFlags_HorizontalScrollbar))
 	{
 		std::lock_guard<std::mutex> lock(console.mutex);
+		if (copyShown)
+		{
+			std::string block;
+			for (ConsoleLine const& shownLine : console.lines)
+			{
+				if (console.filter.PassFilter(shownLine.text.c_str()))
+				{
+					block += shownLine.text;
+					block += '\n';
+				}
+			}
+			ImGui::SetClipboardText(block.c_str());
+		}
 		int lineIndex = 0;
 		for (ConsoleLine const& line : console.lines)
 		{
@@ -235,23 +266,33 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 						: PendingRefAction::Kind::Open;
 					pending.ref = ref;
 				}
-				ImGui::PushID(lineIndex);
-				if (ImGui::BeginPopupContextItem("##consoleref"))
+			}
+			// every line answers a right-click with a copy menu; lines that
+			// carry a file:line reference add the open/peek actions
+			ImGui::PushID(lineIndex);
+			if (ImGui::BeginPopupContextItem("##consoleline"))
+			{
+				if (ImGui::MenuItem("Copy Line"))
 				{
+					ImGui::SetClipboardText(line.text.c_str());
+				}
+				if (!refs.empty())
+				{
+					ImGui::Separator();
 					if (ImGui::MenuItem("Open in External Editor"))
 					{
 						pending.kind = PendingRefAction::Kind::Open;
-						pending.ref = ref;
+						pending.ref = refs.front();
 					}
 					if (ImGui::MenuItem("Peek"))
 					{
 						pending.kind = PendingRefAction::Kind::Peek;
-						pending.ref = ref;
+						pending.ref = refs.front();
 					}
-					ImGui::EndPopup();
 				}
-				ImGui::PopID();
+				ImGui::EndPopup();
 			}
+			ImGui::PopID();
 			ImGui::PopStyleColor();
 		}
 		if (console.scrollToBottom)
