@@ -34,8 +34,8 @@ directory every web server can host as-is.
 | `triplets/wasm32-emscripten.cmake` | overlay triplet: static wasm libs, hermetic `/usr/local` isolation, chainload below |
 | `cmake/wasm32-emscripten-toolchain.cmake` | the ONE chainload toolchain (ports AND engine): seeds `-fwasm-exceptions`, then includes the emsdk platform file. vcpkg has no emscripten toolchain of its own, so `VCPKG_C(XX)_FLAGS` set in a triplet never reach a compiler here — the wrapper is where ABI-relevant flags live. |
 | preset `web-release` | classic backend, Release, tests ON |
-| `tools/player/CMakeLists.txt` (Emscripten branch) | player link flags: `-sASYNCIFY` (see below), WebGL2 ceiling, forced FS, Emscripten's OpenAL |
-| `engine_runtime/MainLoopPacer.h` | the frame loop's host-yield seam: empty inline on native platforms, an ASYNCIFY suspend in the browser — the player's `while (running)` loop, locals and orderly teardown run exactly as written |
+| `tools/player/CMakeLists.txt` (Emscripten branch) | player link flags: WebGL2 ceiling, forced FS, Emscripten's OpenAL |
+| `tools/player/PlayerContext.h` + `playerIterate` (main.cpp) | the player's world on ONE heap context and the loop body as an iterate callback: the desktop loop calls it in a plain `while`, the browser hands the context to the page's frame callback (`emscripten_set_main_loop_arg`, requestAnimationFrame-paced) — same frame body, same orderly teardown, no stack-suspension instrumentation |
 | `engine_util/SDLNativeWindowWeb.cpp` | the native-handle bridge returns null: the page's one canvas is both SDL's window (input) and the GLES2 render surface (OGRE binds it through Emscripten's EGL) |
 | `Util/orkige_export.py --platform web` | packages `<project>/builds/web/`: `index.html` (title/launch background/icon from the manifest), `orkige_player.{js,wasm}`, `game.data` + `game.js` (the payload image — engine media, project payload, `orkige_project.txt` marker — packed by emsdk's `file_packager`, mounted before `main()` runs, so `PlayerBundle` boots the project with no arguments, the same mechanism as every exported app) |
 | `tools/player/web/index.html.in` | the shell page template the exporter fills in |
@@ -91,15 +91,21 @@ MCP: `play { target:"browser" }`, then poll `get_state` for
   Jolt runs its single-threaded job system; the four host-only test TUs
   (sockets/threads) are excluded from the wasm unit binary with the reason in
   `tests/core/CMakeLists.txt`.
-- **ASYNCIFY.** The binary is instrumented so the frame loop can suspend to
-  the browser's event loop from inside `main()` (larger module, some CPU
-  overhead on suspendable paths). The cost is confined to the player target.
+- **The page paces the frames.** The frame loop runs as a per-frame callback
+  on the page's requestAnimationFrame cadence (`playerIterate` over the heap
+  `PlayerContext`); when the run ends, the callback performs the same orderly
+  shutdown the desktop path runs, then the runtime exits with the game's code
+  (the `ORKIGE_EXIT_<code>` title contract is unchanged).
 - **No debug link.** The BSD-socket API compiles but cannot listen in a page;
   `--debug-port` fails honestly and the game runs standalone — like an iOS
   device session.
 - **Saves are in-memory.** The module filesystem is MEMFS: the save store
   works within a session but does not survive a reload (persistent browser
   storage is a future knob).
-- **Zip archives are untested.** Two embedded copies of the same compression
-  library ride the closure (OgreMain's and an assimp dependency's — wasm-ld
-  warns about one colliding symbol); the web path reads plain files only.
+- **Mesh import only, and OgreZip owns zip.** The wasm assimp builds with
+  its exporters off (a per-port option in the triplet): the runtime never
+  writes meshes, and the 3MF exporter was the one consumer of the standalone
+  zip library whose full source OgreMain also embeds (OgreZip) — with it
+  gone, the module carries exactly ONE zip/miniz implementation and the
+  linker's duplicate-symbol warning is gone. Import formats (glb/gltf/obj/
+  3mf/...) are unchanged.

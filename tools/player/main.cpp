@@ -1833,9 +1833,14 @@ int main(int argc, char** argv)
 		// returns normally there; every other platform keeps the plain
 		// loop and the straight-line teardown.
 #ifdef __EMSCRIPTEN__
-		// fps 0 = requestAnimationFrame pacing; the final `true` abandons
-		// main()'s frame right here, so the context ownership moves to the
-		// callback BEFORE the call (nothing below this runs on the web)
+		// pacing follows the automated-run window policy: a HUMAN run uses
+		// requestAnimationFrame (fps 0 - the page's vsync), an automated
+		// (frame-capped/scripted) run uses timer pacing so a headless
+		// session's virtual clock can fast-forward the frames. The final
+		// `true` abandons main()'s frame right here, so the context
+		// ownership moves to the callback BEFORE the call (nothing below
+		// this line runs on the web)
+		const int webFramesPerSecond = context.automatedRun ? 60 : 0;
 		emscripten_set_main_loop_arg(
 			[](void* rawContext)
 			{
@@ -1854,7 +1859,7 @@ int main(int argc, char** argv)
 				emscripten_cancel_main_loop();
 				emscripten_force_exit(finalExitCode);
 			},
-			contextOwner.release(), 0, true);
+			contextOwner.release(), webFramesPerSecond, true);
 #else
 		while (context.running)
 		{
