@@ -9,6 +9,7 @@
 #include <core_debugnet/DebugProtocol.h>
 #include <core_script/ScriptRuntime.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -185,11 +186,14 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 		console.clear();
 	}
 	ImGui::SameLine();
-	// the filtered view as one clipboard block (per-line copy lives in each
-	// line's right-click menu) - ImGui's clipboard is the system clipboard
-	// through the SDL backend
-	bool copyShown = ImGui::Button("Copy");
-	ImGui::SetItemTooltip("copy the shown (filtered) lines to the clipboard");
+	// one clipboard block: the selected lines when a selection exists, else
+	// the whole filtered view (per-line copy lives in the right-click menu) -
+	// ImGui's clipboard is the system clipboard through the SDL backend
+	bool copyRequested = ImGui::Button("Copy");
+	ImGui::SetItemTooltip(
+		"copy the selected lines (else everything shown) to the clipboard\n"
+		"select: click \xC2\xB7 shift-click range \xC2\xB7 drag \xC2\xB7 "
+		"Cmd/Ctrl-click toggle \xC2\xB7 Cmd/Ctrl+C copies");
 	ImGui::SameLine();
 	Orkige::compactCheckbox("Auto-scroll", &console.autoScroll);
 	ImGui::SameLine();
@@ -203,22 +207,45 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 		ImGuiWindowFlags_HorizontalScrollbar))
 	{
 		std::lock_guard<std::mutex> lock(console.mutex);
-		if (copyShown)
+		const ImGuiIO& io = ImGui::GetIO();
+		// Cmd/Ctrl+C on the focused log doubles as the Copy button
+		copyRequested = copyRequested || (ImGui::IsWindowFocused() &&
+			(io.KeyCtrl || io.KeySuper) &&
+			ImGui::IsKeyPressed(ImGuiKey_C, false));
+		if (copyRequested)
 		{
+			const bool haveSelection = std::any_of(console.lines.begin(),
+				console.lines.end(),
+				[](ConsoleLine const& l) { return l.selected; });
 			std::string block;
-			for (ConsoleLine const& shownLine : console.lines)
+			for (ConsoleLine const& copyLine : console.lines)
 			{
-				if (console.filter.PassFilter(shownLine.text.c_str()))
+				if (haveSelection ? copyLine.selected
+					: console.filter.PassFilter(copyLine.text.c_str()))
 				{
-					block += shownLine.text;
+					block += copyLine.text;
 					block += '\n';
 				}
 			}
 			ImGui::SetClipboardText(block.c_str());
 		}
-		int lineIndex = 0;
-		for (ConsoleLine const& line : console.lines)
+		// a range operation (shift-click / drag) selects what the user SEES:
+		// only lines passing the live filter join the range
+		auto selectRange = [&console](int anchor, int index)
 		{
+			const int lo = std::min(anchor, index);
+			const int hi = std::max(anchor, index);
+			for (int k = 0; k < static_cast<int>(console.lines.size()); ++k)
+			{
+				console.lines[k].selected = k >= lo && k <= hi &&
+					console.filter.PassFilter(console.lines[k].text.c_str());
+			}
+		};
+		int lineIndex = 0;
+		int fullIndex = -1;
+		for (ConsoleLine& line : console.lines)
+		{
+			++fullIndex;
 			++lineIndex;
 			if (!console.filter.PassFilter(line.text.c_str()))
 			{
@@ -240,8 +267,48 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 					ImGui::GetStyleColorVec4(ImGuiCol_Text));
 				break;
 			}
-			ImGui::TextUnformatted(line.text.c_str());
-			// clickable file:line references (open the FIRST one on the line)
+			// a full-row Selectable carries the selection highlight; the text
+			// draws on top so lines keep their level colour (and any "##"/"%"
+			// sequences in log text never reach a widget's label parsing)
+			ImGui::PushID(lineIndex);
+			const ImVec2 textPos = ImGui::GetCursorScreenPos();
+			const float textWidth = ImGui::CalcTextSize(line.text.c_str()).x;
+			ImGui::Selectable("##line", line.selected, ImGuiSelectableFlags_None,
+				ImVec2(std::max(textWidth,
+					ImGui::GetContentRegionAvail().x), 0.0f));
+			ImGui::GetWindowDrawList()->AddText(textPos,
+				ImGui::GetColorU32(ImGuiCol_Text), line.text.c_str());
+			// selection gestures: click selects, shift-click extends from the
+			// anchor, Cmd/Ctrl-click toggles, holding the button and dragging
+			// sweeps the range under the cursor
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+			{
+				if (io.KeyShift && console.selectionAnchor >= 0)
+				{
+					selectRange(console.selectionAnchor, fullIndex);
+				}
+				else if (io.KeyCtrl || io.KeySuper)
+				{
+					line.selected = !line.selected;
+					console.selectionAnchor = fullIndex;
+				}
+				else
+				{
+					for (ConsoleLine& other : console.lines)
+					{
+						other.selected = false;
+					}
+					line.selected = true;
+					console.selectionAnchor = fullIndex;
+				}
+			}
+			else if (console.selectionAnchor >= 0 && ImGui::IsItemHovered() &&
+				ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+			{
+				selectRange(console.selectionAnchor, fullIndex);
+			}
+			// clickable file:line references (the FIRST one on the line);
+			// opening moved to DOUBLE-click so a plain click can select
 			const std::vector<Orkige::FileLineRef> refs =
 				Orkige::parseFileLineRefs(line.text);
 			if (!refs.empty())
@@ -255,21 +322,23 @@ void drawConsoleLogTab(EditorState& state, EditorConsole& console)
 					const ImVec2 mx = ImGui::GetItemRectMax();
 					ImGui::GetWindowDrawList()->AddLine(ImVec2(mn.x, mx.y),
 						ImVec2(mx.x, mx.y), ImGui::GetColorU32(ImGuiCol_Text));
-					ImGui::SetTooltip("%s:%d\nclick: open in editor  \xC2\xB7  "
-						"Alt-click / right-click: peek",
+					ImGui::SetTooltip("%s:%d\ndouble-click: open in editor  "
+						"\xC2\xB7  Alt-click / right-click: peek",
 						ref.path.c_str(), ref.line);
+					if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					{
+						pending.kind = PendingRefAction::Kind::Open;
+						pending.ref = ref;
+					}
 				}
-				if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+				if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && io.KeyAlt)
 				{
-					pending.kind = ImGui::GetIO().KeyAlt
-						? PendingRefAction::Kind::Peek
-						: PendingRefAction::Kind::Open;
+					pending.kind = PendingRefAction::Kind::Peek;
 					pending.ref = ref;
 				}
 			}
 			// every line answers a right-click with a copy menu; lines that
 			// carry a file:line reference add the open/peek actions
-			ImGui::PushID(lineIndex);
 			if (ImGui::BeginPopupContextItem("##consoleline"))
 			{
 				if (ImGui::MenuItem("Copy Line"))

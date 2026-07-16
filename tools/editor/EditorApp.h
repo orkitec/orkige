@@ -79,6 +79,9 @@ struct ConsoleLine
 {
 	ConsoleLevel level;
 	std::string text;
+	//! part of the Console's line selection (click / shift-range / drag);
+	//! lives on the line so it survives the store's half-trim
+	bool selected = false;
 };
 
 // The editor Console's line store: the engine log (via the engine_base
@@ -97,6 +100,9 @@ struct EditorConsole
 	bool autoScroll = true;
 	bool scrollToBottom = false;
 	ImGuiTextFilter filter;
+	//! the selection anchor for shift-range/drag selection: an index into
+	//! `lines`, -1 when nothing is anchored. Adjusted by the half-trim.
+	int selectionAnchor = -1;
 
 	void addLine(ConsoleLevel level, std::string const& text)
 	{
@@ -105,6 +111,12 @@ struct EditorConsole
 		{
 			this->lines.erase(this->lines.begin(),
 				this->lines.begin() + MAX_LINES / 2);
+			this->selectionAnchor = this->selectionAnchor < 0 ? -1
+				: this->selectionAnchor - static_cast<int>(MAX_LINES / 2);
+			if (this->selectionAnchor < 0)
+			{
+				this->selectionAnchor = -1;
+			}
 		}
 		this->lines.push_back({ level, text });
 		this->scrollToBottom = true;
@@ -114,6 +126,7 @@ struct EditorConsole
 	{
 		std::lock_guard<std::mutex> lock(this->mutex);
 		this->lines.clear();
+		this->selectionAnchor = -1;
 	}
 };
 
