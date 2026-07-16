@@ -1777,7 +1777,10 @@ int main(int argc, char** argv)
 					console.addLine(ConsoleLevel::Info, "[deploy] serving the "
 						"web build at " + url + " (runs standalone - no live "
 						"debug link into a browser tab)");
-					if (!SDL_OpenURL(url.c_str()))
+					// automated runs never touch the user's default browser
+					// (the scripted tests fetch the served files themselves,
+					// or drive their own headless browser at the URL)
+					if (!automatedRun && !SDL_OpenURL(url.c_str()))
 					{
 						// the toolbar's web status keeps the URL clickable,
 						// so the recovery is one click away
