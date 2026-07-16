@@ -59,6 +59,7 @@ add_executable(orkige_editor
     EditorControlServer.cpp
     EditorDeviceTargets.cpp
     EditorDocument.cpp
+    EditorBrowserServe.cpp
     EditorExport.cpp
     EditorFileDialogs.cpp
     EditorHierarchyPanel.cpp
@@ -235,6 +236,10 @@ target_compile_definitions(orkige_editor PRIVATE
     # the arm64-ios (physical-device) preset tree name Play-on-iPhone exports +
     # signs the player from (via Util/orkige_export.py --platform ios)
     ORKIGE_EDITOR_IOS_DEVICE_TREE="${ORKIGE_EDITOR_IOS_DEVICE_TREE}"
+    # the wasm player the web-release preset builds: its presence makes the
+    # Browser play target selectable (Play in Browser exports + serves + opens
+    # the default browser - see EditorBrowserServe.cpp)
+    ORKIGE_EDITOR_WEB_PLAYER_JS="${CMAKE_SOURCE_DIR}/build/web-release/tools/player/orkige_player.js"
     # native project modules (compile-on-Play): the module build links
     # against THIS build tree with the SAME toolchain settings - see
     # cmake/OrkigeGameModule.cmake and startPlay's native branch

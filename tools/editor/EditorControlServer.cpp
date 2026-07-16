@@ -549,7 +549,21 @@ namespace Orkige
 				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
 					"android-debug").string();
 			}
+			if (platform == "web")
+			{
+				// the wasm player from the web-release preset tree
+				return (fs::path(ORKIGE_EDITOR_ENGINE_ROOT) / "build" /
+					"web-release").string();
+			}
 			return ORKIGE_EDITOR_ENGINE_BUILD_DIR;	// macos: this editor's tree
+		}
+		//! is the web-release tree's wasm player built? (the Browser play
+		//! target's gate, mirroring the toolbar's probe)
+		bool isWebPlayerBuilt()
+		{
+			std::error_code ignored;
+			return std::filesystem::exists(ORKIGE_EDITOR_WEB_PLAYER_JS,
+				ignored);
 		}
 		//! @brief point a play session at a target the picker enumerates, by the
 		//! id list_play_targets reports: ''/'desktop' = the local player, an iOS
@@ -563,8 +577,21 @@ namespace Orkige
 			session.simulatorLabel.clear();
 			session.androidSerial.clear();
 			session.androidLabel.clear();
+			session.browserTarget = false;
 			if (target.empty() || target == "desktop")
 			{
+				return true;
+			}
+			if (target == "browser")
+			{
+				if (!isWebPlayerBuilt())
+				{
+					outError = "the browser target is gated: build the "
+						"web-release preset first (no wasm player at " +
+						String(ORKIGE_EDITOR_WEB_PLAYER_JS) + ")";
+					return false;
+				}
+				session.browserTarget = true;
 				return true;
 			}
 #ifdef __APPLE__
@@ -1259,8 +1286,10 @@ namespace Orkige
 				  "honors the unsaved-changes policy, force with force='1'). "
 				  "Optional 'target' picks WHERE to run - '' or 'desktop' for the "
 				  "local player, or an id from list_play_targets (an iOS simulator "
-				  "UDID / an adb serial); a shutdown simulator boots async (poll "
-				  "get_state).",
+				  "UDID / an adb serial / 'browser'); a shutdown simulator boots "
+				  "async (poll get_state). 'browser' is an export-serve-open: poll "
+				  "get_state for browser_play_status/browser_play_url (the game "
+				  "runs standalone in the page - no live debug link).",
 				  { { "scene", "string",
 				      "scene to open+play (project-relative; default: the current "
 				      "scene)", false },
@@ -2552,6 +2581,13 @@ namespace Orkige
 			ok.set("can_undo", core.canUndo() ? "1" : "0");
 			ok.set("can_redo", core.canRedo() ? "1" : "0");
 			ok.set("play_mode", playSessionModeName(*context.play));
+			// Play-in-Browser outcome (play {target:"browser"} / the toolbar):
+			// "" until the first browser play, "exporting" while the web export
+			// runs, "serving" + the URL once the page is up, "failed" on an
+			// export failure. The game runs standalone in the page (no live
+			// debug link) - an agent drives its own headless browser at the URL.
+			ok.set("browser_play_status", state.browserPlayStatus);
+			ok.set("browser_play_url", state.browserPlayUrl);
 			// live-player snapshot (present while a play session is up): the
 			// debug tools poll these - remote connection, the streamed selection
 			// and the last confirmed running-game screenshot
@@ -3257,6 +3293,29 @@ namespace Orkige
 				this->sendErr(req, targetError);
 				return;
 			}
+			if (context.play->browserTarget)
+			{
+				// Play in Browser is an export-serve-open, never a live play
+				// session (a page cannot host the debug socket): request the
+				// SAME deploy flow the toolbar drives and let the client poll
+				// get_state for browser_play_status/browser_play_url.
+				context.play->browserTarget = false; // one-shot request
+				if (!state.project.isLoaded())
+				{
+					this->sendErr(req, "play in the browser needs an open "
+						"project (the page boots the exported project bundle)");
+					return;
+				}
+				state.requestedBrowserPlay = true;
+				DebugMessage ok(MSG_OK);
+				ok.set("accepted", "1");
+				ok.set("target", "browser");
+				ok.set("note", "web export started; poll get_state until "
+					"browser_play_status is 'serving' and read "
+					"browser_play_url (the game runs standalone in the page)");
+				this->sendOk(req, ok);
+				return;
+			}
 			if (!startPlay(*context.play, manager, state.project))
 			{
 				this->sendErr(req, "play could not start (see the editor log)");
@@ -3293,6 +3352,13 @@ namespace Orkige
 			ids.push_back("desktop");
 			names.push_back("Desktop");
 			states.push_back("ready");
+			// the browser (WebGL): enumerated-but-gated until the web-release
+			// preset built the wasm player (the ios-device precedent - a
+			// listed target an agent can see needs building, not a hidden one)
+			kinds.push_back("browser");
+			ids.push_back("browser");
+			names.push_back("Browser (WebGL)");
+			states.push_back(isWebPlayerBuilt() ? "ready" : "gated");
 #ifdef __APPLE__
 			std::future<std::vector<SimulatorDevice>> simulatorProbe =
 				std::async(std::launch::async, listSimulators);
@@ -5442,10 +5508,10 @@ namespace Orkige
 		{
 			const String& platform = request.get("platform");
 			if (platform != "macos" && platform != "ios-simulator" &&
-				platform != "android")
+				platform != "android" && platform != "web")
 			{
 				this->sendErr(req, "export_project needs a 'platform' of macos, "
-					"ios-simulator or android");
+					"ios-simulator, android or web");
 				return;
 			}
 			if (!state.project.isLoaded())
@@ -5697,14 +5763,16 @@ namespace Orkige
 	//---------------------------------------------------------
 	void EditorControlSelfTest::begin(unsigned short port,
 		std::string const& token, std::string const& screenshotPath,
-		bool runtimeDebug)
+		bool runtimeDebug, bool browserPlay)
 	{
 		this->mToken = token;
 		this->mScreenshotPath = screenshotPath;
 		this->mRuntimeDebug = runtimeDebug;
+		this->mBrowserPlay = browserPlay;
 		this->mActive.store(true);
 		this->mDone.store(false);
 		this->mPassed.store(false);
+		this->mSkipped.store(false);
 		this->mThread = std::thread(&EditorControlSelfTest::run, this, port);
 	}
 	//---------------------------------------------------------
@@ -6109,6 +6177,204 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: control self-test - get_lua_api OK "
 				"(%zu byte inventory)", inventory.size());
+		}
+
+		// --- the BROWSER PLAY conversation (a separate ctest): pick the
+		// browser target over MCP, drive the export-serve-open flow to its
+		// served URL and fetch the page + wasm module straight off the
+		// editor's loopback static server - target listing, gating, the async
+		// export, the doc-root serve and the path jail, end to end. SKIPS
+		// (the editor exits 77) when the wasm player was never built: the
+		// target honestly reports "gated" then, exactly like the toolbar.
+		if (this->mBrowserPlay)
+		{
+			JsonValue structured;
+			bool isError = true;
+			if (!callTool("list_play_targets", JsonValue::object(), false,
+				structured, isError) || isError)
+			{
+				finish(false, "browser play test: list_play_targets failed");
+				return;
+			}
+			String browserState;
+			{
+				JsonValue const& ids = structured.get("target_ids");
+				JsonValue const& targetStates = structured.get("target_states");
+				for (size_t i = 0; i < ids.size() &&
+					i < targetStates.size(); ++i)
+				{
+					if (ids.at(i).asString() == "browser")
+					{
+						browserState = targetStates.at(i).asString();
+					}
+				}
+			}
+			if (browserState.empty())
+			{
+				finish(false, "browser play test: list_play_targets reported "
+					"no 'browser' entry");
+				return;
+			}
+			if (browserState != "ready")
+			{
+				SDL_Log("orkige_editor: browser play test SKIPPED - the wasm "
+					"player is not built (build the web-release preset first)");
+				this->mSkipped.store(true);
+				finish(true, "");
+				return;
+			}
+			// a real Lua project - the served page boots its exported bundle
+			{
+				JsonValue args = JsonValue::object();
+				args.set("path", JsonValue(ORKIGE_EDITOR_JUMPER_LUA_PROJECT));
+				args.set("force", JsonValue("1"));
+				if (!callTool("open_project", args, true, structured,
+					isError) || isError)
+				{
+					finish(false, "browser play test: open_project failed");
+					return;
+				}
+			}
+			{
+				JsonValue args = JsonValue::object();
+				args.set("target", JsonValue("browser"));
+				if (!callTool("play", args, true, structured, isError) ||
+					isError || structured.get("accepted").asString() != "1")
+				{
+					finish(false, "browser play test: play {target:'browser'} "
+						"was not accepted");
+					return;
+				}
+			}
+			// the web export runs async on the editor's frame loop: poll
+			// get_state until the page serves. The exporter packs the whole
+			// engine media + payload image, so the budget is wide; the ctest
+			// TIMEOUT is the real backstop.
+			String url;
+			for (int attempt = 0; attempt < 1200; ++attempt)
+			{
+				if (!callTool("get_state", JsonValue::object(), false,
+					structured, isError) || isError)
+				{
+					finish(false, "browser play test: get_state failed");
+					return;
+				}
+				const String status =
+					structured.get("browser_play_status").asString();
+				if (status == "serving")
+				{
+					url = structured.get("browser_play_url").asString();
+					break;
+				}
+				if (status == "failed")
+				{
+					finish(false, "browser play test: the web export failed "
+						"(see the [export] lines in the editor log)");
+					return;
+				}
+				std::this_thread::sleep_for(std::chrono::milliseconds(100));
+			}
+			if (url.empty())
+			{
+				finish(false, "browser play test: the export/serve flow never "
+					"reached 'serving'");
+				return;
+			}
+			SDL_Log("orkige_editor: browser play test - serving at %s",
+				url.c_str());
+			// fetch straight off the static server: the URL is
+			// http://127.0.0.1:<port>/index.html
+			const size_t portAt = url.find("127.0.0.1:");
+			if (portAt == String::npos)
+			{
+				finish(false, "browser play test: unexpected URL " + url);
+				return;
+			}
+			const unsigned short servePort = static_cast<unsigned short>(
+				std::atoi(url.c_str() + portAt +
+					std::strlen("127.0.0.1:")));
+			// one GET per connection; outHeaders receives the raw (lower-
+			// cased) header section so content types are assertable
+			auto getServed = [&](String const& path, bool wholeBody,
+				int& status, String& outHeaders, String& body) -> bool
+			{
+				DebugSocketUtil::SocketHandle serveHandle =
+					connectBlocking(servePort);
+				if (serveHandle == DebugSocketUtil::INVALID_SOCKET_HANDLE)
+				{
+					return false;
+				}
+				const String request = "GET " + path + " HTTP/1.1\r\n"
+					"Host: 127.0.0.1\r\nConnection: close\r\n\r\n";
+				bool ok = sendAll(serveHandle, request);
+				if (ok && wholeBody)
+				{
+					ok = readHttpResponse(serveHandle, status, body);
+					outHeaders.clear();
+				}
+				else if (ok)
+				{
+					// headers only (the wasm module is tens of MB - the
+					// status line, content type and length say enough)
+					String buffer;
+					char chunk[4096];
+					size_t headerEnd = String::npos;
+					while ((headerEnd = buffer.find("\r\n\r\n")) ==
+						String::npos)
+					{
+						const long n = static_cast<long>(::recv(serveHandle,
+							chunk, sizeof(chunk), 0));
+						if (n <= 0 || buffer.size() > 1024 * 1024)
+						{
+							ok = false;
+							break;
+						}
+						buffer.append(chunk, static_cast<size_t>(n));
+					}
+					if (ok)
+					{
+						const size_t space = buffer.find(' ');
+						status = space == String::npos ? 0
+							: std::atoi(buffer.c_str() + space + 1);
+						outHeaders = toLower(buffer.substr(0, headerEnd));
+						body.clear();
+					}
+				}
+				DebugSocketUtil::closeSocket(serveHandle);
+				return ok;
+			};
+			int status = 0;
+			String headers;
+			String body;
+			if (!getServed("/index.html", true, status, headers, body) ||
+				status != 200 || body.find("<title>") == String::npos)
+			{
+				finish(false, "browser play test: served index.html wrong "
+					"(status " + std::to_string(status) + ")");
+				return;
+			}
+			if (!getServed("/orkige_player.wasm", false, status, headers,
+				body) || status != 200 ||
+				headers.find("content-type: application/wasm") ==
+					String::npos)
+			{
+				finish(false, "browser play test: the wasm module must serve "
+					"as application/wasm (streaming compilation requires it) "
+					"- status " + std::to_string(status));
+				return;
+			}
+			// the path jail: an escape attempt answers the honest 404
+			if (!getServed("/../project.orkproj", true, status, headers,
+				body) || status != 404)
+			{
+				finish(false, "browser play test: a path escape must answer "
+					"404 (got " + std::to_string(status) + ")");
+				return;
+			}
+			SDL_Log("orkige_editor: browser play test - page + wasm served, "
+				"path jail holds");
+			finish(true, "");
+			return;
 		}
 
 		// --- the RUNTIME DEBUG conversation (a separate ctest, needs the

@@ -42,6 +42,31 @@ endif()
 
 target_link_libraries(orkige_player PRIVATE Orkige::Engine)
 
+if(EMSCRIPTEN)
+    # Browser player (preset web-release): the executable is a wasm module +
+    # JS loader pair; the classic GLES2 render system draws through WebGL on
+    # the page's canvas. Scoped to this target - the unit-test binary and any
+    # future web tool pick their own flags.
+    #   ASYNCIFY         the frame loop yields to the page from INSIDE
+    #                    main()'s live stack (engine_runtime/MainLoopPacer.h)
+    #   MAX_WEBGL_VERSION allow a WebGL2 context where the driver asks for
+    #                    GLES3-level features (WebGL1 remains the floor)
+    #   FORCE_FILESYSTEM the project payload + engine media arrive as a
+    #                    file_packager .data image (export packaging), so the
+    #                    FS layer must exist even before any C fopen is seen
+    #   -lopenal         Emscripten's WebAudio-backed OpenAL implementation
+    #                    (the same AL surface openal-soft provides natively)
+    target_link_options(orkige_player PRIVATE
+        -sASYNCIFY
+        -sALLOW_MEMORY_GROWTH=1
+        -sSTACK_SIZE=5242880
+        -sMAX_WEBGL_VERSION=2
+        -sFORCE_FILESYSTEM=1
+        -sEXIT_RUNTIME=1
+        -lopenal
+    )
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # the engine's backend media differs per flavor: classic ships the RTSS
     # shader library (Media/{Main,RTShaderLib}); next ships the Hlms shader

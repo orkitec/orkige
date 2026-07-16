@@ -256,15 +256,23 @@ namespace Orkige
 		//! runtimeDebug set, run the RUNTIME DEBUG conversation instead of the
 		//! edit-world one: boot Play over MCP, then pause/step/inspect/mutate/
 		//! screenshot the RUNNING game and stop (the editor_control_debug ctest,
-		//! which needs the built player).
+		//! which needs the built player). With browserPlay set, run the BROWSER
+		//! PLAY conversation instead: pick the browser target, drive the
+		//! export-serve-open flow and fetch the served page + wasm module (the
+		//! editor_play_browser ctest; skipped() when the wasm player is not
+		//! built - the target reports "gated" then).
 		void begin(unsigned short port, std::string const& token,
-			std::string const& screenshotPath, bool runtimeDebug = false);
+			std::string const& screenshotPath, bool runtimeDebug = false,
+			bool browserPlay = false);
 		//! poll the worker (the GameObjectManager param is unused - the endpoint
 		//! is verified entirely through its JSON-RPC responses)
 		void update(GameObjectManager& manager);
 		bool active() const { return mActive.load(); }
 		bool done() const { return mDone.load(); }
 		bool passed() const { return mPassed.load(); }
+		//! the browser-play conversation found its target gated (no wasm
+		//! player built) and asserted nothing - the ctest exits 77 (SKIP)
+		bool skipped() const { return mSkipped.load(); }
 
 	private:
 		//! the whole conversation, run on the worker thread
@@ -274,9 +282,11 @@ namespace Orkige
 		std::string mToken;
 		std::string mScreenshotPath;
 		bool mRuntimeDebug = false;		//!< run the runtime-debug conversation
+		bool mBrowserPlay = false;		//!< run the browser-play conversation
 		std::atomic<bool> mActive{ false };
 		std::atomic<bool> mDone{ false };
 		std::atomic<bool> mPassed{ false };
+		std::atomic<bool> mSkipped{ false };
 	};
 }
 

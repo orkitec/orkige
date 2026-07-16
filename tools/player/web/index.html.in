@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<!--
+  Orkige web player shell - written by Util/orkige_export.py --platform web.
+  The page hosts the wasm player: the .data image (engine media + project
+  payload + the orkige_project.txt marker, packed by Emscripten's
+  file_packager) mounts into the module's filesystem before main() runs, so
+  the player boots its bundled project exactly like the other exported apps.
+
+  Automation hooks (the same environment probes the native player reads via
+  getenv - Emscripten's ENV map feeds them): query parameters of the form
+  ?env.NAME=VALUE become environment variables, e.g. ?env.ORKIGE_DEMO_FRAMES=120
+  frame-limits the run. The runtime's exit code lands in document.title as
+  "ORKIGE_EXIT_<code>" so a headless browser session can assert the outcome.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>@TITLE@</title>
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: @BACKGROUND@; overflow: hidden;
+  }
+  .stage {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+  }
+  canvas.orkige {
+    display: block; border: 0; outline: none;
+    background: @BACKGROUND@;
+  }
+  .status {
+    position: absolute; left: 0; right: 0; bottom: 12px;
+    color: #8a93a5; font: 13px/1.4 -apple-system, system-ui, sans-serif;
+    text-align: center; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas class="orkige" id="canvas" width="1280" height="720"
+          oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+</div>
+<div class="status" id="status">loading&hellip;</div>
+<script>
+  var statusElement = document.getElementById('status');
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    // query parameters ?env.NAME=VALUE -> the module's environment (read
+    // back by getenv in the player: demo frame caps, cvar seeds, ...)
+    preRun: [function () {
+      var params = new URLSearchParams(window.location.search);
+      params.forEach(function (value, key) {
+        if (key.indexOf('env.') === 0) {
+          ENV[key.substring(4)] = value;
+        }
+      });
+    }],
+    print: function (text) {
+      console.log(text);
+    },
+    printErr: function (text) {
+      console.error(text);
+    },
+    setStatus: function (text) {
+      statusElement.textContent = text || '';
+    },
+    onRuntimeInitialized: function () {
+      statusElement.textContent = '';
+    },
+    onExit: function (code) {
+      document.title = 'ORKIGE_EXIT_' + code;
+      statusElement.textContent = 'exited (' + code + ')';
+    }
+  };
+</script>
+<script src="@DATA_LOADER@"></script>
+<script src="@PLAYER_JS@"></script>
+</body>
+</html>

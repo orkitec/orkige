@@ -110,9 +110,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LAUNCH_BACKGROUND = "#12161f"
 
 # --platform value -> the texture-cook / import-settings platform token
-# (desktop uses the default block; the mobile flavors resolve their overrides)
+# (desktop uses the default block; the mobile flavors resolve their overrides,
+# web ships the default pixels - browsers decode plain PNG everywhere)
 COOK_PLATFORM = {"macos": "", "ios-simulator": "ios", "ios": "ios",
-                 "android": "android"}
+                 "android": "android", "web": ""}
 
 # the marker file name PlayerBundle reads (engine_runtime/PlayerRuntime.cpp)
 PROJECT_MARKER_FILE_NAME = "orkige_project.txt"
@@ -754,6 +755,108 @@ def export_macos(project, engine_build, output_dir, cmake, ninja):
 
 # --- iOS simulator ---------------------------------------------------------
 
+def emsdk_root(environ=None):
+    """the user-local emsdk install (EMSDK env override, else the documented
+    ~/Development/emsdk location - see triplets/wasm32-emscripten.cmake).
+    Empty when absent."""
+    environ = environ if environ is not None else os.environ
+    root = environ.get("EMSDK", "") or os.path.expanduser(
+        os.path.join("~", "Development", "emsdk"))
+    return root if os.path.isdir(root) else ""
+
+
+def export_web(project, engine_build, output_dir):
+    """package a browser build: the wasm player from the web-release tree, the
+    engine media + project payload packed into ONE preloaded .data image (it
+    mounts into the module filesystem before main() runs, marker included, so
+    PlayerBundle boots the bundled project with no arguments - the same
+    mechanism as every other exported app), and a shell index.html carrying
+    the project's name, launch background and icon. Output is a static
+    directory any web server can host as-is."""
+    if project.native_target():
+        fail("project '%s' has a native module ('%s') - native modules are "
+             "desktop-only, the browser player runs Lua/scene projects"
+             % (project.name, project.native_target()))
+    player_js = os.path.join(engine_build, "tools", "player",
+                             "orkige_player.js")
+    player_wasm = os.path.join(engine_build, "tools", "player",
+                               "orkige_player.wasm")
+    if not os.path.isfile(player_js) or not os.path.isfile(player_wasm):
+        fail("no wasm player at '%s' - build the web-release preset first"
+             % player_js)
+    if render_backend(engine_build) != "classic":
+        fail("web export packages the classic (GLES2/WebGL) flavor - "
+             "'%s' is not a classic tree" % engine_build)
+    media_dir = ogre_media_dir(engine_build)
+    if not media_dir:
+        fail("no OGRE media under the build tree's vcpkg - broken tree?")
+    emsdk = emsdk_root()
+    if not emsdk:
+        fail("no emsdk found (EMSDK env or ~/Development/emsdk) - the web "
+             "export packs its payload with Emscripten's file_packager")
+    file_packager = os.path.join(emsdk, "upstream", "emscripten", "tools",
+                                 "file_packager.py")
+    if not os.path.isfile(file_packager):
+        fail("no file_packager.py under '%s' - emsdk install incomplete"
+             % emsdk)
+
+    shutil.rmtree(output_dir, ignore_errors=True)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # stage the virtual filesystem image: engine shader media + engine fonts/
+    # water + the project payload + the marker, laid out exactly like a
+    # desktop bundle's Resources/ (SDL_GetBasePath() is "/" in the module FS)
+    with tempfile.TemporaryDirectory() as staging:
+        for subdir in ("Main", "RTShaderLib"):
+            source = os.path.join(media_dir, subdir)
+            if os.path.isdir(source):
+                shutil.copytree(source,
+                                os.path.join(staging, "Media", subdir))
+        if engine_font_dir():
+            shutil.copytree(engine_font_dir(),
+                            os.path.join(staging, "Media", "fonts"),
+                            dirs_exist_ok=True)
+        if engine_water_dir():
+            shutil.copytree(engine_water_dir(),
+                            os.path.join(staging, "Media", "water"),
+                            dirs_exist_ok=True)
+        staged = stage_project_payload(
+            project, os.path.join(staging, PAYLOAD_DIR_NAME), "web")
+        write_marker(staging)
+        log("project payload: %d files" % staged)
+        run([sys.executable, file_packager,
+             os.path.join(output_dir, "game.data"),
+             "--preload", staging + "@/",
+             "--js-output=" + os.path.join(output_dir, "game.js"),
+             "--quiet"])
+
+    shutil.copy2(player_js, os.path.join(output_dir, "orkige_player.js"))
+    shutil.copy2(player_wasm, os.path.join(output_dir, "orkige_player.wasm"))
+
+    # per-project favicon (the browser's app icon slot)
+    icon_source = orkige_icons.load_square_source(
+        orkige_icons.resolve_icon_source(project, log=log))
+    orkige_icons._write_sizes(icon_source, output_dir, [("icon.png", 256)])
+
+    # the shell page: title/background/icon from the manifest, module +
+    # payload script names baked in
+    template_path = os.path.join(REPO_ROOT, "tools", "player", "web",
+                                 "index.html.in")
+    with open(template_path, "r", encoding="utf-8") as handle:
+        shell = handle.read()
+    for placeholder, value in (("@TITLE@", project.name),
+                               ("@BACKGROUND@", launch_background(project)),
+                               ("@DATA_LOADER@", "game.js"),
+                               ("@PLAYER_JS@", "orkige_player.js")):
+        shell = shell.replace(placeholder, value)
+    with open(os.path.join(output_dir, "index.html"), "w", encoding="utf-8",
+              newline="\n") as handle:
+        handle.write(shell)
+
+    log("serve: python3 -m http.server -d '%s'" % output_dir)
+    return output_dir
+
+
 def export_ios_simulator(project, engine_build, output_dir):
     if project.native_target():
         fail("project '%s' has a native module ('%s') - native modules are "
@@ -1256,7 +1359,7 @@ def main():
                         help="project directory (or its .orkproj)")
     parser.add_argument("--platform", required=True,
                         choices=["macos", "ios-simulator", "ios", "ios-ipa",
-                                 "android", "android-aab"])
+                                 "android", "android-aab", "web"])
     parser.add_argument("--engine-build", required=True,
                         help="the preset build tree to package from (either "
                              "render flavor; the bundled engine media follows "
@@ -1264,7 +1367,8 @@ def main():
                              "build/macos-debug[-classic] or -release[-classic], "
                              "ios-simulator: build/ios-simulator-debug[-next], "
                              "ios: build/ios-device-debug[-release], "
-                             "android: build/android-debug[-next]")
+                             "android: build/android-debug[-next], "
+                             "web: build/web-release")
     parser.add_argument("--output",
                         help="output directory (default: "
                              "<project>/builds/<platform>)")
@@ -1345,6 +1449,8 @@ def main():
     elif args.platform == "android-aab":
         artifact = export_android_bundle(project, engine_build, output_dir,
                                          args, os.environ)
+    elif args.platform == "web":
+        artifact = export_web(project, engine_build, output_dir)
     else:
         artifact = export_android(project, engine_build, output_dir)
 

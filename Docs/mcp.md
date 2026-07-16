@@ -601,15 +601,25 @@ WHERE:
   for `open_scene`. Opening a different scene discards the current unsaved edit
   world, so it honors the dirty-state policy — pass `force:"1"` to override.
 - `target` picks the device. `""`/`"desktop"` runs the local player;
-  otherwise pass an id from `list_play_targets` — an iOS simulator UDID or an adb
-  serial. A shutdown simulator boots asynchronously (the toolbar's boot flow),
-  so `play` returns `{ accepted:"1" }` and you poll `get_state` (`play_mode`
-  walks `launching`→`playing`). Native-module projects are desktop-only.
+  otherwise pass an id from `list_play_targets` — an iOS simulator UDID, an adb
+  serial or `"browser"`. A shutdown simulator boots asynchronously (the
+  toolbar's boot flow), so `play` returns `{ accepted:"1" }` and you poll
+  `get_state` (`play_mode` walks `launching`→`playing`). Native-module projects
+  are desktop-only.
+- `"browser"` is an export-serve-open, never a live play session (a page
+  cannot host the debug socket): the editor runs a `web` export, serves the
+  artifact directory on a loopback port and opens the default browser. Poll
+  `get_state` — `browser_play_status` walks `exporting`→`serving` (or
+  `failed`) and `browser_play_url` carries the page URL; drive your own
+  headless browser at it (the shell page maps `?env.NAME=VALUE` query params
+  onto the module environment, so the native automation hooks work —
+  `Docs/web-export.md`). Gated (`target_states:"gated"`) until the
+  web-release preset built the wasm player.
 
 `list_play_targets` (a read) enumerates exactly what the editor's target picker
 shows: `target_count` plus the parallel lists `target_kinds`
-(`desktop`/`ios-simulator`/`ios-device`/`android`), `target_ids` (what you pass
-to `target`), `target_names` and `target_states`
+(`desktop`/`browser`/`ios-simulator`/`ios-device`/`android`), `target_ids`
+(what you pass to `target`), `target_names` and `target_states`
 (`ready`/`booted`/`shutdown`/`gated`/`device`).
 
 ```jsonc

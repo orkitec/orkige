@@ -46,6 +46,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 #endif
 		static std::vector<AndroidDevice> androidDevices;
 		static bool otherFlavorPlayerPresent = false;
+		static bool webPlayerPresent = false;
 		ImGui::BeginDisabled(mode != PlaySession::Mode::Edit || prefabMode);
 		ImGui::SetNextItemWidth(150.0f);
 		const char* targetPreview = "Desktop";
@@ -64,6 +65,10 @@ float drawToolbar(EditorState& state, PlaySession& session,
 		else if (!session.iosDeviceUdid.empty())
 		{
 			targetPreview = session.iosDeviceLabel.c_str();
+		}
+		else if (session.browserTarget)
+		{
+			targetPreview = "Browser (WebGL)";
 		}
 		// the two desktop flavors: this build's own player and the OTHER
 		// render flavor's (conventional preset build tree - baked in by
@@ -99,9 +104,12 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				std::error_code ignored;
 				otherFlavorPlayerPresent = std::filesystem::exists(
 					otherFlavorPlayerPath, ignored);
+				webPlayerPresent = std::filesystem::exists(
+					ORKIGE_EDITOR_WEB_PLAYER_JS, ignored);
 			}
 			const bool desktopSelected = session.simulatorUdid.empty() &&
-				session.androidSerial.empty() && session.iosDeviceUdid.empty();
+				session.androidSerial.empty() &&
+				session.iosDeviceUdid.empty() && !session.browserTarget;
 			if (ImGui::Selectable(ownFlavorLabel,
 				desktopSelected && session.desktopPlayerPath.empty()))
 			{
@@ -113,6 +121,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				session.androidLabel.clear();
 				session.iosDeviceUdid.clear();
 				session.iosDeviceLabel.clear();
+				session.browserTarget = false;
 			}
 			// the other flavor's player: selectable only when its build
 			// tree carries the binary (grey + tooltip otherwise - honest
@@ -129,6 +138,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				session.androidLabel.clear();
 				session.iosDeviceUdid.clear();
 				session.iosDeviceLabel.clear();
+				session.browserTarget = false;
 			}
 			ImGui::EndDisabled();
 			if (!otherFlavorPlayerPresent &&
@@ -137,6 +147,33 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				ImGui::SetTooltip("that flavor's player is not built - "
 					"configure + build its preset first (%s)",
 					otherFlavorPlayerPath);
+			}
+			// the browser (WebGL): selectable once the web-release preset
+			// built the wasm player. Play becomes an export-serve-open (never
+			// a live debug session - a page cannot host the debug socket).
+			ImGui::BeginDisabled(!webPlayerPresent);
+			if (ImGui::Selectable("Browser (WebGL)", session.browserTarget))
+			{
+				session.browserTarget = true;
+				session.desktopPlayerPath.clear();
+				session.desktopLabel.clear();
+				session.simulatorUdid.clear();
+				session.simulatorLabel.clear();
+				session.androidSerial.clear();
+				session.androidLabel.clear();
+				session.iosDeviceUdid.clear();
+				session.iosDeviceLabel.clear();
+			}
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				ImGui::SetTooltip(webPlayerPresent
+					? "Play exports the project for the web, serves it on a "
+						"local port and opens your browser (runs standalone - "
+						"no live debug link)"
+					: "the wasm player is not built - configure + build the "
+						"web-release preset first (%s)",
+					ORKIGE_EDITOR_WEB_PLAYER_JS);
 			}
 #ifdef __APPLE__
 			// every AVAILABLE simulator is a valid target: Play boots a
@@ -158,6 +195,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.desktopLabel.clear();
 					session.iosDeviceUdid.clear();
 					session.iosDeviceLabel.clear();
+					session.browserTarget = false;
 				}
 				if (!device.booted && ImGui::IsItemHovered())
 				{
@@ -180,6 +218,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.desktopLabel.clear();
 					session.iosDeviceUdid.clear();
 					session.iosDeviceLabel.clear();
+					session.browserTarget = false;
 				}
 			}
 #ifdef __APPLE__
@@ -220,6 +259,7 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					session.androidLabel.clear();
 					session.desktopPlayerPath.clear();
 					session.desktopLabel.clear();
+					session.browserTarget = false;
 				}
 				if (ImGui::IsItemHovered())
 				{
@@ -246,6 +286,14 @@ float drawToolbar(EditorState& state, PlaySession& session,
 				// (Docs/ios-signing.md).
 				state.requestedIosDeviceDeployUdid = session.iosDeviceUdid;
 				state.requestedIosDeviceDeployLabel = session.iosDeviceLabel;
+			}
+			else if (session.browserTarget)
+			{
+				// Play in Browser is an export-serve-open, not a live play
+				// session: the frame loop runs a "web" export whose success
+				// serves the artifact + opens the default browser (see the
+				// deployBrowser continuation on ExportJob)
+				state.requestedBrowserPlay = true;
 			}
 			else
 			{

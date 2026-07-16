@@ -56,6 +56,13 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
 			"/build/android-debug";
 	}
+	else if (platform == "web")
+	{
+		// the browser build: the wasm player from the web-release preset
+		// tree; the exporter reports honestly when it was never built
+		engineBuild = std::string(ORKIGE_EDITOR_ENGINE_ROOT) +
+			"/build/web-release";
+	}
 	const std::vector<std::string> command = { python.executable, exporter,
 		"--project", project.getRootDirectory(), "--platform", platform,
 		"--engine-build", engineBuild };
@@ -86,6 +93,8 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 	job.platform = platform;
 	job.outputBuffer.clear();
 	job.artifactPath.clear();
+	job.deployBrowser = false;
+	job.browserArtifactReady = false;
 	// stays on SDL_Log: a Console command-echo streamed under the "[export]"
 	// prefix (the "[build]" precedent in EditorPlaySession), not an operational
 	// diagnostic - the sink's [tag] prefix would break the bracket-prefix
@@ -170,6 +179,14 @@ void updateExportJob(ExportJob& job, EditorConsole& console)
 	}
 	console.addLine(ConsoleLevel::Info, "[export] " + job.platform +
 		" export succeeded: " + job.artifactPath);
+	// Play-in-Browser continuation: hand the artifact to the frame loop
+	// (it serves the directory + opens the default browser - see
+	// EditorBrowserServe.cpp). No Finder reveal - the browser opens instead.
+	if (job.deployBrowser && !job.artifactPath.empty())
+	{
+		job.browserArtifactReady = true;
+		return;
+	}
 #ifdef __APPLE__
 	// iOS-device deploy continuation (Play on a connected iPhone): install the
 	// freshly signed .app and launch it. This is dependency-free (devicectl);

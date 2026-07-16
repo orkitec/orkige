@@ -577,6 +577,14 @@
       }
     },
     {
+      "name": "web",
+      "displayName": "Web suite: node-hosted units + export structure/boot (boot SKIPs without a headless browser)",
+      "configurePreset": "web-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
       "name": "unit-macos-ci",
       "displayName": "macOS CI: headless unit tests on the default (next) tree",
       "configurePreset": "macos-debug",

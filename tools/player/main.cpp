@@ -60,6 +60,7 @@
 // assertions below run on BOTH render flavors
 #include <engine_gui/GuiManager.h>
 #include <engine_runtime/AppHost.h>
+#include <engine_runtime/MainLoopPacer.h>
 #include <engine_runtime/PlayerRuntime.h>
 #include <engine_util/FrameStatsUtil.h>
 #include <engine_util/StringUtil.h>
@@ -5135,6 +5136,11 @@ int main(int argc, char** argv)
 			{
 				running = false;
 			}
+
+			// last statement of the frame: hand control back to the host
+			// (a no-op on native platforms, the browser yield on wasm - see
+			// engine_runtime/MainLoopPacer.h)
+			Orkige::MainLoopPacer::yieldToHost();
 		}
 
 		// clean-shutdown autosave: persist any unflushed `save` changes now (a

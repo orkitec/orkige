@@ -222,11 +222,14 @@ if(ORKIGE_BUILD_TOOLS)
 endif()
 
 if(ORKIGE_BUILD_TESTS AND ORKIGE_WEB)
-    # web tree: the headless Catch2 core unit suite only - node hosts the
-    # wasm test binary (one ctest registration, see tests/core). The windowed
-    # integration suite needs a browser session and stays host-side.
+    # web tree: the headless Catch2 core unit suite (node hosts the wasm test
+    # binary - one ctest registration, see tests/core) plus the web-export
+    # structure/boot tests (tests/web - the boot test drives a headless
+    # browser and SKIPs where none exists). The desktop integration suite
+    # stays host-side.
     enable_testing()
     add_subdirectory(tests/core)
+    add_subdirectory(tests/web)
 elseif(ORKIGE_BUILD_TESTS AND NOT ORKIGE_MOBILE)
     enable_testing()
     add_subdirectory(tests)

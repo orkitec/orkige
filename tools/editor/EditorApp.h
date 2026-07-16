@@ -27,6 +27,7 @@
 
 #include <core_debug/DebugMacros.h>	// tagged oDebug* diagnostics (SDL_Log policy)
 #include <core_debugnet/DebugClient.h>
+#include <core_debugnet/HttpServer.h>	// Play-in-Browser static server
 #include <core_project/AssetDatabase.h>
 #include <core_project/Project.h>
 #include <core_util/MaterialAsset.h>
@@ -157,6 +158,14 @@ struct ExportJob
 	//! device has no dependency-free TCP tunnel - see Docs/ios-signing.md).
 	std::string deployDeviceUdid;
 	std::string deployDeviceLabel;	//!< display name of the deploy device
+	//! @brief Play-in-Browser continuation: when set the successful "web"
+	//! export is followed by serving the artifact directory + opening the
+	//! default browser (the frame loop runs that step - see
+	//! browserArtifactReady). A plain Build-menu web export leaves it false.
+	bool deployBrowser = false;
+	//! set by updateExportJob when a deployBrowser export succeeded; the
+	//! frame loop consumes it (serve + open browser + Console URL line)
+	bool browserArtifactReady = false;
 	bool isActive() const { return this->process != nullptr; }
 };
 
@@ -168,6 +177,30 @@ bool startExport(ExportJob& job, Orkige::Project const& project,
 //! @brief per-frame pump: stream the exporter's output into the Console as
 //! "[export]" lines and report the outcome on exit
 void updateExportJob(ExportJob& job, EditorConsole& console);
+
+//--- Play in Browser static server (EditorBrowserServe.cpp) -----------------
+
+//! @brief the loopback static-file server behind Play in Browser: a second
+//! instance of the core_debugnet HttpServer (the MCP endpoint keeps its own,
+//! opt-in instance) serving ONE exported web build directory. Started lazily
+//! on the first browser play and kept for the editor's lifetime; every play
+//! re-exports and re-points the doc root - requests for the PREVIOUS
+//! export's files (an old tab reloading) answer with the jailed 404, the
+//! honest outcome for artifacts that no longer exist. Binds 127.0.0.1 only.
+struct BrowserServe
+{
+	Orkige::HttpServer server;
+	std::string docRoot;			//!< the served export directory ("" = idle)
+	bool isServing() const { return !this->docRoot.empty(); }
+};
+
+//! @brief serve docRoot (starting the listener on its first use) and return
+//! the page URL through outUrl; false + outError when the socket setup fails
+bool browserServeStart(BrowserServe& serve, std::string const& docRoot,
+	std::string& outUrl, std::string& outError);
+
+//! per-frame pump (accept/read/respond; never blocks); a no-op while idle
+void browserServeUpdate(BrowserServe& serve);
 
 //--- view settings (grid, orientation gizmo, camera) ------------------------
 
@@ -651,6 +684,20 @@ struct EditorState
 	//! loop reports honestly to the Console when those are missing.
 	std::string requestedIosDeviceDeployUdid;
 	std::string requestedIosDeviceDeployLabel;
+	//! Play-in-Browser request: the toolbar (or the control port's play verb
+	//! with target "browser") sets it, the frame loop runs a "web" export
+	//! whose success serves the artifact directory over a loopback HttpServer
+	//! and opens the default browser at it (see the deployBrowser field on
+	//! ExportJob and browserServe* in EditorBrowserServe.cpp). Like Play on
+	//! iOS hardware this is a deploy-and-run, never a live debug session - a
+	//! page cannot host the debug socket. Requires a loaded project.
+	bool requestedBrowserPlay = false;
+	//! the last browser-play outcome, for the toolbar/Console and the control
+	//! port's get_state (browser_play_url/browser_play_status): "" until the
+	//! first browser play; "exporting" while the web export runs; "serving"
+	//! with the URL set once the page is up; "failed" when the export failed
+	std::string browserPlayStatus;
+	std::string browserPlayUrl;
 	//! floating View Settings window (grid/gizmo/camera-feel sliders); on mac
 	//! the native View > View Settings... opens it since the ImGui menu bar
 	//! that used to host the sliders is not drawn there
@@ -817,6 +864,15 @@ struct PlaySession
 	//! deploy, not the remote hierarchy/inspector link.
 	std::string iosDeviceUdid;
 	std::string iosDeviceLabel;		//!< display name of the picked iOS device
+	//! play target picked in the toolbar: the browser (WebGL). Like iOS
+	//! hardware this is NOT a live play session - Play exports the project
+	//! for the web (Util/orkige_export.py --platform web off the web-release
+	//! tree), serves the artifact over a loopback HttpServer instance and
+	//! opens the default browser at it; the game runs standalone in the tab
+	//! (a page cannot host the debug socket, so the remote hierarchy/
+	//! inspector stay unavailable). Selectable once the web-release preset
+	//! built the wasm player.
+	bool browserTarget = false;
 	//! native module compile-on-Play (mode == Building): the remaining
 	//! cmake command queue (configure-if-needed, then build), the running
 	//! step (stdout+stderr piped, streamed into the Console per frame) and

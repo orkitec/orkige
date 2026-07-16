@@ -169,6 +169,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PREFABEDIT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
@@ -568,6 +569,10 @@ int main(int argc, char** argv)
 		PlaySession playSession;
 		// project export job (idle until Build > Build for <platform>)
 		ExportJob exportJob;
+		// Play-in-Browser static server: one loopback HttpServer instance for
+		// the editor's lifetime, doc root swapped per browser play (see
+		// EditorBrowserServe.cpp; the MCP endpoint keeps its own instance)
+		BrowserServe browserServe;
 #ifdef __APPLE__
 		// ORKIGE_EDITOR_PLAY_SIMULATOR: preselect an iOS simulator as the
 		// play target (the toolbar picker sets the same fields; the scripted
@@ -823,8 +828,14 @@ int main(int argc, char** argv)
 		const char* controlTestEnv = std::getenv("ORKIGE_EDITOR_CONTROL_TEST");
 		const char* controlPlaytestEnv =
 			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST");
-		const char* controlSelfTestEnv =
-			controlTestEnv ? controlTestEnv : controlPlaytestEnv;
+		// the browser-play flavor (editor_play_browser ctest): the browser
+		// target + export-serve-open flow over MCP; exits 77 (SKIP) when the
+		// wasm player was never built
+		const char* controlBrowserTestEnv =
+			std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST");
+		const char* controlSelfTestEnv = controlTestEnv ? controlTestEnv
+			: (controlPlaytestEnv ? controlPlaytestEnv
+				: controlBrowserTestEnv);
 		Orkige::EditorControlSelfTest controlSelfTest;
 		if (controlSelfTestEnv != nullptr && controlPort < 0)
 		{
@@ -1712,7 +1723,70 @@ int main(int argc, char** argv)
 				state.requestedIosDeviceDeployUdid.clear();
 				state.requestedIosDeviceDeployLabel.clear();
 			}
+			// Play in Browser: a "web" export whose success serves the artifact
+			// directory + opens the default browser (the deployBrowser fields on
+			// ExportJob carry the continuation through the existing async export
+			// pump). Needs a loaded project - the page boots the bundled project
+			// payload, there is no loose-scene handoff into a browser tab.
+			if (state.requestedBrowserPlay)
+			{
+				if (!state.project.isLoaded())
+				{
+					console.addLine(ConsoleLevel::Warning, "[deploy] Play in "
+						"Browser needs an open project - the page boots the "
+						"exported project bundle (no loose-scene handoff)");
+				}
+				else if (startExport(exportJob, state.project, "web", console))
+				{
+					exportJob.deployBrowser = true;
+					state.browserPlayStatus = "exporting";
+					state.browserPlayUrl.clear();
+				}
+				state.requestedBrowserPlay = false;
+			}
 			updateExportJob(exportJob, console);
+			// browser-play continuation: serve the fresh artifact and open the
+			// default browser at it. A re-play re-points the ONE server's doc
+			// root; a previous tab's fetches answer 404 from then on (those
+			// artifacts no longer exist - the honest outcome).
+			if (exportJob.browserArtifactReady)
+			{
+				exportJob.browserArtifactReady = false;
+				exportJob.deployBrowser = false;
+				std::string url;
+				std::string serveError;
+				if (!browserServeStart(browserServe, exportJob.artifactPath,
+					url, serveError))
+				{
+					console.addLine(ConsoleLevel::Error,
+						"[deploy] Play in Browser: " + serveError);
+					state.browserPlayStatus = "failed";
+				}
+				else
+				{
+					state.browserPlayUrl = url;
+					state.browserPlayStatus = "serving";
+					console.addLine(ConsoleLevel::Info, "[deploy] serving the "
+						"web build at " + url + " (runs standalone - no live "
+						"debug link into a browser tab)");
+					if (!SDL_OpenURL(url.c_str()))
+					{
+						console.addLine(ConsoleLevel::Warning,
+							"[deploy] could not open the default browser: " +
+							std::string(SDL_GetError()) + " - open " + url +
+							" yourself");
+					}
+				}
+			}
+			else if (!exportJob.isActive() && exportJob.deployBrowser)
+			{
+				// the web export failed (updateExportJob reported the lines);
+				// the browser-play attempt is over
+				exportJob.deployBrowser = false;
+				state.browserPlayStatus = "failed";
+			}
+			// pump the static server (accept/read/respond; a no-op while idle)
+			browserServeUpdate(browserServe);
 
 			// engine log lines captured since the last frame -> Console
 			drainEngineLogIntoConsole(engineLogCapture, console);
@@ -7968,7 +8042,8 @@ int main(int argc, char** argv)
 				{
 					controlSelfTest.begin(controlServer.getPort(),
 						controlServer.getToken(), controlSelfTestEnv,
-						controlPlaytestEnv != nullptr);
+						controlPlaytestEnv != nullptr,
+						controlBrowserTestEnv != nullptr);
 				}
 				if (controlSelfTest.active())
 				{
@@ -7979,6 +8054,12 @@ int main(int argc, char** argv)
 					if (!controlSelfTest.passed())
 					{
 						exitCode = 2;
+					}
+					else if (controlSelfTest.skipped())
+					{
+						// browser-play test on a machine without the wasm
+						// player: the ctest SKIP contract
+						exitCode = 77;
 					}
 					running = false;
 				}

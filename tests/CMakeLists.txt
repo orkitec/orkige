@@ -913,6 +913,24 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         # genuine failure reports its precise step instead of an opaque kill.
         LABELS integration TIMEOUT 300)
 
+    # Play in Browser end to end over MCP: the editor hosts its endpoint on an
+    # ephemeral in-process port and, on a worker thread, drives the browser
+    # target - list_play_targets (the "browser" entry, gated vs ready), play
+    # {target:"browser"} on projects/jumper-lua (a real "web" export through
+    # the async export machinery), poll get_state to "serving", then GET the
+    # served index.html AND the wasm module (Content-Type: application/wasm -
+    # streaming compilation requires it) off the editor's loopback static
+    # server, and prove the path jail 404s an escape. SKIPPED (exit 77) when
+    # the web-release preset never built the wasm player - the target honestly
+    # reports "gated" then. Pixel-level proof of the SERVED game lives in the
+    # web tree's export_web_boot (a headless browser boots the same artifact).
+    add_test(NAME editor_play_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_BROWSERTEST=${CMAKE_CURRENT_BINARY_DIR}/editor_play_browser_shot.png"
+        LABELS integration TIMEOUT 300
+        SKIP_RETURN_CODE 77)
+
     # the project system end to end: open projects/example programmatically
     # (same function as File > Open Project), re-open it (resource-group
     # teardown on a project switch), assert the project roots everything
