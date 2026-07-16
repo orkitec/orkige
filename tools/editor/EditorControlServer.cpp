@@ -1064,6 +1064,27 @@ namespace Orkige
 			}
 			return out;
 		}
+		//! the active render backend's capability set as a name->bool object
+		//! (@see Orkige::RenderCaps) - so an agent can read get_state's
+		//! `capabilities.skyDome` and author for the flavor the editor is running.
+		//! Queried straight off the editor's live render system (an empty object
+		//! before it boots).
+		JsonValue buildRenderCapabilities()
+		{
+			JsonValue caps = JsonValue::object();
+			Orkige::RenderSystem* render = Orkige::RenderSystem::get();
+			if (!render)
+			{
+				return caps;
+			}
+			for (int i = 0; i < static_cast<int>(Orkige::RenderCaps::Count); ++i)
+			{
+				const Orkige::RenderCaps cap = static_cast<Orkige::RenderCaps>(i);
+				caps.set(Orkige::renderCapName(cap),
+					JsonValue(render->supports(cap)));
+			}
+			return caps;
+		}
 		//---------------------------------------------------------
 		//--- JSON-RPC envelope helpers -----------------------
 		//---------------------------------------------------------
@@ -1120,7 +1141,10 @@ namespace Orkige
 				  "loop'). While/after a compile-on-Play native build it also carries "
 				  "'build_status' (none/building/ok/failed), 'build_target' and, "
 				  "on a failure, the 'build_errors' compiler tail (kept after the "
-				  "session reverts to edit mode).",
+				  "session reverts to edit mode). Also carries a 'capabilities' "
+				  "object (name->bool) reporting the active render backend's "
+				  "feature set (skyDome/dynamicShadows/hemisphereAmbient/... - "
+				  "author for the flavor the editor is running).",
 				  {} },
 				{ "list_hierarchy",
 				  "List every GameObject id with its parent and active flags.",
@@ -2238,6 +2262,14 @@ namespace Orkige
 		this->runVerb(request, context);
 
 		JsonValue structured = replyToJson(this->mReply);
+		// get_state carries the active render backend's capability set as a
+		// nested object (built editor-side off the live render system, so it
+		// needs no player round-trip) - an agent reads capabilities.<name> to
+		// author for the running flavor (@see RenderCaps).
+		if (name == "get_state" && !this->mReplyIsError)
+		{
+			structured.set("capabilities", buildRenderCapabilities());
+		}
 		JsonValue result = JsonValue::object();
 		JsonValue content = JsonValue::array();
 		JsonValue text = JsonValue::object();
@@ -3536,7 +3568,7 @@ namespace Orkige
 						"open project");
 					return;
 				}
-				if (!Orkige::RenderTexture::canOwnLayers())
+				if (!Orkige::RenderSystem::get()->supports(Orkige::RenderCaps::OffscreenOwnedLayers))
 				{
 					this->sendErr(req, "preview_ui is Ogre-Next only (offscreen "
 						"2D composition is not supported on the classic backend)");
@@ -6879,6 +6911,33 @@ namespace Orkige
 				"snapshot present (empty, no live player)");
 		}
 
+		// (7c) get_state carries the active render backend's capability set
+		// as a nested object (name->bool) - the MCP surface of RenderCaps an
+		// agent reads to author for the running flavor. skyDome is true on
+		// both flavors (a flavor-stable assertion); a flavor-varying cap like
+		// dynamicShadows must still be present as a bool.
+		{
+			JsonValue state;
+			if (!getState(state))
+			{
+				finish(false, "control self-test: get_state failed (caps)");
+				return;
+			}
+			JsonValue const& caps = state.get("capabilities");
+			if (!caps.isObject() || !caps.get("skyDome").isBool() ||
+				!caps.get("skyDome").asBool() ||
+				!caps.get("dynamicShadows").isBool())
+			{
+				finish(false, "control self-test: get_state capabilities "
+					"object is missing or malformed");
+				return;
+			}
+			SDL_Log("orkige_editor: control self-test - get_state capabilities "
+				"object present (skyDome=%d, dynamicShadows=%d)",
+				caps.get("skyDome").asBool() ? 1 : 0,
+				caps.get("dynamicShadows").asBool() ? 1 : 0);
+		}
+
 		// (8) GENERIC get_component: the reflected Transform
 		// property set crosses back by name, with discovery metadata lists.
 		// McpProbe was created at position "1 2 3".
@@ -8851,7 +8910,7 @@ namespace Orkige
 			// classic OGRE cannot composite 2D into an offscreen target, so
 			// preview_ui reports an honest error there (the tab is disabled) -
 			// assert that path instead of the render loop
-			if (!Orkige::RenderTexture::canOwnLayers())
+			if (!Orkige::RenderSystem::get()->supports(Orkige::RenderCaps::OffscreenOwnedLayers))
 			{
 				if (!callTool("preview_ui", pargs, true, structured, isError) ||
 					!isError)

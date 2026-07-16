@@ -402,6 +402,20 @@ namespace Orkige
 		RenderWorld* world = new RenderWorld();
 		world->mImpl->sceneManager = sceneManager;
 		system->mImpl->world = world;
+		// the next backend's render capabilities (@see RenderSystem::supports; the
+		// register leg of render_facade_selfcheck asserts this fill matches
+		// engine_render_next/RenderCapsExpectedNext.inc): the sky dome, dynamic
+		// shadows, hemisphere ambient, the atmosphere's sun-exposure linkage,
+		// animated normal-mapped water, and offscreen-owned 2D layers. Screen-space
+		// refraction + IBL reflections are absent on both flavors (v1 boundaries),
+		// so they stay out of the set.
+		system->mImpl->caps =
+			(1u << static_cast<int>(RenderCaps::SkyDome)) |
+			(1u << static_cast<int>(RenderCaps::DynamicShadows)) |
+			(1u << static_cast<int>(RenderCaps::HemisphereAmbient)) |
+			(1u << static_cast<int>(RenderCaps::SunExposureLinkage)) |
+			(1u << static_cast<int>(RenderCaps::AnimatedNormalMappedWater)) |
+			(1u << static_cast<int>(RenderCaps::OffscreenOwnedLayers));
 		gRenderSystem = system;
 		return gRenderSystem;
 	}

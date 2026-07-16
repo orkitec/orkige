@@ -44,7 +44,17 @@ ANNOTATIONS = os.path.join(SCRIPT_DIR, "lua_api_annotations.json")
 
 LUA_API_DOC = os.path.join(ROOT, "Docs", "lua-api.md")
 GUI_DOC = os.path.join(ROOT, "Docs", "gui.md")
+RENDER_ABSTRACTION_DOC = os.path.join(ROOT, "Docs", "render-abstraction.md")
 GENERATED_HEADER = os.path.join(ROOT, "tools", "editor", "GeneratedLuaApi.h")
+# the render capability register: identity/name/kind/description live in the
+# X-macro table (the header); the per-flavor values live in each backend's
+# committed snapshot table. The matrix joins them.
+RENDER_CAPS_HEADER = os.path.join(
+    ROOT, "orkige_engine", "engine_render", "RenderCaps.h")
+RENDER_CAPS_EXPECTED_CLASSIC = os.path.join(
+    ROOT, "orkige_engine", "engine_render_classic", "RenderCapsExpectedClassic.inc")
+RENDER_CAPS_EXPECTED_NEXT = os.path.join(
+    ROOT, "orkige_engine", "engine_render_next", "RenderCapsExpectedNext.inc")
 
 # ---------------------------------------------------------------------------
 # the global-table order the index presents (the script-author cheat sheet).
@@ -498,6 +508,78 @@ def render_gui_mermaid():
 
 
 # ---------------------------------------------------------------------------
+# render capability matrix. Identity/name/kind/description come from the
+# X-macro table in RenderCaps.h; the per-flavor values come from each backend's
+# committed snapshot table (the same tables the render_facade_selfcheck register
+# leg asserts the live bitset matches). The matrix joins them on the enum ident.
+# ---------------------------------------------------------------------------
+# line-anchored so the X(...) FORMAT examples in the header/`.inc` comments
+# (which are prefixed with //) are never mistaken for real table rows
+_RENDER_CAP_HEADER_RE = re.compile(
+    r'^[ \t]*X\(\s*(\w+)\s*,\s*"([^"]*)"\s*,\s*(\w+)\s*,\s*"([^"]*)"\s*\)',
+    re.MULTILINE)
+_RENDER_CAP_SNAPSHOT_RE = re.compile(
+    r'^[ \t]*X\(\s*(\w+)\s*,\s*(true|false)\s*\)', re.MULTILINE)
+
+
+def _parse_render_caps_header():
+    # ordered [{ident, name, kind, desc}] from the ORKIGE_RENDER_CAPS X-macro
+    with open(RENDER_CAPS_HEADER, "r") as f:
+        text = f.read()
+    caps = []
+    for m in _RENDER_CAP_HEADER_RE.finditer(text):
+        caps.append({"ident": m.group(1), "name": m.group(2),
+                     "kind": m.group(3), "desc": m.group(4)})
+    if not caps:
+        raise SystemExit(
+            "update_docs: no capabilities parsed from RenderCaps.h")
+    return caps
+
+
+def _parse_render_caps_snapshot(path):
+    # {ident: bool} from a backend's X(Ident, bool) snapshot table
+    with open(path, "r") as f:
+        text = f.read()
+    return {m.group(1): (m.group(2) == "true")
+            for m in _RENDER_CAP_SNAPSHOT_RE.finditer(text)}
+
+
+def render_render_caps_matrix():
+    caps = _parse_render_caps_header()
+    classic = _parse_render_caps_snapshot(RENDER_CAPS_EXPECTED_CLASSIC)
+    nxt = _parse_render_caps_snapshot(RENDER_CAPS_EXPECTED_NEXT)
+    idents = [c["ident"] for c in caps]
+    # both snapshots must cover exactly the enum's identities (both directions),
+    # so a cap added to the enum but not a snapshot (or vice versa) fails --check
+    for label, table in (("classic", classic), ("next", nxt)):
+        missing = [i for i in idents if i not in table]
+        extra = [k for k in table if k not in idents]
+        if missing or extra:
+            raise SystemExit(
+                "update_docs: %s render-cap snapshot disagrees with the enum "
+                "(missing %s, extra %s)" % (label, missing, extra))
+    mark = {True: "yes", False: "no"}
+    rows = ["| Capability (`RenderCaps` name) | classic | next | What it is |",
+            "| --- | :---: | :---: | --- |"]
+    for c in caps:
+        cval, nval = classic[c["ident"]], nxt[c["ident"]]
+        # a PlannedAbsent cap must be absent on BOTH flavors (its definition)
+        if c["kind"] == "PlannedAbsent" and (cval or nval):
+            raise SystemExit(
+                "update_docs: %s is kind PlannedAbsent but present on a flavor"
+                % c["ident"])
+        rows.append("| `%s` | %s | %s | %s |" % (
+            c["name"], mark[cval], mark[nval], c["desc"]))
+    note = ("\n_A capability marked `no`/`no` is a `PlannedAbsent` v1 boundary "
+            "(absent on both flavors, next-first when it lands); the rest are "
+            "real classic/next deltas. Probe from code with "
+            "`RenderSystem::get()->supports(RenderCaps::X)`, from Lua with "
+            "`engine:supports(\"name\")`, and over MCP from `get_state`'s "
+            "`capabilities` object._")
+    return "\n".join(rows) + "\n" + note
+
+
+# ---------------------------------------------------------------------------
 # .oui -> mermaid widget tree (the ad-hoc mode + selftest)
 # ---------------------------------------------------------------------------
 def parse_oui(text):
@@ -628,6 +710,12 @@ def compute_outputs():
         gui_doc = f.read()
     gui_doc = replace_block(gui_doc, "gui-widget-tree", gui_tree)
     outputs[GUI_DOC] = gui_doc
+
+    with open(RENDER_ABSTRACTION_DOC, "r") as f:
+        render_doc = f.read()
+    render_doc = replace_block(render_doc, "render-caps-matrix",
+                               render_render_caps_matrix())
+    outputs[RENDER_ABSTRACTION_DOC] = render_doc
 
     outputs[GENERATED_HEADER] = render_generated_header(index_text)
 

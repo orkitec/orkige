@@ -21,6 +21,7 @@
 //! bootstrap_next.cpp - see Docs/render-abstraction.md).
 
 #include <engine_render/RenderPrerequisites.h>
+#include <engine_render/RenderCaps.h>
 #include <core_util/String.h>
 
 namespace SelfcheckBootstrap
@@ -61,14 +62,13 @@ namespace SelfcheckBootstrap
 	//! per call, so a dense probe must go through this). -1 when the file
 	//! cannot be decoded.
 	float imageMaxBrightness(Orkige::String const & fileName);
-	//! @brief does this flavor's atmosphere DRIVE the linked sun's colour/power
-	//! (not just read its direction)? True on the next flavor - the native
-	//! AtmosphereNpr overrides the sun exposure, an un-tonemapped drive that the
-	//! selfcheck's clip guard tests. False on classic: its sky dome reads the sun
-	//! DIRECTION for the glow but never touches the light's power, so there is no
-	//! exposure drive to clip. A capability distinct from RenderWorld::
-	//! skyDomeSupported() (both flavors now render a dome).
-	bool atmosphereDrivesSunExposure();
+	//! @brief the committed EXPECTED supports() value for @p cap on THIS
+	//! backend's build - the per-backend snapshot the register leg asserts the
+	//! live RenderSystem::supports() matches (each bootstrap TU includes its own
+	//! RenderCapsExpected*.inc). @p outKnown is false when the cap is absent from
+	//! the snapshot table (the coverage guard: every RenderCaps identity must be
+	//! listed).
+	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown);
 }
 
 #endif //__SelfcheckBootstrap_h__8_7_2026__18_00_00__

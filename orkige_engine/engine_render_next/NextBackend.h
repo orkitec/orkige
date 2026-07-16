@@ -101,6 +101,7 @@ namespace Orkige
 		float				avgFPS = 0.0f;
 		float				bestFPS = 0.0f;		//!< max since resetFrameStats
 		float				worstFPS = 999999.0f;	//!< min since resetFrameStats (classic's sentinel)
+		unsigned int		caps = 0;			//!< RenderCaps bitset (bit i = supports RenderCaps(i)), filled at boot
 	};
 
 	struct RenderWorld::Impl

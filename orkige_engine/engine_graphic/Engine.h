@@ -345,6 +345,12 @@ protected:
 		//! stays registered so scripts written against older builds keep
 		//! working - and so a future UI-less flavor can answer honestly
 		bool hasUISystem() const { return true; }
+		//! @brief does the active render backend support a named capability?
+		//! (the script-facing face of RenderSystem::supports; @p name is a
+		//! RenderCaps name e.g. "skyDome"/"dynamicShadows" - an unknown name
+		//! returns false). Lets a script degrade its look honestly per flavor.
+		//! @see RenderCaps (the X-macro vocabulary), Docs/render-abstraction.md
+		bool supports(String const & name) const;
 		//! get external window handle if Engine is embedded
 		inline String const & getExternalWindowHandle(); 
 		//! get top level window handle if Engine is embedded into multi window app

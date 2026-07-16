@@ -177,16 +177,6 @@ namespace Orkige
 			->writeContentsToFile(fileName);
 	}
 	//---------------------------------------------------------
-	bool RenderTexture::canOwnLayers()
-	{
-		// the classic 2D compositor hook is a RenderQueueListener gated on
-		// the MAIN WINDOW viewport (@see DrawLayer2DClassic.cpp); routing it
-		// into an offscreen viewport is disproportionate for the one feature
-		// that needs it (the GUI Preview tab), so classic reports honest
-		// no-support and the editor disables the tab on this flavor
-		return false;
-	}
-	//---------------------------------------------------------
 	optr<DrawLayer2D> RenderTexture::createLayer(int)
 	{
 		static bool logged = false;

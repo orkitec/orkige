@@ -85,6 +85,14 @@ namespace Orkige
 		RenderWorld* world = new RenderWorld();
 		world->mImpl->sceneManager = engine->getSceneManager();
 		system->mImpl->world = world;
+		// the classic backend's render capabilities (@see RenderSystem::supports;
+		// the register leg of render_facade_selfcheck asserts this fill matches
+		// engine_render_classic/RenderCapsExpectedClassic.inc): a vertex-colour
+		// gradient sky dome, and nothing else in the set. The rest (dynamic
+		// shadows, hemisphere ambient, sun-exposure linkage, animated
+		// normal-mapped water, offscreen-owned 2D layers) are registered next-only
+		// deltas; screen-space refraction + IBL are absent on both.
+		system->mImpl->caps = (1u << static_cast<int>(RenderCaps::SkyDome));
 		gRenderSystem = system;
 		return gRenderSystem;
 	}

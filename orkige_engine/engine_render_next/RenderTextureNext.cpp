@@ -317,11 +317,6 @@ namespace Orkige
 		image.save(fileName, 0u, 1u);
 	}
 	//---------------------------------------------------------
-	bool RenderTexture::canOwnLayers()
-	{
-		return true;	// the Ogre-Next backend composites 2D layers per target
-	}
-	//---------------------------------------------------------
 	optr<DrawLayer2D> RenderTexture::createLayer(int zOrder)
 	{
 		// first layer: allocate this target's visibility bit + its pixel-space

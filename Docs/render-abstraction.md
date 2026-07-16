@@ -136,7 +136,7 @@ carry per-method mapping comments for classic OGRE, Ogre-Next and Filament.
 | `RenderPrerequisites.h` | — | export macro, facade forward decls, backend/ODR ground rules |
 | `RenderMath.h` | — | the math vocabulary + THE swap point (see math decision) |
 | `RenderSystem.h` | `RenderSystem` | frame loop, main-window camera/background/resize/size (`showCameraOnWindow` + `getWindowCamera` - the latter added so CameraComponent can take over the window camera while apps still set it up through Engine), screenshots, `FrameStats` (fps/triangles/batches), resource locations (FileSystem/Zip/BigZip), `createRenderTexture`, `getWorld` |
-| `RenderWorld.h` | `RenderWorld` | root node, node/content factories, ambient light, dynamic-shadow control (`shadowsSupported` capability probe + the `setShadowQuality` off/low/medium/high knob over `core_util/ShadowPreset.h`), sky/fog atmosphere (`skyDomeSupported` probe + `setAtmosphere(AtmosphereDesc)` — sun-linked atmospheric sky dome + object fog on next, a vertex-colour gradient sky dome + fog subset on classic), `queryRay` AABB picking (`RayQueryHit`: distance/node/userPointer), `createVertexColourCubeMesh` (the backend cube-mesh service - the editor's "Create Cube" resource every scene-loading app needs; classic impl reuses PrimitiveUtil) |
+| `RenderWorld.h` | `RenderWorld` | root node, node/content factories, ambient light, dynamic-shadow control (the `RenderCaps::DynamicShadows` capability + the `setShadowQuality` off/low/medium/high knob over `core_util/ShadowPreset.h`), sky/fog atmosphere (the `RenderCaps::SkyDome` capability + `setAtmosphere(AtmosphereDesc)` — sun-linked atmospheric sky dome + object fog on next, a vertex-colour gradient sky dome + fog subset on classic), `queryRay` AABB picking (`RayQueryHit`: distance/node/userPointer), `createVertexColourCubeMesh` (the backend cube-mesh service - the editor's "Create Cube" resource every scene-loading app needs; classic impl reuses PrimitiveUtil) |
 | `RenderNode.h` | `RenderNode` | transform get/set (local + world), translate/yaw/pitch/roll/lookAt/setDirection/fixedYawAxis, child creation/re-parenting/navigation, visibility, world bounds, user-pointer back-mapping |
 | `MeshInstance.h` | `MeshInstance` | ModelComponent needs (load/attach/visible/shadows/bounds/query flags), vertex-colour-unlit fixup + sub-mesh introspection (self-checks), `setMaterial` (assign a `createMaterial` material to all sub-meshes), AnimationComponent's AnimationState control surface (names/enable/loop/time/length/ended) |
 | `RenderMaterial.h` | `RenderMaterialDesc` | the material authoring surface (metal-rough PBS description: albedo colour/map, metalness, roughness, normal map, emissive) consumed by `RenderSystem::createMaterial` — usually parsed from a `.omat` asset (see `Docs/materials.md`) |
@@ -684,16 +684,16 @@ all in place. **Flavor capability matrix**:
 | engine_render facade (conformance suite) | yes | yes (zero carve-outs) |
 | components/game objects/serialization | yes | yes |
 | `LightComponent` (dir/point/spot over `RenderLight`; reflected/serialized/Lua/MCP) | yes | yes (per-flavor lit-vs-unlit selfcheck; the demo meshes carry no PBS normals, so the render-difference probe drives the ambient term) |
-| hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | REGISTERED subset: the two hemisphere colours are AVERAGED to one flat ambient. classic OGRE's `SceneManager::setAmbientLight` takes a single colour, and the RTSS lighting stages consume the flat `ACT_DERIVED_AMBIENT_LIGHT_COLOUR` auto-param — a true two-colour sky/ground blend would need a custom RTSS sub-render-state (a next-only capability, a future RenderCaps entry) | yes (native two-colour sky/ground term, `setAmbientLight(upper, lower, dir)`) |
+| hemisphere ambient (`RenderWorld::setAmbientHemisphere`) | REGISTERED subset: the two hemisphere colours are AVERAGED to one flat ambient. classic OGRE's `SceneManager::setAmbientLight` takes a single colour, and the RTSS lighting stages consume the flat `ACT_DERIVED_AMBIENT_LIGHT_COLOUR` auto-param — a true two-colour sky/ground blend would need a custom RTSS sub-render-state (the `RenderCaps::HemisphereAmbient` capability, next-only) | yes (native two-colour sky/ground term, `setAmbientLight(upper, lower, dir)`) |
 | PBS materials (`.omat` → `RenderSystem::createMaterial` + `MeshInstance::setMaterial`; `ModelComponent.material`) | RTSS metal-rough: `SRS_COOK_TORRANCE_LIGHTING` (metalness/roughness from `specular.xy`, albedo colour+map, emissive colour) + `SRS_NORMALMAP` (normal map, tangents built on demand in `setMaterial`) + an additive pass for the emissive map (opaque only) — maps render, but the shading model/ambient differ so still no pixel parity for lit content | yes — native HlmsPbs metallic workflow incl. normal/emissive maps (tangents generated at import for UV meshes); per-flavor `demo_material` selfcheck |
 | animated water (`RenderWaterDesc` → `RenderSystem::createWaterMaterial` + `setWaterTime`; `WaterComponent`) | RTSS metal-rough transparent plane: Cook-Torrance on the deep/shallow tint (opacity=alpha) with an intrinsic Fresnel edge, plus a COMPOSITE of two cues from the one normal map — the RTSS normal-map stage LIGHTS the ripples (a static sun-catching relief) while the same map bound a second time gives a scrolling colour-shimmer MOTION. REGISTERED subset: the lit ripple detail is STATIC (RTSS classic samples the raw texcoord, so a normal map lights OR scrolls on one unit, not both) — fully animated normal-mapped water + the two detail-normal ripple are next-only | yes — HlmsPbs specular-as-fresnel dielectric: TWO detail normal maps scrolling in different directions/speeds (the ripple), realistic fresnel-preserving transparency, deep-colour water body + subtle shallow-colour scatter; per-flavor `demo_water` selfcheck. Common v1 boundary BOTH flavors: NO screen-space refraction distortion and NO true depth-graded deep→shallow transmission — both need a compositor refraction/depth pass (a future desktop quality knob, see below) |
-| dynamic shadows (`RenderWorld::setShadowQuality` knob + `r.shadowQuality` cvar; `LightComponent.castsShadows`) | no (honest: knob accepted + round-trips, ONE "not supported" log line, renders nothing; `shadowsSupported()` = false) | yes (PSSM/PCF compositor shadow node in the window and RTT workspaces, attached lazily while quality ≠ off AND a light casts; v1 = DIRECTIONAL casters; budgets in `core_util/ShadowPreset.h` — medium default is the phone budget: 2 cascades, 1024 base atlas ≈ 6 MB, 3×3 PCF) |
-| sky / fog / day-night atmosphere (`RenderWorld::setAtmosphere(AtmosphereDesc)` + `skyDomeSupported()`; `Engine::setAtmosphere` Lua; `core_util/AtmosphereDesc.h`) | vertex-colour gradient sky dome SUBSET (`skyDomeSupported()` = true): a camera-following inward sphere in the sky render queue whose vertex colours are a zenith->horizon->ground gradient (horizon hazed by `density`) plus a soft dot-product sun glow toward the FIRST directional `RenderLight`; `fogDensity`/fog colour drive FOG_EXP2 scene fog. NO true atmospheric scattering; the sun glow recomputes on `setAtmosphere` (games pair sun-orient with setAtmosphere), so a game that re-orients the sun WITHOUT calling setAtmosphere shows a STALE glow (next's native link tracks it live) - the registered subset gap | yes — native `AtmosphereNpr` (atmospheric sky dome + HlmsPbs-integrated object fog + sun-linked day/night); the sun is the FIRST directional `RenderLight` (its direction drives the sky, the atmosphere drives its colour/power); sky material media ships from the ogre-next port (`Media/Atmosphere`); a media-less/headless boot degrades to the flat sky colour |
+| dynamic shadows (`RenderWorld::setShadowQuality` knob + `r.shadowQuality` cvar; `LightComponent.castsShadows`) | no (honest: knob accepted + round-trips, ONE "not supported" log line, renders nothing; `supports(RenderCaps::DynamicShadows)` = false) | yes (PSSM/PCF compositor shadow node in the window and RTT workspaces, attached lazily while quality ≠ off AND a light casts; v1 = DIRECTIONAL casters; budgets in `core_util/ShadowPreset.h` — medium default is the phone budget: 2 cascades, 1024 base atlas ≈ 6 MB, 3×3 PCF) |
+| sky / fog / day-night atmosphere (`RenderWorld::setAtmosphere(AtmosphereDesc)` + the `RenderCaps::SkyDome` capability; `Engine::setAtmosphere` Lua; `core_util/AtmosphereDesc.h`) | vertex-colour gradient sky dome SUBSET (`supports(RenderCaps::SkyDome)` = true): a camera-following inward sphere in the sky render queue whose vertex colours are a zenith->horizon->ground gradient (horizon hazed by `density`) plus a soft dot-product sun glow toward the FIRST directional `RenderLight`; `fogDensity`/fog colour drive FOG_EXP2 scene fog. NO true atmospheric scattering; the sun glow recomputes on `setAtmosphere` (games pair sun-orient with setAtmosphere), so a game that re-orients the sun WITHOUT calling setAtmosphere shows a STALE glow (next's native link tracks it live) - the registered subset gap | yes — native `AtmosphereNpr` (atmospheric sky dome + HlmsPbs-integrated object fog + sun-linked day/night); the sun is the FIRST directional `RenderLight` (its direction drives the sky, the atmosphere drives its colour/power); sky material media ships from the ogre-next port (`Media/Atmosphere`); a media-less/headless boot degrades to the flat sky colour |
 | Lua scripting (sol2 module surface) | yes | yes (minus gui usertypes) |
 | input (SDL3, tilt sim), sound (OpenAL, .caf/.wav), physics (Jolt) | yes | yes |
 | player + hello_orkige + games (jumper-lua, roller) | yes | yes (full HUD: `engine:hasUISystem()` = true) |
 | gui HUD (widgets + UiAtlas/UiRenderer on DrawLayer2D; Gorilla DELETED) | yes | yes (one draw batch per screen, selfchecked) |
-| offscreen 2D composition (DrawLayer2D into an RTT; the editor GUI Preview tab + `preview_ui`) | REGISTERED next-only: `RenderTexture::canOwnLayers()==false`. classic's 2D composite is one main-window-gated RenderQueueListener over shader-only materials the RTSS transiently rebuilds; per-target offscreen surfaces are a distinct next-only render path — the tab disables with a note (a future RenderCaps entry) | yes (per-target UI pass + visibility band; `render_facade_selfcheck` pixel case) |
+| offscreen 2D composition (DrawLayer2D into an RTT; the editor GUI Preview tab + `preview_ui`) | REGISTERED next-only: `supports(RenderCaps::OffscreenOwnedLayers)` = false. classic's 2D composite is one main-window-gated RenderQueueListener over shader-only materials the RTSS transiently rebuilds; per-target offscreen surfaces are a distinct next-only render path — the tab disables with a note | yes (per-target UI pass + visibility band; `render_facade_selfcheck` pixel case) |
 | IngameConsole | yes | no — classic Overlay zone (rebuild on gui/DrawLayer2D when wanted) |
 | editor (ImGui on DrawLayer2D since the editor-on-Next port) | yes | **yes** (the editor-stays-classic decision was superseded, see the editor-on-both-flavors section) |
 | pixel-level colour parity with classic (WYSIWYG) | — (the reference) | yes (`render_backend_parity`; gamma-space passthrough) |
@@ -707,6 +707,41 @@ all in place. **Flavor capability matrix**:
 Remaining known gaps on next (all logged once at runtime):
 LT_ZIP/LT_BIGZIP locations, skeletal glb import. (The earlier "sRGB-swapchain
 colour difference" is GONE — see the colour-parity work below.)
+
+### Render capability register
+
+The machine-checked subset of the matrix above: the render deltas an app can
+PROBE at runtime, each a `RenderCaps` enum identity behind one call —
+`RenderSystem::get()->supports(RenderCaps::X)` from engine code,
+`engine:supports("name")` from Lua, and MCP `get_state`'s `capabilities` object
+for an agent. A capability's identity, name, kind and description live in ONE
+place — the `ORKIGE_RENDER_CAPS` X-macro table in
+`orkige_engine/engine_render/RenderCaps.h` — from which the enum, the name lookup
+and the parse all expand, so they cannot drift (no sidecar, no generated header).
+The per-flavor VALUES are filled by each backend at boot and mirrored by a
+committed snapshot table (`engine_render_classic/RenderCapsExpectedClassic.inc`,
+`engine_render_next/RenderCapsExpectedNext.inc`); the `render_facade_selfcheck`
+register leg asserts each backend's live `supports()` matches its snapshot and
+that every enum identity is covered. The matrix below is generated from the
+X-macro (names/kind/description) joined to the two snapshots (the classic/next
+columns); `update_docs.py --check` fails on an unregenerated edit to EITHER
+source, so a cap that drifts between the enum, a snapshot and the backend that
+renders it fails CI.
+
+<!-- GENERATED:render-caps-matrix - edit Util/update_docs.py / lua_api_annotations.json; do not hand-edit -->
+| Capability (`RenderCaps` name) | classic | next | What it is |
+| --- | :---: | :---: | --- |
+| `skyDome` | yes | yes | a horizon-to-zenith sky dome behind the scene (sun-linked atmospheric on next, a vertex-colour gradient on classic) vs a flat clear colour |
+| `dynamicShadows` | no | yes | dynamic shadow maps (PSSM/PCF) cast by shadow-casting lights |
+| `hemisphereAmbient` | no | yes | a two-colour sky/ground ambient term; classic averages the two colours to one flat ambient |
+| `sunExposureLinkage` | no | yes | the atmosphere drives the linked sun's colour/power (an exposure the un-tonemapped pipeline can clip); classic reads the sun direction only |
+| `animatedNormalMappedWater` | no | yes | fully animated normal-mapped water ripples; classic lights OR scrolls one normal map on a unit, not both, so its lit relief is static |
+| `offscreenOwnedLayers` | no | yes | 2D layers composited into an offscreen RenderTexture (the editor GUI Preview + preview_ui), not just the main window |
+| `screenSpaceRefraction` | no | no | screen-space refraction distortion through transparent surfaces (a compositor refraction pass) - absent on both flavors |
+| `iblReflections` | no | no | image-based lighting: environment/reflection cubemaps on PBS materials - absent on both flavors |
+
+_A capability marked `no`/`no` is a `PlannedAbsent` v1 boundary (absent on both flavors, next-first when it lands); the rest are real classic/next deltas. Probe from code with `RenderSystem::get()->supports(RenderCaps::X)`, from Lua with `engine:supports("name")`, and over MCP from `get_state`'s `capabilities` object._
+<!-- /GENERATED:render-caps-matrix -->
 
 **Future desktop quality knob — water refraction/depth pass.** The animated
 water v1 is contained deliberately: it renders through the EXISTING single scene
@@ -958,11 +993,12 @@ simulated device size — so the facade grew per-target 2D layer ownership:
 
 - **Facade**: `RenderTexture::createLayer(zOrder)` makes a `DrawLayer2D` that
   composites into THAT target (instead of the window) at the target's own pixel
-  size; `RenderTexture::canOwnLayers()` is the capability probe. The window path
+  size; the `RenderCaps::OffscreenOwnedLayers` capability
+  (`RenderSystem::supports`) reports whether a backend can. The window path
   (`RenderSystem::createDrawLayer2D`) is unchanged and byte-identical for games —
   every existing selfcheck/parity output holds. The two surfaces are isolated
   (a window layer never leaks into a target and vice versa).
-- **Ogre-Next** (`canOwnLayers()==true`): all 2D batches — window and every
+- **Ogre-Next** (`OffscreenOwnedLayers` = true): all 2D batches — window and every
   target — live in the ONE UI render queue; per-surface separation is by
   **visibility flag** (bit 0 = the window, bits 1..N handed out per target from
   `allocateUiVisibilityFlag`). A target that owns layers grows a UI pass in its
@@ -970,7 +1006,7 @@ simulated device size — so the facade grew per-target 2D layer ownership:
   UI camera sized to the target); a UI-only target (no 3D camera - the preview
   case) is one clear + UI pass. `render_facade_selfcheck` pixel-verifies a
   gui-like pattern composited into an RTT plus the bidirectional isolation.
-- **classic OGRE** (`canOwnLayers()==false`): REGISTERED next-only capability.
+- **classic OGRE** (`OffscreenOwnedLayers` = false): REGISTERED next-only capability.
   The 2D compositor hook is a single `RenderQueueListener` gated on the
   main-window viewport, and its 2D materials are shader-only on GL3Plus — the
   RTSS transiently drops their generated technique whenever the dynamic light
@@ -979,8 +1015,8 @@ simulated device size — so the facade grew per-target 2D layer ownership:
   per-target offscreen surfaces (a new UI-only-RTT render path) is a next-only
   capability; classic reports honest no-support (`createLayer` returns NULL,
   logged once) and the editor disables the GUI Preview tab with a note. The
-  facade surface stays backend-neutral; the capability matrix records it (a
-  future RenderCaps entry).
+  facade surface stays backend-neutral; the render capability register records
+  it as `RenderCaps::OffscreenOwnedLayers`.
 - **filament** (future): a dedicated UI View on the target.
 
 The gui stack renders into a preview target through

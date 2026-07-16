@@ -124,6 +124,15 @@ namespace Orkige
 		return RenderBackend::system();
 	}
 	//---------------------------------------------------------
+	bool RenderSystem::supports(RenderCaps cap) const
+	{
+		if(cap >= RenderCaps::Count)
+		{
+			return false;
+		}
+		return (this->mImpl->caps >> static_cast<int>(cap)) & 1u;
+	}
+	//---------------------------------------------------------
 	bool RenderSystem::renderOneFrame()
 	{
 		return this->mImpl->engine->renderOneFrame();

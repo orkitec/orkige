@@ -42,6 +42,11 @@
 // render), and the parity gate compares the RTT it draws into on both flavors
 #include <core_util/VectorTessellator.h>
 
+// the capability register conformance leg (@see RenderCaps): a facade-level
+// enum whose live per-backend bitset must match the committed per-backend
+// snapshot the bootstrap seam exposes (SelfcheckBootstrap::expectedRenderCapSupport)
+#include <engine_render/RenderCaps.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -780,11 +785,11 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// the per-target generalization of the DrawLayer2D contract: a whole 2D
 	// layer composited INTO an offscreen RenderTexture at the target's own
 	// pixel size (the editor GUI Preview stage). Absolute assertions within
-	// this flavor; the case is Ogre-Next only (classic reports canOwnLayers
-	// false and the editor disables the GUI Preview tab there), so it is
+	// this flavor; the case is Ogre-Next only (classic reports no offscreen
+	// owned layers and the editor disables the GUI Preview tab there), so it is
 	// skipped on a backend without offscreen 2D and never joins the
 	// cross-flavor parity comparison.
-	if(RenderTexture::canOwnLayers())
+	if(RenderSystem::get()->supports(RenderCaps::OffscreenOwnedLayers))
 	{
 		auto makeQuad = [](Real left, Real top, Real right, Real bottom,
 			Color const & colour) -> std::vector<DrawLayer2D::Vertex2D>
@@ -1011,7 +1016,7 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 	// renders shadows: the per-light cast flag (RenderLight::setCastShadows -
 	// what LightComponent.castsShadows drives) and the world quality knob
 	// (RenderWorld::setShadowQuality - the `r.shadowQuality` cvar's target).
-	if(RenderWorld::shadowsSupported())
+	if(RenderSystem::get()->supports(RenderCaps::DynamicShadows))
 	{
 		// a flat caster plate hovering over a wide slab, lit by a nearly
 		// vertical shadow-casting directional sun on black ambient: the slab
@@ -1210,8 +1215,8 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 
 	//--- sky / fog atmosphere ----------------------------------------------
 	// Two seams on BOTH flavors: enabling the atmosphere changes the
-	// background pixels (a real sky dome where skyDomeSupported, the flat sky
-	// clear colour otherwise) and thickening the fog changes a distant
+	// background pixels (a real sky dome where the SkyDome capability is
+	// present, the flat sky clear colour otherwise) and thickening the fog changes a distant
 	// object's reading. Runs after the parity-compared captures on an emptied
 	// scene, writing only its own files.
 	{
@@ -1294,10 +1299,10 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 			"enabling the atmosphere brightens the sky background");
 
 		// capability honesty: a shadowless-of-sky flavor says so ONCE
-		if(RenderWorld::skyDomeSupported())
+		if(RenderSystem::get()->supports(RenderCaps::SkyDome))
 		{
 			SELFCHECK(true,
-				"this flavor renders an atmospheric sky dome (skyDomeSupported)");
+				"this flavor renders an atmospheric sky dome (RenderCaps::SkyDome)");
 		}
 		else
 		{
@@ -1325,10 +1330,10 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		// near-vertical daytime sun) must render NEITHER white (clipped) NOR
 		// black (unlit) - the regression guard for the un-tonemapped sun-drive
 		// scale (AtmosphereDesc::sunPower). Gated on the sun-EXPOSURE linkage
-		// (next only), NOT skyDomeSupported() (both flavors render a dome now):
+		// (next only), NOT the SkyDome capability (both flavors render a dome now):
 		// classic's dome reads the sun direction but never drives the light's
 		// power, so there is no exposure to clip.
-		if(SelfcheckBootstrap::atmosphereDrivesSunExposure())
+		if(RenderSystem::get()->supports(RenderCaps::SunExposureLinkage))
 		{
 			// a mid-grey, colour-only PBS material (no maps, so the reading is
 			// the pure albedo * lighting - the exposure the sun drive controls)
@@ -1507,6 +1512,63 @@ static int runChecks(RenderSystem* renderSystem, std::string const & outDir)
 		fogObj.reset();
 		SELFCHECK(renderFrames(renderSystem, 2),
 			"frames render after the atmosphere probe was dropped (RAII teardown)");
+	}
+
+	// --- capability register conformance (@see RenderCaps) -----------------
+	// The X-macro enum (RenderCaps.h) and the live per-backend bitset must agree
+	// with the committed per-backend snapshot the bootstrap exposes
+	// (RenderCapsExpected*.inc). Every enum identity must be covered by the
+	// snapshot, and its live supports() must equal the snapshot value; a boot
+	// fill that drifts from the snapshot - or an enum identity the snapshot
+	// forgot - fails HERE, on the flavor it diverges on (this leg runs per-flavor
+	// with a live backend). The snapshot is also the doc matrix's column source,
+	// so this same file keeps the docs honest too.
+	{
+		bool allCovered = true;
+		bool allValuesMatch = true;
+		bool allNamesRoundTrip = true;
+		for(int i = 0; i < static_cast<int>(RenderCaps::Count); ++i)
+		{
+			const RenderCaps cap = static_cast<RenderCaps>(i);
+			const char* capName = renderCapName(cap);
+
+			// the name round-trips through parse (the Lua/MCP name path)
+			if(parseRenderCap(capName) != cap)
+			{
+				std::fprintf(stderr, "render_facade_selfcheck: RenderCaps name "
+					"'%s' does not round-trip through parseRenderCap\n", capName);
+				allNamesRoundTrip = false;
+			}
+
+			bool known = false;
+			const bool expected =
+				SelfcheckBootstrap::expectedRenderCapSupport(cap, known);
+			if(!known)
+			{
+				std::fprintf(stderr, "render_facade_selfcheck: RenderCaps '%s' is "
+					"missing from this backend's expected snapshot\n", capName);
+				allCovered = false;
+				continue;
+			}
+			const bool live = renderSystem->supports(cap);
+			std::printf("render_facade_selfcheck: cap %s - snapshot %d, live %d\n",
+				capName, expected ? 1 : 0, live ? 1 : 0);
+			if(expected != live)
+			{
+				allValuesMatch = false;
+			}
+		}
+		SELFCHECK(allNamesRoundTrip,
+			"every RenderCaps name round-trips through parseRenderCap");
+		SELFCHECK(allCovered,
+			"the backend snapshot covers every RenderCaps identity");
+		SELFCHECK(allValuesMatch,
+			"the live backend's supports() matches its committed snapshot");
+
+		// the unknown-name path the Lua engine:supports / MCP name lookup relies
+		// on: a name that is not a capability is an honest miss, never a hit
+		SELFCHECK(parseRenderCap("definitelyNotACapability") == RenderCaps::Count,
+			"parseRenderCap returns Count for an unknown name");
 	}
 
 	std::printf("render_facade_selfcheck: all checks passed\n");

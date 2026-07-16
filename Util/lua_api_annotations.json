@@ -28,6 +28,10 @@
 		"sig": "(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil",
 		"doc": "set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)"
 	},
+	"Engine:supports": {
+		"sig": "(capabilityName) -> bool",
+		"doc": "does the active render backend support a capability? (e.g. \"skyDome\"/\"dynamicShadows\"/\"hemisphereAmbient\") - degrade a script's look per flavor; an unknown name is false"
+	},
 	"world.get": {
 		"sig": "(id) -> GameObject?",
 		"doc": "the live GameObject by id (nil if gone)"

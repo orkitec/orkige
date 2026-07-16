@@ -13,6 +13,7 @@
 #include "engine_render/RenderMath.h"
 #include "engine_render/RenderMaterial.h"
 #include "engine_render/RenderWater.h"
+#include "engine_render/RenderCaps.h"
 #include <core_util/String.h>
 
 namespace Orkige
@@ -79,6 +80,16 @@ namespace Orkige
 		//! @remarks NULL before Engine::setup - mirrors the existing
 		//! Engine singleton access pattern
 		static RenderSystem* get();
+
+		//--- capabilities ---
+		//! @brief does the active render backend support a capability? The one
+		//! probe surface for every flavor delta - a single call in place of a
+		//! per-capability accessor. The set is filled ONCE at boot per backend;
+		//! @see RenderCaps (the X-macro vocabulary), the Lua
+		//! `engine:supports("skyDome")` binding, MCP get_state's capabilities
+		//! object, and the generated matrix in Docs/render-abstraction.md.
+		//! map: classic/next=a per-backend bitset set in createRenderSystem | filament=its own set
+		bool supports(RenderCaps cap) const;
 
 		//--- frame loop ---
 		//! @brief render one frame to all active targets

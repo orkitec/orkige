@@ -1085,6 +1085,7 @@ Engine:setWindowBackgroundColour(...)
 Engine:setAtmosphere(enabled, skyRed, skyGreen, skyBlue, density, fogDensity) -> nil  -- set the scene sky/fog atmosphere; sun = the first directional light (next renders a sky dome, classic the flat sky + fog subset)
 Engine:setAtmosphereBlend(...)
 Engine:hasUISystem(...)
+Engine:supports(capabilityName) -> bool  -- does the active render backend support a capability? (e.g. "skyDome"/"dynamicShadows"/"hemisphereAmbient") - degrade a script's look per flavor; an unknown name is false
 
 ## FrameEventData
 FrameEventData.timeSinceLastEvent

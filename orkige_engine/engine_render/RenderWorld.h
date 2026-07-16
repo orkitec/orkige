@@ -147,11 +147,8 @@ namespace Orkige
 		Color const & getAmbientHemisphereLower() const;
 
 		//--- dynamic shadows ---
-		//! @brief does this backend render dynamic shadow maps at all?
-		//! (capability probe, @see RenderTexture::canOwnLayers precedent)
-		//! map: classic=false (no dynamic shadows on the compatibility flavor -
-		//! honest "no", see setShadowQuality) | next=true | filament=true
-		static bool shadowsSupported();
+		//! whether this backend renders dynamic shadow maps at all is the
+		//! `RenderCaps::DynamicShadows` capability (`RenderSystem::supports`).
 		//! @brief the coarse shadow quality knob (budgets per step in
 		//! core_util/ShadowPreset.h; live-tunable via the `r.shadowQuality`
 		//! cvar the app host registers). Shadow maps render only while the
@@ -169,12 +166,9 @@ namespace Orkige
 		ShadowPreset::Quality getShadowQuality() const;
 
 		//--- sky / fog / atmosphere ---
-		//! @brief does this backend render a real sky dome + atmospheric fog?
-		//! (capability probe, mirrors shadowsSupported)
-		//! map: classic=false (flat clear-colour sky + fixed-function fog only -
-		//! the honest subset, @see setAtmosphere) | next=true (AtmosphereNpr) |
-		//! filament=true
-		static bool skyDomeSupported();
+		//! whether this backend renders a real atmospheric sky dome (vs a flat
+		//! clear colour) is the `RenderCaps::SkyDome` capability
+		//! (`RenderSystem::supports`).
 		//! @brief set the scene's sky/fog atmosphere (@see AtmosphereDesc).
 		//! Idempotent - call again to change the look or animate time of day.
 		//!

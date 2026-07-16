@@ -204,7 +204,7 @@ namespace OrkigeEditor
 			this->mLastError = "no render system";
 			return false;
 		}
-		if(!RenderTexture::canOwnLayers())
+		if(!render->supports(RenderCaps::OffscreenOwnedLayers))
 		{
 			this->mLastError = "offscreen 2D composition is not supported on "
 				"this render backend (classic OGRE) - the GUI Preview is "

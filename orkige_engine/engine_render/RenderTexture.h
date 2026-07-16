@@ -78,24 +78,17 @@ namespace Orkige
 		unsigned int getHeight() const;
 
 		//--- offscreen 2D composition (the GUI Preview stage) ---
-		//! @brief does this backend support 2D layers compositing INTO the
-		//! target (createLayer)? The generalization of the window-only
-		//! DrawLayer2D contract to per-target surfaces. Ogre-Next: yes;
-		//! classic OGRE: no - a REGISTERED next-only capability. classic's 2D
-		//! compositor is one main-window-gated RenderQueueListener over
-		//! shader-only materials the RTSS transiently rebuilds; per-target
-		//! offscreen composition is a distinct next-only render path, so the
-		//! editor disables the GUI Preview tab on classic (@see the flavor
-		//! capability matrix in Docs/render-abstraction.md - a future RenderCaps
-		//! entry).
-		//! map: classic=false | next=true | filament=true (dedicated UI View)
-		static bool canOwnLayers();
+		//! whether this backend can composite 2D layers INTO a target (createLayer,
+		//! the generalization of the window-only DrawLayer2D contract to per-target
+		//! surfaces) is the `RenderCaps::OffscreenOwnedLayers` capability
+		//! (`RenderSystem::supports`) - next-only, so classic's createLayer returns
+		//! NULL and the editor disables the GUI Preview tab.
 		//! @brief create a 2D overlay layer that composites INTO this target
 		//! (not the main window) at the target's OWN pixel size - the same
 		//! DrawLayer2D contract (@see DrawLayer2D) but with this RenderTexture
 		//! as the surface. The GUI Preview stage points a whole gui at a
 		//! preview RTT this way. Empty (NULL) on a backend where
-		//! canOwnLayers() is false. Ordering among a target's layers follows
+		//! supports(RenderCaps::OffscreenOwnedLayers) is false. Ordering among a target's layers follows
 		//! zOrder then creation order, exactly like the window layers.
 		//! @remarks a target that owns layers composites them AFTER its 3D
 		//! scene pass (when a camera is set) or over its clear colour (when

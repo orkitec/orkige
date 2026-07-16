@@ -388,14 +388,6 @@ namespace Orkige
 		return this->mImpl->ambientUpper;
 	}
 	//---------------------------------------------------------
-	bool RenderWorld::shadowsSupported()
-	{
-		// honest "no": the compatibility flavor renders no dynamic shadows
-		// (wiring classic texture shadows would duplicate the whole shadow
-		// package for the deprecated flavor) - the Ogre-Next flavor does
-		return false;
-	}
-	//---------------------------------------------------------
 	void RenderWorld::setShadowQuality(ShadowPreset::Quality quality)
 	{
 		if(quality == this->mImpl->shadowQuality)
@@ -423,14 +415,6 @@ namespace Orkige
 	ShadowPreset::Quality RenderWorld::getShadowQuality() const
 	{
 		return this->mImpl->shadowQuality;
-	}
-	//---------------------------------------------------------
-	bool RenderWorld::skyDomeSupported()
-	{
-		// the compatibility flavor renders a vertex-colour gradient sky dome
-		// (a subset of the next flavor's atmospheric NPR dome - "same sky,
-		// softer", no true scattering) plus fixed-function fog
-		return true;
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)

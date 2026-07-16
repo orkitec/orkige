@@ -1020,6 +1020,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	bool Engine::supports(String const & name) const
+	{
+		const RenderCaps cap = parseRenderCap(name);
+		if(cap >= RenderCaps::Count)	// unknown name - honest false
+		{
+			return false;
+		}
+		RenderSystem* renderSystem = RenderSystem::get();
+		return renderSystem && renderSystem->supports(cap);
+	}
+	//---------------------------------------------------------
 	OOBJECT_IMPL(Engine)
 		OCONSTRUCTOR0()
 		OSINGLETON()
@@ -1062,5 +1073,8 @@ namespace Orkige
 		// gui; the next flavor's Engine sibling answers false and
 		// scripts skip their HUD honestly
 		OFUNC(hasUISystem)
+		// render backend capability probe: engine:supports("skyDome") etc.
+		// (@see RenderCaps) - a script degrades its look per flavor
+		OFUNC(supports)
 	OOBJECT_END
 }

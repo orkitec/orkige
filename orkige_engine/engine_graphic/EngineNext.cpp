@@ -281,6 +281,17 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	bool Engine::supports(String const & name) const
+	{
+		const RenderCaps cap = parseRenderCap(name);
+		if(cap >= RenderCaps::Count)	// unknown name - honest false
+		{
+			return false;
+		}
+		RenderSystem* renderSystem = RenderSystem::get();
+		return renderSystem && renderSystem->supports(cap);
+	}
+	//---------------------------------------------------------
 	void Engine::enableWireframeMode()
 	{
 		optr<RenderCamera> windowCamera = this->getWindowCamera();
@@ -338,5 +349,8 @@ namespace Orkige
 		// port (gui renders through the engine_render facade); the probe
 		// stays so scripts can still gate honestly for a future UI-less flavor
 		OFUNC(hasUISystem)
+		// render backend capability probe: engine:supports("skyDome") etc.
+		// (@see RenderCaps) - a script degrades its look per flavor
+		OFUNC(supports)
 	OOBJECT_END
 }

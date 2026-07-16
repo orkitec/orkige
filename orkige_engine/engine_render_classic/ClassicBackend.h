@@ -63,6 +63,7 @@ namespace Orkige
 		Ogre::ColourValue	windowBackground = Ogre::ColourValue(0.0f, 0.0f, 0.0f, 1.0f);
 		bool				uiOnlyWindow = false;	//!< showUIOnlyWindow mode: the window shows only 2D layers (getWindowCamera answers NULL)
 		Ogre::Camera*		uiOnlyCamera = NULL;	//!< internal camera feeding the UI-only viewport (owned by the scene manager)
+		unsigned int		caps = 0;				//!< RenderCaps bitset (bit i = supports RenderCaps(i)), filled at boot
 	};
 
 	struct RenderWorld::Impl

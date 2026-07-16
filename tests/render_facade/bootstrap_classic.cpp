@@ -273,10 +273,19 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
-	bool atmosphereDrivesSunExposure()
+	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown)
 	{
-		// classic's sky dome reads the sun DIRECTION for its glow but never
-		// overrides the linked light's colour/power - no exposure drive to clip
+		outKnown = true;
+		switch(cap)
+		{
+			// the committed classic snapshot (one line per cap); the register
+			// leg asserts the live bitset matches it
+#define X(Ident, Value) case Orkige::RenderCaps::Ident: return (Value);
+#include "engine_render_classic/RenderCapsExpectedClassic.inc"
+#undef X
+			default: break;
+		}
+		outKnown = false;
 		return false;
 	}
 }

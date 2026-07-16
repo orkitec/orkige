@@ -148,11 +148,6 @@ namespace Orkige
 		return this->mImpl->ambientLower;
 	}
 	//---------------------------------------------------------
-	bool RenderWorld::shadowsSupported()
-	{
-		return true;	// PSSM shadow node in the window/RTT workspaces
-	}
-	//---------------------------------------------------------
 	void RenderWorld::setShadowQuality(ShadowPreset::Quality quality)
 	{
 		if(this->mImpl->shadowQuality == quality)
@@ -166,11 +161,6 @@ namespace Orkige
 	ShadowPreset::Quality RenderWorld::getShadowQuality() const
 	{
 		return this->mImpl->shadowQuality;
-	}
-	//---------------------------------------------------------
-	bool RenderWorld::skyDomeSupported()
-	{
-		return true;	// AtmosphereNpr renders a real sky dome + atmospheric fog
 	}
 	//---------------------------------------------------------
 	void RenderWorld::setAtmosphere(AtmosphereDesc const & desc)

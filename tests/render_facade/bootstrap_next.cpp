@@ -239,10 +239,19 @@ namespace SelfcheckBootstrap
 			return -1.0f;
 		}
 	}
-	bool atmosphereDrivesSunExposure()
+	bool expectedRenderCapSupport(Orkige::RenderCaps cap, bool & outKnown)
 	{
-		// the native AtmosphereNpr links + drives the sun's colour/power - the
-		// un-tonemapped exposure the clip guard tests
-		return true;
+		outKnown = true;
+		switch(cap)
+		{
+			// the committed next snapshot (one line per cap); the register leg
+			// asserts the live bitset matches it
+#define X(Ident, Value) case Orkige::RenderCaps::Ident: return (Value);
+#include "engine_render_next/RenderCapsExpectedNext.inc"
+#undef X
+			default: break;
+		}
+		outKnown = false;
+		return false;
 	}
 }
