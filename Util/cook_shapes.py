@@ -503,6 +503,21 @@ def _selftest():
         mismatched = True
     assert mismatched, "a structure mismatch should raise ValueError"
 
+    # the CLI reports a cook/file error as clean lines, never a traceback
+    import contextlib
+    import io
+    saved_argv = sys.argv
+    try:
+        sys.argv = ["cook_shapes.py", "/nonexistent/in.svg",
+                    "/nonexistent/out.oshape"]
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main()
+        assert code == 1 and "cannot cook" in stderr.getvalue(), \
+            "the CLI must report a readable one-line cook error"
+    finally:
+        sys.argv = saved_argv
+
     print("cook_shapes selftest OK: %d regions, vertex counts %s; morph set "
           "(base + 1 target, mismatch rejected)" % (len(regions), counts))
     return 0
@@ -528,28 +543,37 @@ def main():
         return _selftest()
     if not args.input or not args.output:
         parser.error("input and output are required (or use --selftest)")
-    with open(args.input, "r", encoding="utf-8") as handle:
-        svg_text = handle.read()
-    if args.targets:
-        # a morph set: the base plus one target per --targets SVG (named after
-        # the file stem)
-        target_texts, names = [], []
-        for path in args.targets:
-            with open(path, "r", encoding="utf-8") as handle:
-                target_texts.append(handle.read())
-            names.append(Path(path).stem)
-        oshape = cook_morphset(svg_text, target_texts, names,
-                               extent=args.extent)
+    # cook errors (an unusable SVG, a morph structure mismatch) and file
+    # errors report as ONE readable line each, never a traceback - the
+    # cook_vector_anim.py error contract
+    try:
+        with open(args.input, "r", encoding="utf-8") as handle:
+            svg_text = handle.read()
+        if args.targets:
+            # a morph set: the base plus one target per --targets SVG (named
+            # after the file stem)
+            target_texts, names = [], []
+            for path in args.targets:
+                with open(path, "r", encoding="utf-8") as handle:
+                    target_texts.append(handle.read())
+                names.append(Path(path).stem)
+            oshape = cook_morphset(svg_text, target_texts, names,
+                                   extent=args.extent)
+            with open(args.output, "w", encoding="utf-8") as handle:
+                handle.write(oshape)
+            print("cooked morph set %s (+%d target[s]) -> %s" %
+                  (args.input, len(target_texts), args.output))
+            return 0
+        oshape = cook(svg_text, tolerance=args.tolerance, extent=args.extent)
         with open(args.output, "w", encoding="utf-8") as handle:
             handle.write(oshape)
-        print("cooked morph set %s (+%d target[s]) -> %s" %
-              (args.input, len(target_texts), args.output))
+        print("cooked %s -> %s" % (args.input, args.output))
         return 0
-    oshape = cook(svg_text, tolerance=args.tolerance, extent=args.extent)
-    with open(args.output, "w", encoding="utf-8") as handle:
-        handle.write(oshape)
-    print("cooked %s -> %s" % (args.input, args.output))
-    return 0
+    except (ValueError, OSError) as exc:
+        print("cook_shapes: cannot cook %s:" % args.input, file=sys.stderr)
+        for line in str(exc).splitlines():
+            print("  " + line, file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

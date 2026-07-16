@@ -9,6 +9,9 @@ function init(self)
     events.subscribe("animation.ended", function(e)
         shared.heroanim.ended = (shared.heroanim.ended or 0) + 1
         shared.heroanim.lastEnded = e.clip
+        -- e.object names the rig's owner, so several animated
+        -- objects sharing clip names stay distinguishable
+        shared.heroanim.lastObject = e.object or ""
     end)
     if self.anim then self.anim:play("idle") end
 end

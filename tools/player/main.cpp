@@ -2194,6 +2194,11 @@ int main(int argc, char** argv)
 			return Orkige::ScriptRuntime::getSingleton().getNumber(
 				{"shared", "heroanim", "ended"}, 0.0);
 		};
+		auto vectorAnimEndedObject = []() -> Orkige::String
+		{
+			return Orkige::ScriptRuntime::getSingleton().getString(
+				{"shared", "heroanim", "lastObject"}, "");
+		};
 		auto vectorAnimFail = [&](std::string const& what)
 		{
 			SDL_Log("orkige_player: VECTORANIM SELFCHECK FAILED - %s "
@@ -3932,6 +3937,18 @@ int main(int argc, char** argv)
 							vectorAnimFail("the hero did not boot on the idle "
 								"clip");
 						}
+						else if (hero->play("no_such_clip") ||
+							hero->setClip("no_such_clip", 0.0f))
+						{
+							// an unknown name must refuse (and warn once - the
+							// second call exercises the warn-once dedup)
+							vectorAnimFail("an unknown clip name was accepted");
+						}
+						else if (hero->currentClip() != "idle")
+						{
+							vectorAnimFail("a refused clip name still moved "
+								"the current clip");
+						}
 						else
 						{
 							vectorAnimPhase = VectorAnimPhase::Idle;
@@ -3978,12 +3995,24 @@ int main(int argc, char** argv)
 					// script AND the component reports the clip finished
 					if (hero && hero->isAtEnd() && vectorAnimEnded() >= 1.0)
 					{
-						SDL_Log("orkige_player: vectoranim selfcheck complete - "
-							"idle advance, crossFade to hop, and the one-shot "
-							"ended event delivered into the script (%.0f) all "
-							"verified", vectorAnimEnded());
-						vectorAnimPhase = VectorAnimPhase::Done;
-						running = false;
+						// the bus payload names the rig's owner (e.object)
+						Orkige::GameObject* owner = hero->getComponentOwner();
+						if (!owner ||
+							vectorAnimEndedObject() != owner->getObjectID())
+						{
+							vectorAnimFail("the ended event did not carry the "
+								"owner object id");
+						}
+						else
+						{
+							SDL_Log("orkige_player: vectoranim selfcheck "
+								"complete - idle advance, crossFade to hop, and "
+								"the one-shot ended event delivered into the "
+								"script (%.0f, object id carried) all verified",
+								vectorAnimEnded());
+							vectorAnimPhase = VectorAnimPhase::Done;
+							running = false;
+						}
 					}
 					else if (frameCount >= vectorAnimDeadline)
 					{

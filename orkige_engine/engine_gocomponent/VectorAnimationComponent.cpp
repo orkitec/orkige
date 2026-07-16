@@ -88,10 +88,12 @@ namespace Orkige
 			return;
 		}
 		VectorAnimAsset::Document document;
-		if(!VectorAnimAsset::parse(text, document))
+		VectorAnimAsset::ParseError parseError;
+		if(!VectorAnimAsset::parse(text, document, &parseError))
 		{
 			oDebugError("engine", 0, "VectorAnimationComponent: animation '"
-				<< fileName << "' is malformed");
+				<< fileName << "' is malformed - line " << parseError.line
+				<< ": " << parseError.message);
 			return;
 		}
 		if(!this->mEval.build(document))
@@ -110,6 +112,8 @@ namespace Orkige
 		this->mAnimName = fileName;
 		this->mAnimAssetId = AssetDatabase::referenceIdForValue(
 			fileName, "", AssetDatabase::REF_FILE_NAME);
+		// a fresh rig may carry the names an earlier one lacked - warn anew
+		this->mWarnedClips.clear();
 		// select the reflected/default clip, build the first pose and push the
 		// mesh topology; a runtime tick then advances and refills it
 		this->applyInitialClip();
@@ -133,6 +137,7 @@ namespace Orkige
 		this->mFreshBuild = false;
 		this->mNeedsUpload = false;
 		this->mWasAtEnd = false;
+		this->mWarnedClips.clear();
 		this->setWantsUpdates(false);
 	}
 	//---------------------------------------------------------
@@ -173,6 +178,7 @@ namespace Orkige
 		const int index = this->clipIndex(clip);
 		if(index < 0)
 		{
+			this->warnUnknownClip(clip);
 			return false;
 		}
 		// only mutate the evaluator here; the single per-frame upload site
@@ -200,6 +206,7 @@ namespace Orkige
 		const int index = this->clipIndex(clip);
 		if(index < 0)
 		{
+			this->warnUnknownClip(clip);
 			return false;
 		}
 		// a negative time means "use the default transition"; <= 0 is a hard cut
@@ -500,6 +507,12 @@ namespace Orkige
 		int index = this->clipIndex(this->mClip);
 		if(index < 0)
 		{
+			if(!this->mClip.empty())
+			{
+				// a serialized/reflected clip the rig no longer carries (a
+				// rename after a re-cook): fall back to clip 0, but say so
+				this->warnUnknownClip(this->mClip);
+			}
 			index = this->mEval.document().clips.empty() ? -1 : 0;
 		}
 		if(index >= 0)
@@ -597,6 +610,21 @@ namespace Orkige
 		return this->mEval.findClip(clip);
 	}
 	//---------------------------------------------------------
+	void VectorAnimationComponent::warnUnknownClip(String const & clip)
+	{
+		// once per name per loaded rig (the set clears on load/remove): a
+		// typo'd or renamed clip must say so, but a script retrying every
+		// tick must not spam the log. Setter-path only - the per-frame
+		// evaluator tick never resolves names.
+		if(!this->mWarnedClips.insert(clip).second)
+		{
+			return;
+		}
+		oDebugWarn("engine", 0, "VectorAnimationComponent: unknown clip '"
+			<< clip << "' on '" << this->mAnimName << "' (available: "
+			<< this->getClipNames() << ")");
+	}
+	//---------------------------------------------------------
 	void VectorAnimationComponent::applyStateToMesh()
 	{
 		if(this->mMesh)
@@ -631,10 +659,16 @@ namespace Orkige
 			componentOwner->triggerEvent(
 				Event(VectorAnimationEndedEvent, this->mEventData));
 		}
-		// mirror onto the script event bus as "animation.ended" (a {clip=}
-		// payload any script can subscribe to) - the gui/physics one-liner
+		// mirror onto the script event bus as "animation.ended" (a
+		// {clip=, object=} payload any script can subscribe to) - the
+		// gui/physics one-liner. The owner id disambiguates several rigs
+		// playing the same clip name (the contact-event id convention).
 		ScriptEventPayload payload;
 		payload.setString("clip", clip);
+		if(componentOwner)
+		{
+			payload.setString("object", componentOwner->getObjectID());
+		}
 		ScriptEventBus::getSingleton().emit("animation.ended", payload);
 	}
 	//---------------------------------------------------------

@@ -17,6 +17,7 @@
 #include "core_util/VectorAnimEval.h"
 #include "core_util/StringUtil.h"
 
+#include <set>
 #include <vector>
 
 namespace Orkige
@@ -86,6 +87,7 @@ namespace Orkige
 		bool				mFreshBuild;	//!< a setMesh happened; defer the first dynamic upload one frame
 		bool				mNeedsUpload;	//!< a playback change needs the pose re-uploaded next tick
 		bool				mWasAtEnd;		//!< the last tick was already at a `once` clip's end (fire the event once)
+		std::set<String>	mWarnedClips;	//!< clip names already warned about (once per name per rig; off the tick path)
 
 		//--- reused per-frame buffers (allocation-free once warm) ---
 		std::vector<VectorTessellator::Region>	mScratchRegions;	//!< composed world-space pose
@@ -230,6 +232,10 @@ namespace Orkige
 		void uploadPose();
 		//! resolve a clip name to its evaluator index (-1 when unknown/no rig)
 		int clipIndex(String const & clip) const;
+		//! @brief warn (once per name per loaded rig) that a requested clip
+		//! does not exist on this rig, naming the available clips - the typo/
+		//! renamed-clip diagnostic. Setter-path only, never the tick.
+		void warnUnknownClip(String const & clip);
 		//! apply the EFFECTIVE visibility to the node (own flag AND owner active)
 		void applyVisibility();
 		//! push zOrder + node scale onto the live mesh/node

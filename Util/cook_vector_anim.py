@@ -2672,6 +2672,39 @@ def cook(lottie_text, extent=2.0, tolerance=None, clips_override=None):
 # selftest
 
 
+def summarize(cooked_text):
+    """The post-cook readback: the clip table (name, frame range, loop/once),
+    fps/duration and layer count of a cooked .oanim, as indented print lines.
+    Answers the first question after every cook - what are the clips called -
+    without opening the file; a marker-less document says explicitly that the
+    runtime will expose ONE looping clip named 'default'."""
+    fps = duration = None
+    clips = []
+    layers = 0
+    for line in cooked_text.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0] == "fps" and len(parts) > 1:
+            fps = parts[1]
+        elif parts[0] == "duration" and len(parts) > 1:
+            duration = parts[1]
+        elif parts[0] == "clip" and len(parts) > 4:
+            clips.append("%s %s-%s %s" % (parts[1], parts[2], parts[3],
+                                          parts[4]))
+        elif parts[0] == "layer":
+            layers += 1
+    lines = []
+    if clips:
+        lines.append("clips: " + ", ".join(clips))
+    else:
+        lines.append("clips: no markers in the document - the runtime plays "
+                     "one looping clip named 'default' over the whole "
+                     "timeline")
+    lines.append("%s fps, %s frames, %d layer(s)" % (fps, duration, layers))
+    return "\n".join("  " + entry for entry in lines)
+
+
 def _parse_oanim(text):
     """A tiny strict .oanim re-parser mirroring VectorAnimAsset (selftest
     only): enforces the same grammar rules, so a malformed emission fails
@@ -3471,6 +3504,23 @@ def _selftest():
         "a larger curve must never be rougher than a small one"
     checks += 1
 
+    # --- the post-cook summary names clips (and the implicit default) ------
+    source = fixture_dir / "roundtrip.json"
+    kind, cooked = cook(source.read_text(encoding="utf-8"))
+    assert kind == "oanim"
+    summary = summarize(cooked)
+    assert "clips:" in summary and "fps" in summary and "layer" in summary
+    for clip_line in cooked.splitlines():
+        parts = clip_line.split()
+        if parts and parts[0] == "clip":
+            assert parts[1] in summary, \
+                "summary must name every clip (missing %r)" % parts[1]
+    markerless = summarize("version 2\nfps 30\nduration 60\n"
+                           "layer a parent -1\n")
+    assert "default" in markerless and "no markers" in markerless, \
+        "a clip-less rig must explain the implicit 'default' clip"
+    checks += 1
+
     print("cook_vector_anim selftest OK: %d feature groups, every "
           "out-of-subset error named, round-trip fixture byte-identical" %
           checks)
@@ -3525,6 +3575,8 @@ def main():
     with open(out_path, "w", encoding="utf-8") as handle:
         handle.write(cooked)
     print("cooked %s -> %s" % (args.input, out_path))
+    if kind == "oanim":
+        print(summarize(cooked))
     return 0
 
 

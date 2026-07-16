@@ -375,3 +375,73 @@ TEST_CASE("vectoranim_clip_lookup", "[unit][vectoranim]")
 	CHECK(doc.findClip("run") == -1);
 	CHECK(doc.findClip("") == -1);
 }
+
+TEST_CASE("vectoranim_parse_error_readback", "[unit][vectoranim]")
+{
+	// the optional ParseError names the offending 1-based line and the
+	// reason - the hand-authoring diagnostic. A successful parse never
+	// touches it (the success path carries no reporting cost).
+	VectorAnimAsset::Document doc;
+	VectorAnimAsset::ParseError error;
+
+	SECTION("success leaves the readback untouched")
+	{
+		error.line = -7;
+		error.message = "sentinel";
+		REQUIRE(VectorAnimAsset::parse(VALID_OANIM, doc, &error));
+		CHECK(error.line == -7);
+		CHECK(error.message == "sentinel");
+	}
+	SECTION("a bad clip line names itself")
+	{
+		CHECK_FALSE(VectorAnimAsset::parse(
+			"fps 30\nduration 60\nclip x 30 30 loop\nlayer a parent -1\n",
+			doc, &error));
+		CHECK(error.line == 3);
+		CHECK(error.message.find("clip frame range") != String::npos);
+	}
+	SECTION("a forward layer parent names its line")
+	{
+		CHECK_FALSE(VectorAnimAsset::parse(
+			"fps 30\nduration 60\nlayer a parent 0\n", doc, &error));
+		CHECK(error.line == 3);
+		CHECK(error.message.find("parent") != String::npos);
+	}
+	SECTION("a truncated channel run points at the closing keyword")
+	{
+		CHECK_FALSE(VectorAnimAsset::parse(
+			"fps 30\nduration 60\nlayer a parent -1\n"
+			"pos k 2\nkf 0 1 2\nrot k 1\nkf 0 0\n", doc, &error));
+		CHECK(error.line == 6);
+		CHECK(error.message.find("fewer kf lines") != String::npos);
+	}
+	SECTION("a vertex outside a run names its line")
+	{
+		CHECK_FALSE(VectorAnimAsset::parse(
+			"fps 30\nduration 60\nlayer a parent -1\nv 1 2\n", doc, &error));
+		CHECK(error.line == 4);
+		CHECK(error.message.find("vertex") != String::npos);
+	}
+	SECTION("the topology law names the closing line")
+	{
+		// second shape key drops the hole: the mismatch is caught where the
+		// key closes (the next structural keyword or EOF)
+		const String text =
+			"fps 30\nduration 60\nlayer a parent -1\n"
+			"shape k 2\n"
+			"kf 0\nfill 1 0 0 1\ncontour 3\nv 0 0\nv 1 0\nv 0 1\n"
+			"hole 3\nv 0.2 0.2\nv 0.4 0.2\nv 0.2 0.4\n"
+			"kf 30\nfill 1 0 0 1\ncontour 3\nv 0 0\nv 2 0\nv 0 2\n";
+		CHECK_FALSE(VectorAnimAsset::parse(text, doc, &error));
+		CHECK(error.line == 20);	// the EOF close reports the last line
+		CHECK(error.message.find("topology") != String::npos);
+	}
+	SECTION("a header-less document reports the missing header")
+	{
+		CHECK_FALSE(VectorAnimAsset::parse("layer a parent -1\n", doc,
+			&error));
+		CHECK(error.message.find("fps/duration") != String::npos);
+		// every failure still leaves the document EMPTY (the parse contract)
+		CHECK(doc.layers.empty());
+	}
+}

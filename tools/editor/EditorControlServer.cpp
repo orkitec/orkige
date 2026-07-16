@@ -30,6 +30,7 @@
 #include <core_debug/Breadcrumbs.h>
 #include <core_util/optr.h>
 #include <core_util/PlatformUtil.h>
+#include <core_util/VectorAnimAsset.h>
 
 #include <engine_gocomponent/ScriptComponentRegistry.h>
 #include <engine_render/RenderSystem.h>
@@ -1617,7 +1618,8 @@ namespace Orkige
 				  "absolute path on the editor's filesystem. Optional 'targetDir' "
 				  "(project-relative, jailed) relocates the import within the "
 				  "project, id preserved. Returns the project-relative 'path' and "
-				  "the minted 'assetId'.",
+				  "the minted 'assetId'; a Lottie .json that cooked to a .oanim "
+				  "also returns the rig's 'clips' (names in rig order).",
 				  { { "sourcePath", "string",
 				      "absolute path of the file to import", true },
 				    { "targetDir", "string",
@@ -4782,6 +4784,27 @@ namespace Orkige
 			DebugMessage ok(MSG_OK);
 			ok.set("path", relative);
 			ok.set("assetId", assetId);
+			// a cooked .oanim answers clip discovery right at import: the rig's
+			// clip table rides the reply in rig order (the cook's post-cook
+			// summary, machine-readable)
+			if (relative.size() > 6 &&
+				relative.substr(relative.size() - 6) == ".oanim")
+			{
+				std::ifstream animIn(state.project.resolvePath(relative),
+					std::ios::binary);
+				std::stringstream animText;
+				animText << animIn.rdbuf();
+				VectorAnimAsset::Document animDoc;
+				if (animIn && VectorAnimAsset::parse(animText.str(), animDoc))
+				{
+					StringVector clipNames;
+					for (VectorAnimAsset::Clip const& clip : animDoc.clips)
+					{
+						clipNames.push_back(clip.name);
+					}
+					ok.setList("clips", clipNames);
+				}
+			}
 			this->sendOk(req, ok);
 			return;
 		}
@@ -8006,6 +8029,26 @@ namespace Orkige
 				finish(false, "control self-test: importing a Lottie .json did not "
 					"cook a .oanim");
 				return;
+			}
+			// clip discovery lands WITH the import: the reply's 'clips' carries
+			// the cooked rig's clip table (idle + walk from the two markers)
+			{
+				JsonValue const& importClips = structured.get("clips");
+				bool importSawIdle = false, importSawWalk = false;
+				for (size_t i = 0; i < importClips.size(); ++i)
+				{
+					if (importClips.at(i).asString() == "idle")
+						importSawIdle = true;
+					if (importClips.at(i).asString() == "walk")
+						importSawWalk = true;
+				}
+				if (!importSawIdle || !importSawWalk)
+				{
+					fs::remove_all(authRoot, authIgnored);
+					finish(false, "control self-test: import_asset did not return "
+						"the cooked rig's clip names");
+					return;
+				}
 			}
 			// the SOURCE .json is KEPT beside the cooked asset (recook-on-reimport)
 			const fs::path animAbs = authRoot / animRel;

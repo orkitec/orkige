@@ -22,6 +22,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -532,6 +533,25 @@ std::string cookLottieFileToDir(std::string const& sourcePath,
 	{
 		return fail("cook_vector_anim.py produced no .oanim/.oshape for '" +
 			sourcePath + "'");
+	}
+	// mirror the cook's readback (the clip table, fps/duration, layer count)
+	// into the Console as "[import]" command-echo lines - the bracket-prefix
+	// convention "[build]"/"[export]" use, NOT an operational diagnostic
+	{
+		std::istringstream cookOutput(output);
+		std::string reportLine;
+		while (std::getline(cookOutput, reportLine))
+		{
+			while (!reportLine.empty() && (reportLine.back() == '\r' ||
+				reportLine.back() == '\n'))
+			{
+				reportLine.pop_back();
+			}
+			if (!reportLine.empty())
+			{
+				SDL_Log("[import] %s", reportLine.c_str());
+			}
+		}
 	}
 	if (outSourceCopy)
 	{

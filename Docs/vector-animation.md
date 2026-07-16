@@ -67,7 +67,11 @@ Malformation honesty: `VectorAnimAsset::parse` returns false and an EMPTY
 document on any malformation (missing header, bad clip ranges, forward/self
 parents, truncated key or vertex runs, topology mismatches) — never a
 half-loaded rig. Unknown keywords between complete elements are reserved and
-ignored.
+ignored. An optional `ParseError` out-param reads back the offending 1-based
+line and the reason (filled only on failure — the success path carries no
+reporting cost); the component load, the editor's preview and the
+`preview_animation` verb all surface it, so a hand-authored rig's typo names
+its line instead of a bare "malformed".
 
 ## Strokes
 
@@ -252,7 +256,12 @@ with the `python3` toolchain preflight). UNLIKE the one-way `.svg` on-ramp the
 SOURCE `.json` is KEPT beside the cooked asset — both get an `.orkmeta` id, and
 re-importing an edited `.json` re-cooks the `.oanim` in place (the living-source,
 recook-on-reimport discipline; a document where nothing animates lands a
-`.oshape` instead). `EditorDocument.cpp` `cookLottieFileToDir`.
+`.oshape` instead). `EditorDocument.cpp` `cookLottieFileToDir`. The cook's
+post-cook summary — the clip table (name, frame range, loop/once), fps,
+duration, layer count, and an explicit note when a marker-less document gets
+the single implicit runtime clip `default` — prints on the CLI, mirrors into
+the editor Console as `[import]` lines, and rides an `import_asset` reply as
+`clips`, so clip discovery lands WITH the import instead of a file-open later.
 
 **Thumbnails** — an `.oanim` asset shows a real tile: its default clip is
 evaluated at frame 0 (`VectorAnimEval::evaluateAt` → `composeRegions`),
@@ -261,15 +270,17 @@ uploaded via `RenderSystem::createTexture2D` — the exact `.oshape` thumbnail
 path with the animation evaluator in front (`EditorAssetBrowserPanel.cpp`
 `buildAnimThumbnail`).
 
-**Animation Preview panel** (View ▸ Panels ▸ Animation Preview) — pick a project
-`.oanim`, choose a clip and scrub / play-pause it, and try a same-rig blend
-(a second clip + a weight). The panel drives the editor-owned
-`AnimationPreviewStage` on its OWN clock (the editor never ticks GameObjects):
-per frame it evaluates the pose STATELESSLY, composes the region list,
-tessellates it and rasterizes it (`VectorShapeRaster`) into a texture shown
-inline — a pure CPU raster, no offscreen scene target, both render flavors,
-faithful to the tessellated in-game look (same feather AA). No `Ogre::` and no
-RTT: it is headless-capable.
+**Preview in the Inspector** — selecting a `.oanim` (or a kept `.json` whose
+cooked sibling exists) in the asset browser shows the animation preview in the
+Inspector: choose a clip from the dropdown, scrub / play-pause it, and try a
+same-rig blend (a second clip + a weight). The widget
+(`AnimationPreviewPanel.cpp`) drives the editor-owned `AnimationPreviewStage`
+on its OWN clock (the editor never ticks GameObjects): per frame it evaluates
+the pose STATELESSLY, composes the region list, tessellates it and rasterizes
+it (`VectorShapeRaster`) into a texture shown inline — a pure CPU raster, no
+offscreen scene target, both render flavors, faithful to the tessellated
+in-game look (same feather AA). No `Ogre::` and no RTT: it is
+headless-capable.
 
 **MCP readback** — the `preview_animation` verb (the `preview_ui` twin) shares
 that one stage. Input `{ asset, clip?, time?, blendClip?, blendWeight?, size?,
@@ -279,7 +290,46 @@ the dependency-free `core_util/PngWriter`) and returns
 visible_pixel_count, coloured_pixel_count, at_end, clips }`, so an agent
 verifies a cycle (t=0 / mid / end screenshots + numbers), rejects blank or
 all-white output and checks a blend without a play session. It does not disturb the human's
-Animation Preview panel (snapshot/restore). Covered by an `editor_control`
-self-test leg (import a `.json` → `.oanim` with the source kept → preview at two
-times → the PNGs differ and the readback carries the clips/layers) plus the
-`PngWriterTests` unit test.
+Inspector preview (snapshot/restore). Covered by an `editor_control`
+self-test leg (import a `.json` → `.oanim` with the source kept and the reply
+carrying the rig's `clips` → preview at two times → the PNGs differ and the
+readback carries the clips/layers) plus the `PngWriterTests` unit test.
+
+## Playing a rig in a game
+
+`engine_gocomponent/VectorAnimationComponent` is the runtime face (both
+flavors): it parses the `.oanim`, builds the pure evaluator and, per gameplay
+tick, advances the playing clip and uploads the moved vertices through the
+dynamic `VectorMesh` path — dormant in the editor like every ticked component.
+The reflected properties (`animation` AssetRef, `clip`, `speed`, `playing`,
+`transitionTime`, `tint`, `scale`, `edgeSoftness`, `zOrder`, `visible`) ride
+the ONE property registry: Inspector, scenes, MCP `set_component` and Lua all
+see the same schema. `clip` names the clip playback starts on; a name the rig
+no longer carries (a rename after a re-cook) falls back to the first clip AND
+warns in the log.
+
+Scripts drive the sibling rig through `self.anim` (a weak component handle):
+
+- `play(clip)` / `stop()` — start a named clip (empty name = resume);
+- `setClip(clip [, seconds])` / `crossFade(clip, seconds)` — switch with a
+  crossfade (`setClip` without a time uses the reflected `transitionTime`;
+  0 is a hard cut). Blending is same-rig only;
+- `scrub(seconds)` — seat the current clip at a time (a paused pose scrub);
+- `isPlaying()`, `currentClip()`, `currentFrame()`, `isAtEnd()`,
+  `getClipCount()`, `getClipNames()` (comma-joined, the runtime clip
+  discovery), `setSpeed`/`getSpeed`.
+
+A name the rig does not carry REFUSES (returns false) and warns ONCE per name
+per loaded rig in the log — naming the available clips — so a typo'd clip is a
+diagnosis, not a frozen animation. The warning lives on the setter path only;
+the per-tick evaluator never resolves names (the allocation-free tick is
+untouched).
+
+When a `once` clip reaches its end the component raises the owned
+`VectorAnimationEndedEvent` (C++ listeners bound to the owner) and mirrors
+`animation.ended {clip, object}` onto the script event bus — `object` is the
+owner's id (the contact-event id convention), so several rigs playing the same
+clip name stay distinguishable. `projects/vectorshapes/scripts/hero_anim.lua`
+is the reference script (idle → one-shot hop crossfade → ended event back into
+Lua), exercised by the `player_vectoranim_selfcheck` ctest on both flavors;
+`Docs/lua-api.md` carries the drive snippet and the full method index.

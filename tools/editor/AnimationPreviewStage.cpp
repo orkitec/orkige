@@ -72,10 +72,13 @@ namespace OrkigeEditor
 		std::stringstream buffer;
 		buffer << in.rdbuf();
 		VectorAnimAsset::Document doc;
-		if (!VectorAnimAsset::parse(buffer.str(), doc))
+		VectorAnimAsset::ParseError parseError;
+		if (!VectorAnimAsset::parse(buffer.str(), doc, &parseError))
 		{
-			this->mLastError = "'" + animRelPath + "' is not a valid .oanim "
-				"(parse failed - a static document cooks to .oshape instead)";
+			this->mLastError = "'" + animRelPath + "' is not a valid .oanim - "
+				"line " + std::to_string(parseError.line) + ": " +
+				parseError.message +
+				" (a static document cooks to .oshape instead)";
 			outError = this->mLastError;
 			return false;
 		}

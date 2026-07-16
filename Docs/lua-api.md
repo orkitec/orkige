@@ -292,7 +292,10 @@ exists for any script bound by path rather than by kind name.
   `gui.submitted {id, text}`, `gui.valueChanged {id, value}`,
   `gui.dialogResult {id, result}`, `gui.screenPushed`/`gui.screenPopped {name}`,
   `gui.toastShown {text}`, `physics.contactBegin`/`physics.contactEnd {a, b}`
-  (object ids), `app.pause`/`app.resume` (no payload), and `ui.reloaded {file}`
+  (object ids), `animation.ended {clip, object}` (a `once` clip on a
+  vector-animation rig finished; `object` is the rig's owner id, so several
+  rigs sharing clip names stay distinguishable), `app.pause`/`app.resume`
+  (no payload), and `ui.reloaded {file}`
   (a declarative `.oui` screen was hot-reloaded during Play — its widgets were
   destroyed and rebuilt, so any handle a script holds to that screen is stale;
   subscribe to re-acquire them via `gui:findWidget(id)`).
@@ -470,6 +473,26 @@ save.flush()                          -- write to disk NOW (a set alone is dirty
 music.play("bgm", "music/level1.ogg")            -- loops by default
 tween.volume("music", 0.3, 0.2)                   -- duck
 tween.volume("music", 1.0, 0.8, "quadOut", 1.5)   -- restore after 1.5s
+```
+
+**Drive a vector-animation rig (`self.anim`).**
+
+```lua
+function init(self)
+    self.anim:play("idle")                        -- a looping clip
+    events.subscribe("animation.ended", function(e)
+        -- a `once` clip finished; e.object filters to THIS rig's owner
+        if e.object == self.id and e.clip == "hop" then
+            self.anim:crossFade("idle", 0.3)      -- blend back over 0.3s
+        end
+    end)
+end
+function onContactBegin(self, other)
+    self.anim:crossFade("hop", 0.2)               -- one-shot, then the event
+end
+-- clip discovery at runtime: self.anim:getClipNames() -> "idle,hop";
+-- an unknown name refuses (returns false) and warns once in the log,
+-- naming the available clips. Scrub: self.anim:scrub(0.5) (seconds).
 ```
 
 **Haptics (mobile; no-op on desktop).**

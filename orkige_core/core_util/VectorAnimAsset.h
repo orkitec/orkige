@@ -193,13 +193,25 @@ namespace Orkige
 			//! drop everything (an unloaded document)
 			void clear();
 		};
+		//! @brief where and why a parse failed - the optional parse() readback.
+		//! Filled ONLY on failure (a successful parse never touches it), so the
+		//! success path stays free of any reporting cost.
+		struct ParseError
+		{
+			int		line;		//!< 1-based source line (points at EOF for
+								//!< end-of-document checks like a missing header)
+			String	message;	//!< what was malformed on that line
+			ParseError() : line(0) {}
+		};
 
 		//! @brief parse `.oanim` text into an animation document.
 		//! @return true on a well-formed document (header present, >= 1 layer,
 		//! every key run honoured, clip ranges valid, shape topology agreeing
 		//! across keys). On ANY malformation it returns false and leaves out
-		//! EMPTY - the honest "no animation" fallback, never a crash.
-		static bool parse(String const & text, Document & out);
+		//! EMPTY - the honest "no animation" fallback, never a crash; a caller
+		//! passing error gets the offending line + reason for its diagnostics.
+		static bool parse(String const & text, Document & out,
+			ParseError * error = nullptr);
 	};
 }
 
