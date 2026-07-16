@@ -167,6 +167,18 @@ add_test(NAME orkige_export_selftest
     WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
 set_tests_properties(orkige_export_selftest PROPERTIES LABELS unit TIMEOUT 60)
 
+# help-portal generator self-validation: make_help_portal.py renders a
+# synthetic corpus (nested lists, indented fences inside list items, tables
+# with pipe escapes, cross-page links) asserting the emitted HTML AND the
+# whole REAL docs corpus - every page renders with balanced tags, ZERO broken
+# internal links/anchors (a broken one is reported as file:line and fails),
+# the search index carries the expected sections and the sha256 stale-stamp
+# skips/rebuilds correctly. Stdlib-only, headless.
+add_test(NAME make_help_portal_selftest
+    COMMAND python3 "${Orkige_SOURCE_DIR}/Util/make_help_portal.py" --selftest
+    WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+set_tests_properties(make_help_portal_selftest PROPERTIES LABELS unit TIMEOUT 60)
+
 # doc-generator self-validation: update_docs.py parses the binding sources into
 # a non-empty Lua API model, renders a budget-fitting index and asserts the .oui
 # -> mermaid tree shape on a known layout. Stdlib-only, headless.
@@ -961,6 +973,21 @@ if(TARGET orkige_editor AND TARGET orkige_player)
         ENVIRONMENT "ORKIGE_EDITOR_CONTROL_BROWSERSESSION=${CMAKE_CURRENT_BINARY_DIR}/editor_play_browser_session_shot.png"
         LABELS integration TIMEOUT 600
         SKIP_RETURN_CODE 77)
+
+    # Help > "Orkige Help" end to end: the hook fires the menu action's
+    # request flag, the frame loop preflights python3, generates the help
+    # site from the docs corpus (Util/make_help_portal.py, stale-checked
+    # into <build>/help_portal) and serves it on the editor's loopback help
+    # server; a worker thread then GETs the index page, a rendered doc page,
+    # the search index and the css/js assets, asserting status + content
+    # types + contents and the path jail's 404s (escape AND miss). The
+    # default browser never opens (automated run). The first run renders the
+    # whole corpus; re-runs hit the stale-stamp no-op.
+    add_test(NAME editor_help_portal${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_help_portal${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        ENVIRONMENT "ORKIGE_EDITOR_HELPTEST=1"
+        LABELS integration TIMEOUT 120)
 
     # the project system end to end: open projects/example programmatically
     # (same function as File > Open Project), re-open it (resource-group

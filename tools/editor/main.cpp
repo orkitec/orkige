@@ -169,6 +169,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_UI_HOTRELOAD_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_HELPTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERSESSION") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
@@ -582,6 +583,12 @@ int main(int argc, char** argv)
 		// the editor's lifetime, doc root swapped per browser play (see
 		// EditorBrowserServe.cpp; the MCP endpoint keeps its own instance)
 		BrowserServe browserServe;
+		// Help > Orkige Help: the generated documentation site on its own
+		// loopback HttpServer instance (idle until the first Help click; see
+		// EditorHelpPortal.cpp) plus the ORKIGE_EDITOR_HELPTEST worker
+		HelpPortal helpPortal;
+		HelpPortalSelfTest helpSelfTest;
+		const char* helpTestEnv = std::getenv("ORKIGE_EDITOR_HELPTEST");
 #ifdef __APPLE__
 		// ORKIGE_EDITOR_PLAY_SIMULATOR: preselect an iOS simulator as the
 		// play target (the toolbar picker sets the same fields; the scripted
@@ -974,6 +981,8 @@ int main(int argc, char** argv)
 				{ statePtr->showViewSettingsWindow = true; };
 			menuActions.projectSettings = [statePtr]()
 				{ statePtr->showProjectSettingsWindow = true; };
+			menuActions.helpPortal = [statePtr]()
+				{ statePtr->requestedHelpPortal = true; };
 			menuActions.about = [statePtr]()
 				{ statePtr->openAboutPopup = true; };
 			Orkige::macMenuInstall(menuActions);
@@ -1832,6 +1841,16 @@ int main(int argc, char** argv)
 			}
 			// pump the static server (accept/read/respond; a no-op while idle)
 			browserServeUpdate(browserServe, playSession);
+
+			// Help > Orkige Help: generate the doc site if stale, serve it on
+			// the loopback help server and open the browser (never on
+			// automated runs) - see EditorHelpPortal.cpp
+			if (state.requestedHelpPortal)
+			{
+				state.requestedHelpPortal = false;
+				helpPortalRequest(helpPortal, console);
+			}
+			helpPortalUpdate(helpPortal, console);
 
 			// engine log lines captured since the last frame -> Console
 			drainEngineLogIntoConsole(engineLogCapture, console);
@@ -8110,6 +8129,44 @@ int main(int argc, char** argv)
 					running = false;
 				}
 			}
+			// Help portal self-test (editor_help_portal ctest): trigger the
+			// menu action's request flag, let the frame loop generate + serve
+			// the site, then verify the served portal from a worker thread
+			// (see HelpPortalSelfTest). Condition-driven - the generator's
+			// first run renders the whole corpus, so no frame budget; the
+			// ctest TIMEOUT is the backstop.
+			if (helpTestEnv != nullptr)
+			{
+				if (frameCount == 5 && helpPortal.status.empty())
+				{
+					SDL_Log("orkige_editor: help-test requesting the portal "
+						"(the Help > Orkige Help action)");
+					state.requestedHelpPortal = true;
+				}
+				if (helpPortal.status == "failed")
+				{
+					SDL_Log("orkige_editor: help-test FAILED - the help site "
+						"generation failed (see the [help] lines)");
+					exitCode = 2;
+					running = false;
+				}
+				if (helpPortal.status == "serving" && !helpSelfTest.active() &&
+					!helpSelfTest.done())
+				{
+					helpSelfTest.begin(helpPortal.server.getPort());
+				}
+				if (helpSelfTest.done())
+				{
+					helpSelfTest.finish();
+					if (!helpSelfTest.passed())
+					{
+						exitCode = 2;
+					}
+					SDL_Log("orkige_editor: help-test %s",
+						helpSelfTest.passed() ? "PASSED" : "FAILED");
+					running = false;
+				}
+			}
 
 			if (frameLimit != 0 && frameCount >= frameLimit)
 			{
@@ -8152,6 +8209,15 @@ int main(int argc, char** argv)
 			SDL_KillProcess(exportJob.process, false);
 			SDL_DestroyProcess(exportJob.process);
 			exportJob.process = nullptr;
+		}
+
+		// editor shutdown while the help site generates: kill the generator
+		// (the stale-checked site is simply regenerated on the next Help)
+		if (helpPortal.isGenerating())
+		{
+			SDL_KillProcess(helpPortal.process, false);
+			SDL_DestroyProcess(helpPortal.process);
+			helpPortal.process = nullptr;
 		}
 
 		// free the thumbnail cache's owned CPU uploads (vector shapes) while the

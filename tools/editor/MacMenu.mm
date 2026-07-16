@@ -39,6 +39,7 @@ namespace
 		TAG_RESET_LAYOUT,
 		TAG_VIEW_SETTINGS,
 		TAG_ABOUT,
+		TAG_HELP_PORTAL,			//!< Help > Orkige Help (the doc portal)
 		TAG_PANEL_BASE = 100
 	};
 
@@ -132,6 +133,7 @@ namespace
 	case TAG_RESET_LAYOUT:		action = &gActions.resetLayout; break;
 	case TAG_VIEW_SETTINGS:		action = &gActions.viewSettings; break;
 	case TAG_PROJECT_SETTINGS:	action = &gActions.projectSettings; break;
+	case TAG_HELP_PORTAL:		action = &gActions.helpPortal; break;
 	case TAG_ABOUT:				action = &gActions.about; break;
 	default: break;
 	}
@@ -478,6 +480,9 @@ namespace Orkige
 		addItem(viewMenu, @"View Settings…", TAG_VIEW_SETTINGS, @"", 0);
 
 		NSMenu* helpMenu = ensureTopLevelMenu(@"Help");
+		// the searchable documentation portal (generated from the docs
+		// corpus, served on a loopback port, opened in the default browser)
+		addItem(helpMenu, @"Orkige Help", TAG_HELP_PORTAL, @"", 0);
 		addItem(helpMenu, @"About Orkige Editor", TAG_ABOUT, @"", 0);
 
 		gInstalled = true;

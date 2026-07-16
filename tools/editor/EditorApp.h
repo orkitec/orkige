@@ -38,12 +38,14 @@
 #include <engine_render/RenderNode.h>
 #include <engine_render/RenderTexture.h>
 
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <map>
 #include <mutex>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 using Orkige::optr;
@@ -222,6 +224,79 @@ bool browserServeStart(BrowserServe& serve, std::string const& docRoot,
 //! upgrade attempt (a second tab, a page after the session ended) is
 //! refused with a 409 and that page runs standalone.
 void browserServeUpdate(BrowserServe& serve, PlaySession& session);
+
+//! @brief the Content-Type a browser needs per served-file extension
+//! (shared by the browser-play and help-portal static servers); an unknown
+//! extension degrades to the honest binary default
+std::string staticContentTypeFor(std::string const& path);
+
+//! @brief resolve a request target to a real file inside docRoot, or ""
+//! when it escapes/misses - the canonical-path jail every editor-hosted
+//! static file server uses (the control server's project-file discipline)
+std::string staticResolveServedFile(std::string const& docRoot,
+	std::string const& target);
+
+//--- Help portal (EditorHelpPortal.cpp) -------------------------------------
+
+//! @brief Help > "Orkige Help": the offline documentation site generated
+//! from the repository's docs corpus (Util/make_help_portal.py) and served
+//! on its OWN loopback HttpServer instance. Deliberately NOT the
+//! BrowserServe server: that port doubles as the browser play session's
+//! debug-WebSocket front door and its doc root swaps per play, while the
+//! help site must outlive any play session. Generation is stale-checked
+//! (the script's sha256 source stamp) and runs async like an export; the
+//! default browser opens once the site serves (never on automated runs).
+struct HelpPortal
+{
+	SDL_Process* process = nullptr;	//!< the running generator (nullptr = idle)
+	std::string outputBuffer;		//!< generator stdout not yet split into lines
+	std::string artifactPath;		//!< the generated site dir (the script's OK line)
+	//! "" until the first request; "generating" while the script runs;
+	//! "serving" once the site is up (url set); "failed" on a generator error
+	std::string status;
+	std::string url;				//!< the served index.html URL while serving
+	Orkige::HttpServer server;
+	std::string docRoot;			//!< the served site directory ("" = idle)
+	bool isGenerating() const { return this->process != nullptr; }
+};
+
+//! @brief Help > Orkige Help: preflight the python3 toolchain and start the
+//! generator (make_help_portal.py --if-stale - an unchanged corpus is a
+//! sub-second no-op, so every invocation may regenerate); refusals and a
+//! still-running generation report to the Console as "[help]" lines
+void helpPortalRequest(HelpPortal& portal, EditorConsole& console);
+
+//! @brief per-frame pump: stream generator output into the Console as
+//! "[help]" lines; when the site is ready, serve it (starting the listener
+//! on first use) and open the default browser at it (skipped on automated
+//! runs - gAutomatedRun); answer static GETs while serving. Never blocks.
+void helpPortalUpdate(HelpPortal& portal, EditorConsole& console);
+
+//! @brief the ORKIGE_EDITOR_HELPTEST worker (editor_help_portal ctest):
+//! once the portal serves, fetch the index page, a rendered doc page, the
+//! search index and the assets off the loopback port on a worker thread
+//! and assert status/content-type/content plus the path jail's 404s. The
+//! main loop polls done()/passed() and exits with the verdict.
+class HelpPortalSelfTest
+{
+public:
+	~HelpPortalSelfTest();
+	//! start the worker against the serving portal's port
+	void begin(unsigned short port);
+	bool active() const { return mActive.load(); }
+	bool done() const { return mDone.load(); }
+	bool passed() const { return mPassed.load(); }
+	//! join the finished worker (call from the main loop once done())
+	void finish();
+
+private:
+	void run(unsigned short port);
+
+	std::thread mThread;
+	std::atomic<bool> mActive{ false };
+	std::atomic<bool> mDone{ false };
+	std::atomic<bool> mPassed{ false };
+};
 
 //--- view settings (grid, orientation gizmo, camera) ------------------------
 
@@ -713,6 +788,10 @@ struct EditorState
 	//! iOS hardware this is a deploy-and-run, never a live debug session - a
 	//! page cannot host the debug socket. Requires a loaded project.
 	bool requestedBrowserPlay = false;
+	//! Help > "Orkige Help" clicked (native mac menu or the ImGui menu bar):
+	//! the frame loop generates the help site if stale, serves it on the
+	//! loopback help server and opens the browser (see HelpPortal)
+	bool requestedHelpPortal = false;
 	//! the last browser-play outcome, for the toolbar/Console and the control
 	//! port's get_state (browser_play_url/browser_play_status): "" until the
 	//! first browser play; "exporting" while the web export runs; "serving"

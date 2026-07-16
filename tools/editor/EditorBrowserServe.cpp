@@ -18,63 +18,64 @@
 #include <fstream>
 #include <sstream>
 
-namespace
+//! the content type a browser needs per served-file extension - shared with
+//! the help-portal server (EditorHelpPortal.cpp). wasm MUST be
+//! application/wasm exactly - WebAssembly streaming compilation refuses
+//! anything else. Everything a web export or the help site contains is
+//! covered; an unknown extension degrades to the honest binary default.
+std::string staticContentTypeFor(std::string const& path)
 {
-	//! the content type a browser needs per artifact extension. wasm MUST be
-	//! application/wasm exactly - WebAssembly streaming compilation refuses
-	//! anything else. Everything a web export contains is covered; an unknown
-	//! extension degrades to the honest binary default.
-	std::string contentTypeFor(std::string const& path)
-	{
-		const std::size_t dot = path.rfind('.');
-		const std::string ext =
-			dot == std::string::npos ? "" : path.substr(dot);
-		if (ext == ".html") return "text/html; charset=utf-8";
-		if (ext == ".js") return "text/javascript";
-		if (ext == ".wasm") return "application/wasm";
-		if (ext == ".png") return "image/png";
-		if (ext == ".json") return "application/json";
-		return "application/octet-stream";	// .data payload image et al
-	}
+	const std::size_t dot = path.rfind('.');
+	const std::string ext =
+		dot == std::string::npos ? "" : path.substr(dot);
+	if (ext == ".html") return "text/html; charset=utf-8";
+	if (ext == ".js") return "text/javascript";
+	if (ext == ".css") return "text/css";
+	if (ext == ".wasm") return "application/wasm";
+	if (ext == ".png") return "image/png";
+	if (ext == ".svg") return "image/svg+xml";
+	if (ext == ".json") return "application/json";
+	return "application/octet-stream";	// .data payload image et al
+}
 
-	//! @brief resolve a request target to a real file inside docRoot, or ""
-	//! when it escapes/misses. The jail is the same discipline as the control
-	//! server's project-file verbs: the canonicalised path must stay under
-	//! the canonicalised root. Requests for files of a PREVIOUS export (the
-	//! doc root swaps per play) land here as a plain miss -> 404.
-	std::string resolveServedFile(std::string const& docRoot,
-		std::string const& target)
+//! @brief resolve a request target to a real file inside docRoot, or ""
+//! when it escapes/misses - shared with the help-portal server. The jail is
+//! the same discipline as the control server's project-file verbs: the
+//! canonicalised path must stay under the canonicalised root. Requests for
+//! files of a PREVIOUS export (the doc root swaps per play) land here as a
+//! plain miss -> 404.
+std::string staticResolveServedFile(std::string const& docRoot,
+	std::string const& target)
+{
+	namespace fs = std::filesystem;
+	// strip the query string ("?env.NAME=VALUE" automation params)
+	std::string path = target.substr(0, target.find('?'));
+	if (path.empty() || path[0] != '/' ||
+		path.find("..") != std::string::npos ||
+		path.find('%') != std::string::npos)
 	{
-		namespace fs = std::filesystem;
-		// strip the query string ("?env.NAME=VALUE" automation params)
-		std::string path = target.substr(0, target.find('?'));
-		if (path.empty() || path[0] != '/' ||
-			path.find("..") != std::string::npos ||
-			path.find('%') != std::string::npos)
-		{
-			return "";
-		}
-		if (path == "/")
-		{
-			path = "/index.html";
-		}
-		std::error_code ignored;
-		const fs::path root = fs::weakly_canonical(docRoot, ignored);
-		const fs::path resolved =
-			fs::weakly_canonical(root / path.substr(1), ignored);
-		const std::string rootString = root.string();
-		const std::string resolvedString = resolved.string();
-		if (resolvedString.size() <= rootString.size() ||
-			resolvedString.compare(0, rootString.size(), rootString) != 0)
-		{
-			return "";
-		}
-		if (!fs::is_regular_file(resolved, ignored))
-		{
-			return "";
-		}
-		return resolvedString;
+		return "";
 	}
+	if (path == "/")
+	{
+		path = "/index.html";
+	}
+	std::error_code ignored;
+	const fs::path root = fs::weakly_canonical(docRoot, ignored);
+	const fs::path resolved =
+		fs::weakly_canonical(root / path.substr(1), ignored);
+	const std::string rootString = root.string();
+	const std::string resolvedString = resolved.string();
+	if (resolvedString.size() <= rootString.size() ||
+		resolvedString.compare(0, rootString.size(), rootString) != 0)
+	{
+		return "";
+	}
+	if (!fs::is_regular_file(resolved, ignored))
+	{
+		return "";
+	}
+	return resolvedString;
 }
 
 bool browserServeStart(BrowserServe& serve, std::string const& docRoot,
@@ -145,7 +146,7 @@ void browserServeUpdate(BrowserServe& serve, PlaySession& session)
 			return response;
 		}
 		const std::string filePath = serve.isServing()
-			? resolveServedFile(serve.docRoot, request.target)
+			? staticResolveServedFile(serve.docRoot, request.target)
 			: std::string();
 		if (filePath.empty())
 		{
@@ -166,7 +167,7 @@ void browserServeUpdate(BrowserServe& serve, PlaySession& session)
 			response.body = "file read failed\n";
 			return response;
 		}
-		response.contentType = contentTypeFor(filePath);
+		response.contentType = staticContentTypeFor(filePath);
 		response.body = bytes.str();
 		return response;
 	});
