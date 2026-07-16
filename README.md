@@ -1,10 +1,11 @@
 # Orkige
 
-**The orkitec game engine** — a C++20 game engine for desktop and mobile games
-(macOS, Windows, Linux, iOS, Android — CI-verified on all five), with an AI-native
-editor that lets agents create, run, test and debug games over MCP. Originally
-written 2009–2012 and shipped on the App Store (*Pudding Panic*), revived and
-fully modernized in 2026. Licensed under [Apache-2.0](LICENSE).
+**The orkitec game engine** — a C++20 game engine for desktop, mobile and web
+games (macOS, Windows, Linux, iOS, Android and the browser via WebAssembly —
+CI-verified on all six), with an AI-native editor that lets agents create, run,
+test and debug games over MCP. Originally written 2009–2012 and shipped on the
+App Store (*Pudding Panic*), revived and fully modernized in 2026. Licensed
+under [Apache-2.0](LICENSE).
 
 ![Editor](https://img.shields.io/badge/editor-ImGui%20docked-blue)
 ![Renderer](https://img.shields.io/badge/renderer-Ogre--Next%20·%20OGRE%2014%20·%20Metal%20·%20Vulkan%20·%20GL3%2B%20·%20GLES2-green)
@@ -55,8 +56,8 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   Android), **console variables** for live tuning, **crash breadcrumbs** (a
   persisted event trail that survives a dead process), a defined **mobile
   lifecycle** (backgrounding pauses, flushes and suspends; scripts get
-  `onAppPause`/`onAppResume`), and **Lua hot-reload during Play**
-  (compile-before-swap: a broken save keeps the old code running).
+  `onAppPause`/`onAppResume`), and **Lua and `.oui` hot-reload during Play**
+  (compile/parse-before-swap: a broken save keeps the old version running).
 - **Scripting** — Lua on sol2 behind a backend-neutral seam; game logic lives in
   per-object `ScriptComponent`s. `projects/roller` is a complete game in pure Lua,
   zero compiled code.
@@ -66,21 +67,26 @@ A full 3D engine with a first-class 2D layer on top — not a 2D engine.
   editor mode** (ortho, plane-locked gizmos), a **Tile Palette with grid
   painting** for tile-based levels (paint/erase prefab instances, one undo step
   per stroke), transform gizmos with Q/W/E/R, undo/redo, multi-select, native
-  macOS menu + file dialogs. Ships as `Orkige.app`.
+  macOS menu + file dialogs, and a built-in **searchable offline help portal**
+  (Help > Orkige Help — this documentation as ranked, linked pages). Ships as
+  `Orkige.app`.
 - **Play mode, out of process** — Play spawns the standalone player as a separate
   process over a TCP debug protocol: live remote hierarchy/inspector, pause/step/
   stop, live property + cvar editing, script hot-reload. A crashing game can never
-  take the editor down. The same protocol reaches **iOS simulators and Android
-  devices** — press Play, pick a target, debug the game running there.
+  take the editor down. The same protocol reaches **iOS simulators, Android
+  devices and the browser** — press Play, pick a target, debug the game running
+  there (a browser tab dials the same protocol back in over a WebSocket).
 - **AI-native** — the editor exposes a **Model Context Protocol (MCP)** server so
   an AI agent can open projects, edit scenes, add/reparent objects, drive Play, and
   read back state and viewport screenshots (see `Docs/mcp.md`).
 - **Projects & mobile** — a game is a folder with a `project.orkproj` manifest,
   scenes, assets, scripts and optional project-config assets; the editor opens
   projects, the player runs them, and the Build menu exports a distributable macOS
-  `.app`, iOS-simulator app, or Android APK — each with per-project **icons and
-  launch screens**. With an Apple developer certificate configured, Play deploys
-  straight to a **real iPhone** (signed export + install + launch).
+  `.app`, iOS-simulator app, Android APK, or a **self-contained browser build**
+  (WebAssembly + WebGL, servable from any static host) — each with per-project
+  **icons and launch screens**; store-submittable Android App Bundles and signed
+  iOS `.ipa`s are a CLI flag away. With an Apple developer certificate configured,
+  Play deploys straight to a **real iPhone** (signed export + install + launch).
 - **Samples** — `samples/hello_orkige` (feature demo) and `samples/jumper` (a
   textured jump-and-run); `projects/` holds the real games, headlined by
   **`roller`** (a 2D physics puzzle: tilt-gravity ball + sliding world
@@ -128,14 +134,14 @@ ctest --preset desktop-classic # the classic-flavor suite (exports, Vulkan, nati
 ctest --preset all             # classic + simulator/emulator device tests
 ```
 
-Every push builds and tests both Linux render flavors. Ogre-Next remains the
-default and owns scripting-off, ASan + UBSan, and the full desktop suite under
-a virtual display; classic also runs its unit + desktop compatibility suites.
-CI additionally runs the full non-device Ogre-Next desktop suites on macOS
-(Metal) and Windows (Mesa lavapipe software Vulkan).
-CI also builds and runs the Android
-player in a hardware-accelerated x86_64 emulator and the iOS player in an arm64
-iPhone Simulator (`.github/workflows/ci.yml`).
+Every push runs a **twelve-job CI matrix** — one job per platform × flavor, so
+a failure names itself (`.github/workflows/ci.yml`). Both Linux render flavors
+run their full windowed suites under a virtual display; Ogre-Next additionally
+owns scripting-off and an ASan + UBSan pass. macOS (Metal) and Windows (Mesa
+lavapipe software Vulkan) run the complete desktop suites. The Android player
+runs in a hardware-accelerated x86_64 emulator, the iOS player in an arm64
+iPhone Simulator — and the **browser player builds to WebAssembly and boots in
+headless Chrome with a pixel check** on every push.
 
 ## Repository layout
 
@@ -155,11 +161,15 @@ private archive.
 
 ## Upstream
 
-Fixes discovered during the revival were contributed back to OGRE:
+Fixes discovered during the revival are contributed back. Merged: OGRE
 [#3667](https://github.com/OGRECave/ogre/pull/3667),
 [#3668](https://github.com/OGRECave/ogre/pull/3668),
 [#3669](https://github.com/OGRECave/ogre/pull/3669) (Vulkan-on-Apple via
-`VK_EXT_metal_surface`).
+`VK_EXT_metal_surface`) and Ogre-Next
+[#582](https://github.com/OGRECave/ogre-next/pull/582) (the NEON build on
+Linux). Open: OGRE
+[#3673](https://github.com/OGRECave/ogre/pull/3673) (a zip-lookup call in the
+non-strict resource path).
 
 ---
 

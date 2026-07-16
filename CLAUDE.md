@@ -800,6 +800,14 @@ look when touching one:
   both flavors).
 - **AI control**: the editor hosts an **MCP server over Streamable HTTP** — see the
   MCP section above + `Docs/mcp.md`.
+- **Help portal** (`Util/make_help_portal.py` + `tools/editor/EditorHelpPortal.cpp`):
+  Help > Orkige Help generates (stdlib-only markdown-subset renderer over the
+  committed docs corpus + README, sha256 `--if-stale`, hard-failing file:line
+  broken-link gate) a self-contained offline HTML site with client-side ranked
+  search, serves it on a dedicated loopback HttpServer and opens the browser
+  (gated for automated runs). `make_help_portal_selftest` renders the REAL
+  corpus at zero broken links — docs rot is a test failure. The portal
+  PRESENTS docs, never rewrites them (`Docs/help-portal.md`).
 - **Editor scripts** (`tools/editor/EditorScriptHost`, discovery in the
   editor_core lib's `EditorScriptTools`): a project `scripts/<name>.editor.lua`
   is an EDITOR TOOL — a one-shot command in the editor's **Tools** menu (and MCP
