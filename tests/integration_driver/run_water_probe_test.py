@@ -152,11 +152,15 @@ def main():
     glint = glint_contrast(w, h, ch, late_px)
 
     # thresholds calibrated (measured) against the unlit near-flat slab vs the
-    # lit, sun-glinted, scrolling water: unlit glint-region contrast ~0.2, lit
-    # ~11; unlit mean ~0 when truly black; motion ~9 when scrolling.
+    # lit, sun-glinted, scrolling water: unlit glint-region contrast ~0.2, the
+    # earlier subdued material ~11, the tuned lively material ~97 (deterministic
+    # across runs - the captures are frame-locked); unlit mean ~0 when truly
+    # black, lit mean ~71; motion ~5.8 when scrolling. MIN_GLINT sits between
+    # the subdued and lively responses so a regression to the dull read fails,
+    # with ~5x margin below the measured value.
     NOT_BLACK = 8.0        # mean luminance (0..255): a truly black slab fails
     MIN_MOTION = 1.2       # the ripple must scroll frame-to-frame
-    MIN_GLINT = 5.0        # a specular sun/fresnel highlight (lit vs a flat slab)
+    MIN_GLINT = 20.0       # a LIVELY specular sun glint (lit ~97; subdued ~11)
 
     print(f"water probe: mean_luminance={mean_lum:.1f} (>{NOT_BLACK}), "
           f"motion={motion:.2f} (>{MIN_MOTION}), "

@@ -54,7 +54,7 @@ MAX_MESH_VERTS = 65535
 DEFAULT_SEED = 20260712
 DEFAULT_QUADS = 16          # 16x16 quads -> 17x17 = 289 verts, 512 triangles
 DEFAULT_UV_TILES = 1.0      # texture repeats across the unit plane (material scales further)
-TEXTURE_SIZE = 64           # tiling water-normal edge (power of two)
+TEXTURE_SIZE = 128          # tiling water-normal edge (power of two)
 
 GLB_NAME = "water_plane.glb"
 NORMAL_NAME = "water_normal.png"
@@ -229,27 +229,98 @@ def build_glb(plane):
 
 # --- tiling water normal map -----------------------------------------------
 
+def _box_blur_wrapped(field, radius):
+    """Separable wrapped box blur (running sum, two axis passes) - periodic at
+    the edges so the blurred field tiles exactly like its source."""
+    n = len(field)
+    k = 2 * radius + 1
+    tmp = [[0.0] * n for _ in range(n)]
+    out = [[0.0] * n for _ in range(n)]
+    for y in range(n):
+        row = field[y]
+        total = sum(row[x % n] for x in range(-radius, radius + 1))
+        for x in range(n):
+            tmp[y][x] = total / k
+            total += row[(x + radius + 1) % n] - row[(x - radius) % n]
+    for x in range(n):
+        total = sum(tmp[y % n][x] for y in range(-radius, radius + 1))
+        for y in range(n):
+            out[y][x] = total / k
+            total += tmp[(y + radius + 1) % n][x] - tmp[(y - radius) % n][x]
+    return out
+
+
 def build_normal_texture(seed, size=TEXTURE_SIZE, bump=1.8):
     """A seamless tangent-space water-ripple normal map: central differences on
     two overlapping seamless wave-noise fields (a coarse swell + a finer chop),
-    encoded (128,128,255) = flat +Z."""
+    encoded (128,128,255) = flat +Z.
+
+    The height field is DE-STRIPED before differencing: value noise carries a
+    separable axis-aligned component (per-column / per-row mean profiles), and
+    its derivative is a coherent DC tilt per texel column/row. Mip filtering
+    averages the real ripple away but PRESERVES that coherent tilt, so distant
+    (high-mip) water shows straight lit bands parallel to the plane's UV axes.
+    Subtracting the periodic column/row mean profiles zeroes the bias at every
+    mip level (a box downsample preserves the zero exactly) while keeping the
+    ripple, and the profiles are periodic so the tiling stays seamless."""
     image = orkige_png.Image(size, size)
 
-    def height(x, y):
-        fx = x / size
-        fy = y / size
-        swell = _fbm(fx * 4.0, fy * 4.0, seed, 3, period=4)
-        chop = _fbm(fx * 8.0, fy * 8.0, seed + 11, 3, period=8)
-        return swell * 0.7 + chop * 0.3
-
+    heights = [[0.0] * size for _ in range(size)]
     for y in range(size):
         for x in range(size):
-            hl = height((x - 1) % size, y)
-            hr = height((x + 1) % size, y)
-            hd = height(x, (y - 1) % size)
-            hu = height(x, (y + 1) % size)
-            nx = (hl - hr) * bump
-            ny = (hd - hu) * bump
+            fx = x / size
+            fy = y / size
+            # domain warp: value noise carries lattice-ALIGNED features (its
+            # extrema sit on an axis-aligned grid), and on a foreshortened
+            # water plane that alignment reads as ruler-straight bands. Offsetting
+            # the sample position by two independent seamless noise fields bends
+            # the lattice into organic wavefronts; the warp fields share the
+            # octave periods, so the result still tiles exactly.
+            wx = (_fbm(fx * 4.0, fy * 4.0, seed + 71, 2, period=4) - 0.5) * 1.6
+            wy = (_fbm(fx * 4.0, fy * 4.0, seed + 87, 2, period=4) - 0.5) * 1.6
+            swell = _fbm(fx * 4.0 + wx, fy * 4.0 + wy, seed, 3, period=4)
+            chop = _fbm(fx * 8.0 + wx * 2.0, fy * 8.0 + wy * 2.0,
+                        seed + 11, 4, period=8)
+            heights[y][x] = swell * 0.7 + chop * 0.3
+
+    # high-pass: subtract a wrapped box-blurred copy so the LOW-frequency
+    # ripple energy is removed. Coarse mip levels keep only what survives
+    # their box filter - low frequencies - so a tiling detail map with strong
+    # low-frequency content repeats a coherent per-tile blob pattern on
+    # distant (high-mip) water, which foreshortening compresses into visible
+    # bands. Removing it keeps the coarse mips near-flat by construction
+    # while the fine chop (what close-range ripple is made of) passes through.
+    low = _box_blur_wrapped(_box_blur_wrapped(heights, size // 20), size // 20)
+    for y in range(size):
+        for x in range(size):
+            heights[y][x] -= low[y][x]
+
+    # remove the separable component: h -= colmean(x) + rowmean(y) - mean
+    col_mean = [sum(heights[y][x] for y in range(size)) / size
+                for x in range(size)]
+    row_mean = [sum(heights[y][x] for x in range(size)) / size
+                for y in range(size)]
+    mean = sum(col_mean) / size
+    for y in range(size):
+        for x in range(size):
+            heights[y][x] -= col_mean[x] + row_mean[y] - mean
+
+    def height(x, y):
+        return heights[y % size][x % size]
+
+    # the slope is a HEIGHT-FIELD derivative, not a raw texel difference:
+    # central differences span 2 texels, so the step scales with the texture
+    # resolution - normalise to a 64-texel reference so `bump` means the same
+    # ripple steepness at any TEXTURE_SIZE
+    slope_scale = bump * (size / 64.0)
+    for y in range(size):
+        for x in range(size):
+            hl = height(x - 1, y)
+            hr = height(x + 1, y)
+            hd = height(x, y - 1)
+            hu = height(x, y + 1)
+            nx = (hl - hr) * slope_scale
+            ny = (hd - hu) * slope_scale
             nz = 1.0
             length = math.sqrt(nx * nx + ny * ny + nz * nz)
             r = int(round((nx / length * 0.5 + 0.5) * 255))
@@ -357,6 +428,48 @@ def _selftest():
     flat = sum(1 for i in range(0, len(nrm1.pixels), 4)
                if nrm1.pixels[i + 2] > 200)
     assert flat > (len(nrm1.pixels) // 4) * 0.5, "normal map is not +Z-dominant"
+
+    # de-striped: no coherent per-column X tilt / per-row Y tilt may remain
+    # (mip filtering preserves such a DC bias while averaging the ripple away,
+    # which renders as straight lit bands on distant water). The residual after
+    # quantisation stays well under one 8-bit step.
+    def axis_bias(img, channel, per_column):
+        means = []
+        for a in range(size):
+            total = 0.0
+            for b in range(size):
+                x, y = (a, b) if per_column else (b, a)
+                total += img.pixels[(y * img.width + x) * 4 + channel] / 127.5 - 1.0
+            means.append(total / size)
+        return max(means) - min(means)
+    assert axis_bias(nrm1, 0, True) < 0.02, "coherent column tilt (banding) in X"
+    assert axis_bias(nrm1, 1, False) < 0.02, "coherent row tilt (banding) in Y"
+
+    # spectrum shape: the full-resolution ripple must carry real amplitude
+    # (a lively lit response) while the COARSE mip levels stay near-flat (the
+    # high-pass guarantee - low-frequency ripple energy survives mip filtering
+    # per tile and reads as banding on distant water). Both are pinned as
+    # slope-field RMS: mip 0 directly, the coarse level via repeated wrapped
+    # 2x2 box downsampling (what mip generation does).
+    def slope_rms(field):
+        total = sum(v * v for row in field for v in row)
+        count = len(field) * len(field)
+        return (total / count) ** 0.5
+
+    def downsample(field):
+        n = len(field)
+        return [[(field[2 * y][2 * x] + field[2 * y][(2 * x + 1) % n] +
+                  field[(2 * y + 1) % n][2 * x] +
+                  field[(2 * y + 1) % n][(2 * x + 1) % n]) / 4.0
+                 for x in range(n // 2)] for y in range(n // 2)]
+
+    slopes = [[nrm1.pixels[(y * size + x) * 4] / 127.5 - 1.0
+               for x in range(size)] for y in range(size)]
+    assert 0.04 < slope_rms(slopes) < 0.15, "ripple amplitude out of band"
+    while len(slopes) > 8:
+        slopes = downsample(slopes)
+    assert slope_rms(slopes) < 0.02, \
+        "coarse-mip ripple energy too high (distant-water banding)"
 
     print("make_water_mesh selftest OK: unit plane %d verts (%d tris), "
           "%d-byte .glb; %dx%d tiling water normal; deterministic; seamless; "

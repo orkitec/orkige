@@ -1351,14 +1351,17 @@ namespace Orkige
 		// diffuse map - the detail normals only perturb shading)
 		datablock->setDiffuse(Ogre::Vector3(
 			desc.deepColour.r, desc.deepColour.g, desc.deepColour.b));
-		// grazing-angle honesty: Schlick fresnel reaches 1 at the horizon no
-		// matter how small F0 is, and with no reflection source (no IBL yet)
-		// a mirror-tight lobe over a white specular colour renders the whole
-		// far plane as a white sheet. A moderate roughness + a dimmed
-		// specular colour keep the sun glint while the distance stays water
-		datablock->setRoughness(0.32f);
-		datablock->setSpecular(Ogre::Vector3(0.3f, 0.32f, 0.34f));
-		const float scatter = 0.12f;
+		// the specular balance: a fairly tight lobe + a cool-tinted specular
+		// colour make the sun read as LIVELY glints riding the ripple instead
+		// of a diffuse sheen. Grazing-angle honesty still bounds both knobs:
+		// Schlick fresnel reaches 1 at the horizon no matter how small F0 is,
+		// and with no reflection source (no IBL yet) a mirror-tight lobe over
+		// a white specular colour would render the whole far plane as a white
+		// sheet - the roughness floor and the sub-unit specular colour are
+		// what keep the distance reading as water
+		datablock->setRoughness(0.24f);
+		datablock->setSpecular(Ogre::Vector3(0.45f, 0.47f, 0.5f));
+		const float scatter = 0.18f;
 		datablock->setEmissive(Ogre::Vector3(desc.shallowColour.r * scatter,
 			desc.shallowColour.g * scatter, desc.shallowColour.b * scatter));
 		// fresnel (F0): water sits near 0.02; the knob scales the edge

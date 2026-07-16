@@ -246,6 +246,15 @@ legitimately differs between the flavors).
   `Docs/render-abstraction.md` ("Future desktop quality knob — water
   refraction/depth pass"). The reflected `RenderWaterDesc` fields absorb it with
   no shape change.
+- **Grazing-incidence streaking at the plane outline.** Near the silhouette the
+  view compresses the ripple pattern along the grazing direction, so any tiling
+  detail normal map foreshortens into faint streaks parallel to the plane edge.
+  The generator keeps this below ordinary visibility (domain-warped noise, so
+  no lattice-straight features; a wrapped high-pass, so coarse mip levels are
+  near-flat and the tile repeat carries no coherent low-frequency blobs), but
+  the residual is physics: the pipelines that would mask it — reflection
+  variety from IBL/screen-space refraction, or vertex waves breaking the
+  silhouette — are registered absent / out of v1 scope.
 
 ### Generator + tests
 
@@ -253,13 +262,35 @@ legitimately differs between the flavors).
 standard library only (deterministic, byte-reproducible, `orkige_png` codec):
 the unit water plane `.glb` (flat +Y, tiling UVs so the next backend builds
 tangents for the detail normals) and the seamless tiling `water_normal.png`
-(central differences on two overlapping seamless wave fields). Both are committed
+(central differences on a domain-warped two-field wave height map). The height
+field is conditioned against banding before differencing — all three
+counter-measures keep the map seamless:
+
+- **domain warp**: value noise has lattice-aligned extrema, which foreshorten
+  into ruler-straight bands on a water plane; two seamless warp fields bend the
+  lattice into organic wavefronts.
+- **wrapped high-pass**: low-frequency ripple energy survives mip filtering per
+  tile and repeats as coherent blobs on distant water; subtracting a wrapped
+  box-blurred copy leaves the coarse mip levels near-flat.
+- **separable-DC removal**: the per-column/per-row mean slope of a lattice
+  noise is a coherent tilt that mip filtering PRESERVES while averaging the
+  real ripple away (straight lit bands parallel to the UV axes); subtracting
+  the periodic column/row mean profiles zeroes it at every mip level.
+
+Both are committed
 under `orkige_engine/media/water/` (registered like the engine-default font dir
 by the player/editor and bundled to exports under `Media/water/`).
 `--selftest` (unit ctest `make_water_mesh_selftest`) asserts the plane is a flat
 unit grid with in-range 16-bit indices, the normal map tiles seamlessly and is
-+Z-dominant, and both are deterministic. The `demo_water` integration selfcheck
++Z-dominant, both are deterministic, and the conditioning holds statistically:
+no coherent per-column/per-row tilt beyond the 8-bit quantisation floor, ripple
+slope RMS in a healthy band at full resolution, and near-flat after repeated
+wrapped 2×2 box downsampling (the coarse-mip guarantee). The `demo_water` integration selfcheck
 (both flavors) builds a `WaterComponent`, applies the scrolling material and
 proves the transparent surface renders AND the ripple clock advances with a
-hide/show triangle probe. `WaterComponent`'s reflected schema + a detached
+hide/show triangle probe. The `water_looks_right` PIXEL probe
+(`tests/integration_driver/run_water_probe_test.py`) captures two frames and
+asserts the surface is lit, carries a lively specular sun glint (measured
+contrast ~97 vs ~0.2 for an unlit slab; the threshold also fails a regression
+to a subdued ~11 response) and scrolls between frames. `WaterComponent`'s reflected schema + a detached
 round-trip are unit-tested in `PropertyReflectionTests`.
