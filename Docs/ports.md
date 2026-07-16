@@ -47,7 +47,8 @@ equivalent features. Local additions:
   builds non-strict (no `strict` feature requested), so the branch must
   compile. Inside that `#else` branch the strict flag is 0 by definition -
   the two-argument case-insensitive call is behavior-identical.
-- `manual-render-null-renderable.patch` - upstream candidate:
+- `manual-render-null-renderable.patch` - upstream candidate (submitted as
+  OGRECave/ogre #3674):
   `SceneManager::manualRender(RenderOperation*, ...)` resets the auto-param
   state with `setCurrentRenderable(0)` (the documented "matrices supplied
   explicitly" contract the null-tolerant
