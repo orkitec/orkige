@@ -66,6 +66,19 @@
 // It will also probably fail on some DSP systems.
 #define FASTDELEGATE_USESTATICFUNCTIONHACK
 
+// The static-function hack above stores the FUNCTION address in the closure's
+// 'this' slot and calls InvokeStaticFunction through it; the invoker recovers
+// the function pointer immediately and never touches member data, so the call
+// is safe, but 'this' is then a code address whose alignment follows the
+// target's instruction alignment (4 bytes on AArch64), not the class's 8-byte
+// requirement. UBSan's alignment check on the member-call prologue flags
+// exactly that, so the invokers opt out of that ONE check.
+#if defined(__clang__) || defined(__GNUC__)
+#define FASTDELEGATE_NOSANITIZE_ALIGNMENT __attribute__((no_sanitize("alignment")))
+#else
+#define FASTDELEGATE_NOSANITIZE_ALIGNMENT
+#endif
+
 // Uncomment the next line to allow function declarator syntax.
 // It is automatically enabled for those compilers where it is known to work.
 //#define FASTDELEGATE_ALLOW_FUNCTION_TYPE_SYNTAX
@@ -740,7 +753,7 @@ public:
         }
 		m_pStaticFunction=reinterpret_cast<GenericFuncPtr>(function_to_bind);
 	}
-	inline UnvoidStaticFuncPtr GetStaticFunction() const { 
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT inline UnvoidStaticFuncPtr GetStaticFunction() const { 
 		return reinterpret_cast<UnvoidStaticFuncPtr>(m_pStaticFunction); 
 	}
 #else
@@ -789,7 +802,7 @@ public:
 	// This function will be called with an invalid 'this' pointer!!
 	// We're just returning the 'this' pointer, converted into
 	// a function pointer!
-	inline UnvoidStaticFuncPtr GetStaticFunction() const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT inline UnvoidStaticFuncPtr GetStaticFunction() const {
 		// Ensure that there's a compilation failure if function pointers 
 		// and data pointers have different sizes.
 		// If you get this error, you need to #undef FASTDELEGATE_USESTATICFUNCTIONHACK.
@@ -930,7 +943,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction() const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction() const {
 	return (*(m_Closure.GetStaticFunction()))(); }
 };
 
@@ -1015,7 +1028,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1) const {
 	return (*(m_Closure.GetStaticFunction()))(p1); }
 };
 
@@ -1100,7 +1113,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2); }
 };
 
@@ -1185,7 +1198,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3); }
 };
 
@@ -1270,7 +1283,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3, p4); }
 };
 
@@ -1355,7 +1368,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3, p4, p5); }
 };
 
@@ -1440,7 +1453,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3, p4, p5, p6); }
 };
 
@@ -1525,7 +1538,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6, Param7 p7) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6, Param7 p7) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3, p4, p5, p6, p7); }
 };
 
@@ -1610,7 +1623,7 @@ public:
 	void SetMemento(const DelegateMemento &any) { m_Closure.CopyFrom(this, any); }
 
 private:	// Invoker for static functions
-	RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6, Param7 p7, Param8 p8) const {
+	FASTDELEGATE_NOSANITIZE_ALIGNMENT RetType InvokeStaticFunction(Param1 p1, Param2 p2, Param3 p3, Param4 p4, Param5 p5, Param6 p6, Param7 p7, Param8 p8) const {
 	return (*(m_Closure.GetStaticFunction()))(p1, p2, p3, p4, p5, p6, p7, p8); }
 };
 
