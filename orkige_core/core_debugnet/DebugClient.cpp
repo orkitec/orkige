@@ -121,6 +121,16 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	void DebugClient::adoptWebSocket(DebugSocketUtil::SocketHandle socketHandle,
+		String const & initialBytes)
+	{
+		this->disconnect();
+		this->connection.attachWebSocketServer(socketHandle, initialBytes);
+		this->state = State::Connected;
+		// frames that rode in with the handshake may already hold lines
+		this->drainLines();
+	}
+	//---------------------------------------------------------
 	void DebugClient::disconnect()
 	{
 		DebugSocketUtil::closeSocket(this->pendingHandle);

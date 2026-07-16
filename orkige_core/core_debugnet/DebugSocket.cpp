@@ -9,6 +9,7 @@
 
 #include "core_debugnet/DebugSocket.h"
 #include "core_debugnet/DebugProtocol.h"
+#include "core_debugnet/WebSocket.h"
 
 #ifdef _WIN32
 // winsock seam: everything below compiles against winsock2 once the Windows
@@ -141,6 +142,7 @@ namespace Orkige
 		this->discardingLine = false;
 		this->partialLength = 0;
 		this->droppedLines = 0;
+		this->webSocket = false;
 	}
 	//---------------------------------------------------------
 	DebugLineConnection::~DebugLineConnection()
@@ -155,14 +157,36 @@ namespace Orkige
 		this->open = (socketHandle != DebugSocketUtil::INVALID_SOCKET_HANDLE);
 	}
 	//---------------------------------------------------------
+	void DebugLineConnection::attachWebSocketServer(
+		DebugSocketUtil::SocketHandle socketHandle, String const & initialBytes)
+	{
+		this->attach(socketHandle);
+		this->webSocket = true;
+		this->frameBuffer = initialBytes;
+		// a fast peer's first frames may ride in with the upgrade request
+		this->decodeFrames();
+	}
+	//---------------------------------------------------------
 	void DebugLineConnection::close()
 	{
+		if (this->webSocket && this->open &&
+			this->handle != DebugSocketUtil::INVALID_SOCKET_HANDLE)
+		{
+			// best-effort close frame so the browser peer learns the link
+			// ended cleanly (a refused/partial send just falls through to
+			// the TCP close below - the peer notices either way)
+			const String closeFrame =
+				WebSocketUtil::encodeFrame(WebSocketUtil::OP_CLOSE, String());
+			::send(this->handle, closeFrame.data(), closeFrame.size(), 0);
+		}
 		DebugSocketUtil::closeSocket(this->handle);
 		this->open = false;
 		this->discardingLine = false;
 		this->partialLength = 0;
 		this->inBuffer.clear();
 		this->outBuffer.clear();
+		this->webSocket = false;
+		this->frameBuffer.clear();
 	}
 	//---------------------------------------------------------
 	bool DebugLineConnection::sendLine(String const & line)
@@ -175,8 +199,17 @@ namespace Orkige
 		{
 			return false; // refuse oversized lines instead of flooding the peer
 		}
-		this->outBuffer += line;
-		this->outBuffer += '\n';
+		if (this->webSocket)
+		{
+			// one line = one unmasked binary frame (server-to-client)
+			this->outBuffer += WebSocketUtil::encodeFrame(
+				WebSocketUtil::OP_BINARY, line + '\n');
+		}
+		else
+		{
+			this->outBuffer += line;
+			this->outBuffer += '\n';
+		}
 		this->pump();
 		return this->open;
 	}
@@ -229,35 +262,30 @@ namespace Orkige
 					chunk, sizeof(chunk), 0));
 				if (received > 0)
 				{
-					// enforce the line cap while receiving: an oversized line
-					// switches to discard mode until its terminator arrives;
-					// partialLength tracks only the unterminated tail line, so
-					// buffered complete lines are never harmed
-					for (long i = 0; i < received; ++i)
+					if (this->webSocket)
 					{
-						const char c = chunk[i];
-						if (this->discardingLine)
+						// WebSocket transport: collect frame bytes and
+						// de-frame; the payload feeds the same line splitter
+						this->frameBuffer.append(chunk,
+							static_cast<size_t>(received));
+						if (this->frameBuffer.size() >
+							WebSocketUtil::MAX_FRAME_PAYLOAD + 16)
 						{
-							if (c == '\n')
-							{
-								this->discardingLine = false;
-								++this->droppedLines;
-							}
-							continue;
+							// no legitimate frame is this large (the +16
+							// covers the biggest possible header)
+							this->open = false;
+							return;
 						}
-						this->inBuffer += c;
-						if (c == '\n')
+						this->decodeFrames();
+						if (!this->open)
 						{
-							this->partialLength = 0;
+							return; // a close frame / framing error ended it
 						}
-						else if (++this->partialLength >=
-							DebugProtocol::MAX_LINE_LENGTH)
-						{
-							this->inBuffer.erase(
-								this->inBuffer.size() - this->partialLength);
-							this->partialLength = 0;
-							this->discardingLine = true;
-						}
+					}
+					else
+					{
+						this->ingestBytes(chunk,
+							static_cast<unsigned long>(received));
 					}
 					continue;
 				}
@@ -308,7 +336,94 @@ namespace Orkige
 	//---------------------------------------------------------
 	//--- protected: ------------------------------------------
 	//---------------------------------------------------------
-
+	void DebugLineConnection::ingestBytes(char const * bytes,
+		unsigned long count)
+	{
+		// enforce the line cap while receiving: an oversized line switches
+		// to discard mode until its terminator arrives; partialLength tracks
+		// only the unterminated tail line, so buffered complete lines are
+		// never harmed
+		for (unsigned long i = 0; i < count; ++i)
+		{
+			const char c = bytes[i];
+			if (this->discardingLine)
+			{
+				if (c == '\n')
+				{
+					this->discardingLine = false;
+					++this->droppedLines;
+				}
+				continue;
+			}
+			this->inBuffer += c;
+			if (c == '\n')
+			{
+				this->partialLength = 0;
+			}
+			else if (++this->partialLength >=
+				DebugProtocol::MAX_LINE_LENGTH)
+			{
+				this->inBuffer.erase(
+					this->inBuffer.size() - this->partialLength);
+				this->partialLength = 0;
+				this->discardingLine = true;
+			}
+		}
+	}
+	//---------------------------------------------------------
+	void DebugLineConnection::decodeFrames()
+	{
+		for (;;)
+		{
+			WebSocketUtil::Frame frame;
+			std::size_t consumed = 0;
+			const WebSocketUtil::DecodeResult result =
+				WebSocketUtil::decodeFrame(this->frameBuffer, consumed,
+					frame);
+			if (result == WebSocketUtil::DecodeResult::NeedMore)
+			{
+				return;
+			}
+			if (result == WebSocketUtil::DecodeResult::Error)
+			{
+				this->open = false; // framing violation: drop the peer
+				return;
+			}
+			this->frameBuffer.erase(0, consumed);
+			switch (frame.opcode)
+			{
+			case WebSocketUtil::OP_CONTINUATION:
+			case WebSocketUtil::OP_TEXT:
+			case WebSocketUtil::OP_BINARY:
+				// data frames (fragmented or not) all feed the line
+				// splitter - the '\n' terminators frame the messages, so
+				// WebSocket message boundaries carry no meaning here
+				this->ingestBytes(frame.payload.data(),
+					static_cast<unsigned long>(frame.payload.size()));
+				break;
+			case WebSocketUtil::OP_PING:
+				this->outBuffer += WebSocketUtil::encodeFrame(
+					WebSocketUtil::OP_PONG, frame.payload);
+				break;
+			case WebSocketUtil::OP_PONG:
+				break; // unsolicited pongs are ignored per the RFC
+			case WebSocketUtil::OP_CLOSE:
+			{
+				// echo the close (best effort - the socket closes right
+				// after either way) and end the connection
+				const String closeFrame = WebSocketUtil::encodeFrame(
+					WebSocketUtil::OP_CLOSE, String());
+				::send(this->handle, closeFrame.data(), closeFrame.size(),
+					0);
+				this->open = false;
+				return;
+			}
+			default:
+				this->open = false; // unknown opcode: protocol violation
+				return;
+			}
+		}
+	}
 	//---------------------------------------------------------
 	//--- private: --------------------------------------------
 	//---------------------------------------------------------

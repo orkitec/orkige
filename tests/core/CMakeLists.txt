@@ -17,6 +17,7 @@ add_executable(orkige_core_tests
     MemorySamplerTests.cpp
     BenchmarkRecorderTests.cpp
     JsonTests.cpp
+    WebSocketCodecTests.cpp
     EventTests.cpp
     ComponentTests.cpp
     TypeManagerTests.cpp
@@ -71,15 +72,18 @@ add_executable(orkige_core_tests
 
 if(NOT EMSCRIPTEN)
     # host-only test TUs: the loopback-socket suites (HttpServerTests,
-    # DebugProtocolTests bind/connect on 127.0.0.1 - the single-threaded wasm
-    # runtime has no working socket transport, and the wasm player's debug
-    # link fails honestly for the same reason) and the worker-thread suites
-    # (MemoryManagerTests, ProfileManagerTests spawn std::thread - the v1 web
-    # build compiles without pthreads, so thread creation aborts at runtime).
-    # All four still run on every desktop flavor gate.
+    # DebugProtocolTests and DebugWebSocketLinkTests bind/connect on
+    # 127.0.0.1 - the single-threaded wasm runtime has no working host-side
+    # socket transport; the wasm player's debug link instead DIALS OUT over
+    # the page's WebSocket, whose editor side these host suites verify) and
+    # the worker-thread suites (MemoryManagerTests, ProfileManagerTests
+    # spawn std::thread - the v1 web build compiles without pthreads, so
+    # thread creation aborts at runtime). All still run on every desktop
+    # flavor gate.
     target_sources(orkige_core_tests PRIVATE
         DebugProtocolTests.cpp
         HttpServerTests.cpp
+        DebugWebSocketLinkTests.cpp
         MemoryManagerTests.cpp
         ProfileManagerTests.cpp
     )

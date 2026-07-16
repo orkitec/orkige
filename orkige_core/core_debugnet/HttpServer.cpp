@@ -169,11 +169,27 @@ namespace Orkige
 		for (Connection & connection : this->connections)
 		{
 			this->pump(connection);
-			if (connection.open)
+			if (connection.open && !connection.takeoverAfterFlush)
 			{
 				this->serviceConnection(connection, handler);
 				// flush whatever the service produced
 				this->pump(connection);
+			}
+			// a fully flushed upgrade hands the socket over: from here the
+			// bytes belong to the upgraded protocol, never to HTTP again
+			if (connection.open && connection.takeoverAfterFlush &&
+				connection.outBuffer.empty())
+			{
+				if (this->takeoverHandler)
+				{
+					this->takeoverHandler(connection.handle,
+						connection.inBuffer);
+					// ownership moved - the reap below must not close it
+					connection.handle =
+						DebugSocketUtil::INVALID_SOCKET_HANDLE;
+				}
+				connection.inBuffer.clear();
+				connection.open = false;
 			}
 			// a fully flushed half-close completes here
 			if (connection.closeAfterFlush && connection.outBuffer.empty())
@@ -222,6 +238,7 @@ namespace Orkige
 			connection.handle = accepted;
 			connection.open = true;
 			connection.closeAfterFlush = false;
+			connection.takeoverAfterFlush = false;
 			this->connections.push_back(std::move(connection));
 		}
 	}
@@ -399,6 +416,14 @@ namespace Orkige
 
 			HttpResponse response = handler(request);
 			this->queueResponse(connection, response, keepAlive);
+			if (response.takeover)
+			{
+				// the remaining buffered bytes already belong to the
+				// upgraded protocol - update() hands them over untouched
+				// once the response head is flushed
+				connection.takeoverAfterFlush = true;
+				return;
+			}
 			if (!keepAlive || response.closeConnection)
 			{
 				connection.closeAfterFlush = true;
@@ -424,12 +449,17 @@ namespace Orkige
 			head += response.contentType;
 			head += "\r\n";
 		}
-		char lengthLine[64];
-		std::snprintf(lengthLine, sizeof(lengthLine),
-			"Content-Length: %zu\r\n", response.body.size());
-		head += lengthLine;
-		head += (keepAlive && !response.closeConnection)
-			? "Connection: keep-alive\r\n" : "Connection: close\r\n";
+		if (!response.takeover)
+		{
+			// a takeover (upgrade) response carries its own Connection
+			// header and, being 1xx, must not carry a Content-Length
+			char lengthLine[64];
+			std::snprintf(lengthLine, sizeof(lengthLine),
+				"Content-Length: %zu\r\n", response.body.size());
+			head += lengthLine;
+			head += (keepAlive && !response.closeConnection)
+				? "Connection: keep-alive\r\n" : "Connection: close\r\n";
+		}
 		for (std::pair<String, String> const & extra : response.extraHeaders)
 		{
 			head += extra.first;

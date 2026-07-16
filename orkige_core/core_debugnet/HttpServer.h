@@ -43,6 +43,14 @@ namespace Orkige
 		String								body;							//!< entity body
 		std::vector<std::pair<String, String> > extraHeaders;			//!< additional response headers
 		bool								closeConnection = false;		//!< close after sending
+		//! @brief hand the connection over once this response is flushed:
+		//! the socket leaves HTTP framing and (with its unconsumed bytes)
+		//! goes to the server's takeover handler - the seam a protocol
+		//! upgrade (e.g. a WebSocket handshake's 101) rides. The response
+		//! head is sent verbatim minus the automatic Content-Length and
+		//! Connection headers (the upgrade response carries its own).
+		//! Without an installed takeover handler the connection just closes.
+		bool								takeover = false;
 	};
 
 	//! @brief a hand-rolled, single-purpose, non-blocking HTTP/1.1 server for
@@ -62,6 +70,11 @@ namespace Orkige
 	public:
 		//! request handler: given a fully parsed request, return its response
 		typedef std::function<HttpResponse(HttpRequest const &)> Handler;
+		//! @brief connection-takeover handler (@see HttpResponse::takeover):
+		//! receives the raw socket (ownership transfers - close it when
+		//! done) plus whatever bytes arrived after the upgrade request
+		typedef std::function<void(DebugSocketUtil::SocketHandle,
+			String const &)> TakeoverHandler;
 	protected:
 		//! one accepted client connection with its raw byte buffers
 		struct Connection
@@ -71,6 +84,7 @@ namespace Orkige
 			String							outBuffer;	//!< queued response bytes
 			bool							open;		//!< false once closed/errored
 			bool							closeAfterFlush;	//!< half-close once outBuffer drains
+			bool							takeoverAfterFlush;	//!< hand the socket over once outBuffer drains
 		};
 	private:
 		//--- Variables ---------------------------------------
@@ -79,6 +93,7 @@ namespace Orkige
 		DebugSocketUtil::SocketHandle	listenHandle;	//!< listening socket
 		unsigned short					port;			//!< bound port (resolved when start() got 0)
 		std::vector<Connection>			connections;	//!< live client connections
+		TakeoverHandler					takeoverHandler;	//!< upgrade destination (empty = takeovers close)
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -93,6 +108,13 @@ namespace Orkige
 		void stop();
 		//! accept/read/dispatch/write pump - call once per frame, never blocks
 		void update(Handler const & handler);
+		//! @brief install (or clear, with an empty function) the destination
+		//! a takeover response's socket is handed to (@see
+		//! HttpResponse::takeover); no handler = takeovers simply close
+		void setTakeoverHandler(TakeoverHandler const & handler)
+		{
+			this->takeoverHandler = handler;
+		}
 		//! is the listen socket up
 		bool isListening() const
 		{

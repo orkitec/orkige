@@ -59,6 +59,15 @@ namespace Orkige
 		//! dotted-quad address, normally "127.0.0.1"); returns false when the
 		//! socket setup fails immediately
 		bool connect(String const & host, unsigned short port);
+		//! @brief adopt an already-established connection whose WebSocket
+		//! upgrade handshake completed (the browser debug transport: the
+		//! page DIALS the editor, so this end never connect()s - the
+		//! HttpServer's takeover hands the socket here). initialBytes are
+		//! frame bytes that rode in with the upgrade request. The client
+		//! goes straight to Connected; the SAME DebugMessage line stream
+		//! flows, WebSocket-framed on the wire.
+		void adoptWebSocket(DebugSocketUtil::SocketHandle socketHandle,
+			String const & initialBytes);
 		//! close the link and return to Idle
 		void disconnect();
 		//! handshake/read/write pump - call once per frame, never blocks

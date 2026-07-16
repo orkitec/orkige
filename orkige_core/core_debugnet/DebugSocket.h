@@ -44,6 +44,12 @@ namespace Orkige
 	//! DebugProtocol::MAX_LINE_LENGTH are refused on send and discarded on
 	//! receive (the connection survives, only the oversized line is lost);
 	//! peer close and socket errors surface through isOpen() after pump().
+	//! A connection attached via attachWebSocketServer carries the SAME
+	//! line stream inside server-side WebSocket framing (the browser debug
+	//! transport): pump() de-frames client-masked data frames into the line
+	//! splitter, sendLine() wraps each line in one unmasked binary frame,
+	//! pings are answered and a close frame closes - callers never see the
+	//! difference.
 	class ORKIGE_CORE_DLL DebugLineConnection
 	{
 		//--- Types -------------------------------------------
@@ -60,6 +66,8 @@ namespace Orkige
 		bool							discardingLine;	//!< inside an oversized line: drop bytes until '\n'
 		unsigned int					partialLength;	//!< length of the unterminated line at the buffer tail
 		unsigned int					droppedLines;	//!< count of discarded oversized lines
+		bool							webSocket;		//!< server-side WebSocket framing active
+		String							frameBuffer;	//!< received WebSocket bytes not yet de-framed
 	private:
 		//--- Methods -----------------------------------------
 	public:
@@ -69,6 +77,12 @@ namespace Orkige
 		~DebugLineConnection();
 		//! take ownership of an already connected non-blocking socket
 		void attach(DebugSocketUtil::SocketHandle socketHandle);
+		//! @brief take ownership of a socket whose WebSocket upgrade
+		//! handshake already completed (the server side of the browser
+		//! debug transport); initialBytes are frame bytes that arrived
+		//! with/after the upgrade request and are de-framed immediately
+		void attachWebSocketServer(DebugSocketUtil::SocketHandle socketHandle,
+			String const & initialBytes);
 		//! close the socket and clear all buffers
 		void close();
 		//! is a live socket attached (turns false when pump() hits EOF/error)
@@ -86,6 +100,10 @@ namespace Orkige
 		//! number of oversized incoming lines that were discarded
 		inline unsigned int getDroppedLineCount() const;
 	protected:
+		//! feed raw line-stream bytes through the cap-enforcing splitter
+		void ingestBytes(char const * bytes, unsigned long count);
+		//! de-frame everything complete in frameBuffer (WebSocket mode)
+		void decodeFrames();
 	private:
 		DebugLineConnection(DebugLineConnection const &) = delete;
 		DebugLineConnection & operator=(DebugLineConnection const &) = delete;
