@@ -205,6 +205,12 @@ namespace Orkige
 		// is still alive - OGRE 14 crashes on the reverse order.
 		this->finalizeRTShaderSystem();
 #endif // USE_RTSHADER_SYSTEM
+#ifdef OGRE_STATIC_LIB
+		// the boot's direct STBIImageCodec::startup() has no plugin whose
+		// uninstall would free the registered image codecs - unregister them
+		// symmetrically here, while the codec registry is still alive
+		Ogre::STBIImageCodec::shutdown();
+#endif
 		this->root.reset();
 		this->bigZipArchiveFactory.reset();
 		// the plugins have to outlive the root
