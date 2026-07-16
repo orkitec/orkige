@@ -9,7 +9,11 @@
 // This is the runtime the editor's play mode builds on.
 //
 // Remote debugging (the editor's play mode): --debug-port N starts a
-// core_debugnet DebugServer on 127.0.0.1:N. Commands are processed once per
+// core_debugnet DebugServer on 127.0.0.1:N. On the web the direction
+// reverses: a browser page cannot listen, so ORKIGE_DEBUG_CONNECT=host:port
+// (forwarded by the shell page's ?env.* query mapping) makes the runtime
+// DIAL the editor instead - the same protocol, WebSocket-framed by the
+// platform's socket emulation. Commands are processed once per
 // frame; pause gates physics + component updates but keeps rendering and the
 // protocol alive, step advances exactly one fixed update while paused. The
 // hierarchy (GameObject id list) is streamed on change (checked every
@@ -1763,6 +1767,30 @@ int main(int argc, char** argv)
 			SDL_Log("orkige_player: debug server listening on 127.0.0.1:%u",
 				static_cast<unsigned>(debugLink.getPort()));
 		}
+#ifdef __EMSCRIPTEN__
+		// Play in Browser, live session: a page cannot listen, so the
+		// direction reverses - the editor appends
+		// ?env.ORKIGE_DEBUG_CONNECT=127.0.0.1:<port> to the URL it opens
+		// (the shell maps ?env.* onto the module environment) and the
+		// runtime DIALS that endpoint; the socket emulation carries the
+		// byte stream over a WebSocket the editor's serve port answers. A
+		// dial nobody answers (a hand-opened page, an ended session) gives
+		// up after its bounded budget and the game runs standalone.
+		else if (const char* debugConnect =
+			std::getenv("ORKIGE_DEBUG_CONNECT"))
+		{
+			if (debugLink.startConnect(debugConnect))
+			{
+				SDL_Log("orkige_player: dialing the editor debug endpoint "
+					"%s", debugConnect);
+			}
+			else
+			{
+				SDL_Log("orkige_player: debug endpoint '%s' is malformed - "
+					"running standalone", debugConnect);
+			}
+		}
+#endif
 
 		// collision layers must be configured BEFORE PhysicsWorld::init (the
 		// Jolt filters are built from them at init time). A project's

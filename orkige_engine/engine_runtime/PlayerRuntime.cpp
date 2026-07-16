@@ -45,6 +45,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <iomanip>
 #include <cstring>
 #include <filesystem>
@@ -60,6 +61,8 @@ namespace Orkige
 
 	const unsigned long PlayerDebugLink::HIERARCHY_CHECK_INTERVAL = 15;
 	const int PlayerDebugLink::OBJECT_STATE_INTERVAL_MS = 66;
+	const int PlayerDebugLink::DIAL_RETRY_INTERVAL_MS = 500;
+	const int PlayerDebugLink::DIAL_GIVE_UP_SECONDS = 20;
 	//---------------------------------------------------------
 	namespace
 	{
@@ -333,6 +336,43 @@ namespace Orkige
 		return true;
 	}
 	//---------------------------------------------------------
+	bool PlayerDebugLink::startConnect(String const & endpoint)
+	{
+		if (mActive)
+		{
+			return false;
+		}
+		// "host:port" or a bare "port" (host defaults to loopback)
+		String host = "127.0.0.1";
+		String portText = endpoint;
+		const size_t colon = endpoint.rfind(':');
+		if (colon != String::npos)
+		{
+			host = endpoint.substr(0, colon);
+			portText = endpoint.substr(colon + 1);
+		}
+		const long parsedPort = std::strtol(portText.c_str(), NULL, 10);
+		if (host.empty() || parsedPort <= 0 || parsedPort > 65535)
+		{
+			return false;
+		}
+		mDialMode = true;
+		mDialHost = host;
+		mDialPort = static_cast<unsigned short>(parsedPort);
+		mDialStart = std::chrono::steady_clock::now();
+		mDialLastAttempt = mDialStart;
+		if (!mDialer.connect(mDialHost, mDialPort))
+		{
+			// an immediate socket-setup failure; the retry loop in
+			// linkUpdate() still owns the give-up budget
+			mDialer.disconnect();
+		}
+		mActive = true;
+		mLogCapture = std::make_unique<EngineLogCapture>();
+		mLogCapture->attach();
+		return true;
+	}
+	//---------------------------------------------------------
 	bool PlayerDebugLink::consumePendingStep()
 	{
 		if (!mActive || !mPaused || mPendingSteps <= 0)
@@ -358,7 +398,7 @@ namespace Orkige
 	void PlayerDebugLink::notifyScreenshotSaved(String const & path, bool ok,
 		String const & error)
 	{
-		if (!mActive || !mServer.hasClient())
+		if (!mActive || !linkHasClient())
 		{
 			return;
 		}
@@ -369,7 +409,7 @@ namespace Orkige
 		{
 			saved.set(Protocol::FIELD_MESSAGE, error);
 		}
-		mServer.send(saved);
+		linkSend(saved);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::handleRecordStart(DebugMessage const & message)
@@ -594,7 +634,7 @@ namespace Orkige
 		{
 			error = "no frames sampled";
 		}
-		if (mServer.hasClient())
+		if (linkHasClient())
 		{
 			DebugMessage saved(Protocol::MSG_RECORD_SAVED);
 			saved.set(Protocol::FIELD_PATH, mRecordPath);
@@ -603,7 +643,7 @@ namespace Orkige
 			{
 				saved.set(Protocol::FIELD_MESSAGE, error);
 			}
-			mServer.send(saved);
+			linkSend(saved);
 		}
 		mTrace.reset();
 		mRecordFilter.clear();
@@ -621,6 +661,113 @@ namespace Orkige
 		}
 	}
 	//---------------------------------------------------------
+	//--- the transport seam (listen vs. dial) -----------------
+	//---------------------------------------------------------
+	void PlayerDebugLink::linkUpdate()
+	{
+		if (!mDialMode)
+		{
+			mServer.update();
+			return;
+		}
+		mDialer.update();
+		// synthesize the connect/disconnect edges the listen transport
+		// reports natively
+		const bool connected = mDialer.isConnected();
+		if (connected && !mDialWasConnected)
+		{
+			mDialConnectedEvent = true;
+			mDialEverConnected = true;
+		}
+		if (!connected && mDialWasConnected)
+		{
+			mDialDisconnectedEvent = true;
+		}
+		mDialWasConnected = connected;
+		// the retry loop only serves the FIRST attachment; once a session
+		// existed its end is final (update() winds the link down on the
+		// disconnect edge)
+		if (connected || mDialEverConnected || mDialer.isConnecting())
+		{
+			return;
+		}
+		const std::chrono::steady_clock::time_point now =
+			std::chrono::steady_clock::now();
+		if (now - mDialStart >
+			std::chrono::seconds(DIAL_GIVE_UP_SECONDS))
+		{
+			deactivateStandalone("no editor answered the debug dial - "
+				"running standalone");
+			return;
+		}
+		if (now - mDialLastAttempt >
+			std::chrono::milliseconds(DIAL_RETRY_INTERVAL_MS))
+		{
+			mDialer.connect(mDialHost, mDialPort);
+			mDialLastAttempt = now;
+		}
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::linkHasClient() const
+	{
+		return mDialMode ? mDialer.isConnected() : mServer.hasClient();
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::linkSend(DebugMessage const & message)
+	{
+		return mDialMode ? mDialer.send(message) : mServer.send(message);
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::linkReceive(DebugMessage & out)
+	{
+		return mDialMode ? mDialer.receive(out) : mServer.receive(out);
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::linkConsumeConnected()
+	{
+		if (!mDialMode)
+		{
+			return mServer.consumeClientConnected();
+		}
+		const bool edge = mDialConnectedEvent;
+		mDialConnectedEvent = false;
+		return edge;
+	}
+	//---------------------------------------------------------
+	bool PlayerDebugLink::linkConsumeDisconnected()
+	{
+		if (!mDialMode)
+		{
+			return mServer.consumeClientDisconnected();
+		}
+		const bool edge = mDialDisconnectedEvent;
+		mDialDisconnectedEvent = false;
+		return edge;
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::linkStop()
+	{
+		if (mDialMode)
+		{
+			mDialer.disconnect();
+		}
+		else
+		{
+			mServer.stop();
+		}
+	}
+	//---------------------------------------------------------
+	void PlayerDebugLink::deactivateStandalone(String const & reason)
+	{
+		EngineLogCapture::logMessage("orkige runtime: " + reason);
+		if (mLogCapture)
+		{
+			mLogCapture->detach();
+		}
+		linkStop();
+		mActive = false;
+	}
+	//---------------------------------------------------------
 	void PlayerDebugLink::update(GameObjectManager & gameObjectManager,
 		String const & scenePath)
 	{
@@ -628,12 +775,12 @@ namespace Orkige
 		{
 			return;
 		}
-		mServer.update();
-		if (mServer.consumeClientConnected())
+		linkUpdate();
+		if (linkConsumeConnected())
 		{
 			DebugMessage hello(Protocol::MSG_HELLO);
 			hello.set(Protocol::FIELD_SCENE, scenePath);
-			mServer.send(hello);
+			linkSend(hello);
 			sendHierarchyIfChanged(gameObjectManager, true);
 			// goes through the log capture - guarantees the editor Console
 			// receives at least one [remote] line per session
@@ -641,7 +788,7 @@ namespace Orkige
 				"orkige runtime: debug link up - forwarding the runtime log "
 				"to the editor");
 		}
-		if (mServer.consumeClientDisconnected())
+		if (linkConsumeDisconnected())
 		{
 			// a vanished editor must not leave the game frozen
 			mPaused = false;
@@ -650,6 +797,15 @@ namespace Orkige
 			mHierarchySent = false;
 			// a NEW editor session must learn about existing failures again
 			mReportedScriptErrors.clear();
+			if (mDialMode)
+			{
+				// the dialed-out session ended (the editor stopped it or the
+				// tab's peer went away): there is no listener to re-dial and
+				// nothing left to serve - the game continues standalone
+				deactivateStandalone("debug link closed - continuing "
+					"standalone");
+				return;
+			}
 		}
 		processMessages(gameObjectManager);
 	}
@@ -657,7 +813,7 @@ namespace Orkige
 	void PlayerDebugLink::stream(GameObjectManager & gameObjectManager,
 		unsigned long frameCount)
 	{
-		if (!mActive || !mServer.hasClient())
+		if (!mActive || !linkHasClient())
 		{
 			return;
 		}
@@ -683,7 +839,7 @@ namespace Orkige
 			DebugMessage log(Protocol::MSG_LOG);
 			log.set(Protocol::FIELD_MESSAGE, line.text);
 			log.set(Protocol::FIELD_LEVEL, line.level);
-			mServer.send(log);
+			linkSend(log);
 			// warning-and-above lines also land in an active trace as events
 			if (line.level == "warning" || line.level == "error")
 			{
@@ -721,19 +877,19 @@ namespace Orkige
 		}
 		// orderly protocol shutdown: tell the editor we are going down (the
 		// quit path already sent bye) and give the socket a moment to flush
-		if (mServer.hasClient())
+		if (linkHasClient())
 		{
 			if (!mQuitRequested)
 			{
-				mServer.send(DebugMessage(Protocol::MSG_BYE));
+				linkSend(DebugMessage(Protocol::MSG_BYE));
 			}
 			for (int flush = 0; flush < 10; ++flush)
 			{
-				mServer.update();
+				linkUpdate();
 				std::this_thread::sleep_for(std::chrono::milliseconds(5));
 			}
 		}
-		mServer.stop();
+		linkStop();
 		mActive = false;
 	}
 	//---------------------------------------------------------
@@ -741,13 +897,13 @@ namespace Orkige
 	{
 		DebugMessage error(Protocol::MSG_ERROR);
 		error.set(Protocol::FIELD_MESSAGE, text);
-		mServer.send(error);
+		linkSend(error);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::sendHierarchyIfChanged(
 		GameObjectManager & gameObjectManager, bool force)
 	{
-		if (!mServer.hasClient())
+		if (!linkHasClient())
 		{
 			return;
 		}
@@ -764,7 +920,7 @@ namespace Orkige
 		hierarchy.setList(Protocol::LIST_IDS, ids);
 		hierarchy.setList(Protocol::LIST_PARENTS, parents);
 		hierarchy.setList(Protocol::LIST_ACTIVE, actives);
-		mServer.send(hierarchy);
+		linkSend(hierarchy);
 		mLastSentHierarchy = std::move(ids);
 		mLastSentParents = std::move(parents);
 		mLastSentActives = std::move(actives);
@@ -810,7 +966,7 @@ namespace Orkige
 				// script when an object carries several
 				error.set(Protocol::FIELD_COMPONENT, script->getComponentName());
 				error.set(Protocol::FIELD_MESSAGE, message);
-				mServer.send(error);
+				linkSend(error);
 				mReportedScriptErrors.insert(key);
 				// mirror it into an active trace as an event
 				traceEvent("scriptError",
@@ -1007,7 +1163,7 @@ namespace Orkige
 		GameObjectManager & gameObjectManager)
 	{
 		DebugMessage message;
-		while (mServer.receive(message))
+		while (linkReceive(message))
 		{
 			if (message.type == Protocol::MSG_PAUSE)
 			{
@@ -1033,7 +1189,7 @@ namespace Orkige
 			else if (message.type == Protocol::MSG_QUIT)
 			{
 				mQuitRequested = true;
-				mServer.send(DebugMessage(Protocol::MSG_BYE));
+				linkSend(DebugMessage(Protocol::MSG_BYE));
 			}
 			else if (message.type == Protocol::MSG_SELECT)
 			{
@@ -1207,7 +1363,7 @@ namespace Orkige
 	void PlayerDebugLink::streamObjectState(
 		GameObjectManager & gameObjectManager)
 	{
-		if (!mServer.hasClient() || mSelectedObjectId.empty())
+		if (!linkHasClient() || mSelectedObjectId.empty())
 		{
 			return;
 		}
@@ -1227,7 +1383,7 @@ namespace Orkige
 			mSelectedObjectId.clear();
 			return;
 		}
-		mServer.send(buildObjectState(gameObject));
+		linkSend(buildObjectState(gameObject));
 		mLastStateSend = now;
 	}
 	//---------------------------------------------------------
@@ -1243,7 +1399,7 @@ namespace Orkige
 	//---------------------------------------------------------
 	void PlayerDebugLink::streamStats()
 	{
-		if (!mServer.hasClient())
+		if (!linkHasClient())
 		{
 			return;
 		}
@@ -1358,13 +1514,13 @@ namespace Orkige
 		}
 		if (anyField)
 		{
-			mServer.send(stats);
+			linkSend(stats);
 		}
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::streamUiLayout()
 	{
-		if (!mServer.hasClient())
+		if (!linkHasClient())
 		{
 			return;
 		}
@@ -1407,12 +1563,12 @@ namespace Orkige
 			screenPath += name;
 		}
 		message.set(Protocol::FIELD_UI_SCREEN_STACK, screenPath);
-		mServer.send(message);
+		linkSend(message);
 	}
 	//---------------------------------------------------------
 	void PlayerDebugLink::streamProfile()
 	{
-		if (!mServer.hasClient() || !ProfileManager::isEnabled())
+		if (!linkHasClient() || !ProfileManager::isEnabled())
 		{
 			return;
 		}
@@ -1441,7 +1597,7 @@ namespace Orkige
 		frameMs << std::fixed << std::setprecision(3)
 			<< ProfileManager::lastFrameMilliseconds();
 		profile.set(Protocol::FIELD_FRAME_MS, frameMs.str());
-		mServer.send(profile);
+		linkSend(profile);
 	}
 	//---------------------------------------------------------
 }

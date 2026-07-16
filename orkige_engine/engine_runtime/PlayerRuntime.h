@@ -11,6 +11,7 @@
 #include "core_util/optr.h"
 #include "core_util/String.h"
 #include "core_debug/ProfileManager.h"
+#include "core_debugnet/DebugClient.h"
 #include "core_debugnet/DebugServer.h"
 
 #include <chrono>
@@ -103,6 +104,14 @@ namespace Orkige
 	//! and a consumed step must advance exactly one fixed physics tick.
 	//! Public signatures stay free of renderer types (renderer containment);
 	//! the log capture hides the logging backend entirely.
+	//! @par Two transports, one protocol
+	//! start(port) is the historical LISTEN mode (the editor dials the
+	//! player). startConnect(endpoint) REVERSES the direction for runtimes
+	//! that cannot listen: the browser player dials the editor's serve
+	//! port, where the byte stream rides a WebSocket the platform's socket
+	//! emulation wraps transparently. Same messages, same handlers, same
+	//! verbs either way; a dial that never lands (no editor session waiting)
+	//! gives up after a bounded retry window and the game runs standalone.
 	class PlayerDebugLink
 	{
 		//--- Types -------------------------------------------
@@ -111,6 +120,17 @@ namespace Orkige
 		static const unsigned long HIERARCHY_CHECK_INTERVAL;
 		//! minimum milliseconds between object_state messages (~15 Hz)
 		static const int OBJECT_STATE_INTERVAL_MS;
+		//! @brief reverse-connect retry cadence: the editor listens BEFORE
+		//! it opens the page, so the first dial normally lands - retries
+		//! only cover an editor briefly stalled in a synchronous UI moment
+		static const int DIAL_RETRY_INTERVAL_MS;
+		//! @brief reverse-connect give-up budget: after this many seconds of
+		//! refused dials there is no editor session waiting (the page was
+		//! opened by hand / re-opened after the session ended) and the game
+		//! runs standalone. Generous against a host machine under full test
+		//! parallelism, still short enough that a hand-opened page stops
+		//! probing quickly.
+		static const int DIAL_GIVE_UP_SECONDS;
 	protected:
 	private:
 		//--- Variables ---------------------------------------
@@ -118,7 +138,21 @@ namespace Orkige
 	protected:
 	private:
 		DebugServer		mServer;
-		bool			mActive = false;		//!< start() succeeded
+		//! @brief the reverse-connect transport (startConnect): the runtime
+		//! dials the editor instead of listening. Exactly one of the two is
+		//! in use per session; the link* helpers dispatch on mDialMode so
+		//! every handler above them stays transport-blind.
+		DebugClient		mDialer;
+		bool			mDialMode = false;		//!< startConnect() mode
+		String			mDialHost;				//!< editor endpoint host
+		unsigned short	mDialPort = 0;			//!< editor endpoint port
+		bool			mDialWasConnected = false;	//!< previous pump's link state (edge tracking)
+		bool			mDialConnectedEvent = false;	//!< pending "link up" edge
+		bool			mDialDisconnectedEvent = false;	//!< pending "link lost" edge
+		bool			mDialEverConnected = false;	//!< a dial landed this session
+		std::chrono::steady_clock::time_point mDialStart;		//!< first attempt
+		std::chrono::steady_clock::time_point mDialLastAttempt;	//!< retry pacing
+		bool			mActive = false;		//!< start()/startConnect() succeeded
 		bool			mPaused = false;		//!< update/physics stepping gated
 		int				mPendingSteps = 0;		//!< queued single-steps (only while paused)
 		bool			mQuitRequested = false;	//!< editor sent quit
@@ -169,6 +203,15 @@ namespace Orkige
 		//! log to the (future) editor client; false when the port
 		//! cannot be bound. Call after the engine is up (the log must exist).
 		bool start(unsigned short port);
+
+		//! @brief reverse-connect mode: DIAL the editor's debug endpoint
+		//! ("host:port", or just "port" for 127.0.0.1) instead of listening -
+		//! the transport for runtimes that cannot host a socket (a browser
+		//! page dials out over a WebSocket its platform wraps around this
+		//! plain connect). False on a malformed endpoint or an immediate
+		//! socket failure; a dial that stays unanswered gives up after
+		//! DIAL_GIVE_UP_SECONDS and deactivates the link (standalone run).
+		bool startConnect(String const & endpoint);
 
 		bool isActive() const { return mActive; }
 		unsigned short getPort() const { return mServer.getPort(); }
@@ -245,6 +288,25 @@ namespace Orkige
 		void shutdown();
 	protected:
 	private:
+		//--- the transport seam: every handler talks to the link through
+		//--- these, blind to whether the session listens or dialed out
+		//! pump the active transport (incl. dial retry/give-up bookkeeping)
+		void linkUpdate();
+		//! is an editor attached right now
+		bool linkHasClient() const;
+		//! send to the attached editor (false without one)
+		bool linkSend(DebugMessage const & message);
+		//! pop the next received message
+		bool linkReceive(DebugMessage & out);
+		//! true once per new editor attachment (edge, consumed)
+		bool linkConsumeConnected();
+		//! true once per lost editor (edge, consumed)
+		bool linkConsumeDisconnected();
+		//! drop the transport (both modes)
+		void linkStop();
+		//! wind the link down mid-run (dial gave up / editor closed the
+		//! session): detach the log capture and deactivate - standalone
+		void deactivateStandalone(String const & reason);
 		void sendError(String const & text);
 		void sendHierarchyIfChanged(GameObjectManager & gameObjectManager,
 			bool force);
