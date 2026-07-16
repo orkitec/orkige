@@ -184,6 +184,7 @@ void endPlaySession(PlaySession& session, std::string const& reason)
 	}
 	session.onAndroid = false;
 	session.onSimulator = false;
+	session.onBrowser = false;
 	session.client.disconnect();
 	if (!session.tempScenePath.empty())
 	{
@@ -856,6 +857,24 @@ bool startPlay(PlaySession& session,
 		? ORKIGE_EDITOR_PLAYER_PATH : session.desktopPlayerPath);
 }
 
+//! @brief Play in Browser enters its live session here, AFTER the export
+//! was served and the page opened: wait in Launching for the page to dial
+//! the debug link in (the serve port's WebSocket upgrade lands the socket
+//! in session.client - see browserServeUpdate). No process handle, no temp
+//! scene: the page owns the game; the editor owns only the link.
+void beginBrowserPlaySession(PlaySession& session,
+	std::string const& projectRoot)
+{
+	clearRemoteState(session);
+	session.projectRoot = projectRoot;
+	session.onBrowser = true;
+	session.mode = PlaySession::Mode::Launching;
+	session.launchStatus = "waiting for the browser page";
+	session.launchStart = std::chrono::steady_clock::now();
+	oDebugMsg("editor.play", 0,
+		"play - waiting for the browser page to connect");
+}
+
 //! Stop: ask the player to quit; updatePlaySession reaps it (or kills it
 //! after the grace timeout)
 void requestStopPlay(PlaySession& session)
@@ -869,6 +888,13 @@ void requestStopPlay(PlaySession& session)
 		// Stop while the native module compiles = cancel the build outright
 		// (endPlaySession kills the cmake process); nothing was launched yet
 		endPlaySession(session, "native build canceled");
+		return;
+	}
+	if (session.onBrowser && !session.client.isConnected())
+	{
+		// Stop while still waiting for the page: nothing to quit - the tab
+		// (if one opened) runs standalone, serving continues
+		endPlaySession(session, "browser play canceled");
 		return;
 	}
 	if (session.client.isConnected())
@@ -1075,8 +1101,12 @@ void watchProjectScripts(PlaySession& session, EditorConsole& console,
 	std::chrono::steady_clock::time_point now)
 {
 	if (session.projectRoot.empty() || session.onAndroid ||
-		session.onSimulator || !session.client.isConnected())
+		session.onSimulator || session.onBrowser ||
+		!session.client.isConnected())
 	{
+		// (a browser page runs its packaged export snapshot - a host-disk
+		// edit is invisible to it, so hot-reload would lie; the watcher
+		// stays dark for those sessions)
 		return;
 	}
 	if (session.scriptsWatchArmed &&
@@ -1559,6 +1589,32 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 		// GPU) then never completes the handshake. Hold the connection and wait
 		// for the hello; if adb drops the bridge (device not up yet) the state
 		// falls back to Disconnected and the retry naturally resumes.
+		if (session.onBrowser)
+		{
+			// a browser session never dials out - the PAGE dials in (the
+			// serve port's WebSocket upgrade lands in session.client). A
+			// page that never connects degrades honestly: back to edit
+			// mode, the tab (if any) runs standalone, serving continues.
+			std::chrono::milliseconds browserTimeout(
+				BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS * 1000);
+			if (const char* timeoutMs =
+				std::getenv("ORKIGE_BROWSER_CONNECT_TIMEOUT_MS"))
+			{
+				const long parsed = std::strtol(timeoutMs, nullptr, 10);
+				if (parsed > 0)
+				{
+					browserTimeout = std::chrono::milliseconds(parsed);
+				}
+			}
+			if (now - session.launchStart > browserTimeout)
+			{
+				console.addLine(ConsoleLevel::Warning, "[deploy] the "
+					"browser page never connected the debug link - it runs "
+					"standalone (serving continues)");
+				endPlaySession(session, "no debug link from the page");
+			}
+			return;
+		}
 		if (!session.client.isConnected() && !session.client.isConnecting() &&
 			now - session.lastConnectAttempt >
 				std::chrono::milliseconds(PLAY_CONNECT_RETRY_MS))
@@ -1596,14 +1652,17 @@ void updatePlaySession(PlaySession& session, EditorConsole& console)
 			endPlaySession(session, "stopped");
 			return;
 		}
-		// simulator/Android sessions have no process handle - the link
-		// closing is the quit confirmation (endPlaySession terminates the
-		// remote app anyway, belt-and-braces)
-		if ((session.onSimulator || session.onAndroid) &&
+		// simulator/Android/browser sessions have no process handle - the
+		// link closing is the quit confirmation (endPlaySession terminates
+		// the simulator/Android app anyway, belt-and-braces; a browser tab
+		// cannot be closed from here - the quit ended its game loop and the
+		// dead page just stays)
+		if ((session.onSimulator || session.onAndroid || session.onBrowser) &&
 			!session.client.isConnected())
 		{
-			endPlaySession(session,
-				session.onAndroid ? "stopped (android)" : "stopped (simulator)");
+			endPlaySession(session, session.onBrowser ? "stopped (browser)"
+				: session.onAndroid ? "stopped (android)"
+				: "stopped (simulator)");
 			return;
 		}
 		if (now - session.stopRequestTime >

@@ -193,6 +193,8 @@ void updateExportJob(ExportJob& job, EditorConsole& console);
 
 //--- Play in Browser static server (EditorBrowserServe.cpp) -----------------
 
+struct PlaySession;	// the debug-upgrade destination (defined below)
+
 //! @brief the loopback static-file server behind Play in Browser: a second
 //! instance of the core_debugnet HttpServer (the MCP endpoint keeps its own,
 //! opt-in instance) serving ONE exported web build directory. Started lazily
@@ -212,8 +214,14 @@ struct BrowserServe
 bool browserServeStart(BrowserServe& serve, std::string const& docRoot,
 	std::string& outUrl, std::string& outError);
 
-//! per-frame pump (accept/read/respond; never blocks); a no-op while idle
-void browserServeUpdate(BrowserServe& serve);
+//! @brief per-frame pump (accept/read/respond; never blocks); a no-op while
+//! idle. The session is the debug-upgrade destination: a WebSocket upgrade
+//! request on the serve port is accepted ONLY while that session is a
+//! browser play waiting for its page (Launching + onBrowser, link down) -
+//! the socket then lands in session.client via adoptWebSocket. Any other
+//! upgrade attempt (a second tab, a page after the session ended) is
+//! refused with a 409 and that page runs standalone.
+void browserServeUpdate(BrowserServe& serve, PlaySession& session);
 
 //--- view settings (grid, orientation gizmo, camera) ------------------------
 
@@ -877,15 +885,25 @@ struct PlaySession
 	//! deploy, not the remote hierarchy/inspector link.
 	std::string iosDeviceUdid;
 	std::string iosDeviceLabel;		//!< display name of the picked iOS device
-	//! play target picked in the toolbar: the browser (WebGL). Like iOS
-	//! hardware this is NOT a live play session - Play exports the project
-	//! for the web (Util/orkige_export.py --platform web off the web-release
-	//! tree), serves the artifact over a loopback HttpServer instance and
-	//! opens the default browser at it; the game runs standalone in the tab
-	//! (a page cannot host the debug socket, so the remote hierarchy/
-	//! inspector stay unavailable). Selectable once the web-release preset
-	//! built the wasm player.
+	//! play target picked in the toolbar: the browser (WebGL). Play exports
+	//! the project for the web (Util/orkige_export.py --platform web off
+	//! the web-release tree), serves the artifact over a loopback
+	//! HttpServer instance, opens the default browser at it - and then
+	//! WAITS for the page to dial the debug link back in: the URL carries
+	//! ?env.ORKIGE_DEBUG_CONNECT=127.0.0.1:<servePort>, the wasm runtime
+	//! dials that endpoint (its socket emulation wraps the stream in a
+	//! WebSocket) and the serve port's upgrade hands the socket to THIS
+	//! session's DebugClient. From there it is a live session like desktop
+	//! play - remote hierarchy/inspector, [remote] logs, pause/step. A page
+	//! that never dials in (browser blocked, closed early) degrades
+	//! honestly: the session times out back to edit mode and the tab runs
+	//! standalone. Selectable once the web-release preset built the wasm
+	//! player.
 	bool browserTarget = false;
+	//! the ACTIVE session is a browser page that dialed in (no process
+	//! handle, no temp scene; Stop = MSG_QUIT + the socket close is the
+	//! confirmation - the editor cannot close a tab, the page just ends)
+	bool onBrowser = false;
 	//! native module compile-on-Play (mode == Building): the remaining
 	//! cmake command queue (configure-if-needed, then build), the running
 	//! step (stdout+stderr piped, streamed into the Console per frame) and
@@ -1104,6 +1122,16 @@ const int PLAY_SIM_PREP_TIMEOUT_SECONDS = 900;
 const int PLAY_CONNECT_RETRY_MS = 250;
 //! milliseconds a stopped player gets before it is killed
 const int PLAY_STOP_GRACE_MS = 3000;
+//! @brief seconds a browser play session waits for the served page to dial
+//! the debug link in before it degrades to a standalone tab (edit mode,
+//! serving continues). The page's first visit streams + compiles a
+//! multi-megabyte wasm module before main() runs, and a hosted runner or a
+//! GPU-starved machine under full test parallelism stretches that boot into
+//! tens of seconds - the budget sits above that, while a browser that never
+//! loads the page at all still resolves within one sitting. Scripted tests
+//! shrink it through ORKIGE_BROWSER_CONNECT_TIMEOUT_MS (the degradation leg
+//! must not wait a minute for the timeout it exists to verify).
+const int BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS = 60;
 
 //! @brief run a command synchronously with captured stdout (used for the
 //! short-lived simctl/adb/devicectl calls). False when the process cannot be
@@ -1232,6 +1260,14 @@ void endPlaySession(PlaySession& session, std::string const& reason);
 bool startPlay(PlaySession& session,
 	Orkige::GameObjectManager& gameObjectManager,
 	Orkige::Project const& project);
+
+//! @brief Play in Browser, the session half: the web export was served and
+//! the page opened - enter Launching and WAIT for the page to dial the
+//! debug link in (browserServeUpdate lands the upgrade in session.client).
+//! The timeout back to a standalone tab lives in updatePlaySession
+//! (BROWSER_PAGE_CONNECT_TIMEOUT_SECONDS).
+void beginBrowserPlaySession(PlaySession& session,
+	std::string const& projectRoot);
 
 //! Stop: ask the player to quit (the grace timeout kill happens in
 //! updatePlaySession)

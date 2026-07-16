@@ -2,7 +2,17 @@
 // loopback instance of core_debugnet's HttpServer serving one exported web
 // build directory (see BrowserServe in EditorApp.h). Split out of main.cpp
 // (mechanical decomposition, see EditorApp.h).
+//
+// The same port is the browser debug transport's front door: the served
+// page dials back with a WebSocket upgrade (its POSIX-socket emulation
+// wraps the plain debug dial), and while a browser play session is waiting
+// for its page the upgrade is answered and the socket handed to that
+// session's DebugClient - the ONE debug protocol, WebSocket-framed. This
+// instance stays loopback-only and entirely separate from the opt-in MCP
+// endpoint, which never answers upgrades.
 #include "EditorApp.h"
+
+#include <core_debugnet/WebSocket.h>
 
 #include <filesystem>
 #include <fstream>
@@ -85,16 +95,45 @@ bool browserServeStart(BrowserServe& serve, std::string const& docRoot,
 	return true;
 }
 
-void browserServeUpdate(BrowserServe& serve)
+void browserServeUpdate(BrowserServe& serve, PlaySession& session)
 {
 	if (!serve.server.isListening())
 	{
 		return;
 	}
-	serve.server.update([&serve](Orkige::HttpRequest const& request)
-		-> Orkige::HttpResponse
+	// an accepted debug upgrade lands the socket in THIS session's client
+	// (the same DebugClient a desktop play session dials out with - every
+	// remote panel/verb above it works unchanged)
+	serve.server.setTakeoverHandler(
+		[&session](Orkige::DebugSocketUtil::SocketHandle handle,
+			std::string const& leftover)
+	{
+		session.client.adoptWebSocket(handle, leftover);
+	});
+	// exactly one page may attach, and only while a browser play session
+	// is waiting for it; everything else is refused and runs standalone
+	const bool acceptDebugUpgrade =
+		session.mode == PlaySession::Mode::Launching && session.onBrowser &&
+		!session.client.isConnected();
+	serve.server.update([&serve, acceptDebugUpgrade](
+		Orkige::HttpRequest const& request) -> Orkige::HttpResponse
 	{
 		Orkige::HttpResponse response;
+		if (Orkige::WebSocketUtil::isUpgradeRequest(request))
+		{
+			if (acceptDebugUpgrade)
+			{
+				return Orkige::WebSocketUtil::buildHandshakeResponse(request);
+			}
+			// no session waiting (second tab / reloaded page / play over):
+			// the page's dial fails and it continues standalone
+			response.status = 409;
+			response.reason = "Conflict";
+			response.contentType = "text/plain";
+			response.body = "no browser play session is waiting for a "
+				"debug connection\n";
+			return response;
+		}
 		if (request.method != "GET")
 		{
 			// GET only - the transport frames every response by the body's

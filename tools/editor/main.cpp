@@ -170,6 +170,7 @@ int main(int argc, char** argv)
 		std::getenv("ORKIGE_EDITOR_CONTROL_TEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST") != nullptr ||
+		std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERSESSION") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_LEVELPAINT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_PREFABEDIT") != nullptr ||
 		std::getenv("ORKIGE_EDITOR_SCRIPTTEST") != nullptr ||
@@ -838,12 +839,18 @@ int main(int argc, char** argv)
 			std::getenv("ORKIGE_EDITOR_CONTROL_PLAYTEST");
 		// the browser-play flavor (editor_play_browser ctest): the browser
 		// target + export-serve-open flow over MCP; exits 77 (SKIP) when the
-		// wasm player was never built
+		// wasm player was never built. The browser-SESSION flavor
+		// (editor_play_browser_session ctest) additionally spawns a headless
+		// browser at the served URL and drives the LIVE debug session the
+		// page dials in; it also skips without a headless browser.
 		const char* controlBrowserTestEnv =
 			std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERTEST");
+		const char* controlBrowserSessionEnv =
+			std::getenv("ORKIGE_EDITOR_CONTROL_BROWSERSESSION");
 		const char* controlSelfTestEnv = controlTestEnv ? controlTestEnv
 			: (controlPlaytestEnv ? controlPlaytestEnv
-				: controlBrowserTestEnv);
+				: (controlBrowserTestEnv ? controlBrowserTestEnv
+					: controlBrowserSessionEnv));
 		Orkige::EditorControlSelfTest controlSelfTest;
 		if (controlSelfTestEnv != nullptr && controlPort < 0)
 		{
@@ -1772,11 +1779,35 @@ int main(int argc, char** argv)
 				}
 				else
 				{
+					// the page dials the debug link back into THIS serve
+					// port (the shell maps ?env.* onto the module
+					// environment; the wasm runtime dials the endpoint and
+					// the port's WebSocket upgrade lands in the session's
+					// DebugClient - a live session like desktop play)
+					url += "?env.ORKIGE_DEBUG_CONNECT=127.0.0.1:" +
+						std::to_string(browserServe.server.getPort());
 					state.browserPlayUrl = url;
 					state.browserPlayStatus = "serving";
-					console.addLine(ConsoleLevel::Info, "[deploy] serving the "
-						"web build at " + url + " (runs standalone - no live "
-						"debug link into a browser tab)");
+					if (!playSession.isActive())
+					{
+						beginBrowserPlaySession(playSession,
+							state.project.isLoaded()
+								? state.project.getRootDirectory()
+								: std::string());
+						console.addLine(ConsoleLevel::Info, "[deploy] "
+							"serving the web build at " + url + " - waiting "
+							"for the page to connect the debug link");
+					}
+					else
+					{
+						// another session is already live (a desktop play
+						// started while the export ran): the page runs
+						// standalone rather than hijacking that session
+						console.addLine(ConsoleLevel::Warning, "[deploy] "
+							"serving the web build at " + url + " - a play "
+							"session is already active, the page runs "
+							"standalone");
+					}
 					// automated runs never touch the user's default browser
 					// (the scripted tests fetch the served files themselves,
 					// or drive their own headless browser at the URL)
@@ -1800,7 +1831,7 @@ int main(int argc, char** argv)
 				state.browserPlayStatus = "failed";
 			}
 			// pump the static server (accept/read/respond; a no-op while idle)
-			browserServeUpdate(browserServe);
+			browserServeUpdate(browserServe, playSession);
 
 			// engine log lines captured since the last frame -> Console
 			drainEngineLogIntoConsole(engineLogCapture, console);
@@ -8057,7 +8088,8 @@ int main(int argc, char** argv)
 					controlSelfTest.begin(controlServer.getPort(),
 						controlServer.getToken(), controlSelfTestEnv,
 						controlPlaytestEnv != nullptr,
-						controlBrowserTestEnv != nullptr);
+						controlBrowserTestEnv != nullptr,
+						controlBrowserSessionEnv != nullptr);
 				}
 				if (controlSelfTest.active())
 				{

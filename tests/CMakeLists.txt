@@ -920,15 +920,46 @@ if(TARGET orkige_editor AND TARGET orkige_player)
     # the async export machinery), poll get_state to "serving", then GET the
     # served index.html AND the wasm module (Content-Type: application/wasm -
     # streaming compilation requires it) off the editor's loopback static
-    # server, and prove the path jail 404s an escape. SKIPPED (exit 77) when
-    # the web-release preset never built the wasm player - the target honestly
-    # reports "gated" then. Pixel-level proof of the SERVED game lives in the
-    # web tree's export_web_boot (a headless browser boots the same artifact).
+    # server, and prove the path jail 404s an escape. The live-session side is
+    # covered by its degradation half here: NO page ever opens, so the waiting
+    # session must time out back to edit mode (the env shrinks that timeout),
+    # serving must continue, and a late debug upgrade must be refused with a
+    # 409 - the standalone flow stays honest when no debug link forms. SKIPPED
+    # (exit 77) when the web-release preset never built the wasm player - the
+    # target honestly reports "gated" then. Pixel-level proof of the SERVED
+    # game lives in the web tree's export_web_boot (a headless browser boots
+    # the same artifact); the CONNECTED session lives in
+    # editor_play_browser_session below.
     add_test(NAME editor_play_browser${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
         WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
     set_tests_properties(editor_play_browser${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
-        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_BROWSERTEST=${CMAKE_CURRENT_BINARY_DIR}/editor_play_browser_shot.png"
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_BROWSERTEST=${CMAKE_CURRENT_BINARY_DIR}/editor_play_browser_shot.png;ORKIGE_BROWSER_CONNECT_TIMEOUT_MS=4000"
         LABELS integration TIMEOUT 300
+        SKIP_RETURN_CODE 77)
+
+    # Play in Browser as a LIVE debug session: the same MCP-driven front half
+    # (open projects/jumper-lua, play {target:"browser"}, poll to "serving"),
+    # then the editor's worker spawns a REAL headless Chrome/Chromium at the
+    # served URL - the page dials the debug link back into the waiting
+    # session over the serve port's WebSocket upgrade - and drives the whole
+    # loop over the live link: get_state reaches "connected"/playing, a
+    # [remote] log line lands in console_tail, runtime_hierarchy lists the
+    # game's objects, pause/resume round-trips, screenshot_game and
+    # reload_script refuse honestly (a page's in-memory files never reach the
+    # editor's disk; the page runs its packaged snapshot), and stop quits the
+    # page's game over the link (the closing socket confirms it) while
+    # serving continues. SKIPPED (exit 77) without the wasm player OR without
+    # a headless browser (discovery mirrors tests/web/run_export_web.py;
+    # ORKIGE_CHROME overrides).
+    add_test(NAME editor_play_browser_session${ORKIGE_FLAVOR_TEST_SUFFIX} COMMAND orkige_editor
+        WORKING_DIRECTORY "${Orkige_SOURCE_DIR}")
+    set_tests_properties(editor_play_browser_session${ORKIGE_FLAVOR_TEST_SUFFIX} PROPERTIES
+        # coarse backstop only: export + a COLD headless-browser boot of a
+        # multi-megabyte wasm module + the polled session legs, each with its
+        # own attempt-capped budget inside the self-test - the wall must sit
+        # above their summed worst case on a loaded machine
+        ENVIRONMENT "ORKIGE_EDITOR_CONTROL_BROWSERSESSION=${CMAKE_CURRENT_BINARY_DIR}/editor_play_browser_session_shot.png"
+        LABELS integration TIMEOUT 600
         SKIP_RETURN_CODE 77)
 
     # the project system end to end: open projects/example programmatically

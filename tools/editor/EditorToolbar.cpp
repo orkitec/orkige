@@ -149,8 +149,9 @@ float drawToolbar(EditorState& state, PlaySession& session,
 					otherFlavorPlayerPath);
 			}
 			// the browser (WebGL): selectable once the web-release preset
-			// built the wasm player. Play becomes an export-serve-open (never
-			// a live debug session - a page cannot host the debug socket).
+			// built the wasm player. Play becomes an export-serve-open whose
+			// page dials the debug link back in - a live session like
+			// desktop play (a page that never connects runs standalone).
 			ImGui::BeginDisabled(!webPlayerPresent);
 			if (ImGui::Selectable("Browser (WebGL)", session.browserTarget))
 			{
@@ -169,8 +170,9 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			{
 				ImGui::SetTooltip(webPlayerPresent
 					? "Play exports the project for the web, serves it on a "
-						"local port and opens your browser (runs standalone - "
-						"no live debug link)"
+						"local port and opens your browser - the page "
+						"connects the live debug session (remote logs, "
+						"hierarchy, pause)"
 					: "the wasm player is not built - configure + build the "
 						"web-release preset first (%s)",
 					ORKIGE_EDITOR_WEB_PLAYER_JS);
@@ -289,10 +291,11 @@ float drawToolbar(EditorState& state, PlaySession& session,
 			}
 			else if (session.browserTarget)
 			{
-				// Play in Browser is an export-serve-open, not a live play
-				// session: the frame loop runs a "web" export whose success
-				// serves the artifact + opens the default browser (see the
-				// deployBrowser continuation on ExportJob)
+				// Play in Browser: the frame loop runs a "web" export whose
+				// success serves the artifact + opens the default browser
+				// (the deployBrowser continuation on ExportJob), then the
+				// session WAITS for the page to dial the debug link in -
+				// from there it is a live session like desktop play
 				state.requestedBrowserPlay = true;
 			}
 			else

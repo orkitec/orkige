@@ -2595,10 +2595,15 @@ namespace Orkige
 			ok.set("play_mode", playSessionModeName(*context.play));
 			// Play-in-Browser outcome (play {target:"browser"} / the toolbar):
 			// "" until the first browser play, "exporting" while the web export
-			// runs, "serving" + the URL once the page is up, "failed" on an
-			// export failure. The game runs standalone in the page (no live
-			// debug link) - an agent drives its own headless browser at the URL.
-			ok.set("browser_play_status", state.browserPlayStatus);
+			// runs, "serving" + the URL once the page is up (the URL carries
+			// the debug-connect parameter - a browser at it dials the live
+			// session in), "connected" while that session's link is up,
+			// "failed" on an export failure. After the session ends the page
+			// (if still open) runs standalone and the status returns to
+			// "serving".
+			ok.set("browser_play_status",
+				context.play->onBrowser && context.play->client.isConnected()
+					? String("connected") : state.browserPlayStatus);
 			ok.set("browser_play_url", state.browserPlayUrl);
 			// live-player snapshot (present while a play session is up): the
 			// debug tools poll these - remote connection, the streamed selection
@@ -3307,10 +3312,12 @@ namespace Orkige
 			}
 			if (context.play->browserTarget)
 			{
-				// Play in Browser is an export-serve-open, never a live play
-				// session (a page cannot host the debug socket): request the
-				// SAME deploy flow the toolbar drives and let the client poll
-				// get_state for browser_play_status/browser_play_url.
+				// Play in Browser: export-serve-open, then a LIVE session -
+				// the served URL carries a debug-connect parameter, the page
+				// dials the link back in and the editor waits in Launching
+				// for it (a page that never connects degrades to a
+				// standalone tab). Request the SAME deploy flow the toolbar
+				// drives and let the client poll get_state.
 				context.play->browserTarget = false; // one-shot request
 				if (!state.project.isLoaded())
 				{
@@ -3323,8 +3330,9 @@ namespace Orkige
 				ok.set("accepted", "1");
 				ok.set("target", "browser");
 				ok.set("note", "web export started; poll get_state until "
-					"browser_play_status is 'serving' and read "
-					"browser_play_url (the game runs standalone in the page)");
+					"browser_play_status is 'serving', open a browser at "
+					"browser_play_url, then poll for 'connected' (the live "
+					"debug session) - runtime_* verbs work from there");
 				this->sendOk(req, ok);
 				return;
 			}
@@ -4281,6 +4289,13 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
+			if (context.play->onBrowser)
+			{
+				this->sendErr(req, "reload_script cannot reach a browser "
+					"session - the page runs its packaged export snapshot; "
+					"stop, re-play and let the export pick the edit up");
+				return;
+			}
 			// reload one object's scripts (FIELD_ID) or ALL of them (absent).
 			// reloadRemoteScripts sends reload-ALL; a per-object reload sends
 			// MSG_RELOAD_SCRIPT with the id directly.
@@ -4303,6 +4318,13 @@ namespace Orkige
 			if (!context.play->client.isConnected())
 			{
 				this->sendErr(req, "no live player - start Play first");
+				return;
+			}
+			if (context.play->onBrowser)
+			{
+				this->sendErr(req, "reload_ui cannot reach a browser session "
+					"- the page runs its packaged export snapshot; stop, "
+					"re-play and let the export pick the edit up");
 				return;
 			}
 			const String& file = request.get("file");
@@ -4360,10 +4382,11 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			if (play.onSimulator || play.onAndroid)
+			if (play.onSimulator || play.onAndroid || play.onBrowser)
 			{
 				this->sendErr(req, "screenshot_game is desktop-play only (the "
-					"path lives on the player's filesystem)");
+					"path lives on the player's filesystem - a browser page's "
+					"in-memory filesystem never reaches the editor's disk)");
 				return;
 			}
 			const String& path = request.get("path");
@@ -4393,10 +4416,11 @@ namespace Orkige
 				this->sendErr(req, "no live player - start Play first");
 				return;
 			}
-			if (play.onSimulator || play.onAndroid)
+			if (play.onSimulator || play.onAndroid || play.onBrowser)
 			{
 				this->sendErr(req, "record_trace is desktop-play only (the path "
-					"lives on the player's filesystem)");
+					"lives on the player's filesystem - a browser page's "
+					"in-memory filesystem never reaches the editor's disk)");
 				return;
 			}
 			const String& path = request.get("path");
@@ -5671,6 +5695,57 @@ namespace Orkige
 			}
 			return out;
 		}
+		//! @brief find a headless-capable browser binary the same way
+		//! tests/web/run_export_web.py does: ORKIGE_CHROME overrides, then the
+		//! well-known application paths, then the PATH names. "" = none (the
+		//! browser-session conversation SKIPs then).
+		String findHeadlessBrowser()
+		{
+			if (const char* overridePath = std::getenv("ORKIGE_CHROME"))
+			{
+				return overridePath;
+			}
+			namespace fs = std::filesystem;
+			std::error_code ignored;
+			static const char* const knownPaths[] = {
+				"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+				"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			};
+			for (const char* candidate : knownPaths)
+			{
+				if (fs::is_regular_file(candidate, ignored))
+				{
+					return candidate;
+				}
+			}
+			static const char* const pathNames[] = {
+				"google-chrome", "chromium", "chromium-browser",
+			};
+			const char* pathValue = std::getenv("PATH");
+			if (pathValue == nullptr)
+			{
+				return String();
+			}
+#ifdef _WIN32
+			const char separator = ';';
+#else
+			const char separator = ':';
+#endif
+			std::istringstream pathStream(pathValue);
+			String directory;
+			while (std::getline(pathStream, directory, separator))
+			{
+				for (const char* name : pathNames)
+				{
+					const fs::path candidate = fs::path(directory) / name;
+					if (fs::is_regular_file(candidate, ignored))
+					{
+						return candidate.string();
+					}
+				}
+			}
+			return String();
+		}
 		//! connect a BLOCKING TCP socket to 127.0.0.1:port (with a short retry so
 		//! a not-quite-ready listener is tolerated); INVALID on failure. A recv
 		//! timeout is a coarse anti-hang backstop only (never a per-request
@@ -5796,12 +5871,13 @@ namespace Orkige
 	//---------------------------------------------------------
 	void EditorControlSelfTest::begin(unsigned short port,
 		std::string const& token, std::string const& screenshotPath,
-		bool runtimeDebug, bool browserPlay)
+		bool runtimeDebug, bool browserPlay, bool browserSession)
 	{
 		this->mToken = token;
 		this->mScreenshotPath = screenshotPath;
 		this->mRuntimeDebug = runtimeDebug;
 		this->mBrowserPlay = browserPlay;
+		this->mBrowserSession = browserSession;
 		this->mActive.store(true);
 		this->mDone.store(false);
 		this->mPassed.store(false);
@@ -6247,8 +6323,13 @@ namespace Orkige
 		// export, the doc-root serve and the path jail, end to end. SKIPS
 		// (the editor exits 77) when the wasm player was never built: the
 		// target honestly reports "gated" then, exactly like the toolbar.
-		if (this->mBrowserPlay)
+		if (this->mBrowserPlay || this->mBrowserSession)
 		{
+			// two flavors share the export-serve front half: the plain
+			// browser-play conversation asserts the served artifacts + the
+			// honest no-page degradation, the browser-SESSION conversation
+			// spawns a real headless browser at the URL and drives the live
+			// debug session the page dials in
 			JsonValue structured;
 			bool isError = true;
 			if (!callTool("list_play_targets", JsonValue::object(), false,
@@ -6404,6 +6485,276 @@ namespace Orkige
 				DebugSocketUtil::closeSocket(serveHandle);
 				return ok;
 			};
+			// bounded get_state poll (0.1s cadence; the ctest TIMEOUT is the
+			// real backstop) - both browser flavors wait on session states
+			auto waitState = [&](std::function<bool(JsonValue const&)> ready,
+				int maxAttempts) -> bool
+			{
+				for (int attempt = 0; attempt < maxAttempts; ++attempt)
+				{
+					if (callTool("get_state", JsonValue::object(), false,
+						structured, isError) && !isError &&
+						ready(structured))
+					{
+						return true;
+					}
+					std::this_thread::sleep_for(
+						std::chrono::milliseconds(100));
+				}
+				return false;
+			};
+			if (this->mBrowserSession)
+			{
+				// --- the CONNECTED session: a real headless browser boots
+				// the served page, the page dials the debug link into the
+				// waiting session, and the desktop debug loop runs over it.
+				const String browserBinary = findHeadlessBrowser();
+				if (browserBinary.empty())
+				{
+					SDL_Log("orkige_editor: browser session test SKIPPED - "
+						"no headless browser found (set ORKIGE_CHROME)");
+					this->mSkipped.store(true);
+					finish(true, "");
+					return;
+				}
+				if (url.find("env.ORKIGE_DEBUG_CONNECT=") == String::npos)
+				{
+					finish(false, "browser session test: the served URL must "
+						"carry the debug-connect parameter");
+					return;
+				}
+				const std::string profileDir =
+					(std::filesystem::temp_directory_path() /
+						("orkige_browser_session_" + std::to_string(port)))
+						.string();
+				std::error_code profileIgnored;
+				std::filesystem::remove_all(profileDir, profileIgnored);
+				const std::string userDataArg =
+					"--user-data-dir=" + profileDir;
+				// the run_export_web.py flag set MINUS --virtual-time-budget:
+				// a live session needs real time (the budget fast-forwards
+				// virtual clocks for deterministic frame-capped boots)
+				const char* browserArgs[] = { browserBinary.c_str(),
+					"--headless=new", "--no-first-run", userDataArg.c_str(),
+					"--enable-unsafe-swiftshader", "--window-size=1280,800",
+					url.c_str(), nullptr };
+				// the browser gets NULL stdio, never the editor's: its
+				// helper processes outlive a kill of the main process for a
+				// moment, and inherited pipes would keep a ctest runner
+				// waiting for EOF long after the editor itself exited
+				SDL_PropertiesID browserProperties = SDL_CreateProperties();
+				SDL_SetPointerProperty(browserProperties,
+					SDL_PROP_PROCESS_CREATE_ARGS_POINTER,
+					const_cast<char**>(browserArgs));
+				SDL_SetNumberProperty(browserProperties,
+					SDL_PROP_PROCESS_CREATE_STDIN_NUMBER,
+					SDL_PROCESS_STDIO_NULL);
+				SDL_SetNumberProperty(browserProperties,
+					SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
+					SDL_PROCESS_STDIO_NULL);
+				SDL_SetNumberProperty(browserProperties,
+					SDL_PROP_PROCESS_CREATE_STDERR_NUMBER,
+					SDL_PROCESS_STDIO_NULL);
+				SDL_Process* browser =
+					SDL_CreateProcessWithProperties(browserProperties);
+				SDL_DestroyProperties(browserProperties);
+				if (browser == nullptr)
+				{
+					finish(false, "browser session test: could not spawn "
+						"the headless browser");
+					return;
+				}
+				SDL_Log("orkige_editor: browser session test - spawned %s "
+					"at %s", browserBinary.c_str(), url.c_str());
+				auto reapBrowser = [&browser, &profileDir]()
+				{
+					int browserExit = 0;
+					if (!SDL_WaitProcess(browser, false, &browserExit))
+					{
+						SDL_KillProcess(browser, true);
+						SDL_WaitProcess(browser, true, &browserExit);
+					}
+					SDL_DestroyProcess(browser);
+					browser = nullptr;
+					std::error_code cleanupIgnored;
+					std::filesystem::remove_all(profileDir, cleanupIgnored);
+				};
+				// (B1) the page dials the live session in. Wide budget: a
+				// first visit streams + compiles the whole wasm module on a
+				// machine that may be running the full suite in parallel.
+				if (!waitState([](JsonValue const& s)
+					{
+						return s.get("browser_play_status").asString() ==
+							"connected" &&
+							s.get("play_mode").asString() == "playing";
+					}, 1200))
+				{
+					reapBrowser();
+					finish(false, "browser session test: the page never "
+						"connected the debug link");
+					return;
+				}
+				SDL_Log("orkige_editor: browser session test - the page "
+					"connected the live debug session");
+				// (B2) [remote] log lines arrive from the page
+				{
+					bool remoteSeen = false;
+					for (int attempt = 0; attempt < 300 && !remoteSeen;
+						++attempt)
+					{
+						JsonValue args = JsonValue::object();
+						args.set("count", JsonValue("200"));
+						if (callTool("console_tail", args, false, structured,
+							isError) && !isError)
+						{
+							JsonValue const& lines = structured.get("lines");
+							for (size_t i = 0; i < lines.size(); ++i)
+							{
+								if (lines.at(i).asString().find("[remote]")
+									!= String::npos)
+								{
+									remoteSeen = true;
+									break;
+								}
+							}
+						}
+						if (!remoteSeen)
+						{
+							std::this_thread::sleep_for(
+								std::chrono::milliseconds(100));
+						}
+					}
+					if (!remoteSeen)
+					{
+						reapBrowser();
+						finish(false, "browser session test: no [remote] "
+							"log line arrived from the page");
+						return;
+					}
+				}
+				// (B3) the remote hierarchy answers with the game's objects
+				{
+					bool hierarchyOk = false;
+					for (int attempt = 0; attempt < 300 && !hierarchyOk;
+						++attempt)
+					{
+						if (callTool("runtime_hierarchy", JsonValue::object(),
+							false, structured, isError) && !isError &&
+							structured.get("ids").size() > 0)
+						{
+							hierarchyOk = true;
+							break;
+						}
+						std::this_thread::sleep_for(
+							std::chrono::milliseconds(100));
+					}
+					if (!hierarchyOk)
+					{
+						reapBrowser();
+						finish(false, "browser session test: "
+							"runtime_hierarchy returned no objects");
+						return;
+					}
+				}
+				// (B4) pause / resume round-trip through the live link
+				if (!callTool("pause", JsonValue::object(), true, structured,
+					isError) || isError)
+				{
+					reapBrowser();
+					finish(false, "browser session test: pause failed");
+					return;
+				}
+				if (!waitState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "paused";
+					}, 300))
+				{
+					reapBrowser();
+					finish(false, "browser session test: the session never "
+						"reported paused");
+					return;
+				}
+				if (!callTool("resume", JsonValue::object(), true, structured,
+					isError) || isError)
+				{
+					reapBrowser();
+					finish(false, "browser session test: resume failed");
+					return;
+				}
+				if (!waitState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "playing";
+					}, 300))
+				{
+					reapBrowser();
+					finish(false, "browser session test: the session never "
+						"resumed");
+					return;
+				}
+				// (B5) the honest degradations: a browser page's files never
+				// reach the editor's disk, and the page runs its packaged
+				// snapshot - both verbs must refuse, not pretend
+				{
+					JsonValue shotArgs = JsonValue::object();
+					shotArgs.set("path", JsonValue(this->mScreenshotPath));
+					if (!callTool("screenshot_game", shotArgs, true,
+						structured, isError) || !isError)
+					{
+						reapBrowser();
+						finish(false, "browser session test: screenshot_game "
+							"must refuse a browser session honestly");
+						return;
+					}
+					if (!callTool("reload_script", JsonValue::object(), true,
+						structured, isError) || !isError)
+					{
+						reapBrowser();
+						finish(false, "browser session test: reload_script "
+							"must refuse a browser session honestly");
+						return;
+					}
+				}
+				// (B6) stop: MSG_QUIT rides the link, the page's game loop
+				// exits and the closing socket confirms the stop; the status
+				// returns to plain serving
+				if (!callTool("stop", JsonValue::object(), true, structured,
+					isError) || isError)
+				{
+					reapBrowser();
+					finish(false, "browser session test: stop failed");
+					return;
+				}
+				if (!waitState([](JsonValue const& s)
+					{
+						return s.get("play_mode").asString() == "edit" &&
+							s.get("browser_play_status").asString() ==
+								"serving";
+					}, 300))
+				{
+					reapBrowser();
+					finish(false, "browser session test: the session never "
+						"returned to edit mode after stop");
+					return;
+				}
+				// the server still serves the artifacts after the session
+				int stillStatus = 0;
+				String stillHeaders;
+				String stillBody;
+				if (!getServed("/index.html", true, stillStatus, stillHeaders,
+					stillBody) || stillStatus != 200)
+				{
+					reapBrowser();
+					finish(false, "browser session test: serving must "
+						"continue after the session ended");
+					return;
+				}
+				reapBrowser();
+				SDL_Log("orkige_editor: browser session test - live link, "
+					"remote logs, hierarchy, pause/resume, honest "
+					"degradations and stop all verified");
+				finish(true, "");
+				return;
+			}
 			int status = 0;
 			String headers;
 			String body;
@@ -6434,6 +6785,68 @@ namespace Orkige
 			}
 			SDL_Log("orkige_editor: browser play test - page + wasm served, "
 				"path jail holds");
+			// the served URL must invite the live session in
+			if (url.find("env.ORKIGE_DEBUG_CONNECT=") == String::npos)
+			{
+				finish(false, "browser play test: the served URL must carry "
+					"the debug-connect parameter");
+				return;
+			}
+			// honest degradation: NO page ever dials in (this test opens no
+			// browser), so the waiting session must time out back to edit
+			// mode while serving continues (the ctest env shrinks the
+			// timeout via ORKIGE_BROWSER_CONNECT_TIMEOUT_MS)
+			if (!waitState([](JsonValue const& s)
+				{
+					return s.get("play_mode").asString() == "edit";
+				}, 600))
+			{
+				finish(false, "browser play test: the waiting session never "
+					"degraded to edit mode without a page");
+				return;
+			}
+			if (!callTool("get_state", JsonValue::object(), false, structured,
+				isError) || isError ||
+				structured.get("browser_play_status").asString() != "serving")
+			{
+				finish(false, "browser play test: serving must continue "
+					"after the no-page degradation");
+				return;
+			}
+			// with no session waiting, a debug upgrade is refused (409): a
+			// late page / second tab runs standalone
+			{
+				DebugSocketUtil::SocketHandle upgradeHandle =
+					connectBlocking(servePort);
+				if (upgradeHandle == DebugSocketUtil::INVALID_SOCKET_HANDLE)
+				{
+					finish(false, "browser play test: could not connect for "
+						"the late-upgrade probe");
+					return;
+				}
+				const String upgradeRequest =
+					"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+					"Connection: Upgrade\r\nUpgrade: websocket\r\n"
+					"Sec-WebSocket-Version: 13\r\n"
+					"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+					"Sec-WebSocket-Protocol: binary\r\n\r\n";
+				int upgradeStatus = 0;
+				String upgradeBody;
+				const bool upgradeAnswered =
+					sendAll(upgradeHandle, upgradeRequest) &&
+					readHttpResponse(upgradeHandle, upgradeStatus,
+						upgradeBody);
+				DebugSocketUtil::closeSocket(upgradeHandle);
+				if (!upgradeAnswered || upgradeStatus != 409)
+				{
+					finish(false, "browser play test: a debug upgrade with "
+						"no waiting session must answer 409 (got " +
+						std::to_string(upgradeStatus) + ")");
+					return;
+				}
+			}
+			SDL_Log("orkige_editor: browser play test - no-page degradation "
+				"+ late-upgrade refusal verified");
 			finish(true, "");
 			return;
 		}

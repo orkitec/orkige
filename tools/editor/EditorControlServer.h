@@ -260,10 +260,16 @@ namespace Orkige
 		//! PLAY conversation instead: pick the browser target, drive the
 		//! export-serve-open flow and fetch the served page + wasm module (the
 		//! editor_play_browser ctest; skipped() when the wasm player is not
-		//! built - the target reports "gated" then).
+		//! built - the target reports "gated" then). With browserSession set,
+		//! run the CONNECTED browser conversation on top of that flow: spawn
+		//! a headless browser at the served URL, wait for the page to dial
+		//! the live debug session in, then exercise it - [remote] log lines,
+		//! runtime_hierarchy, pause/resume, the honest screenshot_game
+		//! refusal - and stop (the editor_play_browser_session ctest;
+		//! skipped() without the wasm player OR without a headless browser).
 		void begin(unsigned short port, std::string const& token,
 			std::string const& screenshotPath, bool runtimeDebug = false,
-			bool browserPlay = false);
+			bool browserPlay = false, bool browserSession = false);
 		//! poll the worker (the GameObjectManager param is unused - the endpoint
 		//! is verified entirely through its JSON-RPC responses)
 		void update(GameObjectManager& manager);
@@ -283,6 +289,7 @@ namespace Orkige
 		std::string mScreenshotPath;
 		bool mRuntimeDebug = false;		//!< run the runtime-debug conversation
 		bool mBrowserPlay = false;		//!< run the browser-play conversation
+		bool mBrowserSession = false;	//!< run the connected browser session conversation
 		std::atomic<bool> mActive{ false };
 		std::atomic<bool> mDone{ false };
 		std::atomic<bool> mPassed{ false };
