@@ -146,13 +146,18 @@ headless Chrome with a pixel check** on every push.
 ## Repository layout
 
 ```
-orkige_core/      platform-independent core: meta/type system, events, game objects,
-                  serialization, Lua scripting, debug-net protocol, projects
-orkige_engine/    the OGRE-facing layer: graphics, input, sound, physics, gui
-tools/editor/     the Orkige editor        tools/player/   the standalone runtime
-samples/          hello_orkige, jumper     projects/       .orkproj game projects
-tests/            unit + integration       Util/           asset generator scripts
-ports/ triplets/  vcpkg overlays           Docs/           ports rationale, upstream PRs
+orkige_core/       platform-independent core: meta/type system, events,
+                   game objects, serialization, Lua scripting, debug-net
+                   protocol, projects
+orkige_engine/     the OGRE-facing layer: graphics, input, sound, physics, gui
+tools/editor/      the Orkige editor
+tools/player/      the standalone runtime (desktop, mobile, web)
+samples/           hello_orkige, jumper
+projects/          .orkproj game projects (roller, benchmark, jumper-lua, ...)
+tests/             unit + integration suites
+Util/              asset generators + build/export tooling (python, stdlib-only)
+ports/ triplets/   vcpkg overlay ports and triplets
+Docs/              the documentation corpus (also the in-editor help portal)
 ```
 
 Modern work happens on `main`; the deep history carries the engine's
