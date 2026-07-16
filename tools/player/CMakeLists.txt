@@ -10,7 +10,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     # OGRE renders through the GLES2/EAGL path into SDL's UIWindow. All media
     # is copied into the flat .app bundle below and found at runtime via
     # PlatformUtil::getResourceDirectory() (see main.cpp, ORKIGE_IPHONE paths).
-    add_executable(orkige_player MACOSX_BUNDLE main.cpp)
+    add_executable(orkige_player MACOSX_BUNDLE main.cpp
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
     set_target_properties(orkige_player PROPERTIES
         OUTPUT_NAME "OrkigePlayer"
         MACOSX_BUNDLE_BUNDLE_NAME "Orkige Player"
@@ -30,14 +31,16 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     # engine, core) statically linked in. Media ships in the APK's assets/
     # and is extracted to the app files dir on first launch (see main.cpp);
     # tools/player/android/package_apk.sh assembles + signs the APK.
-    add_library(orkige_player SHARED main.cpp)
+    add_library(orkige_player SHARED main.cpp
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
     set_target_properties(orkige_player PROPERTIES OUTPUT_NAME "main")
     # SDL's Java<->native glue: libSDL3.a registers its natives from
     # JNI_OnLoad (RegisterNatives) - force the linker to keep that object
     # even though no C++ code references it
     target_link_options(orkige_player PRIVATE "-Wl,--undefined=JNI_OnLoad")
 else()
-    add_executable(orkige_player main.cpp)
+    add_executable(orkige_player main.cpp
+        PlayerContext.h PlayerSelfChecks.h PlayerSelfChecks.cpp)
 endif()
 
 target_link_libraries(orkige_player PRIVATE Orkige::Engine)
@@ -47,8 +50,6 @@ if(EMSCRIPTEN)
     # JS loader pair; the classic GLES2 render system draws through WebGL on
     # the page's canvas. Scoped to this target - the unit-test binary and any
     # future web tool pick their own flags.
-    #   ASYNCIFY         the frame loop yields to the page from INSIDE
-    #                    main()'s live stack (engine_runtime/MainLoopPacer.h)
     #   MAX_WEBGL_VERSION allow a WebGL2 context where the driver asks for
     #                    GLES3-level features (WebGL1 remains the floor)
     #   FORCE_FILESYSTEM the project payload + engine media arrive as a
@@ -57,7 +58,6 @@ if(EMSCRIPTEN)
     #   -lopenal         Emscripten's WebAudio-backed OpenAL implementation
     #                    (the same AL surface openal-soft provides natively)
     target_link_options(orkige_player PRIVATE
-        -sASYNCIFY
         -sALLOW_MEMORY_GROWTH=1
         -sSTACK_SIZE=5242880
         -sMAX_WEBGL_VERSION=2

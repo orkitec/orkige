@@ -159,7 +159,6 @@ set(ORKIGE_ENGINE_SOURCES
     # editor, native game modules); hosts keep their own frame loops
     engine_runtime/AppHost.h
     engine_runtime/AppHost.cpp
-    engine_runtime/MainLoopPacer.h
     engine_sound/SoundPlatform.h
     engine_sound/SoundPlatform.cpp
     engine_sound/SoundError.h

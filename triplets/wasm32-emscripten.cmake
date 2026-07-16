@@ -37,3 +37,13 @@ set(VCPKG_CMAKE_SYSTEM_NAME Emscripten)
 # here. See cmake/wasm32-emscripten-toolchain.cmake for the full rationale.
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/../cmake/wasm32-emscripten-toolchain.cmake")
 set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_IGNORE_PREFIX_PATH=/usr/local)
+if(PORT STREQUAL "assimp")
+    # import-only assimp: the runtime loads meshes and never writes them, and
+    # the 3MF EXPORTER is assimp's only consumer of the kuba-zip library -
+    # whose full source OgreMain also embeds (OgreZip). Dropping the exporters
+    # here removes libkubazip.a from the wasm link closure, so OgreZip's copy
+    # is the ONE zip/miniz in the module (the duplicate-symbol collision the
+    # linker used to warn about). Scoped to this triplet: desktop/mobile
+    # assimp is unchanged.
+    list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DASSIMP_NO_EXPORT=ON)
+endif()
