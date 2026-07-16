@@ -13,8 +13,8 @@ endif()
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OGRECave/ogre
-    REF "v${VERSION}"
-    SHA512 74c83cd4248bce7c8ee603845e753acde0fe2efaa8edb5f3f0205bc43534d9334acd3e16c0f3836888aa77fc0ed43f739184181548509c59389aac494dac722b
+    REF 7d25ffc3d7e1119160e5f0f23037c9577c916e96
+    SHA512 43149769170de7aeb4b2b984b3b1ace72475df9d4d4fbfa5d0519a62be24037da5a680fb6bb1b70c5e0274d6f8e760cffd06e3711fe85b1c5726c5d68a31fe82
     HEAD_REF master
     PATCHES
         fix-dependencies.patch
@@ -24,10 +24,9 @@ vcpkg_from_github(
         same-install-rules-all-platforms.patch
         ios-ninja-and-install-paths.patch # iOS: no Xcode $(PLATFORM_NAME) in Ninja files, no lib/Release install split
         cmake4.patch
-        metal-export-include-dirs.patch
-        vulkan-metal-surface.patch    # upstream candidate: VK_EXT_metal_surface window path for Apple/MoltenVK (see Docs/upstream)
-        vulkan-shutdown-call-base.patch # upstream candidate: Vulkan RS must call RenderSystem::shutdown() like every other RS
         vulkan-vcpkg-deps.patch       # vcpkg-only: resolve vulkan-headers/glslang through their CMake configs
+        zip-entry-open-nonstrict.patch # upstream candidate: the non-strict ZipArchive lookup calls a three-argument zip_entry_open the bundled zip does not have
+        manual-render-null-renderable.patch # upstream candidate: manualRender(RenderOperation*) passes the documented null renderable, which the GpuParamsDirty refactor now asserts on / dereferences
 )
 
 file(REMOVE "${SOURCE_PATH}/CMake/Packages/FindOpenEXR.cmake")

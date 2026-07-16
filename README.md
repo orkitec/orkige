@@ -18,7 +18,7 @@ under [Apache-2.0](LICENSE).
 A full 3D engine with a first-class 2D layer on top — not a 2D engine.
 
 - **Rendering** — dual backends behind one facade: **Ogre-Next (the default —
-  Metal on macOS/iOS, Vulkan on Android)** and classic OGRE 14.5 (GL3+ on desktop,
+  Metal on macOS/iOS, Vulkan on Android)** and classic OGRE 14.6 (GL3+ on desktop,
   Vulkan-via-MoltenVK on macOS, GLES2 on iOS/Android), pixel-identical output
   selected at build time and enforced by a parity test. SDL3 windowing/input, glTF asset loading (assimp). The homegrown
   *gui* runtime UI renders through the facade's `DrawLayer2D`, so it runs on

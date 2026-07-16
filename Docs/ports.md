@@ -10,28 +10,57 @@ CLAUDE.md).
 
 ## ports/ogre
 
-Overlay of the upstream vcpkg `ogre` port (14.5.2). Enabled from the root
-`vcpkg.json`. Delete this overlay if upstream ever grows equivalent features.
-Local additions:
+Overlay of the upstream vcpkg `ogre` port, repinned from the v14.5.2 release
+tag to master commit `7d25ffc3d7e1119160e5f0f23037c9577c916e96` (2026-07-12,
+declares itself 14.6.0; `version-date` in the port's vcpkg.json) - the first
+reviewed pin that CONTAINS our three merged upstream PRs (OGRECave/ogre
+#3667/#3668/#3669, merged 2026-07-07/08). No release tag carries them yet;
+move the REF back to a release tag when one does. The pin moves like
+ogre-next's: a reviewed bump, full-suite verified, never implicit. Enabled
+from the root `vcpkg.json`. Delete this overlay if upstream ever grows
+equivalent features. Local additions:
 
 - `metal` feature (`OGRE_BUILD_RENDERSYSTEM_METAL=ON`, Apple platforms) so
   RenderSystem_Metal is available next to GL3Plus - the upstream port has no
-  way to enable it. Plus `metal-export-include-dirs.patch` (upstream candidate,
-  see Docs/upstream) so the exported target carries its include dirs.
+  way to enable it. The exported target carries its include dirs since our
+  merged #3667 - the former `metal-export-include-dirs.patch` is consumed
+  from upstream via the pin.
 - `vulkan` feature (`OGRE_BUILD_RENDERSYSTEM_VULKAN=ON` +
   `OGRE_BUILD_PLUGIN_GLSLANG=ON`, deps: vulkan-headers, vulkan-loader,
-  glslang). Three patches:
-  - `vulkan-metal-surface.patch` - upstream candidate (Docs/upstream): adds the
-    missing VK_EXT_metal_surface window branch so the Vulkan RS runs on
-    macOS/iOS through MoltenVK, incl. VK_KHR_portability_enumeration/subset
-    handling. MoltenVK itself is driver-tier and comes from Homebrew (see
-    CLAUDE.md); static MoltenVK packaging into the app bundle is handled
-    separately (see the feature description in vcpkg.json).
-  - `vulkan-shutdown-call-base.patch` - upstream candidate (Docs/upstream):
-    Vulkan RS must call RenderSystem::shutdown() like every other RS, else
-    debug builds abort on exit (VMA leak assertion).
+  glslang). The VK_EXT_metal_surface window branch (Vulkan RS on macOS/iOS
+  through MoltenVK, incl. VK_KHR_portability_enumeration/subset handling) and
+  the base `RenderSystem::shutdown()` call (debug builds aborted on exit with
+  a VMA leak assertion without it) are upstream now - our merged #3669 and
+  #3668, formerly the `vulkan-metal-surface.patch` /
+  `vulkan-shutdown-call-base.patch` this port vendored. MoltenVK itself stays
+  driver-tier from Homebrew (see CLAUDE.md); static MoltenVK packaging into
+  the app bundle is handled separately (see the feature description in
+  vcpkg.json). One patch remains:
   - `vulkan-vcpkg-deps.patch` - vcpkg-only: resolve vulkan-headers/glslang
     through their CMake configs and re-export them from OGREConfig.cmake.
+- `zip-entry-open-nonstrict.patch` - upstream candidate (submitted as
+  OGRECave/ogre #3673): master's
+  `OGRE_RESOURCEMANAGER_STRICT=0` fallback lookup in `ZipArchive::open` calls
+  a three-argument `zip_entry_open` the bundled zip library does not declare
+  (its case-sensitive variant is the separate `zip_entry_opencasesensitive`).
+  Upstream CI builds strict, which preprocesses the branch out; the port
+  builds non-strict (no `strict` feature requested), so the branch must
+  compile. Inside that `#else` branch the strict flag is 0 by definition -
+  the two-argument case-insensitive call is behavior-identical.
+- `manual-render-null-renderable.patch` - upstream candidate:
+  `SceneManager::manualRender(RenderOperation*, ...)` resets the auto-param
+  state with `setCurrentRenderable(0)` (the documented "matrices supplied
+  explicitly" contract the null-tolerant
+  `AutoParamDataSource::getViewMatrix`/`getProjectionMatrix` accessors
+  honor), but the GpuParamsDirty refactor on master dereferences the
+  renderable unconditionally there - every `manualRender(RenderOperation*)`
+  call asserts in debug and would null-deref in release. The classic
+  `DrawLayer2D` backend draws each 2D element through exactly that
+  `manualRender` overload, so the whole gui/editor/UI surface died on it.
+  The patch treats a null renderable as "no identity view/projection".
+- Future upstream-candidate fixes follow the same lifecycle those three had:
+  vendor the patch in the port the same day the PR goes upstream, then drop
+  the patch file at the next reviewed pin bump once it is merged.
 - `fix-dependencies.patch` (upstream vcpkg patch, locally amended): the
   OGREConfig.cmake template's `find_dependency(SDL2 CONFIG)` is now guarded
   by `if(NOT "@ANDROID@" AND NOT "@EMSCRIPTEN@")` - the same condition OGRE's
@@ -52,14 +81,17 @@ Local additions:
 
 ## ports/ogre-next
 
-Locally authored port (pinned master commit `5c9fcc30416f501aafdb30518daf9facd401f3f1`,
-2026-07-11, declared as `version-date` in the port's vcpkg.json; no upstream
+Locally authored port (pinned master commit `ef2e8f35c3ac929b06f67c76cbc80c5577016b30`,
+2026-07-16, declared as `version-date` in the port's vcpkg.json; no upstream
 vcpkg port exists). Master over the v3.0.0 tag by decision: upstream maintains
 only master (no patch releases since the 2024 tag) and it carries Vulkan
 hardening the engine wants - device-loss recovery in `VulkanRootLayout`, an
 Adreno 6xx workaround - plus it absorbed part of this port's Apple patches
-(below). The pin moves deliberately (a reviewed bump, full-suite verified,
-roughly monthly), never implicitly. The Ogre-Next backend of
+(below). The current pin contains our merged OGRECave/ogre-next #582 (the
+NEON Math/Array include-order fix, merged 2026-07-15), which un-breaks the
+arm64 Linux build - the `linux-debug-sanitize` preset in the Linux rig
+container cold-builds this port natively now. The pin moves deliberately (a
+reviewed bump, full-suite verified, roughly monthly), never implicitly. The Ogre-Next backend of
 the `engine_render` facade (Docs/render-abstraction.md); pulled in ONLY by the
 `render-next` manifest feature (root vcpkg.json), so classic-only development
 never builds it. Static, `supports: (osx & arm64) | (linux & x64) | (windows & x64 & !uwp) |

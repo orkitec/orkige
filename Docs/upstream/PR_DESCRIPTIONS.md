@@ -1,17 +1,18 @@
 # Upstream PR material for OGRECave/ogre
 
 Three independent patches, prepared locally from the Orkige modernization work
-(vcpkg overlay port `ports/ogre`, OGRE 14.5.2). All are formatted with
-`git format-patch` against a snapshot of `OGRECave/ogre` master (2026-07-07);
-each applies cleanly there on its own (`git am <file>`), and the three also
-apply as a series. The numbering only reflects that ordering - they are meant
-as three separate PRs. The in-tree copies used by the overlay port target the
-v14.5.2 sources; the only difference for the Vulkan surface patch is context
-drift from master's later HDR-display additions in `OgreVulkanWindow.cpp`
-(unrelated hunks).
+(vcpkg overlay port `ports/ogre`). All are formatted with `git format-patch`
+against a snapshot of `OGRECave/ogre` master (2026-07-07); each applies
+cleanly there on its own (`git am <file>`), and the three also apply as a
+series. The numbering only reflects that ordering - they were submitted as
+three separate PRs.
 
-Review and submission are done manually by the project owner - nothing here
-has been pushed anywhere.
+**Status: all three are MERGED upstream** - OGRECave/ogre #3669 (PR 1,
+Vulkan/VK_EXT_metal_surface), #3668 (PR 2, Vulkan base shutdown) and #3667
+(PR 3, Metal include-dir export), merged 2026-07-07/08. The overlay port
+pins an upstream master commit that contains them and no longer vendors
+these patches (see Docs/ports.md); this package stays as the record of what
+was sent.
 
 ---
 

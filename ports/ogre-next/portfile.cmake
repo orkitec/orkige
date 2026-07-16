@@ -19,8 +19,8 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OGRECave/ogre-next
-    REF 5c9fcc30416f501aafdb30518daf9facd401f3f1
-    SHA512 db50f797b3e6840b1687a62b5076a6dd3b04cb3f51a1f184d3c6c7bace24b5c8f6a718734ca56f34dca276b59b32e33bd6e2454585b850d8f58afb70d543f73b
+    REF ef2e8f35c3ac929b06f67c76cbc80c5577016b30
+    SHA512 226b9995d12e70c908c362a752d3b6bfd9127f9b12912f92bdae0800e6d9ffbf3ec401f15b4b1fa03c9e9ae459c4dab8fc86085cc67f4cfe21a70eff5d32bd30
     HEAD_REF master
     PATCHES
         apple-ninja-objcxx-sysroot.patch          # enable OBJC/OBJCXX for the .mm sources + do not clobber the iOS "iphoneos" CMAKE_OSX_SYSROOT with a symbolic name under single-config generators (the macOS block gained an upstream NOT-CMAKE_OSX_SYSROOT guard; the iOS block still needs this)
