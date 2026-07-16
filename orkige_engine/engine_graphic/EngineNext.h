@@ -158,9 +158,6 @@ namespace Orkige
 		String							externalWindowHandle;
 		String							topLevelWindowHandle;
 		optr<FrameEventData>			data;
-		//! the constructor pre-created the Ogre::LogManager (Root adopts an
-		//! existing singleton) - the destructor must release it
-		bool							ownsLogManager;
 		Event							frameStartedEvent;
 		Event							frameRenderingQueuedEvent;
 		Event							frameEndedEvent;

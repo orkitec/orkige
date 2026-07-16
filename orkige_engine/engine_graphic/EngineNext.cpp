@@ -24,7 +24,6 @@
 #include <core_event/GlobalEventManager.h>
 
 #include <OgreRoot.h>
-#include <OgreLogManager.h>
 #include <OgreFrameListener.h>
 
 #include <cstdlib>
@@ -74,22 +73,8 @@ namespace Orkige
 		frameRenderingQueuedEvent(Engine::FrameRenderingQueuedEvent),
 		frameEndedEvent(Engine::FrameEndedEvent),
 		logFileName(engineLogFileName),
-		ownsRenderSystem(false),
-		ownsLogManager(false)
+		ownsRenderSystem(false)
 	{
-		// the engine log lives from CONSTRUCTION on, matching classic (whose
-		// Ogre::Root is built in this constructor): hosts attach their log
-		// capture between construction and setup, and the render backend's
-		// setup-time boot lines must land in that capture. Ogre::Root adopts
-		// an existing LogManager singleton and never deletes it, so the
-		// destructor releases what is created here.
-		if(!Ogre::LogManager::getSingletonPtr())
-		{
-			new Ogre::LogManager();
-			Ogre::LogManager::getSingleton().createLog(this->logFileName,
-				true /*the default log*/, true /*debugger/stderr echo*/);
-			this->ownsLogManager = true;
-		}
 #ifdef ORKIGE_NEXT_HLMS_MEDIA_DIR
 		// dev-tree default: the Hlms shader templates the ogre-next vcpkg
 		// overlay port ships (setHlmsMediaDir overrides for bundled apps)
@@ -111,12 +96,6 @@ namespace Orkige
 		if(this->ownsRenderSystem)
 		{
 			RenderBackend::destroyRenderSystem();
-		}
-		// after Root teardown: Root never deletes a LogManager it merely
-		// adopted, so the constructor's creation is released here
-		if(this->ownsLogManager)
-		{
-			delete Ogre::LogManager::getSingletonPtr();
 		}
 	}
 	//---------------------------------------------------------

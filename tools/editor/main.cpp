@@ -299,17 +299,18 @@ int main(int argc, char** argv)
 
 		// engine log -> Console: the engine_base log-capture service (shared
 		// with PlayerDebugLink) queues every line from here on; the frame
-		// loop drains it into the Console once per frame. The engine log
-		// exists once phase 1 constructed the Engine, so attaching between
-		// the boot phases catches the render backend's boot lines. Sized
-		// to the Console cap - the OGRE boot easily exceeds the default
-		// backlog and the Console wants those lines.
+		// loop drains it into the Console once per frame. Sized to the
+		// Console cap - the OGRE boot easily exceeds the default backlog and
+		// the Console wants those lines. The attach point is per-flavor: on
+		// classic the log exists from Engine CONSTRUCTION (Ogre::Root is
+		// built in the constructor), so this early attach catches the render
+		// backend's boot lines; on the next flavor the log only exists once
+		// setup created Root - pre-creating the manager is not an option
+		// (Root adopting a foreign LogManager leaves its own log member null,
+		// which the Vulkan boot path dereferences), so the attach is retried
+		// after setupEngine and the Console starts at post-boot lines there.
 		Orkige::EngineLogCapture engineLogCapture(EditorConsole::MAX_LINES);
-		if (!engineLogCapture.attach())
-		{
-			SDL_Log("orkige_editor: engine log capture failed to attach - "
-				"the Console will miss the engine log");
-		}
+		engineLogCapture.attach();
 
 		if (!host.setupEngine([&host]()
 			{
@@ -343,6 +344,13 @@ int main(int argc, char** argv)
 			}))
 		{
 			return 1;
+		}
+		// the per-flavor second chance (see the attach comment above): the
+		// engine log exists now on every flavor
+		if (!engineLogCapture.attach())
+		{
+			SDL_Log("orkige_editor: engine log capture failed to attach - "
+				"the Console will miss the engine log");
 		}
 		Orkige::RenderSystem* render = host.getRenderSystem();
 		Orkige::RenderWorld* world = host.getRenderWorld();
