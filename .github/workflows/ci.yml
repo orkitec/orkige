@@ -1005,7 +1005,7 @@ jobs:
       - name: Simulator export + runtime tests (MUST pass)
         env:
           ALSOFT_DRIVERS: "null"
-        run: ctest --preset device-macos-ios-ci --timeout 800 --repeat until-pass:2
+        run: ctest --preset device-macos-ios-ci --timeout 1400 --repeat until-pass:2
 
       - name: Upload test diagnostics
         if: failure()

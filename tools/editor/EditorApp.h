@@ -1026,9 +1026,11 @@ const int PLAY_CONNECT_TIMEOUT_SECONDS = 90;
 //! seconds a shutdown simulator gets to boot (+ app install) before Play
 //! gives up with an honest error. A hosted CI runner boots even a warm
 //! simulator in 4-6 minutes (the widely-used simulator actions default to
-//! 360s per boot attempt); the scripted boot test's outer deadlines are
-//! spaced above this, prep + connect must stay inside them
-const int PLAY_SIM_PREP_TIMEOUT_SECONDS = 480;
+//! 360s per boot attempt), and an overloaded runner has been observed to
+//! stall per-xcrun calls by 30s+ and exceed 480s for a pre-warmed device;
+//! the scripted boot test's outer deadlines are spaced above this, prep +
+//! connect must stay inside them
+const int PLAY_SIM_PREP_TIMEOUT_SECONDS = 900;
 //! milliseconds between connect attempts while launching
 const int PLAY_CONNECT_RETRY_MS = 250;
 //! milliseconds a stopped player gets before it is killed

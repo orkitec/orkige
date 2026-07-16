@@ -1706,12 +1706,12 @@ endforeach()
 # editor's own 540s in-test boot deadline (this is the LAST property write
 # for these tests and therefore the authoritative timeout)
 if(TEST editor_play_simulator)
-    set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 360)
+    set_tests_properties(editor_play_simulator PROPERTIES TIMEOUT 600)
 endif()
 if(TEST editor_play_simulator_boot)
-    # covers the editor's whole in-test chain: sim prep (480s) + debug-link
+    # covers the editor's whole in-test chain: sim prep (900s) + debug-link
     # connect (90s) + the playtest phase slack - see EditorApp.h budgets
-    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 800)
+    set_tests_properties(editor_play_simulator_boot PROPERTIES TIMEOUT 1400)
 endif()
 
 # device tests boot iOS simulators / Android emulators - by far the slowest
