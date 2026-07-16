@@ -36,6 +36,9 @@
     color: #8a93a5; font: 13px/1.4 -apple-system, system-ui, sans-serif;
     text-align: center; pointer-events: none;
   }
+  .status.error {
+    color: #ff6b5e; font-size: 15px; bottom: 50%;
+  }
 </style>
 </head>
 <body>
@@ -46,6 +49,24 @@
 <div class="status" id="status">loading&hellip;</div>
 <script>
   var statusElement = document.getElementById('status');
+  // a failed boot must SAY SO on the page - the game files come from the
+  // editor's Play-in-Browser server (or any static host), and a vanished
+  // server otherwise leaves a silent launch-background page
+  function showError(text) {
+    statusElement.textContent = text;
+    statusElement.className = 'status error';
+    document.title = 'ORKIGE_ERROR';
+  }
+  function scriptFailed() {
+    showError('could not load the game files - if this tab came from ' +
+      'Play in Browser, the serving editor may have stopped; play again ' +
+      'from the editor');
+  }
+  window.addEventListener('error', function (event) {
+    if (event.message) {
+      showError('error: ' + event.message);
+    }
+  });
   var Module = {
     canvas: document.getElementById('canvas'),
     // query parameters ?env.NAME=VALUE -> the module's environment (read
@@ -73,10 +94,13 @@
     onExit: function (code) {
       document.title = 'ORKIGE_EXIT_' + code;
       statusElement.textContent = 'exited (' + code + ')';
+    },
+    onAbort: function (what) {
+      showError('the game aborted: ' + what);
     }
   };
 </script>
-<script src="@DATA_LOADER@"></script>
-<script src="@PLAYER_JS@"></script>
+<script src="@DATA_LOADER@" onerror="scriptFailed()"></script>
+<script src="@PLAYER_JS@" onerror="scriptFailed()"></script>
 </body>
 </html>
