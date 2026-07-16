@@ -6571,11 +6571,44 @@ namespace Orkige
 					int browserExit = 0;
 					if (!SDL_WaitProcess(browser, false, &browserExit))
 					{
-						SDL_KillProcess(browser, true);
-						SDL_WaitProcess(browser, true, &browserExit);
+						// terminate, don't kill: the browser tears its
+						// helper tree down on a termination request, while
+						// a hard kill orphans renderer helpers that keep
+						// running the page (and eating a machine's CPU)
+						SDL_KillProcess(browser, false);
+						for (int graceWait = 0; graceWait < 50 &&
+							!SDL_WaitProcess(browser, false, &browserExit);
+							++graceWait)
+						{
+							std::this_thread::sleep_for(
+								std::chrono::milliseconds(100));
+						}
+						if (!SDL_WaitProcess(browser, false, &browserExit))
+						{
+							SDL_KillProcess(browser, true);
+							SDL_WaitProcess(browser, true, &browserExit);
+						}
 					}
 					SDL_DestroyProcess(browser);
 					browser = nullptr;
+#ifndef _WIN32
+					// belt-and-braces: a browser's helper processes can
+					// outlive their main process (each carries the unique
+					// profile dir on its command line - the precise sweep
+					// key). A leaked helper would idle on the machine or,
+					// worse, keep running the page's game loop.
+					const std::string sweepMarker =
+						std::filesystem::path(profileDir).filename().string();
+					const char* sweepArgs[] = { "/usr/bin/pkill", "-f",
+						sweepMarker.c_str(), nullptr };
+					if (SDL_Process* sweep = SDL_CreateProcess(sweepArgs,
+						false))
+					{
+						int sweepExit = 0;
+						SDL_WaitProcess(sweep, true, &sweepExit);
+						SDL_DestroyProcess(sweep);
+					}
+#endif
 					std::error_code cleanupIgnored;
 					std::filesystem::remove_all(profileDir, cleanupIgnored);
 				};
