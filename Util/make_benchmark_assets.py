@@ -343,7 +343,10 @@ def write_oshape(path, fill, verts, morph_verts=None):
     for (x, y) in verts:
         lines.append("v %.4f %.4f" % (x, y))
     if morph_verts is not None:
-        lines.append("morph target 1")
+        # a morph block mirrors the base structure: one-word clip name, the
+        # same fill, a same-length contour (the parser's same-topology law)
+        lines.append("morph pulse")
+        lines.append("fill %.3f %.3f %.3f %.3f" % fill)
         lines.append("contour %d" % len(morph_verts))
         for (x, y) in morph_verts:
             lines.append("v %.4f %.4f" % (x, y))

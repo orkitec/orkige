@@ -461,6 +461,10 @@ function init(self)
 	elseif mode == "tally" then
 		engine:setAtmosphere(false, 0, 0, 0, 0, 0)
 		engine:setWindowBackgroundColour(0.08, 0.09, 0.12)
+		-- the gui vignette cycles the active language and leaves the cycle
+		-- wherever its timer stopped; the results card reads in the authored
+		-- language, not in a pseudo-locale like en-XA's [!bracketed!] text
+		pcall(function() locale.set(locale.getSource()) end)
 		buildResults()
 	end
 
